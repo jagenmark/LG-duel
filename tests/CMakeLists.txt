@@ -1,0 +1,19 @@
+add_executable(lg_duel_smoke_tests
+  smoke/SmokeTests.cpp
+)
+
+target_link_libraries(lg_duel_smoke_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_smoke_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_smoke_tests)
+
+add_test(NAME lg_duel_smoke_tests COMMAND lg_duel_smoke_tests)
+
+add_executable(lg_duel_movement_tests
+  sim/MovementTests.cpp
+)
+
+target_link_libraries(lg_duel_movement_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_movement_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_movement_tests)
+
+add_test(NAME lg_duel_movement_tests COMMAND lg_duel_movement_tests)
