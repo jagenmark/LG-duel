@@ -17,3 +17,53 @@ target_compile_features(lg_duel_movement_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_movement_tests)
 
 add_test(NAME lg_duel_movement_tests COMMAND lg_duel_movement_tests)
+
+add_executable(lg_duel_combat_tests
+  sim/CombatTests.cpp
+)
+
+target_link_libraries(lg_duel_combat_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_combat_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_combat_tests)
+
+add_test(NAME lg_duel_combat_tests COMMAND lg_duel_combat_tests)
+
+add_executable(lg_duel_server_tests
+  net/ServerGameTests.cpp
+)
+
+target_link_libraries(lg_duel_server_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_server_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_server_tests)
+
+add_test(NAME lg_duel_server_tests COMMAND lg_duel_server_tests)
+
+add_executable(lg_duel_client_tests
+  client/ClientGameTests.cpp
+)
+
+target_link_libraries(lg_duel_client_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_client_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_client_tests)
+
+add_test(NAME lg_duel_client_tests COMMAND lg_duel_client_tests)
+
+add_executable(lg_duel_collision_tests
+  sim/CollisionTests.cpp
+)
+
+target_link_libraries(lg_duel_collision_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_collision_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_collision_tests)
+
+add_test(NAME lg_duel_collision_tests COMMAND lg_duel_collision_tests)
+
+add_executable(lg_duel_fixed_tick_tests
+  sim/FixedTickTests.cpp
+)
+
+target_link_libraries(lg_duel_fixed_tick_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_fixed_tick_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_fixed_tick_tests)
+
+add_test(NAME lg_duel_fixed_tick_tests COMMAND lg_duel_fixed_tick_tests)

@@ -13,8 +13,15 @@ include(cmake/Dependencies.cmake)
 
 add_library(lg_duel_core
   src/app/GameApp.cpp
+  src/client/ClientGame.cpp
+  src/client/Interpolation.cpp
+  src/client/Prediction.cpp
+  src/net/LoopbackTransport.cpp
   src/render/Renderer.cpp
+  src/server/ServerGame.cpp
   src/sim/Arena.cpp
+  src/sim/Collision.cpp
+  src/sim/Combat.cpp
   src/sim/Movement.cpp
 )
 

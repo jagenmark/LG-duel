@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sim/Arena.hpp"
+#include "sim/Combat.hpp"
 #include "sim/PlayerState.hpp"
 
 namespace lg {
@@ -13,7 +14,12 @@ public:
   ~Renderer();
 
   [[nodiscard]] bool initialize(void* window);
-  void render(const Arena& arena, const PlayerState& player);
+  void render(
+    const Arena& arena,
+    const PlayerState& player,
+    const PlayerState& opponent,
+    const LightningGunResult& lightningGun
+  );
   void shutdown();
 
 private:

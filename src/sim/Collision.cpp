@@ -1,0 +1,87 @@
+#include "sim/Collision.hpp"
+
+#include "shared/Math.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
+namespace lg {
+namespace {
+
+[[nodiscard]] float availablePlanarTravel(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3 direction
+) {
+  float available = std::numeric_limits<float>::max();
+
+  const auto constrainAxis = [&available](
+    float position,
+    float axisDirection,
+    float minPosition,
+    float maxPosition
+  ) {
+    if (axisDirection > 0.00001F) {
+      available = std::min(available, (maxPosition - position) / axisDirection);
+    } else if (axisDirection < -0.00001F) {
+      available = std::min(available, (minPosition - position) / axisDirection);
+    }
+  };
+
+  constrainAxis(
+    player.position.x,
+    direction.x,
+    arena.min.x + player.bounds.radius,
+    arena.max.x - player.bounds.radius
+  );
+  constrainAxis(
+    player.position.y,
+    direction.y,
+    arena.min.y + player.bounds.radius,
+    arena.max.y - player.bounds.radius
+  );
+  return std::max(0.0F, available);
+}
+
+} // namespace
+
+bool resolvePlayerCollision(const Arena& arena, PlayerState& first, PlayerState& second) {
+  const float verticalDistance = std::fabs(first.position.z - second.position.z);
+  if (verticalDistance >= first.bounds.halfHeight + second.bounds.halfHeight) {
+    return false;
+  }
+
+  const Vec3 planarOffset = {
+    second.position.x - first.position.x,
+    second.position.y - first.position.y,
+    0.0F,
+  };
+  const float distance = length(planarOffset);
+  const float minimumDistance = first.bounds.radius + second.bounds.radius;
+  if (distance >= minimumDistance) {
+    return false;
+  }
+
+  const Vec3 normal = distance > 0.00001F ? planarOffset / distance : Vec3{1.0F, 0.0F, 0.0F};
+  const float penetration = minimumDistance - distance;
+  const float firstAvailable = availablePlanarTravel(arena, first, normal * -1.0F);
+  const float secondAvailable = availablePlanarTravel(arena, second, normal);
+  float firstCorrection = std::min(penetration * 0.5F, firstAvailable);
+  float secondCorrection = std::min(penetration - firstCorrection, secondAvailable);
+  firstCorrection = std::min(penetration - secondCorrection, firstAvailable);
+
+  first.position -= normal * firstCorrection;
+  second.position += normal * secondCorrection;
+
+  const float inwardRelativeSpeed = dot(second.velocity - first.velocity, normal);
+  if (inwardRelativeSpeed < 0.0F) {
+    const Vec3 velocityCorrection = normal * (inwardRelativeSpeed * 0.5F);
+    first.velocity += velocityCorrection;
+    second.velocity -= velocityCorrection;
+  }
+
+  return true;
+}
+
+} // namespace lg

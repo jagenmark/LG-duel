@@ -1,10 +1,13 @@
 #include "app/GameApp.hpp"
 
+#include "client/ClientGame.hpp"
+#include "net/LoopbackTransport.hpp"
 #include "render/Renderer.hpp"
+#include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
+#include "shared/FixedTick.hpp"
 #include "shared/Math.hpp"
 #include "sim/Arena.hpp"
-#include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -23,6 +26,7 @@ namespace {
 constexpr float kMouseSensitivityRadians = 0.0025F;
 constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
+constexpr int kMaxSimulationTicksPerFrame = 8;
 
 struct LocalInputState {
   bool forward = false;
@@ -36,6 +40,7 @@ struct LocalInputState {
   float mouseDeltaY = 0.0F;
 };
 
+#if LG_DUEL_HAS_SDL3
 [[nodiscard]] const char* movementModeName(MovementMode mode) {
   switch (mode) {
   case MovementMode::Grounded:
@@ -49,7 +54,6 @@ struct LocalInputState {
   return "Unknown";
 }
 
-#if LG_DUEL_HAS_SDL3
 void setKey(LocalInputState& input, SDL_Scancode scancode, bool pressed) {
   switch (scancode) {
   case SDL_SCANCODE_W:
@@ -130,15 +134,17 @@ int GameApp::run() const {
     return 1;
   }
 
-  Arena arena;
-  MovementTuning movementTuning;
-  PlayerState player;
-  player.position = {0.0F, 0.0F, player.bounds.halfHeight};
-  player.onGround = true;
-  player.movementMode = MovementMode::Grounded;
+  constexpr std::size_t kLocalPlayerIndex = 0;
+  constexpr std::size_t kOpponentPlayerIndex = 1;
+  const Arena arena;
+  LoopbackTransport transport;
+  ServerGame server(transport);
+  ClientGame client(transport, kLocalPlayerIndex);
+  client.receiveSnapshots();
 
   LocalInputState input;
   bool running = true;
+  bool resetRequested = false;
   std::uint32_t commandSequence = 0;
   std::uint32_t clientTick = 0;
 
@@ -146,11 +152,10 @@ int GameApp::run() const {
   auto previousTime = Clock::now();
   float accumulatorSeconds = 0.0F;
   float titleAccumulatorSeconds = 0.0F;
+  float droppedSimulationSeconds = 0.0F;
+  std::uint32_t overloadFrameCount = 0;
 
   while (running) {
-    input.mouseDeltaX = 0.0F;
-    input.mouseDeltaY = 0.0F;
-
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
@@ -162,6 +167,9 @@ int GameApp::run() const {
         const bool pressed = event.type == SDL_EVENT_KEY_DOWN;
         if (pressed && event.key.scancode == SDL_SCANCODE_ESCAPE) {
           running = false;
+        }
+        if (pressed && event.key.scancode == SDL_SCANCODE_R) {
+          resetRequested = true;
         }
         setKey(input, event.key.scancode, pressed);
         break;
@@ -184,31 +192,67 @@ int GameApp::run() const {
     const auto now = Clock::now();
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
     previousTime = now;
-    accumulatorSeconds += elapsed.count();
     titleAccumulatorSeconds += elapsed.count();
 
+    const FixedTickFrame fixedTickFrame = planFixedTicks(
+      accumulatorSeconds,
+      elapsed.count(),
+      kFixedTickSeconds,
+      kMaxSimulationTicksPerFrame
+    );
+    if (fixedTickFrame.droppedSeconds > 0.0F) {
+      droppedSimulationSeconds += fixedTickFrame.droppedSeconds;
+      ++overloadFrameCount;
+    }
+
     bool consumedMouseForTick = false;
-    while (accumulatorSeconds >= kFixedTickSeconds) {
+    for (int tick = 0; tick < fixedTickFrame.tickCount; ++tick) {
       LocalInputState tickInput = input;
       if (consumedMouseForTick) {
         tickInput.mouseDeltaX = 0.0F;
         tickInput.mouseDeltaY = 0.0F;
       }
 
-      const UserCommand command = buildCommand(tickInput, player, commandSequence++, clientTick++);
-      simulateMovement(player, command, arena, movementTuning, kFixedTickSeconds);
-      accumulatorSeconds -= kFixedTickSeconds;
+      const PlayerState& predictedPlayer = client.predictedPlayer();
+      const UserCommand command =
+        buildCommand(tickInput, predictedPlayer, commandSequence++, clientTick++);
+      client.sendCommand(command, resetRequested);
+      resetRequested = false;
+      server.tick(kFixedTickSeconds);
+      client.receiveSnapshots();
       consumedMouseForTick = true;
+    }
+    if (consumedMouseForTick) {
+      input.mouseDeltaX = 0.0F;
+      input.mouseDeltaY = 0.0F;
     }
 
     if (titleAccumulatorSeconds >= 0.1F) {
+      const ServerSnapshot& snapshot = client.snapshot();
+      const PlayerState& player = client.predictedPlayer();
+      const PlayerState& opponent = snapshot.players[kOpponentPlayerIndex];
+      const LightningGunResult& lightningGun =
+        snapshot.lightningGuns[kLocalPlayerIndex];
+      const PredictionDiagnostics& prediction = client.predictionDiagnostics();
       char title[256];
       std::snprintf(
         title,
         sizeof(title),
-        "%s | %s | pos %.2f %.2f %.2f | vel %.2f %.2f %.2f",
+        "%s | tick %u | cmd %u/%u | pending %zu | corrections %u %.4f | overload %u %.3fs | collision %s | %s | target %d HP respawn %u | LG %s | pos %.2f %.2f %.2f | vel %.2f %.2f %.2f",
         name().data(),
+        snapshot.serverTick,
+        commandSequence == 0 ? 0 : commandSequence - 1,
+        client.lastAcknowledgedCommand(),
+        prediction.pendingCommandCount,
+        prediction.correctionCount,
+        prediction.lastCorrectionDistance,
+        overloadFrameCount,
+        droppedSimulationSeconds,
+        snapshot.playersColliding ? "YES" : "NO",
         movementModeName(player.movementMode),
+        opponent.health,
+        snapshot.respawnTicksRemaining[kOpponentPlayerIndex],
+        lightningGun.hit ? "HIT" : (lightningGun.active ? "MISS" : "OFF"),
         player.position.x,
         player.position.y,
         player.position.z,
@@ -220,7 +264,18 @@ int GameApp::run() const {
       titleAccumulatorSeconds = 0.0F;
     }
 
-    renderer.render(arena, player);
+    const ServerSnapshot& snapshot = client.snapshot();
+    const float interpolationAlpha = clamp(
+      accumulatorSeconds / kFixedTickSeconds,
+      0.0F,
+      1.0F
+    );
+    renderer.render(
+      arena,
+      client.predictedPlayer(),
+      client.interpolatedPlayer(kOpponentPlayerIndex, interpolationAlpha),
+      snapshot.lightningGuns[kLocalPlayerIndex]
+    );
     SDL_Delay(1);
   }
 

@@ -1,0 +1,272 @@
+#include "client/ClientGame.hpp"
+#include "net/LoopbackTransport.hpp"
+#include "server/ServerGame.hpp"
+#include "shared/Constants.hpp"
+#include "sim/MovementModes.hpp"
+#include "sim/UserCommand.hpp"
+
+#include <cstdint>
+#include <iostream>
+#include <limits>
+#include <string_view>
+
+namespace {
+
+constexpr float kPi = 3.14159265359F;
+
+int expect(bool condition, std::string_view message) {
+  if (condition) {
+    return 0;
+  }
+
+  std::cerr << "FAILED: " << message << '\n';
+  return 1;
+}
+
+lg::ServerSnapshot latestSnapshot(lg::LoopbackTransport& transport) {
+  lg::ServerSnapshot latest;
+  lg::ServerSnapshot received;
+  while (transport.receiveSnapshot(received)) {
+    latest = received;
+  }
+  return latest;
+}
+
+} // namespace
+
+int main() {
+  int failures = 0;
+
+  {
+    lg::LoopbackTransport transport;
+    lg::CommandPacket first;
+    first.command.sequence = 3;
+    lg::CommandPacket second;
+    second.command.sequence = 4;
+    transport.sendCommand(first);
+    transport.sendCommand(second);
+
+    lg::CommandPacket received;
+    failures += expect(transport.receiveCommand(received), "loopback should return first queued command");
+    failures += expect(received.command.sequence == 3, "loopback command order should be FIFO");
+    failures += expect(transport.receiveCommand(received), "loopback should return second queued command");
+    failures += expect(received.command.sequence == 4, "loopback should preserve all queued commands");
+    failures += expect(!transport.receiveCommand(received), "empty loopback command queue should report false");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand beforeWrap;
+    beforeWrap.sequence = std::numeric_limits<std::uint32_t>::max();
+    transport.sendCommand(lg::CommandPacket{0, beforeWrap, false});
+    server.tick(lg::kFixedTickSeconds);
+
+    lg::UserCommand afterWrap;
+    afterWrap.sequence = 0;
+    afterWrap.viewYawRadians = kPi;
+    transport.sendCommand(lg::CommandPacket{0, afterWrap, false});
+    server.tick(lg::kFixedTickSeconds);
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.acknowledgedCommand[0] == 0, "sequence zero should follow uint32 wrap");
+    failures += expect(snapshot.players[0].viewYawRadians == kPi, "wrapped command should be simulated");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::ClientGame client(transport, 0);
+    client.receiveSnapshots();
+
+    failures += expect(client.hasSnapshot(), "server should publish an initial snapshot");
+    failures += expect(client.snapshot().serverTick == 0, "initial snapshot should start at server tick zero");
+    failures += expect(!client.hasAcknowledgedCommand(), "initial snapshot should not acknowledge a command");
+    failures += expect(
+      client.snapshot().players[0].movementMode == lg::MovementMode::Grounded,
+      "snapshot should preserve local movement mode"
+    );
+    failures += expect(
+      client.snapshot().players[1].movementMode == lg::MovementMode::Grounded,
+      "snapshot should preserve remote movement mode"
+    );
+
+    lg::UserCommand command;
+    command.sequence = 10;
+    command.clientTick = 20;
+    command.forwardMove = 1.0F;
+    command.attack = true;
+    client.sendCommand(command, false);
+    server.tick(lg::kFixedTickSeconds);
+    client.receiveSnapshots();
+
+    failures += expect(client.snapshot().serverTick == 1, "server tick should advance once per simulation step");
+    failures += expect(client.hasAcknowledgedCommand(), "accepted command should set ack validity");
+    failures += expect(client.lastAcknowledgedCommand() == 10, "snapshot should acknowledge accepted command");
+    failures += expect(client.snapshot().players[0].position.x > -3.0F, "server should simulate accepted movement");
+    failures += expect(client.snapshot().lightningGuns[0].hit, "server should authoritatively trace LG");
+
+    lg::UserCommand duplicate = command;
+    duplicate.viewYawRadians = kPi;
+    client.sendCommand(duplicate, false);
+    server.tick(lg::kFixedTickSeconds);
+    client.receiveSnapshots();
+
+    failures += expect(client.lastAcknowledgedCommand() == 10, "duplicate command should not change ack");
+    failures += expect(
+      client.snapshot().players[0].viewYawRadians == 0.0F,
+      "duplicate command should not overwrite authoritative view"
+    );
+
+    lg::UserCommand stale = duplicate;
+    stale.sequence = 9;
+    client.sendCommand(stale, false);
+    server.tick(lg::kFixedTickSeconds);
+    client.receiveSnapshots();
+
+    failures += expect(client.lastAcknowledgedCommand() == 10, "out-of-order command should be ignored");
+    failures += expect(
+      client.snapshot().players[0].viewYawRadians == 0.0F,
+      "out-of-order command should not change state"
+    );
+
+    lg::UserCommand reset;
+    reset.sequence = 11;
+    client.sendCommand(reset, true);
+    server.tick(lg::kFixedTickSeconds);
+    client.receiveSnapshots();
+
+    failures += expect(client.snapshot().serverTick == 4, "reset should preserve monotonic server ticks");
+    failures += expect(client.snapshot().players[0].position.x == -3.0F, "client should receive reset spawn");
+    failures += expect(client.snapshot().players[1].health == 100, "client should receive reset health");
+
+    lg::UserCommand postResetMove;
+    postResetMove.sequence = 12;
+    postResetMove.forwardMove = 1.0F;
+    client.sendCommand(postResetMove, false);
+    server.tick(lg::kFixedTickSeconds);
+    client.receiveSnapshots();
+    const float movedPosition = client.snapshot().players[0].position.x;
+
+    lg::UserCommand staleReset;
+    staleReset.sequence = 11;
+    client.sendCommand(staleReset, true);
+    server.tick(lg::kFixedTickSeconds);
+    client.receiveSnapshots();
+
+    failures += expect(client.lastAcknowledgedCommand() == 12, "stale reset should not change ack");
+    failures += expect(
+      client.snapshot().players[0].position.x >= movedPosition,
+      "stale reset packet should not restore spawn"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    for (std::uint32_t sequence = 0; sequence < 2; ++sequence) {
+      lg::UserCommand firstCommand;
+      firstCommand.sequence = sequence;
+      firstCommand.attack = true;
+      lg::UserCommand secondCommand = firstCommand;
+      secondCommand.viewYawRadians = kPi;
+      transport.sendCommand(lg::CommandPacket{0, firstCommand, false});
+      transport.sendCommand(lg::CommandPacket{1, secondCommand, false});
+      server.tick(lg::kFixedTickSeconds);
+    }
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.players[0].health == 99, "player one beam should apply fixed-tick damage");
+    failures += expect(snapshot.players[1].health == 99, "simultaneous beams should apply symmetrically");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    std::uint32_t lastAttackSequence = 0;
+    lg::ServerSnapshot snapshot;
+    for (std::uint32_t sequence = 0; sequence < 200; ++sequence) {
+      lg::UserCommand command;
+      command.sequence = sequence;
+      command.clientTick = sequence;
+      command.attack = true;
+      transport.sendCommand(lg::CommandPacket{0, command, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      lastAttackSequence = sequence;
+      if (snapshot.players[1].health == 0) {
+        break;
+      }
+    }
+
+    failures += expect(snapshot.players[1].health == 0, "authoritative LG should kill the target");
+    failures += expect(
+      snapshot.acknowledgedCommand[0] == lastAttackSequence,
+      "server should ack latest combat command"
+    );
+    failures += expect(
+      snapshot.respawnTicksRemaining[1] == 250,
+      "death should start fixed respawn countdown"
+    );
+
+    lg::UserCommand deadTargetCommand;
+    deadTargetCommand.sequence = 0;
+    deadTargetCommand.viewYawRadians = kPi;
+    deadTargetCommand.attack = true;
+    transport.sendCommand(lg::CommandPacket{1, deadTargetCommand, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(!snapshot.lightningGuns[1].active, "dead player should not fire");
+    failures += expect(
+      snapshot.respawnTicksRemaining[1] == 249,
+      "dead player respawn countdown should advance each tick"
+    );
+
+    for (int tick = 0; tick < 248; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+    }
+    snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.players[1].health == 0, "player should remain dead before countdown expires");
+    failures += expect(
+      snapshot.respawnTicksRemaining[1] == 1,
+      "respawn should retain final countdown tick"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.players[1].health == 100, "countdown expiry should respawn player");
+    failures += expect(snapshot.players[1].position.x == 3.0F, "respawn should restore player spawn");
+    failures += expect(
+      snapshot.respawnTicksRemaining[1] == 0,
+      "respawn should clear countdown"
+    );
+
+    lg::UserCommand resetCommand;
+    resetCommand.sequence = lastAttackSequence + 1;
+    transport.sendCommand(lg::CommandPacket{0, resetCommand, true});
+    const std::uint32_t tickBeforeReset = snapshot.serverTick;
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
+    failures += expect(snapshot.players[0].health == 100, "reset should restore local health");
+    failures += expect(snapshot.players[1].health == 100, "reset should restore remote health");
+    failures += expect(snapshot.players[0].position.x == -3.0F, "reset should restore local spawn");
+    failures += expect(snapshot.players[1].position.x == 3.0F, "reset should restore remote spawn");
+    failures += expect(
+      snapshot.acknowledgedCommand[0] == resetCommand.sequence,
+      "reset command should be acknowledged"
+    );
+    failures += expect(
+      snapshot.serverTick == tickBeforeReset + 1,
+      "match reset should not rewind server tick"
+    );
+  }
+
+  return failures == 0 ? 0 : 1;
+}

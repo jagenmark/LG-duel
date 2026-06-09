@@ -36,7 +36,12 @@ bool Renderer::initialize(void* window) {
 #endif
 }
 
-void Renderer::render(const Arena& arena, const PlayerState& player) {
+void Renderer::render(
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& lightningGun
+) {
 #if LG_DUEL_HAS_SDL3
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
@@ -61,8 +66,79 @@ void Renderer::render(const Arena& arena, const PlayerState& player) {
 
   const float playerX = remap(player.position.x, arena.min.x, arena.max.x, arenaLeft, arenaLeft + arenaSize);
   const float playerY = remap(player.position.y, arena.min.y, arena.max.y, arenaTop + arenaSize, arenaTop);
+  const float opponentX = remap(
+    opponent.position.x,
+    arena.min.x,
+    arena.max.x,
+    arenaLeft,
+    arenaLeft + arenaSize
+  );
+  const float opponentY = remap(
+    opponent.position.y,
+    arena.min.y,
+    arena.max.y,
+    arenaTop + arenaSize,
+    arenaTop
+  );
+
+  if (lightningGun.active) {
+    const float beamStartX = remap(
+      lightningGun.start.x,
+      arena.min.x,
+      arena.max.x,
+      arenaLeft,
+      arenaLeft + arenaSize
+    );
+    const float beamStartY = remap(
+      lightningGun.start.y,
+      arena.min.y,
+      arena.max.y,
+      arenaTop + arenaSize,
+      arenaTop
+    );
+    const float beamEndX = remap(
+      lightningGun.end.x,
+      arena.min.x,
+      arena.max.x,
+      arenaLeft,
+      arenaLeft + arenaSize
+    );
+    const float beamEndY = remap(
+      lightningGun.end.y,
+      arena.min.y,
+      arena.max.y,
+      arenaTop + arenaSize,
+      arenaTop
+    );
+    if (lightningGun.hit) {
+      SDL_SetRenderDrawColor(renderer, 245, 250, 255, 255);
+    } else {
+      SDL_SetRenderDrawColor(renderer, 74, 166, 255, 255);
+    }
+    SDL_RenderLine(renderer, beamStartX, beamStartY, beamEndX, beamEndY);
+  }
 
   const float radius = 7.0F;
+  SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
+  const SDL_FRect opponentRect = rect(
+    opponentX - radius,
+    opponentY - radius,
+    radius * 2.0F,
+    radius * 2.0F
+  );
+  SDL_RenderFillRect(renderer, &opponentRect);
+
+  const float opponentHealthRatio =
+    std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+  SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
+  const SDL_FRect opponentHealthRect = rect(
+    opponentX - 18.0F,
+    opponentY - 16.0F,
+    36.0F * opponentHealthRatio,
+    4.0F
+  );
+  SDL_RenderFillRect(renderer, &opponentHealthRect);
+
   SDL_SetRenderDrawColor(renderer, 66, 211, 146, 255);
   const SDL_FRect playerRect = rect(playerX - radius, playerY - radius, radius * 2.0F, radius * 2.0F);
   SDL_RenderFillRect(renderer, &playerRect);
@@ -86,6 +162,8 @@ void Renderer::render(const Arena& arena, const PlayerState& player) {
 #else
   (void)arena;
   (void)player;
+  (void)opponent;
+  (void)lightningGun;
 #endif
 }
 

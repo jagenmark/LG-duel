@@ -36,13 +36,23 @@ SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app should
 
 ## Current Playable Slice
 
-When built with SDL3, `lg_duel` runs a one-player local movement sandbox:
+When built with SDL3, `lg_duel` runs a local loopback client/server lightning-gun sandbox:
 
 - `W/S`: forward/back
 - `A/D`: strafe
 - `Space`: jump / positive up command
 - `Ctrl` or `Shift`: negative up command for future flight mode
 - Mouse: raw relative look
+- Left mouse: fire the continuous lightning gun
+- `R`: request an authoritative match reset
 - `Esc`: quit
 
-The simulation runs at a fixed 125 Hz. The window title reports movement mode, position, and velocity; the renderer shows a simple top-down arena, player heading, speed bar, and height bar.
+The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. The local client sends sequenced commands through `LoopbackTransport` and renders received server snapshots. The window title reports server tick, command sequence/ack, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
+
+Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
+
+The client predicts local movement immediately, reconciles against acknowledged authoritative snapshots, replays pending commands, and interpolates the remote player between snapshots. Prediction correction count, correction distance, and pending command count are shown in the window title.
+
+## Project Direction
+
+The intended online version uses native SDL clients connected to a dedicated C++ server while retaining the top-down 2D presentation. A separate browser implementation is out of scope for the current roadmap. This keeps movement, combat, prediction, reconciliation, and protocol behavior in one C++ codebase.
