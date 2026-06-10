@@ -117,3 +117,13 @@ target_compile_features(lg_duel_console_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_console_tests)
 
 add_test(NAME lg_duel_console_tests COMMAND lg_duel_console_tests)
+
+add_executable(lg_duel_input_binding_tests
+  input/InputBindingsTests.cpp
+)
+
+target_link_libraries(lg_duel_input_binding_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_input_binding_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_input_binding_tests)
+
+add_test(NAME lg_duel_input_binding_tests COMMAND lg_duel_input_binding_tests)

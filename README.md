@@ -64,14 +64,14 @@ Client controls:
 - Mouse: raw relative look
 - Left mouse: fire the continuous lightning gun
 - `R`: request an authoritative match reset
-- `` ` ``: toggle the client console
+- `§` (the physical grave/section key left of `1`): toggle the client console
 - `Esc`: quit
 
 The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The window title reports assigned player, ping, server tick, command sequence/ack, requested/applied rewind, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
 
 ## Client Console
 
-The client console supports typed cvars, validation, command and cvar listing, help, history, autocomplete, and archived configuration. Press `` ` `` to open it, Enter to execute, Up/Down for history, and Tab to complete. Archived values are saved to the platform-specific SDL preferences directory as `client.cfg`.
+The client console supports typed cvars, validation, key bindings, command and cvar listing, help, history, autocomplete, and archived configuration. Press `§` to open it, Enter to execute, Up/Down for history, and Tab to complete. Archived values and bindings are saved to the platform-specific SDL preferences directory as `client.cfg`.
 
 Core commands:
 
@@ -86,7 +86,22 @@ clear
 net_stats
 writeconfig
 quit
+bind <key> <command>
+unbind <key>
+unbindall
+bindlist
 ```
+
+Button-style commands automatically receive their matching release command. For example:
+
+```text
+unbind a
+bind leftarrow "+moveleft"
+bind mouse1 "+attack"
+bind section "toggleconsole"
+```
+
+Common actions are `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, and `+attack`. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
 
 Initial client cvars include `sensitivity`, `cl_fov`, `cl_showfps`, `cl_show_net`, `r_vsync`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls. These settings are client-only and do not alter authoritative movement, hit detection, damage, or network timing.
 

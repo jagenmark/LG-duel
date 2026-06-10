@@ -2,6 +2,7 @@
 
 #include "client/ClientGame.hpp"
 #include "console/ConsoleSystem.hpp"
+#include "input/InputBindings.hpp"
 #include "net/UdpTransport.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
@@ -35,13 +36,13 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
 
 struct LocalInputState {
-  bool forward = false;
-  bool back = false;
-  bool left = false;
-  bool right = false;
-  bool up = false;
-  bool down = false;
-  bool attack = false;
+  int forward = 0;
+  int back = 0;
+  int left = 0;
+  int right = 0;
+  int up = 0;
+  int down = 0;
+  int attack = 0;
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
 };
@@ -84,12 +85,20 @@ void loadClientConfig(ConsoleSystem& console, const std::string& path) {
   }
 }
 
-bool saveClientConfig(const ConsoleSystem& console, const std::string& path) {
+bool saveClientConfig(
+  const ConsoleSystem& console,
+  const InputBindings& bindings,
+  const std::string& path
+) {
   std::ofstream file(path, std::ios::trunc);
   if (!file) {
     return false;
   }
   for (const std::string& line : console.archivedConfigLines()) {
+    file << line << '\n';
+  }
+  file << "unbindall\n";
+  for (const std::string& line : bindings.configLines()) {
     file << line << '\n';
   }
   return file.good();
@@ -159,32 +168,45 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   return "Unknown";
 }
 
-void setKey(LocalInputState& input, SDL_Scancode scancode, bool pressed) {
+std::string keyName(SDL_Scancode scancode) {
   switch (scancode) {
-  case SDL_SCANCODE_W:
-    input.forward = pressed;
-    break;
-  case SDL_SCANCODE_S:
-    input.back = pressed;
-    break;
-  case SDL_SCANCODE_A:
-    input.left = pressed;
-    break;
-  case SDL_SCANCODE_D:
-    input.right = pressed;
-    break;
-  case SDL_SCANCODE_SPACE:
-    input.up = pressed;
-    break;
+  case SDL_SCANCODE_GRAVE:
+    return "section";
+  case SDL_SCANCODE_LEFT:
+    return "left";
+  case SDL_SCANCODE_RIGHT:
+    return "right";
+  case SDL_SCANCODE_UP:
+    return "up";
+  case SDL_SCANCODE_DOWN:
+    return "down";
   case SDL_SCANCODE_LCTRL:
+    return "leftctrl";
   case SDL_SCANCODE_RCTRL:
+    return "rightctrl";
   case SDL_SCANCODE_LSHIFT:
+    return "leftshift";
   case SDL_SCANCODE_RSHIFT:
-    input.down = pressed;
-    break;
+    return "rightshift";
   default:
-    break;
+    return InputBindings::normalizeKey(SDL_GetScancodeName(scancode));
   }
+}
+
+void installDefaultBindings(InputBindings& bindings) {
+  (void)bindings.bind("section", "toggleconsole");
+  (void)bindings.bind("w", "+forward");
+  (void)bindings.bind("s", "+back");
+  (void)bindings.bind("a", "+moveleft");
+  (void)bindings.bind("d", "+moveright");
+  (void)bindings.bind("space", "+moveup");
+  (void)bindings.bind("leftctrl", "+movedown");
+  (void)bindings.bind("rightctrl", "+movedown");
+  (void)bindings.bind("leftshift", "+movedown");
+  (void)bindings.bind("rightshift", "+movedown");
+  (void)bindings.bind("mouse1", "+attack");
+  (void)bindings.bind("r", "resetmatch");
+  (void)bindings.bind("escape", "quit");
 }
 
 [[nodiscard]] UserCommand buildCommand(
@@ -204,11 +226,11 @@ void setKey(LocalInputState& input, SDL_Scancode scancode, bool pressed) {
     -kMaxPitchRadians,
     kMaxPitchRadians
   );
-  command.forwardMove = (input.forward ? 1.0F : 0.0F) - (input.back ? 1.0F : 0.0F);
-  command.rightMove = (input.right ? 1.0F : 0.0F) - (input.left ? 1.0F : 0.0F);
-  command.upMove = (input.up ? 1.0F : 0.0F) - (input.down ? 1.0F : 0.0F);
-  command.jump = input.up;
-  command.attack = input.attack;
+  command.forwardMove = (input.forward > 0 ? 1.0F : 0.0F) - (input.back > 0 ? 1.0F : 0.0F);
+  command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
+  command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
+  command.jump = input.up > 0;
+  command.attack = input.attack > 0;
   return command;
 }
 #endif
@@ -276,11 +298,44 @@ int GameApp::run() const {
 
   ConsoleSystem console;
   registerClientCvars(console);
+  InputBindings bindings;
+  installDefaultBindings(bindings);
   const std::string configPath = clientConfigPath();
-  loadClientConfig(console, configPath);
+  LocalInputState input;
+  bool running = true;
+  bool resetRequested = false;
   bool quitRequested = false;
   bool clearRequested = false;
   bool writeConfigRequested = false;
+  bool toggleConsoleRequested = false;
+
+  const auto registerButtonCommand =
+    [&console](std::string name, int& pressCount) {
+      console.registerCommand(
+        '+' + name,
+        "Begin " + name + '.',
+        [&pressCount](const std::vector<std::string>&) {
+          ++pressCount;
+          return std::string{};
+        }
+      );
+      console.registerCommand(
+        '-' + name,
+        "End " + name + '.',
+        [&pressCount](const std::vector<std::string>&) {
+          pressCount = std::max(0, pressCount - 1);
+          return std::string{};
+        }
+      );
+    };
+  registerButtonCommand("forward", input.forward);
+  registerButtonCommand("back", input.back);
+  registerButtonCommand("moveleft", input.left);
+  registerButtonCommand("moveright", input.right);
+  registerButtonCommand("moveup", input.up);
+  registerButtonCommand("movedown", input.down);
+  registerButtonCommand("attack", input.attack);
+
   console.registerCommand(
     "quit",
     "Quit the client.",
@@ -306,6 +361,79 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+    "toggleconsole",
+    "Toggle the client console.",
+    [&toggleConsoleRequested](const std::vector<std::string>&) {
+      toggleConsoleRequested = true;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
+    "resetmatch",
+    "Request an authoritative match reset.",
+    [&resetRequested](const std::vector<std::string>&) {
+      resetRequested = true;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
+    "bind",
+    "Bind a key to a command.",
+    [&bindings](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 2) {
+        const std::string command = bindings.binding(arguments[1]);
+        return command.empty()
+          ? InputBindings::normalizeKey(arguments[1]) + " is unbound"
+          : InputBindings::normalizeKey(arguments[1]) + " = " + command;
+      }
+      if (arguments.size() < 3) {
+        return std::string("usage: bind <key> <command>");
+      }
+      std::string command = arguments[2];
+      for (std::size_t index = 3; index < arguments.size(); ++index) {
+        command += ' ' + arguments[index];
+      }
+      if (!bindings.bind(arguments[1], command)) {
+        return std::string("invalid binding");
+      }
+      return InputBindings::normalizeKey(arguments[1]) + " = " + command;
+    }
+  );
+  console.registerCommand(
+    "unbind",
+    "Remove a key binding.",
+    [&bindings, &console](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: unbind <key>");
+      }
+      for (const std::string& command : bindings.unbind(arguments[1])) {
+        (void)console.execute(command);
+      }
+      return InputBindings::normalizeKey(arguments[1]) + " unbound";
+    }
+  );
+  console.registerCommand(
+    "unbindall",
+    "Remove every key binding.",
+    [&bindings, &console](const std::vector<std::string>&) {
+      for (const std::string& command : bindings.unbindAll()) {
+        (void)console.execute(command);
+      }
+      return std::string{};
+    }
+  );
+  console.registerCommand(
+    "bindlist",
+    "List key bindings.",
+    [&bindings](const std::vector<std::string>&) {
+      std::string result;
+      for (const std::string& line : bindings.list()) {
+        result += line + '\n';
+      }
+      return result;
+    }
+  );
+  console.registerCommand(
     "net_stats",
     "Print current connection diagnostics.",
     [&transport](const std::vector<std::string>&) {
@@ -321,17 +449,50 @@ int GameApp::run() const {
       return std::string(text);
     }
   );
+  loadClientConfig(console, configPath);
   (void)renderer.setVSync(console.getBool("r_vsync"));
   bool appliedVSync = console.getBool("r_vsync");
   ClientConsoleState consoleState;
-  appendConsoleOutput(consoleState, "LG Duel console. Type cmdlist or cvarlist.");
+  appendConsoleOutput(consoleState, "LG Duel console. Type cmdlist, cvarlist, or bindlist.");
   bool suppressNextTextInput = false;
+  const auto executeBindingCommands =
+    [&console, &consoleState](const std::vector<std::string>& commands) {
+      for (const std::string& command : commands) {
+        const std::string result = console.execute(command);
+        if (!result.empty()) {
+          appendConsoleOutput(consoleState, result);
+        }
+      }
+    };
+  const auto setConsoleOpen =
+    [&bindings, &console, &consoleState, &input, window](bool open) {
+      if (consoleState.open == open) {
+        return;
+      }
+      for (const std::string& command : bindings.releaseAll()) {
+        (void)console.execute(command);
+      }
+      consoleState.open = open;
+      consoleState.historyIndex = consoleState.history.size();
+      input.mouseDeltaX = 0.0F;
+      input.mouseDeltaY = 0.0F;
+      if (open) {
+        SDL_SetWindowRelativeMouseMode(window, false);
+        SDL_StartTextInput(window);
+      } else {
+        SDL_StopTextInput(window);
+        SDL_SetWindowRelativeMouseMode(window, true);
+      }
+    };
+  const auto applyConsoleToggle =
+    [&toggleConsoleRequested, &setConsoleOpen, &consoleState]() {
+      if (toggleConsoleRequested) {
+        toggleConsoleRequested = false;
+        setConsoleOpen(!consoleState.open);
+      }
+    };
 
   const Arena arena;
-
-  LocalInputState input;
-  bool running = true;
-  bool resetRequested = false;
   std::uint32_t commandSequence = 0;
   std::uint32_t clientTick = 0;
 
@@ -354,28 +515,20 @@ int GameApp::run() const {
       case SDL_EVENT_KEY_DOWN:
       case SDL_EVENT_KEY_UP: {
         const bool pressed = event.type == SDL_EVENT_KEY_DOWN;
-        if (pressed && event.key.scancode == SDL_SCANCODE_GRAVE) {
-          suppressNextTextInput = true;
-          consoleState.open = !consoleState.open;
-          consoleState.historyIndex = consoleState.history.size();
-          input = {};
-          if (consoleState.open) {
-            SDL_SetWindowRelativeMouseMode(window, false);
-            SDL_StartTextInput(window);
-          } else {
-            SDL_StopTextInput(window);
-            SDL_SetWindowRelativeMouseMode(window, true);
-          }
-          break;
-        }
+        const std::string key = keyName(event.key.scancode);
         if (consoleState.open) {
           if (!pressed) {
+            executeBindingCommands(bindings.handleKey(key, false));
+            break;
+          }
+          if (bindings.binding(key) == "toggleconsole") {
+            suppressNextTextInput = true;
+            executeBindingCommands(bindings.handleKey(key, true));
+            applyConsoleToggle();
             break;
           }
           if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
-            consoleState.open = false;
-            SDL_StopTextInput(window);
-            SDL_SetWindowRelativeMouseMode(window, true);
+            setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
             if (!consoleState.input.empty()) {
               consoleState.input.pop_back();
@@ -387,6 +540,7 @@ int GameApp::run() const {
               if (!result.empty()) {
                 appendConsoleOutput(consoleState, result);
               }
+              applyConsoleToggle();
               consoleState.history.push_back(consoleState.input);
               consoleState.historyIndex = consoleState.history.size();
               consoleState.input.clear();
@@ -422,13 +576,11 @@ int GameApp::run() const {
           }
           break;
         }
-        if (pressed && event.key.scancode == SDL_SCANCODE_ESCAPE) {
-          running = false;
+        if (bindings.binding(key) == "toggleconsole") {
+          suppressNextTextInput = pressed;
         }
-        if (pressed && event.key.scancode == SDL_SCANCODE_R) {
-          resetRequested = true;
-        }
-        setKey(input, event.key.scancode, pressed);
+        executeBindingCommands(bindings.handleKey(key, pressed));
+        applyConsoleToggle();
         break;
       }
       case SDL_EVENT_TEXT_INPUT:
@@ -439,16 +591,27 @@ int GameApp::run() const {
         }
         break;
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
-      case SDL_EVENT_MOUSE_BUTTON_UP:
-        if (!consoleState.open && event.button.button == SDL_BUTTON_LEFT) {
-          input.attack = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+      case SDL_EVENT_MOUSE_BUTTON_UP: {
+        const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
+        const std::string key = "mouse" + std::to_string(event.button.button);
+        if (!consoleState.open) {
+          executeBindingCommands(bindings.handleKey(key, pressed));
+          applyConsoleToggle();
+        } else if (!pressed) {
+          executeBindingCommands(bindings.handleKey(key, false));
         }
         break;
+      }
       case SDL_EVENT_MOUSE_MOTION:
         if (!consoleState.open) {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
         }
+        break;
+      case SDL_EVENT_WINDOW_FOCUS_LOST:
+        executeBindingCommands(bindings.releaseAll());
+        input.mouseDeltaX = 0.0F;
+        input.mouseDeltaY = 0.0F;
         break;
       default:
         break;
@@ -462,7 +625,7 @@ int GameApp::run() const {
     if (writeConfigRequested) {
       appendConsoleOutput(
         consoleState,
-        saveClientConfig(console, configPath)
+        saveClientConfig(console, bindings, configPath)
           ? "wrote " + configPath
           : "failed to write " + configPath
       );
@@ -601,7 +764,7 @@ int GameApp::run() const {
     SDL_Delay(1);
   }
 
-  saveClientConfig(console, configPath);
+  saveClientConfig(console, bindings, configPath);
   renderer.shutdown();
   SDL_DestroyWindow(window);
   SDL_Quit();
