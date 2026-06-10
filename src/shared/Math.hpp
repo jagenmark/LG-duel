@@ -72,7 +72,7 @@ constexpr Vec3& operator*=(Vec3& lhs, float scalar) {
 }
 
 [[nodiscard]] inline Vec3 yawRight(float yawRadians) {
-  return {-std::sin(yawRadians), std::cos(yawRadians), 0.0F};
+  return {std::sin(yawRadians), -std::cos(yawRadians), 0.0F};
 }
 
 [[nodiscard]] inline Vec3 cameraForward(float yawRadians, float pitchRadians) {
