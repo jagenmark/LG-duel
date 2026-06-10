@@ -28,7 +28,9 @@ public:
   void sendCommand(
     const UserCommand& command,
     bool requestReset,
-    bool toggleReady
+    bool toggleReady,
+    bool requestMovementTuning = false,
+    const MovementTuning& movementTuning = {}
   );
 
   [[nodiscard]] ClientConnectionState state() const;

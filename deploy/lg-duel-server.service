@@ -1,0 +1,14 @@
+[Unit]
+Description=LG Duel dedicated UDP server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/LG-duel
+ExecStart=%h/LG-duel/build/default/lg_duel_server 27960
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

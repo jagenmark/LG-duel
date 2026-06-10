@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sim/Combat.hpp"
+#include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -48,6 +49,8 @@ struct CommandPacket {
   bool requestReset = false;
   bool toggleReady = false;
   std::uint32_t viewedServerTick = 0;
+  bool requestMovementTuning = false;
+  MovementTuning movementTuning = {};
 };
 
 struct CommandBundle {
@@ -63,6 +66,12 @@ struct DisconnectPacket {
   std::uint32_t clientNonce = 0;
 };
 
+struct RoundCombatStats {
+  std::uint32_t lightningActiveTicks = 0;
+  std::uint32_t lightningHitTicks = 0;
+  std::uint32_t damageDealt = 0;
+};
+
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
@@ -75,6 +84,8 @@ struct ServerSnapshot {
   std::array<bool, kDuelPlayerCount> readyPlayers = {};
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
   MatchRules matchRules = {};
+  MovementTuning movementTuning = {};
+  std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
   std::uint8_t roundWinner = 255;

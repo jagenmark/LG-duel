@@ -69,10 +69,18 @@ void ClientSession::update() {
 void ClientSession::sendCommand(
   const UserCommand& command,
   bool requestReset,
-  bool toggleReady
+  bool toggleReady,
+  bool requestMovementTuning,
+  const MovementTuning& movementTuning
 ) {
   if (game_) {
-    game_->sendCommand(command, requestReset, toggleReady);
+    game_->sendCommand(
+      command,
+      requestReset,
+      toggleReady,
+      requestMovementTuning,
+      movementTuning
+    );
   }
 }
 

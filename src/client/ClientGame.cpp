@@ -1,6 +1,7 @@
 #include "client/ClientGame.hpp"
 
 #include "shared/Constants.hpp"
+#include "shared/Sequence.hpp"
 
 namespace lg {
 
@@ -10,8 +11,16 @@ ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
 void ClientGame::sendCommand(
   const UserCommand& command,
   bool requestReset,
-  bool toggleReady
+  bool toggleReady,
+  bool requestMovementTuning,
+  const MovementTuning& movementTuning
 ) {
+  if (requestMovementTuning) {
+    movementTuning_ = movementTuning;
+    movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
+    pendingMovementTuningCommand_ = command.sequence;
+    hasPendingMovementTuning_ = true;
+  }
   transport_.sendCommand(
     CommandPacket{
       static_cast<std::uint8_t>(localPlayerIndex_),
@@ -19,6 +28,8 @@ void ClientGame::sendCommand(
       requestReset,
       toggleReady,
       snapshot_.serverTick,
+      requestMovementTuning,
+      movementTuning_,
     }
   );
   if (!requestReset) {
@@ -31,6 +42,20 @@ void ClientGame::receiveSnapshots() {
   while (transport_.receiveSnapshot(received)) {
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
       snapshot_ = received;
+      if (
+        hasPendingMovementTuning_ &&
+        received.hasAcknowledgedCommand[localPlayerIndex_] &&
+        isSequenceAcknowledged(
+          pendingMovementTuningCommand_,
+          received.acknowledgedCommand[localPlayerIndex_]
+        )
+      ) {
+        hasPendingMovementTuning_ = false;
+      }
+      if (!hasPendingMovementTuning_) {
+        movementTuning_ = received.movementTuning;
+        movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
+      }
       hasSnapshot_ = true;
       interpolation_.push(received);
       prediction_.reconcile(
@@ -71,6 +96,10 @@ PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex, float alpha)
 
 const PredictionDiagnostics& ClientGame::predictionDiagnostics() const {
   return prediction_.diagnostics();
+}
+
+const MovementTuning& ClientGame::movementTuning() const {
+  return movementTuning_;
 }
 
 } // namespace lg

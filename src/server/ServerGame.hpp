@@ -46,7 +46,7 @@ private:
   void publishSnapshot();
 
   NetTransport& transport_;
-  Arena arena_ = {};
+  Arena arena_ = thunderstruckArena();
   MovementTuning movementTuning_ = {};
   LightningGunTuning lightningGunTuning_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};

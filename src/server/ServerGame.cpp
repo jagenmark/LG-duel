@@ -11,15 +11,14 @@ namespace {
 constexpr std::uint32_t kMaxLagCompensationTicks = 25;
 constexpr float kPi = 3.14159265359F;
 
-[[nodiscard]] PlayerState spawnPlayer(std::size_t playerIndex) {
+[[nodiscard]] PlayerState spawnPlayer(
+  const Arena& arena,
+  std::size_t playerIndex
+) {
   PlayerState player;
-  if (playerIndex == 0) {
-    player.position = {-3.0F, 0.0F, player.bounds.halfHeight};
-    player.viewYawRadians = 0.0F;
-  } else {
-    player.position = {3.0F, 0.0F, player.bounds.halfHeight};
-    player.viewYawRadians = kPi;
-  }
+  player.position = arena.spawnPositions[playerIndex];
+  player.position.z = arena.min.z + player.bounds.halfHeight;
+  player.viewYawRadians = playerIndex == 0 ? 0.0F : kPi;
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
   return player;
@@ -64,6 +63,16 @@ void ServerGame::tick(float fixedDt) {
 
   snapshot_.playersColliding =
     resolvePlayerCollision(arena_, snapshot_.players[0], snapshot_.players[1]);
+  for (PlayerState& player : snapshot_.players) {
+    const CollisionResult collision = resolvePlayerArenaCollision(
+      arena_,
+      player,
+      player.position,
+      player.velocity
+    );
+    player.position = collision.position;
+    player.velocity = collision.velocity;
+  }
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
@@ -107,6 +116,13 @@ void ServerGame::tick(float fixedDt) {
       ? 0
       : snapshot_.serverTick - historyFrame.serverTick;
     result.rewindClamped = requestedRewindTicks > result.appliedRewindTicks;
+    RoundCombatStats& stats = snapshot_.roundCombatStats[attackerIndex];
+    if (result.active) {
+      ++stats.lightningActiveTicks;
+    }
+    if (result.hit) {
+      ++stats.lightningHitTicks;
+    }
   }
 
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
@@ -114,6 +130,10 @@ void ServerGame::tick(float fixedDt) {
     PlayerState& target = snapshot_.players[targetIndex];
     const bool wasAlive = target.health > 0;
     target.health = std::max(0, target.health - snapshot_.lightningGuns[attackerIndex].damageApplied);
+    snapshot_.roundCombatStats[attackerIndex].damageDealt +=
+      static_cast<std::uint32_t>(
+        snapshot_.lightningGuns[attackerIndex].damageApplied
+      );
     target.velocity += snapshot_.lightningGuns[attackerIndex].knockbackImpulse;
     if (
       wasAlive &&
@@ -150,9 +170,10 @@ void ServerGame::resetMatch() {
   const std::uint32_t serverTick = snapshot_.serverTick;
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
-  snapshot_.players[0] = spawnPlayer(0);
-  snapshot_.players[1] = spawnPlayer(1);
+  snapshot_.players[0] = spawnPlayer(arena_, 0);
+  snapshot_.players[1] = spawnPlayer(arena_, 1);
   snapshot_.matchRules = matchRules_;
+  snapshot_.movementTuning = movementTuning_;
   snapshot_.roundWinner = 255;
   snapshot_.matchWinner = 255;
   lightningGunStates_ = {};
@@ -164,7 +185,7 @@ void ServerGame::resetMatch() {
 }
 
 void ServerGame::respawnPlayer(std::size_t playerIndex) {
-  snapshot_.players[playerIndex] = spawnPlayer(playerIndex);
+  snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex);
   snapshot_.lightningGuns[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
 }
@@ -175,6 +196,7 @@ void ServerGame::respawnRound() {
   }
   snapshot_.playersColliding = false;
   snapshot_.respawnTicksRemaining = {};
+  snapshot_.roundCombatStats = {};
   history_.clear();
   recordHistory();
 }
@@ -365,6 +387,14 @@ void ServerGame::receiveCommands() {
       isSequenceNewer(packet.command.sequence, snapshot_.acknowledgedCommand[playerIndex]);
     if (!isNewCommand) {
       continue;
+    }
+
+    if (packet.requestMovementTuning) {
+      movementTuning_.groundAcceleration = packet.movementTuning.groundAcceleration;
+      movementTuning_.groundFriction = packet.movementTuning.groundFriction;
+      movementTuning_.maxGroundSpeed = packet.movementTuning.maxGroundSpeed;
+      movementTuning_.maxAirSpeed = packet.movementTuning.maxGroundSpeed;
+      snapshot_.movementTuning = movementTuning_;
     }
 
     if (packet.requestReset) {

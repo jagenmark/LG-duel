@@ -5,6 +5,7 @@
 #include "sim/MovementModes.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -59,6 +60,34 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::CommandPacket tuningRequest;
+    tuningRequest.command.sequence = 1;
+    tuningRequest.command.forwardMove = 1.0F;
+    tuningRequest.requestMovementTuning = true;
+    tuningRequest.movementTuning.groundAcceleration = 160.0F;
+    tuningRequest.movementTuning.groundFriction = 4.0F;
+    tuningRequest.movementTuning.maxGroundSpeed = 12.0F;
+    transport.sendCommand(tuningRequest);
+    server.tick(lg::kFixedTickSeconds);
+
+    const lg::ServerSnapshot tuned = latestSnapshot(transport);
+    failures += expect(
+      tuned.movementTuning.groundAcceleration == 160.0F &&
+        tuned.movementTuning.groundFriction == 4.0F &&
+        tuned.movementTuning.maxGroundSpeed == 12.0F,
+      "runtime movement tuning should be authoritative and replicated"
+    );
+    failures += expect(
+      tuned.players[0].velocity.x > 1.0F,
+      "updated acceleration should affect the requesting simulation tick"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     lg::UserCommand beforeWrap;
     beforeWrap.sequence = std::numeric_limits<std::uint32_t>::max();
     transport.sendCommand(lg::CommandPacket{0, beforeWrap, false});
@@ -105,7 +134,7 @@ int main() {
     failures += expect(client.snapshot().serverTick == 1, "server tick should advance once per simulation step");
     failures += expect(client.hasAcknowledgedCommand(), "accepted command should set ack validity");
     failures += expect(client.lastAcknowledgedCommand() == 10, "snapshot should acknowledge accepted command");
-    failures += expect(client.snapshot().players[0].position.x > -3.0F, "server should simulate accepted movement");
+    failures += expect(client.snapshot().players[0].position.x > -8.0F, "server should simulate accepted movement");
     failures += expect(client.snapshot().lightningGuns[0].hit, "server should authoritatively trace LG");
 
     lg::UserCommand duplicate = command;
@@ -139,7 +168,7 @@ int main() {
     client.receiveSnapshots();
 
     failures += expect(client.snapshot().serverTick == 4, "reset should preserve monotonic server ticks");
-    failures += expect(client.snapshot().players[0].position.x == -3.0F, "client should receive reset spawn");
+    failures += expect(client.snapshot().players[0].position.x == -8.0F, "client should receive reset spawn");
     failures += expect(client.snapshot().players[1].health == 100, "client should receive reset health");
 
     lg::UserCommand postResetMove;
@@ -179,7 +208,8 @@ int main() {
 
     const lg::ServerSnapshot beforeAttack = latestSnapshot(transport);
     failures += expect(
-      beforeAttack.players[1].position.y < -beforeAttack.players[1].bounds.radius,
+      std::fabs(beforeAttack.players[1].position.y) >
+        beforeAttack.players[1].bounds.radius,
       "moving target should leave the uncompensated beam path"
     );
 
@@ -326,7 +356,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.players[0].position.x > -3.0F,
+      snapshot.players[0].position.x > -8.0F,
       "players should be able to move during countdown"
     );
     failures += expect(
@@ -367,6 +397,14 @@ int main() {
         snapshot.roundWinner == 0,
       "non-final kill should score and enter round end"
     );
+    failures += expect(
+      snapshot.roundCombatStats[0].lightningActiveTicks > 0 &&
+        snapshot.roundCombatStats[0].lightningHitTicks > 0 &&
+        snapshot.roundCombatStats[0].lightningHitTicks <=
+          snapshot.roundCombatStats[0].lightningActiveTicks &&
+        snapshot.roundCombatStats[0].damageDealt == 100,
+      "round stats should record authoritative LG contact and damage"
+    );
 
     lg::UserCommand deadTargetCommand;
     deadTargetCommand.sequence = 1;
@@ -383,7 +421,10 @@ int main() {
       snapshot.matchPhase == lg::MatchPhase::Countdown &&
         snapshot.scores == std::array<std::uint16_t, 2>{1, 0} &&
         snapshot.players[0].health == 100 &&
-        snapshot.players[1].health == 100,
+        snapshot.players[1].health == 100 &&
+        snapshot.roundCombatStats[0].lightningActiveTicks == 0 &&
+        snapshot.roundCombatStats[0].lightningHitTicks == 0 &&
+        snapshot.roundCombatStats[0].damageDealt == 0,
       "round-end expiry should respawn both players into a new countdown"
     );
 
@@ -435,8 +476,8 @@ int main() {
 
     failures += expect(snapshot.players[0].health == 100, "reset should restore local health");
     failures += expect(snapshot.players[1].health == 100, "reset should restore remote health");
-    failures += expect(snapshot.players[0].position.x == -3.0F, "reset should restore local spawn");
-    failures += expect(snapshot.players[1].position.x == 3.0F, "reset should restore remote spawn");
+    failures += expect(snapshot.players[0].position.x == -8.0F, "reset should restore local spawn");
+    failures += expect(snapshot.players[1].position.x == 8.0F, "reset should restore remote spawn");
     failures += expect(
       snapshot.acknowledgedCommand[0] == resetCommand.sequence,
       "reset command should be acknowledged"

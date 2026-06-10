@@ -134,6 +134,32 @@ int main() {
   }
 
   {
+    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::PlayerState attacker = playerAt(-4.0F, -6.0F);
+    lg::PlayerState target = playerAt(4.0F, -6.0F);
+    lg::LightningGunState state;
+    lg::UserCommand command;
+    command.attack = true;
+
+    const lg::LightningGunResult result = lg::simulateLightningGun(
+      attacker,
+      target,
+      command,
+      walledArena,
+      tuning,
+      state,
+      lg::kFixedTickSeconds
+    );
+
+    failures += expect(!result.hit, "Thunderstruck divider should block LG traces");
+    failures += expect(
+      result.end.x < -0.9F,
+      "blocked beam should end at the divider surface"
+    );
+    failures += expect(target.health == 100, "wall-blocked LG should not damage target");
+  }
+
+  {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(6.0F, 0.0F);
     target.health = 1000;

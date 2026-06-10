@@ -34,6 +34,17 @@ ctest --test-dir build/default --output-on-failure
 
 SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app should fail configuration if SDL3 is missing. Without SDL3, the app target still builds as a non-playable skeleton and the pure simulation tests remain available.
 
+## Windows Playtest Package
+
+The `Windows Playtest Package` GitHub Actions workflow builds a self-contained
+Windows x64 client ZIP. Run it from the repository's Actions page and enter the
+current public server address and UDP port. Download the
+`LG-Duel-Windows-x64` artifact when the run completes.
+
+The package contains the client executable, `SDL3.dll`, a double-click
+`Play LG Duel.bat` launcher, the player guide, and `server-address.txt`.
+Friends should extract the entire ZIP and keep all files together.
+
 ## Current Playable Slice
 
 The build produces:
@@ -69,6 +80,10 @@ Client controls:
 - `Esc`: quit
 
 The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, scoring, synchronized round respawns, and match state at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The HUD presents match information while optional diagnostics remain available in the window title.
+
+The default arena is a compact 2D Thunderstruck-inspired layout with opposing courts, a broken central divider, offset cover blocks, and upper/lower connector lanes. Internal walls use the same geometry for authoritative movement collision, player separation, LG occlusion, prediction, and rendering.
+
+LG hits brighten the target and draw a hitmarker at the beam impact point. Round and match result screens show server-authoritative LG contact accuracy and damage dealt for both players.
 
 ## Client Console
 
@@ -110,7 +125,15 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_fov`, `cl_showfps`, `cl_show_net`, `r_vsync`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls. These settings are client-only and do not alter authoritative movement, hit detection, damage, or network timing.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_show_net`, `s_enable`, `s_volume`, `r_vsync`, `r_playersize`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls.
+
+`cl_rotate_view` applies to relative aim mode (`cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) keeps the camera world-aligned so the simulated facing direction remains stable and points toward the cursor.
+
+`cl_camera_zoom 1` preserves the default view. Values above `1` zoom in and values below `1` zoom out. `r_playersize` independently sets both player markers' width and height in screen pixels.
+
+Client audio uses generated tones with no external sound assets. `s_enable` toggles hit and round-result cues, while `s_volume` controls their volume from `0` to `1`.
+
+Runtime movement testing uses `g_accel`, `g_friction`, and `g_maxspeed`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_maxspeed` controls both the ground and air speed caps. These testing values are intentionally not archived.
 
 Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
 

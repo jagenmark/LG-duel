@@ -112,6 +112,45 @@ int main() {
     transport.sendSnapshot(initialSnapshot);
     client.receiveSnapshots();
 
+    lg::MovementTuning requestedTuning;
+    requestedTuning.groundAcceleration = 140.0F;
+    requestedTuning.groundFriction = 5.0F;
+    requestedTuning.maxGroundSpeed = 11.0F;
+    requestedTuning.maxAirSpeed = 11.0F;
+    lg::UserCommand request;
+    request.sequence = 15;
+    client.sendCommand(request, false, false, true, requestedTuning);
+
+    lg::ServerSnapshot delayedSnapshot = initialSnapshot;
+    delayedSnapshot.serverTick = 1;
+    transport.sendSnapshot(delayedSnapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      nearlyEqual(client.movementTuning().groundAcceleration, 140.0F),
+      "older snapshots should not revert pending movement tuning prediction"
+    );
+
+    lg::ServerSnapshot acknowledgedSnapshot = delayedSnapshot;
+    acknowledgedSnapshot.serverTick = 2;
+    acknowledgedSnapshot.hasAcknowledgedCommand[0] = true;
+    acknowledgedSnapshot.acknowledgedCommand[0] = request.sequence;
+    acknowledgedSnapshot.movementTuning = requestedTuning;
+    transport.sendSnapshot(acknowledgedSnapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      nearlyEqual(client.movementTuning().maxGroundSpeed, 11.0F),
+      "acknowledged movement tuning should use the replicated server value"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot initialSnapshot;
+    initialSnapshot.players[0] = groundedPlayer();
+    transport.sendSnapshot(initialSnapshot);
+    client.receiveSnapshots();
+
     lg::UserCommand movement;
     movement.sequence = 20;
     movement.forwardMove = 1.0F;

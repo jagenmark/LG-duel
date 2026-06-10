@@ -192,6 +192,10 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(command.jump) &&
     writer.writeBool(packet.requestReset) &&
     writer.writeBool(packet.toggleReady) &&
+    writer.writeBool(packet.requestMovementTuning) &&
+    writer.writeFloat(packet.movementTuning.groundAcceleration) &&
+    writer.writeFloat(packet.movementTuning.groundFriction) &&
+    writer.writeFloat(packet.movementTuning.maxGroundSpeed) &&
     writer.writeU32(packet.viewedServerTick);
 }
 
@@ -209,6 +213,10 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.command.jump) ||
     !reader.readBool(packet.requestReset) ||
     !reader.readBool(packet.toggleReady) ||
+    !reader.readBool(packet.requestMovementTuning) ||
+    !reader.readFloat(packet.movementTuning.groundAcceleration) ||
+    !reader.readFloat(packet.movementTuning.groundFriction) ||
+    !reader.readFloat(packet.movementTuning.maxGroundSpeed) ||
     !reader.readU32(packet.viewedServerTick)
   ) {
     return false;
@@ -217,7 +225,13 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   return packet.playerIndex < kDuelPlayerCount &&
     std::fabs(packet.command.forwardMove) <= 1.0F &&
     std::fabs(packet.command.rightMove) <= 1.0F &&
-    std::fabs(packet.command.upMove) <= 1.0F;
+    std::fabs(packet.command.upMove) <= 1.0F &&
+    packet.movementTuning.groundAcceleration >= 0.0F &&
+    packet.movementTuning.groundAcceleration <= 1000.0F &&
+    packet.movementTuning.groundFriction >= 0.0F &&
+    packet.movementTuning.groundFriction <= 100.0F &&
+    packet.movementTuning.maxGroundSpeed >= 0.1F &&
+    packet.movementTuning.maxGroundSpeed <= 100.0F;
 }
 
 bool writeVec3(Writer& writer, Vec3 value) {
@@ -311,6 +325,25 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
   }
   result.damageApplied = damageApplied;
   return true;
+}
+
+bool writeRoundCombatStats(
+  Writer& writer,
+  const RoundCombatStats& stats
+) {
+  return writer.writeU32(stats.lightningActiveTicks) &&
+    writer.writeU32(stats.lightningHitTicks) &&
+    writer.writeU32(stats.damageDealt);
+}
+
+bool readRoundCombatStats(
+  Reader& reader,
+  RoundCombatStats& stats
+) {
+  return reader.readU32(stats.lightningActiveTicks) &&
+    reader.readU32(stats.lightningHitTicks) &&
+    reader.readU32(stats.damageDealt) &&
+    stats.lightningHitTicks <= stats.lightningActiveTicks;
 }
 
 } // namespace
@@ -506,6 +539,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const RoundCombatStats& stats : snapshot.roundCombatStats) {
+    if (!writeRoundCombatStats(writer, stats)) {
+      return false;
+    }
+  }
   return writer.writeU8(static_cast<std::uint8_t>(snapshot.matchPhase)) &&
     writer.writeU16(snapshot.matchRules.roundLimit) &&
     writer.writeU16(snapshot.matchRules.timeLimitMinutes) &&
@@ -514,6 +552,9 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU16(snapshot.matchRules.roundEndTicks) &&
     writer.writeU16(snapshot.matchRules.matchEndTicks) &&
     writer.writeBool(snapshot.matchRules.showOpponentHealth) &&
+    writer.writeFloat(snapshot.movementTuning.groundAcceleration) &&
+    writer.writeFloat(snapshot.movementTuning.groundFriction) &&
+    writer.writeFloat(snapshot.movementTuning.maxGroundSpeed) &&
     writer.writeU32(snapshot.phaseTicksRemaining) &&
     writer.writeU32(snapshot.liveTicksElapsed) &&
     writer.writeU8(snapshot.roundWinner) &&
@@ -567,6 +608,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       return false;
     }
   }
+  for (RoundCombatStats& stats : decoded.roundCombatStats) {
+    if (!readRoundCombatStats(reader, stats)) {
+      return false;
+    }
+  }
   std::uint8_t matchPhase = 0;
   if (
     !reader.readU8(matchPhase) ||
@@ -578,6 +624,9 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU16(decoded.matchRules.roundEndTicks) ||
     !reader.readU16(decoded.matchRules.matchEndTicks) ||
     !reader.readBool(decoded.matchRules.showOpponentHealth) ||
+    !reader.readFloat(decoded.movementTuning.groundAcceleration) ||
+    !reader.readFloat(decoded.movementTuning.groundFriction) ||
+    !reader.readFloat(decoded.movementTuning.maxGroundSpeed) ||
     !reader.readU32(decoded.phaseTicksRemaining) ||
     !reader.readU32(decoded.liveTicksElapsed) ||
     !reader.readU8(decoded.roundWinner) ||
@@ -586,6 +635,12 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.matchRules.roundLimit == 0 ||
     decoded.matchRules.playerLimit == 0 ||
     decoded.matchRules.playerLimit > kDuelPlayerCount ||
+    decoded.movementTuning.groundAcceleration < 0.0F ||
+    decoded.movementTuning.groundAcceleration > 1000.0F ||
+    decoded.movementTuning.groundFriction < 0.0F ||
+    decoded.movementTuning.groundFriction > 100.0F ||
+    decoded.movementTuning.maxGroundSpeed < 0.1F ||
+    decoded.movementTuning.maxGroundSpeed > 100.0F ||
     (decoded.roundWinner != 255 && decoded.roundWinner >= kDuelPlayerCount) ||
     (decoded.matchWinner != 255 && decoded.matchWinner >= kDuelPlayerCount) ||
     reader.remaining() != 0
