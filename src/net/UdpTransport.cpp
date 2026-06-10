@@ -234,6 +234,7 @@ struct UdpServerTransport::Impl {
           continue;
         }
 
+        clients[slotIndex].nonce = request.clientNonce;
         clients[slotIndex].lastHeard = Clock::now();
         WirePacket response;
         if (encodeConnectAccept(
@@ -278,6 +279,14 @@ struct UdpServerTransport::Impl {
           encodePingPacket(PacketType::Pong, ping, pong)
         ) {
           sendWire(socket, sender, pong);
+        }
+      } else if (type == PacketType::Disconnect) {
+        DisconnectPacket packet;
+        if (
+          decodeDisconnectPacket(wire, packet) &&
+          packet.clientNonce == clients[slotIndex].nonce
+        ) {
+          clients[slotIndex] = {};
         }
       }
     }
@@ -425,6 +434,14 @@ std::size_t UdpServerTransport::connectedClientCount() const {
   ));
 }
 
+std::array<bool, kDuelPlayerCount> UdpServerTransport::connectedPlayers() const {
+  std::array<bool, kDuelPlayerCount> connected = {};
+  for (std::size_t index = 0; index < impl_->clients.size(); ++index) {
+    connected[index] = impl_->clients[index].active;
+  }
+  return connected;
+}
+
 const std::string& UdpServerTransport::lastError() const {
   return impl_->error;
 }
@@ -537,6 +554,7 @@ UdpClientTransport::UdpClientTransport(std::string host, std::uint16_t port)
   : impl_(std::make_unique<Impl>(std::move(host), port)) {}
 
 UdpClientTransport::~UdpClientTransport() {
+  disconnect();
   closeSocket(impl_->socket);
 }
 
@@ -588,6 +606,22 @@ bool UdpClientTransport::initialize() {
   }
   impl_->sendConnect();
   return true;
+}
+
+void UdpClientTransport::disconnect() {
+  if (impl_->socket == kInvalidSocket) {
+    return;
+  }
+  if (impl_->connected) {
+    WirePacket wire;
+    if (encodeDisconnectPacket(DisconnectPacket{impl_->nonce}, wire)) {
+      sendWire(impl_->socket, impl_->server, wire);
+    }
+  }
+  impl_->connected = false;
+  impl_->timedOut = false;
+  impl_->commandHistory.clear();
+  impl_->snapshots.clear();
 }
 
 void UdpClientTransport::update() {
@@ -652,6 +686,14 @@ float UdpClientTransport::pingMilliseconds() const {
 
 const std::string& UdpClientTransport::lastError() const {
   return impl_->error;
+}
+
+const std::string& UdpClientTransport::host() const {
+  return impl_->host;
+}
+
+std::uint16_t UdpClientTransport::port() const {
+  return impl_->port;
 }
 
 } // namespace lg

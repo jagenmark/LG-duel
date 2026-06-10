@@ -71,6 +71,7 @@ int main() {
     source.command.attack = true;
     source.command.jump = true;
     source.requestReset = true;
+    source.toggleReady = true;
     source.viewedServerTick = 88;
 
     lg::WirePacket wire;
@@ -88,6 +89,7 @@ int main() {
     );
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
+    failures += expect(decoded.toggleReady, "ready bit should round trip");
 
     lg::WirePacket wrongVersion = wire;
     wrongVersion[4] = 1;
@@ -152,6 +154,21 @@ int main() {
     source.lightningGuns[0].appliedRewindTicks = 18;
     source.lightningGuns[0].rewindClamped = true;
     source.respawnTicksRemaining = {0, 88};
+    source.scores = {7, 4};
+    source.connectedPlayers = {true, true};
+    source.readyPlayers = {true, false};
+    source.matchPhase = lg::MatchPhase::Countdown;
+    source.matchRules.roundLimit = 10;
+    source.matchRules.timeLimitMinutes = 5;
+    source.matchRules.playerLimit = 2;
+    source.matchRules.countdownTicks = 625;
+    source.matchRules.roundEndTicks = 125;
+    source.matchRules.matchEndTicks = 625;
+    source.matchRules.showOpponentHealth = true;
+    source.phaseTicksRemaining = 321;
+    source.liveTicksElapsed = 900;
+    source.roundWinner = 0;
+    source.matchWinner = 255;
     source.playersColliding = true;
 
     lg::WirePacket wire;
@@ -180,7 +197,31 @@ int main() {
       "3D knockback should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
+    failures += expect(decoded.scores == source.scores, "scores should round trip");
+    failures += expect(
+      decoded.connectedPlayers == source.connectedPlayers &&
+        decoded.readyPlayers == source.readyPlayers,
+      "lobby state should round trip"
+    );
+    failures += expect(
+      decoded.matchPhase == lg::MatchPhase::Countdown &&
+        decoded.matchRules.showOpponentHealth &&
+        decoded.phaseTicksRemaining == 321,
+      "match rules and phase should round trip"
+    );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
+
+    lg::DisconnectPacket disconnect{12345};
+    lg::DisconnectPacket decodedDisconnect;
+    failures += expect(
+      lg::encodeDisconnectPacket(disconnect, wire),
+      "disconnect should encode"
+    );
+    failures += expect(
+      lg::decodeDisconnectPacket(wire, decodedDisconnect) &&
+        decodedDisconnect.clientNonce == 12345,
+      "disconnect should round trip"
+    );
 
     lg::WirePacket oversized(lg::kMaxPacketBytes + 1, 0);
     failures += expect(

@@ -4,6 +4,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <array>
 #include <memory>
 #include <string>
 
@@ -27,6 +28,7 @@ public:
 
   [[nodiscard]] std::uint16_t localPort() const;
   [[nodiscard]] std::size_t connectedClientCount() const;
+  [[nodiscard]] std::array<bool, kDuelPlayerCount> connectedPlayers() const;
   [[nodiscard]] const std::string& lastError() const;
 
 private:
@@ -43,6 +45,7 @@ public:
   UdpClientTransport& operator=(const UdpClientTransport&) = delete;
 
   [[nodiscard]] bool initialize();
+  void disconnect();
   void update();
 
   void sendCommand(const CommandPacket& packet) override;
@@ -55,6 +58,8 @@ public:
   [[nodiscard]] std::uint8_t playerIndex() const;
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] const std::string& lastError() const;
+  [[nodiscard]] const std::string& host() const;
+  [[nodiscard]] std::uint16_t port() const;
 
 private:
   struct Impl;

@@ -7,12 +7,17 @@ namespace lg {
 ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
   : transport_(transport), localPlayerIndex_(localPlayerIndex) {}
 
-void ClientGame::sendCommand(const UserCommand& command, bool requestReset) {
+void ClientGame::sendCommand(
+  const UserCommand& command,
+  bool requestReset,
+  bool toggleReady
+) {
   transport_.sendCommand(
     CommandPacket{
       static_cast<std::uint8_t>(localPlayerIndex_),
       command,
       requestReset,
+      toggleReady,
       snapshot_.serverTick,
     }
   );

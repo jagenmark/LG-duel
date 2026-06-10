@@ -173,7 +173,7 @@ int main() {
       targetCommand.sequence = sequence;
       targetCommand.viewYawRadians = kPi;
       targetCommand.rightMove = 1.0F;
-      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, sequence});
+      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, false, sequence});
       server.tick(lg::kFixedTickSeconds);
     }
 
@@ -222,7 +222,7 @@ int main() {
       lg::UserCommand targetCommand;
       targetCommand.sequence = sequence;
       targetCommand.viewYawRadians = kPi;
-      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, sequence});
+      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, false, sequence});
       server.tick(lg::kFixedTickSeconds);
     }
     latestSnapshot(transport);
@@ -271,11 +271,80 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::MatchRules rules;
+    rules.roundLimit = 2;
+    rules.countdownTicks = 2;
+    rules.roundEndTicks = 2;
+    rules.matchEndTicks = 3;
+    server.setMatchRules(rules);
+    server.setConnectedPlayers({true, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForPlayers,
+      "one connected player should remain in the lobby"
+    );
+    failures += expect(
+      snapshot.connectedPlayers == std::array<bool, 2>{true, false},
+      "snapshot should replicate occupied player slots"
+    );
+
+    server.setConnectedPlayers({true, true});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady,
+      "two connected players should wait for ready-up"
+    );
+
+    lg::UserCommand firstReady;
+    firstReady.sequence = 0;
+    transport.sendCommand(lg::CommandPacket{0, firstReady, false, true, 0});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.readyPlayers == std::array<bool, 2>{true, false},
+      "first ready request should only ready its player"
+    );
+
+    lg::UserCommand secondReady;
+    secondReady.sequence = 0;
+    transport.sendCommand(lg::CommandPacket{1, secondReady, false, true, 0});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::Countdown &&
+        snapshot.phaseTicksRemaining == 2,
+      "all ready players should begin the configured countdown"
+    );
+
+    lg::UserCommand countdownCommand;
+    countdownCommand.sequence = 1;
+    countdownCommand.forwardMove = 1.0F;
+    countdownCommand.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, countdownCommand, false, false, 0});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].position.x > -3.0F,
+      "players should be able to move during countdown"
+    );
+    failures += expect(
+      !snapshot.lightningGuns[0].active && snapshot.players[1].health == 100,
+      "weapons should remain locked during countdown"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::Live,
+      "countdown expiry should unlock live play"
+    );
+
     std::uint32_t lastAttackSequence = 0;
-    lg::ServerSnapshot snapshot;
     for (std::uint32_t sequence = 0; sequence < 200; ++sequence) {
       lg::UserCommand command;
-      command.sequence = sequence;
+      command.sequence = sequence + 2;
       command.clientTick = sequence;
       command.attack = true;
       transport.sendCommand(lg::CommandPacket{0, command, false});
@@ -289,48 +358,76 @@ int main() {
 
     failures += expect(snapshot.players[1].health == 0, "authoritative LG should kill the target");
     failures += expect(
-      snapshot.acknowledgedCommand[0] == lastAttackSequence,
+      snapshot.acknowledgedCommand[0] == lastAttackSequence + 2,
       "server should ack latest combat command"
     );
     failures += expect(
-      snapshot.respawnTicksRemaining[1] == 250,
-      "death should start fixed respawn countdown"
+      snapshot.scores[0] == 1 &&
+        snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
+        snapshot.roundWinner == 0,
+      "non-final kill should score and enter round end"
     );
 
     lg::UserCommand deadTargetCommand;
-    deadTargetCommand.sequence = 0;
+    deadTargetCommand.sequence = 1;
     deadTargetCommand.viewYawRadians = kPi;
     deadTargetCommand.attack = true;
     transport.sendCommand(lg::CommandPacket{1, deadTargetCommand, false});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
-    failures += expect(!snapshot.lightningGuns[1].active, "dead player should not fire");
-    failures += expect(
-      snapshot.respawnTicksRemaining[1] == 249,
-      "dead player respawn countdown should advance each tick"
-    );
-
-    for (int tick = 0; tick < 248; ++tick) {
-      server.tick(lg::kFixedTickSeconds);
-    }
-    snapshot = latestSnapshot(transport);
-    failures += expect(snapshot.players[1].health == 0, "player should remain dead before countdown expires");
-    failures += expect(
-      snapshot.respawnTicksRemaining[1] == 1,
-      "respawn should retain final countdown tick"
-    );
+    failures += expect(!snapshot.lightningGuns[1].active, "weapons should be locked after round end");
 
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
-    failures += expect(snapshot.players[1].health == 100, "countdown expiry should respawn player");
-    failures += expect(snapshot.players[1].position.x == 3.0F, "respawn should restore player spawn");
     failures += expect(
-      snapshot.respawnTicksRemaining[1] == 0,
-      "respawn should clear countdown"
+      snapshot.matchPhase == lg::MatchPhase::Countdown &&
+        snapshot.scores == std::array<std::uint16_t, 2>{1, 0} &&
+        snapshot.players[0].health == 100 &&
+        snapshot.players[1].health == 100,
+      "round-end expiry should respawn both players into a new countdown"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::Live,
+      "new round countdown should return to live play"
+    );
+
+    std::uint32_t secondRoundSequence = lastAttackSequence + 3;
+    for (int tick = 0; tick < 200; ++tick) {
+      lg::UserCommand command;
+      command.sequence = secondRoundSequence++;
+      command.attack = true;
+      transport.sendCommand(lg::CommandPacket{0, command, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.matchPhase == lg::MatchPhase::MatchEnd) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.scores[0] == 2 &&
+        snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
+        snapshot.matchWinner == 0,
+      "configured round limit should end the match"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    server.tick(lg::kFixedTickSeconds);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady &&
+        snapshot.scores == std::array<std::uint16_t, 2>{0, 0} &&
+        snapshot.players[0].health == 100 &&
+        snapshot.players[1].health == 100,
+      "match-end expiry should reset scores, readiness, and both spawns"
     );
 
     lg::UserCommand resetCommand;
-    resetCommand.sequence = lastAttackSequence + 1;
+    resetCommand.sequence = secondRoundSequence;
     transport.sendCommand(lg::CommandPacket{0, resetCommand, true});
     const std::uint32_t tickBeforeReset = snapshot.serverTick;
     server.tick(lg::kFixedTickSeconds);

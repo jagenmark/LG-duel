@@ -53,7 +53,7 @@ Start up to two clients:
 ./build/default/lg_duel_client 127.0.0.1 27960
 ```
 
-The server assigns player slots during a version-checked handshake. The client retries connection requests, sends the latest three sequenced commands in each UDP datagram, measures ping with tokenized ping/pong packets, and times out silent connections after five seconds.
+The server assigns player slots during a version-checked handshake. The client retries connection requests, sends the latest three sequenced commands in each UDP datagram, measures ping with tokenized ping/pong packets, and times out silent connections after five seconds. The client remains open when disconnected or when a connection attempt fails.
 
 Client controls:
 
@@ -64,10 +64,11 @@ Client controls:
 - Mouse: raw relative look
 - Left mouse: fire the continuous lightning gun
 - `R`: request an authoritative match reset
+- `F3`: toggle ready state
 - `§` (the physical grave/section key left of `1`): toggle the client console
 - `Esc`: quit
 
-The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The window title reports assigned player, ping, server tick, command sequence/ack, requested/applied rewind, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
+The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, scoring, synchronized round respawns, and match state at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The HUD presents match information while optional diagnostics remain available in the window title.
 
 ## Client Console
 
@@ -86,6 +87,9 @@ clear
 net_stats
 writeconfig
 quit
+connect <host> [port]
+disconnect
+reconnect
 bind <key> <command>
 unbind <key>
 unbindall
@@ -104,11 +108,39 @@ bind section "toggleconsole"
 
 Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, and `+attack`. Use `actionlist` in the console to list them. Game-specific one-shot commands include `resetmatch`, `toggleconsole`, and `quit`. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
 
+`connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
+
 Initial client cvars include `sensitivity`, `cl_fov`, `cl_showfps`, `cl_show_net`, `r_vsync`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls. These settings are client-only and do not alter authoritative movement, hit detection, damage, or network timing.
 
 Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
 
 The client predicts local movement immediately, reconciles against acknowledged authoritative snapshots, replays pending commands, and interpolates the remote player between snapshots. Prediction correction count, correction distance, and pending command count are shown in the window title.
+
+## Match Flow
+
+The HUD shows connection state, connected-player count, health, score, ready prompts, countdown, round result, and match result. With the default rules:
+
+- Both player slots must be occupied.
+- Each player presses `F3` to ready up.
+- Every round starts with a five-second countdown.
+- Movement remains enabled during countdown; the server rejects attacks until it expires.
+- A kill awards one round and respawns both players for the next countdown.
+- The first player to 10 rounds wins the match.
+- After match end, scores and readiness reset.
+
+The dedicated server accepts console commands on standard input. Authoritative match settings are:
+
+```text
+sv_roundlimit 10
+sv_timelimit 0
+sv_playerlimit 2
+sv_countdown 5
+sv_roundend 1
+sv_matchend 5
+sv_showopponenthealth 0
+```
+
+`sv_timelimit` is expressed in minutes and `0` disables it. The server replicates these settings to both clients. Opponent health is hidden by default; `sv_showopponenthealth 1` enables it symmetrically for everyone.
 
 ## Network Protocol
 

@@ -1,9 +1,8 @@
 #include "app/GameApp.hpp"
 
-#include "client/ClientGame.hpp"
+#include "client/ClientSession.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
-#include "net/UdpTransport.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
@@ -18,13 +17,13 @@
 
 #include <chrono>
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <cstdint>
 #include <deque>
 #include <fstream>
 #include <iostream>
 #include <sstream>
-#include <thread>
 #include <utility>
 
 namespace lg {
@@ -106,6 +105,7 @@ bool saveClientConfig(
 
 void registerClientCvars(ConsoleSystem& console) {
   const CvarFlag archivedClient = CvarFlag::Archive | CvarFlag::Client;
+  console.registerCvar({"cl_config_version", "Client config migration version.", 0, archivedClient, 0.0F, 100.0F});
   console.registerCvar({"sensitivity", "Mouse sensitivity multiplier.", 1.0F, archivedClient, 0.1F, 10.0F});
   console.registerCvar({"cl_fov", "Top-down camera view extent.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_showfps", "Show render FPS in the window title.", false, archivedClient, {}, {}});
@@ -155,19 +155,6 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   return renderState;
 }
 
-[[nodiscard]] const char* movementModeName(MovementMode mode) {
-  switch (mode) {
-  case MovementMode::Grounded:
-    return "Grounded";
-  case MovementMode::Airborne:
-    return "Airborne";
-  case MovementMode::Flying:
-    return "Flying";
-  }
-
-  return "Unknown";
-}
-
 std::string keyName(SDL_Scancode scancode) {
   switch (scancode) {
   case SDL_SCANCODE_GRAVE:
@@ -206,7 +193,116 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("r", "resetmatch");
+  (void)bindings.bind("f3", "ready");
   (void)bindings.bind("escape", "quit");
+}
+
+std::string matchPhaseName(MatchPhase phase) {
+  switch (phase) {
+  case MatchPhase::WaitingForPlayers:
+    return "WAITING FOR PLAYERS";
+  case MatchPhase::WaitingForReady:
+    return "WAITING FOR READY";
+  case MatchPhase::Countdown:
+    return "ROUND START";
+  case MatchPhase::Live:
+    return "LIVE";
+  case MatchPhase::RoundEnd:
+    return "ROUND OVER";
+  case MatchPhase::MatchEnd:
+    return "MATCH OVER";
+  }
+  return "UNKNOWN";
+}
+
+HudRenderState buildHud(const ClientSession& session) {
+  HudRenderState hud;
+  hud.centerLines.push_back(session.statusMessage());
+  if (!session.readyForPlay()) {
+    return hud;
+  }
+
+  const ClientGame& client = *session.game();
+  const ServerSnapshot& snapshot = client.snapshot();
+  const std::size_t localPlayerIndex = session.playerIndex();
+  const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
+  const std::size_t connectedCount = static_cast<std::size_t>(std::count(
+    snapshot.connectedPlayers.begin(),
+    snapshot.connectedPlayers.end(),
+    true
+  ));
+
+  hud.centerLines.clear();
+  hud.topLeftLines.push_back(
+    "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
+  );
+  hud.topLeftLines.push_back(
+    "PLAYERS " + std::to_string(connectedCount) + '/' +
+    std::to_string(kDuelPlayerCount)
+  );
+  hud.topRightLines.push_back(
+    "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) + " - " +
+    std::to_string(snapshot.scores[opponentPlayerIndex]) + " / " +
+    std::to_string(snapshot.matchRules.roundLimit)
+  );
+  if (snapshot.matchRules.timeLimitMinutes > 0) {
+    const std::uint32_t limitTicks =
+      static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
+    const std::uint32_t remainingTicks =
+      snapshot.liveTicksElapsed < limitTicks
+      ? limitTicks - snapshot.liveTicksElapsed
+      : 0U;
+    const std::uint32_t remainingSeconds = remainingTicks / 125U;
+    hud.topRightLines.push_back(
+      "TIME " + std::to_string(remainingSeconds / 60U) + ':' +
+      (remainingSeconds % 60U < 10U ? "0" : "") +
+      std::to_string(remainingSeconds % 60U)
+    );
+  }
+  if (snapshot.matchRules.showOpponentHealth) {
+    hud.topRightLines.push_back(
+      "OPPONENT " + std::to_string(snapshot.players[opponentPlayerIndex].health)
+    );
+    hud.showOpponentHealthBar = true;
+  }
+
+  hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
+  switch (snapshot.matchPhase) {
+  case MatchPhase::WaitingForPlayers:
+    hud.centerLines.push_back(
+      std::to_string(connectedCount) + '/' +
+      std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
+    );
+    break;
+  case MatchPhase::WaitingForReady:
+    hud.centerLines.push_back(
+      snapshot.readyPlayers[localPlayerIndex]
+        ? "WAITING FOR OTHER PLAYERS TO READY UP"
+        : "PRESS F3 TO READY UP"
+    );
+    break;
+  case MatchPhase::Countdown: {
+    const std::uint32_t seconds =
+      (snapshot.phaseTicksRemaining + 124U) / 125U;
+    hud.centerLines.push_back(std::to_string(seconds));
+    hud.centerLines.push_back("MOVE ENABLED - WEAPONS LOCKED");
+    break;
+  }
+  case MatchPhase::RoundEnd:
+    hud.centerLines.push_back(
+      snapshot.roundWinner == localPlayerIndex ? "ROUND WON" : "ROUND LOST"
+    );
+    break;
+  case MatchPhase::MatchEnd:
+    hud.centerLines.push_back(
+      snapshot.matchWinner == localPlayerIndex ? "MATCH WON" : "MATCH LOST"
+    );
+    break;
+  case MatchPhase::Live:
+    hud.centerLines.clear();
+    break;
+  }
+  return hud;
 }
 
 [[nodiscard]] UserCommand buildCommand(
@@ -242,36 +338,6 @@ GameApp::GameApp(std::string serverHost, std::uint16_t serverPort)
 
 int GameApp::run() const {
 #if LG_DUEL_HAS_SDL3
-  UdpClientTransport transport(serverHost_, serverPort_);
-  if (!transport.initialize()) {
-    std::cerr << "UDP client initialization failed: " << transport.lastError() << '\n';
-    return 1;
-  }
-
-  const auto connectionDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (!transport.connected() && std::chrono::steady_clock::now() < connectionDeadline) {
-    transport.update();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  if (!transport.connected()) {
-    std::cerr << "Timed out connecting to " << serverHost_ << ':' << serverPort_ << '\n';
-    return 1;
-  }
-
-  const std::size_t localPlayerIndex = transport.playerIndex();
-  const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
-  ClientGame client(transport, localPlayerIndex);
-  const auto snapshotDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
-  while (!client.hasSnapshot() && std::chrono::steady_clock::now() < snapshotDeadline) {
-    transport.update();
-    client.receiveSnapshots();
-    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-  }
-  if (!client.hasSnapshot()) {
-    std::cerr << "Connected, but no server snapshot was received.\n";
-    return 1;
-  }
-
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
     return 1;
@@ -304,10 +370,12 @@ int GameApp::run() const {
   LocalInputState input;
   bool running = true;
   bool resetRequested = false;
+  bool readyRequested = false;
   bool quitRequested = false;
   bool clearRequested = false;
   bool writeConfigRequested = false;
   bool toggleConsoleRequested = false;
+  ClientSession session;
 
   const auto registerButtonCommand =
     [&console](std::string name, int& pressCount) {
@@ -342,6 +410,72 @@ int GameApp::run() const {
     [&quitRequested](const std::vector<std::string>&) {
       quitRequested = true;
       return "quitting";
+    }
+  );
+  console.registerCommand(
+    "ready",
+    "Toggle ready state while waiting for a match.",
+    [&readyRequested](const std::vector<std::string>&) {
+      readyRequested = true;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
+    "connect",
+    "Connect to a server: connect <host> [port], or connect <port> for localhost.",
+    [&session](const std::vector<std::string>& arguments) {
+      if (arguments.size() < 2 || arguments.size() > 3) {
+        return std::string("usage: connect <host> [port]");
+      }
+      std::string host = arguments[1];
+      std::uint16_t port = 27960;
+      const auto parsePort = [](std::string_view text, std::uint16_t& parsed) {
+        unsigned int value = 0;
+        const auto result = std::from_chars(
+          text.data(),
+          text.data() + text.size(),
+          value
+        );
+        if (
+          result.ec != std::errc{} ||
+          result.ptr != text.data() + text.size() ||
+          value == 0 ||
+          value > 65535U
+        ) {
+          return false;
+        }
+        parsed = static_cast<std::uint16_t>(value);
+        return true;
+      };
+      if (arguments.size() == 2) {
+        std::uint16_t shorthandPort = 0;
+        if (parsePort(arguments[1], shorthandPort)) {
+          host = "127.0.0.1";
+          port = shorthandPort;
+        }
+      } else if (!parsePort(arguments[2], port)) {
+        return std::string("invalid UDP port");
+      }
+      return session.connect(std::move(host), port)
+        ? session.statusMessage()
+        : "connect failed: " + session.statusMessage();
+    }
+  );
+  console.registerCommand(
+    "disconnect",
+    "Disconnect from the current server.",
+    [&session](const std::vector<std::string>&) {
+      session.disconnect();
+      return std::string("Disconnected");
+    }
+  );
+  console.registerCommand(
+    "reconnect",
+    "Reconnect to the most recently used server.",
+    [&session](const std::vector<std::string>&) {
+      return session.reconnect()
+        ? session.statusMessage()
+        : "reconnect failed: " + session.statusMessage();
     }
   );
   console.registerCommand(
@@ -446,6 +580,7 @@ int GameApp::run() const {
         "+movedown\n"
         "+attack\n"
         "resetmatch\n"
+        "ready\n"
         "toggleconsole\n"
         "quit"
       );
@@ -454,20 +589,27 @@ int GameApp::run() const {
   console.registerCommand(
     "net_stats",
     "Print current connection diagnostics.",
-    [&transport](const std::vector<std::string>&) {
-      char text[96];
+    [&session](const std::vector<std::string>&) {
+      char text[160];
       std::snprintf(
         text,
         sizeof(text),
-        "connected=%d player=%u ping=%.1fms",
-        transport.connected() ? 1 : 0,
-        static_cast<unsigned int>(transport.playerIndex() + 1U),
-        transport.pingMilliseconds()
+        "state=%d host=%s port=%u player=%zu ping=%.1fms",
+        static_cast<int>(session.state()),
+        std::string(session.host()).c_str(),
+        static_cast<unsigned int>(session.port()),
+        session.playerIndex() + 1U,
+        session.pingMilliseconds()
       );
       return std::string(text);
     }
   );
   loadClientConfig(console, configPath);
+  if (console.getInt("cl_config_version") < 1) {
+    (void)bindings.bind("f3", "ready");
+    (void)console.execute("set cl_config_version 1");
+  }
+  (void)session.connect(serverHost_, serverPort_);
   (void)renderer.setVSync(console.getBool("r_vsync"));
   bool appliedVSync = console.getBool("r_vsync");
   ClientConsoleState consoleState;
@@ -655,6 +797,7 @@ int GameApp::run() const {
     if (quitRequested) {
       running = false;
     }
+    session.update();
     const bool requestedVSync = console.getBool("r_vsync");
     if (requestedVSync != appliedVSync) {
       if (!renderer.setVSync(requestedVSync)) {
@@ -681,13 +824,17 @@ int GameApp::run() const {
 
     bool consumedMouseForTick = false;
     for (int tick = 0; tick < fixedTickFrame.tickCount; ++tick) {
+      ClientGame* client = session.game();
+      if (client == nullptr || !client->hasSnapshot()) {
+        break;
+      }
       LocalInputState tickInput = input;
       if (consumedMouseForTick) {
         tickInput.mouseDeltaX = 0.0F;
         tickInput.mouseDeltaY = 0.0F;
       }
 
-      const PlayerState& predictedPlayer = client.predictedPlayer();
+      const PlayerState& predictedPlayer = client->predictedPlayer();
       const UserCommand command =
         buildCommand(
           tickInput,
@@ -696,10 +843,10 @@ int GameApp::run() const {
           clientTick++,
           console.getFloat("sensitivity")
         );
-      client.sendCommand(command, resetRequested);
+      session.sendCommand(command, resetRequested, readyRequested);
       resetRequested = false;
-      transport.update();
-      client.receiveSnapshots();
+      readyRequested = false;
+      session.update();
       consumedMouseForTick = true;
     }
     if (consumedMouseForTick) {
@@ -712,29 +859,34 @@ int GameApp::run() const {
       displayedFramesPerSecond =
         static_cast<float>(renderedFrameCount) / titleAccumulatorSeconds;
       renderedFrameCount = 0;
-      const ServerSnapshot& snapshot = client.snapshot();
-      const PlayerState& player = client.predictedPlayer();
-      const PlayerState& opponent = snapshot.players[opponentPlayerIndex];
-      const LightningGunResult& lightningGun =
-        snapshot.lightningGuns[localPlayerIndex];
-      const PredictionDiagnostics& prediction = client.predictionDiagnostics();
       char title[256];
       char fpsText[32] = {};
       if (console.getBool("cl_showfps")) {
         std::snprintf(fpsText, sizeof(fpsText), " | %.0f FPS", displayedFramesPerSecond);
       }
-      if (console.getBool("cl_show_net")) {
+      const ClientGame* titleClient = session.game();
+      if (
+        console.getBool("cl_show_net") &&
+        titleClient != nullptr &&
+        titleClient->hasSnapshot()
+      ) {
+        const std::size_t localPlayerIndex = session.playerIndex();
+        const ServerSnapshot& snapshot = titleClient->snapshot();
+        const LightningGunResult& lightningGun =
+          snapshot.lightningGuns[localPlayerIndex];
+        const PredictionDiagnostics& prediction =
+          titleClient->predictionDiagnostics();
         std::snprintf(
           title,
           sizeof(title),
-          "%s%s | P%zu | ping %.1f ms | tick %u | cmd %u/%u | rewind %u/%u%s | pending %zu | corrections %u %.4f | overload %u %.3fs | collision %s | %s | target %d HP respawn %u | LG %s",
+          "%s%s | P%zu | ping %.1f ms | tick %u | cmd %u/%u | rewind %u/%u%s | pending %zu | corrections %u %.4f | overload %u %.3fs | phase %s",
           name().data(),
           fpsText,
           localPlayerIndex + 1,
-          transport.pingMilliseconds(),
+          session.pingMilliseconds(),
           snapshot.serverTick,
           commandSequence == 0 ? 0 : commandSequence - 1,
-          client.lastAcknowledgedCommand(),
+          titleClient->lastAcknowledgedCommand(),
           lightningGun.requestedRewindTicks,
           lightningGun.appliedRewindTicks,
           lightningGun.rewindClamped ? " CLAMP" : "",
@@ -743,11 +895,7 @@ int GameApp::run() const {
           prediction.lastCorrectionDistance,
           overloadFrameCount,
           droppedSimulationSeconds,
-          snapshot.playersColliding ? "YES" : "NO",
-          movementModeName(player.movementMode),
-          opponent.health,
-          snapshot.respawnTicksRemaining[opponentPlayerIndex],
-          lightningGun.hit ? "HIT" : (lightningGun.active ? "MISS" : "OFF")
+          matchPhaseName(snapshot.matchPhase).c_str()
         );
       } else {
         std::snprintf(
@@ -762,26 +910,36 @@ int GameApp::run() const {
       titleAccumulatorSeconds = 0.0F;
     }
 
-    const ServerSnapshot& snapshot = client.snapshot();
     const float interpolationAlpha = clamp(
       accumulatorSeconds / kFixedTickSeconds,
       0.0F,
       1.0F
     );
+    PlayerState renderPlayer;
+    PlayerState renderOpponent;
+    LightningGunResult renderLightningGun;
+    if (const ClientGame* renderClient = session.game();
+        renderClient != nullptr && renderClient->hasSnapshot()) {
+      const std::size_t localPlayerIndex = session.playerIndex();
+      const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
+      renderPlayer = renderClient->predictedPlayer();
+      renderOpponent = renderClient->interpolatedPlayer(
+        opponentPlayerIndex,
+        interpolationAlpha
+      );
+      renderLightningGun =
+        renderClient->snapshot().lightningGuns[localPlayerIndex];
+    }
     renderer.render(
       arena,
-      client.predictedPlayer(),
-      client.interpolatedPlayer(opponentPlayerIndex, interpolationAlpha),
-      snapshot.lightningGuns[localPlayerIndex],
+      renderPlayer,
+      renderOpponent,
+      renderLightningGun,
       renderSettings(console),
+      buildHud(session),
       consoleRenderState(consoleState)
     );
-    transport.update();
-    client.receiveSnapshots();
-    if (transport.timedOut()) {
-      std::cerr << "Server connection timed out.\n";
-      running = false;
-    }
+    session.update();
     SDL_Delay(1);
   }
 

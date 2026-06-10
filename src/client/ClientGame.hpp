@@ -16,7 +16,7 @@ class ClientGame {
 public:
   ClientGame(NetTransport& transport, std::size_t localPlayerIndex);
 
-  void sendCommand(const UserCommand& command, bool requestReset);
+  void sendCommand(const UserCommand& command, bool requestReset, bool toggleReady = false);
   void receiveSnapshots();
 
   [[nodiscard]] bool hasSnapshot() const;

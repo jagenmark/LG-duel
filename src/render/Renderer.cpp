@@ -138,6 +138,45 @@ void drawConsole(
   const std::string prompt = "] " + console.input + '_';
   SDL_RenderDebugText(renderer, 10.0F, consoleHeight - 20.0F, prompt.c_str());
 }
+
+void drawHud(
+  SDL_Renderer* renderer,
+  int width,
+  int height,
+  const HudRenderState& hud
+) {
+  SDL_SetRenderDrawColor(renderer, 235, 242, 250, 255);
+  float y = 12.0F;
+  for (const std::string& line : hud.topLeftLines) {
+    SDL_RenderDebugText(renderer, 12.0F, y, line.c_str());
+    y += 12.0F;
+  }
+
+  y = 12.0F;
+  for (const std::string& line : hud.topRightLines) {
+    const float x = std::max(
+      12.0F,
+      static_cast<float>(width) - 12.0F -
+        static_cast<float>(line.size() * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE)
+    );
+    SDL_RenderDebugText(renderer, x, y, line.c_str());
+    y += 12.0F;
+  }
+
+  const float firstY =
+    (static_cast<float>(height) * 0.5F) -
+    (static_cast<float>(hud.centerLines.size()) * 7.0F);
+  y = firstY;
+  for (const std::string& line : hud.centerLines) {
+    const float x = std::max(
+      12.0F,
+      (static_cast<float>(width) -
+       static_cast<float>(line.size() * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE)) * 0.5F
+    );
+    SDL_RenderDebugText(renderer, x, y, line.c_str());
+    y += 14.0F;
+  }
+}
 #endif
 
 } // namespace
@@ -162,6 +201,7 @@ void Renderer::render(
   const PlayerState& opponent,
   const LightningGunResult& lightningGun,
   const RenderSettings& settings,
+  const HudRenderState& hud,
   const ConsoleRenderState& console
 ) {
 #if LG_DUEL_HAS_SDL3
@@ -282,16 +322,18 @@ void Renderer::render(
   );
   SDL_RenderFillRect(renderer, &opponentRect);
 
-  const float opponentHealthRatio =
-    std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
-  SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
-  const SDL_FRect opponentHealthRect = rect(
-    opponentX - 18.0F,
-    opponentY - 16.0F,
-    36.0F * opponentHealthRatio,
-    4.0F
-  );
-  SDL_RenderFillRect(renderer, &opponentHealthRect);
+  if (hud.showOpponentHealthBar) {
+    const float opponentHealthRatio =
+      std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+    SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
+    const SDL_FRect opponentHealthRect = rect(
+      opponentX - 18.0F,
+      opponentY - 16.0F,
+      36.0F * opponentHealthRatio,
+      4.0F
+    );
+    SDL_RenderFillRect(renderer, &opponentHealthRect);
+  }
 
   SDL_SetRenderDrawColor(renderer, 66, 211, 146, 255);
   const SDL_FRect playerRect = rect(playerX - radius, playerY - radius, radius * 2.0F, radius * 2.0F);
@@ -314,6 +356,7 @@ void Renderer::render(
   SDL_RenderFillRect(renderer, &heightRect);
 
   drawCrosshair(renderer, width, height, settings);
+  drawHud(renderer, width, height, hud);
   drawConsole(renderer, width, height, console);
   SDL_RenderPresent(renderer);
 #else
@@ -322,6 +365,7 @@ void Renderer::render(
   (void)opponent;
   (void)lightningGun;
   (void)settings;
+  (void)hud;
   (void)console;
 #endif
 }

@@ -13,6 +13,7 @@ include(cmake/Dependencies.cmake)
 
 add_library(lg_duel_core
   src/client/ClientGame.cpp
+  src/client/ClientSession.cpp
   src/client/Interpolation.cpp
   src/client/Prediction.cpp
   src/console/ConsoleSystem.cpp

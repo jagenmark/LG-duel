@@ -191,6 +191,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
     writer.writeBool(packet.requestReset) &&
+    writer.writeBool(packet.toggleReady) &&
     writer.writeU32(packet.viewedServerTick);
 }
 
@@ -207,6 +208,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
     !reader.readBool(packet.requestReset) ||
+    !reader.readBool(packet.toggleReady) ||
     !reader.readU32(packet.viewedServerTick)
   ) {
     return false;
@@ -338,7 +340,7 @@ bool inspectPacketType(const WirePacket& wire, PacketType& type) {
     reserved != 0 ||
     payloadBytes != wire.size() - kHeaderBytes ||
     encodedType < static_cast<std::uint8_t>(PacketType::ConnectRequest) ||
-    encodedType > static_cast<std::uint8_t>(PacketType::Pong)
+    encodedType > static_cast<std::uint8_t>(PacketType::Disconnect)
   ) {
     return false;
   }
@@ -489,7 +491,35 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
-  return writer.writeBool(snapshot.playersColliding) && finishPacket(writer);
+  for (std::uint16_t score : snapshot.scores) {
+    if (!writer.writeU16(score)) {
+      return false;
+    }
+  }
+  for (bool connected : snapshot.connectedPlayers) {
+    if (!writer.writeBool(connected)) {
+      return false;
+    }
+  }
+  for (bool ready : snapshot.readyPlayers) {
+    if (!writer.writeBool(ready)) {
+      return false;
+    }
+  }
+  return writer.writeU8(static_cast<std::uint8_t>(snapshot.matchPhase)) &&
+    writer.writeU16(snapshot.matchRules.roundLimit) &&
+    writer.writeU16(snapshot.matchRules.timeLimitMinutes) &&
+    writer.writeU8(snapshot.matchRules.playerLimit) &&
+    writer.writeU16(snapshot.matchRules.countdownTicks) &&
+    writer.writeU16(snapshot.matchRules.roundEndTicks) &&
+    writer.writeU16(snapshot.matchRules.matchEndTicks) &&
+    writer.writeBool(snapshot.matchRules.showOpponentHealth) &&
+    writer.writeU32(snapshot.phaseTicksRemaining) &&
+    writer.writeU32(snapshot.liveTicksElapsed) &&
+    writer.writeU8(snapshot.roundWinner) &&
+    writer.writeU8(snapshot.matchWinner) &&
+    writer.writeBool(snapshot.playersColliding) &&
+    finishPacket(writer);
 }
 
 bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
@@ -522,9 +552,47 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       return false;
     }
   }
-  if (!reader.readBool(decoded.playersColliding) || reader.remaining() != 0) {
+  for (std::uint16_t& score : decoded.scores) {
+    if (!reader.readU16(score)) {
+      return false;
+    }
+  }
+  for (bool& connected : decoded.connectedPlayers) {
+    if (!reader.readBool(connected)) {
+      return false;
+    }
+  }
+  for (bool& ready : decoded.readyPlayers) {
+    if (!reader.readBool(ready)) {
+      return false;
+    }
+  }
+  std::uint8_t matchPhase = 0;
+  if (
+    !reader.readU8(matchPhase) ||
+    matchPhase > static_cast<std::uint8_t>(MatchPhase::MatchEnd) ||
+    !reader.readU16(decoded.matchRules.roundLimit) ||
+    !reader.readU16(decoded.matchRules.timeLimitMinutes) ||
+    !reader.readU8(decoded.matchRules.playerLimit) ||
+    !reader.readU16(decoded.matchRules.countdownTicks) ||
+    !reader.readU16(decoded.matchRules.roundEndTicks) ||
+    !reader.readU16(decoded.matchRules.matchEndTicks) ||
+    !reader.readBool(decoded.matchRules.showOpponentHealth) ||
+    !reader.readU32(decoded.phaseTicksRemaining) ||
+    !reader.readU32(decoded.liveTicksElapsed) ||
+    !reader.readU8(decoded.roundWinner) ||
+    !reader.readU8(decoded.matchWinner) ||
+    !reader.readBool(decoded.playersColliding) ||
+    decoded.matchRules.roundLimit == 0 ||
+    decoded.matchRules.playerLimit == 0 ||
+    decoded.matchRules.playerLimit > kDuelPlayerCount ||
+    (decoded.roundWinner != 255 && decoded.roundWinner >= kDuelPlayerCount) ||
+    (decoded.matchWinner != 255 && decoded.matchWinner >= kDuelPlayerCount) ||
+    reader.remaining() != 0
+  ) {
     return false;
   }
+  decoded.matchPhase = static_cast<MatchPhase>(matchPhase);
 
   snapshot = decoded;
   return true;
@@ -553,6 +621,30 @@ bool decodePingPacket(
   if (
     !readHeader(reader, expectedType, wire.size()) ||
     !reader.readU32(decoded.token) ||
+    reader.remaining() != 0
+  ) {
+    return false;
+  }
+  packet = decoded;
+  return true;
+}
+
+bool encodeDisconnectPacket(const DisconnectPacket& packet, WirePacket& wire) {
+  Writer writer(wire);
+  return writeHeader(writer, PacketType::Disconnect) &&
+    writer.writeU32(packet.clientNonce) &&
+    finishPacket(writer);
+}
+
+bool decodeDisconnectPacket(
+  const WirePacket& wire,
+  DisconnectPacket& packet
+) {
+  Reader reader(wire);
+  DisconnectPacket decoded;
+  if (
+    !readHeader(reader, PacketType::Disconnect, wire.size()) ||
+    !reader.readU32(decoded.clientNonce) ||
     reader.remaining() != 0
   ) {
     return false;

@@ -9,7 +9,7 @@
 namespace lg {
 
 inline constexpr std::uint32_t kProtocolMagic = 0x4C474455U;
-inline constexpr std::uint16_t kProtocolVersion = 2;
+inline constexpr std::uint16_t kProtocolVersion = 3;
 inline constexpr std::size_t kMaxPacketBytes = 512;
 
 enum class PacketType : std::uint8_t {
@@ -20,6 +20,7 @@ enum class PacketType : std::uint8_t {
   Snapshot = 5,
   Ping = 6,
   Pong = 7,
+  Disconnect = 8,
 };
 
 using WirePacket = std::vector<std::uint8_t>;
@@ -46,6 +47,15 @@ using WirePacket = std::vector<std::uint8_t>;
   const WirePacket& wire,
   PacketType expectedType,
   PingPacket& packet
+);
+
+[[nodiscard]] bool encodeDisconnectPacket(
+  const DisconnectPacket& packet,
+  WirePacket& wire
+);
+[[nodiscard]] bool decodeDisconnectPacket(
+  const WirePacket& wire,
+  DisconnectPacket& packet
 );
 
 } // namespace lg

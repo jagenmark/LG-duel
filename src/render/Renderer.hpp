@@ -34,6 +34,13 @@ struct ConsoleRenderState {
   std::string input;
 };
 
+struct HudRenderState {
+  std::vector<std::string> topLeftLines;
+  std::vector<std::string> topRightLines;
+  std::vector<std::string> centerLines;
+  bool showOpponentHealthBar = false;
+};
+
 class Renderer {
 public:
   Renderer() = default;
@@ -48,6 +55,7 @@ public:
     const PlayerState& opponent,
     const LightningGunResult& lightningGun,
     const RenderSettings& settings,
+    const HudRenderState& hud,
     const ConsoleRenderState& console
   );
   [[nodiscard]] bool setVSync(bool enabled);

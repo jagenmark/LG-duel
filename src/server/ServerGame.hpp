@@ -18,8 +18,13 @@ public:
 
   void tick(float fixedDt);
   void resetMatch();
+  void setConnectedPlayers(
+    const std::array<bool, kDuelPlayerCount>& connectedPlayers
+  );
+  void setMatchRules(const MatchRules& rules);
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
+  [[nodiscard]] const MatchRules& matchRules() const;
 
 private:
   struct HistoryFrame {
@@ -28,8 +33,14 @@ private:
   };
 
   void receiveCommands();
-  void updateRespawns();
   void respawnPlayer(std::size_t playerIndex);
+  void respawnRound();
+  void updateMatchState();
+  void beginCountdown();
+  void beginRoundEnd(std::size_t winnerIndex);
+  void beginMatchEnd(std::size_t winnerIndex);
+  [[nodiscard]] bool enoughPlayersConnected() const;
+  [[nodiscard]] bool allConnectedPlayersReady() const;
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
   void publishSnapshot();
@@ -43,6 +54,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};
   std::deque<HistoryFrame> history_ = {};
+  MatchRules matchRules_ = {};
   ServerSnapshot snapshot_ = {};
 };
 

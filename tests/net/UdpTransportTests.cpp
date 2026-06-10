@@ -32,6 +32,10 @@ int main() {
   }
 
   lg::ServerGame server(serverTransport);
+  server.setConnectedPlayers({false, false});
+  lg::MatchRules rules;
+  rules.countdownTicks = 2;
+  server.setMatchRules(rules);
   lg::UdpClientTransport firstTransport("127.0.0.1", serverTransport.localPort());
   lg::UdpClientTransport secondTransport("127.0.0.1", serverTransport.localPort());
   failures += expect(firstTransport.initialize(), "first UDP client should initialize");
@@ -44,6 +48,7 @@ int main() {
     firstTransport.update();
     secondTransport.update();
     serverTransport.update();
+    server.setConnectedPlayers(serverTransport.connectedPlayers());
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -68,12 +73,18 @@ int main() {
   lg::ClientGame secondClient(secondTransport, secondTransport.playerIndex());
   for (int iteration = 0; iteration < 100; ++iteration) {
     serverTransport.update();
+    server.setConnectedPlayers(serverTransport.connectedPlayers());
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
     firstClient.receiveSnapshots();
     secondClient.receiveSnapshots();
-    if (firstClient.hasSnapshot() && secondClient.hasSnapshot()) {
+    if (
+      firstClient.hasSnapshot() &&
+      secondClient.hasSnapshot() &&
+      firstClient.snapshot().matchPhase == lg::MatchPhase::WaitingForReady &&
+      secondClient.snapshot().matchPhase == lg::MatchPhase::WaitingForReady
+    ) {
       break;
     }
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -81,20 +92,46 @@ int main() {
 
   failures += expect(firstClient.hasSnapshot(), "first UDP client should receive snapshot");
   failures += expect(secondClient.hasSnapshot(), "second UDP client should receive snapshot");
+  failures += expect(
+    firstClient.snapshot().matchPhase == lg::MatchPhase::WaitingForReady,
+    "two UDP clients should enter ready-up"
+  );
+
+  lg::UserCommand firstReady;
+  firstReady.sequence = 0;
+  lg::UserCommand secondReady;
+  secondReady.sequence = 0;
+  firstClient.sendCommand(firstReady, false, true);
+  secondClient.sendCommand(secondReady, false, true);
+  for (int iteration = 0; iteration < 4; ++iteration) {
+    serverTransport.update();
+    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  failures += expect(
+    firstClient.snapshot().matchPhase == lg::MatchPhase::Live,
+    "UDP ready requests should advance through countdown to live play"
+  );
 
   for (std::uint32_t sequence = 0; sequence < 40; ++sequence) {
     lg::UserCommand firstCommand;
-    firstCommand.sequence = sequence;
+    firstCommand.sequence = sequence + 1;
     firstCommand.clientTick = sequence;
     firstCommand.forwardMove = 1.0F;
     lg::UserCommand secondCommand;
-    secondCommand.sequence = sequence;
+    secondCommand.sequence = sequence + 1;
     secondCommand.clientTick = sequence;
     secondCommand.forwardMove = 1.0F;
 
     firstClient.sendCommand(firstCommand, false);
     secondClient.sendCommand(secondCommand, false);
     serverTransport.update();
+    server.setConnectedPlayers(serverTransport.connectedPlayers());
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -115,8 +152,8 @@ int main() {
 
   failures += expect(firstClient.hasAcknowledgedCommand(), "first UDP command should be acknowledged");
   failures += expect(secondClient.hasAcknowledgedCommand(), "second UDP command should be acknowledged");
-  failures += expect(firstClient.lastAcknowledgedCommand() == 39, "first UDP ack should reach latest command");
-  failures += expect(secondClient.lastAcknowledgedCommand() == 39, "second UDP ack should reach latest command");
+  failures += expect(firstClient.lastAcknowledgedCommand() == 40, "first UDP ack should reach latest command");
+  failures += expect(secondClient.lastAcknowledgedCommand() == 40, "second UDP ack should reach latest command");
   failures += expect(
     firstClient.snapshot().players[firstTransport.playerIndex()].position.x != -3.0F,
     "first authoritative player should move over UDP"
@@ -134,6 +171,7 @@ int main() {
     firstTransport.update();
     secondTransport.update();
     serverTransport.update();
+    server.setConnectedPlayers(serverTransport.connectedPlayers());
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -142,6 +180,16 @@ int main() {
 
   failures += expect(firstTransport.pingMilliseconds() > 0.0F, "first UDP client should measure ping");
   failures += expect(secondTransport.pingMilliseconds() > 0.0F, "second UDP client should measure ping");
+
+  firstTransport.disconnect();
+  serverTransport.update();
+  server.setConnectedPlayers(serverTransport.connectedPlayers());
+  server.tick(lg::kFixedTickSeconds);
+  failures += expect(
+    serverTransport.connectedClientCount() == 1 &&
+      server.snapshot().matchPhase == lg::MatchPhase::WaitingForPlayers,
+    "explicit disconnect should immediately return the server to lobby state"
+  );
 
   return failures == 0 ? 0 : 1;
 }
