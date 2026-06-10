@@ -23,7 +23,7 @@ permissions:
 
 jobs:
   windows-package:
-    runs-on: windows-2025
+    runs-on: windows-latest
     timeout-minutes: 30
     env:
       SERVER_HOST: ${{ inputs.server_host || '213.66.106.51' }}
@@ -31,7 +31,7 @@ jobs:
 
     steps:
       - name: Check out source
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
       - name: Configure release build
         run: >
