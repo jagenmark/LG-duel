@@ -64,9 +64,31 @@ Client controls:
 - Mouse: raw relative look
 - Left mouse: fire the continuous lightning gun
 - `R`: request an authoritative match reset
+- `` ` ``: toggle the client console
 - `Esc`: quit
 
 The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The window title reports assigned player, ping, server tick, command sequence/ack, requested/applied rewind, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
+
+## Client Console
+
+The client console supports typed cvars, validation, command and cvar listing, help, history, autocomplete, and archived configuration. Press `` ` `` to open it, Enter to execute, Up/Down for history, and Tab to complete. Archived values are saved to the platform-specific SDL preferences directory as `client.cfg`.
+
+Core commands:
+
+```text
+set <cvar> [value]
+toggle <bool cvar>
+reset <cvar>
+help <cvar|command>
+cvarlist
+cmdlist
+clear
+net_stats
+writeconfig
+quit
+```
+
+Initial client cvars include `sensitivity`, `cl_fov`, `cl_showfps`, `cl_show_net`, `r_vsync`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls. These settings are client-only and do not alter authoritative movement, hit detection, damage, or network timing.
 
 Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
 
