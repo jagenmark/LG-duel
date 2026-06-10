@@ -168,6 +168,88 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    for (std::uint32_t sequence = 0; sequence < 20; ++sequence) {
+      lg::UserCommand targetCommand;
+      targetCommand.sequence = sequence;
+      targetCommand.viewYawRadians = kPi;
+      targetCommand.rightMove = 1.0F;
+      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, sequence});
+      server.tick(lg::kFixedTickSeconds);
+    }
+
+    const lg::ServerSnapshot beforeAttack = latestSnapshot(transport);
+    failures += expect(
+      beforeAttack.players[1].position.y < -beforeAttack.players[1].bounds.radius,
+      "moving target should leave the uncompensated beam path"
+    );
+
+    lg::UserCommand attack;
+    attack.sequence = 0;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false, 0});
+    server.tick(lg::kFixedTickSeconds);
+
+    const lg::ServerSnapshot compensated = latestSnapshot(transport);
+    failures += expect(compensated.lightningGuns[0].hit, "rewound LG should hit historical target");
+    failures += expect(
+      compensated.players[1].health == 100,
+      "first fixed-tick hit should retain fractional damage against current state"
+    );
+    failures += expect(
+      compensated.lightningGuns[0].requestedRewindTicks == 20 &&
+        compensated.lightningGuns[0].appliedRewindTicks == 20 &&
+        !compensated.lightningGuns[0].rewindClamped,
+      "LG should report an in-range historical rewind"
+    );
+
+    attack.sequence = 1;
+    transport.sendCommand(lg::CommandPacket{0, attack, false, 0});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot damaged = latestSnapshot(transport);
+    failures += expect(damaged.lightningGuns[0].hit, "continuous rewound LG should remain active");
+    failures += expect(
+      damaged.players[1].health == 99,
+      "rewound hit damage should apply to the current authoritative target"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    for (std::uint32_t sequence = 0; sequence < 40; ++sequence) {
+      lg::UserCommand targetCommand;
+      targetCommand.sequence = sequence;
+      targetCommand.viewYawRadians = kPi;
+      transport.sendCommand(lg::CommandPacket{1, targetCommand, false, sequence});
+      server.tick(lg::kFixedTickSeconds);
+    }
+    latestSnapshot(transport);
+
+    lg::UserCommand attack;
+    attack.sequence = 0;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false, 0});
+    server.tick(lg::kFixedTickSeconds);
+
+    const lg::ServerSnapshot clamped = latestSnapshot(transport);
+    failures += expect(
+      clamped.lightningGuns[0].requestedRewindTicks == 40,
+      "LG should report the full requested rewind"
+    );
+    failures += expect(
+      clamped.lightningGuns[0].appliedRewindTicks == 25 &&
+        clamped.lightningGuns[0].rewindClamped,
+      "LG rewind should clamp to 200 ms"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     for (std::uint32_t sequence = 0; sequence < 2; ++sequence) {
       lg::UserCommand firstCommand;
       firstCommand.sequence = sequence;

@@ -27,6 +27,7 @@ struct CommandPacket {
   std::uint8_t playerIndex = 0;
   UserCommand command = {};
   bool requestReset = false;
+  std::uint32_t viewedServerTick = 0;
 };
 
 struct CommandBundle {

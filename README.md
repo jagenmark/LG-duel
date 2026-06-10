@@ -66,7 +66,7 @@ Client controls:
 - `R`: request an authoritative match reset
 - `Esc`: quit
 
-The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. Clients render disposable authoritative snapshots while predicting local movement. The window title reports assigned player, ping, server tick, command sequence/ack, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
+The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The window title reports assigned player, ping, server tick, command sequence/ack, requested/applied rewind, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
 
 Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
 

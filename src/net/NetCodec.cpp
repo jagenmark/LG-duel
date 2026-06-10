@@ -190,7 +190,8 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(command.upMove) &&
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
-    writer.writeBool(packet.requestReset);
+    writer.writeBool(packet.requestReset) &&
+    writer.writeU32(packet.viewedServerTick);
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
@@ -205,7 +206,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.command.upMove) ||
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
-    !reader.readBool(packet.requestReset)
+    !reader.readBool(packet.requestReset) ||
+    !reader.readU32(packet.viewedServerTick)
   ) {
     return false;
   }
@@ -280,7 +282,10 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
     writer.writeBool(result.active) &&
     writer.writeBool(result.hit) &&
     writer.writeI32(result.damageApplied) &&
-    writeVec3(writer, result.knockbackImpulse);
+    writeVec3(writer, result.knockbackImpulse) &&
+    writer.writeU32(result.requestedRewindTicks) &&
+    writer.writeU32(result.appliedRewindTicks) &&
+    writer.writeBool(result.rewindClamped);
 }
 
 bool readLightningGun(Reader& reader, LightningGunResult& result) {
@@ -291,7 +296,10 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
     !reader.readBool(result.active) ||
     !reader.readBool(result.hit) ||
     !reader.readI32(damageApplied) ||
-    !readVec3(reader, result.knockbackImpulse)
+    !readVec3(reader, result.knockbackImpulse) ||
+    !reader.readU32(result.requestedRewindTicks) ||
+    !reader.readU32(result.appliedRewindTicks) ||
+    !reader.readBool(result.rewindClamped)
   ) {
     return false;
   }

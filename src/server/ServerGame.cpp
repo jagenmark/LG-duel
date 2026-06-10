@@ -9,6 +9,7 @@ namespace lg {
 namespace {
 
 constexpr std::uint32_t kRespawnDelayTicks = 250;
+constexpr std::uint32_t kMaxLagCompensationTicks = 25;
 constexpr float kPi = 3.14159265359F;
 
 [[nodiscard]] PlayerState spawnPlayer(std::size_t playerIndex) {
@@ -73,7 +74,22 @@ void ServerGame::tick(float fixedDt) {
       command.viewPitchRadians = snapshot_.players[attackerIndex].viewPitchRadians;
     }
 
-    PlayerState target = combatPlayers[targetIndex];
+    const bool requestsLagCompensation =
+      hasCommand_[attackerIndex] && command.attack;
+    const std::uint32_t viewedServerTick = viewedServerTicks_[attackerIndex];
+    const std::uint32_t requestedRewindTicks =
+      requestsLagCompensation && viewedServerTick <= snapshot_.serverTick
+      ? snapshot_.serverTick - viewedServerTick
+      : 0;
+    const std::uint32_t clampedRewindTicks =
+      std::min(requestedRewindTicks, kMaxLagCompensationTicks);
+    const std::uint32_t targetTick = snapshot_.serverTick - clampedRewindTicks;
+    const HistoryFrame& historyFrame = historyFrameForTick(targetTick);
+
+    PlayerState target = clampedRewindTicks == 0
+      ? combatPlayers[targetIndex]
+      : historyFrame.players[targetIndex];
+    target.health = combatPlayers[targetIndex].health;
     snapshot_.lightningGuns[attackerIndex] = simulateLightningGun(
       combatPlayers[attackerIndex],
       target,
@@ -83,6 +99,12 @@ void ServerGame::tick(float fixedDt) {
       lightningGunStates_[attackerIndex],
       fixedDt
     );
+    LightningGunResult& result = snapshot_.lightningGuns[attackerIndex];
+    result.requestedRewindTicks = requestedRewindTicks;
+    result.appliedRewindTicks = clampedRewindTicks == 0
+      ? 0
+      : snapshot_.serverTick - historyFrame.serverTick;
+    result.rewindClamped = requestedRewindTicks > result.appliedRewindTicks;
   }
 
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
@@ -99,6 +121,7 @@ void ServerGame::tick(float fixedDt) {
 
   hasCommand_.fill(false);
   ++snapshot_.serverTick;
+  recordHistory();
   publishSnapshot();
 }
 
@@ -110,7 +133,10 @@ void ServerGame::resetMatch() {
   snapshot_.players[1] = spawnPlayer(1);
   lightningGunStates_ = {};
   commands_ = {};
+  viewedServerTicks_ = {};
   hasCommand_ = {};
+  history_.clear();
+  recordHistory();
 }
 
 void ServerGame::updateRespawns() {
@@ -131,6 +157,24 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.players[playerIndex] = spawnPlayer(playerIndex);
   snapshot_.lightningGuns[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
+}
+
+void ServerGame::recordHistory() {
+  history_.push_back(HistoryFrame{snapshot_.serverTick, snapshot_.players});
+  while (history_.size() > kMaxLagCompensationTicks + 1U) {
+    history_.pop_front();
+  }
+}
+
+const ServerGame::HistoryFrame& ServerGame::historyFrameForTick(
+  std::uint32_t serverTick
+) const {
+  for (auto frame = history_.rbegin(); frame != history_.rend(); ++frame) {
+    if (frame->serverTick <= serverTick) {
+      return *frame;
+    }
+  }
+  return history_.front();
 }
 
 const ServerSnapshot& ServerGame::snapshot() const {
@@ -160,6 +204,7 @@ void ServerGame::receiveCommands() {
     }
 
     commands_[playerIndex] = packet.command;
+    viewedServerTicks_[playerIndex] = packet.viewedServerTick;
     hasCommand_[playerIndex] = true;
     snapshot_.hasAcknowledgedCommand[playerIndex] = true;
     snapshot_.acknowledgedCommand[playerIndex] = packet.command.sequence;

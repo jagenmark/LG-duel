@@ -9,7 +9,12 @@ ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
 
 void ClientGame::sendCommand(const UserCommand& command, bool requestReset) {
   transport_.sendCommand(
-    CommandPacket{static_cast<std::uint8_t>(localPlayerIndex_), command, requestReset}
+    CommandPacket{
+      static_cast<std::uint8_t>(localPlayerIndex_),
+      command,
+      requestReset,
+      snapshot_.serverTick,
+    }
   );
   if (!requestReset) {
     prediction_.predict(command, arena_, movementTuning_, kFixedTickSeconds);

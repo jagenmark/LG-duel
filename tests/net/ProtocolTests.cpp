@@ -71,6 +71,7 @@ int main() {
     source.command.attack = true;
     source.command.jump = true;
     source.requestReset = true;
+    source.viewedServerTick = 88;
 
     lg::WirePacket wire;
     lg::CommandPacket decoded;
@@ -80,6 +81,7 @@ int main() {
     failures += expect(decoded.playerIndex == source.playerIndex, "command player should round trip");
     failures += expect(decoded.command.sequence == 42, "command sequence should round trip");
     failures += expect(decoded.command.clientTick == 99, "command tick should round trip");
+    failures += expect(decoded.viewedServerTick == 88, "viewed server tick should round trip");
     failures += expect(
       nearlyEqual(decoded.command.viewPitchRadians, -0.25F),
       "command pitch should round trip"
@@ -88,7 +90,7 @@ int main() {
     failures += expect(decoded.requestReset, "reset bit should round trip");
 
     lg::WirePacket wrongVersion = wire;
-    wrongVersion[4] = 2;
+    wrongVersion[4] = 1;
     failures += expect(
       !lg::decodeCommandPacket(wrongVersion, decoded),
       "wrong protocol version should be rejected"
@@ -146,6 +148,9 @@ int main() {
     source.lightningGuns[0].start = {1.0F, 2.0F, 3.0F};
     source.lightningGuns[0].end = {5.0F, 6.0F, 7.0F};
     source.lightningGuns[0].knockbackImpulse = {0.1F, 0.2F, 0.3F};
+    source.lightningGuns[0].requestedRewindTicks = 20;
+    source.lightningGuns[0].appliedRewindTicks = 18;
+    source.lightningGuns[0].rewindClamped = true;
     source.respawnTicksRemaining = {0, 88};
     source.playersColliding = true;
 
@@ -164,6 +169,12 @@ int main() {
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
     failures += expect(decoded.players[1].health == 0, "death state should round trip");
     failures += expect(decoded.lightningGuns[0].hit, "beam hit should round trip");
+    failures += expect(
+      decoded.lightningGuns[0].requestedRewindTicks == 20 &&
+        decoded.lightningGuns[0].appliedRewindTicks == 18 &&
+        decoded.lightningGuns[0].rewindClamped,
+      "rewind diagnostics should round trip"
+    );
     failures += expect(
       nearlyEqual(decoded.lightningGuns[0].knockbackImpulse.z, 0.3F),
       "3D knockback should round trip"

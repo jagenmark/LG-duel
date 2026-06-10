@@ -25,6 +25,9 @@ struct LightningGunResult {
   bool hit = false;
   int damageApplied = 0;
   Vec3 knockbackImpulse = {};
+  std::uint32_t requestedRewindTicks = 0;
+  std::uint32_t appliedRewindTicks = 0;
+  bool rewindClamped = false;
 };
 
 [[nodiscard]] LightningGunResult simulateLightningGun(
