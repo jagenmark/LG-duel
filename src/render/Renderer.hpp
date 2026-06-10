@@ -12,6 +12,13 @@ namespace lg {
 
 struct RenderSettings {
   float fieldOfView = 90.0F;
+  float cameraZoom = 1.0F;
+  bool rotateView = false;
+  float healthTextScale = 2.0F;
+  float playerSizePixels = 14.0F;
+  bool crosshairUseScreenPosition = false;
+  float crosshairScreenX = 0.0F;
+  float crosshairScreenY = 0.0F;
   bool crosshairEnabled = true;
   int crosshairStyle = 0;
   float crosshairSize = 8.0F;
@@ -38,6 +45,8 @@ struct HudRenderState {
   std::vector<std::string> topLeftLines;
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
+  std::vector<std::string> bottomCenterLines;
+  float centerOffsetY = 0.0F;
   bool showOpponentHealthBar = false;
 };
 

@@ -8,6 +8,7 @@
 #include "shared/FixedTick.hpp"
 #include "shared/Math.hpp"
 #include "sim/Arena.hpp"
+#include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -15,9 +16,10 @@
 #include <SDL3/SDL.h>
 #endif
 
-#include <chrono>
 #include <algorithm>
 #include <charconv>
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 #include <deque>
@@ -25,6 +27,7 @@
 #include <iostream>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 namespace lg {
 namespace {
@@ -34,6 +37,15 @@ constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
 
+enum class AimMode {
+  Relative3D,
+  Absolute2D,
+};
+
+[[nodiscard]] AimMode aimModeFromInt(int value) {
+  return value == 1 ? AimMode::Absolute2D : AimMode::Relative3D;
+}
+
 struct LocalInputState {
   int forward = 0;
   int back = 0;
@@ -42,8 +54,12 @@ struct LocalInputState {
   int up = 0;
   int down = 0;
   int attack = 0;
+
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
+  float mouseX = 0.0F;
+  float mouseY = 0.0F;
+  bool hasMousePosition = false;
 };
 
 #if LG_DUEL_HAS_SDL3
@@ -53,6 +69,71 @@ struct ClientConsoleState {
   std::deque<std::string> output;
   std::vector<std::string> history;
   std::size_t historyIndex = 0;
+};
+
+class ClientAudio {
+public:
+  bool initialize() {
+    const SDL_AudioSpec spec{SDL_AUDIO_F32, 1, kSampleRate};
+    stream_ = SDL_OpenAudioDeviceStream(
+      SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
+      &spec,
+      nullptr,
+      nullptr
+    );
+    return stream_ != nullptr && SDL_ResumeAudioStreamDevice(stream_);
+  }
+
+  void playHit(float volume) {
+    queueTone(920.0F, 0.045F, volume);
+  }
+
+  void playRoundResult(bool won, float volume) {
+    if (won) {
+      queueTone(520.0F, 0.08F, volume);
+      queueTone(780.0F, 0.12F, volume);
+    } else {
+      queueTone(420.0F, 0.09F, volume);
+      queueTone(260.0F, 0.14F, volume);
+    }
+  }
+
+  void shutdown() {
+    if (stream_ != nullptr) {
+      SDL_DestroyAudioStream(stream_);
+      stream_ = nullptr;
+    }
+  }
+
+private:
+  void queueTone(float frequency, float durationSeconds, float volume) {
+    if (stream_ == nullptr || volume <= 0.0F) {
+      return;
+    }
+
+    const int sampleCount =
+      std::max(1, static_cast<int>(durationSeconds * kSampleRate));
+    std::vector<float> samples(static_cast<std::size_t>(sampleCount));
+    constexpr float kTwoPi = 6.28318530718F;
+    for (int index = 0; index < sampleCount; ++index) {
+      const float progress =
+        static_cast<float>(index) / static_cast<float>(sampleCount);
+      const float envelope = 1.0F - progress;
+      samples[static_cast<std::size_t>(index)] =
+        std::sin(
+          kTwoPi * frequency *
+          (static_cast<float>(index) / static_cast<float>(kSampleRate))
+        ) * envelope * volume;
+    }
+    SDL_PutAudioStreamData(
+      stream_,
+      samples.data(),
+      static_cast<int>(samples.size() * sizeof(float))
+    );
+  }
+
+  static constexpr int kSampleRate = 48000;
+  SDL_AudioStream* stream_ = nullptr;
 };
 
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
@@ -107,9 +188,18 @@ void registerClientCvars(ConsoleSystem& console) {
   const CvarFlag archivedClient = CvarFlag::Archive | CvarFlag::Client;
   console.registerCvar({"cl_config_version", "Client config migration version.", 0, archivedClient, 0.0F, 100.0F});
   console.registerCvar({"sensitivity", "Mouse sensitivity multiplier.", 1.0F, archivedClient, 0.1F, 10.0F});
+  console.registerCvar({"cl_aim_mode", "Aim mode: 0 relative 3D, 1 absolute 2D.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_fov", "Top-down camera view extent.", 90.0F, archivedClient, 45.0F, 140.0F});
+  console.registerCvar({"cl_camera_zoom", "Camera zoom multiplier; values above one zoom in.", 1.0F, archivedClient, 0.25F, 4.0F});
+  console.registerCvar({"cl_rotate_view", "Rotate relative-aim view so facing direction points up.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
   console.registerCvar({"cl_showfps", "Show render FPS in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
+  console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
+  console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"g_accel", "Authoritative ground acceleration.", 80.0F, CvarFlag::Client, 0.0F, 1000.0F});
+  console.registerCvar({"g_friction", "Authoritative ground friction.", 8.0F, CvarFlag::Client, 0.0F, 100.0F});
+  console.registerCvar({"g_maxspeed", "Authoritative ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F});
   console.registerCvar({"crosshair_enable", "Draw the crosshair.", true, archivedClient, {}, {}});
   console.registerCvar({"crosshair_style", "Crosshair style: 0 cross, 1 cross and dot, 2 dot.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"crosshair_size", "Crosshair arm length in pixels.", 8.0F, archivedClient, 1.0F, 40.0F});
@@ -120,6 +210,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"crosshair_g", "Crosshair green channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_b", "Crosshair blue channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_vsync", "Enable renderer vertical sync.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_playersize", "Player marker width and height in pixels.", 14.0F, archivedClient, 2.0F, 128.0F});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
   console.registerCvar({"r_beam_alpha", "Lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_beam_r", "Lightning beam red channel.", 74, archivedClient, 0.0F, 255.0F});
@@ -130,6 +221,9 @@ void registerClientCvars(ConsoleSystem& console) {
 RenderSettings renderSettings(const ConsoleSystem& console) {
   RenderSettings settings;
   settings.fieldOfView = console.getFloat("cl_fov");
+  settings.cameraZoom = console.getFloat("cl_camera_zoom");
+  settings.rotateView = console.getBool("cl_rotate_view");
+  settings.healthTextScale = console.getFloat("cl_health_size");
   settings.crosshairEnabled = console.getBool("crosshair_enable");
   settings.crosshairStyle = console.getInt("crosshair_style");
   settings.crosshairSize = console.getFloat("crosshair_size");
@@ -139,12 +233,31 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
   settings.crosshairGreen = static_cast<std::uint8_t>(console.getInt("crosshair_g"));
   settings.crosshairBlue = static_cast<std::uint8_t>(console.getInt("crosshair_b"));
+  settings.playerSizePixels = console.getFloat("r_playersize");
   settings.beamWidth = console.getFloat("r_beam_width");
   settings.beamAlpha = console.getFloat("r_beam_alpha");
   settings.beamRed = static_cast<std::uint8_t>(console.getInt("r_beam_r"));
   settings.beamGreen = static_cast<std::uint8_t>(console.getInt("r_beam_g"));
   settings.beamBlue = static_cast<std::uint8_t>(console.getInt("r_beam_b"));
   return settings;
+}
+
+MovementTuning movementTuning(const ConsoleSystem& console) {
+  MovementTuning tuning;
+  tuning.groundAcceleration = console.getFloat("g_accel");
+  tuning.groundFriction = console.getFloat("g_friction");
+  tuning.maxGroundSpeed = console.getFloat("g_maxspeed");
+  tuning.maxAirSpeed = tuning.maxGroundSpeed;
+  return tuning;
+}
+
+bool sameRuntimeMovementTuning(
+  const MovementTuning& lhs,
+  const MovementTuning& rhs
+) {
+  return lhs.groundAcceleration == rhs.groundAcceleration &&
+    lhs.groundFriction == rhs.groundFriction &&
+    lhs.maxGroundSpeed == rhs.maxGroundSpeed;
 }
 
 ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
@@ -178,6 +291,10 @@ std::string keyName(SDL_Scancode scancode) {
   default:
     return InputBindings::normalizeKey(SDL_GetScancodeName(scancode));
   }
+}
+
+bool isConsoleToggleText(std::string_view text) {
+  return text == "\xC2\xA7" || text == "`" || text == "~";
 }
 
 void installDefaultBindings(InputBindings& bindings) {
@@ -215,6 +332,22 @@ std::string matchPhaseName(MatchPhase phase) {
   return "UNKNOWN";
 }
 
+std::string roundStatsLine(
+  std::string_view label,
+  const RoundCombatStats& stats
+) {
+  const std::uint32_t accuracyPercent =
+    stats.lightningActiveTicks == 0
+    ? 0
+    : (
+        stats.lightningHitTicks * 100U +
+        (stats.lightningActiveTicks / 2U)
+      ) / stats.lightningActiveTicks;
+  return std::string(label) +
+    " LG " + std::to_string(accuracyPercent) +
+    "%  DMG " + std::to_string(stats.damageDealt);
+}
+
 HudRenderState buildHud(const ClientSession& session) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
@@ -233,7 +366,7 @@ HudRenderState buildHud(const ClientSession& session) {
   ));
 
   hud.centerLines.clear();
-  hud.topLeftLines.push_back(
+  hud.bottomCenterLines.push_back(
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
   );
   hud.topLeftLines.push_back(
@@ -269,6 +402,7 @@ HudRenderState buildHud(const ClientSession& session) {
   hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
+    hud.centerOffsetY = -80.0F;
     hud.centerLines.push_back(
       std::to_string(connectedCount) + '/' +
       std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
@@ -292,10 +426,22 @@ HudRenderState buildHud(const ClientSession& session) {
     hud.centerLines.push_back(
       snapshot.roundWinner == localPlayerIndex ? "ROUND WON" : "ROUND LOST"
     );
+    hud.centerLines.push_back(
+      roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
+    );
+    hud.centerLines.push_back(
+      roundStatsLine("OPP", snapshot.roundCombatStats[opponentPlayerIndex])
+    );
     break;
   case MatchPhase::MatchEnd:
     hud.centerLines.push_back(
       snapshot.matchWinner == localPlayerIndex ? "MATCH WON" : "MATCH LOST"
+    );
+    hud.centerLines.push_back(
+      roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
+    );
+    hud.centerLines.push_back(
+      roundStatsLine("OPP", snapshot.roundCombatStats[opponentPlayerIndex])
     );
     break;
   case MatchPhase::Live:
@@ -305,23 +451,80 @@ HudRenderState buildHud(const ClientSession& session) {
   return hud;
 }
 
+[[nodiscard]] float absolute2DYaw(
+  const LocalInputState& input,
+  const PlayerState& player,
+  int viewportWidth,
+  int viewportHeight,
+  float fieldOfView,
+  float cameraZoom
+) {
+  if (!input.hasMousePosition || viewportWidth <= 0 || viewportHeight <= 0) {
+    return player.viewYawRadians;
+  }
+
+  constexpr float margin = 40.0F;
+  const float arenaSize =
+    static_cast<float>(std::min(viewportWidth, viewportHeight)) - (margin * 2.0F);
+  if (arenaSize <= 1.0F) {
+    return player.viewYawRadians;
+  }
+
+  const float arenaLeft = (static_cast<float>(viewportWidth) - arenaSize) * 0.5F;
+  const float arenaTop = (static_cast<float>(viewportHeight) - arenaSize) * 0.5F;
+  const float worldHalfExtent =
+    10.0F * (fieldOfView / 90.0F) / cameraZoom;
+  const float viewX =
+    (((input.mouseX - arenaLeft) / arenaSize) * 2.0F - 1.0F) * worldHalfExtent;
+  const float viewY =
+    (1.0F - ((input.mouseY - arenaTop) / arenaSize) * 2.0F) * worldHalfExtent;
+
+  const Vec3 aimOffset{viewX, viewY, 0.0F};
+  if ((aimOffset.x * aimOffset.x + aimOffset.y * aimOffset.y) <= 0.0001F) {
+    return player.viewYawRadians;
+  }
+  return std::atan2(aimOffset.y, aimOffset.x);
+}
+
 [[nodiscard]] UserCommand buildCommand(
   const LocalInputState& input,
   const PlayerState& player,
   std::uint32_t sequence,
   std::uint32_t clientTick,
-  float sensitivity
+  float sensitivity,
+  AimMode aimMode,
+  int viewportWidth,
+  int viewportHeight,
+  float fieldOfView,
+  float cameraZoom,
+  bool rotateView
 ) {
   UserCommand command;
   command.sequence = sequence;
   command.clientTick = clientTick;
-  command.viewYawRadians =
-    player.viewYawRadians + (input.mouseDeltaX * kBaseMouseSensitivityRadians * sensitivity);
-  command.viewPitchRadians = clamp(
-    player.viewPitchRadians - (input.mouseDeltaY * kBaseMouseSensitivityRadians * sensitivity),
-    -kMaxPitchRadians,
-    kMaxPitchRadians
-  );
+  if (aimMode == AimMode::Relative3D) {
+    const float yawDirection = rotateView ? -1.0F : 1.0F;
+    command.viewYawRadians =
+      player.viewYawRadians +
+      (input.mouseDeltaX * kBaseMouseSensitivityRadians * sensitivity * yawDirection);
+    command.viewPitchRadians = clamp(
+      player.viewPitchRadians -
+        (input.mouseDeltaY * kBaseMouseSensitivityRadians * sensitivity),
+      -kMaxPitchRadians,
+      kMaxPitchRadians
+    );
+  } else {
+    command.viewYawRadians = absolute2DYaw(
+      input,
+      player,
+      viewportWidth,
+      viewportHeight,
+      fieldOfView,
+      cameraZoom
+    );
+    command.viewPitchRadians = 0.0F;
+  }
+
   command.forwardMove = (input.forward > 0 ? 1.0F : 0.0F) - (input.back > 0 ? 1.0F : 0.0F);
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
@@ -342,6 +545,7 @@ int GameApp::run() const {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
     return 1;
   }
+  const bool audioSubsystemAvailable = SDL_InitSubSystem(SDL_INIT_AUDIO);
 
   SDL_Window* window = SDL_CreateWindow(name().data(), 1280, 720, SDL_WINDOW_RESIZABLE);
   if (window == nullptr) {
@@ -361,6 +565,9 @@ int GameApp::run() const {
     SDL_Quit();
     return 1;
   }
+  ClientAudio audio;
+  const bool audioAvailable =
+    audioSubsystemAvailable && audio.initialize();
 
   ConsoleSystem console;
   registerClientCvars(console);
@@ -655,7 +862,7 @@ int GameApp::run() const {
       }
     };
 
-  const Arena arena;
+  const Arena arena = thunderstruckArena();
   std::uint32_t commandSequence = 0;
   std::uint32_t clientTick = 0;
 
@@ -667,6 +874,14 @@ int GameApp::run() const {
   std::uint32_t overloadFrameCount = 0;
   std::uint32_t renderedFrameCount = 0;
   float displayedFramesPerSecond = 0.0F;
+  MovementTuning lastRequestedMovementTuning = movementTuning(console);
+  bool movementTuningRequestPending = false;
+  bool relativeMouseModeEnabled = true;
+  const ClientGame* audioGame = nullptr;
+  std::uint32_t lastAudioServerTick = 0;
+  MatchPhase lastAudioMatchPhase = MatchPhase::WaitingForPlayers;
+  bool previousLocalHit = false;
+  bool audioStateInitialized = false;
 
   while (running) {
     SDL_Event event;
@@ -681,6 +896,9 @@ int GameApp::run() const {
         const std::string key = keyName(event.key.scancode);
         if (consoleState.open) {
           if (!pressed) {
+            if (bindings.binding(key) == "toggleconsole") {
+              suppressNextTextInput = false;
+            }
             executeBindingCommands(bindings.handleKey(key, false));
             break;
           }
@@ -747,10 +965,16 @@ int GameApp::run() const {
         break;
       }
       case SDL_EVENT_TEXT_INPUT:
-        if (suppressNextTextInput) {
+        if (
+          suppressNextTextInput &&
+          isConsoleToggleText(event.text.text)
+        ) {
           suppressNextTextInput = false;
         } else if (consoleState.open) {
+          suppressNextTextInput = false;
           consoleState.input += event.text.text;
+        } else {
+          suppressNextTextInput = false;
         }
         break;
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
@@ -769,6 +993,9 @@ int GameApp::run() const {
         if (!consoleState.open) {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
+          input.mouseX = event.motion.x;
+          input.mouseY = event.motion.y;
+          input.hasMousePosition = true;
         }
         break;
       case SDL_EVENT_WINDOW_FOCUS_LOST:
@@ -805,6 +1032,30 @@ int GameApp::run() const {
       }
       appliedVSync = requestedVSync;
     }
+    const AimMode frameAimMode = aimModeFromInt(console.getInt("cl_aim_mode"));
+    const bool wantsRelativeMouse =
+      !consoleState.open && frameAimMode == AimMode::Relative3D;
+
+    if (wantsRelativeMouse != relativeMouseModeEnabled) {
+      SDL_SetWindowRelativeMouseMode(window, wantsRelativeMouse);
+      relativeMouseModeEnabled = wantsRelativeMouse;
+    }
+    if (!consoleState.open && frameAimMode == AimMode::Absolute2D) {
+      float mouseX = 0.0F;
+      float mouseY = 0.0F;
+      SDL_GetMouseState(&mouseX, &mouseY);
+      input.mouseX = mouseX;
+      input.mouseY = mouseY;
+      input.hasMousePosition = true;
+    }
+    const MovementTuning currentMovementTuning = movementTuning(console);
+    if (!sameRuntimeMovementTuning(
+          currentMovementTuning,
+          lastRequestedMovementTuning
+        )) {
+      lastRequestedMovementTuning = currentMovementTuning;
+      movementTuningRequestPending = true;
+    }
 
     const auto now = Clock::now();
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
@@ -835,23 +1086,94 @@ int GameApp::run() const {
       }
 
       const PlayerState& predictedPlayer = client->predictedPlayer();
+
+      int viewportWidth = 0;
+      int viewportHeight = 0;
+      SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
+      const AimMode currentAimMode =
+        aimModeFromInt(console.getInt("cl_aim_mode"));
+
       const UserCommand command =
         buildCommand(
           tickInput,
           predictedPlayer,
           commandSequence++,
           clientTick++,
-          console.getFloat("sensitivity")
+          console.getFloat("sensitivity"),
+          currentAimMode,
+          viewportWidth,
+          viewportHeight,
+          console.getFloat("cl_fov"),
+          console.getFloat("cl_camera_zoom"),
+          console.getBool("cl_rotate_view")
         );
-      session.sendCommand(command, resetRequested, readyRequested);
+      session.sendCommand(
+        command,
+        resetRequested,
+        readyRequested,
+        movementTuningRequestPending,
+        lastRequestedMovementTuning
+      );
       resetRequested = false;
       readyRequested = false;
+      movementTuningRequestPending = false;
       session.update();
       consumedMouseForTick = true;
     }
     if (consumedMouseForTick) {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
+    }
+
+    const ClientGame* currentAudioGame = session.game();
+    if (currentAudioGame != audioGame) {
+      audioGame = currentAudioGame;
+      audioStateInitialized = false;
+      previousLocalHit = false;
+    }
+    if (
+      audioAvailable &&
+      currentAudioGame != nullptr &&
+      currentAudioGame->hasSnapshot()
+    ) {
+      const ServerSnapshot& audioSnapshot = currentAudioGame->snapshot();
+      if (
+        !audioStateInitialized ||
+        audioSnapshot.serverTick != lastAudioServerTick
+      ) {
+        const std::size_t localPlayerIndex = session.playerIndex();
+        const bool localHit =
+          audioSnapshot.lightningGuns[localPlayerIndex].hit;
+        const float volume = console.getFloat("s_volume");
+        const bool soundEnabled = console.getBool("s_enable");
+        if (
+          soundEnabled &&
+          audioStateInitialized &&
+          localHit &&
+          !previousLocalHit
+        ) {
+          audio.playHit(volume);
+        }
+        if (
+          soundEnabled &&
+          audioStateInitialized &&
+          audioSnapshot.matchPhase != lastAudioMatchPhase &&
+          (
+            audioSnapshot.matchPhase == MatchPhase::RoundEnd ||
+            audioSnapshot.matchPhase == MatchPhase::MatchEnd
+          )
+        ) {
+          const std::uint8_t winner =
+            audioSnapshot.matchPhase == MatchPhase::MatchEnd
+            ? audioSnapshot.matchWinner
+            : audioSnapshot.roundWinner;
+          audio.playRoundResult(winner == localPlayerIndex, volume);
+        }
+        previousLocalHit = localHit;
+        lastAudioServerTick = audioSnapshot.serverTick;
+        lastAudioMatchPhase = audioSnapshot.matchPhase;
+        audioStateInitialized = true;
+      }
     }
 
     ++renderedFrameCount;
@@ -930,20 +1252,39 @@ int GameApp::run() const {
       renderLightningGun =
         renderClient->snapshot().lightningGuns[localPlayerIndex];
     }
+    RenderSettings currentRenderSettings = renderSettings(console);
+    const AimMode renderAimMode =
+      aimModeFromInt(console.getInt("cl_aim_mode"));
+    if (renderAimMode == AimMode::Relative3D) {
+      currentRenderSettings.crosshairEnabled = false;
+    } else {
+      // Absolute screen-space aiming needs a stable world-aligned camera.
+      currentRenderSettings.rotateView = false;
+    }
+    if (
+      renderAimMode == AimMode::Absolute2D &&
+      input.hasMousePosition &&
+      !consoleState.open
+    ) {
+      currentRenderSettings.crosshairUseScreenPosition = true;
+      currentRenderSettings.crosshairScreenX = input.mouseX;
+      currentRenderSettings.crosshairScreenY = input.mouseY;
+    }
+
     renderer.render(
       arena,
       renderPlayer,
       renderOpponent,
       renderLightningGun,
-      renderSettings(console),
+      currentRenderSettings,
       buildHud(session),
       consoleRenderState(consoleState)
     );
     session.update();
     SDL_Delay(1);
   }
-
   saveClientConfig(console, bindings, configPath);
+  audio.shutdown();
   renderer.shutdown();
   SDL_DestroyWindow(window);
   SDL_Quit();

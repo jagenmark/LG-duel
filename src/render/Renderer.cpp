@@ -5,6 +5,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 namespace lg {
@@ -23,6 +24,110 @@ namespace {
 [[nodiscard]] float project(float value, float inMin, float inMax, float outMin, float outMax) {
   const float t = (value - inMin) / (inMax - inMin);
   return outMin + (t * (outMax - outMin));
+}
+
+struct ViewProjection {
+  float arenaLeft = 0.0F;
+  float arenaTop = 0.0F;
+  float arenaSize = 0.0F;
+  float worldHalfExtent = 10.0F;
+  Vec3 origin = {};
+  Vec3 forward = {};
+  Vec3 right = {};
+  bool rotated = false;
+};
+
+[[nodiscard]] Vec3 worldToView(const ViewProjection& view, Vec3 worldPosition) {
+  if (!view.rotated) {
+    return worldPosition;
+  }
+
+  const Vec3 offset = worldPosition - view.origin;
+  return {
+    dot(offset, view.right),
+    dot(offset, view.forward),
+    worldPosition.z,
+  };
+}
+
+[[nodiscard]] SDL_FPoint worldToScreen(
+  const ViewProjection& view,
+  Vec3 worldPosition
+) {
+  const Vec3 viewPosition = worldToView(view, worldPosition);
+  const float minX = view.rotated
+    ? -view.worldHalfExtent
+    : view.origin.x - view.worldHalfExtent;
+  const float maxX = view.rotated
+    ? view.worldHalfExtent
+    : view.origin.x + view.worldHalfExtent;
+  const float minY = view.rotated
+    ? -view.worldHalfExtent
+    : view.origin.y - view.worldHalfExtent;
+  const float maxY = view.rotated
+    ? view.worldHalfExtent
+    : view.origin.y + view.worldHalfExtent;
+  return {
+    project(
+      viewPosition.x,
+      minX,
+      maxX,
+      view.arenaLeft,
+      view.arenaLeft + view.arenaSize
+    ),
+    project(
+      viewPosition.y,
+      minY,
+      maxY,
+      view.arenaTop + view.arenaSize,
+      view.arenaTop
+    ),
+  };
+}
+
+void drawFilledQuad(
+  SDL_Renderer* renderer,
+  const std::array<SDL_FPoint, 4>& points,
+  SDL_FColor color
+) {
+  const std::array<SDL_Vertex, 4> vertices = {{
+    {points[0], color, {}},
+    {points[1], color, {}},
+    {points[2], color, {}},
+    {points[3], color, {}},
+  }};
+  constexpr std::array<int, 6> indices = {0, 1, 2, 0, 2, 3};
+  SDL_RenderGeometry(
+    renderer,
+    nullptr,
+    vertices.data(),
+    static_cast<int>(vertices.size()),
+    indices.data(),
+    static_cast<int>(indices.size())
+  );
+}
+
+void drawQuadOutline(
+  SDL_Renderer* renderer,
+  const std::array<SDL_FPoint, 4>& points
+) {
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    const SDL_FPoint& start = points[index];
+    const SDL_FPoint& end = points[(index + 1U) % points.size()];
+    SDL_RenderLine(renderer, start.x, start.y, end.x, end.y);
+  }
+}
+
+void drawDebugText(
+  SDL_Renderer* renderer,
+  float x,
+  float y,
+  const char* text,
+  float scale
+) {
+  SDL_SetRenderScale(renderer, scale, scale);
+  SDL_RenderDebugText(renderer, x / scale, y / scale, text);
+  SDL_SetRenderScale(renderer, 1.0F, 1.0F);
 }
 
 void drawThickLine(
@@ -52,6 +157,20 @@ void drawThickLine(
   }
 }
 
+void drawHitMarker(
+  SDL_Renderer* renderer,
+  float centerX,
+  float centerY
+) {
+  constexpr float inner = 5.0F;
+  constexpr float outer = 10.0F;
+  SDL_SetRenderDrawColor(renderer, 255, 244, 196, 255);
+  SDL_RenderLine(renderer, centerX - outer, centerY - outer, centerX - inner, centerY - inner);
+  SDL_RenderLine(renderer, centerX + inner, centerY + inner, centerX + outer, centerY + outer);
+  SDL_RenderLine(renderer, centerX + inner, centerY - inner, centerX + outer, centerY - outer);
+  SDL_RenderLine(renderer, centerX - outer, centerY + outer, centerX - inner, centerY + inner);
+}
+
 void drawCrosshair(
   SDL_Renderer* renderer,
   int width,
@@ -62,8 +181,14 @@ void drawCrosshair(
     return;
   }
 
-  const float centerX = static_cast<float>(width) * 0.5F;
-  const float centerY = static_cast<float>(height) * 0.5F;
+  const float centerX = settings.crosshairUseScreenPosition
+    ? std::clamp(settings.crosshairScreenX, 0.0F, static_cast<float>(width))
+    : static_cast<float>(width) * 0.5F;
+
+  const float centerY = settings.crosshairUseScreenPosition
+    ? std::clamp(settings.crosshairScreenY, 0.0F, static_cast<float>(height))
+    : static_cast<float>(height) * 0.5F;
+
   const float size = settings.crosshairSize;
   const float gap = settings.crosshairGap;
   const float thickness = settings.crosshairThickness;
@@ -122,7 +247,8 @@ void drawConsole(
   const SDL_FRect border = rect(0.0F, consoleHeight - 2.0F, static_cast<float>(width), 2.0F);
   SDL_RenderFillRect(renderer, &border);
 
-  constexpr float kLineHeight = 10.0F;
+  constexpr float kTextScale = 2.0F;
+  constexpr float kLineHeight = 20.0F;
   const int visibleLines = std::max(1, static_cast<int>((consoleHeight - 34.0F) / kLineHeight));
   const std::size_t firstLine = console.lines.size() > static_cast<std::size_t>(visibleLines)
     ? console.lines.size() - static_cast<std::size_t>(visibleLines)
@@ -130,26 +256,36 @@ void drawConsole(
   SDL_SetRenderDrawColor(renderer, 215, 225, 235, 255);
   float y = 10.0F;
   for (std::size_t index = firstLine; index < console.lines.size(); ++index) {
-    SDL_RenderDebugText(renderer, 10.0F, y, console.lines[index].c_str());
+    drawDebugText(renderer, 10.0F, y, console.lines[index].c_str(), kTextScale);
     y += kLineHeight;
   }
 
   SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
   const std::string prompt = "] " + console.input + '_';
-  SDL_RenderDebugText(renderer, 10.0F, consoleHeight - 20.0F, prompt.c_str());
+  drawDebugText(
+    renderer,
+    10.0F,
+    consoleHeight - 24.0F,
+    prompt.c_str(),
+    kTextScale
+  );
 }
 
 void drawHud(
   SDL_Renderer* renderer,
   int width,
   int height,
-  const HudRenderState& hud
+  const HudRenderState& hud,
+  const RenderSettings& settings
 ) {
+  constexpr float kTextScale = 2.0F;
+  constexpr float kCharacterWidth =
+    static_cast<float>(SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE) * kTextScale;
   SDL_SetRenderDrawColor(renderer, 235, 242, 250, 255);
   float y = 12.0F;
   for (const std::string& line : hud.topLeftLines) {
-    SDL_RenderDebugText(renderer, 12.0F, y, line.c_str());
-    y += 12.0F;
+    drawDebugText(renderer, 12.0F, y, line.c_str(), kTextScale);
+    y += 20.0F;
   }
 
   y = 12.0F;
@@ -157,24 +293,42 @@ void drawHud(
     const float x = std::max(
       12.0F,
       static_cast<float>(width) - 12.0F -
-        static_cast<float>(line.size() * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE)
+        (static_cast<float>(line.size()) * kCharacterWidth)
     );
-    SDL_RenderDebugText(renderer, x, y, line.c_str());
-    y += 12.0F;
+    drawDebugText(renderer, x, y, line.c_str(), kTextScale);
+    y += 20.0F;
   }
 
   const float firstY =
     (static_cast<float>(height) * 0.5F) -
-    (static_cast<float>(hud.centerLines.size()) * 7.0F);
+    (static_cast<float>(hud.centerLines.size()) * 11.0F) +
+    hud.centerOffsetY;
   y = firstY;
   for (const std::string& line : hud.centerLines) {
     const float x = std::max(
       12.0F,
       (static_cast<float>(width) -
-       static_cast<float>(line.size() * SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE)) * 0.5F
+       (static_cast<float>(line.size()) * kCharacterWidth)) * 0.5F
     );
-    SDL_RenderDebugText(renderer, x, y, line.c_str());
-    y += 14.0F;
+    drawDebugText(renderer, x, y, line.c_str(), kTextScale);
+    y += 22.0F;
+  }
+
+  const float healthCharacterWidth =
+    static_cast<float>(SDL_DEBUG_TEXT_FONT_CHARACTER_SIZE) *
+    settings.healthTextScale;
+  const float healthLineHeight = 11.0F * settings.healthTextScale;
+  y = static_cast<float>(height) -
+    24.0F -
+    (static_cast<float>(hud.bottomCenterLines.size()) * healthLineHeight);
+  for (const std::string& line : hud.bottomCenterLines) {
+    const float x = std::max(
+      12.0F,
+      (static_cast<float>(width) -
+       (static_cast<float>(line.size()) * healthCharacterWidth)) * 0.5F
+    );
+    drawDebugText(renderer, x, y, line.c_str(), settings.healthTextScale);
+    y += healthLineHeight;
   }
 }
 #endif
@@ -221,11 +375,18 @@ void Renderer::render(
   const float arenaSize = static_cast<float>(std::min(width, height)) - (margin * 2.0F);
   const float arenaLeft = (static_cast<float>(width) - arenaSize) * 0.5F;
   const float arenaTop = (static_cast<float>(height) - arenaSize) * 0.5F;
-  const float worldHalfExtent = 10.0F * (settings.fieldOfView / 90.0F);
-  const float worldMinX = player.position.x - worldHalfExtent;
-  const float worldMaxX = player.position.x + worldHalfExtent;
-  const float worldMinY = player.position.y - worldHalfExtent;
-  const float worldMaxY = player.position.y + worldHalfExtent;
+  const float worldHalfExtent =
+    10.0F * (settings.fieldOfView / 90.0F) / settings.cameraZoom;
+  const ViewProjection view{
+    arenaLeft,
+    arenaTop,
+    arenaSize,
+    worldHalfExtent,
+    player.position,
+    yawForward(player.viewYawRadians),
+    yawRight(player.viewYawRadians),
+    settings.rotateView,
+  };
   const SDL_Rect worldClip = {
     static_cast<int>(arenaLeft),
     static_cast<int>(arenaTop),
@@ -235,60 +396,37 @@ void Renderer::render(
   SDL_SetRenderClipRect(renderer, &worldClip);
 
   SDL_SetRenderDrawColor(renderer, 54, 61, 72, 255);
-  const SDL_FRect arenaRect = rect(
-    project(arena.min.x, worldMinX, worldMaxX, arenaLeft, arenaLeft + arenaSize),
-    project(arena.max.y, worldMinY, worldMaxY, arenaTop + arenaSize, arenaTop),
-    arenaSize * ((arena.max.x - arena.min.x) / (worldMaxX - worldMinX)),
-    arenaSize * ((arena.max.y - arena.min.y) / (worldMaxY - worldMinY))
-  );
-  SDL_RenderRect(renderer, &arenaRect);
+  const std::array<SDL_FPoint, 4> arenaCorners = {
+    worldToScreen(view, {arena.min.x, arena.min.y, 0.0F}),
+    worldToScreen(view, {arena.max.x, arena.min.y, 0.0F}),
+    worldToScreen(view, {arena.max.x, arena.max.y, 0.0F}),
+    worldToScreen(view, {arena.min.x, arena.max.y, 0.0F}),
+  };
+  drawQuadOutline(renderer, arenaCorners);
 
-  const float playerX = project(player.position.x, worldMinX, worldMaxX, arenaLeft, arenaLeft + arenaSize);
-  const float playerY = project(player.position.y, worldMinY, worldMaxY, arenaTop + arenaSize, arenaTop);
-  const float opponentX = project(
-    opponent.position.x,
-    worldMinX,
-    worldMaxX,
-    arenaLeft,
-    arenaLeft + arenaSize
-  );
-  const float opponentY = project(
-    opponent.position.y,
-    worldMinY,
-    worldMaxY,
-    arenaTop + arenaSize,
-    arenaTop
-  );
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    const ArenaWall& wall = arena.walls[index];
+    const std::array<SDL_FPoint, 4> wallCorners = {
+      worldToScreen(view, {wall.min.x, wall.min.y, 0.0F}),
+      worldToScreen(view, {wall.max.x, wall.min.y, 0.0F}),
+      worldToScreen(view, {wall.max.x, wall.max.y, 0.0F}),
+      worldToScreen(view, {wall.min.x, wall.max.y, 0.0F}),
+    };
+    drawFilledQuad(renderer, wallCorners, SDL_FColor{0.12F, 0.15F, 0.19F, 1.0F});
+    SDL_SetRenderDrawColor(renderer, 82, 95, 112, 255);
+    drawQuadOutline(renderer, wallCorners);
+  }
+
+  const SDL_FPoint playerScreen = worldToScreen(view, player.position);
+  const SDL_FPoint opponentScreen = worldToScreen(view, opponent.position);
+  const float playerX = playerScreen.x;
+  const float playerY = playerScreen.y;
+  const float opponentX = opponentScreen.x;
+  const float opponentY = opponentScreen.y;
 
   if (lightningGun.active) {
-    const float beamStartX = project(
-      lightningGun.start.x,
-      worldMinX,
-      worldMaxX,
-      arenaLeft,
-      arenaLeft + arenaSize
-    );
-    const float beamStartY = project(
-      lightningGun.start.y,
-      worldMinY,
-      worldMaxY,
-      arenaTop + arenaSize,
-      arenaTop
-    );
-    const float beamEndX = project(
-      lightningGun.end.x,
-      worldMinX,
-      worldMaxX,
-      arenaLeft,
-      arenaLeft + arenaSize
-    );
-    const float beamEndY = project(
-      lightningGun.end.y,
-      worldMinY,
-      worldMaxY,
-      arenaTop + arenaSize,
-      arenaTop
-    );
+    const SDL_FPoint beamStart = worldToScreen(view, lightningGun.start);
+    const SDL_FPoint beamEnd = worldToScreen(view, lightningGun.end);
     const auto hitBoost = [hit = lightningGun.hit](std::uint8_t channel) {
       return static_cast<Uint8>(
         hit ? std::min(255, static_cast<int>(channel) + 60) : channel
@@ -304,16 +442,24 @@ void Renderer::render(
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     drawThickLine(
       renderer,
-      beamStartX,
-      beamStartY,
-      beamEndX,
-      beamEndY,
+      beamStart.x,
+      beamStart.y,
+      beamEnd.x,
+      beamEnd.y,
       settings.beamWidth
     );
+    if (lightningGun.hit) {
+      drawHitMarker(renderer, beamEnd.x, beamEnd.y);
+    }
   }
 
-  const float radius = 7.0F;
-  SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
+  const float playerSize = settings.playerSizePixels;
+  const float radius = playerSize * 0.5F;
+  if (lightningGun.hit) {
+    SDL_SetRenderDrawColor(renderer, 255, 190, 198, 255);
+  } else {
+    SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
+  }
   const SDL_FRect opponentRect = rect(
     opponentX - radius,
     opponentY - radius,
@@ -325,12 +471,15 @@ void Renderer::render(
   if (hud.showOpponentHealthBar) {
     const float opponentHealthRatio =
       std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+    const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
+    const float healthBarOffset = playerSize + 2.0F;
+    const float healthBarHeight = std::max(2.0F, playerSize * (4.0F / 14.0F));
     SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
     const SDL_FRect opponentHealthRect = rect(
-      opponentX - 18.0F,
-      opponentY - 16.0F,
-      36.0F * opponentHealthRatio,
-      4.0F
+      opponentX - healthBarHalfWidth,
+      opponentY - healthBarOffset,
+      healthBarHalfWidth * 2.0F * opponentHealthRatio,
+      healthBarHeight
     );
     SDL_RenderFillRect(renderer, &opponentHealthRect);
   }
@@ -339,9 +488,12 @@ void Renderer::render(
   const SDL_FRect playerRect = rect(playerX - radius, playerY - radius, radius * 2.0F, radius * 2.0F);
   SDL_RenderFillRect(renderer, &playerRect);
 
-  const Vec3 forward = yawForward(player.viewYawRadians);
+  const SDL_FPoint facingEnd = worldToScreen(
+    view,
+    player.position + (yawForward(player.viewYawRadians) * 1.5F)
+  );
   SDL_SetRenderDrawColor(renderer, 230, 240, 255, 255);
-  SDL_RenderLine(renderer, playerX, playerY, playerX + (forward.x * 24.0F), playerY - (forward.y * 24.0F));
+  SDL_RenderLine(renderer, playerX, playerY, facingEnd.x, facingEnd.y);
 
   SDL_SetRenderClipRect(renderer, nullptr);
   const float speed = length(player.velocity);
@@ -356,7 +508,7 @@ void Renderer::render(
   SDL_RenderFillRect(renderer, &heightRect);
 
   drawCrosshair(renderer, width, height, settings);
-  drawHud(renderer, width, height, hud);
+  drawHud(renderer, width, height, hud, settings);
   drawConsole(renderer, width, height, console);
   SDL_RenderPresent(renderer);
 #else

@@ -88,6 +88,32 @@ int main() {
   }
 
   {
+    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.4F, -8.0F, player.bounds.halfHeight};
+    player.velocity = {8.0F, 3.0F, 0.0F};
+    lg::UserCommand command;
+
+    lg::simulateMovement(
+      player,
+      command,
+      arena,
+      tuning,
+      lg::kFixedTickSeconds
+    );
+
+    failures += expect(
+      player.position.x <= -1.34F,
+      "Thunderstruck divider should block player movement"
+    );
+    failures += expect(
+      player.velocity.y > 0.0F,
+      "internal wall collision should preserve tangential sliding velocity"
+    );
+  }
+
+  {
     lg::PlayerState first = groundedPlayer();
     lg::PlayerState second = groundedPlayer();
 

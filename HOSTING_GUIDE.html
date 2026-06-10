@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LG Duel Internet Server Guide</title>
+  <style>
+    :root { color-scheme: dark; --bg: #0b1018; --panel: #151d29; --line: #2b3a4f; --accent: #62d7ff; --ok: #75e39a; --warn: #ffd166; }
+    body { margin: 0; background: var(--bg); color: #e8eef6; font: 16px/1.55 system-ui, sans-serif; }
+    main { width: min(900px, calc(100% - 32px)); margin: 40px auto 80px; }
+    h1, h2 { line-height: 1.2; } h1 { color: var(--accent); } h2 { margin-top: 34px; }
+    section { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; margin: 18px 0; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    code { color: #ccefff; } pre { overflow-x: auto; background: #080c12; border-radius: 8px; padding: 14px; }
+    .ok { color: var(--ok); } .warn { color: var(--warn); }
+    li { margin: 8px 0; } a { color: var(--accent); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>LG Duel: host an Internet match from this PC</h1>
+  <p>This project uses a dedicated native UDP server. The default game port is <strong>UDP 27960</strong>. TCP port forwarding is not needed.</p>
+  <p><strong>Verified on June 10, 2026:</strong> server handshakes work on <code>127.0.0.1:27960</code> and <code>192.168.68.107:27960</code>. The current public IPv4 address is <code>213.66.106.51</code>. Public-IP loopback did not answer, so the Deco port forward and an external-player test are still required.</p>
+
+  <section>
+    <h2>1. Start and verify the server</h2>
+    <p>From <code>/home/helmer-jagenmark/LG-duel</code>:</p>
+    <pre>./scripts/server-control.sh start
+./scripts/server-control.sh status</pre>
+    <p class="ok">A successful status check says <code>OK: connected</code>. It performs the real game handshake and receives an authoritative snapshot.</p>
+    <p>This PC is configured with an enabled user-level systemd service named <code>lg-duel-server.service</code>. It keeps the server independent of the terminal and restarts it after a crash.</p>
+    <p>Other commands:</p>
+    <pre>./scripts/server-control.sh logs
+./scripts/server-control.sh restart
+./scripts/server-control.sh stop</pre>
+    <p>To use another port, pass it when starting, for example <code>./scripts/server-control.sh start 27961</code>.</p>
+  </section>
+
+  <section>
+    <h2>2. Allow the Ubuntu firewall</h2>
+    <p>The UFW service is installed/enabled, but its effective packet rules require administrator access to inspect. Run:</p>
+    <pre>sudo ufw status</pre>
+    <p>If active, allow the game port:</p>
+    <pre>sudo ufw allow 27960/udp comment 'LG Duel server'
+sudo ufw status numbered</pre>
+  </section>
+
+  <section>
+    <h2>3. Forward UDP through the router</h2>
+    <p>This network uses a <strong>TP-Link Deco</strong> router at <code>192.168.68.1</code>. In the Deco mobile app, open <strong>More &rarr; Advanced &rarr; NAT Forwarding &rarr; Port Forwarding</strong> (wording varies by firmware), then add the rule below.</p>
+    <ol>
+      <li>Select this PC or enter its current LAN address: <strong>192.168.68.107</strong>.</li>
+      <li>Set external port <strong>27960</strong>, internal port <strong>27960</strong>, protocol <strong>UDP</strong>.</li>
+      <li>Save/apply the rule.</li>
+      <li>Reserve <code>192.168.68.107</code> for this PC under the Deco address-reservation/DHCP settings.</li>
+    </ol>
+    <p class="warn">Do not place the PC in a DMZ and do not forward every port. Forward only UDP 27960.</p>
+  </section>
+
+  <section>
+    <h2>4. Give friends the connection address</h2>
+    <p>Get the current public IPv4 address:</p>
+    <pre>curl -4 https://icanhazip.com</pre>
+    <p>Friends start the client with:</p>
+    <pre>./build/default/lg_duel_client 213.66.106.51 27960</pre>
+    <p class="warn">Public IP addresses can change. Re-run <code>curl -4 https://icanhazip.com</code> before each test session and send friends the new value if it differs.</p>
+    <p>They must run a client built from the same project revision because the handshake checks the protocol version. On Windows, the executable may be under <code>build\msvc\Debug\lg_duel_client.exe</code>.</p>
+    <p>The host should connect locally with <code>./build/default/lg_duel_client 127.0.0.1 27960</code>. Testing your own public IP from inside the same LAN may fail when the router lacks NAT loopback even though friends can connect.</p>
+  </section>
+
+  <section>
+    <h2>5. Test from outside your network</h2>
+    <p>UDP cannot be validated reliably by a generic web port checker. Have a friend run the actual client while the server log is visible:</p>
+    <pre>./scripts/server-control.sh logs</pre>
+    <p>When the handshake succeeds, the log reports <code>Connected clients: 1</code> or <code>2</code>. Both players press <strong>F3</strong> to ready up.</p>
+  </section>
+
+  <section>
+    <h2>Troubleshooting</h2>
+    <ul>
+      <li><strong>Local probe fails:</strong> inspect <code>.server/lg-duel-server.log</code> and check whether another process owns UDP 27960 with <code>sudo ss -lunp | grep 27960</code>.</li>
+      <li><strong>Local works, friends time out:</strong> verify the router rule says UDP, targets the current LAN address, and the UFW rule is present.</li>
+      <li><strong>Router WAN address differs from public IP:</strong> the ISP may use CGNAT. Ask the ISP for a public IPv4 address, use native IPv6 if every player has it, or use a mesh VPN such as Tailscale/ZeroTier.</li>
+      <li><strong>Only one friend can join:</strong> the prototype intentionally has two total player slots, including the host.</li>
+      <li><strong>After reboot:</strong> the enabled user service starts with the desktop user session. Check it with <code>./scripts/server-control.sh status</code>.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

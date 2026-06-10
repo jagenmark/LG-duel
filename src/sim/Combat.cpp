@@ -26,6 +26,40 @@ constexpr float kTraceEpsilon = 0.00001F;
   return std::max(0.0F, exitDistance);
 }
 
+[[nodiscard]] float wallHitDistance(
+  const ArenaWall& wall,
+  Vec3 origin,
+  Vec3 direction
+) {
+  float entry = 0.0F;
+  float exit = std::numeric_limits<float>::max();
+  const auto clipAxis = [&entry, &exit](
+    float axisOrigin,
+    float axisDirection,
+    float minValue,
+    float maxValue
+  ) {
+    if (std::fabs(axisDirection) <= kTraceEpsilon) {
+      return axisOrigin >= minValue && axisOrigin <= maxValue;
+    }
+    const float first = (minValue - axisOrigin) / axisDirection;
+    const float second = (maxValue - axisOrigin) / axisDirection;
+    entry = std::max(entry, std::min(first, second));
+    exit = std::min(exit, std::max(first, second));
+    return entry <= exit;
+  };
+
+  if (
+    !clipAxis(origin.x, direction.x, wall.min.x, wall.max.x) ||
+    !clipAxis(origin.y, direction.y, wall.min.y, wall.max.y) ||
+    !clipAxis(origin.z, direction.z, wall.min.z, wall.max.z) ||
+    exit < 0.0F
+  ) {
+    return std::numeric_limits<float>::max();
+  }
+  return std::max(0.0F, entry);
+}
+
 [[nodiscard]] bool intersectPlayerCylinder(
   Vec3 origin,
   Vec3 direction,
@@ -98,7 +132,14 @@ LightningGunResult simulateLightningGun(
   result.start = attacker.position + Vec3{0.0F, 0.0F, tuning.eyeHeight};
 
   const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);
-  const float traceDistance = std::min(tuning.range, arenaExitDistance(arena, result.start, direction));
+  float traceDistance =
+    std::min(tuning.range, arenaExitDistance(arena, result.start, direction));
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    traceDistance = std::min(
+      traceDistance,
+      wallHitDistance(arena.walls[index], result.start, direction)
+    );
+  }
   result.end = result.start + (direction * traceDistance);
   result.active = command.attack && attacker.health > 0;
 

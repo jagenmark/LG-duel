@@ -9,6 +9,44 @@
 namespace lg {
 namespace {
 
+[[nodiscard]] float wallTravelDistance(
+  const ArenaWall& wall,
+  const PlayerState& player,
+  Vec3 direction
+) {
+  const float minX = wall.min.x - player.bounds.radius;
+  const float maxX = wall.max.x + player.bounds.radius;
+  const float minY = wall.min.y - player.bounds.radius;
+  const float maxY = wall.max.y + player.bounds.radius;
+  float entry = 0.0F;
+  float exit = std::numeric_limits<float>::max();
+
+  const auto clipAxis = [&entry, &exit](
+    float origin,
+    float axisDirection,
+    float minValue,
+    float maxValue
+  ) {
+    if (std::fabs(axisDirection) <= 0.00001F) {
+      return origin >= minValue && origin <= maxValue;
+    }
+    const float first = (minValue - origin) / axisDirection;
+    const float second = (maxValue - origin) / axisDirection;
+    entry = std::max(entry, std::min(first, second));
+    exit = std::min(exit, std::max(first, second));
+    return entry <= exit;
+  };
+
+  if (
+    !clipAxis(player.position.x, direction.x, minX, maxX) ||
+    !clipAxis(player.position.y, direction.y, minY, maxY) ||
+    exit < 0.0F
+  ) {
+    return std::numeric_limits<float>::max();
+  }
+  return std::max(0.0F, entry);
+}
+
 [[nodiscard]] float availablePlanarTravel(
   const Arena& arena,
   const PlayerState& player,
@@ -41,6 +79,12 @@ namespace {
     arena.min.y + player.bounds.radius,
     arena.max.y - player.bounds.radius
   );
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    available = std::min(
+      available,
+      wallTravelDistance(arena.walls[index], player, direction)
+    );
+  }
   return std::max(0.0F, available);
 }
 

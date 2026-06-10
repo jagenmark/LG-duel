@@ -1,0 +1,69 @@
+name: Windows Playtest Package
+
+on:
+  workflow_dispatch:
+    inputs:
+      server_host:
+        description: Public IP address or hostname for the playtest server
+        required: true
+        default: "213.66.106.51"
+        type: string
+      server_port:
+        description: UDP server port
+        required: true
+        default: "27960"
+        type: string
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  windows-package:
+    runs-on: windows-2025
+    timeout-minutes: 30
+    env:
+      SERVER_HOST: ${{ inputs.server_host || '213.66.106.51' }}
+      SERVER_PORT: ${{ inputs.server_port || '27960' }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+
+      - name: Configure release build
+        run: >
+          cmake -S . -B build/windows -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DBUILD_TESTING=OFF
+          -DLG_DUEL_REQUIRE_SDL3=ON
+          -DLG_DUEL_FETCH_SDL3=ON
+          -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=TRUE
+          -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+
+      - name: Build client
+        run: cmake --build build/windows --config Release --target lg_duel_client --parallel
+
+      - name: Create package directory
+        shell: pwsh
+        run: >
+          ./scripts/package-windows.ps1
+          -BuildDir build/windows
+          -OutputDir dist/LG-Duel-Windows-x64
+          -Configuration Release
+          -ServerHost "$env:SERVER_HOST"
+          -ServerPort ([int]$env:SERVER_PORT)
+
+      - name: Create ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist/LG-Duel-Windows-x64 -DestinationPath dist/LG-Duel-Windows-x64.zip
+
+      - name: Upload Windows ZIP
+        uses: actions/upload-artifact@v7
+        with:
+          name: LG-Duel-Windows-x64
+          path: dist/LG-Duel-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 14
+          archive: false

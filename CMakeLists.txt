@@ -66,6 +66,13 @@ add_executable(lg_duel_server
 target_link_libraries(lg_duel_server PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_server)
 
+add_executable(lg_duel_server_probe
+  tools/ServerProbe.cpp
+)
+
+target_link_libraries(lg_duel_server_probe PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_server_probe)
+
 if(BUILD_TESTING)
   add_subdirectory(tests)
 endif()

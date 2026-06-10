@@ -72,6 +72,10 @@ int main() {
     source.command.jump = true;
     source.requestReset = true;
     source.toggleReady = true;
+    source.requestMovementTuning = true;
+    source.movementTuning.groundAcceleration = 120.0F;
+    source.movementTuning.groundFriction = 6.0F;
+    source.movementTuning.maxGroundSpeed = 14.0F;
     source.viewedServerTick = 88;
 
     lg::WirePacket wire;
@@ -90,6 +94,13 @@ int main() {
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
+    failures += expect(
+      decoded.requestMovementTuning &&
+        nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
+        nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
+        nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F),
+      "movement tuning request should round trip"
+    );
 
     lg::WirePacket wrongVersion = wire;
     wrongVersion[4] = 1;
@@ -157,6 +168,8 @@ int main() {
     source.scores = {7, 4};
     source.connectedPlayers = {true, true};
     source.readyPlayers = {true, false};
+    source.roundCombatStats[0] = {250, 125, 80};
+    source.roundCombatStats[1] = {200, 40, 24};
     source.matchPhase = lg::MatchPhase::Countdown;
     source.matchRules.roundLimit = 10;
     source.matchRules.timeLimitMinutes = 5;
@@ -165,6 +178,9 @@ int main() {
     source.matchRules.roundEndTicks = 125;
     source.matchRules.matchEndTicks = 625;
     source.matchRules.showOpponentHealth = true;
+    source.movementTuning.groundAcceleration = 120.0F;
+    source.movementTuning.groundFriction = 6.0F;
+    source.movementTuning.maxGroundSpeed = 14.0F;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
     source.roundWinner = 0;
@@ -204,10 +220,23 @@ int main() {
       "lobby state should round trip"
     );
     failures += expect(
+      decoded.roundCombatStats[0].lightningActiveTicks == 250 &&
+        decoded.roundCombatStats[0].lightningHitTicks == 125 &&
+        decoded.roundCombatStats[0].damageDealt == 80 &&
+        decoded.roundCombatStats[1].damageDealt == 24,
+      "round combat stats should round trip"
+    );
+    failures += expect(
       decoded.matchPhase == lg::MatchPhase::Countdown &&
         decoded.matchRules.showOpponentHealth &&
         decoded.phaseTicksRemaining == 321,
       "match rules and phase should round trip"
+    );
+    failures += expect(
+      nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
+        nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
+        nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F),
+      "authoritative movement tuning should round trip"
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 

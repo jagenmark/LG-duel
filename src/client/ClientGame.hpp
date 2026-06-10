@@ -16,7 +16,13 @@ class ClientGame {
 public:
   ClientGame(NetTransport& transport, std::size_t localPlayerIndex);
 
-  void sendCommand(const UserCommand& command, bool requestReset, bool toggleReady = false);
+  void sendCommand(
+    const UserCommand& command,
+    bool requestReset,
+    bool toggleReady = false,
+    bool requestMovementTuning = false,
+    const MovementTuning& movementTuning = {}
+  );
   void receiveSnapshots();
 
   [[nodiscard]] bool hasSnapshot() const;
@@ -26,15 +32,18 @@ public:
   [[nodiscard]] const PlayerState& predictedPlayer() const;
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex, float alpha) const;
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
+  [[nodiscard]] const MovementTuning& movementTuning() const;
 
 private:
   NetTransport& transport_;
   std::size_t localPlayerIndex_ = 0;
-  Arena arena_ = {};
+  Arena arena_ = thunderstruckArena();
   MovementTuning movementTuning_ = {};
   Prediction prediction_ = {};
   SnapshotInterpolation interpolation_ = {};
   ServerSnapshot snapshot_ = {};
+  std::uint32_t pendingMovementTuningCommand_ = 0;
+  bool hasPendingMovementTuning_ = false;
   bool hasSnapshot_ = false;
 };
 
