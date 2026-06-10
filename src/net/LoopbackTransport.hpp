@@ -1,5 +1,6 @@
 #pragma once
 
+#include "net/NetCodec.hpp"
 #include "net/NetTransport.hpp"
 
 #include <deque>
@@ -15,8 +16,8 @@ public:
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
 
 private:
-  std::deque<CommandPacket> commands_;
-  std::deque<ServerSnapshot> snapshots_;
+  std::deque<WirePacket> commands_;
+  std::deque<WirePacket> snapshots_;
 };
 
 } // namespace lg

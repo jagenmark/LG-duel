@@ -67,3 +67,33 @@ target_compile_features(lg_duel_fixed_tick_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_fixed_tick_tests)
 
 add_test(NAME lg_duel_fixed_tick_tests COMMAND lg_duel_fixed_tick_tests)
+
+add_executable(lg_duel_protocol_tests
+  net/ProtocolTests.cpp
+)
+
+target_link_libraries(lg_duel_protocol_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_protocol_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_protocol_tests)
+
+add_test(NAME lg_duel_protocol_tests COMMAND lg_duel_protocol_tests)
+
+add_executable(lg_duel_network_simulation_tests
+  net/NetworkSimulationTests.cpp
+)
+
+target_link_libraries(lg_duel_network_simulation_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_network_simulation_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_network_simulation_tests)
+
+add_test(NAME lg_duel_network_simulation_tests COMMAND lg_duel_network_simulation_tests)
+
+add_executable(lg_duel_determinism_tests
+  sim/DeterminismTests.cpp
+)
+
+target_link_libraries(lg_duel_determinism_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_determinism_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_determinism_tests)
+
+add_test(NAME lg_duel_determinism_tests COMMAND lg_duel_determinism_tests)

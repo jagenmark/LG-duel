@@ -17,6 +17,8 @@ add_library(lg_duel_core
   src/client/Interpolation.cpp
   src/client/Prediction.cpp
   src/net/LoopbackTransport.cpp
+  src/net/NetCodec.cpp
+  src/net/SimulatedTransport.cpp
   src/render/Renderer.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp

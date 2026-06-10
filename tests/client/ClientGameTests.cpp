@@ -105,6 +105,75 @@ int main() {
   }
 
   {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot initialSnapshot;
+    initialSnapshot.players[0] = groundedPlayer();
+    transport.sendSnapshot(initialSnapshot);
+    client.receiveSnapshots();
+
+    lg::UserCommand movement;
+    movement.sequence = 20;
+    movement.forwardMove = 1.0F;
+    client.sendCommand(movement, false);
+    lg::UserCommand reset;
+    reset.sequence = 21;
+    client.sendCommand(reset, true);
+
+    lg::ServerSnapshot resetSnapshot = initialSnapshot;
+    resetSnapshot.serverTick = 1;
+    resetSnapshot.hasAcknowledgedCommand[0] = true;
+    resetSnapshot.acknowledgedCommand[0] = reset.sequence;
+    transport.sendSnapshot(resetSnapshot);
+    client.receiveSnapshots();
+
+    failures += expect(
+      client.predictionDiagnostics().pendingCommandCount == 0,
+      "reset acknowledgement should clear pre-reset pending commands"
+    );
+    failures += expect(
+      nearlyEqual(client.predictedPlayer().position.x, resetSnapshot.players[0].position.x),
+      "reset snapshot should restore authoritative spawn during prediction"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot initialSnapshot;
+    initialSnapshot.players[0] = groundedPlayer();
+    transport.sendSnapshot(initialSnapshot);
+    client.receiveSnapshots();
+
+    lg::UserCommand acknowledged;
+    acknowledged.sequence = 30;
+    acknowledged.forwardMove = 1.0F;
+    client.sendCommand(acknowledged, false);
+    lg::UserCommand pending = acknowledged;
+    pending.sequence = 31;
+    client.sendCommand(pending, false);
+
+    lg::ServerSnapshot deathSnapshot = initialSnapshot;
+    deathSnapshot.serverTick = 1;
+    deathSnapshot.hasAcknowledgedCommand[0] = true;
+    deathSnapshot.acknowledgedCommand[0] = acknowledged.sequence;
+    deathSnapshot.players[0].health = 0;
+    deathSnapshot.respawnTicksRemaining[0] = 250;
+    transport.sendSnapshot(deathSnapshot);
+    client.receiveSnapshots();
+
+    failures += expect(client.predictedPlayer().health == 0, "death snapshot should update prediction health");
+    failures += expect(
+      nearlyEqual(client.predictedPlayer().position.x, deathSnapshot.players[0].position.x),
+      "pending movement should not replay while authoritative player is dead"
+    );
+    failures += expect(
+      client.predictionDiagnostics().pendingCommandCount == 1,
+      "death snapshot should retain newer pending command until acknowledged"
+    );
+  }
+
+  {
     const lg::PlayerState initial = groundedPlayer();
     lg::Prediction prediction;
     prediction.initialize(initial);

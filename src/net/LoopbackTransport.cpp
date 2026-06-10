@@ -3,7 +3,10 @@
 namespace lg {
 
 void LoopbackTransport::sendCommand(const CommandPacket& packet) {
-  commands_.push_back(packet);
+  WirePacket wire;
+  if (encodeCommandPacket(packet, wire)) {
+    commands_.push_back(wire);
+  }
 }
 
 bool LoopbackTransport::receiveCommand(CommandPacket& packet) {
@@ -11,13 +14,16 @@ bool LoopbackTransport::receiveCommand(CommandPacket& packet) {
     return false;
   }
 
-  packet = commands_.front();
+  const WirePacket wire = commands_.front();
   commands_.pop_front();
-  return true;
+  return decodeCommandPacket(wire, packet);
 }
 
 void LoopbackTransport::sendSnapshot(const ServerSnapshot& snapshot) {
-  snapshots_.push_back(snapshot);
+  WirePacket wire;
+  if (encodeServerSnapshot(snapshot, wire)) {
+    snapshots_.push_back(wire);
+  }
 }
 
 bool LoopbackTransport::receiveSnapshot(ServerSnapshot& snapshot) {
@@ -25,9 +31,9 @@ bool LoopbackTransport::receiveSnapshot(ServerSnapshot& snapshot) {
     return false;
   }
 
-  snapshot = snapshots_.front();
+  const WirePacket wire = snapshots_.front();
   snapshots_.pop_front();
-  return true;
+  return decodeServerSnapshot(wire, snapshot);
 }
 
 } // namespace lg
