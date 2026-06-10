@@ -1239,7 +1239,8 @@ int GameApp::run() const {
     );
     PlayerState renderPlayer;
     PlayerState renderOpponent;
-    LightningGunResult renderLightningGun;
+    LightningGunResult renderLocalLightningGun;
+    LightningGunResult renderOpponentLightningGun;
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
@@ -1249,8 +1250,11 @@ int GameApp::run() const {
         opponentPlayerIndex,
         interpolationAlpha
       );
-      renderLightningGun =
-        renderClient->snapshot().lightningGuns[localPlayerIndex];
+      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
+      renderLocalLightningGun =
+        renderSnapshot.lightningGuns[localPlayerIndex];
+      renderOpponentLightningGun =
+        renderSnapshot.lightningGuns[opponentPlayerIndex];
     }
     RenderSettings currentRenderSettings = renderSettings(console);
     const AimMode renderAimMode =
@@ -1275,7 +1279,8 @@ int GameApp::run() const {
       arena,
       renderPlayer,
       renderOpponent,
-      renderLightningGun,
+      renderLocalLightningGun,
+      renderOpponentLightningGun,
       currentRenderSettings,
       buildHud(session),
       consoleRenderState(consoleState)

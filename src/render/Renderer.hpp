@@ -62,7 +62,8 @@ public:
     const Arena& arena,
     const PlayerState& player,
     const PlayerState& opponent,
-    const LightningGunResult& lightningGun,
+    const LightningGunResult& localLightningGun,
+    const LightningGunResult& opponentLightningGun,
     const RenderSettings& settings,
     const HudRenderState& hud,
     const ConsoleRenderState& console

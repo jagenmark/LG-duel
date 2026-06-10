@@ -353,7 +353,8 @@ void Renderer::render(
   const Arena& arena,
   const PlayerState& player,
   const PlayerState& opponent,
-  const LightningGunResult& lightningGun,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console
@@ -424,21 +425,38 @@ void Renderer::render(
   const float opponentX = opponentScreen.x;
   const float opponentY = opponentScreen.y;
 
-  if (lightningGun.active) {
-    const SDL_FPoint beamStart = worldToScreen(view, lightningGun.start);
-    const SDL_FPoint beamEnd = worldToScreen(view, lightningGun.end);
-    const auto hitBoost = [hit = lightningGun.hit](std::uint8_t channel) {
+  const auto drawLightningGunBeam = [&](const LightningGunResult& beam, bool localBeam) {
+    if (!beam.active) {
+      return;
+    }
+
+    const SDL_FPoint beamStart = worldToScreen(view, beam.start);
+    const SDL_FPoint beamEnd = worldToScreen(view, beam.end);
+
+    const auto hitBoost = [hit = beam.hit](std::uint8_t channel) {
       return static_cast<Uint8>(
         hit ? std::min(255, static_cast<int>(channel) + 60) : channel
       );
     };
-    SDL_SetRenderDrawColor(
-      renderer,
-      hitBoost(settings.beamRed),
-      hitBoost(settings.beamGreen),
-      hitBoost(settings.beamBlue),
-      static_cast<Uint8>(settings.beamAlpha * 255.0F)
-    );
+
+    if (localBeam) {
+      SDL_SetRenderDrawColor(
+        renderer,
+        hitBoost(settings.beamRed),
+        hitBoost(settings.beamGreen),
+        hitBoost(settings.beamBlue),
+        static_cast<Uint8>(settings.beamAlpha * 255.0F)
+      );
+    } else {
+      SDL_SetRenderDrawColor(
+        renderer,
+        hitBoost(255),
+        hitBoost(110),
+        hitBoost(80),
+        static_cast<Uint8>(settings.beamAlpha * 255.0F)
+      );
+    }
+
     SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     drawThickLine(
       renderer,
@@ -448,14 +466,18 @@ void Renderer::render(
       beamEnd.y,
       settings.beamWidth
     );
-    if (lightningGun.hit) {
+
+    if (beam.hit) {
       drawHitMarker(renderer, beamEnd.x, beamEnd.y);
     }
-  }
+  };
+
+  drawLightningGunBeam(opponentLightningGun, false);
+  drawLightningGunBeam(localLightningGun, true);
 
   const float playerSize = settings.playerSizePixels;
   const float radius = playerSize * 0.5F;
-  if (lightningGun.hit) {
+  if (localLightningGun.hit) {
     SDL_SetRenderDrawColor(renderer, 255, 190, 198, 255);
   } else {
     SDL_SetRenderDrawColor(renderer, 224, 82, 92, 255);
@@ -515,7 +537,8 @@ void Renderer::render(
   (void)arena;
   (void)player;
   (void)opponent;
-  (void)lightningGun;
+  (void)localLightningGun;
+  (void)opponentLightningGun;
   (void)settings;
   (void)hud;
   (void)console;
