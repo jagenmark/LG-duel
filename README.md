@@ -36,7 +36,26 @@ SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app should
 
 ## Current Playable Slice
 
-When built with SDL3, `lg_duel` runs a local loopback client/server lightning-gun sandbox:
+The build produces:
+
+- `lg_duel_server`: headless authoritative UDP server
+- `lg_duel_client`: native SDL top-down client
+
+Start a local server:
+
+```bash
+./build/default/lg_duel_server 27960
+```
+
+Start up to two clients:
+
+```bash
+./build/default/lg_duel_client 127.0.0.1 27960
+```
+
+The server assigns player slots during a version-checked handshake. The client retries connection requests, sends the latest three sequenced commands in each UDP datagram, measures ping with tokenized ping/pong packets, and times out silent connections after five seconds.
+
+Client controls:
 
 - `W/S`: forward/back
 - `A/D`: strafe
@@ -47,7 +66,7 @@ When built with SDL3, `lg_duel` runs a local loopback client/server lightning-gu
 - `R`: request an authoritative match reset
 - `Esc`: quit
 
-The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. The local client sends sequenced commands through `LoopbackTransport` and renders received server snapshots. The window title reports server tick, command sequence/ack, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
+The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, death, timed respawn, and reset at a fixed 125 Hz. Clients render disposable authoritative snapshots while predicting local movement. The window title reports assigned player, ping, server tick, command sequence/ack, prediction corrections, dropped simulation time, collision state, movement mode, target health/respawn, hit registration, position, and velocity.
 
 Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
 
@@ -55,7 +74,7 @@ The client predicts local movement immediately, reconciles against acknowledged 
 
 ## Network Protocol
 
-Commands and snapshots use a versioned, explicitly serialized little-endian wire format with packet magic, packet type, payload length, fixed-width fields, and a 512-byte packet limit. Loopback transport uses this codec too, so local play exercises the same validation boundary intended for UDP. Decoding rejects incompatible versions, malformed lengths, invalid enums/booleans, oversized packets, and non-finite simulation values.
+Handshakes, redundant command bundles, snapshots, and ping/pong messages use a versioned, explicitly serialized little-endian wire format with packet magic, packet type, payload length, fixed-width fields, and a 512-byte packet limit. Loopback transport uses this codec too. Decoding rejects incompatible versions, malformed lengths, invalid enums/booleans, oversized packets, and non-finite simulation values.
 
 `SimulatedTransport` provides deterministic tick-based latency, jitter, packet loss, duplication, and reordering profiles independently for commands and snapshots. Its seeded behavior and packet statistics support reproducible netcode tests before UDP is introduced.
 

@@ -13,16 +13,39 @@ inline constexpr std::uint16_t kProtocolVersion = 1;
 inline constexpr std::size_t kMaxPacketBytes = 512;
 
 enum class PacketType : std::uint8_t {
-  Command = 1,
-  Snapshot = 2,
+  ConnectRequest = 1,
+  ConnectAccept = 2,
+  Command = 3,
+  CommandBundle = 4,
+  Snapshot = 5,
+  Ping = 6,
+  Pong = 7,
 };
 
 using WirePacket = std::vector<std::uint8_t>;
 
+[[nodiscard]] bool inspectPacketType(const WirePacket& wire, PacketType& type);
+
+[[nodiscard]] bool encodeConnectRequest(const ConnectRequest& packet, WirePacket& wire);
+[[nodiscard]] bool decodeConnectRequest(const WirePacket& wire, ConnectRequest& packet);
+
+[[nodiscard]] bool encodeConnectAccept(const ConnectAccept& packet, WirePacket& wire);
+[[nodiscard]] bool decodeConnectAccept(const WirePacket& wire, ConnectAccept& packet);
+
 [[nodiscard]] bool encodeCommandPacket(const CommandPacket& packet, WirePacket& wire);
 [[nodiscard]] bool decodeCommandPacket(const WirePacket& wire, CommandPacket& packet);
 
+[[nodiscard]] bool encodeCommandBundle(const CommandBundle& bundle, WirePacket& wire);
+[[nodiscard]] bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle);
+
 [[nodiscard]] bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire);
 [[nodiscard]] bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot);
+
+[[nodiscard]] bool encodePingPacket(PacketType type, const PingPacket& packet, WirePacket& wire);
+[[nodiscard]] bool decodePingPacket(
+  const WirePacket& wire,
+  PacketType expectedType,
+  PingPacket& packet
+);
 
 } // namespace lg

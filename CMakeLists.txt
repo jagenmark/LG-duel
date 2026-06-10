@@ -12,14 +12,13 @@ include(cmake/CompilerWarnings.cmake)
 include(cmake/Dependencies.cmake)
 
 add_library(lg_duel_core
-  src/app/GameApp.cpp
   src/client/ClientGame.cpp
   src/client/Interpolation.cpp
   src/client/Prediction.cpp
   src/net/LoopbackTransport.cpp
   src/net/NetCodec.cpp
   src/net/SimulatedTransport.cpp
-  src/render/Renderer.cpp
+  src/net/UdpTransport.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/Collision.cpp
@@ -34,14 +33,35 @@ target_include_directories(lg_duel_core
 
 target_compile_features(lg_duel_core PUBLIC cxx_std_20)
 lg_duel_set_warnings(lg_duel_core)
-lg_duel_configure_sdl3(lg_duel_core)
 
-add_executable(lg_duel
+if(WIN32)
+  target_link_libraries(lg_duel_core PUBLIC ws2_32)
+endif()
+
+add_library(lg_duel_client_app
+  src/app/GameApp.cpp
+  src/render/Renderer.cpp
+)
+
+target_link_libraries(lg_duel_client_app PUBLIC lg_duel_core)
+target_compile_features(lg_duel_client_app PUBLIC cxx_std_20)
+lg_duel_set_warnings(lg_duel_client_app)
+lg_duel_configure_sdl3(lg_duel_client_app)
+
+add_executable(lg_duel_client
   src/app/main.cpp
 )
 
-target_link_libraries(lg_duel PRIVATE lg_duel_core)
-lg_duel_set_warnings(lg_duel)
+target_link_libraries(lg_duel_client PRIVATE lg_duel_client_app)
+lg_duel_set_warnings(lg_duel_client)
+
+add_executable(lg_duel_server
+  src/server/main.cpp
+  src/server/ServerApp.cpp
+)
+
+target_link_libraries(lg_duel_server PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_server)
 
 if(BUILD_TESTING)
   add_subdirectory(tests)

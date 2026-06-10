@@ -28,6 +28,37 @@ int main() {
   int failures = 0;
 
   {
+    lg::WirePacket wire;
+    lg::PacketType type;
+    lg::ConnectRequest request{12345};
+    lg::ConnectRequest decodedRequest;
+    failures += expect(lg::encodeConnectRequest(request, wire), "connect request should encode");
+    failures += expect(lg::inspectPacketType(wire, type), "connect packet type should inspect");
+    failures += expect(type == lg::PacketType::ConnectRequest, "connect request type should match");
+    failures += expect(lg::decodeConnectRequest(wire, decodedRequest), "connect request should decode");
+    failures += expect(decodedRequest.clientNonce == 12345, "connect nonce should round trip");
+
+    lg::ConnectAccept accept{12345, 1, 77};
+    lg::ConnectAccept decodedAccept;
+    failures += expect(lg::encodeConnectAccept(accept, wire), "connect accept should encode");
+    failures += expect(lg::decodeConnectAccept(wire, decodedAccept), "connect accept should decode");
+    failures += expect(decodedAccept.playerIndex == 1, "assigned player should round trip");
+    failures += expect(decodedAccept.serverTick == 77, "accept server tick should round trip");
+
+    lg::PingPacket ping{88};
+    lg::PingPacket decodedPing;
+    failures += expect(
+      lg::encodePingPacket(lg::PacketType::Ping, ping, wire),
+      "ping should encode"
+    );
+    failures += expect(
+      lg::decodePingPacket(wire, lg::PacketType::Ping, decodedPing),
+      "ping should decode"
+    );
+    failures += expect(decodedPing.token == 88, "ping token should round trip");
+  }
+
+  {
     lg::CommandPacket source;
     source.playerIndex = 1;
     source.command.sequence = 42;
@@ -77,6 +108,22 @@ int main() {
     failures += expect(
       !lg::decodeCommandPacket(wire, decoded),
       "out-of-range movement input should be rejected"
+    );
+
+    lg::CommandBundle bundle;
+    bundle.commandCount = 3;
+    bundle.commands[0] = source;
+    bundle.commands[1] = source;
+    bundle.commands[1].command.sequence = 43;
+    bundle.commands[2] = source;
+    bundle.commands[2].command.sequence = 44;
+    lg::CommandBundle decodedBundle;
+    failures += expect(lg::encodeCommandBundle(bundle, wire), "command bundle should encode");
+    failures += expect(lg::decodeCommandBundle(wire, decodedBundle), "command bundle should decode");
+    failures += expect(decodedBundle.commandCount == 3, "bundle count should round trip");
+    failures += expect(
+      decodedBundle.commands[2].command.sequence == 44,
+      "bundle command order should round trip"
     );
   }
 

@@ -2,7 +2,7 @@ add_executable(lg_duel_smoke_tests
   smoke/SmokeTests.cpp
 )
 
-target_link_libraries(lg_duel_smoke_tests PRIVATE lg_duel_core)
+target_link_libraries(lg_duel_smoke_tests PRIVATE lg_duel_client_app)
 target_compile_features(lg_duel_smoke_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_smoke_tests)
 
@@ -97,3 +97,13 @@ target_compile_features(lg_duel_determinism_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_determinism_tests)
 
 add_test(NAME lg_duel_determinism_tests COMMAND lg_duel_determinism_tests)
+
+add_executable(lg_duel_udp_tests
+  net/UdpTransportTests.cpp
+)
+
+target_link_libraries(lg_duel_udp_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_udp_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_udp_tests)
+
+add_test(NAME lg_duel_udp_tests COMMAND lg_duel_udp_tests)

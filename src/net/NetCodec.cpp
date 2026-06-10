@@ -177,6 +177,45 @@ bool readHeader(Reader& reader, PacketType expectedType, std::size_t wireSize) {
     payloadBytes == wireSize - kHeaderBytes;
 }
 
+bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
+  const UserCommand& command = packet.command;
+  return packet.playerIndex < kDuelPlayerCount &&
+    writer.writeU8(packet.playerIndex) &&
+    writer.writeU32(command.sequence) &&
+    writer.writeU32(command.clientTick) &&
+    writer.writeFloat(command.viewYawRadians) &&
+    writer.writeFloat(command.viewPitchRadians) &&
+    writer.writeFloat(command.forwardMove) &&
+    writer.writeFloat(command.rightMove) &&
+    writer.writeFloat(command.upMove) &&
+    writer.writeBool(command.attack) &&
+    writer.writeBool(command.jump) &&
+    writer.writeBool(packet.requestReset);
+}
+
+bool readCommandBody(Reader& reader, CommandPacket& packet) {
+  if (
+    !reader.readU8(packet.playerIndex) ||
+    !reader.readU32(packet.command.sequence) ||
+    !reader.readU32(packet.command.clientTick) ||
+    !reader.readFloat(packet.command.viewYawRadians) ||
+    !reader.readFloat(packet.command.viewPitchRadians) ||
+    !reader.readFloat(packet.command.forwardMove) ||
+    !reader.readFloat(packet.command.rightMove) ||
+    !reader.readFloat(packet.command.upMove) ||
+    !reader.readBool(packet.command.attack) ||
+    !reader.readBool(packet.command.jump) ||
+    !reader.readBool(packet.requestReset)
+  ) {
+    return false;
+  }
+
+  return packet.playerIndex < kDuelPlayerCount &&
+    std::fabs(packet.command.forwardMove) <= 1.0F &&
+    std::fabs(packet.command.rightMove) <= 1.0F &&
+    std::fabs(packet.command.upMove) <= 1.0F;
+}
+
 bool writeVec3(Writer& writer, Vec3 value) {
   return writer.writeFloat(value.x) &&
     writer.writeFloat(value.y) &&
@@ -266,22 +305,92 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
 
 } // namespace
 
+bool inspectPacketType(const WirePacket& wire, PacketType& type) {
+  if (wire.size() < kHeaderBytes || wire.size() > kMaxPacketBytes) {
+    return false;
+  }
+
+  Reader reader(wire);
+  std::uint32_t magic = 0;
+  std::uint16_t version = 0;
+  std::uint8_t encodedType = 0;
+  std::uint8_t flags = 0;
+  std::uint16_t payloadBytes = 0;
+  std::uint16_t reserved = 0;
+  if (
+    !reader.readU32(magic) ||
+    !reader.readU16(version) ||
+    !reader.readU8(encodedType) ||
+    !reader.readU8(flags) ||
+    !reader.readU16(payloadBytes) ||
+    !reader.readU16(reserved) ||
+    magic != kProtocolMagic ||
+    version != kProtocolVersion ||
+    flags != 0 ||
+    reserved != 0 ||
+    payloadBytes != wire.size() - kHeaderBytes ||
+    encodedType < static_cast<std::uint8_t>(PacketType::ConnectRequest) ||
+    encodedType > static_cast<std::uint8_t>(PacketType::Pong)
+  ) {
+    return false;
+  }
+
+  type = static_cast<PacketType>(encodedType);
+  return true;
+}
+
+bool encodeConnectRequest(const ConnectRequest& packet, WirePacket& wire) {
+  Writer writer(wire);
+  return writeHeader(writer, PacketType::ConnectRequest) &&
+    writer.writeU32(packet.clientNonce) &&
+    finishPacket(writer);
+}
+
+bool decodeConnectRequest(const WirePacket& wire, ConnectRequest& packet) {
+  Reader reader(wire);
+  ConnectRequest decoded;
+  if (
+    !readHeader(reader, PacketType::ConnectRequest, wire.size()) ||
+    !reader.readU32(decoded.clientNonce) ||
+    reader.remaining() != 0
+  ) {
+    return false;
+  }
+  packet = decoded;
+  return true;
+}
+
+bool encodeConnectAccept(const ConnectAccept& packet, WirePacket& wire) {
+  Writer writer(wire);
+  return packet.playerIndex < kDuelPlayerCount &&
+    writeHeader(writer, PacketType::ConnectAccept) &&
+    writer.writeU32(packet.clientNonce) &&
+    writer.writeU8(packet.playerIndex) &&
+    writer.writeU32(packet.serverTick) &&
+    finishPacket(writer);
+}
+
+bool decodeConnectAccept(const WirePacket& wire, ConnectAccept& packet) {
+  Reader reader(wire);
+  ConnectAccept decoded;
+  if (
+    !readHeader(reader, PacketType::ConnectAccept, wire.size()) ||
+    !reader.readU32(decoded.clientNonce) ||
+    !reader.readU8(decoded.playerIndex) ||
+    !reader.readU32(decoded.serverTick) ||
+    decoded.playerIndex >= kDuelPlayerCount ||
+    reader.remaining() != 0
+  ) {
+    return false;
+  }
+  packet = decoded;
+  return true;
+}
+
 bool encodeCommandPacket(const CommandPacket& packet, WirePacket& wire) {
   Writer writer(wire);
-  const UserCommand& command = packet.command;
-  return packet.playerIndex < kDuelPlayerCount &&
-    writeHeader(writer, PacketType::Command) &&
-    writer.writeU8(packet.playerIndex) &&
-    writer.writeU32(command.sequence) &&
-    writer.writeU32(command.clientTick) &&
-    writer.writeFloat(command.viewYawRadians) &&
-    writer.writeFloat(command.viewPitchRadians) &&
-    writer.writeFloat(command.forwardMove) &&
-    writer.writeFloat(command.rightMove) &&
-    writer.writeFloat(command.upMove) &&
-    writer.writeBool(command.attack) &&
-    writer.writeBool(command.jump) &&
-    writer.writeBool(packet.requestReset) &&
+  return writeHeader(writer, PacketType::Command) &&
+    writeCommandBody(writer, packet) &&
     finishPacket(writer);
 }
 
@@ -290,27 +399,56 @@ bool decodeCommandPacket(const WirePacket& wire, CommandPacket& packet) {
   CommandPacket decoded;
   if (
     !readHeader(reader, PacketType::Command, wire.size()) ||
-    !reader.readU8(decoded.playerIndex) ||
-    !reader.readU32(decoded.command.sequence) ||
-    !reader.readU32(decoded.command.clientTick) ||
-    !reader.readFloat(decoded.command.viewYawRadians) ||
-    !reader.readFloat(decoded.command.viewPitchRadians) ||
-    !reader.readFloat(decoded.command.forwardMove) ||
-    !reader.readFloat(decoded.command.rightMove) ||
-    !reader.readFloat(decoded.command.upMove) ||
-    !reader.readBool(decoded.command.attack) ||
-    !reader.readBool(decoded.command.jump) ||
-    !reader.readBool(decoded.requestReset) ||
-    decoded.playerIndex >= kDuelPlayerCount ||
-    std::fabs(decoded.command.forwardMove) > 1.0F ||
-    std::fabs(decoded.command.rightMove) > 1.0F ||
-    std::fabs(decoded.command.upMove) > 1.0F ||
+    !readCommandBody(reader, decoded) ||
     reader.remaining() != 0
   ) {
     return false;
   }
 
   packet = decoded;
+  return true;
+}
+
+bool encodeCommandBundle(const CommandBundle& bundle, WirePacket& wire) {
+  if (bundle.commandCount == 0 || bundle.commandCount > kMaxBundledCommands) {
+    return false;
+  }
+
+  Writer writer(wire);
+  if (
+    !writeHeader(writer, PacketType::CommandBundle) ||
+    !writer.writeU8(bundle.commandCount)
+  ) {
+    return false;
+  }
+  for (std::size_t index = 0; index < bundle.commandCount; ++index) {
+    if (!writeCommandBody(writer, bundle.commands[index])) {
+      return false;
+    }
+  }
+  return finishPacket(writer);
+}
+
+bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
+  Reader reader(wire);
+  CommandBundle decoded;
+  if (
+    !readHeader(reader, PacketType::CommandBundle, wire.size()) ||
+    !reader.readU8(decoded.commandCount) ||
+    decoded.commandCount == 0 ||
+    decoded.commandCount > kMaxBundledCommands
+  ) {
+    return false;
+  }
+  for (std::size_t index = 0; index < decoded.commandCount; ++index) {
+    if (!readCommandBody(reader, decoded.commands[index])) {
+      return false;
+    }
+  }
+  if (reader.remaining() != 0) {
+    return false;
+  }
+  bundle = decoded;
   return true;
 }
 
@@ -381,6 +519,37 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
 
   snapshot = decoded;
+  return true;
+}
+
+bool encodePingPacket(PacketType type, const PingPacket& packet, WirePacket& wire) {
+  if (type != PacketType::Ping && type != PacketType::Pong) {
+    return false;
+  }
+  Writer writer(wire);
+  return writeHeader(writer, type) &&
+    writer.writeU32(packet.token) &&
+    finishPacket(writer);
+}
+
+bool decodePingPacket(
+  const WirePacket& wire,
+  PacketType expectedType,
+  PingPacket& packet
+) {
+  if (expectedType != PacketType::Ping && expectedType != PacketType::Pong) {
+    return false;
+  }
+  Reader reader(wire);
+  PingPacket decoded;
+  if (
+    !readHeader(reader, expectedType, wire.size()) ||
+    !reader.readU32(decoded.token) ||
+    reader.remaining() != 0
+  ) {
+    return false;
+  }
+  packet = decoded;
   return true;
 }
 

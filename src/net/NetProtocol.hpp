@@ -11,11 +11,31 @@
 namespace lg {
 
 inline constexpr std::size_t kDuelPlayerCount = 2;
+inline constexpr std::size_t kMaxBundledCommands = 3;
+
+struct ConnectRequest {
+  std::uint32_t clientNonce = 0;
+};
+
+struct ConnectAccept {
+  std::uint32_t clientNonce = 0;
+  std::uint8_t playerIndex = 0;
+  std::uint32_t serverTick = 0;
+};
 
 struct CommandPacket {
   std::uint8_t playerIndex = 0;
   UserCommand command = {};
   bool requestReset = false;
+};
+
+struct CommandBundle {
+  std::uint8_t commandCount = 0;
+  std::array<CommandPacket, kMaxBundledCommands> commands = {};
+};
+
+struct PingPacket {
+  std::uint32_t token = 0;
 };
 
 struct ServerSnapshot {

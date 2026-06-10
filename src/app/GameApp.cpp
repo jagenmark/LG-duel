@@ -1,9 +1,8 @@
 #include "app/GameApp.hpp"
 
 #include "client/ClientGame.hpp"
-#include "net/LoopbackTransport.hpp"
+#include "net/UdpTransport.hpp"
 #include "render/Renderer.hpp"
-#include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
 #include "shared/Math.hpp"
@@ -19,6 +18,8 @@
 #include <cstdio>
 #include <cstdint>
 #include <iostream>
+#include <thread>
+#include <utility>
 
 namespace lg {
 namespace {
@@ -108,8 +109,41 @@ void setKey(LocalInputState& input, SDL_Scancode scancode, bool pressed) {
 
 } // namespace
 
+GameApp::GameApp(std::string serverHost, std::uint16_t serverPort)
+  : serverHost_(std::move(serverHost)), serverPort_(serverPort) {}
+
 int GameApp::run() const {
 #if LG_DUEL_HAS_SDL3
+  UdpClientTransport transport(serverHost_, serverPort_);
+  if (!transport.initialize()) {
+    std::cerr << "UDP client initialization failed: " << transport.lastError() << '\n';
+    return 1;
+  }
+
+  const auto connectionDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!transport.connected() && std::chrono::steady_clock::now() < connectionDeadline) {
+    transport.update();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (!transport.connected()) {
+    std::cerr << "Timed out connecting to " << serverHost_ << ':' << serverPort_ << '\n';
+    return 1;
+  }
+
+  const std::size_t localPlayerIndex = transport.playerIndex();
+  const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
+  ClientGame client(transport, localPlayerIndex);
+  const auto snapshotDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+  while (!client.hasSnapshot() && std::chrono::steady_clock::now() < snapshotDeadline) {
+    transport.update();
+    client.receiveSnapshots();
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  if (!client.hasSnapshot()) {
+    std::cerr << "Connected, but no server snapshot was received.\n";
+    return 1;
+  }
+
   if (!SDL_Init(SDL_INIT_VIDEO)) {
     std::cerr << "SDL_Init failed: " << SDL_GetError() << '\n';
     return 1;
@@ -134,13 +168,7 @@ int GameApp::run() const {
     return 1;
   }
 
-  constexpr std::size_t kLocalPlayerIndex = 0;
-  constexpr std::size_t kOpponentPlayerIndex = 1;
   const Arena arena;
-  LoopbackTransport transport;
-  ServerGame server(transport);
-  ClientGame client(transport, kLocalPlayerIndex);
-  client.receiveSnapshots();
 
   LocalInputState input;
   bool running = true;
@@ -218,7 +246,7 @@ int GameApp::run() const {
         buildCommand(tickInput, predictedPlayer, commandSequence++, clientTick++);
       client.sendCommand(command, resetRequested);
       resetRequested = false;
-      server.tick(kFixedTickSeconds);
+      transport.update();
       client.receiveSnapshots();
       consumedMouseForTick = true;
     }
@@ -230,16 +258,18 @@ int GameApp::run() const {
     if (titleAccumulatorSeconds >= 0.1F) {
       const ServerSnapshot& snapshot = client.snapshot();
       const PlayerState& player = client.predictedPlayer();
-      const PlayerState& opponent = snapshot.players[kOpponentPlayerIndex];
+      const PlayerState& opponent = snapshot.players[opponentPlayerIndex];
       const LightningGunResult& lightningGun =
-        snapshot.lightningGuns[kLocalPlayerIndex];
+        snapshot.lightningGuns[localPlayerIndex];
       const PredictionDiagnostics& prediction = client.predictionDiagnostics();
       char title[256];
       std::snprintf(
         title,
         sizeof(title),
-        "%s | tick %u | cmd %u/%u | pending %zu | corrections %u %.4f | overload %u %.3fs | collision %s | %s | target %d HP respawn %u | LG %s | pos %.2f %.2f %.2f | vel %.2f %.2f %.2f",
+        "%s P%zu | ping %.1f ms | tick %u | cmd %u/%u | pending %zu | corrections %u %.4f | overload %u %.3fs | collision %s | %s | target %d HP respawn %u | LG %s | pos %.2f %.2f %.2f | vel %.2f %.2f %.2f",
         name().data(),
+        localPlayerIndex + 1,
+        transport.pingMilliseconds(),
         snapshot.serverTick,
         commandSequence == 0 ? 0 : commandSequence - 1,
         client.lastAcknowledgedCommand(),
@@ -251,7 +281,7 @@ int GameApp::run() const {
         snapshot.playersColliding ? "YES" : "NO",
         movementModeName(player.movementMode),
         opponent.health,
-        snapshot.respawnTicksRemaining[kOpponentPlayerIndex],
+        snapshot.respawnTicksRemaining[opponentPlayerIndex],
         lightningGun.hit ? "HIT" : (lightningGun.active ? "MISS" : "OFF"),
         player.position.x,
         player.position.y,
@@ -273,9 +303,15 @@ int GameApp::run() const {
     renderer.render(
       arena,
       client.predictedPlayer(),
-      client.interpolatedPlayer(kOpponentPlayerIndex, interpolationAlpha),
-      snapshot.lightningGuns[kLocalPlayerIndex]
+      client.interpolatedPlayer(opponentPlayerIndex, interpolationAlpha),
+      snapshot.lightningGuns[localPlayerIndex]
     );
+    transport.update();
+    client.receiveSnapshots();
+    if (transport.timedOut()) {
+      std::cerr << "Server connection timed out.\n";
+      running = false;
+    }
     SDL_Delay(1);
   }
 
@@ -291,7 +327,7 @@ int GameApp::run() const {
 }
 
 std::string_view GameApp::name() const {
-  return "LG Duel";
+  return "LG Duel Client";
 }
 
 } // namespace lg
