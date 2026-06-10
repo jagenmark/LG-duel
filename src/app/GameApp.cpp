@@ -434,6 +434,24 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+    "actionlist",
+    "List bindable gameplay actions using Quake 3 command names.",
+    [](const std::vector<std::string>&) {
+      return std::string(
+        "+forward\n"
+        "+back\n"
+        "+moveleft\n"
+        "+moveright\n"
+        "+moveup\n"
+        "+movedown\n"
+        "+attack\n"
+        "resetmatch\n"
+        "toggleconsole\n"
+        "quit"
+      );
+    }
+  );
+  console.registerCommand(
     "net_stats",
     "Print current connection diagnostics.",
     [&transport](const std::vector<std::string>&) {
@@ -453,7 +471,10 @@ int GameApp::run() const {
   (void)renderer.setVSync(console.getBool("r_vsync"));
   bool appliedVSync = console.getBool("r_vsync");
   ClientConsoleState consoleState;
-  appendConsoleOutput(consoleState, "LG Duel console. Type cmdlist, cvarlist, or bindlist.");
+  appendConsoleOutput(
+    consoleState,
+    "LG Duel console. Type actionlist, bindlist, cmdlist, or cvarlist."
+  );
   bool suppressNextTextInput = false;
   const auto executeBindingCommands =
     [&console, &consoleState](const std::vector<std::string>& commands) {

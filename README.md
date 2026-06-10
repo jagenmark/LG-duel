@@ -90,6 +90,7 @@ bind <key> <command>
 unbind <key>
 unbindall
 bindlist
+actionlist
 ```
 
 Button-style commands automatically receive their matching release command. For example:
@@ -101,7 +102,7 @@ bind mouse1 "+attack"
 bind section "toggleconsole"
 ```
 
-Common actions are `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, and `+attack`. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
+Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, and `+attack`. Use `actionlist` in the console to list them. Game-specific one-shot commands include `resetmatch`, `toggleconsole`, and `quit`. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
 
 Initial client cvars include `sensitivity`, `cl_fov`, `cl_showfps`, `cl_show_net`, `r_vsync`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls. These settings are client-only and do not alter authoritative movement, hit detection, damage, or network timing.
 
