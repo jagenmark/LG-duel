@@ -26,6 +26,7 @@ int main() {
       lg::CvarFlag::Archive | lg::CvarFlag::Client,
       0.1F,
       10.0F,
+      "1",
     }),
     "float cvar should register"
   );
@@ -65,6 +66,11 @@ int main() {
   failures += expect(
     console.execute("sensitivity 2.5") == "sensitivity = 2.5",
     "direct cvar assignment should work"
+  );
+  failures += expect(
+    console.execute("sensitivity") ==
+      "sensitivity = 2.5 (default 1, Q3/QL default 1)",
+    "cvar query should include current, project default, and reference default"
   );
   failures += expect(console.getFloat("sensitivity") == 2.5F, "float value should update");
   failures += expect(

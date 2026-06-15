@@ -14,6 +14,12 @@ namespace {
   const PlayerState& player,
   Vec3 direction
 ) {
+  const float playerMinZ = player.position.z - player.bounds.halfHeight;
+  const float playerMaxZ = player.position.z + player.bounds.halfHeight;
+  if (playerMaxZ <= wall.min.z || playerMinZ >= wall.max.z) {
+    return std::numeric_limits<float>::max();
+  }
+
   const float minX = wall.min.x - player.bounds.radius;
   const float maxX = wall.max.x + player.bounds.radius;
   const float minY = wall.min.y - player.bounds.radius;

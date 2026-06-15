@@ -48,6 +48,11 @@ if (Test-Path $outputPath) {
 New-Item -Path $outputPath -ItemType Directory | Out-Null
 
 Copy-Item $client (Join-Path $outputPath "lg_duel_client.exe")
+$shaderSource = Join-Path (Split-Path -Parent $client) "shaders"
+if (-not (Test-Path $shaderSource)) {
+  throw "The compiled shader directory was not found beside lg_duel_client.exe."
+}
+Copy-Item $shaderSource (Join-Path $outputPath "shaders") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "package/windows/Play LG Duel.bat") $outputPath
@@ -57,6 +62,10 @@ Set-Content -Path (Join-Path $outputPath "server-address.txt") -Value "${ServerH
 
 $requiredFiles = @(
   "lg_duel_client.exe",
+  "shaders/color2d.vert.spv",
+  "shaders/color2d.frag.spv",
+  "shaders/world3d.vert.spv",
+  "shaders/world3d.frag.spv",
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "Play LG Duel.bat",

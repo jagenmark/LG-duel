@@ -11,7 +11,7 @@ struct LightningGunTuning {
   float range = 18.0F;
   float damagePerSecond = 80.0F;
   float eyeHeight = 0.65F;
-  float knockbackPerSecond = 10.0F;
+  float knockbackPerSecond = 22.0F;
 };
 
 struct LightningGunState {
@@ -28,6 +28,12 @@ struct LightningGunResult {
   std::uint32_t requestedRewindTicks = 0;
   std::uint32_t appliedRewindTicks = 0;
   bool rewindClamped = false;
+  bool hasRewindDebug = false;
+  std::uint32_t rewindTargetTick = 0;
+  Vec3 currentTargetPosition = {};
+  Vec3 rewoundTargetPosition = {};
+  CollisionBounds currentTargetBounds = {};
+  CollisionBounds rewoundTargetBounds = {};
 };
 
 [[nodiscard]] LightningGunResult simulateLightningGun(

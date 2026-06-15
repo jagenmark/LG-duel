@@ -8,6 +8,9 @@ LG DUEL WINDOWS PLAYTEST
 4. Wait for the second player.
 5. Both players press F3 to ready up.
 
+The launcher selects the SDL_GPU renderer, which prefers Vulkan and falls
+back automatically when Vulkan is unavailable.
+
 The server address is stored in server-address.txt.
 Only edit that file when the host gives you a new address.
 

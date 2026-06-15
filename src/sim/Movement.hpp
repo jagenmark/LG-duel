@@ -7,9 +7,11 @@
 namespace lg {
 
 struct MovementTuning {
+  bool flightEnabled = false;
   float groundAcceleration = 80.0F;
   float airAcceleration = 24.0F;
   float groundFriction = 8.0F;
+  float stopSpeed = 2.5F;
   float gravity = 24.0F;
   float maxGroundSpeed = 8.0F;
   float maxAirSpeed = 8.0F;

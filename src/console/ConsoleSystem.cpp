@@ -102,7 +102,7 @@ std::string ConsoleSystem::execute(std::string_view line) {
       return "unknown cvar: " + tokens[1];
     }
     if (tokens.size() == 2) {
-      return cvar->definition.name + " = " + formatValue(cvar->value);
+      return describeValue(*cvar);
     }
     return setValue(*cvar, tokens[2]);
   }
@@ -176,7 +176,7 @@ std::string ConsoleSystem::execute(std::string_view line) {
 
   if (Cvar* cvar = findCvar(tokens[0])) {
     if (tokens.size() == 1) {
-      return cvar->definition.name + " = " + formatValue(cvar->value);
+      return describeValue(*cvar);
     }
     return setValue(*cvar, tokens[1]);
   }
@@ -338,6 +338,16 @@ std::string ConsoleSystem::setValue(Cvar& cvar, std::string_view text) {
 
   cvar.value = std::move(parsed);
   return cvar.definition.name + " = " + formatValue(cvar.value);
+}
+
+std::string ConsoleSystem::describeValue(const Cvar& cvar) const {
+  std::string result =
+    cvar.definition.name + " = " + formatValue(cvar.value) +
+    " (default " + formatValue(cvar.definition.defaultValue);
+  if (!cvar.definition.referenceValue.empty()) {
+    result += ", Q3/QL default " + cvar.definition.referenceValue;
+  }
+  return result + ')';
 }
 
 } // namespace lg

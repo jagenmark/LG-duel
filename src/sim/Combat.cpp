@@ -129,7 +129,12 @@ LightningGunResult simulateLightningGun(
   float fixedDt
 ) {
   LightningGunResult result;
-  result.start = attacker.position + Vec3{0.0F, 0.0F, tuning.eyeHeight};
+  constexpr CollisionBounds kDefaultPlayerBounds = {};
+  const float heightScale =
+    attacker.bounds.halfHeight / kDefaultPlayerBounds.halfHeight;
+  result.start =
+    attacker.position +
+    Vec3{0.0F, 0.0F, tuning.eyeHeight * heightScale};
 
   const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);
   float traceDistance =

@@ -21,6 +21,7 @@ struct PlayerState {
   CollisionBounds bounds = {};
   MovementMode movementMode = MovementMode::Airborne;
   bool onGround = false;
+  bool jumpHeld = false;
 };
 
 } // namespace lg

@@ -113,6 +113,30 @@ int main() {
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(6.0F, 0.0F);
+    target.position.z += target.bounds.halfHeight * 3.0F;
+    lg::LightningGunState state;
+    lg::UserCommand command;
+    command.attack = true;
+
+    const lg::LightningGunResult result = lg::simulateLightningGun(
+      attacker,
+      target,
+      command,
+      arena,
+      tuning,
+      state,
+      lg::kFixedTickSeconds
+    );
+
+    failures += expect(
+      !result.hit,
+      "LG should miss a vertically separated target outside its 3D bounds"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
     lg::LightningGunState state;
     lg::UserCommand command;
     command.attack = true;
@@ -135,8 +159,8 @@ int main() {
 
   {
     const lg::Arena walledArena = lg::thunderstruckArena();
-    const lg::PlayerState attacker = playerAt(-4.0F, -6.0F);
-    lg::PlayerState target = playerAt(4.0F, -6.0F);
+    const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
+    lg::PlayerState target = playerAt(2.0F, 0.0F);
     lg::LightningGunState state;
     lg::UserCommand command;
     command.attack = true;
@@ -151,10 +175,10 @@ int main() {
       lg::kFixedTickSeconds
     );
 
-    failures += expect(!result.hit, "Thunderstruck divider should block LG traces");
+    failures += expect(!result.hit, "Thunderstruck central cover should block LG traces");
     failures += expect(
-      result.end.x < -0.9F,
-      "blocked beam should end at the divider surface"
+      result.end.x < -1.1F,
+      "blocked beam should end at the cover surface"
     );
     failures += expect(target.health == 100, "wall-blocked LG should not damage target");
   }

@@ -5,6 +5,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -30,12 +31,30 @@ constexpr bool hasFlag(CvarFlag flags, CvarFlag flag) {
 using CvarValue = std::variant<bool, int, float, std::string>;
 
 struct CvarDefinition {
+  CvarDefinition(
+    std::string name,
+    std::string description,
+    CvarValue defaultValue,
+    CvarFlag flags = CvarFlag::None,
+    std::optional<float> minimum = {},
+    std::optional<float> maximum = {},
+    std::string referenceValue = {}
+  )
+    : name(std::move(name)),
+      description(std::move(description)),
+      defaultValue(std::move(defaultValue)),
+      flags(flags),
+      minimum(minimum),
+      maximum(maximum),
+      referenceValue(std::move(referenceValue)) {}
+
   std::string name;
   std::string description;
   CvarValue defaultValue;
   CvarFlag flags = CvarFlag::None;
   std::optional<float> minimum;
   std::optional<float> maximum;
+  std::string referenceValue;
 };
 
 class ConsoleSystem {
@@ -75,6 +94,7 @@ private:
   [[nodiscard]] const Cvar* findCvar(std::string_view name) const;
   [[nodiscard]] const Command* findCommand(std::string_view name) const;
   [[nodiscard]] std::string setValue(Cvar& cvar, std::string_view text);
+  [[nodiscard]] std::string describeValue(const Cvar& cvar) const;
 
   std::vector<Cvar> cvars_;
   std::vector<Command> commands_;

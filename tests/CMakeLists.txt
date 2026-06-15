@@ -137,3 +137,46 @@ target_compile_features(lg_duel_client_session_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_client_session_tests)
 
 add_test(NAME lg_duel_client_session_tests COMMAND lg_duel_client_session_tests)
+
+add_executable(lg_duel_perspective_tests
+  render/PerspectiveTests.cpp
+)
+
+target_link_libraries(lg_duel_perspective_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_perspective_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_perspective_tests)
+
+add_test(NAME lg_duel_perspective_tests COMMAND lg_duel_perspective_tests)
+
+add_executable(lg_duel_top_down_scene_tests
+  render/TopDownSceneTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/TopDownScene.cpp
+)
+
+target_link_libraries(lg_duel_top_down_scene_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_top_down_scene_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_top_down_scene_tests)
+
+add_test(NAME lg_duel_top_down_scene_tests COMMAND lg_duel_top_down_scene_tests)
+
+add_executable(lg_duel_screen_ui_tests
+  render/ScreenUiTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/ScreenUi.cpp
+)
+
+target_link_libraries(lg_duel_screen_ui_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_screen_ui_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_screen_ui_tests)
+
+add_test(NAME lg_duel_screen_ui_tests COMMAND lg_duel_screen_ui_tests)
+
+add_executable(lg_duel_scene_3d_tests
+  render/Scene3DTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/Scene3D.cpp
+)
+
+target_link_libraries(lg_duel_scene_3d_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_scene_3d_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_scene_3d_tests)
+
+add_test(NAME lg_duel_scene_3d_tests COMMAND lg_duel_scene_3d_tests)

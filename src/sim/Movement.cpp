@@ -32,7 +32,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     return;
   }
 
-  const float drop = speed * tuning.groundFriction * fixedDt;
+  const float control = std::max(speed, tuning.stopSpeed);
+  const float drop = control * tuning.groundFriction * fixedDt;
   const float newSpeed = std::max(0.0F, speed - drop);
   const float scale = newSpeed / speed;
   velocity.x *= scale;
@@ -54,6 +55,9 @@ void simulateGroundedOrAirborne(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  if (!command.jump) {
+    player.jumpHeld = false;
+  }
 
   if (player.onGround) {
     player.movementMode = MovementMode::Grounded;
@@ -74,8 +78,13 @@ void simulateGroundedOrAirborne(
     );
   }
 
-  if (player.movementMode == MovementMode::Grounded && command.jump) {
+  if (
+    player.movementMode == MovementMode::Grounded &&
+    command.jump &&
+    !player.jumpHeld
+  ) {
     player.velocity.z = tuning.jumpImpulse;
+    player.jumpHeld = true;
     player.onGround = false;
     player.movementMode = MovementMode::Airborne;
   }
@@ -97,14 +106,48 @@ void simulateGroundedOrAirborne(
   player.movementMode = player.onGround ? MovementMode::Grounded : MovementMode::Airborne;
 }
 
-void simulateFlyingPlaceholder(
+void applyFlightDamping(
+  Vec3& velocity,
+  const MovementTuning& tuning,
+  float fixedDt
+) {
+  const float dampingScale =
+    std::max(0.0F, 1.0F - (tuning.flightDamping * fixedDt));
+  velocity *= dampingScale;
+}
+
+void simulateFlying(
   PlayerState& player,
   const UserCommand& command,
   const Arena& arena,
+  const MovementTuning& tuning,
   float fixedDt
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  player.jumpHeld = command.jump;
+  player.onGround = false;
+
+  applyFlightDamping(player.velocity, tuning, fixedDt);
+  const Vec3 wishVelocity =
+    (cameraForward(command.viewYawRadians, command.viewPitchRadians) *
+      command.forwardMove) +
+    (yawRight(command.viewYawRadians) * command.rightMove) +
+    (Vec3{0.0F, 0.0F, 1.0F} * command.upMove);
+  const Vec3 wishDirection = normalize(wishVelocity);
+  if (length(wishDirection) > 0.0F) {
+    accelerate(
+      player.velocity,
+      wishDirection,
+      tuning.maxFlightSpeed,
+      tuning.flightAcceleration,
+      fixedDt
+    );
+  }
+  player.velocity.z -=
+    tuning.gravity *
+    std::max(0.0F, 1.0F - tuning.flightGravityCancel) *
+    fixedDt;
 
   const CollisionResult collision = resolvePlayerArenaCollision(
     arena,
@@ -128,13 +171,20 @@ void simulateMovement(
   const MovementTuning& tuning,
   float fixedDt
 ) {
+  if (tuning.flightEnabled) {
+    player.movementMode = MovementMode::Flying;
+  } else if (player.movementMode == MovementMode::Flying) {
+    player.movementMode = MovementMode::Airborne;
+    player.onGround = false;
+  }
+
   switch (player.movementMode) {
   case MovementMode::Grounded:
   case MovementMode::Airborne:
     simulateGroundedOrAirborne(player, command, arena, tuning, fixedDt);
     break;
   case MovementMode::Flying:
-    simulateFlyingPlaceholder(player, command, arena, fixedDt);
+    simulateFlying(player, command, arena, tuning, fixedDt);
     break;
   }
 }

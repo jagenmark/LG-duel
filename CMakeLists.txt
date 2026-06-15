@@ -44,6 +44,9 @@ endif()
 add_library(lg_duel_client_app
   src/app/GameApp.cpp
   src/render/Renderer.cpp
+  src/render/Scene3D.cpp
+  src/render/ScreenUi.cpp
+  src/render/TopDownScene.cpp
 )
 
 target_link_libraries(lg_duel_client_app PUBLIC lg_duel_core)
@@ -57,6 +60,25 @@ add_executable(lg_duel_client
 
 target_link_libraries(lg_duel_client PRIVATE lg_duel_client_app)
 lg_duel_set_warnings(lg_duel_client)
+
+add_custom_command(
+  TARGET lg_duel_client
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/color2d.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/color2d.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/color2d.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/color2d.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
+)
 
 add_executable(lg_duel_server
   src/server/main.cpp

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <string>
 
 namespace lg {
 namespace {
@@ -45,6 +46,20 @@ public:
 
   bool writeBool(bool value) {
     return writeU8(value ? 1U : 0U);
+  }
+
+  bool writeString(const std::string& value, std::size_t maxBytes) {
+    if (value.size() > maxBytes || value.size() > 255U || !writeU8(
+      static_cast<std::uint8_t>(value.size())
+    )) {
+      return false;
+    }
+    for (const unsigned char character : value) {
+      if (character < 32U || character == 127U || !writeU8(character)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   [[nodiscard]] std::size_t size() const {
@@ -125,6 +140,23 @@ public:
     return true;
   }
 
+  bool readString(std::string& value, std::size_t maxBytes) {
+    std::uint8_t size = 0;
+    if (!readU8(size) || size > maxBytes || remaining() < size) {
+      return false;
+    }
+    value.clear();
+    value.reserve(size);
+    for (std::uint8_t index = 0; index < size; ++index) {
+      std::uint8_t character = 0;
+      if (!readU8(character) || character < 32U || character == 127U) {
+        return false;
+      }
+      value.push_back(static_cast<char>(character));
+    }
+    return true;
+  }
+
   [[nodiscard]] std::size_t remaining() const {
     return wire_.size() - offset_;
   }
@@ -190,13 +222,27 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(command.upMove) &&
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
+    writer.writeBool(command.planarAim) &&
     writer.writeBool(packet.requestReset) &&
     writer.writeBool(packet.toggleReady) &&
     writer.writeBool(packet.requestMovementTuning) &&
+    writer.writeBool(packet.movementTuning.flightEnabled) &&
     writer.writeFloat(packet.movementTuning.groundAcceleration) &&
+    writer.writeFloat(packet.movementTuning.airAcceleration) &&
     writer.writeFloat(packet.movementTuning.groundFriction) &&
+    writer.writeFloat(packet.movementTuning.stopSpeed) &&
     writer.writeFloat(packet.movementTuning.maxGroundSpeed) &&
-    writer.writeU32(packet.viewedServerTick);
+    writer.writeFloat(packet.movementTuning.flightAcceleration) &&
+    writer.writeFloat(packet.movementTuning.maxFlightSpeed) &&
+    writer.writeFloat(packet.movementTuning.flightDamping) &&
+    writer.writeFloat(packet.movementTuning.flightGravityCancel) &&
+    writer.writeFloat(packet.playerSizeScaleXY) &&
+    writer.writeFloat(packet.playerSizeScaleZ) &&
+    writer.writeFloat(packet.lightningKnockback) &&
+    writer.writeFloat(packet.vampirism) &&
+    writer.writeU32(packet.viewedServerTick) &&
+    writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
+    writer.writeString(packet.playerName, kMaxPlayerNameBytes);
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
@@ -211,13 +257,27 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.command.upMove) ||
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
+    !reader.readBool(packet.command.planarAim) ||
     !reader.readBool(packet.requestReset) ||
     !reader.readBool(packet.toggleReady) ||
     !reader.readBool(packet.requestMovementTuning) ||
+    !reader.readBool(packet.movementTuning.flightEnabled) ||
     !reader.readFloat(packet.movementTuning.groundAcceleration) ||
+    !reader.readFloat(packet.movementTuning.airAcceleration) ||
     !reader.readFloat(packet.movementTuning.groundFriction) ||
+    !reader.readFloat(packet.movementTuning.stopSpeed) ||
     !reader.readFloat(packet.movementTuning.maxGroundSpeed) ||
-    !reader.readU32(packet.viewedServerTick)
+    !reader.readFloat(packet.movementTuning.flightAcceleration) ||
+    !reader.readFloat(packet.movementTuning.maxFlightSpeed) ||
+    !reader.readFloat(packet.movementTuning.flightDamping) ||
+    !reader.readFloat(packet.movementTuning.flightGravityCancel) ||
+    !reader.readFloat(packet.playerSizeScaleXY) ||
+    !reader.readFloat(packet.playerSizeScaleZ) ||
+    !reader.readFloat(packet.lightningKnockback) ||
+    !reader.readFloat(packet.vampirism) ||
+    !reader.readU32(packet.viewedServerTick) ||
+    !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
+    !reader.readString(packet.playerName, kMaxPlayerNameBytes)
   ) {
     return false;
   }
@@ -228,10 +288,30 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     std::fabs(packet.command.upMove) <= 1.0F &&
     packet.movementTuning.groundAcceleration >= 0.0F &&
     packet.movementTuning.groundAcceleration <= 1000.0F &&
+    packet.movementTuning.airAcceleration >= 0.0F &&
+    packet.movementTuning.airAcceleration <= 1000.0F &&
     packet.movementTuning.groundFriction >= 0.0F &&
     packet.movementTuning.groundFriction <= 100.0F &&
+    packet.movementTuning.stopSpeed >= 0.0F &&
+    packet.movementTuning.stopSpeed <= 100.0F &&
     packet.movementTuning.maxGroundSpeed >= 0.1F &&
-    packet.movementTuning.maxGroundSpeed <= 100.0F;
+    packet.movementTuning.maxGroundSpeed <= 100.0F &&
+    packet.movementTuning.flightAcceleration >= 0.0F &&
+    packet.movementTuning.flightAcceleration <= 1000.0F &&
+    packet.movementTuning.maxFlightSpeed >= 0.1F &&
+    packet.movementTuning.maxFlightSpeed <= 100.0F &&
+    packet.movementTuning.flightDamping >= 0.0F &&
+    packet.movementTuning.flightDamping <= 100.0F &&
+    packet.movementTuning.flightGravityCancel >= 0.0F &&
+    packet.movementTuning.flightGravityCancel <= 1.0F &&
+    packet.playerSizeScaleXY >= 0.5F &&
+    packet.playerSizeScaleXY <= 3.0F &&
+    packet.playerSizeScaleZ >= 0.5F &&
+    packet.playerSizeScaleZ <= 3.0F &&
+    packet.lightningKnockback >= 0.0F &&
+    packet.lightningKnockback <= 1000.0F &&
+    packet.vampirism >= 0.0F &&
+    packet.vampirism <= 2.0F;
 }
 
 bool writeVec3(Writer& writer, Vec3 value) {
@@ -255,7 +335,8 @@ bool writePlayer(Writer& writer, const PlayerState& player) {
     writer.writeFloat(player.bounds.radius) &&
     writer.writeFloat(player.bounds.halfHeight) &&
     writer.writeU8(static_cast<std::uint8_t>(player.movementMode)) &&
-    writer.writeBool(player.onGround);
+    writer.writeBool(player.onGround) &&
+    writer.writeBool(player.jumpHeld);
 }
 
 bool readPlayer(Reader& reader, PlayerState& player) {
@@ -270,7 +351,8 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     !reader.readFloat(player.bounds.radius) ||
     !reader.readFloat(player.bounds.halfHeight) ||
     !reader.readU8(movementMode) ||
-    !reader.readBool(player.onGround)
+    !reader.readBool(player.onGround) ||
+    !reader.readBool(player.jumpHeld)
   ) {
     return false;
   }
@@ -301,7 +383,15 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
     writeVec3(writer, result.knockbackImpulse) &&
     writer.writeU32(result.requestedRewindTicks) &&
     writer.writeU32(result.appliedRewindTicks) &&
-    writer.writeBool(result.rewindClamped);
+    writer.writeBool(result.rewindClamped) &&
+    writer.writeBool(result.hasRewindDebug) &&
+    writer.writeU32(result.rewindTargetTick) &&
+    writeVec3(writer, result.currentTargetPosition) &&
+    writeVec3(writer, result.rewoundTargetPosition) &&
+    writer.writeFloat(result.currentTargetBounds.radius) &&
+    writer.writeFloat(result.currentTargetBounds.halfHeight) &&
+    writer.writeFloat(result.rewoundTargetBounds.radius) &&
+    writer.writeFloat(result.rewoundTargetBounds.halfHeight);
 }
 
 bool readLightningGun(Reader& reader, LightningGunResult& result) {
@@ -315,12 +405,30 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
     !readVec3(reader, result.knockbackImpulse) ||
     !reader.readU32(result.requestedRewindTicks) ||
     !reader.readU32(result.appliedRewindTicks) ||
-    !reader.readBool(result.rewindClamped)
+    !reader.readBool(result.rewindClamped) ||
+    !reader.readBool(result.hasRewindDebug) ||
+    !reader.readU32(result.rewindTargetTick) ||
+    !readVec3(reader, result.currentTargetPosition) ||
+    !readVec3(reader, result.rewoundTargetPosition) ||
+    !reader.readFloat(result.currentTargetBounds.radius) ||
+    !reader.readFloat(result.currentTargetBounds.halfHeight) ||
+    !reader.readFloat(result.rewoundTargetBounds.radius) ||
+    !reader.readFloat(result.rewoundTargetBounds.halfHeight)
   ) {
     return false;
   }
 
-  if (damageApplied < 0) {
+  if (
+    damageApplied < 0 ||
+    result.currentTargetBounds.radius <= 0.0F ||
+    result.currentTargetBounds.radius > 100.0F ||
+    result.currentTargetBounds.halfHeight <= 0.0F ||
+    result.currentTargetBounds.halfHeight > 100.0F ||
+    result.rewoundTargetBounds.radius <= 0.0F ||
+    result.rewoundTargetBounds.radius > 100.0F ||
+    result.rewoundTargetBounds.halfHeight <= 0.0F ||
+    result.rewoundTargetBounds.halfHeight > 100.0F
+  ) {
     return false;
   }
   result.damageApplied = damageApplied;
@@ -544,6 +652,16 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const RoundCombatStats& stats : snapshot.matchCombatStats) {
+    if (!writeRoundCombatStats(writer, stats)) {
+      return false;
+    }
+  }
+  for (const std::string& playerName : snapshot.playerNames) {
+    if (!writer.writeString(playerName, kMaxPlayerNameBytes)) {
+      return false;
+    }
+  }
   return writer.writeU8(static_cast<std::uint8_t>(snapshot.matchPhase)) &&
     writer.writeU16(snapshot.matchRules.roundLimit) &&
     writer.writeU16(snapshot.matchRules.timeLimitMinutes) &&
@@ -552,14 +670,28 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU16(snapshot.matchRules.roundEndTicks) &&
     writer.writeU16(snapshot.matchRules.matchEndTicks) &&
     writer.writeBool(snapshot.matchRules.showOpponentHealth) &&
+    writer.writeBool(snapshot.movementTuning.flightEnabled) &&
     writer.writeFloat(snapshot.movementTuning.groundAcceleration) &&
+    writer.writeFloat(snapshot.movementTuning.airAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.groundFriction) &&
+    writer.writeFloat(snapshot.movementTuning.stopSpeed) &&
     writer.writeFloat(snapshot.movementTuning.maxGroundSpeed) &&
+    writer.writeFloat(snapshot.movementTuning.flightAcceleration) &&
+    writer.writeFloat(snapshot.movementTuning.maxFlightSpeed) &&
+    writer.writeFloat(snapshot.movementTuning.flightDamping) &&
+    writer.writeFloat(snapshot.movementTuning.flightGravityCancel) &&
+    writer.writeFloat(snapshot.playerSizeScaleXY) &&
+    writer.writeFloat(snapshot.playerSizeScaleZ) &&
+    writer.writeFloat(snapshot.lightningKnockback) &&
+    writer.writeFloat(snapshot.vampirism) &&
     writer.writeU32(snapshot.phaseTicksRemaining) &&
     writer.writeU32(snapshot.liveTicksElapsed) &&
     writer.writeU8(snapshot.roundWinner) &&
     writer.writeU8(snapshot.matchWinner) &&
     writer.writeBool(snapshot.playersColliding) &&
+    writer.writeU32(snapshot.chatSequence) &&
+    writer.writeU8(snapshot.chatPlayerIndex) &&
+    writer.writeString(snapshot.chatMessage, kMaxChatMessageBytes) &&
     finishPacket(writer);
 }
 
@@ -613,6 +745,16 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       return false;
     }
   }
+  for (RoundCombatStats& stats : decoded.matchCombatStats) {
+    if (!readRoundCombatStats(reader, stats)) {
+      return false;
+    }
+  }
+  for (std::string& playerName : decoded.playerNames) {
+    if (!reader.readString(playerName, kMaxPlayerNameBytes)) {
+      return false;
+    }
+  }
   std::uint8_t matchPhase = 0;
   if (
     !reader.readU8(matchPhase) ||
@@ -624,25 +766,60 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU16(decoded.matchRules.roundEndTicks) ||
     !reader.readU16(decoded.matchRules.matchEndTicks) ||
     !reader.readBool(decoded.matchRules.showOpponentHealth) ||
+    !reader.readBool(decoded.movementTuning.flightEnabled) ||
     !reader.readFloat(decoded.movementTuning.groundAcceleration) ||
+    !reader.readFloat(decoded.movementTuning.airAcceleration) ||
     !reader.readFloat(decoded.movementTuning.groundFriction) ||
+    !reader.readFloat(decoded.movementTuning.stopSpeed) ||
     !reader.readFloat(decoded.movementTuning.maxGroundSpeed) ||
+    !reader.readFloat(decoded.movementTuning.flightAcceleration) ||
+    !reader.readFloat(decoded.movementTuning.maxFlightSpeed) ||
+    !reader.readFloat(decoded.movementTuning.flightDamping) ||
+    !reader.readFloat(decoded.movementTuning.flightGravityCancel) ||
+    !reader.readFloat(decoded.playerSizeScaleXY) ||
+    !reader.readFloat(decoded.playerSizeScaleZ) ||
+    !reader.readFloat(decoded.lightningKnockback) ||
+    !reader.readFloat(decoded.vampirism) ||
     !reader.readU32(decoded.phaseTicksRemaining) ||
     !reader.readU32(decoded.liveTicksElapsed) ||
     !reader.readU8(decoded.roundWinner) ||
     !reader.readU8(decoded.matchWinner) ||
     !reader.readBool(decoded.playersColliding) ||
+    !reader.readU32(decoded.chatSequence) ||
+    !reader.readU8(decoded.chatPlayerIndex) ||
+    !reader.readString(decoded.chatMessage, kMaxChatMessageBytes) ||
     decoded.matchRules.roundLimit == 0 ||
     decoded.matchRules.playerLimit == 0 ||
     decoded.matchRules.playerLimit > kDuelPlayerCount ||
     decoded.movementTuning.groundAcceleration < 0.0F ||
     decoded.movementTuning.groundAcceleration > 1000.0F ||
+    decoded.movementTuning.airAcceleration < 0.0F ||
+    decoded.movementTuning.airAcceleration > 1000.0F ||
     decoded.movementTuning.groundFriction < 0.0F ||
     decoded.movementTuning.groundFriction > 100.0F ||
+    decoded.movementTuning.stopSpeed < 0.0F ||
+    decoded.movementTuning.stopSpeed > 100.0F ||
     decoded.movementTuning.maxGroundSpeed < 0.1F ||
     decoded.movementTuning.maxGroundSpeed > 100.0F ||
+    decoded.movementTuning.flightAcceleration < 0.0F ||
+    decoded.movementTuning.flightAcceleration > 1000.0F ||
+    decoded.movementTuning.maxFlightSpeed < 0.1F ||
+    decoded.movementTuning.maxFlightSpeed > 100.0F ||
+    decoded.movementTuning.flightDamping < 0.0F ||
+    decoded.movementTuning.flightDamping > 100.0F ||
+    decoded.movementTuning.flightGravityCancel < 0.0F ||
+    decoded.movementTuning.flightGravityCancel > 1.0F ||
+    decoded.playerSizeScaleXY < 0.5F ||
+    decoded.playerSizeScaleXY > 3.0F ||
+    decoded.playerSizeScaleZ < 0.5F ||
+    decoded.playerSizeScaleZ > 3.0F ||
+    decoded.lightningKnockback < 0.0F ||
+    decoded.lightningKnockback > 1000.0F ||
+    decoded.vampirism < 0.0F ||
+    decoded.vampirism > 2.0F ||
     (decoded.roundWinner != 255 && decoded.roundWinner >= kDuelPlayerCount) ||
     (decoded.matchWinner != 255 && decoded.matchWinner >= kDuelPlayerCount) ||
+    decoded.chatPlayerIndex >= kDuelPlayerCount ||
     reader.remaining() != 0
   ) {
     return false;

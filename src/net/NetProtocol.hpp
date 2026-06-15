@@ -8,11 +8,14 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace lg {
 
 inline constexpr std::size_t kDuelPlayerCount = 2;
 inline constexpr std::size_t kMaxBundledCommands = 3;
+inline constexpr std::size_t kMaxChatMessageBytes = 64;
+inline constexpr std::size_t kMaxPlayerNameBytes = 20;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
@@ -30,7 +33,7 @@ struct MatchRules {
   std::uint16_t countdownTicks = 625;
   std::uint16_t roundEndTicks = 125;
   std::uint16_t matchEndTicks = 625;
-  bool showOpponentHealth = false;
+  bool showOpponentHealth = true;
 };
 
 struct ConnectRequest {
@@ -51,6 +54,12 @@ struct CommandPacket {
   std::uint32_t viewedServerTick = 0;
   bool requestMovementTuning = false;
   MovementTuning movementTuning = {};
+  float playerSizeScaleXY = 1.0F;
+  float playerSizeScaleZ = 1.0F;
+  float lightningKnockback = 22.0F;
+  float vampirism = 0.0F;
+  std::string chatMessage;
+  std::string playerName;
 };
 
 struct CommandBundle {
@@ -85,12 +94,21 @@ struct ServerSnapshot {
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
   MatchRules matchRules = {};
   MovementTuning movementTuning = {};
+  float playerSizeScaleXY = 1.0F;
+  float playerSizeScaleZ = 1.0F;
+  float lightningKnockback = 22.0F;
+  float vampirism = 0.0F;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
+  std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
+  std::array<std::string, kDuelPlayerCount> playerNames = {"PLAYER 1", "PLAYER 2"};
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
   std::uint8_t roundWinner = 255;
   std::uint8_t matchWinner = 255;
   bool playersColliding = false;
+  std::uint32_t chatSequence = 0;
+  std::uint8_t chatPlayerIndex = 0;
+  std::string chatMessage;
 };
 
 } // namespace lg

@@ -1,5 +1,7 @@
 #include "client/ClientSession.hpp"
 
+#include <utility>
+
 namespace lg {
 
 bool ClientSession::connect(std::string host, std::uint16_t port) {
@@ -71,7 +73,13 @@ void ClientSession::sendCommand(
   bool requestReset,
   bool toggleReady,
   bool requestMovementTuning,
-  const MovementTuning& movementTuning
+  const MovementTuning& movementTuning,
+  float playerSizeScaleXY,
+  float playerSizeScaleZ,
+  float lightningKnockback,
+  float vampirism,
+  std::string chatMessage,
+  std::string playerName
 ) {
   if (game_) {
     game_->sendCommand(
@@ -79,7 +87,13 @@ void ClientSession::sendCommand(
       requestReset,
       toggleReady,
       requestMovementTuning,
-      movementTuning
+      movementTuning,
+      playerSizeScaleXY,
+      playerSizeScaleZ,
+      lightningKnockback,
+      vampirism,
+      std::move(chatMessage),
+      std::move(playerName)
     );
   }
 }

@@ -12,17 +12,62 @@ void resolveWallCollision(
   Vec3 previousPosition,
   CollisionResult& result
 ) {
+  constexpr float kStepHeight = 0.45F;
+  constexpr float kCollisionEpsilon = 0.0001F;
   const float minX = wall.min.x - player.bounds.radius;
   const float maxX = wall.max.x + player.bounds.radius;
   const float minY = wall.min.y - player.bounds.radius;
   const float maxY = wall.max.y + player.bounds.radius;
-  const float playerMinZ = result.position.z - player.bounds.halfHeight;
-  const float playerMaxZ = result.position.z + player.bounds.halfHeight;
   if (
     result.position.x <= minX ||
     result.position.x >= maxX ||
     result.position.y <= minY ||
-    result.position.y >= maxY ||
+    result.position.y >= maxY
+  ) {
+    return;
+  }
+
+  const float previousPlayerMinZ =
+    previousPosition.z - player.bounds.halfHeight;
+  const float previousPlayerMaxZ =
+    previousPosition.z + player.bounds.halfHeight;
+  const float playerMinZ = result.position.z - player.bounds.halfHeight;
+  const float playerMaxZ = result.position.z + player.bounds.halfHeight;
+
+  if (
+    previousPlayerMinZ >= wall.max.z - kCollisionEpsilon &&
+    playerMinZ < wall.max.z &&
+    result.velocity.z <= 0.0F
+  ) {
+    result.position.z = wall.max.z + player.bounds.halfHeight;
+    result.velocity.z = 0.0F;
+    result.onGround = true;
+    return;
+  }
+
+  if (
+    previousPlayerMaxZ <= wall.min.z + kCollisionEpsilon &&
+    playerMaxZ > wall.min.z &&
+    result.velocity.z > 0.0F
+  ) {
+    result.position.z = wall.min.z - player.bounds.halfHeight;
+    result.velocity.z = 0.0F;
+    return;
+  }
+
+  const float stepHeight = wall.max.z - previousPlayerMinZ;
+  if (
+    player.onGround &&
+    stepHeight > 0.0F &&
+    stepHeight <= kStepHeight
+  ) {
+    result.position.z = wall.max.z + player.bounds.halfHeight;
+    result.velocity.z = std::max(0.0F, result.velocity.z);
+    result.onGround = true;
+    return;
+  }
+
+  if (
     playerMaxZ <= wall.min.z ||
     playerMinZ >= wall.max.z
   ) {
@@ -80,21 +125,46 @@ void resolveWallCollision(
 Arena thunderstruckArena() {
   Arena arena;
   arena.min = {-15.0F, -11.0F, 0.0F};
-  arena.max = {15.0F, 11.0F, 8.0F};
-  arena.walls = {{
-    {{-1.0F, -11.0F, 0.0F}, {1.0F, -4.0F, 8.0F}},
-    {{-1.0F, 4.0F, 0.0F}, {1.0F, 11.0F, 8.0F}},
-    {{-8.5F, -2.0F, 0.0F}, {-5.0F, 2.0F, 8.0F}},
-    {{5.0F, -2.0F, 0.0F}, {8.5F, 2.0F, 8.0F}},
-    {{-13.0F, 5.5F, 0.0F}, {-7.0F, 7.0F, 8.0F}},
-    {{7.0F, -7.0F, 0.0F}, {13.0F, -5.5F, 8.0F}},
-    {{-5.0F, -7.0F, 0.0F}, {-1.0F, -5.5F, 8.0F}},
-    {{1.0F, 5.5F, 0.0F}, {5.0F, 7.0F, 8.0F}},
-  }};
-  arena.wallCount = arena.walls.size();
+  arena.max = {15.0F, 11.0F, 10.0F};
+
+  const auto addBox = [&arena](Vec3 min, Vec3 max) {
+    arena.walls[arena.wallCount++] = {min, max};
+  };
+
+  // Thunderstruck's lower central court is ringed by raised fighting lanes.
+  addBox({-15.0F, 6.5F, 0.0F}, {15.0F, 11.0F, 2.0F});
+  addBox({-15.0F, -7.0F, 0.0F}, {-10.0F, 6.5F, 2.0F});
+  addBox({10.0F, -7.0F, 0.0F}, {15.0F, 6.5F, 2.0F});
+  addBox({-15.0F, -11.0F, 0.0F}, {-3.0F, -7.0F, 2.0F});
+  addBox({3.0F, -11.0F, 0.0F}, {15.0F, -7.0F, 2.0F});
+
+  // A raised cross-lane overlooks the court while leaving an underpass.
+  addBox({-10.0F, 3.0F, 2.0F}, {10.0F, 4.5F, 2.4F});
+
+  // Opposing five-step stairways connect the lower court to the side lanes.
+  for (int step = 0; step < 5; ++step) {
+    const float outerX = -6.0F - (static_cast<float>(step) * 0.8F);
+    addBox(
+      {outerX - 0.8F, -5.0F, 0.0F},
+      {outerX, -2.0F, 0.4F * static_cast<float>(step + 1)}
+    );
+  }
+  for (int step = 0; step < 5; ++step) {
+    const float innerX = 6.0F + (static_cast<float>(step) * 0.8F);
+    addBox(
+      {innerX, -5.0F, 0.0F},
+      {innerX + 0.8F, -2.0F, 0.4F * static_cast<float>(step + 1)}
+    );
+  }
+
+  // Low central cover preserves Thunderstruck's exposed tracking lanes.
+  addBox({-5.0F, -0.9F, 0.0F}, {-3.0F, 0.9F, 1.2F});
+  addBox({3.0F, -0.9F, 0.0F}, {5.0F, 0.9F, 1.2F});
+  addBox({-1.2F, -1.2F, 0.0F}, {1.2F, 1.2F, 2.6F});
+
   arena.spawnPositions = {{
-    {-8.0F, 3.0F, 0.0F},
-    {8.0F, 3.0F, 0.0F},
+    {-8.0F, -9.0F, 2.0F},
+    {8.0F, -9.0F, 2.0F},
   }};
   return arena;
 }

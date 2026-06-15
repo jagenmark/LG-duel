@@ -97,8 +97,75 @@ int main() {
     "two UDP clients should enter ready-up"
   );
 
+  const std::size_t firstPlayerIndex = firstTransport.playerIndex();
+  const std::size_t firstTargetIndex = 1U - firstPlayerIndex;
+  const lg::Vec3 warmupTargetStart =
+    firstClient.snapshot().players[firstTargetIndex].position;
+  lg::UserCommand warmupAttack;
+  warmupAttack.sequence = 0;
+  warmupAttack.attack = true;
+  warmupAttack.viewYawRadians =
+    firstPlayerIndex == 0U ? 0.0F : 3.14159265359F;
+  firstClient.sendCommand(warmupAttack, false);
+  for (int iteration = 0; iteration < 4; ++iteration) {
+    serverTransport.update();
+    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  failures += expect(
+    server.snapshot().hasAcknowledgedCommand[firstPlayerIndex] &&
+      server.snapshot().acknowledgedCommand[firstPlayerIndex] == 0,
+    "server should receive the warmup attack command over UDP"
+  );
+  failures += expect(
+    server.snapshot().lightningGuns[firstPlayerIndex].active,
+    "server should simulate the UDP warmup attack"
+  );
+  failures += expect(
+    firstClient.snapshot().lightningGuns[firstPlayerIndex].active,
+    "warmup LG activity should replicate over UDP"
+  );
+  failures += expect(
+    firstClient.snapshot().lightningGuns[firstPlayerIndex].hit,
+    "warmup LG hit state should replicate over UDP"
+  );
+  failures += expect(
+    firstClient.snapshot().players[firstTargetIndex].health < 100,
+    "warmup LG damage should replicate over UDP"
+  );
+  failures += expect(
+    firstClient.snapshot().players[firstTargetIndex].velocity.x != 0.0F,
+    "warmup LG knockback should replicate over UDP"
+  );
+  failures += expect(
+    firstClient.snapshot().players[firstTargetIndex].position.x !=
+      warmupTargetStart.x,
+    "warmup LG knockback should physically move a grounded target"
+  );
+
+  lg::UserCommand warmupRelease;
+  warmupRelease.sequence = 1;
+  firstClient.sendCommand(warmupRelease, false);
+  for (int iteration = 0; iteration < 2; ++iteration) {
+    serverTransport.update();
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+  }
+  failures += expect(
+    !firstClient.snapshot().lightningGuns[firstPlayerIndex].active,
+    "a replicated attack release should stop the retained warmup LG command"
+  );
+
   lg::UserCommand firstReady;
-  firstReady.sequence = 0;
+  firstReady.sequence = 2;
   lg::UserCommand secondReady;
   secondReady.sequence = 0;
   firstClient.sendCommand(firstReady, false, true);
@@ -120,7 +187,7 @@ int main() {
 
   for (std::uint32_t sequence = 0; sequence < 40; ++sequence) {
     lg::UserCommand firstCommand;
-    firstCommand.sequence = sequence + 1;
+    firstCommand.sequence = sequence + 3;
     firstCommand.clientTick = sequence;
     firstCommand.forwardMove = 1.0F;
     lg::UserCommand secondCommand;
@@ -152,7 +219,7 @@ int main() {
 
   failures += expect(firstClient.hasAcknowledgedCommand(), "first UDP command should be acknowledged");
   failures += expect(secondClient.hasAcknowledgedCommand(), "second UDP command should be acknowledged");
-  failures += expect(firstClient.lastAcknowledgedCommand() == 40, "first UDP ack should reach latest command");
+  failures += expect(firstClient.lastAcknowledgedCommand() == 42, "first UDP ack should reach latest command");
   failures += expect(secondClient.lastAcknowledgedCommand() == 40, "second UDP ack should reach latest command");
   failures += expect(
     firstClient.snapshot().players[firstTransport.playerIndex()].position.x != -3.0F,

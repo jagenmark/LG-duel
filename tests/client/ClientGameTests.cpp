@@ -114,11 +114,19 @@ int main() {
 
     lg::MovementTuning requestedTuning;
     requestedTuning.groundAcceleration = 140.0F;
+    requestedTuning.airAcceleration = 2.0F;
     requestedTuning.groundFriction = 5.0F;
+    requestedTuning.stopSpeed = 2.5F;
     requestedTuning.maxGroundSpeed = 11.0F;
     requestedTuning.maxAirSpeed = 11.0F;
+    requestedTuning.flightEnabled = true;
+    requestedTuning.flightAcceleration = 64.0F;
+    requestedTuning.maxFlightSpeed = 14.0F;
+    requestedTuning.flightDamping = 0.0F;
     lg::UserCommand request;
     request.sequence = 15;
+    request.forwardMove = 1.0F;
+    request.viewPitchRadians = 0.5F;
     client.sendCommand(request, false, false, true, requestedTuning);
 
     lg::ServerSnapshot delayedSnapshot = initialSnapshot;
@@ -129,6 +137,11 @@ int main() {
       nearlyEqual(client.movementTuning().groundAcceleration, 140.0F),
       "older snapshots should not revert pending movement tuning prediction"
     );
+    failures += expect(
+      client.predictedPlayer().movementMode == lg::MovementMode::Flying &&
+        client.predictedPlayer().velocity.z > 0.0F,
+      "flight tuning requests should affect local prediction immediately"
+    );
 
     lg::ServerSnapshot acknowledgedSnapshot = delayedSnapshot;
     acknowledgedSnapshot.serverTick = 2;
@@ -138,7 +151,9 @@ int main() {
     transport.sendSnapshot(acknowledgedSnapshot);
     client.receiveSnapshots();
     failures += expect(
-      nearlyEqual(client.movementTuning().maxGroundSpeed, 11.0F),
+      nearlyEqual(client.movementTuning().maxGroundSpeed, 11.0F) &&
+        client.movementTuning().flightEnabled &&
+        nearlyEqual(client.movementTuning().maxFlightSpeed, 14.0F),
       "acknowledged movement tuning should use the replicated server value"
     );
   }

@@ -70,12 +70,26 @@ int main() {
     source.command.upMove = 0.75F;
     source.command.attack = true;
     source.command.jump = true;
+    source.command.planarAim = false;
     source.requestReset = true;
     source.toggleReady = true;
     source.requestMovementTuning = true;
+    source.movementTuning.flightEnabled = true;
     source.movementTuning.groundAcceleration = 120.0F;
+    source.movementTuning.airAcceleration = 2.0F;
     source.movementTuning.groundFriction = 6.0F;
+    source.movementTuning.stopSpeed = 2.5F;
     source.movementTuning.maxGroundSpeed = 14.0F;
+    source.movementTuning.flightAcceleration = 48.0F;
+    source.movementTuning.maxFlightSpeed = 16.0F;
+    source.movementTuning.flightDamping = 1.5F;
+    source.movementTuning.flightGravityCancel = 1.0F;
+    source.playerSizeScaleXY = 1.75F;
+    source.playerSizeScaleZ = 0.75F;
+    source.lightningKnockback = 35.0F;
+    source.vampirism = 0.1F;
+    source.chatMessage = "ready?";
+    source.playerName = "yg";
     source.viewedServerTick = 88;
 
     lg::WirePacket wire;
@@ -92,13 +106,27 @@ int main() {
       "command pitch should round trip"
     );
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
+    failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
+    failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
+    failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
     failures += expect(
       decoded.requestMovementTuning &&
+        decoded.movementTuning.flightEnabled &&
         nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
+        nearlyEqual(decoded.movementTuning.airAcceleration, 2.0F) &&
         nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
-        nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F),
+        nearlyEqual(decoded.movementTuning.stopSpeed, 2.5F) &&
+        nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F) &&
+        nearlyEqual(decoded.movementTuning.flightAcceleration, 48.0F) &&
+        nearlyEqual(decoded.movementTuning.maxFlightSpeed, 16.0F) &&
+        nearlyEqual(decoded.movementTuning.flightDamping, 1.5F) &&
+        nearlyEqual(decoded.movementTuning.flightGravityCancel, 1.0F) &&
+        nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
+        nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
+        nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+        nearlyEqual(decoded.vampirism, 0.1F),
       "movement tuning request should round trip"
     );
 
@@ -140,6 +168,15 @@ int main() {
       decodedBundle.commands[2].command.sequence == 44,
       "bundle command order should round trip"
     );
+    for (lg::CommandPacket& command : bundle.commands) {
+      command.chatMessage.assign(lg::kMaxChatMessageBytes, 'c');
+      command.playerName.assign(lg::kMaxPlayerNameBytes, 'n');
+    }
+    failures += expect(
+      lg::encodeCommandBundle(bundle, wire) &&
+        wire.size() <= lg::kMaxPacketBytes,
+      "maximum chat and player names should fit a redundant command bundle"
+    );
   }
 
   {
@@ -154,6 +191,7 @@ int main() {
     source.players[0].health = 81;
     source.players[0].movementMode = lg::MovementMode::Flying;
     source.players[0].onGround = false;
+    source.players[0].jumpHeld = true;
     source.players[1].health = 0;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
@@ -164,12 +202,21 @@ int main() {
     source.lightningGuns[0].requestedRewindTicks = 20;
     source.lightningGuns[0].appliedRewindTicks = 18;
     source.lightningGuns[0].rewindClamped = true;
+    source.lightningGuns[0].hasRewindDebug = true;
+    source.lightningGuns[0].rewindTargetTick = 1216;
+    source.lightningGuns[0].currentTargetPosition = {8.0F, 3.0F, 4.0F};
+    source.lightningGuns[0].rewoundTargetPosition = {8.0F, 0.0F, 2.0F};
+    source.lightningGuns[0].currentTargetBounds = {0.5F, 1.1F};
+    source.lightningGuns[0].rewoundTargetBounds = {0.4F, 0.9F};
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.connectedPlayers = {true, true};
     source.readyPlayers = {true, false};
     source.roundCombatStats[0] = {250, 125, 80};
     source.roundCombatStats[1] = {200, 40, 24};
+    source.matchCombatStats[0] = {500, 275, 180};
+    source.matchCombatStats[1] = {450, 90, 74};
+    source.playerNames = {"yg", "opponent"};
     source.matchPhase = lg::MatchPhase::Countdown;
     source.matchRules.roundLimit = 10;
     source.matchRules.timeLimitMinutes = 5;
@@ -178,12 +225,26 @@ int main() {
     source.matchRules.roundEndTicks = 125;
     source.matchRules.matchEndTicks = 625;
     source.matchRules.showOpponentHealth = true;
+    source.movementTuning.flightEnabled = true;
     source.movementTuning.groundAcceleration = 120.0F;
+    source.movementTuning.airAcceleration = 2.0F;
     source.movementTuning.groundFriction = 6.0F;
+    source.movementTuning.stopSpeed = 2.5F;
     source.movementTuning.maxGroundSpeed = 14.0F;
+    source.movementTuning.flightAcceleration = 48.0F;
+    source.movementTuning.maxFlightSpeed = 16.0F;
+    source.movementTuning.flightDamping = 1.5F;
+    source.movementTuning.flightGravityCancel = 1.0F;
+    source.playerSizeScaleXY = 1.75F;
+    source.playerSizeScaleZ = 0.75F;
+    source.lightningKnockback = 35.0F;
+    source.vampirism = 2.0F;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
     source.roundWinner = 0;
+    source.chatSequence = 7;
+    source.chatPlayerIndex = 1;
+    source.chatMessage = "nice shot";
     source.matchWinner = 255;
     source.playersColliding = true;
 
@@ -195,8 +256,9 @@ int main() {
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
     failures += expect(
-      decoded.players[0].movementMode == lg::MovementMode::Flying,
-      "movement mode should round trip"
+      decoded.players[0].movementMode == lg::MovementMode::Flying &&
+        decoded.players[0].jumpHeld,
+      "movement mode and jump latch should round trip"
     );
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
@@ -205,7 +267,13 @@ int main() {
     failures += expect(
       decoded.lightningGuns[0].requestedRewindTicks == 20 &&
         decoded.lightningGuns[0].appliedRewindTicks == 18 &&
-        decoded.lightningGuns[0].rewindClamped,
+        decoded.lightningGuns[0].rewindClamped &&
+        decoded.lightningGuns[0].hasRewindDebug &&
+        decoded.lightningGuns[0].rewindTargetTick == 1216 &&
+        nearlyEqual(decoded.lightningGuns[0].currentTargetPosition.z, 4.0F) &&
+        nearlyEqual(decoded.lightningGuns[0].rewoundTargetPosition.y, 0.0F) &&
+        nearlyEqual(decoded.lightningGuns[0].currentTargetBounds.radius, 0.5F) &&
+        nearlyEqual(decoded.lightningGuns[0].rewoundTargetBounds.halfHeight, 0.9F),
       "rewind diagnostics should round trip"
     );
     failures += expect(
@@ -214,6 +282,20 @@ int main() {
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
+    failures += expect(
+      decoded.chatSequence == 7 &&
+        decoded.chatPlayerIndex == 1 &&
+        decoded.chatMessage == "nice shot",
+      "relayed chat should round trip"
+    );
+    failures += expect(
+      decoded.matchCombatStats[0].lightningActiveTicks == 500 &&
+        decoded.matchCombatStats[0].lightningHitTicks == 275 &&
+        decoded.matchCombatStats[0].damageDealt == 180 &&
+        decoded.playerNames[0] == "yg" &&
+        decoded.playerNames[1] == "opponent",
+      "scoreboard names and aggregate stats should round trip"
+    );
     failures += expect(
       decoded.connectedPlayers == source.connectedPlayers &&
         decoded.readyPlayers == source.readyPlayers,
@@ -233,9 +315,20 @@ int main() {
       "match rules and phase should round trip"
     );
     failures += expect(
+      decoded.movementTuning.flightEnabled &&
       nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
-        nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
-        nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F),
+      nearlyEqual(decoded.movementTuning.airAcceleration, 2.0F) &&
+      nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
+      nearlyEqual(decoded.movementTuning.stopSpeed, 2.5F) &&
+      nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F) &&
+      nearlyEqual(decoded.movementTuning.flightAcceleration, 48.0F) &&
+      nearlyEqual(decoded.movementTuning.maxFlightSpeed, 16.0F) &&
+      nearlyEqual(decoded.movementTuning.flightDamping, 1.5F) &&
+      nearlyEqual(decoded.movementTuning.flightGravityCancel, 1.0F) &&
+      nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
+      nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
+      nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+      nearlyEqual(decoded.vampirism, 2.0F),
       "authoritative movement tuning should round trip"
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");

@@ -48,11 +48,16 @@ private:
   NetTransport& transport_;
   Arena arena_ = thunderstruckArena();
   MovementTuning movementTuning_ = {};
+  float playerSizeScaleXY_ = 1.0F;
+  float playerSizeScaleZ_ = 1.0F;
   LightningGunTuning lightningGunTuning_ = {};
+  float vampirism_ = 0.0F;
+  std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
   std::array<UserCommand, kDuelPlayerCount> commands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};
+  std::array<bool, kDuelPlayerCount> receivedCommandThisTick_ = {};
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};
   ServerSnapshot snapshot_ = {};

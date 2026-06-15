@@ -10,7 +10,7 @@
 #include <string>
 #include <utility>
 
-#if defined(_WIN32)
+  #if defined(_WIN32)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -35,7 +35,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
 constexpr auto kPingInterval = std::chrono::seconds(1);
-constexpr auto kConnectionTimeout = std::chrono::seconds(5);
+constexpr auto kConnectionTimeout = std::chrono::seconds(1);
 
 #if defined(_WIN32)
 using SocketHandle = SOCKET;

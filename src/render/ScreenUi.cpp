@@ -1,0 +1,677 @@
+#include "render/ScreenUi.hpp"
+
+#include <algorithm>
+#include <string>
+
+namespace lg {
+namespace {
+
+constexpr float kGlyphSize = 8.0F;
+
+void addRect(
+  DrawList2D& drawList,
+  float x,
+  float y,
+  float width,
+  float height,
+  RenderColor color
+) {
+  const std::array<ScreenPoint, 4> points = {{
+    {x, y},
+    {x + width, y},
+    {x + width, y + height},
+    {x, y + height},
+  }};
+  drawList.overlayCommands.emplace_back(FilledQuad2D{points, color});
+}
+
+void addLine(
+  DrawList2D& drawList,
+  ScreenPoint start,
+  ScreenPoint end,
+  RenderColor color,
+  float width
+) {
+  drawList.overlayCommands.emplace_back(Line2D{
+    start,
+    end,
+    color,
+    width,
+  });
+}
+
+void addText(
+  DrawList2D& drawList,
+  float x,
+  float y,
+  std::string text,
+  RenderColor color,
+  float scale
+) {
+  drawList.overlayCommands.emplace_back(Text2D{
+    {x, y},
+    std::move(text),
+    color,
+    scale,
+  });
+}
+
+void addOutline(
+  DrawList2D& drawList,
+  float x,
+  float y,
+  float width,
+  float height,
+  RenderColor color
+) {
+  addLine(drawList, {x, y}, {x + width, y}, color, 1.0F);
+  addLine(
+    drawList,
+    {x + width, y},
+    {x + width, y + height},
+    color,
+    1.0F
+  );
+  addLine(
+    drawList,
+    {x + width, y + height},
+    {x, y + height},
+    color,
+    1.0F
+  );
+  addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
+}
+
+void addOpponentHealthBar(
+  DrawList2D& drawList,
+  int width,
+  const PlayerState& opponent,
+  const HudRenderState& hud
+) {
+  if (!hud.showOpponentHealthBar) {
+    return;
+  }
+
+  const float barWidth = std::min(420.0F, static_cast<float>(width) * 0.38F);
+  constexpr float barHeight = 20.0F;
+  constexpr float border = 3.0F;
+  const float x = (static_cast<float>(width) - barWidth) * 0.5F;
+  constexpr float y = 24.0F;
+  const float healthRatio =
+    std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+
+  addRect(
+    drawList,
+    x - border,
+    y - border,
+    barWidth + border * 2.0F,
+    barHeight + border * 2.0F,
+    {220, 226, 236, 255}
+  );
+  addRect(drawList, x, y, barWidth, barHeight, {34, 38, 46, 255});
+  addRect(
+    drawList,
+    x,
+    y,
+    barWidth * healthRatio,
+    barHeight,
+    {224, 82, 92, 255}
+  );
+
+  const std::string label = "ENEMY HP " + std::to_string(opponent.health);
+  constexpr float textScale = 1.5F;
+  const float textWidth =
+    static_cast<float>(label.size()) * kGlyphSize * textScale;
+  addText(
+    drawList,
+    (static_cast<float>(width) - textWidth) * 0.5F,
+    y + barHeight + 8.0F,
+    label,
+    {224, 82, 92, 255},
+    textScale
+  );
+}
+
+void addCrosshair(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const RenderSettings& settings
+) {
+  if (!settings.crosshairEnabled) {
+    return;
+  }
+
+  const float centerX = settings.crosshairUseScreenPosition
+    ? std::clamp(settings.crosshairScreenX, 0.0F, static_cast<float>(width))
+    : static_cast<float>(width) * 0.5F;
+  const float centerY = settings.crosshairUseScreenPosition
+    ? std::clamp(settings.crosshairScreenY, 0.0F, static_cast<float>(height))
+    : static_cast<float>(height) * 0.5F;
+  const float size = settings.crosshairSize;
+  const float gap = settings.crosshairGap;
+  const float thickness = settings.crosshairThickness;
+  const RenderColor color = {
+    settings.crosshairRed,
+    settings.crosshairGreen,
+    settings.crosshairBlue,
+    static_cast<std::uint8_t>(
+      std::clamp(settings.crosshairAlpha, 0.0F, 1.0F) * 255.0F
+    ),
+  };
+
+  if (settings.crosshairStyle == 2) {
+    addRect(
+      drawList,
+      centerX - thickness * 0.5F,
+      centerY - thickness * 0.5F,
+      thickness,
+      thickness,
+      color
+    );
+    return;
+  }
+
+  addRect(
+    drawList,
+    centerX - gap - size,
+    centerY - thickness * 0.5F,
+    size,
+    thickness,
+    color
+  );
+  addRect(
+    drawList,
+    centerX + gap,
+    centerY - thickness * 0.5F,
+    size,
+    thickness,
+    color
+  );
+  addRect(
+    drawList,
+    centerX - thickness * 0.5F,
+    centerY - gap - size,
+    thickness,
+    size,
+    color
+  );
+  addRect(
+    drawList,
+    centerX - thickness * 0.5F,
+    centerY + gap,
+    thickness,
+    size,
+    color
+  );
+  if (settings.crosshairStyle == 1) {
+    addRect(
+      drawList,
+      centerX - 1.0F,
+      centerY - 1.0F,
+      2.0F,
+      2.0F,
+      color
+    );
+  }
+}
+
+void addHitMarker(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const RenderSettings& settings
+) {
+  if (!settings.hitMarkerEnabled || settings.hitMarkerAmount <= 0.0F) {
+    return;
+  }
+
+  const float centerX = static_cast<float>(width) * 0.5F;
+  const float centerY = static_cast<float>(height) * 0.5F;
+  const float size = settings.hitMarkerSize;
+  const float inner = size * 0.35F;
+  const RenderColor color = {
+    settings.hitMarkerRed,
+    settings.hitMarkerGreen,
+    settings.hitMarkerBlue,
+    static_cast<std::uint8_t>(
+      std::clamp(settings.hitMarkerAmount, 0.0F, 1.0F) * 255.0F
+    ),
+  };
+  addLine(
+    drawList,
+    {centerX - size, centerY - size},
+    {centerX - inner, centerY - inner},
+    color,
+    settings.hitMarkerThickness
+  );
+  addLine(
+    drawList,
+    {centerX + inner, centerY + inner},
+    {centerX + size, centerY + size},
+    color,
+    settings.hitMarkerThickness
+  );
+  addLine(
+    drawList,
+    {centerX + inner, centerY - inner},
+    {centerX + size, centerY - size},
+    color,
+    settings.hitMarkerThickness
+  );
+  addLine(
+    drawList,
+    {centerX - size, centerY + size},
+    {centerX - inner, centerY + inner},
+    color,
+    settings.hitMarkerThickness
+  );
+}
+
+void addHud(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const HudRenderState& hud,
+  const RenderSettings& settings
+) {
+  constexpr float textScale = 2.0F;
+  constexpr float characterWidth = kGlyphSize * textScale;
+  constexpr RenderColor defaultText = {235, 242, 250, 255};
+
+  if (hud.scoreboardOpen) {
+    const float panelWidth =
+      std::min(720.0F, static_cast<float>(width) - 80.0F);
+    const float panelHeight =
+      72.0F + static_cast<float>(hud.scoreboardLines.size()) * 28.0F;
+    const float panelX =
+      (static_cast<float>(width) - panelWidth) * 0.5F;
+    const float panelY =
+      (static_cast<float>(height) - panelHeight) * 0.35F;
+    addRect(
+      drawList,
+      panelX,
+      panelY,
+      panelWidth,
+      panelHeight,
+      {7, 11, 17, 225}
+    );
+    addOutline(
+      drawList,
+      panelX,
+      panelY,
+      panelWidth,
+      panelHeight,
+      {78, 168, 235, 255}
+    );
+
+    float scoreboardY = panelY + 20.0F;
+    for (std::size_t index = 0; index < hud.scoreboardLines.size(); ++index) {
+      const std::string& line = hud.scoreboardLines[index];
+      const float lineWidth =
+        static_cast<float>(line.size()) * characterWidth;
+      const float x =
+        panelX + std::max(16.0F, (panelWidth - lineWidth) * 0.5F);
+      addText(
+        drawList,
+        x,
+        scoreboardY,
+        line,
+        index == 0
+          ? RenderColor{255, 220, 120, 255}
+          : RenderColor{225, 235, 245, 255},
+        textScale
+      );
+      scoreboardY += 28.0F;
+    }
+  }
+
+  float y = 12.0F;
+  for (const std::string& line : hud.topLeftLines) {
+    addText(drawList, 12.0F, y, line, defaultText, textScale);
+    y += 20.0F;
+  }
+
+  y = 12.0F;
+  for (const std::string& line : hud.topRightLines) {
+    const float x = std::max(
+      12.0F,
+      static_cast<float>(width) - 12.0F -
+        static_cast<float>(line.size()) * characterWidth
+    );
+    addText(drawList, x, y, line, defaultText, textScale);
+    y += 20.0F;
+  }
+
+  y = (static_cast<float>(height) * 0.5F) -
+    static_cast<float>(hud.centerLines.size()) * 11.0F +
+    hud.centerOffsetY;
+  for (const std::string& line : hud.centerLines) {
+    const float x = std::max(
+      12.0F,
+      (static_cast<float>(width) -
+       static_cast<float>(line.size()) * characterWidth) * 0.5F
+    );
+    addText(drawList, x, y, line, defaultText, textScale);
+    y += 22.0F;
+  }
+
+  if (!hud.countdownText.empty()) {
+    const float pulse = std::clamp(hud.countdownPulse, 0.0F, 1.0F);
+    const float scale = 10.0F + pulse * 3.0F;
+    const float textWidth =
+      static_cast<float>(hud.countdownText.size()) * kGlyphSize * scale;
+    const float textHeight = kGlyphSize * scale;
+    const float x = (static_cast<float>(width) - textWidth) * 0.5F;
+    const float countdownY =
+      (static_cast<float>(height) - textHeight) * 0.5F;
+    const float padding = 24.0F + pulse * 12.0F;
+    addRect(
+      drawList,
+      x - padding,
+      countdownY - padding,
+      textWidth + padding * 2.0F,
+      textHeight + padding * 2.0F,
+      {
+        8,
+        12,
+        18,
+        static_cast<std::uint8_t>(150.0F + pulse * 55.0F),
+      }
+    );
+    addText(
+      drawList,
+      x,
+      countdownY,
+      hud.countdownText,
+      {
+        255,
+        static_cast<std::uint8_t>(175.0F + pulse * 70.0F),
+        static_cast<std::uint8_t>(75.0F + pulse * 80.0F),
+        255,
+      },
+      scale
+    );
+  }
+
+  const float healthCharacterWidth = kGlyphSize * settings.healthTextScale;
+  const float healthLineHeight = 11.0F * settings.healthTextScale;
+  y = static_cast<float>(height) - 24.0F -
+    static_cast<float>(hud.bottomCenterLines.size()) * healthLineHeight;
+  for (const std::string& line : hud.bottomCenterLines) {
+    const float x = std::max(
+      12.0F,
+      (static_cast<float>(width) -
+       static_cast<float>(line.size()) * healthCharacterWidth) * 0.5F
+    );
+    addText(
+      drawList,
+      x,
+      y,
+      line,
+      defaultText,
+      settings.healthTextScale
+    );
+    y += healthLineHeight;
+  }
+
+  y = static_cast<float>(height) - 150.0F -
+    static_cast<float>(hud.chatLines.size()) * 18.0F;
+  for (const std::string& line : hud.chatLines) {
+    addText(drawList, 16.0F, y, line, {225, 235, 245, 255}, 2.0F);
+    y += 18.0F;
+  }
+  if (hud.chatInputOpen) {
+    addText(
+      drawList,
+      16.0F,
+      static_cast<float>(height) - 125.0F,
+      "SAY: " + hud.chatInput + '_',
+      {255, 232, 150, 255},
+      2.0F
+    );
+  }
+}
+
+void addConsole(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const ConsoleRenderState& console
+) {
+  if (!console.open) {
+    return;
+  }
+
+  const float consoleHeight = static_cast<float>(height) * 0.55F;
+  addRect(
+    drawList,
+    0.0F,
+    0.0F,
+    static_cast<float>(width),
+    consoleHeight,
+    {5, 8, 12, 235}
+  );
+  addRect(
+    drawList,
+    0.0F,
+    consoleHeight - 2.0F,
+    static_cast<float>(width),
+    2.0F,
+    {92, 170, 230, 255}
+  );
+
+  constexpr float textScale = 2.0F;
+  constexpr float lineHeight = 20.0F;
+  const int visibleLines =
+    std::max(1, static_cast<int>((consoleHeight - 34.0F) / lineHeight));
+  const std::size_t firstLine =
+    console.lines.size() > static_cast<std::size_t>(visibleLines)
+      ? console.lines.size() - static_cast<std::size_t>(visibleLines)
+      : 0U;
+  float y = 10.0F;
+  for (std::size_t index = firstLine; index < console.lines.size(); ++index) {
+    addText(
+      drawList,
+      10.0F,
+      y,
+      console.lines[index],
+      {215, 225, 235, 255},
+      textScale
+    );
+    y += lineHeight;
+  }
+  addText(
+    drawList,
+    10.0F,
+    consoleHeight - 24.0F,
+    "] " + console.input + '_',
+    {255, 255, 255, 255},
+    textScale
+  );
+}
+
+} // namespace
+
+DrawList2D buildPerspectiveWeaponOverlay(
+  int outputWidth,
+  int outputHeight,
+  const LightningGunResult& localLightningGun,
+  const RenderSettings& settings
+) {
+  DrawList2D drawList;
+  const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
+  const auto blendChannel =
+    [hitAmount](std::uint8_t base, std::uint8_t highlight) {
+      return static_cast<std::uint8_t>(
+        std::clamp(
+          static_cast<float>(base) +
+            (
+              static_cast<float>(highlight) -
+              static_cast<float>(base)
+            ) * hitAmount,
+          0.0F,
+          255.0F
+        )
+      );
+    };
+  const RenderColor color = {
+    blendChannel(settings.beamRed, settings.beamHitRed),
+    blendChannel(settings.beamGreen, settings.beamHitGreen),
+    blendChannel(settings.beamBlue, settings.beamHitBlue),
+    static_cast<std::uint8_t>(
+      std::clamp(settings.beamAlpha, 0.0F, 1.0F) * 255.0F
+    ),
+  };
+  const float pulse = localLightningGun.active
+    ? std::clamp(settings.beamPulse, -1.0F, 1.0F)
+    : 0.0F;
+  const float brightness = 1.0F + pulse * 0.05F;
+  const RenderColor animatedColor = {
+    static_cast<std::uint8_t>(
+      std::clamp(
+        static_cast<float>(color.red) * brightness,
+        0.0F,
+        255.0F
+      )
+    ),
+    static_cast<std::uint8_t>(
+      std::clamp(
+        static_cast<float>(color.green) * brightness,
+        0.0F,
+        255.0F
+      )
+    ),
+    static_cast<std::uint8_t>(
+      std::clamp(
+        static_cast<float>(color.blue) * brightness,
+        0.0F,
+        255.0F
+      )
+    ),
+    color.alpha,
+  };
+  const RenderColor emitterColor = {
+    static_cast<std::uint8_t>(
+      static_cast<float>(animatedColor.red) * 0.8F
+    ),
+    static_cast<std::uint8_t>(
+      static_cast<float>(animatedColor.green) * 0.8F
+    ),
+    static_cast<std::uint8_t>(
+      static_cast<float>(animatedColor.blue) * 0.8F
+    ),
+    animatedColor.alpha,
+  };
+  const float centerX = static_cast<float>(outputWidth) * 0.5F;
+  const float height = static_cast<float>(outputHeight);
+  const float scale = std::max(0.7F, height / 720.0F);
+  const float muzzleY = height - 154.0F * scale;
+  if (localLightningGun.active) {
+    // The covered lower section keeps the beam stable while making its
+    // visible origin coincide with the viewmodel emitter.
+    addLine(
+      drawList,
+      {centerX, height * 1.15F},
+      {centerX, height * 0.5F},
+      animatedColor,
+      settings.beamWidth * (1.0F + pulse * 0.04F)
+    );
+  }
+
+  const auto quad =
+    [&](std::array<ScreenPoint, 4> points, RenderColor quadColor) {
+      drawList.overlayCommands.emplace_back(
+        FilledQuad2D{points, quadColor}
+      );
+    };
+  const float bodyTop = muzzleY + 20.0F * scale;
+  const float bodyBottom = height + 18.0F * scale;
+  const float bodyHalfTop = 38.0F * scale;
+  const float bodyHalfBottom = 104.0F * scale;
+  quad(
+    {{
+      {centerX - bodyHalfTop, bodyTop},
+      {centerX + bodyHalfTop, bodyTop},
+      {centerX + bodyHalfBottom, bodyBottom},
+      {centerX - bodyHalfBottom, bodyBottom},
+    }},
+    {34, 42, 52, 255}
+  );
+  quad(
+    {{
+      {centerX - 21.0F * scale, muzzleY},
+      {centerX + 21.0F * scale, muzzleY},
+      {centerX + 34.0F * scale, bodyTop + 32.0F * scale},
+      {centerX - 34.0F * scale, bodyTop + 32.0F * scale},
+    }},
+    {67, 82, 98, 255}
+  );
+  quad(
+    {{
+      {centerX - 10.0F * scale, muzzleY - 5.0F * scale},
+      {centerX + 10.0F * scale, muzzleY - 5.0F * scale},
+      {centerX + 14.0F * scale, muzzleY + 14.0F * scale},
+      {centerX - 14.0F * scale, muzzleY + 14.0F * scale},
+    }},
+    animatedColor
+  );
+  addRect(
+    drawList,
+    centerX - 72.0F * scale,
+    bodyTop + 44.0F * scale,
+    24.0F * scale,
+    58.0F * scale,
+    {52, 65, 80, 255}
+  );
+  addRect(
+    drawList,
+    centerX + 48.0F * scale,
+    bodyTop + 44.0F * scale,
+    24.0F * scale,
+    58.0F * scale,
+    {52, 65, 80, 255}
+  );
+  addRect(
+    drawList,
+    centerX - 63.0F * scale,
+    bodyTop + 53.0F * scale,
+    6.0F * scale,
+    40.0F * scale,
+    emitterColor
+  );
+  addRect(
+    drawList,
+    centerX + 57.0F * scale,
+    bodyTop + 53.0F * scale,
+    6.0F * scale,
+    40.0F * scale,
+    emitterColor
+  );
+  return drawList;
+}
+
+DrawList2D buildScreenUi(
+  int outputWidth,
+  int outputHeight,
+  const PlayerState& opponent,
+  const RenderSettings& settings,
+  const HudRenderState& hud,
+  const ConsoleRenderState& console
+) {
+  DrawList2D drawList;
+  drawList.clip = {
+    0.0F,
+    0.0F,
+    static_cast<float>(outputWidth),
+    static_cast<float>(outputHeight),
+  };
+  addOpponentHealthBar(drawList, outputWidth, opponent, hud);
+  addCrosshair(drawList, outputWidth, outputHeight, settings);
+  addHitMarker(drawList, outputWidth, outputHeight, settings);
+  addHud(drawList, outputWidth, outputHeight, hud, settings);
+  addConsole(drawList, outputWidth, outputHeight, console);
+  return drawList;
+}
+
+} // namespace lg

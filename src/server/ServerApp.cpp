@@ -34,7 +34,7 @@ int ServerApp::run() const {
   console.registerCvar({"sv_countdown", "Round countdown in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
   console.registerCvar({"sv_roundend", "Round-end delay in seconds.", 1.0F, CvarFlag::None, 0.0F, 30.0F});
   console.registerCvar({"sv_matchend", "Match-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
-  console.registerCvar({"sv_showopponenthealth", "Show opponent health to both players.", false, CvarFlag::None, {}, {}});
+  console.registerCvar({"sv_showopponenthealth", "Show opponent health to both players.", true, CvarFlag::None, {}, {}});
   bool resetRequested = false;
   console.registerCommand(
     "resetmatch",

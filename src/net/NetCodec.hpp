@@ -9,8 +9,8 @@
 namespace lg {
 
 inline constexpr std::uint32_t kProtocolMagic = 0x4C474455U;
-inline constexpr std::uint16_t kProtocolVersion = 5;
-inline constexpr std::size_t kMaxPacketBytes = 512;
+inline constexpr std::uint16_t kProtocolVersion = 16;
+inline constexpr std::size_t kMaxPacketBytes = 768;
 
 enum class PacketType : std::uint8_t {
   ConnectRequest = 1,

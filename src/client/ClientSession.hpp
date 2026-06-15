@@ -30,7 +30,13 @@ public:
     bool requestReset,
     bool toggleReady,
     bool requestMovementTuning = false,
-    const MovementTuning& movementTuning = {}
+    const MovementTuning& movementTuning = {},
+    float playerSizeScaleXY = 1.0F,
+    float playerSizeScaleZ = 1.0F,
+    float lightningKnockback = 22.0F,
+    float vampirism = 0.0F,
+    std::string chatMessage = {},
+    std::string playerName = {}
   );
 
   [[nodiscard]] ClientConnectionState state() const;

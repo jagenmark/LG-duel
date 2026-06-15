@@ -3,6 +3,8 @@
 #include "shared/Constants.hpp"
 #include "shared/Sequence.hpp"
 
+#include <utility>
+
 namespace lg {
 
 ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
@@ -13,7 +15,13 @@ void ClientGame::sendCommand(
   bool requestReset,
   bool toggleReady,
   bool requestMovementTuning,
-  const MovementTuning& movementTuning
+  const MovementTuning& movementTuning,
+  float playerSizeScaleXY,
+  float playerSizeScaleZ,
+  float lightningKnockback,
+  float vampirism,
+  std::string chatMessage,
+  std::string playerName
 ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
@@ -30,6 +38,12 @@ void ClientGame::sendCommand(
       snapshot_.serverTick,
       requestMovementTuning,
       movementTuning_,
+      playerSizeScaleXY,
+      playerSizeScaleZ,
+      lightningKnockback,
+      vampirism,
+      std::move(chatMessage),
+      std::move(playerName),
     }
   );
   if (!requestReset) {

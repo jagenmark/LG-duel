@@ -1,4 +1,5 @@
 #include "input/InputBindings.hpp"
+#include "input/MouseAim.hpp"
 
 #include <iostream>
 #include <string_view>
@@ -17,6 +18,15 @@ int expect(bool condition, std::string_view message) {
 
 int main() {
   int failures = 0;
+
+  failures += expect(
+    lg::relativeMouseYaw(0.0F, 10.0F, 1.0F) < 0.0F,
+    "moving the mouse right should turn view yaw right"
+  );
+  failures += expect(
+    lg::relativeMouseYaw(0.0F, -10.0F, 1.0F) > 0.0F,
+    "moving the mouse left should turn view yaw left"
+  );
   lg::InputBindings bindings;
 
   failures += expect(bindings.bind("A", "+moveleft"), "binding should accept a key");

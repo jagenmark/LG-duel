@@ -41,8 +41,10 @@ Windows x64 client ZIP. Run it from the repository's Actions page and enter the
 current public server address and UDP port. Download the
 `LG-Duel-Windows-x64` artifact when the run completes.
 
-The package contains the client executable, `SDL3.dll`, a double-click
-`Play LG Duel.bat` launcher, the player guide, and `server-address.txt`.
+The package contains the client executable, `SDL3.dll`, the required GPU
+shaders, a double-click `Play LG Duel.bat` launcher, the player guide, and
+`server-address.txt`. The launcher selects SDL_GPU, preferring Vulkan with
+automatic renderer fallback.
 Friends should extract the entire ZIP and keep all files together.
 
 ## Current Playable Slice
@@ -71,7 +73,7 @@ Client controls:
 - `W/S`: forward/back
 - `A/D`: strafe
 - `Space`: jump / positive up command
-- `Ctrl` or `Shift`: negative up command for future flight mode
+- `Ctrl` or `Shift`: negative flight thrust
 - Mouse: raw relative look
 - Left mouse: fire the continuous lightning gun
 - `R`: request an authoritative match reset
@@ -79,7 +81,7 @@ Client controls:
 - `§` (the physical grave/section key left of `1`): toggle the client console
 - `Esc`: quit
 
-The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, scoring, synchronized round respawns, and match state at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. Clients render disposable authoritative snapshots while predicting local movement. The HUD presents match information while optional diagnostics remain available in the window title.
+The server owns two complete player states and runs movement, player collision, beam tracing, full-vector LG knockback, continuous damage, scoring, synchronized round respawns, and match state at a fixed 125 Hz. For LG hit tests, it rewinds the target to the newest server snapshot tick visible to the shooter, capped at 25 ticks (200 ms), while applying damage and knockback to current authoritative state. `cl_show_lagcomp 1` displays the exact current target bounds in cyan and rewound bounds in amber, together with requested/applied ticks, clamping, historical tick, and both 3D positions. Clients render disposable authoritative snapshots while predicting local movement.
 
 The default arena is a compact 2D Thunderstruck-inspired layout with opposing courts, a broken central divider, offset cover blocks, and upper/lower connector lanes. Internal walls use the same geometry for authoritative movement collision, player separation, LG occlusion, prediction, and rendering.
 
@@ -125,15 +127,38 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_show_net`, `s_enable`, `s_volume`, `r_vsync`, `r_playersize`, `crosshair_enable`, `crosshair_style`, crosshair size/gap/thickness/alpha/RGB controls, and beam width/alpha/RGB controls.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model colors, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
 
-`cl_rotate_view` applies to relative aim mode (`cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) keeps the camera world-aligned so the simulated facing direction remains stable and points toward the cursor.
+The SDL_GPU renderer can be selected at runtime with
+`LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
+GPU backend selection, and then falls back to SDL_Renderer if no GPU backend
+can claim the window. SDL_GPU renders both the backend-neutral top-down scene
+and the first-person 3D scene. The 3D path uses world-space triangles, camera
+uniforms, depth-tested solid arena geometry, separate non-depth-writing
+translucent geometry, and a screen-space HUD pass. UI text uses a persistent
+bitmap-font atlas.
 
-`cl_camera_zoom 1` preserves the default view. Values above `1` zoom in and values below `1` zoom out. `r_playersize` independently sets both player markers' width and height in screen pixels.
+The SDL_GPU path keeps one frame in flight. With `r_vsync 1`, it prefers
+mailbox presentation and falls back to standard synchronized presentation.
+With `r_vsync 0`, it requests immediate presentation for the lowest available
+latency. Set `cl_showfps 1` to show average FPS, frame time, and the active
+renderer backend in the window title.
+
+`cl_rotate_view` applies only to top-down relative aim (`cl_render_mode 0`, `cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) is available only in the top-down renderer. Perspective mode (`cl_render_mode 1`) always uses relative mouse yaw/pitch, ignores `cl_rotate_view`, and sends true 3D pitch to authoritative beam simulation.
+
+`cl_camera_zoom 1` preserves the default top-down view. Values above `1` zoom in and values below `1` zoom out. `g_playersize_xy` and `g_playersize_z` request authoritative horizontal and vertical scales from `0.5` to `3.0`; the server applies them symmetrically to both players' collision bounds, hitboxes, and rendered model size.
 
 Client audio uses generated tones with no external sound assets. `s_enable` toggles hit and round-result cues, while `s_volume` controls their volume from `0` to `1`.
 
-Runtime movement testing uses `g_accel`, `g_friction`, and `g_maxspeed`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_maxspeed` controls both the ground and air speed caps. These testing values are intentionally not archived.
+Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspeed`, `g_maxspeed`, `g_flight`, `g_flightaccel`, `g_flightmaxspeed`, and `g_flightdamping`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_flight 1` equips unrestricted flight symmetrically for both players. W/S thrust along full camera pitch/yaw, A/D strafe while upright, Space thrusts up, and Ctrl/Shift thrust down. Flight has no fuel, cooldown, duration limit, or artificial hover ceiling; arena collision still applies. Disabling it transitions players back to airborne or grounded movement. Query a variable without a value to see its current value, project default, and Q3/QL reference default where applicable. These testing values are intentionally not archived.
+
+Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set a name.
+
+`cl_render_mode 0` uses the standard top-down renderer. `cl_render_mode 1` uses
+a first-person perspective view from the local player's yaw and pitch. It
+renders a floor grid, solid arena walls, the opponent model, both lightning
+beams, hit-color feedback, hitmarkers, and the shared HUD. SDL_Renderer remains
+available as a compatibility fallback; SDL_GPU/Vulkan is the performance path.
 
 Simulation catch-up is capped at eight ticks per rendered frame. Excess whole ticks are dropped and reported instead of allowing an unbounded spiral after a long stall.
 

@@ -65,21 +65,315 @@ int main() {
     tuningRequest.command.forwardMove = 1.0F;
     tuningRequest.requestMovementTuning = true;
     tuningRequest.movementTuning.groundAcceleration = 160.0F;
+    tuningRequest.movementTuning.airAcceleration = 3.0F;
     tuningRequest.movementTuning.groundFriction = 4.0F;
+    tuningRequest.movementTuning.stopSpeed = 2.5F;
     tuningRequest.movementTuning.maxGroundSpeed = 12.0F;
+    tuningRequest.playerSizeScaleXY = 2.0F;
+    tuningRequest.playerSizeScaleZ = 0.5F;
+    tuningRequest.lightningKnockback = 35.0F;
+    tuningRequest.vampirism = 0.1F;
     transport.sendCommand(tuningRequest);
     server.tick(lg::kFixedTickSeconds);
 
     const lg::ServerSnapshot tuned = latestSnapshot(transport);
     failures += expect(
       tuned.movementTuning.groundAcceleration == 160.0F &&
+        tuned.movementTuning.airAcceleration == 3.0F &&
         tuned.movementTuning.groundFriction == 4.0F &&
+        tuned.movementTuning.stopSpeed == 2.5F &&
         tuned.movementTuning.maxGroundSpeed == 12.0F,
       "runtime movement tuning should be authoritative and replicated"
     );
     failures += expect(
+      tuned.playerSizeScaleXY == 2.0F &&
+        tuned.playerSizeScaleZ == 0.5F &&
+        tuned.lightningKnockback == 35.0F &&
+        tuned.vampirism == 0.1F &&
+        tuned.players[0].bounds.radius == 0.7F &&
+        tuned.players[1].bounds.radius == 0.7F &&
+        tuned.players[0].bounds.halfHeight == 0.45F &&
+        tuned.players[1].bounds.halfHeight == 0.45F &&
+        tuned.players[0].position.z == 2.45F &&
+        tuned.players[1].position.z == 2.45F,
+      "runtime player dimensions should apply symmetrically and independently"
+    );
+    failures += expect(
       tuned.players[0].velocity.x > 1.0F,
       "updated acceleration should affect the requesting simulation tick"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket enableFlight;
+    enableFlight.command.sequence = 1;
+    enableFlight.command.forwardMove = 1.0F;
+    enableFlight.command.viewPitchRadians = 0.5F;
+    enableFlight.requestMovementTuning = true;
+    enableFlight.movementTuning.flightEnabled = true;
+    enableFlight.movementTuning.flightAcceleration = 64.0F;
+    enableFlight.movementTuning.maxFlightSpeed = 14.0F;
+    enableFlight.movementTuning.flightDamping = 0.0F;
+    enableFlight.movementTuning.flightGravityCancel = 1.0F;
+    transport.sendCommand(enableFlight);
+    server.tick(lg::kFixedTickSeconds);
+
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.movementTuning.flightEnabled &&
+        snapshot.players[0].movementMode == lg::MovementMode::Flying &&
+        snapshot.players[1].movementMode == lg::MovementMode::Flying &&
+        snapshot.players[0].velocity.z > 0.0F,
+      "g_flight should enable symmetric authoritative pitch-directed flight"
+    );
+
+    lg::CommandPacket disableFlight = enableFlight;
+    disableFlight.command.sequence = 2;
+    disableFlight.command.forwardMove = 0.0F;
+    disableFlight.requestMovementTuning = true;
+    disableFlight.movementTuning.flightEnabled = false;
+    transport.sendCommand(disableFlight);
+    server.tick(lg::kFixedTickSeconds);
+
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      !snapshot.movementTuning.flightEnabled &&
+        snapshot.players[0].movementMode != lg::MovementMode::Flying &&
+        snapshot.players[1].movementMode != lg::MovementMode::Flying,
+      "disabling g_flight should return both players to grounded or airborne movement"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuningRequest;
+    tuningRequest.command.sequence = 1;
+    tuningRequest.requestMovementTuning = true;
+    tuningRequest.lightningKnockback = 100.0F;
+    transport.sendCommand(tuningRequest);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand attack;
+    attack.sequence = 2;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningKnockback == 100.0F &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.79F,
+      "g_knockback should control authoritative LG impulse magnitude"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket disableVampirism;
+    disableVampirism.command.sequence = 1;
+    disableVampirism.requestMovementTuning = true;
+    disableVampirism.lightningKnockback = 0.0F;
+    disableVampirism.vampirism = 0.0F;
+    transport.sendCommand(disableVampirism);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::CommandPacket damageAttacker;
+    damageAttacker.playerIndex = 1;
+    damageAttacker.command.sequence = 1;
+    damageAttacker.command.attack = true;
+    damageAttacker.command.viewYawRadians = kPi;
+    transport.sendCommand(damageAttacker);
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 100; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.players[0].health <= 50) {
+        break;
+      }
+    }
+    damageAttacker.command.sequence = 2;
+    damageAttacker.command.attack = false;
+    transport.sendCommand(damageAttacker);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    const int damagedHealth = snapshot.players[0].health;
+
+    lg::CommandPacket attack;
+    attack.command.sequence = 2;
+    attack.command.attack = true;
+    transport.sendCommand(attack);
+    const int disabledTargetHealth = snapshot.players[1].health;
+    for (
+      int tick = 0;
+      tick < 100 && snapshot.players[1].health > disabledTargetHealth - 10;
+      ++tick
+    ) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.vampirism == 0.0F &&
+        snapshot.players[0].health == damagedHealth,
+      "g_vampirism 0 should disable damage-based healing"
+    );
+
+    attack.command.sequence = 3;
+    attack.command.attack = false;
+    transport.sendCommand(attack);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tenPercent;
+    tenPercent.command.sequence = 4;
+    tenPercent.requestMovementTuning = true;
+    tenPercent.lightningKnockback = 0.0F;
+    tenPercent.vampirism = 0.1F;
+    transport.sendCommand(tenPercent);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
+    attack.command.sequence = 5;
+    attack.command.attack = true;
+    transport.sendCommand(attack);
+    const int fractionalTargetHealth = snapshot.players[1].health;
+    for (
+      int tick = 0;
+      tick < 100 && snapshot.players[1].health > fractionalTargetHealth - 10;
+      ++tick
+    ) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.vampirism == 0.1F &&
+        snapshot.players[0].health == damagedHealth + 1,
+      (
+        "g_vampirism 0.1 should accumulate and heal 10 percent of damage; health=" +
+        std::to_string(snapshot.players[0].health) +
+        " expected=" + std::to_string(damagedHealth + 1) +
+        " damage=" +
+        std::to_string(fractionalTargetHealth - snapshot.players[1].health)
+      )
+    );
+
+    attack.command.sequence = 6;
+    attack.command.attack = false;
+    transport.sendCommand(attack);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::CommandPacket doubleHealing;
+    doubleHealing.command.sequence = 7;
+    doubleHealing.requestMovementTuning = true;
+    doubleHealing.lightningKnockback = 0.0F;
+    doubleHealing.vampirism = 2.0F;
+    transport.sendCommand(doubleHealing);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    attack.command.sequence = 8;
+    attack.command.attack = true;
+    transport.sendCommand(attack);
+    for (int tick = 0; tick < 100; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.players[0].health == 100) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.vampirism == 2.0F &&
+        snapshot.players[0].health == 100,
+      "g_vampirism 2 should heal 200 percent without exceeding 100 health"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand planar;
+    planar.sequence = 1;
+    planar.attack = true;
+    planar.viewPitchRadians = 0.2F;
+    planar.planarAim = true;
+    transport.sendCommand(lg::CommandPacket{0, planar, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot planarSnapshot = latestSnapshot(transport);
+    failures += expect(
+      std::fabs(planarSnapshot.lightningGuns[0].end.z - 3.55F) <= 0.01F,
+      "top-down relative aim should flatten beam pitch authoritatively"
+    );
+
+    lg::UserCommand perspective = planar;
+    perspective.sequence = 2;
+    perspective.planarAim = false;
+    transport.sendCommand(lg::CommandPacket{0, perspective, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot perspectiveSnapshot = latestSnapshot(transport);
+    failures += expect(
+      perspectiveSnapshot.lightningGuns[0].end.z >
+        perspectiveSnapshot.lightningGuns[0].start.z,
+      "perspective relative aim should preserve beam pitch authoritatively"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket rename;
+    rename.playerIndex = 0;
+    rename.command.sequence = 1;
+    rename.playerName = "yg";
+    transport.sendCommand(rename);
+    server.tick(lg::kFixedTickSeconds);
+
+    failures += expect(
+      latestSnapshot(transport).playerNames[0] == "yg",
+      "server should replicate an accepted player name"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket chat;
+    chat.playerIndex = 1;
+    chat.command.sequence = 1;
+    chat.chatMessage = "good luck";
+    transport.sendCommand(chat);
+    server.tick(lg::kFixedTickSeconds);
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.chatSequence == 1 &&
+        snapshot.chatPlayerIndex == 1 &&
+        snapshot.chatMessage == "good luck",
+      "server should relay accepted player chat"
+    );
+
+    transport.sendCommand(chat);
+    server.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      latestSnapshot(transport).chatSequence == 1,
+      "duplicate commands should not relay chat twice"
     );
   }
 
@@ -231,6 +525,15 @@ int main() {
         !compensated.lightningGuns[0].rewindClamped,
       "LG should report an in-range historical rewind"
     );
+    failures += expect(
+      compensated.lightningGuns[0].hasRewindDebug &&
+        compensated.lightningGuns[0].rewindTargetTick == 0 &&
+        std::fabs(
+          compensated.lightningGuns[0].currentTargetPosition.y -
+          compensated.lightningGuns[0].rewoundTargetPosition.y
+        ) > compensated.players[1].bounds.radius,
+      "LG should replicate the exact current and historical bounds used by the trace"
+    );
 
     attack.sequence = 1;
     transport.sendCommand(lg::CommandPacket{0, attack, false, 0});
@@ -240,6 +543,107 @@ int main() {
     failures += expect(
       damaged.players[1].health == 99,
       "rewound hit damage should apply to the current authoritative target"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket dimensions;
+    dimensions.command.sequence = 0;
+    dimensions.requestMovementTuning = true;
+    dimensions.playerSizeScaleZ = 0.5F;
+    transport.sendCommand(dimensions);
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot historical = latestSnapshot(transport);
+
+    for (std::uint32_t sequence = 1; sequence <= 20; ++sequence) {
+      lg::UserCommand jump;
+      jump.sequence = sequence;
+      jump.viewYawRadians = kPi;
+      jump.jump = true;
+      jump.upMove = 1.0F;
+      transport.sendCommand(
+        lg::CommandPacket{1, jump, false, false, historical.serverTick}
+      );
+      server.tick(lg::kFixedTickSeconds);
+    }
+    const lg::ServerSnapshot airborne = latestSnapshot(transport);
+    failures += expect(
+      airborne.players[1].position.z -
+          historical.players[1].position.z >
+        airborne.players[1].bounds.halfHeight * 2.0F,
+      "vertical lag-comp test target should leave the current beam height"
+    );
+
+    lg::UserCommand attack;
+    attack.sequence = 21;
+    attack.attack = true;
+    attack.planarAim = true;
+    transport.sendCommand(
+      lg::CommandPacket{
+        0,
+        attack,
+        false,
+        false,
+        historical.serverTick,
+      }
+    );
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot compensated = latestSnapshot(transport);
+    failures += expect(
+      compensated.lightningGuns[0].hit &&
+        compensated.lightningGuns[0].rewoundTargetPosition.z <
+          compensated.lightningGuns[0].currentTargetPosition.z,
+      "3D lag compensation should hit a historical lower target after it jumps"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    const lg::ServerSnapshot historical = latestSnapshot(transport);
+
+    for (std::uint32_t sequence = 0; sequence < 20; ++sequence) {
+      lg::UserCommand move;
+      move.sequence = sequence;
+      move.viewYawRadians = kPi;
+      move.rightMove = 1.0F;
+      transport.sendCommand(
+        lg::CommandPacket{1, move, false, false, historical.serverTick}
+      );
+      server.tick(lg::kFixedTickSeconds);
+    }
+    const lg::ServerSnapshot current = latestSnapshot(transport);
+    const lg::Vec3 offset =
+      current.players[1].position - current.players[0].position;
+
+    lg::UserCommand attack;
+    attack.sequence = 0;
+    attack.attack = true;
+    attack.planarAim = true;
+    attack.viewYawRadians = std::atan2(offset.y, offset.x);
+    transport.sendCommand(
+      lg::CommandPacket{
+        0,
+        attack,
+        false,
+        false,
+        historical.serverTick,
+      }
+    );
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot rewoundMiss = latestSnapshot(transport);
+    failures += expect(
+      !rewoundMiss.lightningGuns[0].hit &&
+        rewoundMiss.lightningGuns[0].hasRewindDebug &&
+        std::fabs(
+          rewoundMiss.lightningGuns[0].currentTargetPosition.y -
+          rewoundMiss.lightningGuns[0].rewoundTargetPosition.y
+        ) > rewoundMiss.players[1].bounds.radius,
+      "lag compensation should miss when the historical target was off the current aim line"
     );
   }
 
@@ -318,6 +722,16 @@ int main() {
       snapshot.connectedPlayers == std::array<bool, 2>{true, false},
       "snapshot should replicate occupied player slots"
     );
+    lg::UserCommand soloWarmupAttack;
+    soloWarmupAttack.sequence = 0;
+    soloWarmupAttack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, soloWarmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningGuns[0].active,
+      "a connected player should be able to fire during solo warmup"
+    );
 
     server.setConnectedPlayers({true, true});
     server.tick(lg::kFixedTickSeconds);
@@ -327,8 +741,27 @@ int main() {
       "two connected players should wait for ready-up"
     );
 
+    lg::UserCommand warmupAttack;
+    warmupAttack.sequence = 1;
+    warmupAttack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, warmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    warmupAttack.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, warmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningGuns[0].active &&
+        snapshot.players[1].health < 100,
+      "connected players should be able to shoot during warmup"
+    );
+    failures += expect(
+      snapshot.scores == std::array<std::uint16_t, 2>{0, 0},
+      "warmup combat should not affect match score"
+    );
+
     lg::UserCommand firstReady;
-    firstReady.sequence = 0;
+    firstReady.sequence = 3;
     transport.sendCommand(lg::CommandPacket{0, firstReady, false, true, 0});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
@@ -338,7 +771,7 @@ int main() {
     );
 
     lg::UserCommand secondReady;
-    secondReady.sequence = 0;
+    secondReady.sequence = 1;
     transport.sendCommand(lg::CommandPacket{1, secondReady, false, true, 0});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
@@ -349,7 +782,7 @@ int main() {
     );
 
     lg::UserCommand countdownCommand;
-    countdownCommand.sequence = 1;
+    countdownCommand.sequence = 4;
     countdownCommand.forwardMove = 1.0F;
     countdownCommand.attack = true;
     transport.sendCommand(lg::CommandPacket{0, countdownCommand, false, false, 0});
@@ -405,6 +838,14 @@ int main() {
         snapshot.roundCombatStats[0].damageDealt == 100,
       "round stats should record authoritative LG contact and damage"
     );
+    const lg::RoundCombatStats firstRoundAggregate =
+      snapshot.matchCombatStats[0];
+    failures += expect(
+      firstRoundAggregate.lightningActiveTicks > 0 &&
+        firstRoundAggregate.lightningHitTicks > 0 &&
+        firstRoundAggregate.damageDealt == 100,
+      "match scoreboard stats should aggregate authoritative combat"
+    );
 
     lg::UserCommand deadTargetCommand;
     deadTargetCommand.sequence = 1;
@@ -426,6 +867,15 @@ int main() {
         snapshot.roundCombatStats[0].lightningHitTicks == 0 &&
         snapshot.roundCombatStats[0].damageDealt == 0,
       "round-end expiry should respawn both players into a new countdown"
+    );
+    failures += expect(
+      snapshot.matchCombatStats[0].lightningActiveTicks ==
+          firstRoundAggregate.lightningActiveTicks &&
+        snapshot.matchCombatStats[0].lightningHitTicks ==
+          firstRoundAggregate.lightningHitTicks &&
+        snapshot.matchCombatStats[0].damageDealt ==
+          firstRoundAggregate.damageDealt,
+      "scoreboard aggregate stats should survive round transitions"
     );
 
     server.tick(lg::kFixedTickSeconds);

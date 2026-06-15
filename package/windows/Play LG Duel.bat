@@ -16,6 +16,7 @@ echo Starting LG Duel...
 echo Server: %SERVER_HOST%:%SERVER_PORT%
 echo.
 
+set "LG_DUEL_RENDER_BACKEND=gpu"
 "%~dp0lg_duel_client.exe" "%SERVER_HOST%" "%SERVER_PORT%"
 if errorlevel 1 (
   echo.

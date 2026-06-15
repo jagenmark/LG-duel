@@ -17,6 +17,7 @@ struct UserCommand {
 
   bool attack = false;
   bool jump = false;
+  bool planarAim = true;
 };
 
 } // namespace lg
