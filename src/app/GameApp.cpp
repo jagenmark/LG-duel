@@ -18,10 +18,12 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cctype>
 #include <cstdint>
 #include <deque>
 #include <fstream>
@@ -36,6 +38,7 @@ namespace {
 constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
+constexpr float kDegreesToRadians = 0.01745329252F;
 
 enum class AimMode {
   Relative3D,
@@ -206,6 +209,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_aim_mode", "Aim mode: 0 relative 3D, 1 absolute 2D.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_render_mode", "Renderer: 0 top-down, 1 first-person 3D.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_fov", "Top-down camera view extent.", 90.0F, archivedClient, 45.0F, 140.0F});
+  console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
+  console.registerCvar({"cl_zoom_sensitivity", "Mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_camera_zoom", "Camera zoom multiplier; values above one zoom in.", 1.0F, archivedClient, 0.25F, 4.0F});
   console.registerCvar({"cl_rotate_view", "Rotate relative-aim view so facing direction points up.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
@@ -331,6 +336,25 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   return settings;
 }
 
+float zoomSensitivityMultiplier(
+  float baseFieldOfView,
+  float zoomFieldOfView,
+  float manualMultiplier
+) {
+  if (manualMultiplier > 0.0F) {
+    return manualMultiplier;
+  }
+
+  constexpr float sensRatio = 1.0F;
+  const float baseHalfAngle = baseFieldOfView * 0.5F * kDegreesToRadians;
+  const float zoomHalfAngle = zoomFieldOfView * 0.5F * kDegreesToRadians;
+  const float baseTangent = std::tan(baseHalfAngle);
+  if (std::fabs(baseTangent) <= 0.0001F) {
+    return 1.0F;
+  }
+  return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
+}
+
 MovementTuning movementTuning(const ConsoleSystem& console) {
   MovementTuning tuning;
   tuning.flightEnabled = console.getBool("g_flight");
@@ -412,7 +436,11 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("leftshift", "+movedown");
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
-  (void)bindings.bind("r", "resetmatch");
+  (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("q", "weapon rl");
+  (void)bindings.bind("e", "weapon lg");
+  (void)bindings.bind("r", "weapon rg");
+  (void)bindings.bind("f5", "resetmatch");
   (void)bindings.bind("f3", "ready");
   (void)bindings.bind("t", "messagemode");
   (void)bindings.bind("z", "showchat");
@@ -540,13 +568,14 @@ HudRenderState buildHud(const ClientSession& session) {
   hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
-    hud.centerOffsetY = -80.0F;
+    hud.centerOffsetY = -150.0F;
     hud.centerLines.push_back(
       std::to_string(connectedCount) + '/' +
       std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
     );
     break;
   case MatchPhase::WaitingForReady:
+    hud.centerOffsetY = -150.0F;
     hud.centerLines.push_back(
       snapshot.readyPlayers[localPlayerIndex]
         ? "WAITING FOR OTHER PLAYERS TO READY UP"
@@ -641,7 +670,8 @@ HudRenderState buildHud(const ClientSession& session) {
   int viewportHeight,
   float fieldOfView,
   float cameraZoom,
-  int renderMode
+  int renderMode,
+  Weapon weapon
 ) {
   UserCommand command;
   command.sequence = sequence;
@@ -681,6 +711,7 @@ HudRenderState buildHud(const ClientSession& session) {
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
   command.attack = input.attack > 0;
+  command.weapon = weapon;
   return command;
 }
 #endif
@@ -737,6 +768,8 @@ int GameApp::run() const {
   bool openChatRequested = false;
   bool showChatRequested = false;
   int scoreboardPressCount = 0;
+  int zoomPressCount = 0;
+  Weapon selectedWeapon = Weapon::LightningGun;
   std::string pendingPlayerName;
   ClientChatState chatState;
   ClientSession session;
@@ -768,7 +801,34 @@ int GameApp::run() const {
   registerButtonCommand("movedown", input.down);
   registerButtonCommand("attack", input.attack);
   registerButtonCommand("scores", scoreboardPressCount);
+  registerButtonCommand("zoom", zoomPressCount);
 
+  console.registerCommand(
+    "weapon",
+    "Select weapon: weapon <lg|rg|rl|1|2|3>.",
+    [&selectedWeapon](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+      }
+      std::string value = arguments[1];
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
+      if (value == "1" || value == "lg" || value == "lightning" || value == "lightninggun") {
+        selectedWeapon = Weapon::LightningGun;
+        return std::string("weapon = lg");
+      }
+      if (value == "2" || value == "rg" || value == "rail" || value == "railgun") {
+        selectedWeapon = Weapon::Railgun;
+        return std::string("weapon = rg");
+      }
+      if (value == "3" || value == "rl" || value == "rocket" || value == "rocketlauncher") {
+        selectedWeapon = Weapon::RocketLauncher;
+        return std::string("weapon = rl");
+      }
+      return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+    }
+  );
   console.registerCommand(
     "player",
     "Set your player name: player <name>.",
@@ -980,6 +1040,8 @@ int GameApp::run() const {
         "+movedown\n"
         "+attack\n"
         "+scores\n"
+        "+zoom\n"
+        "weapon\n"
         "player\n"
         "resetmatch\n"
         "ready\n"
@@ -1009,12 +1071,21 @@ int GameApp::run() const {
     }
   );
   loadClientConfig(console, configPath);
-  if (console.getInt("cl_config_version") < 3) {
+  if (console.getInt("cl_config_version") < 6) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
     (void)bindings.bind("z", "showchat");
     (void)bindings.bind("tab", "+scores");
-    (void)console.execute("set cl_config_version 3");
+    if (bindings.binding("mouse2").empty()) {
+      (void)bindings.bind("mouse2", "+zoom");
+    }
+    (void)bindings.bind("q", "weapon rl");
+    (void)bindings.bind("e", "weapon lg");
+    (void)bindings.bind("r", "weapon rg");
+    if (bindings.binding("f5").empty()) {
+      (void)bindings.bind("f5", "resetmatch");
+    }
+    (void)console.execute("set cl_config_version 6");
   }
   (void)session.connect(serverHost_, serverPort_);
   (void)renderer.setVSync(console.getBool("r_vsync"));
@@ -1404,6 +1475,17 @@ int GameApp::run() const {
       SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
       const AimMode currentAimMode =
         aimModeFromInt(console.getInt("cl_aim_mode"));
+      const bool zoomHeld = zoomPressCount > 0;
+      const float effectiveFieldOfView = zoomHeld
+        ? console.getFloat("cl_zoom_fov")
+        : console.getFloat("cl_fov");
+      const float zoomSensitivity = zoomSensitivityMultiplier(
+        console.getFloat("cl_fov"),
+        console.getFloat("cl_zoom_fov"),
+        console.getFloat("cl_zoom_sensitivity")
+      );
+      const float effectiveSensitivity = console.getFloat("sensitivity") *
+        (zoomHeld ? zoomSensitivity : 1.0F);
 
       const UserCommand command =
         buildCommand(
@@ -1411,13 +1493,14 @@ int GameApp::run() const {
           predictedPlayer,
           commandSequence++,
           clientTick++,
-          console.getFloat("sensitivity"),
+          effectiveSensitivity,
           currentAimMode,
           viewportWidth,
           viewportHeight,
-          console.getFloat("cl_fov"),
+          effectiveFieldOfView,
           console.getFloat("cl_camera_zoom"),
-          perspectiveRenderMode ? 1 : 0
+          perspectiveRenderMode ? 1 : 0,
+          selectedWeapon
         );
       session.sendCommand(
         command,
@@ -1593,6 +1676,9 @@ int GameApp::run() const {
     PlayerState renderOpponent;
     LightningGunResult renderLocalLightningGun;
     LightningGunResult renderOpponentLightningGun;
+    std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
+    std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
+    std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
@@ -1607,8 +1693,14 @@ int GameApp::run() const {
         renderSnapshot.lightningGuns[localPlayerIndex];
       renderOpponentLightningGun =
         renderSnapshot.lightningGuns[opponentPlayerIndex];
+      renderWeaponFires = renderSnapshot.weaponFires;
+      renderRocketExplosions = renderSnapshot.rocketExplosions;
+      renderRockets = renderSnapshot.rockets;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    if (zoomPressCount > 0) {
+      currentRenderSettings.fieldOfView = console.getFloat("cl_zoom_fov");
+    }
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
     const double presentationSeconds =
       std::chrono::duration<double>(now.time_since_epoch()).count();
@@ -1756,6 +1848,9 @@ int GameApp::run() const {
       renderOpponent,
       renderLocalLightningGun,
       renderOpponentLightningGun,
+      renderWeaponFires,
+      renderRocketExplosions,
+      renderRockets,
       currentRenderSettings,
       hud,
       consoleRenderState(consoleState)

@@ -194,6 +194,27 @@ int main() {
   }
 
   {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 20.0F;
+    lg::PlayerState jumping = groundedPlayer();
+    lg::PlayerState coasting = groundedPlayer();
+    jumping.velocity.x = 8.0F;
+    coasting.velocity.x = 8.0F;
+    lg::UserCommand jump;
+    jump.jump = true;
+    jump.upMove = 1.0F;
+    lg::UserCommand idle;
+
+    runCommand(jumping, jump, tuning, 1);
+    runCommand(coasting, idle, tuning, 1);
+
+    failures += expect(
+      jumping.velocity.x > 7.99F && coasting.velocity.x < 7.0F,
+      "accepted jumps should skip ground friction on the takeoff tick"
+    );
+  }
+
+  {
     lg::PlayerState player = groundedPlayer();
     lg::UserCommand heldJump;
     heldJump.jump = true;

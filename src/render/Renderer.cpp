@@ -677,6 +677,9 @@ void appendCommands(
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console
@@ -713,6 +716,9 @@ void appendCommands(
         opponent,
         localLightningGun,
         opponentLightningGun,
+        weaponFires,
+        rocketExplosions,
+        rockets,
         settings
       );
       appendScene3D(vertices, perspectiveScene);
@@ -725,6 +731,9 @@ void appendCommands(
         opponent,
         localLightningGun,
         opponentLightningGun,
+        weaponFires,
+        rocketExplosions,
+        rockets,
         settings,
         hud
       );
@@ -1370,6 +1379,9 @@ void drawPerspectiveWorld(
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings
 ) {
   const float aspectRatio =
@@ -1570,6 +1582,71 @@ void drawPerspectiveWorld(
     };
   drawBeam(opponentLightningGun, false);
   drawBeam(localLightningGun, true);
+
+  for (const WeaponFireResult& fire : weaponFires) {
+    if (!fire.fired) {
+      continue;
+    }
+    if (fire.weapon == Weapon::Railgun) {
+      SDL_SetRenderDrawColor(
+        renderer,
+        fire.hit ? 255 : 128,
+        fire.hit ? 248 : 230,
+        fire.hit ? 180 : 255,
+        255
+      );
+      drawThickPerspectiveLine(
+        renderer,
+        camera,
+        width,
+        height,
+        fire.start,
+        fire.end,
+        fire.hit ? 4.0F : 2.5F
+      );
+    } else if (fire.weapon == Weapon::RocketLauncher) {
+      SDL_SetRenderDrawColor(renderer, 255, 150, 70, 235);
+      drawThickPerspectiveLine(
+        renderer,
+        camera,
+        width,
+        height,
+        fire.start,
+        fire.end,
+        3.0F
+      );
+    }
+  }
+  for (const RocketProjectileSnapshot& rocket : rockets) {
+    if (!rocket.active) {
+      continue;
+    }
+    constexpr float size = 0.14F;
+    SDL_SetRenderDrawColor(renderer, 255, 126, 40, 255);
+    drawWireBox(
+      renderer,
+      camera,
+      width,
+      height,
+      rocket.position - Vec3{size, size, size},
+      rocket.position + Vec3{size, size, size}
+    );
+  }
+  for (const RocketExplosionResult& explosion : rocketExplosions) {
+    if (!explosion.active) {
+      continue;
+    }
+    SDL_SetRenderDrawColor(renderer, 255, 185, 80, 220);
+    const Vec3 radius{explosion.radius, explosion.radius, explosion.radius};
+    drawWireBox(
+      renderer,
+      camera,
+      width,
+      height,
+      explosion.position - radius,
+      explosion.position + radius
+    );
+  }
 }
 
 #endif
@@ -1731,6 +1808,9 @@ void Renderer::render(
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console
@@ -1759,6 +1839,9 @@ void Renderer::render(
           opponent,
           localLightningGun,
           opponentLightningGun,
+          weaponFires,
+          rocketExplosions,
+          rockets,
           settings,
           hud,
           console
@@ -1793,6 +1876,9 @@ void Renderer::render(
       opponent,
       localLightningGun,
       opponentLightningGun,
+      weaponFires,
+      rocketExplosions,
+      rockets,
       settings
     );
     drawCommandList(
@@ -1818,6 +1904,9 @@ void Renderer::render(
     opponent,
     localLightningGun,
     opponentLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
     settings,
     hud
   );

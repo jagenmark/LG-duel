@@ -59,7 +59,13 @@ void simulateGroundedOrAirborne(
     player.jumpHeld = false;
   }
 
-  if (player.onGround) {
+  const bool jumpStarted = player.onGround && command.jump && !player.jumpHeld;
+  if (jumpStarted) {
+    player.velocity.z = tuning.jumpImpulse;
+    player.jumpHeld = true;
+    player.onGround = false;
+    player.movementMode = MovementMode::Airborne;
+  } else if (player.onGround) {
     player.movementMode = MovementMode::Grounded;
     applyGroundFriction(player.velocity, tuning, fixedDt);
   } else {
@@ -76,17 +82,6 @@ void simulateGroundedOrAirborne(
       grounded ? tuning.groundAcceleration : tuning.airAcceleration,
       fixedDt
     );
-  }
-
-  if (
-    player.movementMode == MovementMode::Grounded &&
-    command.jump &&
-    !player.jumpHeld
-  ) {
-    player.velocity.z = tuning.jumpImpulse;
-    player.jumpHeld = true;
-    player.onGround = false;
-    player.movementMode = MovementMode::Airborne;
   }
 
   if (player.movementMode != MovementMode::Flying) {

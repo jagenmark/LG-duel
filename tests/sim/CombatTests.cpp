@@ -39,6 +39,7 @@ int main() {
   int failures = 0;
   const lg::Arena arena;
   const lg::LightningGunTuning tuning;
+  const lg::HitscanTuning railTuning;
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
@@ -243,6 +244,34 @@ int main() {
       firstState.fractionalDamage == secondState.fractionalDamage,
       "replayed combat should match fractional damage"
     );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    const lg::WeaponFireResult result =
+      lg::simulateRailgun(attacker, target, command, arena, railTuning);
+
+    failures += expect(result.fired, "railgun attack should fire");
+    failures += expect(result.hit, "railgun aimed at target should hit");
+    failures += expect(result.weapon == lg::Weapon::Railgun, "railgun result should identify weapon");
+    failures += expect(result.damageApplied == 80, "railgun should apply QL-style 80 damage");
+    failures += expect(target.health == 20, "railgun damage should reduce target health");
+  }
+
+  {
+    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
+    lg::PlayerState target = playerAt(2.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    const lg::WeaponFireResult result =
+      lg::simulateRailgun(attacker, target, command, walledArena, railTuning);
+
+    failures += expect(!result.hit, "cover should block railgun traces");
+    failures += expect(target.health == 100, "wall-blocked railgun should not damage target");
   }
 
   return failures == 0 ? 0 : 1;

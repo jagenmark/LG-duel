@@ -93,6 +93,8 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_aim_mode` | int | `0` | `0..1` | Ingen direkt | Arkiv | `0`: relative 3D. `1`: absolute 2D. Perspektivläget tvingar relative 3D. |
 | `cl_render_mode` | int | `0` | `0..1` | Ingen | Arkiv | `0`: top-down. `1`: first-person 3D. |
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | Top-down-vyomfång och perspektivets field of view. |
+| `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
+| `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | Multiplikator på `sensitivity` medan `+zoom` hålls. `0` använder auto: `tan(cl_zoom_fov / 2) / tan(cl_fov / 2)` med vinklar i grader. Positiva värden är manuell override. |
 | `cl_camera_zoom` | float | `1` | `0.25..4` | Ingen direkt | Arkiv | Top-down-zoom. Över `1` zoomar in. |
 | `cl_rotate_view` | bool | `0` | bool | Ingen | Arkiv | Roterar top-down relative-aim-vyn så spelarens riktning pekar uppåt. Ignoreras i 3D. |
 | `cl_health_size` | float | `2` | `0.5..6` | Ingen | Arkiv | Textskala för speed/health längst ned i mitten. |
@@ -222,7 +224,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 |---|---|---|
 | `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter och replikerar spelarnamn. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
-| `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `R`. |
+| `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
@@ -298,8 +300,10 @@ knappen släpps.
 | `+moveright` / `-moveright` | Strafe höger. |
 | `+moveup` / `-moveup` | Jump; positiv Z-thrust i flight. |
 | `+movedown` / `-movedown` | Negativ Z-thrust i flight. |
-| `+attack` / `-attack` | Håll/släpp LG. |
+| `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
+| `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
+| `weapon <lg\|rg\|rl\|1\|2\|3>` | Välj lightning gun, railgun eller rocket launcher. Vapenval skickas till servern varje command-tick. |
 
 ### Standardbindings
 
@@ -314,7 +318,11 @@ knappen släpps.
 | `Left/Right Ctrl` | `+movedown` |
 | `Left/Right Shift` | `+movedown` |
 | `Mouse1` | `+attack` |
-| `R` | `resetmatch` |
+| `Mouse2` | `+zoom` |
+| `Q` | `weapon rl` |
+| `E` | `weapon lg` |
+| `R` | `weapon rg` |
+| `F5` | `resetmatch` |
 | `F3` | `ready` |
 | `T` | `messagemode` |
 | `Z` | `showchat` |

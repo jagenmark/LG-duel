@@ -119,6 +119,42 @@ constexpr float kTraceEpsilon = 0.00001F;
 
 } // namespace
 
+Vec3 weaponMuzzlePosition(const PlayerState& attacker, float eyeHeight) {
+  constexpr CollisionBounds kDefaultPlayerBounds = {};
+  const float heightScale =
+    attacker.bounds.halfHeight / kDefaultPlayerBounds.halfHeight;
+  return attacker.position + Vec3{0.0F, 0.0F, eyeHeight * heightScale};
+}
+
+WorldTrace traceWorld(
+  const Arena& arena,
+  Vec3 origin,
+  Vec3 direction,
+  float maxDistance
+) {
+  WorldTrace trace;
+  trace.start = origin;
+  trace.distance = std::min(maxDistance, arenaExitDistance(arena, origin, direction));
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    trace.distance = std::min(
+      trace.distance,
+      wallHitDistance(arena.walls[index], origin, direction)
+    );
+  }
+  trace.end = origin + (direction * trace.distance);
+  return trace;
+}
+
+bool tracePlayerCylinder(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  float& hitDistance
+) {
+  return intersectPlayerCylinder(origin, direction, target, maxDistance, hitDistance);
+}
+
 LightningGunResult simulateLightningGun(
   const PlayerState& attacker,
   PlayerState& target,
@@ -129,23 +165,12 @@ LightningGunResult simulateLightningGun(
   float fixedDt
 ) {
   LightningGunResult result;
-  constexpr CollisionBounds kDefaultPlayerBounds = {};
-  const float heightScale =
-    attacker.bounds.halfHeight / kDefaultPlayerBounds.halfHeight;
-  result.start =
-    attacker.position +
-    Vec3{0.0F, 0.0F, tuning.eyeHeight * heightScale};
+  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
 
   const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);
-  float traceDistance =
-    std::min(tuning.range, arenaExitDistance(arena, result.start, direction));
-  for (std::size_t index = 0; index < arena.wallCount; ++index) {
-    traceDistance = std::min(
-      traceDistance,
-      wallHitDistance(arena.walls[index], result.start, direction)
-    );
-  }
-  result.end = result.start + (direction * traceDistance);
+  const WorldTrace worldTrace = traceWorld(arena, result.start, direction, tuning.range);
+  const float traceDistance = worldTrace.distance;
+  result.end = worldTrace.end;
   result.active = command.attack && attacker.health > 0;
 
   if (!result.active || target.health <= 0) {
@@ -168,6 +193,37 @@ LightningGunResult simulateLightningGun(
   result.damageApplied = std::min(result.damageApplied, target.health);
   target.health -= result.damageApplied;
   result.knockbackImpulse = direction * (tuning.knockbackPerSecond * fixedDt);
+  return result;
+}
+
+WeaponFireResult simulateRailgun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const HitscanTuning& tuning
+) {
+  WeaponFireResult result;
+  result.weapon = Weapon::Railgun;
+  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
+  const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);
+  const WorldTrace worldTrace = traceWorld(arena, result.start, direction, tuning.range);
+  result.end = worldTrace.end;
+  result.fired = command.attack && attacker.health > 0;
+  if (!result.fired || target.health <= 0) {
+    return result;
+  }
+
+  float hitDistance = 0.0F;
+  if (!intersectPlayerCylinder(result.start, direction, target, worldTrace.distance, hitDistance)) {
+    return result;
+  }
+
+  result.hit = true;
+  result.end = result.start + (direction * hitDistance);
+  result.damageApplied = std::min(tuning.damage, target.health);
+  target.health -= result.damageApplied;
+  result.knockbackImpulse = direction * tuning.knockback;
   return result;
 }
 

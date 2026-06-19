@@ -87,6 +87,9 @@ struct ServerSnapshot {
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
+  std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
+  std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
   std::array<bool, kDuelPlayerCount> connectedPlayers = {};

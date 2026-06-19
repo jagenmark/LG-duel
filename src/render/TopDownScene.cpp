@@ -394,6 +394,9 @@ DrawList2D buildTopDownScene(
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
@@ -437,7 +440,7 @@ DrawList2D buildTopDownScene(
       worldToScreen(view, {wall.max.x, wall.max.y, 0.0F}),
       worldToScreen(view, {wall.min.x, wall.max.y, 0.0F}),
     };
-    addFilledQuad(drawList.commands, wallCorners, {125, 82, 48, 255});
+    addFilledQuad(drawList.commands, wallCorners, {83, 169, 231, 255});
     addWorldQuad(
       drawList.commands,
       view,
@@ -451,9 +454,9 @@ DrawList2D buildTopDownScene(
         wall.max.y - 0.08F,
         wall.min.z,
       },
-      {69, 151, 68, 255}
+      {118, 194, 245, 255}
     );
-    addQuadOutline(drawList.commands, wallCorners, {85, 174, 79, 255});
+    addQuadOutline(drawList.commands, wallCorners, {184, 229, 255, 255});
   }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
@@ -534,6 +537,53 @@ DrawList2D buildTopDownScene(
     };
   addBeam(opponentLightningGun, false);
   addBeam(localLightningGun, true);
+
+  for (const WeaponFireResult& fire : weaponFires) {
+    if (!fire.fired) {
+      continue;
+    }
+    const RenderColor color = fire.weapon == Weapon::Railgun
+      ? (fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 230})
+      : RenderColor{255, 150, 70, 235};
+    const ScreenPoint start = worldToScreen(view, fire.start);
+    const ScreenPoint end = worldToScreen(view, fire.end);
+    addLine(
+      drawList.commands,
+      start,
+      end,
+      color,
+      fire.weapon == Weapon::Railgun ? 3.0F : 2.0F
+    );
+    if (fire.hit) {
+      addHitMarker(drawList.commands, end);
+    }
+  }
+  for (const RocketProjectileSnapshot& rocket : rockets) {
+    if (!rocket.active) {
+      continue;
+    }
+    const ScreenPoint point = worldToScreen(view, rocket.position);
+    addFilledRect(
+      drawList.commands,
+      point.x - 3.0F,
+      point.y - 3.0F,
+      6.0F,
+      6.0F,
+      {255, 126, 40, 255}
+    );
+  }
+  for (const RocketExplosionResult& explosion : rocketExplosions) {
+    if (!explosion.active) {
+      continue;
+    }
+    const std::array<ScreenPoint, 4> corners = {
+      worldToScreen(view, explosion.position + Vec3{-explosion.radius, -explosion.radius, 0.0F}),
+      worldToScreen(view, explosion.position + Vec3{explosion.radius, -explosion.radius, 0.0F}),
+      worldToScreen(view, explosion.position + Vec3{explosion.radius, explosion.radius, 0.0F}),
+      worldToScreen(view, explosion.position + Vec3{-explosion.radius, explosion.radius, 0.0F}),
+    };
+    addQuadOutline(drawList.commands, corners, {255, 185, 80, 220});
+  }
 
   const ScreenPoint playerScreen = worldToScreen(view, player.position);
   const ScreenPoint opponentScreen = worldToScreen(view, opponent.position);

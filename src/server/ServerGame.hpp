@@ -43,6 +43,13 @@ private:
   [[nodiscard]] bool allConnectedPlayersReady() const;
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
+  void simulateRockets(float fixedDt);
+  void applyDamageAndKnockback(
+    std::size_t attackerIndex,
+    std::size_t targetIndex,
+    int damageApplied,
+    Vec3 knockbackImpulse
+  );
   void publishSnapshot();
 
   NetTransport& transport_;
@@ -51,9 +58,14 @@ private:
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;
   LightningGunTuning lightningGunTuning_ = {};
+  HitscanTuning railgunTuning_ = {};
+  RocketLauncherTuning rocketLauncherTuning_ = {};
   float vampirism_ = 0.0F;
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
+  std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
   std::array<UserCommand, kDuelPlayerCount> commands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};

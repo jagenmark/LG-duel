@@ -71,6 +71,7 @@ int main() {
     source.command.attack = true;
     source.command.jump = true;
     source.command.planarAim = false;
+    source.command.weapon = lg::Weapon::RocketLauncher;
     source.requestReset = true;
     source.toggleReady = true;
     source.requestMovementTuning = true;
@@ -107,6 +108,7 @@ int main() {
     );
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
+    failures += expect(decoded.command.weapon == lg::Weapon::RocketLauncher, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
@@ -208,6 +210,19 @@ int main() {
     source.lightningGuns[0].rewoundTargetPosition = {8.0F, 0.0F, 2.0F};
     source.lightningGuns[0].currentTargetBounds = {0.5F, 1.1F};
     source.lightningGuns[0].rewoundTargetBounds = {0.4F, 0.9F};
+    source.weaponFires[0].fired = true;
+    source.weaponFires[0].hit = true;
+    source.weaponFires[0].weapon = lg::Weapon::Railgun;
+    source.weaponFires[0].damageApplied = 80;
+    source.weaponFires[0].start = {1.0F, 1.5F, 2.0F};
+    source.weaponFires[0].end = {9.0F, 1.5F, 2.0F};
+    source.weaponFires[0].knockbackImpulse = {2.0F, 0.0F, 0.0F};
+    source.rocketExplosions[0].active = true;
+    source.rocketExplosions[0].position = {3.0F, 4.0F, 0.0F};
+    source.rocketExplosions[0].radius = 3.0F;
+    source.rockets[0].active = true;
+    source.rockets[0].owner = 1;
+    source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.connectedPlayers = {true, true};
@@ -279,6 +294,24 @@ int main() {
     failures += expect(
       nearlyEqual(decoded.lightningGuns[0].knockbackImpulse.z, 0.3F),
       "3D knockback should round trip"
+    );
+    failures += expect(
+      decoded.weaponFires[0].fired &&
+        decoded.weaponFires[0].hit &&
+        decoded.weaponFires[0].weapon == lg::Weapon::Railgun &&
+        decoded.weaponFires[0].damageApplied == 80 &&
+        nearlyEqual(decoded.weaponFires[0].end.x, 9.0F) &&
+        nearlyEqual(decoded.weaponFires[0].knockbackImpulse.x, 2.0F),
+      "instant weapon events should round trip"
+    );
+    failures += expect(
+      decoded.rocketExplosions[0].active &&
+        nearlyEqual(decoded.rocketExplosions[0].position.y, 4.0F) &&
+        nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
+        decoded.rockets[0].active &&
+        decoded.rockets[0].owner == 1 &&
+        nearlyEqual(decoded.rockets[0].position.z, 1.2F),
+      "rocket projectile and explosion state should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");

@@ -1,5 +1,6 @@
 #include "render/TopDownScene.hpp"
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -49,6 +50,9 @@ int main() {
   lg::RenderSettings settings;
   lg::HudRenderState hud;
   lg::LightningGunResult inactiveBeam;
+  const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
+  const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
+  const std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> rockets = {};
 
   {
     const lg::DrawList2D scene = lg::buildTopDownScene(
@@ -59,6 +63,9 @@ int main() {
       opponent,
       inactiveBeam,
       inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
       settings,
       hud
     );
@@ -144,6 +151,9 @@ int main() {
       opponent,
       localBeam,
       inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
       settings,
       hud
     );

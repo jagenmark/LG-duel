@@ -938,5 +938,59 @@ int main() {
     );
   }
 
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rail;
+    rail.sequence = 1;
+    rail.attack = true;
+    rail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "railgun command should fire a weapon event");
+    failures += expect(snapshot.weaponFires[0].hit, "railgun should hit the spawned opponent");
+    failures += expect(snapshot.players[1].health == 20, "railgun should apply 80 damage");
+    failures += expect(!snapshot.lightningGuns[0].active, "railgun should not also emit LG state");
+
+    rail.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(!snapshot.weaponFires[0].fired, "railgun cooldown should block immediate refire");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "rocket launcher should fire a weapon event");
+    failures += expect(snapshot.rockets[0].active, "rocket projectile should replicate after firing");
+
+    bool exploded = false;
+    bool damaged = false;
+    for (int tick = 0; tick < 160; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      exploded = exploded || snapshot.rocketExplosions[0].active;
+      damaged = damaged || snapshot.players[1].health < 100;
+      if (exploded && damaged) {
+        break;
+      }
+    }
+    failures += expect(exploded, "rocket should eventually explode");
+    failures += expect(damaged, "rocket explosion should damage the opponent");
+  }
+
   return failures == 0 ? 0 : 1;
 }

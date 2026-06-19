@@ -223,6 +223,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
     writer.writeBool(command.planarAim) &&
+    writer.writeU8(static_cast<std::uint8_t>(command.weapon)) &&
     writer.writeBool(packet.requestReset) &&
     writer.writeBool(packet.toggleReady) &&
     writer.writeBool(packet.requestMovementTuning) &&
@@ -246,6 +247,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
+  std::uint8_t weapon = 0;
   if (
     !reader.readU8(packet.playerIndex) ||
     !reader.readU32(packet.command.sequence) ||
@@ -258,6 +260,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
     !reader.readBool(packet.command.planarAim) ||
+    !reader.readU8(weapon) ||
     !reader.readBool(packet.requestReset) ||
     !reader.readBool(packet.toggleReady) ||
     !reader.readBool(packet.requestMovementTuning) ||
@@ -282,7 +285,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     return false;
   }
 
-  return packet.playerIndex < kDuelPlayerCount &&
+  const bool valid = packet.playerIndex < kDuelPlayerCount &&
+    weapon <= static_cast<std::uint8_t>(Weapon::RocketLauncher) &&
     std::fabs(packet.command.forwardMove) <= 1.0F &&
     std::fabs(packet.command.rightMove) <= 1.0F &&
     std::fabs(packet.command.upMove) <= 1.0F &&
@@ -312,6 +316,11 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.lightningKnockback <= 1000.0F &&
     packet.vampirism >= 0.0F &&
     packet.vampirism <= 2.0F;
+  if (!valid) {
+    return false;
+  }
+  packet.command.weapon = static_cast<Weapon>(weapon);
+  return true;
 }
 
 bool writeVec3(Writer& writer, Vec3 value) {
@@ -433,6 +442,74 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
   }
   result.damageApplied = damageApplied;
   return true;
+}
+
+bool writeWeaponFire(Writer& writer, const WeaponFireResult& result) {
+  return writeVec3(writer, result.start) &&
+    writeVec3(writer, result.end) &&
+    writer.writeBool(result.fired) &&
+    writer.writeBool(result.hit) &&
+    writer.writeU8(static_cast<std::uint8_t>(result.weapon)) &&
+    writer.writeI32(result.damageApplied) &&
+    writeVec3(writer, result.knockbackImpulse);
+}
+
+bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
+  std::uint8_t weapon = 0;
+  std::int32_t damageApplied = 0;
+  if (
+    !readVec3(reader, result.start) ||
+    !readVec3(reader, result.end) ||
+    !reader.readBool(result.fired) ||
+    !reader.readBool(result.hit) ||
+    !reader.readU8(weapon) ||
+    !reader.readI32(damageApplied) ||
+    !readVec3(reader, result.knockbackImpulse)
+  ) {
+    return false;
+  }
+  if (
+    weapon > static_cast<std::uint8_t>(Weapon::RocketLauncher) ||
+    damageApplied < 0
+  ) {
+    return false;
+  }
+  result.weapon = static_cast<Weapon>(weapon);
+  result.damageApplied = damageApplied;
+  return true;
+}
+
+bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
+  return writeVec3(writer, result.position) &&
+    writer.writeFloat(result.radius) &&
+    writer.writeBool(result.active);
+}
+
+bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
+  return readVec3(reader, result.position) &&
+    reader.readFloat(result.radius) &&
+    reader.readBool(result.active) &&
+    result.radius >= 0.0F &&
+    result.radius <= 100.0F;
+}
+
+bool writeRocketProjectile(
+  Writer& writer,
+  const RocketProjectileSnapshot& projectile
+) {
+  return writer.writeBool(projectile.active) &&
+    writer.writeU8(projectile.owner) &&
+    writeVec3(writer, projectile.position);
+}
+
+bool readRocketProjectile(
+  Reader& reader,
+  RocketProjectileSnapshot& projectile
+) {
+  return reader.readBool(projectile.active) &&
+    reader.readU8(projectile.owner) &&
+    readVec3(reader, projectile.position) &&
+    projectile.owner < kDuelPlayerCount;
 }
 
 bool writeRoundCombatStats(
@@ -627,6 +704,21 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const WeaponFireResult& result : snapshot.weaponFires) {
+    if (!writeWeaponFire(writer, result)) {
+      return false;
+    }
+  }
+  for (const RocketExplosionResult& result : snapshot.rocketExplosions) {
+    if (!writeRocketExplosion(writer, result)) {
+      return false;
+    }
+  }
+  for (const RocketProjectileSnapshot& projectile : snapshot.rockets) {
+    if (!writeRocketProjectile(writer, projectile)) {
+      return false;
+    }
+  }
   for (std::uint32_t ticks : snapshot.respawnTicksRemaining) {
     if (!writer.writeU32(ticks)) {
       return false;
@@ -717,6 +809,21 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (LightningGunResult& result : decoded.lightningGuns) {
     if (!readLightningGun(reader, result)) {
+      return false;
+    }
+  }
+  for (WeaponFireResult& result : decoded.weaponFires) {
+    if (!readWeaponFire(reader, result)) {
+      return false;
+    }
+  }
+  for (RocketExplosionResult& result : decoded.rocketExplosions) {
+    if (!readRocketExplosion(reader, result)) {
+      return false;
+    }
+  }
+  for (RocketProjectileSnapshot& projectile : decoded.rockets) {
+    if (!readRocketProjectile(reader, projectile)) {
       return false;
     }
   }

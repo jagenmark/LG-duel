@@ -280,10 +280,10 @@ void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
     wall.max.y,
     wall.max.z + 0.08F,
   };
-  addBox(scene, topMin, topMax, {69, 151, 68, 255});
+  addBox(scene, topMin, topMax, {118, 194, 245, 255});
 
   constexpr float bandWidth = 0.026F;
-  constexpr RenderColor bandColor = {228, 180, 97, 255};
+  constexpr RenderColor bandColor = {219, 243, 255, 255};
   const float lowerBandZ = wall.min.z + 0.32F;
   const float upperBandZ = std::max(wall.min.z + 0.34F, wall.max.z - 0.24F);
   const auto addPerimeterBand = [&](float z, RenderColor color) {
@@ -493,6 +493,9 @@ Scene3D buildPerspectiveScene(
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings
 ) {
   constexpr CollisionBounds defaultBounds = {};
@@ -517,23 +520,23 @@ Scene3D buildPerspectiveScene(
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
-    addBox(scene, wall.min, wall.max, {125, 82, 48, 255});
+    addBox(scene, wall.min, wall.max, {83, 169, 231, 255});
     addWallAccents(scene, wall);
-    addWireBox(scene, wall.min, wall.max, 0.018F, {85, 174, 79, 255});
+    addWireBox(scene, wall.min, wall.max, 0.018F, {184, 229, 255, 255});
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
       addSegment(
         scene,
         {wall.min.x, wall.min.y, z},
         {wall.max.x, wall.min.y, z},
         0.012F,
-        {170, 117, 63, 255}
+        {136, 202, 245, 255}
       );
       addSegment(
         scene,
         {wall.max.x, wall.max.y, z},
         {wall.min.x, wall.max.y, z},
         0.012F,
-        {170, 117, 63, 255}
+        {136, 202, 245, 255}
       );
     }
   }
@@ -599,6 +602,60 @@ Scene3D buildPerspectiveScene(
           std::clamp(settings.enemyBeamAlpha, 0.0F, 1.0F) * 255.0F
         ),
       }, brightness)
+    );
+  }
+  for (const WeaponFireResult& fire : weaponFires) {
+    if (!fire.fired) {
+      continue;
+    }
+    if (fire.weapon == Weapon::Railgun) {
+      addSegment(
+        scene,
+        fire.start,
+        fire.end,
+        fire.hit ? 0.045F : 0.03F,
+        fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}
+      );
+    } else if (fire.weapon == Weapon::RocketLauncher) {
+      addSegment(
+        scene,
+        fire.start,
+        fire.end,
+        0.04F,
+        {255, 150, 70, 255}
+      );
+    }
+  }
+  for (const RocketProjectileSnapshot& rocket : rockets) {
+    if (!rocket.active) {
+      continue;
+    }
+    constexpr float size = 0.14F;
+    addBox(
+      scene,
+      rocket.position - Vec3{size, size, size},
+      rocket.position + Vec3{size, size, size},
+      {255, 126, 40, 255}
+    );
+    addWireBox(
+      scene,
+      rocket.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+      rocket.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+      0.012F,
+      {255, 220, 100, 255}
+    );
+  }
+  for (const RocketExplosionResult& explosion : rocketExplosions) {
+    if (!explosion.active) {
+      continue;
+    }
+    const Vec3 radius{explosion.radius, explosion.radius, explosion.radius};
+    addWireBox(
+      scene,
+      explosion.position - radius,
+      explosion.position + radius,
+      0.025F,
+      {255, 185, 80, 220}
     );
   }
   (void)localLightningGun;
