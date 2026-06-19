@@ -125,6 +125,46 @@ void addBox(
   }
 }
 
+void addWallBox(Scene3D& scene, Vec3 minimum, Vec3 maximum) {
+  const std::array<Vec3, 8> corners = {{
+    {minimum.x, minimum.y, minimum.z},
+    {maximum.x, minimum.y, minimum.z},
+    {maximum.x, maximum.y, minimum.z},
+    {minimum.x, maximum.y, minimum.z},
+    {minimum.x, minimum.y, maximum.z},
+    {maximum.x, minimum.y, maximum.z},
+    {maximum.x, maximum.y, maximum.z},
+    {minimum.x, maximum.y, maximum.z},
+  }};
+  constexpr std::array<std::array<std::size_t, 4>, 6> faces = {{
+    {{0, 3, 2, 1}},
+    {{4, 5, 6, 7}},
+    {{0, 1, 5, 4}},
+    {{1, 2, 6, 5}},
+    {{2, 3, 7, 6}},
+    {{3, 0, 4, 7}},
+  }};
+  constexpr std::array<RenderColor, 6> colors = {{
+    {35, 91, 142, 255},
+    {77, 151, 212, 255},
+    {68, 154, 220, 255},
+    {82, 174, 235, 255},
+    {57, 135, 202, 255},
+    {71, 161, 226, 255},
+  }};
+  for (std::size_t index = 0; index < faces.size(); ++index) {
+    const auto& face = faces[index];
+    addQuad(
+      scene,
+      corners[face[0]],
+      corners[face[1]],
+      corners[face[2]],
+      corners[face[3]],
+      colors[index]
+    );
+  }
+}
+
 void addFloorQuad(
   Scene3D& scene,
   float minX,
@@ -280,7 +320,7 @@ void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
     wall.max.y,
     wall.max.z + 0.08F,
   };
-  addBox(scene, topMin, topMax, {118, 194, 245, 255});
+  addBox(scene, topMin, topMax, {77, 151, 212, 255});
 
   constexpr float bandWidth = 0.026F;
   constexpr RenderColor bandColor = {219, 243, 255, 255};
@@ -520,7 +560,7 @@ Scene3D buildPerspectiveScene(
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
-    addBox(scene, wall.min, wall.max, {83, 169, 231, 255});
+    addWallBox(scene, wall.min, wall.max);
     addWallAccents(scene, wall);
     addWireBox(scene, wall.min, wall.max, 0.018F, {184, 229, 255, 255});
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
