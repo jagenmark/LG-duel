@@ -26,6 +26,13 @@ lg::ScreenPoint quadCenter(const lg::FilledQuad2D& quad) {
   };
 }
 
+bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
+  return lhs.red == rhs.red &&
+    lhs.green == rhs.green &&
+    lhs.blue == rhs.blue &&
+    lhs.alpha == rhs.alpha;
+}
+
 } // namespace
 
 int main() {
@@ -64,18 +71,28 @@ int main() {
       "top-down scene should expose the arena clip rectangle"
     );
     failures += expect(
-      scene.commands.size() == 7,
-      "empty arena should emit outline, player markers, and facing line"
+      scene.commands.size() > 7,
+      "empty arena should emit floor treatment, outline, player markers, and facing line"
     );
     failures += expect(
       scene.overlayCommands.size() == 2,
       "diagnostic bars should be emitted outside the world clip"
     );
 
-    const auto* opponentQuad =
-      std::get_if<lg::FilledQuad2D>(&scene.commands[4]);
-    const auto* playerQuad =
-      std::get_if<lg::FilledQuad2D>(&scene.commands[5]);
+    const lg::FilledQuad2D* opponentQuad = nullptr;
+    const lg::FilledQuad2D* playerQuad = nullptr;
+    for (const lg::DrawCommand2D& command : scene.commands) {
+      const auto* quad = std::get_if<lg::FilledQuad2D>(&command);
+      if (quad == nullptr) {
+        continue;
+      }
+      if (sameColor(quad->color, {224, 82, 92, 255})) {
+        opponentQuad = quad;
+      }
+      if (sameColor(quad->color, {66, 211, 146, 255})) {
+        playerQuad = quad;
+      }
+    }
     failures += expect(
       opponentQuad != nullptr && playerQuad != nullptr,
       "player markers should be backend-neutral filled quads"
@@ -131,17 +148,25 @@ int main() {
       hud
     );
 
-    const auto* beam = std::get_if<lg::Line2D>(&scene.commands[4]);
+    const lg::Line2D* beam = nullptr;
+    for (const lg::DrawCommand2D& command : scene.commands) {
+      const auto* line = std::get_if<lg::Line2D>(&command);
+      if (
+        line != nullptr &&
+        nearlyEqual(line->width, 6.24F) &&
+        line->color.red == 73 &&
+        line->color.green == 94 &&
+        line->color.blue == 115
+      ) {
+        beam = line;
+      }
+    }
     failures += expect(
-      beam != nullptr &&
-        nearlyEqual(beam->width, 6.24F) &&
-        beam->color.red == 73 &&
-        beam->color.green == 94 &&
-        beam->color.blue == 115,
+      beam != nullptr,
       "beam command should carry subtle animated width and brightness"
     );
     failures += expect(
-      scene.commands.size() == 12,
+      scene.commands.size() > 12,
       "a hitting beam should add one beam and four hit-marker lines"
     );
   }

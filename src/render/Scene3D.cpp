@@ -51,6 +51,14 @@ namespace {
   };
 }
 
+void addSegment(
+  Scene3D& scene,
+  Vec3 start,
+  Vec3 end,
+  float width,
+  RenderColor color
+);
+
 void addTriangle(
   Scene3D& scene,
   Vec3 first,
@@ -115,6 +123,177 @@ void addBox(
       scaleColor(color, brightness[index])
     );
   }
+}
+
+void addFloorQuad(
+  Scene3D& scene,
+  float minX,
+  float minY,
+  float maxX,
+  float maxY,
+  float z,
+  RenderColor color
+) {
+  addQuad(
+    scene,
+    {minX, minY, z},
+    {maxX, minY, z},
+    {maxX, maxY, z},
+    {minX, maxY, z},
+    color
+  );
+}
+
+void addFloorTreatment(Scene3D& scene, const Arena& arena) {
+  constexpr float baseZ = 0.0F;
+  constexpr float tileZ = 0.001F;
+  constexpr float laneZ = 0.002F;
+  constexpr float gridZ = 0.006F;
+  constexpr float gridWidth = 0.012F;
+  constexpr float tileSize = 2.0F;
+
+  addFloorQuad(
+    scene,
+    arena.min.x,
+    arena.min.y,
+    arena.max.x,
+    arena.max.y,
+    baseZ,
+    {56, 138, 70, 255}
+  );
+
+  for (float x = arena.min.x; x < arena.max.x; x += tileSize) {
+    for (float y = arena.min.y; y < arena.max.y; y += tileSize) {
+      const int checker =
+        static_cast<int>(std::floor((x - arena.min.x) / tileSize)) +
+        static_cast<int>(std::floor((y - arena.min.y) / tileSize));
+      const RenderColor color = checker % 2 == 0
+        ? RenderColor{67, 158, 76, 255}
+        : RenderColor{74, 174, 84, 255};
+      addFloorQuad(
+        scene,
+        x,
+        y,
+        std::min(x + tileSize, arena.max.x),
+        std::min(y + tileSize, arena.max.y),
+        tileZ,
+        color
+      );
+    }
+  }
+
+  const float laneHalfWidth = 1.15F;
+  addFloorQuad(
+    scene,
+    arena.min.x,
+    -laneHalfWidth,
+    arena.max.x,
+    laneHalfWidth,
+    laneZ,
+    {186, 151, 91, 255}
+  );
+  addFloorQuad(
+    scene,
+    -laneHalfWidth,
+    arena.min.y,
+    laneHalfWidth,
+    arena.max.y,
+    laneZ,
+    {197, 163, 101, 255}
+  );
+
+  constexpr std::array<Vec3, 6> flowerPatches = {{
+    {-10.5F, -8.5F, 0.0F},
+    {-7.5F, 8.0F, 0.0F},
+    {-2.8F, -9.2F, 0.0F},
+    {3.4F, 8.8F, 0.0F},
+    {8.4F, -8.0F, 0.0F},
+    {11.2F, 5.6F, 0.0F},
+  }};
+  constexpr std::array<RenderColor, 3> flowerColors = {{
+    {255, 224, 102, 255},
+    {255, 142, 180, 255},
+    {144, 213, 255, 255},
+  }};
+  for (std::size_t index = 0; index < flowerPatches.size(); ++index) {
+    const Vec3 patch = flowerPatches[index];
+    if (
+      patch.x < arena.min.x || patch.x > arena.max.x ||
+      patch.y < arena.min.y || patch.y > arena.max.y
+    ) {
+      continue;
+    }
+    addFloorQuad(
+      scene,
+      patch.x - 0.18F,
+      patch.y - 0.18F,
+      patch.x + 0.18F,
+      patch.y + 0.18F,
+      arena.min.z + 0.004F,
+      flowerColors[index % flowerColors.size()]
+    );
+  }
+
+  for (float x = arena.min.x; x <= arena.max.x; x += 1.0F) {
+    addSegment(
+      scene,
+      {x, arena.min.y, arena.min.z + gridZ},
+      {x, arena.max.y, arena.min.z + gridZ},
+      gridWidth,
+      {109, 195, 105, 255}
+    );
+  }
+  for (float y = arena.min.y; y <= arena.max.y; y += 1.0F) {
+    addSegment(
+      scene,
+      {arena.min.x, y, arena.min.z + gridZ},
+      {arena.max.x, y, arena.min.z + gridZ},
+      gridWidth,
+      {109, 195, 105, 255}
+    );
+  }
+
+  addSegment(
+    scene,
+    {arena.min.x, 0.0F, arena.min.z + 0.018F},
+    {arena.max.x, 0.0F, arena.min.z + 0.018F},
+    0.04F,
+    {236, 205, 126, 255}
+  );
+  addSegment(
+    scene,
+    {0.0F, arena.min.y, arena.min.z + 0.018F},
+    {0.0F, arena.max.y, arena.min.z + 0.018F},
+    0.04F,
+    {236, 205, 126, 255}
+  );
+}
+
+void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
+  const Vec3 topMin = {
+    wall.min.x,
+    wall.min.y,
+    wall.max.z + 0.01F,
+  };
+  const Vec3 topMax = {
+    wall.max.x,
+    wall.max.y,
+    wall.max.z + 0.08F,
+  };
+  addBox(scene, topMin, topMax, {69, 151, 68, 255});
+
+  constexpr float bandWidth = 0.026F;
+  constexpr RenderColor bandColor = {228, 180, 97, 255};
+  const float lowerBandZ = wall.min.z + 0.32F;
+  const float upperBandZ = std::max(wall.min.z + 0.34F, wall.max.z - 0.24F);
+  const auto addPerimeterBand = [&](float z, RenderColor color) {
+    addSegment(scene, {wall.min.x, wall.min.y, z}, {wall.max.x, wall.min.y, z}, bandWidth, color);
+    addSegment(scene, {wall.max.x, wall.min.y, z}, {wall.max.x, wall.max.y, z}, bandWidth, color);
+    addSegment(scene, {wall.max.x, wall.max.y, z}, {wall.min.x, wall.max.y, z}, bandWidth, color);
+    addSegment(scene, {wall.min.x, wall.max.y, z}, {wall.min.x, wall.min.y, z}, bandWidth, color);
+  };
+  addPerimeterBand(lowerBandZ, scaleColor(bandColor, 0.75F));
+  addPerimeterBand(upperBandZ, bandColor);
 }
 
 void addOrientedBox(
@@ -333,46 +512,28 @@ Scene3D buildPerspectiveScene(
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
 
-  constexpr float gridWidth = 0.012F;
-  constexpr float floorOffset = 0.004F;
-  for (float x = arena.min.x; x <= arena.max.x; x += 1.0F) {
-    addSegment(
-      scene,
-      {x, arena.min.y, arena.min.z + floorOffset},
-      {x, arena.max.y, arena.min.z + floorOffset},
-      gridWidth,
-      {37, 48, 60, 255}
-    );
-  }
-  for (float y = arena.min.y; y <= arena.max.y; y += 1.0F) {
-    addSegment(
-      scene,
-      {arena.min.x, y, arena.min.z + floorOffset},
-      {arena.max.x, y, arena.min.z + floorOffset},
-      gridWidth,
-      {37, 48, 60, 255}
-    );
-  }
-  addWireBox(scene, arena.min, arena.max, 0.025F, {92, 112, 135, 255});
+  addFloorTreatment(scene, arena);
+  addWireBox(scene, arena.min, arena.max, 0.025F, {127, 202, 111, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
-    addBox(scene, wall.min, wall.max, {46, 61, 79, 255});
-    addWireBox(scene, wall.min, wall.max, 0.018F, {118, 145, 174, 255});
+    addBox(scene, wall.min, wall.max, {125, 82, 48, 255});
+    addWallAccents(scene, wall);
+    addWireBox(scene, wall.min, wall.max, 0.018F, {85, 174, 79, 255});
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
       addSegment(
         scene,
         {wall.min.x, wall.min.y, z},
         {wall.max.x, wall.min.y, z},
         0.012F,
-        {82, 105, 132, 255}
+        {170, 117, 63, 255}
       );
       addSegment(
         scene,
         {wall.max.x, wall.max.y, z},
         {wall.min.x, wall.max.y, z},
         0.012F,
-        {82, 105, 132, 255}
+        {170, 117, 63, 255}
       );
     }
   }
