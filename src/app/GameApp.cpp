@@ -420,6 +420,19 @@ std::string keyName(SDL_Scancode scancode) {
   }
 }
 
+std::string mouseButtonName(Uint8 button) {
+  switch (button) {
+  case SDL_BUTTON_LEFT:
+    return "mouse1";
+  case SDL_BUTTON_RIGHT:
+    return "mouse2";
+  case SDL_BUTTON_MIDDLE:
+    return "mouse3";
+  default:
+    return "mouse" + std::to_string(static_cast<unsigned int>(button));
+  }
+}
+
 bool isConsoleToggleText(std::string_view text) {
   return text == "\xC2\xA7" || text == "`" || text == "~";
 }
@@ -1322,7 +1335,7 @@ int GameApp::run() const {
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-        const std::string key = "mouse" + std::to_string(event.button.button);
+        const std::string key = mouseButtonName(event.button.button);
         if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
