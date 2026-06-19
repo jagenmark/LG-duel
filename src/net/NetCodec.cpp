@@ -482,15 +482,34 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
 bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
   return writeVec3(writer, result.position) &&
     writer.writeFloat(result.radius) &&
+    writer.writeI32(result.ownerDamageApplied) &&
+    writer.writeI32(result.opponentDamageApplied) &&
     writer.writeBool(result.active);
 }
 
 bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
-  return readVec3(reader, result.position) &&
-    reader.readFloat(result.radius) &&
-    reader.readBool(result.active) &&
-    result.radius >= 0.0F &&
-    result.radius <= 100.0F;
+  std::int32_t ownerDamageApplied = 0;
+  std::int32_t opponentDamageApplied = 0;
+  if (
+    !readVec3(reader, result.position) ||
+    !reader.readFloat(result.radius) ||
+    !reader.readI32(ownerDamageApplied) ||
+    !reader.readI32(opponentDamageApplied) ||
+    !reader.readBool(result.active)
+  ) {
+    return false;
+  }
+  if (
+    result.radius < 0.0F ||
+    result.radius > 100.0F ||
+    ownerDamageApplied < 0 ||
+    opponentDamageApplied < 0
+  ) {
+    return false;
+  }
+  result.ownerDamageApplied = ownerDamageApplied;
+  result.opponentDamageApplied = opponentDamageApplied;
+  return true;
 }
 
 bool writeRocketProjectile(

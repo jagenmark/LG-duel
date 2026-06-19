@@ -39,6 +39,7 @@ constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
 constexpr float kDegreesToRadians = 0.01745329252F;
+constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
 
 enum class AimMode {
   Relative3D,
@@ -98,6 +99,26 @@ public:
 
   void playHit(float volume) {
     queueTone(920.0F, 0.045F, volume);
+  }
+
+  void playRailFire(float volume) {
+    queueTone(1180.0F, 0.035F, volume * 0.9F);
+    queueTone(540.0F, 0.055F, volume * 0.45F);
+  }
+
+  void playRailReady(float volume) {
+    queueTone(760.0F, 0.035F, volume * 0.55F);
+    queueTone(1040.0F, 0.045F, volume * 0.45F);
+  }
+
+  void playRocketFire(float volume) {
+    queueTone(170.0F, 0.075F, volume * 0.9F);
+    queueTone(95.0F, 0.105F, volume * 0.55F);
+  }
+
+  void playRocketExplosion(float volume) {
+    queueTone(92.0F, 0.12F, volume * 0.95F);
+    queueTone(145.0F, 0.09F, volume * 0.65F);
   }
 
   void playRoundResult(bool won, float volume) {
@@ -1191,6 +1212,11 @@ int GameApp::run() const {
   const ClientGame* audioGame = nullptr;
   std::uint32_t lastAudioServerTick = 0;
   std::uint32_t lastHitSoundServerTick = 0;
+  std::array<std::uint32_t, kDuelPlayerCount> lastWeaponFireSoundTick = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastRocketExplosionSoundTick = {};
+  std::uint32_t lastLocalRailFireTick = 0;
+  bool hasLocalRailFireTick = false;
+  bool localRailReadySoundPlayed = true;
   MatchPhase lastAudioMatchPhase = MatchPhase::WaitingForPlayers;
   std::uint32_t lastAudioCountdownSecond = 0;
   bool previousLocalHit = false;
@@ -1547,6 +1573,11 @@ int GameApp::run() const {
       audioStateInitialized = false;
       lastAudioCountdownSecond = 0;
       lastHitSoundServerTick = 0;
+      lastWeaponFireSoundTick = {};
+      lastRocketExplosionSoundTick = {};
+      lastLocalRailFireTick = 0;
+      hasLocalRailFireTick = false;
+      localRailReadySoundPlayed = true;
       previousLocalHit = false;
       hasEnemyHitTime = false;
     }
@@ -1578,6 +1609,59 @@ int GameApp::run() const {
         ) {
           audio.playHit(volume);
           lastHitSoundServerTick = audioSnapshot.serverTick;
+        }
+        if (soundEnabled && audioStateInitialized) {
+          for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+            const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
+            if (
+              fire.fired &&
+              lastWeaponFireSoundTick[playerIndex] != audioSnapshot.serverTick
+            ) {
+              if (fire.weapon == Weapon::Railgun) {
+                audio.playRailFire(volume);
+                if (playerIndex == localPlayerIndex) {
+                  lastLocalRailFireTick = audioSnapshot.serverTick;
+                  hasLocalRailFireTick = true;
+                  localRailReadySoundPlayed = false;
+                  if (fire.hit) {
+                    audio.playHit(volume);
+                    lastHitSoundServerTick = audioSnapshot.serverTick;
+                  }
+                }
+              } else if (fire.weapon == Weapon::RocketLauncher) {
+                audio.playRocketFire(volume);
+              }
+              lastWeaponFireSoundTick[playerIndex] = audioSnapshot.serverTick;
+            }
+
+            const RocketExplosionResult& explosion =
+              audioSnapshot.rocketExplosions[playerIndex];
+            if (
+              explosion.active &&
+              lastRocketExplosionSoundTick[playerIndex] != audioSnapshot.serverTick
+            ) {
+              audio.playRocketExplosion(volume);
+              if (
+                playerIndex == localPlayerIndex &&
+                explosion.opponentDamageApplied > 0
+              ) {
+                audio.playHit(volume);
+                lastHitSoundServerTick = audioSnapshot.serverTick;
+              }
+              lastRocketExplosionSoundTick[playerIndex] = audioSnapshot.serverTick;
+            }
+          }
+
+          if (
+            hasLocalRailFireTick &&
+            !localRailReadySoundPlayed &&
+            selectedWeapon == Weapon::Railgun &&
+            audioSnapshot.serverTick - lastLocalRailFireTick >=
+              kClientRailgunCooldownTicks
+          ) {
+            audio.playRailReady(volume);
+            localRailReadySoundPlayed = true;
+          }
         }
         if (
           soundEnabled &&

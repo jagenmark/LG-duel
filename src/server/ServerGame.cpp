@@ -664,6 +664,11 @@ void ServerGame::simulateRockets(float fixedDt) {
       if (playerIndex == directTarget) {
         damage = std::max(damage, rocketLauncherTuning_.directDamage);
       }
+      if (playerIndex == rocket.owner) {
+        explosion.ownerDamageApplied = std::min(damage, player.health);
+      } else {
+        explosion.opponentDamageApplied = std::min(damage, player.health);
+      }
       Vec3 knockbackDirection = normalize(player.position - explosionPosition);
       if (length(knockbackDirection) <= 0.0001F) {
         knockbackDirection = normalize(rocket.velocity);

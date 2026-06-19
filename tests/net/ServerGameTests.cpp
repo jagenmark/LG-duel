@@ -985,6 +985,10 @@ int main() {
       exploded = exploded || snapshot.rocketExplosions[0].active;
       damaged = damaged || snapshot.players[1].health < 100;
       if (exploded && damaged) {
+        failures += expect(
+          snapshot.rocketExplosions[0].opponentDamageApplied > 0,
+          "rocket explosion should report opponent damage for audio feedback"
+        );
         break;
       }
     }

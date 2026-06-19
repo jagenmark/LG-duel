@@ -86,6 +86,8 @@ struct RocketProjectileSnapshot {
 struct RocketExplosionResult {
   Vec3 position = {};
   float radius = 0.0F;
+  int ownerDamageApplied = 0;
+  int opponentDamageApplied = 0;
   bool active = false;
 };
 

@@ -220,6 +220,8 @@ int main() {
     source.rocketExplosions[0].active = true;
     source.rocketExplosions[0].position = {3.0F, 4.0F, 0.0F};
     source.rocketExplosions[0].radius = 3.0F;
+    source.rocketExplosions[0].ownerDamageApplied = 12;
+    source.rocketExplosions[0].opponentDamageApplied = 80;
     source.rockets[0].active = true;
     source.rockets[0].owner = 1;
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
@@ -308,6 +310,8 @@ int main() {
       decoded.rocketExplosions[0].active &&
         nearlyEqual(decoded.rocketExplosions[0].position.y, 4.0F) &&
         nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
+        decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
+        decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
         decoded.rockets[0].active &&
         decoded.rockets[0].owner == 1 &&
         nearlyEqual(decoded.rockets[0].position.z, 1.2F),
