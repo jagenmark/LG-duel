@@ -1,5 +1,11 @@
 option(LG_DUEL_REQUIRE_SDL3 "Require SDL3 during CMake configuration" OFF)
 option(LG_DUEL_FETCH_SDL3 "Fetch the pinned SDL3 source when no installed package is available" OFF)
+set(
+  LG_DUEL_SDL3_SOURCE_DIR
+  ""
+  CACHE PATH
+  "Optional local SDL3 source directory to use before fetching from GitHub"
+)
 
 set(
   LG_DUEL_SDL3_GIT_TAG
@@ -10,6 +16,37 @@ set(
 
 function(lg_duel_configure_sdl3 target)
   find_package(SDL3 QUIET CONFIG)
+
+  if(NOT SDL3_FOUND)
+    set(sdl3_source_candidates)
+    if(LG_DUEL_SDL3_SOURCE_DIR)
+      list(APPEND sdl3_source_candidates "${LG_DUEL_SDL3_SOURCE_DIR}")
+    endif()
+    list(APPEND
+      sdl3_source_candidates
+      "${CMAKE_SOURCE_DIR}/build/gpu/_deps/sdl3-src"
+      "${CMAKE_SOURCE_DIR}/../build/gpu/_deps/sdl3-src"
+    )
+
+    foreach(sdl3_source_dir IN LISTS sdl3_source_candidates)
+      if(EXISTS "${sdl3_source_dir}/CMakeLists.txt")
+        message(STATUS "Using local SDL3 source at ${sdl3_source_dir}")
+        set(SDL_SHARED ON CACHE BOOL "" FORCE)
+        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+        set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
+        set(SDL_TESTS OFF CACHE BOOL "" FORCE)
+        set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+        set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
+        add_subdirectory(
+          "${sdl3_source_dir}"
+          "${CMAKE_BINARY_DIR}/_deps/sdl3-local-build"
+          EXCLUDE_FROM_ALL
+        )
+        set(SDL3_FOUND TRUE)
+        break()
+      endif()
+    endforeach()
+  endif()
 
   if(NOT SDL3_FOUND AND LG_DUEL_FETCH_SDL3)
     include(FetchContent)

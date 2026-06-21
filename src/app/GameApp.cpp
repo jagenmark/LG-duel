@@ -201,14 +201,24 @@ public:
     queueTone(220.0F + (urgency * 27.5F), 0.07F, volume * 0.45F);
   }
 
+  void update() {
+    pumpAudio();
+  }
+
   void shutdown() {
     if (stream_ != nullptr) {
       SDL_DestroyAudioStream(stream_);
       stream_ = nullptr;
     }
+    voices_.clear();
   }
 
 private:
+  struct SoundVoice {
+    std::vector<float> samples;
+    std::size_t playhead = 0;
+  };
+
   [[nodiscard]] static float audioEnvelope(
     float time,
     float duration,
@@ -324,11 +334,7 @@ private:
       samples[static_cast<std::size_t>(index)] *= gain;
       samples[static_cast<std::size_t>(sampleCount - 1 - index)] *= gain;
     }
-    SDL_PutAudioStreamData(
-      stream_,
-      samples.data(),
-      static_cast<int>(samples.size() * sizeof(float))
-    );
+    addVoice(std::move(samples));
   }
 
   void queueTone(float frequency, float durationSeconds, float volume) {
@@ -350,15 +356,93 @@ private:
           (static_cast<float>(index) / static_cast<float>(kSampleRate))
         ) * envelope * volume;
     }
-    SDL_PutAudioStreamData(
-      stream_,
-      samples.data(),
-      static_cast<int>(samples.size() * sizeof(float))
+    addVoice(std::move(samples));
+  }
+
+  void addVoice(std::vector<float> samples) {
+    if (samples.empty()) {
+      return;
+    }
+
+    removeFinishedVoices();
+    if (voices_.size() >= kMaxActiveVoices) {
+      const auto quietestTail = std::min_element(
+        voices_.begin(),
+        voices_.end(),
+        [](const SoundVoice& lhs, const SoundVoice& rhs) {
+          return remainingSamples(lhs) < remainingSamples(rhs);
+        }
+      );
+      voices_.erase(quietestTail);
+    }
+    voices_.push_back(SoundVoice{std::move(samples), 0});
+  }
+
+  void pumpAudio() {
+    if (stream_ == nullptr) {
+      return;
+    }
+
+    removeFinishedVoices();
+    const int queuedBytes = SDL_GetAudioStreamQueued(stream_);
+    int queuedSamples =
+      std::max(0, queuedBytes) / static_cast<int>(sizeof(float));
+    while (!voices_.empty() && queuedSamples < kTargetQueuedSamples) {
+      const int sampleCount =
+        std::min(kMixChunkSamples, kTargetQueuedSamples - queuedSamples);
+      mixBuffer_.assign(static_cast<std::size_t>(sampleCount), 0.0F);
+
+      for (SoundVoice& voice : voices_) {
+        const std::size_t remaining = remainingSamples(voice);
+        const std::size_t voiceSamples =
+          std::min(remaining, static_cast<std::size_t>(sampleCount));
+        for (std::size_t index = 0; index < voiceSamples; ++index) {
+          mixBuffer_[index] += voice.samples[voice.playhead + index];
+        }
+      }
+      for (float& sample : mixBuffer_) {
+        sample = std::clamp(sample, -0.98F, 0.98F);
+      }
+      for (SoundVoice& voice : voices_) {
+        voice.playhead += static_cast<std::size_t>(sampleCount);
+      }
+      removeFinishedVoices();
+      SDL_PutAudioStreamData(
+        stream_,
+        mixBuffer_.data(),
+        static_cast<int>(mixBuffer_.size() * sizeof(float))
+      );
+      queuedSamples += sampleCount;
+    }
+  }
+
+  void removeFinishedVoices() {
+    voices_.erase(
+      std::remove_if(
+        voices_.begin(),
+        voices_.end(),
+        [](const SoundVoice& voice) {
+          return voice.playhead >= voice.samples.size();
+        }
+      ),
+      voices_.end()
     );
   }
 
+  [[nodiscard]] static std::size_t remainingSamples(const SoundVoice& voice) {
+    if (voice.playhead >= voice.samples.size()) {
+      return 0;
+    }
+    return voice.samples.size() - voice.playhead;
+  }
+
   static constexpr int kSampleRate = 48000;
+  static constexpr int kMixChunkSamples = 256;
+  static constexpr int kTargetQueuedSamples = 1024;
+  static constexpr std::size_t kMaxActiveVoices = 32;
   SDL_AudioStream* stream_ = nullptr;
+  std::vector<SoundVoice> voices_;
+  std::vector<float> mixBuffer_;
 };
 
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
@@ -1995,6 +2079,9 @@ int GameApp::run() const {
         lastAudioMatchPhase = audioSnapshot.matchPhase;
         audioStateInitialized = true;
       }
+    }
+    if (audioAvailable) {
+      audio.update();
     }
 
     ++renderedFrameCount;
