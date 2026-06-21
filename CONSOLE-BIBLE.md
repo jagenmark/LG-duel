@@ -201,6 +201,8 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_g` | int | `82` | `0..255` | Ingen exakt 1:1-default | Modellens grönkanal. |
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
+| `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad model lean | Slår på/av velocity lean för motståndarmodellen i 3D. Påverkar bara renderad modell, inte lokal POV, simulation, aim, hitboxar eller nätkod. |
+| `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för motståndarmodellens velocity lean. `1` motsvarar ungefär Q3-standard, `0` ger ingen lean även om `r_enemy_lean` är på. |
 | `r_enemy_hit_enable` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
 | `r_enemy_hit_r` | int | `255` | `0..255` | Ingen | Träfffärg röd. |
 | `r_enemy_hit_g` | int | `190` | `0..255` | Ingen | Träfffärg grön. |

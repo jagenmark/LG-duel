@@ -39,6 +39,10 @@ cmake --preset default
 cmake --build --preset default
 ```
 
+Use the preset build tree at `build/default` for local work. Do not use a
+top-level `build/` directory for configure/build/test commands in this
+repository.
+
 Equivalent plain CMake commands:
 
 ```powershell
@@ -159,7 +163,7 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model colors, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
 
 The SDL_GPU renderer can be selected at runtime with
 `LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
@@ -177,6 +181,8 @@ latency. Set `cl_showfps 1` to show average FPS, frame time, and the active
 renderer backend in the window title.
 
 `cl_rotate_view` applies only to top-down relative aim (`cl_render_mode 0`, `cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) is available only in the top-down renderer. Perspective mode (`cl_render_mode 1`) always uses relative mouse yaw/pitch, ignores `cl_rotate_view`, and sends true 3D pitch to authoritative beam simulation.
+
+`r_enemy_lean 1` adds Q3-style velocity lean to the rendered enemy model in perspective mode. Tune it with `r_enemy_lean_scale`; `1` approximates Q3's `cg_runroll 0.005`, `0` disables the effect without changing local POV, simulation, hit registration, or networking.
 
 Hold `Mouse2` (`+zoom`) to use `cl_zoom_fov` and zoom-scaled sensitivity. With the default `cl_zoom_sensitivity 0`, the multiplier is auto-matched as `tan(cl_zoom_fov / 2) / tan(cl_fov / 2)` using degree values. Set `cl_zoom_sensitivity` above zero for a manual multiplier. This is client-side view/input scaling only; it does not change simulation, hitboxes, damage, or networking.
 
