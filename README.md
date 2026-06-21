@@ -26,6 +26,19 @@ cmake --build --preset default
 ctest --preset default
 ```
 
+On Windows, prefer the preset commands above instead of plain `cmake -S . -B
+build`, because CMake may otherwise choose the `NMake Makefiles` generator. If
+`nmake` or the Visual Studio `cl` compiler is not available, configure with
+Ninja and an explicit compiler:
+
+```powershell
+$env:Path += ";C:\Users\gosee\Documents\Codex\tools\cmake-4.3.3-windows-x86_64\bin;C:\Users\gosee\Documents\Codex\tools\ninja;C:\Users\gosee\Documents\Codex\tools\llvm-mingw-20260616-ucrt-x86_64\bin"
+$env:CC = "C:\Users\gosee\Documents\Codex\tools\llvm-mingw-20260616-ucrt-x86_64\bin\clang.exe"
+$env:CXX = "C:\Users\gosee\Documents\Codex\tools\llvm-mingw-20260616-ucrt-x86_64\bin\clang++.exe"
+cmake --preset default
+cmake --build --preset default
+```
+
 Equivalent plain CMake commands:
 
 ```powershell
@@ -34,7 +47,23 @@ cmake --build build/default
 ctest --test-dir build/default --output-on-failure
 ```
 
-SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app should fail configuration if SDL3 is missing. Without SDL3, the app target still builds as a non-playable skeleton and the pure simulation tests remain available.
+SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app
+should fail configuration if SDL3 is missing. Without SDL3, the app target still
+builds as a non-playable skeleton and the pure simulation tests remain
+available.
+
+For local Codex threads, SDL3 can be provided without network access by keeping
+the pinned SDL3 source cache at `build/gpu/_deps/sdl3-src`. The CMake setup also
+checks `../build/gpu/_deps/sdl3-src`, which helps when working from a cleaned-up
+clone beside an older build. To point CMake at a specific local SDL3 checkout,
+configure with:
+
+```powershell
+cmake --preset default -DLG_DUEL_SDL3_SOURCE_DIR="C:\path\to\sdl3-src"
+```
+
+When SDL3 is found this way, configure prints `Using local SDL3 source at ...`
+and `lg_duel_client` builds as the playable SDL app instead of the skeleton.
 
 ## Windows Playtest Package
 
