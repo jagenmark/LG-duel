@@ -18,10 +18,12 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cctype>
 #include <cstdint>
 #include <deque>
 #include <fstream>
@@ -36,6 +38,9 @@ namespace {
 constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
+constexpr float kDegreesToRadians = 0.01745329252F;
+constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
+constexpr float kRailgunBeamLingerSeconds = 0.5F;
 
 enum class AimMode {
   Relative3D,
@@ -44,6 +49,62 @@ enum class AimMode {
 
 [[nodiscard]] AimMode aimModeFromInt(int value) {
   return value == 1 ? AimMode::Absolute2D : AimMode::Relative3D;
+}
+
+[[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
+  return static_cast<std::uint8_t>(
+    std::clamp(static_cast<int>(std::lround(console.getFloat("g_selfdamage"))), 0, 100)
+  );
+}
+
+[[nodiscard]] std::int32_t healthAmount(const ConsoleSystem& console) {
+  return std::clamp(console.getInt("g_healthamount"), 1, 100000);
+}
+
+[[nodiscard]] Vec3 cameraUp(float yawRadians, float pitchRadians) {
+  return {
+    -std::cos(yawRadians) * std::sin(pitchRadians),
+    -std::sin(yawRadians) * std::sin(pitchRadians),
+    std::cos(pitchRadians),
+  };
+}
+
+[[nodiscard]] Vec3 viewmodelMuzzlePosition(const PlayerState& player) {
+  constexpr CollisionBounds defaultBounds = {};
+  const float eyeHeight =
+    0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
+  const Vec3 eyePosition =
+    player.position + Vec3{0.0F, 0.0F, eyeHeight};
+  return eyePosition +
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+}
+
+[[nodiscard]] bool sameVec3(Vec3 lhs, Vec3 rhs) {
+  return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
+}
+
+[[nodiscard]] bool sameWeaponFireEvent(
+  const WeaponFireResult& lhs,
+  const WeaponFireResult& rhs
+) {
+  return lhs.fired == rhs.fired &&
+    lhs.hit == rhs.hit &&
+    lhs.weapon == rhs.weapon &&
+    lhs.damageApplied == rhs.damageApplied &&
+    sameVec3(lhs.start, rhs.start) &&
+    sameVec3(lhs.end, rhs.end);
+}
+
+[[nodiscard]] bool sameRocketExplosionEvent(
+  const RocketExplosionResult& lhs,
+  const RocketExplosionResult& rhs
+) {
+  return lhs.active == rhs.active &&
+    lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
+    lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
+    lhs.radius == rhs.radius &&
+    sameVec3(lhs.position, rhs.position);
 }
 
 struct LocalInputState {
@@ -80,6 +141,13 @@ struct ClientChatState {
   std::chrono::steady_clock::time_point visibleUntil = {};
 };
 
+struct LingeringRailBeam {
+  WeaponFireResult fire;
+  WeaponFireResult sourceFire;
+  bool active = false;
+  std::chrono::steady_clock::time_point expiresAt = {};
+};
+
 class ClientAudio {
 public:
   bool initialize() {
@@ -93,8 +161,28 @@ public:
     return stream_ != nullptr && SDL_ResumeAudioStreamDevice(stream_);
   }
 
-  void playHit(float volume) {
-    queueTone(920.0F, 0.045F, volume);
+  void playHit(float volume, int damageApplied) {
+    const float damageScale =
+      std::clamp(static_cast<float>(damageApplied) / 100.0F, 0.0F, 1.0F);
+    const float baseFrequency = 920.0F - (damageScale * 190.0F);
+    queueHitPing(baseFrequency, volume);
+  }
+
+  void playRailFire(float volume) {
+    queueRailDischarge(volume);
+  }
+
+  void playRailReady(float volume) {
+    queueTone(760.0F, 0.035F, volume * 0.55F);
+    queueTone(1040.0F, 0.045F, volume * 0.45F);
+  }
+
+  void playRocketFire(float volume) {
+    queueRocketFire(volume);
+  }
+
+  void playRocketExplosion(float volume) {
+    queueRocketPop(volume);
   }
 
   void playRoundResult(bool won, float volume) {
@@ -121,6 +209,128 @@ public:
   }
 
 private:
+  [[nodiscard]] static float audioEnvelope(
+    float time,
+    float duration,
+    float attack,
+    float release,
+    float curve
+  ) {
+    const float clampedAttack = std::min(attack, duration * 0.35F);
+    const float clampedRelease = std::min(release, duration * 0.7F);
+    if (time < clampedAttack) {
+      return time / std::max(clampedAttack, 0.0001F);
+    }
+    if (time > duration - clampedRelease) {
+      const float releaseProgress =
+        (duration - time) / std::max(clampedRelease, 0.0001F);
+      return std::pow(std::max(0.0F, releaseProgress), curve);
+    }
+    return 1.0F;
+  }
+
+  [[nodiscard]] static float sine(float frequency, float time) {
+    constexpr float kTwoPi = 6.28318530718F;
+    return std::sin(kTwoPi * frequency * time);
+  }
+
+  [[nodiscard]] static float triangle(float frequency, float time) {
+    const float phase = frequency * time - std::floor(frequency * time);
+    return (4.0F * std::abs(phase - 0.5F)) - 1.0F;
+  }
+
+  [[nodiscard]] static float saw(float frequency, float time) {
+    const float phase = frequency * time - std::floor(frequency * time);
+    return (2.0F * phase) - 1.0F;
+  }
+
+  [[nodiscard]] static float noise(int sampleIndex) {
+    std::uint32_t value = static_cast<std::uint32_t>(sampleIndex) * 747796405U +
+      2891336453U;
+    value = ((value >> ((value >> 28U) + 4U)) ^ value) * 277803737U;
+    value = (value >> 22U) ^ value;
+    return (static_cast<float>(value & 0xFFFFU) / 32767.5F) - 1.0F;
+  }
+
+  void queueRailDischarge(float volume) {
+    queueSynth(0.185F, volume, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.18F, 1.0F);
+      const float fastProgress = std::min(time / 0.10F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.185F, 0.002F, 0.070F, 1.35F);
+      return envelope * (
+        0.40F * sine(138.0F - (42.0F * progress), time) +
+        0.24F * sine(276.0F - (90.0F * std::min(time / 0.12F, 1.0F)), time) +
+        0.14F * saw(640.0F - (360.0F * fastProgress), time) +
+        0.06F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queueHitPing(float baseFrequency, float volume) {
+    queueSynth(0.090F, volume, [baseFrequency](float time, int) {
+      const float progress = std::min(time / 0.03F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.090F, 0.001F, 0.070F, 1.7F);
+      return envelope * (
+        0.40F * sine(baseFrequency + (60.0F * progress), time) +
+        0.22F * sine((baseFrequency * 1.5F) + (90.0F * progress), time)
+      );
+    });
+  }
+
+  void queueRocketFire(float volume) {
+    queueSynth(0.185F, volume, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.14F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.185F, 0.003F, 0.060F, 1.35F);
+      return envelope * (
+        0.34F * sine(135.0F + (175.0F * progress), time) +
+        0.18F * triangle(270.0F + (255.0F * std::min(time / 0.13F, 1.0F)), time) +
+        0.11F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queueRocketPop(float volume) {
+    queueSynth(0.210F, volume, [](float time, int sampleIndex) {
+      const float envelope = audioEnvelope(time, 0.210F, 0.001F, 0.095F, 1.35F);
+      const float bounceFrequency = time < 0.045F ? 520.0F : 374.0F;
+      return envelope * (
+        0.38F * sine(120.0F - (44.0F * std::min(time / 0.14F, 1.0F)), time) +
+        0.24F * triangle(240.0F - (92.0F * std::min(time / 0.10F, 1.0F)), time) +
+        0.10F * sine(bounceFrequency, time) +
+        0.10F * noise(sampleIndex)
+      );
+    });
+  }
+
+  template <typename Generator>
+  void queueSynth(float durationSeconds, float volume, Generator generator) {
+    if (stream_ == nullptr || volume <= 0.0F) {
+      return;
+    }
+
+    const int sampleCount =
+      std::max(1, static_cast<int>(durationSeconds * kSampleRate));
+    std::vector<float> samples(static_cast<std::size_t>(sampleCount));
+    for (int index = 0; index < sampleCount; ++index) {
+      const float time =
+        static_cast<float>(index) / static_cast<float>(kSampleRate);
+      samples[static_cast<std::size_t>(index)] =
+        std::clamp(generator(time, index) * volume, -0.98F, 0.98F);
+    }
+    const int fadeSamples = std::min(160, sampleCount / 8);
+    for (int index = 0; index < fadeSamples; ++index) {
+      const float gain = static_cast<float>(index) /
+        static_cast<float>(std::max(1, fadeSamples));
+      samples[static_cast<std::size_t>(index)] *= gain;
+      samples[static_cast<std::size_t>(sampleCount - 1 - index)] *= gain;
+    }
+    SDL_PutAudioStreamData(
+      stream_,
+      samples.data(),
+      static_cast<int>(samples.size() * sizeof(float))
+    );
+  }
+
   void queueTone(float frequency, float durationSeconds, float volume) {
     if (stream_ == nullptr || volume <= 0.0F) {
       return;
@@ -206,6 +416,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_aim_mode", "Aim mode: 0 relative 3D, 1 absolute 2D.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_render_mode", "Renderer: 0 top-down, 1 first-person 3D.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_fov", "Top-down camera view extent.", 90.0F, archivedClient, 45.0F, 140.0F});
+  console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
+  console.registerCvar({"cl_zoom_sensitivity", "Mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_camera_zoom", "Camera zoom multiplier; values above one zoom in.", 1.0F, archivedClient, 0.25F, 4.0F});
   console.registerCvar({"cl_rotate_view", "Rotate relative-aim view so facing direction points up.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
@@ -217,11 +429,14 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 80.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
   console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 24.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
+  console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, CvarFlag::Client, {}, {}});
   console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 8.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
   console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 22.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
+  console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
+  console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
   console.registerCvar({"g_flight", "Enable unrestricted flight symmetrically for both players.", false, CvarFlag::Client, {}, {}});
   console.registerCvar({"g_flightaccel", "Authoritative flight thrust acceleration.", 32.0F, CvarFlag::Client, 0.0F, 1000.0F});
   console.registerCvar({"g_flightmaxspeed", "Authoritative maximum flight speed.", 12.0F, CvarFlag::Client, 0.1F, 100.0F});
@@ -331,11 +546,31 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   return settings;
 }
 
+float zoomSensitivityMultiplier(
+  float baseFieldOfView,
+  float zoomFieldOfView,
+  float manualMultiplier
+) {
+  if (manualMultiplier > 0.0F) {
+    return manualMultiplier;
+  }
+
+  constexpr float sensRatio = 1.0F;
+  const float baseHalfAngle = baseFieldOfView * 0.5F * kDegreesToRadians;
+  const float zoomHalfAngle = zoomFieldOfView * 0.5F * kDegreesToRadians;
+  const float baseTangent = std::tan(baseHalfAngle);
+  if (std::fabs(baseTangent) <= 0.0001F) {
+    return 1.0F;
+  }
+  return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
+}
+
 MovementTuning movementTuning(const ConsoleSystem& console) {
   MovementTuning tuning;
   tuning.flightEnabled = console.getBool("g_flight");
   tuning.groundAcceleration = console.getFloat("g_accel");
   tuning.airAcceleration = console.getFloat("g_airaccel");
+  tuning.airControlEnabled = console.getBool("g_aircontrol");
   tuning.groundFriction = console.getFloat("g_friction");
   tuning.stopSpeed = console.getFloat("g_stopspeed");
   tuning.maxGroundSpeed = console.getFloat("g_maxspeed");
@@ -354,6 +589,7 @@ bool sameRuntimeMovementTuning(
   return lhs.flightEnabled == rhs.flightEnabled &&
     lhs.groundAcceleration == rhs.groundAcceleration &&
     lhs.airAcceleration == rhs.airAcceleration &&
+    lhs.airControlEnabled == rhs.airControlEnabled &&
     lhs.groundFriction == rhs.groundFriction &&
     lhs.stopSpeed == rhs.stopSpeed &&
     lhs.maxGroundSpeed == rhs.maxGroundSpeed &&
@@ -396,6 +632,19 @@ std::string keyName(SDL_Scancode scancode) {
   }
 }
 
+std::string mouseButtonName(Uint8 button) {
+  switch (button) {
+  case SDL_BUTTON_LEFT:
+    return "mouse1";
+  case SDL_BUTTON_RIGHT:
+    return "mouse2";
+  case SDL_BUTTON_MIDDLE:
+    return "mouse3";
+  default:
+    return "mouse" + std::to_string(static_cast<unsigned int>(button));
+  }
+}
+
 bool isConsoleToggleText(std::string_view text) {
   return text == "\xC2\xA7" || text == "`" || text == "~";
 }
@@ -412,7 +661,11 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("leftshift", "+movedown");
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
-  (void)bindings.bind("r", "resetmatch");
+  (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("q", "weapon rl");
+  (void)bindings.bind("e", "weapon lg");
+  (void)bindings.bind("r", "weapon rg");
+  (void)bindings.bind("f5", "resetmatch");
   (void)bindings.bind("f3", "ready");
   (void)bindings.bind("t", "messagemode");
   (void)bindings.bind("z", "showchat");
@@ -540,13 +793,14 @@ HudRenderState buildHud(const ClientSession& session) {
   hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
-    hud.centerOffsetY = -80.0F;
+    hud.centerOffsetY = -150.0F;
     hud.centerLines.push_back(
       std::to_string(connectedCount) + '/' +
       std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
     );
     break;
   case MatchPhase::WaitingForReady:
+    hud.centerOffsetY = -150.0F;
     hud.centerLines.push_back(
       snapshot.readyPlayers[localPlayerIndex]
         ? "WAITING FOR OTHER PLAYERS TO READY UP"
@@ -641,7 +895,8 @@ HudRenderState buildHud(const ClientSession& session) {
   int viewportHeight,
   float fieldOfView,
   float cameraZoom,
-  int renderMode
+  int renderMode,
+  Weapon weapon
 ) {
   UserCommand command;
   command.sequence = sequence;
@@ -681,6 +936,7 @@ HudRenderState buildHud(const ClientSession& session) {
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
   command.attack = input.attack > 0;
+  command.weapon = weapon;
   return command;
 }
 #endif
@@ -737,6 +993,11 @@ int GameApp::run() const {
   bool openChatRequested = false;
   bool showChatRequested = false;
   int scoreboardPressCount = 0;
+  int zoomPressCount = 0;
+  Weapon selectedWeapon = Weapon::LightningGun;
+  bool botDodgeEnabled = false;
+  std::int32_t botDodgeMinIntervalMs = 250;
+  std::int32_t botDodgeMaxIntervalMs = 750;
   std::string pendingPlayerName;
   ClientChatState chatState;
   ClientSession session;
@@ -768,7 +1029,93 @@ int GameApp::run() const {
   registerButtonCommand("movedown", input.down);
   registerButtonCommand("attack", input.attack);
   registerButtonCommand("scores", scoreboardPressCount);
+  registerButtonCommand("zoom", zoomPressCount);
 
+  console.registerCommand(
+    "weapon",
+    "Select weapon: weapon <lg|rg|rl|1|2|3>.",
+    [&selectedWeapon](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+      }
+      std::string value = arguments[1];
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
+      if (value == "1" || value == "lg" || value == "lightning" || value == "lightninggun") {
+        selectedWeapon = Weapon::LightningGun;
+        return std::string("weapon = lg");
+      }
+      if (value == "2" || value == "rg" || value == "rail" || value == "railgun") {
+        selectedWeapon = Weapon::Railgun;
+        return std::string("weapon = rg");
+      }
+      if (value == "3" || value == "rl" || value == "rocket" || value == "rocketlauncher") {
+        selectedWeapon = Weapon::RocketLauncher;
+        return std::string("weapon = rl");
+      }
+      return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+    }
+  );
+  console.registerCommand(
+    "bot_dodge",
+    "Toggle BOT random left/right movement: bot_dodge [0|1] [min_ms max_ms].",
+    [&botDodgeEnabled, &botDodgeMinIntervalMs, &botDodgeMaxIntervalMs](
+      const std::vector<std::string>& arguments
+    ) {
+      auto parseInt = [](const std::string& text, int& value) {
+        const auto result =
+          std::from_chars(text.data(), text.data() + text.size(), value);
+        return result.ec == std::errc{} &&
+          result.ptr == text.data() + text.size();
+      };
+
+      bool enabled = !botDodgeEnabled;
+      std::size_t intervalArgument = 1;
+      if (arguments.size() >= 2) {
+        if (
+          arguments[1] == "1" ||
+          arguments[1] == "on" ||
+          arguments[1] == "true"
+        ) {
+          enabled = true;
+          intervalArgument = 2;
+        } else if (
+          arguments[1] == "0" ||
+          arguments[1] == "off" ||
+          arguments[1] == "false"
+        ) {
+          enabled = false;
+          intervalArgument = 2;
+        }
+      }
+
+      int minMs = botDodgeMinIntervalMs;
+      int maxMs = botDodgeMaxIntervalMs;
+      if (arguments.size() > intervalArgument) {
+        if (arguments.size() != intervalArgument + 2) {
+          return std::string("usage: bot_dodge [0|1] [min_ms max_ms]");
+        }
+        if (
+          !parseInt(arguments[intervalArgument], minMs) ||
+          !parseInt(arguments[intervalArgument + 1], maxMs)
+        ) {
+          return std::string("usage: bot_dodge [0|1] [min_ms max_ms]");
+        }
+      }
+      minMs = std::clamp(minMs, 1, 10000);
+      maxMs = std::clamp(maxMs, 1, 10000);
+      if (minMs > maxMs) {
+        std::swap(minMs, maxMs);
+      }
+      botDodgeEnabled = enabled;
+      botDodgeMinIntervalMs = minMs;
+      botDodgeMaxIntervalMs = maxMs;
+      return std::string("bot_dodge = ") + (botDodgeEnabled ? "1" : "0") +
+        " (" + std::to_string(botDodgeMinIntervalMs) + "-" +
+        std::to_string(botDodgeMaxIntervalMs) + " ms)";
+    }
+  );
   console.registerCommand(
     "player",
     "Set your player name: player <name>.",
@@ -980,6 +1327,8 @@ int GameApp::run() const {
         "+movedown\n"
         "+attack\n"
         "+scores\n"
+        "+zoom\n"
+        "weapon\n"
         "player\n"
         "resetmatch\n"
         "ready\n"
@@ -1009,12 +1358,21 @@ int GameApp::run() const {
     }
   );
   loadClientConfig(console, configPath);
-  if (console.getInt("cl_config_version") < 3) {
+  if (console.getInt("cl_config_version") < 6) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
     (void)bindings.bind("z", "showchat");
     (void)bindings.bind("tab", "+scores");
-    (void)console.execute("set cl_config_version 3");
+    if (bindings.binding("mouse2").empty()) {
+      (void)bindings.bind("mouse2", "+zoom");
+    }
+    (void)bindings.bind("q", "weapon rl");
+    (void)bindings.bind("e", "weapon lg");
+    (void)bindings.bind("r", "weapon rg");
+    if (bindings.binding("f5").empty()) {
+      (void)bindings.bind("f5", "resetmatch");
+    }
+    (void)console.execute("set cl_config_version 6");
   }
   (void)session.connect(serverHost_, serverPort_);
   (void)renderer.setVSync(console.getBool("r_vsync"));
@@ -1102,17 +1460,32 @@ int GameApp::run() const {
     console.getFloat("g_knockback");
   float lastRequestedVampirism =
     console.getFloat("g_vampirism");
-  bool movementTuningRequestPending = false;
+  std::uint8_t lastRequestedSelfDamagePercent =
+    selfDamagePercent(console);
+  std::int32_t lastRequestedHealthAmount =
+    healthAmount(console);
+  bool lastRequestedBotDodgeEnabled = botDodgeEnabled;
+  std::int32_t lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
+  std::int32_t lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
+  bool movementTuningRequestPending = true;
   bool relativeMouseModeEnabled = true;
   const ClientGame* audioGame = nullptr;
   std::uint32_t lastAudioServerTick = 0;
   std::uint32_t lastHitSoundServerTick = 0;
+  std::array<WeaponFireResult, kDuelPlayerCount> lastPlayedWeaponFires = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlayedWeaponFire = {};
+  std::array<RocketExplosionResult, kDuelPlayerCount> lastPlayedRocketExplosions = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlayedRocketExplosion = {};
+  std::uint32_t lastLocalRailFireTick = 0;
+  bool hasLocalRailFireTick = false;
+  bool localRailReadySoundPlayed = true;
   MatchPhase lastAudioMatchPhase = MatchPhase::WaitingForPlayers;
   std::uint32_t lastAudioCountdownSecond = 0;
   bool previousLocalHit = false;
   bool audioStateInitialized = false;
   bool hasEnemyHitTime = false;
   Clock::time_point lastEnemyHitTime = {};
+  std::array<LingeringRailBeam, kDuelPlayerCount> lingeringRailBeams = {};
 
   while (running) {
     SDL_Event event;
@@ -1251,7 +1624,7 @@ int GameApp::run() const {
       case SDL_EVENT_MOUSE_BUTTON_DOWN:
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
-        const std::string key = "mouse" + std::to_string(event.button.button);
+        const std::string key = mouseButtonName(event.button.button);
         if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
@@ -1353,6 +1726,10 @@ int GameApp::run() const {
       console.getFloat("g_knockback");
     const float currentVampirism =
       console.getFloat("g_vampirism");
+    const std::uint8_t currentSelfDamagePercent =
+      selfDamagePercent(console);
+    const std::int32_t currentHealthAmount =
+      healthAmount(console);
     if (!sameRuntimeMovementTuning(
           currentMovementTuning,
           lastRequestedMovementTuning
@@ -1360,12 +1737,22 @@ int GameApp::run() const {
         currentPlayerSizeScaleXY != lastRequestedPlayerSizeScaleXY ||
         currentPlayerSizeScaleZ != lastRequestedPlayerSizeScaleZ ||
         currentLightningKnockback != lastRequestedLightningKnockback ||
-        currentVampirism != lastRequestedVampirism) {
+        currentVampirism != lastRequestedVampirism ||
+        currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
+        currentHealthAmount != lastRequestedHealthAmount ||
+        botDodgeEnabled != lastRequestedBotDodgeEnabled ||
+        botDodgeMinIntervalMs != lastRequestedBotDodgeMinIntervalMs ||
+        botDodgeMaxIntervalMs != lastRequestedBotDodgeMaxIntervalMs) {
       lastRequestedMovementTuning = currentMovementTuning;
       lastRequestedPlayerSizeScaleXY = currentPlayerSizeScaleXY;
       lastRequestedPlayerSizeScaleZ = currentPlayerSizeScaleZ;
       lastRequestedLightningKnockback = currentLightningKnockback;
       lastRequestedVampirism = currentVampirism;
+      lastRequestedSelfDamagePercent = currentSelfDamagePercent;
+      lastRequestedHealthAmount = currentHealthAmount;
+      lastRequestedBotDodgeEnabled = botDodgeEnabled;
+      lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
+      lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
       movementTuningRequestPending = true;
     }
 
@@ -1396,7 +1783,6 @@ int GameApp::run() const {
         tickInput.mouseDeltaX = 0.0F;
         tickInput.mouseDeltaY = 0.0F;
       }
-
       const PlayerState& predictedPlayer = client->predictedPlayer();
 
       int viewportWidth = 0;
@@ -1404,6 +1790,17 @@ int GameApp::run() const {
       SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
       const AimMode currentAimMode =
         aimModeFromInt(console.getInt("cl_aim_mode"));
+      const bool zoomHeld = zoomPressCount > 0;
+      const float effectiveFieldOfView = zoomHeld
+        ? console.getFloat("cl_zoom_fov")
+        : console.getFloat("cl_fov");
+      const float zoomSensitivity = zoomSensitivityMultiplier(
+        console.getFloat("cl_fov"),
+        console.getFloat("cl_zoom_fov"),
+        console.getFloat("cl_zoom_sensitivity")
+      );
+      const float effectiveSensitivity = console.getFloat("sensitivity") *
+        (zoomHeld ? zoomSensitivity : 1.0F);
 
       const UserCommand command =
         buildCommand(
@@ -1411,13 +1808,14 @@ int GameApp::run() const {
           predictedPlayer,
           commandSequence++,
           clientTick++,
-          console.getFloat("sensitivity"),
+          effectiveSensitivity,
           currentAimMode,
           viewportWidth,
           viewportHeight,
-          console.getFloat("cl_fov"),
+          effectiveFieldOfView,
           console.getFloat("cl_camera_zoom"),
-          perspectiveRenderMode ? 1 : 0
+          perspectiveRenderMode ? 1 : 0,
+          selectedWeapon
         );
       session.sendCommand(
         command,
@@ -1429,6 +1827,11 @@ int GameApp::run() const {
         lastRequestedPlayerSizeScaleZ,
         lastRequestedLightningKnockback,
         lastRequestedVampirism,
+        lastRequestedSelfDamagePercent,
+        lastRequestedHealthAmount,
+        lastRequestedBotDodgeEnabled,
+        lastRequestedBotDodgeMinIntervalMs,
+        lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
         std::move(pendingPlayerName)
       );
@@ -1451,8 +1854,16 @@ int GameApp::run() const {
       audioStateInitialized = false;
       lastAudioCountdownSecond = 0;
       lastHitSoundServerTick = 0;
+      lastPlayedWeaponFires = {};
+      hasLastPlayedWeaponFire = {};
+      lastPlayedRocketExplosions = {};
+      hasLastPlayedRocketExplosion = {};
+      lastLocalRailFireTick = 0;
+      hasLocalRailFireTick = false;
+      localRailReadySoundPlayed = true;
       previousLocalHit = false;
       hasEnemyHitTime = false;
+      lingeringRailBeams = {};
     }
     if (
       audioAvailable &&
@@ -1480,8 +1891,76 @@ int GameApp::run() const {
               kHitSoundIntervalTicks
           )
         ) {
-          audio.playHit(volume);
+          audio.playHit(
+            volume,
+            audioSnapshot.lightningGuns[localPlayerIndex].damageApplied
+          );
           lastHitSoundServerTick = audioSnapshot.serverTick;
+        }
+        if (soundEnabled && audioStateInitialized) {
+          for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+            const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
+            const bool localWeaponEvent = playerIndex == localPlayerIndex;
+            if (
+              fire.fired &&
+              (
+                !hasLastPlayedWeaponFire[playerIndex] ||
+                !sameWeaponFireEvent(fire, lastPlayedWeaponFires[playerIndex])
+              )
+            ) {
+              if (fire.weapon == Weapon::Railgun) {
+                audio.playRailFire(volume);
+                if (localWeaponEvent) {
+                  lastLocalRailFireTick = audioSnapshot.serverTick;
+                  hasLocalRailFireTick = true;
+                  localRailReadySoundPlayed = false;
+                }
+                if (localWeaponEvent && fire.hit) {
+                  audio.playHit(volume, fire.damageApplied);
+                  lastHitSoundServerTick = audioSnapshot.serverTick;
+                }
+              } else if (fire.weapon == Weapon::RocketLauncher) {
+                audio.playRocketFire(volume);
+              }
+              lastPlayedWeaponFires[playerIndex] = fire;
+              hasLastPlayedWeaponFire[playerIndex] = true;
+            }
+
+            const RocketExplosionResult& explosion =
+              audioSnapshot.rocketExplosions[playerIndex];
+            if (
+              explosion.active &&
+              (
+                !hasLastPlayedRocketExplosion[playerIndex] ||
+                !sameRocketExplosionEvent(
+                  explosion,
+                  lastPlayedRocketExplosions[playerIndex]
+                )
+              )
+            ) {
+              audio.playRocketExplosion(volume);
+              if (
+                localWeaponEvent &&
+                explosion.opponentDamageApplied > 0
+              ) {
+                audio.playHit(volume, explosion.opponentDamageApplied);
+                lastHitSoundServerTick = audioSnapshot.serverTick;
+              }
+              lastPlayedRocketExplosions[playerIndex] = explosion;
+              hasLastPlayedRocketExplosion[playerIndex] = true;
+            }
+          }
+
+          if (
+            hasLocalRailFireTick &&
+            !localRailReadySoundPlayed &&
+            selectedWeapon == Weapon::Railgun &&
+            audioSnapshot.serverTick - lastLocalRailFireTick >=
+              kClientRailgunCooldownTicks
+          ) {
+            audio.playRailReady(volume);
+            localRailReadySoundPlayed = true;
+          }
         }
         if (
           soundEnabled &&
@@ -1593,9 +2072,14 @@ int GameApp::run() const {
     PlayerState renderOpponent;
     LightningGunResult renderLocalLightningGun;
     LightningGunResult renderOpponentLightningGun;
+    std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
+    std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
+    std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
+    std::size_t renderLocalPlayerIndex = 0;
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
+      renderLocalPlayerIndex = localPlayerIndex;
       const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
       renderOpponent = renderClient->interpolatedPlayer(
@@ -1607,8 +2091,49 @@ int GameApp::run() const {
         renderSnapshot.lightningGuns[localPlayerIndex];
       renderOpponentLightningGun =
         renderSnapshot.lightningGuns[opponentPlayerIndex];
+      renderWeaponFires = renderSnapshot.weaponFires;
+      renderRocketExplosions = renderSnapshot.rocketExplosions;
+      renderRockets = renderSnapshot.rockets;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      WeaponFireResult& currentFire = renderWeaponFires[playerIndex];
+      LingeringRailBeam& lingeringBeam = lingeringRailBeams[playerIndex];
+      if (currentFire.fired && currentFire.weapon == Weapon::Railgun) {
+        const WeaponFireResult sourceFire = currentFire;
+        const bool localPerspectiveRail =
+          currentRenderSettings.renderMode == 1 &&
+          playerIndex == renderLocalPlayerIndex;
+        const bool newRailEvent =
+          !lingeringBeam.active ||
+          !sameWeaponFireEvent(sourceFire, lingeringBeam.sourceFire);
+        if (newRailEvent) {
+          if (localPerspectiveRail) {
+            currentFire.start = viewmodelMuzzlePosition(renderPlayer);
+          }
+          lingeringBeam.sourceFire = sourceFire;
+          lingeringBeam.fire = currentFire;
+          lingeringBeam.active = true;
+          lingeringBeam.expiresAt =
+            now + std::chrono::duration_cast<Clock::duration>(
+              std::chrono::duration<float>(kRailgunBeamLingerSeconds)
+            );
+        } else {
+          currentFire = lingeringBeam.fire;
+        }
+      } else if (
+        !currentFire.fired &&
+        lingeringBeam.active &&
+        now < lingeringBeam.expiresAt
+      ) {
+        currentFire = lingeringBeam.fire;
+      } else if (lingeringBeam.active && now >= lingeringBeam.expiresAt) {
+        lingeringBeam.active = false;
+      }
+    }
+    if (zoomPressCount > 0) {
+      currentRenderSettings.fieldOfView = console.getFloat("cl_zoom_fov");
+    }
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
     const double presentationSeconds =
       std::chrono::duration<double>(now.time_since_epoch()).count();
@@ -1756,6 +2281,9 @@ int GameApp::run() const {
       renderOpponent,
       renderLocalLightningGun,
       renderOpponentLightningGun,
+      renderWeaponFires,
+      renderRocketExplosions,
+      renderRockets,
       currentRenderSettings,
       hud,
       consoleRenderState(consoleState)

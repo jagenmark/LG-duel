@@ -22,6 +22,10 @@ public:
     const std::array<bool, kDuelPlayerCount>& connectedPlayers
   );
   void setMatchRules(const MatchRules& rules);
+  void setBotDodge(bool enabled, int minIntervalMs, int maxIntervalMs);
+  [[nodiscard]] bool botDodgeEnabled() const;
+  [[nodiscard]] int botDodgeMinIntervalMs() const;
+  [[nodiscard]] int botDodgeMaxIntervalMs() const;
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] const MatchRules& matchRules() const;
@@ -43,6 +47,17 @@ private:
   [[nodiscard]] bool allConnectedPlayersReady() const;
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
+  void simulateRockets(float fixedDt);
+  void restoreTransientCombatEvents();
+  void rememberTransientCombatEvents();
+  void updateBotCommands(float fixedDt);
+  [[nodiscard]] std::uint32_t randomU32();
+  void applyDamageAndKnockback(
+    std::size_t attackerIndex,
+    std::size_t targetIndex,
+    int damageApplied,
+    Vec3 knockbackImpulse
+  );
   void publishSnapshot();
 
   NetTransport& transport_;
@@ -51,13 +66,30 @@ private:
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;
   LightningGunTuning lightningGunTuning_ = {};
+  HitscanTuning railgunTuning_ = {};
+  RocketLauncherTuning rocketLauncherTuning_ = {};
   float vampirism_ = 0.0F;
+  std::uint8_t selfDamagePercent_ = 100;
+  std::int32_t healthAmount_ = 100;
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentWeaponFireTicks_ = {};
+  std::array<RocketExplosionResult, kDuelPlayerCount> recentRocketExplosions_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentRocketExplosionTicks_ = {};
+  std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
   std::array<UserCommand, kDuelPlayerCount> commands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};
   std::array<bool, kDuelPlayerCount> receivedCommandThisTick_ = {};
+  bool botDodgeEnabled_ = false;
+  int botDodgeMinIntervalMs_ = 250;
+  int botDodgeMaxIntervalMs_ = 750;
+  std::array<int, kDuelPlayerCount> botDodgeDirections_ = {};
+  std::array<float, kDuelPlayerCount> botDodgeSwitchSeconds_ = {};
+  std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};
   ServerSnapshot snapshot_ = {};

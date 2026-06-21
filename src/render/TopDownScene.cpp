@@ -216,6 +216,141 @@ void addQuadOutline(
   }
 }
 
+void addWorldQuad(
+  std::vector<DrawCommand2D>& commands,
+  const ViewProjection& view,
+  Vec3 minimum,
+  Vec3 maximum,
+  RenderColor color
+) {
+  addFilledQuad(
+    commands,
+    {{
+      worldToScreen(view, {minimum.x, minimum.y, minimum.z}),
+      worldToScreen(view, {maximum.x, minimum.y, minimum.z}),
+      worldToScreen(view, {maximum.x, maximum.y, minimum.z}),
+      worldToScreen(view, {minimum.x, maximum.y, minimum.z}),
+    }},
+    color
+  );
+}
+
+void addFloorTreatment(
+  std::vector<DrawCommand2D>& commands,
+  const ViewProjection& view,
+  const Arena& arena
+) {
+  addWorldQuad(
+    commands,
+    view,
+    arena.min,
+    arena.max,
+    {56, 138, 70, 255}
+  );
+
+  constexpr float tileSize = 2.0F;
+  for (float x = arena.min.x; x < arena.max.x; x += tileSize) {
+    for (float y = arena.min.y; y < arena.max.y; y += tileSize) {
+      const int checker =
+        static_cast<int>(std::floor((x - arena.min.x) / tileSize)) +
+        static_cast<int>(std::floor((y - arena.min.y) / tileSize));
+      const RenderColor color = checker % 2 == 0
+        ? RenderColor{67, 158, 76, 255}
+        : RenderColor{74, 174, 84, 255};
+      addWorldQuad(
+        commands,
+        view,
+        {x, y, arena.min.z},
+        {
+          std::min(x + tileSize, arena.max.x),
+          std::min(y + tileSize, arena.max.y),
+          arena.min.z,
+        },
+        color
+      );
+    }
+  }
+
+  constexpr float laneHalfWidth = 1.15F;
+  addWorldQuad(
+    commands,
+    view,
+    {arena.min.x, -laneHalfWidth, arena.min.z},
+    {arena.max.x, laneHalfWidth, arena.min.z},
+    {186, 151, 91, 255}
+  );
+  addWorldQuad(
+    commands,
+    view,
+    {-laneHalfWidth, arena.min.y, arena.min.z},
+    {laneHalfWidth, arena.max.y, arena.min.z},
+    {197, 163, 101, 255}
+  );
+
+  constexpr std::array<Vec3, 6> flowerPatches = {{
+    {-10.5F, -8.5F, 0.0F},
+    {-7.5F, 8.0F, 0.0F},
+    {-2.8F, -9.2F, 0.0F},
+    {3.4F, 8.8F, 0.0F},
+    {8.4F, -8.0F, 0.0F},
+    {11.2F, 5.6F, 0.0F},
+  }};
+  constexpr std::array<RenderColor, 3> flowerColors = {{
+    {255, 224, 102, 255},
+    {255, 142, 180, 255},
+    {144, 213, 255, 255},
+  }};
+  for (std::size_t index = 0; index < flowerPatches.size(); ++index) {
+    const Vec3 patch = flowerPatches[index];
+    if (
+      patch.x < arena.min.x || patch.x > arena.max.x ||
+      patch.y < arena.min.y || patch.y > arena.max.y
+    ) {
+      continue;
+    }
+    addWorldQuad(
+      commands,
+      view,
+      {patch.x - 0.18F, patch.y - 0.18F, arena.min.z},
+      {patch.x + 0.18F, patch.y + 0.18F, arena.min.z},
+      flowerColors[index % flowerColors.size()]
+    );
+  }
+
+  constexpr RenderColor gridColor = {109, 195, 105, 255};
+  for (float x = arena.min.x; x <= arena.max.x; x += 1.0F) {
+    addLine(
+      commands,
+      worldToScreen(view, {x, arena.min.y, arena.min.z}),
+      worldToScreen(view, {x, arena.max.y, arena.min.z}),
+      gridColor
+    );
+  }
+  for (float y = arena.min.y; y <= arena.max.y; y += 1.0F) {
+    addLine(
+      commands,
+      worldToScreen(view, {arena.min.x, y, arena.min.z}),
+      worldToScreen(view, {arena.max.x, y, arena.min.z}),
+      gridColor
+    );
+  }
+
+  addLine(
+    commands,
+    worldToScreen(view, {arena.min.x, 0.0F, arena.min.z}),
+    worldToScreen(view, {arena.max.x, 0.0F, arena.min.z}),
+    {236, 205, 126, 255},
+    2.0F
+  );
+  addLine(
+    commands,
+    worldToScreen(view, {0.0F, arena.min.y, arena.min.z}),
+    worldToScreen(view, {0.0F, arena.max.y, arena.min.z}),
+    {236, 205, 126, 255},
+    2.0F
+  );
+}
+
 void addHitMarker(
   std::vector<DrawCommand2D>& commands,
   ScreenPoint center
@@ -259,6 +394,9 @@ DrawList2D buildTopDownScene(
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
@@ -291,7 +429,8 @@ DrawList2D buildTopDownScene(
     worldToScreen(view, {arena.max.x, arena.max.y, 0.0F}),
     worldToScreen(view, {arena.min.x, arena.max.y, 0.0F}),
   };
-  addQuadOutline(drawList.commands, arenaCorners, {54, 61, 72, 255});
+  addFloorTreatment(drawList.commands, view, arena);
+  addQuadOutline(drawList.commands, arenaCorners, {127, 202, 111, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
@@ -301,8 +440,23 @@ DrawList2D buildTopDownScene(
       worldToScreen(view, {wall.max.x, wall.max.y, 0.0F}),
       worldToScreen(view, {wall.min.x, wall.max.y, 0.0F}),
     };
-    addFilledQuad(drawList.commands, wallCorners, {31, 38, 48, 255});
-    addQuadOutline(drawList.commands, wallCorners, {82, 95, 112, 255});
+    addFilledQuad(drawList.commands, wallCorners, {126, 87, 50, 255});
+    addWorldQuad(
+      drawList.commands,
+      view,
+      {
+        wall.min.x + 0.08F,
+        wall.min.y + 0.08F,
+        wall.min.z,
+      },
+      {
+        wall.max.x - 0.08F,
+        wall.max.y - 0.08F,
+        wall.min.z,
+      },
+      {109, 195, 105, 255}
+    );
+    addQuadOutline(drawList.commands, wallCorners, {127, 202, 111, 255});
   }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
@@ -383,6 +537,53 @@ DrawList2D buildTopDownScene(
     };
   addBeam(opponentLightningGun, false);
   addBeam(localLightningGun, true);
+
+  for (const WeaponFireResult& fire : weaponFires) {
+    if (!fire.fired) {
+      continue;
+    }
+    const RenderColor color = fire.weapon == Weapon::Railgun
+      ? (fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 230})
+      : RenderColor{255, 150, 70, 235};
+    const ScreenPoint start = worldToScreen(view, fire.start);
+    const ScreenPoint end = worldToScreen(view, fire.end);
+    addLine(
+      drawList.commands,
+      start,
+      end,
+      color,
+      fire.weapon == Weapon::Railgun ? 3.0F : 2.0F
+    );
+    if (fire.hit) {
+      addHitMarker(drawList.commands, end);
+    }
+  }
+  for (const RocketProjectileSnapshot& rocket : rockets) {
+    if (!rocket.active) {
+      continue;
+    }
+    const ScreenPoint point = worldToScreen(view, rocket.position);
+    addFilledRect(
+      drawList.commands,
+      point.x - 3.0F,
+      point.y - 3.0F,
+      6.0F,
+      6.0F,
+      {255, 126, 40, 255}
+    );
+  }
+  for (const RocketExplosionResult& explosion : rocketExplosions) {
+    if (!explosion.active) {
+      continue;
+    }
+    const std::array<ScreenPoint, 4> corners = {
+      worldToScreen(view, explosion.position + Vec3{-explosion.radius, -explosion.radius, 0.0F}),
+      worldToScreen(view, explosion.position + Vec3{explosion.radius, -explosion.radius, 0.0F}),
+      worldToScreen(view, explosion.position + Vec3{explosion.radius, explosion.radius, 0.0F}),
+      worldToScreen(view, explosion.position + Vec3{-explosion.radius, explosion.radius, 0.0F}),
+    };
+    addQuadOutline(drawList.commands, corners, {255, 185, 80, 220});
+  }
 
   const ScreenPoint playerScreen = worldToScreen(view, player.position);
   const ScreenPoint opponentScreen = worldToScreen(view, opponent.position);

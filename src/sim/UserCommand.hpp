@@ -4,6 +4,12 @@
 
 namespace lg {
 
+enum class Weapon : std::uint8_t {
+  LightningGun = 0,
+  Railgun = 1,
+  RocketLauncher = 2,
+};
+
 struct UserCommand {
   std::uint32_t sequence = 0;
   std::uint32_t clientTick = 0;
@@ -18,6 +24,7 @@ struct UserCommand {
   bool attack = false;
   bool jump = false;
   bool planarAim = true;
+  Weapon weapon = Weapon::LightningGun;
 };
 
 } // namespace lg

@@ -60,6 +60,11 @@ struct CommandPacket {
   float vampirism = 0.0F;
   std::string chatMessage;
   std::string playerName;
+  std::uint8_t selfDamagePercent = 100;
+  std::int32_t healthAmount = 100;
+  bool botDodgeEnabled = false;
+  std::int32_t botDodgeMinIntervalMs = 250;
+  std::int32_t botDodgeMaxIntervalMs = 750;
 };
 
 struct CommandBundle {
@@ -87,6 +92,9 @@ struct ServerSnapshot {
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
+  std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
+  std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
   std::array<bool, kDuelPlayerCount> connectedPlayers = {};
@@ -98,6 +106,11 @@ struct ServerSnapshot {
   float playerSizeScaleZ = 1.0F;
   float lightningKnockback = 22.0F;
   float vampirism = 0.0F;
+  std::uint8_t selfDamagePercent = 100;
+  std::int32_t healthAmount = 100;
+  bool botDodgeEnabled = false;
+  std::int32_t botDodgeMinIntervalMs = 250;
+  std::int32_t botDodgeMaxIntervalMs = 750;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
   std::array<std::string, kDuelPlayerCount> playerNames = {"PLAYER 1", "PLAYER 2"};

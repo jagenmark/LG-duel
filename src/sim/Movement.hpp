@@ -16,6 +16,7 @@ struct MovementTuning {
   float maxGroundSpeed = 8.0F;
   float maxAirSpeed = 8.0F;
   float jumpImpulse = 8.0F;
+  bool airControlEnabled = false;
 
   float flightAcceleration = 32.0F;
   float maxFlightSpeed = 12.0F;

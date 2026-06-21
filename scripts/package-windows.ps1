@@ -39,6 +39,14 @@ $sdlLicense = Get-ChildItem -Path $resolvedBuildDir -Filter "LICENSE.txt" -File 
   Where-Object { $_.FullName -match "[\\/]sdl3-src[\\/]" } |
   Select-Object -First 1
 if (-not $sdlLicense) {
+  $parentBuildDir = Join-Path (Split-Path -Parent $repoRoot) "build"
+  if (Test-Path $parentBuildDir) {
+    $sdlLicense = Get-ChildItem -Path $parentBuildDir -Filter "LICENSE.txt" -File -Recurse |
+      Where-Object { $_.FullName -match "[\\/]sdl3-src[\\/]" } |
+      Select-Object -First 1
+  }
+}
+if (-not $sdlLicense) {
   throw "The SDL3 license file was not found in the fetched source tree."
 }
 

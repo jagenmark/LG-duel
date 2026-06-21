@@ -162,6 +162,34 @@ int main() {
   {
     lg::UserCommand command;
     command.forwardMove = 1.0F;
+    lg::MovementTuning q3;
+    q3.airAcceleration = 0.0F;
+    lg::MovementTuning qw = q3;
+    qw.airControlEnabled = true;
+    lg::PlayerState withoutControl = groundedPlayer();
+    lg::PlayerState withControl = groundedPlayer();
+    withoutControl.position = {-6.0F, 0.0F, 4.0F};
+    withControl.position = withoutControl.position;
+    withoutControl.velocity = {4.0F, 4.0F, 0.0F};
+    withControl.velocity = withoutControl.velocity;
+    withoutControl.onGround = false;
+    withControl.onGround = false;
+    withoutControl.movementMode = lg::MovementMode::Airborne;
+    withControl.movementMode = lg::MovementMode::Airborne;
+
+    runCommand(withoutControl, command, q3, 8);
+    runCommand(withControl, command, qw, 8);
+
+    failures += expect(
+      withControl.velocity.x > withoutControl.velocity.x &&
+        withControl.velocity.y < withoutControl.velocity.y,
+      "g_aircontrol 1 should rotate airborne velocity toward forward input"
+    );
+  }
+
+  {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
     lg::MovementTuning lowCap;
     lowCap.maxGroundSpeed = 2.0F;
     lg::MovementTuning highCap = lowCap;
@@ -191,6 +219,27 @@ int main() {
     failures += expect(player.position.z > player.bounds.halfHeight, "jump should lift player off floor");
     failures += expect(player.movementMode == lg::MovementMode::Airborne, "jump should enter airborne mode");
     failures += expect(player.velocity.z > 0.0F, "jump should produce positive vertical velocity");
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 20.0F;
+    lg::PlayerState jumping = groundedPlayer();
+    lg::PlayerState coasting = groundedPlayer();
+    jumping.velocity.x = 8.0F;
+    coasting.velocity.x = 8.0F;
+    lg::UserCommand jump;
+    jump.jump = true;
+    jump.upMove = 1.0F;
+    lg::UserCommand idle;
+
+    runCommand(jumping, jump, tuning, 1);
+    runCommand(coasting, idle, tuning, 1);
+
+    failures += expect(
+      jumping.velocity.x > 7.99F && coasting.velocity.x < 7.0F,
+      "accepted jumps should skip ground friction on the takeoff tick"
+    );
   }
 
   {

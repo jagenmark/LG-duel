@@ -64,6 +64,7 @@ int main() {
     tuningRequest.command.sequence = 1;
     tuningRequest.command.forwardMove = 1.0F;
     tuningRequest.requestMovementTuning = true;
+    tuningRequest.movementTuning.airControlEnabled = true;
     tuningRequest.movementTuning.groundAcceleration = 160.0F;
     tuningRequest.movementTuning.airAcceleration = 3.0F;
     tuningRequest.movementTuning.groundFriction = 4.0F;
@@ -73,12 +74,15 @@ int main() {
     tuningRequest.playerSizeScaleZ = 0.5F;
     tuningRequest.lightningKnockback = 35.0F;
     tuningRequest.vampirism = 0.1F;
+    tuningRequest.selfDamagePercent = 25;
+    tuningRequest.healthAmount = 150;
     transport.sendCommand(tuningRequest);
     server.tick(lg::kFixedTickSeconds);
 
     const lg::ServerSnapshot tuned = latestSnapshot(transport);
     failures += expect(
       tuned.movementTuning.groundAcceleration == 160.0F &&
+        tuned.movementTuning.airControlEnabled &&
         tuned.movementTuning.airAcceleration == 3.0F &&
         tuned.movementTuning.groundFriction == 4.0F &&
         tuned.movementTuning.stopSpeed == 2.5F &&
@@ -90,6 +94,8 @@ int main() {
         tuned.playerSizeScaleZ == 0.5F &&
         tuned.lightningKnockback == 35.0F &&
         tuned.vampirism == 0.1F &&
+        tuned.selfDamagePercent == 25 &&
+        tuned.healthAmount == 150 &&
         tuned.players[0].bounds.radius == 0.7F &&
         tuned.players[1].bounds.radius == 0.7F &&
         tuned.players[0].bounds.halfHeight == 0.45F &&
@@ -102,6 +108,25 @@ int main() {
       tuned.players[0].velocity.x > 1.0F,
       "updated acceleration should affect the requesting simulation tick"
     );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setConnectedPlayers({true, false});
+    latestSnapshot(transport);
+
+    lg::CommandPacket customHealth;
+    customHealth.command.sequence = 1;
+    customHealth.requestMovementTuning = true;
+    customHealth.healthAmount = 175;
+    transport.sendCommand(customHealth);
+    server.tick(lg::kFixedTickSeconds);
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.healthAmount == 175, "g_healthamount should replicate to warmup snapshots");
+    failures += expect(snapshot.players[0].health == 175, "warmup spawn should use g_healthamount for player one");
+    failures += expect(snapshot.players[1].health == 175, "warmup spawn should use g_healthamount for player two");
   }
 
   {
@@ -712,6 +737,8 @@ int main() {
     rules.matchEndTicks = 3;
     server.setMatchRules(rules);
     server.setConnectedPlayers({true, false});
+    server.setBotDodge(true, 1, 1);
+    const lg::Vec3 botStart = server.snapshot().players[1].position;
     server.tick(lg::kFixedTickSeconds);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
@@ -722,6 +749,15 @@ int main() {
       snapshot.connectedPlayers == std::array<bool, 2>{true, false},
       "snapshot should replicate occupied player slots"
     );
+    failures += expect(snapshot.playerNames[1] == "BOT", "empty warmup opponent should be named BOT");
+    for (int tick = 0; tick < 20; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    const bool botMoved =
+      snapshot.players[1].position.x != botStart.x ||
+      snapshot.players[1].position.y != botStart.y;
+    failures += expect(botMoved, "bot_dodge should move the empty warmup opponent");
     lg::UserCommand soloWarmupAttack;
     soloWarmupAttack.sequence = 0;
     soloWarmupAttack.attack = true;
@@ -936,6 +972,104 @@ int main() {
       snapshot.serverTick == tickBeforeReset + 1,
       "match reset should not rewind server tick"
     );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rail;
+    rail.sequence = 1;
+    rail.attack = true;
+    rail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "railgun command should fire a weapon event");
+    failures += expect(snapshot.weaponFires[0].hit, "railgun should hit the spawned opponent");
+    failures += expect(snapshot.players[1].health == 20, "railgun should apply 80 damage");
+    failures += expect(!snapshot.lightningGuns[0].active, "railgun should not also emit LG state");
+
+    rail.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.players[1].health == 20, "railgun cooldown should block immediate damage");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket noSelfDamage;
+    noSelfDamage.command.sequence = 1;
+    noSelfDamage.requestMovementTuning = true;
+    noSelfDamage.selfDamagePercent = 0;
+    transport.sendCommand(noSelfDamage);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.selfDamagePercent == 0, "g_selfdamage 0 should replicate to the server");
+
+    lg::UserCommand rocketDown;
+    rocketDown.sequence = 2;
+    rocketDown.attack = true;
+    rocketDown.weapon = lg::Weapon::RocketLauncher;
+    rocketDown.viewPitchRadians = -kPi * 0.5F;
+    transport.sendCommand(lg::CommandPacket{0, rocketDown, false});
+    bool exploded = false;
+    for (int tick = 0; tick < 220; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        exploded = true;
+        failures += expect(
+          snapshot.rocketExplosions[0].ownerDamageApplied == 0,
+          "g_selfdamage 0 should report no owner damage"
+        );
+        failures += expect(
+          snapshot.players[0].health == 100,
+          "g_selfdamage 0 should prevent rocket self damage"
+        );
+        break;
+      }
+    }
+    failures += expect(exploded, "downward rocket should explode near its owner");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "rocket launcher should fire a weapon event");
+    failures += expect(snapshot.rockets[0].active, "rocket projectile should replicate after firing");
+
+    bool exploded = false;
+    bool damaged = false;
+    for (int tick = 0; tick < 160; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      exploded = exploded || snapshot.rocketExplosions[0].active;
+      damaged = damaged || snapshot.players[1].health < 100;
+      if (exploded && damaged) {
+        failures += expect(
+          snapshot.rocketExplosions[0].opponentDamageApplied > 0,
+          "rocket explosion should report opponent damage for audio feedback"
+        );
+        break;
+      }
+    }
+    failures += expect(exploded, "rocket should eventually explode");
+    failures += expect(damaged, "rocket explosion should damage the opponent");
   }
 
   return failures == 0 ? 0 : 1;

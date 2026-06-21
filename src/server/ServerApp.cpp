@@ -6,6 +6,7 @@
 #include "shared/Constants.hpp"
 
 #include <algorithm>
+#include <charconv>
 #include <chrono>
 #include <deque>
 #include <iostream>
@@ -58,6 +59,58 @@ int ServerApp::run() const {
         " phase=" + std::to_string(static_cast<int>(snapshot.matchPhase)) +
         " score=" + std::to_string(snapshot.scores[0]) +
         "-" + std::to_string(snapshot.scores[1]);
+    }
+  );
+  console.registerCommand(
+    "bot_dodge",
+    "Toggle BOT random left/right movement: bot_dodge [0|1] [min_ms max_ms].",
+    [&server](const std::vector<std::string>& arguments) {
+      auto parseInt = [](const std::string& text, int& value) {
+        const auto result =
+          std::from_chars(text.data(), text.data() + text.size(), value);
+        return result.ec == std::errc{} &&
+          result.ptr == text.data() + text.size();
+      };
+
+      bool enabled = !server.botDodgeEnabled();
+      std::size_t intervalArgument = 1;
+      if (arguments.size() >= 2) {
+        if (
+          arguments[1] == "1" ||
+          arguments[1] == "on" ||
+          arguments[1] == "true"
+        ) {
+          enabled = true;
+          intervalArgument = 2;
+        } else if (
+          arguments[1] == "0" ||
+          arguments[1] == "off" ||
+          arguments[1] == "false"
+        ) {
+          enabled = false;
+          intervalArgument = 2;
+        }
+      }
+
+      int minMs = server.botDodgeMinIntervalMs();
+      int maxMs = server.botDodgeMaxIntervalMs();
+      if (arguments.size() > intervalArgument) {
+        if (arguments.size() != intervalArgument + 2) {
+          return std::string("usage: bot_dodge [0|1] [min_ms max_ms]");
+        }
+        if (
+          !parseInt(arguments[intervalArgument], minMs) ||
+          !parseInt(arguments[intervalArgument + 1], maxMs)
+        ) {
+          return std::string("usage: bot_dodge [0|1] [min_ms max_ms]");
+        }
+      }
+
+      server.setBotDodge(enabled, minMs, maxMs);
+      return std::string("bot_dodge = ") +
+        (server.botDodgeEnabled() ? "1" : "0") +
+        " (" + std::to_string(server.botDodgeMinIntervalMs()) + "-" +
+        std::to_string(server.botDodgeMaxIntervalMs()) + " ms)";
     }
   );
 

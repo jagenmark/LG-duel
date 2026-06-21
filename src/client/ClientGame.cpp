@@ -20,6 +20,11 @@ void ClientGame::sendCommand(
   float playerSizeScaleZ,
   float lightningKnockback,
   float vampirism,
+  std::uint8_t selfDamagePercent,
+  std::int32_t healthAmount,
+  bool botDodgeEnabled,
+  std::int32_t botDodgeMinIntervalMs,
+  std::int32_t botDodgeMaxIntervalMs,
   std::string chatMessage,
   std::string playerName
 ) {
@@ -44,6 +49,11 @@ void ClientGame::sendCommand(
       vampirism,
       std::move(chatMessage),
       std::move(playerName),
+      selfDamagePercent,
+      healthAmount,
+      botDodgeEnabled,
+      botDodgeMinIntervalMs,
+      botDodgeMaxIntervalMs,
     }
   );
   if (!requestReset) {

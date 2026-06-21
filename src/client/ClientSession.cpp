@@ -78,6 +78,11 @@ void ClientSession::sendCommand(
   float playerSizeScaleZ,
   float lightningKnockback,
   float vampirism,
+  std::uint8_t selfDamagePercent,
+  std::int32_t healthAmount,
+  bool botDodgeEnabled,
+  std::int32_t botDodgeMinIntervalMs,
+  std::int32_t botDodgeMaxIntervalMs,
   std::string chatMessage,
   std::string playerName
 ) {
@@ -92,6 +97,11 @@ void ClientSession::sendCommand(
       playerSizeScaleZ,
       lightningKnockback,
       vampirism,
+      selfDamagePercent,
+      healthAmount,
+      botDodgeEnabled,
+      botDodgeMinIntervalMs,
+      botDodgeMaxIntervalMs,
       std::move(chatMessage),
       std::move(playerName)
     );

@@ -5,7 +5,12 @@
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <cstddef>
+#include <cstdint>
+
 namespace lg {
+
+inline constexpr std::size_t kMaxRocketProjectiles = 8;
 
 struct LightningGunTuning {
   float range = 18.0F;
@@ -36,6 +41,82 @@ struct LightningGunResult {
   CollisionBounds rewoundTargetBounds = {};
 };
 
+struct HitscanTuning {
+  float range = 100.0F;
+  int damage = 80;
+  float eyeHeight = 0.65F;
+  float knockback = 20.0F;
+};
+
+struct WeaponFireResult {
+  Vec3 start = {};
+  Vec3 end = {};
+  bool fired = false;
+  bool hit = false;
+  Weapon weapon = Weapon::LightningGun;
+  int damageApplied = 0;
+  Vec3 knockbackImpulse = {};
+};
+
+struct RocketLauncherTuning {
+  float speed = 22.5F;
+  float radius = 3.0F;
+  int directDamage = 100;
+  int splashDamage = 100;
+  float knockback = 34.0F;
+  float eyeHeight = 0.65F;
+  std::uint32_t maxLifetimeTicks = 500;
+};
+
+struct RocketProjectile {
+  bool active = false;
+  std::uint8_t owner = 0;
+  Vec3 position = {};
+  Vec3 previousPosition = {};
+  Vec3 velocity = {};
+  std::uint32_t ageTicks = 0;
+};
+
+struct RocketProjectileSnapshot {
+  bool active = false;
+  std::uint8_t owner = 0;
+  Vec3 position = {};
+};
+
+struct RocketExplosionResult {
+  Vec3 position = {};
+  float radius = 0.0F;
+  int ownerDamageApplied = 0;
+  int opponentDamageApplied = 0;
+  bool active = false;
+};
+
+struct WorldTrace {
+  Vec3 start = {};
+  Vec3 end = {};
+  float distance = 0.0F;
+};
+
+[[nodiscard]] Vec3 weaponMuzzlePosition(
+  const PlayerState& attacker,
+  float eyeHeight
+);
+
+[[nodiscard]] WorldTrace traceWorld(
+  const Arena& arena,
+  Vec3 origin,
+  Vec3 direction,
+  float maxDistance
+);
+
+[[nodiscard]] bool tracePlayerCylinder(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  float& hitDistance
+);
+
 [[nodiscard]] LightningGunResult simulateLightningGun(
   const PlayerState& attacker,
   PlayerState& target,
@@ -44,6 +125,14 @@ struct LightningGunResult {
   const LightningGunTuning& tuning,
   LightningGunState& state,
   float fixedDt
+);
+
+[[nodiscard]] WeaponFireResult simulateRailgun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const HitscanTuning& tuning
 );
 
 } // namespace lg

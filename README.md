@@ -2,6 +2,8 @@
 
 A narrow C++ Lightning Gun duel prototype inspired by Quake-like arena combat.
 
+Full client/server console reference: [CONSOLE-BIBLE.md](CONSOLE-BIBLE.md).
+
 This project is intentionally not a general-purpose FPS engine. The first goal is a small, testable 1v1 LG duel with fixed-tick simulation, raw mouse input, Quake-like movement, server-authoritative networking, prediction/reconciliation, and snapshot interpolation.
 
 ## Build
@@ -75,8 +77,9 @@ Client controls:
 - `Space`: jump / positive up command
 - `Ctrl` or `Shift`: negative flight thrust
 - Mouse: raw relative look
-- Left mouse: fire the continuous lightning gun
-- `R`: request an authoritative match reset
+- Left mouse: fire the selected weapon
+- `Q` / `E` / `R`: select rocket launcher / lightning gun / railgun
+- `F5`: request an authoritative match reset
 - `F3`: toggle ready state
 - `§` (the physical grave/section key left of `1`): toggle the client console
 - `Esc`: quit
@@ -123,11 +126,11 @@ bind mouse1 "+attack"
 bind section "toggleconsole"
 ```
 
-Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, and `+attack`. Use `actionlist` in the console to list them. Game-specific one-shot commands include `resetmatch`, `toggleconsole`, and `quit`. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
+Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, `+attack`, and `+zoom`. Use `actionlist` in the console to list them. Game-specific commands include `weapon <lg|rg|rl|1|2|3>`, `resetmatch`, `toggleconsole`, and `quit`. Default weapon binds are `Q` for RL, `E` for LG, and `R` for RG. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model colors, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model colors, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
 
 The SDL_GPU renderer can be selected at runtime with
 `LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
@@ -145,6 +148,8 @@ latency. Set `cl_showfps 1` to show average FPS, frame time, and the active
 renderer backend in the window title.
 
 `cl_rotate_view` applies only to top-down relative aim (`cl_render_mode 0`, `cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) is available only in the top-down renderer. Perspective mode (`cl_render_mode 1`) always uses relative mouse yaw/pitch, ignores `cl_rotate_view`, and sends true 3D pitch to authoritative beam simulation.
+
+Hold `Mouse2` (`+zoom`) to use `cl_zoom_fov` and zoom-scaled sensitivity. With the default `cl_zoom_sensitivity 0`, the multiplier is auto-matched as `tan(cl_zoom_fov / 2) / tan(cl_fov / 2)` using degree values. Set `cl_zoom_sensitivity` above zero for a manual multiplier. This is client-side view/input scaling only; it does not change simulation, hitboxes, damage, or networking.
 
 `cl_camera_zoom 1` preserves the default top-down view. Values above `1` zoom in and values below `1` zoom out. `g_playersize_xy` and `g_playersize_z` request authoritative horizontal and vertical scales from `0.5` to `3.0`; the server applies them symmetrically to both players' collision bounds, hitboxes, and rendered model size.
 

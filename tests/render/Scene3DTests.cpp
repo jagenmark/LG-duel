@@ -1,5 +1,6 @@
 #include "render/Scene3D.hpp"
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -32,6 +33,9 @@ int main() {
   opponent.position = {4.0F, 2.0F, 0.9F};
   lg::RenderSettings settings;
   lg::LightningGunResult inactiveBeam;
+  const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
+  const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
+  const std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> rockets = {};
 
   const lg::Scene3D baseScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -40,6 +44,9 @@ int main() {
     opponent,
     inactiveBeam,
     inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
     settings
   );
   failures += expect(
@@ -91,6 +98,9 @@ int main() {
     opponent,
     inactiveBeam,
     opponentBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
     settings
   );
   failures += expect(
@@ -106,6 +116,9 @@ int main() {
     opponent,
     inactiveBeam,
     opponentBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
     settings
   );
   failures += expect(

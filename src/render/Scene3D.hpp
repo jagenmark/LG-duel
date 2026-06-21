@@ -26,6 +26,9 @@ struct Scene3D {
   const PlayerState& opponent,
   const LightningGunResult& localLightningGun,
   const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings
 );
 
