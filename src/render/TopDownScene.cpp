@@ -440,7 +440,7 @@ DrawList2D buildTopDownScene(
       worldToScreen(view, {wall.max.x, wall.max.y, 0.0F}),
       worldToScreen(view, {wall.min.x, wall.max.y, 0.0F}),
     };
-    addFilledQuad(drawList.commands, wallCorners, {83, 169, 231, 255});
+    addFilledQuad(drawList.commands, wallCorners, {126, 87, 50, 255});
     addWorldQuad(
       drawList.commands,
       view,
@@ -454,9 +454,9 @@ DrawList2D buildTopDownScene(
         wall.max.y - 0.08F,
         wall.min.z,
       },
-      {118, 194, 245, 255}
+      {109, 195, 105, 255}
     );
-    addQuadOutline(drawList.commands, wallCorners, {184, 229, 255, 255});
+    addQuadOutline(drawList.commands, wallCorners, {127, 202, 111, 255});
   }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {

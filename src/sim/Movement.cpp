@@ -23,6 +23,39 @@ void accelerate(Vec3& velocity, Vec3 wishDirection, float wishSpeed, float accel
   velocity += wishDirection * accelerationSpeed;
 }
 
+void applyAirControl(
+  Vec3& velocity,
+  const UserCommand& command,
+  Vec3 wishDirection,
+  float fixedDt
+) {
+  if (command.forwardMove <= 0.0F || length(wishDirection) <= 0.0F) {
+    return;
+  }
+
+  const float verticalSpeed = velocity.z;
+  Vec3 planarVelocity = horizontal(velocity);
+  const float speed = length(planarVelocity);
+  if (speed <= 0.0001F) {
+    return;
+  }
+
+  planarVelocity = planarVelocity / speed;
+  const float alignment = dot(planarVelocity, wishDirection);
+  if (alignment <= 0.0F) {
+    return;
+  }
+
+  constexpr float kQuakeWorldAirControl = 32.0F;
+  const float control =
+    kQuakeWorldAirControl * alignment * alignment * fixedDt;
+  planarVelocity = normalize((planarVelocity * speed) + (wishDirection * control));
+  planarVelocity *= speed;
+  velocity.x = planarVelocity.x;
+  velocity.y = planarVelocity.y;
+  velocity.z = verticalSpeed;
+}
+
 void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fixedDt) {
   const Vec3 planarVelocity = horizontal(velocity);
   const float speed = length(planarVelocity);
@@ -82,6 +115,9 @@ void simulateGroundedOrAirborne(
       grounded ? tuning.groundAcceleration : tuning.airAcceleration,
       fixedDt
     );
+    if (!grounded && tuning.airControlEnabled) {
+      applyAirControl(player.velocity, command, wishDirection, fixedDt);
+    }
   }
 
   if (player.movementMode != MovementMode::Flying) {

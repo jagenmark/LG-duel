@@ -145,12 +145,12 @@ void addWallBox(Scene3D& scene, Vec3 minimum, Vec3 maximum) {
     {{3, 0, 4, 7}},
   }};
   constexpr std::array<RenderColor, 6> colors = {{
-    {35, 91, 142, 255},
-    {77, 151, 212, 255},
-    {68, 154, 220, 255},
-    {82, 174, 235, 255},
-    {57, 135, 202, 255},
-    {71, 161, 226, 255},
+    {91, 63, 39, 255},
+    {86, 176, 96, 255},
+    {126, 87, 50, 255},
+    {146, 101, 58, 255},
+    {107, 73, 44, 255},
+    {133, 91, 53, 255},
   }};
   for (std::size_t index = 0; index < faces.size(); ++index) {
     const auto& face = faces[index];
@@ -309,6 +309,53 @@ void addFloorTreatment(Scene3D& scene, const Arena& arena) {
   );
 }
 
+void addArenaBoundaryWalls(Scene3D& scene, const Arena& arena) {
+  constexpr RenderColor nearWall = {68, 151, 218, 255};
+  constexpr RenderColor farWall = {80, 170, 235, 255};
+  constexpr RenderColor sideWall = {74, 161, 226, 255};
+  constexpr RenderColor ceiling = {73, 158, 226, 255};
+  addQuad(
+    scene,
+    {arena.min.x, arena.min.y, arena.min.z},
+    {arena.max.x, arena.min.y, arena.min.z},
+    {arena.max.x, arena.min.y, arena.max.z},
+    {arena.min.x, arena.min.y, arena.max.z},
+    nearWall
+  );
+  addQuad(
+    scene,
+    {arena.max.x, arena.max.y, arena.min.z},
+    {arena.min.x, arena.max.y, arena.min.z},
+    {arena.min.x, arena.max.y, arena.max.z},
+    {arena.max.x, arena.max.y, arena.max.z},
+    farWall
+  );
+  addQuad(
+    scene,
+    {arena.min.x, arena.max.y, arena.min.z},
+    {arena.min.x, arena.min.y, arena.min.z},
+    {arena.min.x, arena.min.y, arena.max.z},
+    {arena.min.x, arena.max.y, arena.max.z},
+    sideWall
+  );
+  addQuad(
+    scene,
+    {arena.max.x, arena.min.y, arena.min.z},
+    {arena.max.x, arena.max.y, arena.min.z},
+    {arena.max.x, arena.max.y, arena.max.z},
+    {arena.max.x, arena.min.y, arena.max.z},
+    sideWall
+  );
+  addQuad(
+    scene,
+    {arena.min.x, arena.min.y, arena.max.z},
+    {arena.max.x, arena.min.y, arena.max.z},
+    {arena.max.x, arena.max.y, arena.max.z},
+    {arena.min.x, arena.max.y, arena.max.z},
+    ceiling
+  );
+}
+
 void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
   const Vec3 topMin = {
     wall.min.x,
@@ -320,10 +367,10 @@ void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
     wall.max.y,
     wall.max.z + 0.08F,
   };
-  addBox(scene, topMin, topMax, {77, 151, 212, 255});
+  addBox(scene, topMin, topMax, {86, 176, 96, 255});
 
   constexpr float bandWidth = 0.026F;
-  constexpr RenderColor bandColor = {219, 243, 255, 255};
+  constexpr RenderColor bandColor = {171, 235, 145, 255};
   const float lowerBandZ = wall.min.z + 0.32F;
   const float upperBandZ = std::max(wall.min.z + 0.34F, wall.max.z - 0.24F);
   const auto addPerimeterBand = [&](float z, RenderColor color) {
@@ -556,27 +603,28 @@ Scene3D buildPerspectiveScene(
   scene.translucentVertices.reserve(256);
 
   addFloorTreatment(scene, arena);
+  addArenaBoundaryWalls(scene, arena);
   addWireBox(scene, arena.min, arena.max, 0.025F, {127, 202, 111, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
     addWallBox(scene, wall.min, wall.max);
     addWallAccents(scene, wall);
-    addWireBox(scene, wall.min, wall.max, 0.018F, {184, 229, 255, 255});
+    addWireBox(scene, wall.min, wall.max, 0.018F, {127, 202, 111, 255});
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
       addSegment(
         scene,
         {wall.min.x, wall.min.y, z},
         {wall.max.x, wall.min.y, z},
         0.012F,
-        {136, 202, 245, 255}
+        {109, 195, 105, 255}
       );
       addSegment(
         scene,
         {wall.max.x, wall.max.y, z},
         {wall.min.x, wall.max.y, z},
         0.012F,
-        {136, 202, 245, 255}
+        {109, 195, 105, 255}
       );
     }
   }

@@ -228,6 +228,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(packet.toggleReady) &&
     writer.writeBool(packet.requestMovementTuning) &&
     writer.writeBool(packet.movementTuning.flightEnabled) &&
+    writer.writeBool(packet.movementTuning.airControlEnabled) &&
     writer.writeFloat(packet.movementTuning.groundAcceleration) &&
     writer.writeFloat(packet.movementTuning.airAcceleration) &&
     writer.writeFloat(packet.movementTuning.groundFriction) &&
@@ -241,6 +242,11 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(packet.playerSizeScaleZ) &&
     writer.writeFloat(packet.lightningKnockback) &&
     writer.writeFloat(packet.vampirism) &&
+    writer.writeU8(packet.selfDamagePercent) &&
+    writer.writeI32(packet.healthAmount) &&
+    writer.writeBool(packet.botDodgeEnabled) &&
+    writer.writeI32(packet.botDodgeMinIntervalMs) &&
+    writer.writeI32(packet.botDodgeMaxIntervalMs) &&
     writer.writeU32(packet.viewedServerTick) &&
     writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
     writer.writeString(packet.playerName, kMaxPlayerNameBytes);
@@ -265,6 +271,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.toggleReady) ||
     !reader.readBool(packet.requestMovementTuning) ||
     !reader.readBool(packet.movementTuning.flightEnabled) ||
+    !reader.readBool(packet.movementTuning.airControlEnabled) ||
     !reader.readFloat(packet.movementTuning.groundAcceleration) ||
     !reader.readFloat(packet.movementTuning.airAcceleration) ||
     !reader.readFloat(packet.movementTuning.groundFriction) ||
@@ -278,6 +285,11 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.playerSizeScaleZ) ||
     !reader.readFloat(packet.lightningKnockback) ||
     !reader.readFloat(packet.vampirism) ||
+    !reader.readU8(packet.selfDamagePercent) ||
+    !reader.readI32(packet.healthAmount) ||
+    !reader.readBool(packet.botDodgeEnabled) ||
+    !reader.readI32(packet.botDodgeMinIntervalMs) ||
+    !reader.readI32(packet.botDodgeMaxIntervalMs) ||
     !reader.readU32(packet.viewedServerTick) ||
     !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
     !reader.readString(packet.playerName, kMaxPlayerNameBytes)
@@ -315,7 +327,14 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.lightningKnockback >= 0.0F &&
     packet.lightningKnockback <= 1000.0F &&
     packet.vampirism >= 0.0F &&
-    packet.vampirism <= 2.0F;
+    packet.vampirism <= 2.0F &&
+    packet.selfDamagePercent <= 100 &&
+    packet.healthAmount >= 1 &&
+    packet.healthAmount <= 100000 &&
+    packet.botDodgeMinIntervalMs >= 1 &&
+    packet.botDodgeMinIntervalMs <= 10000 &&
+    packet.botDodgeMaxIntervalMs >= 1 &&
+    packet.botDodgeMaxIntervalMs <= 10000;
   if (!valid) {
     return false;
   }
@@ -782,6 +801,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU16(snapshot.matchRules.matchEndTicks) &&
     writer.writeBool(snapshot.matchRules.showOpponentHealth) &&
     writer.writeBool(snapshot.movementTuning.flightEnabled) &&
+    writer.writeBool(snapshot.movementTuning.airControlEnabled) &&
     writer.writeFloat(snapshot.movementTuning.groundAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.airAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.groundFriction) &&
@@ -795,6 +815,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.playerSizeScaleZ) &&
     writer.writeFloat(snapshot.lightningKnockback) &&
     writer.writeFloat(snapshot.vampirism) &&
+    writer.writeU8(snapshot.selfDamagePercent) &&
+    writer.writeI32(snapshot.healthAmount) &&
+    writer.writeBool(snapshot.botDodgeEnabled) &&
+    writer.writeI32(snapshot.botDodgeMinIntervalMs) &&
+    writer.writeI32(snapshot.botDodgeMaxIntervalMs) &&
     writer.writeU32(snapshot.phaseTicksRemaining) &&
     writer.writeU32(snapshot.liveTicksElapsed) &&
     writer.writeU8(snapshot.roundWinner) &&
@@ -893,6 +918,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU16(decoded.matchRules.matchEndTicks) ||
     !reader.readBool(decoded.matchRules.showOpponentHealth) ||
     !reader.readBool(decoded.movementTuning.flightEnabled) ||
+    !reader.readBool(decoded.movementTuning.airControlEnabled) ||
     !reader.readFloat(decoded.movementTuning.groundAcceleration) ||
     !reader.readFloat(decoded.movementTuning.airAcceleration) ||
     !reader.readFloat(decoded.movementTuning.groundFriction) ||
@@ -906,6 +932,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.playerSizeScaleZ) ||
     !reader.readFloat(decoded.lightningKnockback) ||
     !reader.readFloat(decoded.vampirism) ||
+    !reader.readU8(decoded.selfDamagePercent) ||
+    !reader.readI32(decoded.healthAmount) ||
+    !reader.readBool(decoded.botDodgeEnabled) ||
+    !reader.readI32(decoded.botDodgeMinIntervalMs) ||
+    !reader.readI32(decoded.botDodgeMaxIntervalMs) ||
     !reader.readU32(decoded.phaseTicksRemaining) ||
     !reader.readU32(decoded.liveTicksElapsed) ||
     !reader.readU8(decoded.roundWinner) ||
@@ -943,6 +974,13 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.lightningKnockback > 1000.0F ||
     decoded.vampirism < 0.0F ||
     decoded.vampirism > 2.0F ||
+    decoded.selfDamagePercent > 100 ||
+    decoded.healthAmount < 1 ||
+    decoded.healthAmount > 100000 ||
+    decoded.botDodgeMinIntervalMs < 1 ||
+    decoded.botDodgeMinIntervalMs > 10000 ||
+    decoded.botDodgeMaxIntervalMs < 1 ||
+    decoded.botDodgeMaxIntervalMs > 10000 ||
     (decoded.roundWinner != 255 && decoded.roundWinner >= kDuelPlayerCount) ||
     (decoded.matchWinner != 255 && decoded.matchWinner >= kDuelPlayerCount) ||
     decoded.chatPlayerIndex >= kDuelPlayerCount ||

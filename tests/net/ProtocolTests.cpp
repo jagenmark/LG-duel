@@ -76,6 +76,7 @@ int main() {
     source.toggleReady = true;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
+    source.movementTuning.airControlEnabled = true;
     source.movementTuning.groundAcceleration = 120.0F;
     source.movementTuning.airAcceleration = 2.0F;
     source.movementTuning.groundFriction = 6.0F;
@@ -89,6 +90,11 @@ int main() {
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 35.0F;
     source.vampirism = 0.1F;
+    source.selfDamagePercent = 37;
+    source.healthAmount = 175;
+    source.botDodgeEnabled = true;
+    source.botDodgeMinIntervalMs = 250;
+    source.botDodgeMaxIntervalMs = 750;
     source.chatMessage = "ready?";
     source.playerName = "yg";
     source.viewedServerTick = 88;
@@ -116,6 +122,7 @@ int main() {
     failures += expect(
       decoded.requestMovementTuning &&
         decoded.movementTuning.flightEnabled &&
+        decoded.movementTuning.airControlEnabled &&
         nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
         nearlyEqual(decoded.movementTuning.airAcceleration, 2.0F) &&
         nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
@@ -128,7 +135,12 @@ int main() {
         nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
         nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
         nearlyEqual(decoded.lightningKnockback, 35.0F) &&
-        nearlyEqual(decoded.vampirism, 0.1F),
+        nearlyEqual(decoded.vampirism, 0.1F) &&
+        decoded.selfDamagePercent == 37 &&
+        decoded.healthAmount == 175 &&
+        decoded.botDodgeEnabled &&
+        decoded.botDodgeMinIntervalMs == 250 &&
+        decoded.botDodgeMaxIntervalMs == 750,
       "movement tuning request should round trip"
     );
 
@@ -243,6 +255,7 @@ int main() {
     source.matchRules.matchEndTicks = 625;
     source.matchRules.showOpponentHealth = true;
     source.movementTuning.flightEnabled = true;
+    source.movementTuning.airControlEnabled = true;
     source.movementTuning.groundAcceleration = 120.0F;
     source.movementTuning.airAcceleration = 2.0F;
     source.movementTuning.groundFriction = 6.0F;
@@ -256,6 +269,11 @@ int main() {
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 35.0F;
     source.vampirism = 2.0F;
+    source.selfDamagePercent = 25;
+    source.healthAmount = 150;
+    source.botDodgeEnabled = true;
+    source.botDodgeMinIntervalMs = 300;
+    source.botDodgeMaxIntervalMs = 700;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
     source.roundWinner = 0;
@@ -353,6 +371,7 @@ int main() {
     );
     failures += expect(
       decoded.movementTuning.flightEnabled &&
+      decoded.movementTuning.airControlEnabled &&
       nearlyEqual(decoded.movementTuning.groundAcceleration, 120.0F) &&
       nearlyEqual(decoded.movementTuning.airAcceleration, 2.0F) &&
       nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
@@ -365,7 +384,12 @@ int main() {
       nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
       nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
       nearlyEqual(decoded.lightningKnockback, 35.0F) &&
-      nearlyEqual(decoded.vampirism, 2.0F),
+      nearlyEqual(decoded.vampirism, 2.0F) &&
+      decoded.selfDamagePercent == 25 &&
+      decoded.healthAmount == 150 &&
+      decoded.botDodgeEnabled &&
+      decoded.botDodgeMinIntervalMs == 300 &&
+      decoded.botDodgeMaxIntervalMs == 700,
       "authoritative movement tuning should round trip"
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");

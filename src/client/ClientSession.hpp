@@ -35,6 +35,11 @@ public:
     float playerSizeScaleZ = 1.0F,
     float lightningKnockback = 22.0F,
     float vampirism = 0.0F,
+    std::uint8_t selfDamagePercent = 100,
+    std::int32_t healthAmount = 100,
+    bool botDodgeEnabled = false,
+    std::int32_t botDodgeMinIntervalMs = 250,
+    std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
     std::string playerName = {}
   );

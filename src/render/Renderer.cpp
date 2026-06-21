@@ -1445,7 +1445,7 @@ void drawPerspectiveWorld(
     );
   }
 
-  SDL_SetRenderDrawColor(renderer, 184, 229, 255, 255);
+  SDL_SetRenderDrawColor(renderer, 127, 202, 111, 255);
   drawWireBox(renderer, camera, width, height, arena.min, arena.max);
 
   std::array<std::size_t, Arena::kWallCount> wallDrawOrder = {};
@@ -1475,15 +1475,15 @@ void drawPerspectiveWorld(
       height,
       wall.min,
       wall.max,
-      SDL_FColor{0.27F, 0.62F, 0.86F, 1.0F}
+      SDL_FColor{0.49F, 0.34F, 0.20F, 1.0F}
     );
   }
 
-  SDL_SetRenderDrawColor(renderer, 184, 229, 255, 255);
+  SDL_SetRenderDrawColor(renderer, 127, 202, 111, 255);
   for (std::size_t orderIndex = 0; orderIndex < arena.wallCount; ++orderIndex) {
     const ArenaWall& wall = arena.walls[wallDrawOrder[orderIndex]];
     drawWireBox(renderer, camera, width, height, wall.min, wall.max);
-    SDL_SetRenderDrawColor(renderer, 219, 243, 255, 255);
+    SDL_SetRenderDrawColor(renderer, 171, 235, 145, 255);
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
       drawPerspectiveLine(
         renderer, camera, width, height,
@@ -1494,7 +1494,7 @@ void drawPerspectiveWorld(
         {wall.max.x, wall.max.y, z}, {wall.min.x, wall.max.y, z}
       );
     }
-    SDL_SetRenderDrawColor(renderer, 184, 229, 255, 255);
+    SDL_SetRenderDrawColor(renderer, 127, 202, 111, 255);
   }
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
