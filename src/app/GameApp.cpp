@@ -655,6 +655,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_lean", "Enable Q3-style velocity lean on the enemy model.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_lean_scale", "Enemy model velocity lean multiplier; 1 approximates Q3 cg_runroll.", 1.0F, archivedClient, 0.0F, 3.0F, "cg_runroll 0.005"});
   console.registerCvar({"r_enemy_hit_enable", "Enable enemy hit-color feedback.", true, archivedClient, {}, {}});
   console.registerCvar({"r_enemy_hit_r", "Enemy hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_hit_g", "Enemy hit-feedback green channel.", 190, archivedClient, 0.0F, 255.0F});
@@ -711,6 +713,8 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.enemyGreen = static_cast<std::uint8_t>(console.getInt("r_enemy_g"));
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
+  settings.enemyLeanEnabled = console.getBool("r_enemy_lean");
+  settings.enemyLeanScale = console.getFloat("r_enemy_lean_scale");
   settings.enemyHitRed =
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_r"));
   settings.enemyHitGreen =

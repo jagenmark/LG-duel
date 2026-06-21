@@ -17,6 +17,8 @@ struct RenderSettings {
   float fieldOfView = 90.0F;
   float cameraZoom = 1.0F;
   bool rotateView = false;
+  bool enemyLeanEnabled = true;
+  float enemyLeanScale = 1.0F;
   float healthTextScale = 2.0F;
   float playerSizePixels = 14.0F;
   bool crosshairUseScreenPosition = false;
