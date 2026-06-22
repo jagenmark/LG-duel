@@ -10,6 +10,7 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kMaxBufferedSnapshots = 64;
+constexpr double kMaxPresentationClockDriftTicks = 0.5;
 
 [[nodiscard]] float interpolateAngle(float previous, float current, float alpha) {
   constexpr float kTwoPi = 6.28318530718F;
@@ -111,6 +112,9 @@ void SnapshotInterpolation::advance(
   presentationTick_ +=
     static_cast<double>(std::max(0.0F, elapsedSeconds)) *
     static_cast<double>(kFixedTickRate);
+  if (presentationTick_ < newestPresentationTick - kMaxPresentationClockDriftTicks) {
+    presentationTick_ = newestPresentationTick;
+  }
   presentationTick_ = std::clamp(presentationTick_, oldestTick, newestPresentationTick);
 
   while (

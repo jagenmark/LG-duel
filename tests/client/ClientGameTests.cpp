@@ -474,6 +474,31 @@ int main() {
   }
 
   {
+    lg::SnapshotInterpolation interpolation;
+    constexpr std::uint32_t tickCount = 1000;
+    for (std::uint32_t tick = 0; tick <= tickCount; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+      interpolation.advance(lg::kFixedTickSeconds * 0.98F, 0.024F);
+    }
+
+    failures += expect(
+      interpolation.presentationServerTick() == tickCount - 3U,
+      "presentation interpolation should stay anchored to snapshot delay over time"
+    );
+    failures += expect(
+      nearlyEqual(
+        interpolation.player(1).position.x,
+        static_cast<float>(tickCount - 3U),
+        0.5F
+      ),
+      "remote player interpolation should not accumulate local clock drift"
+    );
+  }
+
+  {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);
     for (std::uint32_t tick = 0; tick <= 5; ++tick) {
