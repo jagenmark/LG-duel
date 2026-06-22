@@ -1034,6 +1034,7 @@ int main() {
     rocketDown.sequence = 2;
     rocketDown.attack = true;
     rocketDown.weapon = lg::Weapon::RocketLauncher;
+    rocketDown.planarAim = false;
     rocketDown.viewPitchRadians = -kPi * 0.5F;
     transport.sendCommand(lg::CommandPacket{0, rocketDown, false});
     bool exploded = false;
@@ -1049,6 +1050,14 @@ int main() {
         failures += expect(
           snapshot.players[0].health == 100,
           "g_selfdamage 0 should prevent rocket self damage"
+        );
+        failures += expect(
+          std::hypot(
+            snapshot.players[0].velocity.x,
+            snapshot.players[0].velocity.y,
+            snapshot.players[0].velocity.z
+          ) > 0.0F,
+          "g_selfdamage 0 should still allow rocket self knockback"
         );
         break;
       }

@@ -690,7 +690,7 @@ void ServerGame::applyDamageAndKnockback(
   int damageApplied,
   Vec3 knockbackImpulse
 ) {
-  if (damageApplied <= 0 || targetIndex >= kDuelPlayerCount) {
+  if (targetIndex >= kDuelPlayerCount) {
     return;
   }
   const bool combatPhase =
@@ -854,6 +854,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       if (playerIndex == directTarget) {
         damage = std::max(damage, rocketLauncherTuning_.directDamage);
       }
+      const int knockbackDamage = damage;
       const int appliedDamage = playerIndex == rocket.owner
         ? (damage * static_cast<int>(selfDamagePercent_) + 50) / 100
         : damage;
@@ -867,7 +868,7 @@ void ServerGame::simulateRockets(float fixedDt) {
         knockbackDirection = normalize(rocket.velocity);
       }
       const float knockbackScale =
-        static_cast<float>(appliedDamage) /
+        static_cast<float>(knockbackDamage) /
         static_cast<float>(std::max(1, rocketLauncherTuning_.splashDamage));
       applyDamageAndKnockback(
         rocket.owner,
