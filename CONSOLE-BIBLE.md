@@ -153,6 +153,12 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `crosshair_r` | int | `255` | `0..255` | Ingen direkt standard | Röd kanal. |
 | `crosshair_g` | int | `255` | `0..255` | Ingen direkt standard | Grön kanal. |
 | `crosshair_b` | int | `255` | `0..255` | Ingen direkt standard | Blå kanal. |
+| `crosshair_hit_enable` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på crosshair vid träff. |
+| `crosshair_hit_r` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, röd. |
+| `crosshair_hit_g` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, grön. |
+| `crosshair_hit_b` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, blå. |
+| `crosshair_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen direkt | Hur länge träfffärgen ligger kvar. |
+| `crosshair_hit_fade` | bool | `1` | bool | Ingen direkt | `1`: gradvis återgång. `0`: binär färg tills durationen löper ut. |
 
 ### 3.5 Renderer och lokal LG-beam
 

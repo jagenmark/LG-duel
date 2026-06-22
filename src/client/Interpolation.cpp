@@ -10,6 +10,7 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kMaxBufferedSnapshots = 64;
+constexpr double kMaxPresentationClockDriftTicks = 0.5;
 
 [[nodiscard]] float interpolateAngle(float previous, float current, float alpha) {
   constexpr float kTwoPi = 6.28318530718F;
@@ -21,12 +22,14 @@ constexpr std::size_t kMaxBufferedSnapshots = 64;
   const ServerSnapshot& previous,
   const ServerSnapshot& current,
   std::size_t playerIndex,
-  float presentationTick
+  double presentationTick
 ) {
-  const float tickDelta =
-    static_cast<float>(current.serverTick - previous.serverTick);
+  const double tickDelta =
+    static_cast<double>(current.serverTick - previous.serverTick);
   const float alpha = tickDelta > 0.0F
-    ? (presentationTick - static_cast<float>(previous.serverTick)) / tickDelta
+    ? static_cast<float>(
+        (presentationTick - static_cast<double>(previous.serverTick)) / tickDelta
+      )
     : 1.0F;
   return interpolatePlayerState(
     previous.players[playerIndex],
@@ -35,18 +38,19 @@ constexpr std::size_t kMaxBufferedSnapshots = 64;
   );
 }
 
-[[nodiscard]] float latestPresentationTick(
+[[nodiscard]] double latestPresentationTick(
   const std::deque<ServerSnapshot>& snapshots,
   float interpolationDelaySeconds
 ) {
   if (snapshots.empty()) {
-    return 0.0F;
+    return 0.0;
   }
 
-  const float oldestTick = static_cast<float>(snapshots.front().serverTick);
-  const float newestTick = static_cast<float>(snapshots.back().serverTick);
-  const float delayTicks =
-    std::max(0.0F, interpolationDelaySeconds) * kFixedTickRate;
+  const double oldestTick = static_cast<double>(snapshots.front().serverTick);
+  const double newestTick = static_cast<double>(snapshots.back().serverTick);
+  const double delayTicks =
+    static_cast<double>(std::max(0.0F, interpolationDelaySeconds)) *
+    static_cast<double>(kFixedTickRate);
   if (newestTick <= oldestTick + delayTicks) {
     return oldestTick;
   }
@@ -73,7 +77,7 @@ PlayerState interpolatePlayerState(
 void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
   if (!initialized_) {
     snapshots_.push_back(snapshot);
-    presentationTick_ = static_cast<float>(snapshot.serverTick);
+    presentationTick_ = static_cast<double>(snapshot.serverTick);
     initialized_ = true;
     return;
   }
@@ -101,16 +105,21 @@ void SnapshotInterpolation::advance(
     return;
   }
 
-  const float newestPresentationTick =
+  const double newestPresentationTick =
     latestPresentationTick(snapshots_, interpolationDelaySeconds);
-  const float oldestTick = static_cast<float>(snapshots_.front().serverTick);
+  const double oldestTick = static_cast<double>(snapshots_.front().serverTick);
 
-  presentationTick_ += std::max(0.0F, elapsedSeconds) * kFixedTickRate;
-  presentationTick_ = clamp(presentationTick_, oldestTick, newestPresentationTick);
+  presentationTick_ +=
+    static_cast<double>(std::max(0.0F, elapsedSeconds)) *
+    static_cast<double>(kFixedTickRate);
+  if (presentationTick_ < newestPresentationTick - kMaxPresentationClockDriftTicks) {
+    presentationTick_ = newestPresentationTick;
+  }
+  presentationTick_ = std::clamp(presentationTick_, oldestTick, newestPresentationTick);
 
   while (
     snapshots_.size() > 2 &&
-    static_cast<float>(snapshots_[1].serverTick) < presentationTick_ - 1.0F
+    static_cast<double>(snapshots_[1].serverTick) < presentationTick_ - 1.0
   ) {
     snapshots_.pop_front();
   }
@@ -125,10 +134,10 @@ std::uint32_t SnapshotInterpolation::presentationServerTick() const {
     return 0;
   }
   return static_cast<std::uint32_t>(std::lround(
-    clamp(
+    std::clamp(
       presentationTick_,
-      static_cast<float>(snapshots_.front().serverTick),
-      static_cast<float>(snapshots_.back().serverTick)
+      static_cast<double>(snapshots_.front().serverTick),
+      static_cast<double>(snapshots_.back().serverTick)
     )
   ));
 }
@@ -160,8 +169,8 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     snapshots_.begin(),
     snapshots_.end(),
     presentationTick_,
-    [](const ServerSnapshot& snapshot, float tick) {
-      return static_cast<float>(snapshot.serverTick) < tick;
+    [](const ServerSnapshot& snapshot, double tick) {
+      return static_cast<double>(snapshot.serverTick) < tick;
     }
   );
   if (current == snapshots_.begin()) {
