@@ -1,7 +1,7 @@
 name: Deploy Server
 
 # Required secrets: VM_HOST, VM_USER, VM_SSH_KEY.
-# Optional secrets: VM_SSH_PORT, VM_DEPLOY_PATH.
+# Optional secrets: VM_SSH_PORT, VM_DEPLOY_PATH, VM_REPOSITORY_URL.
 
 on:
   push:
@@ -22,6 +22,7 @@ jobs:
     env:
       SSH_PORT: ${{ secrets.VM_SSH_PORT || '22' }}
       DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
+      REPOSITORY_URL: ${{ secrets.VM_REPOSITORY_URL || format('{0}/{1}.git', github.server_url, github.repository) }}
 
     steps:
       - name: Configure SSH
@@ -41,8 +42,9 @@ jobs:
         run: |
           set -euo pipefail
           printf -v quoted_deploy_path '%q' "$DEPLOY_PATH"
+          printf -v quoted_repository_url '%q' "$REPOSITORY_URL"
           ssh -i ~/.ssh/lg-duel-deploy -p "$SSH_PORT" "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
-            "DEPLOY_PATH=$quoted_deploy_path bash -s" <<'REMOTE'
+            "DEPLOY_PATH=$quoted_deploy_path REPOSITORY_URL=$quoted_repository_url bash -s" <<'REMOTE'
           set -euo pipefail
 
           deploy_path="${DEPLOY_PATH:-$HOME/LG-duel}"
@@ -50,6 +52,11 @@ jobs:
             "~") deploy_path="$HOME" ;;
             "~/"*) deploy_path="$HOME/${deploy_path#"~/"}" ;;
           esac
+
+          if [ ! -d "$deploy_path/.git" ]; then
+            mkdir -p "$(dirname "$deploy_path")"
+            git clone --branch main --single-branch "$REPOSITORY_URL" "$deploy_path"
+          fi
 
           cd "$deploy_path"
           git fetch --prune origin main
