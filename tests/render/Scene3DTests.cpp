@@ -192,6 +192,27 @@ int main() {
     "opponent should use a simple multi-part model inside gameplay bounds"
   );
 
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
+  remotePlayers[1] = lg::RemotePlayerView{opponent, inactiveBeam, true};
+  lg::PlayerState secondOpponent = opponent;
+  secondOpponent.position.y += 3.0F;
+  remotePlayers[2] = lg::RemotePlayerView{secondOpponent, inactiveBeam, true};
+  const lg::Scene3D multiOpponentScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    remotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    multiOpponentScene.vertices.size() > baseScene.vertices.size(),
+    "perspective scene should emit geometry for multiple remote players"
+  );
+
   lg::LightningGunResult opponentBeam;
   opponentBeam.active = true;
   opponentBeam.start = opponent.position;

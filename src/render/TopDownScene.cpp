@@ -391,9 +391,8 @@ DrawList2D buildTopDownScene(
   int outputHeight,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -535,8 +534,10 @@ DrawList2D buildTopDownScene(
         addHitMarker(drawList.commands, end);
       }
     };
-  if (settings.hasRemotePlayer) {
-    addBeam(opponentLightningGun, false);
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (remote.visible) {
+      addBeam(remote.lightningGun, false);
+    }
   }
   addBeam(localLightningGun, true);
 
@@ -591,8 +592,11 @@ DrawList2D buildTopDownScene(
   const float playerSize = settings.playerSizePixels;
   const float radius = playerSize * 0.5F;
 
-  if (settings.hasRemotePlayer) {
-    const ScreenPoint opponentScreen = worldToScreen(view, opponent.position);
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
+    const ScreenPoint opponentScreen = worldToScreen(view, remote.player.position);
     addFilledRect(
       drawList.commands,
       opponentScreen.x - radius,
@@ -604,7 +608,7 @@ DrawList2D buildTopDownScene(
 
     if (hud.showOpponentHealthBar) {
       const float healthRatio =
-        std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+        std::clamp(static_cast<float>(remote.player.health) / 100.0F, 0.0F, 1.0F);
       const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
       const float healthBarOffset = playerSize + 2.0F;
       const float healthBarHeight =
@@ -661,6 +665,41 @@ DrawList2D buildTopDownScene(
   );
 
   return drawList;
+}
+
+DrawList2D buildTopDownScene(
+  int outputWidth,
+  int outputHeight,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+) {
+  std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
+  remotePlayers[0] = RemotePlayerView{
+    opponent,
+    opponentLightningGun,
+    settings.hasRemotePlayer,
+  };
+  return buildTopDownScene(
+    outputWidth,
+    outputHeight,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings,
+    hud
+  );
 }
 
 } // namespace lg

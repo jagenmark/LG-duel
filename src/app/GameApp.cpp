@@ -2370,9 +2370,8 @@ int GameApp::run() const {
       1.0F
     );
     PlayerState renderPlayer;
-    PlayerState renderOpponent;
     LightningGunResult renderLocalLightningGun;
-    LightningGunResult renderOpponentLightningGun;
+    std::array<RemotePlayerView, kDuelPlayerCount> renderRemotePlayers = {};
     std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
     std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
     std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
@@ -2383,29 +2382,36 @@ int GameApp::run() const {
       renderLocalPlayerIndex = localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
       const ServerSnapshot& renderSnapshot = renderClient->snapshot();
-      const std::size_t opponentPlayerIndex =
-        firstRemotePlayerIndex(renderSnapshot, localPlayerIndex);
-      renderOpponent = renderClient->interpolatedPlayer(
-        opponentPlayerIndex,
-        interpolationAlpha
-      );
+      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        if (playerIndex == localPlayerIndex) {
+          continue;
+        }
+        const bool connectedRemote = renderSnapshot.connectedPlayers[playerIndex];
+        const bool botRemote =
+          renderSnapshot.botDodgeEnabled &&
+          !connectedRemote &&
+          renderSnapshot.players[playerIndex].health > 0;
+        if (!connectedRemote && !botRemote) {
+          continue;
+        }
+        renderRemotePlayers[playerIndex] = RemotePlayerView{
+          renderClient->interpolatedPlayer(playerIndex, interpolationAlpha),
+          renderSnapshot.lightningGuns[playerIndex],
+          true,
+        };
+      }
       renderLocalLightningGun =
         renderSnapshot.lightningGuns[localPlayerIndex];
-      renderOpponentLightningGun =
-        renderSnapshot.lightningGuns[opponentPlayerIndex];
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
-    currentRenderSettings.hasRemotePlayer = false;
-    if (const ClientGame* renderClient = session.game();
-        renderClient != nullptr && renderClient->hasSnapshot()) {
-      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
-      const std::size_t localPlayerIndex = session.playerIndex();
-      currentRenderSettings.hasRemotePlayer =
-        firstRemotePlayerIndex(renderSnapshot, localPlayerIndex) != localPlayerIndex;
-    }
+    currentRenderSettings.hasRemotePlayer = std::any_of(
+      renderRemotePlayers.begin(),
+      renderRemotePlayers.end(),
+      [](const RemotePlayerView& remote) { return remote.visible; }
+    );
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       WeaponFireResult& currentFire = renderWeaponFires[playerIndex];
       LingeringRailBeam& lingeringBeam = lingeringRailBeams[playerIndex];
@@ -2588,9 +2594,8 @@ int GameApp::run() const {
     renderer.render(
       arena,
       renderPlayer,
-      renderOpponent,
+      renderRemotePlayers,
       renderLocalLightningGun,
-      renderOpponentLightningGun,
       renderWeaponFires,
       renderRocketExplosions,
       renderRockets,

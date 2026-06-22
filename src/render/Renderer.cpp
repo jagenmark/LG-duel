@@ -658,6 +658,17 @@ void appendCommands(
   }
 }
 
+const PlayerState& firstVisibleRemote(
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers
+) {
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (remote.visible) {
+      return remote.player;
+    }
+  }
+  return remotePlayers.front().player;
+}
+
 [[nodiscard]] bool renderGpuFrame(
   SDL_GPUDevice* device,
   SDL_GPUGraphicsPipeline* pipeline2D,
@@ -674,9 +685,8 @@ void appendCommands(
   SDL_Window* window,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -713,9 +723,8 @@ void appendCommands(
         static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
         arena,
         player,
-        opponent,
+        remotePlayers,
         localLightningGun,
-        opponentLightningGun,
         weaponFires,
         rocketExplosions,
         rockets,
@@ -728,9 +737,8 @@ void appendCommands(
         static_cast<int>(outputHeight),
         arena,
         player,
-        opponent,
+        remotePlayers,
         localLightningGun,
-        opponentLightningGun,
         weaponFires,
         rocketExplosions,
         rockets,
@@ -786,7 +794,7 @@ void appendCommands(
     const DrawList2D ui = buildScreenUi(
       static_cast<int>(outputWidth),
       static_cast<int>(outputHeight),
-      opponent,
+      firstVisibleRemote(remotePlayers),
       settings,
       hud,
       console
@@ -1376,9 +1384,8 @@ void drawPerspectiveWorld(
   int height,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -1498,23 +1505,29 @@ void drawPerspectiveWorld(
   }
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-  drawSolidBox(
-    renderer,
-    camera,
-    width,
-    height,
-    {
-      opponent.position.x - opponent.bounds.radius,
-      opponent.position.y - opponent.bounds.radius,
-      opponent.position.z - opponent.bounds.halfHeight,
-    },
-    {
-      opponent.position.x + opponent.bounds.radius,
-      opponent.position.y + opponent.bounds.radius,
-      opponent.position.z + opponent.bounds.halfHeight,
-    },
-    enemyColor(settings)
-  );
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
+    const PlayerState& remotePlayer = remote.player;
+    drawSolidBox(
+      renderer,
+      camera,
+      width,
+      height,
+      {
+        remotePlayer.position.x - remotePlayer.bounds.radius,
+        remotePlayer.position.y - remotePlayer.bounds.radius,
+        remotePlayer.position.z - remotePlayer.bounds.halfHeight,
+      },
+      {
+        remotePlayer.position.x + remotePlayer.bounds.radius,
+        remotePlayer.position.y + remotePlayer.bounds.radius,
+        remotePlayer.position.z + remotePlayer.bounds.halfHeight,
+      },
+      enemyColor(settings)
+    );
+  }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
     const auto drawTargetBounds =
@@ -1602,7 +1615,11 @@ void drawPerspectiveWorld(
         settings.enemyBeamWidth * (1.0F + pulse * 0.04F)
       );
     };
-  drawBeam(opponentLightningGun, false);
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (remote.visible) {
+      drawBeam(remote.lightningGun, false);
+    }
+  }
   drawBeam(localLightningGun, true);
 
   for (const WeaponFireResult& fire : weaponFires) {
@@ -1827,9 +1844,8 @@ bool Renderer::initialize(void* window) {
 void Renderer::render(
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -1858,9 +1874,8 @@ void Renderer::render(
           static_cast<SDL_Window*>(window_),
           arena,
           player,
-          opponent,
+          remotePlayers,
           localLightningGun,
-          opponentLightningGun,
           weaponFires,
           rocketExplosions,
           rockets,
@@ -1895,9 +1910,8 @@ void Renderer::render(
       height,
       arena,
       player,
-      opponent,
+      remotePlayers,
       localLightningGun,
-      opponentLightningGun,
       weaponFires,
       rocketExplosions,
       rockets,
@@ -1908,7 +1922,7 @@ void Renderer::render(
       buildScreenUi(
         width,
         height,
-        opponent,
+        firstVisibleRemote(remotePlayers),
         settings,
         hud,
         console
@@ -1923,9 +1937,8 @@ void Renderer::render(
     height,
     arena,
     player,
-    opponent,
+    remotePlayers,
     localLightningGun,
-    opponentLightningGun,
     weaponFires,
     rocketExplosions,
     rockets,
@@ -1938,7 +1951,7 @@ void Renderer::render(
     buildScreenUi(
       width,
       height,
-      opponent,
+      firstVisibleRemote(remotePlayers),
       settings,
       hud,
       console
@@ -1948,9 +1961,8 @@ void Renderer::render(
 #else
   (void)arena;
   (void)player;
-  (void)opponent;
+  (void)remotePlayers;
   (void)localLightningGun;
-  (void)opponentLightningGun;
   (void)settings;
   (void)hud;
   (void)console;

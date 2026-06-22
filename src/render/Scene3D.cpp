@@ -593,9 +593,8 @@ Scene3D buildPerspectiveScene(
   float aspectRatio,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -645,19 +644,22 @@ Scene3D buildPerspectiveScene(
     }
   }
 
-  if (settings.hasRemotePlayer) {
-    const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
-    const RenderColor opponentColor = {
-      blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
-      blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
-      blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
-      static_cast<std::uint8_t>(
-        std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
-      ),
-    };
+  const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
+  const RenderColor opponentColor = {
+    blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
+    blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
+    blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
+    static_cast<std::uint8_t>(
+      std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
+    ),
+  };
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
     addPlayerModel(
       scene,
-      opponent,
+      remote.player,
       opponentColor,
       settings.enemyLeanEnabled,
       settings.enemyLeanScale
@@ -695,13 +697,16 @@ Scene3D buildPerspectiveScene(
     );
   }
 
-  if (settings.hasRemotePlayer && opponentLightningGun.active) {
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible || !remote.lightningGun.active) {
+      continue;
+    }
     const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);
     const float brightness = 1.0F + pulse * 0.05F;
     addSegment(
       scene,
-      opponentLightningGun.start,
-      opponentLightningGun.end,
+      remote.lightningGun.start,
+      remote.lightningGun.end,
       std::max(
         0.015F,
         settings.enemyBeamWidth * (1.0F + pulse * 0.04F) * 0.012F
@@ -773,6 +778,37 @@ Scene3D buildPerspectiveScene(
   (void)localLightningGun;
 
   return scene;
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+) {
+  std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
+  remotePlayers[0] = RemotePlayerView{
+    opponent,
+    opponentLightningGun,
+    settings.hasRemotePlayer,
+  };
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
 }
 
 } // namespace lg

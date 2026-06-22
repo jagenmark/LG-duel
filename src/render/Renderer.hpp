@@ -89,6 +89,12 @@ struct HudRenderState {
   bool showOpponentHealthBar = false;
 };
 
+struct RemotePlayerView {
+  PlayerState player = {};
+  LightningGunResult lightningGun = {};
+  bool visible = false;
+};
+
 class Renderer {
 public:
   Renderer() = default;
@@ -100,9 +106,8 @@ public:
   void render(
     const Arena& arena,
     const PlayerState& player,
-    const PlayerState& opponent,
+    const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
     const LightningGunResult& localLightningGun,
-    const LightningGunResult& opponentLightningGun,
     const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
     const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
     const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
