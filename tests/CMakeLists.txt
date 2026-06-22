@@ -6,6 +6,15 @@ target_link_libraries(lg_duel_smoke_tests PRIVATE lg_duel_client_app)
 target_compile_features(lg_duel_smoke_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_smoke_tests)
 
+if(WIN32 AND TARGET SDL3::SDL3)
+  add_custom_command(
+    TARGET lg_duel_smoke_tests
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE_DIR:lg_duel_smoke_tests>"
+  )
+endif()
+
 add_test(NAME lg_duel_smoke_tests COMMAND lg_duel_smoke_tests)
 
 add_executable(lg_duel_movement_tests
