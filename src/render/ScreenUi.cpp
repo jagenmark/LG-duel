@@ -82,6 +82,175 @@ void addOutline(
   addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
 }
 
+[[nodiscard]] const char* weaponShortName(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::LightningGun:
+    return "LG";
+  case Weapon::Railgun:
+    return "RG";
+  case Weapon::RocketLauncher:
+    return "RL";
+  }
+  return "??";
+}
+
+void addWeaponIcon(
+  DrawList2D& drawList,
+  float centerX,
+  float centerY,
+  Weapon weapon,
+  RenderColor color,
+  float scale
+) {
+  if (weapon == Weapon::LightningGun) {
+    addLine(
+      drawList,
+      {centerX - 18.0F * scale, centerY + 12.0F * scale},
+      {centerX + 16.0F * scale, centerY - 13.0F * scale},
+      color,
+      4.0F * scale
+    );
+    addLine(
+      drawList,
+      {centerX + 16.0F * scale, centerY - 13.0F * scale},
+      {centerX + 5.0F * scale, centerY + 2.0F * scale},
+      color,
+      2.0F * scale
+    );
+    addLine(
+      drawList,
+      {centerX + 5.0F * scale, centerY + 2.0F * scale},
+      {centerX + 19.0F * scale, centerY + 1.0F * scale},
+      color,
+      2.0F * scale
+    );
+    return;
+  }
+
+  if (weapon == Weapon::Railgun) {
+    addRect(
+      drawList,
+      centerX - 22.0F * scale,
+      centerY - 3.0F * scale,
+      44.0F * scale,
+      6.0F * scale,
+      color
+    );
+    addRect(
+      drawList,
+      centerX + 10.0F * scale,
+      centerY - 9.0F * scale,
+      8.0F * scale,
+      18.0F * scale,
+      color
+    );
+    return;
+  }
+
+  addRect(
+    drawList,
+    centerX - 22.0F * scale,
+    centerY - 8.0F * scale,
+    36.0F * scale,
+    16.0F * scale,
+    color
+  );
+  addRect(
+    drawList,
+    centerX + 13.0F * scale,
+    centerY - 5.0F * scale,
+    10.0F * scale,
+    10.0F * scale,
+    color
+  );
+}
+
+void addSelectedWeaponIndicator(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const HudRenderState& hud
+) {
+  constexpr std::array<Weapon, 3> weapons = {{
+    Weapon::RocketLauncher,
+    Weapon::LightningGun,
+    Weapon::Railgun,
+  }};
+  const float scale = std::clamp(
+    static_cast<float>(height) / 720.0F,
+    0.75F,
+    1.25F
+  );
+  const float slotSize = 58.0F * scale;
+  const float gap = 8.0F * scale;
+  const float panelWidth = slotSize + 10.0F * scale;
+  const float panelHeight =
+    slotSize * static_cast<float>(weapons.size()) +
+    gap * static_cast<float>(weapons.size() - 1U) +
+    10.0F * scale;
+  const float x = static_cast<float>(width) - panelWidth - 22.0F * scale;
+  const float y = (static_cast<float>(height) - panelHeight) * 0.5F;
+
+  addRect(
+    drawList,
+    x,
+    y,
+    panelWidth,
+    panelHeight,
+    {6, 9, 13, 150}
+  );
+
+  float slotY = y + 5.0F * scale;
+  for (Weapon weapon : weapons) {
+    const bool selected = weapon == hud.selectedWeapon;
+    const RenderColor frame = selected
+      ? RenderColor{255, 224, 92, 255}
+      : RenderColor{70, 82, 96, 210};
+    const RenderColor fill = selected
+      ? RenderColor{28, 34, 42, 230}
+      : RenderColor{14, 18, 24, 175};
+    const RenderColor icon = selected
+      ? RenderColor{255, 242, 174, 255}
+      : RenderColor{156, 170, 184, 220};
+    const float slotX = x + 5.0F * scale;
+
+    addRect(drawList, slotX, slotY, slotSize, slotSize, fill);
+    addOutline(drawList, slotX, slotY, slotSize, slotSize, frame);
+    if (selected) {
+      addRect(
+        drawList,
+        slotX - 5.0F * scale,
+        slotY + 8.0F * scale,
+        3.0F * scale,
+        slotSize - 16.0F * scale,
+        {255, 224, 92, 255}
+      );
+    }
+
+    addWeaponIcon(
+      drawList,
+      slotX + slotSize * 0.5F,
+      slotY + slotSize * 0.42F,
+      weapon,
+      icon,
+      scale
+    );
+    const char* label = weaponShortName(weapon);
+    const float textScale = selected ? 1.45F * scale : 1.2F * scale;
+    const float textWidth = 2.0F * kGlyphSize * textScale;
+    addText(
+      drawList,
+      slotX + (slotSize - textWidth) * 0.5F,
+      slotY + slotSize - 17.0F * scale,
+      label,
+      icon,
+      textScale
+    );
+
+    slotY += slotSize + gap;
+  }
+}
+
 void addOpponentHealthBar(
   DrawList2D& drawList,
   int width,
@@ -497,6 +666,9 @@ DrawList2D buildPerspectiveWeaponOverlay(
   int outputWidth,
   int outputHeight,
   const LightningGunResult& localLightningGun,
+  Weapon selectedWeapon,
+  Weapon previousWeapon,
+  float weaponSwitchProgress,
   const RenderSettings& settings
 ) {
   DrawList2D drawList;
@@ -585,69 +757,167 @@ DrawList2D buildPerspectiveWeaponOverlay(
         FilledQuad2D{points, quadColor}
       );
     };
-  const float bodyTop = muzzleY + 20.0F * scale;
-  const float bodyBottom = height + 18.0F * scale;
-  const float bodyHalfTop = 38.0F * scale;
-  const float bodyHalfBottom = 104.0F * scale;
-  quad(
-    {{
-      {centerX - bodyHalfTop, bodyTop},
-      {centerX + bodyHalfTop, bodyTop},
-      {centerX + bodyHalfBottom, bodyBottom},
-      {centerX - bodyHalfBottom, bodyBottom},
-    }},
-    {34, 42, 52, 255}
-  );
-  quad(
-    {{
-      {centerX - 21.0F * scale, muzzleY},
-      {centerX + 21.0F * scale, muzzleY},
-      {centerX + 34.0F * scale, bodyTop + 32.0F * scale},
-      {centerX - 34.0F * scale, bodyTop + 32.0F * scale},
-    }},
-    {67, 82, 98, 255}
-  );
-  quad(
-    {{
-      {centerX - 10.0F * scale, muzzleY - 5.0F * scale},
-      {centerX + 10.0F * scale, muzzleY - 5.0F * scale},
-      {centerX + 14.0F * scale, muzzleY + 14.0F * scale},
-      {centerX - 14.0F * scale, muzzleY + 14.0F * scale},
-    }},
-    animatedColor
-  );
-  addRect(
-    drawList,
-    centerX - 72.0F * scale,
-    bodyTop + 44.0F * scale,
-    24.0F * scale,
-    58.0F * scale,
-    {52, 65, 80, 255}
-  );
-  addRect(
-    drawList,
-    centerX + 48.0F * scale,
-    bodyTop + 44.0F * scale,
-    24.0F * scale,
-    58.0F * scale,
-    {52, 65, 80, 255}
-  );
-  addRect(
-    drawList,
-    centerX - 63.0F * scale,
-    bodyTop + 53.0F * scale,
-    6.0F * scale,
-    40.0F * scale,
-    emitterColor
-  );
-  addRect(
-    drawList,
-    centerX + 57.0F * scale,
-    bodyTop + 53.0F * scale,
-    6.0F * scale,
-    40.0F * scale,
-    emitterColor
-  );
+  const auto drawWeapon = [&](Weapon weapon, float yOffset) {
+    const float muzzle = muzzleY + yOffset;
+    const float bodyTop = muzzle + 20.0F * scale;
+    const float bodyBottom = height + 18.0F * scale + yOffset;
+
+    if (weapon == Weapon::LightningGun) {
+      const float bodyHalfTop = 38.0F * scale;
+      const float bodyHalfBottom = 104.0F * scale;
+      quad(
+        {{
+          {centerX - bodyHalfTop, bodyTop},
+          {centerX + bodyHalfTop, bodyTop},
+          {centerX + bodyHalfBottom, bodyBottom},
+          {centerX - bodyHalfBottom, bodyBottom},
+        }},
+        {34, 42, 52, 255}
+      );
+      quad(
+        {{
+          {centerX - 21.0F * scale, muzzle},
+          {centerX + 21.0F * scale, muzzle},
+          {centerX + 34.0F * scale, bodyTop + 32.0F * scale},
+          {centerX - 34.0F * scale, bodyTop + 32.0F * scale},
+        }},
+        {67, 82, 98, 255}
+      );
+      quad(
+        {{
+          {centerX - 10.0F * scale, muzzle - 5.0F * scale},
+          {centerX + 10.0F * scale, muzzle - 5.0F * scale},
+          {centerX + 14.0F * scale, muzzle + 14.0F * scale},
+          {centerX - 14.0F * scale, muzzle + 14.0F * scale},
+        }},
+        animatedColor
+      );
+      addRect(
+        drawList,
+        centerX - 72.0F * scale,
+        bodyTop + 44.0F * scale,
+        24.0F * scale,
+        58.0F * scale,
+        {52, 65, 80, 255}
+      );
+      addRect(
+        drawList,
+        centerX + 48.0F * scale,
+        bodyTop + 44.0F * scale,
+        24.0F * scale,
+        58.0F * scale,
+        {52, 65, 80, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 63.0F * scale,
+        bodyTop + 53.0F * scale,
+        6.0F * scale,
+        40.0F * scale,
+        emitterColor
+      );
+      addRect(
+        drawList,
+        centerX + 57.0F * scale,
+        bodyTop + 53.0F * scale,
+        6.0F * scale,
+        40.0F * scale,
+        emitterColor
+      );
+      return;
+    }
+
+    if (weapon == Weapon::Railgun) {
+      quad(
+        {{
+          {centerX - 18.0F * scale, muzzle - 8.0F * scale},
+          {centerX + 18.0F * scale, muzzle - 8.0F * scale},
+          {centerX + 30.0F * scale, bodyBottom},
+          {centerX - 30.0F * scale, bodyBottom},
+        }},
+        {28, 32, 42, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 15.0F * scale,
+        muzzle - 18.0F * scale,
+        30.0F * scale,
+        132.0F * scale,
+        {70, 86, 106, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 8.0F * scale,
+        muzzle - 26.0F * scale,
+        16.0F * scale,
+        142.0F * scale,
+        {24, 28, 36, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 4.0F * scale,
+        muzzle - 24.0F * scale,
+        8.0F * scale,
+        132.0F * scale,
+        {90, 220, 255, 255}
+      );
+      return;
+    }
+
+    quad(
+      {{
+        {centerX - 44.0F * scale, muzzle + 6.0F * scale},
+        {centerX + 44.0F * scale, muzzle + 6.0F * scale},
+        {centerX + 98.0F * scale, bodyBottom},
+        {centerX - 98.0F * scale, bodyBottom},
+      }},
+      {45, 48, 45, 255}
+    );
+    addRect(
+      drawList,
+      centerX - 50.0F * scale,
+      muzzle - 12.0F * scale,
+      100.0F * scale,
+      34.0F * scale,
+      {80, 84, 76, 255}
+    );
+    addRect(
+      drawList,
+      centerX - 32.0F * scale,
+      muzzle - 25.0F * scale,
+      64.0F * scale,
+      18.0F * scale,
+      {34, 38, 34, 255}
+    );
+    addRect(
+      drawList,
+      centerX - 20.0F * scale,
+      muzzle - 20.0F * scale,
+      40.0F * scale,
+      8.0F * scale,
+      {185, 120, 58, 255}
+    );
+  };
+
+  const float progress = std::clamp(weaponSwitchProgress, 0.0F, 1.0F);
+  const auto smooth = [](float value) {
+    const float t = std::clamp(value, 0.0F, 1.0F);
+    return t * t * (3.0F - 2.0F * t);
+  };
+  if (progress < 1.0F && previousWeapon != selectedWeapon) {
+    constexpr float kDropPhase = 0.45F;
+    if (progress < kDropPhase) {
+      drawWeapon(previousWeapon, smooth(progress / kDropPhase) * 260.0F * scale);
+    } else {
+      const float raiseProgress = (progress - kDropPhase) / (1.0F - kDropPhase);
+      drawWeapon(
+        selectedWeapon,
+        (1.0F - smooth(raiseProgress)) * 260.0F * scale
+      );
+    }
+  } else {
+    drawWeapon(selectedWeapon, 0.0F);
+  }
   return drawList;
 }
 
@@ -670,6 +940,7 @@ DrawList2D buildScreenUi(
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addHud(drawList, outputWidth, outputHeight, hud, settings);
+  addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
   return drawList;
 }

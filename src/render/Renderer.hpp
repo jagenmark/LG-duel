@@ -78,6 +78,9 @@ struct HudRenderState {
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;
+  Weapon selectedWeapon = Weapon::LightningGun;
+  Weapon previousWeapon = Weapon::LightningGun;
+  float weaponSwitchProgress = 1.0F;
   float centerOffsetY = 0.0F;
   std::string countdownText;
   float countdownPulse = 0.0F;

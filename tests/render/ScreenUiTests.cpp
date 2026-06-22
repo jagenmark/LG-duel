@@ -23,6 +23,7 @@ int main() {
   opponent.health = 50;
   lg::RenderSettings settings;
   lg::HudRenderState hud;
+  hud.selectedWeapon = lg::Weapon::LightningGun;
   hud.showOpponentHealthBar = true;
   hud.topLeftLines = {"FPS 240"};
   hud.bottomCenterLines = {"SPEED 320 UPS", "HEALTH 100"};
@@ -40,6 +41,9 @@ int main() {
       1280,
       720,
       beam,
+      lg::Weapon::LightningGun,
+      lg::Weapon::LightningGun,
+      1.0F,
       settings
     );
     const auto* line = overlay.overlayCommands.empty()
@@ -65,6 +69,9 @@ int main() {
       1280,
       720,
       {},
+      lg::Weapon::LightningGun,
+      lg::Weapon::LightningGun,
+      1.0F,
       settings
     );
     failures += expect(
@@ -73,6 +80,74 @@ int main() {
           &idleOverlay.overlayCommands.front()
         ) != nullptr,
       "lightning gun viewmodel should remain visible while idle"
+    );
+  }
+
+  {
+    const lg::DrawList2D railOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      {},
+      lg::Weapon::Railgun,
+      lg::Weapon::LightningGun,
+      1.0F,
+      settings
+    );
+    bool foundRailCore = false;
+    for (const lg::DrawCommand2D& command : railOverlay.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundRailCore =
+          foundRailCore ||
+          (
+            quad->color.red == 90 &&
+            quad->color.green == 220 &&
+            quad->color.blue == 255
+          );
+      }
+    }
+    failures += expect(foundRailCore, "railgun viewmodel should use its own rail core");
+  }
+
+  {
+    const lg::DrawList2D rocketOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      {},
+      lg::Weapon::RocketLauncher,
+      lg::Weapon::LightningGun,
+      1.0F,
+      settings
+    );
+    bool foundRocketAccent = false;
+    for (const lg::DrawCommand2D& command : rocketOverlay.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundRocketAccent =
+          foundRocketAccent ||
+          (quad->color.red == 185 && quad->color.green == 120);
+      }
+    }
+    failures += expect(
+      foundRocketAccent,
+      "rocket launcher viewmodel should use its own accent"
+    );
+  }
+
+  {
+    const lg::DrawList2D switchingOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      {},
+      lg::Weapon::Railgun,
+      lg::Weapon::LightningGun,
+      0.2F,
+      settings
+    );
+    const auto* quad = switchingOverlay.overlayCommands.empty()
+      ? nullptr
+      : std::get_if<lg::FilledQuad2D>(&switchingOverlay.overlayCommands.front());
+    failures += expect(
+      quad != nullptr && quad->points[0].y > 640.0F,
+      "weapon switch should drop the outgoing viewmodel below the screen"
     );
   }
 
@@ -106,6 +181,7 @@ int main() {
     bool foundHealthLabel = false;
     bool foundScoreboardTitle = false;
     bool foundSpeed = false;
+    bool foundSelectedWeapon = false;
     for (const lg::DrawCommand2D& command : ui.overlayCommands) {
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
         foundHealthLabel =
@@ -113,11 +189,22 @@ int main() {
         foundScoreboardTitle =
           foundScoreboardTitle || text->text == "SCOREBOARD";
         foundSpeed = foundSpeed || text->text == "SPEED 320 UPS";
+        foundSelectedWeapon =
+          foundSelectedWeapon ||
+          (
+            text->text == "LG" &&
+            text->position.x > 1180.0F &&
+            text->color.red == 255
+          );
       }
     }
     failures += expect(
       foundHealthLabel && foundScoreboardTitle && foundSpeed,
       "health, scoreboard, and speed should be backend-neutral UI text"
+    );
+    failures += expect(
+      foundSelectedWeapon,
+      "selected weapon indicator should mark LG on the right side"
     );
   }
 

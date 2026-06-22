@@ -1260,6 +1260,9 @@ int GameApp::run() const {
   int scoreboardPressCount = 0;
   int zoomPressCount = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
+  Weapon viewWeapon = Weapon::LightningGun;
+  Weapon previousViewWeapon = Weapon::LightningGun;
+  float weaponSwitchSeconds = 1.0F;
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
@@ -1712,6 +1715,7 @@ int GameApp::run() const {
   auto previousTime = Clock::now();
   float accumulatorSeconds = 0.0F;
   float titleAccumulatorSeconds = 0.0F;
+  constexpr float kWeaponSwitchDurationSeconds = 0.16F;
   float droppedSimulationSeconds = 0.0F;
   std::uint32_t overloadFrameCount = 0;
   std::uint32_t renderedFrameCount = 0;
@@ -2027,6 +2031,15 @@ int GameApp::run() const {
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
     previousTime = now;
     titleAccumulatorSeconds += elapsed.count();
+    if (selectedWeapon != viewWeapon) {
+      previousViewWeapon = viewWeapon;
+      viewWeapon = selectedWeapon;
+      weaponSwitchSeconds = 0.0F;
+    }
+    weaponSwitchSeconds = std::min(
+      kWeaponSwitchDurationSeconds,
+      weaponSwitchSeconds + elapsed.count()
+    );
 
     const FixedTickFrame fixedTickFrame = planFixedTicks(
       accumulatorSeconds,
@@ -2527,6 +2540,11 @@ int GameApp::run() const {
     }
 
     HudRenderState hud = buildHud(session);
+    hud.selectedWeapon = selectedWeapon;
+    hud.previousWeapon = previousViewWeapon;
+    hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F
+      ? weaponSwitchSeconds / kWeaponSwitchDurationSeconds
+      : 1.0F;
     if (
       console.getBool("cl_showspeed") &&
       session.game() != nullptr &&

@@ -18,6 +18,9 @@ namespace lg {
   int outputWidth,
   int outputHeight,
   const LightningGunResult& localLightningGun,
+  Weapon selectedWeapon,
+  Weapon previousWeapon,
+  float weaponSwitchProgress,
   const RenderSettings& settings
 );
 

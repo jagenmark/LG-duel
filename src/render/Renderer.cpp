@@ -782,6 +782,9 @@ const PlayerState& firstVisibleRemote(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
         localLightningGun,
+        hud.selectedWeapon,
+        hud.previousWeapon,
+        hud.weaponSwitchProgress,
         settings
       );
       appendCommands(
