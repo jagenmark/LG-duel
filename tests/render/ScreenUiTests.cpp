@@ -1,5 +1,8 @@
 #include "render/ScreenUi.hpp"
 
+#include <array>
+#include <cmath>
+#include <string>
 #include <iostream>
 #include <string_view>
 #include <variant>
@@ -119,6 +122,39 @@ int main() {
       foundHealthLabel && foundScoreboardTitle && foundSpeed,
       "health, scoreboard, and speed should be backend-neutral UI text"
     );
+  }
+
+  {
+    constexpr std::array<int, 5> visibleRightColumns = {5, 5, 5, 6, 5};
+    for (std::size_t index = 0; index < visibleRightColumns.size(); ++index) {
+      lg::HudRenderState countdownHud;
+      countdownHud.countdownText = std::to_string(index + 1);
+      const lg::DrawList2D ui = lg::buildScreenUi(
+        1280,
+        720,
+        opponent,
+        settings,
+        countdownHud,
+        {}
+      );
+      const auto* text = ui.overlayCommands.empty()
+        ? nullptr
+        : std::get_if<lg::Text2D>(&ui.overlayCommands.back());
+      const float visibleCenterX = text == nullptr
+        ? 0.0F
+        : text->position.x +
+          static_cast<float>(visibleRightColumns[index] + 1) *
+            text->scale * 0.5F;
+      const float visibleCenterY = text == nullptr
+        ? 0.0F
+        : text->position.y + 3.5F * text->scale;
+      failures += expect(
+        text != nullptr &&
+          std::abs(visibleCenterX - 640.0F) < 0.01F &&
+          std::abs(visibleCenterY - 360.0F) < 0.01F,
+        "countdown digit pixels should be centered in the screen"
+      );
+    }
   }
 
   {
