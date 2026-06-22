@@ -57,6 +57,21 @@ void addText(
   });
 }
 
+[[nodiscard]] std::uint8_t blendChannel(
+  std::uint8_t base,
+  std::uint8_t highlight,
+  float amount
+) {
+  return static_cast<std::uint8_t>(
+    std::clamp(
+      static_cast<float>(base) +
+        (static_cast<float>(highlight) - static_cast<float>(base)) * amount,
+      0.0F,
+      255.0F
+    )
+  );
+}
+
 void addOutline(
   DrawList2D& drawList,
   float x,
@@ -369,10 +384,11 @@ void addCrosshair(
   const float size = settings.crosshairSize;
   const float gap = settings.crosshairGap;
   const float thickness = settings.crosshairThickness;
+  const float hitAmount = std::clamp(settings.crosshairHitAmount, 0.0F, 1.0F);
   const RenderColor color = {
-    settings.crosshairRed,
-    settings.crosshairGreen,
-    settings.crosshairBlue,
+    blendChannel(settings.crosshairRed, settings.crosshairHitRed, hitAmount),
+    blendChannel(settings.crosshairGreen, settings.crosshairHitGreen, hitAmount),
+    blendChannel(settings.crosshairBlue, settings.crosshairHitBlue, hitAmount),
     static_cast<std::uint8_t>(
       std::clamp(settings.crosshairAlpha, 0.0F, 1.0F) * 255.0F
     ),
@@ -722,24 +738,10 @@ DrawList2D buildPerspectiveWeaponOverlay(
 ) {
   DrawList2D drawList;
   const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
-  const auto blendChannel =
-    [hitAmount](std::uint8_t base, std::uint8_t highlight) {
-      return static_cast<std::uint8_t>(
-        std::clamp(
-          static_cast<float>(base) +
-            (
-              static_cast<float>(highlight) -
-              static_cast<float>(base)
-            ) * hitAmount,
-          0.0F,
-          255.0F
-        )
-      );
-    };
   const RenderColor color = {
-    blendChannel(settings.beamRed, settings.beamHitRed),
-    blendChannel(settings.beamGreen, settings.beamHitGreen),
-    blendChannel(settings.beamBlue, settings.beamHitBlue),
+    blendChannel(settings.beamRed, settings.beamHitRed, hitAmount),
+    blendChannel(settings.beamGreen, settings.beamHitGreen, hitAmount),
+    blendChannel(settings.beamBlue, settings.beamHitBlue, hitAmount),
     static_cast<std::uint8_t>(
       std::clamp(settings.beamAlpha, 0.0F, 1.0F) * 255.0F
     ),

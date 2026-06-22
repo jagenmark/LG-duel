@@ -684,6 +684,12 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"crosshair_r", "Crosshair red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_g", "Crosshair green channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_b", "Crosshair blue channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_enable", "Enable crosshair hit-color feedback.", true, archivedClient, {}, {}});
+  console.registerCvar({"crosshair_hit_r", "Crosshair hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_g", "Crosshair hit-feedback green channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_b", "Crosshair hit-feedback blue channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_duration", "Crosshair hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"crosshair_hit_fade", "Gradually blend crosshair hit color back to base.", true, archivedClient, {}, {}});
   console.registerCvar({"r_vsync", "Enable renderer vertical sync.", true, archivedClient, {}, {}});
   console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
@@ -754,6 +760,9 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
   settings.crosshairGreen = static_cast<std::uint8_t>(console.getInt("crosshair_g"));
   settings.crosshairBlue = static_cast<std::uint8_t>(console.getInt("crosshair_b"));
+  settings.crosshairHitRed = static_cast<std::uint8_t>(console.getInt("crosshair_hit_r"));
+  settings.crosshairHitGreen = static_cast<std::uint8_t>(console.getInt("crosshair_hit_g"));
+  settings.crosshairHitBlue = static_cast<std::uint8_t>(console.getInt("crosshair_hit_b"));
   settings.beamWidth = console.getFloat("r_beam_width");
   settings.beamAlpha = console.getFloat("r_beam_alpha");
   settings.beamRed = static_cast<std::uint8_t>(console.getInt("r_beam_r"));
@@ -2598,6 +2607,12 @@ int GameApp::run() const {
       currentRenderSettings.beamHitAmount = hitFeedbackAmount(
         console.getFloat("r_beam_hit_duration"),
         console.getBool("r_beam_hit_fade")
+      );
+    }
+    if (console.getBool("crosshair_hit_enable")) {
+      currentRenderSettings.crosshairHitAmount = hitFeedbackAmount(
+        console.getFloat("crosshair_hit_duration"),
+        console.getBool("crosshair_hit_fade")
       );
     }
     if (currentRenderSettings.hitMarkerEnabled) {

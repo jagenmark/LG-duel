@@ -33,6 +33,10 @@ struct RenderSettings {
   std::uint8_t crosshairRed = 255;
   std::uint8_t crosshairGreen = 255;
   std::uint8_t crosshairBlue = 255;
+  std::uint8_t crosshairHitRed = 255;
+  std::uint8_t crosshairHitGreen = 255;
+  std::uint8_t crosshairHitBlue = 255;
+  float crosshairHitAmount = 0.0F;
   float beamWidth = 2.0F;
   float beamPulse = 0.0F;
   float beamAlpha = 1.0F;

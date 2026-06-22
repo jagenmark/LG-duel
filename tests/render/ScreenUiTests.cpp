@@ -153,6 +153,37 @@ int main() {
   }
 
   {
+    lg::RenderSettings crosshairSettings;
+    crosshairSettings.crosshairRed = 20;
+    crosshairSettings.crosshairGreen = 40;
+    crosshairSettings.crosshairBlue = 60;
+    crosshairSettings.crosshairHitRed = 120;
+    crosshairSettings.crosshairHitGreen = 140;
+    crosshairSettings.crosshairHitBlue = 160;
+    crosshairSettings.crosshairHitAmount = 0.5F;
+
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      crosshairSettings,
+      {},
+      {}
+    );
+    const auto* crosshairArm =
+      ui.overlayCommands.empty()
+        ? nullptr
+        : std::get_if<lg::FilledQuad2D>(&ui.overlayCommands.front());
+    failures += expect(
+      crosshairArm != nullptr &&
+        crosshairArm->color.red == 70 &&
+        crosshairArm->color.green == 90 &&
+        crosshairArm->color.blue == 110,
+      "crosshair should blend to its hit-feedback color"
+    );
+  }
+
+  {
     const lg::DrawList2D ui = lg::buildScreenUi(
       1280,
       720,
