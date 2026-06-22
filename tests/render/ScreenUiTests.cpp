@@ -1,5 +1,6 @@
 #include "render/ScreenUi.hpp"
 
+#include <array>
 #include <iostream>
 #include <string_view>
 #include <variant>
@@ -165,17 +166,8 @@ int main() {
       "screen UI should contain only unclipped overlay commands"
     );
     failures += expect(
-      ui.overlayCommands.size() >= 16,
-      "health bar, crosshair, scoreboard, and HUD should emit commands"
-    );
-
-    const auto* outline =
-      std::get_if<lg::FilledQuad2D>(&ui.overlayCommands[0]);
-    failures += expect(
-      outline != nullptr &&
-        outline->color.red == 220 &&
-        outline->color.alpha == 255,
-      "opponent health outline should be the first UI primitive"
+      ui.overlayCommands.size() >= 13,
+      "crosshair, scoreboard, and HUD should emit commands"
     );
 
     bool foundHealthLabel = false;
@@ -199,12 +191,49 @@ int main() {
       }
     }
     failures += expect(
-      foundHealthLabel && foundScoreboardTitle && foundSpeed,
-      "health, scoreboard, and speed should be backend-neutral UI text"
+      !foundHealthLabel && foundScoreboardTitle && foundSpeed,
+      "enemy health should move out of the static HUD"
     );
     failures += expect(
       foundSelectedWeapon,
       "selected weapon indicator should mark LG on the right side"
+    );
+  }
+
+  {
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
+    opponent.position = {10.0F, 0.0F, 0.0F};
+    opponent.bounds.halfHeight = 0.9F;
+    remotePlayers[1] = lg::RemotePlayerView{opponent, {}, 0.0F, 0.5F, true};
+    settings.enemyHealthBarRed = 20;
+    settings.enemyHealthBarGreen = 220;
+    settings.enemyHealthBarBlue = 90;
+    settings.enemyHealthBarWidth = 80.0F;
+    settings.enemyHealthBarHeight = 8.0F;
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
+    const lg::DrawList2D bars = lg::buildFloatingHealthBars(
+      1280,
+      720,
+      camera,
+      remotePlayers,
+      settings,
+      hud
+    );
+    failures += expect(
+      bars.overlayCommands.size() == 3,
+      "visible enemy should emit a floating health bar"
+    );
+    const auto* fill =
+      std::get_if<lg::FilledQuad2D>(&bars.overlayCommands.back());
+    failures += expect(
+      fill != nullptr &&
+        fill->color.red == 20 &&
+        fill->color.green == 220 &&
+        fill->color.blue == 90 &&
+        fill->color.alpha == 127 &&
+        fill->points[1].x - fill->points[0].x == 40.0F,
+      "floating health bar should use configured color, alpha, and health ratio"
     );
   }
 

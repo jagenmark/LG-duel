@@ -204,6 +204,13 @@ public:
       : 0.0F;
   }
 
+  void resetLightningGunFire() {
+    lightningGunFireActive_ = false;
+    lightningGunFireTargetVolume_ = 0.0F;
+    lightningGunFireGain_ = 0.0F;
+    lightningGunSampleIndex_ = 0;
+  }
+
   void playRoundResult(bool won, float volume) {
     if (won) {
       queueTone(520.0F, 0.08F, volume);
@@ -350,9 +357,12 @@ private:
   }
 
   [[nodiscard]] float lightningGunSample() {
+    constexpr std::uint64_t kLightningGunPeriodSamples =
+      static_cast<std::uint64_t>(kSampleRate / 48);
     const float time =
       static_cast<float>(lightningGunSampleIndex_) / static_cast<float>(kSampleRate);
-    ++lightningGunSampleIndex_;
+    lightningGunSampleIndex_ =
+      (lightningGunSampleIndex_ + 1U) % kLightningGunPeriodSamples;
 
     return
       0.46F * sine(96.0F, time) +
@@ -649,13 +659,13 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 80.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
-  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 24.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
+  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 10.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
+  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 1.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
   console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, CvarFlag::Client, {}, {}});
-  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 8.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
+  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 6.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
-  console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 22.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
+  console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
@@ -710,6 +720,20 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_hit_b", "Enemy hit-feedback blue channel.", 198, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_hit_duration", "Enemy hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_enemy_hit_fade", "Gradually blend hit color back to the base color.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_enable", "Draw floating enemy health bars.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_damage_only", "Only show enemy health bars after recent damage.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_fade", "Fade enemy health bars during their damage-only duration.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_duration", "Seconds to show enemy health after damage.", 5.0F, archivedClient, 0.0F, 30.0F});
+  console.registerCvar({"r_enemy_health_max_distance", "Hide enemy health bars beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_enemy_health_width", "Floating enemy health bar width in pixels.", 72.0F, archivedClient, 12.0F, 360.0F});
+  console.registerCvar({"r_enemy_health_height", "Floating enemy health bar height in pixels.", 7.0F, archivedClient, 2.0F, 60.0F});
+  console.registerCvar({"r_enemy_health_offset_z", "Floating enemy health bar vertical world offset above the model.", 0.35F, archivedClient, -2.0F, 6.0F});
+  console.registerCvar({"r_enemy_health_offset_x", "Floating enemy health bar horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_enemy_health_offset_y", "Floating enemy health bar vertical screen offset.", -18.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_enemy_health_alpha", "Floating enemy health bar opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_health_r", "Floating enemy health bar red channel.", 224, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_health_g", "Floating enemy health bar green channel.", 82, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_health_b", "Floating enemy health bar blue channel.", 92, archivedClient, 0.0F, 255.0F});
 }
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
@@ -768,6 +792,29 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_g"));
   settings.enemyHitBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_b"));
+  settings.enemyHealthBarEnabled = console.getBool("r_enemy_health_enable");
+  settings.enemyHealthBarDamageOnly =
+    console.getBool("r_enemy_health_damage_only");
+  settings.enemyHealthBarFade = console.getBool("r_enemy_health_fade");
+  settings.enemyHealthBarVisibleDuration =
+    console.getFloat("r_enemy_health_duration");
+  settings.enemyHealthBarMaxDistance =
+    console.getFloat("r_enemy_health_max_distance");
+  settings.enemyHealthBarWidth = console.getFloat("r_enemy_health_width");
+  settings.enemyHealthBarHeight = console.getFloat("r_enemy_health_height");
+  settings.enemyHealthBarWorldOffsetZ =
+    console.getFloat("r_enemy_health_offset_z");
+  settings.enemyHealthBarScreenOffsetX =
+    console.getFloat("r_enemy_health_offset_x");
+  settings.enemyHealthBarScreenOffsetY =
+    console.getFloat("r_enemy_health_offset_y");
+  settings.enemyHealthBarAlpha = console.getFloat("r_enemy_health_alpha");
+  settings.enemyHealthBarRed =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_health_r"));
+  settings.enemyHealthBarGreen =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_health_g"));
+  settings.enemyHealthBarBlue =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_health_b"));
   settings.showLagCompensation = console.getBool("cl_show_lagcomp");
   return settings;
 }
@@ -1020,6 +1067,7 @@ HudRenderState buildHud(const ClientSession& session) {
     true
   ));
 
+  hud.healthAmount = snapshot.healthAmount;
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
@@ -1752,9 +1800,15 @@ int GameApp::run() const {
   std::uint32_t lastAudioCountdownSecond = 0;
   bool previousLocalHit = false;
   bool audioStateInitialized = false;
+  bool hasLocalPlayerAliveState = false;
+  bool wasLocalPlayerAlive = false;
   bool hasEnemyHitTime = false;
   Clock::time_point lastEnemyHitTime = {};
   std::uint8_t lastEnemyHitTarget = 255;
+  std::array<int, kDuelPlayerCount> lastRemoteHealth = {};
+  std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
+  std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
+  std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringRailBeam, kDuelPlayerCount> lingeringRailBeams = {};
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
@@ -2142,9 +2196,12 @@ int GameApp::run() const {
       hasLocalRailFireTick = false;
       localRailReadySoundPlayed = true;
       previousLocalHit = false;
+      hasLocalPlayerAliveState = false;
+      wasLocalPlayerAlive = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
       footstepAudioStates = {};
+      audio.resetLightningGunFire();
     }
     if (
       audioAvailable &&
@@ -2157,6 +2214,18 @@ int GameApp::run() const {
         audioSnapshot.serverTick != lastAudioServerTick
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
+        const bool localPlayerAlive =
+          currentAudioGame->predictedPlayer().health > 0;
+        if (
+          hasLocalPlayerAliveState &&
+          wasLocalPlayerAlive &&
+          !localPlayerAlive
+        ) {
+          audio.resetLightningGunFire();
+        }
+        hasLocalPlayerAliveState = true;
+        wasLocalPlayerAlive = localPlayerAlive;
+
         const bool localHit =
           audioSnapshot.lightningGuns[localPlayerIndex].hit;
         const float volume = console.getFloat("s_volume");
@@ -2411,8 +2480,20 @@ int GameApp::run() const {
           renderClient->interpolatedPlayer(playerIndex),
           renderSnapshot.lightningGuns[playerIndex],
           0.0F,
+          1.0F,
           true,
         };
+        const int currentRemoteHealth =
+          renderSnapshot.players[playerIndex].health;
+        if (
+          hasLastRemoteHealth[playerIndex] &&
+          currentRemoteHealth < lastRemoteHealth[playerIndex]
+        ) {
+          lastRemoteDamageTime[playerIndex] = now;
+          hasLastRemoteDamageTime[playerIndex] = true;
+        }
+        lastRemoteHealth[playerIndex] = currentRemoteHealth;
+        hasLastRemoteHealth[playerIndex] = true;
       }
       renderLocalLightningGun =
         renderSnapshot.lightningGuns[localPlayerIndex];
@@ -2510,6 +2591,29 @@ int GameApp::run() const {
         console.getFloat("r_hitmarker_duration"),
         true
       );
+    }
+    if (currentRenderSettings.enemyHealthBarDamageOnly) {
+      const float duration =
+        currentRenderSettings.enemyHealthBarVisibleDuration;
+      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        RemotePlayerView& remote = renderRemotePlayers[playerIndex];
+        if (!remote.visible) {
+          continue;
+        }
+        if (!hasLastRemoteDamageTime[playerIndex] || duration <= 0.0F) {
+          remote.enemyHealthAlpha = 0.0F;
+          continue;
+        }
+        const float elapsed =
+          std::chrono::duration<float>(now - lastRemoteDamageTime[playerIndex]).count();
+        if (elapsed >= duration) {
+          remote.enemyHealthAlpha = 0.0F;
+          continue;
+        }
+        remote.enemyHealthAlpha = currentRenderSettings.enemyHealthBarFade
+          ? 1.0F - (elapsed / duration)
+          : 1.0F;
+      }
     }
     currentRenderSettings.playerSizePixels =
       14.0F * (renderPlayer.bounds.radius / 0.35F);

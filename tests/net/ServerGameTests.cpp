@@ -181,7 +181,7 @@ int main() {
     lg::CommandPacket tuningRequest;
     tuningRequest.command.sequence = 1;
     tuningRequest.requestMovementTuning = true;
-    tuningRequest.lightningKnockback = 100.0F;
+    tuningRequest.lightningKnockback = 1000.0F;
     transport.sendCommand(tuningRequest);
     server.tick(lg::kFixedTickSeconds);
     latestSnapshot(transport);
@@ -193,9 +193,10 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.lightningKnockback == 100.0F &&
+      snapshot.lightningKnockback == 1000.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.79F,
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.17F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.18F,
       "g_knockback should control authoritative LG impulse magnitude"
     );
   }
@@ -856,10 +857,18 @@ int main() {
       "countdown expiry should unlock live play"
     );
 
+    lg::CommandPacket noKnockback;
+    noKnockback.command.sequence = 5;
+    noKnockback.requestMovementTuning = true;
+    noKnockback.lightningKnockback = 0.0F;
+    transport.sendCommand(noKnockback);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
     std::uint32_t lastAttackSequence = 0;
     for (std::uint32_t sequence = 0; sequence < 200; ++sequence) {
       lg::UserCommand command;
-      command.sequence = sequence + 2;
+      command.sequence = sequence + 6;
       command.clientTick = sequence;
       command.attack = true;
       transport.sendCommand(lg::CommandPacket{0, command, false});
@@ -873,7 +882,7 @@ int main() {
 
     failures += expect(snapshot.players[1].health == 0, "authoritative LG should kill the target");
     failures += expect(
-      snapshot.acknowledgedCommand[0] == lastAttackSequence + 2,
+      snapshot.acknowledgedCommand[0] == lastAttackSequence + 6,
       "server should ack latest combat command"
     );
     failures += expect(

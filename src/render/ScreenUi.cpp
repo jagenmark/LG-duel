@@ -1,6 +1,7 @@
 #include "render/ScreenUi.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace lg {
@@ -251,23 +252,91 @@ void addSelectedWeaponIndicator(
   }
 }
 
-void addOpponentHealthBar(
+[[nodiscard]] RenderColor withAlpha(RenderColor color, float alphaScale) {
+  color.alpha = static_cast<std::uint8_t>(
+    std::clamp(
+      static_cast<float>(color.alpha) * std::clamp(alphaScale, 0.0F, 1.0F),
+      0.0F,
+      255.0F
+    )
+  );
+  return color;
+}
+
+[[nodiscard]] ScreenPoint screenPointFromProjection(
+  ProjectedPoint projected,
+  int width,
+  int height
+) {
+  return {
+    (projected.x + 1.0F) * 0.5F * static_cast<float>(width),
+    (1.0F - projected.y) * 0.5F * static_cast<float>(height),
+  };
+}
+
+void addFloatingHealthBar(
   DrawList2D& drawList,
   int width,
+  int height,
+  const PerspectiveCamera& camera,
   const PlayerState& opponent,
+  float alpha,
+  const RenderSettings& settings,
   const HudRenderState& hud
 ) {
-  if (!hud.showOpponentHealthBar) {
+  if (
+    !hud.showOpponentHealthBar ||
+    !settings.enemyHealthBarEnabled ||
+    opponent.health <= 0 ||
+    alpha <= 0.0F
+  ) {
     return;
   }
 
-  const float barWidth = std::min(420.0F, static_cast<float>(width) * 0.38F);
-  constexpr float barHeight = 20.0F;
-  constexpr float border = 3.0F;
-  const float x = (static_cast<float>(width) - barWidth) * 0.5F;
-  constexpr float y = 24.0F;
+  if (
+    settings.enemyHealthBarMaxDistance > 0.0F &&
+    length(opponent.position - camera.position) >
+      settings.enemyHealthBarMaxDistance
+  ) {
+    return;
+  }
+
+  const Vec3 anchor =
+    opponent.position +
+    Vec3{
+      0.0F,
+      0.0F,
+      opponent.bounds.halfHeight + settings.enemyHealthBarWorldOffsetZ,
+    };
+  ProjectedPoint projected;
+  if (!projectPerspectivePoint(camera, anchor, projected)) {
+    return;
+  }
+  const ScreenPoint anchorScreen =
+    screenPointFromProjection(projected, width, height);
+  const float barWidth = std::max(1.0F, settings.enemyHealthBarWidth);
+  const float barHeight = std::max(1.0F, settings.enemyHealthBarHeight);
+  const float border = std::max(1.0F, std::round(barHeight * 0.25F));
+  const float x =
+    anchorScreen.x + settings.enemyHealthBarScreenOffsetX - barWidth * 0.5F;
+  const float y =
+    anchorScreen.y + settings.enemyHealthBarScreenOffsetY - barHeight;
+  const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
   const float healthRatio =
-    std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+    std::clamp(static_cast<float>(opponent.health) / maxHealth, 0.0F, 1.0F);
+  const RenderColor outline =
+    withAlpha({220, 226, 236, 255}, alpha * settings.enemyHealthBarAlpha);
+  const RenderColor back =
+    withAlpha({10, 13, 18, 215}, alpha * settings.enemyHealthBarAlpha);
+  const RenderColor fill = withAlpha(
+    {
+      settings.enemyHealthBarRed,
+      settings.enemyHealthBarGreen,
+      settings.enemyHealthBarBlue,
+      255,
+    },
+    alpha * settings.enemyHealthBarAlpha
+  );
 
   addRect(
     drawList,
@@ -275,30 +344,10 @@ void addOpponentHealthBar(
     y - border,
     barWidth + border * 2.0F,
     barHeight + border * 2.0F,
-    {220, 226, 236, 255}
+    outline
   );
-  addRect(drawList, x, y, barWidth, barHeight, {34, 38, 46, 255});
-  addRect(
-    drawList,
-    x,
-    y,
-    barWidth * healthRatio,
-    barHeight,
-    {224, 82, 92, 255}
-  );
-
-  const std::string label = "ENEMY HP " + std::to_string(opponent.health);
-  constexpr float textScale = 1.5F;
-  const float textWidth =
-    static_cast<float>(label.size()) * kGlyphSize * textScale;
-  addText(
-    drawList,
-    (static_cast<float>(width) - textWidth) * 0.5F,
-    y + barHeight + 8.0F,
-    label,
-    {224, 82, 92, 255},
-    textScale
-  );
+  addRect(drawList, x, y, barWidth, barHeight, back);
+  addRect(drawList, x, y, barWidth * healthRatio, barHeight, fill);
 }
 
 void addCrosshair(
@@ -936,12 +985,45 @@ DrawList2D buildScreenUi(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
-  addOpponentHealthBar(drawList, outputWidth, opponent, hud);
+  (void)opponent;
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addHud(drawList, outputWidth, outputHeight, hud, settings);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
+  return drawList;
+}
+
+DrawList2D buildFloatingHealthBars(
+  int outputWidth,
+  int outputHeight,
+  const PerspectiveCamera& camera,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+) {
+  DrawList2D drawList;
+  drawList.clip = {
+    0.0F,
+    0.0F,
+    static_cast<float>(outputWidth),
+    static_cast<float>(outputHeight),
+  };
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
+    addFloatingHealthBar(
+      drawList,
+      outputWidth,
+      outputHeight,
+      camera,
+      remote.player,
+      remote.enemyHealthAlpha,
+      settings,
+      hud
+    );
+  }
   return drawList;
 }
 

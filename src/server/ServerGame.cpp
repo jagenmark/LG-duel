@@ -14,6 +14,7 @@ constexpr std::uint32_t kRailgunCooldownTicks = 188;
 constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
+constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 
 [[nodiscard]] PlayerState spawnPlayer(
   const Arena& arena,
@@ -71,6 +72,10 @@ constexpr CollisionBounds kDefaultPlayerBounds = {};
     }
   }
   return kDuelPlayerCount;
+}
+
+[[nodiscard]] float q3KnockbackToInternal(float knockback) {
+  return knockback * kQ3KnockbackToInternalScale;
 }
 
 } // namespace
@@ -414,7 +419,7 @@ void ServerGame::resetMatch() {
   snapshot_.movementTuning = movementTuning_;
   snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
-  snapshot_.lightningKnockback = lightningGunTuning_.knockbackPerSecond;
+  snapshot_.lightningKnockback = lightningKnockback_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
   snapshot_.healthAmount = healthAmount_;
@@ -1016,8 +1021,10 @@ void ServerGame::receiveCommands() {
       playerSizeScaleZ_ = packet.playerSizeScaleZ;
       snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
       snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
-      lightningGunTuning_.knockbackPerSecond = packet.lightningKnockback;
-      snapshot_.lightningKnockback = lightningGunTuning_.knockbackPerSecond;
+      lightningKnockback_ = packet.lightningKnockback;
+      lightningGunTuning_.knockbackPerSecond =
+        q3KnockbackToInternal(lightningKnockback_);
+      snapshot_.lightningKnockback = lightningKnockback_;
       if (vampirism_ != packet.vampirism) {
         fractionalVampirismHealing_ = {};
       }

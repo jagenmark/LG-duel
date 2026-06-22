@@ -669,6 +669,24 @@ const PlayerState& firstVisibleRemote(
   return remotePlayers.front().player;
 }
 
+[[nodiscard]] PerspectiveCamera playerPerspectiveCamera(
+  const PlayerState& player,
+  float aspectRatio,
+  float fieldOfView
+) {
+  constexpr CollisionBounds kDefaultPlayerBounds = {};
+  const float eyeHeight =
+    0.65F *
+    (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
+  return makePerspectiveCamera(
+    player.position + Vec3{0.0F, 0.0F, eyeHeight},
+    player.viewYawRadians,
+    player.viewPitchRadians,
+    fieldOfView,
+    aspectRatio
+  );
+}
+
 [[nodiscard]] bool renderGpuFrame(
   SDL_GPUDevice* device,
   SDL_GPUGraphicsPipeline* pipeline2D,
@@ -778,6 +796,20 @@ const PlayerState& firstVisibleRemote(
         static_cast<float>(outputHeight)
       );
     } else {
+      const DrawList2D floatingHealthBars = buildFloatingHealthBars(
+        static_cast<int>(outputWidth),
+        static_cast<int>(outputHeight),
+        perspectiveScene.camera,
+        remotePlayers,
+        settings,
+        hud
+      );
+      appendCommands(
+        vertices,
+        floatingHealthBars.overlayCommands,
+        static_cast<float>(outputWidth),
+        static_cast<float>(outputHeight)
+      );
       const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
@@ -1396,19 +1428,8 @@ void drawPerspectiveWorld(
 ) {
   const float aspectRatio =
     static_cast<float>(width) / static_cast<float>(std::max(1, height));
-  constexpr CollisionBounds kDefaultPlayerBounds = {};
-  const float eyeHeight =
-    0.65F *
-    (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
-  const Vec3 cameraPosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight};
-  const PerspectiveCamera camera = makePerspectiveCamera(
-    cameraPosition,
-    player.viewYawRadians,
-    player.viewPitchRadians,
-    settings.fieldOfView,
-    aspectRatio
-  );
+  const PerspectiveCamera camera =
+    playerPerspectiveCamera(player, aspectRatio, settings.fieldOfView);
 
   const std::array<Vec3, 4> floorCorners = {{
     {arena.min.x, arena.min.y, arena.min.z},
@@ -1919,6 +1940,22 @@ void Renderer::render(
       rocketExplosions,
       rockets,
       settings
+    );
+    const PerspectiveCamera camera = playerPerspectiveCamera(
+      player,
+      static_cast<float>(width) / static_cast<float>(std::max(1, height)),
+      settings.fieldOfView
+    );
+    drawCommandList(
+      renderer,
+      buildFloatingHealthBars(
+        width,
+        height,
+        camera,
+        remotePlayers,
+        settings,
+        hud
+      )
     );
     drawCommandList(
       renderer,

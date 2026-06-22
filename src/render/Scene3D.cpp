@@ -797,6 +797,7 @@ Scene3D buildPerspectiveScene(
     opponent,
     opponentLightningGun,
     settings.enemyHitAmount,
+    1.0F,
     settings.hasRemotePlayer,
   };
   return buildPerspectiveScene(

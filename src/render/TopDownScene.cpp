@@ -606,20 +606,41 @@ DrawList2D buildTopDownScene(
       enemyColor(settings, remote.enemyHitAmount)
     );
 
-    if (hud.showOpponentHealthBar) {
+    if (
+      hud.showOpponentHealthBar &&
+      settings.enemyHealthBarEnabled &&
+      remote.enemyHealthAlpha > 0.0F
+    ) {
       const float healthRatio =
-        std::clamp(static_cast<float>(remote.player.health) / 100.0F, 0.0F, 1.0F);
+        std::clamp(
+          static_cast<float>(remote.player.health) /
+            std::max(1.0F, static_cast<float>(hud.healthAmount)),
+          0.0F,
+          1.0F
+        );
       const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
       const float healthBarOffset = playerSize + 2.0F;
       const float healthBarHeight =
         std::max(2.0F, playerSize * (4.0F / 14.0F));
+      const std::uint8_t healthAlpha = static_cast<std::uint8_t>(
+        std::clamp(
+          255.0F * remote.enemyHealthAlpha * settings.enemyHealthBarAlpha,
+          0.0F,
+          255.0F
+        )
+      );
       addFilledRect(
         drawList.commands,
         opponentScreen.x - healthBarHalfWidth,
         opponentScreen.y - healthBarOffset,
         healthBarHalfWidth * 2.0F * healthRatio,
         healthBarHeight,
-        {224, 82, 92, 255}
+        {
+          settings.enemyHealthBarRed,
+          settings.enemyHealthBarGreen,
+          settings.enemyHealthBarBlue,
+          healthAlpha
+        }
       );
     }
   }
@@ -686,6 +707,7 @@ DrawList2D buildTopDownScene(
     opponent,
     opponentLightningGun,
     settings.enemyHitAmount,
+    1.0F,
     settings.hasRemotePlayer,
   };
   return buildTopDownScene(

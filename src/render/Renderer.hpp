@@ -63,6 +63,20 @@ struct RenderSettings {
   std::uint8_t enemyHitGreen = 190;
   std::uint8_t enemyHitBlue = 198;
   float enemyHitAmount = 0.0F;
+  bool enemyHealthBarEnabled = true;
+  bool enemyHealthBarDamageOnly = false;
+  bool enemyHealthBarFade = true;
+  float enemyHealthBarVisibleDuration = 5.0F;
+  float enemyHealthBarMaxDistance = 0.0F;
+  float enemyHealthBarWidth = 72.0F;
+  float enemyHealthBarHeight = 7.0F;
+  float enemyHealthBarWorldOffsetZ = 0.35F;
+  float enemyHealthBarScreenOffsetX = 0.0F;
+  float enemyHealthBarScreenOffsetY = -18.0F;
+  float enemyHealthBarAlpha = 1.0F;
+  std::uint8_t enemyHealthBarRed = 224;
+  std::uint8_t enemyHealthBarGreen = 82;
+  std::uint8_t enemyHealthBarBlue = 92;
   bool showLagCompensation = false;
   bool hasRemotePlayer = true;
 };
@@ -90,12 +104,14 @@ struct HudRenderState {
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
   bool showOpponentHealthBar = false;
+  std::int32_t healthAmount = 100;
 };
 
 struct RemotePlayerView {
   PlayerState player = {};
   LightningGunResult lightningGun = {};
   float enemyHitAmount = 0.0F;
+  float enemyHealthAlpha = 1.0F;
   bool visible = false;
 };
 

@@ -121,13 +121,13 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 
 | Cvar | Typ | Projektdefault | Giltigt | Q3/QL-default eller ekvivalent | Funktion |
 |---|---:|---:|---|---|---|
-| `g_accel` | float | `80` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. |
-| `g_airaccel` | float | `24` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. |
+| `g_accel` | float | `10` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. |
+| `g_airaccel` | float | `1` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. |
 | `g_aircontrol` | bool | `0` | bool | Q3/QL: `0`, QW-style: `1` | Vaxlar extra air control. `0` behaller Q3/QL-kansla utan QuakeWorld-lik styrning i luften. `1` later forward-input vrida horisontell luftfart mot siktriktningen utan att direkt ge gratis fart. |
-| `g_friction` | float | `8` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
+| `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
 | `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. |
 | `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. |
-| `g_knockback` | float | `22` | `0..1000` | Q3 `g_knockback 1000`; inte samma interna enhet | LG-knockback per sekund. |
+| `g_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. |
 | `g_vampirism` | float | `0` | `0..2` | Ingen standardmekanik | Healing som multipel av utdelad skada. `0.1 = 10%`, `1 = 100%`, `2 = 200%`. Fraktioner ackumuleras och avrundas när helt HP kan delas ut. |
 | `g_selfdamage` | float | `100` | `0..100` | `100` | Procent av egen splash-damage som appliceras. Värdet rundas till närmaste heltal innan det skickas till servern. |
 | `g_healthamount` | int | `100` | `1..100000` | `100` | HP som varje spelare startar med vid spawn, rundstart och warmup-respawn. |
