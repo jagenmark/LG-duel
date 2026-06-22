@@ -35,13 +35,14 @@ public:
     std::string playerName = {}
   );
   void receiveSnapshots();
+  void advanceInterpolation(float elapsedSeconds);
 
   [[nodiscard]] bool hasSnapshot() const;
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] bool hasAcknowledgedCommand() const;
   [[nodiscard]] std::uint32_t lastAcknowledgedCommand() const;
   [[nodiscard]] const PlayerState& predictedPlayer() const;
-  [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex, float alpha) const;
+  [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex) const;
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
   [[nodiscard]] const MovementTuning& movementTuning() const;
 

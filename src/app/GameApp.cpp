@@ -2298,6 +2298,10 @@ int GameApp::run() const {
       );
       audio.update();
     }
+    if (ClientGame* interpolationGame = session.game();
+        interpolationGame != nullptr && interpolationGame->hasSnapshot()) {
+      interpolationGame->advanceInterpolation(elapsed.count());
+    }
 
     ++renderedFrameCount;
     if (titleAccumulatorSeconds >= 0.1F) {
@@ -2365,11 +2369,6 @@ int GameApp::run() const {
       titleAccumulatorSeconds = 0.0F;
     }
 
-    const float interpolationAlpha = clamp(
-      accumulatorSeconds / kFixedTickSeconds,
-      0.0F,
-      1.0F
-    );
     PlayerState renderPlayer;
     LightningGunResult renderLocalLightningGun;
     std::array<RemotePlayerView, kDuelPlayerCount> renderRemotePlayers = {};
@@ -2396,7 +2395,7 @@ int GameApp::run() const {
           continue;
         }
         renderRemotePlayers[playerIndex] = RemotePlayerView{
-          renderClient->interpolatedPlayer(playerIndex, interpolationAlpha),
+          renderClient->interpolatedPlayer(playerIndex),
           renderSnapshot.lightningGuns[playerIndex],
           0.0F,
           true,

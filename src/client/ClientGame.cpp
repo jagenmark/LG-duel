@@ -94,6 +94,10 @@ void ClientGame::receiveSnapshots() {
   }
 }
 
+void ClientGame::advanceInterpolation(float elapsedSeconds) {
+  interpolation_.advance(elapsedSeconds);
+}
+
 bool ClientGame::hasSnapshot() const {
   return hasSnapshot_;
 }
@@ -114,8 +118,8 @@ const PlayerState& ClientGame::predictedPlayer() const {
   return prediction_.player();
 }
 
-PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex, float alpha) const {
-  return interpolation_.player(playerIndex, alpha);
+PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex) const {
+  return interpolation_.player(playerIndex);
 }
 
 const PredictionDiagnostics& ClientGame::predictionDiagnostics() const {

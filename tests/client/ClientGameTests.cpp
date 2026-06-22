@@ -416,5 +416,41 @@ int main() {
     );
   }
 
+  {
+    lg::SnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+
+    interpolation.advance(lg::kFixedTickSeconds * 20.0F);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "presentation interpolation should stay behind the newest snapshot"
+    );
+
+    lg::ServerSnapshot duplicate;
+    duplicate.serverTick = 5;
+    duplicate.players[1].position.x = 50.0F;
+    interpolation.push(duplicate);
+    interpolation.advance(lg::kFixedTickSeconds);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "duplicate snapshot ticks should not disturb presentation interpolation"
+    );
+
+    lg::ServerSnapshot next;
+    next.serverTick = 6;
+    next.players[1].position.x = 6.0F;
+    interpolation.push(next);
+    interpolation.advance(lg::kFixedTickSeconds);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 3.0F),
+      "presentation interpolation should advance monotonically as newer snapshots arrive"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }
