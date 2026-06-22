@@ -109,6 +109,7 @@ SDL_Renderer om GPU-initiering misslyckas.
 |---|---:|---:|---|---|---|---|
 | `s_enable` | bool | `1` | bool | Ingen direkt | Arkiv | Slår av/på klientens ljudeffekter. |
 | `s_volume` | float | `0.35` | `0..1` | Ingen direkt | Arkiv | Volym för hit-, countdown- och round-ljud. |
+| `s_footstep_volume` | float | `0.45` | `0..1` | Ingen direkt | Arkiv | Separat fotstegsvolym. Multipliceras med `s_volume`. |
 
 ### 3.3 Serverstyrd movement och gameplay
 

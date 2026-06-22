@@ -163,7 +163,7 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `s_footstep_volume`, `r_vsync`, crosshair controls, beam controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
 
 The SDL_GPU renderer can be selected at runtime with
 `LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
@@ -188,7 +188,7 @@ Hold `Mouse2` (`+zoom`) to use `cl_zoom_fov` and zoom-scaled sensitivity. With t
 
 `cl_camera_zoom 1` preserves the default top-down view. Values above `1` zoom in and values below `1` zoom out. `g_playersize_xy` and `g_playersize_z` request authoritative horizontal and vertical scales from `0.5` to `3.0`; the server applies them symmetrically to both players' collision bounds, hitboxes, and rendered model size.
 
-Client audio uses generated tones with no external sound assets. `s_enable` toggles hit and round-result cues, while `s_volume` controls their volume from `0` to `1`.
+Client audio uses generated tones at runtime, with footstep WAV previews checked in under `assets/audio`. `s_enable` toggles client cues, `s_volume` controls the global volume from `0` to `1`, and `s_footstep_volume` controls footsteps separately as a channel multiplier.
 
 Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspeed`, `g_maxspeed`, `g_flight`, `g_flightaccel`, `g_flightmaxspeed`, and `g_flightdamping`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_flight 1` equips unrestricted flight symmetrically for both players. W/S thrust along full camera pitch/yaw, A/D strafe while upright, Space thrusts up, and Ctrl/Shift thrust down. Flight has no fuel, cooldown, duration limit, or artificial hover ceiling; arena collision still applies. Disabling it transitions players back to airborne or grounded movement. Query a variable without a value to see its current value, project default, and Q3/QL reference default where applicable. These testing values are intentionally not archived.
 

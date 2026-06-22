@@ -148,6 +148,14 @@ struct LingeringRailBeam {
   std::chrono::steady_clock::time_point expiresAt = {};
 };
 
+struct FootstepAudioState {
+  Vec3 previousPosition = {};
+  float distanceSinceStep = 0.0F;
+  std::uint32_t stepIndex = 0;
+  bool wasOnGround = false;
+  bool initialized = false;
+};
+
 class ClientAudio {
 public:
   bool initialize() {
@@ -183,6 +191,10 @@ public:
 
   void playRocketExplosion(float volume) {
     queueRocketPop(volume);
+  }
+
+  void playFootstep(float volume, std::uint32_t stepIndex) {
+    queueFootstep(volume, stepIndex);
   }
 
   void playRoundResult(bool won, float volume) {
@@ -308,6 +320,23 @@ private:
         0.24F * triangle(240.0F - (92.0F * std::min(time / 0.10F, 1.0F)), time) +
         0.10F * sine(bounceFrequency, time) +
         0.10F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queueFootstep(float volume, std::uint32_t stepIndex) {
+    queueSynth(0.105F, volume, [stepIndex](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.105F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.105F, 0.001F, 0.055F, 1.85F);
+      const float lowThump =
+        sine(92.0F - (18.0F * progress) + static_cast<float>(stepIndex % 2U) * 7.0F, time);
+      const float slap =
+        triangle(210.0F + static_cast<float>(stepIndex % 3U) * 18.0F, time);
+      const float grit = noise(sampleIndex + static_cast<int>(stepIndex * 97U));
+      return envelope * (
+        0.30F * lowThump +
+        0.16F * slap +
+        0.18F * grit * (1.0F - progress)
       );
     });
   }
@@ -445,6 +474,67 @@ private:
   std::vector<float> mixBuffer_;
 };
 
+void updateFootstepAudio(
+  FootstepAudioState& state,
+  const PlayerState& player,
+  Vec3 listenerPosition,
+  bool localPlayer,
+  float volume,
+  ClientAudio& audio
+) {
+  constexpr float kMinimumStepSpeed = 1.15F;
+  constexpr float kLandingStepSpeed = 2.0F;
+  constexpr float kBaseStrideDistance = 1.45F;
+  constexpr float kMinimumStrideDistance = 0.95F;
+
+  if (!state.initialized) {
+    state.previousPosition = player.position;
+    state.wasOnGround = player.onGround;
+    state.initialized = true;
+    return;
+  }
+
+  const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+  const Vec3 delta = player.position - state.previousPosition;
+  const float horizontalDistance = std::hypot(delta.x, delta.y);
+  const bool movingOnGround =
+    player.health > 0 && player.onGround && horizontalSpeed >= kMinimumStepSpeed;
+
+  auto playStep = [&]() {
+    float spatialVolume = volume;
+    if (!localPlayer) {
+      const Vec3 listenerDelta = player.position - listenerPosition;
+      const float distance = std::hypot(listenerDelta.x, listenerDelta.y);
+      spatialVolume *= std::clamp(1.0F - (distance / 28.0F), 0.25F, 0.70F);
+    }
+    audio.playFootstep(spatialVolume, state.stepIndex++);
+  };
+
+  if (
+    movingOnGround &&
+    !state.wasOnGround &&
+    horizontalSpeed >= kLandingStepSpeed
+  ) {
+    playStep();
+    state.distanceSinceStep = 0.0F;
+  } else if (movingOnGround) {
+    state.distanceSinceStep += horizontalDistance;
+    const float strideDistance = std::max(
+      kMinimumStrideDistance,
+      kBaseStrideDistance - (horizontalSpeed * 0.045F)
+    );
+    if (state.distanceSinceStep >= strideDistance) {
+      playStep();
+      state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
+    }
+  } else if (!player.onGround || horizontalSpeed < 0.25F) {
+    state.distanceSinceStep = 0.0F;
+  }
+
+  state.previousPosition = player.position;
+  state.wasOnGround = player.onGround;
+}
+
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
   std::istringstream stream{std::string(text)};
   std::string line;
@@ -511,6 +601,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 80.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
   console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 24.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
   console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, CvarFlag::Client, {}, {}});
@@ -1574,6 +1665,7 @@ int GameApp::run() const {
   bool hasEnemyHitTime = false;
   Clock::time_point lastEnemyHitTime = {};
   std::array<LingeringRailBeam, kDuelPlayerCount> lingeringRailBeams = {};
+  std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   while (running) {
     SDL_Event event;
@@ -1952,6 +2044,7 @@ int GameApp::run() const {
       previousLocalHit = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
+      footstepAudioStates = {};
     }
     if (
       audioAvailable &&
@@ -1968,6 +2061,7 @@ int GameApp::run() const {
           audioSnapshot.lightningGuns[localPlayerIndex].hit;
         const float volume = console.getFloat("s_volume");
         const bool soundEnabled = console.getBool("s_enable");
+        const float footstepVolume = volume * console.getFloat("s_footstep_volume");
         constexpr std::uint32_t kHitSoundIntervalTicks = 10;
         if (
           soundEnabled &&
@@ -1985,8 +2079,25 @@ int GameApp::run() const {
           );
           lastHitSoundServerTick = audioSnapshot.serverTick;
         }
+        if (audioStateInitialized) {
+          for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+            const bool localPlayer = playerIndex == localPlayerIndex;
+            const PlayerState footstepPlayer = localPlayer
+              ? currentAudioGame->predictedPlayer()
+              : audioSnapshot.players[playerIndex];
+            updateFootstepAudio(
+              footstepAudioStates[playerIndex],
+              footstepPlayer,
+              currentAudioGame->predictedPlayer().position,
+              localPlayer,
+              soundEnabled ? footstepVolume : 0.0F,
+              audio
+            );
+          }
+        }
         if (soundEnabled && audioStateInitialized) {
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+
             const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
             const bool localWeaponEvent = playerIndex == localPlayerIndex;
             if (
