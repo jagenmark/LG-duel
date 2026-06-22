@@ -72,7 +72,7 @@ sudo ufw status numbered</pre>
     <h2>5. Test from outside your network</h2>
     <p>UDP cannot be validated reliably by a generic web port checker. Have a friend run the actual client while the server log is visible:</p>
     <pre>./scripts/server-control.sh logs</pre>
-    <p>When the handshake succeeds, the log reports <code>Connected clients: 1</code> or <code>2</code>. Both players press <strong>F3</strong> to ready up.</p>
+    <p>When the handshake succeeds, the log reports <code>Connected clients: 1</code> through <code>6</code>. Connected players press <strong>F3</strong> to ready up.</p>
   </section>
 
   <section>
@@ -81,7 +81,7 @@ sudo ufw status numbered</pre>
       <li><strong>Local probe fails:</strong> inspect <code>.server/lg-duel-server.log</code> and check whether another process owns UDP 27960 with <code>sudo ss -lunp | grep 27960</code>.</li>
       <li><strong>Local works, friends time out:</strong> verify the router rule says UDP, targets the current LAN address, and the UFW rule is present.</li>
       <li><strong>Router WAN address differs from public IP:</strong> the ISP may use CGNAT. Ask the ISP for a public IPv4 address, use native IPv6 if every player has it, or use a mesh VPN such as Tailscale/ZeroTier.</li>
-      <li><strong>Only one friend can join:</strong> the prototype intentionally has two total player slots, including the host.</li>
+      <li><strong>More friends cannot join:</strong> the prototype currently supports six total player slots, including the host.</li>
       <li><strong>After reboot:</strong> the enabled user service starts with the desktop user session. Check it with <code>./scripts/server-control.sh status</code>.</li>
     </ul>
   </section>

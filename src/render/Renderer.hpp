@@ -64,6 +64,7 @@ struct RenderSettings {
   std::uint8_t enemyHitBlue = 198;
   float enemyHitAmount = 0.0F;
   bool showLagCompensation = false;
+  bool hasRemotePlayer = true;
 };
 
 struct ConsoleRenderState {

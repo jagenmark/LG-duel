@@ -645,22 +645,24 @@ Scene3D buildPerspectiveScene(
     }
   }
 
-  const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
-  const RenderColor opponentColor = {
-    blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
-    blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
-    blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
-    static_cast<std::uint8_t>(
-      std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
-    ),
-  };
-  addPlayerModel(
-    scene,
-    opponent,
-    opponentColor,
-    settings.enemyLeanEnabled,
-    settings.enemyLeanScale
-  );
+  if (settings.hasRemotePlayer) {
+    const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
+    const RenderColor opponentColor = {
+      blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
+      blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
+      blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
+      static_cast<std::uint8_t>(
+        std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
+      ),
+    };
+    addPlayerModel(
+      scene,
+      opponent,
+      opponentColor,
+      settings.enemyLeanEnabled,
+      settings.enemyLeanScale
+    );
+  }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
     const auto addBounds =
@@ -693,7 +695,7 @@ Scene3D buildPerspectiveScene(
     );
   }
 
-  if (opponentLightningGun.active) {
+  if (settings.hasRemotePlayer && opponentLightningGun.active) {
     const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);
     const float brightness = 1.0F + pulse * 0.05F;
     addSegment(

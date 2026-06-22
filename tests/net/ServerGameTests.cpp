@@ -746,7 +746,9 @@ int main() {
       "one connected player should remain in the lobby"
     );
     failures += expect(
-      snapshot.connectedPlayers == std::array<bool, 2>{true, false},
+      snapshot.connectedPlayers[0] && !snapshot.connectedPlayers[1] &&
+        !snapshot.connectedPlayers[2] && !snapshot.connectedPlayers[3] &&
+        !snapshot.connectedPlayers[4] && !snapshot.connectedPlayers[5],
       "snapshot should replicate occupied player slots"
     );
     failures += expect(snapshot.playerNames[1] == "BOT", "empty warmup opponent should be named BOT");
@@ -792,7 +794,7 @@ int main() {
       "connected players should be able to shoot during warmup"
     );
     failures += expect(
-      snapshot.scores == std::array<std::uint16_t, 2>{0, 0},
+      snapshot.scores[0] == 0 && snapshot.scores[1] == 0,
       "warmup combat should not affect match score"
     );
 
@@ -802,7 +804,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.readyPlayers == std::array<bool, 2>{true, false},
+      snapshot.readyPlayers[0] && !snapshot.readyPlayers[1],
       "first ready request should only ready its player"
     );
 
@@ -896,7 +898,8 @@ int main() {
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::Countdown &&
-        snapshot.scores == std::array<std::uint16_t, 2>{1, 0} &&
+        snapshot.scores[0] == 1 &&
+        snapshot.scores[1] == 0 &&
         snapshot.players[0].health == 100 &&
         snapshot.players[1].health == 100 &&
         snapshot.roundCombatStats[0].lightningActiveTicks == 0 &&
@@ -947,7 +950,8 @@ int main() {
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::WaitingForReady &&
-        snapshot.scores == std::array<std::uint16_t, 2>{0, 0} &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0 &&
         snapshot.players[0].health == 100 &&
         snapshot.players[1].health == 100,
       "match-end expiry should reset scores, readiness, and both spawns"

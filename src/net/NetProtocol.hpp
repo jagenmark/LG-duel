@@ -1,5 +1,6 @@
 #pragma once
 
+#include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
@@ -12,7 +13,7 @@
 
 namespace lg {
 
-inline constexpr std::size_t kDuelPlayerCount = 2;
+inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxBundledCommands = 3;
 inline constexpr std::size_t kMaxChatMessageBytes = 64;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
@@ -113,7 +114,14 @@ struct ServerSnapshot {
   std::int32_t botDodgeMaxIntervalMs = 750;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
-  std::array<std::string, kDuelPlayerCount> playerNames = {"PLAYER 1", "PLAYER 2"};
+  std::array<std::string, kDuelPlayerCount> playerNames = {
+    "PLAYER 1",
+    "PLAYER 2",
+    "PLAYER 3",
+    "PLAYER 4",
+    "PLAYER 5",
+    "PLAYER 6",
+  };
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
   std::uint8_t roundWinner = 255;

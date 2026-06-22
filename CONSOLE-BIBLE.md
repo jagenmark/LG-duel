@@ -358,7 +358,7 @@ omstart.
 |---|---:|---:|---|---|---|
 | `sv_roundlimit` | int | `10` | `1..100` | Ingen direkt Q3 roundlimit-standard | Antal vunna rundor som krävs för matchvinst. |
 | `sv_timelimit` | int | `0` | `0..120` minuter | Q3 `timelimit 0` | Matchtid; `0` stänger av tidsgränsen. |
-| `sv_playerlimit` | int | `2` | `1..2` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
+| `sv_playerlimit` | int | `2` | `1..6` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
 | `sv_roundend` | float | `1` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
 | `sv_matchend` | float | `5` | `0..60` sekunder | Ingen direkt | Delay efter matchvinst innan reset till ready-up. |
@@ -371,7 +371,7 @@ Servern stöder även samtliga inbyggda kommandon i avsnitt 4.1.
 | Kommando | Funktion |
 |---|---|
 | `resetmatch` | Nollställer score och återgår till ready-up. |
-| `status` | Skriver `players=<n> phase=<id> score=<a>-<b>`. |
+| `status` | Skriver `players=<n> phase=<id> score=<p1>-<p2>-...-<p6>`. |
 
 `phase` använder:
 
@@ -443,9 +443,9 @@ resetmatch
 
 ## 10. Kända gränser
 
-- Nuvarande nätprotokoll och simulation har exakt `2` spelarslots.
-- `sv_playerlimit` kan därför bara vara `1` eller `2`; det skapar inte fler
-  slots.
+- Nuvarande nätprotokoll och simulation har upp till `6` spelarslots.
+- `sv_playerlimit` kan vara `1..6` och styr hur många anslutna spelare som
+  krävs för att matchflödet ska börja.
 - Klientens gameplay-`g_*` är serverstyrda genom nätprotokollet men ställs från
   klientkonsolen. Serverns stdin-konsol registrerar i nuläget inte dessa `g_*`.
 - `client.cfg` arkiverar client/render/audio-cvars och bindings, inte gameplay

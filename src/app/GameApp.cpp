@@ -197,6 +197,13 @@ public:
     queueFootstep(volume, stepIndex);
   }
 
+  void setLightningGunFire(bool active, float volume) {
+    lightningGunFireActive_ = active && volume > 0.0F;
+    lightningGunFireTargetVolume_ = lightningGunFireActive_
+      ? std::clamp(volume * 0.52F, 0.0F, 1.0F)
+      : 0.0F;
+  }
+
   void playRoundResult(bool won, float volume) {
     if (won) {
       queueTone(520.0F, 0.08F, volume);
@@ -218,6 +225,7 @@ public:
   }
 
   void shutdown() {
+    setLightningGunFire(false, 0.0F);
     if (stream_ != nullptr) {
       SDL_DestroyAudioStream(stream_);
       stream_ = nullptr;
@@ -251,9 +259,9 @@ private:
     return 1.0F;
   }
 
-  [[nodiscard]] static float sine(float frequency, float time) {
+  [[nodiscard]] static float sine(float frequency, float time, float phase = 0.0F) {
     constexpr float kTwoPi = 6.28318530718F;
-    return std::sin(kTwoPi * frequency * time);
+    return std::sin((kTwoPi * frequency * time) + phase);
   }
 
   [[nodiscard]] static float triangle(float frequency, float time) {
@@ -341,6 +349,38 @@ private:
     });
   }
 
+  [[nodiscard]] float lightningGunSample() {
+    const float time =
+      static_cast<float>(lightningGunSampleIndex_) / static_cast<float>(kSampleRate);
+    ++lightningGunSampleIndex_;
+
+    return
+      0.46F * sine(96.0F, time) +
+      0.24F * sine(192.0F, time) +
+      0.16F * std::tanh(sine(48.0F, time) * 1.9F) +
+      0.07F * triangle(288.0F, time);
+  }
+
+  void mixLightningGunLoop(std::vector<float>& buffer) {
+    constexpr float kGainStepPerSample = 1.0F / 900.0F;
+    for (float& sample : buffer) {
+      if (lightningGunFireGain_ < lightningGunFireTargetVolume_) {
+        lightningGunFireGain_ =
+          std::min(lightningGunFireTargetVolume_, lightningGunFireGain_ + kGainStepPerSample);
+      } else if (lightningGunFireGain_ > lightningGunFireTargetVolume_) {
+        lightningGunFireGain_ =
+          std::max(lightningGunFireTargetVolume_, lightningGunFireGain_ - kGainStepPerSample);
+      }
+      if (lightningGunFireGain_ > 0.0005F) {
+        sample += lightningGunSample() * lightningGunFireGain_;
+      }
+    }
+  }
+
+  [[nodiscard]] bool hasActiveLoop() const {
+    return lightningGunFireActive_ || lightningGunFireGain_ > 0.0005F;
+  }
+
   template <typename Generator>
   void queueSynth(float durationSeconds, float volume, Generator generator) {
     if (stream_ == nullptr || volume <= 0.0F) {
@@ -416,7 +456,7 @@ private:
     const int queuedBytes = SDL_GetAudioStreamQueued(stream_);
     int queuedSamples =
       std::max(0, queuedBytes) / static_cast<int>(sizeof(float));
-    while (!voices_.empty() && queuedSamples < kTargetQueuedSamples) {
+    while ((!voices_.empty() || hasActiveLoop()) && queuedSamples < kTargetQueuedSamples) {
       const int sampleCount =
         std::min(kMixChunkSamples, kTargetQueuedSamples - queuedSamples);
       mixBuffer_.assign(static_cast<std::size_t>(sampleCount), 0.0F);
@@ -428,6 +468,9 @@ private:
         for (std::size_t index = 0; index < voiceSamples; ++index) {
           mixBuffer_[index] += voice.samples[voice.playhead + index];
         }
+      }
+      if (hasActiveLoop()) {
+        mixLightningGunLoop(mixBuffer_);
       }
       for (float& sample : mixBuffer_) {
         sample = std::clamp(sample, -0.98F, 0.98F);
@@ -472,6 +515,10 @@ private:
   SDL_AudioStream* stream_ = nullptr;
   std::vector<SoundVoice> voices_;
   std::vector<float> mixBuffer_;
+  bool lightningGunFireActive_ = false;
+  float lightningGunFireTargetVolume_ = 0.0F;
+  float lightningGunFireGain_ = 0.0F;
+  std::uint64_t lightningGunSampleIndex_ = 0;
 };
 
 void updateFootstepAudio(
@@ -921,6 +968,39 @@ void populateScoreboard(
   }
 }
 
+std::size_t firstRemotePlayerIndex(
+  const ServerSnapshot& snapshot,
+  std::size_t localPlayerIndex
+) {
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (index != localPlayerIndex && snapshot.connectedPlayers[index]) {
+      return index;
+    }
+  }
+  if (snapshot.botDodgeEnabled) {
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      if (
+        index != localPlayerIndex &&
+        !snapshot.connectedPlayers[index] &&
+        snapshot.players[index].health > 0
+      ) {
+        return index;
+      }
+    }
+  }
+  return localPlayerIndex;
+}
+
+std::size_t leadingScoreIndex(const ServerSnapshot& snapshot) {
+  std::size_t leaderIndex = 0;
+  for (std::size_t index = 1; index < kDuelPlayerCount; ++index) {
+    if (snapshot.scores[index] > snapshot.scores[leaderIndex]) {
+      leaderIndex = index;
+    }
+  }
+  return leaderIndex;
+}
+
 HudRenderState buildHud(const ClientSession& session) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
@@ -931,7 +1011,9 @@ HudRenderState buildHud(const ClientSession& session) {
   const ClientGame& client = *session.game();
   const ServerSnapshot& snapshot = client.snapshot();
   const std::size_t localPlayerIndex = session.playerIndex();
-  const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
+  const std::size_t remotePlayerIndex =
+    firstRemotePlayerIndex(snapshot, localPlayerIndex);
+  const std::size_t leaderIndex = leadingScoreIndex(snapshot);
   const std::size_t connectedCount = static_cast<std::size_t>(std::count(
     snapshot.connectedPlayers.begin(),
     snapshot.connectedPlayers.end(),
@@ -947,8 +1029,8 @@ HudRenderState buildHud(const ClientSession& session) {
     std::to_string(kDuelPlayerCount)
   );
   hud.topRightLines.push_back(
-    "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) + " - " +
-    std::to_string(snapshot.scores[opponentPlayerIndex]) + " / " +
+    "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
+    "  LEAD " + std::to_string(snapshot.scores[leaderIndex]) + " / " +
     std::to_string(snapshot.matchRules.roundLimit)
   );
   if (snapshot.matchRules.timeLimitMinutes > 0) {
@@ -965,7 +1047,7 @@ HudRenderState buildHud(const ClientSession& session) {
       std::to_string(remainingSeconds % 60U)
     );
   }
-  if (snapshot.matchRules.showOpponentHealth) {
+  if (snapshot.matchRules.showOpponentHealth && remotePlayerIndex != localPlayerIndex) {
     hud.showOpponentHealthBar = true;
   }
 
@@ -1006,9 +1088,11 @@ HudRenderState buildHud(const ClientSession& session) {
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
     );
-    hud.centerLines.push_back(
-      roundStatsLine("OPP", snapshot.roundCombatStats[opponentPlayerIndex])
-    );
+    if (remotePlayerIndex != localPlayerIndex) {
+      hud.centerLines.push_back(
+        roundStatsLine("REM", snapshot.roundCombatStats[remotePlayerIndex])
+      );
+    }
     break;
   case MatchPhase::MatchEnd:
     hud.centerLines.push_back(
@@ -1017,9 +1101,11 @@ HudRenderState buildHud(const ClientSession& session) {
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
     );
-    hud.centerLines.push_back(
-      roundStatsLine("OPP", snapshot.roundCombatStats[opponentPlayerIndex])
-    );
+    if (remotePlayerIndex != localPlayerIndex) {
+      hud.centerLines.push_back(
+        roundStatsLine("REM", snapshot.roundCombatStats[remotePlayerIndex])
+      );
+    }
     break;
   case MatchPhase::Live:
     hud.centerLines.clear();
@@ -2196,6 +2282,19 @@ int GameApp::run() const {
       }
     }
     if (audioAvailable) {
+      const bool localLightningGunFiring =
+        console.getBool("s_enable") &&
+        selectedWeapon == Weapon::LightningGun &&
+        input.attack > 0 &&
+        !consoleState.open &&
+        !chatState.inputOpen &&
+        currentAudioGame != nullptr &&
+        currentAudioGame->hasSnapshot() &&
+        currentAudioGame->predictedPlayer().health > 0;
+      audio.setLightningGunFire(
+        localLightningGunFiring,
+        localLightningGunFiring ? console.getFloat("s_volume") : 0.0F
+      );
       audio.update();
     }
 
@@ -2282,13 +2381,14 @@ int GameApp::run() const {
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
       renderLocalPlayerIndex = localPlayerIndex;
-      const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
+      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
+      const std::size_t opponentPlayerIndex =
+        firstRemotePlayerIndex(renderSnapshot, localPlayerIndex);
       renderOpponent = renderClient->interpolatedPlayer(
         opponentPlayerIndex,
         interpolationAlpha
       );
-      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       renderLocalLightningGun =
         renderSnapshot.lightningGuns[localPlayerIndex];
       renderOpponentLightningGun =
@@ -2298,6 +2398,14 @@ int GameApp::run() const {
       renderRockets = renderSnapshot.rockets;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    currentRenderSettings.hasRemotePlayer = false;
+    if (const ClientGame* renderClient = session.game();
+        renderClient != nullptr && renderClient->hasSnapshot()) {
+      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
+      const std::size_t localPlayerIndex = session.playerIndex();
+      currentRenderSettings.hasRemotePlayer =
+        firstRemotePlayerIndex(renderSnapshot, localPlayerIndex) != localPlayerIndex;
+    }
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       WeaponFireResult& currentFire = renderWeaponFires[playerIndex];
       LingeringRailBeam& lingeringBeam = lingeringRailBeams[playerIndex];

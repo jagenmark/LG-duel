@@ -535,7 +535,9 @@ DrawList2D buildTopDownScene(
         addHitMarker(drawList.commands, end);
       }
     };
-  addBeam(opponentLightningGun, false);
+  if (settings.hasRemotePlayer) {
+    addBeam(opponentLightningGun, false);
+  }
   addBeam(localLightningGun, true);
 
   for (const WeaponFireResult& fire : weaponFires) {
@@ -586,33 +588,36 @@ DrawList2D buildTopDownScene(
   }
 
   const ScreenPoint playerScreen = worldToScreen(view, player.position);
-  const ScreenPoint opponentScreen = worldToScreen(view, opponent.position);
   const float playerSize = settings.playerSizePixels;
   const float radius = playerSize * 0.5F;
-  addFilledRect(
-    drawList.commands,
-    opponentScreen.x - radius,
-    opponentScreen.y - radius,
-    playerSize,
-    playerSize,
-    enemyColor(settings)
-  );
 
-  if (hud.showOpponentHealthBar) {
-    const float healthRatio =
-      std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
-    const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
-    const float healthBarOffset = playerSize + 2.0F;
-    const float healthBarHeight =
-      std::max(2.0F, playerSize * (4.0F / 14.0F));
+  if (settings.hasRemotePlayer) {
+    const ScreenPoint opponentScreen = worldToScreen(view, opponent.position);
     addFilledRect(
       drawList.commands,
-      opponentScreen.x - healthBarHalfWidth,
-      opponentScreen.y - healthBarOffset,
-      healthBarHalfWidth * 2.0F * healthRatio,
-      healthBarHeight,
-      {224, 82, 92, 255}
+      opponentScreen.x - radius,
+      opponentScreen.y - radius,
+      playerSize,
+      playerSize,
+      enemyColor(settings)
     );
+
+    if (hud.showOpponentHealthBar) {
+      const float healthRatio =
+        std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
+      const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
+      const float healthBarOffset = playerSize + 2.0F;
+      const float healthBarHeight =
+        std::max(2.0F, playerSize * (4.0F / 14.0F));
+      addFilledRect(
+        drawList.commands,
+        opponentScreen.x - healthBarHalfWidth,
+        opponentScreen.y - healthBarOffset,
+        healthBarHalfWidth * 2.0F * healthRatio,
+        healthBarHeight,
+        {224, 82, 92, 255}
+      );
+    }
   }
 
   addFilledRect(

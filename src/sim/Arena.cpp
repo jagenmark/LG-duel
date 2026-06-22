@@ -165,6 +165,10 @@ Arena thunderstruckArena() {
   arena.spawnPositions = {{
     {-8.0F, -9.0F, 2.0F},
     {8.0F, -9.0F, 2.0F},
+    {-12.0F, 8.0F, 2.0F},
+    {12.0F, 8.0F, 2.0F},
+    {-3.0F, -9.0F, 0.0F},
+    {3.0F, -9.0F, 0.0F},
   }};
   return arena;
 }
