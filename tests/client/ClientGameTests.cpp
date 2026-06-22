@@ -453,6 +453,27 @@ int main() {
   }
 
   {
+    lg::SnapshotInterpolation interpolation;
+    constexpr std::uint32_t largeServerTick = 1U << 24U;
+    for (std::uint32_t offset = 0; offset <= 5; ++offset) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = largeServerTick + offset;
+      snapshot.players[1].position.x = static_cast<float>(offset);
+      interpolation.push(snapshot);
+    }
+
+    interpolation.advance(lg::kFixedTickSeconds * 20.0F, 0.024F);
+    failures += expect(
+      interpolation.presentationServerTick() == largeServerTick + 2U,
+      "presentation tick should remain exact after long server uptime"
+    );
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "presentation interpolation should not drift after long server uptime"
+    );
+  }
+
+  {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);
     for (std::uint32_t tick = 0; tick <= 5; ++tick) {
@@ -479,6 +500,37 @@ int main() {
     failures += expect(
       sent.viewedServerTick == 2,
       "ClientGame should send the presented server tick for lag compensation"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    constexpr std::uint32_t largeServerTick = 1U << 24U;
+    for (std::uint32_t offset = 0; offset <= 5; ++offset) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = largeServerTick + offset;
+      snapshot.players[0] = groundedPlayer();
+      snapshot.players[1] = groundedPlayer();
+      snapshot.players[1].position.x = static_cast<float>(offset);
+      transport.sendSnapshot(snapshot);
+    }
+    client.receiveSnapshots();
+    client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
+
+    lg::UserCommand attack;
+    attack.sequence = 41;
+    attack.attack = true;
+    client.sendCommand(attack, false);
+
+    lg::CommandPacket sent;
+    failures += expect(
+      transport.receiveCommand(sent),
+      "ClientGame should emit a high-uptime command packet"
+    );
+    failures += expect(
+      sent.viewedServerTick == largeServerTick + 2U,
+      "ClientGame should send an exact presented server tick after long uptime"
     );
   }
 

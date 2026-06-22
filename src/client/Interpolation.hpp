@@ -31,7 +31,7 @@ public:
 
 private:
   std::deque<ServerSnapshot> snapshots_;
-  float presentationTick_ = 0.0F;
+  double presentationTick_ = 0.0;
   bool initialized_ = false;
 };
 
