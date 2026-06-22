@@ -25,6 +25,7 @@ public:
   );
 
   [[nodiscard]] bool initialized() const;
+  [[nodiscard]] std::uint32_t presentationServerTick() const;
   [[nodiscard]] PlayerState player(std::size_t playerIndex) const;
   [[nodiscard]] PlayerState player(std::size_t playerIndex, float alpha) const;
 

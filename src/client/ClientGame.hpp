@@ -32,7 +32,8 @@ public:
     std::int32_t botDodgeMinIntervalMs = 250,
     std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
-    std::string playerName = {}
+    std::string playerName = {},
+    bool usePresentedServerTick = true
   );
   void receiveSnapshots();
   void advanceInterpolation(float elapsedSeconds, float interpolationDelaySeconds);
@@ -43,6 +44,7 @@ public:
   [[nodiscard]] std::uint32_t lastAcknowledgedCommand() const;
   [[nodiscard]] const PlayerState& predictedPlayer() const;
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex) const;
+  [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex, float alpha) const;
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
   [[nodiscard]] const MovementTuning& movementTuning() const;
 

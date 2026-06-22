@@ -656,6 +656,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
@@ -2168,7 +2169,8 @@ int GameApp::run() const {
         lastRequestedBotDodgeMinIntervalMs,
         lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
-        std::move(pendingPlayerName)
+        std::move(pendingPlayerName),
+        console.getInt("cl_interp_mode") != 0
       );
       chatState.pendingMessage.clear();
       pendingPlayerName.clear();
@@ -2455,6 +2457,12 @@ int GameApp::run() const {
       titleAccumulatorSeconds = 0.0F;
     }
 
+    const float interpolationAlpha = clamp(
+      accumulatorSeconds / kFixedTickSeconds,
+      0.0F,
+      1.0F
+    );
+    const bool bufferedInterpolation = console.getInt("cl_interp_mode") != 0;
     PlayerState renderPlayer;
     LightningGunResult renderLocalLightningGun;
     std::array<RemotePlayerView, kDuelPlayerCount> renderRemotePlayers = {};
@@ -2481,7 +2489,9 @@ int GameApp::run() const {
           continue;
         }
         renderRemotePlayers[playerIndex] = RemotePlayerView{
-          renderClient->interpolatedPlayer(playerIndex),
+          bufferedInterpolation
+            ? renderClient->interpolatedPlayer(playerIndex)
+            : renderClient->interpolatedPlayer(playerIndex, interpolationAlpha),
           renderSnapshot.lightningGuns[playerIndex],
           0.0F,
           1.0F,

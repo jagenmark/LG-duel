@@ -41,7 +41,8 @@ public:
     std::int32_t botDodgeMinIntervalMs = 250,
     std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
-    std::string playerName = {}
+    std::string playerName = {},
+    bool usePresentedServerTick = true
   );
 
   [[nodiscard]] ClientConnectionState state() const;

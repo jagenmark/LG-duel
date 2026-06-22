@@ -452,5 +452,35 @@ int main() {
     );
   }
 
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[0] = groundedPlayer();
+      snapshot.players[1] = groundedPlayer();
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      transport.sendSnapshot(snapshot);
+    }
+    client.receiveSnapshots();
+    client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
+
+    lg::UserCommand attack;
+    attack.sequence = 40;
+    attack.attack = true;
+    client.sendCommand(attack, false);
+
+    lg::CommandPacket sent;
+    failures += expect(
+      transport.receiveCommand(sent),
+      "ClientGame should emit a command packet"
+    );
+    failures += expect(
+      sent.viewedServerTick == 2,
+      "ClientGame should send the presented server tick for lag compensation"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }

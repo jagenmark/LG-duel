@@ -120,6 +120,19 @@ bool SnapshotInterpolation::initialized() const {
   return initialized_;
 }
 
+std::uint32_t SnapshotInterpolation::presentationServerTick() const {
+  if (snapshots_.empty()) {
+    return 0;
+  }
+  return static_cast<std::uint32_t>(std::lround(
+    clamp(
+      presentationTick_,
+      static_cast<float>(snapshots_.front().serverTick),
+      static_cast<float>(snapshots_.back().serverTick)
+    )
+  ));
+}
+
 PlayerState SnapshotInterpolation::player(std::size_t playerIndex, float alpha) const {
   if (snapshots_.empty()) {
     return {};
