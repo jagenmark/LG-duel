@@ -8,7 +8,7 @@
 
 namespace lg {
 
-inline constexpr std::uint32_t kSnapshotInterpolationDelayTicks = 3;
+inline constexpr float kDefaultSnapshotInterpolationDelaySeconds = 0.024F;
 
 [[nodiscard]] PlayerState interpolatePlayerState(
   const PlayerState& previous,
@@ -19,7 +19,10 @@ inline constexpr std::uint32_t kSnapshotInterpolationDelayTicks = 3;
 class SnapshotInterpolation {
 public:
   void push(const ServerSnapshot& snapshot);
-  void advance(float elapsedSeconds);
+  void advance(
+    float elapsedSeconds,
+    float interpolationDelaySeconds = kDefaultSnapshotInterpolationDelaySeconds
+  );
 
   [[nodiscard]] bool initialized() const;
   [[nodiscard]] PlayerState player(std::size_t playerIndex) const;

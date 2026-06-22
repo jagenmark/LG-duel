@@ -102,6 +102,7 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed. Intern hastighet multipliceras med `40`, så `8 = 320 UPS`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
 | `cl_show_lagcomp` | bool | `0` | bool | Ingen | Arkiv | Visar nuvarande och rewound hitbox samt lag-comp-data. |
+| `cl_interp` | float | `0.024` | `0..0.25` | 3 ticks vid 125 Hz | Arkiv | Remote player snapshot interpolation delay i sekunder. Lägre värde minskar visuell latency men kräver jämnare snapshots; högre värde döljer jitter bättre. |
 
 ### 3.2 Ljud
 

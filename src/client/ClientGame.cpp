@@ -94,8 +94,11 @@ void ClientGame::receiveSnapshots() {
   }
 }
 
-void ClientGame::advanceInterpolation(float elapsedSeconds) {
-  interpolation_.advance(elapsedSeconds);
+void ClientGame::advanceInterpolation(
+  float elapsedSeconds,
+  float interpolationDelaySeconds
+) {
+  interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
 }
 
 bool ClientGame::hasSnapshot() const {

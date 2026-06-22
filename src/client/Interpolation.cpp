@@ -35,18 +35,23 @@ constexpr std::size_t kMaxBufferedSnapshots = 64;
   );
 }
 
-[[nodiscard]] float latestPresentationTick(const std::deque<ServerSnapshot>& snapshots) {
+[[nodiscard]] float latestPresentationTick(
+  const std::deque<ServerSnapshot>& snapshots,
+  float interpolationDelaySeconds
+) {
   if (snapshots.empty()) {
     return 0.0F;
   }
 
-  const std::uint32_t oldestTick = snapshots.front().serverTick;
-  const std::uint32_t newestTick = snapshots.back().serverTick;
-  if (newestTick <= oldestTick + kSnapshotInterpolationDelayTicks) {
-    return static_cast<float>(oldestTick);
+  const float oldestTick = static_cast<float>(snapshots.front().serverTick);
+  const float newestTick = static_cast<float>(snapshots.back().serverTick);
+  const float delayTicks =
+    std::max(0.0F, interpolationDelaySeconds) * kFixedTickRate;
+  if (newestTick <= oldestTick + delayTicks) {
+    return oldestTick;
   }
 
-  return static_cast<float>(newestTick - kSnapshotInterpolationDelayTicks);
+  return newestTick - delayTicks;
 }
 
 } // namespace
@@ -82,15 +87,22 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
     snapshots_.pop_front();
   }
 
-  presentationTick_ = std::min(presentationTick_, latestPresentationTick(snapshots_));
+  presentationTick_ = std::min(
+    presentationTick_,
+    latestPresentationTick(snapshots_, kDefaultSnapshotInterpolationDelaySeconds)
+  );
 }
 
-void SnapshotInterpolation::advance(float elapsedSeconds) {
+void SnapshotInterpolation::advance(
+  float elapsedSeconds,
+  float interpolationDelaySeconds
+) {
   if (!initialized_ || snapshots_.empty()) {
     return;
   }
 
-  const float newestPresentationTick = latestPresentationTick(snapshots_);
+  const float newestPresentationTick =
+    latestPresentationTick(snapshots_, interpolationDelaySeconds);
   const float oldestTick = static_cast<float>(snapshots_.front().serverTick);
 
   presentationTick_ += std::max(0.0F, elapsedSeconds) * kFixedTickRate;

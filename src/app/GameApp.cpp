@@ -656,6 +656,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, archivedClient, 0.0F, 1.0F});
@@ -2382,7 +2383,10 @@ int GameApp::run() const {
     }
     if (ClientGame* interpolationGame = session.game();
         interpolationGame != nullptr && interpolationGame->hasSnapshot()) {
-      interpolationGame->advanceInterpolation(elapsed.count());
+      interpolationGame->advanceInterpolation(
+        elapsed.count(),
+        console.getFloat("cl_interp")
+      );
     }
 
     ++renderedFrameCount;

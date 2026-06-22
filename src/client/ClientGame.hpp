@@ -35,7 +35,7 @@ public:
     std::string playerName = {}
   );
   void receiveSnapshots();
-  void advanceInterpolation(float elapsedSeconds);
+  void advanceInterpolation(float elapsedSeconds, float interpolationDelaySeconds);
 
   [[nodiscard]] bool hasSnapshot() const;
   [[nodiscard]] const ServerSnapshot& snapshot() const;
