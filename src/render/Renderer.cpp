@@ -1028,8 +1028,8 @@ const PlayerState& firstVisibleRemote(
   );
 }
 
-[[nodiscard]] SDL_FColor enemyColor(const RenderSettings& settings) {
-  const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
+[[nodiscard]] SDL_FColor enemyColor(const RenderSettings& settings, float enemyHitAmount) {
+  const float hitAmount = std::clamp(enemyHitAmount, 0.0F, 1.0F);
   return {
     static_cast<float>(
       blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount)
@@ -1525,7 +1525,7 @@ void drawPerspectiveWorld(
         remotePlayer.position.y + remotePlayer.bounds.radius,
         remotePlayer.position.z + remotePlayer.bounds.halfHeight,
       },
-      enemyColor(settings)
+      enemyColor(settings, remote.enemyHitAmount)
     );
   }
 

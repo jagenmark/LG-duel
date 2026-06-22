@@ -61,8 +61,8 @@ struct ViewProjection {
   );
 }
 
-[[nodiscard]] RenderColor enemyColor(const RenderSettings& settings) {
-  const float amount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
+[[nodiscard]] RenderColor enemyColor(const RenderSettings& settings, float hitAmount) {
+  const float amount = std::clamp(hitAmount, 0.0F, 1.0F);
   return {
     blendChannel(settings.enemyRed, settings.enemyHitRed, amount),
     blendChannel(settings.enemyGreen, settings.enemyHitGreen, amount),
@@ -603,7 +603,7 @@ DrawList2D buildTopDownScene(
       opponentScreen.y - radius,
       playerSize,
       playerSize,
-      enemyColor(settings)
+      enemyColor(settings, remote.enemyHitAmount)
     );
 
     if (hud.showOpponentHealthBar) {
@@ -685,6 +685,7 @@ DrawList2D buildTopDownScene(
   remotePlayers[0] = RemotePlayerView{
     opponent,
     opponentLightningGun,
+    settings.enemyHitAmount,
     settings.hasRemotePlayer,
   };
   return buildTopDownScene(

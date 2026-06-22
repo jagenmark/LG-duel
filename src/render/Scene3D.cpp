@@ -644,19 +644,19 @@ Scene3D buildPerspectiveScene(
     }
   }
 
-  const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
-  const RenderColor opponentColor = {
-    blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
-    blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
-    blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
-    static_cast<std::uint8_t>(
-      std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
-    ),
-  };
   for (const RemotePlayerView& remote : remotePlayers) {
     if (!remote.visible) {
       continue;
     }
+    const float hitAmount = std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
+    const RenderColor opponentColor = {
+      blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
+      blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
+      blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
+      static_cast<std::uint8_t>(
+        std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
+      ),
+    };
     addPlayerModel(
       scene,
       remote.player,
@@ -796,6 +796,7 @@ Scene3D buildPerspectiveScene(
   remotePlayers[0] = RemotePlayerView{
     opponent,
     opponentLightningGun,
+    settings.enemyHitAmount,
     settings.hasRemotePlayer,
   };
   return buildPerspectiveScene(

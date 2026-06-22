@@ -760,15 +760,29 @@ int main() {
       snapshot.players[1].position.x != botStart.x ||
       snapshot.players[1].position.y != botStart.y;
     failures += expect(botMoved, "bot_dodge should move the empty warmup opponent");
+    const int botHealthBeforeShot = snapshot.players[1].health;
     lg::UserCommand soloWarmupAttack;
     soloWarmupAttack.sequence = 0;
     soloWarmupAttack.attack = true;
+    const lg::Vec3 botOffset = snapshot.players[1].position - snapshot.players[0].position;
+    soloWarmupAttack.viewYawRadians = std::atan2(botOffset.y, botOffset.x);
+    soloWarmupAttack.planarAim = true;
     transport.sendCommand(lg::CommandPacket{0, soloWarmupAttack, false});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.lightningGuns[0].active,
       "a connected player should be able to fire during solo warmup"
+    );
+    soloWarmupAttack.sequence = 1;
+    transport.sendCommand(lg::CommandPacket{0, soloWarmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].targetPlayerIndex == 1 &&
+        snapshot.players[1].health < botHealthBeforeShot,
+      "bot_dodge targets should have authoritative hitboxes"
     );
 
     server.setConnectedPlayers({true, true});

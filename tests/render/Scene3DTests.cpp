@@ -193,10 +193,10 @@ int main() {
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
-  remotePlayers[1] = lg::RemotePlayerView{opponent, inactiveBeam, true};
+  remotePlayers[1] = lg::RemotePlayerView{opponent, inactiveBeam, 0.0F, true};
   lg::PlayerState secondOpponent = opponent;
   secondOpponent.position.y += 3.0F;
-  remotePlayers[2] = lg::RemotePlayerView{secondOpponent, inactiveBeam, true};
+  remotePlayers[2] = lg::RemotePlayerView{secondOpponent, inactiveBeam, 0.0F, true};
   const lg::Scene3D multiOpponentScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,

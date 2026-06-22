@@ -407,6 +407,7 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
     writeVec3(writer, result.end) &&
     writer.writeBool(result.active) &&
     writer.writeBool(result.hit) &&
+    writer.writeU8(result.targetPlayerIndex) &&
     writer.writeI32(result.damageApplied) &&
     writeVec3(writer, result.knockbackImpulse) &&
     writer.writeU32(result.requestedRewindTicks) &&
@@ -424,11 +425,13 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
 
 bool readLightningGun(Reader& reader, LightningGunResult& result) {
   std::int32_t damageApplied = 0;
+  std::uint8_t targetPlayerIndex = 255;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
     !reader.readBool(result.active) ||
     !reader.readBool(result.hit) ||
+    !reader.readU8(targetPlayerIndex) ||
     !reader.readI32(damageApplied) ||
     !readVec3(reader, result.knockbackImpulse) ||
     !reader.readU32(result.requestedRewindTicks) ||
@@ -448,6 +451,7 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
 
   if (
     damageApplied < 0 ||
+    (targetPlayerIndex != 255 && targetPlayerIndex >= kDuelPlayerCount) ||
     result.currentTargetBounds.radius <= 0.0F ||
     result.currentTargetBounds.radius > 100.0F ||
     result.currentTargetBounds.halfHeight <= 0.0F ||
@@ -459,6 +463,7 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
   ) {
     return false;
   }
+  result.targetPlayerIndex = targetPlayerIndex;
   result.damageApplied = damageApplied;
   return true;
 }

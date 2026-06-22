@@ -1750,6 +1750,7 @@ int GameApp::run() const {
   bool audioStateInitialized = false;
   bool hasEnemyHitTime = false;
   Clock::time_point lastEnemyHitTime = {};
+  std::uint8_t lastEnemyHitTarget = 255;
   std::array<LingeringRailBeam, kDuelPlayerCount> lingeringRailBeams = {};
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
@@ -2397,6 +2398,7 @@ int GameApp::run() const {
         renderRemotePlayers[playerIndex] = RemotePlayerView{
           renderClient->interpolatedPlayer(playerIndex, interpolationAlpha),
           renderSnapshot.lightningGuns[playerIndex],
+          0.0F,
           true,
         };
       }
@@ -2459,6 +2461,7 @@ int GameApp::run() const {
     );
     if (renderLocalLightningGun.hit) {
       lastEnemyHitTime = now;
+      lastEnemyHitTarget = renderLocalLightningGun.targetPlayerIndex;
       hasEnemyHitTime = true;
     }
     const float elapsedSinceHit = hasEnemyHitTime
@@ -2474,14 +2477,15 @@ int GameApp::run() const {
         }
         return fade ? 1.0F - (elapsedSinceHit / duration) : 1.0F;
       };
-    if (
-      console.getBool("r_enemy_hit_enable") &&
-      hasEnemyHitTime
-    ) {
-      currentRenderSettings.enemyHitAmount = hitFeedbackAmount(
+    currentRenderSettings.enemyHitAmount = 0.0F;
+    if (console.getBool("r_enemy_hit_enable") && hasEnemyHitTime) {
+      const float enemyHitAmount = hitFeedbackAmount(
         console.getFloat("r_enemy_hit_duration"),
         console.getBool("r_enemy_hit_fade")
       );
+      if (lastEnemyHitTarget < renderRemotePlayers.size()) {
+        renderRemotePlayers[lastEnemyHitTarget].enemyHitAmount = enemyHitAmount;
+      }
     }
     if (console.getBool("r_beam_hit_enable")) {
       currentRenderSettings.beamHitAmount = hitFeedbackAmount(

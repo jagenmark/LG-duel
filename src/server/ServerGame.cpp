@@ -46,14 +46,25 @@ constexpr CollisionBounds kDefaultPlayerBounds = {};
   return command;
 }
 
-[[nodiscard]] std::size_t firstConnectedTarget(
+[[nodiscard]] bool isCombatant(
+  const ServerSnapshot& snapshot,
+  std::size_t playerIndex
+) {
+  return snapshot.connectedPlayers[playerIndex] ||
+    (
+      snapshot.botDodgeEnabled &&
+      snapshot.players[playerIndex].health > 0
+    );
+}
+
+[[nodiscard]] std::size_t firstCombatTarget(
   const ServerSnapshot& snapshot,
   std::size_t attackerIndex
 ) {
   for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
     if (
       targetIndex != attackerIndex &&
-      snapshot.connectedPlayers[targetIndex] &&
+      isCombatant(snapshot, targetIndex) &&
       snapshot.players[targetIndex].health > 0
     ) {
       return targetIndex;
@@ -157,7 +168,7 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
       snapshot_.matchPhase == MatchPhase::WaitingForReady;
     const bool hasTarget =
-      firstConnectedTarget(snapshot_, attackerIndex) < kDuelPlayerCount;
+      firstCombatTarget(snapshot_, attackerIndex) < kDuelPlayerCount;
     command.attack =
       command.attack &&
       (snapshot_.matchPhase == MatchPhase::Live || warmupCombat) &&
@@ -200,7 +211,7 @@ void ServerGame::tick(float fixedDt) {
     for (std::size_t candidateIndex = 0; candidateIndex < kDuelPlayerCount; ++candidateIndex) {
       if (
         candidateIndex == attackerIndex ||
-        !snapshot_.connectedPlayers[candidateIndex] ||
+        !isCombatant(snapshot_, candidateIndex) ||
         combatPlayers[candidateIndex].health <= 0
       ) {
         continue;
@@ -225,7 +236,7 @@ void ServerGame::tick(float fixedDt) {
 
     const std::size_t debugTargetIndex = targetIndex < kDuelPlayerCount
       ? targetIndex
-      : firstConnectedTarget(snapshot_, attackerIndex);
+      : firstCombatTarget(snapshot_, attackerIndex);
     PlayerState target = {};
     if (targetIndex < kDuelPlayerCount) {
       target = clampedRewindTicks == 0
@@ -245,6 +256,10 @@ void ServerGame::tick(float fixedDt) {
           lightningGunStates_[attackerIndex],
           fixedDt
         );
+        if (snapshot_.lightningGuns[attackerIndex].hit) {
+          snapshot_.lightningGuns[attackerIndex].targetPlayerIndex =
+            static_cast<std::uint8_t>(targetIndex);
+        }
       } else {
         snapshot_.lightningGuns[attackerIndex] = {};
         snapshot_.lightningGuns[attackerIndex].start = attackStart;
@@ -782,6 +797,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (
           snapshot_.players[playerIndex].health <= 0 ||
+          !isCombatant(snapshot_, playerIndex) ||
           (playerIndex == rocket.owner && rocket.ageTicks < 3U)
         ) {
           continue;
@@ -823,7 +839,7 @@ void ServerGame::simulateRockets(float fixedDt) {
 
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       PlayerState& player = snapshot_.players[playerIndex];
-      if (player.health <= 0) {
+      if (player.health <= 0 || !isCombatant(snapshot_, playerIndex)) {
         continue;
       }
       const float distance = cylinderDistance(explosionPosition, player);
