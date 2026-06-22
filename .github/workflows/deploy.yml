@@ -1,0 +1,78 @@
+name: Deploy Server
+
+# Required secrets: VM_HOST, VM_USER, VM_SSH_KEY.
+# Optional secrets: VM_SSH_PORT, VM_DEPLOY_PATH.
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-server
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SSH_PORT: ${{ secrets.VM_SSH_PORT || '22' }}
+      DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
+
+    steps:
+      - name: Configure SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          test -n "${{ secrets.VM_HOST }}"
+          test -n "${{ secrets.VM_USER }}"
+          test -n "${{ secrets.VM_SSH_KEY }}"
+          printf '%s\n' "${{ secrets.VM_SSH_KEY }}" > ~/.ssh/lg-duel-deploy
+          chmod 600 ~/.ssh/lg-duel-deploy
+          ssh-keyscan -p "$SSH_PORT" -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Deploy server
+        shell: bash
+        run: |
+          set -euo pipefail
+          printf -v quoted_deploy_path '%q' "$DEPLOY_PATH"
+          ssh -i ~/.ssh/lg-duel-deploy -p "$SSH_PORT" "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
+            "DEPLOY_PATH=$quoted_deploy_path bash -s" <<'REMOTE'
+          set -euo pipefail
+
+          deploy_path="${DEPLOY_PATH:-$HOME/LG-duel}"
+          case "$deploy_path" in
+            "~") deploy_path="$HOME" ;;
+            "~/"*) deploy_path="$HOME/${deploy_path#"~/"}" ;;
+          esac
+
+          cd "$deploy_path"
+          git fetch --prune origin main
+          git checkout main
+          git pull --ff-only origin main
+
+          cmake --preset default
+          cmake --build --preset default --target lg_duel_server --parallel
+
+          mkdir -p "$HOME/.config/systemd/user"
+          cp deploy/lg-duel-server.service "$HOME/.config/systemd/user/lg-duel-server.service"
+          mkdir -p "$HOME/.config/systemd/user/lg-duel-server.service.d"
+          cat > "$HOME/.config/systemd/user/lg-duel-server.service.d/deploy-path.conf" <<EOF
+          [Service]
+          WorkingDirectory=$deploy_path
+          ExecStart=
+          ExecStart=$deploy_path/build/default/lg_duel_server 27960
+          EOF
+
+          export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+          sudo -n loginctl enable-linger "$USER" 2>/dev/null || true
+          systemctl --user daemon-reload
+          systemctl --user enable --now lg-duel-server.service
+          systemctl --user restart lg-duel-server.service
+          systemctl --user --no-pager --full status lg-duel-server.service
+          REMOTE
