@@ -668,6 +668,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
   console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
+  console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
@@ -1786,6 +1787,8 @@ int GameApp::run() const {
     console.getFloat("g_playersize_z");
   float lastRequestedLightningKnockback =
     console.getFloat("g_knockback");
+  float lastRequestedRocketKnockback =
+    console.getFloat("g_rl_knockback");
   float lastRequestedVampirism =
     console.getFloat("g_vampirism");
   std::uint8_t lastRequestedSelfDamagePercent =
@@ -2060,6 +2063,8 @@ int GameApp::run() const {
       console.getFloat("g_playersize_z");
     const float currentLightningKnockback =
       console.getFloat("g_knockback");
+    const float currentRocketKnockback =
+      console.getFloat("g_rl_knockback");
     const float currentVampirism =
       console.getFloat("g_vampirism");
     const std::uint8_t currentSelfDamagePercent =
@@ -2074,6 +2079,7 @@ int GameApp::run() const {
         currentPlayerSizeScaleZ != lastRequestedPlayerSizeScaleZ ||
         currentLightningKnockback != lastRequestedLightningKnockback ||
         currentVampirism != lastRequestedVampirism ||
+        currentRocketKnockback != lastRequestedRocketKnockback ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
         botDodgeEnabled != lastRequestedBotDodgeEnabled ||
@@ -2084,6 +2090,7 @@ int GameApp::run() const {
       lastRequestedPlayerSizeScaleZ = currentPlayerSizeScaleZ;
       lastRequestedLightningKnockback = currentLightningKnockback;
       lastRequestedVampirism = currentVampirism;
+      lastRequestedRocketKnockback = currentRocketKnockback;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
       lastRequestedBotDodgeEnabled = botDodgeEnabled;
@@ -2171,6 +2178,7 @@ int GameApp::run() const {
         lastRequestedPlayerSizeScaleXY,
         lastRequestedPlayerSizeScaleZ,
         lastRequestedLightningKnockback,
+        lastRequestedRocketKnockback,
         lastRequestedVampirism,
         lastRequestedSelfDamagePercent,
         lastRequestedHealthAmount,

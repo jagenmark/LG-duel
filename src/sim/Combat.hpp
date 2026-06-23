@@ -64,7 +64,7 @@ struct RocketLauncherTuning {
   float radius = 3.0F;
   int directDamage = 100;
   int splashDamage = 100;
-  float knockback = 34.0F;
+  float knockback = 22.0F;
   float eyeHeight = 0.65F;
   std::uint32_t maxLifetimeTicks = 500;
 };
@@ -74,6 +74,7 @@ struct RocketProjectile {
   std::uint8_t owner = 0;
   Vec3 position = {};
   Vec3 previousPosition = {};
+  bool ownerCollisionArmed = false;
   Vec3 velocity = {};
   std::uint32_t ageTicks = 0;
 };

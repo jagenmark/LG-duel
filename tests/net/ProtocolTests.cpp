@@ -89,6 +89,7 @@ int main() {
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 35.0F;
+    source.rocketKnockback = 625.0F;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -135,6 +136,7 @@ int main() {
         nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
         nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
         nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+        nearlyEqual(decoded.rocketKnockback, 625.0F) &&
         nearlyEqual(decoded.vampirism, 0.1F) &&
         decoded.selfDamagePercent == 37 &&
         decoded.healthAmount == 175 &&
@@ -269,6 +271,7 @@ int main() {
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 35.0F;
+    source.rocketKnockback = 625.0F;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -389,6 +392,7 @@ int main() {
       nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
       nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
       nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+      nearlyEqual(decoded.rocketKnockback, 625.0F) &&
       nearlyEqual(decoded.vampirism, 2.0F) &&
       decoded.selfDamagePercent == 25 &&
       decoded.healthAmount == 150 &&

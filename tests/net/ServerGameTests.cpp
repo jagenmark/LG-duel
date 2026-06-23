@@ -73,6 +73,7 @@ int main() {
     tuningRequest.playerSizeScaleXY = 2.0F;
     tuningRequest.playerSizeScaleZ = 0.5F;
     tuningRequest.lightningKnockback = 35.0F;
+    tuningRequest.rocketKnockback = 625.0F;
     tuningRequest.vampirism = 0.1F;
     tuningRequest.selfDamagePercent = 25;
     tuningRequest.healthAmount = 150;
@@ -93,6 +94,7 @@ int main() {
       tuned.playerSizeScaleXY == 2.0F &&
         tuned.playerSizeScaleZ == 0.5F &&
         tuned.lightningKnockback == 35.0F &&
+        tuned.rocketKnockback == 625.0F &&
         tuned.vampirism == 0.1F &&
         tuned.selfDamagePercent == 25 &&
         tuned.healthAmount == 150 &&
@@ -1030,10 +1032,54 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::UserCommand moveForward;
+    moveForward.sequence = 1;
+    moveForward.forwardMove = 1.0F;
+    moveForward.weapon = lg::Weapon::RocketLauncher;
+    transport.sendCommand(lg::CommandPacket{0, moveForward, false});
+    for (int tick = 0; tick < 20; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+    }
+
+    moveForward.sequence = 2;
+    moveForward.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, moveForward, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "moving player should fire a rocket");
+
+    bool explodedAgainstOwner = false;
+    for (int tick = 0; tick < 8; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      explodedAgainstOwner =
+        explodedAgainstOwner || snapshot.rocketExplosions[0].active;
+    }
+    failures += expect(
+      !explodedAgainstOwner,
+      "forward momentum should not make a rocket collide with its owner before separating"
+    );
+    failures += expect(
+      snapshot.players[0].health == 100,
+      "a forward-moving player should not take damage from an overlapping newly fired rocket"
+    );
+    failures += expect(
+      snapshot.rockets[0].active,
+      "rocket should remain active after separating from its forward-moving owner"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     lg::CommandPacket noSelfDamage;
     noSelfDamage.command.sequence = 1;
     noSelfDamage.requestMovementTuning = true;
     noSelfDamage.selfDamagePercent = 0;
+    noSelfDamage.rocketKnockback = 1000.0F;
     transport.sendCommand(noSelfDamage);
     server.tick(lg::kFixedTickSeconds);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
@@ -1065,8 +1111,10 @@ int main() {
             snapshot.players[0].velocity.x,
             snapshot.players[0].velocity.y,
             snapshot.players[0].velocity.z
-          ) > 0.0F,
-          "g_selfdamage 0 should still allow rocket self knockback"
+          ) > 21.9F &&
+            std::hypot(snapshot.players[0].velocity.x, snapshot.players[0].velocity.y) < 0.1F &&
+            snapshot.players[0].velocity.z < 22.1F,
+          "g_rl_knockback 1000 should use the Q3-relative internal impulse"
         );
         break;
       }
