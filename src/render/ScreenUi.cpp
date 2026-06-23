@@ -2,7 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iterator>
 #include <string>
+#include <vector>
 
 namespace lg {
 namespace {
@@ -63,6 +65,57 @@ void addText(
     color,
     scale,
   });
+}
+
+[[nodiscard]] std::vector<std::string> wrapText(
+  const std::string& text,
+  std::size_t maxCharacters
+) {
+  if (maxCharacters == 0U) {
+    return {""};
+  }
+  if (text.empty()) {
+    return {""};
+  }
+
+  std::vector<std::string> lines;
+  std::size_t lineStart = 0U;
+  while (lineStart < text.size()) {
+    const std::size_t remaining = text.size() - lineStart;
+    if (remaining <= maxCharacters) {
+      lines.push_back(text.substr(lineStart));
+      break;
+    }
+
+    const std::size_t lineEnd = lineStart + maxCharacters;
+    std::size_t breakAt = std::string::npos;
+    if (lineEnd < text.size() && text[lineEnd] == ' ') {
+      breakAt = lineEnd;
+    }
+    for (
+      std::size_t index = lineEnd;
+      index > lineStart && breakAt == std::string::npos;
+      --index
+    ) {
+      if (text[index - 1U] == ' ') {
+        breakAt = index - 1U;
+        break;
+      }
+    }
+
+    if (breakAt == std::string::npos) {
+      lines.push_back(text.substr(lineStart, maxCharacters));
+      lineStart += maxCharacters;
+    } else {
+      lines.push_back(text.substr(lineStart, breakAt - lineStart));
+      lineStart = breakAt;
+      while (lineStart < text.size() && text[lineStart] == ' ') {
+        ++lineStart;
+      }
+    }
+  }
+
+  return lines;
 }
 
 [[nodiscard]] std::uint8_t blendChannel(
@@ -707,32 +760,60 @@ void addConsole(
 
   constexpr float textScale = 2.0F;
   constexpr float lineHeight = 20.0F;
+  constexpr float marginX = 10.0F;
+  const std::size_t maxCharacters = std::max(
+    1,
+    static_cast<int>(
+      (static_cast<float>(width) - marginX * 2.0F) /
+      (kGlyphSize * textScale)
+    )
+  );
+  std::vector<std::string> wrappedOutput;
+  for (const std::string& line : console.lines) {
+    std::vector<std::string> wrappedLine = wrapText(line, maxCharacters);
+    wrappedOutput.insert(
+      wrappedOutput.end(),
+      std::make_move_iterator(wrappedLine.begin()),
+      std::make_move_iterator(wrappedLine.end())
+    );
+  }
+
+  const std::vector<std::string> wrappedPrompt =
+    wrapText("] " + console.input + '_', maxCharacters);
+  const float promptY =
+    consoleHeight - 24.0F -
+    static_cast<float>(wrappedPrompt.size() - 1U) * lineHeight;
+  const float outputHeight = std::max(0.0F, promptY - 10.0F);
   const int visibleLines =
-    std::max(1, static_cast<int>((consoleHeight - 34.0F) / lineHeight));
+    std::max(0, static_cast<int>(outputHeight / lineHeight));
   const std::size_t firstLine =
-    console.lines.size() > static_cast<std::size_t>(visibleLines)
-      ? console.lines.size() - static_cast<std::size_t>(visibleLines)
+    wrappedOutput.size() > static_cast<std::size_t>(visibleLines)
+      ? wrappedOutput.size() - static_cast<std::size_t>(visibleLines)
       : 0U;
   float y = 10.0F;
-  for (std::size_t index = firstLine; index < console.lines.size(); ++index) {
+  for (std::size_t index = firstLine; index < wrappedOutput.size(); ++index) {
     addText(
       drawList,
-      10.0F,
+      marginX,
       y,
-      console.lines[index],
+      wrappedOutput[index],
       {215, 225, 235, 255},
       textScale
     );
     y += lineHeight;
   }
-  addText(
-    drawList,
-    10.0F,
-    consoleHeight - 24.0F,
-    "] " + console.input + '_',
-    {255, 255, 255, 255},
-    textScale
-  );
+  y = promptY;
+  for (const std::string& line : wrappedPrompt) {
+    addText(
+      drawList,
+      marginX,
+      y,
+      line,
+      {255, 255, 255, 255},
+      textScale
+    );
+    y += lineHeight;
+  }
 }
 
 } // namespace
