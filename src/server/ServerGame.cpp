@@ -81,6 +81,7 @@ constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 } // namespace
 
 ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
+  rocketLauncherTuning_.knockback = q3KnockbackToInternal(rocketKnockback_);
   resetMatch();
   snapshot_.connectedPlayers[0] = true;
   snapshot_.connectedPlayers[1] = true;
@@ -312,6 +313,7 @@ void ServerGame::tick(float fixedDt) {
         rocket.previousPosition = rocket.position;
         rocket.velocity = direction * rocketLauncherTuning_.speed;
         rocket.ageTicks = 0;
+        rocket.ownerCollisionArmed = false;
         WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
         fire.fired = true;
         fire.weapon = Weapon::RocketLauncher;
@@ -420,6 +422,7 @@ void ServerGame::resetMatch() {
   snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
   snapshot_.lightningKnockback = lightningKnockback_;
+  snapshot_.rocketKnockback = rocketKnockback_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
   snapshot_.healthAmount = healthAmount_;
@@ -786,6 +789,13 @@ void ServerGame::simulateRockets(float fixedDt) {
       ? segment / segmentLength
       : normalize(rocket.velocity);
 
+    if (
+      !rocket.ownerCollisionArmed &&
+      cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) > 0.0001F
+    ) {
+      rocket.ownerCollisionArmed = true;
+    }
+
     bool explode = false;
     Vec3 explosionPosition = nextPosition;
     std::size_t directTarget = kDuelPlayerCount;
@@ -803,7 +813,7 @@ void ServerGame::simulateRockets(float fixedDt) {
         if (
           snapshot_.players[playerIndex].health <= 0 ||
           !isCombatant(snapshot_, playerIndex) ||
-          (playerIndex == rocket.owner && rocket.ageTicks < 3U)
+          (playerIndex == rocket.owner && !rocket.ownerCollisionArmed)
         ) {
           continue;
         }
@@ -1025,6 +1035,10 @@ void ServerGame::receiveCommands() {
       lightningGunTuning_.knockbackPerSecond =
         q3KnockbackToInternal(lightningKnockback_);
       snapshot_.lightningKnockback = lightningKnockback_;
+      rocketKnockback_ = packet.rocketKnockback;
+      rocketLauncherTuning_.knockback =
+        q3KnockbackToInternal(rocketKnockback_);
+      snapshot_.rocketKnockback = rocketKnockback_;
       if (vampirism_ != packet.vampirism) {
         fractionalVampirismHealing_ = {};
       }

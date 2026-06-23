@@ -469,7 +469,18 @@ int main() {
     lg::UserCommand attack;
     attack.sequence = 40;
     attack.attack = true;
-    client.sendCommand(attack, false);
+    client.sendCommand(
+      attack,
+      false,
+      false,
+      true,
+      {},
+      1.0F,
+      1.0F,
+      800.0F,
+      625.0F,
+      0.25F
+    );
 
     lg::CommandPacket sent;
     failures += expect(
@@ -479,6 +490,11 @@ int main() {
     failures += expect(
       sent.viewedServerTick == 2,
       "ClientGame should send the presented server tick for lag compensation"
+    );
+    failures += expect(
+      sent.lightningKnockback == 800.0F && sent.rocketKnockback == 625.0F &&
+        sent.vampirism == 0.25F,
+      "ClientGame should preserve distinct LG, RL, and vampirism tuning values"
     );
   }
 

@@ -241,6 +241,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(packet.playerSizeScaleXY) &&
     writer.writeFloat(packet.playerSizeScaleZ) &&
     writer.writeFloat(packet.lightningKnockback) &&
+    writer.writeFloat(packet.rocketKnockback) &&
     writer.writeFloat(packet.vampirism) &&
     writer.writeU8(packet.selfDamagePercent) &&
     writer.writeI32(packet.healthAmount) &&
@@ -284,6 +285,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.playerSizeScaleXY) ||
     !reader.readFloat(packet.playerSizeScaleZ) ||
     !reader.readFloat(packet.lightningKnockback) ||
+    !reader.readFloat(packet.rocketKnockback) ||
     !reader.readFloat(packet.vampirism) ||
     !reader.readU8(packet.selfDamagePercent) ||
     !reader.readI32(packet.healthAmount) ||
@@ -326,6 +328,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.playerSizeScaleZ <= 3.0F &&
     packet.lightningKnockback >= 0.0F &&
     packet.lightningKnockback <= 1000.0F &&
+    packet.rocketKnockback >= 0.0F &&
+    packet.rocketKnockback <= 1000.0F &&
     packet.vampirism >= 0.0F &&
     packet.vampirism <= 2.0F &&
     packet.selfDamagePercent <= 100 &&
@@ -819,6 +823,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.playerSizeScaleXY) &&
     writer.writeFloat(snapshot.playerSizeScaleZ) &&
     writer.writeFloat(snapshot.lightningKnockback) &&
+    writer.writeFloat(snapshot.rocketKnockback) &&
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
@@ -936,6 +941,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.playerSizeScaleXY) ||
     !reader.readFloat(decoded.playerSizeScaleZ) ||
     !reader.readFloat(decoded.lightningKnockback) ||
+    !reader.readFloat(decoded.rocketKnockback) ||
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||
@@ -976,6 +982,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.playerSizeScaleZ < 0.5F ||
     decoded.playerSizeScaleZ > 3.0F ||
     decoded.lightningKnockback < 0.0F ||
+    decoded.rocketKnockback < 0.0F ||
+    decoded.rocketKnockback > 1000.0F ||
     decoded.lightningKnockback > 1000.0F ||
     decoded.vampirism < 0.0F ||
     decoded.vampirism > 2.0F ||
