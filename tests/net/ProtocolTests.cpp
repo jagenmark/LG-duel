@@ -61,6 +61,7 @@ int main() {
   {
     lg::CommandPacket source;
     source.playerIndex = 1;
+    source.clientNonce = 12345;
     source.command.sequence = 42;
     source.command.clientTick = 99;
     source.command.viewYawRadians = 1.25F;
@@ -106,6 +107,7 @@ int main() {
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "command should respect packet limit");
     failures += expect(lg::decodeCommandPacket(wire, decoded), "command should decode");
     failures += expect(decoded.playerIndex == source.playerIndex, "command player should round trip");
+    failures += expect(decoded.clientNonce == 12345, "command nonce should round trip");
     failures += expect(decoded.command.sequence == 42, "command sequence should round trip");
     failures += expect(decoded.command.clientTick == 99, "command tick should round trip");
     failures += expect(decoded.viewedServerTick == 88, "viewed server tick should round trip");

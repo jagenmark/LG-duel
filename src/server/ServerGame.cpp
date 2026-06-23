@@ -447,6 +447,7 @@ void ServerGame::resetMatch() {
   viewedServerTicks_ = {};
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
+  playerSessions_ = {};
   history_.clear();
   recordHistory();
 }
@@ -500,17 +501,12 @@ void ServerGame::setConnectedPlayers(
     if (!connectedPlayers[index]) {
       snapshot_.readyPlayers[index] = false;
       snapshot_.playerNames[index] = "BOT";
-      commands_[index] = {};
-      viewedServerTicks_[index] = 0;
-      hasCommand_[index] = false;
-      receivedCommandThisTick_[index] = false;
+      resetPlayerInputState(index);
+      playerSessions_[index] = 0;
       botDodgeSwitchSeconds_[index] = 0.0F;
     } else if (!snapshot_.connectedPlayers[index]) {
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
-      commands_[index] = {};
-      viewedServerTicks_[index] = 0;
-      hasCommand_[index] = false;
-      receivedCommandThisTick_[index] = false;
+      resetPlayerInputState(index);
       botDodgeSwitchSeconds_[index] = 0.0F;
     }
   }
@@ -533,6 +529,44 @@ void ServerGame::setConnectedPlayers(
     snapshot_.matchPhase = MatchPhase::WaitingForReady;
     snapshot_.phaseTicksRemaining = 0;
   }
+}
+
+void ServerGame::setConnectedPlayers(
+  const std::array<bool, kDuelPlayerCount>& connectedPlayers,
+  const std::array<std::uint32_t, kDuelPlayerCount>& playerSessions
+) {
+  const std::array<bool, kDuelPlayerCount> previousConnected =
+    snapshot_.connectedPlayers;
+  setConnectedPlayers(connectedPlayers);
+
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (!connectedPlayers[index]) {
+      playerSessions_[index] = 0;
+      continue;
+    }
+
+    if (
+      previousConnected[index] &&
+      playerSessions_[index] != 0 &&
+      playerSessions_[index] != playerSessions[index]
+    ) {
+      snapshot_.readyPlayers[index] = false;
+      snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
+      resetPlayerInputState(index);
+      botDodgeSwitchSeconds_[index] = 0.0F;
+    }
+    playerSessions_[index] = playerSessions[index];
+  }
+}
+
+void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
+  commands_[playerIndex] = {};
+  viewedServerTicks_[playerIndex] = 0;
+  hasCommand_[playerIndex] = false;
+  receivedCommandThisTick_[playerIndex] = false;
+  snapshot_.acknowledgedCommand[playerIndex] = 0;
+  snapshot_.hasAcknowledgedCommand[playerIndex] = false;
+  lightningGunStates_[playerIndex] = {};
 }
 
 void ServerGame::setMatchRules(const MatchRules& rules) {

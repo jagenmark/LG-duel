@@ -283,9 +283,17 @@ int main() {
         countdownHud,
         {}
       );
-      const auto* text = ui.overlayCommands.empty()
-        ? nullptr
-        : std::get_if<lg::Text2D>(&ui.overlayCommands.back());
+      const lg::Text2D* text = nullptr;
+      for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+        if (const auto* candidate = std::get_if<lg::Text2D>(&command)) {
+          if (
+            candidate->text == countdownHud.countdownText &&
+            candidate->scale >= 10.0F
+          ) {
+            text = candidate;
+          }
+        }
+      }
       const float visibleCenterX = text == nullptr
         ? 0.0F
         : text->position.x +
@@ -322,6 +330,59 @@ int main() {
         prompt->text == "] r_vsync 0_" &&
         prompt->color.red == 255,
       "console prompt should render last and above the rest of the UI"
+    );
+  }
+
+  {
+    lg::ConsoleRenderState narrowConsole;
+    narrowConsole.open = true;
+    narrowConsole.lines = {"alpha beta gamma"};
+    narrowConsole.input = "wrap input";
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      180,
+      240,
+      opponent,
+      settings,
+      {},
+      narrowConsole
+    );
+
+    bool foundFirstOutputWrap = false;
+    bool foundSecondOutputWrap = false;
+    bool foundFirstPromptWrap = false;
+    bool foundSecondPromptWrap = false;
+    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        foundFirstOutputWrap =
+          foundFirstOutputWrap || text->text == "alpha beta";
+        foundSecondOutputWrap =
+          foundSecondOutputWrap || text->text == "gamma";
+        foundFirstPromptWrap =
+          foundFirstPromptWrap || text->text == "] wrap";
+        foundSecondPromptWrap =
+          foundSecondPromptWrap || text->text == "input_";
+        if (
+          text->color.red == 215 ||
+          (
+            text->color.red == 255 &&
+            text->color.green == 255 &&
+            text->color.blue == 255
+          )
+        ) {
+          failures += expect(
+            text->text.size() <= 10U,
+            "wrapped console text should fit the available character columns"
+          );
+        }
+      }
+    }
+    failures += expect(
+      foundFirstOutputWrap && foundSecondOutputWrap,
+      "console output should wrap to the available width"
+    );
+    failures += expect(
+      foundFirstPromptWrap && foundSecondPromptWrap,
+      "console prompt should wrap to the available width"
     );
   }
 

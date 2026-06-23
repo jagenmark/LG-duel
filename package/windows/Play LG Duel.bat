@@ -2,14 +2,26 @@
 setlocal
 cd /d "%~dp0"
 
-set "SERVER_HOST=213.66.106.51"
-set "SERVER_PORT=27960"
+if not exist "server-address.txt" (
+  echo server-address.txt is missing from the package.
+  pause
+  exit /b 1
+)
 
-if exist "server-address.txt" (
-  for /f "usebackq tokens=1,2 delims=:" %%A in ("server-address.txt") do (
-    set "SERVER_HOST=%%A"
-    set "SERVER_PORT=%%B"
-  )
+for /f "usebackq tokens=1,2 delims=:" %%A in ("server-address.txt") do (
+  set "SERVER_HOST=%%A"
+  set "SERVER_PORT=%%B"
+)
+
+if not defined SERVER_HOST (
+  echo server-address.txt does not contain a server host.
+  pause
+  exit /b 1
+)
+if not defined SERVER_PORT (
+  echo server-address.txt does not contain a server port.
+  pause
+  exit /b 1
 )
 
 echo Starting LG Duel...

@@ -188,22 +188,40 @@ std::string ConsoleSystem::execute(std::string_view line) {
 }
 
 std::vector<std::string> ConsoleSystem::complete(std::string_view prefix) const {
+  std::vector<std::string_view> names;
+  names.reserve(6 + cvars_.size() + commands_.size());
+  for (const std::string_view builtIn :
+       {"set", "toggle", "reset", "cvarlist", "cmdlist", "help"}) {
+    names.push_back(builtIn);
+  }
+  for (const Cvar& cvar : cvars_) {
+    names.push_back(cvar.definition.name);
+  }
+  for (const Command& command : commands_) {
+    names.push_back(command.name);
+  }
+
   std::vector<std::string> matches;
-  const auto addIfMatching = [&matches, prefix](std::string_view name) {
+  const auto addIfPrefixMatching = [&matches, prefix](std::string_view name) {
     if (name.starts_with(prefix)) {
       matches.emplace_back(name);
     }
   };
-  for (const std::string_view builtIn :
-       {"set", "toggle", "reset", "cvarlist", "cmdlist", "help"}) {
-    addIfMatching(builtIn);
+  for (std::string_view name : names) {
+    addIfPrefixMatching(name);
   }
-  for (const Cvar& cvar : cvars_) {
-    addIfMatching(cvar.definition.name);
+
+  if (matches.empty()) {
+    const auto addIfSubstringMatching = [&matches, prefix](std::string_view name) {
+      if (name.find(prefix) != std::string_view::npos) {
+        matches.emplace_back(name);
+      }
+    };
+    for (std::string_view name : names) {
+      addIfSubstringMatching(name);
+    }
   }
-  for (const Command& command : commands_) {
-    addIfMatching(command.name);
-  }
+
   std::sort(matches.begin(), matches.end(), nameLess);
   return matches;
 }

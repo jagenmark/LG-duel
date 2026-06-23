@@ -1,5 +1,6 @@
 #include "app/GameApp.hpp"
 
+#include "app/ConsoleInput.hpp"
 #include "client/ClientSession.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
@@ -29,6 +30,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -56,6 +58,21 @@ enum class AimMode {
     std::clamp(static_cast<int>(std::lround(console.getFloat("g_selfdamage"))), 0, 100)
   );
 }
+
+#if LG_DUEL_HAS_SDL3
+[[nodiscard]] bool isClipboardPasteKey(const SDL_KeyboardEvent& event) {
+  return event.key == SDLK_V && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
+}
+
+void pasteClipboardTextIntoConsole(std::string& input) {
+  char* clipboardText = SDL_GetClipboardText();
+  if (clipboardText == nullptr) {
+    return;
+  }
+  appendConsolePasteText(input, clipboardText);
+  SDL_free(clipboardText);
+}
+#endif
 
 [[nodiscard]] std::int32_t healthAmount(const ConsoleSystem& console) {
   return std::clamp(console.getInt("g_healthamount"), 1, 100000);
@@ -1872,7 +1889,9 @@ int GameApp::run() const {
             applyConsoleToggle();
             break;
           }
-          if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+          if (isClipboardPasteKey(event.key)) {
+            pasteClipboardTextIntoConsole(consoleState.input);
+          } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
             if (!consoleState.input.empty()) {

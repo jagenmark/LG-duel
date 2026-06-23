@@ -22,6 +22,16 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+void syncConnectedPlayers(
+  lg::ServerGame& server,
+  const lg::UdpServerTransport& transport
+) {
+  server.setConnectedPlayers(
+    transport.connectedPlayers(),
+    transport.connectedPlayerSessions()
+  );
+}
+
 } // namespace
 
 int main() {
@@ -49,7 +59,7 @@ int main() {
     firstTransport.update();
     secondTransport.update();
     serverTransport.update();
-    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    syncConnectedPlayers(server, serverTransport);
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -74,7 +84,7 @@ int main() {
   lg::ClientGame secondClient(secondTransport, secondTransport.playerIndex());
   for (int iteration = 0; iteration < 100; ++iteration) {
     serverTransport.update();
-    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    syncConnectedPlayers(server, serverTransport);
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -110,7 +120,7 @@ int main() {
   firstClient.sendCommand(warmupAttack, false);
   for (int iteration = 0; iteration < 4; ++iteration) {
     serverTransport.update();
-    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    syncConnectedPlayers(server, serverTransport);
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -173,7 +183,7 @@ int main() {
   secondClient.sendCommand(secondReady, false, true);
   for (int iteration = 0; iteration < 4; ++iteration) {
     serverTransport.update();
-    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    syncConnectedPlayers(server, serverTransport);
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -199,7 +209,7 @@ int main() {
     firstClient.sendCommand(firstCommand, false);
     secondClient.sendCommand(secondCommand, false);
     serverTransport.update();
-    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    syncConnectedPlayers(server, serverTransport);
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -239,7 +249,7 @@ int main() {
     firstTransport.update();
     secondTransport.update();
     serverTransport.update();
-    server.setConnectedPlayers(serverTransport.connectedPlayers());
+    syncConnectedPlayers(server, serverTransport);
     server.tick(lg::kFixedTickSeconds);
     firstTransport.update();
     secondTransport.update();
@@ -251,7 +261,7 @@ int main() {
 
   firstTransport.disconnect();
   serverTransport.update();
-  server.setConnectedPlayers(serverTransport.connectedPlayers());
+  syncConnectedPlayers(server, serverTransport);
   server.tick(lg::kFixedTickSeconds);
   failures += expect(
     serverTransport.connectedClientCount() == 1 &&
@@ -292,7 +302,7 @@ int main() {
         client->update();
       }
       multiServerTransport.update();
-      multiServer.setConnectedPlayers(multiServerTransport.connectedPlayers());
+      syncConnectedPlayers(multiServer, multiServerTransport);
       multiServer.tick(lg::kFixedTickSeconds);
       for (const auto& client : clients) {
         client->update();
