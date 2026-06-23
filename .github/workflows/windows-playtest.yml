@@ -6,7 +6,7 @@ on:
       server_host:
         description: Public IP address or hostname for the playtest server
         required: true
-        default: "213.66.106.51"
+        default: "20.238.17.134"
         type: string
       server_port:
         description: UDP server port
@@ -26,7 +26,7 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      SERVER_HOST: ${{ inputs.server_host || '213.66.106.51' }}
+      SERVER_HOST: ${{ inputs.server_host || '20.238.17.134' }}
       SERVER_PORT: ${{ inputs.server_port || '27960' }}
 
     steps:
@@ -43,8 +43,8 @@ jobs:
           -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=TRUE
           -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
 
-      - name: Build client
-        run: cmake --build build/windows --config Release --target lg_duel_client --parallel
+      - name: Build package binaries
+        run: cmake --build build/windows --config Release --target lg_duel_client lg_duel_server --parallel
 
       - name: Create package directory
         shell: pwsh

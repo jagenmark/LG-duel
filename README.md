@@ -72,14 +72,14 @@ and `lg_duel_client` builds as the playable SDL app instead of the skeleton.
 ## Windows Playtest Package
 
 The `Windows Playtest Package` GitHub Actions workflow builds a self-contained
-Windows x64 client ZIP. Run it from the repository's Actions page and enter the
+Windows x64 playtest ZIP. Run it from the repository's Actions page and enter the
 current public server address and UDP port. Download the
 `LG-Duel-Windows-x64` artifact when the run completes.
 
-The package contains the client executable, `SDL3.dll`, the required GPU
-shaders, a double-click `Play LG Duel.bat` launcher, the player guide, and
-`server-address.txt`. The launcher selects SDL_GPU, preferring Vulkan with
-automatic renderer fallback.
+The package contains the client and server executables, `SDL3.dll`, the required
+GPU shaders, double-click client and server launchers, the player guide, and
+`server-address.txt`. The client launcher selects SDL_GPU, preferring Vulkan
+with automatic renderer fallback.
 Friends should extract the entire ZIP and keep all files together.
 
 ## Current Playable Slice
