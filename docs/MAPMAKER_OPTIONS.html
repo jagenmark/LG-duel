@@ -1,0 +1,613 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LG Duel — Simple Map-Making Options</title>
+  <style>
+    :root {
+      --ink: #151a22;
+      --muted: #667085;
+      --paper: #f6f4ee;
+      --panel: rgba(255, 255, 255, 0.78);
+      --line: rgba(21, 26, 34, 0.13);
+      --blue: #2457ff;
+      --cyan: #0ea5a8;
+      --orange: #f06d2f;
+      --yellow: #f2bf3f;
+      --green: #1f8a5b;
+      --shadow: 0 20px 60px rgba(34, 39, 52, 0.10);
+      --radius: 22px;
+    }
+
+    * { box-sizing: border-box; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        radial-gradient(circle at 12% 8%, rgba(36, 87, 255, 0.13), transparent 28rem),
+        radial-gradient(circle at 88% 18%, rgba(240, 109, 47, 0.12), transparent 24rem),
+        var(--paper);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+    }
+
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      opacity: 0.22;
+      background-image:
+        linear-gradient(var(--line) 1px, transparent 1px),
+        linear-gradient(90deg, var(--line) 1px, transparent 1px);
+      background-size: 32px 32px;
+      mask-image: linear-gradient(to bottom, black, transparent 72%);
+    }
+
+    a { color: inherit; }
+
+    .shell {
+      width: min(1180px, calc(100% - 40px));
+      margin: 0 auto;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px 0;
+      font-size: 0.82rem;
+      font-weight: 750;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .brand { display: flex; align-items: center; gap: 10px; }
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border-radius: 8px;
+      color: white;
+      background: var(--blue);
+      box-shadow: 5px 5px 0 var(--ink);
+    }
+
+    .topbar span:last-child { color: var(--muted); }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(280px, 0.75fr);
+      gap: 54px;
+      align-items: center;
+      padding: 72px 0 86px;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 7px 11px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: rgba(255,255,255,0.64);
+      color: var(--blue);
+      font-size: 0.76rem;
+      font-weight: 800;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 5px rgba(36,87,255,0.12);
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 820px;
+      margin: 20px 0 22px;
+      font-size: clamp(3rem, 7vw, 6.4rem);
+      line-height: 0.94;
+      letter-spacing: -0.065em;
+    }
+
+    .hero-copy {
+      max-width: 720px;
+      margin-bottom: 30px;
+      color: #3d4656;
+      font-size: clamp(1.05rem, 2vw, 1.27rem);
+    }
+
+    .verdict {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      align-items: start;
+      padding: 18px;
+      border: 1px solid rgba(31, 138, 91, 0.28);
+      border-radius: 16px;
+      background: rgba(232, 250, 241, 0.72);
+      max-width: 700px;
+    }
+
+    .verdict-icon {
+      width: 32px;
+      height: 32px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      color: white;
+      background: var(--green);
+      font-weight: 900;
+    }
+
+    .verdict strong { display: block; margin-bottom: 2px; }
+    .verdict p { margin: 0; color: #315c49; font-size: 0.94rem; }
+
+    .arena-visual {
+      position: relative;
+      aspect-ratio: 1;
+      padding: 12%;
+      border: 1px solid var(--line);
+      border-radius: 32px;
+      background: rgba(255,255,255,0.68);
+      box-shadow: var(--shadow);
+      transform: rotate(2deg);
+    }
+
+    .arena-grid {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      border: 3px solid var(--ink);
+      border-radius: 12px;
+      background-color: #e8e4d9;
+      background-image:
+        linear-gradient(rgba(21,26,34,0.11) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(21,26,34,0.11) 1px, transparent 1px);
+      background-size: 12.5% 12.5%;
+      box-shadow: inset 0 0 0 8px rgba(255,255,255,0.54);
+    }
+
+    .block { position: absolute; border: 2px solid var(--ink); box-shadow: 4px 4px 0 rgba(21,26,34,0.18); }
+    .b1 { left: 8%; top: 11%; width: 84%; height: 17%; background: var(--yellow); }
+    .b2 { left: 10%; top: 40%; width: 18%; height: 44%; background: var(--cyan); }
+    .b3 { right: 10%; top: 40%; width: 18%; height: 44%; background: var(--cyan); }
+    .b4 { left: 39%; top: 41%; width: 22%; height: 22%; background: var(--orange); }
+    .b5 { left: 35%; bottom: 9%; width: 30%; height: 12%; background: var(--blue); }
+    .spawn {
+      position: absolute;
+      width: 18px;
+      height: 18px;
+      border: 3px solid white;
+      border-radius: 50%;
+      background: var(--blue);
+      box-shadow: 0 0 0 3px var(--ink);
+    }
+    .s1 { left: 19%; bottom: 18%; }
+    .s2 { right: 19%; bottom: 18%; background: var(--orange); }
+    .axis {
+      position: absolute;
+      right: -15px;
+      bottom: -34px;
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 0.72rem;
+      color: var(--muted);
+      transform: rotate(-2deg);
+    }
+
+    section { padding: 82px 0; }
+
+    .section-head {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 30px;
+      margin-bottom: 30px;
+    }
+
+    h2 {
+      margin-bottom: 0;
+      font-size: clamp(2rem, 4vw, 3.6rem);
+      line-height: 1;
+      letter-spacing: -0.045em;
+    }
+
+    .section-head p { max-width: 540px; margin-bottom: 2px; color: var(--muted); }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 20px;
+    }
+
+    .card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      min-height: 430px;
+      padding: 28px;
+      overflow: hidden;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: var(--panel);
+      box-shadow: 0 10px 40px rgba(34,39,52,0.055);
+    }
+
+    .card.recommended { border: 2px solid var(--blue); }
+    .card.recommended::after {
+      content: "Recommended start";
+      position: absolute;
+      top: 22px;
+      right: -42px;
+      width: 170px;
+      padding: 6px 0;
+      transform: rotate(38deg);
+      color: white;
+      background: var(--blue);
+      text-align: center;
+      font-size: 0.65rem;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .option-number {
+      color: var(--muted);
+      font: 700 0.78rem ui-monospace, SFMono-Regular, Consolas, monospace;
+      letter-spacing: 0.1em;
+    }
+
+    h3 { margin: 14px 0 8px; font-size: 1.55rem; letter-spacing: -0.025em; }
+    .card > p { color: #50596a; }
+
+    .meter-row { display: grid; grid-template-columns: 92px 1fr auto; gap: 10px; align-items: center; margin-top: 10px; }
+    .meter-label, .meter-value { font-size: 0.76rem; font-weight: 760; }
+    .meter-label { color: var(--muted); }
+    .meter-value { min-width: 48px; text-align: right; }
+    .meter { height: 8px; overflow: hidden; border-radius: 99px; background: #e4e2dd; }
+    .meter > span { display: block; height: 100%; border-radius: inherit; background: var(--accent, var(--blue)); }
+
+    .tags { display: flex; flex-wrap: wrap; gap: 7px; margin: 20px 0; }
+    .tag { padding: 5px 9px; border-radius: 999px; background: #eceaf0; font-size: 0.74rem; font-weight: 700; }
+
+    .card ul { margin: 0; padding-left: 18px; color: #3f4755; font-size: 0.91rem; }
+    .card li + li { margin-top: 7px; }
+
+    .fit {
+      margin-top: auto;
+      padding-top: 20px;
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    .fit strong { color: var(--ink); }
+
+    .comparison-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      background: rgba(255,255,255,0.72);
+      box-shadow: var(--shadow);
+    }
+
+    table { width: 100%; min-width: 820px; border-collapse: collapse; }
+    th, td { padding: 18px 20px; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    th { color: var(--muted); font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: rgba(36,87,255,0.045); }
+    .score { display: inline-grid; min-width: 30px; height: 30px; place-items: center; border-radius: 9px; color: white; background: var(--ink); font-weight: 850; }
+    .score.best { background: var(--green); }
+
+    .format-demo {
+      display: grid;
+      grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+      gap: 24px;
+      align-items: stretch;
+    }
+
+    .demo-copy, pre {
+      margin: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+
+    .demo-copy { padding: 34px; background: var(--ink); color: white; }
+    .demo-copy p { color: #bac0cb; }
+    .demo-copy ol { padding-left: 20px; color: #e6e8ec; }
+    .demo-copy li + li { margin-top: 10px; }
+
+    pre {
+      padding: 30px;
+      overflow: auto;
+      color: #d9e1ff;
+      background: #101522;
+      font: 0.9rem/1.65 ui-monospace, SFMono-Regular, Consolas, monospace;
+    }
+    .code-key { color: #6ea4ff; }
+    .code-value { color: #ffcb6b; }
+    .code-comment { color: #718096; }
+
+    .roadmap {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: rgba(255,255,255,0.72);
+    }
+    .phase { padding: 28px; border-right: 1px solid var(--line); }
+    .phase:last-child { border-right: 0; }
+    .phase-id { color: var(--blue); font: 800 0.75rem ui-monospace, SFMono-Regular, Consolas, monospace; text-transform: uppercase; }
+    .phase h3 { margin-top: 12px; }
+    .phase p { color: var(--muted); font-size: 0.9rem; }
+    .phase strong { font-size: 0.82rem; }
+
+    .guardrails {
+      display: grid;
+      grid-template-columns: 0.8fr 1.2fr;
+      gap: 32px;
+      padding: 40px;
+      border-radius: var(--radius);
+      color: white;
+      background: linear-gradient(135deg, #2457ff, #1739a9);
+      box-shadow: var(--shadow);
+    }
+    .guardrails p { color: #dce5ff; }
+    .guardrail-list { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+    .guardrail-item { padding: 15px; border: 1px solid rgba(255,255,255,0.2); border-radius: 14px; background: rgba(255,255,255,0.09); font-size: 0.88rem; }
+
+    footer { padding: 38px 0 54px; color: var(--muted); font-size: 0.8rem; }
+
+    @media (max-width: 850px) {
+      .hero, .format-demo, .guardrails { grid-template-columns: 1fr; }
+      .hero { padding-top: 48px; }
+      .arena-visual { width: min(520px, 100%); justify-self: center; }
+      .section-head { display: block; }
+      .section-head p { margin-top: 16px; }
+      .roadmap { grid-template-columns: 1fr; }
+      .phase { border-right: 0; border-bottom: 1px solid var(--line); }
+      .phase:last-child { border-bottom: 0; }
+    }
+
+    @media (max-width: 650px) {
+      .shell { width: min(100% - 24px, 1180px); }
+      .topbar span:last-child { display: none; }
+      .cards { grid-template-columns: 1fr; }
+      .card { min-height: auto; }
+      .guardrails { padding: 28px; }
+      .guardrail-list { grid-template-columns: 1fr; }
+      section { padding: 58px 0; }
+    }
+  </style>
+</head>
+<body>
+  <header class="shell topbar">
+    <div class="brand"><span class="brand-mark">LG</span> Duel Lab</div>
+    <span>Map-making consultation · June 2026</span>
+  </header>
+
+  <main>
+    <div class="shell hero">
+      <div>
+        <span class="eyebrow">Decision brief</span>
+        <h1>Maps without building an editor empire.</h1>
+        <p class="hero-copy">
+          LG Duel's arena is already a small set of axis-aligned 3D boxes and spawn points.
+          That makes simple map creation a <strong>small-to-medium feature</strong>—provided the
+          format stays narrow and the renderer, collision, combat, and server all consume the same map data.
+        </p>
+        <div class="verdict">
+          <div class="verdict-icon">✓</div>
+          <div>
+            <strong>Best first move: a text-editable map file with live reload.</strong>
+            <p>Add Minecraft-like in-game block commands second. Both should write the same format, so the first step is never thrown away.</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="arena-visual" aria-label="Abstract block-based arena diagram">
+        <div class="arena-grid">
+          <span class="block b1"></span>
+          <span class="block b2"></span>
+          <span class="block b3"></span>
+          <span class="block b4"></span>
+          <span class="block b5"></span>
+          <span class="spawn s1"></span>
+          <span class="spawn s2"></span>
+        </div>
+        <span class="axis">x / y / z · boxes + spawns</span>
+      </div>
+    </div>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <h2>Four sensible alternatives</h2>
+          <p>Effort is relative to the current C++ prototype—not a production-ready general FPS editor. Estimates assume one experienced developer and include basic tests.</p>
+        </div>
+
+        <div class="cards">
+          <article class="card recommended" style="--accent: var(--green)">
+            <span class="option-number">OPTION 01</span>
+            <h3>Text map + live reload</h3>
+            <p>A human-readable file defines bounds, boxes, and spawn points. Edit it in any text editor, then reload from the console.</p>
+            <div class="meter-row"><span class="meter-label">Build effort</span><span class="meter"><span style="width: 27%"></span></span><span class="meter-value">2–4 days</span></div>
+            <div class="meter-row"><span class="meter-label">Authoring UX</span><span class="meter"><span style="width: 55%"></span></span><span class="meter-value">Good</span></div>
+            <div class="tags"><span class="tag">diffable</span><span class="tag">testable</span><span class="tag">server-safe</span></div>
+            <ul>
+              <li>Fastest route from hard-coded arena to multiple maps.</li>
+              <li>Validation can reject overlapping, inverted, out-of-bounds, or excessive geometry.</li>
+              <li>Coordinates are less intuitive without a preview or grid reference.</li>
+            </ul>
+            <div class="fit"><strong>Best for:</strong> establishing the durable map-data boundary with minimal scope.</div>
+          </article>
+
+          <article class="card" style="--accent: var(--cyan)">
+            <span class="option-number">OPTION 02</span>
+            <h3>In-game block commands</h3>
+            <p>Enter an edit mode, aim at a grid, place or remove boxes, move spawns, save, and reload—Minecraft creative mode in miniature.</p>
+            <div class="meter-row"><span class="meter-label">Build effort</span><span class="meter"><span style="width: 58%"></span></span><span class="meter-value">1–2 weeks</span></div>
+            <div class="meter-row"><span class="meter-label">Authoring UX</span><span class="meter"><span style="width: 82%"></span></span><span class="meter-value">Very good</span></div>
+            <div class="tags"><span class="tag">play-in-place</span><span class="tag">grid snap</span><span class="tag">low UI</span></div>
+            <ul>
+              <li>Immediate feel testing: place cover, duel, adjust, repeat.</li>
+              <li>Needs picking/raycasting, selection feedback, undo, save, and edit-mode input rules.</li>
+              <li>Commands alone become awkward; mouse placement plus a few commands is better.</li>
+            </ul>
+            <div class="fit"><strong>Best for:</strong> rapid arena iteration after a load/save format exists.</div>
+          </article>
+
+          <article class="card" style="--accent: var(--orange)">
+            <span class="option-number">OPTION 03</span>
+            <h3>Minimal in-game GUI</h3>
+            <p>A small editor overlay provides a block list, numeric transform fields, selection, duplicate/delete, and a top/3D view.</p>
+            <div class="meter-row"><span class="meter-label">Build effort</span><span class="meter"><span style="width: 78%"></span></span><span class="meter-value">2–4 weeks</span></div>
+            <div class="meter-row"><span class="meter-label">Authoring UX</span><span class="meter"><span style="width: 92%"></span></span><span class="meter-value">Excellent</span></div>
+            <div class="tags"><span class="tag">discoverable</span><span class="tag">precise</span><span class="tag">UI-heavy</span></div>
+            <ul>
+              <li>More approachable and precise than console-only editing.</li>
+              <li>Selection, focus, widgets, camera controls, undo/redo, and gizmos multiply edge cases.</li>
+              <li>Risks becoming a second product that distracts from duel feel and netcode.</li>
+            </ul>
+            <div class="fit"><strong>Best for:</strong> later, if several non-programmers will regularly author maps.</div>
+          </article>
+
+          <article class="card" style="--accent: var(--yellow)">
+            <span class="option-number">OPTION 04</span>
+            <h3>External editor import</h3>
+            <p>Author geometry in TrenchBroom, Blender, or a tiny web tool, then convert a constrained subset into LG Duel boxes and spawns.</p>
+            <div class="meter-row"><span class="meter-label">Build effort</span><span class="meter"><span style="width: 68%"></span></span><span class="meter-value">1–3 weeks</span></div>
+            <div class="meter-row"><span class="meter-label">Authoring UX</span><span class="meter"><span style="width: 76%"></span></span><span class="meter-value">Variable</span></div>
+            <div class="tags"><span class="tag">mature tools</span><span class="tag">conversion</span><span class="tag">scope risk</span></div>
+            <ul>
+              <li>Leverages mature camera, selection, snapping, and undo workflows.</li>
+              <li>Import rules, coordinate conversion, metadata, and unsupported geometry need clear errors.</li>
+              <li>Too much tool for box arenas unless richer geometry becomes a real requirement.</li>
+            </ul>
+            <div class="fit"><strong>Best for:</strong> a future where maps outgrow axis-aligned block construction.</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <h2>Decision matrix</h2>
+          <p>Scores are directional: 5 is strongest. “Architecture fit” rewards options that preserve deterministic, authoritative simulation.</p>
+        </div>
+        <div class="comparison-wrap">
+          <table>
+            <thead>
+              <tr><th>Approach</th><th>Low implementation cost</th><th>Fast map iteration</th><th>Git / reviewability</th><th>Architecture fit</th><th>Recommendation</th></tr>
+            </thead>
+            <tbody>
+              <tr><td><strong>Text map + reload</strong></td><td><span class="score best">5</span></td><td><span class="score">3</span></td><td><span class="score best">5</span></td><td><span class="score best">5</span></td><td>Build first</td></tr>
+              <tr><td><strong>In-game blocks</strong></td><td><span class="score">3</span></td><td><span class="score best">5</span></td><td><span class="score">4</span></td><td><span class="score">4</span></td><td>Best second step</td></tr>
+              <tr><td><strong>Minimal GUI</strong></td><td><span class="score">2</span></td><td><span class="score best">5</span></td><td><span class="score">4</span></td><td><span class="score">3</span></td><td>Only if demand proves it</td></tr>
+              <tr><td><strong>External import</strong></td><td><span class="score">2</span></td><td><span class="score">4</span></td><td><span class="score">3</span></td><td><span class="score">3</span></td><td>Defer</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <h2>What the text option could feel like</h2>
+          <p>The exact syntax is a later choice. The important decision is one canonical, versioned model consumed by server, client prediction, collision, combat traces, and rendering.</p>
+        </div>
+        <div class="format-demo">
+          <div class="demo-copy">
+            <h3>Small by design</h3>
+            <p>Do not start with arbitrary meshes, materials, lights, scripting, or entities. A useful v1 needs only:</p>
+            <ol>
+              <li>Arena bounds and format version</li>
+              <li>Axis-aligned solid boxes</li>
+              <li>Two or more spawn points</li>
+              <li>Stable IDs for useful validation errors</li>
+              <li>A deterministic load order</li>
+            </ol>
+          </div>
+          <pre aria-label="Example map file"><code><span class="code-comment"># maps/tracking-room.lgmap</span>
+<span class="code-key">version</span> <span class="code-value">1</span>
+<span class="code-key">bounds</span>  min=-15,-11,0  max=15,11,10
+
+<span class="code-comment"># id       min xyz       max xyz</span>
+<span class="code-key">box</span> lane_north  -15,6.5,0    15,11,2
+<span class="code-key">box</span> cover_left  -5,-0.9,0    -3,0.9,1.2
+<span class="code-key">box</span> cover_right  3,-0.9,0      5,0.9,1.2
+
+<span class="code-key">spawn</span> player_1  -8,-9,2  yaw=0
+<span class="code-key">spawn</span> player_2   8,-9,2  yaw=180</code></pre>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell">
+        <div class="section-head">
+          <h2>A pragmatic sequence</h2>
+          <p>This sequence keeps every increment usable and avoids committing to a full editor before the actual authoring pain is known.</p>
+        </div>
+        <div class="roadmap">
+          <article class="phase">
+            <span class="phase-id">Phase 01 · foundation</span>
+            <h3>Load + validate</h3>
+            <p>Move the current hard-coded arena into a versioned file. Add clear load errors and simulation tests proving equivalent collision and spawns.</p>
+            <strong>Rough size: 2–4 days</strong>
+          </article>
+          <article class="phase">
+            <span class="phase-id">Phase 02 · iteration</span>
+            <h3>Reload + inspect</h3>
+            <p>Add console commands such as <code>map_reload</code>, <code>map_validate</code>, and optional debug labels/bounds. Restrict reload to safe local/dev states.</p>
+            <strong>Rough size: 1–3 days</strong>
+          </article>
+          <article class="phase">
+            <span class="phase-id">Phase 03 · creation</span>
+            <h3>Place blocks in-game</h3>
+            <p>Add edit mode, grid raycast, place/delete, spawn placement, undo, and save. Keep editing out of network matches and authoritative ticks.</p>
+            <strong>Rough size: 1–2 weeks</strong>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="shell guardrails">
+        <div>
+          <h2>Keep the editor out of the simulation.</h2>
+          <p>Editing is a development workflow. The saved result becomes immutable simulation input when a match starts.</p>
+        </div>
+        <div class="guardrail-list">
+          <div class="guardrail-item"><strong>One map model</strong><br>Never maintain separate render and collision maps.</div>
+          <div class="guardrail-item"><strong>Server chooses the map</strong><br>Clients receive identity/hash or validated equivalent data.</div>
+          <div class="guardrail-item"><strong>Hard limits</strong><br>Cap boxes, dimensions, coordinates, and spawn count.</div>
+          <div class="guardrail-item"><strong>No live match edits</strong><br>Reload between sessions or reset the authoritative world explicitly.</div>
+          <div class="guardrail-item"><strong>Useful validation</strong><br>Name the exact object and rule when a file is rejected.</div>
+          <div class="guardrail-item"><strong>Grid first</strong><br>Snapping makes clean layouts, stable files, and simpler commands.</div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="shell">
+    Consultation only · estimates depend on the desired polish, undo depth, and multiplayer map-distribution requirements.
+  </footer>
+</body>
+</html>

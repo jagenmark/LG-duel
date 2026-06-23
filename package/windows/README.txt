@@ -14,7 +14,9 @@ The launcher selects the SDL_GPU renderer, which prefers Vulkan and falls
 back automatically when Vulkan is unavailable.
 
 The server address is stored in server-address.txt. The player launcher uses
-the host and port from that file; the host launcher uses the port.
-Only edit that file when the host gives you a new address.
+the host and port from that file; the host launcher uses the port. Packages
+built by GitHub Actions receive this file from the workflow's server settings,
+which default to the VM_HOST repository secret and UDP port 27960. Only edit
+that file when the host gives you a new address.
 
 See PLAYTEST_GUIDE.html for controls and troubleshooting.
