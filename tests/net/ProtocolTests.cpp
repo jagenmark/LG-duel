@@ -74,6 +74,10 @@ int main() {
     source.command.weapon = lg::Weapon::RocketLauncher;
     source.requestReset = true;
     source.toggleReady = true;
+    source.requestGameMode = true;
+    source.requestedGameMode = lg::GameMode::ClanArena;
+    source.requestTeam = true;
+    source.requestedTeam = lg::Team::Blue;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
     source.movementTuning.airControlEnabled = true;
@@ -121,6 +125,15 @@ int main() {
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
     failures += expect(
+      decoded.requestGameMode &&
+        decoded.requestedGameMode == lg::GameMode::ClanArena,
+      "explicit gamemode request should round trip"
+    );
+    failures += expect(
+      decoded.requestTeam && decoded.requestedTeam == lg::Team::Blue,
+      "explicit team request should round trip"
+    );
+    failures += expect(
       decoded.requestMovementTuning &&
         decoded.movementTuning.flightEnabled &&
         decoded.movementTuning.airControlEnabled &&
@@ -161,6 +174,27 @@ int main() {
     wrongType[6] = static_cast<std::uint8_t>(lg::PacketType::Snapshot);
     failures += expect(!lg::decodeCommandPacket(wrongType, decoded), "wrong packet type should be rejected");
 
+    lg::WirePacket invalidModeWire = wire;
+    invalidModeWire[invalidModeWire.size() - 3U] = 255;
+    failures += expect(
+      !lg::decodeCommandPacket(invalidModeWire, decoded),
+      "invalid requested gamemode should be rejected while decoding"
+    );
+
+    lg::CommandPacket invalidMode = source;
+    invalidMode.requestedGameMode = static_cast<lg::GameMode>(255);
+    failures += expect(
+      !lg::encodeCommandPacket(invalidMode, wire),
+      "invalid requested gamemode should not encode"
+    );
+
+    lg::CommandPacket invalidTeam = source;
+    invalidTeam.requestedTeam = static_cast<lg::Team>(255);
+    failures += expect(
+      !lg::encodeCommandPacket(invalidTeam, wire),
+      "invalid requested team should not encode"
+    );
+
     lg::CommandPacket invalidMovement = source;
     invalidMovement.command.forwardMove = 1.1F;
     failures += expect(lg::encodeCommandPacket(invalidMovement, wire), "finite command should encode");
@@ -183,6 +217,11 @@ int main() {
     failures += expect(
       decodedBundle.commands[2].command.sequence == 44,
       "bundle command order should round trip"
+    );
+    failures += expect(
+      decodedBundle.commands[0].requestedGameMode == lg::GameMode::ClanArena &&
+        decodedBundle.commands[2].requestedTeam == lg::Team::Blue,
+      "redundant command bundles should preserve explicit mode and team requests"
     );
     for (lg::CommandPacket& command : bundle.commands) {
       command.chatMessage.assign(lg::kMaxChatMessageBytes, 'c');
@@ -249,6 +288,18 @@ int main() {
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
+    source.gameMode = lg::GameMode::ClanArena;
+    source.teams = {
+      lg::Team::Red,
+      lg::Team::Blue,
+      lg::Team::None,
+      lg::Team::None,
+      lg::Team::None,
+      lg::Team::None,
+    };
+    source.teamScores = {8, 6};
+    source.roundWinningTeam = lg::Team::Red;
+    source.matchWinningTeam = lg::Team::None;
     source.connectedPlayers = {true, true};
     source.readyPlayers = {true, false};
     source.roundCombatStats[0] = {250, 125, 80};
@@ -361,6 +412,14 @@ int main() {
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
     failures += expect(
+      decoded.gameMode == lg::GameMode::ClanArena &&
+        decoded.teams == source.teams &&
+        decoded.teamScores == source.teamScores &&
+        decoded.roundWinningTeam == lg::Team::Red &&
+        decoded.matchWinningTeam == lg::Team::None,
+      "gamemode and team match state should round trip"
+    );
+    failures += expect(
       decoded.chatSequence == 7 &&
         decoded.chatPlayerIndex == 1 &&
         decoded.chatMessage == "nice shot",
@@ -439,6 +498,13 @@ int main() {
     lg::ServerSnapshot invalid = source;
     invalid.players[0].position.x = std::numeric_limits<float>::infinity();
     failures += expect(!lg::encodeServerSnapshot(invalid, wire), "non-finite snapshot should not encode");
+
+    invalid = source;
+    invalid.teams[0] = static_cast<lg::Team>(255);
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "invalid snapshot team should not encode"
+    );
   }
 
   return failures == 0 ? 0 : 1;

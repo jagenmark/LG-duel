@@ -3,6 +3,7 @@
 #include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
 #include "sim/Arena.hpp"
+#include "sim/GameMode.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -68,6 +69,10 @@ struct CommandPacket {
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
+  bool requestGameMode = false;
+  GameMode requestedGameMode = GameMode::Duel;
+  bool requestTeam = false;
+  Team requestedTeam = Team::None;
 };
 
 struct CommandBundle {
@@ -102,6 +107,11 @@ struct ServerSnapshot {
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
+  GameMode gameMode = GameMode::Duel;
+  std::array<Team, kDuelPlayerCount> teams = {};
+  std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
+  Team roundWinningTeam = Team::None;
+  Team matchWinningTeam = Team::None;
   std::array<bool, kDuelPlayerCount> connectedPlayers = {};
   std::array<bool, kDuelPlayerCount> readyPlayers = {};
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
