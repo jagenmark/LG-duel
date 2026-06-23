@@ -18,6 +18,7 @@ public:
 
   void tick(float fixedDt);
   void resetMatch();
+  void setArena(const Arena& arena);
   void setConnectedPlayers(
     const std::array<bool, kDuelPlayerCount>& connectedPlayers
   );
@@ -28,6 +29,7 @@ public:
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
+  [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] const MatchRules& matchRules() const;
 
 private:
@@ -62,6 +64,7 @@ private:
 
   NetTransport& transport_;
   Arena arena_ = thunderstruckArena();
+  std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;

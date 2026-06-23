@@ -198,6 +198,13 @@ int main() {
   {
     lg::ServerSnapshot source;
     source.serverTick = 1234;
+    source.mapRevision = 77;
+    source.arena.min = {-20.0F, -10.0F, 0.0F};
+    source.arena.max = {20.0F, 10.0F, 12.0F};
+    source.arena.wallCount = 1;
+    source.arena.walls[0] = {{-1.0F, -2.0F, 0.0F}, {1.0F, 2.0F, 3.0F}};
+    source.arena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
+    source.arena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
     source.acknowledgedCommand = {12, 34};
     source.hasAcknowledgedCommand = {true, false};
     source.players[0].position = {1.0F, 2.0F, 3.0F};
@@ -293,6 +300,14 @@ int main() {
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "snapshot should respect packet limit");
     failures += expect(lg::decodeServerSnapshot(wire, decoded), "snapshot should decode");
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
+    failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
+    failures += expect(
+      decoded.arena.wallCount == 1 &&
+        nearlyEqual(decoded.arena.max.x, 20.0F) &&
+        nearlyEqual(decoded.arena.walls[0].max.z, 3.0F) &&
+        nearlyEqual(decoded.arena.spawnPositions[1].x, 8.0F),
+      "snapshot arena should round trip"
+    );
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
     failures += expect(
       decoded.players[0].movementMode == lg::MovementMode::Flying &&

@@ -6,6 +6,8 @@
 
 #include <array>
 #include <cstddef>
+#include <string>
+#include <string_view>
 
 namespace lg {
 
@@ -31,6 +33,14 @@ struct Arena {
   }};
 };
 
+struct ArenaLoadResult {
+  Arena arena = {};
+  bool ok = false;
+  std::string error;
+};
+
+[[nodiscard]] ArenaLoadResult loadArenaFromText(std::string_view text);
+[[nodiscard]] ArenaLoadResult loadArenaFromFile(const std::string& path);
 [[nodiscard]] Arena thunderstruckArena();
 
 struct CollisionResult {

@@ -358,6 +358,79 @@ bool readVec3(Reader& reader, Vec3& value) {
     reader.readFloat(value.z);
 }
 
+bool writeArena(Writer& writer, const Arena& arena) {
+  if (arena.wallCount > Arena::kWallCount) {
+    return false;
+  }
+  return writeVec3(writer, arena.min) &&
+    writeVec3(writer, arena.max) &&
+    writer.writeU8(static_cast<std::uint8_t>(arena.wallCount)) &&
+    [&]() {
+      for (std::size_t index = 0; index < arena.wallCount; ++index) {
+        if (
+          !writeVec3(writer, arena.walls[index].min) ||
+          !writeVec3(writer, arena.walls[index].max)
+        ) {
+          return false;
+        }
+      }
+      for (const Vec3& spawn : arena.spawnPositions) {
+        if (!writeVec3(writer, spawn)) {
+          return false;
+        }
+      }
+      return true;
+    }();
+}
+
+bool readArena(Reader& reader, Arena& arena) {
+  Arena decoded;
+  std::uint8_t wallCount = 0;
+  if (
+    !readVec3(reader, decoded.min) ||
+    !readVec3(reader, decoded.max) ||
+    !reader.readU8(wallCount) ||
+    wallCount > Arena::kWallCount
+  ) {
+    return false;
+  }
+  decoded.wallCount = wallCount;
+  for (std::size_t index = 0; index < decoded.wallCount; ++index) {
+    if (
+      !readVec3(reader, decoded.walls[index].min) ||
+      !readVec3(reader, decoded.walls[index].max)
+    ) {
+      return false;
+    }
+  }
+  for (Vec3& spawn : decoded.spawnPositions) {
+    if (!readVec3(reader, spawn)) {
+      return false;
+    }
+  }
+
+  if (
+    decoded.min.x >= decoded.max.x ||
+    decoded.min.y >= decoded.max.y ||
+    decoded.min.z >= decoded.max.z
+  ) {
+    return false;
+  }
+  for (std::size_t index = 0; index < decoded.wallCount; ++index) {
+    const ArenaWall& wall = decoded.walls[index];
+    if (
+      wall.min.x >= wall.max.x ||
+      wall.min.y >= wall.max.y ||
+      wall.min.z >= wall.max.z
+    ) {
+      return false;
+    }
+  }
+
+  arena = decoded;
+  return true;
+}
+
 bool writePlayer(Writer& writer, const PlayerState& player) {
   return writeVec3(writer, player.position) &&
     writeVec3(writer, player.velocity) &&
@@ -729,7 +802,12 @@ bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
 
 bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   Writer writer(wire);
-  if (!writeHeader(writer, PacketType::Snapshot) || !writer.writeU32(snapshot.serverTick)) {
+  if (
+    !writeHeader(writer, PacketType::Snapshot) ||
+    !writer.writeU32(snapshot.serverTick) ||
+    !writer.writeU32(snapshot.mapRevision) ||
+    !writeArena(writer, snapshot.arena)
+  ) {
     return false;
   }
 
@@ -844,7 +922,12 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
 bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   Reader reader(wire);
   ServerSnapshot decoded;
-  if (!readHeader(reader, PacketType::Snapshot, wire.size()) || !reader.readU32(decoded.serverTick)) {
+  if (
+    !readHeader(reader, PacketType::Snapshot, wire.size()) ||
+    !reader.readU32(decoded.serverTick) ||
+    !reader.readU32(decoded.mapRevision) ||
+    !readArena(reader, decoded.arena)
+  ) {
     return false;
   }
 

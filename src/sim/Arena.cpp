@@ -2,9 +2,48 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 
 namespace lg {
 namespace {
+
+constexpr std::string_view kThunderstruckMapText = R"(version 1
+bounds min=-15,-11,0 max=15,11,10
+
+# Thunderstruck's lower central court is ringed by raised fighting lanes.
+box lane_north -15,6.5,0 15,11,2
+box lane_west -15,-7,0 -10,6.5,2
+box lane_east 10,-7,0 15,6.5,2
+box spawn_deck_west -15,-11,0 -3,-7,2
+box spawn_deck_east 3,-11,0 15,-7,2
+
+# A raised cross-lane overlooks the court while leaving an underpass.
+box bridge -10,3,2 10,4.5,2.4
+
+# Opposing five-step stairways connect the lower court to the side lanes.
+box stair_west_1 -6.8,-5,0 -6,-2,0.4
+box stair_west_2 -7.6,-5,0 -6.8,-2,0.8
+box stair_west_3 -8.4,-5,0 -7.6,-2,1.2
+box stair_west_4 -9.2,-5,0 -8.4,-2,1.6
+box stair_west_5 -10,-5,0 -9.2,-2,2
+box stair_east_1 6,-5,0 6.8,-2,0.4
+box stair_east_2 6.8,-5,0 7.6,-2,0.8
+box stair_east_3 7.6,-5,0 8.4,-2,1.2
+box stair_east_4 8.4,-5,0 9.2,-2,1.6
+box stair_east_5 9.2,-5,0 10,-2,2
+
+# Low central cover preserves Thunderstruck's exposed tracking lanes.
+box cover_left -5,-0.9,0 -3,0.9,1.2
+box cover_right 3,-0.9,0 5,0.9,1.2
+box center_pillar -1.2,-1.2,0 1.2,1.2,2.6
+
+spawn player_1 -8,-9,2 yaw=0
+spawn player_2 8,-9,2 yaw=180
+spawn player_3 -12,8,2 yaw=0
+spawn player_4 12,8,2 yaw=180
+spawn player_5 -3,-9,0 yaw=0
+spawn player_6 3,-9,0 yaw=180
+)";
 
 void resolveWallCollision(
   const ArenaWall& wall,
@@ -123,54 +162,15 @@ void resolveWallCollision(
 } // namespace
 
 Arena thunderstruckArena() {
-  Arena arena;
-  arena.min = {-15.0F, -11.0F, 0.0F};
-  arena.max = {15.0F, 11.0F, 10.0F};
-
-  const auto addBox = [&arena](Vec3 min, Vec3 max) {
-    arena.walls[arena.wallCount++] = {min, max};
-  };
-
-  // Thunderstruck's lower central court is ringed by raised fighting lanes.
-  addBox({-15.0F, 6.5F, 0.0F}, {15.0F, 11.0F, 2.0F});
-  addBox({-15.0F, -7.0F, 0.0F}, {-10.0F, 6.5F, 2.0F});
-  addBox({10.0F, -7.0F, 0.0F}, {15.0F, 6.5F, 2.0F});
-  addBox({-15.0F, -11.0F, 0.0F}, {-3.0F, -7.0F, 2.0F});
-  addBox({3.0F, -11.0F, 0.0F}, {15.0F, -7.0F, 2.0F});
-
-  // A raised cross-lane overlooks the court while leaving an underpass.
-  addBox({-10.0F, 3.0F, 2.0F}, {10.0F, 4.5F, 2.4F});
-
-  // Opposing five-step stairways connect the lower court to the side lanes.
-  for (int step = 0; step < 5; ++step) {
-    const float outerX = -6.0F - (static_cast<float>(step) * 0.8F);
-    addBox(
-      {outerX - 0.8F, -5.0F, 0.0F},
-      {outerX, -2.0F, 0.4F * static_cast<float>(step + 1)}
-    );
-  }
-  for (int step = 0; step < 5; ++step) {
-    const float innerX = 6.0F + (static_cast<float>(step) * 0.8F);
-    addBox(
-      {innerX, -5.0F, 0.0F},
-      {innerX + 0.8F, -2.0F, 0.4F * static_cast<float>(step + 1)}
-    );
+  if (const char* path = std::getenv("LG_DUEL_MAP"); path != nullptr && path[0] != '\0') {
+    const ArenaLoadResult fileResult = loadArenaFromFile(path);
+    if (fileResult.ok) {
+      return fileResult.arena;
+    }
   }
 
-  // Low central cover preserves Thunderstruck's exposed tracking lanes.
-  addBox({-5.0F, -0.9F, 0.0F}, {-3.0F, 0.9F, 1.2F});
-  addBox({3.0F, -0.9F, 0.0F}, {5.0F, 0.9F, 1.2F});
-  addBox({-1.2F, -1.2F, 0.0F}, {1.2F, 1.2F, 2.6F});
-
-  arena.spawnPositions = {{
-    {-8.0F, -9.0F, 2.0F},
-    {8.0F, -9.0F, 2.0F},
-    {-12.0F, 8.0F, 2.0F},
-    {12.0F, 8.0F, 2.0F},
-    {-3.0F, -9.0F, 0.0F},
-    {3.0F, -9.0F, 0.0F},
-  }};
-  return arena;
+  const ArenaLoadResult embeddedResult = loadArenaFromText(kThunderstruckMapText);
+  return embeddedResult.ok ? embeddedResult.arena : Arena{};
 }
 
 CollisionResult resolvePlayerArenaCollision(
