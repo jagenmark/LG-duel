@@ -6,7 +6,7 @@ param(
   [string]$OutputDir,
 
   [string]$Configuration = "Release",
-  [string]$ServerHost = "213.66.106.51",
+  [string]$ServerHost = "20.238.17.134",
   [ValidateRange(1, 65535)]
   [int]$ServerPort = 27960
 )
