@@ -68,6 +68,7 @@ struct CommandPacket {
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
+  std::uint32_t clientNonce = 0;
 };
 
 struct CommandBundle {
