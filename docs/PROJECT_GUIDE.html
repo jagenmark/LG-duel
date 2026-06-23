@@ -1,0 +1,606 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LG Duel — Project Guide</title>
+  <style>
+    :root {
+      --bg: #0b0e14;
+      --panel: #121722;
+      --panel-2: #171e2c;
+      --text: #dce5f2;
+      --muted: #91a0b5;
+      --line: #283348;
+      --cyan: #51d6d0;
+      --amber: #f4b860;
+      --red: #ef6f7b;
+      --blue: #73a7ff;
+      --green: #78d69a;
+      --code: #0d111a;
+      --sidebar: 285px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      color: var(--text);
+      background:
+        radial-gradient(circle at 80% -10%, rgba(81,214,208,.12), transparent 30rem),
+        var(--bg);
+      font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    a { color: var(--cyan); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, pre { font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+    code { color: #c9e7ff; }
+    pre {
+      margin: 1rem 0;
+      padding: 1rem 1.1rem;
+      overflow: auto;
+      color: #dce9f7;
+      background: var(--code);
+      border: 1px solid var(--line);
+      border-radius: 9px;
+      line-height: 1.5;
+    }
+    h1, h2, h3, h4 { line-height: 1.25; color: #f4f8ff; }
+    h1 { margin: 0 0 .7rem; font-size: clamp(2.2rem, 5vw, 4.2rem); letter-spacing: -.04em; }
+    h2 { margin: 3.2rem 0 1rem; padding-top: 1rem; font-size: 2rem; border-top: 1px solid var(--line); }
+    h3 { margin: 2rem 0 .7rem; font-size: 1.3rem; }
+    h4 { margin: 1.3rem 0 .4rem; }
+    p { max-width: 78ch; }
+    ul, ol { max-width: 80ch; padding-left: 1.35rem; }
+    li + li { margin-top: .35rem; }
+    table { width: 100%; border-collapse: collapse; margin: 1rem 0 1.5rem; }
+    th, td { padding: .7rem .8rem; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+    th { color: var(--muted); font-size: .78rem; letter-spacing: .08em; text-transform: uppercase; }
+    .layout { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); }
+    aside {
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      padding: 1.3rem 1rem;
+      overflow-y: auto;
+      background: rgba(12,16,24,.96);
+      border-right: 1px solid var(--line);
+    }
+    aside .brand { margin: 0 .55rem 1.2rem; color: #fff; font-weight: 800; letter-spacing: .08em; }
+    aside .brand span { color: var(--cyan); }
+    aside a { display: block; padding: .38rem .55rem; border-radius: 6px; color: var(--muted); font-size: .9rem; }
+    aside a:hover, aside a.active { color: #fff; background: var(--panel-2); text-decoration: none; }
+    aside .sub { padding-left: 1.15rem; font-size: .82rem; }
+    main { min-width: 0; padding: 0 clamp(1.3rem, 5vw, 5.5rem) 6rem; }
+    .hero { min-height: 64vh; display: flex; flex-direction: column; justify-content: center; padding: 5rem 0 3rem; }
+    .eyebrow { color: var(--cyan); font: 700 .78rem/1.2 system-ui; letter-spacing: .16em; text-transform: uppercase; }
+    .lede { max-width: 63ch; color: #b8c5d8; font-size: 1.18rem; }
+    .badges { display: flex; flex-wrap: wrap; gap: .55rem; margin-top: 1.2rem; }
+    .badge { padding: .34rem .65rem; color: #cbd8e9; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; font-size: .82rem; }
+    .card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: .9rem; margin: 1.2rem 0; }
+    .card { padding: 1rem 1.1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+    .card h3, .card h4 { margin-top: 0; }
+    .card p:last-child { margin-bottom: 0; }
+    .note { margin: 1rem 0; padding: .85rem 1rem; background: rgba(81,214,208,.08); border-left: 3px solid var(--cyan); border-radius: 4px; }
+    .warning { background: rgba(244,184,96,.08); border-left-color: var(--amber); }
+    .mental-model { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: .7rem; align-items: stretch; margin: 1.4rem 0; }
+    .node { padding: 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 9px; }
+    .node strong { display: block; margin-bottom: .35rem; color: #fff; }
+    .arrow { align-self: center; color: var(--cyan); font-size: 1.5rem; }
+    .flow { margin: 1rem 0; padding: 1rem; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+    .flow-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; }
+    .step { flex: 1 1 150px; min-height: 74px; padding: .65rem .75rem; background: var(--panel-2); border: 1px solid #33415a; border-radius: 7px; }
+    .step b { display: block; color: var(--cyan); font-size: .75rem; letter-spacing: .08em; text-transform: uppercase; }
+    .flow-arrow { color: var(--amber); }
+    .file { white-space: nowrap; }
+    .tag { display: inline-block; padding: .08rem .4rem; border-radius: 4px; font-size: .75rem; font-weight: 700; }
+    .truth { color: var(--green); background: rgba(120,214,154,.12); }
+    .view { color: var(--blue); background: rgba(115,167,255,.12); }
+    .wire { color: var(--amber); background: rgba(244,184,96,.12); }
+    details { margin: .7rem 0; padding: .7rem .9rem; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+    summary { cursor: pointer; color: #f4f8ff; font-weight: 650; }
+    .python { color: #ffe38d; }
+    .cpp { color: #7ed8ff; }
+    .small { color: var(--muted); font-size: .88rem; }
+    .state-machine { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; margin: 1rem 0; }
+    .state { padding: .55rem .75rem; background: var(--panel-2); border: 1px solid var(--line); border-radius: 6px; }
+    .kbd { padding: .08rem .38rem; color: #fff; background: #252e3e; border: 1px solid #3a465b; border-bottom-width: 2px; border-radius: 4px; font: .82rem monospace; }
+    #search { width: 100%; margin-bottom: .8rem; padding: .55rem .65rem; color: #fff; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; }
+    .footer { margin-top: 4rem; padding-top: 1.4rem; color: var(--muted); border-top: 1px solid var(--line); font-size: .88rem; }
+    @media (max-width: 900px) {
+      .layout { display: block; }
+      aside { position: relative; width: 100%; height: auto; max-height: 45vh; border-right: 0; border-bottom: 1px solid var(--line); }
+      .mental-model { grid-template-columns: 1fr; }
+      .arrow { transform: rotate(90deg); justify-self: center; }
+    }
+    @media print {
+      aside { display: none; }
+      .layout { display: block; }
+      main { padding: 0; }
+      body { color: #111; background: #fff; }
+      h1, h2, h3, h4 { color: #111; }
+      .card, .node, .flow, details, pre { break-inside: avoid; color: #111; background: #f7f7f7; border-color: #ccc; }
+    }
+  </style>
+</head>
+<body>
+<div class="layout">
+  <aside>
+    <div class="brand"><span>LG</span> DUEL GUIDE</div>
+    <input id="search" type="search" placeholder="Filter navigation…" aria-label="Filter navigation">
+    <nav id="nav">
+      <a href="#orientation">1. Orientation</a>
+      <a href="#run">2. Build and run</a>
+      <a href="#architecture">3. Architecture</a>
+      <a class="sub" href="#ticks">Fixed ticks</a>
+      <a class="sub" href="#ownership">State ownership</a>
+      <a href="#cpp">4. C++ for Python readers</a>
+      <a href="#simulation">5. Simulation</a>
+      <a class="sub" href="#movement">Movement</a>
+      <a class="sub" href="#collision">Collision and arena</a>
+      <a class="sub" href="#combat">Combat</a>
+      <a href="#server">6. Authoritative server</a>
+      <a href="#network">7. Networking</a>
+      <a class="sub" href="#protocol">Protocol and codec</a>
+      <a class="sub" href="#udp">UDP lifecycle</a>
+      <a href="#client">8. Client prediction</a>
+      <a href="#app">9. SDL application shell</a>
+      <a href="#rendering">10. Rendering</a>
+      <a href="#console">11. Console and input</a>
+      <a href="#tests">12. Tests</a>
+      <a href="#files">13. File map</a>
+      <a href="#reading">14. Learning path</a>
+      <a href="#change">15. How to change safely</a>
+      <a href="#glossary">16. Glossary</a>
+    </nav>
+  </aside>
+
+  <main>
+    <header class="hero" id="orientation">
+      <div class="eyebrow">Codebase orientation for a Python developer</div>
+      <h1>LG Duel, from input<br>to authoritative hit</h1>
+      <p class="lede">This is a deliberately narrow C++20 game prototype: two native clients send input over UDP to a dedicated server, the server simulates a Quake-like duel at 125 ticks per second, and each client predicts itself while rendering server snapshots.</p>
+      <div class="badges">
+        <span class="badge">C++20</span><span class="badge">CMake + Ninja/MSVC</span><span class="badge">SDL3</span><span class="badge">UDP</span><span class="badge">125 Hz simulation</span><span class="badge">18 test executables</span>
+      </div>
+    </header>
+
+    <section>
+      <h2>1. Orientation: what this project is</h2>
+      <p>The design goal is not “build an FPS engine.” It is “make one 1v1 lightning-gun duel feel correct and measurable.” That focus explains the architecture: gameplay is plain data and functions, rendering is downstream of simulation, networking exposes prediction diagnostics, and tests exercise the simulation without opening a window.</p>
+      <div class="mental-model">
+        <div class="node"><strong>Client</strong>Samples keyboard/mouse, creates a numbered <code>UserCommand</code>, predicts local movement, and renders.</div>
+        <div class="arrow">→</div>
+        <div class="node"><strong>UDP + protocol</strong>Serializes redundant commands and snapshots into bounded, versioned packets.</div>
+        <div class="arrow">↔</div>
+        <div class="node"><strong>Server</strong>Owns truth: movement, collision, hits, health, score, match phases, and snapshots.</div>
+      </div>
+      <div class="note"><strong>The single most important rule:</strong> the server's <code>ServerSnapshot</code> is authoritative. The client's predicted player is a temporary low-latency estimate, and rendered remote state is an interpolation between snapshots.</div>
+      <div class="card-grid">
+        <div class="card"><h3>Core executable</h3><p><code>lg_duel_server</code> runs the headless authoritative loop.</p></div>
+        <div class="card"><h3>Playable executable</h3><p><code>lg_duel_client</code> needs SDL3 for window, input, audio, and rendering.</p></div>
+        <div class="card"><h3>Testable core</h3><p><code>lg_duel_core</code> contains simulation, netcode, client prediction, console, and server logic with no renderer dependency.</p></div>
+      </div>
+    </section>
+
+    <section id="run">
+      <h2>2. Build, test, and run</h2>
+      <h3>Normal debug build</h3>
+      <pre><code>cd C:\Users\Samuel\.codex\worktrees\a187\LG-duel
+cmake --preset default
+cmake --build --preset default
+ctest --preset default</code></pre>
+      <p>The default preset uses Ninja, C++20, debug symbols, tests, and optional SDL3. If SDL3 is absent, everything still compiles but the client executable is only a message-printing skeleton.</p>
+      <h3>Playable SDL3 build: easiest repository-supported route</h3>
+      <p>The project can fetch its pinned SDL release itself. Configure from the repository root:</p>
+      <pre><code>cmake --preset default \
+  -DLG_DUEL_FETCH_SDL3=ON \
+  -DLG_DUEL_REQUIRE_SDL3=ON
+cmake --build --preset default
+ctest --preset default</code></pre>
+      <p>In PowerShell, either enter that on one line or use the backtick (<code>`</code>) rather than the Bash backslash for line continuation.</p>
+      <pre><code># PowerShell, one line
+cmake --preset default -DLG_DUEL_FETCH_SDL3=ON -DLG_DUEL_REQUIRE_SDL3=ON</code></pre>
+      <p><code>FETCH</code> downloads/builds pinned SDL 3.4.10 when an installed package is not found. <code>REQUIRE</code> makes configuration fail instead of silently producing the non-playable skeleton. These options live in <a href="cmake/Dependencies.cmake"><code>cmake/Dependencies.cmake</code></a>.</p>
+      <h3>Start a local duel</h3>
+      <pre><code># Terminal 1
+.\build\default\lg_duel_server.exe 27960
+
+# Terminals 2 and 3
+.\build\default\lg_duel_client.exe 127.0.0.1 27960</code></pre>
+      <div class="warning note"><strong>Toolchain consistency matters.</strong> C++ libraries must be built for the same compiler/runtime as the app. FetchContent avoids many “MSVC library with MinGW compiler” mismatches by compiling SDL as part of this build.</div>
+      <h3>Build graph</h3>
+      <table>
+        <thead><tr><th>Target</th><th>Contains</th><th>Depends on</th></tr></thead>
+        <tbody>
+          <tr><td><code>lg_duel_core</code></td><td>Simulation, server game, client prediction/session, transports, codec, console, bindings</td><td>Standard library; <code>ws2_32</code> on Windows</td></tr>
+          <tr><td><code>lg_duel_client_app</code></td><td>SDL application and rendering</td><td><code>lg_duel_core</code>, SDL3 when found</td></tr>
+          <tr><td><code>lg_duel_client</code></td><td>Client <code>main()</code></td><td><code>lg_duel_client_app</code></td></tr>
+          <tr><td><code>lg_duel_server</code></td><td>Server <code>main()</code> and scheduling shell</td><td><code>lg_duel_core</code></td></tr>
+          <tr><td><code>lg_duel_server_probe</code></td><td>Operational server probe</td><td><code>lg_duel_core</code></td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="architecture">
+      <h2>3. Architecture and data flow</h2>
+      <p>The repository follows a useful dependency direction: lower layers know nothing about higher layers. Simulation does not import SDL. Networking transports know packet types but not rendering. Rendering consumes simulation data but does not decide gameplay.</p>
+      <div class="flow">
+        <div class="flow-row">
+          <div class="step"><b>Platform</b><code>GameApp</code><br>SDL events and frame loop</div><span class="flow-arrow">→</span>
+          <div class="step"><b>Input</b><code>UserCommand</code><br>fixed-tick intent</div><span class="flow-arrow">→</span>
+          <div class="step"><b>Client netcode</b><code>ClientSession</code><br><code>ClientGame</code></div><span class="flow-arrow">→</span>
+          <div class="step"><b>Wire</b><code>UdpTransport</code><br><code>NetCodec</code></div>
+        </div>
+        <div class="flow-row" style="margin-top:.6rem">
+          <div class="step"><b>Presentation</b><code>Renderer</code><br>2D/3D + HUD</div><span class="flow-arrow">←</span>
+          <div class="step"><b>Client view</b>prediction + interpolation</div><span class="flow-arrow">←</span>
+          <div class="step"><b>Snapshot</b>authoritative world state</div><span class="flow-arrow">←</span>
+          <div class="step"><b>Server</b><code>ServerGame::tick</code><br>simulation + rules</div>
+        </div>
+      </div>
+
+      <h3 id="ticks">Fixed ticks versus rendered frames</h3>
+      <p>Simulation advances in exact 8 ms increments because <code>kFixedTickRate = 125</code>. Rendering runs whenever the machine can draw a frame. <code>planFixedTicks()</code> accumulates real elapsed time and tells the client how many simulation steps to execute, capped at eight per frame. Excess complete ticks are dropped and instrumented to prevent a “spiral of death.”</p>
+      <pre><code>// Conceptual Python equivalent
+accumulator += max(0, elapsed)
+available = floor(accumulator / fixed_dt)
+ticks_to_run = min(available, 8)
+dropped = available - ticks_to_run
+accumulator -= available * fixed_dt</code></pre>
+      <p>The server uses a different scheduler: it sleeps until the next 8 ms deadline and resets its deadline if it falls more than eight ticks behind.</p>
+
+      <h3 id="ownership">Who owns which state?</h3>
+      <table>
+        <thead><tr><th>State</th><th>Owner</th><th>Client behavior</th></tr></thead>
+        <tbody>
+          <tr><td>Health, damage, hits, score, match phase</td><td><span class="tag truth">SERVER TRUTH</span></td><td>Displays snapshot values</td></tr>
+          <tr><td>Player movement</td><td><span class="tag truth">SERVER TRUTH</span></td><td>Predicts local player, then reconciles</td></tr>
+          <tr><td>Remote player presentation</td><td>Snapshots</td><td><span class="tag view">CLIENT VIEW</span> interpolates previous/current</td></tr>
+          <tr><td>Input bindings, crosshair, FOV, sound</td><td><span class="tag view">CLIENT LOCAL</span></td><td>Stores archived cvars/config</td></tr>
+          <tr><td>Movement tuning and player sizes</td><td><span class="tag truth">SERVER APPLIES</span></td><td>Requests changes and predicts pending values</td></tr>
+          <tr><td>Packet bytes and sequence numbers</td><td><span class="tag wire">PROTOCOL</span></td><td>Explicitly encoded/decoded</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="cpp">
+      <h2>4. C++ concepts translated from Python</h2>
+      <p>You do not need all of C++ to understand this project. These recurring constructs cover most of it.</p>
+      <table>
+        <thead><tr><th>C++ seen here</th><th>Closest Python idea</th><th>Important difference</th></tr></thead>
+        <tbody>
+          <tr><td><code>struct Vec3 { float x; ... };</code></td><td><code>@dataclass</code></td><td>Fixed layout, value semantics, no dynamic attributes</td></tr>
+          <tr><td><code>class ClientGame</code></td><td>Python class</td><td><code>private:</code> is compile-time enforced</td></tr>
+          <tr><td><code>const T&amp;</code></td><td>Borrowed read-only object</td><td>No copy; caller must keep object alive</td></tr>
+          <tr><td><code>T&amp;</code></td><td>Mutable object argument</td><td>Function may change caller-owned value</td></tr>
+          <tr><td><code>T*</code></td><td>Object or <code>None</code></td><td>Raw pointer may be null; <code>-&gt;</code> accesses members</td></tr>
+          <tr><td><code>std::unique_ptr&lt;T&gt;</code></td><td>Exclusive owner</td><td>Automatically destroys <code>T</code>; cannot be copied</td></tr>
+          <tr><td><code>std::array&lt;T, 2&gt;</code></td><td>Length-2 list/tuple</td><td>Size is part of type and fixed at compile time</td></tr>
+          <tr><td><code>std::vector&lt;T&gt;</code></td><td><code>list[T]</code></td><td>Contiguous dynamic array</td></tr>
+          <tr><td><code>std::deque&lt;T&gt;</code></td><td><code>collections.deque</code></td><td>Efficient front/back operations</td></tr>
+          <tr><td><code>std::variant&lt;A,B&gt;</code></td><td><code>A | B</code></td><td>Exactly one listed type is active</td></tr>
+          <tr><td><code>enum class Weapon</code></td><td><code>enum.Enum</code></td><td>Strongly typed; no implicit integer conversion</td></tr>
+          <tr><td><code>namespace lg</code></td><td>Module namespace</td><td>Names are accessed as <code>lg::Name</code></td></tr>
+          <tr><td><code>#include "x.hpp"</code></td><td><code>import</code>, loosely</td><td>Textual declarations are compiled per translation unit</td></tr>
+          <tr><td><code>[[nodiscard]]</code></td><td>Linter rule</td><td>Compiler warns if a meaningful return value is ignored</td></tr>
+          <tr><td><code>constexpr</code></td><td>Module constant/pure calculation</td><td>Can be evaluated at compile time</td></tr>
+          <tr><td><code>#if LG_DUEL_HAS_SDL3</code></td><td>Conditional import/build</td><td>Code branch is removed before compilation</td></tr>
+        </tbody>
+      </table>
+      <details><summary>Headers (<code>.hpp</code>) and implementations (<code>.cpp</code>)</summary>
+        <p>A header declares the public shape—types and function signatures. A <code>.cpp</code> file defines behavior. For example, <a href="src/sim/Movement.hpp"><code>Movement.hpp</code></a> says that <code>simulateMovement</code> exists; <a href="src/sim/Movement.cpp"><code>Movement.cpp</code></a> contains its algorithm. CMake compiles each <code>.cpp</code> separately and links their object files.</p>
+      </details>
+      <details><summary>Value semantics are intentional here</summary>
+        <p><code>PlayerState</code>, <code>UserCommand</code>, and <code>ServerSnapshot</code> are plain values. Assigning one normally copies its fields. This makes saved history, packet decoding, deterministic replay, and testing explicit. Large or shared runtime objects—transports and sessions—use references or <code>unique_ptr</code> instead.</p>
+      </details>
+      <details><summary>Why declarations end in semicolons</summary>
+        <p>Class, struct, and enum declarations end with <code>;</code>. Function definitions do not. Names ending in <code>_</code>, such as <code>snapshot_</code>, are private member variables by project convention.</p>
+      </details>
+    </section>
+
+    <section id="simulation">
+      <h2>5. Gameplay simulation</h2>
+      <p>The simulation layer is the best entry point because it is small, deterministic, and independent of SDL and sockets. Its core data types are <code>Vec3</code>, <code>UserCommand</code>, <code>PlayerState</code>, <code>Arena</code>, and weapon result structs.</p>
+
+      <h3 id="movement">Movement</h3>
+      <p><a href="src/sim/Movement.cpp"><code>Movement.cpp</code></a> takes current state plus one command and mutates the player by exactly one fixed time step:</p>
+      <ol>
+        <li>Choose grounded/airborne or flying mode.</li>
+        <li>Update view yaw and pitch.</li>
+        <li>Apply jump edge detection (<code>jumpHeld</code> prevents repeated jumping).</li>
+        <li>Apply ground friction when grounded.</li>
+        <li>Build a desired direction from forward/right inputs and view yaw.</li>
+        <li>Accelerate toward desired speed; optionally apply QuakeWorld-style air control.</li>
+        <li>Apply gravity (or flight damping/thrust).</li>
+        <li>Request the new position and resolve arena collision.</li>
+      </ol>
+      <pre><code>simulateMovement(player, command, arena, tuning, 1.0f / 125.0f);</code></pre>
+      <p>Notice the absence of wall-clock access, rendering, random input, or globals. Given the same inputs and initial data, it should produce the same output.</p>
+
+      <h3 id="collision">Arena and collision</h3>
+      <p><a href="src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from 24 or fewer axis-aligned boxes. The same boxes serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
+      <ul>
+        <li>Players are vertical cylinders: radius plus half-height.</li>
+        <li>Arena walls are axis-aligned boxes with <code>min</code>/<code>max</code> corners.</li>
+        <li><code>resolvePlayerArenaCollision</code> clamps world bounds, resolves floors/ceilings/walls, and supports 0.45-unit steps.</li>
+        <li><code>resolvePlayerCollision</code> separates overlapping player cylinders and removes inward relative velocity.</li>
+      </ul>
+      <div class="note">This is purpose-built collision, not a general physics engine. That is consistent with the repository's narrow scope.</div>
+
+      <h3 id="combat">Combat</h3>
+      <p><a href="src/sim/Combat.cpp"><code>Combat.cpp</code></a> contains reusable traces and the direct LG/railgun algorithms. <a href="src/server/ServerGame.cpp"><code>ServerGame.cpp</code></a> coordinates cooldowns, rockets, lag compensation, damage application, vampirism, scoring, and death.</p>
+      <table>
+        <thead><tr><th>Weapon</th><th>Mechanic</th><th>Defaults in code</th></tr></thead>
+        <tbody>
+          <tr><td>Lightning gun</td><td>Continuous hitscan; fractional damage accumulates across ticks</td><td>18 range, 80 DPS, 22 knockback/sec</td></tr>
+          <tr><td>Railgun</td><td>Single hitscan with cooldown</td><td>100 range, 80 damage, 188 ticks cooldown</td></tr>
+          <tr><td>Rocket launcher</td><td>Server-owned projectiles, direct/splash impact</td><td>22.5 speed, 3 radius, 100 damage, 100 ticks cooldown</td></tr>
+        </tbody>
+      </table>
+      <p>A hitscan trace first finds the nearest world obstruction, then tests the target cylinder only up to that distance. This is why cover blocks LG and rail shots.</p>
+      <h4>Lag compensation</h4>
+      <p>Each command includes the newest server tick the shooter had viewed. When a fresh attack command arrives, the server computes how far behind that view was and rewinds the <em>target used for the hit test</em>, capped at 25 ticks (200 ms). Damage and knockback are then applied to current authoritative state. History is a deque of 26 frames.</p>
+      <div class="flow"><div class="flow-row">
+        <div class="step"><b>Client</b>viewed tick 1000</div><span class="flow-arrow">→</span>
+        <div class="step"><b>Server now</b>tick 1012</div><span class="flow-arrow">→</span>
+        <div class="step"><b>Rewind</b>target pose at tick 1000</div><span class="flow-arrow">→</span>
+        <div class="step"><b>Apply</b>result to current health/velocity</div>
+      </div></div>
+    </section>
+
+    <section id="server">
+      <h2>6. The authoritative server</h2>
+      <p><code>ServerApp</code> owns process-level concerns: create a UDP socket, read console input on a detached thread, schedule 125 Hz ticks, apply server cvars, and call <code>ServerGame::tick</code>. <code>ServerGame</code> owns gameplay.</p>
+      <h3>One server tick, in order</h3>
+      <ol>
+        <li>Drain and validate new commands by player and sequence.</li>
+        <li>Advance the match phase and optional bot dodge commands.</li>
+        <li>Clear transient events and decrement weapon cooldowns.</li>
+        <li>Simulate movement for both alive players.</li>
+        <li>Resolve player-player and arena collision.</li>
+        <li>Copy player states for combat evaluation.</li>
+        <li>For each attacker: gate attacks by match phase, rewind target history, simulate selected weapon.</li>
+        <li>Apply damage and knockback to current authoritative players.</li>
+        <li>Advance rockets and explosions.</li>
+        <li>Update live timer, death/round/match transitions, and combat statistics.</li>
+        <li>Increment server tick, record history, and publish one snapshot.</li>
+      </ol>
+      <h3>Match state machine</h3>
+      <div class="state-machine">
+        <span class="state">WaitingForPlayers</span> → <span class="state">WaitingForReady</span> → <span class="state">Countdown</span> → <span class="state">Live</span> → <span class="state">RoundEnd</span> → <span class="state">Countdown</span>
+      </div>
+      <p>When a score reaches <code>roundLimit</code>, <code>RoundEnd</code> becomes <code>MatchEnd</code>; after its timer, scores/readiness reset. Losing required players returns the game to <code>WaitingForPlayers</code>.</p>
+      <div class="warning note"><strong>Test constructor shortcut:</strong> <code>ServerGame</code> initially marks both players connected/ready and the phase live. A real <code>ServerApp</code> immediately replaces connection state from <code>UdpServerTransport</code>.</div>
+    </section>
+
+    <section id="network">
+      <h2>7. Networking</h2>
+      <p>The network layer is split into three concerns: logical packet data, byte encoding, and delivery.</p>
+      <table>
+        <thead><tr><th>Concern</th><th>File/type</th><th>Role</th></tr></thead>
+        <tbody>
+          <tr><td>Logical data</td><td><a href="src/net/NetProtocol.hpp"><code>NetProtocol.hpp</code></a></td><td>Commands, snapshots, handshake, match data</td></tr>
+          <tr><td>Bytes</td><td><a href="src/net/NetCodec.cpp"><code>NetCodec.cpp</code></a></td><td>Explicit little-endian encode/decode and validation</td></tr>
+          <tr><td>Abstract delivery</td><td><a href="src/net/NetTransport.hpp"><code>NetTransport</code></a></td><td>Send/receive commands and snapshots</td></tr>
+          <tr><td>In-memory delivery</td><td><code>LoopbackTransport</code></td><td>Tests the same codec without sockets</td></tr>
+          <tr><td>Adverse delivery</td><td><code>SimulatedTransport</code></td><td>Seeded latency, jitter, loss, duplication, reordering</td></tr>
+          <tr><td>Real delivery</td><td><code>UdpServerTransport</code>, <code>UdpClientTransport</code></td><td>Windows/POSIX UDP, handshake, timeout, ping</td></tr>
+        </tbody>
+      </table>
+
+      <h3 id="protocol">Protocol and codec</h3>
+      <p>Protocol version 18 uses magic <code>0x4C474455</code>, packet type, flags, payload size, and reserved fields in a 12-byte header. Packets are capped at 768 bytes. Integers and IEEE-754 floats are written explicitly in little-endian order; strings are length-prefixed and restricted to printable bytes.</p>
+      <p>Decoding checks magic, version, expected packet type, exact payload length, enum ranges, booleans, string lengths, player index, movement limits, and finite floating-point values. It does not serialize C++ structs by copying their memory, which avoids padding and ABI problems.</p>
+      <p><code>ServerSnapshot</code> is intentionally comprehensive: two player states, acknowledgements, weapon events, rockets, score/match state, rules/tuning, stats, names, chat, and diagnostics.</p>
+
+      <h3 id="udp">UDP connection lifecycle</h3>
+      <div class="flow"><div class="flow-row">
+        <div class="step"><b>1. Request</b>client nonce + protocol header</div><span class="flow-arrow">→</span>
+        <div class="step"><b>2. Accept</b>same nonce + assigned slot + server tick</div><span class="flow-arrow">→</span>
+        <div class="step"><b>3. Play</b>3-command redundant bundles ↔ snapshots</div><span class="flow-arrow">→</span>
+        <div class="step"><b>4. Health</b>tokenized ping/pong + 5 s timeout</div>
+      </div></div>
+      <p>UDP itself has no connections or guaranteed delivery. The project builds its own lightweight session semantics on top. Recent commands are bundled redundantly so losing one datagram does not necessarily lose that input forever. Sequence comparisons deliberately support 32-bit wraparound via signed subtraction.</p>
+    </section>
+
+    <section id="client">
+      <h2>8. Client prediction, reconciliation, and interpolation</h2>
+      <h3>Prediction</h3>
+      <p>When the client sends a command, it immediately runs the same <code>simulateMovement</code> function locally and saves the command in <code>pendingCommands_</code>. The player responds without waiting for a network round trip.</p>
+      <h3>Reconciliation</h3>
+      <p>When a newer snapshot arrives:</p>
+      <ol>
+        <li>Discard pending commands at or before the server's acknowledgement.</li>
+        <li>Replace predicted state with the authoritative local player state.</li>
+        <li>Replay all still-pending commands through the shared movement function.</li>
+        <li>Measure correction distance and increment diagnostics when it is non-trivial.</li>
+      </ol>
+      <pre><code># Conceptual Python
+pending = [cmd for cmd in pending if newer_than(cmd.sequence, ack)]
+predicted = copy(authoritative)
+for cmd in pending:
+    simulate_movement(predicted, cmd, arena, tuning, fixed_dt)</code></pre>
+      <h3>Interpolation</h3>
+      <p>The remote player is not predicted. The client keeps previous and current snapshots and linearly blends position/velocity using the fixed-tick accumulator. Angles use shortest-path wrapping. Discrete values such as health remain from the previous snapshot until the interpolation endpoint.</p>
+      <div class="note">Prediction answers “where should I be now?” Interpolation answers “how do I display two known remote samples smoothly?” Reconciliation repairs prediction when server truth arrives.</div>
+    </section>
+
+    <section id="app">
+      <h2>9. SDL application shell</h2>
+      <p><a href="src/app/GameApp.cpp"><code>GameApp.cpp</code></a> is the largest file because it is the integration boundary. It does not define authoritative gameplay, but it wires together many user-facing responsibilities:</p>
+      <div class="card-grid">
+        <div class="card"><h3>Platform</h3><p>SDL video/audio initialization, window lifetime, event polling, mouse modes.</p></div>
+        <div class="card"><h3>Input</h3><p>Bindings, console/chat text entry, mouse deltas, aim modes, command construction.</p></div>
+        <div class="card"><h3>Client loop</h3><p>Session updates, fixed ticks, command sequencing, prediction, interpolation alpha.</p></div>
+        <div class="card"><h3>Presentation</h3><p>HUD, scoreboard, hit feedback, generated audio cues, title diagnostics, render settings.</p></div>
+      </div>
+      <p>The SDL portion is guarded by <code>#if LG_DUEL_HAS_SDL3</code>. If CMake did not find/fetch SDL3, the compiler builds only the fallback message branch. This explains why the executable can compile successfully but not open a game window.</p>
+      <h3>Frame-loop order</h3>
+      <ol>
+        <li>Poll SDL events and update input/console/chat state.</li>
+        <li>Update network session and runtime configuration.</li>
+        <li>Measure elapsed time and plan up to eight fixed ticks.</li>
+        <li>For each tick, build/send a command and predict local movement.</li>
+        <li>Process audio events from authoritative snapshots.</li>
+        <li>Calculate interpolation alpha and assemble render states.</li>
+        <li>Render predicted local player, interpolated opponent, snapshot combat, HUD, and console.</li>
+        <li>Update session once more and yield briefly with <code>SDL_Delay(1)</code>.</li>
+      </ol>
+    </section>
+
+    <section id="rendering">
+      <h2>10. Rendering</h2>
+      <p>Rendering is a view over data. Scene builders produce backend-neutral geometry; <code>Renderer</code> submits it through SDL_Renderer or SDL_GPU.</p>
+      <table>
+        <thead><tr><th>Part</th><th>Responsibility</th></tr></thead>
+        <tbody>
+          <tr><td><code>DrawList2D.hpp</code></td><td>Data-only commands: quads, lines, text, clip rectangle, overlays</td></tr>
+          <tr><td><code>TopDownScene.cpp</code></td><td>World-to-screen top-down arena, players, beams, rockets, HUD elements</td></tr>
+          <tr><td><code>Scene3D.cpp</code></td><td>World-space opaque/translucent triangles and perspective camera</td></tr>
+          <tr><td><code>ScreenUi.cpp</code></td><td>HUD, console, crosshair, scoreboard, weapon overlay</td></tr>
+          <tr><td><code>Perspective.hpp</code></td><td>Camera basis, near-plane line clipping, point projection math</td></tr>
+          <tr><td><code>Renderer.cpp</code></td><td>SDL backend choice, GPU pipelines/buffers/textures, draw submission, cleanup</td></tr>
+          <tr><td><code>assets/shaders</code></td><td>GLSL sources and checked-in SPIR-V binaries for SDL_GPU</td></tr>
+        </tbody>
+      </table>
+      <p><code>LG_DUEL_RENDER_BACKEND=gpu</code> requests SDL_GPU. It prefers Vulkan, then automatic GPU selection, then falls back to SDL_Renderer. The 3D path uses depth-tested opaque geometry, non-depth-writing translucent geometry, and a screen-space HUD pass.</p>
+      <div class="note"><strong>Useful boundary:</strong> scene-building tests can inspect draw commands and vertices without creating a GPU device. Manual verification is still needed for actual backend output.</div>
+    </section>
+
+    <section id="console">
+      <h2>11. Console, cvars, and input bindings</h2>
+      <p><code>ConsoleSystem</code> is a small typed command registry. A cvar has a name, description, default value, flags, optional numeric range, and optional reference value. Its value is a <code>std::variant&lt;bool, int, float, string&gt;</code>.</p>
+      <ul>
+        <li><code>Archive</code>: write to client config.</li>
+        <li><code>ReadOnly</code>: cannot be changed through normal commands.</li>
+        <li><code>Client</code>: identifies client-side/requested settings.</li>
+      </ul>
+      <p><code>InputBindings</code> maps normalized key names to console commands. Button commands use paired press/release forms such as <code>+forward</code> and <code>-forward</code>. Releasing all bindings when opening the console prevents “stuck key” state.</p>
+      <p>Configuration uses SDL's platform preferences path and saves archived cvars plus binding lines to <code>client.cfg</code>. See <a href="CONSOLE-BIBLE.md"><code>CONSOLE-BIBLE.md</code></a> for the full command reference.</p>
+    </section>
+
+    <section id="tests">
+      <h2>12. Tests and what confidence they provide</h2>
+      <p>The tests are plain C++ executables registered with CTest, not a third-party unit-test framework. Each has an <code>expect</code> helper, accumulates failures, and returns a nonzero process status if anything fails.</p>
+      <table>
+        <thead><tr><th>Test target</th><th>Main coverage</th></tr></thead>
+        <tbody>
+          <tr><td><code>movement</code>, <code>collision</code>, <code>fixed_tick</code></td><td>Acceleration/friction/jumps/flight, arena/player collision, accumulator behavior</td></tr>
+          <tr><td><code>combat</code></td><td>LG and rail hit/miss, occlusion, 3D knockback, exact sustained DPS, replay</td></tr>
+          <tr><td><code>determinism</code></td><td>Equivalent replays produce equivalent authoritative states</td></tr>
+          <tr><td><code>server</code></td><td>Commands, lag compensation, match phases, damage, weapons, settings</td></tr>
+          <tr><td><code>client</code>, <code>client_session</code></td><td>Prediction/reconciliation/interpolation, real UDP connect/reconnect</td></tr>
+          <tr><td><code>protocol</code>, <code>udp</code></td><td>Round trips, malformed data rejection, packet bounds, handshake/delivery</td></tr>
+          <tr><td><code>network_simulation</code></td><td>Latency/loss/duplication/reordering and adverse end-to-end behavior</td></tr>
+          <tr><td><code>console</code>, <code>input_binding</code></td><td>Typed cvars, commands, archives, aliases, press/release handling</td></tr>
+          <tr><td><code>perspective</code>, <code>top_down_scene</code>, <code>screen_ui</code>, <code>scene_3d</code></td><td>Camera math and backend-neutral render output</td></tr>
+          <tr><td><code>smoke</code></td><td>Client app target links and has stable identity</td></tr>
+        </tbody>
+      </table>
+      <h3>Focused iteration</h3>
+      <pre><code># Build one test target
+cmake --build build/default --target lg_duel_movement_tests
+
+# Run matching tests verbosely
+ctest --test-dir build/default -R movement --output-on-failure</code></pre>
+      <p>For a gameplay bug, start with the smallest pure test. Use UDP/session tests only when the bug depends on real transport behavior, and manual SDL checks only when it is visual/input/backend-specific.</p>
+    </section>
+
+    <section id="files">
+      <h2>13. Repository file map</h2>
+      <table>
+        <thead><tr><th>Path</th><th>Why you would open it</th></tr></thead>
+        <tbody>
+          <tr><td class="file"><a href="CMakeLists.txt"><code>CMakeLists.txt</code></a></td><td>Targets, source membership, dependencies, shader copying</td></tr>
+          <tr><td class="file"><a href="CMakePresets.json"><code>CMakePresets.json</code></a></td><td>Supported configure/build/test presets</td></tr>
+          <tr><td class="file"><a href="src/shared/Constants.hpp"><code>src/shared</code></a></td><td>Tick constants, vector math, sequence wrap logic, accumulator</td></tr>
+          <tr><td class="file"><a href="src/sim/PlayerState.hpp"><code>src/sim</code></a></td><td>Authoritative/predicted data and pure gameplay algorithms</td></tr>
+          <tr><td class="file"><a href="src/server/ServerGame.cpp"><code>src/server</code></a></td><td>Authoritative tick, rules, weapons, history, server scheduler</td></tr>
+          <tr><td class="file"><a href="src/net/NetProtocol.hpp"><code>src/net</code></a></td><td>Packet model, codec, loopback/simulated/UDP transports</td></tr>
+          <tr><td class="file"><a href="src/client/Prediction.cpp"><code>src/client</code></a></td><td>Prediction, reconciliation, interpolation, UDP session state</td></tr>
+          <tr><td class="file"><a href="src/app/GameApp.cpp"><code>src/app</code></a></td><td>SDL client integration loop and command construction</td></tr>
+          <tr><td class="file"><a href="src/render/Renderer.cpp"><code>src/render</code></a></td><td>Scene construction and SDL rendering backends</td></tr>
+          <tr><td class="file"><a href="src/input/InputBindings.cpp"><code>src/input</code></a></td><td>Key normalization, bindings, mouse aim helper</td></tr>
+          <tr><td class="file"><a href="src/console/ConsoleSystem.cpp"><code>src/console</code></a></td><td>Typed cvars, parsing, commands, completion, config serialization</td></tr>
+          <tr><td class="file"><a href="tests/CMakeLists.txt"><code>tests</code></a></td><td>Executable tests grouped by subsystem</td></tr>
+          <tr><td class="file"><a href="assets/shaders/world3d.vert"><code>assets/shaders</code></a></td><td>GPU shader source and SPIR-V output</td></tr>
+          <tr><td class="file"><a href="tools/ServerProbe.cpp"><code>tools/ServerProbe.cpp</code></a></td><td>External health/readiness probe for hosted server</td></tr>
+          <tr><td class="file"><a href="scripts/package-windows.ps1"><code>scripts</code></a>, <a href="deploy/lg-duel-server.service"><code>deploy</code></a></td><td>Packaging, service control, and deployment</td></tr>
+        </tbody>
+      </table>
+    </section>
+
+    <section id="reading">
+      <h2>14. Recommended learning path</h2>
+      <ol>
+        <li><strong>Data first:</strong> read <code>Math.hpp</code>, <code>UserCommand.hpp</code>, <code>PlayerState.hpp</code>, and <code>NetProtocol.hpp</code>. Do not chase implementations yet.</li>
+        <li><strong>One pure system:</strong> read <code>Movement.cpp</code> beside <code>MovementTests.cpp</code>. Translate each test setup into “given/when/then.”</li>
+        <li><strong>Combat geometry:</strong> read <code>Combat.cpp</code> beside <code>CombatTests.cpp</code>.</li>
+        <li><strong>Server orchestration:</strong> trace <code>ServerGame::tick</code> top to bottom, using the numbered tick order in this guide.</li>
+        <li><strong>Prediction:</strong> read <code>Prediction.cpp</code>, then <code>ClientGame.cpp</code>. Manually track three numbered commands and one acknowledgement.</li>
+        <li><strong>Wire format:</strong> compare structs in <code>NetProtocol.hpp</code> with matching write/read functions in <code>NetCodec.cpp</code>.</li>
+        <li><strong>Real transport:</strong> read <code>UdpTransport.cpp</code> only after the logical protocol is clear.</li>
+        <li><strong>Platform integration:</strong> read the <code>GameApp::run</code> frame loop. Skip the long cvar and audio lists on the first pass.</li>
+        <li><strong>Rendering last:</strong> begin with <code>DrawList2D.hpp</code> and scene tests before the large backend implementation.</li>
+      </ol>
+      <div class="note"><strong>A productive exercise:</strong> add a small movement test that changes one tuning value and predicts the resulting velocity. This teaches compilation, value initialization, references, fixed-step math, and the test style without touching sockets or SDL.</div>
+    </section>
+
+    <section id="change">
+      <h2>15. How to reason about changes safely</h2>
+      <table>
+        <thead><tr><th>If changing…</th><th>Likely files</th><th>Required cross-check</th></tr></thead>
+        <tbody>
+          <tr><td>Movement behavior</td><td><code>Movement.*</code>, movement tests</td><td>Server and prediction already share function; determinism and collision tests</td></tr>
+          <tr><td>Player/world geometry</td><td><code>Arena.*</code>, <code>Collision.*</code></td><td>Combat occlusion, prediction, both render scenes</td></tr>
+          <tr><td>Weapon rules</td><td><code>Combat.*</code>, <code>ServerGame.*</code></td><td>Snapshot event data, stats, render/audio feedback, protocol if fields change</td></tr>
+          <tr><td>Networked field</td><td><code>NetProtocol.hpp</code>, both codec directions</td><td>Increment protocol version; round-trip and malformed-input tests</td></tr>
+          <tr><td>Client-only visual setting</td><td><code>GameApp.cpp</code>, <code>Renderer.hpp</code>, scene/UI files</td><td>Archive/migration behavior and scene tests</td></tr>
+          <tr><td>Match rules</td><td><code>ServerApp.cpp</code>, <code>ServerGame.cpp</code>, snapshot</td><td>Authoritative replication, HUD, server tests</td></tr>
+        </tbody>
+      </table>
+      <p>Use the repository discipline: state a hypothesis, add or run a failing focused test, make the smallest change, run focused tests, then the whole suite. Do not move gameplay truth into rendering or use frame time in authoritative simulation.</p>
+    </section>
+
+    <section id="glossary">
+      <h2>16. Glossary</h2>
+      <div class="card-grid">
+        <div class="card"><h4>Authoritative</h4><p>The version of state that ultimately wins disputes. Here, the server.</p></div>
+        <div class="card"><h4>Tick</h4><p>One discrete simulation step; 8 ms at 125 Hz.</p></div>
+        <div class="card"><h4>Snapshot</h4><p>A server-produced copy of world/match state sent to clients.</p></div>
+        <div class="card"><h4>Prediction</h4><p>Running local movement immediately before server confirmation.</p></div>
+        <div class="card"><h4>Reconciliation</h4><p>Resetting to server truth and replaying unacknowledged inputs.</p></div>
+        <div class="card"><h4>Interpolation</h4><p>Blending between two known snapshots for smooth presentation.</p></div>
+        <div class="card"><h4>Hitscan</h4><p>An instantaneous ray/shape trace rather than a traveling projectile.</p></div>
+        <div class="card"><h4>Lag compensation</h4><p>Testing a shot against historical target state visible to the shooter.</p></div>
+        <div class="card"><h4>Cooldown</h4><p>Tick count before a weapon may fire again.</p></div>
+        <div class="card"><h4>cvar</h4><p>Console variable: named, typed runtime configuration.</p></div>
+        <div class="card"><h4>Translation unit</h4><p>One <code>.cpp</code> plus included headers, compiled into one object file.</p></div>
+        <div class="card"><h4>ABI</h4><p>Binary compatibility rules; why SDL binaries must match the compiler/toolchain.</p></div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      Generated from the repository source as it exists in this checkout. The code remains the source of truth; use links throughout this guide to inspect the corresponding files.
+    </footer>
+  </main>
+</div>
+<script>
+  const links = [...document.querySelectorAll('#nav a')];
+  const search = document.querySelector('#search');
+  search.addEventListener('input', () => {
+    const query = search.value.trim().toLowerCase();
+    links.forEach(link => {
+      link.style.display = link.textContent.toLowerCase().includes(query) ? '' : 'none';
+    });
+  });
+  const sections = links.map(link => document.querySelector(link.getAttribute('href'))).filter(Boolean);
+  const observer = new IntersectionObserver(entries => {
+    const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (!visible) return;
+    links.forEach(link => link.classList.toggle('active', link.getAttribute('href') === '#' + visible.target.id));
+  }, { rootMargin: '-15% 0px -70% 0px', threshold: [0, .25, .6] });
+  sections.forEach(section => observer.observe(section));
+</script>
+</body>
+</html>

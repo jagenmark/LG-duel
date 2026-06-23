@@ -72,14 +72,19 @@ and `lg_duel_client` builds as the playable SDL app instead of the skeleton.
 ## Windows Playtest Package
 
 The `Windows Playtest Package` GitHub Actions workflow builds a self-contained
-Windows x64 playtest ZIP. Run it from the repository's Actions page and enter the
-current public server address and UDP port. Download the
-`LG-Duel-Windows-x64` artifact when the run completes.
+Windows x64 playtest ZIP. By default, the workflow reads the server host from
+the `VM_HOST` repository secret and uses UDP port `27960`. A manually dispatched
+run can override either value with the optional `server_host` input and the
+`server_port` input. Download the `LG-Duel-Windows-x64` artifact when the run
+completes.
 
 The package contains the client and server executables, `SDL3.dll`, the required
 GPU shaders, double-click client and server launchers, the player guide, and
-`server-address.txt`. The client launcher selects SDL_GPU, preferring Vulkan
-with automatic renderer fallback.
+`server-address.txt`. The packaging script writes the workflow-selected host and
+port to that file. `Play LG Duel.bat` reads only that file and reports an error
+if it is missing or malformed; it has no hardcoded server-address fallback. The
+client launcher selects SDL_GPU, preferring Vulkan with automatic renderer
+fallback.
 Friends should extract the entire ZIP and keep all files together.
 
 ## Current Playable Slice
@@ -239,3 +244,13 @@ Handshakes, redundant command bundles, snapshots, and ping/pong messages use a v
 ## Project Direction
 
 The intended online version uses native SDL clients connected to a dedicated C++ server while retaining the top-down 2D presentation. A separate browser implementation is out of scope for the current roadmap. This keeps movement, combat, prediction, reconciliation, and protocol behavior in one C++ codebase.
+
+
+## Server
+The `Deploy Server` workflow deploys each push to `main` to the Azure VM selected
+by the `VM_HOST` and `VM_USER` repository secrets. The server runs as the
+user-level `lg-duel-server.service`. With separately provisioned SSH credentials,
+restart it on the VM with:
+```bash
+systemctl --user restart lg-duel-server.service
+```

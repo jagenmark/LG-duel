@@ -4,9 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       server_host:
-        description: Public IP address or hostname for the playtest server
-        required: true
-        default: "20.238.17.134"
+        description: Optional server host override (defaults to the VM_HOST repository secret)
+        required: false
         type: string
       server_port:
         description: UDP server port
@@ -26,12 +25,19 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 30
     env:
-      SERVER_HOST: ${{ inputs.server_host || '20.238.17.134' }}
+      SERVER_HOST: ${{ inputs.server_host || secrets.VM_HOST }}
       SERVER_PORT: ${{ inputs.server_port || '27960' }}
 
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+
+      - name: Validate package settings
+        shell: pwsh
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SERVER_HOST)) {
+            throw "Set the VM_HOST repository secret or provide the server_host workflow input."
+          }
 
       - name: Configure release build
         run: >

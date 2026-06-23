@@ -6,12 +6,17 @@ param(
   [string]$OutputDir,
 
   [string]$Configuration = "Release",
-  [string]$ServerHost = "20.238.17.134",
+  [Parameter(Mandatory = $true)]
+  [string]$ServerHost,
   [ValidateRange(1, 65535)]
   [int]$ServerPort = 27960
 )
 
 $ErrorActionPreference = "Stop"
+if ([string]::IsNullOrWhiteSpace($ServerHost)) {
+  throw "ServerHost must be a non-empty IP address or hostname."
+}
+
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $resolvedBuildDir = (Resolve-Path $BuildDir).Path
 $outputPath = [System.IO.Path]::GetFullPath($OutputDir)
