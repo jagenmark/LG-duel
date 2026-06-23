@@ -202,7 +202,10 @@ int ServerApp::run() const {
   while (true) {
     nextTick += tickDuration;
     transport.update();
-    server.setConnectedPlayers(transport.connectedPlayers());
+    server.setConnectedPlayers(
+      transport.connectedPlayers(),
+      transport.connectedPlayerSessions()
+    );
 
     {
       std::lock_guard lock(inputMutex);
@@ -232,7 +235,10 @@ int ServerApp::run() const {
     server.setMatchRules(rules);
     if (resetRequested) {
       server.resetMatch();
-      server.setConnectedPlayers(transport.connectedPlayers());
+      server.setConnectedPlayers(
+        transport.connectedPlayers(),
+        transport.connectedPlayerSessions()
+      );
       resetRequested = false;
     }
     server.tick(kFixedTickSeconds);

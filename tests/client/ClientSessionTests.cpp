@@ -26,7 +26,10 @@ bool pumpUntilConnected(
   for (int iteration = 0; iteration < 200; ++iteration) {
     session.update();
     transport.update();
-    server.setConnectedPlayers(transport.connectedPlayers());
+    server.setConnectedPlayers(
+      transport.connectedPlayers(),
+      transport.connectedPlayerSessions()
+    );
     server.tick(lg::kFixedTickSeconds);
     session.update();
     if (session.readyForPlay()) {
@@ -61,7 +64,10 @@ int main() {
 
   session.disconnect();
   transport.update();
-  server.setConnectedPlayers(transport.connectedPlayers());
+  server.setConnectedPlayers(
+    transport.connectedPlayers(),
+    transport.connectedPlayerSessions()
+  );
   server.tick(lg::kFixedTickSeconds);
   failures += expect(
     session.state() == lg::ClientConnectionState::Disconnected &&

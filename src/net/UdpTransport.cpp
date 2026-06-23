@@ -184,6 +184,7 @@ struct UdpServerTransport::Impl {
     bool active = false;
     Endpoint endpoint = {};
     std::uint32_t nonce = 0;
+    std::uint32_t session = 0;
     Clock::time_point lastHeard = {};
   };
 
@@ -230,7 +231,6 @@ struct UdpServerTransport::Impl {
               slotIndex = index;
               clients[index].active = true;
               clients[index].endpoint = sender;
-              clients[index].nonce = request.clientNonce;
               break;
             }
           }
@@ -239,7 +239,14 @@ struct UdpServerTransport::Impl {
           continue;
         }
 
-        clients[slotIndex].nonce = request.clientNonce;
+        if (clients[slotIndex].session == 0 ||
+            clients[slotIndex].nonce != request.clientNonce) {
+          clients[slotIndex].nonce = request.clientNonce;
+          clients[slotIndex].session = nextSession++;
+          if (nextSession == 0) {
+            nextSession = 1;
+          }
+        }
         clients[slotIndex].lastHeard = Clock::now();
         WirePacket response;
         if (encodeConnectAccept(
@@ -267,13 +274,20 @@ struct UdpServerTransport::Impl {
           continue;
         }
         for (std::size_t index = 0; index < bundle.commandCount; ++index) {
-          if (bundle.commands[index].playerIndex == slotIndex) {
+          if (
+            bundle.commands[index].playerIndex == slotIndex &&
+            bundle.commands[index].clientNonce == clients[slotIndex].nonce
+          ) {
             commands.push_back(bundle.commands[index]);
           }
         }
       } else if (type == PacketType::Command) {
         CommandPacket packet;
-        if (decodeCommandPacket(wire, packet) && packet.playerIndex == slotIndex) {
+        if (
+          decodeCommandPacket(wire, packet) &&
+          packet.playerIndex == slotIndex &&
+          packet.clientNonce == clients[slotIndex].nonce
+        ) {
           commands.push_back(packet);
         }
       } else if (type == PacketType::Ping) {
@@ -319,6 +333,7 @@ struct UdpServerTransport::Impl {
   std::array<ClientSlot, kDuelPlayerCount> clients = {};
   std::deque<CommandPacket> commands;
   std::uint32_t lastServerTick = 0;
+  std::uint32_t nextSession = 1;
   std::string error;
 };
 
@@ -445,6 +460,17 @@ std::array<bool, kDuelPlayerCount> UdpServerTransport::connectedPlayers() const 
     connected[index] = impl_->clients[index].active;
   }
   return connected;
+}
+
+std::array<std::uint32_t, kDuelPlayerCount>
+UdpServerTransport::connectedPlayerSessions() const {
+  std::array<std::uint32_t, kDuelPlayerCount> sessions = {};
+  for (std::size_t index = 0; index < impl_->clients.size(); ++index) {
+    if (impl_->clients[index].active) {
+      sessions[index] = impl_->clients[index].session;
+    }
+  }
+  return sessions;
 }
 
 const std::string& UdpServerTransport::lastError() const {
@@ -639,7 +665,9 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
     return;
   }
 
-  impl_->commandHistory.push_back(packet);
+  CommandPacket stampedPacket = packet;
+  stampedPacket.clientNonce = impl_->nonce;
+  impl_->commandHistory.push_back(stampedPacket);
   while (impl_->commandHistory.size() > kMaxBundledCommands) {
     impl_->commandHistory.pop_front();
   }

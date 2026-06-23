@@ -213,6 +213,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
   const UserCommand& command = packet.command;
   return packet.playerIndex < kDuelPlayerCount &&
     writer.writeU8(packet.playerIndex) &&
+    writer.writeU32(packet.clientNonce) &&
     writer.writeU32(command.sequence) &&
     writer.writeU32(command.clientTick) &&
     writer.writeFloat(command.viewYawRadians) &&
@@ -257,6 +258,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   std::uint8_t weapon = 0;
   if (
     !reader.readU8(packet.playerIndex) ||
+    !reader.readU32(packet.clientNonce) ||
     !reader.readU32(packet.command.sequence) ||
     !reader.readU32(packet.command.clientTick) ||
     !reader.readFloat(packet.command.viewYawRadians) ||
