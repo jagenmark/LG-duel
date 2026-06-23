@@ -778,8 +778,13 @@ void addConsole(
     );
   }
 
+  const std::size_t cursorIndex = std::min(console.cursorIndex, console.input.size());
+  std::string prompt = "] ";
+  prompt += console.input.substr(0U, cursorIndex);
+  prompt += '_';
+  prompt += console.input.substr(cursorIndex);
   const std::vector<std::string> wrappedPrompt =
-    wrapText("] " + console.input + '_', maxCharacters);
+    wrapText(prompt, maxCharacters);
   const float promptY =
     consoleHeight - 24.0F -
     static_cast<float>(wrappedPrompt.size() - 1U) * lineHeight;
