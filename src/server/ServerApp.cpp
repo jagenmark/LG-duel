@@ -10,14 +10,32 @@
 #include <charconv>
 #include <chrono>
 #include <deque>
+#include <filesystem>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
 
 namespace lg {
+namespace {
 
-ServerApp::ServerApp(std::uint16_t port) : port_(port) {}
+std::string defaultMapPath(const std::string& executablePath) {
+  namespace fs = std::filesystem;
+  constexpr const char* kRelativeMapPath = "maps/thunderstruck.lgmap";
+  if (!executablePath.empty()) {
+    const fs::path executable = fs::absolute(fs::path(executablePath));
+    const fs::path executableMap = executable.parent_path() / kRelativeMapPath;
+    if (fs::exists(executableMap)) {
+      return executableMap.string();
+    }
+  }
+  return kRelativeMapPath;
+}
+
+} // namespace
+
+ServerApp::ServerApp(std::uint16_t port, std::string executablePath)
+  : port_(port), executablePath_(std::move(executablePath)) {}
 
 int ServerApp::run() const {
   UdpServerTransport transport(port_);
@@ -40,7 +58,7 @@ int ServerApp::run() const {
   console.registerCvar({
     "map_path",
     "Map file used by map_validate and map_reload.",
-    std::string("maps/thunderstruck.lgmap"),
+    defaultMapPath(executablePath_),
     CvarFlag::None,
   });
   bool resetRequested = false;

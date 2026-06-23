@@ -69,6 +69,10 @@ void ClientGame::receiveSnapshots() {
   while (transport_.receiveSnapshot(received)) {
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
       snapshot_ = received;
+      if (received.mapRevision != mapRevision_) {
+        arena_ = received.arena;
+        mapRevision_ = received.mapRevision;
+      }
       if (
         hasPendingMovementTuning_ &&
         received.hasAcknowledgedCommand[localPlayerIndex_] &&
@@ -138,6 +142,10 @@ const PredictionDiagnostics& ClientGame::predictionDiagnostics() const {
 
 const MovementTuning& ClientGame::movementTuning() const {
   return movementTuning_;
+}
+
+const Arena& ClientGame::arena() const {
+  return arena_;
 }
 
 } // namespace lg

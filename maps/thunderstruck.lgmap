@@ -28,7 +28,7 @@ box stair_east_5 9.2,-5,0 10,-2,2
 # Low central cover preserves Thunderstruck's exposed tracking lanes.
 box cover_left -5,-0.9,0 -3,0.9,1.2
 box cover_right 3,-0.9,0 5,0.9,1.2
-box center_pillar -1.2,-1.2,0 1.2,1.2,2.6
+box center_pillar -1.2,-1.2,0 1.2,1.2,2.20
 
 spawn player_1 -8,-9,2 yaw=0
 spawn player_2 8,-9,2 yaw=180

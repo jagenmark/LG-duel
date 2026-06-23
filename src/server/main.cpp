@@ -18,5 +18,5 @@ int main(int argc, char** argv) {
     port = static_cast<std::uint16_t>(parsedPort);
   }
 
-  return lg::ServerApp(port).run();
+  return lg::ServerApp(port, argc > 0 ? argv[0] : "").run();
 }

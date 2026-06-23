@@ -1767,7 +1767,7 @@ int GameApp::run() const {
       }
     };
 
-  const Arena arena = thunderstruckArena();
+  const Arena fallbackArena = thunderstruckArena();
   std::uint32_t commandSequence = 0;
   std::uint32_t clientTick = 0;
 
@@ -2753,8 +2753,12 @@ int GameApp::run() const {
     }
     hud.chatInputOpen = chatState.inputOpen;
     hud.chatInput = chatState.input;
+    const Arena& renderArena =
+      session.game() != nullptr && session.game()->hasSnapshot()
+        ? session.game()->arena()
+        : fallbackArena;
     renderer.render(
-      arena,
+      renderArena,
       renderPlayer,
       renderRemotePlayers,
       renderLocalLightningGun,

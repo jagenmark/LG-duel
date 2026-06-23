@@ -407,6 +407,8 @@ void ServerGame::resetMatch() {
   const auto playerNames = snapshot_.playerNames;
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
+  snapshot_.mapRevision = mapRevision_;
+  snapshot_.arena = arena_;
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex, healthAmount_);
     PlayerState& player = snapshot_.players[playerIndex];
@@ -451,6 +453,10 @@ void ServerGame::resetMatch() {
 
 void ServerGame::setArena(const Arena& arena) {
   arena_ = arena;
+  ++mapRevision_;
+  if (mapRevision_ == 0) {
+    mapRevision_ = 1;
+  }
   resetMatch();
 }
 
