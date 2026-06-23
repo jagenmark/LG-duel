@@ -4,6 +4,7 @@
 #include "net/UdpTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
+#include "sim/Arena.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -36,6 +37,12 @@ int ServerApp::run() const {
   console.registerCvar({"sv_roundend", "Round-end delay in seconds.", 1.0F, CvarFlag::None, 0.0F, 30.0F});
   console.registerCvar({"sv_matchend", "Match-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
   console.registerCvar({"sv_showopponenthealth", "Show opponent health to both players.", true, CvarFlag::None, {}, {}});
+  console.registerCvar({
+    "map_path",
+    "Map file used by map_validate and map_reload.",
+    std::string("maps/thunderstruck.lgmap"),
+    CvarFlag::None,
+  });
   bool resetRequested = false;
   console.registerCommand(
     "resetmatch",
@@ -65,6 +72,43 @@ int ServerApp::run() const {
       return "players=" + std::to_string(connected) +
         " phase=" + std::to_string(static_cast<int>(snapshot.matchPhase)) +
         " score=" + scoreText;
+    }
+  );
+  console.registerCommand(
+    "map_validate",
+    "Validate the current map_path without changing the match.",
+    [&console](const std::vector<std::string>& arguments) {
+      const std::string path = arguments.size() >= 2
+        ? arguments[1]
+        : console.getString("map_path");
+      const ArenaLoadResult result = loadArenaFromFile(path);
+      if (!result.ok) {
+        return "map invalid: " + result.error;
+      }
+      return "map ok: " + path + " bounds=" +
+        std::to_string(result.arena.min.x) + "," +
+        std::to_string(result.arena.min.y) + "," +
+        std::to_string(result.arena.min.z) + " to " +
+        std::to_string(result.arena.max.x) + "," +
+        std::to_string(result.arena.max.y) + "," +
+        std::to_string(result.arena.max.z) + " boxes=" +
+        std::to_string(result.arena.wallCount);
+    }
+  );
+  console.registerCommand(
+    "map_reload",
+    "Reload map_path and reset the authoritative match state.",
+    [&console, &server](const std::vector<std::string>& arguments) {
+      const std::string path = arguments.size() >= 2
+        ? arguments[1]
+        : console.getString("map_path");
+      const ArenaLoadResult result = loadArenaFromFile(path);
+      if (!result.ok) {
+        return "map reload failed: " + result.error;
+      }
+      server.setArena(result.arena);
+      return "map reloaded: " + path + " boxes=" +
+        std::to_string(server.arena().wallCount);
     }
   );
   console.registerCommand(

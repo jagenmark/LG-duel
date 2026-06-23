@@ -67,6 +67,16 @@ lg_duel_set_warnings(lg_duel_collision_tests)
 
 add_test(NAME lg_duel_collision_tests COMMAND lg_duel_collision_tests)
 
+add_executable(lg_duel_arena_map_tests
+  sim/ArenaMapTests.cpp
+)
+
+target_link_libraries(lg_duel_arena_map_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_arena_map_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_arena_map_tests)
+
+add_test(NAME lg_duel_arena_map_tests COMMAND lg_duel_arena_map_tests)
+
 add_executable(lg_duel_fixed_tick_tests
   sim/FixedTickTests.cpp
 )

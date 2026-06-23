@@ -449,6 +449,11 @@ void ServerGame::resetMatch() {
   recordHistory();
 }
 
+void ServerGame::setArena(const Arena& arena) {
+  arena_ = arena;
+  resetMatch();
+}
+
 void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex, healthAmount_);
   snapshot_.players[playerIndex].bounds.radius =
@@ -992,6 +997,10 @@ std::uint32_t ServerGame::randomU32() {
 
 const ServerSnapshot& ServerGame::snapshot() const {
   return snapshot_;
+}
+
+const Arena& ServerGame::arena() const {
+  return arena_;
 }
 
 void ServerGame::receiveCommands() {

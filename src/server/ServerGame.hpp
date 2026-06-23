@@ -18,6 +18,7 @@ public:
 
   void tick(float fixedDt);
   void resetMatch();
+  void setArena(const Arena& arena);
   void setConnectedPlayers(
     const std::array<bool, kDuelPlayerCount>& connectedPlayers
   );
@@ -28,6 +29,7 @@ public:
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
+  [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] const MatchRules& matchRules() const;
 
 private:

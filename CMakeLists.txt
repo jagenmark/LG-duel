@@ -24,6 +24,7 @@ add_library(lg_duel_core
   src/net/UdpTransport.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
+  src/sim/ArenaMap.cpp
   src/sim/Collision.cpp
   src/sim/Combat.cpp
   src/sim/Movement.cpp
@@ -78,6 +79,9 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/maps"
+    "$<TARGET_FILE_DIR:lg_duel_client>/maps"
 )
 
 if(WIN32 AND TARGET SDL3::SDL3)
@@ -96,6 +100,14 @@ add_executable(lg_duel_server
 
 target_link_libraries(lg_duel_server PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_server)
+
+add_custom_command(
+  TARGET lg_duel_server
+  POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/maps"
+    "$<TARGET_FILE_DIR:lg_duel_server>/maps"
+)
 
 add_executable(lg_duel_server_probe
   tools/ServerProbe.cpp
