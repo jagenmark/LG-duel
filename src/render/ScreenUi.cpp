@@ -9,6 +9,14 @@ namespace {
 
 constexpr float kGlyphSize = 8.0F;
 
+[[nodiscard]] float countdownGlyphOffsetX(
+  const std::string& text,
+  float scale
+) {
+  const char finalDigit = text.back();
+  return (finalDigit == '0' || finalDigit == '4' ? 0.5F : 1.0F) * scale;
+}
+
 void addRect(
   DrawList2D& drawList,
   float x,
@@ -596,14 +604,16 @@ void addHud(
     const float textWidth =
       static_cast<float>(hud.countdownText.size()) * kGlyphSize * scale;
     const float textHeight = kGlyphSize * scale;
-    const float x = (static_cast<float>(width) - textWidth) * 0.5F;
-    const float countdownY =
+    const float cellX = (static_cast<float>(width) - textWidth) * 0.5F;
+    const float cellY =
       (static_cast<float>(height) - textHeight) * 0.5F;
+    const float textX = cellX + countdownGlyphOffsetX(hud.countdownText, scale);
+    const float textY = cellY + 0.5F * scale;
     const float padding = 24.0F + pulse * 12.0F;
     addRect(
       drawList,
-      x - padding,
-      countdownY - padding,
+      cellX - padding,
+      cellY - padding,
       textWidth + padding * 2.0F,
       textHeight + padding * 2.0F,
       {
@@ -615,8 +625,8 @@ void addHud(
     );
     addText(
       drawList,
-      x,
-      countdownY,
+      textX,
+      textY,
       hud.countdownText,
       {
         255,

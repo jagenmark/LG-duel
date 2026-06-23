@@ -80,6 +80,15 @@ add_custom_command(
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
 )
 
+if(WIN32 AND TARGET SDL3::SDL3)
+  add_custom_command(
+    TARGET lg_duel_client
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE_DIR:lg_duel_client>"
+  )
+endif()
+
 add_executable(lg_duel_server
   src/server/main.cpp
   src/server/ServerApp.cpp
