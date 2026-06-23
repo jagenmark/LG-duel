@@ -2,6 +2,7 @@
 
 #include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
+#include "sim/Arena.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -90,6 +91,8 @@ struct RoundCombatStats {
 
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
+  std::uint32_t mapRevision = 1;
+  Arena arena = thunderstruckArena();
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};

@@ -48,11 +48,13 @@ public:
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex, float alpha) const;
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
   [[nodiscard]] const MovementTuning& movementTuning() const;
+  [[nodiscard]] const Arena& arena() const;
 
 private:
   NetTransport& transport_;
   std::size_t localPlayerIndex_ = 0;
   Arena arena_ = thunderstruckArena();
+  std::uint32_t mapRevision_ = 0;
   MovementTuning movementTuning_ = {};
   Prediction prediction_ = {};
   SnapshotInterpolation interpolation_ = {};

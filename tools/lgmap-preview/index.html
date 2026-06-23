@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LG Duel Map Preview</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: #0d121a;
+      color: #dce7f5;
+      font-family: Inter, Segoe UI, system-ui, sans-serif;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 18px;
+      border-bottom: 1px solid #273244;
+      background: #121925;
+    }
+    h1 {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 700;
+    }
+    main {
+      display: grid;
+      grid-template-columns: minmax(280px, 0.9fr) minmax(420px, 1.4fr) minmax(260px, 0.8fr);
+      gap: 14px;
+      padding: 14px;
+      min-height: calc(100vh - 58px);
+    }
+    section {
+      min-width: 0;
+    }
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      color: #aebbd0;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    textarea {
+      width: 100%;
+      min-height: 0;
+      resize: none;
+      border: 1px solid #2c384c;
+      border-radius: 8px;
+      background: #0f1621;
+      color: #e7eefb;
+      font: 13px/1.42 Consolas, "SFMono-Regular", monospace;
+      outline: none;
+      padding: 12px;
+    }
+    #mapText {
+      height: calc(100vh - 112px);
+    }
+    #exportText {
+      height: 240px;
+    }
+    .preview-wrap {
+      display: grid;
+      place-items: center;
+      height: calc(100vh - 112px);
+      min-height: 420px;
+      border: 1px solid #2c384c;
+      border-radius: 8px;
+      background: #0f1621;
+      overflow: hidden;
+    }
+    canvas {
+      width: min(100%, calc(100vh - 120px));
+      max-width: 760px;
+      aspect-ratio: 1;
+    }
+    .toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    button, .file-label {
+      border: 1px solid #344258;
+      border-radius: 7px;
+      background: #1a2433;
+      color: #e5edf8;
+      cursor: pointer;
+      font: inherit;
+      padding: 7px 10px;
+    }
+    button:hover, .file-label:hover {
+      background: #233149;
+    }
+    input[type="file"] {
+      display: none;
+    }
+    .side {
+      display: grid;
+      grid-template-rows: auto auto 1fr;
+      gap: 12px;
+    }
+    .status {
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-weight: 700;
+    }
+    .status.ok {
+      background: #17331f;
+      color: #9fe38e;
+    }
+    .status.bad {
+      background: #3a1d22;
+      color: #ff8b8b;
+    }
+    .stats {
+      display: grid;
+      gap: 8px;
+    }
+    .stat {
+      display: flex;
+      justify-content: space-between;
+      border-bottom: 1px solid #253044;
+      padding-bottom: 8px;
+      color: #aebbd0;
+    }
+    .stat strong {
+      color: #f2f6ff;
+    }
+    ul {
+      margin: 0;
+      padding-left: 18px;
+      color: #ccd8eb;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    @media (max-width: 1050px) {
+      main {
+        grid-template-columns: 1fr;
+      }
+      #mapText, .preview-wrap {
+        height: 460px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LG Duel .lgmap Preview</h1>
+    <div class="toolbar">
+      <label class="file-label" for="fileInput">Open .lgmap</label>
+      <input id="fileInput" type="file" accept=".lgmap,text/plain">
+      <button id="loadSample" type="button">Load Sample</button>
+      <button id="copyExport" type="button">Copy Export</button>
+      <button id="downloadExport" type="button">Download</button>
+    </div>
+  </header>
+  <main>
+    <section>
+      <div class="panel-title">Input</div>
+      <textarea id="mapText" spellcheck="false"></textarea>
+    </section>
+    <section>
+      <div class="panel-title">Top-Down Preview</div>
+      <div class="preview-wrap">
+        <canvas id="preview" width="900" height="900"></canvas>
+      </div>
+    </section>
+    <section class="side">
+      <div>
+        <div class="panel-title">Validation</div>
+        <div id="status" class="status"></div>
+      </div>
+      <div>
+        <div class="panel-title">Map Stats</div>
+        <div id="stats" class="stats"></div>
+      </div>
+      <div>
+        <div class="panel-title">Issues</div>
+        <ul id="errors"></ul>
+      </div>
+      <div>
+        <div class="panel-title">Export</div>
+        <textarea id="exportText" spellcheck="false" readonly></textarea>
+      </div>
+    </section>
+  </main>
+  <script src="parser.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

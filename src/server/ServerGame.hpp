@@ -64,6 +64,7 @@ private:
 
   NetTransport& transport_;
   Arena arena_ = thunderstruckArena();
+  std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;
