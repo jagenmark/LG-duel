@@ -2,6 +2,7 @@
 
 #include "shared/Sequence.hpp"
 #include "sim/Collision.hpp"
+#include "sim/DuelRules.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -64,7 +65,7 @@ constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 ) {
   for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
     if (
-      targetIndex != attackerIndex &&
+      areDuelOpponents(attackerIndex, targetIndex) &&
       isCombatant(snapshot, targetIndex) &&
       snapshot.players[targetIndex].health > 0
     ) {
@@ -216,7 +217,7 @@ void ServerGame::tick(float fixedDt) {
     float bestHitDistance = worldTrace.distance;
     for (std::size_t candidateIndex = 0; candidateIndex < kDuelPlayerCount; ++candidateIndex) {
       if (
-        candidateIndex == attackerIndex ||
+        !areDuelOpponents(attackerIndex, candidateIndex) ||
         !isCombatant(snapshot_, candidateIndex) ||
         combatPlayers[candidateIndex].health <= 0
       ) {
@@ -378,18 +379,12 @@ void ServerGame::tick(float fixedDt) {
       const std::uint32_t limitTicks =
         static_cast<std::uint32_t>(matchRules_.timeLimitMinutes) * 60U * 125U;
       if (snapshot_.liveTicksElapsed >= limitTicks) {
-        std::size_t leaderIndex = 0;
-        bool tied = false;
-        for (std::size_t index = 1; index < kDuelPlayerCount; ++index) {
-          if (snapshot_.scores[index] > snapshot_.scores[leaderIndex]) {
-            leaderIndex = index;
-            tied = false;
-          } else if (snapshot_.scores[index] == snapshot_.scores[leaderIndex]) {
-            tied = true;
-          }
-        }
-        if (!tied) {
-          beginMatchEnd(leaderIndex);
+        const auto leader = duelScoreLeader(
+          snapshot_.scores,
+          snapshot_.connectedPlayers
+        );
+        if (leader.has_value()) {
+          beginMatchEnd(*leader);
         }
       }
     }
@@ -653,11 +648,11 @@ void ServerGame::beginCountdown() {
 }
 
 void ServerGame::beginRoundEnd(std::size_t winnerIndex) {
-  ++snapshot_.scores[winnerIndex];
+  awardDuelRound(snapshot_.scores, winnerIndex);
   snapshot_.roundWinner = static_cast<std::uint8_t>(winnerIndex);
   snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
   snapshot_.matchPhase = MatchPhase::RoundEnd;
-  if (snapshot_.scores[winnerIndex] >= matchRules_.roundLimit) {
+  if (hasWonDuel(snapshot_.scores, winnerIndex, matchRules_.roundLimit)) {
     beginMatchEnd(winnerIndex);
   }
 }
@@ -669,20 +664,11 @@ void ServerGame::beginMatchEnd(std::size_t winnerIndex) {
 }
 
 bool ServerGame::enoughPlayersConnected() const {
-  return static_cast<std::size_t>(std::count(
-    snapshot_.connectedPlayers.begin(),
-    snapshot_.connectedPlayers.end(),
-    true
-  )) >= matchRules_.playerLimit;
+  return hasRequiredDuelPlayers(snapshot_.connectedPlayers);
 }
 
 bool ServerGame::allConnectedPlayersReady() const {
-  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    if (snapshot_.connectedPlayers[index] && !snapshot_.readyPlayers[index]) {
-      return false;
-    }
-  }
-  return true;
+  return canStartDuel(snapshot_.connectedPlayers, snapshot_.readyPlayers);
 }
 
 void ServerGame::recordHistory() {
@@ -760,7 +746,13 @@ void ServerGame::applyDamageAndKnockback(
     snapshot_.matchPhase == MatchPhase::Live
   ) {
     target.velocity = {};
-    beginRoundEnd(attackerIndex);
+    const auto winner = duelRoundWinner(
+      snapshot_.connectedPlayers,
+      targetIndex
+    );
+    if (winner.has_value()) {
+      beginRoundEnd(*winner);
+    }
     return;
   }
   if (

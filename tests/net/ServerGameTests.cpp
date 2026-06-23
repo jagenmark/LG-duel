@@ -731,6 +731,28 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    server.setConnectedPlayers({true, true, true});
+    latestSnapshot(transport);
+
+    for (std::uint8_t playerIndex = 0; playerIndex < 3; ++playerIndex) {
+      lg::CommandPacket ready;
+      ready.playerIndex = playerIndex;
+      ready.command.sequence = 1;
+      ready.toggleReady = true;
+      transport.sendCommand(ready);
+      server.tick(lg::kFixedTickSeconds);
+    }
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForPlayers,
+      "duel should not start when more than two players are connected"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
     latestSnapshot(transport);
 
     lg::MatchRules rules;
