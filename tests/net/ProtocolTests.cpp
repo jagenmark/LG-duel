@@ -209,6 +209,7 @@ int main() {
     source.players[1].health = 0;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
+    source.lightningGuns[0].targetPlayerIndex = 1;
     source.lightningGuns[0].damageApplied = 2;
     source.lightningGuns[0].start = {1.0F, 2.0F, 3.0F};
     source.lightningGuns[0].end = {5.0F, 6.0F, 7.0F};
@@ -298,7 +299,11 @@ int main() {
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
     failures += expect(decoded.players[1].health == 0, "death state should round trip");
-    failures += expect(decoded.lightningGuns[0].hit, "beam hit should round trip");
+    failures += expect(
+      decoded.lightningGuns[0].hit &&
+        decoded.lightningGuns[0].targetPlayerIndex == 1,
+      "beam hit target should round trip"
+    );
     failures += expect(
       decoded.lightningGuns[0].requestedRewindTicks == 20 &&
         decoded.lightningGuns[0].appliedRewindTicks == 18 &&

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "shared/Constants.hpp"
 #include "shared/Math.hpp"
 #include "sim/PlayerState.hpp"
 
@@ -20,9 +21,13 @@ struct Arena {
   Vec3 max = {12.0F, 12.0F, 8.0F};
   std::array<ArenaWall, kWallCount> walls = {};
   std::size_t wallCount = 0;
-  std::array<Vec3, 2> spawnPositions = {{
+  std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},
+    {0.0F, 3.0F, 0.0F},
+    {0.0F, -3.0F, 0.0F},
+    {-6.0F, 3.0F, 0.0F},
+    {6.0F, 3.0F, 0.0F},
   }};
 };
 

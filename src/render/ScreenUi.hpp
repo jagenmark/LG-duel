@@ -1,6 +1,7 @@
 #pragma once
 
 #include "render/DrawList2D.hpp"
+#include "render/Perspective.hpp"
 #include "render/Renderer.hpp"
 
 namespace lg {
@@ -14,10 +15,22 @@ namespace lg {
   const ConsoleRenderState& console
 );
 
+[[nodiscard]] DrawList2D buildFloatingHealthBars(
+  int outputWidth,
+  int outputHeight,
+  const PerspectiveCamera& camera,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+);
+
 [[nodiscard]] DrawList2D buildPerspectiveWeaponOverlay(
   int outputWidth,
   int outputHeight,
   const LightningGunResult& localLightningGun,
+  Weapon selectedWeapon,
+  Weapon previousWeapon,
+  float weaponSwitchProgress,
   const RenderSettings& settings
 );
 

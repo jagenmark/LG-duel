@@ -20,15 +20,20 @@ Avoid broad engine features unless they directly serve that prototype.
 
 ## Build And Test Commands
 
-Use the repository's checked-in build system when present. For a CMake-based C++ layout, the expected commands are:
+Use the repository's checked-in build system. This repository has CMake presets,
+and those presets are authoritative for local builds. Do not use the top-level
+`build/` directory as the local build tree; the default preset writes to
+`build/default`.
 
 ```powershell
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
+cmake --preset default
+cmake --build --preset default
+ctest --preset default
 ```
 
-For focused iteration, prefer building and running the smallest relevant test target. If the repo adds scripts or presets, document and use those instead of ad hoc commands.
+Equivalent plain CMake commands are documented in `README.md` and should use
+`build/default`, not `build`. For focused iteration, prefer building and running
+the smallest relevant test target using the preset build tree.
 
 ## Dependency Policy
 

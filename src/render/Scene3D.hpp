@@ -32,4 +32,16 @@ struct Scene3D {
   const RenderSettings& settings
 );
 
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+);
+
 } // namespace lg

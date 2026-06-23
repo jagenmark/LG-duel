@@ -658,6 +658,35 @@ void appendCommands(
   }
 }
 
+const PlayerState& firstVisibleRemote(
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers
+) {
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (remote.visible) {
+      return remote.player;
+    }
+  }
+  return remotePlayers.front().player;
+}
+
+[[nodiscard]] PerspectiveCamera playerPerspectiveCamera(
+  const PlayerState& player,
+  float aspectRatio,
+  float fieldOfView
+) {
+  constexpr CollisionBounds kDefaultPlayerBounds = {};
+  const float eyeHeight =
+    0.65F *
+    (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
+  return makePerspectiveCamera(
+    player.position + Vec3{0.0F, 0.0F, eyeHeight},
+    player.viewYawRadians,
+    player.viewPitchRadians,
+    fieldOfView,
+    aspectRatio
+  );
+}
+
 [[nodiscard]] bool renderGpuFrame(
   SDL_GPUDevice* device,
   SDL_GPUGraphicsPipeline* pipeline2D,
@@ -674,9 +703,8 @@ void appendCommands(
   SDL_Window* window,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -713,9 +741,8 @@ void appendCommands(
         static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
         arena,
         player,
-        opponent,
+        remotePlayers,
         localLightningGun,
-        opponentLightningGun,
         weaponFires,
         rocketExplosions,
         rockets,
@@ -728,9 +755,8 @@ void appendCommands(
         static_cast<int>(outputHeight),
         arena,
         player,
-        opponent,
+        remotePlayers,
         localLightningGun,
-        opponentLightningGun,
         weaponFires,
         rocketExplosions,
         rockets,
@@ -770,10 +796,27 @@ void appendCommands(
         static_cast<float>(outputHeight)
       );
     } else {
+      const DrawList2D floatingHealthBars = buildFloatingHealthBars(
+        static_cast<int>(outputWidth),
+        static_cast<int>(outputHeight),
+        perspectiveScene.camera,
+        remotePlayers,
+        settings,
+        hud
+      );
+      appendCommands(
+        vertices,
+        floatingHealthBars.overlayCommands,
+        static_cast<float>(outputWidth),
+        static_cast<float>(outputHeight)
+      );
       const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
         localLightningGun,
+        hud.selectedWeapon,
+        hud.previousWeapon,
+        hud.weaponSwitchProgress,
         settings
       );
       appendCommands(
@@ -786,7 +829,7 @@ void appendCommands(
     const DrawList2D ui = buildScreenUi(
       static_cast<int>(outputWidth),
       static_cast<int>(outputHeight),
-      opponent,
+      firstVisibleRemote(remotePlayers),
       settings,
       hud,
       console
@@ -1020,8 +1063,8 @@ void appendCommands(
   );
 }
 
-[[nodiscard]] SDL_FColor enemyColor(const RenderSettings& settings) {
-  const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
+[[nodiscard]] SDL_FColor enemyColor(const RenderSettings& settings, float enemyHitAmount) {
+  const float hitAmount = std::clamp(enemyHitAmount, 0.0F, 1.0F);
   return {
     static_cast<float>(
       blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount)
@@ -1376,9 +1419,8 @@ void drawPerspectiveWorld(
   int height,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -1386,19 +1428,8 @@ void drawPerspectiveWorld(
 ) {
   const float aspectRatio =
     static_cast<float>(width) / static_cast<float>(std::max(1, height));
-  constexpr CollisionBounds kDefaultPlayerBounds = {};
-  const float eyeHeight =
-    0.65F *
-    (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
-  const Vec3 cameraPosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight};
-  const PerspectiveCamera camera = makePerspectiveCamera(
-    cameraPosition,
-    player.viewYawRadians,
-    player.viewPitchRadians,
-    settings.fieldOfView,
-    aspectRatio
-  );
+  const PerspectiveCamera camera =
+    playerPerspectiveCamera(player, aspectRatio, settings.fieldOfView);
 
   const std::array<Vec3, 4> floorCorners = {{
     {arena.min.x, arena.min.y, arena.min.z},
@@ -1498,23 +1529,29 @@ void drawPerspectiveWorld(
   }
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-  drawSolidBox(
-    renderer,
-    camera,
-    width,
-    height,
-    {
-      opponent.position.x - opponent.bounds.radius,
-      opponent.position.y - opponent.bounds.radius,
-      opponent.position.z - opponent.bounds.halfHeight,
-    },
-    {
-      opponent.position.x + opponent.bounds.radius,
-      opponent.position.y + opponent.bounds.radius,
-      opponent.position.z + opponent.bounds.halfHeight,
-    },
-    enemyColor(settings)
-  );
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
+    const PlayerState& remotePlayer = remote.player;
+    drawSolidBox(
+      renderer,
+      camera,
+      width,
+      height,
+      {
+        remotePlayer.position.x - remotePlayer.bounds.radius,
+        remotePlayer.position.y - remotePlayer.bounds.radius,
+        remotePlayer.position.z - remotePlayer.bounds.halfHeight,
+      },
+      {
+        remotePlayer.position.x + remotePlayer.bounds.radius,
+        remotePlayer.position.y + remotePlayer.bounds.radius,
+        remotePlayer.position.z + remotePlayer.bounds.halfHeight,
+      },
+      enemyColor(settings, remote.enemyHitAmount)
+    );
+  }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
     const auto drawTargetBounds =
@@ -1602,7 +1639,11 @@ void drawPerspectiveWorld(
         settings.enemyBeamWidth * (1.0F + pulse * 0.04F)
       );
     };
-  drawBeam(opponentLightningGun, false);
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (remote.visible) {
+      drawBeam(remote.lightningGun, false);
+    }
+  }
   drawBeam(localLightningGun, true);
 
   for (const WeaponFireResult& fire : weaponFires) {
@@ -1827,9 +1868,8 @@ bool Renderer::initialize(void* window) {
 void Renderer::render(
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -1858,9 +1898,8 @@ void Renderer::render(
           static_cast<SDL_Window*>(window_),
           arena,
           player,
-          opponent,
+          remotePlayers,
           localLightningGun,
-          opponentLightningGun,
           weaponFires,
           rocketExplosions,
           rockets,
@@ -1895,20 +1934,35 @@ void Renderer::render(
       height,
       arena,
       player,
-      opponent,
+      remotePlayers,
       localLightningGun,
-      opponentLightningGun,
       weaponFires,
       rocketExplosions,
       rockets,
       settings
+    );
+    const PerspectiveCamera camera = playerPerspectiveCamera(
+      player,
+      static_cast<float>(width) / static_cast<float>(std::max(1, height)),
+      settings.fieldOfView
+    );
+    drawCommandList(
+      renderer,
+      buildFloatingHealthBars(
+        width,
+        height,
+        camera,
+        remotePlayers,
+        settings,
+        hud
+      )
     );
     drawCommandList(
       renderer,
       buildScreenUi(
         width,
         height,
-        opponent,
+        firstVisibleRemote(remotePlayers),
         settings,
         hud,
         console
@@ -1923,9 +1977,8 @@ void Renderer::render(
     height,
     arena,
     player,
-    opponent,
+    remotePlayers,
     localLightningGun,
-    opponentLightningGun,
     weaponFires,
     rocketExplosions,
     rockets,
@@ -1938,7 +1991,7 @@ void Renderer::render(
     buildScreenUi(
       width,
       height,
-      opponent,
+      firstVisibleRemote(remotePlayers),
       settings,
       hud,
       console
@@ -1948,9 +2001,8 @@ void Renderer::render(
 #else
   (void)arena;
   (void)player;
-  (void)opponent;
+  (void)remotePlayers;
   (void)localLightningGun;
-  (void)opponentLightningGun;
   (void)settings;
   (void)hud;
   (void)console;

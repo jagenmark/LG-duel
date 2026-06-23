@@ -24,7 +24,7 @@ public:
     const MovementTuning& movementTuning = {},
     float playerSizeScaleXY = 1.0F,
     float playerSizeScaleZ = 1.0F,
-    float lightningKnockback = 22.0F,
+    float lightningKnockback = 1000.0F,
     float vampirism = 0.0F,
     std::uint8_t selfDamagePercent = 100,
     std::int32_t healthAmount = 100,
@@ -32,15 +32,18 @@ public:
     std::int32_t botDodgeMinIntervalMs = 250,
     std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
-    std::string playerName = {}
+    std::string playerName = {},
+    bool usePresentedServerTick = true
   );
   void receiveSnapshots();
+  void advanceInterpolation(float elapsedSeconds, float interpolationDelaySeconds);
 
   [[nodiscard]] bool hasSnapshot() const;
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] bool hasAcknowledgedCommand() const;
   [[nodiscard]] std::uint32_t lastAcknowledgedCommand() const;
   [[nodiscard]] const PlayerState& predictedPlayer() const;
+  [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex) const;
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex, float alpha) const;
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
   [[nodiscard]] const MovementTuning& movementTuning() const;

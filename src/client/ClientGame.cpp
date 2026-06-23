@@ -26,7 +26,8 @@ void ClientGame::sendCommand(
   std::int32_t botDodgeMinIntervalMs,
   std::int32_t botDodgeMaxIntervalMs,
   std::string chatMessage,
-  std::string playerName
+  std::string playerName,
+  bool usePresentedServerTick
 ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
@@ -40,7 +41,7 @@ void ClientGame::sendCommand(
       command,
       requestReset,
       toggleReady,
-      snapshot_.serverTick,
+      usePresentedServerTick ? interpolation_.presentationServerTick() : snapshot_.serverTick,
       requestMovementTuning,
       movementTuning_,
       playerSizeScaleXY,
@@ -94,6 +95,13 @@ void ClientGame::receiveSnapshots() {
   }
 }
 
+void ClientGame::advanceInterpolation(
+  float elapsedSeconds,
+  float interpolationDelaySeconds
+) {
+  interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
+}
+
 bool ClientGame::hasSnapshot() const {
   return hasSnapshot_;
 }
@@ -112,6 +120,10 @@ std::uint32_t ClientGame::lastAcknowledgedCommand() const {
 
 const PlayerState& ClientGame::predictedPlayer() const {
   return prediction_.player();
+}
+
+PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex) const {
+  return interpolation_.player(playerIndex);
 }
 
 PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex, float alpha) const {

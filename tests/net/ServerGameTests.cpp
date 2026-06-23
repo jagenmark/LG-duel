@@ -181,7 +181,7 @@ int main() {
     lg::CommandPacket tuningRequest;
     tuningRequest.command.sequence = 1;
     tuningRequest.requestMovementTuning = true;
-    tuningRequest.lightningKnockback = 100.0F;
+    tuningRequest.lightningKnockback = 1000.0F;
     transport.sendCommand(tuningRequest);
     server.tick(lg::kFixedTickSeconds);
     latestSnapshot(transport);
@@ -193,9 +193,10 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.lightningKnockback == 100.0F &&
+      snapshot.lightningKnockback == 1000.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.79F,
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.17F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.18F,
       "g_knockback should control authoritative LG impulse magnitude"
     );
   }
@@ -746,7 +747,9 @@ int main() {
       "one connected player should remain in the lobby"
     );
     failures += expect(
-      snapshot.connectedPlayers == std::array<bool, 2>{true, false},
+      snapshot.connectedPlayers[0] && !snapshot.connectedPlayers[1] &&
+        !snapshot.connectedPlayers[2] && !snapshot.connectedPlayers[3] &&
+        !snapshot.connectedPlayers[4] && !snapshot.connectedPlayers[5],
       "snapshot should replicate occupied player slots"
     );
     failures += expect(snapshot.playerNames[1] == "BOT", "empty warmup opponent should be named BOT");
@@ -758,15 +761,29 @@ int main() {
       snapshot.players[1].position.x != botStart.x ||
       snapshot.players[1].position.y != botStart.y;
     failures += expect(botMoved, "bot_dodge should move the empty warmup opponent");
+    const int botHealthBeforeShot = snapshot.players[1].health;
     lg::UserCommand soloWarmupAttack;
     soloWarmupAttack.sequence = 0;
     soloWarmupAttack.attack = true;
+    const lg::Vec3 botOffset = snapshot.players[1].position - snapshot.players[0].position;
+    soloWarmupAttack.viewYawRadians = std::atan2(botOffset.y, botOffset.x);
+    soloWarmupAttack.planarAim = true;
     transport.sendCommand(lg::CommandPacket{0, soloWarmupAttack, false});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.lightningGuns[0].active,
       "a connected player should be able to fire during solo warmup"
+    );
+    soloWarmupAttack.sequence = 1;
+    transport.sendCommand(lg::CommandPacket{0, soloWarmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].targetPlayerIndex == 1 &&
+        snapshot.players[1].health < botHealthBeforeShot,
+      "bot_dodge targets should have authoritative hitboxes"
     );
 
     server.setConnectedPlayers({true, true});
@@ -792,7 +809,7 @@ int main() {
       "connected players should be able to shoot during warmup"
     );
     failures += expect(
-      snapshot.scores == std::array<std::uint16_t, 2>{0, 0},
+      snapshot.scores[0] == 0 && snapshot.scores[1] == 0,
       "warmup combat should not affect match score"
     );
 
@@ -802,7 +819,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.readyPlayers == std::array<bool, 2>{true, false},
+      snapshot.readyPlayers[0] && !snapshot.readyPlayers[1],
       "first ready request should only ready its player"
     );
 
@@ -840,10 +857,18 @@ int main() {
       "countdown expiry should unlock live play"
     );
 
+    lg::CommandPacket noKnockback;
+    noKnockback.command.sequence = 5;
+    noKnockback.requestMovementTuning = true;
+    noKnockback.lightningKnockback = 0.0F;
+    transport.sendCommand(noKnockback);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
     std::uint32_t lastAttackSequence = 0;
     for (std::uint32_t sequence = 0; sequence < 200; ++sequence) {
       lg::UserCommand command;
-      command.sequence = sequence + 2;
+      command.sequence = sequence + 6;
       command.clientTick = sequence;
       command.attack = true;
       transport.sendCommand(lg::CommandPacket{0, command, false});
@@ -857,7 +882,7 @@ int main() {
 
     failures += expect(snapshot.players[1].health == 0, "authoritative LG should kill the target");
     failures += expect(
-      snapshot.acknowledgedCommand[0] == lastAttackSequence + 2,
+      snapshot.acknowledgedCommand[0] == lastAttackSequence + 6,
       "server should ack latest combat command"
     );
     failures += expect(
@@ -896,7 +921,8 @@ int main() {
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::Countdown &&
-        snapshot.scores == std::array<std::uint16_t, 2>{1, 0} &&
+        snapshot.scores[0] == 1 &&
+        snapshot.scores[1] == 0 &&
         snapshot.players[0].health == 100 &&
         snapshot.players[1].health == 100 &&
         snapshot.roundCombatStats[0].lightningActiveTicks == 0 &&
@@ -947,7 +973,8 @@ int main() {
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::WaitingForReady &&
-        snapshot.scores == std::array<std::uint16_t, 2>{0, 0} &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0 &&
         snapshot.players[0].health == 100 &&
         snapshot.players[1].health == 100,
       "match-end expiry should reset scores, readiness, and both spawns"
@@ -1016,6 +1043,7 @@ int main() {
     rocketDown.sequence = 2;
     rocketDown.attack = true;
     rocketDown.weapon = lg::Weapon::RocketLauncher;
+    rocketDown.planarAim = false;
     rocketDown.viewPitchRadians = -kPi * 0.5F;
     transport.sendCommand(lg::CommandPacket{0, rocketDown, false});
     bool exploded = false;
@@ -1031,6 +1059,14 @@ int main() {
         failures += expect(
           snapshot.players[0].health == 100,
           "g_selfdamage 0 should prevent rocket self damage"
+        );
+        failures += expect(
+          std::hypot(
+            snapshot.players[0].velocity.x,
+            snapshot.players[0].velocity.y,
+            snapshot.players[0].velocity.z
+          ) > 0.0F,
+          "g_selfdamage 0 should still allow rocket self knockback"
         );
         break;
       }

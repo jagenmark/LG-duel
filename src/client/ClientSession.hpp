@@ -33,7 +33,7 @@ public:
     const MovementTuning& movementTuning = {},
     float playerSizeScaleXY = 1.0F,
     float playerSizeScaleZ = 1.0F,
-    float lightningKnockback = 22.0F,
+    float lightningKnockback = 1000.0F,
     float vampirism = 0.0F,
     std::uint8_t selfDamagePercent = 100,
     std::int32_t healthAmount = 100,
@@ -41,7 +41,8 @@ public:
     std::int32_t botDodgeMinIntervalMs = 250,
     std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
-    std::string playerName = {}
+    std::string playerName = {},
+    bool usePresentedServerTick = true
   );
 
   [[nodiscard]] ClientConnectionState state() const;

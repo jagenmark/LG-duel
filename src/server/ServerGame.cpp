@@ -13,8 +13,8 @@ constexpr std::uint32_t kMaxLagCompensationTicks = 25;
 constexpr std::uint32_t kRailgunCooldownTicks = 188;
 constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
-constexpr float kPi = 3.14159265359F;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
+constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 
 [[nodiscard]] PlayerState spawnPlayer(
   const Arena& arena,
@@ -25,18 +25,67 @@ constexpr CollisionBounds kDefaultPlayerBounds = {};
   player.health = healthAmount;
   player.position = arena.spawnPositions[playerIndex];
   player.position.z += player.bounds.halfHeight;
-  player.viewYawRadians = playerIndex == 0 ? 0.0F : kPi;
+  player.viewYawRadians = std::atan2(-player.position.y, -player.position.x);
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
   return player;
+}
+
+[[nodiscard]] UserCommand commandForPlayer(
+  const ServerSnapshot& snapshot,
+  const std::array<UserCommand, kDuelPlayerCount>& commands,
+  const std::array<bool, kDuelPlayerCount>& hasCommand,
+  std::size_t playerIndex
+) {
+  if (hasCommand[playerIndex]) {
+    return commands[playerIndex];
+  }
+
+  UserCommand command;
+  command.viewYawRadians = snapshot.players[playerIndex].viewYawRadians;
+  command.viewPitchRadians = snapshot.players[playerIndex].viewPitchRadians;
+  return command;
+}
+
+[[nodiscard]] bool isCombatant(
+  const ServerSnapshot& snapshot,
+  std::size_t playerIndex
+) {
+  return snapshot.connectedPlayers[playerIndex] ||
+    (
+      snapshot.botDodgeEnabled &&
+      snapshot.players[playerIndex].health > 0
+    );
+}
+
+[[nodiscard]] std::size_t firstCombatTarget(
+  const ServerSnapshot& snapshot,
+  std::size_t attackerIndex
+) {
+  for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
+    if (
+      targetIndex != attackerIndex &&
+      isCombatant(snapshot, targetIndex) &&
+      snapshot.players[targetIndex].health > 0
+    ) {
+      return targetIndex;
+    }
+  }
+  return kDuelPlayerCount;
+}
+
+[[nodiscard]] float q3KnockbackToInternal(float knockback) {
+  return knockback * kQ3KnockbackToInternalScale;
 }
 
 } // namespace
 
 ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
   resetMatch();
-  snapshot_.connectedPlayers.fill(true);
-  snapshot_.readyPlayers.fill(true);
+  snapshot_.connectedPlayers[0] = true;
+  snapshot_.connectedPlayers[1] = true;
+  snapshot_.readyPlayers[0] = true;
+  snapshot_.readyPlayers[1] = true;
   snapshot_.matchPhase = MatchPhase::Live;
   publishSnapshot();
 }
@@ -66,13 +115,8 @@ void ServerGame::tick(float fixedDt) {
       continue;
     }
 
-    UserCommand command;
-    if (hasCommand_[playerIndex]) {
-      command = commands_[playerIndex];
-    } else {
-      command.viewYawRadians = snapshot_.players[playerIndex].viewYawRadians;
-      command.viewPitchRadians = snapshot_.players[playerIndex].viewPitchRadians;
-    }
+    const UserCommand command =
+      commandForPlayer(snapshot_, commands_, hasCommand_, playerIndex);
 
     simulateMovement(
       snapshot_.players[playerIndex],
@@ -83,8 +127,28 @@ void ServerGame::tick(float fixedDt) {
     );
   }
 
-  snapshot_.playersColliding =
-    resolvePlayerCollision(arena_, snapshot_.players[0], snapshot_.players[1]);
+  snapshot_.playersColliding = false;
+  for (std::size_t firstIndex = 0; firstIndex < kDuelPlayerCount; ++firstIndex) {
+    if (!snapshot_.connectedPlayers[firstIndex]) {
+      continue;
+    }
+    for (
+      std::size_t secondIndex = firstIndex + 1U;
+      secondIndex < kDuelPlayerCount;
+      ++secondIndex
+    ) {
+      if (!snapshot_.connectedPlayers[secondIndex]) {
+        continue;
+      }
+      snapshot_.playersColliding =
+        resolvePlayerCollision(
+          arena_,
+          snapshot_.players[firstIndex],
+          snapshot_.players[secondIndex]
+        ) ||
+        snapshot_.playersColliding;
+    }
+  }
   for (PlayerState& player : snapshot_.players) {
     const CollisionResult collision = resolvePlayerArenaCollision(
       arena_,
@@ -97,27 +161,24 @@ void ServerGame::tick(float fixedDt) {
   }
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
+  std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
+  std::array<std::size_t, kDuelPlayerCount> weaponTargets = {};
+  lightningTargets.fill(kDuelPlayerCount);
+  weaponTargets.fill(kDuelPlayerCount);
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
-    const std::size_t targetIndex = 1U - attackerIndex;
-    UserCommand command;
-    if (hasCommand_[attackerIndex]) {
-      command = commands_[attackerIndex];
-    } else {
-      command.viewYawRadians = snapshot_.players[attackerIndex].viewYawRadians;
-      command.viewPitchRadians = snapshot_.players[attackerIndex].viewPitchRadians;
-    }
+    UserCommand command =
+      commandForPlayer(snapshot_, commands_, hasCommand_, attackerIndex);
 
     const bool warmupCombat =
       snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
       snapshot_.matchPhase == MatchPhase::WaitingForReady;
+    const bool hasTarget =
+      firstCombatTarget(snapshot_, attackerIndex) < kDuelPlayerCount;
     command.attack =
       command.attack &&
       (snapshot_.matchPhase == MatchPhase::Live || warmupCombat) &&
       snapshot_.connectedPlayers[attackerIndex] &&
-      (
-        warmupCombat ||
-        snapshot_.connectedPlayers[targetIndex]
-      );
+      (warmupCombat || hasTarget);
     if (command.planarAim) {
       command.viewPitchRadians = 0.0F;
     }
@@ -137,32 +198,101 @@ void ServerGame::tick(float fixedDt) {
     const std::uint32_t targetTick = snapshot_.serverTick - clampedRewindTicks;
     const HistoryFrame& historyFrame = historyFrameForTick(targetTick);
 
-    PlayerState target = clampedRewindTicks == 0
-      ? combatPlayers[targetIndex]
-      : historyFrame.players[targetIndex];
-    target.health = combatPlayers[targetIndex].health;
+    const Vec3 attackStart = weaponMuzzlePosition(
+      combatPlayers[attackerIndex],
+      command.weapon == Weapon::LightningGun
+        ? lightningGunTuning_.eyeHeight
+        : railgunTuning_.eyeHeight
+    );
+    const Vec3 attackDirection =
+      cameraForward(command.viewYawRadians, command.viewPitchRadians);
+    const float attackRange = command.weapon == Weapon::LightningGun
+      ? lightningGunTuning_.range
+      : railgunTuning_.range;
+    const WorldTrace worldTrace =
+      traceWorld(arena_, attackStart, attackDirection, attackRange);
+    std::size_t targetIndex = kDuelPlayerCount;
+    float bestHitDistance = worldTrace.distance;
+    for (std::size_t candidateIndex = 0; candidateIndex < kDuelPlayerCount; ++candidateIndex) {
+      if (
+        candidateIndex == attackerIndex ||
+        !isCombatant(snapshot_, candidateIndex) ||
+        combatPlayers[candidateIndex].health <= 0
+      ) {
+        continue;
+      }
+      const PlayerState& candidate = clampedRewindTicks == 0
+        ? combatPlayers[candidateIndex]
+        : historyFrame.players[candidateIndex];
+      float hitDistance = 0.0F;
+      if (
+        tracePlayerCylinder(
+          attackStart,
+          attackDirection,
+          candidate,
+          bestHitDistance,
+          hitDistance
+        )
+      ) {
+        targetIndex = candidateIndex;
+        bestHitDistance = hitDistance;
+      }
+    }
+
+    const std::size_t debugTargetIndex = targetIndex < kDuelPlayerCount
+      ? targetIndex
+      : firstCombatTarget(snapshot_, attackerIndex);
+    PlayerState target = {};
+    if (targetIndex < kDuelPlayerCount) {
+      target = clampedRewindTicks == 0
+        ? combatPlayers[targetIndex]
+        : historyFrame.players[targetIndex];
+      target.health = combatPlayers[targetIndex].health;
+    }
     if (command.weapon == Weapon::LightningGun) {
-      snapshot_.lightningGuns[attackerIndex] = simulateLightningGun(
-        combatPlayers[attackerIndex],
-        target,
-        command,
-        arena_,
-        lightningGunTuning_,
-        lightningGunStates_[attackerIndex],
-        fixedDt
-      );
+      if (targetIndex < kDuelPlayerCount) {
+        lightningTargets[attackerIndex] = targetIndex;
+        snapshot_.lightningGuns[attackerIndex] = simulateLightningGun(
+          combatPlayers[attackerIndex],
+          target,
+          command,
+          arena_,
+          lightningGunTuning_,
+          lightningGunStates_[attackerIndex],
+          fixedDt
+        );
+        if (snapshot_.lightningGuns[attackerIndex].hit) {
+          snapshot_.lightningGuns[attackerIndex].targetPlayerIndex =
+            static_cast<std::uint8_t>(targetIndex);
+        }
+      } else {
+        snapshot_.lightningGuns[attackerIndex] = {};
+        snapshot_.lightningGuns[attackerIndex].start = attackStart;
+        snapshot_.lightningGuns[attackerIndex].end = worldTrace.end;
+        snapshot_.lightningGuns[attackerIndex].active =
+          command.attack && combatPlayers[attackerIndex].health > 0;
+      }
     } else if (
       command.weapon == Weapon::Railgun &&
       command.attack &&
       railgunCooldownTicks_[attackerIndex] == 0
     ) {
-      snapshot_.weaponFires[attackerIndex] = simulateRailgun(
-        combatPlayers[attackerIndex],
-        target,
-        command,
-        arena_,
-        railgunTuning_
-      );
+      if (targetIndex < kDuelPlayerCount) {
+        weaponTargets[attackerIndex] = targetIndex;
+        snapshot_.weaponFires[attackerIndex] = simulateRailgun(
+          combatPlayers[attackerIndex],
+          target,
+          command,
+          arena_,
+          railgunTuning_
+        );
+      } else {
+        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
+        fire.weapon = Weapon::Railgun;
+        fire.start = attackStart;
+        fire.end = worldTrace.end;
+        fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
+      }
       railgunCooldownTicks_[attackerIndex] = kRailgunCooldownTicks;
     } else if (
       command.weapon == Weapon::RocketLauncher &&
@@ -201,10 +331,15 @@ void ServerGame::tick(float fixedDt) {
     result.rewindTargetTick = clampedRewindTicks == 0
       ? snapshot_.serverTick
       : historyFrame.serverTick;
-    result.currentTargetPosition = combatPlayers[targetIndex].position;
-    result.rewoundTargetPosition = target.position;
-    result.currentTargetBounds = combatPlayers[targetIndex].bounds;
-    result.rewoundTargetBounds = target.bounds;
+    if (debugTargetIndex < kDuelPlayerCount) {
+      const PlayerState& debugTarget = clampedRewindTicks == 0
+        ? combatPlayers[debugTargetIndex]
+        : historyFrame.players[debugTargetIndex];
+      result.currentTargetPosition = combatPlayers[debugTargetIndex].position;
+      result.rewoundTargetPosition = debugTarget.position;
+      result.currentTargetBounds = combatPlayers[debugTargetIndex].bounds;
+      result.rewoundTargetBounds = debugTarget.bounds;
+    }
     if (snapshot_.matchPhase == MatchPhase::Live) {
       RoundCombatStats& stats = snapshot_.roundCombatStats[attackerIndex];
       if (result.active) {
@@ -219,16 +354,15 @@ void ServerGame::tick(float fixedDt) {
   }
 
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
-    const std::size_t targetIndex = 1U - attackerIndex;
     applyDamageAndKnockback(
       attackerIndex,
-      targetIndex,
+      lightningTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
       snapshot_.lightningGuns[attackerIndex].knockbackImpulse
     );
     applyDamageAndKnockback(
       attackerIndex,
-      targetIndex,
+      weaponTargets[attackerIndex],
       snapshot_.weaponFires[attackerIndex].damageApplied,
       snapshot_.weaponFires[attackerIndex].knockbackImpulse
     );
@@ -241,11 +375,20 @@ void ServerGame::tick(float fixedDt) {
     if (matchRules_.timeLimitMinutes > 0) {
       const std::uint32_t limitTicks =
         static_cast<std::uint32_t>(matchRules_.timeLimitMinutes) * 60U * 125U;
-      if (
-        snapshot_.liveTicksElapsed >= limitTicks &&
-        snapshot_.scores[0] != snapshot_.scores[1]
-      ) {
-        beginMatchEnd(snapshot_.scores[0] > snapshot_.scores[1] ? 0U : 1U);
+      if (snapshot_.liveTicksElapsed >= limitTicks) {
+        std::size_t leaderIndex = 0;
+        bool tied = false;
+        for (std::size_t index = 1; index < kDuelPlayerCount; ++index) {
+          if (snapshot_.scores[index] > snapshot_.scores[leaderIndex]) {
+            leaderIndex = index;
+            tied = false;
+          } else if (snapshot_.scores[index] == snapshot_.scores[leaderIndex]) {
+            tied = true;
+          }
+        }
+        if (!tied) {
+          beginMatchEnd(leaderIndex);
+        }
       }
     }
   }
@@ -262,9 +405,8 @@ void ServerGame::resetMatch() {
   const auto playerNames = snapshot_.playerNames;
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
-  snapshot_.players[0] = spawnPlayer(arena_, 0, healthAmount_);
-  snapshot_.players[1] = spawnPlayer(arena_, 1, healthAmount_);
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex, healthAmount_);
     PlayerState& player = snapshot_.players[playerIndex];
     player.bounds.radius =
       kDefaultPlayerBounds.radius * playerSizeScaleXY_;
@@ -277,7 +419,7 @@ void ServerGame::resetMatch() {
   snapshot_.movementTuning = movementTuning_;
   snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
-  snapshot_.lightningKnockback = lightningGunTuning_.knockbackPerSecond;
+  snapshot_.lightningKnockback = lightningKnockback_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
   snapshot_.healthAmount = healthAmount_;
@@ -553,7 +695,7 @@ void ServerGame::applyDamageAndKnockback(
   int damageApplied,
   Vec3 knockbackImpulse
 ) {
-  if (damageApplied <= 0 || targetIndex >= kDuelPlayerCount) {
+  if (targetIndex >= kDuelPlayerCount) {
     return;
   }
   const bool combatPhase =
@@ -660,6 +802,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (
           snapshot_.players[playerIndex].health <= 0 ||
+          !isCombatant(snapshot_, playerIndex) ||
           (playerIndex == rocket.owner && rocket.ageTicks < 3U)
         ) {
           continue;
@@ -701,7 +844,7 @@ void ServerGame::simulateRockets(float fixedDt) {
 
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       PlayerState& player = snapshot_.players[playerIndex];
-      if (player.health <= 0) {
+      if (player.health <= 0 || !isCombatant(snapshot_, playerIndex)) {
         continue;
       }
       const float distance = cylinderDistance(explosionPosition, player);
@@ -716,6 +859,7 @@ void ServerGame::simulateRockets(float fixedDt) {
       if (playerIndex == directTarget) {
         damage = std::max(damage, rocketLauncherTuning_.directDamage);
       }
+      const int knockbackDamage = damage;
       const int appliedDamage = playerIndex == rocket.owner
         ? (damage * static_cast<int>(selfDamagePercent_) + 50) / 100
         : damage;
@@ -729,7 +873,7 @@ void ServerGame::simulateRockets(float fixedDt) {
         knockbackDirection = normalize(rocket.velocity);
       }
       const float knockbackScale =
-        static_cast<float>(appliedDamage) /
+        static_cast<float>(knockbackDamage) /
         static_cast<float>(std::max(1, rocketLauncherTuning_.splashDamage));
       applyDamageAndKnockback(
         rocket.owner,
@@ -877,8 +1021,10 @@ void ServerGame::receiveCommands() {
       playerSizeScaleZ_ = packet.playerSizeScaleZ;
       snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
       snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
-      lightningGunTuning_.knockbackPerSecond = packet.lightningKnockback;
-      snapshot_.lightningKnockback = lightningGunTuning_.knockbackPerSecond;
+      lightningKnockback_ = packet.lightningKnockback;
+      lightningGunTuning_.knockbackPerSecond =
+        q3KnockbackToInternal(lightningKnockback_);
+      snapshot_.lightningKnockback = lightningKnockback_;
       if (vampirism_ != packet.vampirism) {
         fractionalVampirismHealing_ = {};
       }

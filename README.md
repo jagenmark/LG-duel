@@ -26,6 +26,23 @@ cmake --build --preset default
 ctest --preset default
 ```
 
+On Windows, prefer the preset commands above instead of plain `cmake -S . -B
+build`, because CMake may otherwise choose the `NMake Makefiles` generator. If
+`nmake` or the Visual Studio `cl` compiler is not available, configure with
+Ninja and an explicit compiler:
+
+```powershell
+$env:Path += ";C:\Users\gosee\Documents\Codex\tools\cmake-4.3.3-windows-x86_64\bin;C:\Users\gosee\Documents\Codex\tools\ninja;C:\Users\gosee\Documents\Codex\tools\llvm-mingw-20260616-ucrt-x86_64\bin"
+$env:CC = "C:\Users\gosee\Documents\Codex\tools\llvm-mingw-20260616-ucrt-x86_64\bin\clang.exe"
+$env:CXX = "C:\Users\gosee\Documents\Codex\tools\llvm-mingw-20260616-ucrt-x86_64\bin\clang++.exe"
+cmake --preset default
+cmake --build --preset default
+```
+
+Use the preset build tree at `build/default` for local work. Do not use a
+top-level `build/` directory for configure/build/test commands in this
+repository.
+
 Equivalent plain CMake commands:
 
 ```powershell
@@ -34,7 +51,23 @@ cmake --build build/default
 ctest --test-dir build/default --output-on-failure
 ```
 
-SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app should fail configuration if SDL3 is missing. Without SDL3, the app target still builds as a non-playable skeleton and the pure simulation tests remain available.
+SDL3 is auto-detected for now. Set `LG_DUEL_REQUIRE_SDL3=ON` when the app
+should fail configuration if SDL3 is missing. Without SDL3, the app target still
+builds as a non-playable skeleton and the pure simulation tests remain
+available.
+
+For local Codex threads, SDL3 can be provided without network access by keeping
+the pinned SDL3 source cache at `build/gpu/_deps/sdl3-src`. The CMake setup also
+checks `../build/gpu/_deps/sdl3-src`, which helps when working from a cleaned-up
+clone beside an older build. To point CMake at a specific local SDL3 checkout,
+configure with:
+
+```powershell
+cmake --preset default -DLG_DUEL_SDL3_SOURCE_DIR="C:\path\to\sdl3-src"
+```
+
+When SDL3 is found this way, configure prints `Using local SDL3 source at ...`
+and `lg_duel_client` builds as the playable SDL app instead of the skeleton.
 
 ## Windows Playtest Package
 
@@ -130,7 +163,7 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `r_vsync`, crosshair controls, beam controls, enemy model colors, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `cl_interp_mode`, `cl_interp`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `s_footstep_volume`, `r_vsync`, crosshair controls, beam controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second. `cl_interp_mode 0` restores the legacy latest-snapshot-pair interpolation path. `cl_interp_mode 1` uses buffered interpolation, where `cl_interp` controls remote player snapshot interpolation delay in seconds; the default `0.024` is three 125 Hz simulation ticks.
 
 The SDL_GPU renderer can be selected at runtime with
 `LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
@@ -149,11 +182,13 @@ renderer backend in the window title.
 
 `cl_rotate_view` applies only to top-down relative aim (`cl_render_mode 0`, `cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) is available only in the top-down renderer. Perspective mode (`cl_render_mode 1`) always uses relative mouse yaw/pitch, ignores `cl_rotate_view`, and sends true 3D pitch to authoritative beam simulation.
 
+`r_enemy_lean 1` adds Q3-style velocity lean to the rendered enemy model in perspective mode. Tune it with `r_enemy_lean_scale`; `1` approximates Q3's `cg_runroll 0.005`, `0` disables the effect without changing local POV, simulation, hit registration, or networking.
+
 Hold `Mouse2` (`+zoom`) to use `cl_zoom_fov` and zoom-scaled sensitivity. With the default `cl_zoom_sensitivity 0`, the multiplier is auto-matched as `tan(cl_zoom_fov / 2) / tan(cl_fov / 2)` using degree values. Set `cl_zoom_sensitivity` above zero for a manual multiplier. This is client-side view/input scaling only; it does not change simulation, hitboxes, damage, or networking.
 
 `cl_camera_zoom 1` preserves the default top-down view. Values above `1` zoom in and values below `1` zoom out. `g_playersize_xy` and `g_playersize_z` request authoritative horizontal and vertical scales from `0.5` to `3.0`; the server applies them symmetrically to both players' collision bounds, hitboxes, and rendered model size.
 
-Client audio uses generated tones with no external sound assets. `s_enable` toggles hit and round-result cues, while `s_volume` controls their volume from `0` to `1`.
+Client audio uses generated tones at runtime, with footstep WAV previews checked in under `assets/audio`. `s_enable` toggles client cues, `s_volume` controls the global volume from `0` to `1`, and `s_footstep_volume` controls footsteps separately as a channel multiplier.
 
 Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspeed`, `g_maxspeed`, `g_flight`, `g_flightaccel`, `g_flightmaxspeed`, and `g_flightdamping`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_flight 1` equips unrestricted flight symmetrically for both players. W/S thrust along full camera pitch/yaw, A/D strafe while upright, Space thrusts up, and Ctrl/Shift thrust down. Flight has no fuel, cooldown, duration limit, or artificial hover ceiling; arena collision still applies. Disabling it transitions players back to airborne or grounded movement. Query a variable without a value to see its current value, project default, and Q3/QL reference default where applicable. These testing values are intentionally not archived.
 

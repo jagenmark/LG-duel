@@ -28,6 +28,7 @@ struct LightningGunResult {
   Vec3 end = {};
   bool active = false;
   bool hit = false;
+  std::uint8_t targetPlayerIndex = 255;
   int damageApplied = 0;
   Vec3 knockbackImpulse = {};
   std::uint32_t requestedRewindTicks = 0;

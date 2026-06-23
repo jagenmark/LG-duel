@@ -7,6 +7,10 @@
 namespace lg {
 namespace {
 
+constexpr float kQ3RunRoll = 0.005F;
+constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
+constexpr float kDegreesToRadians = 0.01745329252F;
+
 [[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs) {
   return {
     lhs.y * rhs.z - lhs.z * rhs.y,
@@ -389,11 +393,12 @@ void addOrientedBox(
   Vec3 halfExtents,
   Vec3 forward,
   Vec3 right,
+  Vec3 up,
   RenderColor color
 ) {
   const Vec3 forwardExtent = forward * halfExtents.x;
   const Vec3 rightExtent = right * halfExtents.y;
-  const Vec3 upExtent = {0.0F, 0.0F, halfExtents.z};
+  const Vec3 upExtent = up * halfExtents.z;
   const std::array<Vec3, 8> corners = {{
     center - forwardExtent - rightExtent - upExtent,
     center + forwardExtent - rightExtent - upExtent,
@@ -431,14 +436,28 @@ void addOrientedBox(
 void addPlayerModel(
   Scene3D& scene,
   const PlayerState& player,
-  RenderColor color
+  RenderColor color,
+  bool leanEnabled,
+  float leanScale
 ) {
   const float radius = player.bounds.radius;
   const float halfHeight = player.bounds.halfHeight;
   const float bottom = player.position.z - halfHeight;
   const float height = halfHeight * 2.0F;
   const Vec3 forward = yawForward(player.viewYawRadians);
-  const Vec3 right = yawRight(player.viewYawRadians);
+  const Vec3 baseRight = yawRight(player.viewYawRadians);
+  const float lateralVelocity = dot(player.velocity, baseRight);
+  const float rollDegrees = leanEnabled
+    ? -lateralVelocity * kQuakeUnitsPerProjectUnit * kQ3RunRoll * leanScale
+    : 0.0F;
+  const float rollRadians = rollDegrees * kDegreesToRadians;
+  const float rollCos = std::cos(rollRadians);
+  const float rollSin = std::sin(rollRadians);
+  const Vec3 worldUp = {0.0F, 0.0F, 1.0F};
+  const Vec3 right =
+    normalize((baseRight * rollCos) + (worldUp * rollSin));
+  const Vec3 up =
+    normalize((worldUp * rollCos) - (baseRight * rollSin));
   const auto part =
     [&](float forwardOffset,
         float rightOffset,
@@ -453,11 +472,7 @@ void addPlayerModel(
         player.position +
           forward * (radius * forwardOffset) +
           right * (radius * rightOffset) +
-          Vec3{
-            0.0F,
-            0.0F,
-            ((partBottom + partTop) * 0.5F) - player.position.z,
-          },
+          up * (((partBottom + partTop) * 0.5F) - player.position.z),
         {
           radius * forwardRadius,
           radius * rightRadius,
@@ -465,6 +480,7 @@ void addPlayerModel(
         },
         forward,
         right,
+        up,
         color
       );
     };
@@ -577,9 +593,8 @@ Scene3D buildPerspectiveScene(
   float aspectRatio,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -629,16 +644,27 @@ Scene3D buildPerspectiveScene(
     }
   }
 
-  const float hitAmount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
-  const RenderColor opponentColor = {
-    blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
-    blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
-    blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
-    static_cast<std::uint8_t>(
-      std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
-    ),
-  };
-  addPlayerModel(scene, opponent, opponentColor);
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
+    const float hitAmount = std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
+    const RenderColor opponentColor = {
+      blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
+      blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
+      blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
+      static_cast<std::uint8_t>(
+        std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
+      ),
+    };
+    addPlayerModel(
+      scene,
+      remote.player,
+      opponentColor,
+      settings.enemyLeanEnabled,
+      settings.enemyLeanScale
+    );
+  }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
     const auto addBounds =
@@ -671,13 +697,16 @@ Scene3D buildPerspectiveScene(
     );
   }
 
-  if (opponentLightningGun.active) {
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible || !remote.lightningGun.active) {
+      continue;
+    }
     const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);
     const float brightness = 1.0F + pulse * 0.05F;
     addSegment(
       scene,
-      opponentLightningGun.start,
-      opponentLightningGun.end,
+      remote.lightningGun.start,
+      remote.lightningGun.end,
       std::max(
         0.015F,
         settings.enemyBeamWidth * (1.0F + pulse * 0.04F) * 0.012F
@@ -749,6 +778,39 @@ Scene3D buildPerspectiveScene(
   (void)localLightningGun;
 
   return scene;
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+) {
+  std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
+  remotePlayers[0] = RemotePlayerView{
+    opponent,
+    opponentLightningGun,
+    settings.enemyHitAmount,
+    1.0F,
+    settings.hasRemotePlayer,
+  };
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
 }
 
 } // namespace lg

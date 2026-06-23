@@ -148,6 +148,14 @@ struct LingeringRailBeam {
   std::chrono::steady_clock::time_point expiresAt = {};
 };
 
+struct FootstepAudioState {
+  Vec3 previousPosition = {};
+  float distanceSinceStep = 0.0F;
+  std::uint32_t stepIndex = 0;
+  bool wasOnGround = false;
+  bool initialized = false;
+};
+
 class ClientAudio {
 public:
   bool initialize() {
@@ -185,6 +193,24 @@ public:
     queueRocketPop(volume);
   }
 
+  void playFootstep(float volume, std::uint32_t stepIndex) {
+    queueFootstep(volume, stepIndex);
+  }
+
+  void setLightningGunFire(bool active, float volume) {
+    lightningGunFireActive_ = active && volume > 0.0F;
+    lightningGunFireTargetVolume_ = lightningGunFireActive_
+      ? std::clamp(volume * 0.52F, 0.0F, 1.0F)
+      : 0.0F;
+  }
+
+  void resetLightningGunFire() {
+    lightningGunFireActive_ = false;
+    lightningGunFireTargetVolume_ = 0.0F;
+    lightningGunFireGain_ = 0.0F;
+    lightningGunSampleIndex_ = 0;
+  }
+
   void playRoundResult(bool won, float volume) {
     if (won) {
       queueTone(520.0F, 0.08F, volume);
@@ -201,14 +227,25 @@ public:
     queueTone(220.0F + (urgency * 27.5F), 0.07F, volume * 0.45F);
   }
 
+  void update() {
+    pumpAudio();
+  }
+
   void shutdown() {
+    setLightningGunFire(false, 0.0F);
     if (stream_ != nullptr) {
       SDL_DestroyAudioStream(stream_);
       stream_ = nullptr;
     }
+    voices_.clear();
   }
 
 private:
+  struct SoundVoice {
+    std::vector<float> samples;
+    std::size_t playhead = 0;
+  };
+
   [[nodiscard]] static float audioEnvelope(
     float time,
     float duration,
@@ -229,9 +266,9 @@ private:
     return 1.0F;
   }
 
-  [[nodiscard]] static float sine(float frequency, float time) {
+  [[nodiscard]] static float sine(float frequency, float time, float phase = 0.0F) {
     constexpr float kTwoPi = 6.28318530718F;
-    return std::sin(kTwoPi * frequency * time);
+    return std::sin((kTwoPi * frequency * time) + phase);
   }
 
   [[nodiscard]] static float triangle(float frequency, float time) {
@@ -302,6 +339,58 @@ private:
     });
   }
 
+  void queueFootstep(float volume, std::uint32_t stepIndex) {
+    queueSynth(0.105F, volume, [stepIndex](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.105F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.105F, 0.001F, 0.055F, 1.85F);
+      const float lowThump =
+        sine(92.0F - (18.0F * progress) + static_cast<float>(stepIndex % 2U) * 7.0F, time);
+      const float slap =
+        triangle(210.0F + static_cast<float>(stepIndex % 3U) * 18.0F, time);
+      const float grit = noise(sampleIndex + static_cast<int>(stepIndex * 97U));
+      return envelope * (
+        0.30F * lowThump +
+        0.16F * slap +
+        0.18F * grit * (1.0F - progress)
+      );
+    });
+  }
+
+  [[nodiscard]] float lightningGunSample() {
+    constexpr std::uint64_t kLightningGunPeriodSamples =
+      static_cast<std::uint64_t>(kSampleRate / 48);
+    const float time =
+      static_cast<float>(lightningGunSampleIndex_) / static_cast<float>(kSampleRate);
+    lightningGunSampleIndex_ =
+      (lightningGunSampleIndex_ + 1U) % kLightningGunPeriodSamples;
+
+    return
+      0.46F * sine(96.0F, time) +
+      0.24F * sine(192.0F, time) +
+      0.16F * std::tanh(sine(48.0F, time) * 1.9F) +
+      0.07F * triangle(288.0F, time);
+  }
+
+  void mixLightningGunLoop(std::vector<float>& buffer) {
+    constexpr float kGainStepPerSample = 1.0F / 900.0F;
+    for (float& sample : buffer) {
+      if (lightningGunFireGain_ < lightningGunFireTargetVolume_) {
+        lightningGunFireGain_ =
+          std::min(lightningGunFireTargetVolume_, lightningGunFireGain_ + kGainStepPerSample);
+      } else if (lightningGunFireGain_ > lightningGunFireTargetVolume_) {
+        lightningGunFireGain_ =
+          std::max(lightningGunFireTargetVolume_, lightningGunFireGain_ - kGainStepPerSample);
+      }
+      if (lightningGunFireGain_ > 0.0005F) {
+        sample += lightningGunSample() * lightningGunFireGain_;
+      }
+    }
+  }
+
+  [[nodiscard]] bool hasActiveLoop() const {
+    return lightningGunFireActive_ || lightningGunFireGain_ > 0.0005F;
+  }
+
   template <typename Generator>
   void queueSynth(float durationSeconds, float volume, Generator generator) {
     if (stream_ == nullptr || volume <= 0.0F) {
@@ -324,11 +413,7 @@ private:
       samples[static_cast<std::size_t>(index)] *= gain;
       samples[static_cast<std::size_t>(sampleCount - 1 - index)] *= gain;
     }
-    SDL_PutAudioStreamData(
-      stream_,
-      samples.data(),
-      static_cast<int>(samples.size() * sizeof(float))
-    );
+    addVoice(std::move(samples));
   }
 
   void queueTone(float frequency, float durationSeconds, float volume) {
@@ -350,16 +435,162 @@ private:
           (static_cast<float>(index) / static_cast<float>(kSampleRate))
         ) * envelope * volume;
     }
-    SDL_PutAudioStreamData(
-      stream_,
-      samples.data(),
-      static_cast<int>(samples.size() * sizeof(float))
+    addVoice(std::move(samples));
+  }
+
+  void addVoice(std::vector<float> samples) {
+    if (samples.empty()) {
+      return;
+    }
+
+    removeFinishedVoices();
+    if (voices_.size() >= kMaxActiveVoices) {
+      const auto quietestTail = std::min_element(
+        voices_.begin(),
+        voices_.end(),
+        [](const SoundVoice& lhs, const SoundVoice& rhs) {
+          return remainingSamples(lhs) < remainingSamples(rhs);
+        }
+      );
+      voices_.erase(quietestTail);
+    }
+    voices_.push_back(SoundVoice{std::move(samples), 0});
+  }
+
+  void pumpAudio() {
+    if (stream_ == nullptr) {
+      return;
+    }
+
+    removeFinishedVoices();
+    const int queuedBytes = SDL_GetAudioStreamQueued(stream_);
+    int queuedSamples =
+      std::max(0, queuedBytes) / static_cast<int>(sizeof(float));
+    while ((!voices_.empty() || hasActiveLoop()) && queuedSamples < kTargetQueuedSamples) {
+      const int sampleCount =
+        std::min(kMixChunkSamples, kTargetQueuedSamples - queuedSamples);
+      mixBuffer_.assign(static_cast<std::size_t>(sampleCount), 0.0F);
+
+      for (SoundVoice& voice : voices_) {
+        const std::size_t remaining = remainingSamples(voice);
+        const std::size_t voiceSamples =
+          std::min(remaining, static_cast<std::size_t>(sampleCount));
+        for (std::size_t index = 0; index < voiceSamples; ++index) {
+          mixBuffer_[index] += voice.samples[voice.playhead + index];
+        }
+      }
+      if (hasActiveLoop()) {
+        mixLightningGunLoop(mixBuffer_);
+      }
+      for (float& sample : mixBuffer_) {
+        sample = std::clamp(sample, -0.98F, 0.98F);
+      }
+      for (SoundVoice& voice : voices_) {
+        voice.playhead += static_cast<std::size_t>(sampleCount);
+      }
+      removeFinishedVoices();
+      SDL_PutAudioStreamData(
+        stream_,
+        mixBuffer_.data(),
+        static_cast<int>(mixBuffer_.size() * sizeof(float))
+      );
+      queuedSamples += sampleCount;
+    }
+  }
+
+  void removeFinishedVoices() {
+    voices_.erase(
+      std::remove_if(
+        voices_.begin(),
+        voices_.end(),
+        [](const SoundVoice& voice) {
+          return voice.playhead >= voice.samples.size();
+        }
+      ),
+      voices_.end()
     );
   }
 
+  [[nodiscard]] static std::size_t remainingSamples(const SoundVoice& voice) {
+    if (voice.playhead >= voice.samples.size()) {
+      return 0;
+    }
+    return voice.samples.size() - voice.playhead;
+  }
+
   static constexpr int kSampleRate = 48000;
+  static constexpr int kMixChunkSamples = 256;
+  static constexpr int kTargetQueuedSamples = 1024;
+  static constexpr std::size_t kMaxActiveVoices = 32;
   SDL_AudioStream* stream_ = nullptr;
+  std::vector<SoundVoice> voices_;
+  std::vector<float> mixBuffer_;
+  bool lightningGunFireActive_ = false;
+  float lightningGunFireTargetVolume_ = 0.0F;
+  float lightningGunFireGain_ = 0.0F;
+  std::uint64_t lightningGunSampleIndex_ = 0;
 };
+
+void updateFootstepAudio(
+  FootstepAudioState& state,
+  const PlayerState& player,
+  Vec3 listenerPosition,
+  bool localPlayer,
+  float volume,
+  ClientAudio& audio
+) {
+  constexpr float kMinimumStepSpeed = 1.15F;
+  constexpr float kLandingStepSpeed = 2.0F;
+  constexpr float kBaseStrideDistance = 1.45F;
+  constexpr float kMinimumStrideDistance = 0.95F;
+
+  if (!state.initialized) {
+    state.previousPosition = player.position;
+    state.wasOnGround = player.onGround;
+    state.initialized = true;
+    return;
+  }
+
+  const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+  const Vec3 delta = player.position - state.previousPosition;
+  const float horizontalDistance = std::hypot(delta.x, delta.y);
+  const bool movingOnGround =
+    player.health > 0 && player.onGround && horizontalSpeed >= kMinimumStepSpeed;
+
+  auto playStep = [&]() {
+    float spatialVolume = volume;
+    if (!localPlayer) {
+      const Vec3 listenerDelta = player.position - listenerPosition;
+      const float distance = std::hypot(listenerDelta.x, listenerDelta.y);
+      spatialVolume *= std::clamp(1.0F - (distance / 28.0F), 0.25F, 0.70F);
+    }
+    audio.playFootstep(spatialVolume, state.stepIndex++);
+  };
+
+  if (
+    movingOnGround &&
+    !state.wasOnGround &&
+    horizontalSpeed >= kLandingStepSpeed
+  ) {
+    playStep();
+    state.distanceSinceStep = 0.0F;
+  } else if (movingOnGround) {
+    state.distanceSinceStep += horizontalDistance;
+    const float strideDistance = std::max(
+      kMinimumStrideDistance,
+      kBaseStrideDistance - (horizontalSpeed * 0.045F)
+    );
+    if (state.distanceSinceStep >= strideDistance) {
+      playStep();
+      state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
+    }
+  } else if (!player.onGround || horizontalSpeed < 0.25F) {
+    state.distanceSinceStep = 0.0F;
+  }
+
+  state.previousPosition = player.position;
+  state.wasOnGround = player.onGround;
+}
 
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
   std::istringstream stream{std::string(text)};
@@ -425,15 +656,18 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 80.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
-  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 24.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
+  console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 10.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
+  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 1.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
   console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, CvarFlag::Client, {}, {}});
-  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 8.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
+  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 6.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
-  console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 22.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
+  console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
@@ -450,6 +684,12 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"crosshair_r", "Crosshair red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_g", "Crosshair green channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_b", "Crosshair blue channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_enable", "Enable crosshair hit-color feedback.", true, archivedClient, {}, {}});
+  console.registerCvar({"crosshair_hit_r", "Crosshair hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_g", "Crosshair hit-feedback green channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_b", "Crosshair hit-feedback blue channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"crosshair_hit_duration", "Crosshair hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"crosshair_hit_fade", "Gradually blend crosshair hit color back to base.", true, archivedClient, {}, {}});
   console.registerCvar({"r_vsync", "Enable renderer vertical sync.", true, archivedClient, {}, {}});
   console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
@@ -480,12 +720,28 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_lean", "Enable Q3-style velocity lean on the enemy model.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_lean_scale", "Enemy model velocity lean multiplier; 1 approximates Q3 cg_runroll.", 1.0F, archivedClient, 0.0F, 3.0F, "cg_runroll 0.005"});
   console.registerCvar({"r_enemy_hit_enable", "Enable enemy hit-color feedback.", true, archivedClient, {}, {}});
   console.registerCvar({"r_enemy_hit_r", "Enemy hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_hit_g", "Enemy hit-feedback green channel.", 190, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_hit_b", "Enemy hit-feedback blue channel.", 198, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_hit_duration", "Enemy hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_enemy_hit_fade", "Gradually blend hit color back to the base color.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_enable", "Draw floating enemy health bars.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_damage_only", "Only show enemy health bars after recent damage.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_fade", "Fade enemy health bars during their damage-only duration.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_health_duration", "Seconds to show enemy health after damage.", 5.0F, archivedClient, 0.0F, 30.0F});
+  console.registerCvar({"r_enemy_health_max_distance", "Hide enemy health bars beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_enemy_health_width", "Floating enemy health bar width in pixels.", 72.0F, archivedClient, 12.0F, 360.0F});
+  console.registerCvar({"r_enemy_health_height", "Floating enemy health bar height in pixels.", 7.0F, archivedClient, 2.0F, 60.0F});
+  console.registerCvar({"r_enemy_health_offset_z", "Floating enemy health bar vertical world offset above the model.", 0.35F, archivedClient, -2.0F, 6.0F});
+  console.registerCvar({"r_enemy_health_offset_x", "Floating enemy health bar horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_enemy_health_offset_y", "Floating enemy health bar vertical screen offset.", -18.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_enemy_health_alpha", "Floating enemy health bar opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_health_r", "Floating enemy health bar red channel.", 224, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_health_g", "Floating enemy health bar green channel.", 82, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_health_b", "Floating enemy health bar blue channel.", 92, archivedClient, 0.0F, 255.0F});
 }
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
@@ -504,6 +760,9 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
   settings.crosshairGreen = static_cast<std::uint8_t>(console.getInt("crosshair_g"));
   settings.crosshairBlue = static_cast<std::uint8_t>(console.getInt("crosshair_b"));
+  settings.crosshairHitRed = static_cast<std::uint8_t>(console.getInt("crosshair_hit_r"));
+  settings.crosshairHitGreen = static_cast<std::uint8_t>(console.getInt("crosshair_hit_g"));
+  settings.crosshairHitBlue = static_cast<std::uint8_t>(console.getInt("crosshair_hit_b"));
   settings.beamWidth = console.getFloat("r_beam_width");
   settings.beamAlpha = console.getFloat("r_beam_alpha");
   settings.beamRed = static_cast<std::uint8_t>(console.getInt("r_beam_r"));
@@ -536,12 +795,37 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.enemyGreen = static_cast<std::uint8_t>(console.getInt("r_enemy_g"));
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
+  settings.enemyLeanEnabled = console.getBool("r_enemy_lean");
+  settings.enemyLeanScale = console.getFloat("r_enemy_lean_scale");
   settings.enemyHitRed =
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_r"));
   settings.enemyHitGreen =
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_g"));
   settings.enemyHitBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_b"));
+  settings.enemyHealthBarEnabled = console.getBool("r_enemy_health_enable");
+  settings.enemyHealthBarDamageOnly =
+    console.getBool("r_enemy_health_damage_only");
+  settings.enemyHealthBarFade = console.getBool("r_enemy_health_fade");
+  settings.enemyHealthBarVisibleDuration =
+    console.getFloat("r_enemy_health_duration");
+  settings.enemyHealthBarMaxDistance =
+    console.getFloat("r_enemy_health_max_distance");
+  settings.enemyHealthBarWidth = console.getFloat("r_enemy_health_width");
+  settings.enemyHealthBarHeight = console.getFloat("r_enemy_health_height");
+  settings.enemyHealthBarWorldOffsetZ =
+    console.getFloat("r_enemy_health_offset_z");
+  settings.enemyHealthBarScreenOffsetX =
+    console.getFloat("r_enemy_health_offset_x");
+  settings.enemyHealthBarScreenOffsetY =
+    console.getFloat("r_enemy_health_offset_y");
+  settings.enemyHealthBarAlpha = console.getFloat("r_enemy_health_alpha");
+  settings.enemyHealthBarRed =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_health_r"));
+  settings.enemyHealthBarGreen =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_health_g"));
+  settings.enemyHealthBarBlue =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_health_b"));
   settings.showLagCompensation = console.getBool("cl_show_lagcomp");
   return settings;
 }
@@ -742,6 +1026,39 @@ void populateScoreboard(
   }
 }
 
+std::size_t firstRemotePlayerIndex(
+  const ServerSnapshot& snapshot,
+  std::size_t localPlayerIndex
+) {
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (index != localPlayerIndex && snapshot.connectedPlayers[index]) {
+      return index;
+    }
+  }
+  if (snapshot.botDodgeEnabled) {
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      if (
+        index != localPlayerIndex &&
+        !snapshot.connectedPlayers[index] &&
+        snapshot.players[index].health > 0
+      ) {
+        return index;
+      }
+    }
+  }
+  return localPlayerIndex;
+}
+
+std::size_t leadingScoreIndex(const ServerSnapshot& snapshot) {
+  std::size_t leaderIndex = 0;
+  for (std::size_t index = 1; index < kDuelPlayerCount; ++index) {
+    if (snapshot.scores[index] > snapshot.scores[leaderIndex]) {
+      leaderIndex = index;
+    }
+  }
+  return leaderIndex;
+}
+
 HudRenderState buildHud(const ClientSession& session) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
@@ -752,13 +1069,16 @@ HudRenderState buildHud(const ClientSession& session) {
   const ClientGame& client = *session.game();
   const ServerSnapshot& snapshot = client.snapshot();
   const std::size_t localPlayerIndex = session.playerIndex();
-  const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
+  const std::size_t remotePlayerIndex =
+    firstRemotePlayerIndex(snapshot, localPlayerIndex);
+  const std::size_t leaderIndex = leadingScoreIndex(snapshot);
   const std::size_t connectedCount = static_cast<std::size_t>(std::count(
     snapshot.connectedPlayers.begin(),
     snapshot.connectedPlayers.end(),
     true
   ));
 
+  hud.healthAmount = snapshot.healthAmount;
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
@@ -768,8 +1088,8 @@ HudRenderState buildHud(const ClientSession& session) {
     std::to_string(kDuelPlayerCount)
   );
   hud.topRightLines.push_back(
-    "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) + " - " +
-    std::to_string(snapshot.scores[opponentPlayerIndex]) + " / " +
+    "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
+    "  LEAD " + std::to_string(snapshot.scores[leaderIndex]) + " / " +
     std::to_string(snapshot.matchRules.roundLimit)
   );
   if (snapshot.matchRules.timeLimitMinutes > 0) {
@@ -786,7 +1106,7 @@ HudRenderState buildHud(const ClientSession& session) {
       std::to_string(remainingSeconds % 60U)
     );
   }
-  if (snapshot.matchRules.showOpponentHealth) {
+  if (snapshot.matchRules.showOpponentHealth && remotePlayerIndex != localPlayerIndex) {
     hud.showOpponentHealthBar = true;
   }
 
@@ -827,9 +1147,11 @@ HudRenderState buildHud(const ClientSession& session) {
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
     );
-    hud.centerLines.push_back(
-      roundStatsLine("OPP", snapshot.roundCombatStats[opponentPlayerIndex])
-    );
+    if (remotePlayerIndex != localPlayerIndex) {
+      hud.centerLines.push_back(
+        roundStatsLine("REM", snapshot.roundCombatStats[remotePlayerIndex])
+      );
+    }
     break;
   case MatchPhase::MatchEnd:
     hud.centerLines.push_back(
@@ -838,9 +1160,11 @@ HudRenderState buildHud(const ClientSession& session) {
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
     );
-    hud.centerLines.push_back(
-      roundStatsLine("OPP", snapshot.roundCombatStats[opponentPlayerIndex])
-    );
+    if (remotePlayerIndex != localPlayerIndex) {
+      hud.centerLines.push_back(
+        roundStatsLine("REM", snapshot.roundCombatStats[remotePlayerIndex])
+      );
+    }
     break;
   case MatchPhase::Live:
     hud.centerLines.clear();
@@ -995,6 +1319,9 @@ int GameApp::run() const {
   int scoreboardPressCount = 0;
   int zoomPressCount = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
+  Weapon viewWeapon = Weapon::LightningGun;
+  Weapon previousViewWeapon = Weapon::LightningGun;
+  float weaponSwitchSeconds = 1.0F;
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
@@ -1447,6 +1774,7 @@ int GameApp::run() const {
   auto previousTime = Clock::now();
   float accumulatorSeconds = 0.0F;
   float titleAccumulatorSeconds = 0.0F;
+  constexpr float kWeaponSwitchDurationSeconds = 0.16F;
   float droppedSimulationSeconds = 0.0F;
   std::uint32_t overloadFrameCount = 0;
   std::uint32_t renderedFrameCount = 0;
@@ -1483,9 +1811,17 @@ int GameApp::run() const {
   std::uint32_t lastAudioCountdownSecond = 0;
   bool previousLocalHit = false;
   bool audioStateInitialized = false;
+  bool hasLocalPlayerAliveState = false;
+  bool wasLocalPlayerAlive = false;
   bool hasEnemyHitTime = false;
   Clock::time_point lastEnemyHitTime = {};
+  std::uint8_t lastEnemyHitTarget = 255;
+  std::array<int, kDuelPlayerCount> lastRemoteHealth = {};
+  std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
+  std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
+  std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringRailBeam, kDuelPlayerCount> lingeringRailBeams = {};
+  std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   while (running) {
     SDL_Event event;
@@ -1760,6 +2096,15 @@ int GameApp::run() const {
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
     previousTime = now;
     titleAccumulatorSeconds += elapsed.count();
+    if (selectedWeapon != viewWeapon) {
+      previousViewWeapon = viewWeapon;
+      viewWeapon = selectedWeapon;
+      weaponSwitchSeconds = 0.0F;
+    }
+    weaponSwitchSeconds = std::min(
+      kWeaponSwitchDurationSeconds,
+      weaponSwitchSeconds + elapsed.count()
+    );
 
     const FixedTickFrame fixedTickFrame = planFixedTicks(
       accumulatorSeconds,
@@ -1833,7 +2178,8 @@ int GameApp::run() const {
         lastRequestedBotDodgeMinIntervalMs,
         lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
-        std::move(pendingPlayerName)
+        std::move(pendingPlayerName),
+        console.getInt("cl_interp_mode") != 0
       );
       chatState.pendingMessage.clear();
       pendingPlayerName.clear();
@@ -1862,8 +2208,12 @@ int GameApp::run() const {
       hasLocalRailFireTick = false;
       localRailReadySoundPlayed = true;
       previousLocalHit = false;
+      hasLocalPlayerAliveState = false;
+      wasLocalPlayerAlive = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
+      footstepAudioStates = {};
+      audio.resetLightningGunFire();
     }
     if (
       audioAvailable &&
@@ -1876,10 +2226,23 @@ int GameApp::run() const {
         audioSnapshot.serverTick != lastAudioServerTick
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
+        const bool localPlayerAlive =
+          currentAudioGame->predictedPlayer().health > 0;
+        if (
+          hasLocalPlayerAliveState &&
+          wasLocalPlayerAlive &&
+          !localPlayerAlive
+        ) {
+          audio.resetLightningGunFire();
+        }
+        hasLocalPlayerAliveState = true;
+        wasLocalPlayerAlive = localPlayerAlive;
+
         const bool localHit =
           audioSnapshot.lightningGuns[localPlayerIndex].hit;
         const float volume = console.getFloat("s_volume");
         const bool soundEnabled = console.getBool("s_enable");
+        const float footstepVolume = volume * console.getFloat("s_footstep_volume");
         constexpr std::uint32_t kHitSoundIntervalTicks = 10;
         if (
           soundEnabled &&
@@ -1897,8 +2260,25 @@ int GameApp::run() const {
           );
           lastHitSoundServerTick = audioSnapshot.serverTick;
         }
+        if (audioStateInitialized) {
+          for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+            const bool localPlayer = playerIndex == localPlayerIndex;
+            const PlayerState footstepPlayer = localPlayer
+              ? currentAudioGame->predictedPlayer()
+              : audioSnapshot.players[playerIndex];
+            updateFootstepAudio(
+              footstepAudioStates[playerIndex],
+              footstepPlayer,
+              currentAudioGame->predictedPlayer().position,
+              localPlayer,
+              soundEnabled ? footstepVolume : 0.0F,
+              audio
+            );
+          }
+        }
         if (soundEnabled && audioStateInitialized) {
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+
             const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
             const bool localWeaponEvent = playerIndex == localPlayerIndex;
             if (
@@ -1996,6 +2376,29 @@ int GameApp::run() const {
         audioStateInitialized = true;
       }
     }
+    if (audioAvailable) {
+      const bool localLightningGunFiring =
+        console.getBool("s_enable") &&
+        selectedWeapon == Weapon::LightningGun &&
+        input.attack > 0 &&
+        !consoleState.open &&
+        !chatState.inputOpen &&
+        currentAudioGame != nullptr &&
+        currentAudioGame->hasSnapshot() &&
+        currentAudioGame->predictedPlayer().health > 0;
+      audio.setLightningGunFire(
+        localLightningGunFiring,
+        localLightningGunFiring ? console.getFloat("s_volume") : 0.0F
+      );
+      audio.update();
+    }
+    if (ClientGame* interpolationGame = session.game();
+        interpolationGame != nullptr && interpolationGame->hasSnapshot()) {
+      interpolationGame->advanceInterpolation(
+        elapsed.count(),
+        console.getFloat("cl_interp")
+      );
+    }
 
     ++renderedFrameCount;
     if (titleAccumulatorSeconds >= 0.1F) {
@@ -2068,10 +2471,10 @@ int GameApp::run() const {
       0.0F,
       1.0F
     );
+    const bool bufferedInterpolation = console.getInt("cl_interp_mode") != 0;
     PlayerState renderPlayer;
-    PlayerState renderOpponent;
     LightningGunResult renderLocalLightningGun;
-    LightningGunResult renderOpponentLightningGun;
+    std::array<RemotePlayerView, kDuelPlayerCount> renderRemotePlayers = {};
     std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
     std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
     std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
@@ -2080,22 +2483,53 @@ int GameApp::run() const {
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
       renderLocalPlayerIndex = localPlayerIndex;
-      const std::size_t opponentPlayerIndex = 1U - localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
-      renderOpponent = renderClient->interpolatedPlayer(
-        opponentPlayerIndex,
-        interpolationAlpha
-      );
       const ServerSnapshot& renderSnapshot = renderClient->snapshot();
+      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        if (playerIndex == localPlayerIndex) {
+          continue;
+        }
+        const bool connectedRemote = renderSnapshot.connectedPlayers[playerIndex];
+        const bool botRemote =
+          renderSnapshot.botDodgeEnabled &&
+          !connectedRemote &&
+          renderSnapshot.players[playerIndex].health > 0;
+        if (!connectedRemote && !botRemote) {
+          continue;
+        }
+        renderRemotePlayers[playerIndex] = RemotePlayerView{
+          bufferedInterpolation
+            ? renderClient->interpolatedPlayer(playerIndex)
+            : renderClient->interpolatedPlayer(playerIndex, interpolationAlpha),
+          renderSnapshot.lightningGuns[playerIndex],
+          0.0F,
+          1.0F,
+          true,
+        };
+        const int currentRemoteHealth =
+          renderSnapshot.players[playerIndex].health;
+        if (
+          hasLastRemoteHealth[playerIndex] &&
+          currentRemoteHealth < lastRemoteHealth[playerIndex]
+        ) {
+          lastRemoteDamageTime[playerIndex] = now;
+          hasLastRemoteDamageTime[playerIndex] = true;
+        }
+        lastRemoteHealth[playerIndex] = currentRemoteHealth;
+        hasLastRemoteHealth[playerIndex] = true;
+      }
       renderLocalLightningGun =
         renderSnapshot.lightningGuns[localPlayerIndex];
-      renderOpponentLightningGun =
-        renderSnapshot.lightningGuns[opponentPlayerIndex];
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    currentRenderSettings.hasRemotePlayer = std::any_of(
+      renderRemotePlayers.begin(),
+      renderRemotePlayers.end(),
+      [](const RemotePlayerView& remote) { return remote.visible; }
+    );
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       WeaponFireResult& currentFire = renderWeaponFires[playerIndex];
       LingeringRailBeam& lingeringBeam = lingeringRailBeams[playerIndex];
@@ -2143,6 +2577,7 @@ int GameApp::run() const {
     );
     if (renderLocalLightningGun.hit) {
       lastEnemyHitTime = now;
+      lastEnemyHitTarget = renderLocalLightningGun.targetPlayerIndex;
       hasEnemyHitTime = true;
     }
     const float elapsedSinceHit = hasEnemyHitTime
@@ -2158,14 +2593,15 @@ int GameApp::run() const {
         }
         return fade ? 1.0F - (elapsedSinceHit / duration) : 1.0F;
       };
-    if (
-      console.getBool("r_enemy_hit_enable") &&
-      hasEnemyHitTime
-    ) {
-      currentRenderSettings.enemyHitAmount = hitFeedbackAmount(
+    currentRenderSettings.enemyHitAmount = 0.0F;
+    if (console.getBool("r_enemy_hit_enable") && hasEnemyHitTime) {
+      const float enemyHitAmount = hitFeedbackAmount(
         console.getFloat("r_enemy_hit_duration"),
         console.getBool("r_enemy_hit_fade")
       );
+      if (lastEnemyHitTarget < renderRemotePlayers.size()) {
+        renderRemotePlayers[lastEnemyHitTarget].enemyHitAmount = enemyHitAmount;
+      }
     }
     if (console.getBool("r_beam_hit_enable")) {
       currentRenderSettings.beamHitAmount = hitFeedbackAmount(
@@ -2173,11 +2609,40 @@ int GameApp::run() const {
         console.getBool("r_beam_hit_fade")
       );
     }
+    if (console.getBool("crosshair_hit_enable")) {
+      currentRenderSettings.crosshairHitAmount = hitFeedbackAmount(
+        console.getFloat("crosshair_hit_duration"),
+        console.getBool("crosshair_hit_fade")
+      );
+    }
     if (currentRenderSettings.hitMarkerEnabled) {
       currentRenderSettings.hitMarkerAmount = hitFeedbackAmount(
         console.getFloat("r_hitmarker_duration"),
         true
       );
+    }
+    if (currentRenderSettings.enemyHealthBarDamageOnly) {
+      const float duration =
+        currentRenderSettings.enemyHealthBarVisibleDuration;
+      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+        RemotePlayerView& remote = renderRemotePlayers[playerIndex];
+        if (!remote.visible) {
+          continue;
+        }
+        if (!hasLastRemoteDamageTime[playerIndex] || duration <= 0.0F) {
+          remote.enemyHealthAlpha = 0.0F;
+          continue;
+        }
+        const float elapsed =
+          std::chrono::duration<float>(now - lastRemoteDamageTime[playerIndex]).count();
+        if (elapsed >= duration) {
+          remote.enemyHealthAlpha = 0.0F;
+          continue;
+        }
+        remote.enemyHealthAlpha = currentRenderSettings.enemyHealthBarFade
+          ? 1.0F - (elapsed / duration)
+          : 1.0F;
+      }
     }
     currentRenderSettings.playerSizePixels =
       14.0F * (renderPlayer.bounds.radius / 0.35F);
@@ -2208,6 +2673,11 @@ int GameApp::run() const {
     }
 
     HudRenderState hud = buildHud(session);
+    hud.selectedWeapon = selectedWeapon;
+    hud.previousWeapon = previousViewWeapon;
+    hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F
+      ? weaponSwitchSeconds / kWeaponSwitchDurationSeconds
+      : 1.0F;
     if (
       console.getBool("cl_showspeed") &&
       session.game() != nullptr &&
@@ -2278,9 +2748,8 @@ int GameApp::run() const {
     renderer.render(
       arena,
       renderPlayer,
-      renderOpponent,
+      renderRemotePlayers,
       renderLocalLightningGun,
-      renderOpponentLightningGun,
       renderWeaponFires,
       renderRocketExplosions,
       renderRockets,

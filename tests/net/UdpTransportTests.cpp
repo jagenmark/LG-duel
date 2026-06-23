@@ -3,6 +3,7 @@
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cstdint>
 #include <iostream>
@@ -257,6 +258,72 @@ int main() {
       server.snapshot().matchPhase == lg::MatchPhase::WaitingForPlayers,
     "explicit disconnect should immediately return the server to lobby state"
   );
+
+  {
+    lg::UdpServerTransport multiServerTransport(0);
+    failures += expect(
+      multiServerTransport.initialize(),
+      "multi-client UDP server should bind an ephemeral port"
+    );
+    if (failures != 0) {
+      return 1;
+    }
+
+    lg::ServerGame multiServer(multiServerTransport);
+    multiServer.setConnectedPlayers({});
+    std::array<std::unique_ptr<lg::UdpClientTransport>, lg::kDuelPlayerCount>
+      clients = {};
+    for (std::size_t index = 0; index < clients.size(); ++index) {
+      clients[index] = std::make_unique<lg::UdpClientTransport>(
+        "127.0.0.1",
+        multiServerTransport.localPort()
+      );
+      failures += expect(
+        clients[index]->initialize(),
+        "extra UDP client should initialize"
+      );
+    }
+    if (failures != 0) {
+      return 1;
+    }
+
+    for (int iteration = 0; iteration < 400; ++iteration) {
+      for (const auto& client : clients) {
+        client->update();
+      }
+      multiServerTransport.update();
+      multiServer.setConnectedPlayers(multiServerTransport.connectedPlayers());
+      multiServer.tick(lg::kFixedTickSeconds);
+      for (const auto& client : clients) {
+        client->update();
+      }
+      const bool allConnected = std::all_of(
+        clients.begin(),
+        clients.end(),
+        [](const auto& client) { return client->connected(); }
+      );
+      if (allConnected) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    std::array<bool, lg::kDuelPlayerCount> seenSlots = {};
+    for (const auto& client : clients) {
+      failures += expect(client->connected(), "all six UDP clients should connect");
+      if (client->connected() && client->playerIndex() < lg::kDuelPlayerCount) {
+        seenSlots[client->playerIndex()] = true;
+      }
+    }
+    failures += expect(
+      std::all_of(seenSlots.begin(), seenSlots.end(), [](bool seen) { return seen; }),
+      "six UDP clients should receive unique player slots"
+    );
+    failures += expect(
+      multiServerTransport.connectedClientCount() == lg::kDuelPlayerCount,
+      "server should track six UDP clients"
+    );
+  }
 
   return failures == 0 ? 0 : 1;
 }

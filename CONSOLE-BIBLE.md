@@ -102,6 +102,8 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed. Intern hastighet multipliceras med `40`, så `8 = 320 UPS`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
 | `cl_show_lagcomp` | bool | `0` | bool | Ingen | Arkiv | Visar nuvarande och rewound hitbox samt lag-comp-data. |
+| `cl_interp_mode` | int | `1` | `0..1` | Ingen | Arkiv | Remote interpolation mode. `0`: legacy senaste snapshot-par + lokal render-alpha och gammal viewed tick. `1`: buffrad interpolation med `cl_interp`. |
+| `cl_interp` | float | `0.024` | `0..0.25` | 3 ticks vid 125 Hz | Arkiv | Remote player snapshot interpolation delay i sekunder. Lägre värde minskar visuell latency men kräver jämnare snapshots; högre värde döljer jitter bättre. |
 
 ### 3.2 Ljud
 
@@ -109,6 +111,7 @@ SDL_Renderer om GPU-initiering misslyckas.
 |---|---:|---:|---|---|---|---|
 | `s_enable` | bool | `1` | bool | Ingen direkt | Arkiv | Slår av/på klientens ljudeffekter. |
 | `s_volume` | float | `0.35` | `0..1` | Ingen direkt | Arkiv | Volym för hit-, countdown- och round-ljud. |
+| `s_footstep_volume` | float | `0.45` | `0..1` | Ingen direkt | Arkiv | Separat fotstegsvolym. Multipliceras med `s_volume`. |
 
 ### 3.3 Serverstyrd movement och gameplay
 
@@ -120,13 +123,13 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 
 | Cvar | Typ | Projektdefault | Giltigt | Q3/QL-default eller ekvivalent | Funktion |
 |---|---:|---:|---|---|---|
-| `g_accel` | float | `80` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. |
-| `g_airaccel` | float | `24` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. |
+| `g_accel` | float | `10` | `0..1000` | `pm_accelerate 10` | Markacceleration mot `g_maxspeed`. |
+| `g_airaccel` | float | `1` | `0..1000` | `pm_airaccelerate 1` | Acceleration i luften. |
 | `g_aircontrol` | bool | `0` | bool | Q3/QL: `0`, QW-style: `1` | Vaxlar extra air control. `0` behaller Q3/QL-kansla utan QuakeWorld-lik styrning i luften. `1` later forward-input vrida horisontell luftfart mot siktriktningen utan att direkt ge gratis fart. |
-| `g_friction` | float | `8` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
+| `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
 | `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. |
 | `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. |
-| `g_knockback` | float | `22` | `0..1000` | Q3 `g_knockback 1000`; inte samma interna enhet | LG-knockback per sekund. |
+| `g_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. |
 | `g_vampirism` | float | `0` | `0..2` | Ingen standardmekanik | Healing som multipel av utdelad skada. `0.1 = 10%`, `1 = 100%`, `2 = 200%`. Fraktioner ackumuleras och avrundas när helt HP kan delas ut. |
 | `g_selfdamage` | float | `100` | `0..100` | `100` | Procent av egen splash-damage som appliceras. Värdet rundas till närmaste heltal innan det skickas till servern. |
 | `g_healthamount` | int | `100` | `1..100000` | `100` | HP som varje spelare startar med vid spawn, rundstart och warmup-respawn. |
@@ -150,6 +153,12 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `crosshair_r` | int | `255` | `0..255` | Ingen direkt standard | Röd kanal. |
 | `crosshair_g` | int | `255` | `0..255` | Ingen direkt standard | Grön kanal. |
 | `crosshair_b` | int | `255` | `0..255` | Ingen direkt standard | Blå kanal. |
+| `crosshair_hit_enable` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på crosshair vid träff. |
+| `crosshair_hit_r` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, röd. |
+| `crosshair_hit_g` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, grön. |
+| `crosshair_hit_b` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, blå. |
+| `crosshair_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen direkt | Hur länge träfffärgen ligger kvar. |
+| `crosshair_hit_fade` | bool | `1` | bool | Ingen direkt | `1`: gradvis återgång. `0`: binär färg tills durationen löper ut. |
 
 ### 3.5 Renderer och lokal LG-beam
 
@@ -201,6 +210,8 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_g` | int | `82` | `0..255` | Ingen exakt 1:1-default | Modellens grönkanal. |
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
+| `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad model lean | Slår på/av velocity lean för motståndarmodellen i 3D. Påverkar bara renderad modell, inte lokal POV, simulation, aim, hitboxar eller nätkod. |
+| `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för motståndarmodellens velocity lean. `1` motsvarar ungefär Q3-standard, `0` ger ingen lean även om `r_enemy_lean` är på. |
 | `r_enemy_hit_enable` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
 | `r_enemy_hit_r` | int | `255` | `0..255` | Ingen | Träfffärg röd. |
 | `r_enemy_hit_g` | int | `190` | `0..255` | Ingen | Träfffärg grön. |
@@ -355,7 +366,7 @@ omstart.
 |---|---:|---:|---|---|---|
 | `sv_roundlimit` | int | `10` | `1..100` | Ingen direkt Q3 roundlimit-standard | Antal vunna rundor som krävs för matchvinst. |
 | `sv_timelimit` | int | `0` | `0..120` minuter | Q3 `timelimit 0` | Matchtid; `0` stänger av tidsgränsen. |
-| `sv_playerlimit` | int | `2` | `1..2` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
+| `sv_playerlimit` | int | `2` | `1..6` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
 | `sv_roundend` | float | `1` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
 | `sv_matchend` | float | `5` | `0..60` sekunder | Ingen direkt | Delay efter matchvinst innan reset till ready-up. |
@@ -368,7 +379,7 @@ Servern stöder även samtliga inbyggda kommandon i avsnitt 4.1.
 | Kommando | Funktion |
 |---|---|
 | `resetmatch` | Nollställer score och återgår till ready-up. |
-| `status` | Skriver `players=<n> phase=<id> score=<a>-<b>`. |
+| `status` | Skriver `players=<n> phase=<id> score=<p1>-<p2>-...-<p6>`. |
 
 `phase` använder:
 
@@ -440,9 +451,9 @@ resetmatch
 
 ## 10. Kända gränser
 
-- Nuvarande nätprotokoll och simulation har exakt `2` spelarslots.
-- `sv_playerlimit` kan därför bara vara `1` eller `2`; det skapar inte fler
-  slots.
+- Nuvarande nätprotokoll och simulation har upp till `6` spelarslots.
+- `sv_playerlimit` kan vara `1..6` och styr hur många anslutna spelare som
+  krävs för att matchflödet ska börja.
 - Klientens gameplay-`g_*` är serverstyrda genom nätprotokollet men ställs från
   klientkonsolen. Serverns stdin-konsol registrerar i nuläget inte dessa `g_*`.
 - `client.cfg` arkiverar client/render/audio-cvars och bindings, inte gameplay

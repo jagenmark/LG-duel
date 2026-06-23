@@ -125,6 +125,69 @@ int main() {
         nearlyEqual(speedBar->points[1].x - speedBar->points[0].x, 110.0F),
       "speed diagnostic should preserve its existing normalized width"
     );
+
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
+    remotePlayers[1] = lg::RemotePlayerView{opponent, inactiveBeam, 0.0F, 1.0F, true};
+    lg::PlayerState secondOpponent = opponent;
+    secondOpponent.position.y += 2.0F;
+    remotePlayers[2] = lg::RemotePlayerView{secondOpponent, inactiveBeam, 0.0F, 1.0F, true};
+    const lg::DrawList2D multiScene = lg::buildTopDownScene(
+      800,
+      720,
+      arena,
+      player,
+      remotePlayers,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings,
+      hud
+    );
+    std::size_t opponentQuadCount = 0;
+    for (const lg::DrawCommand2D& command : multiScene.commands) {
+      const auto* quad = std::get_if<lg::FilledQuad2D>(&command);
+      if (quad != nullptr && sameColor(quad->color, {224, 82, 92, 255})) {
+        ++opponentQuadCount;
+      }
+    }
+    failures += expect(
+      opponentQuadCount >= 2,
+      "top-down scene should draw multiple remote player markers"
+    );
+    remotePlayers[1].enemyHitAmount = 1.0F;
+    remotePlayers[2].enemyHitAmount = 0.0F;
+    const lg::DrawList2D hitScene = lg::buildTopDownScene(
+      800,
+      720,
+      arena,
+      player,
+      remotePlayers,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings,
+      hud
+    );
+    std::size_t highlightedOpponentCount = 0;
+    std::size_t normalOpponentCount = 0;
+    for (const lg::DrawCommand2D& command : hitScene.commands) {
+      const auto* quad = std::get_if<lg::FilledQuad2D>(&command);
+      if (quad == nullptr) {
+        continue;
+      }
+      if (sameColor(quad->color, {255, 190, 198, 255})) {
+        ++highlightedOpponentCount;
+      }
+      if (sameColor(quad->color, {224, 82, 92, 255})) {
+        ++normalOpponentCount;
+      }
+    }
+    failures += expect(
+      highlightedOpponentCount >= 1 && normalOpponentCount >= 1,
+      "enemy hit tint should apply only to the hit remote player"
+    );
   }
 
   {

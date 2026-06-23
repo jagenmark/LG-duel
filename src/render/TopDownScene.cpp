@@ -61,8 +61,8 @@ struct ViewProjection {
   );
 }
 
-[[nodiscard]] RenderColor enemyColor(const RenderSettings& settings) {
-  const float amount = std::clamp(settings.enemyHitAmount, 0.0F, 1.0F);
+[[nodiscard]] RenderColor enemyColor(const RenderSettings& settings, float hitAmount) {
+  const float amount = std::clamp(hitAmount, 0.0F, 1.0F);
   return {
     blendChannel(settings.enemyRed, settings.enemyHitRed, amount),
     blendChannel(settings.enemyGreen, settings.enemyHitGreen, amount),
@@ -391,9 +391,8 @@ DrawList2D buildTopDownScene(
   int outputHeight,
   const Arena& arena,
   const PlayerState& player,
-  const PlayerState& opponent,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
-  const LightningGunResult& opponentLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
@@ -535,7 +534,11 @@ DrawList2D buildTopDownScene(
         addHitMarker(drawList.commands, end);
       }
     };
-  addBeam(opponentLightningGun, false);
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (remote.visible) {
+      addBeam(remote.lightningGun, false);
+    }
+  }
   addBeam(localLightningGun, true);
 
   for (const WeaponFireResult& fire : weaponFires) {
@@ -586,33 +589,60 @@ DrawList2D buildTopDownScene(
   }
 
   const ScreenPoint playerScreen = worldToScreen(view, player.position);
-  const ScreenPoint opponentScreen = worldToScreen(view, opponent.position);
   const float playerSize = settings.playerSizePixels;
   const float radius = playerSize * 0.5F;
-  addFilledRect(
-    drawList.commands,
-    opponentScreen.x - radius,
-    opponentScreen.y - radius,
-    playerSize,
-    playerSize,
-    enemyColor(settings)
-  );
 
-  if (hud.showOpponentHealthBar) {
-    const float healthRatio =
-      std::clamp(static_cast<float>(opponent.health) / 100.0F, 0.0F, 1.0F);
-    const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
-    const float healthBarOffset = playerSize + 2.0F;
-    const float healthBarHeight =
-      std::max(2.0F, playerSize * (4.0F / 14.0F));
+  for (const RemotePlayerView& remote : remotePlayers) {
+    if (!remote.visible) {
+      continue;
+    }
+    const ScreenPoint opponentScreen = worldToScreen(view, remote.player.position);
     addFilledRect(
       drawList.commands,
-      opponentScreen.x - healthBarHalfWidth,
-      opponentScreen.y - healthBarOffset,
-      healthBarHalfWidth * 2.0F * healthRatio,
-      healthBarHeight,
-      {224, 82, 92, 255}
+      opponentScreen.x - radius,
+      opponentScreen.y - radius,
+      playerSize,
+      playerSize,
+      enemyColor(settings, remote.enemyHitAmount)
     );
+
+    if (
+      hud.showOpponentHealthBar &&
+      settings.enemyHealthBarEnabled &&
+      remote.enemyHealthAlpha > 0.0F
+    ) {
+      const float healthRatio =
+        std::clamp(
+          static_cast<float>(remote.player.health) /
+            std::max(1.0F, static_cast<float>(hud.healthAmount)),
+          0.0F,
+          1.0F
+        );
+      const float healthBarHalfWidth = playerSize * (18.0F / 14.0F);
+      const float healthBarOffset = playerSize + 2.0F;
+      const float healthBarHeight =
+        std::max(2.0F, playerSize * (4.0F / 14.0F));
+      const std::uint8_t healthAlpha = static_cast<std::uint8_t>(
+        std::clamp(
+          255.0F * remote.enemyHealthAlpha * settings.enemyHealthBarAlpha,
+          0.0F,
+          255.0F
+        )
+      );
+      addFilledRect(
+        drawList.commands,
+        opponentScreen.x - healthBarHalfWidth,
+        opponentScreen.y - healthBarOffset,
+        healthBarHalfWidth * 2.0F * healthRatio,
+        healthBarHeight,
+        {
+          settings.enemyHealthBarRed,
+          settings.enemyHealthBarGreen,
+          settings.enemyHealthBarBlue,
+          healthAlpha
+        }
+      );
+    }
   }
 
   addFilledRect(
@@ -656,6 +686,43 @@ DrawList2D buildTopDownScene(
   );
 
   return drawList;
+}
+
+DrawList2D buildTopDownScene(
+  int outputWidth,
+  int outputHeight,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+) {
+  std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
+  remotePlayers[0] = RemotePlayerView{
+    opponent,
+    opponentLightningGun,
+    settings.enemyHitAmount,
+    1.0F,
+    settings.hasRemotePlayer,
+  };
+  return buildTopDownScene(
+    outputWidth,
+    outputHeight,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings,
+    hud
+  );
 }
 
 } // namespace lg

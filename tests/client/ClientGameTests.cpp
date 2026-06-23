@@ -416,5 +416,148 @@ int main() {
     );
   }
 
+  {
+    lg::SnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+
+    interpolation.advance(lg::kFixedTickSeconds * 20.0F);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "presentation interpolation should stay behind the newest snapshot"
+    );
+
+    lg::ServerSnapshot duplicate;
+    duplicate.serverTick = 5;
+    duplicate.players[1].position.x = 50.0F;
+    interpolation.push(duplicate);
+    interpolation.advance(lg::kFixedTickSeconds);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "duplicate snapshot ticks should not disturb presentation interpolation"
+    );
+
+    lg::ServerSnapshot next;
+    next.serverTick = 6;
+    next.players[1].position.x = 6.0F;
+    interpolation.push(next);
+    interpolation.advance(lg::kFixedTickSeconds);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 3.0F),
+      "presentation interpolation should advance monotonically as newer snapshots arrive"
+    );
+  }
+
+  {
+    lg::SnapshotInterpolation interpolation;
+    constexpr std::uint32_t largeServerTick = 1U << 24U;
+    for (std::uint32_t offset = 0; offset <= 5; ++offset) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = largeServerTick + offset;
+      snapshot.players[1].position.x = static_cast<float>(offset);
+      interpolation.push(snapshot);
+    }
+
+    interpolation.advance(lg::kFixedTickSeconds * 20.0F, 0.024F);
+    failures += expect(
+      interpolation.presentationServerTick() == largeServerTick + 2U,
+      "presentation tick should remain exact after long server uptime"
+    );
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "presentation interpolation should not drift after long server uptime"
+    );
+  }
+
+  {
+    lg::SnapshotInterpolation interpolation;
+    constexpr std::uint32_t tickCount = 1000;
+    for (std::uint32_t tick = 0; tick <= tickCount; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+      interpolation.advance(lg::kFixedTickSeconds * 0.98F, 0.024F);
+    }
+
+    failures += expect(
+      interpolation.presentationServerTick() == tickCount - 3U,
+      "presentation interpolation should stay anchored to snapshot delay over time"
+    );
+    failures += expect(
+      nearlyEqual(
+        interpolation.player(1).position.x,
+        static_cast<float>(tickCount - 3U),
+        0.5F
+      ),
+      "remote player interpolation should not accumulate local clock drift"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[0] = groundedPlayer();
+      snapshot.players[1] = groundedPlayer();
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      transport.sendSnapshot(snapshot);
+    }
+    client.receiveSnapshots();
+    client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
+
+    lg::UserCommand attack;
+    attack.sequence = 40;
+    attack.attack = true;
+    client.sendCommand(attack, false);
+
+    lg::CommandPacket sent;
+    failures += expect(
+      transport.receiveCommand(sent),
+      "ClientGame should emit a command packet"
+    );
+    failures += expect(
+      sent.viewedServerTick == 2,
+      "ClientGame should send the presented server tick for lag compensation"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    constexpr std::uint32_t largeServerTick = 1U << 24U;
+    for (std::uint32_t offset = 0; offset <= 5; ++offset) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = largeServerTick + offset;
+      snapshot.players[0] = groundedPlayer();
+      snapshot.players[1] = groundedPlayer();
+      snapshot.players[1].position.x = static_cast<float>(offset);
+      transport.sendSnapshot(snapshot);
+    }
+    client.receiveSnapshots();
+    client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
+
+    lg::UserCommand attack;
+    attack.sequence = 41;
+    attack.attack = true;
+    client.sendCommand(attack, false);
+
+    lg::CommandPacket sent;
+    failures += expect(
+      transport.receiveCommand(sent),
+      "ClientGame should emit a high-uptime command packet"
+    );
+    failures += expect(
+      sent.viewedServerTick == largeServerTick + 2U,
+      "ClientGame should send an exact presented server tick after long uptime"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }
