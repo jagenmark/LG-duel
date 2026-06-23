@@ -53,6 +53,17 @@ int main() {
     "string cvar should register"
   );
   failures += expect(
+    console.registerCvar({
+      "cl_show_lagcomp",
+      "Show lag compensation traces.",
+      false,
+      lg::CvarFlag::Client,
+      {},
+      {},
+    }),
+    "lag compensation cvar should register"
+  );
+  failures += expect(
     console.registerCommand(
       "echo",
       "Echo arguments.",
@@ -61,6 +72,14 @@ int main() {
       }
     ),
     "command should register"
+  );
+  failures += expect(
+    console.registerCommand(
+      "net_lag_graph",
+      "Show lag graph.",
+      [](const std::vector<std::string>&) { return std::string{}; }
+    ),
+    "lag graph command should register"
   );
 
   failures += expect(
@@ -92,6 +111,23 @@ int main() {
   failures += expect(
     matches.size() == 1 && matches[0] == "sensitivity",
     "completion should find cvars"
+  );
+  const std::vector<std::string> substringMatches = console.complete("lag");
+  failures += expect(
+    substringMatches.size() == 2 &&
+      substringMatches[0] == "cl_show_lagcomp" &&
+      substringMatches[1] == "net_lag_graph",
+    "completion should fall back to substring search"
+  );
+  const std::vector<std::string> builtInSubstringMatches = console.complete("var");
+  failures += expect(
+    builtInSubstringMatches.size() == 1 && builtInSubstringMatches[0] == "cvarlist",
+    "completion substring fallback should include built-ins"
+  );
+  const std::vector<std::string> prefixMatches = console.complete("set");
+  failures += expect(
+    prefixMatches.size() == 1 && prefixMatches[0] == "set",
+    "completion should prefer prefix matches over substring matches"
   );
   const std::vector<std::string> config = console.archivedConfigLines();
   failures += expect(config.size() == 2, "only archived cvars should serialize");
