@@ -50,6 +50,7 @@ add_library(lg_duel_client_app
   src/app/AudioAssets.cpp
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
+  src/app/HudPresentation.cpp
   src/app/Scoreboard.cpp
   src/render/ConsoleLayout.cpp
   src/render/Renderer.cpp

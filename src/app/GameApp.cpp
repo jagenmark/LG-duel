@@ -2,6 +2,7 @@
 
 #include "app/AudioAssets.hpp"
 #include "app/ConsoleInput.hpp"
+#include "app/HudPresentation.hpp"
 #include "app/Scoreboard.hpp"
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
@@ -1440,55 +1441,6 @@ std::string matchPhaseName(MatchPhase phase) {
   return "UNKNOWN";
 }
 
-std::string roundStatsLine(
-  std::string_view label,
-  const RoundCombatStats& stats
-) {
-  const std::uint32_t accuracyPercent =
-    stats.lightningActiveTicks == 0
-    ? 0
-    : (
-        stats.lightningHitTicks * 100U +
-        (stats.lightningActiveTicks / 2U)
-      ) / stats.lightningActiveTicks;
-  return std::string(label) +
-    " LG " + std::to_string(accuracyPercent) +
-    "%  DMG " + std::to_string(stats.damageDealt);
-}
-
-std::size_t firstRemotePlayerIndex(
-  const ServerSnapshot& snapshot,
-  std::size_t localPlayerIndex
-) {
-  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    if (index != localPlayerIndex && snapshot.connectedPlayers[index]) {
-      return index;
-    }
-  }
-  if (snapshot.botDodgeEnabled) {
-    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-      if (
-        index != localPlayerIndex &&
-        !snapshot.connectedPlayers[index] &&
-        snapshot.players[index].health > 0
-      ) {
-        return index;
-      }
-    }
-  }
-  return localPlayerIndex;
-}
-
-std::size_t leadingScoreIndex(const ServerSnapshot& snapshot) {
-  std::size_t leaderIndex = 0;
-  for (std::size_t index = 1; index < kDuelPlayerCount; ++index) {
-    if (snapshot.scores[index] > snapshot.scores[leaderIndex]) {
-      leaderIndex = index;
-    }
-  }
-  return leaderIndex;
-}
-
 HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
@@ -1500,8 +1452,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   const ServerSnapshot& snapshot = client.snapshot();
   const std::size_t localPlayerIndex = session.playerIndex();
   const std::size_t remotePlayerIndex =
-    firstRemotePlayerIndex(snapshot, localPlayerIndex);
-  const std::size_t leaderIndex = leadingScoreIndex(snapshot);
+    opponentPlayerIndex(snapshot, localPlayerIndex);
   const std::size_t connectedCount = static_cast<std::size_t>(std::count(
     snapshot.connectedPlayers.begin(),
     snapshot.connectedPlayers.end(),
@@ -1528,11 +1479,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
-  hud.topRightLines.push_back(
-    "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
-    "  LEAD " + std::to_string(snapshot.scores[leaderIndex]) + " / " +
-    std::to_string(snapshot.matchRules.roundLimit)
-  );
+  hud.topRightLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
   if (snapshot.matchRules.timeLimitMinutes > 0) {
     const std::uint32_t limitTicks =
       static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
@@ -1552,16 +1499,15 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   }
 
   hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
+  hud.centerOffsetY = matchPhaseMessageOffsetY(snapshot.matchPhase);
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
-    hud.centerOffsetY = -220.0F;
     hud.centerLines.push_back(
       std::to_string(connectedCount) + '/' +
       std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
     );
     break;
   case MatchPhase::WaitingForReady:
-    hud.centerOffsetY = -220.0F;
     hud.centerLines.push_back(
       snapshot.readyPlayers[localPlayerIndex]
         ? "WAITING FOR OTHER PLAYERS TO READY UP"
@@ -1578,32 +1524,35 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
         124.0F
       );
     hud.centerLines.push_back("MOVE ENABLED - WEAPONS LOCKED");
-    hud.centerOffsetY = -90.0F;
     break;
   }
   case MatchPhase::RoundEnd:
     hud.centerLines.push_back(
-      snapshot.roundWinner == localPlayerIndex ? "ROUND WON" : "ROUND LOST"
+      localPlayerWonResult(snapshot, localPlayerIndex, false)
+        ? "ROUND WON"
+        : "ROUND LOST"
     );
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
     );
     if (remotePlayerIndex != localPlayerIndex) {
       hud.centerLines.push_back(
-        roundStatsLine("REM", snapshot.roundCombatStats[remotePlayerIndex])
+        playerRoundStatsLine(snapshot, remotePlayerIndex)
       );
     }
     break;
   case MatchPhase::MatchEnd:
     hud.centerLines.push_back(
-      snapshot.matchWinner == localPlayerIndex ? "MATCH WON" : "MATCH LOST"
+      localPlayerWonResult(snapshot, localPlayerIndex, true)
+        ? "MATCH WON"
+        : "MATCH LOST"
     );
     hud.centerLines.push_back(
       roundStatsLine("YOU", snapshot.roundCombatStats[localPlayerIndex])
     );
     if (remotePlayerIndex != localPlayerIndex) {
       hud.centerLines.push_back(
-        roundStatsLine("REM", snapshot.roundCombatStats[remotePlayerIndex])
+        playerRoundStatsLine(snapshot, remotePlayerIndex)
       );
     }
     break;
@@ -2991,11 +2940,14 @@ int GameApp::run() const {
             audioSnapshot.matchPhase == MatchPhase::MatchEnd
           )
         ) {
-          const std::uint8_t winner =
-            audioSnapshot.matchPhase == MatchPhase::MatchEnd
-            ? audioSnapshot.matchWinner
-            : audioSnapshot.roundWinner;
-          audio.playRoundResult(winner == localPlayerIndex, volume);
+          audio.playRoundResult(
+            localPlayerWonResult(
+              audioSnapshot,
+              localPlayerIndex,
+              audioSnapshot.matchPhase == MatchPhase::MatchEnd
+            ),
+            volume
+          );
         }
         const std::uint32_t countdownSecond =
           audioSnapshot.matchPhase == MatchPhase::Countdown
