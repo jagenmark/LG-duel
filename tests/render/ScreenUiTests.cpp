@@ -19,6 +19,20 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+const lg::Text2D* findText(
+  const lg::DrawList2D& drawList,
+  std::string_view value
+) {
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+      if (text->text == value) {
+        return text;
+      }
+    }
+  }
+  return nullptr;
+}
+
 } // namespace
 
 int main() {
@@ -314,6 +328,63 @@ int main() {
     failures += expect(
       foundPlasmaWeapon,
       "selected weapon indicator should mark expanded weapon slots"
+    );
+  }
+
+  {
+    lg::HudRenderState layoutHud;
+    layoutHud.scoreboardOpen = true;
+    layoutHud.scoreboardLines = {"SCOREBOARD", "NAME SCORE ACC DAMAGE", "> PLAYER 1"};
+    layoutHud.centerLines = {"WAITING FOR PLAYERS", "1/6 PLAYERS CONNECTED"};
+    layoutHud.centerOffsetY = -150.0F;
+    const lg::DrawList2D scoreboardUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      layoutHud,
+      console
+    );
+    layoutHud.scoreboardOpen = false;
+    const lg::DrawList2D regularUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      layoutHud,
+      console
+    );
+    const lg::Text2D* scoreboardTitle = findText(scoreboardUi, "SCOREBOARD");
+    const lg::Text2D* scoreboardStatus =
+      findText(scoreboardUi, "1/6 PLAYERS CONNECTED");
+    const lg::Text2D* regularStatus =
+      findText(regularUi, "1/6 PLAYERS CONNECTED");
+    failures += expect(
+      scoreboardTitle != nullptr &&
+        scoreboardStatus != nullptr &&
+        regularStatus != nullptr &&
+        scoreboardStatus->position.y == regularStatus->position.y,
+      "opening the scoreboard should not move the waiting status"
+    );
+
+    layoutHud.scoreboardOpen = true;
+    layoutHud.centerOffsetY = -220.0F;
+    const lg::DrawList2D raisedUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      layoutHud,
+      console
+    );
+    const lg::Text2D* raisedStatus =
+      findText(raisedUi, "1/6 PLAYERS CONNECTED");
+    failures += expect(
+      scoreboardTitle != nullptr &&
+        raisedStatus != nullptr &&
+        raisedStatus->position.y + 16.0F <=
+          scoreboardTitle->position.y - 8.0F,
+      "fixed waiting status position should stay above the scoreboard"
     );
   }
 

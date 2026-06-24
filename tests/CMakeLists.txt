@@ -208,6 +208,17 @@ lg_duel_set_warnings(lg_duel_console_input_tests)
 
 add_test(NAME lg_duel_console_input_tests COMMAND lg_duel_console_input_tests)
 
+add_executable(lg_duel_scoreboard_tests
+  app/ScoreboardTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/Scoreboard.cpp
+)
+
+target_link_libraries(lg_duel_scoreboard_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_scoreboard_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_scoreboard_tests)
+
+add_test(NAME lg_duel_scoreboard_tests COMMAND lg_duel_scoreboard_tests)
+
 add_executable(lg_duel_audio_assets_tests
   app/AudioAssetsTests.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AudioAssets.cpp

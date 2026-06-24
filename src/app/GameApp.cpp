@@ -2,6 +2,7 @@
 
 #include "app/AudioAssets.hpp"
 #include "app/ConsoleInput.hpp"
+#include "app/Scoreboard.hpp"
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
 #include "console/ConsoleSystem.hpp"
@@ -1355,48 +1356,6 @@ std::string roundStatsLine(
     "%  DMG " + std::to_string(stats.damageDealt);
 }
 
-std::uint32_t accuracyPercent(const RoundCombatStats& stats) {
-  return stats.lightningActiveTicks == 0
-    ? 0
-    : (
-        stats.lightningHitTicks * 100U +
-        (stats.lightningActiveTicks / 2U)
-      ) / stats.lightningActiveTicks;
-}
-
-void populateScoreboard(
-  HudRenderState& hud,
-  const ServerSnapshot& snapshot,
-  std::size_t localPlayerIndex
-) {
-  hud.scoreboardOpen = true;
-  hud.scoreboardLines.push_back("SCOREBOARD");
-  hud.scoreboardLineTeams.push_back(Team::None);
-  hud.scoreboardLines.push_back("NAME                 SCORE   ACC   DAMAGE");
-  hud.scoreboardLineTeams.push_back(Team::None);
-  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    std::string name = snapshot.playerNames[index];
-    if (index == localPlayerIndex) {
-      name = "> " + name;
-    } else {
-      name = "  " + name;
-    }
-    name.resize(22U, ' ');
-    const RoundCombatStats& stats = snapshot.matchCombatStats[index];
-    hud.scoreboardLines.push_back(
-      name +
-      std::to_string(snapshot.scores[index]) + "       " +
-      std::to_string(accuracyPercent(stats)) + "%    " +
-      std::to_string(stats.damageDealt)
-    );
-    hud.scoreboardLineTeams.push_back(
-      snapshot.gameMode == GameMode::ClanArena
-        ? snapshot.teams[index]
-        : Team::None
-    );
-  }
-}
-
 std::size_t firstRemotePlayerIndex(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex
@@ -1495,14 +1454,14 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
-    hud.centerOffsetY = -150.0F;
+    hud.centerOffsetY = -220.0F;
     hud.centerLines.push_back(
       std::to_string(connectedCount) + '/' +
       std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
     );
     break;
   case MatchPhase::WaitingForReady:
-    hud.centerOffsetY = -150.0F;
+    hud.centerOffsetY = -220.0F;
     hud.centerLines.push_back(
       snapshot.readyPlayers[localPlayerIndex]
         ? "WAITING FOR OTHER PLAYERS TO READY UP"
