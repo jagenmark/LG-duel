@@ -302,7 +302,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   }
 
   const bool valid = packet.playerIndex < kDuelPlayerCount &&
-    weapon <= static_cast<std::uint8_t>(Weapon::RocketLauncher) &&
+    weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
     std::fabs(packet.command.forwardMove) <= 1.0F &&
     std::fabs(packet.command.rightMove) <= 1.0F &&
     std::fabs(packet.command.upMove) <= 1.0F &&
@@ -572,7 +572,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
     return false;
   }
   if (
-    weapon > static_cast<std::uint8_t>(Weapon::RocketLauncher) ||
+    weapon > static_cast<std::uint8_t>(kLastWeapon) ||
     damageApplied < 0
   ) {
     return false;

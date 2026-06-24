@@ -13,6 +13,7 @@
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #if LG_DUEL_HAS_SDL3
 #include <SDL3/SDL.h>
@@ -966,6 +967,13 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("1", "weapon mg");
+  (void)bindings.bind("2", "weapon sg");
+  (void)bindings.bind("3", "weapon gl");
+  (void)bindings.bind("4", "weapon rl");
+  (void)bindings.bind("5", "weapon lg");
+  (void)bindings.bind("6", "weapon rg");
+  (void)bindings.bind("7", "weapon pg");
   (void)bindings.bind("q", "weapon rl");
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
@@ -1380,28 +1388,17 @@ int GameApp::run() const {
 
   console.registerCommand(
     "weapon",
-    "Select weapon: weapon <lg|rg|rl|1|2|3>.",
+    "Select weapon: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>.",
     [&selectedWeapon](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+        return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
       }
-      std::string value = arguments[1];
-      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-      });
-      if (value == "1" || value == "lg" || value == "lightning" || value == "lightninggun") {
-        selectedWeapon = Weapon::LightningGun;
-        return std::string("weapon = lg");
+      const std::optional<Weapon> parsed = parseWeaponToken(arguments[1]);
+      if (parsed.has_value()) {
+        selectedWeapon = *parsed;
+        return std::string("weapon = ") + std::string(weaponShortName(*parsed));
       }
-      if (value == "2" || value == "rg" || value == "rail" || value == "railgun") {
-        selectedWeapon = Weapon::Railgun;
-        return std::string("weapon = rg");
-      }
-      if (value == "3" || value == "rl" || value == "rocket" || value == "rocketlauncher") {
-        selectedWeapon = Weapon::RocketLauncher;
-        return std::string("weapon = rl");
-      }
-      return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+      return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
     }
   );
   console.registerCommand(
@@ -1705,7 +1702,7 @@ int GameApp::run() const {
     }
   );
   loadClientConfig(console, configPath);
-  if (console.getInt("cl_config_version") < 6) {
+  if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
     (void)bindings.bind("z", "showchat");
@@ -1713,13 +1710,20 @@ int GameApp::run() const {
     if (bindings.binding("mouse2").empty()) {
       (void)bindings.bind("mouse2", "+zoom");
     }
+    (void)bindings.bind("1", "weapon mg");
+    (void)bindings.bind("2", "weapon sg");
+    (void)bindings.bind("3", "weapon gl");
+    (void)bindings.bind("4", "weapon rl");
+    (void)bindings.bind("5", "weapon lg");
+    (void)bindings.bind("6", "weapon rg");
+    (void)bindings.bind("7", "weapon pg");
     (void)bindings.bind("q", "weapon rl");
     (void)bindings.bind("e", "weapon lg");
     (void)bindings.bind("r", "weapon rg");
     if (bindings.binding("f5").empty()) {
       (void)bindings.bind("f5", "resetmatch");
     }
-    (void)console.execute("set cl_config_version 6");
+    (void)console.execute("set cl_config_version 7");
   }
   (void)session.connect(serverHost_, serverPort_);
   (void)renderer.setVSync(console.getBool("r_vsync"));

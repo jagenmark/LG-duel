@@ -159,14 +159,22 @@ void addOutline(
   addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
 }
 
-[[nodiscard]] const char* weaponShortName(Weapon weapon) {
+[[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
   switch (weapon) {
+  case Weapon::MachineGun:
+    return "MG";
+  case Weapon::Shotgun:
+    return "SG";
+  case Weapon::GrenadeLauncher:
+    return "GL";
   case Weapon::LightningGun:
     return "LG";
   case Weapon::Railgun:
     return "RG";
   case Weapon::RocketLauncher:
     return "RL";
+  case Weapon::PlasmaGun:
+    return "PG";
   }
   return "??";
 }
@@ -248,10 +256,14 @@ void addSelectedWeaponIndicator(
   int height,
   const HudRenderState& hud
 ) {
-  constexpr std::array<Weapon, 3> weapons = {{
+  constexpr std::array<Weapon, 7> weapons = {{
+    Weapon::MachineGun,
+    Weapon::Shotgun,
+    Weapon::GrenadeLauncher,
     Weapon::RocketLauncher,
     Weapon::LightningGun,
     Weapon::Railgun,
+    Weapon::PlasmaGun,
   }};
   const float scale = std::clamp(
     static_cast<float>(height) / 720.0F,
@@ -312,7 +324,7 @@ void addSelectedWeaponIndicator(
       icon,
       scale
     );
-    const char* label = weaponShortName(weapon);
+    const char* label = hudWeaponShortName(weapon);
     const float textScale = selected ? 1.45F * scale : 1.2F * scale;
     const float textWidth = 2.0F * kGlyphSize * textScale;
     addText(

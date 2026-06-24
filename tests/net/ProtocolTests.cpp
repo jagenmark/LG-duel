@@ -72,7 +72,7 @@ int main() {
     source.command.attack = true;
     source.command.jump = true;
     source.command.planarAim = false;
-    source.command.weapon = lg::Weapon::RocketLauncher;
+    source.command.weapon = lg::Weapon::PlasmaGun;
     source.requestReset = true;
     source.toggleReady = true;
     source.requestMovementTuning = true;
@@ -117,7 +117,7 @@ int main() {
     );
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
-    failures += expect(decoded.command.weapon == lg::Weapon::RocketLauncher, "weapon selection should round trip");
+    failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
