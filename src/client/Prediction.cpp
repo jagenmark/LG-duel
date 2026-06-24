@@ -4,6 +4,16 @@
 #include "shared/Sequence.hpp"
 
 namespace lg {
+namespace {
+
+void applyDeadCommand(PlayerState& player, const UserCommand& command) {
+  player.velocity = {};
+  player.jumpHeld = false;
+  player.viewYawRadians = command.viewYawRadians;
+  player.viewPitchRadians = command.viewPitchRadians;
+}
+
+} // namespace
 
 void Prediction::initialize(const PlayerState& authoritativeState) {
   player_ = authoritativeState;
@@ -25,6 +35,8 @@ void Prediction::predict(
   pendingCommands_.push_back(command);
   if (player_.health > 0) {
     simulateMovement(player_, command, arena, tuning, fixedDt);
+  } else {
+    applyDeadCommand(player_, command);
   }
   diagnostics_.pendingCommandCount = pendingCommands_.size();
 }
@@ -56,6 +68,8 @@ void Prediction::reconcile(
   for (const UserCommand& command : pendingCommands_) {
     if (player_.health > 0) {
       simulateMovement(player_, command, arena, tuning, fixedDt);
+    } else {
+      applyDeadCommand(player_, command);
     }
   }
 

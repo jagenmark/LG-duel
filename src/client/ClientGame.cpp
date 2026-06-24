@@ -28,7 +28,11 @@ void ClientGame::sendCommand(
   std::int32_t botDodgeMaxIntervalMs,
   std::string chatMessage,
   std::string playerName,
-  bool usePresentedServerTick
+  bool usePresentedServerTick,
+  bool requestGameMode,
+  GameMode requestedGameMode,
+  bool requestTeam,
+  Team requestedTeam
 ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
@@ -57,6 +61,10 @@ void ClientGame::sendCommand(
       botDodgeEnabled,
       botDodgeMinIntervalMs,
       botDodgeMaxIntervalMs,
+      requestGameMode,
+      requestedGameMode,
+      requestTeam,
+      requestedTeam,
     }
   );
   if (!requestReset) {

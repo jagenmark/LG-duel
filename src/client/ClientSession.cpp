@@ -86,7 +86,11 @@ void ClientSession::sendCommand(
   std::int32_t botDodgeMaxIntervalMs,
   std::string chatMessage,
   std::string playerName,
-  bool usePresentedServerTick
+  bool usePresentedServerTick,
+  bool requestGameMode,
+  GameMode requestedGameMode,
+  bool requestTeam,
+  Team requestedTeam
 ) {
   if (game_) {
     game_->sendCommand(
@@ -107,7 +111,11 @@ void ClientSession::sendCommand(
       botDodgeMaxIntervalMs,
       std::move(chatMessage),
       std::move(playerName),
-      usePresentedServerTick
+      usePresentedServerTick,
+      requestGameMode,
+      requestedGameMode,
+      requestTeam,
+      requestedTeam
     );
   }
 }

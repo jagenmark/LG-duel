@@ -43,7 +43,11 @@ public:
     std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
     std::string playerName = {},
-    bool usePresentedServerTick = true
+    bool usePresentedServerTick = true,
+    bool requestGameMode = false,
+    GameMode requestedGameMode = GameMode::Duel,
+    bool requestTeam = false,
+    Team requestedTeam = Team::None
   );
 
   [[nodiscard]] ClientConnectionState state() const;

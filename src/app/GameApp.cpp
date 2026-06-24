@@ -675,6 +675,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
@@ -762,6 +763,32 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_health_r", "Floating enemy health bar red channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_health_g", "Floating enemy health bar green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_health_b", "Floating enemy health bar blue channel.", 92, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_beam_width", "Teammate lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
+  console.registerCvar({"r_teammate_beam_alpha", "Teammate lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_beam_r", "Teammate lightning beam red channel.", 80, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_beam_g", "Teammate lightning beam green channel.", 220, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_beam_b", "Teammate lightning beam blue channel.", 150, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_r", "Teammate model red channel.", 82, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_g", "Teammate model green channel.", 190, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_b", "Teammate model blue channel.", 224, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_alpha", "Teammate model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_lean", "Enable Q3-style velocity lean on teammate models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_lean_scale", "Teammate model velocity lean multiplier.", 1.0F, archivedClient, 0.0F, 3.0F});
+
+  console.registerCvar({"r_teammate_health_enable", "Draw floating teammate health bars.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_health_damage_only", "Only show teammate health bars after recent damage.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_health_fade", "Fade teammate health bars during their damage-only duration.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_health_duration", "Seconds to show teammate health after damage.", 5.0F, archivedClient, 0.0F, 30.0F});
+  console.registerCvar({"r_teammate_health_max_distance", "Hide teammate health bars beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_teammate_health_width", "Floating teammate health bar width in pixels.", 72.0F, archivedClient, 12.0F, 360.0F});
+  console.registerCvar({"r_teammate_health_height", "Floating teammate health bar height in pixels.", 7.0F, archivedClient, 2.0F, 60.0F});
+  console.registerCvar({"r_teammate_health_offset_z", "Floating teammate health bar vertical world offset.", 0.35F, archivedClient, -2.0F, 6.0F});
+  console.registerCvar({"r_teammate_health_offset_x", "Floating teammate health bar horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_teammate_health_offset_y", "Floating teammate health bar vertical screen offset.", -18.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_teammate_health_alpha", "Floating teammate health bar opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_health_r", "Floating teammate health bar red channel.", 82, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_health_g", "Floating teammate health bar green channel.", 190, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_health_b", "Floating teammate health bar blue channel.", 224, archivedClient, 0.0F, 255.0F});
 }
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
@@ -846,6 +873,52 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_enemy_health_g"));
   settings.enemyHealthBarBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_health_b"));
+  settings.teammateBeamWidth = console.getFloat("r_teammate_beam_width");
+  settings.teammateBeamAlpha = console.getFloat("r_teammate_beam_alpha");
+  settings.teammateBeamRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_beam_r"));
+  settings.teammateBeamGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_beam_g"));
+  settings.teammateBeamBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_beam_b"));
+  settings.teammateRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_r"));
+  settings.teammateGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_g"));
+  settings.teammateBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_b"));
+  settings.teammateAlpha = console.getFloat("r_teammate_alpha");
+  settings.teammateLeanEnabled = console.getBool("r_teammate_lean");
+  settings.teammateLeanScale = console.getFloat("r_teammate_lean_scale");
+
+  settings.teammateHealthBarEnabled =
+    console.getBool("r_teammate_health_enable");
+  settings.teammateHealthBarDamageOnly =
+    console.getBool("r_teammate_health_damage_only");
+  settings.teammateHealthBarFade =
+    console.getBool("r_teammate_health_fade");
+  settings.teammateHealthBarVisibleDuration =
+    console.getFloat("r_teammate_health_duration");
+  settings.teammateHealthBarMaxDistance =
+    console.getFloat("r_teammate_health_max_distance");
+  settings.teammateHealthBarWidth =
+    console.getFloat("r_teammate_health_width");
+  settings.teammateHealthBarHeight =
+    console.getFloat("r_teammate_health_height");
+  settings.teammateHealthBarWorldOffsetZ =
+    console.getFloat("r_teammate_health_offset_z");
+  settings.teammateHealthBarScreenOffsetX =
+    console.getFloat("r_teammate_health_offset_x");
+  settings.teammateHealthBarScreenOffsetY =
+    console.getFloat("r_teammate_health_offset_y");
+  settings.teammateHealthBarAlpha =
+    console.getFloat("r_teammate_health_alpha");
+  settings.teammateHealthBarRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_health_r"));
+  settings.teammateHealthBarGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_health_g"));
+  settings.teammateHealthBarBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_health_b"));
   settings.showLagCompensation = console.getBool("cl_show_lagcomp");
   return settings;
 }
@@ -985,6 +1058,44 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("escape", "quit");
 }
 
+std::string gameModeName(GameMode gameMode) {
+  switch (gameMode) {
+  case GameMode::Duel:
+    return "DUEL";
+  case GameMode::ClanArena:
+    return "CLAN ARENA";
+  }
+  return "UNKNOWN";
+}
+
+std::string teamName(Team team) {
+  switch (team) {
+  case Team::None:
+    return "NONE";
+  case Team::Red:
+    return "RED";
+  case Team::Blue:
+    return "BLUE";
+  }
+  return "UNKNOWN";
+}
+
+std::string aliveCountLine(const ServerSnapshot& snapshot) {
+  std::uint32_t redAlive = 0;
+  std::uint32_t blueAlive = 0;
+  for (std::size_t index = 0; index < snapshot.players.size(); ++index) {
+    if (!snapshot.connectedPlayers[index] || snapshot.players[index].health <= 0) {
+      continue;
+    }
+    if (snapshot.teams[index] == Team::Red) {
+      ++redAlive;
+    } else if (snapshot.teams[index] == Team::Blue) {
+      ++blueAlive;
+    }
+  }
+  return "ALIVE " + std::to_string(redAlive) + 'v' + std::to_string(blueAlive);
+}
+
 std::string matchPhaseName(MatchPhase phase) {
   switch (phase) {
   case MatchPhase::WaitingForPlayers:
@@ -1035,7 +1146,9 @@ void populateScoreboard(
 ) {
   hud.scoreboardOpen = true;
   hud.scoreboardLines.push_back("SCOREBOARD");
+  hud.scoreboardLineTeams.push_back(Team::None);
   hud.scoreboardLines.push_back("NAME                 SCORE   ACC   DAMAGE");
+  hud.scoreboardLineTeams.push_back(Team::None);
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     std::string name = snapshot.playerNames[index];
     if (index == localPlayerIndex) {
@@ -1050,6 +1163,11 @@ void populateScoreboard(
       std::to_string(snapshot.scores[index]) + "       " +
       std::to_string(accuracyPercent(stats)) + "%    " +
       std::to_string(stats.damageDealt)
+    );
+    hud.scoreboardLineTeams.push_back(
+      snapshot.gameMode == GameMode::ClanArena
+        ? snapshot.teams[index]
+        : Team::None
     );
   }
 }
@@ -1087,7 +1205,7 @@ std::size_t leadingScoreIndex(const ServerSnapshot& snapshot) {
   return leaderIndex;
 }
 
-HudRenderState buildHud(const ClientSession& session) {
+HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
   if (!session.readyForPlay()) {
@@ -1115,6 +1233,17 @@ HudRenderState buildHud(const ClientSession& session) {
     "PLAYERS " + std::to_string(connectedCount) + '/' +
     std::to_string(kDuelPlayerCount)
   );
+  if (snapshot.matchPhase != MatchPhase::Live) {
+    hud.topLeftLines.push_back("MODE " + gameModeName(snapshot.gameMode));
+    if (snapshot.gameMode == GameMode::ClanArena) {
+      hud.topLeftLines.push_back(
+        "TEAM " + teamName(snapshot.teams[localPlayerIndex])
+      );
+    }
+  }
+  if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
+    hud.topRightLines.push_back(aliveCountLine(snapshot));
+  }
   hud.topRightLines.push_back(
     "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
     "  LEAD " + std::to_string(snapshot.scores[leaderIndex]) + " / " +
@@ -1344,6 +1473,10 @@ int GameApp::run() const {
   bool toggleConsoleRequested = false;
   bool openChatRequested = false;
   bool showChatRequested = false;
+  bool requestGameModePending = false;
+  bool requestTeamPending = false;
+  GameMode requestedGameMode = GameMode::Duel;
+  Team requestedTeam = Team::None;
   int scoreboardPressCount = 0;
   int zoomPressCount = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
@@ -1495,6 +1628,53 @@ int GameApp::run() const {
       return std::string{};
     }
   );
+  console.registerCommand(
+    "gamemode",
+    "Select the active gamemode: gamemode <duel|ca|clanarena>.",
+    [&requestGameModePending, &requestedGameMode](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: gamemode <duel|ca|clanarena>");
+      }
+      std::string value = arguments[1];
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
+      if (value == "duel") {
+        requestedGameMode = GameMode::Duel;
+      } else if (value == "ca" || value == "clanarena" || value == "clan_arena") {
+        requestedGameMode = GameMode::ClanArena;
+      } else {
+        return std::string("usage: gamemode <duel|ca|clanarena>");
+      }
+      requestGameModePending = true;
+      return std::string("gamemode = ") + gameModeName(requestedGameMode);
+    }
+  );
+  console.registerCommand(
+    "team",
+    "Select your Clan Arena team: team <red|blue|none>.",
+    [&requestTeamPending, &requestedTeam](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: team <red|blue|none>");
+      }
+      std::string value = arguments[1];
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
+      if (value == "red") {
+        requestedTeam = Team::Red;
+      } else if (value == "blue") {
+        requestedTeam = Team::Blue;
+      } else if (value == "none" || value == "unassigned") {
+        requestedTeam = Team::None;
+      } else {
+        return std::string("usage: team <red|blue|none>");
+      }
+      requestTeamPending = true;
+      return std::string("team = ") + teamName(requestedTeam);
+    }
+  );
+
   console.registerCommand(
     "connect",
     "Connect to a server: connect <host> [port], or connect <port> for localhost.",
@@ -1676,6 +1856,9 @@ int GameApp::run() const {
         "player\n"
         "resetmatch\n"
         "ready\n"
+        "gamemode\n"
+        "team\n"
+
         "messagemode\n"
         "showchat\n"
         "toggleconsole\n"
@@ -2226,12 +2409,18 @@ int GameApp::run() const {
         lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
         std::move(pendingPlayerName),
-        console.getInt("cl_interp_mode") != 0
+        console.getInt("cl_interp_mode") != 0,
+        requestGameModePending,
+        requestedGameMode,
+        requestTeamPending,
+        requestedTeam
       );
       chatState.pendingMessage.clear();
       pendingPlayerName.clear();
       resetRequested = false;
       readyRequested = false;
+      requestGameModePending = false;
+      requestTeamPending = false;
       movementTuningRequestPending = false;
       session.update();
       consumedMouseForTick = true;
@@ -2544,6 +2733,17 @@ int GameApp::run() const {
         if (!connectedRemote && !botRemote) {
           continue;
         }
+        if (
+          renderSnapshot.gameMode == GameMode::ClanArena &&
+          renderSnapshot.players[playerIndex].health <= 0
+        ) {
+          continue;
+        }
+        const bool teammate =
+          renderSnapshot.gameMode == GameMode::ClanArena &&
+          isPlayableTeam(renderSnapshot.teams[localPlayerIndex]) &&
+          renderSnapshot.teams[playerIndex] ==
+            renderSnapshot.teams[localPlayerIndex];
         renderRemotePlayers[playerIndex] = RemotePlayerView{
           bufferedInterpolation
             ? renderClient->interpolatedPlayer(playerIndex)
@@ -2552,6 +2752,7 @@ int GameApp::run() const {
           0.0F,
           1.0F,
           true,
+          teammate,
         };
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;
@@ -2641,13 +2842,13 @@ int GameApp::run() const {
         return fade ? 1.0F - (elapsedSinceHit / duration) : 1.0F;
       };
     currentRenderSettings.enemyHitAmount = 0.0F;
-    if (console.getBool("r_enemy_hit_enable") && hasEnemyHitTime) {
-      const float enemyHitAmount = hitFeedbackAmount(
-        console.getFloat("r_enemy_hit_duration"),
-        console.getBool("r_enemy_hit_fade")
-      );
-      if (lastEnemyHitTarget < renderRemotePlayers.size()) {
-        renderRemotePlayers[lastEnemyHitTarget].enemyHitAmount = enemyHitAmount;
+    if (hasEnemyHitTime && lastEnemyHitTarget < renderRemotePlayers.size()) {
+      RemotePlayerView& hitRemote = renderRemotePlayers[lastEnemyHitTarget];
+      if (!hitRemote.teammate && console.getBool("r_enemy_hit_enable")) {
+        hitRemote.enemyHitAmount = hitFeedbackAmount(
+          console.getFloat("r_enemy_hit_duration"),
+          console.getBool("r_enemy_hit_fade")
+        );
       }
     }
     if (console.getBool("r_beam_hit_enable")) {
@@ -2668,28 +2869,35 @@ int GameApp::run() const {
         true
       );
     }
-    if (currentRenderSettings.enemyHealthBarDamageOnly) {
-      const float duration =
-        currentRenderSettings.enemyHealthBarVisibleDuration;
-      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-        RemotePlayerView& remote = renderRemotePlayers[playerIndex];
-        if (!remote.visible) {
-          continue;
-        }
-        if (!hasLastRemoteDamageTime[playerIndex] || duration <= 0.0F) {
-          remote.enemyHealthAlpha = 0.0F;
-          continue;
-        }
-        const float elapsed =
-          std::chrono::duration<float>(now - lastRemoteDamageTime[playerIndex]).count();
-        if (elapsed >= duration) {
-          remote.enemyHealthAlpha = 0.0F;
-          continue;
-        }
-        remote.enemyHealthAlpha = currentRenderSettings.enemyHealthBarFade
-          ? 1.0F - (elapsed / duration)
-          : 1.0F;
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      RemotePlayerView& remote = renderRemotePlayers[playerIndex];
+      if (!remote.visible) {
+        continue;
       }
+      const bool damageOnly = remote.teammate
+        ? currentRenderSettings.teammateHealthBarDamageOnly
+        : currentRenderSettings.enemyHealthBarDamageOnly;
+      if (!damageOnly) {
+        remote.enemyHealthAlpha = 1.0F;
+        continue;
+      }
+      const float duration = remote.teammate
+        ? currentRenderSettings.teammateHealthBarVisibleDuration
+        : currentRenderSettings.enemyHealthBarVisibleDuration;
+      if (!hasLastRemoteDamageTime[playerIndex] || duration <= 0.0F) {
+        remote.enemyHealthAlpha = 0.0F;
+        continue;
+      }
+      const float elapsed =
+        std::chrono::duration<float>(now - lastRemoteDamageTime[playerIndex]).count();
+      if (elapsed >= duration) {
+        remote.enemyHealthAlpha = 0.0F;
+        continue;
+      }
+      const bool fade = remote.teammate
+        ? currentRenderSettings.teammateHealthBarFade
+        : currentRenderSettings.enemyHealthBarFade;
+      remote.enemyHealthAlpha = fade ? 1.0F - (elapsed / duration) : 1.0F;
     }
     currentRenderSettings.playerSizePixels =
       14.0F * (renderPlayer.bounds.radius / 0.35F);
@@ -2719,7 +2927,7 @@ int GameApp::run() const {
       currentRenderSettings.crosshairScreenY = input.mouseY;
     }
 
-    HudRenderState hud = buildHud(session);
+    HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
     hud.selectedWeapon = selectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F

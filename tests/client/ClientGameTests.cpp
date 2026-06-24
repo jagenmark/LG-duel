@@ -371,10 +371,19 @@ int main() {
     lg::UserCommand command;
     command.sequence = 3;
     command.forwardMove = 1.0F;
+    command.jump = true;
+    command.viewYawRadians = 1.25F;
+    command.viewPitchRadians = -0.4F;
     prediction.predict(command, arena, tuning, lg::kFixedTickSeconds);
     failures += expect(
       nearlyEqual(prediction.player().position.x, dead.position.x),
       "dead local player prediction should match server movement rules"
+    );
+    failures += expect(
+      nearlyEqual(prediction.player().viewYawRadians, 1.25F) &&
+        nearlyEqual(prediction.player().viewPitchRadians, -0.4F) &&
+        !prediction.player().jumpHeld,
+      "dead local prediction should update look without latching jump"
     );
   }
 
