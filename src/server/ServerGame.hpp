@@ -89,6 +89,8 @@ private:
   float rocketKnockback_ = 1000.0F;
   LightningGunTuning lightningGunTuning_ = {};
   HitscanTuning railgunTuning_ = {};
+  MachineGunTuning machineGunTuning_ = {};
+  ShotgunTuning shotgunTuning_ = {};
   RocketLauncherTuning rocketLauncherTuning_ = {};
   float vampirism_ = 0.0F;
   std::uint8_t selfDamagePercent_ = 100;
@@ -96,6 +98,8 @@ private:
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> machineGunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> shotgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentWeaponFireTicks_ = {};

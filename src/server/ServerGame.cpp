@@ -16,7 +16,9 @@ namespace lg {
 namespace {
 
 constexpr std::uint32_t kMaxLagCompensationTicks = 25;
+constexpr std::uint32_t kMachineGunCooldownTicks = 13;
 constexpr std::uint32_t kRailgunCooldownTicks = 188;
+constexpr std::uint32_t kShotgunCooldownTicks = 125;
 constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
@@ -107,6 +109,16 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.rocketExplosions = {};
   snapshot_.rockets = {};
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
+    if (cooldown > 0) {
+      --cooldown;
+    }
+  }
+  for (std::uint32_t& cooldown : machineGunCooldownTicks_) {
+    if (cooldown > 0) {
+      --cooldown;
+    }
+  }
+  for (std::uint32_t& cooldown : shotgunCooldownTicks_) {
     if (cooldown > 0) {
       --cooldown;
     }
@@ -223,12 +235,20 @@ void ServerGame::tick(float fixedDt) {
       combatPlayers[attackerIndex],
       command.weapon == Weapon::LightningGun
         ? lightningGunTuning_.eyeHeight
+        : command.weapon == Weapon::MachineGun
+          ? machineGunTuning_.eyeHeight
+        : command.weapon == Weapon::Shotgun
+          ? shotgunTuning_.eyeHeight
         : railgunTuning_.eyeHeight
     );
     const Vec3 attackDirection =
       cameraForward(command.viewYawRadians, command.viewPitchRadians);
     const float attackRange = command.weapon == Weapon::LightningGun
       ? lightningGunTuning_.range
+      : command.weapon == Weapon::MachineGun
+        ? machineGunTuning_.range
+      : command.weapon == Weapon::Shotgun
+        ? shotgunTuning_.range
       : railgunTuning_.range;
     const WorldTrace worldTrace =
       traceWorld(arena_, attackStart, attackDirection, attackRange);
@@ -258,6 +278,9 @@ void ServerGame::tick(float fixedDt) {
         targetIndex = candidateIndex;
         bestHitDistance = hitDistance;
       }
+    }
+    if (command.weapon == Weapon::Shotgun && targetIndex >= kDuelPlayerCount) {
+      targetIndex = firstCombatTarget(snapshot_, attackerIndex);
     }
 
     const std::size_t debugTargetIndex = targetIndex < kDuelPlayerCount
@@ -315,6 +338,51 @@ void ServerGame::tick(float fixedDt) {
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
       railgunCooldownTicks_[attackerIndex] = kRailgunCooldownTicks;
+    } else if (
+      command.weapon == Weapon::MachineGun &&
+      command.attack &&
+      machineGunCooldownTicks_[attackerIndex] == 0
+    ) {
+      if (targetIndex < kDuelPlayerCount) {
+        weaponTargets[attackerIndex] = targetIndex;
+        snapshot_.weaponFires[attackerIndex] = simulateMachineGun(
+          combatPlayers[attackerIndex],
+          target,
+          command,
+          arena_,
+          machineGunTuning_
+        );
+      } else {
+        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
+        fire.weapon = Weapon::MachineGun;
+        fire.start = attackStart;
+        fire.end = worldTrace.end;
+        fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
+      }
+      machineGunCooldownTicks_[attackerIndex] = kMachineGunCooldownTicks;
+    } else if (
+      command.weapon == Weapon::Shotgun &&
+      command.attack &&
+      shotgunCooldownTicks_[attackerIndex] == 0
+    ) {
+      if (targetIndex < kDuelPlayerCount) {
+        weaponTargets[attackerIndex] = targetIndex;
+        snapshot_.weaponFires[attackerIndex] = simulateShotgun(
+          combatPlayers[attackerIndex],
+          target,
+          command,
+          arena_,
+          shotgunTuning_
+        );
+      } else {
+        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
+        fire.weapon = Weapon::Shotgun;
+        fire.pelletCount = shotgunTuning_.pelletCount;
+        fire.start = attackStart;
+        fire.end = worldTrace.end;
+        fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
+      }
+      shotgunCooldownTicks_[attackerIndex] = kShotgunCooldownTicks;
     } else if (
       command.weapon == Weapon::RocketLauncher &&
       command.attack &&
@@ -480,6 +548,8 @@ void ServerGame::resetMatch() {
     : MatchPhase::WaitingForPlayers;
   lightningGunStates_ = {};
   railgunCooldownTicks_ = {};
+  machineGunCooldownTicks_ = {};
+  shotgunCooldownTicks_ = {};
   rocketCooldownTicks_ = {};
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
@@ -523,6 +593,8 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.rocketExplosions[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
   railgunCooldownTicks_[playerIndex] = 0;
+  machineGunCooldownTicks_[playerIndex] = 0;
+  shotgunCooldownTicks_[playerIndex] = 0;
   rocketCooldownTicks_[playerIndex] = 0;
   fractionalVampirismHealing_[playerIndex] = 0.0;
 }

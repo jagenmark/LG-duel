@@ -572,12 +572,16 @@ bool writeWeaponFire(Writer& writer, const WeaponFireResult& result) {
     writer.writeBool(result.hit) &&
     writer.writeU8(static_cast<std::uint8_t>(result.weapon)) &&
     writer.writeI32(result.damageApplied) &&
-    writeVec3(writer, result.knockbackImpulse);
+    writeVec3(writer, result.knockbackImpulse) &&
+    writer.writeU8(result.pelletCount) &&
+    writer.writeU8(result.pelletHitCount);
 }
 
 bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   std::uint8_t weapon = 0;
   std::int32_t damageApplied = 0;
+  std::uint8_t pelletCount = 0;
+  std::uint8_t pelletHitCount = 0;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
@@ -585,18 +589,24 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
     !reader.readBool(result.hit) ||
     !reader.readU8(weapon) ||
     !reader.readI32(damageApplied) ||
-    !readVec3(reader, result.knockbackImpulse)
+    !readVec3(reader, result.knockbackImpulse) ||
+    !reader.readU8(pelletCount) ||
+    !reader.readU8(pelletHitCount)
   ) {
     return false;
   }
   if (
     weapon > static_cast<std::uint8_t>(kLastWeapon) ||
-    damageApplied < 0
+    damageApplied < 0 ||
+    pelletHitCount > pelletCount ||
+    pelletCount > kShotgunPelletCount
   ) {
     return false;
   }
   result.weapon = static_cast<Weapon>(weapon);
   result.damageApplied = damageApplied;
+  result.pelletCount = pelletCount;
+  result.pelletHitCount = pelletHitCount;
   return true;
 }
 
