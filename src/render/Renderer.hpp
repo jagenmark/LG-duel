@@ -70,6 +70,12 @@ struct RenderSettings {
   std::uint8_t enemyGreen = 82;
   std::uint8_t enemyBlue = 92;
   float enemyAlpha = 1.0F;
+  bool enemyOutlineEnabled = true;
+  float enemyOutlineWidth = 0.045F;
+  float enemyOutlineAlpha = 1.0F;
+  std::uint8_t enemyOutlineRed = 255;
+  std::uint8_t enemyOutlineGreen = 220;
+  std::uint8_t enemyOutlineBlue = 84;
   std::uint8_t enemyHitRed = 255;
   std::uint8_t enemyHitGreen = 190;
   std::uint8_t enemyHitBlue = 198;
@@ -78,6 +84,12 @@ struct RenderSettings {
   std::uint8_t teammateGreen = 190;
   std::uint8_t teammateBlue = 224;
   float teammateAlpha = 1.0F;
+  bool teammateOutlineEnabled = true;
+  float teammateOutlineWidth = 0.045F;
+  float teammateOutlineAlpha = 1.0F;
+  std::uint8_t teammateOutlineRed = 128;
+  std::uint8_t teammateOutlineGreen = 240;
+  std::uint8_t teammateOutlineBlue = 255;
 
   bool enemyHealthBarEnabled = true;
   bool enemyHealthBarDamageOnly = false;

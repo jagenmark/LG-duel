@@ -32,6 +32,9 @@ int main() {
   lg::PlayerState opponent;
   opponent.position = {4.0F, 2.0F, 0.9F};
   lg::RenderSettings settings;
+  settings.enemyOutlineRed = 31;
+  settings.enemyOutlineGreen = 227;
+  settings.enemyOutlineBlue = 19;
   lg::LightningGunResult inactiveBeam;
   const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
   const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
@@ -190,6 +193,62 @@ int main() {
   failures += expect(
     opponentVertexCount >= 7U * 36U && opponentWithinBounds,
     "opponent should use a simple multi-part model inside gameplay bounds"
+  );
+
+  std::size_t outlineVertexCount = 0;
+  bool outlineExpandsPastBounds = false;
+  for (const lg::Vertex3D& vertex : baseScene.vertices) {
+    if (
+      vertex.color.red == settings.enemyOutlineRed &&
+      vertex.color.green == settings.enemyOutlineGreen &&
+      vertex.color.blue == settings.enemyOutlineBlue
+    ) {
+      ++outlineVertexCount;
+      outlineExpandsPastBounds =
+        outlineExpandsPastBounds ||
+        std::fabs(vertex.position.x - opponent.position.x) >
+          opponent.bounds.radius + 0.001F ||
+        std::fabs(vertex.position.y - opponent.position.y) >
+          opponent.bounds.radius + 0.001F ||
+        vertex.position.z <
+          opponent.position.z - opponent.bounds.halfHeight - 0.001F ||
+        vertex.position.z >
+          opponent.position.z + opponent.bounds.halfHeight + 0.001F;
+    }
+  }
+  failures += expect(
+    outlineVertexCount > 0 && outlineExpandsPastBounds,
+    "enabled enemy outline should emit expanded player geometry"
+  );
+
+  lg::RenderSettings outlineDisabledSettings = settings;
+  outlineDisabledSettings.enemyOutlineEnabled = false;
+  const lg::Scene3D outlineDisabledScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    outlineDisabledSettings
+  );
+  bool disabledOutlinePresent = false;
+  for (const lg::Vertex3D& vertex : outlineDisabledScene.vertices) {
+    disabledOutlinePresent =
+      disabledOutlinePresent ||
+      (
+        vertex.color.red == settings.enemyOutlineRed &&
+        vertex.color.green == settings.enemyOutlineGreen &&
+        vertex.color.blue == settings.enemyOutlineBlue
+      );
+  }
+  failures += expect(
+    !disabledOutlinePresent &&
+      outlineDisabledScene.vertices.size() < baseScene.vertices.size(),
+    "disabled enemy outline should not emit outline geometry"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};

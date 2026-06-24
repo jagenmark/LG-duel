@@ -1063,8 +1063,20 @@ const PlayerState& firstVisibleRemote(
   );
 }
 
-[[nodiscard]] SDL_FColor enemyColor(const RenderSettings& settings, float enemyHitAmount) {
+[[nodiscard]] SDL_FColor remoteModelColor(
+  const RenderSettings& settings,
+  float enemyHitAmount,
+  bool teammate
+) {
   const float hitAmount = std::clamp(enemyHitAmount, 0.0F, 1.0F);
+  if (teammate) {
+    return {
+      static_cast<float>(settings.teammateRed) / 255.0F,
+      static_cast<float>(settings.teammateGreen) / 255.0F,
+      static_cast<float>(settings.teammateBlue) / 255.0F,
+      std::clamp(settings.teammateAlpha, 0.0F, 1.0F),
+    };
+  }
   return {
     static_cast<float>(
       blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount)
@@ -1076,6 +1088,28 @@ const PlayerState& firstVisibleRemote(
       blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount)
     ) / 255.0F,
     std::clamp(settings.enemyAlpha, 0.0F, 1.0F),
+  };
+}
+
+[[nodiscard]] SDL_FColor remoteOutlineColor(
+  const RenderSettings& settings,
+  bool teammate
+) {
+  return {
+    static_cast<float>(
+      teammate ? settings.teammateOutlineRed : settings.enemyOutlineRed
+    ) / 255.0F,
+    static_cast<float>(
+      teammate ? settings.teammateOutlineGreen : settings.enemyOutlineGreen
+    ) / 255.0F,
+    static_cast<float>(
+      teammate ? settings.teammateOutlineBlue : settings.enemyOutlineBlue
+    ) / 255.0F,
+    std::clamp(
+      teammate ? settings.teammateOutlineAlpha : settings.enemyOutlineAlpha,
+      0.0F,
+      1.0F
+    ),
   };
 }
 
@@ -1534,6 +1568,41 @@ void drawPerspectiveWorld(
       continue;
     }
     const PlayerState& remotePlayer = remote.player;
+    const bool outlineEnabled = remote.teammate
+      ? settings.teammateOutlineEnabled
+      : settings.enemyOutlineEnabled;
+    const float outlineWidth = remote.teammate
+      ? settings.teammateOutlineWidth
+      : settings.enemyOutlineWidth;
+    if (outlineEnabled && outlineWidth > 0.0F) {
+      const SDL_FColor outlineColor =
+        remoteOutlineColor(settings, remote.teammate);
+      SDL_SetRenderDrawColor(
+        renderer,
+        static_cast<Uint8>(outlineColor.r * 255.0F),
+        static_cast<Uint8>(outlineColor.g * 255.0F),
+        static_cast<Uint8>(outlineColor.b * 255.0F),
+        static_cast<Uint8>(outlineColor.a * 255.0F)
+      );
+      drawWireBox(
+        renderer,
+        camera,
+        width,
+        height,
+        {
+          remotePlayer.position.x - remotePlayer.bounds.radius - outlineWidth,
+          remotePlayer.position.y - remotePlayer.bounds.radius - outlineWidth,
+          remotePlayer.position.z - remotePlayer.bounds.halfHeight -
+            outlineWidth,
+        },
+        {
+          remotePlayer.position.x + remotePlayer.bounds.radius + outlineWidth,
+          remotePlayer.position.y + remotePlayer.bounds.radius + outlineWidth,
+          remotePlayer.position.z + remotePlayer.bounds.halfHeight +
+            outlineWidth,
+        }
+      );
+    }
     drawSolidBox(
       renderer,
       camera,
@@ -1549,7 +1618,7 @@ void drawPerspectiveWorld(
         remotePlayer.position.y + remotePlayer.bounds.radius,
         remotePlayer.position.z + remotePlayer.bounds.halfHeight,
       },
-      enemyColor(settings, remote.enemyHitAmount)
+      remoteModelColor(settings, remote.enemyHitAmount, remote.teammate)
     );
   }
 

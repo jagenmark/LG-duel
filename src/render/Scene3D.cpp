@@ -433,15 +433,49 @@ void addOrientedBox(
   }
 }
 
-void addPlayerModel(
+void addOrientedWireBox(
   Scene3D& scene,
-  const PlayerState& player,
-  RenderColor color,
-  bool leanEnabled,
-  float leanScale
+  Vec3 center,
+  Vec3 halfExtents,
+  Vec3 forward,
+  Vec3 right,
+  Vec3 up,
+  float width,
+  RenderColor color
 ) {
-  const float radius = player.bounds.radius;
-  const float halfHeight = player.bounds.halfHeight;
+  const Vec3 forwardExtent = forward * halfExtents.x;
+  const Vec3 rightExtent = right * halfExtents.y;
+  const Vec3 upExtent = up * halfExtents.z;
+  const std::array<Vec3, 8> corners = {{
+    center - forwardExtent - rightExtent - upExtent,
+    center + forwardExtent - rightExtent - upExtent,
+    center + forwardExtent + rightExtent - upExtent,
+    center - forwardExtent + rightExtent - upExtent,
+    center - forwardExtent - rightExtent + upExtent,
+    center + forwardExtent - rightExtent + upExtent,
+    center + forwardExtent + rightExtent + upExtent,
+    center - forwardExtent + rightExtent + upExtent,
+  }};
+  constexpr std::array<std::array<std::size_t, 2>, 12> edges = {{
+    {{0, 1}}, {{1, 2}}, {{2, 3}}, {{3, 0}},
+    {{4, 5}}, {{5, 6}}, {{6, 7}}, {{7, 4}},
+    {{0, 4}}, {{1, 5}}, {{2, 6}}, {{3, 7}},
+  }};
+  for (const auto& edge : edges) {
+    addSegment(scene, corners[edge[0]], corners[edge[1]], width, color);
+  }
+}
+
+template <typename AddPart>
+void forEachPlayerModelPart(
+  const PlayerState& player,
+  bool leanEnabled,
+  float leanScale,
+  float expansion,
+  AddPart addPart
+) {
+  const float radius = player.bounds.radius + std::max(0.0F, expansion);
+  const float halfHeight = player.bounds.halfHeight + std::max(0.0F, expansion);
   const float bottom = player.position.z - halfHeight;
   const float height = halfHeight * 2.0F;
   const Vec3 forward = yawForward(player.viewYawRadians);
@@ -467,8 +501,7 @@ void addPlayerModel(
         float rightRadius) {
       const float partBottom = bottom + height * bottomRatio;
       const float partTop = bottom + height * topRatio;
-      addOrientedBox(
-        scene,
+      addPart(
         player.position +
           forward * (radius * forwardOffset) +
           right * (radius * rightOffset) +
@@ -480,8 +513,7 @@ void addPlayerModel(
         },
         forward,
         right,
-        up,
-        color
+        up
       );
     };
 
@@ -492,6 +524,54 @@ void addPlayerModel(
   part(0.0F, 0.74F, 0.38F, 0.72F, 0.20F, 0.20F);  // Right arm
   part(0.0F, -0.25F, 0.0F, 0.36F, 0.25F, 0.20F);  // Left leg
   part(0.0F, 0.25F, 0.0F, 0.36F, 0.25F, 0.20F);   // Right leg
+}
+
+void addPlayerModel(
+  Scene3D& scene,
+  const PlayerState& player,
+  RenderColor color,
+  bool leanEnabled,
+  float leanScale
+) {
+  forEachPlayerModelPart(
+    player,
+    leanEnabled,
+    leanScale,
+    0.0F,
+    [&](Vec3 center, Vec3 halfExtents, Vec3 forward, Vec3 right, Vec3 up) {
+      addOrientedBox(scene, center, halfExtents, forward, right, up, color);
+    }
+  );
+}
+
+void addPlayerOutline(
+  Scene3D& scene,
+  const PlayerState& player,
+  RenderColor color,
+  bool leanEnabled,
+  float leanScale,
+  float outlineWidth
+) {
+  const float expansion = std::max(0.0F, outlineWidth);
+  const float lineWidth = std::max(0.008F, expansion * 0.45F);
+  forEachPlayerModelPart(
+    player,
+    leanEnabled,
+    leanScale,
+    expansion,
+    [&](Vec3 center, Vec3 halfExtents, Vec3 forward, Vec3 right, Vec3 up) {
+      addOrientedWireBox(
+        scene,
+        center,
+        halfExtents,
+        forward,
+        right,
+        up,
+        lineWidth,
+        color
+      );
+    }
+  );
 }
 
 void addSegment(
@@ -681,6 +761,40 @@ Scene3D buildPerspectiveScene(
         ) * 255.0F
       ),
     };
+    const bool outlineEnabled = remote.teammate
+      ? settings.teammateOutlineEnabled
+      : settings.enemyOutlineEnabled;
+    const float outlineWidth = remote.teammate
+      ? settings.teammateOutlineWidth
+      : settings.enemyOutlineWidth;
+    const float outlineAlpha = remote.teammate
+      ? settings.teammateOutlineAlpha
+      : settings.enemyOutlineAlpha;
+    if (outlineEnabled && outlineWidth > 0.0F && outlineAlpha > 0.0F) {
+      addPlayerOutline(
+        scene,
+        remote.player,
+        {
+          remote.teammate
+            ? settings.teammateOutlineRed
+            : settings.enemyOutlineRed,
+          remote.teammate
+            ? settings.teammateOutlineGreen
+            : settings.enemyOutlineGreen,
+          remote.teammate
+            ? settings.teammateOutlineBlue
+            : settings.enemyOutlineBlue,
+          static_cast<std::uint8_t>(
+            std::clamp(outlineAlpha, 0.0F, 1.0F) * 255.0F
+          ),
+        },
+        remote.teammate
+          ? settings.teammateLeanEnabled
+          : settings.enemyLeanEnabled,
+        remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
+        outlineWidth
+      );
+    }
     addPlayerModel(
       scene,
       remote.player,

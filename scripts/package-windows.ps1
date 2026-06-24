@@ -96,7 +96,6 @@ $requiredFiles = @(
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",
   "README.txt",
-  "PLAYTEST_GUIDE.html",
   "server-address.txt"
 )
 foreach ($file in $requiredFiles) {
