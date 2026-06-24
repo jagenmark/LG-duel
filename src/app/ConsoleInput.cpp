@@ -19,4 +19,8 @@ void appendConsolePasteText(std::string& input, std::string_view text) {
   }
 }
 
+std::string consoleInputClipboardText(std::string_view input) {
+  return std::string(input);
+}
+
 } // namespace lg

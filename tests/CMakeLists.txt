@@ -191,6 +191,7 @@ add_test(NAME lg_duel_top_down_scene_tests COMMAND lg_duel_top_down_scene_tests)
 
 add_executable(lg_duel_screen_ui_tests
   render/ScreenUiTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/ConsoleLayout.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ScreenUi.cpp
 )
 

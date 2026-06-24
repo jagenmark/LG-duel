@@ -34,6 +34,7 @@ public:
     std::int32_t botDodgeMaxIntervalMs = 750,
     std::string chatMessage = {},
     std::string playerName = {},
+    std::string mapName = {},
     bool usePresentedServerTick = true
   );
   void receiveSnapshots();

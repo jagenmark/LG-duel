@@ -89,6 +89,9 @@ struct ConsoleRenderState {
   bool open = false;
   std::vector<std::string> lines;
   std::string input;
+  bool hasSelection = false;
+  std::size_t selectionAnchor = 0;
+  std::size_t selectionFocus = 0;
 };
 
 struct HudRenderState {

@@ -29,5 +29,15 @@ int main() {
   lg::appendConsolePasteText(input, "\ncmd\r\nlist");
   expectEqual(input, "cmd list", "leading and CRLF newlines do not add extra spaces");
 
+  input = "connect 127.0.0.1:7777";
+  expectEqual(
+    lg::consoleInputClipboardText(input),
+    "connect 127.0.0.1:7777",
+    "console copy uses the active input line"
+  );
+
+  input.clear();
+  expectEqual(lg::consoleInputClipboardText(input), "", "empty console input copies empty text");
+
   return 0;
 }

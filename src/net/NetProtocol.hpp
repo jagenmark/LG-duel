@@ -18,6 +18,7 @@ inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxBundledCommands = 3;
 inline constexpr std::size_t kMaxChatMessageBytes = 64;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
+inline constexpr std::size_t kMaxMapNameBytes = 32;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
@@ -63,6 +64,7 @@ struct CommandPacket {
   float vampirism = 0.0F;
   std::string chatMessage;
   std::string playerName;
+  std::string mapName;
   std::uint8_t selfDamagePercent = 100;
   std::int32_t healthAmount = 100;
   bool botDodgeEnabled = false;

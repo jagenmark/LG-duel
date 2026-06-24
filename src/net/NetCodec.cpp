@@ -251,7 +251,8 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeI32(packet.botDodgeMaxIntervalMs) &&
     writer.writeU32(packet.viewedServerTick) &&
     writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
-    writer.writeString(packet.playerName, kMaxPlayerNameBytes);
+    writer.writeString(packet.playerName, kMaxPlayerNameBytes) &&
+    writer.writeString(packet.mapName, kMaxMapNameBytes);
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
@@ -296,7 +297,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readI32(packet.botDodgeMaxIntervalMs) ||
     !reader.readU32(packet.viewedServerTick) ||
     !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
-    !reader.readString(packet.playerName, kMaxPlayerNameBytes)
+    !reader.readString(packet.playerName, kMaxPlayerNameBytes) ||
+    !reader.readString(packet.mapName, kMaxMapNameBytes)
   ) {
     return false;
   }

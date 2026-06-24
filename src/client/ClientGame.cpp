@@ -28,6 +28,7 @@ void ClientGame::sendCommand(
   std::int32_t botDodgeMaxIntervalMs,
   std::string chatMessage,
   std::string playerName,
+  std::string mapName,
   bool usePresentedServerTick
 ) {
   if (requestMovementTuning) {
@@ -52,6 +53,7 @@ void ClientGame::sendCommand(
       vampirism,
       std::move(chatMessage),
       std::move(playerName),
+      std::move(mapName),
       selfDamagePercent,
       healthAmount,
       botDodgeEnabled,

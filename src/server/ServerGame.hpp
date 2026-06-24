@@ -9,6 +9,7 @@
 #include <array>
 #include <cstdint>
 #include <deque>
+#include <string>
 
 namespace lg {
 
@@ -19,6 +20,7 @@ public:
   void tick(float fixedDt);
   void resetMatch();
   void setArena(const Arena& arena);
+  void setMapDirectory(std::string mapDirectory);
   void setConnectedPlayers(
     const std::array<bool, kDuelPlayerCount>& connectedPlayers
   );
@@ -34,6 +36,7 @@ public:
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] const Arena& arena() const;
+  [[nodiscard]] const std::string& mapDirectory() const;
   [[nodiscard]] const MatchRules& matchRules() const;
 
 private:
@@ -43,6 +46,7 @@ private:
   };
 
   void receiveCommands();
+  [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
   void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
   void respawnRound();
@@ -69,6 +73,7 @@ private:
 
   NetTransport& transport_;
   Arena arena_ = thunderstruckArena();
+  std::string mapDirectory_ = "maps";
   std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};
   float playerSizeScaleXY_ = 1.0F;

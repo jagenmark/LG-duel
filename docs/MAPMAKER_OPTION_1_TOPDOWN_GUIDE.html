@@ -1,0 +1,484 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LG Duel Mapmaker Option 1 and Top-Down Tool Guide</title>
+  <style>
+    :root {
+      --bg: #111720;
+      --panel: #182230;
+      --panel-2: #202d3d;
+      --ink: #edf4ff;
+      --muted: #a8b6c9;
+      --line: #334358;
+      --accent: #7fd0ff;
+      --good: #9ee493;
+      --warn: #ffd166;
+      --bad: #ff8a8a;
+      --code: #0c1118;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(180deg, rgba(127, 208, 255, 0.10), transparent 340px),
+        var(--bg);
+      color: var(--ink);
+      font-family: Inter, "Segoe UI", system-ui, sans-serif;
+      line-height: 1.6;
+    }
+
+    a { color: var(--accent); }
+
+    .shell {
+      width: min(1120px, calc(100% - 32px));
+      margin: 0 auto;
+    }
+
+    header {
+      padding: 46px 0 30px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .kicker {
+      margin: 0 0 10px;
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 800;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    h1, h2, h3, p { margin-top: 0; }
+
+    h1 {
+      max-width: 820px;
+      margin-bottom: 18px;
+      font-size: clamp(2.4rem, 6vw, 5.4rem);
+      line-height: 0.98;
+    }
+
+    .intro {
+      max-width: 840px;
+      color: var(--muted);
+      font-size: clamp(1.02rem, 2vw, 1.24rem);
+    }
+
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 26px;
+    }
+
+    nav a {
+      padding: 8px 11px;
+      border: 1px solid var(--line);
+      border-radius: 7px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--ink);
+      font-size: 0.9rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    main { padding: 34px 0 58px; }
+
+    section {
+      padding: 28px 0;
+      border-bottom: 1px solid rgba(51, 67, 88, 0.65);
+    }
+
+    h2 {
+      margin-bottom: 14px;
+      font-size: clamp(1.7rem, 3vw, 2.6rem);
+      line-height: 1.1;
+    }
+
+    h3 {
+      margin: 22px 0 8px;
+      font-size: 1.15rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+
+    .card {
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .card strong {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--ink);
+      font-size: 1rem;
+    }
+
+    .card p { margin-bottom: 0; color: var(--muted); }
+
+    .steps {
+      display: grid;
+      gap: 12px;
+      counter-reset: step;
+    }
+
+    .step {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    .step::before {
+      counter-increment: step;
+      content: counter(step);
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 7px;
+      background: var(--accent);
+      color: #061018;
+      font-weight: 900;
+    }
+
+    .step p { margin-bottom: 0; color: var(--muted); }
+
+    ul, ol { color: var(--muted); padding-left: 22px; }
+    li + li { margin-top: 7px; }
+
+    code {
+      padding: 0.12em 0.35em;
+      border-radius: 4px;
+      background: var(--code);
+      color: #d8e9ff;
+      font-family: Consolas, "SFMono-Regular", monospace;
+      font-size: 0.95em;
+    }
+
+    pre {
+      overflow: auto;
+      padding: 18px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--code);
+      color: #d8e9ff;
+      font: 0.92rem/1.55 Consolas, "SFMono-Regular", monospace;
+    }
+
+    .note {
+      padding: 16px 18px;
+      border-left: 4px solid var(--accent);
+      border-radius: 7px;
+      background: rgba(127, 208, 255, 0.10);
+      color: var(--muted);
+    }
+
+    .warning {
+      border-left-color: var(--warn);
+      background: rgba(255, 209, 102, 0.10);
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+    }
+
+    table {
+      width: 100%;
+      min-width: 780px;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 13px 15px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--accent);
+      font-size: 0.78rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    tr:last-child td { border-bottom: 0; }
+
+    .ok { color: var(--good); font-weight: 800; }
+    .warn-text { color: var(--warn); font-weight: 800; }
+    .bad { color: var(--bad); font-weight: 800; }
+
+    footer {
+      padding: 26px 0 44px;
+      color: var(--muted);
+      font-size: 0.88rem;
+    }
+
+    @media (max-width: 820px) {
+      .grid { grid-template-columns: 1fr; }
+      .step { grid-template-columns: 1fr; }
+      .step::before { width: 28px; height: 28px; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="shell">
+      <p class="kicker">LG Duel mapmaking</p>
+      <h1>How to use Mapmaker Option 1 and the top-down .lgmap tool</h1>
+      <p class="intro">
+        Option 1 is the text-file workflow: write a small <code>.lgmap</code> file, validate it, preview it from above, then run it through the same map loader used by the game. The top-down tool, or <em>lgmap-topdown-verktyg</em>, is the browser helper that makes that workflow practical.
+      </p>
+      <nav aria-label="Guide sections">
+        <a href="#option-1">Option 1</a>
+        <a href="#topdown-tool">Top-down tool</a>
+        <a href="#format">File format</a>
+        <a href="#workflow">Workflow</a>
+        <a href="#rules">Validation rules</a>
+        <a href="#design">Map design tips</a>
+      </nav>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section id="option-1">
+      <h2>What Mapmaker Option 1 is</h2>
+      <p>
+        Mapmaker Option 1 means maps are authored as plain text. A map describes the duel arena bounds, solid axis-aligned boxes, and spawn points. It is deliberately narrow: no arbitrary meshes, no lighting, no scripting, no general-purpose level-editor system.
+      </p>
+      <div class="grid">
+        <article class="card">
+          <strong>Best use</strong>
+          <p>Fast iteration on small LG duel layouts where collision, beam occlusion, rendering, and server simulation all use one source of truth.</p>
+        </article>
+        <article class="card">
+          <strong>Why it fits this project</strong>
+          <p>Text files are diffable, easy to review, deterministic to parse, and simple to test against the fixed-tick simulation.</p>
+        </article>
+        <article class="card">
+          <strong>What it is not</strong>
+          <p>It is not a full map editor. It is a compact authoring path for the current box-based duel prototype.</p>
+        </article>
+      </div>
+      <p class="note">
+        The current game map lives at <code>maps/thunderstruck.lgmap</code>. Treat that file as the reference example for naming, scale, and the shape of a valid v1 map.
+      </p>
+    </section>
+
+    <section id="topdown-tool">
+      <h2>What the top-down .lgmap tool does</h2>
+      <p>
+        The tool at <code>tools/lgmap-preview/index.html</code> is a local browser utility. It gives you a text editor on the left, a top-down canvas preview in the middle, and validation, stats, and export text on the right.
+      </p>
+      <div class="grid">
+        <article class="card">
+          <strong>Input</strong>
+          <p>Paste or edit <code>.lgmap</code> text directly. The preview updates as you type.</p>
+        </article>
+        <article class="card">
+          <strong>Preview</strong>
+          <p>Shows arena bounds, a 1-unit grid, solid boxes, spawn positions, and spawn yaw arrows from above.</p>
+        </article>
+        <article class="card">
+          <strong>Export</strong>
+          <p>Serializes the parsed map into a clean, normalized <code>.lgmap</code> text block that can be copied or downloaded.</p>
+        </article>
+      </div>
+      <h3>How to open it</h3>
+      <ol>
+        <li>Open <code>tools/lgmap-preview/index.html</code> in a browser.</li>
+        <li>Click <code>Open .lgmap</code> and choose a map file, or click <code>Load Sample</code>.</li>
+        <li>Edit the text in the input pane.</li>
+        <li>Watch the validation status and top-down preview update immediately.</li>
+        <li>Use <code>Copy Export</code> or <code>Download</code> when the status says <span class="ok">Valid .lgmap</span>.</li>
+      </ol>
+    </section>
+
+    <section id="format">
+      <h2>The .lgmap format</h2>
+      <p>
+        A v1 file is whitespace-separated. Comments start with <code>#</code>. Vectors are written as <code>x,y,z</code> with no spaces inside the vector.
+      </p>
+      <pre><code># LG Duel map format v1.
+version 1
+bounds min=-15,-11,0 max=15,11,10
+
+box lane_north -15,6.5,0 15,11,2
+box cover_left -5,-0.9,0 -3,0.9,1.2
+box cover_right 3,-0.9,0 5,0.9,1.2
+
+spawn player_1 -8,-9,2 yaw=0
+spawn player_2 8,-9,2 yaw=180</code></pre>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Directive</th>
+              <th>Shape</th>
+              <th>Meaning</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>version</code></td>
+              <td><code>version 1</code></td>
+              <td>Declares the file format. Only version 1 is supported.</td>
+            </tr>
+            <tr>
+              <td><code>bounds</code></td>
+              <td><code>bounds min=x,y,z max=x,y,z</code></td>
+              <td>Sets the playable arena volume. Every box and spawn must fit inside it.</td>
+            </tr>
+            <tr>
+              <td><code>box</code></td>
+              <td><code>box id min max</code></td>
+              <td>Adds one axis-aligned solid. Boxes are used by collision, rendering, and LG occlusion.</td>
+            </tr>
+            <tr>
+              <td><code>spawn</code></td>
+              <td><code>spawn id x,y,z yaw=degrees</code></td>
+              <td>Adds a spawn point. The JavaScript tool displays yaw arrows; the C++ loader currently validates the option but ignores yaw in simulation.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="workflow">
+      <h2>Recommended workflow</h2>
+      <div class="steps">
+        <article class="step">
+          <div>
+            <h3>Start from Thunderstruck</h3>
+            <p>Copy <code>maps/thunderstruck.lgmap</code> or load the sample in the preview tool. Keep the file small and readable while you explore layout ideas.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Block out the arena bounds first</h3>
+            <p>Set <code>bounds</code> before adding geometry. Use a compact duel scale where players can re-engage quickly and the LG beam has meaningful line-of-sight fights.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Add boxes in groups</h3>
+            <p>Build lanes, cover, stairs, and pillars as named boxes. Use stable IDs such as <code>lane_west</code>, <code>cover_mid</code>, and <code>stair_east_3</code> so review diffs stay understandable.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Place at least two duel spawns</h3>
+            <p>Put initial spawns on solid surfaces with clear but not instant sightlines. Add extra spawns only when they serve round resets or future player-limit testing.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Use the top-down tool as the first validator</h3>
+            <p>Fix every listed issue before testing in the game. The browser parser mirrors the project loader closely, so invalid preview maps are not expected to load in the C++ server either.</p>
+          </div>
+        </article>
+        <article class="step">
+          <div>
+            <h3>Export, save, then run tests</h3>
+            <p>Copy the export text into a <code>.lgmap</code> file and run the relevant map parser tests or the full preset tests before handing the map off.</p>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <section id="rules">
+      <h2>Validation rules and limits</h2>
+      <p>
+        The current v1 limits are intentionally strict. They keep map data cheap to parse, easy to test, and safe for authoritative simulation.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Rule</th>
+              <th>Limit</th>
+              <th>What to do when it fails</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Boxes</td>
+              <td>Maximum 24, at least 1</td>
+              <td>Merge simple surfaces or remove decorative pieces.</td>
+            </tr>
+            <tr>
+              <td>Spawns</td>
+              <td>Maximum 6, at least 2</td>
+              <td>Keep two primary duel spawns and add extras only when useful.</td>
+            </tr>
+            <tr>
+              <td>Coordinates</td>
+              <td>Finite and within <code>+/-1000</code></td>
+              <td>Bring the map back to the prototype's local coordinate scale.</td>
+            </tr>
+            <tr>
+              <td>Bounds and boxes</td>
+              <td><code>min</code> must be lower than <code>max</code> on x, y, and z</td>
+              <td>Swap mistaken min/max values and avoid zero-thickness boxes.</td>
+            </tr>
+            <tr>
+              <td>Box placement</td>
+              <td>Boxes must be inside bounds and must not overlap</td>
+              <td>Split, move, or resize touching geometry. Stacked stairs should touch faces, not overlap volumes.</td>
+            </tr>
+            <tr>
+              <td>Spawn placement</td>
+              <td>Spawns must be inside bounds</td>
+              <td>Move the spawn into the arena volume. Then check in-game that it is on useful walkable geometry.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="note warning">
+        The validator checks syntax and broad geometry rules. It does not prove the map is fun, reachable, balanced, or spawn-safe. Always playtest after a map loads.
+      </p>
+    </section>
+
+    <section id="design">
+      <h2>How to design useful LG duel maps</h2>
+      <ul>
+        <li>Prefer clear fighting lanes over clutter. The prototype is about tracking, movement, and continuous beam pressure.</li>
+        <li>Use cover to break LG contact briefly, not to create maze-like hiding.</li>
+        <li>Keep routes short enough that players re-enter combat quickly after losing line of sight.</li>
+        <li>Make high and low positions matter, but avoid geometry that only works visually and fails collision or beam tests.</li>
+        <li>Use stairs as stepped boxes. Adjacent stair boxes can share faces, but their volumes should not overlap.</li>
+        <li>Name objects by gameplay role. A future reviewer should understand <code>bridge</code> or <code>spawn_deck_west</code> without opening the preview.</li>
+        <li>After browser validation, test movement collision, LG occlusion, spawn flow, and how prediction feels around the geometry.</li>
+      </ul>
+      <h3>Good handoff checklist</h3>
+      <ul>
+        <li><span class="ok">Valid</span> in the top-down preview tool.</li>
+        <li><span class="ok">Readable</span> object names and comments for major layout sections.</li>
+        <li><span class="ok">Compact</span> geometry count under the 24-box limit.</li>
+        <li><span class="warn-text">Playtested</span> for stuck spots, unfair spawns, and accidental full-map sightlines.</li>
+        <li><span class="warn-text">Tested</span> with the repository's CMake preset before code or map changes are handed off.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="shell">
+    Static guide for <code>docs/MAPMAKER_OPTIONS.html</code>, <code>tools/lgmap-preview/index.html</code>, and the v1 <code>.lgmap</code> workflow.
+  </footer>
+</body>
+</html>

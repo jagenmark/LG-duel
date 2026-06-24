@@ -45,6 +45,7 @@ endif()
 add_library(lg_duel_client_app
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
+  src/render/ConsoleLayout.cpp
   src/render/Renderer.cpp
   src/render/Scene3D.cpp
   src/render/ScreenUi.cpp
