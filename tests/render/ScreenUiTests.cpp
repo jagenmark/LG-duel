@@ -315,6 +315,7 @@ int main() {
     console.open = true;
     console.lines = {"first", "second"};
     console.input = "r_vsync 0";
+    console.cursorIndex = console.input.size();
     const lg::DrawList2D ui = lg::buildScreenUi(
       1280,
       720,
@@ -338,6 +339,7 @@ int main() {
     narrowConsole.open = true;
     narrowConsole.lines = {"alpha beta gamma"};
     narrowConsole.input = "wrap input";
+    narrowConsole.cursorIndex = narrowConsole.input.size();
     const lg::DrawList2D ui = lg::buildScreenUi(
       180,
       240,
@@ -383,6 +385,27 @@ int main() {
     failures += expect(
       foundFirstPromptWrap && foundSecondPromptWrap,
       "console prompt should wrap to the available width"
+    );
+  }
+
+  {
+    lg::ConsoleRenderState cursorConsole;
+    cursorConsole.open = true;
+    cursorConsole.input = "r_vsync 0";
+    cursorConsole.cursorIndex = 2U;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      cursorConsole
+    );
+    const auto* prompt =
+      std::get_if<lg::Text2D>(&ui.overlayCommands.back());
+    failures += expect(
+      prompt != nullptr && prompt->text == "] r__vsync 0",
+      "console prompt cursor should render at the tracked input position"
     );
   }
 

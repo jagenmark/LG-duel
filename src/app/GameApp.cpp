@@ -64,12 +64,12 @@ enum class AimMode {
   return event.key == SDLK_V && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
 }
 
-void pasteClipboardTextIntoConsole(std::string& input) {
+void pasteClipboardTextIntoConsole(std::string& input, std::size_t& cursorIndex) {
   char* clipboardText = SDL_GetClipboardText();
   if (clipboardText == nullptr) {
     return;
   }
-  appendConsolePasteText(input, clipboardText);
+  appendConsolePasteText(input, cursorIndex, clipboardText);
   SDL_free(clipboardText);
 }
 #endif
@@ -144,6 +144,7 @@ struct LocalInputState {
 struct ClientConsoleState {
   bool open = false;
   std::string input;
+  std::size_t cursorIndex = 0;
   std::deque<std::string> output;
   std::vector<std::string> history;
   std::size_t historyIndex = 0;
@@ -905,6 +906,7 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   ConsoleRenderState renderState;
   renderState.open = state.open;
   renderState.input = state.input;
+  renderState.cursorIndex = state.cursorIndex;
   renderState.lines.assign(state.output.begin(), state.output.end());
   return renderState;
 }
@@ -1890,13 +1892,15 @@ int GameApp::run() const {
             break;
           }
           if (isClipboardPasteKey(event.key)) {
-            pasteClipboardTextIntoConsole(consoleState.input);
+            pasteClipboardTextIntoConsole(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
-            if (!consoleState.input.empty()) {
-              consoleState.input.pop_back();
-            }
+            backspaceConsoleInput(consoleState.input, consoleState.cursorIndex);
+          } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            moveConsoleCursorLeft(consoleState.input, consoleState.cursorIndex);
+          } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            moveConsoleCursorRight(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (!consoleState.input.empty()) {
               appendConsoleOutput(consoleState, "] " + consoleState.input);
@@ -1908,28 +1912,36 @@ int GameApp::run() const {
               consoleState.history.push_back(consoleState.input);
               consoleState.historyIndex = consoleState.history.size();
               consoleState.input.clear();
+              consoleState.cursorIndex = 0U;
             }
           } else if (event.key.scancode == SDL_SCANCODE_UP && !consoleState.history.empty()) {
             if (consoleState.historyIndex > 0) {
               --consoleState.historyIndex;
             }
             consoleState.input = consoleState.history[consoleState.historyIndex];
+            consoleState.cursorIndex = consoleState.input.size();
           } else if (event.key.scancode == SDL_SCANCODE_DOWN && !consoleState.history.empty()) {
             if (consoleState.historyIndex + 1 < consoleState.history.size()) {
               ++consoleState.historyIndex;
               consoleState.input = consoleState.history[consoleState.historyIndex];
+              consoleState.cursorIndex = consoleState.input.size();
             } else {
               consoleState.historyIndex = consoleState.history.size();
               consoleState.input.clear();
+              consoleState.cursorIndex = 0U;
             }
           } else if (event.key.scancode == SDL_SCANCODE_TAB) {
-            const std::size_t wordStart = consoleState.input.find_last_of(" \t");
-            const std::size_t prefixStart =
-              wordStart == std::string::npos ? 0U : wordStart + 1U;
-            const std::string prefix = consoleState.input.substr(prefixStart);
+            const std::string prefix = consoleCompletionPrefix(
+              consoleState.input,
+              consoleState.cursorIndex
+            );
             const std::vector<std::string> matches = console.complete(prefix);
             if (matches.size() == 1) {
-              consoleState.input.replace(prefixStart, std::string::npos, matches[0]);
+              replaceConsoleCompletion(
+                consoleState.input,
+                consoleState.cursorIndex,
+                matches[0]
+              );
             } else if (!matches.empty()) {
               std::string line;
               for (const std::string& match : matches) {
@@ -1966,7 +1978,11 @@ int GameApp::run() const {
           suppressNextTextInput = false;
         } else if (consoleState.open) {
           suppressNextTextInput = false;
-          consoleState.input += event.text.text;
+          insertConsoleText(
+            consoleState.input,
+            consoleState.cursorIndex,
+            event.text.text
+          );
         } else if (chatState.inputOpen) {
           suppressNextTextInput = false;
           if (
