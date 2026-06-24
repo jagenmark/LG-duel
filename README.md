@@ -232,7 +232,7 @@ sv_roundlimit 10
 sv_timelimit 0
 sv_playerlimit 2
 sv_countdown 5
-sv_roundend 1
+sv_roundend 5
 sv_matchend 5
 sv_showopponenthealth 0
 ```

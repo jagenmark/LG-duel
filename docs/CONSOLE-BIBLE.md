@@ -440,7 +440,7 @@ omstart.
 | `sv_timelimit` | int | `0` | `0..120` minuter | Q3 `timelimit 0` | Matchtid; `0` stänger av tidsgränsen. |
 | `sv_playerlimit` | int | `2` | `1..6` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
-| `sv_roundend` | float | `1` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
+| `sv_roundend` | float | `5` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
 | `sv_matchend` | float | `5` | `0..60` sekunder | Ingen direkt | Delay efter matchvinst innan reset till ready-up. |
 | `sv_showopponenthealth` | bool | `1` | bool | Ingen Q3-standard | Visar motståndarens HP-bar för båda klienterna. |
 
