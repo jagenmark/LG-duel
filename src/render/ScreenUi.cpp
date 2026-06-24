@@ -1022,6 +1022,162 @@ DrawList2D buildPerspectiveWeaponOverlay(
       return;
     }
 
+    if (weapon == Weapon::MachineGun) {
+      quad(
+        {{
+          {centerX - 30.0F * scale, muzzle + 8.0F * scale},
+          {centerX + 30.0F * scale, muzzle + 8.0F * scale},
+          {centerX + 72.0F * scale, bodyBottom},
+          {centerX - 72.0F * scale, bodyBottom},
+        }},
+        {36, 40, 43, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 18.0F * scale,
+        muzzle - 42.0F * scale,
+        36.0F * scale,
+        82.0F * scale,
+        {74, 82, 88, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 7.0F * scale,
+        muzzle - 58.0F * scale,
+        14.0F * scale,
+        66.0F * scale,
+        {24, 27, 30, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 42.0F * scale,
+        muzzle + 28.0F * scale,
+        84.0F * scale,
+        11.0F * scale,
+        {218, 196, 116, 255}
+      );
+      return;
+    }
+
+    if (weapon == Weapon::Shotgun) {
+      quad(
+        {{
+          {centerX - 58.0F * scale, muzzle + 12.0F * scale},
+          {centerX + 58.0F * scale, muzzle + 12.0F * scale},
+          {centerX + 94.0F * scale, bodyBottom},
+          {centerX - 94.0F * scale, bodyBottom},
+        }},
+        {42, 38, 34, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 42.0F * scale,
+        muzzle - 31.0F * scale,
+        84.0F * scale,
+        19.0F * scale,
+        {30, 34, 36, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 42.0F * scale,
+        muzzle - 7.0F * scale,
+        84.0F * scale,
+        19.0F * scale,
+        {30, 34, 36, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 54.0F * scale,
+        muzzle + 32.0F * scale,
+        108.0F * scale,
+        22.0F * scale,
+        {188, 120, 84, 255}
+      );
+      return;
+    }
+
+    if (weapon == Weapon::GrenadeLauncher) {
+      quad(
+        {{
+          {centerX - 50.0F * scale, muzzle + 4.0F * scale},
+          {centerX + 50.0F * scale, muzzle + 4.0F * scale},
+          {centerX + 86.0F * scale, bodyBottom},
+          {centerX - 86.0F * scale, bodyBottom},
+        }},
+        {33, 45, 39, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 35.0F * scale,
+        muzzle - 30.0F * scale,
+        70.0F * scale,
+        60.0F * scale,
+        {72, 86, 74, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 26.0F * scale,
+        muzzle - 21.0F * scale,
+        52.0F * scale,
+        42.0F * scale,
+        {24, 31, 27, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 18.0F * scale,
+        muzzle - 13.0F * scale,
+        36.0F * scale,
+        26.0F * scale,
+        {112, 188, 90, 255}
+      );
+      return;
+    }
+
+    if (weapon == Weapon::PlasmaGun) {
+      quad(
+        {{
+          {centerX - 42.0F * scale, muzzle + 6.0F * scale},
+          {centerX + 42.0F * scale, muzzle + 6.0F * scale},
+          {centerX + 91.0F * scale, bodyBottom},
+          {centerX - 91.0F * scale, bodyBottom},
+        }},
+        {30, 39, 48, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 24.0F * scale,
+        muzzle - 24.0F * scale,
+        48.0F * scale,
+        62.0F * scale,
+        {68, 82, 102, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 65.0F * scale,
+        muzzle + 22.0F * scale,
+        28.0F * scale,
+        72.0F * scale,
+        {45, 58, 70, 255}
+      );
+      addRect(
+        drawList,
+        centerX + 37.0F * scale,
+        muzzle + 22.0F * scale,
+        28.0F * scale,
+        72.0F * scale,
+        {45, 58, 70, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 15.0F * scale,
+        muzzle - 18.0F * scale,
+        30.0F * scale,
+        50.0F * scale,
+        {95, 235, 210, 255}
+      );
+      return;
+    }
+
     quad(
       {{
         {centerX - 44.0F * scale, muzzle + 6.0F * scale},

@@ -138,6 +138,62 @@ int main() {
   }
 
   {
+    struct WeaponAccent {
+      lg::Weapon weapon;
+      lg::RenderColor color;
+      std::string_view message;
+    };
+    constexpr std::array<WeaponAccent, 4> accents = {{
+      {
+        lg::Weapon::MachineGun,
+        {218, 196, 116, 255},
+        "machine gun viewmodel should use its ammo-feed accent",
+      },
+      {
+        lg::Weapon::Shotgun,
+        {188, 120, 84, 255},
+        "shotgun viewmodel should use its wide pump accent",
+      },
+      {
+        lg::Weapon::GrenadeLauncher,
+        {112, 188, 90, 255},
+        "grenade launcher viewmodel should use its drum accent",
+      },
+      {
+        lg::Weapon::PlasmaGun,
+        {95, 235, 210, 255},
+        "plasma gun viewmodel should use its core accent",
+      },
+    }};
+
+    for (const WeaponAccent& accent : accents) {
+      const lg::DrawList2D overlay = lg::buildPerspectiveWeaponOverlay(
+        1280,
+        720,
+        {},
+        accent.weapon,
+        lg::Weapon::LightningGun,
+        1.0F,
+        settings
+      );
+      bool foundAccent = false;
+      for (const lg::DrawCommand2D& command : overlay.overlayCommands) {
+        if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+          foundAccent =
+            foundAccent ||
+            (
+              quad->color.red == accent.color.red &&
+              quad->color.green == accent.color.green &&
+              quad->color.blue == accent.color.blue &&
+              quad->color.alpha == accent.color.alpha
+            );
+        }
+      }
+      failures += expect(foundAccent, accent.message);
+    }
+  }
+
+  {
     const lg::DrawList2D switchingOverlay = lg::buildPerspectiveWeaponOverlay(
       1280,
       720,

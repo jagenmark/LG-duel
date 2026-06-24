@@ -1181,6 +1181,93 @@ spawn p2 2,0,0.5 yaw=180
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::UserCommand machineGun;
+    machineGun.sequence = 1;
+    machineGun.attack = true;
+    machineGun.weapon = lg::Weapon::MachineGun;
+    transport.sendCommand(lg::CommandPacket{0, machineGun, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot machineGunSnapshot = latestSnapshot(transport);
+    failures += expect(machineGunSnapshot.weaponFires[0].fired, "machine gun command should fire a weapon event");
+    failures += expect(machineGunSnapshot.weaponFires[0].hit, "machine gun should hit the spawned opponent");
+    failures += expect(
+      machineGunSnapshot.weaponFires[0].weapon == lg::Weapon::MachineGun,
+      "machine gun event should replicate its selected weapon"
+    );
+    failures += expect(machineGunSnapshot.players[1].health == 95, "machine gun should apply 5 damage");
+    failures += expect(!machineGunSnapshot.lightningGuns[0].active, "machine gun should not also emit LG state");
+
+    machineGun.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, machineGun, false});
+    server.tick(lg::kFixedTickSeconds);
+    machineGunSnapshot = latestSnapshot(transport);
+    failures += expect(
+      machineGunSnapshot.players[1].health == 95,
+      "machine gun cooldown should block immediate damage"
+    );
+
+    for (int tick = 0; tick < 12; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      machineGunSnapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      machineGunSnapshot.weaponFires[0].weapon == lg::Weapon::MachineGun &&
+        machineGunSnapshot.players[1].health == 90,
+      "machine gun should fire again after its fixed-tick cooldown"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand shotgun;
+    shotgun.sequence = 1;
+    shotgun.attack = true;
+    shotgun.weapon = lg::Weapon::Shotgun;
+    transport.sendCommand(lg::CommandPacket{0, shotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "shotgun command should fire a weapon event");
+    failures += expect(snapshot.weaponFires[0].hit, "shotgun should hit the spawned opponent");
+    failures += expect(
+      snapshot.weaponFires[0].weapon == lg::Weapon::Shotgun,
+      "shotgun event should replicate its selected weapon"
+    );
+    failures += expect(
+      snapshot.weaponFires[0].pelletCount == lg::kShotgunPelletCount &&
+        snapshot.weaponFires[0].pelletHitCount > 0 &&
+        snapshot.weaponFires[0].pelletHitCount < snapshot.weaponFires[0].pelletCount,
+      "spawn-range shotgun should replicate partial pellet hits"
+    );
+    failures += expect(
+      snapshot.weaponFires[0].damageApplied ==
+        static_cast<int>(snapshot.weaponFires[0].pelletHitCount) * 5,
+      "shotgun event should report pellet-scaled damage"
+    );
+    const int healthAfterFirstShot = snapshot.players[1].health;
+    failures += expect(
+      healthAfterFirstShot == 100 - snapshot.weaponFires[0].damageApplied,
+      "shotgun should apply authoritative damage"
+    );
+    failures += expect(!snapshot.lightningGuns[0].active, "shotgun should not also emit LG state");
+
+    shotgun.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, shotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[1].health == healthAfterFirstShot,
+      "shotgun cooldown should block immediate damage"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     lg::UserCommand moveForward;
     moveForward.sequence = 1;
     moveForward.forwardMove = 1.0F;

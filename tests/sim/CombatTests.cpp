@@ -40,6 +40,8 @@ int main() {
   const lg::Arena arena;
   const lg::LightningGunTuning tuning;
   const lg::HitscanTuning railTuning;
+  const lg::MachineGunTuning machineGunTuning;
+  const lg::ShotgunTuning shotgunTuning;
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
@@ -272,6 +274,126 @@ int main() {
 
     failures += expect(!result.hit, "cover should block railgun traces");
     failures += expect(target.health == 100, "wall-blocked railgun should not damage target");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    const lg::WeaponFireResult result =
+      lg::simulateMachineGun(attacker, target, command, arena, machineGunTuning);
+
+    failures += expect(result.fired, "machine gun attack should fire");
+    failures += expect(result.hit, "machine gun aimed at target should hit");
+    failures += expect(
+      result.weapon == lg::Weapon::MachineGun,
+      "machine gun result should identify weapon"
+    );
+    failures += expect(result.damageApplied == 5, "machine gun should apply 5 damage");
+    failures += expect(target.health == 95, "machine gun damage should reduce target health");
+    failures += expect(
+      result.knockbackImpulse.x > 0.0F,
+      "machine gun hit should produce forward knockback"
+    );
+  }
+
+  {
+    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
+    lg::PlayerState target = playerAt(2.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    const lg::WeaponFireResult result =
+      lg::simulateMachineGun(attacker, target, command, walledArena, machineGunTuning);
+
+    failures += expect(!result.hit, "cover should block machine gun traces");
+    failures += expect(target.health == 100, "wall-blocked machine gun should not damage target");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState firstTarget = playerAt(6.0F, 0.0F);
+    lg::PlayerState secondTarget = playerAt(6.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+
+    const lg::WeaponFireResult firstResult =
+      lg::simulateShotgun(attacker, firstTarget, command, arena, shotgunTuning);
+    const lg::WeaponFireResult secondResult =
+      lg::simulateShotgun(attacker, secondTarget, command, arena, shotgunTuning);
+
+    failures += expect(firstResult.fired, "shotgun attack should fire");
+    failures += expect(firstResult.hit, "shotgun aimed at target should hit");
+    failures += expect(firstResult.weapon == lg::Weapon::Shotgun, "shotgun result should identify weapon");
+    failures += expect(
+      firstResult.pelletCount == lg::kShotgunPelletCount,
+      "shotgun should report the deterministic pellet count"
+    );
+    failures += expect(
+      firstResult.pelletHitCount > 0 &&
+        firstResult.pelletHitCount < firstResult.pelletCount,
+      "shotgun at mid range should support partial pellet hits"
+    );
+    failures += expect(
+      firstResult.pelletHitCount == secondResult.pelletHitCount &&
+        firstResult.damageApplied == secondResult.damageApplied &&
+        firstTarget.health == secondTarget.health,
+      "replayed shotgun spread should be deterministic"
+    );
+    failures += expect(
+      firstResult.damageApplied ==
+        static_cast<int>(firstResult.pelletHitCount) * shotgunTuning.damagePerPellet,
+      "shotgun damage should scale per pellet"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(2.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+
+    const lg::WeaponFireResult result =
+      lg::simulateShotgun(attacker, target, command, arena, shotgunTuning);
+
+    failures += expect(
+      result.pelletHitCount == result.pelletCount,
+      "close shotgun blast should allow a full pellet hit"
+    );
+    failures += expect(result.damageApplied == 100, "full shotgun hit should apply 100 damage");
+    failures += expect(target.health == 0, "full shotgun hit should be lethal to 100 health");
+    failures += expect(result.knockbackImpulse.x > 0.0F, "shotgun hit should produce knockback");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    command.viewYawRadians = kHalfPi;
+
+    const lg::WeaponFireResult result =
+      lg::simulateShotgun(attacker, target, command, arena, shotgunTuning);
+
+    failures += expect(!result.hit, "shotgun aimed away from target should miss");
+    failures += expect(result.pelletHitCount == 0, "missed shotgun should report zero pellet hits");
+    failures += expect(target.health == 100, "missed shotgun should not damage target");
+  }
+
+  {
+    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
+    lg::PlayerState target = playerAt(2.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+
+    const lg::WeaponFireResult result =
+      lg::simulateShotgun(attacker, target, command, walledArena, shotgunTuning);
+
+    failures += expect(!result.hit, "cover should block shotgun pellet traces");
+    failures += expect(result.pelletHitCount == 0, "wall-blocked shotgun should report zero pellet hits");
+    failures += expect(target.health == 100, "wall-blocked shotgun should not damage target");
   }
 
   return failures == 0 ? 0 : 1;

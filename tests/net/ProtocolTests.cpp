@@ -283,6 +283,22 @@ int main() {
     source.weaponFires[0].start = {1.0F, 1.5F, 2.0F};
     source.weaponFires[0].end = {9.0F, 1.5F, 2.0F};
     source.weaponFires[0].knockbackImpulse = {2.0F, 0.0F, 0.0F};
+    source.weaponFires[1].fired = true;
+    source.weaponFires[1].hit = true;
+    source.weaponFires[1].weapon = lg::Weapon::Shotgun;
+    source.weaponFires[1].damageApplied = 45;
+    source.weaponFires[1].start = {1.0F, -1.5F, 2.0F};
+    source.weaponFires[1].end = {7.0F, -1.5F, 2.0F};
+    source.weaponFires[1].knockbackImpulse = {1.0F, 0.0F, 0.0F};
+    source.weaponFires[1].pelletCount = lg::kShotgunPelletCount;
+    source.weaponFires[1].pelletHitCount = 9;
+    source.weaponFires[2].fired = true;
+    source.weaponFires[2].hit = true;
+    source.weaponFires[2].weapon = lg::Weapon::MachineGun;
+    source.weaponFires[2].damageApplied = 5;
+    source.weaponFires[2].start = {2.0F, 1.5F, 2.0F};
+    source.weaponFires[2].end = {8.0F, 1.5F, 2.0F};
+    source.weaponFires[2].knockbackImpulse = {0.11F, 0.0F, 0.0F};
     source.rocketExplosions[0].active = true;
     source.rocketExplosions[0].position = {3.0F, 4.0F, 0.0F};
     source.rocketExplosions[0].radius = 3.0F;
@@ -402,6 +418,23 @@ int main() {
         nearlyEqual(decoded.weaponFires[0].end.x, 9.0F) &&
         nearlyEqual(decoded.weaponFires[0].knockbackImpulse.x, 2.0F),
       "instant weapon events should round trip"
+    );
+    failures += expect(
+      decoded.weaponFires[1].fired &&
+        decoded.weaponFires[1].hit &&
+        decoded.weaponFires[1].weapon == lg::Weapon::Shotgun &&
+        decoded.weaponFires[1].damageApplied == 45 &&
+        decoded.weaponFires[1].pelletCount == lg::kShotgunPelletCount &&
+        decoded.weaponFires[1].pelletHitCount == 9,
+      "shotgun pellet event data should round trip"
+    );
+    failures += expect(
+      decoded.weaponFires[2].fired &&
+        decoded.weaponFires[2].hit &&
+        decoded.weaponFires[2].weapon == lg::Weapon::MachineGun &&
+        decoded.weaponFires[2].damageApplied == 5 &&
+        nearlyEqual(decoded.weaponFires[2].knockbackImpulse.x, 0.11F),
+      "machine gun weapon events should round trip"
     );
     failures += expect(
       decoded.rocketExplosions[0].active &&
