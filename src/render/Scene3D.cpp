@@ -649,20 +649,44 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     const float hitAmount = std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
+    const std::uint8_t red =
+      remote.teammate ? settings.teammateRed : settings.enemyRed;
+    const std::uint8_t green =
+      remote.teammate ? settings.teammateGreen : settings.enemyGreen;
+    const std::uint8_t blue =
+      remote.teammate ? settings.teammateBlue : settings.enemyBlue;
     const RenderColor opponentColor = {
-      blendChannel(settings.enemyRed, settings.enemyHitRed, hitAmount),
-      blendChannel(settings.enemyGreen, settings.enemyHitGreen, hitAmount),
-      blendChannel(settings.enemyBlue, settings.enemyHitBlue, hitAmount),
+      blendChannel(
+        red,
+        remote.teammate ? settings.teammateHitRed : settings.enemyHitRed,
+        hitAmount
+      ),
+      blendChannel(
+        green,
+        remote.teammate ? settings.teammateHitGreen : settings.enemyHitGreen,
+        hitAmount
+      ),
+      blendChannel(
+        blue,
+        remote.teammate ? settings.teammateHitBlue : settings.enemyHitBlue,
+        hitAmount
+      ),
       static_cast<std::uint8_t>(
-        std::clamp(settings.enemyAlpha, 0.0F, 1.0F) * 255.0F
+        std::clamp(
+          remote.teammate ? settings.teammateAlpha : settings.enemyAlpha,
+          0.0F,
+          1.0F
+        ) * 255.0F
       ),
     };
     addPlayerModel(
       scene,
       remote.player,
       opponentColor,
-      settings.enemyLeanEnabled,
-      settings.enemyLeanScale
+      remote.teammate
+        ? settings.teammateLeanEnabled
+        : settings.enemyLeanEnabled,
+      remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
     );
   }
 
@@ -703,20 +727,23 @@ Scene3D buildPerspectiveScene(
     }
     const float pulse = std::clamp(settings.beamPulse, -1.0F, 1.0F);
     const float brightness = 1.0F + pulse * 0.05F;
+    const float beamWidth = remote.teammate
+      ? settings.teammateBeamWidth
+      : settings.enemyBeamWidth;
+    const float beamAlpha = remote.teammate
+      ? settings.teammateBeamAlpha
+      : settings.enemyBeamAlpha;
     addSegment(
       scene,
       remote.lightningGun.start,
       remote.lightningGun.end,
-      std::max(
-        0.015F,
-        settings.enemyBeamWidth * (1.0F + pulse * 0.04F) * 0.012F
-      ),
+      std::max(0.015F, beamWidth * (1.0F + pulse * 0.04F) * 0.012F),
       scaleColor({
-        settings.enemyBeamRed,
-        settings.enemyBeamGreen,
-        settings.enemyBeamBlue,
+        remote.teammate ? settings.teammateBeamRed : settings.enemyBeamRed,
+        remote.teammate ? settings.teammateBeamGreen : settings.enemyBeamGreen,
+        remote.teammate ? settings.teammateBeamBlue : settings.enemyBeamBlue,
         static_cast<std::uint8_t>(
-          std::clamp(settings.enemyBeamAlpha, 0.0F, 1.0F) * 255.0F
+          std::clamp(beamAlpha, 0.0F, 1.0F) * 255.0F
         ),
       }, brightness)
     );

@@ -19,6 +19,8 @@ struct RenderSettings {
   bool rotateView = false;
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
+  bool teammateLeanEnabled = true;
+  float teammateLeanScale = 1.0F;
   float healthTextScale = 2.0F;
   float playerSizePixels = 14.0F;
   bool crosshairUseScreenPosition = false;
@@ -52,6 +54,11 @@ struct RenderSettings {
   std::uint8_t enemyBeamRed = 255;
   std::uint8_t enemyBeamGreen = 110;
   std::uint8_t enemyBeamBlue = 80;
+  float teammateBeamWidth = 2.0F;
+  float teammateBeamAlpha = 1.0F;
+  std::uint8_t teammateBeamRed = 80;
+  std::uint8_t teammateBeamGreen = 220;
+  std::uint8_t teammateBeamBlue = 150;
   bool hitMarkerEnabled = true;
   float hitMarkerSize = 10.0F;
   float hitMarkerThickness = 2.0F;
@@ -67,6 +74,13 @@ struct RenderSettings {
   std::uint8_t enemyHitGreen = 190;
   std::uint8_t enemyHitBlue = 198;
   float enemyHitAmount = 0.0F;
+  std::uint8_t teammateRed = 82;
+  std::uint8_t teammateGreen = 190;
+  std::uint8_t teammateBlue = 224;
+  float teammateAlpha = 1.0F;
+  std::uint8_t teammateHitRed = 190;
+  std::uint8_t teammateHitGreen = 255;
+  std::uint8_t teammateHitBlue = 220;
   bool enemyHealthBarEnabled = true;
   bool enemyHealthBarDamageOnly = false;
   bool enemyHealthBarFade = true;
@@ -81,6 +95,20 @@ struct RenderSettings {
   std::uint8_t enemyHealthBarRed = 224;
   std::uint8_t enemyHealthBarGreen = 82;
   std::uint8_t enemyHealthBarBlue = 92;
+  bool teammateHealthBarEnabled = true;
+  bool teammateHealthBarDamageOnly = false;
+  bool teammateHealthBarFade = true;
+  float teammateHealthBarVisibleDuration = 5.0F;
+  float teammateHealthBarMaxDistance = 0.0F;
+  float teammateHealthBarWidth = 72.0F;
+  float teammateHealthBarHeight = 7.0F;
+  float teammateHealthBarWorldOffsetZ = 0.35F;
+  float teammateHealthBarScreenOffsetX = 0.0F;
+  float teammateHealthBarScreenOffsetY = -18.0F;
+  float teammateHealthBarAlpha = 1.0F;
+  std::uint8_t teammateHealthBarRed = 82;
+  std::uint8_t teammateHealthBarGreen = 190;
+  std::uint8_t teammateHealthBarBlue = 224;
   bool showLagCompensation = false;
   bool hasRemotePlayer = true;
 };
@@ -117,6 +145,7 @@ struct RemotePlayerView {
   float enemyHitAmount = 0.0F;
   float enemyHealthAlpha = 1.0F;
   bool visible = false;
+  bool teammate = false;
 };
 
 class Renderer {

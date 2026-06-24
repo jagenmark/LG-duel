@@ -355,63 +355,83 @@ void addFloatingHealthBar(
   int width,
   int height,
   const PerspectiveCamera& camera,
-  const PlayerState& opponent,
+  const PlayerState& player,
   float alpha,
+  bool teammate,
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
+  const bool enabled = teammate
+    ? settings.teammateHealthBarEnabled
+    : settings.enemyHealthBarEnabled;
   if (
-    !hud.showOpponentHealthBar ||
-    !settings.enemyHealthBarEnabled ||
-    opponent.health <= 0 ||
+    (!teammate && !hud.showOpponentHealthBar) ||
+    !enabled ||
+    player.health <= 0 ||
     alpha <= 0.0F
   ) {
     return;
   }
 
+  const float maxDistance = teammate
+    ? settings.teammateHealthBarMaxDistance
+    : settings.enemyHealthBarMaxDistance;
   if (
-    settings.enemyHealthBarMaxDistance > 0.0F &&
-    length(opponent.position - camera.position) >
-      settings.enemyHealthBarMaxDistance
+    maxDistance > 0.0F &&
+    length(player.position - camera.position) > maxDistance
   ) {
     return;
   }
 
+  const float worldOffsetZ = teammate
+    ? settings.teammateHealthBarWorldOffsetZ
+    : settings.enemyHealthBarWorldOffsetZ;
   const Vec3 anchor =
-    opponent.position +
-    Vec3{
-      0.0F,
-      0.0F,
-      opponent.bounds.halfHeight + settings.enemyHealthBarWorldOffsetZ,
-    };
+    player.position +
+    Vec3{0.0F, 0.0F, player.bounds.halfHeight + worldOffsetZ};
   ProjectedPoint projected;
   if (!projectPerspectivePoint(camera, anchor, projected)) {
     return;
   }
   const ScreenPoint anchorScreen =
     screenPointFromProjection(projected, width, height);
-  const float barWidth = std::max(1.0F, settings.enemyHealthBarWidth);
-  const float barHeight = std::max(1.0F, settings.enemyHealthBarHeight);
+  const float barWidth = std::max(
+    1.0F,
+    teammate ? settings.teammateHealthBarWidth : settings.enemyHealthBarWidth
+  );
+  const float barHeight = std::max(
+    1.0F,
+    teammate ? settings.teammateHealthBarHeight : settings.enemyHealthBarHeight
+  );
   const float border = std::max(1.0F, std::round(barHeight * 0.25F));
-  const float x =
-    anchorScreen.x + settings.enemyHealthBarScreenOffsetX - barWidth * 0.5F;
-  const float y =
-    anchorScreen.y + settings.enemyHealthBarScreenOffsetY - barHeight;
+  const float offsetX = teammate
+    ? settings.teammateHealthBarScreenOffsetX
+    : settings.enemyHealthBarScreenOffsetX;
+  const float offsetY = teammate
+    ? settings.teammateHealthBarScreenOffsetY
+    : settings.enemyHealthBarScreenOffsetY;
+  const float x = anchorScreen.x + offsetX - barWidth * 0.5F;
+  const float y = anchorScreen.y + offsetY - barHeight;
   const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
   const float healthRatio =
-    std::clamp(static_cast<float>(opponent.health) / maxHealth, 0.0F, 1.0F);
+    std::clamp(static_cast<float>(player.health) / maxHealth, 0.0F, 1.0F);
+  const float barAlpha = teammate
+    ? settings.teammateHealthBarAlpha
+    : settings.enemyHealthBarAlpha;
   const RenderColor outline =
-    withAlpha({220, 226, 236, 255}, alpha * settings.enemyHealthBarAlpha);
+    withAlpha({220, 226, 236, 255}, alpha * barAlpha);
   const RenderColor back =
-    withAlpha({10, 13, 18, 215}, alpha * settings.enemyHealthBarAlpha);
+    withAlpha({10, 13, 18, 215}, alpha * barAlpha);
   const RenderColor fill = withAlpha(
     {
-      settings.enemyHealthBarRed,
-      settings.enemyHealthBarGreen,
-      settings.enemyHealthBarBlue,
+      teammate ? settings.teammateHealthBarRed : settings.enemyHealthBarRed,
+      teammate
+        ? settings.teammateHealthBarGreen
+        : settings.enemyHealthBarGreen,
+      teammate ? settings.teammateHealthBarBlue : settings.enemyHealthBarBlue,
       255,
     },
-    alpha * settings.enemyHealthBarAlpha
+    alpha * barAlpha
   );
 
   addRect(
@@ -1113,6 +1133,7 @@ DrawList2D buildFloatingHealthBars(
       camera,
       remote.player,
       remote.enemyHealthAlpha,
+      remote.teammate,
       settings,
       hud
     );

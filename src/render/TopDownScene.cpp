@@ -61,13 +61,28 @@ struct ViewProjection {
   );
 }
 
-[[nodiscard]] RenderColor enemyColor(const RenderSettings& settings, float hitAmount) {
+[[nodiscard]] RenderColor remoteColor(
+  const RenderSettings& settings,
+  float hitAmount,
+  bool teammate
+) {
   const float amount = std::clamp(hitAmount, 0.0F, 1.0F);
+  const std::uint8_t red = teammate ? settings.teammateRed : settings.enemyRed;
+  const std::uint8_t green =
+    teammate ? settings.teammateGreen : settings.enemyGreen;
+  const std::uint8_t blue =
+    teammate ? settings.teammateBlue : settings.enemyBlue;
+  const std::uint8_t hitRed =
+    teammate ? settings.teammateHitRed : settings.enemyHitRed;
+  const std::uint8_t hitGreen =
+    teammate ? settings.teammateHitGreen : settings.enemyHitGreen;
+  const std::uint8_t hitBlue =
+    teammate ? settings.teammateHitBlue : settings.enemyHitBlue;
   return {
-    blendChannel(settings.enemyRed, settings.enemyHitRed, amount),
-    blendChannel(settings.enemyGreen, settings.enemyHitGreen, amount),
-    blendChannel(settings.enemyBlue, settings.enemyHitBlue, amount),
-    alphaChannel(settings.enemyAlpha),
+    blendChannel(red, hitRed, amount),
+    blendChannel(green, hitGreen, amount),
+    blendChannel(blue, hitBlue, amount),
+    alphaChannel(teammate ? settings.teammateAlpha : settings.enemyAlpha),
   };
 }
 
@@ -494,7 +509,7 @@ DrawList2D buildTopDownScene(
   }
 
   const auto addBeam =
-    [&](const LightningGunResult& beam, bool local) {
+    [&](const LightningGunResult& beam, bool local, bool teammate) {
       if (!beam.active) {
         return;
       }
@@ -502,10 +517,12 @@ DrawList2D buildTopDownScene(
       RenderColor color = local
         ? localBeamColor(settings)
         : RenderColor{
-            settings.enemyBeamRed,
-            settings.enemyBeamGreen,
-            settings.enemyBeamBlue,
-            alphaChannel(settings.enemyBeamAlpha),
+            teammate ? settings.teammateBeamRed : settings.enemyBeamRed,
+            teammate ? settings.teammateBeamGreen : settings.enemyBeamGreen,
+            teammate ? settings.teammateBeamBlue : settings.enemyBeamBlue,
+            alphaChannel(
+              teammate ? settings.teammateBeamAlpha : settings.enemyBeamAlpha
+            ),
           };
       color = animateBeamColor(color, settings.beamPulse);
       if (!local && beam.hit) {
@@ -527,7 +544,9 @@ DrawList2D buildTopDownScene(
         start,
         end,
         color,
-        (local ? settings.beamWidth : settings.enemyBeamWidth) *
+        (local ? settings.beamWidth : (teammate
+          ? settings.teammateBeamWidth
+          : settings.enemyBeamWidth)) *
           (1.0F + settings.beamPulse * 0.04F)
       );
       if (beam.hit) {
@@ -536,10 +555,10 @@ DrawList2D buildTopDownScene(
     };
   for (const RemotePlayerView& remote : remotePlayers) {
     if (remote.visible) {
-      addBeam(remote.lightningGun, false);
+      addBeam(remote.lightningGun, false, remote.teammate);
     }
   }
-  addBeam(localLightningGun, true);
+  addBeam(localLightningGun, true, false);
 
   for (const WeaponFireResult& fire : weaponFires) {
     if (!fire.fired) {
@@ -603,12 +622,15 @@ DrawList2D buildTopDownScene(
       opponentScreen.y - radius,
       playerSize,
       playerSize,
-      enemyColor(settings, remote.enemyHitAmount)
+      remoteColor(settings, remote.enemyHitAmount, remote.teammate)
     );
 
+    const bool healthBarEnabled = remote.teammate
+      ? settings.teammateHealthBarEnabled
+      : settings.enemyHealthBarEnabled;
     if (
-      hud.showOpponentHealthBar &&
-      settings.enemyHealthBarEnabled &&
+      (remote.teammate || hud.showOpponentHealthBar) &&
+      healthBarEnabled &&
       remote.enemyHealthAlpha > 0.0F
     ) {
       const float healthRatio =
@@ -624,7 +646,9 @@ DrawList2D buildTopDownScene(
         std::max(2.0F, playerSize * (4.0F / 14.0F));
       const std::uint8_t healthAlpha = static_cast<std::uint8_t>(
         std::clamp(
-          255.0F * remote.enemyHealthAlpha * settings.enemyHealthBarAlpha,
+          255.0F * remote.enemyHealthAlpha * (remote.teammate
+            ? settings.teammateHealthBarAlpha
+            : settings.enemyHealthBarAlpha),
           0.0F,
           255.0F
         )
@@ -636,9 +660,15 @@ DrawList2D buildTopDownScene(
         healthBarHalfWidth * 2.0F * healthRatio,
         healthBarHeight,
         {
-          settings.enemyHealthBarRed,
-          settings.enemyHealthBarGreen,
-          settings.enemyHealthBarBlue,
+          remote.teammate
+            ? settings.teammateHealthBarRed
+            : settings.enemyHealthBarRed,
+          remote.teammate
+            ? settings.teammateHealthBarGreen
+            : settings.enemyHealthBarGreen,
+          remote.teammate
+            ? settings.teammateHealthBarBlue
+            : settings.enemyHealthBarBlue,
           healthAlpha
         }
       );
