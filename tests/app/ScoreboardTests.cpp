@@ -45,6 +45,7 @@ std::size_t centerTwice(const std::string& line, std::string_view value) {
 int main() {
   lg::ServerSnapshot snapshot;
   snapshot.connectedPlayers = {true, true};
+  snapshot.participatingPlayers = {true, true};
   snapshot.playerNames = {"LOCAL", "REMOTE", "BOT", "BOT", "BOT", "BOT"};
   snapshot.matchCombatStats[0] = {100, 100, 24};
 
@@ -127,12 +128,21 @@ int main() {
     "maximum-length player names should still fit inside the panel"
   );
 
-  snapshot.botDodgeEnabled = true;
+  snapshot.participatingPlayers = {true, true, true, true, true, true};
   hud = {};
   lg::populateScoreboard(hud, snapshot, 0);
   failures += expect(
     hud.scoreboardLines.size() == 2 + lg::kDuelPlayerCount,
-    "enabled bots should remain visible on the scoreboard"
+    "all participating players should remain visible on the scoreboard"
+  );
+
+  snapshot.botDodgeEnabled = true;
+  snapshot.participatingPlayers = {true};
+  hud = {};
+  lg::populateScoreboard(hud, snapshot, 0);
+  failures += expect(
+    hud.scoreboardLines.size() == 3,
+    "bot settings should not determine scoreboard membership"
   );
 
   return failures == 0 ? 0 : 1;

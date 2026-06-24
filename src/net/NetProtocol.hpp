@@ -117,6 +117,7 @@ struct ServerSnapshot {
   Team roundWinningTeam = Team::None;
   Team matchWinningTeam = Team::None;
   std::array<bool, kDuelPlayerCount> connectedPlayers = {};
+  std::array<bool, kDuelPlayerCount> participatingPlayers = {};
   std::array<bool, kDuelPlayerCount> readyPlayers = {};
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
   MatchRules matchRules = {};

@@ -3083,12 +3083,7 @@ int GameApp::run() const {
         if (playerIndex == localPlayerIndex) {
           continue;
         }
-        const bool connectedRemote = renderSnapshot.connectedPlayers[playerIndex];
-        const bool botRemote =
-          renderSnapshot.botDodgeEnabled &&
-          !connectedRemote &&
-          renderSnapshot.players[playerIndex].health > 0;
-        if (!connectedRemote && !botRemote) {
+        if (!renderSnapshot.participatingPlayers[playerIndex]) {
           continue;
         }
         if (

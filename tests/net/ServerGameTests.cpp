@@ -1075,6 +1075,19 @@ spawn p2 2,0,0.5 yaw=180
         !snapshot.connectedPlayers[4] && !snapshot.connectedPlayers[5],
       "snapshot should replicate occupied player slots"
     );
+    failures += expect(
+      snapshot.participatingPlayers[0] && snapshot.participatingPlayers[1] &&
+        snapshot.participatingPlayers[2] && snapshot.participatingPlayers[3] &&
+        snapshot.participatingPlayers[4] && snapshot.participatingPlayers[5],
+      "enabled dodge bots should join the authoritative player roster"
+    );
+    server.setBotDodge(false, 1, 1);
+    failures += expect(
+      server.snapshot().participatingPlayers ==
+        std::array<bool, lg::kDuelPlayerCount>{true},
+      "disabled dodge bots should leave the authoritative player roster"
+    );
+    server.setBotDodge(true, 1, 1);
     failures += expect(snapshot.playerNames[1] == "BOT", "empty warmup opponent should be named BOT");
     for (int tick = 0; tick < 20; ++tick) {
       server.tick(lg::kFixedTickSeconds);

@@ -77,5 +77,19 @@ int main() {
     "duel result behavior should remain unchanged"
   );
 
+  lg::ServerSnapshot botSnapshot;
+  botSnapshot.connectedPlayers = {true};
+  botSnapshot.participatingPlayers = {true, true};
+  failures += expect(
+    lg::opponentPlayerIndex(botSnapshot, 0) == 1,
+    "HUD opponent selection should use the authoritative player roster"
+  );
+  botSnapshot.participatingPlayers = {true};
+  botSnapshot.botDodgeEnabled = true;
+  failures += expect(
+    lg::opponentPlayerIndex(botSnapshot, 0) == 0,
+    "bot settings alone should not create a HUD opponent"
+  );
+
   return failures == 0 ? 0 : 1;
 }

@@ -27,15 +27,17 @@ std::size_t opponentPlayerIndex(
       return index;
     }
   }
-  if (snapshot.botDodgeEnabled) {
-    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-      if (
-        index != localPlayerIndex &&
-        !snapshot.connectedPlayers[index] &&
-        snapshot.players[index].health > 0
-      ) {
-        return index;
-      }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (
+      index != localPlayerIndex &&
+      snapshot.participatingPlayers[index] &&
+      snapshot.players[index].health > 0 &&
+      (
+        snapshot.gameMode == GameMode::Duel ||
+        snapshot.teams[index] != snapshot.teams[localPlayerIndex]
+      )
+    ) {
+      return index;
     }
   }
   return localPlayerIndex;
