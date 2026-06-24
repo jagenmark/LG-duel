@@ -2,7 +2,7 @@
 
 A narrow C++ Lightning Gun duel prototype inspired by Quake-like arena combat.
 
-Full client/server console reference: [CONSOLE-BIBLE.md](CONSOLE-BIBLE.md).
+Full client/server console reference: [CONSOLE-BIBLE.md](docs/CONSOLE-BIBLE.md).
 
 This project is intentionally not a general-purpose FPS engine. The first goal is a small, testable 1v1 LG duel with fixed-tick simulation, raw mouse input, Quake-like movement, server-authoritative networking, prediction/reconciliation, and snapshot interpolation.
 
