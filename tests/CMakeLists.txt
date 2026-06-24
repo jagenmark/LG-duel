@@ -87,6 +87,16 @@ lg_duel_set_warnings(lg_duel_client_tests)
 
 add_test(NAME lg_duel_client_tests COMMAND lg_duel_client_tests)
 
+add_executable(lg_duel_hit_confirm_audio_tests
+  client/HitConfirmAudioTests.cpp
+)
+
+target_link_libraries(lg_duel_hit_confirm_audio_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_hit_confirm_audio_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_hit_confirm_audio_tests)
+
+add_test(NAME lg_duel_hit_confirm_audio_tests COMMAND lg_duel_hit_confirm_audio_tests)
+
 add_executable(lg_duel_collision_tests
   sim/CollisionTests.cpp
 )
@@ -197,6 +207,17 @@ target_compile_features(lg_duel_console_input_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_console_input_tests)
 
 add_test(NAME lg_duel_console_input_tests COMMAND lg_duel_console_input_tests)
+
+add_executable(lg_duel_audio_assets_tests
+  app/AudioAssetsTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/AudioAssets.cpp
+)
+
+target_link_libraries(lg_duel_audio_assets_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_audio_assets_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_audio_assets_tests)
+
+add_test(NAME lg_duel_audio_assets_tests COMMAND lg_duel_audio_assets_tests)
 
 add_executable(lg_duel_client_session_tests
   client/ClientSessionTests.cpp
