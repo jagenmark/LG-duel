@@ -44,9 +44,16 @@ private:
   void updateMatchState();
   void beginCountdown();
   void beginRoundEnd(std::size_t winnerIndex);
+  void beginRoundEnd(Team winnerTeam);
   void beginMatchEnd(std::size_t winnerIndex);
+  void beginMatchEnd(Team winnerTeam);
   [[nodiscard]] bool enoughPlayersConnected() const;
   [[nodiscard]] bool allConnectedPlayersReady() const;
+  [[nodiscard]] bool warmupPhase() const;
+  [[nodiscard]] bool damageAllowed(
+    std::size_t attackerIndex,
+    std::size_t targetIndex
+  ) const;
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
   void simulateRockets(float fixedDt);
