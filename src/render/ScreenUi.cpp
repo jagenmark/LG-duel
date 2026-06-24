@@ -651,7 +651,7 @@ void addHud(
           drawList,
           x,
           scoreboardY,
-          std::string_view(line).substr(0, split),
+          line.substr(0, split),
           teamColor,
           textScale
         );
@@ -659,7 +659,7 @@ void addHud(
           drawList,
           x + static_cast<float>(split) * characterWidth,
           scoreboardY,
-          std::string_view(line).substr(split),
+          line.substr(split),
           RenderColor{225, 235, 245, 255},
           textScale
         );
