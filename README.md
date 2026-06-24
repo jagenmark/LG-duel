@@ -116,6 +116,7 @@ Client controls:
 - `Ctrl` or `Shift`: negative flight thrust
 - Mouse: raw relative look
 - Left mouse: fire the selected weapon
+- `1`..`7`: select MG / SG / GL / RL / LG / RG / PG
 - `Q` / `E` / `R`: select rocket launcher / lightning gun / railgun
 - `F5`: request an authoritative match reset
 - `F3`: toggle ready state
@@ -148,6 +149,7 @@ quit
 connect <host> [port]
 disconnect
 reconnect
+map <name>
 bind <key> <command>
 unbind <key>
 unbindall
@@ -164,7 +166,7 @@ bind mouse1 "+attack"
 bind section "toggleconsole"
 ```
 
-Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, `+attack`, and `+zoom`. Use `actionlist` in the console to list them. Game-specific commands include `weapon <lg|rg|rl|1|2|3>`, `resetmatch`, `toggleconsole`, and `quit`. Default weapon binds are `Q` for RL, `E` for LG, and `R` for RG. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
+Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, `+attack`, and `+zoom`. Use `actionlist` in the console to list them. Game-specific commands include `weapon <mg|sg|gl|rl|lg|rg|pg|1..7>`, `resetmatch`, `toggleconsole`, and `quit`. Default weapon binds are `1`..`7` for MG/SG/GL/RL/LG/RG/PG, with convenience binds `Q` for RL, `E` for LG, and `R` for RG. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
@@ -193,13 +195,13 @@ Hold `Mouse2` (`+zoom`) to use `cl_zoom_fov` and zoom-scaled sensitivity. With t
 
 `cl_camera_zoom 1` preserves the default top-down view. Values above `1` zoom in and values below `1` zoom out. `g_playersize_xy` and `g_playersize_z` request authoritative horizontal and vertical scales from `0.5` to `3.0`; the server applies them symmetrically to both players' collision bounds, hitboxes, and rendered model size.
 
-Client audio uses generated tones at runtime, with footstep WAV previews checked in under `assets/audio`. `s_enable` toggles client cues, `s_volume` controls the global volume from `0` to `1`, and `s_footstep_volume` controls footsteps separately as a channel multiplier.
+Client audio is client-side only and is driven from server snapshot/event state where gameplay authority matters. The client loads explicit WAV cues from `assets/audio` for the lightning-gun firing loop, selected expanded-weapon fire cues, and the selected footstep cue, while keeping synthesized fallbacks for missing/invalid files or unavailable SDL audio. `s_enable` toggles client cues, `s_volume` controls the global volume from `0` to `1`, and `s_footstep_volume` controls footsteps separately as a channel multiplier.
 
 Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspeed`, `g_maxspeed`, `g_flight`, `g_flightaccel`, `g_flightmaxspeed`, and `g_flightdamping`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_flight 1` equips unrestricted flight symmetrically for both players. W/S thrust along full camera pitch/yaw, A/D strafe while upright, Space thrusts up, and Ctrl/Shift thrust down. Flight has no fuel, cooldown, duration limit, or artificial hover ceiling; arena collision still applies. Disabling it transitions players back to airborne or grounded movement. Query a variable without a value to see its current value, project default, and Q3/QL reference default where applicable. These testing values are intentionally not archived.
 
 `g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
 
-Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set a name.
+Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` and reset the match; map names are limited to letters, numbers, `_`, and `-`.
 
 `cl_render_mode 0` uses the standard top-down renderer. `cl_render_mode 1` uses
 a first-person perspective view from the local player's yaw and pitch. It

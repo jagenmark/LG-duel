@@ -1,11 +1,14 @@
 #include "app/GameApp.hpp"
 
+#include "app/AudioAssets.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/Scoreboard.hpp"
 #include "client/ClientSession.hpp"
+#include "client/HitConfirmAudio.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
+#include "render/ConsoleLayout.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
@@ -14,6 +17,7 @@
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #if LG_DUEL_HAS_SDL3
 #include <SDL3/SDL.h>
@@ -28,6 +32,7 @@
 #include <cctype>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -65,13 +70,22 @@ enum class AimMode {
   return event.key == SDLK_V && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
 }
 
-void pasteClipboardTextIntoConsole(std::string& input) {
+[[nodiscard]] bool isClipboardCopyKey(const SDL_KeyboardEvent& event) {
+  return event.key == SDLK_C && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
+}
+
+void pasteClipboardTextIntoConsole(std::string& input, std::size_t& cursorIndex) {
   char* clipboardText = SDL_GetClipboardText();
   if (clipboardText == nullptr) {
     return;
   }
-  appendConsolePasteText(input, clipboardText);
+  appendConsolePasteText(input, cursorIndex, clipboardText);
   SDL_free(clipboardText);
+}
+
+void copyTextToClipboard(std::string_view text) {
+  const std::string clipboardText{text};
+  (void)SDL_SetClipboardText(clipboardText.c_str());
 }
 #endif
 
@@ -98,33 +112,6 @@ void pasteClipboardTextIntoConsole(std::string& input) {
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
 }
 
-[[nodiscard]] bool sameVec3(Vec3 lhs, Vec3 rhs) {
-  return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
-}
-
-[[nodiscard]] bool sameWeaponFireEvent(
-  const WeaponFireResult& lhs,
-  const WeaponFireResult& rhs
-) {
-  return lhs.fired == rhs.fired &&
-    lhs.hit == rhs.hit &&
-    lhs.weapon == rhs.weapon &&
-    lhs.damageApplied == rhs.damageApplied &&
-    sameVec3(lhs.start, rhs.start) &&
-    sameVec3(lhs.end, rhs.end);
-}
-
-[[nodiscard]] bool sameRocketExplosionEvent(
-  const RocketExplosionResult& lhs,
-  const RocketExplosionResult& rhs
-) {
-  return lhs.active == rhs.active &&
-    lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
-    lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
-    lhs.radius == rhs.radius &&
-    sameVec3(lhs.position, rhs.position);
-}
-
 struct LocalInputState {
   int forward = 0;
   int back = 0;
@@ -145,9 +132,14 @@ struct LocalInputState {
 struct ClientConsoleState {
   bool open = false;
   std::string input;
+  std::size_t cursorIndex = 0;
   std::deque<std::string> output;
   std::vector<std::string> history;
   std::size_t historyIndex = 0;
+  bool hasSelection = false;
+  bool selecting = false;
+  std::size_t selectionAnchor = 0;
+  std::size_t selectionFocus = 0;
 };
 
 struct ClientChatState {
@@ -176,7 +168,7 @@ struct FootstepAudioState {
 
 class ClientAudio {
 public:
-  bool initialize() {
+  bool initialize(const std::filesystem::path& assetBasePath) {
     const SDL_AudioSpec spec{SDL_AUDIO_F32, 1, kSampleRate};
     stream_ = SDL_OpenAudioDeviceStream(
       SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
@@ -184,7 +176,11 @@ public:
       nullptr,
       nullptr
     );
-    return stream_ != nullptr && SDL_ResumeAudioStreamDevice(stream_);
+    if (stream_ == nullptr || !SDL_ResumeAudioStreamDevice(stream_)) {
+      return false;
+    }
+    loadCueAssets(assetBasePath);
+    return true;
   }
 
   void playHit(float volume, int damageApplied) {
@@ -207,11 +203,42 @@ public:
     queueRocketFire(volume);
   }
 
+  void playMachineGunFire(float volume) {
+    if (queueClip(machineGunFireClip_, volume)) {
+      return;
+    }
+    queueMachineGunFire(volume);
+  }
+
+  void playShotgunFire(float volume) {
+    if (queueClip(shotgunFireClip_, volume)) {
+      return;
+    }
+    queueShotgunFire(volume);
+  }
+
+  void playGrenadeLauncherFire(float volume) {
+    if (queueClip(grenadeLauncherFireClip_, volume)) {
+      return;
+    }
+    queueGrenadeLauncherFire(volume);
+  }
+
+  void playPlasmaGunFire(float volume) {
+    if (queueClip(plasmaGunFireClip_, volume)) {
+      return;
+    }
+    queuePlasmaGunFire(volume);
+  }
+
   void playRocketExplosion(float volume) {
     queueRocketPop(volume);
   }
 
   void playFootstep(float volume, std::uint32_t stepIndex) {
+    if (queueClip(footstepClip_, volume * footstepGain(stepIndex))) {
+      return;
+    }
     queueFootstep(volume, stepIndex);
   }
 
@@ -263,6 +290,74 @@ private:
     std::vector<float> samples;
     std::size_t playhead = 0;
   };
+
+  struct LoadedClip {
+    std::vector<float> samples;
+  };
+
+  void loadCueAssets(const std::filesystem::path& assetBasePath) {
+    lightningGunLoop_ = loadCueClip(assetBasePath, AudioCue::LightningGunFireLoop);
+    machineGunFireClip_ = loadCueClip(assetBasePath, AudioCue::MachineGunFire);
+    shotgunFireClip_ = loadCueClip(assetBasePath, AudioCue::ShotgunFire);
+    grenadeLauncherFireClip_ =
+      loadCueClip(assetBasePath, AudioCue::GrenadeLauncherFire);
+    plasmaGunFireClip_ = loadCueClip(assetBasePath, AudioCue::PlasmaGunFire);
+    footstepClip_ = loadCueClip(assetBasePath, AudioCue::Footstep);
+  }
+
+  [[nodiscard]] static LoadedClip loadCueClip(
+    const std::filesystem::path& assetBasePath,
+    AudioCue cue
+  ) {
+    if (std::optional<AudioClip> clip = loadAudioCue(assetBasePath, cue)) {
+      return LoadedClip{resampleToMixerRate(*clip)};
+    }
+    return {};
+  }
+
+  [[nodiscard]] static std::vector<float> resampleToMixerRate(const AudioClip& clip) {
+    if (clip.samples.empty() || clip.sampleRate <= 0) {
+      return {};
+    }
+    if (clip.sampleRate == kSampleRate) {
+      return clip.samples;
+    }
+
+    const double sourceStep =
+      static_cast<double>(clip.sampleRate) / static_cast<double>(kSampleRate);
+    const auto outputCount = static_cast<std::size_t>(
+      std::max(1.0, static_cast<double>(clip.samples.size()) / sourceStep)
+    );
+    std::vector<float> output(outputCount);
+    for (std::size_t index = 0; index < output.size(); ++index) {
+      const double sourcePosition = static_cast<double>(index) * sourceStep;
+      const auto sourceIndex = static_cast<std::size_t>(sourcePosition);
+      const std::size_t nextIndex =
+        std::min(sourceIndex + 1U, clip.samples.size() - 1U);
+      const float blend =
+        static_cast<float>(sourcePosition - static_cast<double>(sourceIndex));
+      output[index] =
+        (clip.samples[sourceIndex] * (1.0F - blend)) +
+        (clip.samples[nextIndex] * blend);
+    }
+    return output;
+  }
+
+  [[nodiscard]] bool queueClip(const LoadedClip& clip, float volume) {
+    if (stream_ == nullptr || volume <= 0.0F || clip.samples.empty()) {
+      return false;
+    }
+    std::vector<float> samples = clip.samples;
+    for (float& sample : samples) {
+      sample = std::clamp(sample * volume, -0.98F, 0.98F);
+    }
+    addVoice(std::move(samples));
+    return true;
+  }
+
+  [[nodiscard]] static float footstepGain(std::uint32_t stepIndex) {
+    return stepIndex % 2U == 0U ? 0.92F : 0.78F;
+  }
 
   [[nodiscard]] static float audioEnvelope(
     float time,
@@ -357,6 +452,55 @@ private:
     });
   }
 
+  void queueMachineGunFire(float volume) {
+    queueSynth(0.055F, volume * 0.62F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.055F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.055F, 0.001F, 0.035F, 1.65F);
+      return envelope * (
+        0.30F * sine(230.0F - (80.0F * progress), time) +
+        0.18F * triangle(520.0F - (260.0F * progress), time) +
+        0.16F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queueShotgunFire(float volume) {
+    queueSynth(0.155F, volume * 0.82F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.155F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.155F, 0.001F, 0.085F, 1.45F);
+      return envelope * (
+        0.36F * sine(118.0F - (38.0F * progress), time) +
+        0.20F * triangle(210.0F - (72.0F * progress), time) +
+        0.22F * noise(sampleIndex) * (1.0F - (progress * 0.35F))
+      );
+    });
+  }
+
+  void queueGrenadeLauncherFire(float volume) {
+    queueSynth(0.170F, volume * 0.78F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.145F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.170F, 0.002F, 0.075F, 1.4F);
+      return envelope * (
+        0.32F * sine(105.0F + (90.0F * progress), time) +
+        0.18F * triangle(190.0F + (110.0F * progress), time) +
+        0.15F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queuePlasmaGunFire(float volume) {
+    queueSynth(0.070F, volume * 0.52F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.070F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.070F, 0.001F, 0.040F, 1.55F);
+      return envelope * (
+        0.24F * sine(760.0F + (180.0F * progress), time) +
+        0.18F * sine(1140.0F + (260.0F * progress), time) +
+        0.08F * triangle(380.0F, time) +
+        0.06F * noise(sampleIndex)
+      );
+    });
+  }
+
   void queueFootstep(float volume, std::uint32_t stepIndex) {
     queueSynth(0.105F, volume, [stepIndex](float time, int sampleIndex) {
       const float progress = std::min(time / 0.105F, 1.0F);
@@ -375,6 +519,18 @@ private:
   }
 
   [[nodiscard]] float lightningGunSample() {
+    if (!lightningGunLoop_.samples.empty()) {
+      const float sample =
+        lightningGunLoop_.samples[
+          static_cast<std::size_t>(
+            lightningGunSampleIndex_ % lightningGunLoop_.samples.size()
+          )
+        ];
+      lightningGunSampleIndex_ =
+        (lightningGunSampleIndex_ + 1U) % lightningGunLoop_.samples.size();
+      return sample;
+    }
+
     constexpr std::uint64_t kLightningGunPeriodSamples =
       static_cast<std::uint64_t>(kSampleRate / 48);
     const float time =
@@ -543,6 +699,12 @@ private:
   SDL_AudioStream* stream_ = nullptr;
   std::vector<SoundVoice> voices_;
   std::vector<float> mixBuffer_;
+  LoadedClip lightningGunLoop_;
+  LoadedClip machineGunFireClip_;
+  LoadedClip shotgunFireClip_;
+  LoadedClip grenadeLauncherFireClip_;
+  LoadedClip plasmaGunFireClip_;
+  LoadedClip footstepClip_;
   bool lightningGunFireActive_ = false;
   float lightningGunFireTargetVolume_ = 0.0F;
   float lightningGunFireGain_ = 0.0F;
@@ -674,6 +836,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
@@ -761,6 +924,32 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_health_r", "Floating enemy health bar red channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_health_g", "Floating enemy health bar green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_health_b", "Floating enemy health bar blue channel.", 92, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_beam_width", "Teammate lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
+  console.registerCvar({"r_teammate_beam_alpha", "Teammate lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_beam_r", "Teammate lightning beam red channel.", 80, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_beam_g", "Teammate lightning beam green channel.", 220, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_beam_b", "Teammate lightning beam blue channel.", 150, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_r", "Teammate model red channel.", 82, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_g", "Teammate model green channel.", 190, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_b", "Teammate model blue channel.", 224, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_alpha", "Teammate model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_lean", "Enable Q3-style velocity lean on teammate models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_lean_scale", "Teammate model velocity lean multiplier.", 1.0F, archivedClient, 0.0F, 3.0F});
+
+  console.registerCvar({"r_teammate_health_enable", "Draw floating teammate health bars.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_health_damage_only", "Only show teammate health bars after recent damage.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_health_fade", "Fade teammate health bars during their damage-only duration.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_health_duration", "Seconds to show teammate health after damage.", 5.0F, archivedClient, 0.0F, 30.0F});
+  console.registerCvar({"r_teammate_health_max_distance", "Hide teammate health bars beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_teammate_health_width", "Floating teammate health bar width in pixels.", 72.0F, archivedClient, 12.0F, 360.0F});
+  console.registerCvar({"r_teammate_health_height", "Floating teammate health bar height in pixels.", 7.0F, archivedClient, 2.0F, 60.0F});
+  console.registerCvar({"r_teammate_health_offset_z", "Floating teammate health bar vertical world offset.", 0.35F, archivedClient, -2.0F, 6.0F});
+  console.registerCvar({"r_teammate_health_offset_x", "Floating teammate health bar horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_teammate_health_offset_y", "Floating teammate health bar vertical screen offset.", -18.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_teammate_health_alpha", "Floating teammate health bar opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_health_r", "Floating teammate health bar red channel.", 82, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_health_g", "Floating teammate health bar green channel.", 190, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_health_b", "Floating teammate health bar blue channel.", 224, archivedClient, 0.0F, 255.0F});
 }
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
@@ -845,6 +1034,52 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_enemy_health_g"));
   settings.enemyHealthBarBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_health_b"));
+  settings.teammateBeamWidth = console.getFloat("r_teammate_beam_width");
+  settings.teammateBeamAlpha = console.getFloat("r_teammate_beam_alpha");
+  settings.teammateBeamRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_beam_r"));
+  settings.teammateBeamGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_beam_g"));
+  settings.teammateBeamBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_beam_b"));
+  settings.teammateRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_r"));
+  settings.teammateGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_g"));
+  settings.teammateBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_b"));
+  settings.teammateAlpha = console.getFloat("r_teammate_alpha");
+  settings.teammateLeanEnabled = console.getBool("r_teammate_lean");
+  settings.teammateLeanScale = console.getFloat("r_teammate_lean_scale");
+
+  settings.teammateHealthBarEnabled =
+    console.getBool("r_teammate_health_enable");
+  settings.teammateHealthBarDamageOnly =
+    console.getBool("r_teammate_health_damage_only");
+  settings.teammateHealthBarFade =
+    console.getBool("r_teammate_health_fade");
+  settings.teammateHealthBarVisibleDuration =
+    console.getFloat("r_teammate_health_duration");
+  settings.teammateHealthBarMaxDistance =
+    console.getFloat("r_teammate_health_max_distance");
+  settings.teammateHealthBarWidth =
+    console.getFloat("r_teammate_health_width");
+  settings.teammateHealthBarHeight =
+    console.getFloat("r_teammate_health_height");
+  settings.teammateHealthBarWorldOffsetZ =
+    console.getFloat("r_teammate_health_offset_z");
+  settings.teammateHealthBarScreenOffsetX =
+    console.getFloat("r_teammate_health_offset_x");
+  settings.teammateHealthBarScreenOffsetY =
+    console.getFloat("r_teammate_health_offset_y");
+  settings.teammateHealthBarAlpha =
+    console.getFloat("r_teammate_health_alpha");
+  settings.teammateHealthBarRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_health_r"));
+  settings.teammateHealthBarGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_health_g"));
+  settings.teammateHealthBarBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_health_b"));
   settings.showLagCompensation = console.getBool("cl_show_lagcomp");
   return settings;
 }
@@ -906,8 +1141,74 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   ConsoleRenderState renderState;
   renderState.open = state.open;
   renderState.input = state.input;
+  renderState.cursorIndex = state.cursorIndex;
   renderState.lines.assign(state.output.begin(), state.output.end());
+  renderState.hasSelection = state.hasSelection;
+  renderState.selectionAnchor = state.selectionAnchor;
+  renderState.selectionFocus = state.selectionFocus;
   return renderState;
+}
+
+void clearConsoleSelection(ClientConsoleState& state) {
+  state.hasSelection = false;
+  state.selecting = false;
+  state.selectionAnchor = 0;
+  state.selectionFocus = 0;
+}
+
+ConsoleTextLayout consoleLayoutForWindow(
+  SDL_Window* window,
+  const ClientConsoleState& state
+) {
+  int viewportWidth = 0;
+  int viewportHeight = 0;
+  SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
+  return buildConsoleTextLayout(
+    viewportWidth,
+    viewportHeight,
+    consoleRenderState(state)
+  );
+}
+
+std::string consoleClipboardTextForWindow(
+  SDL_Window* window,
+  const ClientConsoleState& state
+) {
+  if (state.hasSelection && state.selectionAnchor != state.selectionFocus) {
+    return consoleSelectedText(
+      consoleLayoutForWindow(window, state),
+      state.selectionAnchor,
+      state.selectionFocus
+    );
+  }
+  return consoleInputClipboardText(state.input);
+}
+
+void beginConsoleSelection(
+  SDL_Window* window,
+  ClientConsoleState& state,
+  float x,
+  float y
+) {
+  const ConsoleTextLayout layout = consoleLayoutForWindow(window, state);
+  const std::size_t offset = consoleTextOffsetAt(layout, x, y);
+  state.hasSelection = true;
+  state.selecting = true;
+  state.selectionAnchor = offset;
+  state.selectionFocus = offset;
+}
+
+void updateConsoleSelection(
+  SDL_Window* window,
+  ClientConsoleState& state,
+  float x,
+  float y
+) {
+  if (!state.selecting) {
+    return;
+  }
+  state.selectionFocus =
+    consoleTextOffsetAt(consoleLayoutForWindow(window, state), x, y);
 }
 
 std::string keyName(SDL_Scancode scancode) {
@@ -965,6 +1266,13 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("1", "weapon mg");
+  (void)bindings.bind("2", "weapon sg");
+  (void)bindings.bind("3", "weapon gl");
+  (void)bindings.bind("4", "weapon rl");
+  (void)bindings.bind("5", "weapon lg");
+  (void)bindings.bind("6", "weapon rg");
+  (void)bindings.bind("7", "weapon pg");
   (void)bindings.bind("q", "weapon rl");
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
@@ -974,6 +1282,44 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("z", "showchat");
   (void)bindings.bind("tab", "+scores");
   (void)bindings.bind("escape", "quit");
+}
+
+std::string gameModeName(GameMode gameMode) {
+  switch (gameMode) {
+  case GameMode::Duel:
+    return "DUEL";
+  case GameMode::ClanArena:
+    return "CLAN ARENA";
+  }
+  return "UNKNOWN";
+}
+
+std::string teamName(Team team) {
+  switch (team) {
+  case Team::None:
+    return "NONE";
+  case Team::Red:
+    return "RED";
+  case Team::Blue:
+    return "BLUE";
+  }
+  return "UNKNOWN";
+}
+
+std::string aliveCountLine(const ServerSnapshot& snapshot) {
+  std::uint32_t redAlive = 0;
+  std::uint32_t blueAlive = 0;
+  for (std::size_t index = 0; index < snapshot.players.size(); ++index) {
+    if (!snapshot.connectedPlayers[index] || snapshot.players[index].health <= 0) {
+      continue;
+    }
+    if (snapshot.teams[index] == Team::Red) {
+      ++redAlive;
+    } else if (snapshot.teams[index] == Team::Blue) {
+      ++blueAlive;
+    }
+  }
+  return "ALIVE " + std::to_string(redAlive) + 'v' + std::to_string(blueAlive);
 }
 
 std::string matchPhaseName(MatchPhase phase) {
@@ -1043,7 +1389,7 @@ std::size_t leadingScoreIndex(const ServerSnapshot& snapshot) {
   return leaderIndex;
 }
 
-HudRenderState buildHud(const ClientSession& session) {
+HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
   if (!session.readyForPlay()) {
@@ -1071,6 +1417,17 @@ HudRenderState buildHud(const ClientSession& session) {
     "PLAYERS " + std::to_string(connectedCount) + '/' +
     std::to_string(kDuelPlayerCount)
   );
+  if (snapshot.matchPhase != MatchPhase::Live) {
+    hud.topLeftLines.push_back("MODE " + gameModeName(snapshot.gameMode));
+    if (snapshot.gameMode == GameMode::ClanArena) {
+      hud.topLeftLines.push_back(
+        "TEAM " + teamName(snapshot.teams[localPlayerIndex])
+      );
+    }
+  }
+  if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
+    hud.topRightLines.push_back(aliveCountLine(snapshot));
+  }
   hud.topRightLines.push_back(
     "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
     "  LEAD " + std::to_string(snapshot.scores[leaderIndex]) + " / " +
@@ -1281,9 +1638,12 @@ int GameApp::run() const {
     return 1;
   }
   std::cout << "Renderer backend: " << renderer.backendName() << '\n';
+  const char* executableBasePath = SDL_GetBasePath();
+  const std::filesystem::path assetBasePath =
+    executableBasePath != nullptr ? executableBasePath : std::filesystem::current_path();
   ClientAudio audio;
   const bool audioAvailable =
-    audioSubsystemAvailable && audio.initialize();
+    audioSubsystemAvailable && audio.initialize(assetBasePath);
 
   ConsoleSystem console;
   registerClientCvars(console);
@@ -1300,6 +1660,10 @@ int GameApp::run() const {
   bool toggleConsoleRequested = false;
   bool openChatRequested = false;
   bool showChatRequested = false;
+  bool requestGameModePending = false;
+  bool requestTeamPending = false;
+  GameMode requestedGameMode = GameMode::Duel;
+  Team requestedTeam = Team::None;
   int scoreboardPressCount = 0;
   int zoomPressCount = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
@@ -1310,6 +1674,7 @@ int GameApp::run() const {
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
   std::string pendingPlayerName;
+  std::string pendingMapName;
   ClientChatState chatState;
   ClientSession session;
 
@@ -1344,28 +1709,17 @@ int GameApp::run() const {
 
   console.registerCommand(
     "weapon",
-    "Select weapon: weapon <lg|rg|rl|1|2|3>.",
+    "Select weapon: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>.",
     [&selectedWeapon](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+        return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
       }
-      std::string value = arguments[1];
-      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-      });
-      if (value == "1" || value == "lg" || value == "lightning" || value == "lightninggun") {
-        selectedWeapon = Weapon::LightningGun;
-        return std::string("weapon = lg");
+      const std::optional<Weapon> parsed = parseWeaponToken(arguments[1]);
+      if (parsed.has_value()) {
+        selectedWeapon = *parsed;
+        return std::string("weapon = ") + std::string(weaponShortName(*parsed));
       }
-      if (value == "2" || value == "rg" || value == "rail" || value == "railgun") {
-        selectedWeapon = Weapon::Railgun;
-        return std::string("weapon = rg");
-      }
-      if (value == "3" || value == "rl" || value == "rocket" || value == "rocketlauncher") {
-        selectedWeapon = Weapon::RocketLauncher;
-        return std::string("weapon = rl");
-      }
-      return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+      return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
     }
   );
   console.registerCommand(
@@ -1447,6 +1801,31 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+    "map",
+    "Request a server map change: map <name> loads maps/<name>.lgmap.",
+    [&pendingMapName](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: map <name>");
+      }
+      const std::string& name = arguments[1];
+      if (name.empty() || name.size() > kMaxMapNameBytes) {
+        return "map name is limited to " +
+          std::to_string(kMaxMapNameBytes) + " characters";
+      }
+      for (const unsigned char character : name) {
+        if (
+          !std::isalnum(character) &&
+          character != '_' &&
+          character != '-'
+        ) {
+          return std::string("map name may only use letters, numbers, _ and -");
+        }
+      }
+      pendingMapName = name;
+      return "map change requested: " + pendingMapName;
+    }
+  );
+  console.registerCommand(
     "quit",
     "Quit the client.",
     [&quitRequested](const std::vector<std::string>&) {
@@ -1462,6 +1841,53 @@ int GameApp::run() const {
       return std::string{};
     }
   );
+  console.registerCommand(
+    "gamemode",
+    "Select the active gamemode: gamemode <duel|ca|clanarena>.",
+    [&requestGameModePending, &requestedGameMode](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: gamemode <duel|ca|clanarena>");
+      }
+      std::string value = arguments[1];
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
+      if (value == "duel") {
+        requestedGameMode = GameMode::Duel;
+      } else if (value == "ca" || value == "clanarena" || value == "clan_arena") {
+        requestedGameMode = GameMode::ClanArena;
+      } else {
+        return std::string("usage: gamemode <duel|ca|clanarena>");
+      }
+      requestGameModePending = true;
+      return std::string("gamemode = ") + gameModeName(requestedGameMode);
+    }
+  );
+  console.registerCommand(
+    "team",
+    "Select your Clan Arena team: team <red|blue|none>.",
+    [&requestTeamPending, &requestedTeam](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: team <red|blue|none>");
+      }
+      std::string value = arguments[1];
+      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
+        return static_cast<char>(std::tolower(c));
+      });
+      if (value == "red") {
+        requestedTeam = Team::Red;
+      } else if (value == "blue") {
+        requestedTeam = Team::Blue;
+      } else if (value == "none" || value == "unassigned") {
+        requestedTeam = Team::None;
+      } else {
+        return std::string("usage: team <red|blue|none>");
+      }
+      requestTeamPending = true;
+      return std::string("team = ") + teamName(requestedTeam);
+    }
+  );
+
   console.registerCommand(
     "connect",
     "Connect to a server: connect <host> [port], or connect <port> for localhost.",
@@ -1640,9 +2066,13 @@ int GameApp::run() const {
         "+scores\n"
         "+zoom\n"
         "weapon\n"
+        "map\n"
         "player\n"
         "resetmatch\n"
         "ready\n"
+        "gamemode\n"
+        "team\n"
+
         "messagemode\n"
         "showchat\n"
         "toggleconsole\n"
@@ -1669,7 +2099,7 @@ int GameApp::run() const {
     }
   );
   loadClientConfig(console, configPath);
-  if (console.getInt("cl_config_version") < 6) {
+  if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
     (void)bindings.bind("z", "showchat");
@@ -1677,13 +2107,20 @@ int GameApp::run() const {
     if (bindings.binding("mouse2").empty()) {
       (void)bindings.bind("mouse2", "+zoom");
     }
+    (void)bindings.bind("1", "weapon mg");
+    (void)bindings.bind("2", "weapon sg");
+    (void)bindings.bind("3", "weapon gl");
+    (void)bindings.bind("4", "weapon rl");
+    (void)bindings.bind("5", "weapon lg");
+    (void)bindings.bind("6", "weapon rg");
+    (void)bindings.bind("7", "weapon pg");
     (void)bindings.bind("q", "weapon rl");
     (void)bindings.bind("e", "weapon lg");
     (void)bindings.bind("r", "weapon rg");
     if (bindings.binding("f5").empty()) {
       (void)bindings.bind("f5", "resetmatch");
     }
-    (void)console.execute("set cl_config_version 6");
+    (void)console.execute("set cl_config_version 7");
   }
   (void)session.connect(serverHost_, serverPort_);
   (void)renderer.setVSync(console.getBool("r_vsync"));
@@ -1712,6 +2149,7 @@ int GameApp::run() const {
         (void)console.execute(command);
       }
       consoleState.open = open;
+      clearConsoleSelection(consoleState);
       consoleState.historyIndex = consoleState.history.size();
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
@@ -1856,15 +2294,26 @@ int GameApp::run() const {
             break;
           }
           if (isClipboardPasteKey(event.key)) {
-            pasteClipboardTextIntoConsole(consoleState.input);
+            clearConsoleSelection(consoleState);
+            pasteClipboardTextIntoConsole(consoleState.input, consoleState.cursorIndex);
+          } else if (isClipboardCopyKey(event.key)) {
+            copyTextToClipboard(consoleClipboardTextForWindow(window, consoleState));
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
             if (!consoleState.input.empty()) {
-              consoleState.input.pop_back();
+              clearConsoleSelection(consoleState);
+              backspaceConsoleInput(consoleState.input, consoleState.cursorIndex);
             }
+          } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            clearConsoleSelection(consoleState);
+            moveConsoleCursorLeft(consoleState.input, consoleState.cursorIndex);
+          } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            clearConsoleSelection(consoleState);
+            moveConsoleCursorRight(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (!consoleState.input.empty()) {
+              clearConsoleSelection(consoleState);
               appendConsoleOutput(consoleState, "] " + consoleState.input);
               const std::string result = console.execute(consoleState.input);
               if (!result.empty()) {
@@ -1874,29 +2323,42 @@ int GameApp::run() const {
               consoleState.history.push_back(consoleState.input);
               consoleState.historyIndex = consoleState.history.size();
               consoleState.input.clear();
+              consoleState.cursorIndex = 0U;
             }
           } else if (event.key.scancode == SDL_SCANCODE_UP && !consoleState.history.empty()) {
             if (consoleState.historyIndex > 0) {
               --consoleState.historyIndex;
             }
+            clearConsoleSelection(consoleState);
             consoleState.input = consoleState.history[consoleState.historyIndex];
+            consoleState.cursorIndex = consoleState.input.size();
           } else if (event.key.scancode == SDL_SCANCODE_DOWN && !consoleState.history.empty()) {
             if (consoleState.historyIndex + 1 < consoleState.history.size()) {
               ++consoleState.historyIndex;
+              clearConsoleSelection(consoleState);
               consoleState.input = consoleState.history[consoleState.historyIndex];
+              consoleState.cursorIndex = consoleState.input.size();
             } else {
               consoleState.historyIndex = consoleState.history.size();
+              clearConsoleSelection(consoleState);
               consoleState.input.clear();
+              consoleState.cursorIndex = 0U;
             }
           } else if (event.key.scancode == SDL_SCANCODE_TAB) {
-            const std::size_t wordStart = consoleState.input.find_last_of(" \t");
-            const std::size_t prefixStart =
-              wordStart == std::string::npos ? 0U : wordStart + 1U;
-            const std::string prefix = consoleState.input.substr(prefixStart);
+            const std::string prefix = consoleCompletionPrefix(
+              consoleState.input,
+              consoleState.cursorIndex
+            );
             const std::vector<std::string> matches = console.complete(prefix);
             if (matches.size() == 1) {
-              consoleState.input.replace(prefixStart, std::string::npos, matches[0]);
+              clearConsoleSelection(consoleState);
+              replaceConsoleCompletion(
+                consoleState.input,
+                consoleState.cursorIndex,
+                matches[0]
+              );
             } else if (!matches.empty()) {
+              clearConsoleSelection(consoleState);
               std::string line;
               for (const std::string& match : matches) {
                 line += match + ' ';
@@ -1932,7 +2394,12 @@ int GameApp::run() const {
           suppressNextTextInput = false;
         } else if (consoleState.open) {
           suppressNextTextInput = false;
-          consoleState.input += event.text.text;
+          clearConsoleSelection(consoleState);
+          insertConsoleText(
+            consoleState.input,
+            consoleState.cursorIndex,
+            event.text.text
+          );
         } else if (chatState.inputOpen) {
           suppressNextTextInput = false;
           if (
@@ -1949,7 +2416,27 @@ int GameApp::run() const {
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
         const std::string key = mouseButtonName(event.button.button);
-        if (!consoleState.open && !chatState.inputOpen) {
+        if (consoleState.open && event.button.button == SDL_BUTTON_LEFT) {
+          if (pressed) {
+            beginConsoleSelection(
+              window,
+              consoleState,
+              event.button.x,
+              event.button.y
+            );
+          } else {
+            updateConsoleSelection(
+              window,
+              consoleState,
+              event.button.x,
+              event.button.y
+            );
+            consoleState.selecting = false;
+            if (consoleState.selectionAnchor == consoleState.selectionFocus) {
+              clearConsoleSelection(consoleState);
+            }
+          }
+        } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
         } else if (!pressed) {
@@ -1958,7 +2445,14 @@ int GameApp::run() const {
         break;
       }
       case SDL_EVENT_MOUSE_MOTION:
-        if (!consoleState.open && !chatState.inputOpen) {
+        if (consoleState.open) {
+          updateConsoleSelection(
+            window,
+            consoleState,
+            event.motion.x,
+            event.motion.y
+          );
+        } else if (!chatState.inputOpen) {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
           input.mouseX = event.motion.x;
@@ -1968,6 +2462,7 @@ int GameApp::run() const {
         break;
       case SDL_EVENT_WINDOW_FOCUS_LOST:
         executeBindingCommands(bindings.releaseAll());
+        consoleState.selecting = false;
         input.mouseDeltaX = 0.0F;
         input.mouseDeltaY = 0.0F;
         break;
@@ -2172,12 +2667,20 @@ int GameApp::run() const {
         lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
         std::move(pendingPlayerName),
-        console.getInt("cl_interp_mode") != 0
+        std::move(pendingMapName),
+        console.getInt("cl_interp_mode") != 0,
+        requestGameModePending,
+        requestedGameMode,
+        requestTeamPending,
+        requestedTeam
       );
       chatState.pendingMessage.clear();
       pendingPlayerName.clear();
+      pendingMapName.clear();
       resetRequested = false;
       readyRequested = false;
+      requestGameModePending = false;
+      requestTeamPending = false;
       movementTuningRequestPending = false;
       session.update();
       consumedMouseForTick = true;
@@ -2281,19 +2784,29 @@ int GameApp::run() const {
                 !sameWeaponFireEvent(fire, lastPlayedWeaponFires[playerIndex])
               )
             ) {
-              if (fire.weapon == Weapon::Railgun) {
+              const WeaponFireAudioEvent fireAudio =
+                routeWeaponFireAudioEvent(fire, localWeaponEvent);
+              if (fireAudio.cue == WeaponFireAudioCue::Railgun) {
                 audio.playRailFire(volume);
-                if (localWeaponEvent) {
+                if (fireAudio.startsLocalRailCooldown) {
                   lastLocalRailFireTick = audioSnapshot.serverTick;
                   hasLocalRailFireTick = true;
                   localRailReadySoundPlayed = false;
                 }
-                if (localWeaponEvent && fire.hit) {
-                  audio.playHit(volume, fire.damageApplied);
-                  lastHitSoundServerTick = audioSnapshot.serverTick;
-                }
-              } else if (fire.weapon == Weapon::RocketLauncher) {
+              } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
                 audio.playRocketFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::MachineGun) {
+                audio.playMachineGunFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::Shotgun) {
+                audio.playShotgunFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::GrenadeLauncher) {
+                audio.playGrenadeLauncherFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::PlasmaGun) {
+                audio.playPlasmaGunFire(volume);
+              }
+              if (fireAudio.localHitConfirmDamage > 0) {
+                audio.playHit(volume, fireAudio.localHitConfirmDamage);
+                lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedWeaponFires[playerIndex] = fire;
               hasLastPlayedWeaponFire[playerIndex] = true;
@@ -2370,15 +2883,17 @@ int GameApp::run() const {
       }
     }
     if (audioAvailable) {
-      const bool localLightningGunFiring =
+      bool localLightningGunFiring = false;
+      if (
         console.getBool("s_enable") &&
-        selectedWeapon == Weapon::LightningGun &&
-        input.attack > 0 &&
-        !consoleState.open &&
-        !chatState.inputOpen &&
         currentAudioGame != nullptr &&
         currentAudioGame->hasSnapshot() &&
-        currentAudioGame->predictedPlayer().health > 0;
+        currentAudioGame->predictedPlayer().health > 0
+      ) {
+        const std::size_t localPlayerIndex = session.playerIndex();
+        localLightningGunFiring =
+          currentAudioGame->snapshot().lightningGuns[localPlayerIndex].active;
+      }
       audio.setLightningGunFire(
         localLightningGunFiring,
         localLightningGunFiring ? console.getFloat("s_volume") : 0.0F
@@ -2490,6 +3005,17 @@ int GameApp::run() const {
         if (!connectedRemote && !botRemote) {
           continue;
         }
+        if (
+          renderSnapshot.gameMode == GameMode::ClanArena &&
+          renderSnapshot.players[playerIndex].health <= 0
+        ) {
+          continue;
+        }
+        const bool teammate =
+          renderSnapshot.gameMode == GameMode::ClanArena &&
+          isPlayableTeam(renderSnapshot.teams[localPlayerIndex]) &&
+          renderSnapshot.teams[playerIndex] ==
+            renderSnapshot.teams[localPlayerIndex];
         renderRemotePlayers[playerIndex] = RemotePlayerView{
           bufferedInterpolation
             ? renderClient->interpolatedPlayer(playerIndex)
@@ -2498,6 +3024,7 @@ int GameApp::run() const {
           0.0F,
           1.0F,
           true,
+          teammate,
         };
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;
@@ -2587,13 +3114,13 @@ int GameApp::run() const {
         return fade ? 1.0F - (elapsedSinceHit / duration) : 1.0F;
       };
     currentRenderSettings.enemyHitAmount = 0.0F;
-    if (console.getBool("r_enemy_hit_enable") && hasEnemyHitTime) {
-      const float enemyHitAmount = hitFeedbackAmount(
-        console.getFloat("r_enemy_hit_duration"),
-        console.getBool("r_enemy_hit_fade")
-      );
-      if (lastEnemyHitTarget < renderRemotePlayers.size()) {
-        renderRemotePlayers[lastEnemyHitTarget].enemyHitAmount = enemyHitAmount;
+    if (hasEnemyHitTime && lastEnemyHitTarget < renderRemotePlayers.size()) {
+      RemotePlayerView& hitRemote = renderRemotePlayers[lastEnemyHitTarget];
+      if (!hitRemote.teammate && console.getBool("r_enemy_hit_enable")) {
+        hitRemote.enemyHitAmount = hitFeedbackAmount(
+          console.getFloat("r_enemy_hit_duration"),
+          console.getBool("r_enemy_hit_fade")
+        );
       }
     }
     if (console.getBool("r_beam_hit_enable")) {
@@ -2614,28 +3141,35 @@ int GameApp::run() const {
         true
       );
     }
-    if (currentRenderSettings.enemyHealthBarDamageOnly) {
-      const float duration =
-        currentRenderSettings.enemyHealthBarVisibleDuration;
-      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-        RemotePlayerView& remote = renderRemotePlayers[playerIndex];
-        if (!remote.visible) {
-          continue;
-        }
-        if (!hasLastRemoteDamageTime[playerIndex] || duration <= 0.0F) {
-          remote.enemyHealthAlpha = 0.0F;
-          continue;
-        }
-        const float elapsed =
-          std::chrono::duration<float>(now - lastRemoteDamageTime[playerIndex]).count();
-        if (elapsed >= duration) {
-          remote.enemyHealthAlpha = 0.0F;
-          continue;
-        }
-        remote.enemyHealthAlpha = currentRenderSettings.enemyHealthBarFade
-          ? 1.0F - (elapsed / duration)
-          : 1.0F;
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      RemotePlayerView& remote = renderRemotePlayers[playerIndex];
+      if (!remote.visible) {
+        continue;
       }
+      const bool damageOnly = remote.teammate
+        ? currentRenderSettings.teammateHealthBarDamageOnly
+        : currentRenderSettings.enemyHealthBarDamageOnly;
+      if (!damageOnly) {
+        remote.enemyHealthAlpha = 1.0F;
+        continue;
+      }
+      const float duration = remote.teammate
+        ? currentRenderSettings.teammateHealthBarVisibleDuration
+        : currentRenderSettings.enemyHealthBarVisibleDuration;
+      if (!hasLastRemoteDamageTime[playerIndex] || duration <= 0.0F) {
+        remote.enemyHealthAlpha = 0.0F;
+        continue;
+      }
+      const float elapsed =
+        std::chrono::duration<float>(now - lastRemoteDamageTime[playerIndex]).count();
+      if (elapsed >= duration) {
+        remote.enemyHealthAlpha = 0.0F;
+        continue;
+      }
+      const bool fade = remote.teammate
+        ? currentRenderSettings.teammateHealthBarFade
+        : currentRenderSettings.enemyHealthBarFade;
+      remote.enemyHealthAlpha = fade ? 1.0F - (elapsed / duration) : 1.0F;
     }
     currentRenderSettings.playerSizePixels =
       14.0F * (renderPlayer.bounds.radius / 0.35F);
@@ -2665,7 +3199,7 @@ int GameApp::run() const {
       currentRenderSettings.crosshairScreenY = input.mouseY;
     }
 
-    HudRenderState hud = buildHud(session);
+    HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
     hud.selectedWeapon = selectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F

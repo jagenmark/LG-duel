@@ -57,6 +57,10 @@ int main() {
     hud.scoreboardLines.size() == 4,
     "disabled bots should leave only connected players on the scoreboard"
   );
+  failures += expect(
+    hud.scoreboardLineTeams.size() == hud.scoreboardLines.size(),
+    "scoreboard team metadata should stay aligned with visible rows"
+  );
   const std::string& header = hud.scoreboardLines[1];
   const std::string& localRow = hud.scoreboardLines[2];
   const std::string& remoteRow = hud.scoreboardLines[3];
@@ -93,6 +97,17 @@ int main() {
       centersAlign(header, "DAMAGE", remoteRow, "0"),
     "remote stats should be centered under their headings"
   );
+
+  snapshot.gameMode = lg::GameMode::ClanArena;
+  snapshot.teams = {lg::Team::Red, lg::Team::Blue};
+  hud = {};
+  lg::populateScoreboard(hud, snapshot, 0);
+  failures += expect(
+    hud.scoreboardLineTeams[2] == lg::Team::Red &&
+      hud.scoreboardLineTeams[3] == lg::Team::Blue,
+    "Clan Arena scoreboard rows should retain their team colors"
+  );
+  snapshot.gameMode = lg::GameMode::Duel;
 
   snapshot.connectedPlayers = {true};
   snapshot.playerNames[0] = std::string(lg::kMaxPlayerNameBytes, 'X');

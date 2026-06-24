@@ -11,6 +11,7 @@
 namespace lg {
 
 inline constexpr std::size_t kMaxRocketProjectiles = 8;
+inline constexpr std::uint8_t kShotgunPelletCount = 20;
 
 struct LightningGunTuning {
   float range = 18.0F;
@@ -49,6 +50,14 @@ struct HitscanTuning {
   float knockback = 20.0F;
 };
 
+struct MachineGunTuning {
+  float range = 100.0F;
+  int damage = 5;
+  float eyeHeight = 0.65F;
+  float knockback = 0.11F;
+  float spreadRadians = 0.0F;
+};
+
 struct WeaponFireResult {
   Vec3 start = {};
   Vec3 end = {};
@@ -57,6 +66,17 @@ struct WeaponFireResult {
   Weapon weapon = Weapon::LightningGun;
   int damageApplied = 0;
   Vec3 knockbackImpulse = {};
+  std::uint8_t pelletCount = 0;
+  std::uint8_t pelletHitCount = 0;
+};
+
+struct ShotgunTuning {
+  float range = 18.0F;
+  std::uint8_t pelletCount = kShotgunPelletCount;
+  int damagePerPellet = 5;
+  float spreadRadians = 0.0872665F;
+  float eyeHeight = 0.65F;
+  float knockback = 22.0F;
 };
 
 struct RocketLauncherTuning {
@@ -135,6 +155,22 @@ struct WorldTrace {
   const UserCommand& command,
   const Arena& arena,
   const HitscanTuning& tuning
+);
+
+[[nodiscard]] WeaponFireResult simulateMachineGun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const MachineGunTuning& tuning
+);
+
+[[nodiscard]] WeaponFireResult simulateShotgun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const ShotgunTuning& tuning
 );
 
 } // namespace lg

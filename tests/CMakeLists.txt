@@ -37,6 +37,26 @@ lg_duel_set_warnings(lg_duel_combat_tests)
 
 add_test(NAME lg_duel_combat_tests COMMAND lg_duel_combat_tests)
 
+add_executable(lg_duel_duel_rules_tests
+  sim/DuelRulesTests.cpp
+)
+
+target_link_libraries(lg_duel_duel_rules_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_duel_rules_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_duel_rules_tests)
+
+add_test(NAME lg_duel_duel_rules_tests COMMAND lg_duel_duel_rules_tests)
+
+add_executable(lg_duel_clan_arena_rules_tests
+  sim/ClanArenaRulesTests.cpp
+)
+
+target_link_libraries(lg_duel_clan_arena_rules_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_clan_arena_rules_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_clan_arena_rules_tests)
+
+add_test(NAME lg_duel_clan_arena_rules_tests COMMAND lg_duel_clan_arena_rules_tests)
+
 add_executable(lg_duel_server_tests
   net/ServerGameTests.cpp
 )
@@ -47,6 +67,16 @@ lg_duel_set_warnings(lg_duel_server_tests)
 
 add_test(NAME lg_duel_server_tests COMMAND lg_duel_server_tests)
 
+add_executable(lg_duel_clan_arena_server_tests
+  net/ClanArenaServerTests.cpp
+)
+
+target_link_libraries(lg_duel_clan_arena_server_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_clan_arena_server_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_clan_arena_server_tests)
+
+add_test(NAME lg_duel_clan_arena_server_tests COMMAND lg_duel_clan_arena_server_tests)
+
 add_executable(lg_duel_client_tests
   client/ClientGameTests.cpp
 )
@@ -56,6 +86,16 @@ target_compile_features(lg_duel_client_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_client_tests)
 
 add_test(NAME lg_duel_client_tests COMMAND lg_duel_client_tests)
+
+add_executable(lg_duel_hit_confirm_audio_tests
+  client/HitConfirmAudioTests.cpp
+)
+
+target_link_libraries(lg_duel_hit_confirm_audio_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_hit_confirm_audio_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_hit_confirm_audio_tests)
+
+add_test(NAME lg_duel_hit_confirm_audio_tests COMMAND lg_duel_hit_confirm_audio_tests)
 
 add_executable(lg_duel_collision_tests
   sim/CollisionTests.cpp
@@ -137,6 +177,16 @@ lg_duel_set_warnings(lg_duel_console_tests)
 
 add_test(NAME lg_duel_console_tests COMMAND lg_duel_console_tests)
 
+add_executable(lg_duel_weapon_catalog_tests
+  sim/WeaponCatalogTests.cpp
+)
+
+target_link_libraries(lg_duel_weapon_catalog_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_weapon_catalog_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_weapon_catalog_tests)
+
+add_test(NAME lg_duel_weapon_catalog_tests COMMAND lg_duel_weapon_catalog_tests)
+
 add_executable(lg_duel_input_binding_tests
   input/InputBindingsTests.cpp
 )
@@ -168,6 +218,17 @@ target_compile_features(lg_duel_scoreboard_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_scoreboard_tests)
 
 add_test(NAME lg_duel_scoreboard_tests COMMAND lg_duel_scoreboard_tests)
+
+add_executable(lg_duel_audio_assets_tests
+  app/AudioAssetsTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/AudioAssets.cpp
+)
+
+target_link_libraries(lg_duel_audio_assets_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_audio_assets_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_audio_assets_tests)
+
+add_test(NAME lg_duel_audio_assets_tests COMMAND lg_duel_audio_assets_tests)
 
 add_executable(lg_duel_client_session_tests
   client/ClientSessionTests.cpp
@@ -202,6 +263,7 @@ add_test(NAME lg_duel_top_down_scene_tests COMMAND lg_duel_top_down_scene_tests)
 
 add_executable(lg_duel_screen_ui_tests
   render/ScreenUiTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/ConsoleLayout.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ScreenUi.cpp
 )
 

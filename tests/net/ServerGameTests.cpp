@@ -6,6 +6,8 @@
 #include "sim/UserCommand.hpp"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -53,6 +55,54 @@ int main() {
     failures += expect(transport.receiveCommand(received), "loopback should return second queued command");
     failures += expect(received.command.sequence == 4, "loopback should preserve all queued commands");
     failures += expect(!transport.receiveCommand(received), "empty loopback command queue should report false");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    const std::filesystem::path mapDirectory =
+      std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
+    std::filesystem::create_directories(mapDirectory);
+    {
+      std::ofstream mapFile(mapDirectory / "tiny.lgmap");
+      mapFile << R"(version 1
+bounds min=-6,-6,0 max=6,6,6
+box floor -6,-6,0 6,6,0.5
+spawn p1 -2,0,0.5 yaw=0
+spawn p2 2,0,0.5 yaw=180
+)";
+    }
+    server.setMapDirectory(mapDirectory.string());
+    const std::uint32_t initialRevision = server.snapshot().mapRevision;
+
+    lg::CommandPacket mapRequest;
+    mapRequest.command.sequence = 1;
+    mapRequest.mapName = "tiny";
+    transport.sendCommand(mapRequest);
+    server.tick(lg::kFixedTickSeconds);
+
+    lg::ServerSnapshot mapSnapshot = latestSnapshot(transport);
+    failures += expect(
+      mapSnapshot.mapRevision == initialRevision + 1 &&
+        mapSnapshot.arena.wallCount == 1 &&
+        mapSnapshot.arena.max.x == 6.0F &&
+        mapSnapshot.players[0].position.x == -2.0F &&
+        mapSnapshot.players[1].position.x == 2.0F,
+      "client map request should load a server-local .lgmap and reset spawns"
+    );
+
+    lg::CommandPacket invalidMapRequest;
+    invalidMapRequest.command.sequence = 2;
+    invalidMapRequest.mapName = "../tiny";
+    transport.sendCommand(invalidMapRequest);
+    server.tick(lg::kFixedTickSeconds);
+    mapSnapshot = latestSnapshot(transport);
+    failures += expect(
+      mapSnapshot.mapRevision == initialRevision + 1,
+      "invalid client map names should be ignored"
+    );
   }
 
   {
@@ -519,6 +569,61 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    std::array<bool, lg::kDuelPlayerCount> connected = {};
+    connected[0] = true;
+    std::array<std::uint32_t, lg::kDuelPlayerCount> sessions = {};
+    sessions[0] = 1;
+    server.setConnectedPlayers(connected, sessions);
+    latestSnapshot(transport);
+
+    lg::UserCommand oldSessionCommand;
+    oldSessionCommand.sequence = 100;
+    lg::CommandPacket oldSessionPacket;
+    oldSessionPacket.playerIndex = 0;
+    oldSessionPacket.command = oldSessionCommand;
+    transport.sendCommand(oldSessionPacket);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.hasAcknowledgedCommand[0] &&
+        snapshot.acknowledgedCommand[0] == 100,
+      "old session should establish a high acknowledged command"
+    );
+    const float beforeReconnectMove = snapshot.players[0].position.x;
+
+    sessions[0] = 2;
+    server.setConnectedPlayers(connected, sessions);
+    failures += expect(
+      !server.snapshot().hasAcknowledgedCommand[0],
+      "new session in an occupied slot should clear stale command ack state"
+    );
+
+    lg::UserCommand freshSessionCommand;
+    freshSessionCommand.sequence = 0;
+    freshSessionCommand.forwardMove = 1.0F;
+    lg::CommandPacket freshSessionPacket;
+    freshSessionPacket.playerIndex = 0;
+    freshSessionPacket.command = freshSessionCommand;
+    transport.sendCommand(freshSessionPacket);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
+    failures += expect(
+      snapshot.hasAcknowledgedCommand[0] &&
+        snapshot.acknowledgedCommand[0] == 0,
+      "new session should accept command sequence zero after reconnect"
+    );
+    failures += expect(
+      snapshot.players[0].position.x > beforeReconnectMove,
+      "new session command should move instead of rubberbanding to stale state"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     for (std::uint32_t sequence = 0; sequence < 20; ++sequence) {
       lg::UserCommand targetCommand;
       targetCommand.sequence = sequence;
@@ -712,6 +817,28 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::UserCommand plasma;
+    plasma.sequence = 77;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.acknowledgedCommand[0] == plasma.sequence,
+      "server should accept and acknowledge expanded weapon selections"
+    );
+    failures += expect(
+      !snapshot.lightningGuns[0].active && !snapshot.weaponFires[0].fired,
+      "unsupported expanded weapons should not fire implemented weapon effects"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     for (std::uint32_t sequence = 0; sequence < 2; ++sequence) {
       lg::UserCommand firstCommand;
       firstCommand.sequence = sequence;
@@ -726,6 +853,28 @@ int main() {
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(snapshot.players[0].health == 99, "player one beam should apply fixed-tick damage");
     failures += expect(snapshot.players[1].health == 99, "simultaneous beams should apply symmetrically");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setConnectedPlayers({true, true, true});
+    latestSnapshot(transport);
+
+    for (std::uint8_t playerIndex = 0; playerIndex < 3; ++playerIndex) {
+      lg::CommandPacket ready;
+      ready.playerIndex = playerIndex;
+      ready.command.sequence = 1;
+      ready.toggleReady = true;
+      transport.sendCommand(ready);
+      server.tick(lg::kFixedTickSeconds);
+    }
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForPlayers,
+      "duel should not start when more than two players are connected"
+    );
   }
 
   {
@@ -1025,6 +1174,93 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(snapshot.players[1].health == 20, "railgun cooldown should block immediate damage");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand machineGun;
+    machineGun.sequence = 1;
+    machineGun.attack = true;
+    machineGun.weapon = lg::Weapon::MachineGun;
+    transport.sendCommand(lg::CommandPacket{0, machineGun, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot machineGunSnapshot = latestSnapshot(transport);
+    failures += expect(machineGunSnapshot.weaponFires[0].fired, "machine gun command should fire a weapon event");
+    failures += expect(machineGunSnapshot.weaponFires[0].hit, "machine gun should hit the spawned opponent");
+    failures += expect(
+      machineGunSnapshot.weaponFires[0].weapon == lg::Weapon::MachineGun,
+      "machine gun event should replicate its selected weapon"
+    );
+    failures += expect(machineGunSnapshot.players[1].health == 95, "machine gun should apply 5 damage");
+    failures += expect(!machineGunSnapshot.lightningGuns[0].active, "machine gun should not also emit LG state");
+
+    machineGun.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, machineGun, false});
+    server.tick(lg::kFixedTickSeconds);
+    machineGunSnapshot = latestSnapshot(transport);
+    failures += expect(
+      machineGunSnapshot.players[1].health == 95,
+      "machine gun cooldown should block immediate damage"
+    );
+
+    for (int tick = 0; tick < 12; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      machineGunSnapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      machineGunSnapshot.weaponFires[0].weapon == lg::Weapon::MachineGun &&
+        machineGunSnapshot.players[1].health == 90,
+      "machine gun should fire again after its fixed-tick cooldown"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand shotgun;
+    shotgun.sequence = 1;
+    shotgun.attack = true;
+    shotgun.weapon = lg::Weapon::Shotgun;
+    transport.sendCommand(lg::CommandPacket{0, shotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(snapshot.weaponFires[0].fired, "shotgun command should fire a weapon event");
+    failures += expect(snapshot.weaponFires[0].hit, "shotgun should hit the spawned opponent");
+    failures += expect(
+      snapshot.weaponFires[0].weapon == lg::Weapon::Shotgun,
+      "shotgun event should replicate its selected weapon"
+    );
+    failures += expect(
+      snapshot.weaponFires[0].pelletCount == lg::kShotgunPelletCount &&
+        snapshot.weaponFires[0].pelletHitCount > 0 &&
+        snapshot.weaponFires[0].pelletHitCount < snapshot.weaponFires[0].pelletCount,
+      "spawn-range shotgun should replicate partial pellet hits"
+    );
+    failures += expect(
+      snapshot.weaponFires[0].damageApplied ==
+        static_cast<int>(snapshot.weaponFires[0].pelletHitCount) * 5,
+      "shotgun event should report pellet-scaled damage"
+    );
+    const int healthAfterFirstShot = snapshot.players[1].health;
+    failures += expect(
+      healthAfterFirstShot == 100 - snapshot.weaponFires[0].damageApplied,
+      "shotgun should apply authoritative damage"
+    );
+    failures += expect(!snapshot.lightningGuns[0].active, "shotgun should not also emit LG state");
+
+    shotgun.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, shotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[1].health == healthAfterFirstShot,
+      "shotgun cooldown should block immediate damage"
+    );
   }
 
   {

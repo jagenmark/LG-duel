@@ -3,6 +3,7 @@
 #include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
 #include "sim/Arena.hpp"
+#include "sim/GameMode.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -18,6 +19,7 @@ inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxBundledCommands = 3;
 inline constexpr std::size_t kMaxChatMessageBytes = 64;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
+inline constexpr std::size_t kMaxMapNameBytes = 32;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
@@ -63,11 +65,17 @@ struct CommandPacket {
   float vampirism = 0.0F;
   std::string chatMessage;
   std::string playerName;
+  std::string mapName;
   std::uint8_t selfDamagePercent = 100;
   std::int32_t healthAmount = 100;
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
+  bool requestGameMode = false;
+  GameMode requestedGameMode = GameMode::Duel;
+  bool requestTeam = false;
+  Team requestedTeam = Team::None;
+  std::uint32_t clientNonce = 0;
 };
 
 struct CommandBundle {
@@ -102,6 +110,11 @@ struct ServerSnapshot {
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
+  GameMode gameMode = GameMode::Duel;
+  std::array<Team, kDuelPlayerCount> teams = {};
+  std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
+  Team roundWinningTeam = Team::None;
+  Team matchWinningTeam = Team::None;
   std::array<bool, kDuelPlayerCount> connectedPlayers = {};
   std::array<bool, kDuelPlayerCount> readyPlayers = {};
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;

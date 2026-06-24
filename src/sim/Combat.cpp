@@ -8,6 +8,76 @@ namespace lg {
 namespace {
 
 constexpr float kTraceEpsilon = 0.00001F;
+constexpr float kTwoPi = 6.28318530718F;
+
+[[nodiscard]] constexpr Vec3 cross(Vec3 lhs, Vec3 rhs) {
+  return {
+    (lhs.y * rhs.z) - (lhs.z * rhs.y),
+    (lhs.z * rhs.x) - (lhs.x * rhs.z),
+    (lhs.x * rhs.y) - (lhs.y * rhs.x),
+  };
+}
+
+[[nodiscard]] Vec3 pelletDirection(
+  Vec3 forward,
+  Vec3 right,
+  Vec3 up,
+  float spreadRadians,
+  std::uint8_t pelletIndex
+) {
+  if (pelletIndex == 0 || spreadRadians <= 0.0F) {
+    return forward;
+  }
+
+  constexpr float kGoldenAngle = 2.39996323F;
+  const float normalizedRadius =
+    std::sqrt(static_cast<float>(pelletIndex) / static_cast<float>(kShotgunPelletCount - 1U));
+  const float angle = static_cast<float>(pelletIndex) * kGoldenAngle;
+  const float spread = std::tan(spreadRadians) * normalizedRadius;
+  return normalize(
+    forward +
+    (right * (std::cos(angle) * spread)) +
+    (up * (std::sin(angle) * spread))
+  );
+}
+
+[[nodiscard]] std::uint32_t mixU32(std::uint32_t value) {
+  value ^= value >> 16U;
+  value *= 0x7feb352dU;
+  value ^= value >> 15U;
+  value *= 0x846ca68bU;
+  value ^= value >> 16U;
+  return value;
+}
+
+[[nodiscard]] float unitFloat(std::uint32_t value) {
+  return static_cast<float>(value & 0x00ffffffU) /
+    static_cast<float>(0x00ffffffU);
+}
+
+[[nodiscard]] Vec3 spreadDirection(
+  Vec3 forward,
+  float spreadRadians,
+  std::uint32_t seed
+) {
+  if (spreadRadians <= 0.0F) {
+    return forward;
+  }
+
+  Vec3 right = normalize(cross(forward, Vec3{0.0F, 0.0F, 1.0F}));
+  if (length(right) <= kTraceEpsilon) {
+    right = Vec3{1.0F, 0.0F, 0.0F};
+  }
+  const Vec3 up = normalize(cross(right, forward));
+  const float radius = std::sqrt(unitFloat(mixU32(seed)));
+  const float angle = unitFloat(mixU32(seed ^ 0x9e3779b9U)) * kTwoPi;
+  const float spread = std::tan(spreadRadians) * radius;
+  return normalize(
+    forward +
+    (right * (std::cos(angle) * spread)) +
+    (up * (std::sin(angle) * spread))
+  );
+}
 
 [[nodiscard]] float arenaExitDistance(const Arena& arena, Vec3 origin, Vec3 direction) {
   float exitDistance = std::numeric_limits<float>::max();
@@ -224,6 +294,107 @@ WeaponFireResult simulateRailgun(
   result.damageApplied = std::min(tuning.damage, target.health);
   target.health -= result.damageApplied;
   result.knockbackImpulse = direction * tuning.knockback;
+  return result;
+}
+
+WeaponFireResult simulateMachineGun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const MachineGunTuning& tuning
+) {
+  WeaponFireResult result;
+  result.weapon = Weapon::MachineGun;
+  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
+  const Vec3 forward = cameraForward(command.viewYawRadians, command.viewPitchRadians);
+  const Vec3 direction = spreadDirection(forward, tuning.spreadRadians, command.sequence);
+  const WorldTrace worldTrace = traceWorld(arena, result.start, direction, tuning.range);
+  result.end = worldTrace.end;
+  result.fired = command.attack && attacker.health > 0;
+  if (!result.fired || target.health <= 0) {
+    return result;
+  }
+
+  float hitDistance = 0.0F;
+  if (!intersectPlayerCylinder(result.start, direction, target, worldTrace.distance, hitDistance)) {
+    return result;
+  }
+
+  result.hit = true;
+  result.end = result.start + (direction * hitDistance);
+  result.damageApplied = std::min(tuning.damage, target.health);
+  target.health -= result.damageApplied;
+  result.knockbackImpulse = direction * tuning.knockback;
+  return result;
+}
+
+WeaponFireResult simulateShotgun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const ShotgunTuning& tuning
+) {
+  WeaponFireResult result;
+  result.weapon = Weapon::Shotgun;
+  result.pelletCount = tuning.pelletCount;
+  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
+
+  const Vec3 forward = cameraForward(command.viewYawRadians, command.viewPitchRadians);
+  Vec3 right = normalize(cross(forward, Vec3{0.0F, 0.0F, 1.0F}));
+  if (length(right) <= kTraceEpsilon) {
+    right = Vec3{1.0F, 0.0F, 0.0F};
+  }
+  const Vec3 up = normalize(cross(right, forward));
+  const WorldTrace centerTrace = traceWorld(arena, result.start, forward, tuning.range);
+  result.end = centerTrace.end;
+  result.fired = command.attack && attacker.health > 0;
+  if (!result.fired || target.health <= 0) {
+    return result;
+  }
+
+  Vec3 accumulatedKnockbackDirection = {};
+  float nearestHitDistance = centerTrace.distance;
+  for (std::uint8_t pelletIndex = 0; pelletIndex < tuning.pelletCount; ++pelletIndex) {
+    const Vec3 direction = pelletDirection(
+      forward,
+      right,
+      up,
+      tuning.spreadRadians,
+      pelletIndex
+    );
+    const WorldTrace pelletTrace = traceWorld(arena, result.start, direction, tuning.range);
+    float hitDistance = 0.0F;
+    if (!intersectPlayerCylinder(
+      result.start,
+      direction,
+      target,
+      pelletTrace.distance,
+      hitDistance
+    )) {
+      continue;
+    }
+
+    ++result.pelletHitCount;
+    nearestHitDistance = std::min(nearestHitDistance, hitDistance);
+    accumulatedKnockbackDirection += direction;
+  }
+
+  if (result.pelletHitCount == 0) {
+    return result;
+  }
+
+  result.hit = true;
+  result.end = result.start + (forward * nearestHitDistance);
+  result.damageApplied =
+    std::min(static_cast<int>(result.pelletHitCount) * tuning.damagePerPellet, target.health);
+  target.health -= result.damageApplied;
+  const float hitFraction =
+    static_cast<float>(result.pelletHitCount) /
+    static_cast<float>(std::max<std::uint8_t>(1, tuning.pelletCount));
+  result.knockbackImpulse =
+    normalize(accumulatedKnockbackDirection) * tuning.knockback * hitFraction;
   return result;
 }
 

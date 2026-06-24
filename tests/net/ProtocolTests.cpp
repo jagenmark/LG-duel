@@ -61,6 +61,7 @@ int main() {
   {
     lg::CommandPacket source;
     source.playerIndex = 1;
+    source.clientNonce = 12345;
     source.command.sequence = 42;
     source.command.clientTick = 99;
     source.command.viewYawRadians = 1.25F;
@@ -71,9 +72,13 @@ int main() {
     source.command.attack = true;
     source.command.jump = true;
     source.command.planarAim = false;
-    source.command.weapon = lg::Weapon::RocketLauncher;
+    source.command.weapon = lg::Weapon::PlasmaGun;
     source.requestReset = true;
     source.toggleReady = true;
+    source.requestGameMode = true;
+    source.requestedGameMode = lg::GameMode::ClanArena;
+    source.requestTeam = true;
+    source.requestedTeam = lg::Team::Blue;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
     source.movementTuning.airControlEnabled = true;
@@ -98,6 +103,7 @@ int main() {
     source.botDodgeMaxIntervalMs = 750;
     source.chatMessage = "ready?";
     source.playerName = "yg";
+    source.mapName = "thunderstruck";
     source.viewedServerTick = 88;
 
     lg::WirePacket wire;
@@ -106,6 +112,7 @@ int main() {
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "command should respect packet limit");
     failures += expect(lg::decodeCommandPacket(wire, decoded), "command should decode");
     failures += expect(decoded.playerIndex == source.playerIndex, "command player should round trip");
+    failures += expect(decoded.clientNonce == 12345, "command nonce should round trip");
     failures += expect(decoded.command.sequence == 42, "command sequence should round trip");
     failures += expect(decoded.command.clientTick == 99, "command tick should round trip");
     failures += expect(decoded.viewedServerTick == 88, "viewed server tick should round trip");
@@ -115,11 +122,21 @@ int main() {
     );
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
-    failures += expect(decoded.command.weapon == lg::Weapon::RocketLauncher, "weapon selection should round trip");
+    failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
+    failures += expect(decoded.mapName == "thunderstruck", "map name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
+    failures += expect(
+      decoded.requestGameMode &&
+        decoded.requestedGameMode == lg::GameMode::ClanArena,
+      "explicit gamemode request should round trip"
+    );
+    failures += expect(
+      decoded.requestTeam && decoded.requestedTeam == lg::Team::Blue,
+      "explicit team request should round trip"
+    );
     failures += expect(
       decoded.requestMovementTuning &&
         decoded.movementTuning.flightEnabled &&
@@ -161,6 +178,27 @@ int main() {
     wrongType[6] = static_cast<std::uint8_t>(lg::PacketType::Snapshot);
     failures += expect(!lg::decodeCommandPacket(wrongType, decoded), "wrong packet type should be rejected");
 
+    lg::WirePacket invalidModeWire = wire;
+    invalidModeWire[invalidModeWire.size() - 3U] = 255;
+    failures += expect(
+      !lg::decodeCommandPacket(invalidModeWire, decoded),
+      "invalid requested gamemode should be rejected while decoding"
+    );
+
+    lg::CommandPacket invalidMode = source;
+    invalidMode.requestedGameMode = static_cast<lg::GameMode>(255);
+    failures += expect(
+      !lg::encodeCommandPacket(invalidMode, wire),
+      "invalid requested gamemode should not encode"
+    );
+
+    lg::CommandPacket invalidTeam = source;
+    invalidTeam.requestedTeam = static_cast<lg::Team>(255);
+    failures += expect(
+      !lg::encodeCommandPacket(invalidTeam, wire),
+      "invalid requested team should not encode"
+    );
+
     lg::CommandPacket invalidMovement = source;
     invalidMovement.command.forwardMove = 1.1F;
     failures += expect(lg::encodeCommandPacket(invalidMovement, wire), "finite command should encode");
@@ -184,9 +222,15 @@ int main() {
       decodedBundle.commands[2].command.sequence == 44,
       "bundle command order should round trip"
     );
+    failures += expect(
+      decodedBundle.commands[0].requestedGameMode == lg::GameMode::ClanArena &&
+        decodedBundle.commands[2].requestedTeam == lg::Team::Blue,
+      "redundant command bundles should preserve explicit mode and team requests"
+    );
     for (lg::CommandPacket& command : bundle.commands) {
       command.chatMessage.assign(lg::kMaxChatMessageBytes, 'c');
       command.playerName.assign(lg::kMaxPlayerNameBytes, 'n');
+      command.mapName.assign(lg::kMaxMapNameBytes, 'm');
     }
     failures += expect(
       lg::encodeCommandBundle(bundle, wire) &&
@@ -239,6 +283,22 @@ int main() {
     source.weaponFires[0].start = {1.0F, 1.5F, 2.0F};
     source.weaponFires[0].end = {9.0F, 1.5F, 2.0F};
     source.weaponFires[0].knockbackImpulse = {2.0F, 0.0F, 0.0F};
+    source.weaponFires[1].fired = true;
+    source.weaponFires[1].hit = true;
+    source.weaponFires[1].weapon = lg::Weapon::Shotgun;
+    source.weaponFires[1].damageApplied = 45;
+    source.weaponFires[1].start = {1.0F, -1.5F, 2.0F};
+    source.weaponFires[1].end = {7.0F, -1.5F, 2.0F};
+    source.weaponFires[1].knockbackImpulse = {1.0F, 0.0F, 0.0F};
+    source.weaponFires[1].pelletCount = lg::kShotgunPelletCount;
+    source.weaponFires[1].pelletHitCount = 9;
+    source.weaponFires[2].fired = true;
+    source.weaponFires[2].hit = true;
+    source.weaponFires[2].weapon = lg::Weapon::MachineGun;
+    source.weaponFires[2].damageApplied = 5;
+    source.weaponFires[2].start = {2.0F, 1.5F, 2.0F};
+    source.weaponFires[2].end = {8.0F, 1.5F, 2.0F};
+    source.weaponFires[2].knockbackImpulse = {0.11F, 0.0F, 0.0F};
     source.rocketExplosions[0].active = true;
     source.rocketExplosions[0].position = {3.0F, 4.0F, 0.0F};
     source.rocketExplosions[0].radius = 3.0F;
@@ -249,6 +309,18 @@ int main() {
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
+    source.gameMode = lg::GameMode::ClanArena;
+    source.teams = {
+      lg::Team::Red,
+      lg::Team::Blue,
+      lg::Team::None,
+      lg::Team::None,
+      lg::Team::None,
+      lg::Team::None,
+    };
+    source.teamScores = {8, 6};
+    source.roundWinningTeam = lg::Team::Red;
+    source.matchWinningTeam = lg::Team::None;
     source.connectedPlayers = {true, true};
     source.readyPlayers = {true, false};
     source.roundCombatStats[0] = {250, 125, 80};
@@ -348,6 +420,23 @@ int main() {
       "instant weapon events should round trip"
     );
     failures += expect(
+      decoded.weaponFires[1].fired &&
+        decoded.weaponFires[1].hit &&
+        decoded.weaponFires[1].weapon == lg::Weapon::Shotgun &&
+        decoded.weaponFires[1].damageApplied == 45 &&
+        decoded.weaponFires[1].pelletCount == lg::kShotgunPelletCount &&
+        decoded.weaponFires[1].pelletHitCount == 9,
+      "shotgun pellet event data should round trip"
+    );
+    failures += expect(
+      decoded.weaponFires[2].fired &&
+        decoded.weaponFires[2].hit &&
+        decoded.weaponFires[2].weapon == lg::Weapon::MachineGun &&
+        decoded.weaponFires[2].damageApplied == 5 &&
+        nearlyEqual(decoded.weaponFires[2].knockbackImpulse.x, 0.11F),
+      "machine gun weapon events should round trip"
+    );
+    failures += expect(
       decoded.rocketExplosions[0].active &&
         nearlyEqual(decoded.rocketExplosions[0].position.y, 4.0F) &&
         nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
@@ -360,6 +449,14 @@ int main() {
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
+    failures += expect(
+      decoded.gameMode == lg::GameMode::ClanArena &&
+        decoded.teams == source.teams &&
+        decoded.teamScores == source.teamScores &&
+        decoded.roundWinningTeam == lg::Team::Red &&
+        decoded.matchWinningTeam == lg::Team::None,
+      "gamemode and team match state should round trip"
+    );
     failures += expect(
       decoded.chatSequence == 7 &&
         decoded.chatPlayerIndex == 1 &&
@@ -439,6 +536,13 @@ int main() {
     lg::ServerSnapshot invalid = source;
     invalid.players[0].position.x = std::numeric_limits<float>::infinity();
     failures += expect(!lg::encodeServerSnapshot(invalid, wire), "non-finite snapshot should not encode");
+
+    invalid = source;
+    invalid.teams[0] = static_cast<lg::Team>(255);
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "invalid snapshot team should not encode"
+    );
   }
 
   return failures == 0 ? 0 : 1;

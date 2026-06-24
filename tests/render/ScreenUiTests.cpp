@@ -1,7 +1,9 @@
 #include "render/ScreenUi.hpp"
+#include "render/ConsoleLayout.hpp"
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <iostream>
 #include <string_view>
@@ -150,6 +152,62 @@ int main() {
   }
 
   {
+    struct WeaponAccent {
+      lg::Weapon weapon;
+      lg::RenderColor color;
+      std::string_view message;
+    };
+    constexpr std::array<WeaponAccent, 4> accents = {{
+      {
+        lg::Weapon::MachineGun,
+        {218, 196, 116, 255},
+        "machine gun viewmodel should use its ammo-feed accent",
+      },
+      {
+        lg::Weapon::Shotgun,
+        {188, 120, 84, 255},
+        "shotgun viewmodel should use its wide pump accent",
+      },
+      {
+        lg::Weapon::GrenadeLauncher,
+        {112, 188, 90, 255},
+        "grenade launcher viewmodel should use its drum accent",
+      },
+      {
+        lg::Weapon::PlasmaGun,
+        {95, 235, 210, 255},
+        "plasma gun viewmodel should use its core accent",
+      },
+    }};
+
+    for (const WeaponAccent& accent : accents) {
+      const lg::DrawList2D overlay = lg::buildPerspectiveWeaponOverlay(
+        1280,
+        720,
+        {},
+        accent.weapon,
+        lg::Weapon::LightningGun,
+        1.0F,
+        settings
+      );
+      bool foundAccent = false;
+      for (const lg::DrawCommand2D& command : overlay.overlayCommands) {
+        if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+          foundAccent =
+            foundAccent ||
+            (
+              quad->color.red == accent.color.red &&
+              quad->color.green == accent.color.green &&
+              quad->color.blue == accent.color.blue &&
+              quad->color.alpha == accent.color.alpha
+            );
+        }
+      }
+      failures += expect(foundAccent, accent.message);
+    }
+  }
+
+  {
     const lg::DrawList2D switchingOverlay = lg::buildPerspectiveWeaponOverlay(
       1280,
       720,
@@ -244,6 +302,32 @@ int main() {
     failures += expect(
       foundSelectedWeapon,
       "selected weapon indicator should mark LG on the right side"
+    );
+
+    hud.selectedWeapon = lg::Weapon::PlasmaGun;
+    const lg::DrawList2D plasmaUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      hud,
+      console
+    );
+    bool foundPlasmaWeapon = false;
+    for (const lg::DrawCommand2D& command : plasmaUi.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        foundPlasmaWeapon =
+          foundPlasmaWeapon ||
+          (
+            text->text == "PG" &&
+            text->position.x > 1180.0F &&
+            text->color.red == 255
+          );
+      }
+    }
+    failures += expect(
+      foundPlasmaWeapon,
+      "selected weapon indicator should mark expanded weapon slots"
     );
   }
 
@@ -386,6 +470,7 @@ int main() {
     console.open = true;
     console.lines = {"first", "second"};
     console.input = "r_vsync 0";
+    console.cursorIndex = console.input.size();
     const lg::DrawList2D ui = lg::buildScreenUi(
       1280,
       720,
@@ -409,6 +494,7 @@ int main() {
     narrowConsole.open = true;
     narrowConsole.lines = {"alpha beta gamma"};
     narrowConsole.input = "wrap input";
+    narrowConsole.cursorIndex = narrowConsole.input.size();
     const lg::DrawList2D ui = lg::buildScreenUi(
       180,
       240,
@@ -454,6 +540,75 @@ int main() {
     failures += expect(
       foundFirstPromptWrap && foundSecondPromptWrap,
       "console prompt should wrap to the available width"
+    );
+  }
+
+  {
+    lg::ConsoleRenderState selectableConsole;
+    selectableConsole.open = true;
+    selectableConsole.lines = {"alpha beta"};
+    selectableConsole.input = "copy me";
+    selectableConsole.cursorIndex = selectableConsole.input.size();
+
+    const lg::ConsoleTextLayout layout =
+      lg::buildConsoleTextLayout(1280, 720, selectableConsole);
+    const std::size_t selectionStart =
+      lg::consoleTextOffsetAt(layout, 10.0F, 10.0F);
+    const std::size_t selectionEnd =
+      lg::consoleTextOffsetAt(layout, 10.0F + 5.0F * 16.0F, 10.0F);
+    failures += expect(
+      lg::consoleSelectedText(layout, selectionStart, selectionEnd) == "alpha",
+      "console mouse selection should copy selected visible text"
+    );
+
+    selectableConsole.hasSelection = true;
+    selectableConsole.selectionAnchor = selectionStart;
+    selectableConsole.selectionFocus = selectionEnd;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      selectableConsole
+    );
+    bool foundSelectionHighlight = false;
+    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundSelectionHighlight =
+          foundSelectionHighlight ||
+          (
+            quad->color.red == 58 &&
+            quad->color.green == 118 &&
+            quad->color.blue == 188 &&
+            quad->color.alpha == 170
+          );
+      }
+    }
+    failures += expect(
+      foundSelectionHighlight,
+      "console selection should render a highlight behind selected text"
+    );
+  }
+
+  {
+    lg::ConsoleRenderState cursorConsole;
+    cursorConsole.open = true;
+    cursorConsole.input = "r_vsync 0";
+    cursorConsole.cursorIndex = 2U;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      cursorConsole
+    );
+    const auto* prompt =
+      std::get_if<lg::Text2D>(&ui.overlayCommands.back());
+    failures += expect(
+      prompt != nullptr && prompt->text == "] r__vsync 0",
+      "console prompt cursor should render at the tracked input position"
     );
   }
 

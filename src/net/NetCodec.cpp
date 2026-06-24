@@ -212,7 +212,10 @@ bool readHeader(Reader& reader, PacketType expectedType, std::size_t wireSize) {
 bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
   const UserCommand& command = packet.command;
   return packet.playerIndex < kDuelPlayerCount &&
+    isValidGameMode(packet.requestedGameMode) &&
+    isValidTeam(packet.requestedTeam) &&
     writer.writeU8(packet.playerIndex) &&
+    writer.writeU32(packet.clientNonce) &&
     writer.writeU32(command.sequence) &&
     writer.writeU32(command.clientTick) &&
     writer.writeFloat(command.viewYawRadians) &&
@@ -248,15 +251,23 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(packet.botDodgeEnabled) &&
     writer.writeI32(packet.botDodgeMinIntervalMs) &&
     writer.writeI32(packet.botDodgeMaxIntervalMs) &&
-    writer.writeU32(packet.viewedServerTick) &&
-    writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
-    writer.writeString(packet.playerName, kMaxPlayerNameBytes);
+      writer.writeU32(packet.viewedServerTick) &&
+      writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
+      writer.writeString(packet.playerName, kMaxPlayerNameBytes) &&
+      writer.writeString(packet.mapName, kMaxMapNameBytes) &&
+      writer.writeBool(packet.requestGameMode) &&
+      writer.writeU8(static_cast<std::uint8_t>(packet.requestedGameMode)) &&
+      writer.writeBool(packet.requestTeam) &&
+      writer.writeU8(static_cast<std::uint8_t>(packet.requestedTeam));
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
   std::uint8_t weapon = 0;
+  std::uint8_t requestedGameMode = 0;
+  std::uint8_t requestedTeam = 0;
   if (
     !reader.readU8(packet.playerIndex) ||
+    !reader.readU32(packet.clientNonce) ||
     !reader.readU32(packet.command.sequence) ||
     !reader.readU32(packet.command.clientTick) ||
     !reader.readFloat(packet.command.viewYawRadians) ||
@@ -292,15 +303,22 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.botDodgeEnabled) ||
     !reader.readI32(packet.botDodgeMinIntervalMs) ||
     !reader.readI32(packet.botDodgeMaxIntervalMs) ||
-    !reader.readU32(packet.viewedServerTick) ||
-    !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
-    !reader.readString(packet.playerName, kMaxPlayerNameBytes)
-  ) {
+      !reader.readU32(packet.viewedServerTick) ||
+      !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
+      !reader.readString(packet.playerName, kMaxPlayerNameBytes) ||
+      !reader.readString(packet.mapName, kMaxMapNameBytes) ||
+      !reader.readBool(packet.requestGameMode) ||
+      !reader.readU8(requestedGameMode) ||
+      !reader.readBool(packet.requestTeam) ||
+      !reader.readU8(requestedTeam)
+    ) {
     return false;
   }
 
   const bool valid = packet.playerIndex < kDuelPlayerCount &&
-    weapon <= static_cast<std::uint8_t>(Weapon::RocketLauncher) &&
+    weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
+    requestedGameMode <= static_cast<std::uint8_t>(GameMode::ClanArena) &&
+    requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     std::fabs(packet.command.forwardMove) <= 1.0F &&
     std::fabs(packet.command.rightMove) <= 1.0F &&
     std::fabs(packet.command.upMove) <= 1.0F &&
@@ -343,6 +361,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     return false;
   }
   packet.command.weapon = static_cast<Weapon>(weapon);
+  packet.requestedGameMode = static_cast<GameMode>(requestedGameMode);
+  packet.requestedTeam = static_cast<Team>(requestedTeam);
   return true;
 }
 
@@ -552,12 +572,16 @@ bool writeWeaponFire(Writer& writer, const WeaponFireResult& result) {
     writer.writeBool(result.hit) &&
     writer.writeU8(static_cast<std::uint8_t>(result.weapon)) &&
     writer.writeI32(result.damageApplied) &&
-    writeVec3(writer, result.knockbackImpulse);
+    writeVec3(writer, result.knockbackImpulse) &&
+    writer.writeU8(result.pelletCount) &&
+    writer.writeU8(result.pelletHitCount);
 }
 
 bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   std::uint8_t weapon = 0;
   std::int32_t damageApplied = 0;
+  std::uint8_t pelletCount = 0;
+  std::uint8_t pelletHitCount = 0;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
@@ -565,18 +589,24 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
     !reader.readBool(result.hit) ||
     !reader.readU8(weapon) ||
     !reader.readI32(damageApplied) ||
-    !readVec3(reader, result.knockbackImpulse)
+    !readVec3(reader, result.knockbackImpulse) ||
+    !reader.readU8(pelletCount) ||
+    !reader.readU8(pelletHitCount)
   ) {
     return false;
   }
   if (
-    weapon > static_cast<std::uint8_t>(Weapon::RocketLauncher) ||
-    damageApplied < 0
+    weapon > static_cast<std::uint8_t>(kLastWeapon) ||
+    damageApplied < 0 ||
+    pelletHitCount > pelletCount ||
+    pelletCount > kShotgunPelletCount
   ) {
     return false;
   }
   result.weapon = static_cast<Weapon>(weapon);
   result.damageApplied = damageApplied;
+  result.pelletCount = pelletCount;
+  result.pelletHitCount = pelletHitCount;
   return true;
 }
 
@@ -801,6 +831,19 @@ bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
 }
 
 bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
+  if (
+    !isValidGameMode(snapshot.gameMode) ||
+    !isValidTeam(snapshot.roundWinningTeam) ||
+    !isValidTeam(snapshot.matchWinningTeam) ||
+    !std::all_of(
+      snapshot.teams.begin(),
+      snapshot.teams.end(),
+      [](Team team) { return isValidTeam(team); }
+    )
+  ) {
+    return false;
+  }
+
   Writer writer(wire);
   if (
     !writeHeader(writer, PacketType::Snapshot) ||
@@ -853,6 +896,25 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     if (!writer.writeU16(score)) {
       return false;
     }
+  }
+  if (!writer.writeU8(static_cast<std::uint8_t>(snapshot.gameMode))) {
+    return false;
+  }
+  for (Team team : snapshot.teams) {
+    if (!writer.writeU8(static_cast<std::uint8_t>(team))) {
+      return false;
+    }
+  }
+  for (std::uint16_t score : snapshot.teamScores) {
+    if (!writer.writeU16(score)) {
+      return false;
+    }
+  }
+  if (
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.roundWinningTeam)) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.matchWinningTeam))
+  ) {
+    return false;
   }
   for (bool connected : snapshot.connectedPlayers) {
     if (!writer.writeBool(connected)) {
@@ -973,6 +1035,45 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     if (!reader.readU16(score)) {
       return false;
     }
+  }
+  std::uint8_t gameMode = 0;
+  if (!reader.readU8(gameMode)) {
+    return false;
+  }
+  decoded.gameMode = static_cast<GameMode>(gameMode);
+  for (Team& team : decoded.teams) {
+    std::uint8_t encodedTeam = 0;
+    if (!reader.readU8(encodedTeam)) {
+      return false;
+    }
+    team = static_cast<Team>(encodedTeam);
+  }
+  for (std::uint16_t& score : decoded.teamScores) {
+    if (!reader.readU16(score)) {
+      return false;
+    }
+  }
+  std::uint8_t roundWinningTeam = 0;
+  std::uint8_t matchWinningTeam = 0;
+  if (
+    !reader.readU8(roundWinningTeam) ||
+    !reader.readU8(matchWinningTeam)
+  ) {
+    return false;
+  }
+  decoded.roundWinningTeam = static_cast<Team>(roundWinningTeam);
+  decoded.matchWinningTeam = static_cast<Team>(matchWinningTeam);
+  if (
+    !isValidGameMode(decoded.gameMode) ||
+    !isValidTeam(decoded.roundWinningTeam) ||
+    !isValidTeam(decoded.matchWinningTeam) ||
+    !std::all_of(
+      decoded.teams.begin(),
+      decoded.teams.end(),
+      [](Team team) { return isValidTeam(team); }
+    )
+  ) {
+    return false;
   }
   for (bool& connected : decoded.connectedPlayers) {
     if (!reader.readBool(connected)) {

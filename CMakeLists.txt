@@ -13,6 +13,7 @@ include(cmake/Dependencies.cmake)
 
 add_library(lg_duel_core
   src/client/ClientGame.cpp
+  src/client/HitConfirmAudio.cpp
   src/client/ClientSession.cpp
   src/client/Interpolation.cpp
   src/client/Prediction.cpp
@@ -27,7 +28,10 @@ add_library(lg_duel_core
   src/sim/ArenaMap.cpp
   src/sim/Collision.cpp
   src/sim/Combat.cpp
+  src/sim/ClanArenaRules.cpp
+  src/sim/DuelRules.cpp
   src/sim/Movement.cpp
+  src/sim/WeaponCatalog.cpp
 )
 
 target_include_directories(lg_duel_core
@@ -43,9 +47,11 @@ if(WIN32)
 endif()
 
 add_library(lg_duel_client_app
+  src/app/AudioAssets.cpp
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
   src/app/Scoreboard.cpp
+  src/render/ConsoleLayout.cpp
   src/render/Renderer.cpp
   src/render/Scene3D.cpp
   src/render/ScreenUi.cpp
@@ -84,6 +90,9 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_client>/maps"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
+    "$<TARGET_FILE_DIR:lg_duel_client>/assets/audio"
 )
 
 if(WIN32 AND TARGET SDL3::SDL3)

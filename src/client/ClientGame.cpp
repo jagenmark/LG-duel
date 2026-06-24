@@ -25,11 +25,16 @@ void ClientGame::sendCommand(
   std::int32_t healthAmount,
   bool botDodgeEnabled,
   std::int32_t botDodgeMinIntervalMs,
-  std::int32_t botDodgeMaxIntervalMs,
-  std::string chatMessage,
-  std::string playerName,
-  bool usePresentedServerTick
-) {
+    std::int32_t botDodgeMaxIntervalMs,
+    std::string chatMessage,
+    std::string playerName,
+    std::string mapName,
+    bool usePresentedServerTick,
+    bool requestGameMode,
+    GameMode requestedGameMode,
+    bool requestTeam,
+    Team requestedTeam
+  ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
     movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
@@ -52,11 +57,16 @@ void ClientGame::sendCommand(
       vampirism,
       std::move(chatMessage),
       std::move(playerName),
+      std::move(mapName),
       selfDamagePercent,
       healthAmount,
       botDodgeEnabled,
       botDodgeMinIntervalMs,
       botDodgeMaxIntervalMs,
+      requestGameMode,
+      requestedGameMode,
+      requestTeam,
+      requestedTeam,
     }
   );
   if (!requestReset) {

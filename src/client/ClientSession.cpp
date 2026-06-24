@@ -83,11 +83,16 @@ void ClientSession::sendCommand(
   std::int32_t healthAmount,
   bool botDodgeEnabled,
   std::int32_t botDodgeMinIntervalMs,
-  std::int32_t botDodgeMaxIntervalMs,
-  std::string chatMessage,
-  std::string playerName,
-  bool usePresentedServerTick
-) {
+    std::int32_t botDodgeMaxIntervalMs,
+    std::string chatMessage,
+    std::string playerName,
+    std::string mapName,
+    bool usePresentedServerTick,
+    bool requestGameMode,
+    GameMode requestedGameMode,
+    bool requestTeam,
+    Team requestedTeam
+  ) {
   if (game_) {
     game_->sendCommand(
       command,
@@ -104,11 +109,16 @@ void ClientSession::sendCommand(
       healthAmount,
       botDodgeEnabled,
       botDodgeMinIntervalMs,
-      botDodgeMaxIntervalMs,
-      std::move(chatMessage),
-      std::move(playerName),
-      usePresentedServerTick
-    );
+        botDodgeMaxIntervalMs,
+        std::move(chatMessage),
+        std::move(playerName),
+        std::move(mapName),
+        usePresentedServerTick,
+        requestGameMode,
+        requestedGameMode,
+        requestTeam,
+        requestedTeam
+      );
   }
 }
 

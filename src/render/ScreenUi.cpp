@@ -1,8 +1,8 @@
 #include "render/ScreenUi.hpp"
+#include "render/ConsoleLayout.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -67,57 +67,6 @@ void addText(
   });
 }
 
-[[nodiscard]] std::vector<std::string> wrapText(
-  const std::string& text,
-  std::size_t maxCharacters
-) {
-  if (maxCharacters == 0U) {
-    return {""};
-  }
-  if (text.empty()) {
-    return {""};
-  }
-
-  std::vector<std::string> lines;
-  std::size_t lineStart = 0U;
-  while (lineStart < text.size()) {
-    const std::size_t remaining = text.size() - lineStart;
-    if (remaining <= maxCharacters) {
-      lines.push_back(text.substr(lineStart));
-      break;
-    }
-
-    const std::size_t lineEnd = lineStart + maxCharacters;
-    std::size_t breakAt = std::string::npos;
-    if (lineEnd < text.size() && text[lineEnd] == ' ') {
-      breakAt = lineEnd;
-    }
-    for (
-      std::size_t index = lineEnd;
-      index > lineStart && breakAt == std::string::npos;
-      --index
-    ) {
-      if (text[index - 1U] == ' ') {
-        breakAt = index - 1U;
-        break;
-      }
-    }
-
-    if (breakAt == std::string::npos) {
-      lines.push_back(text.substr(lineStart, maxCharacters));
-      lineStart += maxCharacters;
-    } else {
-      lines.push_back(text.substr(lineStart, breakAt - lineStart));
-      lineStart = breakAt;
-      while (lineStart < text.size() && text[lineStart] == ' ') {
-        ++lineStart;
-      }
-    }
-  }
-
-  return lines;
-}
-
 [[nodiscard]] std::uint8_t blendChannel(
   std::uint8_t base,
   std::uint8_t highlight,
@@ -159,14 +108,22 @@ void addOutline(
   addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
 }
 
-[[nodiscard]] const char* weaponShortName(Weapon weapon) {
+[[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
   switch (weapon) {
+  case Weapon::MachineGun:
+    return "MG";
+  case Weapon::Shotgun:
+    return "SG";
+  case Weapon::GrenadeLauncher:
+    return "GL";
   case Weapon::LightningGun:
     return "LG";
   case Weapon::Railgun:
     return "RG";
   case Weapon::RocketLauncher:
     return "RL";
+  case Weapon::PlasmaGun:
+    return "PG";
   }
   return "??";
 }
@@ -248,10 +205,14 @@ void addSelectedWeaponIndicator(
   int height,
   const HudRenderState& hud
 ) {
-  constexpr std::array<Weapon, 3> weapons = {{
+  constexpr std::array<Weapon, 7> weapons = {{
+    Weapon::MachineGun,
+    Weapon::Shotgun,
+    Weapon::GrenadeLauncher,
     Weapon::RocketLauncher,
     Weapon::LightningGun,
     Weapon::Railgun,
+    Weapon::PlasmaGun,
   }};
   const float scale = std::clamp(
     static_cast<float>(height) / 720.0F,
@@ -312,7 +273,7 @@ void addSelectedWeaponIndicator(
       icon,
       scale
     );
-    const char* label = weaponShortName(weapon);
+    const char* label = hudWeaponShortName(weapon);
     const float textScale = selected ? 1.45F * scale : 1.2F * scale;
     const float textWidth = 2.0F * kGlyphSize * textScale;
     addText(
@@ -355,63 +316,83 @@ void addFloatingHealthBar(
   int width,
   int height,
   const PerspectiveCamera& camera,
-  const PlayerState& opponent,
+  const PlayerState& player,
   float alpha,
+  bool teammate,
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
+  const bool enabled = teammate
+    ? settings.teammateHealthBarEnabled
+    : settings.enemyHealthBarEnabled;
   if (
-    !hud.showOpponentHealthBar ||
-    !settings.enemyHealthBarEnabled ||
-    opponent.health <= 0 ||
+    (!teammate && !hud.showOpponentHealthBar) ||
+    !enabled ||
+    player.health <= 0 ||
     alpha <= 0.0F
   ) {
     return;
   }
 
+  const float maxDistance = teammate
+    ? settings.teammateHealthBarMaxDistance
+    : settings.enemyHealthBarMaxDistance;
   if (
-    settings.enemyHealthBarMaxDistance > 0.0F &&
-    length(opponent.position - camera.position) >
-      settings.enemyHealthBarMaxDistance
+    maxDistance > 0.0F &&
+    length(player.position - camera.position) > maxDistance
   ) {
     return;
   }
 
+  const float worldOffsetZ = teammate
+    ? settings.teammateHealthBarWorldOffsetZ
+    : settings.enemyHealthBarWorldOffsetZ;
   const Vec3 anchor =
-    opponent.position +
-    Vec3{
-      0.0F,
-      0.0F,
-      opponent.bounds.halfHeight + settings.enemyHealthBarWorldOffsetZ,
-    };
+    player.position +
+    Vec3{0.0F, 0.0F, player.bounds.halfHeight + worldOffsetZ};
   ProjectedPoint projected;
   if (!projectPerspectivePoint(camera, anchor, projected)) {
     return;
   }
   const ScreenPoint anchorScreen =
     screenPointFromProjection(projected, width, height);
-  const float barWidth = std::max(1.0F, settings.enemyHealthBarWidth);
-  const float barHeight = std::max(1.0F, settings.enemyHealthBarHeight);
+  const float barWidth = std::max(
+    1.0F,
+    teammate ? settings.teammateHealthBarWidth : settings.enemyHealthBarWidth
+  );
+  const float barHeight = std::max(
+    1.0F,
+    teammate ? settings.teammateHealthBarHeight : settings.enemyHealthBarHeight
+  );
   const float border = std::max(1.0F, std::round(barHeight * 0.25F));
-  const float x =
-    anchorScreen.x + settings.enemyHealthBarScreenOffsetX - barWidth * 0.5F;
-  const float y =
-    anchorScreen.y + settings.enemyHealthBarScreenOffsetY - barHeight;
+  const float offsetX = teammate
+    ? settings.teammateHealthBarScreenOffsetX
+    : settings.enemyHealthBarScreenOffsetX;
+  const float offsetY = teammate
+    ? settings.teammateHealthBarScreenOffsetY
+    : settings.enemyHealthBarScreenOffsetY;
+  const float x = anchorScreen.x + offsetX - barWidth * 0.5F;
+  const float y = anchorScreen.y + offsetY - barHeight;
   const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
   const float healthRatio =
-    std::clamp(static_cast<float>(opponent.health) / maxHealth, 0.0F, 1.0F);
+    std::clamp(static_cast<float>(player.health) / maxHealth, 0.0F, 1.0F);
+  const float barAlpha = teammate
+    ? settings.teammateHealthBarAlpha
+    : settings.enemyHealthBarAlpha;
   const RenderColor outline =
-    withAlpha({220, 226, 236, 255}, alpha * settings.enemyHealthBarAlpha);
+    withAlpha({220, 226, 236, 255}, alpha * barAlpha);
   const RenderColor back =
-    withAlpha({10, 13, 18, 215}, alpha * settings.enemyHealthBarAlpha);
+    withAlpha({10, 13, 18, 215}, alpha * barAlpha);
   const RenderColor fill = withAlpha(
     {
-      settings.enemyHealthBarRed,
-      settings.enemyHealthBarGreen,
-      settings.enemyHealthBarBlue,
+      teammate ? settings.teammateHealthBarRed : settings.enemyHealthBarRed,
+      teammate
+        ? settings.teammateHealthBarGreen
+        : settings.enemyHealthBarGreen,
+      teammate ? settings.teammateHealthBarBlue : settings.enemyHealthBarBlue,
       255,
     },
-    alpha * settings.enemyHealthBarAlpha
+    alpha * barAlpha
   );
 
   addRect(
@@ -607,16 +588,43 @@ void addHud(
         static_cast<float>(line.size()) * characterWidth;
       const float x =
         panelX + std::max(16.0F, (panelWidth - lineWidth) * 0.5F);
-      addText(
-        drawList,
-        x,
-        scoreboardY,
-        line,
-        index == 0
-          ? RenderColor{255, 220, 120, 255}
-          : RenderColor{225, 235, 245, 255},
-        textScale
-      );
+      const Team team = index < hud.scoreboardLineTeams.size()
+        ? hud.scoreboardLineTeams[index]
+        : Team::None;
+      if (team == Team::None) {
+        addText(
+          drawList,
+          x,
+          scoreboardY,
+          line,
+          index == 0
+            ? RenderColor{255, 220, 120, 255}
+            : RenderColor{225, 235, 245, 255},
+          textScale
+        );
+      } else {
+        constexpr std::size_t nameColumnWidth = 22U;
+        const std::size_t split = std::min(nameColumnWidth, line.size());
+        const RenderColor teamColor = team == Team::Red
+          ? RenderColor{224, 82, 92, 255}
+          : RenderColor{82, 190, 224, 255};
+        addText(
+          drawList,
+          x,
+          scoreboardY,
+          line.substr(0, split),
+          teamColor,
+          textScale
+        );
+        addText(
+          drawList,
+          x + static_cast<float>(split) * characterWidth,
+          scoreboardY,
+          line.substr(split),
+          RenderColor{225, 235, 245, 255},
+          textScale
+        );
+      }
       scoreboardY += 28.0F;
     }
   }
@@ -759,60 +767,68 @@ void addConsole(
   );
 
   constexpr float textScale = 2.0F;
-  constexpr float lineHeight = 20.0F;
-  constexpr float marginX = 10.0F;
-  const std::size_t maxCharacters = std::max(
-    1,
-    static_cast<int>(
-      (static_cast<float>(width) - marginX * 2.0F) /
-      (kGlyphSize * textScale)
-    )
-  );
-  std::vector<std::string> wrappedOutput;
-  for (const std::string& line : console.lines) {
-    std::vector<std::string> wrappedLine = wrapText(line, maxCharacters);
-    wrappedOutput.insert(
-      wrappedOutput.end(),
-      std::make_move_iterator(wrappedLine.begin()),
-      std::make_move_iterator(wrappedLine.end())
-    );
+  const ConsoleTextLayout layout = buildConsoleTextLayout(width, height, console);
+  if (console.hasSelection && console.selectionAnchor != console.selectionFocus) {
+    const std::size_t selectionBegin =
+      std::min(console.selectionAnchor, console.selectionFocus);
+    const std::size_t selectionEnd =
+      std::max(console.selectionAnchor, console.selectionFocus);
+    for (const ConsoleLayoutLine& line : layout.lines) {
+      const std::size_t lineBegin = line.textOffset;
+      const std::size_t lineEnd = line.textOffset + line.text.size();
+      const std::size_t begin = std::max(selectionBegin, lineBegin);
+      const std::size_t end = std::min(selectionEnd, lineEnd);
+      if (begin >= end) {
+        continue;
+      }
+      const float x =
+        line.x + static_cast<float>(begin - lineBegin) * layout.characterWidth;
+      addRect(
+        drawList,
+        x,
+        line.y,
+        static_cast<float>(end - begin) * layout.characterWidth,
+        layout.lineHeight,
+        {58, 118, 188, 170}
+      );
+    }
   }
 
-  const std::vector<std::string> wrappedPrompt =
-    wrapText("] " + console.input + '_', maxCharacters);
-  const float promptY =
-    consoleHeight - 24.0F -
-    static_cast<float>(wrappedPrompt.size() - 1U) * lineHeight;
-  const float outputHeight = std::max(0.0F, promptY - 10.0F);
-  const int visibleLines =
-    std::max(0, static_cast<int>(outputHeight / lineHeight));
-  const std::size_t firstLine =
-    wrappedOutput.size() > static_cast<std::size_t>(visibleLines)
-      ? wrappedOutput.size() - static_cast<std::size_t>(visibleLines)
-      : 0U;
-  float y = 10.0F;
-  for (std::size_t index = firstLine; index < wrappedOutput.size(); ++index) {
-    addText(
-      drawList,
-      marginX,
-      y,
-      wrappedOutput[index],
-      {215, 225, 235, 255},
-      textScale
-    );
-    y += lineHeight;
+  const std::size_t clampedCursor =
+    std::min(console.cursorIndex, console.input.size());
+  const std::size_t promptCursorOffset = 2U + clampedCursor;
+  std::size_t promptBaseOffset = layout.text.size();
+  for (const ConsoleLayoutLine& line : layout.lines) {
+    if (line.prompt) {
+      promptBaseOffset = line.textOffset;
+      break;
+    }
   }
-  y = promptY;
-  for (const std::string& line : wrappedPrompt) {
+  const std::size_t cursorTextOffset =
+    std::min(promptBaseOffset + promptCursorOffset, layout.text.size());
+  bool cursorDrawn = false;
+  for (std::size_t index = 0; index < layout.lines.size(); ++index) {
+    const ConsoleLayoutLine& line = layout.lines[index];
+    std::string text = line.text;
+    if (line.prompt) {
+      const std::size_t lineBegin = line.textOffset;
+      const std::size_t lineEnd = line.textOffset + line.text.size();
+      if (cursorTextOffset >= lineBegin && cursorTextOffset <= lineEnd) {
+        text.insert(cursorTextOffset - lineBegin, 1U, '_');
+        cursorDrawn = true;
+      } else if (!cursorDrawn && index + 1U == layout.lines.size()) {
+        text.push_back('_');
+        cursorDrawn = true;
+      }
+    }
     addText(
       drawList,
-      marginX,
-      y,
-      line,
-      {255, 255, 255, 255},
+      line.x,
+      line.y,
+      std::move(text),
+      line.prompt ? RenderColor{255, 255, 255, 255} : RenderColor{215, 225, 235, 255},
       textScale
     );
-    y += lineHeight;
   }
 }
 
@@ -1006,6 +1022,162 @@ DrawList2D buildPerspectiveWeaponOverlay(
       return;
     }
 
+    if (weapon == Weapon::MachineGun) {
+      quad(
+        {{
+          {centerX - 30.0F * scale, muzzle + 8.0F * scale},
+          {centerX + 30.0F * scale, muzzle + 8.0F * scale},
+          {centerX + 72.0F * scale, bodyBottom},
+          {centerX - 72.0F * scale, bodyBottom},
+        }},
+        {36, 40, 43, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 18.0F * scale,
+        muzzle - 42.0F * scale,
+        36.0F * scale,
+        82.0F * scale,
+        {74, 82, 88, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 7.0F * scale,
+        muzzle - 58.0F * scale,
+        14.0F * scale,
+        66.0F * scale,
+        {24, 27, 30, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 42.0F * scale,
+        muzzle + 28.0F * scale,
+        84.0F * scale,
+        11.0F * scale,
+        {218, 196, 116, 255}
+      );
+      return;
+    }
+
+    if (weapon == Weapon::Shotgun) {
+      quad(
+        {{
+          {centerX - 58.0F * scale, muzzle + 12.0F * scale},
+          {centerX + 58.0F * scale, muzzle + 12.0F * scale},
+          {centerX + 94.0F * scale, bodyBottom},
+          {centerX - 94.0F * scale, bodyBottom},
+        }},
+        {42, 38, 34, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 42.0F * scale,
+        muzzle - 31.0F * scale,
+        84.0F * scale,
+        19.0F * scale,
+        {30, 34, 36, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 42.0F * scale,
+        muzzle - 7.0F * scale,
+        84.0F * scale,
+        19.0F * scale,
+        {30, 34, 36, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 54.0F * scale,
+        muzzle + 32.0F * scale,
+        108.0F * scale,
+        22.0F * scale,
+        {188, 120, 84, 255}
+      );
+      return;
+    }
+
+    if (weapon == Weapon::GrenadeLauncher) {
+      quad(
+        {{
+          {centerX - 50.0F * scale, muzzle + 4.0F * scale},
+          {centerX + 50.0F * scale, muzzle + 4.0F * scale},
+          {centerX + 86.0F * scale, bodyBottom},
+          {centerX - 86.0F * scale, bodyBottom},
+        }},
+        {33, 45, 39, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 35.0F * scale,
+        muzzle - 30.0F * scale,
+        70.0F * scale,
+        60.0F * scale,
+        {72, 86, 74, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 26.0F * scale,
+        muzzle - 21.0F * scale,
+        52.0F * scale,
+        42.0F * scale,
+        {24, 31, 27, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 18.0F * scale,
+        muzzle - 13.0F * scale,
+        36.0F * scale,
+        26.0F * scale,
+        {112, 188, 90, 255}
+      );
+      return;
+    }
+
+    if (weapon == Weapon::PlasmaGun) {
+      quad(
+        {{
+          {centerX - 42.0F * scale, muzzle + 6.0F * scale},
+          {centerX + 42.0F * scale, muzzle + 6.0F * scale},
+          {centerX + 91.0F * scale, bodyBottom},
+          {centerX - 91.0F * scale, bodyBottom},
+        }},
+        {30, 39, 48, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 24.0F * scale,
+        muzzle - 24.0F * scale,
+        48.0F * scale,
+        62.0F * scale,
+        {68, 82, 102, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 65.0F * scale,
+        muzzle + 22.0F * scale,
+        28.0F * scale,
+        72.0F * scale,
+        {45, 58, 70, 255}
+      );
+      addRect(
+        drawList,
+        centerX + 37.0F * scale,
+        muzzle + 22.0F * scale,
+        28.0F * scale,
+        72.0F * scale,
+        {45, 58, 70, 255}
+      );
+      addRect(
+        drawList,
+        centerX - 15.0F * scale,
+        muzzle - 18.0F * scale,
+        30.0F * scale,
+        50.0F * scale,
+        {95, 235, 210, 255}
+      );
+      return;
+    }
+
     quad(
       {{
         {centerX - 44.0F * scale, muzzle + 6.0F * scale},
@@ -1113,6 +1285,7 @@ DrawList2D buildFloatingHealthBars(
       camera,
       remote.player,
       remote.enemyHealthAlpha,
+      remote.teammate,
       settings,
       hud
     );

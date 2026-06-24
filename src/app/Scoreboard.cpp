@@ -76,9 +76,11 @@ void populateScoreboard(
   const std::size_t nameWidth = scoreboardNameWidth(snapshot);
   hud.scoreboardOpen = true;
   hud.scoreboardLines.push_back("SCOREBOARD");
+  hud.scoreboardLineTeams.push_back(Team::None);
   hud.scoreboardLines.push_back(
     scoreboardColumns("  NAME", "SCORE", "ACC", "DAMAGE", nameWidth)
   );
+  hud.scoreboardLineTeams.push_back(Team::None);
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     if (!scoreboardSlotVisible(snapshot, index)) {
       continue;
@@ -99,6 +101,11 @@ void populateScoreboard(
         std::to_string(stats.damageDealt),
         nameWidth
       )
+    );
+    hud.scoreboardLineTeams.push_back(
+      snapshot.gameMode == GameMode::ClanArena
+        ? snapshot.teams[index]
+        : Team::None
     );
   }
 }
