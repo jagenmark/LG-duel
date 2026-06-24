@@ -200,7 +200,7 @@ ctest --preset default</code></pre>
       <p>In PowerShell, either enter that on one line or use the backtick (<code>`</code>) rather than the Bash backslash for line continuation.</p>
       <pre><code># PowerShell, one line
 cmake --preset default -DLG_DUEL_FETCH_SDL3=ON -DLG_DUEL_REQUIRE_SDL3=ON</code></pre>
-      <p><code>FETCH</code> downloads/builds pinned SDL 3.4.10 when an installed package is not found. <code>REQUIRE</code> makes configuration fail instead of silently producing the non-playable skeleton. These options live in <a href="cmake/Dependencies.cmake"><code>cmake/Dependencies.cmake</code></a>.</p>
+      <p><code>FETCH</code> downloads/builds pinned SDL 3.4.10 when an installed package is not found. <code>REQUIRE</code> makes configuration fail instead of silently producing the non-playable skeleton. These options live in <a href="../cmake/Dependencies.cmake"><code>cmake/Dependencies.cmake</code></a>.</p>
       <h3>Start a local duel</h3>
       <pre><code># Terminal 1
 .\build\default\lg_duel_server.exe 27960
@@ -288,7 +288,7 @@ accumulator -= available * fixed_dt</code></pre>
         </tbody>
       </table>
       <details><summary>Headers (<code>.hpp</code>) and implementations (<code>.cpp</code>)</summary>
-        <p>A header declares the public shape—types and function signatures. A <code>.cpp</code> file defines behavior. For example, <a href="src/sim/Movement.hpp"><code>Movement.hpp</code></a> says that <code>simulateMovement</code> exists; <a href="src/sim/Movement.cpp"><code>Movement.cpp</code></a> contains its algorithm. CMake compiles each <code>.cpp</code> separately and links their object files.</p>
+        <p>A header declares the public shape—types and function signatures. A <code>.cpp</code> file defines behavior. For example, <a href="../src/sim/Movement.hpp"><code>Movement.hpp</code></a> says that <code>simulateMovement</code> exists; <a href="../src/sim/Movement.cpp"><code>Movement.cpp</code></a> contains its algorithm. CMake compiles each <code>.cpp</code> separately and links their object files.</p>
       </details>
       <details><summary>Value semantics are intentional here</summary>
         <p><code>PlayerState</code>, <code>UserCommand</code>, and <code>ServerSnapshot</code> are plain values. Assigning one normally copies its fields. This makes saved history, packet decoding, deterministic replay, and testing explicit. Large or shared runtime objects—transports and sessions—use references or <code>unique_ptr</code> instead.</p>
@@ -303,7 +303,7 @@ accumulator -= available * fixed_dt</code></pre>
       <p>The simulation layer is the best entry point because it is small, deterministic, and independent of SDL and sockets. Its core data types are <code>Vec3</code>, <code>UserCommand</code>, <code>PlayerState</code>, <code>Arena</code>, and weapon result structs.</p>
 
       <h3 id="movement">Movement</h3>
-      <p><a href="src/sim/Movement.cpp"><code>Movement.cpp</code></a> takes current state plus one command and mutates the player by exactly one fixed time step:</p>
+      <p><a href="../src/sim/Movement.cpp"><code>Movement.cpp</code></a> takes current state plus one command and mutates the player by exactly one fixed time step:</p>
       <ol>
         <li>Choose grounded/airborne or flying mode.</li>
         <li>Update view yaw and pitch.</li>
@@ -318,7 +318,7 @@ accumulator -= available * fixed_dt</code></pre>
       <p>Notice the absence of wall-clock access, rendering, random input, or globals. Given the same inputs and initial data, it should produce the same output.</p>
 
       <h3 id="collision">Arena and collision</h3>
-      <p><a href="src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from 24 or fewer axis-aligned boxes. The same boxes serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
+      <p><a href="../src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from 24 or fewer axis-aligned boxes. The same boxes serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
       <ul>
         <li>Players are vertical cylinders: radius plus half-height.</li>
         <li>Arena walls are axis-aligned boxes with <code>min</code>/<code>max</code> corners.</li>
@@ -328,7 +328,7 @@ accumulator -= available * fixed_dt</code></pre>
       <div class="note">This is purpose-built collision, not a general physics engine. That is consistent with the repository's narrow scope.</div>
 
       <h3 id="combat">Combat</h3>
-      <p><a href="src/sim/Combat.cpp"><code>Combat.cpp</code></a> contains reusable traces and the direct LG/railgun algorithms. <a href="src/server/ServerGame.cpp"><code>ServerGame.cpp</code></a> coordinates cooldowns, rockets, lag compensation, damage application, vampirism, scoring, and death.</p>
+      <p><a href="../src/sim/Combat.cpp"><code>Combat.cpp</code></a> contains reusable traces and the direct LG/railgun algorithms. <a href="../src/server/ServerGame.cpp"><code>ServerGame.cpp</code></a> coordinates cooldowns, rockets, lag compensation, damage application, vampirism, scoring, and death.</p>
       <table>
         <thead><tr><th>Weapon</th><th>Mechanic</th><th>Defaults in code</th></tr></thead>
         <tbody>
@@ -379,9 +379,9 @@ accumulator -= available * fixed_dt</code></pre>
       <table>
         <thead><tr><th>Concern</th><th>File/type</th><th>Role</th></tr></thead>
         <tbody>
-          <tr><td>Logical data</td><td><a href="src/net/NetProtocol.hpp"><code>NetProtocol.hpp</code></a></td><td>Commands, snapshots, handshake, match data</td></tr>
-          <tr><td>Bytes</td><td><a href="src/net/NetCodec.cpp"><code>NetCodec.cpp</code></a></td><td>Explicit little-endian encode/decode and validation</td></tr>
-          <tr><td>Abstract delivery</td><td><a href="src/net/NetTransport.hpp"><code>NetTransport</code></a></td><td>Send/receive commands and snapshots</td></tr>
+          <tr><td>Logical data</td><td><a href="../src/net/NetProtocol.hpp"><code>NetProtocol.hpp</code></a></td><td>Commands, snapshots, handshake, match data</td></tr>
+          <tr><td>Bytes</td><td><a href="../src/net/NetCodec.cpp"><code>NetCodec.cpp</code></a></td><td>Explicit little-endian encode/decode and validation</td></tr>
+          <tr><td>Abstract delivery</td><td><a href="../src/net/NetTransport.hpp"><code>NetTransport</code></a></td><td>Send/receive commands and snapshots</td></tr>
           <tr><td>In-memory delivery</td><td><code>LoopbackTransport</code></td><td>Tests the same codec without sockets</td></tr>
           <tr><td>Adverse delivery</td><td><code>SimulatedTransport</code></td><td>Seeded latency, jitter, loss, duplication, reordering</td></tr>
           <tr><td>Real delivery</td><td><code>UdpServerTransport</code>, <code>UdpClientTransport</code></td><td>Windows/POSIX UDP, handshake, timeout, ping</td></tr>
@@ -427,7 +427,7 @@ for cmd in pending:
 
     <section id="app">
       <h2>9. SDL application shell</h2>
-      <p><a href="src/app/GameApp.cpp"><code>GameApp.cpp</code></a> is the largest file because it is the integration boundary. It does not define authoritative gameplay, but it wires together many user-facing responsibilities:</p>
+      <p><a href="../src/app/GameApp.cpp"><code>GameApp.cpp</code></a> is the largest file because it is the integration boundary. It does not define authoritative gameplay, but it wires together many user-facing responsibilities:</p>
       <div class="card-grid">
         <div class="card"><h3>Platform</h3><p>SDL video/audio initialization, window lifetime, event polling, mouse modes.</p></div>
         <div class="card"><h3>Input</h3><p>Bindings, console/chat text entry, mouse deltas, aim modes, command construction.</p></div>
@@ -511,21 +511,21 @@ ctest --test-dir build/default -R movement --output-on-failure</code></pre>
       <table>
         <thead><tr><th>Path</th><th>Why you would open it</th></tr></thead>
         <tbody>
-          <tr><td class="file"><a href="CMakeLists.txt"><code>CMakeLists.txt</code></a></td><td>Targets, source membership, dependencies, shader copying</td></tr>
-          <tr><td class="file"><a href="CMakePresets.json"><code>CMakePresets.json</code></a></td><td>Supported configure/build/test presets</td></tr>
-          <tr><td class="file"><a href="src/shared/Constants.hpp"><code>src/shared</code></a></td><td>Tick constants, vector math, sequence wrap logic, accumulator</td></tr>
-          <tr><td class="file"><a href="src/sim/PlayerState.hpp"><code>src/sim</code></a></td><td>Authoritative/predicted data and pure gameplay algorithms</td></tr>
-          <tr><td class="file"><a href="src/server/ServerGame.cpp"><code>src/server</code></a></td><td>Authoritative tick, rules, weapons, history, server scheduler</td></tr>
-          <tr><td class="file"><a href="src/net/NetProtocol.hpp"><code>src/net</code></a></td><td>Packet model, codec, loopback/simulated/UDP transports</td></tr>
-          <tr><td class="file"><a href="src/client/Prediction.cpp"><code>src/client</code></a></td><td>Prediction, reconciliation, interpolation, UDP session state</td></tr>
-          <tr><td class="file"><a href="src/app/GameApp.cpp"><code>src/app</code></a></td><td>SDL client integration loop and command construction</td></tr>
-          <tr><td class="file"><a href="src/render/Renderer.cpp"><code>src/render</code></a></td><td>Scene construction and SDL rendering backends</td></tr>
-          <tr><td class="file"><a href="src/input/InputBindings.cpp"><code>src/input</code></a></td><td>Key normalization, bindings, mouse aim helper</td></tr>
-          <tr><td class="file"><a href="src/console/ConsoleSystem.cpp"><code>src/console</code></a></td><td>Typed cvars, parsing, commands, completion, config serialization</td></tr>
-          <tr><td class="file"><a href="tests/CMakeLists.txt"><code>tests</code></a></td><td>Executable tests grouped by subsystem</td></tr>
-          <tr><td class="file"><a href="assets/shaders/world3d.vert"><code>assets/shaders</code></a></td><td>GPU shader source and SPIR-V output</td></tr>
-          <tr><td class="file"><a href="tools/ServerProbe.cpp"><code>tools/ServerProbe.cpp</code></a></td><td>External health/readiness probe for hosted server</td></tr>
-          <tr><td class="file"><a href="scripts/package-windows.ps1"><code>scripts</code></a>, <a href="deploy/lg-duel-server.service"><code>deploy</code></a></td><td>Packaging, service control, and deployment</td></tr>
+          <tr><td class="file"><a href="../CMakeLists.txt"><code>CMakeLists.txt</code></a></td><td>Targets, source membership, dependencies, shader copying</td></tr>
+          <tr><td class="file"><a href="../CMakePresets.json"><code>CMakePresets.json</code></a></td><td>Supported configure/build/test presets</td></tr>
+          <tr><td class="file"><a href="../src/shared/Constants.hpp"><code>src/shared</code></a></td><td>Tick constants, vector math, sequence wrap logic, accumulator</td></tr>
+          <tr><td class="file"><a href="../src/sim/PlayerState.hpp"><code>src/sim</code></a></td><td>Authoritative/predicted data and pure gameplay algorithms</td></tr>
+          <tr><td class="file"><a href="../src/server/ServerGame.cpp"><code>src/server</code></a></td><td>Authoritative tick, rules, weapons, history, server scheduler</td></tr>
+          <tr><td class="file"><a href="../src/net/NetProtocol.hpp"><code>src/net</code></a></td><td>Packet model, codec, loopback/simulated/UDP transports</td></tr>
+          <tr><td class="file"><a href="../src/client/Prediction.cpp"><code>src/client</code></a></td><td>Prediction, reconciliation, interpolation, UDP session state</td></tr>
+          <tr><td class="file"><a href="../src/app/GameApp.cpp"><code>src/app</code></a></td><td>SDL client integration loop and command construction</td></tr>
+          <tr><td class="file"><a href="../src/render/Renderer.cpp"><code>src/render</code></a></td><td>Scene construction and SDL rendering backends</td></tr>
+          <tr><td class="file"><a href="../src/input/InputBindings.cpp"><code>src/input</code></a></td><td>Key normalization, bindings, mouse aim helper</td></tr>
+          <tr><td class="file"><a href="../src/console/ConsoleSystem.cpp"><code>src/console</code></a></td><td>Typed cvars, parsing, commands, completion, config serialization</td></tr>
+          <tr><td class="file"><a href="../tests/CMakeLists.txt"><code>tests</code></a></td><td>Executable tests grouped by subsystem</td></tr>
+          <tr><td class="file"><a href="../assets/shaders/world3d.vert"><code>assets/shaders</code></a></td><td>GPU shader source and SPIR-V output</td></tr>
+          <tr><td class="file"><a href="../tools/ServerProbe.cpp"><code>tools/ServerProbe.cpp</code></a></td><td>External health/readiness probe for hosted server</td></tr>
+          <tr><td class="file"><a href="../scripts/package-windows.ps1"><code>scripts</code></a>, <a href="../deploy/lg-duel-server.service"><code>deploy</code></a></td><td>Packaging, service control, and deployment</td></tr>
         </tbody>
       </table>
     </section>

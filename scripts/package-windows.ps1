@@ -81,6 +81,7 @@ Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "package/windows/Play LG Duel.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/Host LG Duel Server.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/README.txt") $outputPath
+Copy-Item (Join-Path $repoRoot "docs/PLAYTEST_GUIDE.html") $outputPath
 Set-Content -Path (Join-Path $outputPath "server-address.txt") -Value "${ServerHost}:${ServerPort}" -Encoding ASCII
 
 $requiredFiles = @(
