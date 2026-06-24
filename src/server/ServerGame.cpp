@@ -6,7 +6,11 @@
 #include "sim/DuelRules.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <filesystem>
+#include <string>
+#include <utility>
 
 namespace lg {
 namespace {
@@ -499,6 +503,10 @@ void ServerGame::setArena(const Arena& arena) {
     mapRevision_ = 1;
   }
   resetMatch();
+}
+
+void ServerGame::setMapDirectory(std::string mapDirectory) {
+  mapDirectory_ = std::move(mapDirectory);
 }
 
 void ServerGame::respawnPlayer(std::size_t playerIndex) {
@@ -1169,6 +1177,36 @@ const Arena& ServerGame::arena() const {
   return arena_;
 }
 
+const std::string& ServerGame::mapDirectory() const {
+  return mapDirectory_;
+}
+
+bool ServerGame::loadRequestedMap(const std::string& mapName) {
+  if (mapName.empty() || mapName.size() > kMaxMapNameBytes) {
+    return false;
+  }
+  for (const unsigned char character : mapName) {
+    if (
+      !std::isalnum(character) &&
+      character != '_' &&
+      character != '-'
+    ) {
+      return false;
+    }
+  }
+
+  namespace fs = std::filesystem;
+  const fs::path path =
+    fs::path(mapDirectory_.empty() ? "maps" : mapDirectory_) /
+    (mapName + ".lgmap");
+  const ArenaLoadResult result = loadArenaFromFile(path.string());
+  if (!result.ok) {
+    return false;
+  }
+  setArena(result.arena);
+  return true;
+}
+
 void ServerGame::receiveCommands() {
   CommandPacket packet;
   while (transport_.receiveCommand(packet)) {
@@ -1300,6 +1338,9 @@ void ServerGame::receiveCommands() {
     }
     if (!packet.playerName.empty()) {
       snapshot_.playerNames[playerIndex] = packet.playerName;
+    }
+    if (!packet.mapName.empty()) {
+      (void)loadRequestedMap(packet.mapName);
     }
 
     commands_[playerIndex] = packet.command;

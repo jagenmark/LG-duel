@@ -1,8 +1,8 @@
 #include "render/ScreenUi.hpp"
+#include "render/ConsoleLayout.hpp"
 
 #include <algorithm>
 #include <cmath>
-#include <iterator>
 #include <string>
 #include <vector>
 
@@ -65,57 +65,6 @@ void addText(
     color,
     scale,
   });
-}
-
-[[nodiscard]] std::vector<std::string> wrapText(
-  const std::string& text,
-  std::size_t maxCharacters
-) {
-  if (maxCharacters == 0U) {
-    return {""};
-  }
-  if (text.empty()) {
-    return {""};
-  }
-
-  std::vector<std::string> lines;
-  std::size_t lineStart = 0U;
-  while (lineStart < text.size()) {
-    const std::size_t remaining = text.size() - lineStart;
-    if (remaining <= maxCharacters) {
-      lines.push_back(text.substr(lineStart));
-      break;
-    }
-
-    const std::size_t lineEnd = lineStart + maxCharacters;
-    std::size_t breakAt = std::string::npos;
-    if (lineEnd < text.size() && text[lineEnd] == ' ') {
-      breakAt = lineEnd;
-    }
-    for (
-      std::size_t index = lineEnd;
-      index > lineStart && breakAt == std::string::npos;
-      --index
-    ) {
-      if (text[index - 1U] == ' ') {
-        breakAt = index - 1U;
-        break;
-      }
-    }
-
-    if (breakAt == std::string::npos) {
-      lines.push_back(text.substr(lineStart, maxCharacters));
-      lineStart += maxCharacters;
-    } else {
-      lines.push_back(text.substr(lineStart, breakAt - lineStart));
-      lineStart = breakAt;
-      while (lineStart < text.size() && text[lineStart] == ' ') {
-        ++lineStart;
-      }
-    }
-  }
-
-  return lines;
 }
 
 [[nodiscard]] std::uint8_t blendChannel(
@@ -818,65 +767,68 @@ void addConsole(
   );
 
   constexpr float textScale = 2.0F;
-  constexpr float lineHeight = 20.0F;
-  constexpr float marginX = 10.0F;
-  const std::size_t maxCharacters = std::max(
-    1,
-    static_cast<int>(
-      (static_cast<float>(width) - marginX * 2.0F) /
-      (kGlyphSize * textScale)
-    )
-  );
-  std::vector<std::string> wrappedOutput;
-  for (const std::string& line : console.lines) {
-    std::vector<std::string> wrappedLine = wrapText(line, maxCharacters);
-    wrappedOutput.insert(
-      wrappedOutput.end(),
-      std::make_move_iterator(wrappedLine.begin()),
-      std::make_move_iterator(wrappedLine.end())
-    );
+  const ConsoleTextLayout layout = buildConsoleTextLayout(width, height, console);
+  if (console.hasSelection && console.selectionAnchor != console.selectionFocus) {
+    const std::size_t selectionBegin =
+      std::min(console.selectionAnchor, console.selectionFocus);
+    const std::size_t selectionEnd =
+      std::max(console.selectionAnchor, console.selectionFocus);
+    for (const ConsoleLayoutLine& line : layout.lines) {
+      const std::size_t lineBegin = line.textOffset;
+      const std::size_t lineEnd = line.textOffset + line.text.size();
+      const std::size_t begin = std::max(selectionBegin, lineBegin);
+      const std::size_t end = std::min(selectionEnd, lineEnd);
+      if (begin >= end) {
+        continue;
+      }
+      const float x =
+        line.x + static_cast<float>(begin - lineBegin) * layout.characterWidth;
+      addRect(
+        drawList,
+        x,
+        line.y,
+        static_cast<float>(end - begin) * layout.characterWidth,
+        layout.lineHeight,
+        {58, 118, 188, 170}
+      );
+    }
   }
 
-  const std::size_t cursorIndex = std::min(console.cursorIndex, console.input.size());
-  std::string prompt = "] ";
-  prompt += console.input.substr(0U, cursorIndex);
-  prompt += '_';
-  prompt += console.input.substr(cursorIndex);
-  const std::vector<std::string> wrappedPrompt =
-    wrapText(prompt, maxCharacters);
-  const float promptY =
-    consoleHeight - 24.0F -
-    static_cast<float>(wrappedPrompt.size() - 1U) * lineHeight;
-  const float outputHeight = std::max(0.0F, promptY - 10.0F);
-  const int visibleLines =
-    std::max(0, static_cast<int>(outputHeight / lineHeight));
-  const std::size_t firstLine =
-    wrappedOutput.size() > static_cast<std::size_t>(visibleLines)
-      ? wrappedOutput.size() - static_cast<std::size_t>(visibleLines)
-      : 0U;
-  float y = 10.0F;
-  for (std::size_t index = firstLine; index < wrappedOutput.size(); ++index) {
-    addText(
-      drawList,
-      marginX,
-      y,
-      wrappedOutput[index],
-      {215, 225, 235, 255},
-      textScale
-    );
-    y += lineHeight;
+  const std::size_t clampedCursor =
+    std::min(console.cursorIndex, console.input.size());
+  const std::size_t promptCursorOffset = 2U + clampedCursor;
+  std::size_t promptBaseOffset = layout.text.size();
+  for (const ConsoleLayoutLine& line : layout.lines) {
+    if (line.prompt) {
+      promptBaseOffset = line.textOffset;
+      break;
+    }
   }
-  y = promptY;
-  for (const std::string& line : wrappedPrompt) {
+  const std::size_t cursorTextOffset =
+    std::min(promptBaseOffset + promptCursorOffset, layout.text.size());
+  bool cursorDrawn = false;
+  for (std::size_t index = 0; index < layout.lines.size(); ++index) {
+    const ConsoleLayoutLine& line = layout.lines[index];
+    std::string text = line.text;
+    if (line.prompt) {
+      const std::size_t lineBegin = line.textOffset;
+      const std::size_t lineEnd = line.textOffset + line.text.size();
+      if (cursorTextOffset >= lineBegin && cursorTextOffset <= lineEnd) {
+        text.insert(cursorTextOffset - lineBegin, 1U, '_');
+        cursorDrawn = true;
+      } else if (!cursorDrawn && index + 1U == layout.lines.size()) {
+        text.push_back('_');
+        cursorDrawn = true;
+      }
+    }
     addText(
       drawList,
-      marginX,
-      y,
-      line,
-      {255, 255, 255, 255},
+      line.x,
+      line.y,
+      std::move(text),
+      line.prompt ? RenderColor{255, 255, 255, 255} : RenderColor{215, 225, 235, 255},
       textScale
     );
-    y += lineHeight;
   }
 }
 

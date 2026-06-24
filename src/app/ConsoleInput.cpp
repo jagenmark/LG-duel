@@ -100,4 +100,8 @@ void moveConsoleCursorRight(const std::string& input, std::size_t& cursorIndex) 
   }
 }
 
+std::string consoleInputClipboardText(std::string_view input) {
+  return std::string(input);
+}
+
 } // namespace lg

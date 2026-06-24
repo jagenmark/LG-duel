@@ -6,6 +6,8 @@
 #include "sim/UserCommand.hpp"
 
 #include <cmath>
+#include <filesystem>
+#include <fstream>
 #include <cstdint>
 #include <iostream>
 #include <limits>
@@ -53,6 +55,54 @@ int main() {
     failures += expect(transport.receiveCommand(received), "loopback should return second queued command");
     failures += expect(received.command.sequence == 4, "loopback should preserve all queued commands");
     failures += expect(!transport.receiveCommand(received), "empty loopback command queue should report false");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    const std::filesystem::path mapDirectory =
+      std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
+    std::filesystem::create_directories(mapDirectory);
+    {
+      std::ofstream mapFile(mapDirectory / "tiny.lgmap");
+      mapFile << R"(version 1
+bounds min=-6,-6,0 max=6,6,6
+box floor -6,-6,0 6,6,0.5
+spawn p1 -2,0,0.5 yaw=0
+spawn p2 2,0,0.5 yaw=180
+)";
+    }
+    server.setMapDirectory(mapDirectory.string());
+    const std::uint32_t initialRevision = server.snapshot().mapRevision;
+
+    lg::CommandPacket mapRequest;
+    mapRequest.command.sequence = 1;
+    mapRequest.mapName = "tiny";
+    transport.sendCommand(mapRequest);
+    server.tick(lg::kFixedTickSeconds);
+
+    lg::ServerSnapshot mapSnapshot = latestSnapshot(transport);
+    failures += expect(
+      mapSnapshot.mapRevision == initialRevision + 1 &&
+        mapSnapshot.arena.wallCount == 1 &&
+        mapSnapshot.arena.max.x == 6.0F &&
+        mapSnapshot.players[0].position.x == -2.0F &&
+        mapSnapshot.players[1].position.x == 2.0F,
+      "client map request should load a server-local .lgmap and reset spawns"
+    );
+
+    lg::CommandPacket invalidMapRequest;
+    invalidMapRequest.command.sequence = 2;
+    invalidMapRequest.mapName = "../tiny";
+    transport.sendCommand(invalidMapRequest);
+    server.tick(lg::kFixedTickSeconds);
+    mapSnapshot = latestSnapshot(transport);
+    failures += expect(
+      mapSnapshot.mapRevision == initialRevision + 1,
+      "invalid client map names should be ignored"
+    );
   }
 
   {

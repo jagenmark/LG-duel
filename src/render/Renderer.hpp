@@ -116,6 +116,9 @@ struct ConsoleRenderState {
   std::vector<std::string> lines;
   std::string input;
   std::size_t cursorIndex = 0;
+  bool hasSelection = false;
+  std::size_t selectionAnchor = 0;
+  std::size_t selectionFocus = 0;
 };
 
 struct HudRenderState {

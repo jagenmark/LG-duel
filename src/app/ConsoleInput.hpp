@@ -21,6 +21,7 @@ void appendConsolePasteText(
   std::string_view text
 );
 void appendConsolePasteText(std::string& input, std::string_view text);
+[[nodiscard]] std::string consoleInputClipboardText(std::string_view input);
 void backspaceConsoleInput(std::string& input, std::size_t& cursorIndex);
 [[nodiscard]] std::string consoleCompletionPrefix(
   const std::string& input,

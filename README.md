@@ -149,6 +149,7 @@ quit
 connect <host> [port]
 disconnect
 reconnect
+map <name>
 bind <key> <command>
 unbind <key>
 unbindall
@@ -200,7 +201,7 @@ Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspee
 
 `g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
 
-Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set a name.
+Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` and reset the match; map names are limited to letters, numbers, `_`, and `-`.
 
 `cl_render_mode 0` uses the standard top-down renderer. `cl_render_mode 1` uses
 a first-person perspective view from the local player's yaw and pitch. It

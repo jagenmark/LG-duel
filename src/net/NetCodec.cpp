@@ -251,13 +251,14 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(packet.botDodgeEnabled) &&
     writer.writeI32(packet.botDodgeMinIntervalMs) &&
     writer.writeI32(packet.botDodgeMaxIntervalMs) &&
-    writer.writeU32(packet.viewedServerTick) &&
-    writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
-    writer.writeString(packet.playerName, kMaxPlayerNameBytes) &&
-    writer.writeBool(packet.requestGameMode) &&
-    writer.writeU8(static_cast<std::uint8_t>(packet.requestedGameMode)) &&
-    writer.writeBool(packet.requestTeam) &&
-    writer.writeU8(static_cast<std::uint8_t>(packet.requestedTeam));
+      writer.writeU32(packet.viewedServerTick) &&
+      writer.writeString(packet.chatMessage, kMaxChatMessageBytes) &&
+      writer.writeString(packet.playerName, kMaxPlayerNameBytes) &&
+      writer.writeString(packet.mapName, kMaxMapNameBytes) &&
+      writer.writeBool(packet.requestGameMode) &&
+      writer.writeU8(static_cast<std::uint8_t>(packet.requestedGameMode)) &&
+      writer.writeBool(packet.requestTeam) &&
+      writer.writeU8(static_cast<std::uint8_t>(packet.requestedTeam));
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
@@ -302,14 +303,15 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.botDodgeEnabled) ||
     !reader.readI32(packet.botDodgeMinIntervalMs) ||
     !reader.readI32(packet.botDodgeMaxIntervalMs) ||
-    !reader.readU32(packet.viewedServerTick) ||
-    !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
-    !reader.readString(packet.playerName, kMaxPlayerNameBytes) ||
-    !reader.readBool(packet.requestGameMode) ||
-    !reader.readU8(requestedGameMode) ||
-    !reader.readBool(packet.requestTeam) ||
-    !reader.readU8(requestedTeam)
-  ) {
+      !reader.readU32(packet.viewedServerTick) ||
+      !reader.readString(packet.chatMessage, kMaxChatMessageBytes) ||
+      !reader.readString(packet.playerName, kMaxPlayerNameBytes) ||
+      !reader.readString(packet.mapName, kMaxMapNameBytes) ||
+      !reader.readBool(packet.requestGameMode) ||
+      !reader.readU8(requestedGameMode) ||
+      !reader.readBool(packet.requestTeam) ||
+      !reader.readU8(requestedTeam)
+    ) {
     return false;
   }
 

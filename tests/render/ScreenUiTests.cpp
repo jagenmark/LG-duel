@@ -1,7 +1,9 @@
 #include "render/ScreenUi.hpp"
+#include "render/ConsoleLayout.hpp"
 
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <iostream>
 #include <string_view>
@@ -411,6 +413,54 @@ int main() {
     failures += expect(
       foundFirstPromptWrap && foundSecondPromptWrap,
       "console prompt should wrap to the available width"
+    );
+  }
+
+  {
+    lg::ConsoleRenderState selectableConsole;
+    selectableConsole.open = true;
+    selectableConsole.lines = {"alpha beta"};
+    selectableConsole.input = "copy me";
+    selectableConsole.cursorIndex = selectableConsole.input.size();
+
+    const lg::ConsoleTextLayout layout =
+      lg::buildConsoleTextLayout(1280, 720, selectableConsole);
+    const std::size_t selectionStart =
+      lg::consoleTextOffsetAt(layout, 10.0F, 10.0F);
+    const std::size_t selectionEnd =
+      lg::consoleTextOffsetAt(layout, 10.0F + 5.0F * 16.0F, 10.0F);
+    failures += expect(
+      lg::consoleSelectedText(layout, selectionStart, selectionEnd) == "alpha",
+      "console mouse selection should copy selected visible text"
+    );
+
+    selectableConsole.hasSelection = true;
+    selectableConsole.selectionAnchor = selectionStart;
+    selectableConsole.selectionFocus = selectionEnd;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      selectableConsole
+    );
+    bool foundSelectionHighlight = false;
+    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundSelectionHighlight =
+          foundSelectionHighlight ||
+          (
+            quad->color.red == 58 &&
+            quad->color.green == 118 &&
+            quad->color.blue == 188 &&
+            quad->color.alpha == 170
+          );
+      }
+    }
+    failures += expect(
+      foundSelectionHighlight,
+      "console selection should render a highlight behind selected text"
     );
   }
 

@@ -103,6 +103,7 @@ int main() {
     source.botDodgeMaxIntervalMs = 750;
     source.chatMessage = "ready?";
     source.playerName = "yg";
+    source.mapName = "thunderstruck";
     source.viewedServerTick = 88;
 
     lg::WirePacket wire;
@@ -124,6 +125,7 @@ int main() {
     failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
+    failures += expect(decoded.mapName == "thunderstruck", "map name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
     failures += expect(
@@ -228,6 +230,7 @@ int main() {
     for (lg::CommandPacket& command : bundle.commands) {
       command.chatMessage.assign(lg::kMaxChatMessageBytes, 'c');
       command.playerName.assign(lg::kMaxPlayerNameBytes, 'n');
+      command.mapName.assign(lg::kMaxMapNameBytes, 'm');
     }
     failures += expect(
       lg::encodeCommandBundle(bundle, wire) &&

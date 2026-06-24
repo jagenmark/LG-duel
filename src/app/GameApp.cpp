@@ -5,6 +5,7 @@
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
+#include "render/ConsoleLayout.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
@@ -65,6 +66,10 @@ enum class AimMode {
   return event.key == SDLK_V && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
 }
 
+[[nodiscard]] bool isClipboardCopyKey(const SDL_KeyboardEvent& event) {
+  return event.key == SDLK_C && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
+}
+
 void pasteClipboardTextIntoConsole(std::string& input, std::size_t& cursorIndex) {
   char* clipboardText = SDL_GetClipboardText();
   if (clipboardText == nullptr) {
@@ -72,6 +77,11 @@ void pasteClipboardTextIntoConsole(std::string& input, std::size_t& cursorIndex)
   }
   appendConsolePasteText(input, cursorIndex, clipboardText);
   SDL_free(clipboardText);
+}
+
+void copyTextToClipboard(std::string_view text) {
+  const std::string clipboardText{text};
+  (void)SDL_SetClipboardText(clipboardText.c_str());
 }
 #endif
 
@@ -149,6 +159,10 @@ struct ClientConsoleState {
   std::deque<std::string> output;
   std::vector<std::string> history;
   std::size_t historyIndex = 0;
+  bool hasSelection = false;
+  bool selecting = false;
+  std::size_t selectionAnchor = 0;
+  std::size_t selectionFocus = 0;
 };
 
 struct ClientChatState {
@@ -982,7 +996,72 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   renderState.input = state.input;
   renderState.cursorIndex = state.cursorIndex;
   renderState.lines.assign(state.output.begin(), state.output.end());
+  renderState.hasSelection = state.hasSelection;
+  renderState.selectionAnchor = state.selectionAnchor;
+  renderState.selectionFocus = state.selectionFocus;
   return renderState;
+}
+
+void clearConsoleSelection(ClientConsoleState& state) {
+  state.hasSelection = false;
+  state.selecting = false;
+  state.selectionAnchor = 0;
+  state.selectionFocus = 0;
+}
+
+ConsoleTextLayout consoleLayoutForWindow(
+  SDL_Window* window,
+  const ClientConsoleState& state
+) {
+  int viewportWidth = 0;
+  int viewportHeight = 0;
+  SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
+  return buildConsoleTextLayout(
+    viewportWidth,
+    viewportHeight,
+    consoleRenderState(state)
+  );
+}
+
+std::string consoleClipboardTextForWindow(
+  SDL_Window* window,
+  const ClientConsoleState& state
+) {
+  if (state.hasSelection && state.selectionAnchor != state.selectionFocus) {
+    return consoleSelectedText(
+      consoleLayoutForWindow(window, state),
+      state.selectionAnchor,
+      state.selectionFocus
+    );
+  }
+  return consoleInputClipboardText(state.input);
+}
+
+void beginConsoleSelection(
+  SDL_Window* window,
+  ClientConsoleState& state,
+  float x,
+  float y
+) {
+  const ConsoleTextLayout layout = consoleLayoutForWindow(window, state);
+  const std::size_t offset = consoleTextOffsetAt(layout, x, y);
+  state.hasSelection = true;
+  state.selecting = true;
+  state.selectionAnchor = offset;
+  state.selectionFocus = offset;
+}
+
+void updateConsoleSelection(
+  SDL_Window* window,
+  ClientConsoleState& state,
+  float x,
+  float y
+) {
+  if (!state.selecting) {
+    return;
+  }
+  state.selectionFocus =
+    consoleTextOffsetAt(consoleLayoutForWindow(window, state), x, y);
 }
 
 std::string keyName(SDL_Scancode scancode) {
@@ -1487,6 +1566,7 @@ int GameApp::run() const {
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
   std::string pendingPlayerName;
+  std::string pendingMapName;
   ClientChatState chatState;
   ClientSession session;
 
@@ -1610,6 +1690,31 @@ int GameApp::run() const {
       }
       pendingPlayerName = std::move(name);
       return "name = " + pendingPlayerName;
+    }
+  );
+  console.registerCommand(
+    "map",
+    "Request a server map change: map <name> loads maps/<name>.lgmap.",
+    [&pendingMapName](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: map <name>");
+      }
+      const std::string& name = arguments[1];
+      if (name.empty() || name.size() > kMaxMapNameBytes) {
+        return "map name is limited to " +
+          std::to_string(kMaxMapNameBytes) + " characters";
+      }
+      for (const unsigned char character : name) {
+        if (
+          !std::isalnum(character) &&
+          character != '_' &&
+          character != '-'
+        ) {
+          return std::string("map name may only use letters, numbers, _ and -");
+        }
+      }
+      pendingMapName = name;
+      return "map change requested: " + pendingMapName;
     }
   );
   console.registerCommand(
@@ -1853,6 +1958,7 @@ int GameApp::run() const {
         "+scores\n"
         "+zoom\n"
         "weapon\n"
+        "map\n"
         "player\n"
         "resetmatch\n"
         "ready\n"
@@ -1935,6 +2041,7 @@ int GameApp::run() const {
         (void)console.execute(command);
       }
       consoleState.open = open;
+      clearConsoleSelection(consoleState);
       consoleState.historyIndex = consoleState.history.size();
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
@@ -2079,17 +2186,26 @@ int GameApp::run() const {
             break;
           }
           if (isClipboardPasteKey(event.key)) {
+            clearConsoleSelection(consoleState);
             pasteClipboardTextIntoConsole(consoleState.input, consoleState.cursorIndex);
+          } else if (isClipboardCopyKey(event.key)) {
+            copyTextToClipboard(consoleClipboardTextForWindow(window, consoleState));
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
-            backspaceConsoleInput(consoleState.input, consoleState.cursorIndex);
+            if (!consoleState.input.empty()) {
+              clearConsoleSelection(consoleState);
+              backspaceConsoleInput(consoleState.input, consoleState.cursorIndex);
+            }
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            clearConsoleSelection(consoleState);
             moveConsoleCursorLeft(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            clearConsoleSelection(consoleState);
             moveConsoleCursorRight(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (!consoleState.input.empty()) {
+              clearConsoleSelection(consoleState);
               appendConsoleOutput(consoleState, "] " + consoleState.input);
               const std::string result = console.execute(consoleState.input);
               if (!result.empty()) {
@@ -2105,15 +2221,18 @@ int GameApp::run() const {
             if (consoleState.historyIndex > 0) {
               --consoleState.historyIndex;
             }
+            clearConsoleSelection(consoleState);
             consoleState.input = consoleState.history[consoleState.historyIndex];
             consoleState.cursorIndex = consoleState.input.size();
           } else if (event.key.scancode == SDL_SCANCODE_DOWN && !consoleState.history.empty()) {
             if (consoleState.historyIndex + 1 < consoleState.history.size()) {
               ++consoleState.historyIndex;
+              clearConsoleSelection(consoleState);
               consoleState.input = consoleState.history[consoleState.historyIndex];
               consoleState.cursorIndex = consoleState.input.size();
             } else {
               consoleState.historyIndex = consoleState.history.size();
+              clearConsoleSelection(consoleState);
               consoleState.input.clear();
               consoleState.cursorIndex = 0U;
             }
@@ -2124,12 +2243,14 @@ int GameApp::run() const {
             );
             const std::vector<std::string> matches = console.complete(prefix);
             if (matches.size() == 1) {
+              clearConsoleSelection(consoleState);
               replaceConsoleCompletion(
                 consoleState.input,
                 consoleState.cursorIndex,
                 matches[0]
               );
             } else if (!matches.empty()) {
+              clearConsoleSelection(consoleState);
               std::string line;
               for (const std::string& match : matches) {
                 line += match + ' ';
@@ -2165,6 +2286,7 @@ int GameApp::run() const {
           suppressNextTextInput = false;
         } else if (consoleState.open) {
           suppressNextTextInput = false;
+          clearConsoleSelection(consoleState);
           insertConsoleText(
             consoleState.input,
             consoleState.cursorIndex,
@@ -2186,7 +2308,27 @@ int GameApp::run() const {
       case SDL_EVENT_MOUSE_BUTTON_UP: {
         const bool pressed = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN;
         const std::string key = mouseButtonName(event.button.button);
-        if (!consoleState.open && !chatState.inputOpen) {
+        if (consoleState.open && event.button.button == SDL_BUTTON_LEFT) {
+          if (pressed) {
+            beginConsoleSelection(
+              window,
+              consoleState,
+              event.button.x,
+              event.button.y
+            );
+          } else {
+            updateConsoleSelection(
+              window,
+              consoleState,
+              event.button.x,
+              event.button.y
+            );
+            consoleState.selecting = false;
+            if (consoleState.selectionAnchor == consoleState.selectionFocus) {
+              clearConsoleSelection(consoleState);
+            }
+          }
+        } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
         } else if (!pressed) {
@@ -2195,7 +2337,14 @@ int GameApp::run() const {
         break;
       }
       case SDL_EVENT_MOUSE_MOTION:
-        if (!consoleState.open && !chatState.inputOpen) {
+        if (consoleState.open) {
+          updateConsoleSelection(
+            window,
+            consoleState,
+            event.motion.x,
+            event.motion.y
+          );
+        } else if (!chatState.inputOpen) {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
           input.mouseX = event.motion.x;
@@ -2205,6 +2354,7 @@ int GameApp::run() const {
         break;
       case SDL_EVENT_WINDOW_FOCUS_LOST:
         executeBindingCommands(bindings.releaseAll());
+        consoleState.selecting = false;
         input.mouseDeltaX = 0.0F;
         input.mouseDeltaY = 0.0F;
         break;
@@ -2409,6 +2559,7 @@ int GameApp::run() const {
         lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
         std::move(pendingPlayerName),
+        std::move(pendingMapName),
         console.getInt("cl_interp_mode") != 0,
         requestGameModePending,
         requestedGameMode,
@@ -2417,6 +2568,7 @@ int GameApp::run() const {
       );
       chatState.pendingMessage.clear();
       pendingPlayerName.clear();
+      pendingMapName.clear();
       resetRequested = false;
       readyRequested = false;
       requestGameModePending = false;

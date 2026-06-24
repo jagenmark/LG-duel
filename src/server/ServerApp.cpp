@@ -32,6 +32,18 @@ std::string defaultMapPath(const std::string& executablePath) {
   return kRelativeMapPath;
 }
 
+std::string defaultMapDirectory(const std::string& executablePath) {
+  namespace fs = std::filesystem;
+  if (!executablePath.empty()) {
+    const fs::path executable = fs::absolute(fs::path(executablePath));
+    const fs::path executableMaps = executable.parent_path() / "maps";
+    if (fs::exists(executableMaps)) {
+      return executableMaps.string();
+    }
+  }
+  return "maps";
+}
+
 } // namespace
 
 ServerApp::ServerApp(std::uint16_t port, std::string executablePath)
@@ -45,6 +57,7 @@ int ServerApp::run() const {
   }
 
   ServerGame server(transport);
+  server.setMapDirectory(defaultMapDirectory(executablePath_));
   std::cout << "LG Duel server listening on UDP port " << transport.localPort() << '\n';
 
   ConsoleSystem console;
