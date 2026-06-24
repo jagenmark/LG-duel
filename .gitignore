@@ -2,3 +2,6 @@
 /dist/
 /.server/
 /build-errors.txt
+skills-lock.json
+.agents
+AGENTS.md
