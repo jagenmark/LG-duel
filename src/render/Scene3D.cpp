@@ -648,7 +648,9 @@ Scene3D buildPerspectiveScene(
     if (!remote.visible) {
       continue;
     }
-    const float hitAmount = std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
+    const float hitAmount = remote.teammate
+      ? 0.0F
+      : std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
     const std::uint8_t red =
       remote.teammate ? settings.teammateRed : settings.enemyRed;
     const std::uint8_t green =
@@ -658,17 +660,17 @@ Scene3D buildPerspectiveScene(
     const RenderColor opponentColor = {
       blendChannel(
         red,
-        remote.teammate ? settings.teammateHitRed : settings.enemyHitRed,
+        settings.enemyHitRed,
         hitAmount
       ),
       blendChannel(
         green,
-        remote.teammate ? settings.teammateHitGreen : settings.enemyHitGreen,
+        settings.enemyHitGreen,
         hitAmount
       ),
       blendChannel(
         blue,
-        remote.teammate ? settings.teammateHitBlue : settings.enemyHitBlue,
+        settings.enemyHitBlue,
         hitAmount
       ),
       static_cast<std::uint8_t>(

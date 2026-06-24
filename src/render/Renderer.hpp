@@ -78,9 +78,7 @@ struct RenderSettings {
   std::uint8_t teammateGreen = 190;
   std::uint8_t teammateBlue = 224;
   float teammateAlpha = 1.0F;
-  std::uint8_t teammateHitRed = 190;
-  std::uint8_t teammateHitGreen = 255;
-  std::uint8_t teammateHitBlue = 220;
+
   bool enemyHealthBarEnabled = true;
   bool enemyHealthBarDamageOnly = false;
   bool enemyHealthBarFade = true;
@@ -135,6 +133,7 @@ struct HudRenderState {
   bool chatInputOpen = false;
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
+  std::vector<Team> scoreboardLineTeams;
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
 };

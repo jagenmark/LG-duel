@@ -66,18 +66,15 @@ struct ViewProjection {
   float hitAmount,
   bool teammate
 ) {
-  const float amount = std::clamp(hitAmount, 0.0F, 1.0F);
+  const float amount = teammate ? 0.0F : std::clamp(hitAmount, 0.0F, 1.0F);
   const std::uint8_t red = teammate ? settings.teammateRed : settings.enemyRed;
   const std::uint8_t green =
     teammate ? settings.teammateGreen : settings.enemyGreen;
   const std::uint8_t blue =
     teammate ? settings.teammateBlue : settings.enemyBlue;
-  const std::uint8_t hitRed =
-    teammate ? settings.teammateHitRed : settings.enemyHitRed;
-  const std::uint8_t hitGreen =
-    teammate ? settings.teammateHitGreen : settings.enemyHitGreen;
-  const std::uint8_t hitBlue =
-    teammate ? settings.teammateHitBlue : settings.enemyHitBlue;
+  const std::uint8_t hitRed = settings.enemyHitRed;
+  const std::uint8_t hitGreen = settings.enemyHitGreen;
+  const std::uint8_t hitBlue = settings.enemyHitBlue;
   return {
     blendChannel(red, hitRed, amount),
     blendChannel(green, hitGreen, amount),

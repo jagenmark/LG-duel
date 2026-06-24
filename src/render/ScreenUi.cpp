@@ -627,16 +627,43 @@ void addHud(
         static_cast<float>(line.size()) * characterWidth;
       const float x =
         panelX + std::max(16.0F, (panelWidth - lineWidth) * 0.5F);
-      addText(
-        drawList,
-        x,
-        scoreboardY,
-        line,
-        index == 0
-          ? RenderColor{255, 220, 120, 255}
-          : RenderColor{225, 235, 245, 255},
-        textScale
-      );
+      const Team team = index < hud.scoreboardLineTeams.size()
+        ? hud.scoreboardLineTeams[index]
+        : Team::None;
+      if (team == Team::None) {
+        addText(
+          drawList,
+          x,
+          scoreboardY,
+          line,
+          index == 0
+            ? RenderColor{255, 220, 120, 255}
+            : RenderColor{225, 235, 245, 255},
+          textScale
+        );
+      } else {
+        constexpr std::size_t nameColumnWidth = 22U;
+        const std::size_t split = std::min(nameColumnWidth, line.size());
+        const RenderColor teamColor = team == Team::Red
+          ? RenderColor{224, 82, 92, 255}
+          : RenderColor{82, 190, 224, 255};
+        addText(
+          drawList,
+          x,
+          scoreboardY,
+          std::string_view(line).substr(0, split),
+          teamColor,
+          textScale
+        );
+        addText(
+          drawList,
+          x + static_cast<float>(split) * characterWidth,
+          scoreboardY,
+          std::string_view(line).substr(split),
+          RenderColor{225, 235, 245, 255},
+          textScale
+        );
+      }
       scoreboardY += 28.0F;
     }
   }
