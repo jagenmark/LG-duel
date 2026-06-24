@@ -19,4 +19,3 @@ built by GitHub Actions receive this file from the workflow's server settings,
 which default to the VM_HOST repository secret and UDP port 27960. Only edit
 that file when the host gives you a new address.
 
-See PLAYTEST_GUIDE.html for controls and troubleshooting.

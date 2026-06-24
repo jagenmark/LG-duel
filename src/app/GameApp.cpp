@@ -902,6 +902,12 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_outline_enable", "Draw an expanded enemy model outline.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_outline_width", "Enemy model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
+  console.registerCvar({"r_enemy_outline_alpha", "Enemy model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_outline_r", "Enemy model outline red channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_outline_g", "Enemy model outline green channel.", 220, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_outline_b", "Enemy model outline blue channel.", 84, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_lean", "Enable Q3-style velocity lean on the enemy model.", true, archivedClient, {}, {}});
   console.registerCvar({"r_enemy_lean_scale", "Enemy model velocity lean multiplier; 1 approximates Q3 cg_runroll.", 1.0F, archivedClient, 0.0F, 3.0F, "cg_runroll 0.005"});
   console.registerCvar({"r_enemy_hit_enable", "Enable enemy hit-color feedback.", true, archivedClient, {}, {}});
@@ -943,6 +949,12 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_teammate_g", "Teammate model green channel.", 190, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_b", "Teammate model blue channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_alpha", "Teammate model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_outline_enable", "Draw an expanded teammate model outline.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_outline_width", "Teammate model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
+  console.registerCvar({"r_teammate_outline_alpha", "Teammate model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_outline_r", "Teammate model outline red channel.", 128, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_outline_g", "Teammate model outline green channel.", 240, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_outline_b", "Teammate model outline blue channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_lean", "Enable Q3-style velocity lean on teammate models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_teammate_lean_scale", "Teammate model velocity lean multiplier.", 1.0F, archivedClient, 0.0F, 3.0F});
 
@@ -1023,6 +1035,15 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.enemyGreen = static_cast<std::uint8_t>(console.getInt("r_enemy_g"));
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
+  settings.enemyOutlineEnabled = console.getBool("r_enemy_outline_enable");
+  settings.enemyOutlineWidth = console.getFloat("r_enemy_outline_width");
+  settings.enemyOutlineAlpha = console.getFloat("r_enemy_outline_alpha");
+  settings.enemyOutlineRed =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_outline_r"));
+  settings.enemyOutlineGreen =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_outline_g"));
+  settings.enemyOutlineBlue =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_outline_b"));
   settings.enemyLeanEnabled = console.getBool("r_enemy_lean");
   settings.enemyLeanScale = console.getFloat("r_enemy_lean_scale");
   settings.enemyHitRed =
@@ -1069,6 +1090,18 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.teammateBlue =
     static_cast<std::uint8_t>(console.getInt("r_teammate_b"));
   settings.teammateAlpha = console.getFloat("r_teammate_alpha");
+  settings.teammateOutlineEnabled =
+    console.getBool("r_teammate_outline_enable");
+  settings.teammateOutlineWidth =
+    console.getFloat("r_teammate_outline_width");
+  settings.teammateOutlineAlpha =
+    console.getFloat("r_teammate_outline_alpha");
+  settings.teammateOutlineRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_outline_r"));
+  settings.teammateOutlineGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_outline_g"));
+  settings.teammateOutlineBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_outline_b"));
   settings.teammateLeanEnabled = console.getBool("r_teammate_lean");
   settings.teammateLeanScale = console.getFloat("r_teammate_lean_scale");
 
