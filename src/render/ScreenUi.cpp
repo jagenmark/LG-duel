@@ -407,6 +407,82 @@ void addFloatingHealthBar(
   addRect(drawList, x, y, barWidth * healthRatio, barHeight, fill);
 }
 
+void addFloatingNameTag(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PerspectiveCamera& camera,
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+) {
+  if (remote.name.empty() || remote.player.health <= 0) {
+    return;
+  }
+
+  const bool enabled = remote.teammate
+    ? settings.teammateNameTagEnabled
+    : settings.enemyNameTagEnabled;
+  if (!enabled) {
+    return;
+  }
+
+  const float maxDistance = remote.teammate
+    ? settings.teammateNameTagMaxDistance
+    : settings.enemyNameTagMaxDistance;
+  if (
+    maxDistance > 0.0F &&
+    length(remote.player.position - camera.position) > maxDistance
+  ) {
+    return;
+  }
+
+  const float worldOffsetZ = remote.teammate
+    ? settings.teammateNameTagWorldOffsetZ
+    : settings.enemyNameTagWorldOffsetZ;
+  const Vec3 anchor =
+    remote.player.position +
+    Vec3{0.0F, 0.0F, remote.player.bounds.halfHeight + worldOffsetZ};
+  ProjectedPoint projected;
+  if (!projectPerspectivePoint(camera, anchor, projected)) {
+    return;
+  }
+
+  const ScreenPoint anchorScreen =
+    screenPointFromProjection(projected, width, height);
+  const float scale = std::max(
+    0.1F,
+    remote.teammate ? settings.teammateNameTagScale : settings.enemyNameTagScale
+  );
+  const float textWidth =
+    static_cast<float>(remote.name.size()) * kGlyphSize * scale;
+  const float offsetX = remote.teammate
+    ? settings.teammateNameTagScreenOffsetX
+    : settings.enemyNameTagScreenOffsetX;
+  const float offsetY = remote.teammate
+    ? settings.teammateNameTagScreenOffsetY
+    : settings.enemyNameTagScreenOffsetY;
+  const float alpha = std::clamp(
+    remote.teammate ? settings.teammateNameTagAlpha : settings.enemyNameTagAlpha,
+    0.0F,
+    1.0F
+  );
+  const RenderColor color = {
+    remote.teammate ? settings.teammateNameTagRed : settings.enemyNameTagRed,
+    remote.teammate ? settings.teammateNameTagGreen : settings.enemyNameTagGreen,
+    remote.teammate ? settings.teammateNameTagBlue : settings.enemyNameTagBlue,
+    static_cast<std::uint8_t>(alpha * 255.0F),
+  };
+
+  addText(
+    drawList,
+    anchorScreen.x + offsetX - textWidth * 0.5F,
+    anchorScreen.y + offsetY,
+    remote.name,
+    color,
+    scale
+  );
+}
+
 void addCrosshair(
   DrawList2D& drawList,
   int width,
@@ -1278,6 +1354,14 @@ DrawList2D buildFloatingHealthBars(
     if (!remote.visible) {
       continue;
     }
+    addFloatingNameTag(
+      drawList,
+      outputWidth,
+      outputHeight,
+      camera,
+      remote,
+      settings
+    );
     addFloatingHealthBar(
       drawList,
       outputWidth,

@@ -392,12 +392,25 @@ int main() {
     std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
     opponent.position = {10.0F, 0.0F, 0.0F};
     opponent.bounds.halfHeight = 0.9F;
-    remotePlayers[1] = lg::RemotePlayerView{opponent, {}, 0.0F, 0.5F, true};
+    remotePlayers[1] = lg::RemotePlayerView{
+      opponent,
+      {},
+      0.0F,
+      0.5F,
+      true,
+      false,
+      "RANGER",
+    };
     settings.enemyHealthBarRed = 20;
     settings.enemyHealthBarGreen = 220;
     settings.enemyHealthBarBlue = 90;
     settings.enemyHealthBarWidth = 80.0F;
     settings.enemyHealthBarHeight = 8.0F;
+    settings.enemyNameTagRed = 12;
+    settings.enemyNameTagGreen = 34;
+    settings.enemyNameTagBlue = 56;
+    settings.enemyNameTagAlpha = 0.5F;
+    settings.enemyNameTagScale = 2.0F;
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
     const lg::DrawList2D bars = lg::buildFloatingHealthBars(
@@ -409,8 +422,20 @@ int main() {
       hud
     );
     failures += expect(
-      bars.overlayCommands.size() == 3,
-      "visible enemy should emit a floating health bar"
+      bars.overlayCommands.size() == 4,
+      "visible enemy should emit a floating name tag and health bar"
+    );
+    const auto* nameTag =
+      std::get_if<lg::Text2D>(&bars.overlayCommands.front());
+    failures += expect(
+      nameTag != nullptr &&
+        nameTag->text == "RANGER" &&
+        nameTag->color.red == 12 &&
+        nameTag->color.green == 34 &&
+        nameTag->color.blue == 56 &&
+        nameTag->color.alpha == 127 &&
+        nameTag->scale == 2.0F,
+      "floating enemy name tag should use configured text style"
     );
     const auto* fill =
       std::get_if<lg::FilledQuad2D>(&bars.overlayCommands.back());
