@@ -817,6 +817,28 @@ spawn p2 2,0,0.5 yaw=180
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::UserCommand plasma;
+    plasma.sequence = 77;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.acknowledgedCommand[0] == plasma.sequence,
+      "server should accept and acknowledge expanded weapon selections"
+    );
+    failures += expect(
+      !snapshot.lightningGuns[0].active && !snapshot.weaponFires[0].fired,
+      "unsupported expanded weapons should not fire implemented weapon effects"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     for (std::uint32_t sequence = 0; sequence < 2; ++sequence) {
       lg::UserCommand firstCommand;
       firstCommand.sequence = sequence;
@@ -831,6 +853,28 @@ spawn p2 2,0,0.5 yaw=180
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(snapshot.players[0].health == 99, "player one beam should apply fixed-tick damage");
     failures += expect(snapshot.players[1].health == 99, "simultaneous beams should apply symmetrically");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    server.setConnectedPlayers({true, true, true});
+    latestSnapshot(transport);
+
+    for (std::uint8_t playerIndex = 0; playerIndex < 3; ++playerIndex) {
+      lg::CommandPacket ready;
+      ready.playerIndex = playerIndex;
+      ready.command.sequence = 1;
+      ready.toggleReady = true;
+      transport.sendCommand(ready);
+      server.tick(lg::kFixedTickSeconds);
+    }
+
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForPlayers,
+      "duel should not start when more than two players are connected"
+    );
   }
 
   {

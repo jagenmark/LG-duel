@@ -108,14 +108,22 @@ void addOutline(
   addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
 }
 
-[[nodiscard]] const char* weaponShortName(Weapon weapon) {
+[[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
   switch (weapon) {
+  case Weapon::MachineGun:
+    return "MG";
+  case Weapon::Shotgun:
+    return "SG";
+  case Weapon::GrenadeLauncher:
+    return "GL";
   case Weapon::LightningGun:
     return "LG";
   case Weapon::Railgun:
     return "RG";
   case Weapon::RocketLauncher:
     return "RL";
+  case Weapon::PlasmaGun:
+    return "PG";
   }
   return "??";
 }
@@ -197,10 +205,14 @@ void addSelectedWeaponIndicator(
   int height,
   const HudRenderState& hud
 ) {
-  constexpr std::array<Weapon, 3> weapons = {{
+  constexpr std::array<Weapon, 7> weapons = {{
+    Weapon::MachineGun,
+    Weapon::Shotgun,
+    Weapon::GrenadeLauncher,
     Weapon::RocketLauncher,
     Weapon::LightningGun,
     Weapon::Railgun,
+    Weapon::PlasmaGun,
   }};
   const float scale = std::clamp(
     static_cast<float>(height) / 720.0F,
@@ -261,7 +273,7 @@ void addSelectedWeaponIndicator(
       icon,
       scale
     );
-    const char* label = weaponShortName(weapon);
+    const char* label = hudWeaponShortName(weapon);
     const float textScale = selected ? 1.45F * scale : 1.2F * scale;
     const float textWidth = 2.0F * kGlyphSize * textScale;
     addText(
@@ -304,63 +316,83 @@ void addFloatingHealthBar(
   int width,
   int height,
   const PerspectiveCamera& camera,
-  const PlayerState& opponent,
+  const PlayerState& player,
   float alpha,
+  bool teammate,
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
+  const bool enabled = teammate
+    ? settings.teammateHealthBarEnabled
+    : settings.enemyHealthBarEnabled;
   if (
-    !hud.showOpponentHealthBar ||
-    !settings.enemyHealthBarEnabled ||
-    opponent.health <= 0 ||
+    (!teammate && !hud.showOpponentHealthBar) ||
+    !enabled ||
+    player.health <= 0 ||
     alpha <= 0.0F
   ) {
     return;
   }
 
+  const float maxDistance = teammate
+    ? settings.teammateHealthBarMaxDistance
+    : settings.enemyHealthBarMaxDistance;
   if (
-    settings.enemyHealthBarMaxDistance > 0.0F &&
-    length(opponent.position - camera.position) >
-      settings.enemyHealthBarMaxDistance
+    maxDistance > 0.0F &&
+    length(player.position - camera.position) > maxDistance
   ) {
     return;
   }
 
+  const float worldOffsetZ = teammate
+    ? settings.teammateHealthBarWorldOffsetZ
+    : settings.enemyHealthBarWorldOffsetZ;
   const Vec3 anchor =
-    opponent.position +
-    Vec3{
-      0.0F,
-      0.0F,
-      opponent.bounds.halfHeight + settings.enemyHealthBarWorldOffsetZ,
-    };
+    player.position +
+    Vec3{0.0F, 0.0F, player.bounds.halfHeight + worldOffsetZ};
   ProjectedPoint projected;
   if (!projectPerspectivePoint(camera, anchor, projected)) {
     return;
   }
   const ScreenPoint anchorScreen =
     screenPointFromProjection(projected, width, height);
-  const float barWidth = std::max(1.0F, settings.enemyHealthBarWidth);
-  const float barHeight = std::max(1.0F, settings.enemyHealthBarHeight);
+  const float barWidth = std::max(
+    1.0F,
+    teammate ? settings.teammateHealthBarWidth : settings.enemyHealthBarWidth
+  );
+  const float barHeight = std::max(
+    1.0F,
+    teammate ? settings.teammateHealthBarHeight : settings.enemyHealthBarHeight
+  );
   const float border = std::max(1.0F, std::round(barHeight * 0.25F));
-  const float x =
-    anchorScreen.x + settings.enemyHealthBarScreenOffsetX - barWidth * 0.5F;
-  const float y =
-    anchorScreen.y + settings.enemyHealthBarScreenOffsetY - barHeight;
+  const float offsetX = teammate
+    ? settings.teammateHealthBarScreenOffsetX
+    : settings.enemyHealthBarScreenOffsetX;
+  const float offsetY = teammate
+    ? settings.teammateHealthBarScreenOffsetY
+    : settings.enemyHealthBarScreenOffsetY;
+  const float x = anchorScreen.x + offsetX - barWidth * 0.5F;
+  const float y = anchorScreen.y + offsetY - barHeight;
   const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
   const float healthRatio =
-    std::clamp(static_cast<float>(opponent.health) / maxHealth, 0.0F, 1.0F);
+    std::clamp(static_cast<float>(player.health) / maxHealth, 0.0F, 1.0F);
+  const float barAlpha = teammate
+    ? settings.teammateHealthBarAlpha
+    : settings.enemyHealthBarAlpha;
   const RenderColor outline =
-    withAlpha({220, 226, 236, 255}, alpha * settings.enemyHealthBarAlpha);
+    withAlpha({220, 226, 236, 255}, alpha * barAlpha);
   const RenderColor back =
-    withAlpha({10, 13, 18, 215}, alpha * settings.enemyHealthBarAlpha);
+    withAlpha({10, 13, 18, 215}, alpha * barAlpha);
   const RenderColor fill = withAlpha(
     {
-      settings.enemyHealthBarRed,
-      settings.enemyHealthBarGreen,
-      settings.enemyHealthBarBlue,
+      teammate ? settings.teammateHealthBarRed : settings.enemyHealthBarRed,
+      teammate
+        ? settings.teammateHealthBarGreen
+        : settings.enemyHealthBarGreen,
+      teammate ? settings.teammateHealthBarBlue : settings.enemyHealthBarBlue,
       255,
     },
-    alpha * settings.enemyHealthBarAlpha
+    alpha * barAlpha
   );
 
   addRect(
@@ -556,16 +588,43 @@ void addHud(
         static_cast<float>(line.size()) * characterWidth;
       const float x =
         panelX + std::max(16.0F, (panelWidth - lineWidth) * 0.5F);
-      addText(
-        drawList,
-        x,
-        scoreboardY,
-        line,
-        index == 0
-          ? RenderColor{255, 220, 120, 255}
-          : RenderColor{225, 235, 245, 255},
-        textScale
-      );
+      const Team team = index < hud.scoreboardLineTeams.size()
+        ? hud.scoreboardLineTeams[index]
+        : Team::None;
+      if (team == Team::None) {
+        addText(
+          drawList,
+          x,
+          scoreboardY,
+          line,
+          index == 0
+            ? RenderColor{255, 220, 120, 255}
+            : RenderColor{225, 235, 245, 255},
+          textScale
+        );
+      } else {
+        constexpr std::size_t nameColumnWidth = 22U;
+        const std::size_t split = std::min(nameColumnWidth, line.size());
+        const RenderColor teamColor = team == Team::Red
+          ? RenderColor{224, 82, 92, 255}
+          : RenderColor{82, 190, 224, 255};
+        addText(
+          drawList,
+          x,
+          scoreboardY,
+          line.substr(0, split),
+          teamColor,
+          textScale
+        );
+        addText(
+          drawList,
+          x + static_cast<float>(split) * characterWidth,
+          scoreboardY,
+          line.substr(split),
+          RenderColor{225, 235, 245, 255},
+          textScale
+        );
+      }
       scoreboardY += 28.0F;
     }
   }
@@ -735,11 +794,32 @@ void addConsole(
     }
   }
 
+  const std::size_t clampedCursor =
+    std::min(console.cursorIndex, console.input.size());
+  const std::size_t promptCursorOffset = 2U + clampedCursor;
+  std::size_t promptBaseOffset = layout.text.size();
+  for (const ConsoleLayoutLine& line : layout.lines) {
+    if (line.prompt) {
+      promptBaseOffset = line.textOffset;
+      break;
+    }
+  }
+  const std::size_t cursorTextOffset =
+    std::min(promptBaseOffset + promptCursorOffset, layout.text.size());
+  bool cursorDrawn = false;
   for (std::size_t index = 0; index < layout.lines.size(); ++index) {
     const ConsoleLayoutLine& line = layout.lines[index];
     std::string text = line.text;
-    if (line.prompt && index + 1U == layout.lines.size()) {
-      text.push_back('_');
+    if (line.prompt) {
+      const std::size_t lineBegin = line.textOffset;
+      const std::size_t lineEnd = line.textOffset + line.text.size();
+      if (cursorTextOffset >= lineBegin && cursorTextOffset <= lineEnd) {
+        text.insert(cursorTextOffset - lineBegin, 1U, '_');
+        cursorDrawn = true;
+      } else if (!cursorDrawn && index + 1U == layout.lines.size()) {
+        text.push_back('_');
+        cursorDrawn = true;
+      }
     }
     addText(
       drawList,
@@ -1049,6 +1129,7 @@ DrawList2D buildFloatingHealthBars(
       camera,
       remote.player,
       remote.enemyHealthAlpha,
+      remote.teammate,
       settings,
       hud
     );

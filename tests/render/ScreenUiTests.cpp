@@ -233,6 +233,32 @@ int main() {
       foundSelectedWeapon,
       "selected weapon indicator should mark LG on the right side"
     );
+
+    hud.selectedWeapon = lg::Weapon::PlasmaGun;
+    const lg::DrawList2D plasmaUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      hud,
+      console
+    );
+    bool foundPlasmaWeapon = false;
+    for (const lg::DrawCommand2D& command : plasmaUi.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        foundPlasmaWeapon =
+          foundPlasmaWeapon ||
+          (
+            text->text == "PG" &&
+            text->position.x > 1180.0F &&
+            text->color.red == 255
+          );
+      }
+    }
+    failures += expect(
+      foundPlasmaWeapon,
+      "selected weapon indicator should mark expanded weapon slots"
+    );
   }
 
   {
@@ -317,6 +343,7 @@ int main() {
     console.open = true;
     console.lines = {"first", "second"};
     console.input = "r_vsync 0";
+    console.cursorIndex = console.input.size();
     const lg::DrawList2D ui = lg::buildScreenUi(
       1280,
       720,
@@ -340,6 +367,7 @@ int main() {
     narrowConsole.open = true;
     narrowConsole.lines = {"alpha beta gamma"};
     narrowConsole.input = "wrap input";
+    narrowConsole.cursorIndex = narrowConsole.input.size();
     const lg::DrawList2D ui = lg::buildScreenUi(
       180,
       240,
@@ -393,6 +421,7 @@ int main() {
     selectableConsole.open = true;
     selectableConsole.lines = {"alpha beta"};
     selectableConsole.input = "copy me";
+    selectableConsole.cursorIndex = selectableConsole.input.size();
 
     const lg::ConsoleTextLayout layout =
       lg::buildConsoleTextLayout(1280, 720, selectableConsole);
@@ -432,6 +461,27 @@ int main() {
     failures += expect(
       foundSelectionHighlight,
       "console selection should render a highlight behind selected text"
+    );
+  }
+
+  {
+    lg::ConsoleRenderState cursorConsole;
+    cursorConsole.open = true;
+    cursorConsole.input = "r_vsync 0";
+    cursorConsole.cursorIndex = 2U;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      cursorConsole
+    );
+    const auto* prompt =
+      std::get_if<lg::Text2D>(&ui.overlayCommands.back());
+    failures += expect(
+      prompt != nullptr && prompt->text == "] r__vsync 0",
+      "console prompt cursor should render at the tracked input position"
     );
   }
 

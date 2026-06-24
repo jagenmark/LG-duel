@@ -44,7 +44,11 @@ public:
     std::string chatMessage = {},
     std::string playerName = {},
     std::string mapName = {},
-    bool usePresentedServerTick = true
+    bool usePresentedServerTick = true,
+    bool requestGameMode = false,
+    GameMode requestedGameMode = GameMode::Duel,
+    bool requestTeam = false,
+    Team requestedTeam = Team::None
   );
 
   [[nodiscard]] ClientConnectionState state() const;

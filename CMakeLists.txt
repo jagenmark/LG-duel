@@ -27,7 +27,10 @@ add_library(lg_duel_core
   src/sim/ArenaMap.cpp
   src/sim/Collision.cpp
   src/sim/Combat.cpp
+  src/sim/ClanArenaRules.cpp
+  src/sim/DuelRules.cpp
   src/sim/Movement.cpp
+  src/sim/WeaponCatalog.cpp
 )
 
 target_include_directories(lg_duel_core
