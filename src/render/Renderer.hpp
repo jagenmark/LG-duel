@@ -107,6 +107,26 @@ struct RenderSettings {
   std::uint8_t teammateHealthBarRed = 82;
   std::uint8_t teammateHealthBarGreen = 190;
   std::uint8_t teammateHealthBarBlue = 224;
+  bool enemyNameTagEnabled = true;
+  float enemyNameTagAlpha = 1.0F;
+  float enemyNameTagScale = 1.5F;
+  float enemyNameTagWorldOffsetZ = 0.75F;
+  float enemyNameTagScreenOffsetX = 0.0F;
+  float enemyNameTagScreenOffsetY = -34.0F;
+  float enemyNameTagMaxDistance = 0.0F;
+  std::uint8_t enemyNameTagRed = 255;
+  std::uint8_t enemyNameTagGreen = 235;
+  std::uint8_t enemyNameTagBlue = 235;
+  bool teammateNameTagEnabled = true;
+  float teammateNameTagAlpha = 1.0F;
+  float teammateNameTagScale = 1.5F;
+  float teammateNameTagWorldOffsetZ = 0.75F;
+  float teammateNameTagScreenOffsetX = 0.0F;
+  float teammateNameTagScreenOffsetY = -34.0F;
+  float teammateNameTagMaxDistance = 0.0F;
+  std::uint8_t teammateNameTagRed = 210;
+  std::uint8_t teammateNameTagGreen = 245;
+  std::uint8_t teammateNameTagBlue = 255;
   bool showLagCompensation = false;
   bool hasRemotePlayer = true;
 };
@@ -149,6 +169,7 @@ struct RemotePlayerView {
   float enemyHealthAlpha = 1.0F;
   bool visible = false;
   bool teammate = false;
+  std::string name;
 };
 
 class Renderer {

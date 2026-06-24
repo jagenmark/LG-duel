@@ -43,6 +43,17 @@ int main() {
   );
   failures += expect(
     console.registerCvar({
+      "cl_player_name",
+      "Player name.",
+      std::string{},
+      lg::CvarFlag::Archive | lg::CvarFlag::Client,
+      {},
+      {},
+    }),
+    "archived string cvar should register"
+  );
+  failures += expect(
+    console.registerCvar({
       "version",
       "Build version.",
       std::string("test"),
@@ -106,6 +117,10 @@ int main() {
     "read-only cvars should reject assignment"
   );
   failures += expect(console.execute("echo hello") == "hello", "commands should execute");
+  failures += expect(
+    console.execute("cl_player_name \"Zap Witch\"") == "cl_player_name = Zap Witch",
+    "quoted string cvar assignment should keep spaces"
+  );
 
   const std::vector<std::string> matches = console.complete("sens");
   failures += expect(
@@ -130,9 +145,13 @@ int main() {
     "completion should prefer prefix matches over substring matches"
   );
   const std::vector<std::string> config = console.archivedConfigLines();
-  failures += expect(config.size() == 2, "only archived cvars should serialize");
+  failures += expect(config.size() == 3, "only archived cvars should serialize");
   failures += expect(
-    config[1] == "set sensitivity 2.5",
+    config[0] == "set cl_player_name \"Zap Witch\"",
+    "archive should quote string cvars so player names persist"
+  );
+  failures += expect(
+    config[2] == "set sensitivity 2.5",
     "archive should serialize current typed values"
   );
 

@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string>
+#include <utility>
 
 namespace lg {
 namespace {
@@ -210,6 +212,21 @@ void addLine(
     end,
     color,
     width,
+  });
+}
+
+void addText(
+  std::vector<DrawCommand2D>& commands,
+  ScreenPoint position,
+  std::string text,
+  RenderColor color,
+  float scale
+) {
+  commands.emplace_back(Text2D{
+    position,
+    std::move(text),
+    color,
+    scale,
   });
 }
 
@@ -622,6 +639,50 @@ DrawList2D buildTopDownScene(
       remoteColor(settings, remote.enemyHitAmount, remote.teammate)
     );
 
+    const bool nameTagEnabled = remote.teammate
+      ? settings.teammateNameTagEnabled
+      : settings.enemyNameTagEnabled;
+    if (nameTagEnabled && !remote.name.empty() && remote.player.health > 0) {
+      const float scale = std::max(
+        0.1F,
+        remote.teammate
+          ? settings.teammateNameTagScale
+          : settings.enemyNameTagScale
+      );
+      const float textWidth =
+        static_cast<float>(remote.name.size()) * 8.0F * scale;
+      const float offsetX = remote.teammate
+        ? settings.teammateNameTagScreenOffsetX
+        : settings.enemyNameTagScreenOffsetX;
+      const float offsetY = remote.teammate
+        ? settings.teammateNameTagScreenOffsetY
+        : settings.enemyNameTagScreenOffsetY;
+      const float alpha = std::clamp(
+        remote.teammate
+          ? settings.teammateNameTagAlpha
+          : settings.enemyNameTagAlpha,
+        0.0F,
+        1.0F
+      );
+      addText(
+        drawList.commands,
+        {
+          opponentScreen.x + offsetX - textWidth * 0.5F,
+          opponentScreen.y + offsetY,
+        },
+        remote.name,
+        {
+          remote.teammate ? settings.teammateNameTagRed : settings.enemyNameTagRed,
+          remote.teammate
+            ? settings.teammateNameTagGreen
+            : settings.enemyNameTagGreen,
+          remote.teammate ? settings.teammateNameTagBlue : settings.enemyNameTagBlue,
+          static_cast<std::uint8_t>(alpha * 255.0F),
+        },
+        scale
+      );
+    }
+
     const bool healthBarEnabled = remote.teammate
       ? settings.teammateHealthBarEnabled
       : settings.enemyHealthBarEnabled;
@@ -736,6 +797,8 @@ DrawList2D buildTopDownScene(
     settings.enemyHitAmount,
     1.0F,
     settings.hasRemotePlayer,
+    false,
+    {},
   };
   return buildTopDownScene(
     outputWidth,
