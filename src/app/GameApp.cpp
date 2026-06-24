@@ -838,6 +838,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
+  console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, archivedClient, 0.0F, 1.0F});
@@ -923,6 +924,16 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_health_r", "Floating enemy health bar red channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_health_g", "Floating enemy health bar green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_health_b", "Floating enemy health bar blue channel.", 92, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_name_enable", "Draw floating enemy name tags.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_enemy_name_alpha", "Floating enemy name tag opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_name_font_size", "Floating enemy name tag font scale.", 1.5F, archivedClient, 0.5F, 6.0F});
+  console.registerCvar({"r_enemy_name_offset_z", "Floating enemy name tag vertical world offset.", 0.75F, archivedClient, -2.0F, 6.0F});
+  console.registerCvar({"r_enemy_name_offset_x", "Floating enemy name tag horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_enemy_name_offset_y", "Floating enemy name tag vertical screen offset.", -34.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_enemy_name_max_distance", "Hide enemy name tags beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_enemy_name_r", "Floating enemy name tag red channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_name_g", "Floating enemy name tag green channel.", 235, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_enemy_name_b", "Floating enemy name tag blue channel.", 235, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_beam_width", "Teammate lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
   console.registerCvar({"r_teammate_beam_alpha", "Teammate lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_teammate_beam_r", "Teammate lightning beam red channel.", 80, archivedClient, 0.0F, 255.0F});
@@ -949,6 +960,16 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_teammate_health_r", "Floating teammate health bar red channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_health_g", "Floating teammate health bar green channel.", 190, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_health_b", "Floating teammate health bar blue channel.", 224, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_name_enable", "Draw floating teammate name tags.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_name_alpha", "Floating teammate name tag opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_name_font_size", "Floating teammate name tag font scale.", 1.5F, archivedClient, 0.5F, 6.0F});
+  console.registerCvar({"r_teammate_name_offset_z", "Floating teammate name tag vertical world offset.", 0.75F, archivedClient, -2.0F, 6.0F});
+  console.registerCvar({"r_teammate_name_offset_x", "Floating teammate name tag horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_teammate_name_offset_y", "Floating teammate name tag vertical screen offset.", -34.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_teammate_name_max_distance", "Hide teammate name tags beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_teammate_name_r", "Floating teammate name tag red channel.", 210, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_name_g", "Floating teammate name tag green channel.", 245, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_teammate_name_b", "Floating teammate name tag blue channel.", 255, archivedClient, 0.0F, 255.0F});
 }
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
@@ -1079,6 +1100,36 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_teammate_health_g"));
   settings.teammateHealthBarBlue =
     static_cast<std::uint8_t>(console.getInt("r_teammate_health_b"));
+  settings.enemyNameTagEnabled = console.getBool("r_enemy_name_enable");
+  settings.enemyNameTagAlpha = console.getFloat("r_enemy_name_alpha");
+  settings.enemyNameTagScale = console.getFloat("r_enemy_name_font_size");
+  settings.enemyNameTagWorldOffsetZ = console.getFloat("r_enemy_name_offset_z");
+  settings.enemyNameTagScreenOffsetX = console.getFloat("r_enemy_name_offset_x");
+  settings.enemyNameTagScreenOffsetY = console.getFloat("r_enemy_name_offset_y");
+  settings.enemyNameTagMaxDistance = console.getFloat("r_enemy_name_max_distance");
+  settings.enemyNameTagRed =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_name_r"));
+  settings.enemyNameTagGreen =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_name_g"));
+  settings.enemyNameTagBlue =
+    static_cast<std::uint8_t>(console.getInt("r_enemy_name_b"));
+  settings.teammateNameTagEnabled = console.getBool("r_teammate_name_enable");
+  settings.teammateNameTagAlpha = console.getFloat("r_teammate_name_alpha");
+  settings.teammateNameTagScale = console.getFloat("r_teammate_name_font_size");
+  settings.teammateNameTagWorldOffsetZ =
+    console.getFloat("r_teammate_name_offset_z");
+  settings.teammateNameTagScreenOffsetX =
+    console.getFloat("r_teammate_name_offset_x");
+  settings.teammateNameTagScreenOffsetY =
+    console.getFloat("r_teammate_name_offset_y");
+  settings.teammateNameTagMaxDistance =
+    console.getFloat("r_teammate_name_max_distance");
+  settings.teammateNameTagRed =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_name_r"));
+  settings.teammateNameTagGreen =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_name_g"));
+  settings.teammateNameTagBlue =
+    static_cast<std::uint8_t>(console.getInt("r_teammate_name_b"));
   settings.showLagCompensation = console.getBool("cl_show_lagcomp");
   return settings;
 }
@@ -1715,6 +1766,7 @@ int GameApp::run() const {
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
   std::string pendingPlayerName;
+  std::string lastSentPlayerName;
   std::string pendingMapName;
   ClientChatState chatState;
   ClientSession session;
@@ -1825,7 +1877,7 @@ int GameApp::run() const {
   console.registerCommand(
     "player",
     "Set your player name: player <name>.",
-    [&pendingPlayerName](const std::vector<std::string>& arguments) {
+    [&console, &pendingPlayerName](const std::vector<std::string>& arguments) {
       if (arguments.size() < 2) {
         return std::string("usage: player <name>");
       }
@@ -1837,7 +1889,11 @@ int GameApp::run() const {
         return "player name is limited to " +
           std::to_string(kMaxPlayerNameBytes) + " characters";
       }
-      pendingPlayerName = std::move(name);
+      const std::string result = console.execute("set cl_player_name \"" + name + '"');
+      if (!result.starts_with("cl_player_name = ")) {
+        return result;
+      }
+      pendingPlayerName = name;
       return "name = " + pendingPlayerName;
     }
   );
@@ -2690,6 +2746,16 @@ int GameApp::run() const {
           perspectiveRenderMode ? 1 : 0,
           selectedWeapon
         );
+      std::string playerNameForCommand = std::move(pendingPlayerName);
+      const std::string configuredPlayerName = console.getString("cl_player_name");
+      if (
+        playerNameForCommand.empty() &&
+        !configuredPlayerName.empty() &&
+        configuredPlayerName != lastSentPlayerName
+      ) {
+        playerNameForCommand = configuredPlayerName;
+      }
+      const std::string sentPlayerName = playerNameForCommand;
       session.sendCommand(
         command,
         resetRequested,
@@ -2707,7 +2773,7 @@ int GameApp::run() const {
         lastRequestedBotDodgeMinIntervalMs,
         lastRequestedBotDodgeMaxIntervalMs,
         std::move(chatState.pendingMessage),
-        std::move(pendingPlayerName),
+        std::move(playerNameForCommand),
         std::move(pendingMapName),
         console.getInt("cl_interp_mode") != 0,
         requestGameModePending,
@@ -2715,6 +2781,9 @@ int GameApp::run() const {
         requestTeamPending,
         requestedTeam
       );
+      if (!sentPlayerName.empty()) {
+        lastSentPlayerName = sentPlayerName;
+      }
       chatState.pendingMessage.clear();
       pendingPlayerName.clear();
       pendingMapName.clear();
@@ -3066,6 +3135,7 @@ int GameApp::run() const {
           1.0F,
           true,
           teammate,
+          renderSnapshot.playerNames[playerIndex],
         };
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;

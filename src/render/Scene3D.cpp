@@ -828,6 +828,8 @@ Scene3D buildPerspectiveScene(
     settings.enemyHitAmount,
     1.0F,
     settings.hasRemotePlayer,
+    false,
+    {},
   };
   return buildPerspectiveScene(
     aspectRatio,

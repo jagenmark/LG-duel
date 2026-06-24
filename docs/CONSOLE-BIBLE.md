@@ -141,6 +141,7 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_flightdamping` | float | `2` | `0..100` | Ingen direkt | Dämpning av flight-velocity utan thrust. |
 | `g_playersize_xy` | float | `1` | `0.5..3` | Ingen direkt | Skalar båda spelarnas auktoritativa radie/hitbox i X/Y. |
 | `g_playersize_z` | float | `1` | `0.5..3` | Ingen direkt | Skalar båda spelarnas auktoritativa höjd/hitbox i Z. |
+| `cl_player_name` | string | empty | `0..20` bytes | Ingen direkt | Archived local player name. `player <name>` writes this cvar and sends the name to the server. |
 
 ### 3.4 Crosshair
 
@@ -248,6 +249,33 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_health_g` | int | `190` | `0..255` | Ingen direkt | Health barens gröna kanal. |
 | `r_teammate_health_b` | int | `224` | `0..255` | Ingen direkt | Health barens blå kanal. |
 
+### 3.10 Nametags
+
+Enemy and teammate nametags are separate so Clan Arena can style friends and enemies independently. They render in both top-down and first-person modes.
+
+| Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
+|---|---:|---:|---|---|---|
+| `r_enemy_name_enable` | bool | `1` | bool | Ingen direkt | Draw enemy nametags. |
+| `r_enemy_name_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy nametag opacity. |
+| `r_enemy_name_font_size` | float | `1.5` | `0.5..6` | Ingen direkt | Enemy nametag font scale. |
+| `r_enemy_name_offset_z` | float | `0.75` | `-2..6` | Ingen direkt | Enemy nametag world Z offset above the model. |
+| `r_enemy_name_offset_x` | float | `0` | `-400..400` | Ingen direkt | Enemy nametag screen X offset. |
+| `r_enemy_name_offset_y` | float | `-34` | `-400..400` | Ingen direkt | Enemy nametag screen Y offset. |
+| `r_enemy_name_max_distance` | float | `0` | `0..1000` | Ingen direkt | Hide enemy nametags beyond this 3D distance; `0` disables the limit. |
+| `r_enemy_name_r` | int | `255` | `0..255` | Ingen direkt | Enemy nametag red channel. |
+| `r_enemy_name_g` | int | `235` | `0..255` | Ingen direkt | Enemy nametag green channel. |
+| `r_enemy_name_b` | int | `235` | `0..255` | Ingen direkt | Enemy nametag blue channel. |
+| `r_teammate_name_enable` | bool | `1` | bool | Ingen direkt | Draw teammate nametags. |
+| `r_teammate_name_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate nametag opacity. |
+| `r_teammate_name_font_size` | float | `1.5` | `0.5..6` | Ingen direkt | Teammate nametag font scale. |
+| `r_teammate_name_offset_z` | float | `0.75` | `-2..6` | Ingen direkt | Teammate nametag world Z offset above the model. |
+| `r_teammate_name_offset_x` | float | `0` | `-400..400` | Ingen direkt | Teammate nametag screen X offset. |
+| `r_teammate_name_offset_y` | float | `-34` | `-400..400` | Ingen direkt | Teammate nametag screen Y offset. |
+| `r_teammate_name_max_distance` | float | `0` | `0..1000` | Ingen direkt | Hide teammate nametags beyond this 3D distance; `0` disables the limit. |
+| `r_teammate_name_r` | int | `210` | `0..255` | Ingen direkt | Teammate nametag red channel. |
+| `r_teammate_name_g` | int | `245` | `0..255` | Ingen direkt | Teammate nametag green channel. |
+| `r_teammate_name_b` | int | `255` | `0..255` | Ingen direkt | Teammate nametag blue channel. |
+
 ## 4. Klientkommandon
 
 ### 4.1 Inbyggda konsolkommandon
@@ -265,7 +293,7 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 
 | Kommando | Typ/giltigt | Funktion |
 |---|---|---|
-| `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter och replikerar spelarnamn. Flera ord tillåts. Returnerar `name = ...`. |
+| `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter, arkiverar och replikerar spelarnamn via `cl_player_name`. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
 | `gamemode <läge>` | `duel`, `ca`, `clanarena` eller `clan_arena` | Väljer spelläge under warmup. Alla spelare får använda kommandot. |

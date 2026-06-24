@@ -170,7 +170,7 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `cl_interp_mode`, `cl_interp`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `s_footstep_volume`, `r_vsync`, crosshair controls, beam controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second. `cl_interp_mode 0` restores the legacy latest-snapshot-pair interpolation path. `cl_interp_mode 1` uses buffered interpolation, where `cl_interp` controls remote player snapshot interpolation delay in seconds; the default `0.024` is three 125 Hz simulation ticks.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `cl_interp_mode`, `cl_interp`, `cl_player_name`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `s_footstep_volume`, `r_vsync`, crosshair controls, beam controls, enemy/teammate nametag controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second. `cl_interp_mode 0` restores the legacy latest-snapshot-pair interpolation path. `cl_interp_mode 1` uses buffered interpolation, where `cl_interp` controls remote player snapshot interpolation delay in seconds; the default `0.024` is three 125 Hz simulation ticks.
 
 The SDL_GPU renderer can be selected at runtime with
 `LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
@@ -201,7 +201,7 @@ Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspee
 
 `g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
 
-Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` and reset the match; map names are limited to letters, numbers, `_`, and `-`.
+Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set and persist a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` and reset the match; map names are limited to letters, numbers, `_`, and `-`.
 
 `cl_render_mode 0` uses the standard top-down renderer. `cl_render_mode 1` uses
 a first-person perspective view from the local player's yaw and pitch. It
