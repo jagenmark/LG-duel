@@ -87,6 +87,7 @@ private:
   float playerSizeScaleZ_ = 1.0F;
   float lightningKnockback_ = 1000.0F;
   float rocketKnockback_ = 1000.0F;
+  WeaponDamageTuning weaponDamage_ = {};
   LightningGunTuning lightningGunTuning_ = {};
   HitscanTuning railgunTuning_ = {};
   MachineGunTuning machineGunTuning_ = {};

@@ -89,6 +89,14 @@ struct RocketLauncherTuning {
   std::uint32_t maxLifetimeTicks = 500;
 };
 
+struct WeaponDamageTuning {
+  int shotgunDamagePerPellet = 5;
+  int machineGunDamage = 5;
+  int lightningGunDamage = 80;
+  int railgunDamage = 80;
+  int rocketLauncherDamage = 100;
+};
+
 struct RocketProjectile {
   bool active = false;
   std::uint8_t owner = 0;

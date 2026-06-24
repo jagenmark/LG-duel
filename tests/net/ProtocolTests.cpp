@@ -95,6 +95,11 @@ int main() {
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 35.0F;
     source.rocketKnockback = 625.0F;
+    source.weaponDamage.shotgunDamagePerPellet = 7;
+    source.weaponDamage.machineGunDamage = 9;
+    source.weaponDamage.lightningGunDamage = 111;
+    source.weaponDamage.railgunDamage = 50;
+    source.weaponDamage.rocketLauncherDamage = 125;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -154,6 +159,11 @@ int main() {
         nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
         nearlyEqual(decoded.lightningKnockback, 35.0F) &&
         nearlyEqual(decoded.rocketKnockback, 625.0F) &&
+        decoded.weaponDamage.shotgunDamagePerPellet == 7 &&
+        decoded.weaponDamage.machineGunDamage == 9 &&
+        decoded.weaponDamage.lightningGunDamage == 111 &&
+        decoded.weaponDamage.railgunDamage == 50 &&
+        decoded.weaponDamage.rocketLauncherDamage == 125 &&
         nearlyEqual(decoded.vampirism, 0.1F) &&
         decoded.selfDamagePercent == 37 &&
         decoded.healthAmount == 175 &&
@@ -351,6 +361,11 @@ int main() {
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 35.0F;
     source.rocketKnockback = 625.0F;
+    source.weaponDamage.shotgunDamagePerPellet = 11;
+    source.weaponDamage.machineGunDamage = 13;
+    source.weaponDamage.lightningGunDamage = 90;
+    source.weaponDamage.railgunDamage = 50;
+    source.weaponDamage.rocketLauncherDamage = 140;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -505,6 +520,11 @@ int main() {
       nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
       nearlyEqual(decoded.lightningKnockback, 35.0F) &&
       nearlyEqual(decoded.rocketKnockback, 625.0F) &&
+      decoded.weaponDamage.shotgunDamagePerPellet == 11 &&
+      decoded.weaponDamage.machineGunDamage == 13 &&
+      decoded.weaponDamage.lightningGunDamage == 90 &&
+      decoded.weaponDamage.railgunDamage == 50 &&
+      decoded.weaponDamage.rocketLauncherDamage == 140 &&
       nearlyEqual(decoded.vampirism, 2.0F) &&
       decoded.selfDamagePercent == 25 &&
       decoded.healthAmount == 150 &&

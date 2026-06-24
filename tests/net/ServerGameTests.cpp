@@ -258,6 +258,178 @@ spawn p2 2,0,0.5 yaw=180
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.lightningGunDamage = 125;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.lightningGunDamage == 125,
+      "g_lg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand lightning;
+    lightning.sequence = 2;
+    lightning.attack = true;
+    lg::CommandPacket lightningAttack;
+    lightningAttack.command = lightning;
+    transport.sendCommand(lightningAttack);
+    for (int tick = 0; tick < 125; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].health == 0,
+      "g_lg_damage should control authoritative LG damage per second"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.railgunDamage = 50;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.railgunDamage == 50,
+      "g_rg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand railgun;
+    railgun.sequence = 2;
+    railgun.attack = true;
+    railgun.weapon = lg::Weapon::Railgun;
+    lg::CommandPacket railgunAttack;
+    railgunAttack.command = railgun;
+    transport.sendCommand(railgunAttack);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].damageApplied == 50 &&
+        snapshot.players[1].health == 50,
+      "g_rg_damage should control railgun damage per shot"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.machineGunDamage = 9;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.machineGunDamage == 9,
+      "g_mg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand machineGun;
+    machineGun.sequence = 2;
+    machineGun.attack = true;
+    machineGun.weapon = lg::Weapon::MachineGun;
+    lg::CommandPacket machineGunAttack;
+    machineGunAttack.command = machineGun;
+    transport.sendCommand(machineGunAttack);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].damageApplied == 9 &&
+        snapshot.players[1].health == 91,
+      "g_mg_damage should control machine gun damage per shot"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.shotgunDamagePerPellet = 3;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.shotgunDamagePerPellet == 3,
+      "g_sg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand shotgun;
+    shotgun.sequence = 2;
+    shotgun.attack = true;
+    shotgun.weapon = lg::Weapon::Shotgun;
+    lg::CommandPacket shotgunAttack;
+    shotgunAttack.command = shotgun;
+    transport.sendCommand(shotgunAttack);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].damageApplied ==
+          static_cast<int>(snapshot.weaponFires[0].pelletHitCount) * 3 &&
+        snapshot.players[1].health == 100 - snapshot.weaponFires[0].damageApplied,
+      "g_sg_damage should control shotgun damage per pellet"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.rocketLauncherDamage = 50;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.rocketLauncherDamage == 50,
+      "g_rl_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand rocket;
+    rocket.sequence = 2;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    lg::CommandPacket rocketAttack;
+    rocketAttack.command = rocket;
+    transport.sendCommand(rocketAttack);
+    server.tick(lg::kFixedTickSeconds);
+    for (int tick = 0; tick < 160; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.rocketExplosions[0].opponentDamageApplied == 50 &&
+        snapshot.players[1].health == 50,
+      "g_rl_damage should control rocket direct and max splash damage"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     lg::CommandPacket disableVampirism;
     disableVampirism.command.sequence = 1;
     disableVampirism.requestMovementTuning = true;

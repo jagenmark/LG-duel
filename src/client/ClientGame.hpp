@@ -29,6 +29,7 @@ public:
     float vampirism = 0.0F,
     std::uint8_t selfDamagePercent = 100,
     std::int32_t healthAmount = 100,
+    const WeaponDamageTuning& weaponDamage = {},
     bool botDodgeEnabled = false,
     std::int32_t botDodgeMinIntervalMs = 250,
     std::int32_t botDodgeMaxIntervalMs = 750,

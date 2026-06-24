@@ -532,6 +532,7 @@ void ServerGame::resetMatch() {
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
   snapshot_.lightningKnockback = lightningKnockback_;
   snapshot_.rocketKnockback = rocketKnockback_;
+  snapshot_.weaponDamage = weaponDamage_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
   snapshot_.healthAmount = healthAmount_;
@@ -1324,6 +1325,17 @@ void ServerGame::receiveCommands() {
       rocketLauncherTuning_.knockback =
         q3KnockbackToInternal(rocketKnockback_);
       snapshot_.rocketKnockback = rocketKnockback_;
+      weaponDamage_ = packet.weaponDamage;
+      shotgunTuning_.damagePerPellet = weaponDamage_.shotgunDamagePerPellet;
+      machineGunTuning_.damage = weaponDamage_.machineGunDamage;
+      lightningGunTuning_.damagePerSecond =
+        static_cast<float>(weaponDamage_.lightningGunDamage);
+      railgunTuning_.damage = weaponDamage_.railgunDamage;
+      rocketLauncherTuning_.directDamage =
+        weaponDamage_.rocketLauncherDamage;
+      rocketLauncherTuning_.splashDamage =
+        weaponDamage_.rocketLauncherDamage;
+      snapshot_.weaponDamage = weaponDamage_;
       if (vampirism_ != packet.vampirism) {
         fractionalVampirismHealing_ = {};
       }
