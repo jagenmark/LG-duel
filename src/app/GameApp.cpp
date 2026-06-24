@@ -14,6 +14,7 @@
 #include "shared/FixedTick.hpp"
 #include "shared/Math.hpp"
 #include "sim/Arena.hpp"
+#include "sim/Combat.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -91,6 +92,16 @@ void copyTextToClipboard(std::string_view text) {
 
 [[nodiscard]] std::int32_t healthAmount(const ConsoleSystem& console) {
   return std::clamp(console.getInt("g_healthamount"), 1, 100000);
+}
+
+[[nodiscard]] WeaponDamageTuning weaponDamageTuning(const ConsoleSystem& console) {
+  return {
+    console.getInt("g_sg_damage"),
+    console.getInt("g_mg_damage"),
+    console.getInt("g_lg_damage"),
+    console.getInt("g_rg_damage"),
+    console.getInt("g_rl_damage"),
+  };
 }
 
 [[nodiscard]] Vec3 cameraUp(float yawRadians, float pitchRadians) {
@@ -851,6 +862,11 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
   console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
   console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
+  console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second.", 80, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_rl_damage", "Authoritative rocket launcher direct and max splash damage.", 100, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
@@ -2299,6 +2315,8 @@ int GameApp::run() const {
     console.getFloat("g_knockback");
   float lastRequestedRocketKnockback =
     console.getFloat("g_rl_knockback");
+  WeaponDamageTuning lastRequestedWeaponDamage =
+    weaponDamageTuning(console);
   float lastRequestedVampirism =
     console.getFloat("g_vampirism");
   std::uint8_t lastRequestedSelfDamagePercent =
@@ -2634,6 +2652,8 @@ int GameApp::run() const {
       console.getFloat("g_knockback");
     const float currentRocketKnockback =
       console.getFloat("g_rl_knockback");
+    const WeaponDamageTuning currentWeaponDamage =
+      weaponDamageTuning(console);
     const float currentVampirism =
       console.getFloat("g_vampirism");
     const std::uint8_t currentSelfDamagePercent =
@@ -2649,6 +2669,16 @@ int GameApp::run() const {
         currentLightningKnockback != lastRequestedLightningKnockback ||
         currentVampirism != lastRequestedVampirism ||
         currentRocketKnockback != lastRequestedRocketKnockback ||
+        currentWeaponDamage.shotgunDamagePerPellet !=
+          lastRequestedWeaponDamage.shotgunDamagePerPellet ||
+        currentWeaponDamage.machineGunDamage !=
+          lastRequestedWeaponDamage.machineGunDamage ||
+        currentWeaponDamage.lightningGunDamage !=
+          lastRequestedWeaponDamage.lightningGunDamage ||
+        currentWeaponDamage.railgunDamage !=
+          lastRequestedWeaponDamage.railgunDamage ||
+        currentWeaponDamage.rocketLauncherDamage !=
+          lastRequestedWeaponDamage.rocketLauncherDamage ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
         botDodgeEnabled != lastRequestedBotDodgeEnabled ||
@@ -2660,6 +2690,7 @@ int GameApp::run() const {
       lastRequestedLightningKnockback = currentLightningKnockback;
       lastRequestedVampirism = currentVampirism;
       lastRequestedRocketKnockback = currentRocketKnockback;
+      lastRequestedWeaponDamage = currentWeaponDamage;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
       lastRequestedBotDodgeEnabled = botDodgeEnabled;
@@ -2761,6 +2792,7 @@ int GameApp::run() const {
         lastRequestedVampirism,
         lastRequestedSelfDamagePercent,
         lastRequestedHealthAmount,
+        lastRequestedWeaponDamage,
         lastRequestedBotDodgeEnabled,
         lastRequestedBotDodgeMinIntervalMs,
         lastRequestedBotDodgeMaxIntervalMs,

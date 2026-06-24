@@ -62,6 +62,7 @@ struct CommandPacket {
   float playerSizeScaleZ = 1.0F;
   float lightningKnockback = 1000.0F;
   float rocketKnockback = 1000.0F;
+  WeaponDamageTuning weaponDamage = {};
   float vampirism = 0.0F;
   std::string chatMessage;
   std::string playerName;
@@ -124,6 +125,7 @@ struct ServerSnapshot {
   float playerSizeScaleZ = 1.0F;
   float lightningKnockback = 1000.0F;
   float rocketKnockback = 1000.0F;
+  WeaponDamageTuning weaponDamage = {};
   float vampirism = 0.0F;
   std::uint8_t selfDamagePercent = 100;
   std::int32_t healthAmount = 100;

@@ -245,6 +245,11 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(packet.playerSizeScaleZ) &&
     writer.writeFloat(packet.lightningKnockback) &&
     writer.writeFloat(packet.rocketKnockback) &&
+    writer.writeI32(packet.weaponDamage.shotgunDamagePerPellet) &&
+    writer.writeI32(packet.weaponDamage.machineGunDamage) &&
+    writer.writeI32(packet.weaponDamage.lightningGunDamage) &&
+    writer.writeI32(packet.weaponDamage.railgunDamage) &&
+    writer.writeI32(packet.weaponDamage.rocketLauncherDamage) &&
     writer.writeFloat(packet.vampirism) &&
     writer.writeU8(packet.selfDamagePercent) &&
     writer.writeI32(packet.healthAmount) &&
@@ -297,6 +302,11 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.playerSizeScaleZ) ||
     !reader.readFloat(packet.lightningKnockback) ||
     !reader.readFloat(packet.rocketKnockback) ||
+    !reader.readI32(packet.weaponDamage.shotgunDamagePerPellet) ||
+    !reader.readI32(packet.weaponDamage.machineGunDamage) ||
+    !reader.readI32(packet.weaponDamage.lightningGunDamage) ||
+    !reader.readI32(packet.weaponDamage.railgunDamage) ||
+    !reader.readI32(packet.weaponDamage.rocketLauncherDamage) ||
     !reader.readFloat(packet.vampirism) ||
     !reader.readU8(packet.selfDamagePercent) ||
     !reader.readI32(packet.healthAmount) ||
@@ -348,6 +358,16 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.lightningKnockback <= 1000.0F &&
     packet.rocketKnockback >= 0.0F &&
     packet.rocketKnockback <= 1000.0F &&
+    packet.weaponDamage.shotgunDamagePerPellet >= 1 &&
+    packet.weaponDamage.shotgunDamagePerPellet <= 500 &&
+    packet.weaponDamage.machineGunDamage >= 1 &&
+    packet.weaponDamage.machineGunDamage <= 500 &&
+    packet.weaponDamage.lightningGunDamage >= 1 &&
+    packet.weaponDamage.lightningGunDamage <= 500 &&
+    packet.weaponDamage.railgunDamage >= 1 &&
+    packet.weaponDamage.railgunDamage <= 500 &&
+    packet.weaponDamage.rocketLauncherDamage >= 1 &&
+    packet.weaponDamage.rocketLauncherDamage <= 500 &&
     packet.vampirism >= 0.0F &&
     packet.vampirism <= 2.0F &&
     packet.selfDamagePercent <= 100 &&
@@ -964,6 +984,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.playerSizeScaleZ) &&
     writer.writeFloat(snapshot.lightningKnockback) &&
     writer.writeFloat(snapshot.rocketKnockback) &&
+    writer.writeI32(snapshot.weaponDamage.shotgunDamagePerPellet) &&
+    writer.writeI32(snapshot.weaponDamage.machineGunDamage) &&
+    writer.writeI32(snapshot.weaponDamage.lightningGunDamage) &&
+    writer.writeI32(snapshot.weaponDamage.railgunDamage) &&
+    writer.writeI32(snapshot.weaponDamage.rocketLauncherDamage) &&
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
@@ -1126,6 +1151,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.playerSizeScaleZ) ||
     !reader.readFloat(decoded.lightningKnockback) ||
     !reader.readFloat(decoded.rocketKnockback) ||
+    !reader.readI32(decoded.weaponDamage.shotgunDamagePerPellet) ||
+    !reader.readI32(decoded.weaponDamage.machineGunDamage) ||
+    !reader.readI32(decoded.weaponDamage.lightningGunDamage) ||
+    !reader.readI32(decoded.weaponDamage.railgunDamage) ||
+    !reader.readI32(decoded.weaponDamage.rocketLauncherDamage) ||
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||
@@ -1169,6 +1199,16 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.rocketKnockback < 0.0F ||
     decoded.rocketKnockback > 1000.0F ||
     decoded.lightningKnockback > 1000.0F ||
+    decoded.weaponDamage.shotgunDamagePerPellet < 1 ||
+    decoded.weaponDamage.shotgunDamagePerPellet > 500 ||
+    decoded.weaponDamage.machineGunDamage < 1 ||
+    decoded.weaponDamage.machineGunDamage > 500 ||
+    decoded.weaponDamage.lightningGunDamage < 1 ||
+    decoded.weaponDamage.lightningGunDamage > 500 ||
+    decoded.weaponDamage.railgunDamage < 1 ||
+    decoded.weaponDamage.railgunDamage > 500 ||
+    decoded.weaponDamage.rocketLauncherDamage < 1 ||
+    decoded.weaponDamage.rocketLauncherDamage > 500 ||
     decoded.vampirism < 0.0F ||
     decoded.vampirism > 2.0F ||
     decoded.selfDamagePercent > 100 ||
