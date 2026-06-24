@@ -65,7 +65,7 @@ int ServerApp::run() const {
   console.registerCvar({"sv_timelimit", "Match time limit in minutes; zero disables.", 0, CvarFlag::None, 0.0F, 120.0F});
   console.registerCvar({"sv_playerlimit", "Players required to begin.", 2, CvarFlag::None, 1.0F, static_cast<float>(kMaxPlayers)});
   console.registerCvar({"sv_countdown", "Round countdown in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
-  console.registerCvar({"sv_roundend", "Round-end delay in seconds.", 1.0F, CvarFlag::None, 0.0F, 30.0F});
+  console.registerCvar({"sv_roundend", "Round-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 30.0F});
   console.registerCvar({"sv_matchend", "Match-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
   console.registerCvar({"sv_showopponenthealth", "Show opponent health to both players.", true, CvarFlag::None, {}, {}});
   console.registerCvar({

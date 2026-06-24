@@ -101,12 +101,20 @@ int main() {
 
   snapshot.gameMode = lg::GameMode::ClanArena;
   snapshot.teams = {lg::Team::Red, lg::Team::Blue};
+  snapshot.scores = {7, 5};
   hud = {};
   lg::populateScoreboard(hud, snapshot, 0);
   failures += expect(
     hud.scoreboardLineTeams[2] == lg::Team::Red &&
       hud.scoreboardLineTeams[3] == lg::Team::Blue,
     "Clan Arena scoreboard rows should retain their team colors"
+  );
+  failures += expect(
+    hud.scoreboardLines[1].find("KILLS") != std::string::npos &&
+      hud.scoreboardLines[1].find("SCORE") == std::string::npos &&
+      centersAlign(hud.scoreboardLines[1], "KILLS", hud.scoreboardLines[2], "7") &&
+      centersAlign(hud.scoreboardLines[1], "KILLS", hud.scoreboardLines[3], "5"),
+    "Clan Arena scoreboard should label and display individual kills"
   );
   snapshot.gameMode = lg::GameMode::Duel;
 

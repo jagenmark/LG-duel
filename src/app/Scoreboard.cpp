@@ -78,7 +78,13 @@ void populateScoreboard(
   hud.scoreboardLines.push_back("SCOREBOARD");
   hud.scoreboardLineTeams.push_back(Team::None);
   hud.scoreboardLines.push_back(
-    scoreboardColumns("  NAME", "SCORE", "ACC", "DAMAGE", nameWidth)
+    scoreboardColumns(
+      "  NAME",
+      snapshot.gameMode == GameMode::ClanArena ? "KILLS" : "SCORE",
+      "ACC",
+      "DAMAGE",
+      nameWidth
+    )
   );
   hud.scoreboardLineTeams.push_back(Team::None);
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {

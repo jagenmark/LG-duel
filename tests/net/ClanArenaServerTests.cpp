@@ -364,8 +364,9 @@ int main() {
       snapshot.players[1].health == 0 &&
         snapshot.players[2].health > 0 &&
         snapshot.matchPhase == lg::MatchPhase::Live &&
-        snapshot.teamScores[0] == 0,
-      "eliminating one teammate should not end a Clan Arena round"
+        snapshot.teamScores[0] == 0 &&
+        snapshot.scores[0] == 1,
+      "eliminating one enemy should award an individual kill without ending the round"
     );
 
     snapshot = stopAttack(transport, server, 0, redSequence++);
@@ -420,8 +421,9 @@ int main() {
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
         snapshot.roundWinningTeam == lg::Team::Red &&
-        snapshot.teamScores[0] == 1,
-      "eliminating the opposing team should award one Clan Arena round"
+        snapshot.teamScores[0] == 1 &&
+        snapshot.scores[0] == 2,
+      "eliminating the opposing team should award one round and preserve individual kills"
     );
 
     server.tick(lg::kFixedTickSeconds);
@@ -432,8 +434,9 @@ int main() {
       snapshot.matchPhase == lg::MatchPhase::Live &&
         snapshot.players[1].health == 100 &&
         snapshot.players[2].health == 100 &&
-        snapshot.teamScores[0] == 1,
-      "the next Clan Arena round should respawn all players and preserve team score"
+        snapshot.teamScores[0] == 1 &&
+        snapshot.scores[0] == 2,
+      "the next Clan Arena round should preserve team score and individual kills"
     );
 
     for (int tick = 0; tick < 2000 && snapshot.players[1].health > 0; ++tick) {
@@ -468,8 +471,9 @@ int main() {
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::MatchEnd &&
         snapshot.matchWinningTeam == lg::Team::Red &&
-        snapshot.teamScores[0] == 2,
-      "the team reaching the round limit should win the Clan Arena match"
+        snapshot.teamScores[0] == 2 &&
+        snapshot.scores[0] == 4,
+      "the team reaching the round limit should win while retaining individual kills"
     );
 
     lg::CommandPacket reset;
@@ -484,8 +488,9 @@ int main() {
         snapshot.teams[1] == lg::Team::Blue &&
         snapshot.teams[2] == lg::Team::Blue &&
         snapshot.teamScores[0] == 0 &&
-        snapshot.teamScores[1] == 0,
-      "any player should reset a Clan Arena match while preserving mode and teams"
+        snapshot.teamScores[1] == 0 &&
+        snapshot.scores[0] == 0,
+      "resetting Clan Arena should clear team scores and individual kills"
     );
   }
 

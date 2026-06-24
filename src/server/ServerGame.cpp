@@ -975,6 +975,12 @@ void ServerGame::applyDamageAndKnockback(
     target.health == 0 &&
     snapshot_.matchPhase == MatchPhase::Live
   ) {
+    if (
+      snapshot_.gameMode == GameMode::ClanArena &&
+      areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex)
+    ) {
+      ++snapshot_.scores[attackerIndex];
+    }
     target.velocity = {};
     lightningGunStates_[targetIndex] = {};
     snapshot_.lightningGuns[targetIndex] = {};

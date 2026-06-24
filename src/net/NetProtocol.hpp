@@ -35,7 +35,7 @@ struct MatchRules {
   std::uint16_t timeLimitMinutes = 0;
   std::uint8_t playerLimit = 2;
   std::uint16_t countdownTicks = 625;
-  std::uint16_t roundEndTicks = 125;
+  std::uint16_t roundEndTicks = 625;
   std::uint16_t matchEndTicks = 625;
   bool showOpponentHealth = true;
 };
