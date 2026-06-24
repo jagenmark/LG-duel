@@ -1,7 +1,9 @@
 #include "app/GameApp.hpp"
 
+#include "app/AudioAssets.hpp"
 #include "app/ConsoleInput.hpp"
 #include "client/ClientSession.hpp"
+#include "client/HitConfirmAudio.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
@@ -29,6 +31,7 @@
 #include <cctype>
 #include <cstdint>
 #include <deque>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -108,33 +111,6 @@ void copyTextToClipboard(std::string_view text) {
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
 }
 
-[[nodiscard]] bool sameVec3(Vec3 lhs, Vec3 rhs) {
-  return lhs.x == rhs.x && lhs.y == rhs.y && lhs.z == rhs.z;
-}
-
-[[nodiscard]] bool sameWeaponFireEvent(
-  const WeaponFireResult& lhs,
-  const WeaponFireResult& rhs
-) {
-  return lhs.fired == rhs.fired &&
-    lhs.hit == rhs.hit &&
-    lhs.weapon == rhs.weapon &&
-    lhs.damageApplied == rhs.damageApplied &&
-    sameVec3(lhs.start, rhs.start) &&
-    sameVec3(lhs.end, rhs.end);
-}
-
-[[nodiscard]] bool sameRocketExplosionEvent(
-  const RocketExplosionResult& lhs,
-  const RocketExplosionResult& rhs
-) {
-  return lhs.active == rhs.active &&
-    lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
-    lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
-    lhs.radius == rhs.radius &&
-    sameVec3(lhs.position, rhs.position);
-}
-
 struct LocalInputState {
   int forward = 0;
   int back = 0;
@@ -191,7 +167,7 @@ struct FootstepAudioState {
 
 class ClientAudio {
 public:
-  bool initialize() {
+  bool initialize(const std::filesystem::path& assetBasePath) {
     const SDL_AudioSpec spec{SDL_AUDIO_F32, 1, kSampleRate};
     stream_ = SDL_OpenAudioDeviceStream(
       SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
@@ -199,7 +175,11 @@ public:
       nullptr,
       nullptr
     );
-    return stream_ != nullptr && SDL_ResumeAudioStreamDevice(stream_);
+    if (stream_ == nullptr || !SDL_ResumeAudioStreamDevice(stream_)) {
+      return false;
+    }
+    loadCueAssets(assetBasePath);
+    return true;
   }
 
   void playHit(float volume, int damageApplied) {
@@ -222,11 +202,42 @@ public:
     queueRocketFire(volume);
   }
 
+  void playMachineGunFire(float volume) {
+    if (queueClip(machineGunFireClip_, volume)) {
+      return;
+    }
+    queueMachineGunFire(volume);
+  }
+
+  void playShotgunFire(float volume) {
+    if (queueClip(shotgunFireClip_, volume)) {
+      return;
+    }
+    queueShotgunFire(volume);
+  }
+
+  void playGrenadeLauncherFire(float volume) {
+    if (queueClip(grenadeLauncherFireClip_, volume)) {
+      return;
+    }
+    queueGrenadeLauncherFire(volume);
+  }
+
+  void playPlasmaGunFire(float volume) {
+    if (queueClip(plasmaGunFireClip_, volume)) {
+      return;
+    }
+    queuePlasmaGunFire(volume);
+  }
+
   void playRocketExplosion(float volume) {
     queueRocketPop(volume);
   }
 
   void playFootstep(float volume, std::uint32_t stepIndex) {
+    if (queueClip(footstepClip_, volume * footstepGain(stepIndex))) {
+      return;
+    }
     queueFootstep(volume, stepIndex);
   }
 
@@ -278,6 +289,74 @@ private:
     std::vector<float> samples;
     std::size_t playhead = 0;
   };
+
+  struct LoadedClip {
+    std::vector<float> samples;
+  };
+
+  void loadCueAssets(const std::filesystem::path& assetBasePath) {
+    lightningGunLoop_ = loadCueClip(assetBasePath, AudioCue::LightningGunFireLoop);
+    machineGunFireClip_ = loadCueClip(assetBasePath, AudioCue::MachineGunFire);
+    shotgunFireClip_ = loadCueClip(assetBasePath, AudioCue::ShotgunFire);
+    grenadeLauncherFireClip_ =
+      loadCueClip(assetBasePath, AudioCue::GrenadeLauncherFire);
+    plasmaGunFireClip_ = loadCueClip(assetBasePath, AudioCue::PlasmaGunFire);
+    footstepClip_ = loadCueClip(assetBasePath, AudioCue::Footstep);
+  }
+
+  [[nodiscard]] static LoadedClip loadCueClip(
+    const std::filesystem::path& assetBasePath,
+    AudioCue cue
+  ) {
+    if (std::optional<AudioClip> clip = loadAudioCue(assetBasePath, cue)) {
+      return LoadedClip{resampleToMixerRate(*clip)};
+    }
+    return {};
+  }
+
+  [[nodiscard]] static std::vector<float> resampleToMixerRate(const AudioClip& clip) {
+    if (clip.samples.empty() || clip.sampleRate <= 0) {
+      return {};
+    }
+    if (clip.sampleRate == kSampleRate) {
+      return clip.samples;
+    }
+
+    const double sourceStep =
+      static_cast<double>(clip.sampleRate) / static_cast<double>(kSampleRate);
+    const auto outputCount = static_cast<std::size_t>(
+      std::max(1.0, static_cast<double>(clip.samples.size()) / sourceStep)
+    );
+    std::vector<float> output(outputCount);
+    for (std::size_t index = 0; index < output.size(); ++index) {
+      const double sourcePosition = static_cast<double>(index) * sourceStep;
+      const auto sourceIndex = static_cast<std::size_t>(sourcePosition);
+      const std::size_t nextIndex =
+        std::min(sourceIndex + 1U, clip.samples.size() - 1U);
+      const float blend =
+        static_cast<float>(sourcePosition - static_cast<double>(sourceIndex));
+      output[index] =
+        (clip.samples[sourceIndex] * (1.0F - blend)) +
+        (clip.samples[nextIndex] * blend);
+    }
+    return output;
+  }
+
+  [[nodiscard]] bool queueClip(const LoadedClip& clip, float volume) {
+    if (stream_ == nullptr || volume <= 0.0F || clip.samples.empty()) {
+      return false;
+    }
+    std::vector<float> samples = clip.samples;
+    for (float& sample : samples) {
+      sample = std::clamp(sample * volume, -0.98F, 0.98F);
+    }
+    addVoice(std::move(samples));
+    return true;
+  }
+
+  [[nodiscard]] static float footstepGain(std::uint32_t stepIndex) {
+    return stepIndex % 2U == 0U ? 0.92F : 0.78F;
+  }
 
   [[nodiscard]] static float audioEnvelope(
     float time,
@@ -372,6 +451,55 @@ private:
     });
   }
 
+  void queueMachineGunFire(float volume) {
+    queueSynth(0.055F, volume * 0.62F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.055F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.055F, 0.001F, 0.035F, 1.65F);
+      return envelope * (
+        0.30F * sine(230.0F - (80.0F * progress), time) +
+        0.18F * triangle(520.0F - (260.0F * progress), time) +
+        0.16F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queueShotgunFire(float volume) {
+    queueSynth(0.155F, volume * 0.82F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.155F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.155F, 0.001F, 0.085F, 1.45F);
+      return envelope * (
+        0.36F * sine(118.0F - (38.0F * progress), time) +
+        0.20F * triangle(210.0F - (72.0F * progress), time) +
+        0.22F * noise(sampleIndex) * (1.0F - (progress * 0.35F))
+      );
+    });
+  }
+
+  void queueGrenadeLauncherFire(float volume) {
+    queueSynth(0.170F, volume * 0.78F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.145F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.170F, 0.002F, 0.075F, 1.4F);
+      return envelope * (
+        0.32F * sine(105.0F + (90.0F * progress), time) +
+        0.18F * triangle(190.0F + (110.0F * progress), time) +
+        0.15F * noise(sampleIndex)
+      );
+    });
+  }
+
+  void queuePlasmaGunFire(float volume) {
+    queueSynth(0.070F, volume * 0.52F, [](float time, int sampleIndex) {
+      const float progress = std::min(time / 0.070F, 1.0F);
+      const float envelope = audioEnvelope(time, 0.070F, 0.001F, 0.040F, 1.55F);
+      return envelope * (
+        0.24F * sine(760.0F + (180.0F * progress), time) +
+        0.18F * sine(1140.0F + (260.0F * progress), time) +
+        0.08F * triangle(380.0F, time) +
+        0.06F * noise(sampleIndex)
+      );
+    });
+  }
+
   void queueFootstep(float volume, std::uint32_t stepIndex) {
     queueSynth(0.105F, volume, [stepIndex](float time, int sampleIndex) {
       const float progress = std::min(time / 0.105F, 1.0F);
@@ -390,6 +518,18 @@ private:
   }
 
   [[nodiscard]] float lightningGunSample() {
+    if (!lightningGunLoop_.samples.empty()) {
+      const float sample =
+        lightningGunLoop_.samples[
+          static_cast<std::size_t>(
+            lightningGunSampleIndex_ % lightningGunLoop_.samples.size()
+          )
+        ];
+      lightningGunSampleIndex_ =
+        (lightningGunSampleIndex_ + 1U) % lightningGunLoop_.samples.size();
+      return sample;
+    }
+
     constexpr std::uint64_t kLightningGunPeriodSamples =
       static_cast<std::uint64_t>(kSampleRate / 48);
     const float time =
@@ -558,6 +698,12 @@ private:
   SDL_AudioStream* stream_ = nullptr;
   std::vector<SoundVoice> voices_;
   std::vector<float> mixBuffer_;
+  LoadedClip lightningGunLoop_;
+  LoadedClip machineGunFireClip_;
+  LoadedClip shotgunFireClip_;
+  LoadedClip grenadeLauncherFireClip_;
+  LoadedClip plasmaGunFireClip_;
+  LoadedClip footstepClip_;
   bool lightningGunFireActive_ = false;
   float lightningGunFireTargetVolume_ = 0.0F;
   float lightningGunFireGain_ = 0.0F;
@@ -1533,9 +1679,12 @@ int GameApp::run() const {
     return 1;
   }
   std::cout << "Renderer backend: " << renderer.backendName() << '\n';
+  const char* executableBasePath = SDL_GetBasePath();
+  const std::filesystem::path assetBasePath =
+    executableBasePath != nullptr ? executableBasePath : std::filesystem::current_path();
   ClientAudio audio;
   const bool audioAvailable =
-    audioSubsystemAvailable && audio.initialize();
+    audioSubsystemAvailable && audio.initialize(assetBasePath);
 
   ConsoleSystem console;
   registerClientCvars(console);
@@ -2676,19 +2825,29 @@ int GameApp::run() const {
                 !sameWeaponFireEvent(fire, lastPlayedWeaponFires[playerIndex])
               )
             ) {
-              if (fire.weapon == Weapon::Railgun) {
+              const WeaponFireAudioEvent fireAudio =
+                routeWeaponFireAudioEvent(fire, localWeaponEvent);
+              if (fireAudio.cue == WeaponFireAudioCue::Railgun) {
                 audio.playRailFire(volume);
-                if (localWeaponEvent) {
+                if (fireAudio.startsLocalRailCooldown) {
                   lastLocalRailFireTick = audioSnapshot.serverTick;
                   hasLocalRailFireTick = true;
                   localRailReadySoundPlayed = false;
                 }
-                if (localWeaponEvent && fire.hit) {
-                  audio.playHit(volume, fire.damageApplied);
-                  lastHitSoundServerTick = audioSnapshot.serverTick;
-                }
-              } else if (fire.weapon == Weapon::RocketLauncher) {
+              } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
                 audio.playRocketFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::MachineGun) {
+                audio.playMachineGunFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::Shotgun) {
+                audio.playShotgunFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::GrenadeLauncher) {
+                audio.playGrenadeLauncherFire(volume);
+              } else if (fireAudio.cue == WeaponFireAudioCue::PlasmaGun) {
+                audio.playPlasmaGunFire(volume);
+              }
+              if (fireAudio.localHitConfirmDamage > 0) {
+                audio.playHit(volume, fireAudio.localHitConfirmDamage);
+                lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedWeaponFires[playerIndex] = fire;
               hasLastPlayedWeaponFire[playerIndex] = true;
@@ -2765,15 +2924,17 @@ int GameApp::run() const {
       }
     }
     if (audioAvailable) {
-      const bool localLightningGunFiring =
+      bool localLightningGunFiring = false;
+      if (
         console.getBool("s_enable") &&
-        selectedWeapon == Weapon::LightningGun &&
-        input.attack > 0 &&
-        !consoleState.open &&
-        !chatState.inputOpen &&
         currentAudioGame != nullptr &&
         currentAudioGame->hasSnapshot() &&
-        currentAudioGame->predictedPlayer().health > 0;
+        currentAudioGame->predictedPlayer().health > 0
+      ) {
+        const std::size_t localPlayerIndex = session.playerIndex();
+        localLightningGunFiring =
+          currentAudioGame->snapshot().lightningGuns[localPlayerIndex].active;
+      }
       audio.setLightningGunFire(
         localLightningGunFiring,
         localLightningGunFiring ? console.getFloat("s_volume") : 0.0F
