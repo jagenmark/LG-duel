@@ -1465,15 +1465,13 @@ std::size_t firstRemotePlayerIndex(
       return index;
     }
   }
-  if (snapshot.botDodgeEnabled) {
-    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-      if (
-        index != localPlayerIndex &&
-        !snapshot.connectedPlayers[index] &&
-        snapshot.players[index].health > 0
-      ) {
-        return index;
-      }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (
+      index != localPlayerIndex &&
+      snapshot.participatingPlayers[index] &&
+      snapshot.players[index].health > 0
+    ) {
+      return index;
     }
   }
   return localPlayerIndex;
@@ -3131,12 +3129,7 @@ int GameApp::run() const {
         if (playerIndex == localPlayerIndex) {
           continue;
         }
-        const bool connectedRemote = renderSnapshot.connectedPlayers[playerIndex];
-        const bool botRemote =
-          renderSnapshot.botDodgeEnabled &&
-          !connectedRemote &&
-          renderSnapshot.players[playerIndex].health > 0;
-        if (!connectedRemote && !botRemote) {
+        if (!renderSnapshot.participatingPlayers[playerIndex]) {
           continue;
         }
         if (

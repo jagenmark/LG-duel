@@ -24,7 +24,7 @@ bool scoreboardSlotVisible(
   const ServerSnapshot& snapshot,
   std::size_t index
 ) {
-  return snapshot.connectedPlayers[index] || snapshot.botDodgeEnabled;
+  return snapshot.participatingPlayers[index];
 }
 
 std::size_t scoreboardNameWidth(const ServerSnapshot& snapshot) {

@@ -62,7 +62,7 @@ constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
   return snapshot.connectedPlayers[playerIndex] ||
     (
       snapshot.gameMode == GameMode::Duel &&
-      snapshot.botDodgeEnabled &&
+      snapshot.participatingPlayers[playerIndex] &&
       snapshot.players[playerIndex].health > 0
     );
 }
@@ -97,6 +97,7 @@ ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
   snapshot_.readyPlayers[0] = true;
   snapshot_.readyPlayers[1] = true;
   snapshot_.matchPhase = MatchPhase::Live;
+  updateParticipatingPlayers();
   publishSnapshot();
 }
 
@@ -563,6 +564,7 @@ void ServerGame::resetMatch() {
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
   playerSessions_ = {};
+  updateParticipatingPlayers();
   history_.clear();
   recordHistory();
 }
@@ -636,6 +638,7 @@ void ServerGame::setConnectedPlayers(
     }
   }
   snapshot_.connectedPlayers = connectedPlayers;
+  updateParticipatingPlayers();
 
   if (abortActiveMatch) {
     resetMatch();
@@ -725,6 +728,7 @@ void ServerGame::setBotDodge(
   snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   botDodgeSwitchSeconds_ = {};
+  updateParticipatingPlayers();
 }
 
 bool ServerGame::botDodgeEnabled() const {
@@ -1187,18 +1191,26 @@ void ServerGame::rememberTransientCombatEvents() {
   }
 }
 
-void ServerGame::updateBotCommands(float fixedDt) {
+void ServerGame::updateParticipatingPlayers() {
   const bool anyPlayerConnected = std::any_of(
     snapshot_.connectedPlayers.begin(),
     snapshot_.connectedPlayers.end(),
     [](bool connected) { return connected; }
   );
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    snapshot_.participatingPlayers[playerIndex] =
+      snapshot_.connectedPlayers[playerIndex] ||
+      (botDodgeEnabled_ && anyPlayerConnected);
+  }
+}
+
+void ServerGame::updateBotCommands(float fixedDt) {
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (snapshot_.connectedPlayers[playerIndex]) {
       continue;
     }
     snapshot_.playerNames[playerIndex] = "BOT";
-    if (!botDodgeEnabled_ || !anyPlayerConnected) {
+    if (!snapshot_.participatingPlayers[playerIndex]) {
       commands_[playerIndex] = {};
       commands_[playerIndex].viewYawRadians =
         snapshot_.players[playerIndex].viewYawRadians;
@@ -1437,6 +1449,7 @@ void ServerGame::receiveCommands() {
 }
 
 void ServerGame::publishSnapshot() {
+  updateParticipatingPlayers();
   transport_.sendSnapshot(snapshot_);
 }
 

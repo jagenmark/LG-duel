@@ -68,6 +68,7 @@ private:
   void simulateRockets(float fixedDt);
   void restoreTransientCombatEvents();
   void rememberTransientCombatEvents();
+  void updateParticipatingPlayers();
   void updateBotCommands(float fixedDt);
   [[nodiscard]] std::uint32_t randomU32();
   void applyDamageAndKnockback(
