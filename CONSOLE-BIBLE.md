@@ -102,6 +102,7 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed. Intern hastighet multipliceras med `40`, så `8 = 320 UPS`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
 | `cl_show_lagcomp` | bool | `0` | bool | Ingen | Arkiv | Visar nuvarande och rewound hitbox samt lag-comp-data. |
+| `cl_show_alive_counts` | bool | `0` | bool | Ingen | Arkiv | Visar antal levande röda och blå spelare på HUD:en i Clan Arena. Kan växlas med `toggle cl_show_alive_counts`. |
 | `cl_interp_mode` | int | `1` | `0..1` | Ingen | Arkiv | Remote interpolation mode. `0`: legacy senaste snapshot-par + lokal render-alpha och gammal viewed tick. `1`: buffrad interpolation med `cl_interp`. |
 | `cl_interp` | float | `0.024` | `0..0.25` | 3 ticks vid 125 Hz | Arkiv | Remote player snapshot interpolation delay i sekunder. Lägre värde minskar visuell latency men kräver jämnare snapshots; högre värde döljer jitter bättre. |
 
@@ -220,6 +221,39 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen | Träfffärgens duration. |
 | `r_enemy_hit_fade` | bool | `1` | bool | Ingen | `1`: gradvis blend. `0`: binär färg. |
 
+### 3.9 Lagkamratens utseende
+
+Dessa cvars används bara för lagkamrater i Clan Arena. Lagkamrater har ingen
+separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
+
+| Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
+|---|---:|---:|---|---|---|
+| `r_teammate_beam_width` | float | `2` | `1..12` | Ingen direkt | Lagkamratens LG-beam-bredd. |
+| `r_teammate_beam_alpha` | float | `1` | `0..1` | Ingen direkt | Lagkamratens LG-beam-opacity. |
+| `r_teammate_beam_r` | int | `80` | `0..255` | Ingen direkt | Beamens röda kanal. |
+| `r_teammate_beam_g` | int | `220` | `0..255` | Ingen direkt | Beamens gröna kanal. |
+| `r_teammate_beam_b` | int | `150` | `0..255` | Ingen direkt | Beamens blå kanal. |
+| `r_teammate_r` | int | `82` | `0..255` | Ingen direkt | Modellens röda kanal. |
+| `r_teammate_g` | int | `190` | `0..255` | Ingen direkt | Modellens gröna kanal. |
+| `r_teammate_b` | int | `224` | `0..255` | Ingen direkt | Modellens blå kanal. |
+| `r_teammate_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
+| `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad | Slår på/av velocity lean för lagkamratmodellen i 3D. |
+| `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för lagkamratmodellens velocity lean. |
+| `r_teammate_health_enable` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |
+| `r_teammate_health_damage_only` | bool | `0` | bool | Ingen direkt | Visar health bar endast efter nylig skada. |
+| `r_teammate_health_fade` | bool | `1` | bool | Ingen direkt | Tonar ut health bar under damage-only-perioden. |
+| `r_teammate_health_duration` | float | `5` | `0..30` sekunder | Ingen direkt | Synlig tid efter skada när damage-only används. |
+| `r_teammate_health_max_distance` | float | `0` | `0..1000` | Ingen direkt | Maxavstånd i 3D; `0` stänger av avståndsgränsen. |
+| `r_teammate_health_width` | float | `72` | `12..360` | Ingen direkt | Health bar-bredd i pixlar. |
+| `r_teammate_health_height` | float | `7` | `2..60` | Ingen direkt | Health bar-höjd i pixlar. |
+| `r_teammate_health_offset_z` | float | `0.35` | `-2..6` | Ingen direkt | Vertikal offset i världen. |
+| `r_teammate_health_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horisontell skärmoffset. |
+| `r_teammate_health_offset_y` | float | `-18` | `-400..400` | Ingen direkt | Vertikal skärmoffset. |
+| `r_teammate_health_alpha` | float | `1` | `0..1` | Ingen direkt | Health bar-opacity. |
+| `r_teammate_health_r` | int | `82` | `0..255` | Ingen direkt | Health barens röda kanal. |
+| `r_teammate_health_g` | int | `190` | `0..255` | Ingen direkt | Health barens gröna kanal. |
+| `r_teammate_health_b` | int | `224` | `0..255` | Ingen direkt | Health barens blå kanal. |
+
 ## 4. Klientkommandon
 
 ### 4.1 Inbyggda konsolkommandon
@@ -239,7 +273,9 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 |---|---|---|
 | `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter och replikerar spelarnamn. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
-| `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. |
+| `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
+| `gamemode <läge>` | `duel`, `ca`, `clanarena` eller `clan_arena` | Väljer spelläge under warmup. Alla spelare får använda kommandot. |
+| `team <lag>` | `red`, `blue`, `none` eller `unassigned` | Väljer lag under warmup. En Clan Arena-spelare måste välja rött eller blått lag innan `ready`. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
@@ -439,6 +475,19 @@ bind mouse2 "+attack"
 bind tab "+scores"
 writeconfig
 ```
+
+Clan Arena:
+
+```text
+gamemode ca
+team red
+cl_show_alive_counts 1
+ready
+```
+
+Under warmup visas valt spelläge och eget lag på HUD:en. I Clan Arena färgas
+spelarnamnen på scoreboarden efter rött eller blått lag. Ojämna lag är tillåtna,
+alla anslutna spelare måste ha valt lag och vara redo, med minst en spelare i vardera laget.
 
 Server:
 
