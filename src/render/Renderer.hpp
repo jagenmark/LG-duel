@@ -115,6 +115,7 @@ struct ConsoleRenderState {
   bool open = false;
   std::vector<std::string> lines;
   std::string input;
+  std::size_t cursorIndex = 0;
 };
 
 struct HudRenderState {

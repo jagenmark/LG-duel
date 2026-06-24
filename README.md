@@ -116,6 +116,7 @@ Client controls:
 - `Ctrl` or `Shift`: negative flight thrust
 - Mouse: raw relative look
 - Left mouse: fire the selected weapon
+- `1`..`7`: select MG / SG / GL / RL / LG / RG / PG
 - `Q` / `E` / `R`: select rocket launcher / lightning gun / railgun
 - `F5`: request an authoritative match reset
 - `F3`: toggle ready state
@@ -164,7 +165,7 @@ bind mouse1 "+attack"
 bind section "toggleconsole"
 ```
 
-Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, `+attack`, and `+zoom`. Use `actionlist` in the console to list them. Game-specific commands include `weapon <lg|rg|rl|1|2|3>`, `resetmatch`, `toggleconsole`, and `quit`. Default weapon binds are `Q` for RL, `E` for LG, and `R` for RG. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
+Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft`, `+moveright`, `+moveup`, `+movedown`, `+attack`, and `+zoom`. Use `actionlist` in the console to list them. Game-specific commands include `weapon <mg|sg|gl|rl|lg|rg|pg|1..7>`, `resetmatch`, `toggleconsole`, and `quit`. Default weapon binds are `1`..`7` for MG/SG/GL/RL/LG/RG/PG, with convenience binds `Q` for RL, `E` for LG, and `R` for RG. Key names are case-insensitive; `leftarrow`, `rightarrow`, `uparrow`, `downarrow`, `grave`, and `backquote` are accepted aliases. The canonical `section` key refers to the physical `§`/grave key left of `1`.
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 

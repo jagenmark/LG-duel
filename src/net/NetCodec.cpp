@@ -215,6 +215,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     isValidGameMode(packet.requestedGameMode) &&
     isValidTeam(packet.requestedTeam) &&
     writer.writeU8(packet.playerIndex) &&
+    writer.writeU32(packet.clientNonce) &&
     writer.writeU32(command.sequence) &&
     writer.writeU32(command.clientTick) &&
     writer.writeFloat(command.viewYawRadians) &&
@@ -265,6 +266,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   std::uint8_t requestedTeam = 0;
   if (
     !reader.readU8(packet.playerIndex) ||
+    !reader.readU32(packet.clientNonce) ||
     !reader.readU32(packet.command.sequence) ||
     !reader.readU32(packet.command.clientTick) ||
     !reader.readFloat(packet.command.viewYawRadians) ||
@@ -312,7 +314,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   }
 
   const bool valid = packet.playerIndex < kDuelPlayerCount &&
-    weapon <= static_cast<std::uint8_t>(Weapon::RocketLauncher) &&
+    weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
     requestedGameMode <= static_cast<std::uint8_t>(GameMode::ClanArena) &&
     requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     std::fabs(packet.command.forwardMove) <= 1.0F &&
@@ -586,7 +588,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
     return false;
   }
   if (
-    weapon > static_cast<std::uint8_t>(Weapon::RocketLauncher) ||
+    weapon > static_cast<std::uint8_t>(kLastWeapon) ||
     damageApplied < 0
   ) {
     return false;

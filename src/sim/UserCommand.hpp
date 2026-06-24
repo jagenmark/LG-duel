@@ -8,7 +8,13 @@ enum class Weapon : std::uint8_t {
   LightningGun = 0,
   Railgun = 1,
   RocketLauncher = 2,
+  MachineGun = 3,
+  Shotgun = 4,
+  GrenadeLauncher = 5,
+  PlasmaGun = 6,
 };
+
+constexpr Weapon kLastWeapon = Weapon::PlasmaGun;
 
 struct UserCommand {
   std::uint32_t sequence = 0;

@@ -519,6 +519,61 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    std::array<bool, lg::kDuelPlayerCount> connected = {};
+    connected[0] = true;
+    std::array<std::uint32_t, lg::kDuelPlayerCount> sessions = {};
+    sessions[0] = 1;
+    server.setConnectedPlayers(connected, sessions);
+    latestSnapshot(transport);
+
+    lg::UserCommand oldSessionCommand;
+    oldSessionCommand.sequence = 100;
+    lg::CommandPacket oldSessionPacket;
+    oldSessionPacket.playerIndex = 0;
+    oldSessionPacket.command = oldSessionCommand;
+    transport.sendCommand(oldSessionPacket);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.hasAcknowledgedCommand[0] &&
+        snapshot.acknowledgedCommand[0] == 100,
+      "old session should establish a high acknowledged command"
+    );
+    const float beforeReconnectMove = snapshot.players[0].position.x;
+
+    sessions[0] = 2;
+    server.setConnectedPlayers(connected, sessions);
+    failures += expect(
+      !server.snapshot().hasAcknowledgedCommand[0],
+      "new session in an occupied slot should clear stale command ack state"
+    );
+
+    lg::UserCommand freshSessionCommand;
+    freshSessionCommand.sequence = 0;
+    freshSessionCommand.forwardMove = 1.0F;
+    lg::CommandPacket freshSessionPacket;
+    freshSessionPacket.playerIndex = 0;
+    freshSessionPacket.command = freshSessionCommand;
+    transport.sendCommand(freshSessionPacket);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
+    failures += expect(
+      snapshot.hasAcknowledgedCommand[0] &&
+        snapshot.acknowledgedCommand[0] == 0,
+      "new session should accept command sequence zero after reconnect"
+    );
+    failures += expect(
+      snapshot.players[0].position.x > beforeReconnectMove,
+      "new session command should move instead of rubberbanding to stale state"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     for (std::uint32_t sequence = 0; sequence < 20; ++sequence) {
       lg::UserCommand targetCommand;
       targetCommand.sequence = sequence;
@@ -704,6 +759,28 @@ int main() {
       clamped.lightningGuns[0].appliedRewindTicks == 25 &&
         clamped.lightningGuns[0].rewindClamped,
       "LG rewind should clamp to 200 ms"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand plasma;
+    plasma.sequence = 77;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.acknowledgedCommand[0] == plasma.sequence,
+      "server should accept and acknowledge expanded weapon selections"
+    );
+    failures += expect(
+      !snapshot.lightningGuns[0].active && !snapshot.weaponFires[0].fired,
+      "unsupported expanded weapons should not fire implemented weapon effects"
     );
   }
 

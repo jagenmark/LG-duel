@@ -73,6 +73,7 @@ struct CommandPacket {
   GameMode requestedGameMode = GameMode::Duel;
   bool requestTeam = false;
   Team requestedTeam = Team::None;
+  std::uint32_t clientNonce = 0;
 };
 
 struct CommandBundle {

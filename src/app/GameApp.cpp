@@ -13,6 +13,7 @@
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #if LG_DUEL_HAS_SDL3
 #include <SDL3/SDL.h>
@@ -64,12 +65,12 @@ enum class AimMode {
   return event.key == SDLK_V && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
 }
 
-void pasteClipboardTextIntoConsole(std::string& input) {
+void pasteClipboardTextIntoConsole(std::string& input, std::size_t& cursorIndex) {
   char* clipboardText = SDL_GetClipboardText();
   if (clipboardText == nullptr) {
     return;
   }
-  appendConsolePasteText(input, clipboardText);
+  appendConsolePasteText(input, cursorIndex, clipboardText);
   SDL_free(clipboardText);
 }
 #endif
@@ -144,6 +145,7 @@ struct LocalInputState {
 struct ClientConsoleState {
   bool open = false;
   std::string input;
+  std::size_t cursorIndex = 0;
   std::deque<std::string> output;
   std::vector<std::string> history;
   std::size_t historyIndex = 0;
@@ -978,6 +980,7 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   ConsoleRenderState renderState;
   renderState.open = state.open;
   renderState.input = state.input;
+  renderState.cursorIndex = state.cursorIndex;
   renderState.lines.assign(state.output.begin(), state.output.end());
   return renderState;
 }
@@ -1037,6 +1040,13 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("1", "weapon mg");
+  (void)bindings.bind("2", "weapon sg");
+  (void)bindings.bind("3", "weapon gl");
+  (void)bindings.bind("4", "weapon rl");
+  (void)bindings.bind("5", "weapon lg");
+  (void)bindings.bind("6", "weapon rg");
+  (void)bindings.bind("7", "weapon pg");
   (void)bindings.bind("q", "weapon rl");
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
@@ -1511,28 +1521,17 @@ int GameApp::run() const {
 
   console.registerCommand(
     "weapon",
-    "Select weapon: weapon <lg|rg|rl|1|2|3>.",
+    "Select weapon: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>.",
     [&selectedWeapon](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+        return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
       }
-      std::string value = arguments[1];
-      std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
-        return static_cast<char>(std::tolower(c));
-      });
-      if (value == "1" || value == "lg" || value == "lightning" || value == "lightninggun") {
-        selectedWeapon = Weapon::LightningGun;
-        return std::string("weapon = lg");
+      const std::optional<Weapon> parsed = parseWeaponToken(arguments[1]);
+      if (parsed.has_value()) {
+        selectedWeapon = *parsed;
+        return std::string("weapon = ") + std::string(weaponShortName(*parsed));
       }
-      if (value == "2" || value == "rg" || value == "rail" || value == "railgun") {
-        selectedWeapon = Weapon::Railgun;
-        return std::string("weapon = rg");
-      }
-      if (value == "3" || value == "rl" || value == "rocket" || value == "rocketlauncher") {
-        selectedWeapon = Weapon::RocketLauncher;
-        return std::string("weapon = rl");
-      }
-      return std::string("usage: weapon <lg|rg|rl|1|2|3>");
+      return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
     }
   );
   console.registerCommand(
@@ -1886,7 +1885,7 @@ int GameApp::run() const {
     }
   );
   loadClientConfig(console, configPath);
-  if (console.getInt("cl_config_version") < 6) {
+  if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
     (void)bindings.bind("z", "showchat");
@@ -1894,13 +1893,20 @@ int GameApp::run() const {
     if (bindings.binding("mouse2").empty()) {
       (void)bindings.bind("mouse2", "+zoom");
     }
+    (void)bindings.bind("1", "weapon mg");
+    (void)bindings.bind("2", "weapon sg");
+    (void)bindings.bind("3", "weapon gl");
+    (void)bindings.bind("4", "weapon rl");
+    (void)bindings.bind("5", "weapon lg");
+    (void)bindings.bind("6", "weapon rg");
+    (void)bindings.bind("7", "weapon pg");
     (void)bindings.bind("q", "weapon rl");
     (void)bindings.bind("e", "weapon lg");
     (void)bindings.bind("r", "weapon rg");
     if (bindings.binding("f5").empty()) {
       (void)bindings.bind("f5", "resetmatch");
     }
-    (void)console.execute("set cl_config_version 6");
+    (void)console.execute("set cl_config_version 7");
   }
   (void)session.connect(serverHost_, serverPort_);
   (void)renderer.setVSync(console.getBool("r_vsync"));
@@ -2073,13 +2079,15 @@ int GameApp::run() const {
             break;
           }
           if (isClipboardPasteKey(event.key)) {
-            pasteClipboardTextIntoConsole(consoleState.input);
+            pasteClipboardTextIntoConsole(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
-            if (!consoleState.input.empty()) {
-              consoleState.input.pop_back();
-            }
+            backspaceConsoleInput(consoleState.input, consoleState.cursorIndex);
+          } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            moveConsoleCursorLeft(consoleState.input, consoleState.cursorIndex);
+          } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            moveConsoleCursorRight(consoleState.input, consoleState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (!consoleState.input.empty()) {
               appendConsoleOutput(consoleState, "] " + consoleState.input);
@@ -2091,28 +2099,36 @@ int GameApp::run() const {
               consoleState.history.push_back(consoleState.input);
               consoleState.historyIndex = consoleState.history.size();
               consoleState.input.clear();
+              consoleState.cursorIndex = 0U;
             }
           } else if (event.key.scancode == SDL_SCANCODE_UP && !consoleState.history.empty()) {
             if (consoleState.historyIndex > 0) {
               --consoleState.historyIndex;
             }
             consoleState.input = consoleState.history[consoleState.historyIndex];
+            consoleState.cursorIndex = consoleState.input.size();
           } else if (event.key.scancode == SDL_SCANCODE_DOWN && !consoleState.history.empty()) {
             if (consoleState.historyIndex + 1 < consoleState.history.size()) {
               ++consoleState.historyIndex;
               consoleState.input = consoleState.history[consoleState.historyIndex];
+              consoleState.cursorIndex = consoleState.input.size();
             } else {
               consoleState.historyIndex = consoleState.history.size();
               consoleState.input.clear();
+              consoleState.cursorIndex = 0U;
             }
           } else if (event.key.scancode == SDL_SCANCODE_TAB) {
-            const std::size_t wordStart = consoleState.input.find_last_of(" \t");
-            const std::size_t prefixStart =
-              wordStart == std::string::npos ? 0U : wordStart + 1U;
-            const std::string prefix = consoleState.input.substr(prefixStart);
+            const std::string prefix = consoleCompletionPrefix(
+              consoleState.input,
+              consoleState.cursorIndex
+            );
             const std::vector<std::string> matches = console.complete(prefix);
             if (matches.size() == 1) {
-              consoleState.input.replace(prefixStart, std::string::npos, matches[0]);
+              replaceConsoleCompletion(
+                consoleState.input,
+                consoleState.cursorIndex,
+                matches[0]
+              );
             } else if (!matches.empty()) {
               std::string line;
               for (const std::string& match : matches) {
@@ -2149,7 +2165,11 @@ int GameApp::run() const {
           suppressNextTextInput = false;
         } else if (consoleState.open) {
           suppressNextTextInput = false;
-          consoleState.input += event.text.text;
+          insertConsoleText(
+            consoleState.input,
+            consoleState.cursorIndex,
+            event.text.text
+          );
         } else if (chatState.inputOpen) {
           suppressNextTextInput = false;
           if (

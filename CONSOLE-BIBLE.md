@@ -354,7 +354,7 @@ knappen släpps.
 | `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
-| `weapon <lg\|rg\|rl\|1\|2\|3>` | Välj lightning gun, railgun eller rocket launcher. Vapenval skickas till servern varje command-tick. |
+| `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|1..7>` | Välj machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun eller plasma gun. Vapenval skickas till servern varje command-tick. |
 
 ### Standardbindings
 
@@ -370,6 +370,13 @@ knappen släpps.
 | `Left/Right Shift` | `+movedown` |
 | `Mouse1` | `+attack` |
 | `Mouse2` | `+zoom` |
+| `1` | `weapon mg` |
+| `2` | `weapon sg` |
+| `3` | `weapon gl` |
+| `4` | `weapon rl` |
+| `5` | `weapon lg` |
+| `6` | `weapon rg` |
+| `7` | `weapon pg` |
 | `Q` | `weapon rl` |
 | `E` | `weapon lg` |
 | `R` | `weapon rg` |

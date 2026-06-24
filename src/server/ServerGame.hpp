@@ -22,6 +22,10 @@ public:
   void setConnectedPlayers(
     const std::array<bool, kDuelPlayerCount>& connectedPlayers
   );
+  void setConnectedPlayers(
+    const std::array<bool, kDuelPlayerCount>& connectedPlayers,
+    const std::array<std::uint32_t, kDuelPlayerCount>& playerSessions
+  );
   void setMatchRules(const MatchRules& rules);
   void setBotDodge(bool enabled, int minIntervalMs, int maxIntervalMs);
   [[nodiscard]] bool botDodgeEnabled() const;
@@ -39,6 +43,7 @@ private:
   };
 
   void receiveCommands();
+  void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
   void respawnRound();
   void updateMatchState();
@@ -96,6 +101,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};
   std::array<bool, kDuelPlayerCount> receivedCommandThisTick_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> playerSessions_ = {};
   bool botDodgeEnabled_ = false;
   int botDodgeMinIntervalMs_ = 250;
   int botDodgeMaxIntervalMs_ = 750;

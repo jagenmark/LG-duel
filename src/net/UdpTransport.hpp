@@ -29,6 +29,8 @@ public:
   [[nodiscard]] std::uint16_t localPort() const;
   [[nodiscard]] std::size_t connectedClientCount() const;
   [[nodiscard]] std::array<bool, kDuelPlayerCount> connectedPlayers() const;
+  [[nodiscard]] std::array<std::uint32_t, kDuelPlayerCount>
+    connectedPlayerSessions() const;
   [[nodiscard]] const std::string& lastError() const;
 
 private:

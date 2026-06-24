@@ -61,6 +61,7 @@ int main() {
   {
     lg::CommandPacket source;
     source.playerIndex = 1;
+    source.clientNonce = 12345;
     source.command.sequence = 42;
     source.command.clientTick = 99;
     source.command.viewYawRadians = 1.25F;
@@ -71,7 +72,7 @@ int main() {
     source.command.attack = true;
     source.command.jump = true;
     source.command.planarAim = false;
-    source.command.weapon = lg::Weapon::RocketLauncher;
+    source.command.weapon = lg::Weapon::PlasmaGun;
     source.requestReset = true;
     source.toggleReady = true;
     source.requestGameMode = true;
@@ -110,6 +111,7 @@ int main() {
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "command should respect packet limit");
     failures += expect(lg::decodeCommandPacket(wire, decoded), "command should decode");
     failures += expect(decoded.playerIndex == source.playerIndex, "command player should round trip");
+    failures += expect(decoded.clientNonce == 12345, "command nonce should round trip");
     failures += expect(decoded.command.sequence == 42, "command sequence should round trip");
     failures += expect(decoded.command.clientTick == 99, "command tick should round trip");
     failures += expect(decoded.viewedServerTick == 88, "viewed server tick should round trip");
@@ -119,7 +121,7 @@ int main() {
     );
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
-    failures += expect(decoded.command.weapon == lg::Weapon::RocketLauncher, "weapon selection should round trip");
+    failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
