@@ -1097,14 +1097,14 @@ HudRenderState buildHud(const ClientSession& session) {
   hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
-    hud.centerOffsetY = -150.0F;
+    hud.centerOffsetY = -220.0F;
     hud.centerLines.push_back(
       std::to_string(connectedCount) + '/' +
       std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
     );
     break;
   case MatchPhase::WaitingForReady:
-    hud.centerOffsetY = -150.0F;
+    hud.centerOffsetY = -220.0F;
     hud.centerLines.push_back(
       snapshot.readyPlayers[localPlayerIndex]
         ? "WAITING FOR OTHER PLAYERS TO READY UP"
