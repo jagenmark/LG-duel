@@ -140,6 +140,12 @@ struct LocalInputState {
   bool hasMousePosition = false;
 };
 
+struct PresentationViewState {
+  float yawRadians = 0.0F;
+  float pitchRadians = 0.0F;
+  bool initialized = false;
+};
+
 struct FrameTimeSummary {
   float averageMilliseconds = 0.0F;
   float p50Milliseconds = 0.0F;
@@ -1714,6 +1720,30 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.weapon = weapon;
   return command;
 }
+
+[[nodiscard]] UserCommand buildCommandWithViewAngles(
+  const LocalInputState& input,
+  std::uint32_t sequence,
+  std::uint32_t clientTick,
+  float yawRadians,
+  float pitchRadians,
+  bool planarAim,
+  Weapon weapon
+) {
+  UserCommand command;
+  command.sequence = sequence;
+  command.clientTick = clientTick;
+  command.viewYawRadians = yawRadians;
+  command.viewPitchRadians = pitchRadians;
+  command.planarAim = planarAim;
+  command.forwardMove = (input.forward > 0 ? 1.0F : 0.0F) - (input.back > 0 ? 1.0F : 0.0F);
+  command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
+  command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
+  command.jump = input.up > 0;
+  command.attack = input.attack > 0;
+  command.weapon = weapon;
+  return command;
+}
 #endif
 
 } // namespace
@@ -2320,6 +2350,9 @@ int GameApp::run() const {
   float displayedFramesPerSecond = 0.0F;
   FrameTimeHistory outerFrameTimes;
   FrameTimeSummary displayedFrameTimes;
+  PresentationViewState presentationView;
+  ClientGame* presentationViewGame = nullptr;
+  bool previousFrameUsedPresentationView = false;
   MovementTuning lastRequestedMovementTuning = movementTuning(console);
   float lastRequestedPlayerSizeScaleXY =
     console.getFloat("g_playersize_xy");
@@ -2653,6 +2686,10 @@ int GameApp::run() const {
     const AimMode frameAimMode = perspectiveRenderMode
       ? AimMode::Relative3D
       : aimModeFromInt(console.getInt("cl_aim_mode"));
+    const bool usePresentationView =
+      perspectiveRenderMode && frameAimMode == AimMode::Relative3D;
+    const bool gameInputControlsView =
+      usePresentationView && !consoleState.open && !chatState.inputOpen;
     const bool wantsRelativeMouse =
       !consoleState.open && frameAimMode == AimMode::Relative3D;
 
@@ -2668,6 +2705,72 @@ int GameApp::run() const {
       input.mouseY = mouseY;
       input.hasMousePosition = true;
     }
+    ClientGame* currentPresentationGame = session.game();
+    if (currentPresentationGame == nullptr) {
+      presentationView = {};
+      presentationViewGame = nullptr;
+      previousFrameUsedPresentationView = usePresentationView;
+    } else if (currentPresentationGame != presentationViewGame) {
+      presentationView = {};
+      presentationViewGame = currentPresentationGame;
+    }
+    const bool enteredPresentationView =
+      usePresentationView && !previousFrameUsedPresentationView;
+    if (enteredPresentationView) {
+      presentationView.initialized = false;
+    }
+    if (
+      usePresentationView &&
+      !presentationView.initialized &&
+      currentPresentationGame != nullptr &&
+      currentPresentationGame->hasSnapshot()
+    ) {
+      const PlayerState& predictedPlayer =
+        currentPresentationGame->predictedPlayer();
+      presentationView.yawRadians = predictedPlayer.viewYawRadians;
+      presentationView.pitchRadians = predictedPlayer.viewPitchRadians;
+      presentationView.initialized = true;
+      input.mouseDeltaX = 0.0F;
+      input.mouseDeltaY = 0.0F;
+    }
+    if (gameInputControlsView && presentationView.initialized) {
+      presentationView.yawRadians = relativeMouseYaw(
+        presentationView.yawRadians,
+        input.mouseDeltaX,
+        console.getFloat("sensitivity") *
+          (
+            zoomPressCount > 0
+              ? zoomSensitivityMultiplier(
+                  console.getFloat("cl_fov"),
+                  console.getFloat("cl_zoom_fov"),
+                  console.getFloat("cl_zoom_sensitivity")
+                )
+              : 1.0F
+          )
+      );
+      presentationView.pitchRadians = clamp(
+        presentationView.pitchRadians -
+          (
+            input.mouseDeltaY *
+            kBaseMouseSensitivityRadians *
+            console.getFloat("sensitivity") *
+            (
+              zoomPressCount > 0
+                ? zoomSensitivityMultiplier(
+                    console.getFloat("cl_fov"),
+                    console.getFloat("cl_zoom_fov"),
+                    console.getFloat("cl_zoom_sensitivity")
+                  )
+                : 1.0F
+            )
+          ),
+        -kMaxPitchRadians,
+        kMaxPitchRadians
+      );
+      input.mouseDeltaX = 0.0F;
+      input.mouseDeltaY = 0.0F;
+    }
+    previousFrameUsedPresentationView = usePresentationView;
     const MovementTuning currentMovementTuning = movementTuning(console);
     const float currentPlayerSizeScaleXY =
       console.getFloat("g_playersize_xy");
@@ -2780,20 +2883,30 @@ int GameApp::run() const {
         (zoomHeld ? zoomSensitivity : 1.0F);
 
       const UserCommand command =
-        buildCommand(
-          tickInput,
-          predictedPlayer,
-          commandSequence++,
-          clientTick++,
-          effectiveSensitivity,
-          currentAimMode,
-          viewportWidth,
-          viewportHeight,
-          effectiveFieldOfView,
-          console.getFloat("cl_camera_zoom"),
-          perspectiveRenderMode ? 1 : 0,
-          selectedWeapon
-        );
+        usePresentationView && presentationView.initialized
+          ? buildCommandWithViewAngles(
+              tickInput,
+              commandSequence++,
+              clientTick++,
+              presentationView.yawRadians,
+              presentationView.pitchRadians,
+              false,
+              selectedWeapon
+            )
+          : buildCommand(
+              tickInput,
+              predictedPlayer,
+              commandSequence++,
+              clientTick++,
+              effectiveSensitivity,
+              currentAimMode,
+              viewportWidth,
+              viewportHeight,
+              effectiveFieldOfView,
+              console.getFloat("cl_camera_zoom"),
+              perspectiveRenderMode ? 1 : 0,
+              selectedWeapon
+            );
       std::string playerNameForCommand = std::move(pendingPlayerName);
       const std::string configuredPlayerName = console.getString("cl_player_name");
       if (
@@ -3226,6 +3339,10 @@ int GameApp::run() const {
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
+    }
+    if (usePresentationView && presentationView.initialized) {
+      renderPlayer.viewYawRadians = presentationView.yawRadians;
+      renderPlayer.viewPitchRadians = presentationView.pitchRadians;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
     currentRenderSettings.hasRemotePlayer = std::any_of(
