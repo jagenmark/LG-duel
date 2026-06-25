@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cstddef>
 #include <cmath>
 #include <cstdlib>
@@ -62,6 +63,28 @@ namespace {
 }
 
 constexpr std::size_t kMaxGpuVertices = 131072;
+
+using RenderClock = std::chrono::steady_clock;
+
+[[nodiscard]] float millisecondsBetween(
+  RenderClock::time_point start,
+  RenderClock::time_point end
+) {
+  return std::chrono::duration<float, std::milli>(end - start).count();
+}
+
+[[nodiscard]] std::string_view presentModeName(SDL_GPUPresentMode mode) {
+  switch (mode) {
+  case SDL_GPU_PRESENTMODE_IMMEDIATE:
+    return "Immediate";
+  case SDL_GPU_PRESENTMODE_MAILBOX:
+    return "Mailbox";
+  case SDL_GPU_PRESENTMODE_VSYNC:
+    return "VSync";
+  default:
+    return "Unknown";
+  }
+}
 
 struct GpuVertex {
   float x = 0.0F;
@@ -710,8 +733,12 @@ const PlayerState& firstVisibleRemote(
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings,
   const HudRenderState& hud,
-  const ConsoleRenderState& console
+  const ConsoleRenderState& console,
+  RendererFrameDiagnostics& diagnostics
 ) {
+  diagnostics.swapchainAcquireMilliseconds = 0.0F;
+  diagnostics.renderBuildUploadMilliseconds = 0.0F;
+  diagnostics.submitMilliseconds = 0.0F;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -721,6 +748,8 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUTexture* swapchainTexture = nullptr;
   Uint32 outputWidth = 0;
   Uint32 outputHeight = 0;
+  const auto acquireStart = RenderClock::now();
+  // This can block on swapchain availability and requested frame pacing.
   if (!SDL_WaitAndAcquireGPUSwapchainTexture(
         commandBuffer,
         window,
@@ -731,6 +760,10 @@ const PlayerState& firstVisibleRemote(
     (void)SDL_CancelGPUCommandBuffer(commandBuffer);
     return false;
   }
+  const auto acquireEnd = RenderClock::now();
+  diagnostics.swapchainAcquireMilliseconds =
+    millisecondsBetween(acquireStart, acquireEnd);
+  const auto buildStart = acquireEnd;
 
   if (swapchainTexture != nullptr && outputWidth > 0 && outputHeight > 0) {
     DrawList2D topDownScene;
@@ -1045,7 +1078,14 @@ const PlayerState& firstVisibleRemote(
     SDL_EndGPURenderPass(overlayPass);
   }
 
-  return SDL_SubmitGPUCommandBuffer(commandBuffer);
+  const auto submitStart = RenderClock::now();
+  diagnostics.renderBuildUploadMilliseconds =
+    millisecondsBetween(buildStart, submitStart);
+  // Submit is CPU-side command submission time, not actual display present time.
+  const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+  diagnostics.submitMilliseconds =
+    millisecondsBetween(submitStart, RenderClock::now());
+  return submitted;
 }
 
 [[nodiscard]] std::uint8_t blendChannel(
@@ -1951,6 +1991,7 @@ void Renderer::render(
   const ConsoleRenderState& console
 ) {
 #if LG_DUEL_HAS_SDL3
+  const auto renderStart = RenderClock::now();
   if (gpuBackend_) {
     auto* depthTexture = static_cast<SDL_GPUTexture*>(gpuDepthTexture_);
     if (!renderGpuFrame(
@@ -1978,18 +2019,26 @@ void Renderer::render(
           rockets,
           settings,
           hud,
-          console
+          console,
+          lastFrameDiagnostics_
         ) &&
         !gpuErrorReported_) {
       std::cerr << "SDL_GPU frame submission failed: " << SDL_GetError() << '\n';
       gpuErrorReported_ = true;
     }
     gpuDepthTexture_ = depthTexture;
+    lastFrameDiagnostics_.totalRenderMilliseconds =
+      millisecondsBetween(renderStart, RenderClock::now());
     return;
   }
 
+  lastFrameDiagnostics_.swapchainAcquireMilliseconds = 0.0F;
+  lastFrameDiagnostics_.renderBuildUploadMilliseconds = 0.0F;
+  lastFrameDiagnostics_.submitMilliseconds = 0.0F;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
+    lastFrameDiagnostics_.totalRenderMilliseconds =
+      millisecondsBetween(renderStart, RenderClock::now());
     return;
   }
 
@@ -2042,6 +2091,8 @@ void Renderer::render(
       )
     );
     SDL_RenderPresent(renderer);
+    lastFrameDiagnostics_.totalRenderMilliseconds =
+      millisecondsBetween(renderStart, RenderClock::now());
     return;
   }
 
@@ -2071,6 +2122,8 @@ void Renderer::render(
     )
   );
   SDL_RenderPresent(renderer);
+  lastFrameDiagnostics_.totalRenderMilliseconds =
+    millisecondsBetween(renderStart, RenderClock::now());
 #else
   (void)arena;
   (void)player;
@@ -2103,17 +2156,26 @@ bool Renderer::setVSync(bool enabled) {
                )) {
       return false;
     }
-    return SDL_SetGPUSwapchainParameters(
+    const bool changed = SDL_SetGPUSwapchainParameters(
       device,
       window,
       SDL_GPU_SWAPCHAINCOMPOSITION_SDR,
       presentMode
     );
+    if (changed) {
+      lastFrameDiagnostics_.selectedPresentModeName =
+        presentModeName(presentMode);
+    }
+    return changed;
   }
 
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
-  return renderer != nullptr &&
+  const bool changed = renderer != nullptr &&
     SDL_SetRenderVSync(renderer, enabled ? 1 : SDL_RENDERER_VSYNC_DISABLED);
+  if (changed) {
+    lastFrameDiagnostics_.selectedPresentModeName = "SDL_Renderer";
+  }
+  return changed;
 #else
   (void)enabled;
   return false;
@@ -2122,6 +2184,10 @@ bool Renderer::setVSync(bool enabled) {
 
 std::string_view Renderer::backendName() const {
   return backendName_;
+}
+
+const RendererFrameDiagnostics& Renderer::lastFrameDiagnostics() const {
+  return lastFrameDiagnostics_;
 }
 
 void Renderer::shutdown() {

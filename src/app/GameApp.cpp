@@ -140,6 +140,61 @@ struct LocalInputState {
   bool hasMousePosition = false;
 };
 
+struct FrameTimeSummary {
+  float averageMilliseconds = 0.0F;
+  float p50Milliseconds = 0.0F;
+  float p95Milliseconds = 0.0F;
+  float p99Milliseconds = 0.0F;
+  float maxMilliseconds = 0.0F;
+};
+
+struct FrameTimeHistory {
+  static constexpr std::size_t kSampleCount = 512;
+
+  std::array<float, kSampleCount> samples = {};
+  std::size_t nextSample = 0;
+  std::size_t sampleCount = 0;
+  std::array<float, kSampleCount> sortedSamples = {};
+
+  void push(float milliseconds) {
+    samples[nextSample] = milliseconds;
+    nextSample = (nextSample + 1U) % samples.size();
+    sampleCount = std::min(sampleCount + 1U, samples.size());
+  }
+
+  [[nodiscard]] FrameTimeSummary summarize() {
+    if (sampleCount == 0) {
+      return {};
+    }
+
+    float sum = 0.0F;
+    for (std::size_t index = 0; index < sampleCount; ++index) {
+      const float sample = samples[index];
+      sortedSamples[index] = sample;
+      sum += sample;
+    }
+    std::sort(sortedSamples.begin(), sortedSamples.begin() + sampleCount);
+    const auto percentile =
+      [&](float fraction) {
+        const std::size_t index = std::min(
+          sampleCount - 1U,
+          static_cast<std::size_t>(
+            std::round(fraction * static_cast<float>(sampleCount - 1U))
+          )
+        );
+        return sortedSamples[index];
+      };
+
+    return {
+      sum / static_cast<float>(sampleCount),
+      percentile(0.50F),
+      percentile(0.95F),
+      percentile(0.99F),
+      sortedSamples[sampleCount - 1U],
+    };
+  }
+};
+
 #if LG_DUEL_HAS_SDL3
 struct ClientConsoleState {
   bool open = false;
@@ -845,6 +900,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_rotate_view", "Rotate relative-aim view so facing direction points up.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
   console.registerCvar({"cl_showfps", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
@@ -2253,13 +2309,17 @@ int GameApp::run() const {
 
   using Clock = std::chrono::steady_clock;
   auto previousTime = Clock::now();
+  auto previousOuterFrameStart = previousTime;
   float accumulatorSeconds = 0.0F;
   float titleAccumulatorSeconds = 0.0F;
+  float frameStatsAccumulatorSeconds = 0.0F;
   constexpr float kWeaponSwitchDurationSeconds = 0.16F;
   float droppedSimulationSeconds = 0.0F;
   std::uint32_t overloadFrameCount = 0;
   std::uint32_t renderedFrameCount = 0;
   float displayedFramesPerSecond = 0.0F;
+  FrameTimeHistory outerFrameTimes;
+  FrameTimeSummary displayedFrameTimes;
   MovementTuning lastRequestedMovementTuning = movementTuning(console);
   float lastRequestedPlayerSizeScaleXY =
     console.getFloat("g_playersize_xy");
@@ -2309,6 +2369,17 @@ int GameApp::run() const {
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   while (running) {
+    const auto outerFrameStart = Clock::now();
+    const auto outerFrameElapsed =
+      std::chrono::duration<float>(outerFrameStart - previousOuterFrameStart);
+    previousOuterFrameStart = outerFrameStart;
+    outerFrameTimes.push(outerFrameElapsed.count() * 1000.0F);
+    frameStatsAccumulatorSeconds += outerFrameElapsed.count();
+    if (frameStatsAccumulatorSeconds >= 0.25F) {
+      displayedFrameTimes = outerFrameTimes.summarize();
+      frameStatsAccumulatorSeconds = 0.0F;
+    }
+
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
       switch (event.type) {
@@ -3004,20 +3075,44 @@ int GameApp::run() const {
       displayedFramesPerSecond =
         static_cast<float>(renderedFrameCount) / titleAccumulatorSeconds;
       renderedFrameCount = 0;
-      char title[256];
-      char fpsText[96] = {};
+      char title[512];
+      char fpsText[256] = {};
       if (console.getBool("cl_showfps")) {
         const float frameMilliseconds = displayedFramesPerSecond > 0.0F
           ? 1000.0F / displayedFramesPerSecond
           : 0.0F;
+        const RendererFrameDiagnostics& renderDiagnostics =
+          renderer.lastFrameDiagnostics();
+        char rendererTimingText[96] = {};
+        if (console.getBool("cl_show_frame_stats")) {
+          std::snprintf(
+            rendererTimingText,
+            sizeof(rendererTimingText),
+            " gpu %.2f/%.2f/%.2f/%.2f",
+            renderDiagnostics.swapchainAcquireMilliseconds,
+            renderDiagnostics.renderBuildUploadMilliseconds,
+            renderDiagnostics.submitMilliseconds,
+            renderDiagnostics.totalRenderMilliseconds
+          );
+        }
+        const std::string_view presentMode =
+          renderDiagnostics.selectedPresentModeName;
         std::snprintf(
           fpsText,
           sizeof(fpsText),
-          " | %.0f FPS %.2f ms %s delay %d",
+          " | %.0f FPS %.2f ms %s delay %d frame %.2f/%.2f/%.2f/%.2f/%.2f mode %.*s%s",
           displayedFramesPerSecond,
           frameMilliseconds,
           std::string(renderer.backendName()).c_str(),
-          console.getBool("cl_legacy_frame_delay") ? 1 : 0
+          console.getBool("cl_legacy_frame_delay") ? 1 : 0,
+          displayedFrameTimes.averageMilliseconds,
+          displayedFrameTimes.p50Milliseconds,
+          displayedFrameTimes.p95Milliseconds,
+          displayedFrameTimes.p99Milliseconds,
+          displayedFrameTimes.maxMilliseconds,
+          static_cast<int>(presentMode.size()),
+          presentMode.data(),
+          rendererTimingText
         );
       }
       const ClientGame* titleClient = session.game();

@@ -197,6 +197,14 @@ struct RemotePlayerView {
   std::string name;
 };
 
+struct RendererFrameDiagnostics {
+  float swapchainAcquireMilliseconds = 0.0F;
+  float renderBuildUploadMilliseconds = 0.0F;
+  float submitMilliseconds = 0.0F;
+  float totalRenderMilliseconds = 0.0F;
+  std::string_view selectedPresentModeName = "n/a";
+};
+
 class Renderer {
 public:
   Renderer() = default;
@@ -219,6 +227,7 @@ public:
   );
   [[nodiscard]] bool setVSync(bool enabled);
   [[nodiscard]] std::string_view backendName() const;
+  [[nodiscard]] const RendererFrameDiagnostics& lastFrameDiagnostics() const;
   void shutdown();
 
 private:
@@ -237,6 +246,7 @@ private:
   std::uint32_t gpuDepthHeight_ = 0;
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
+  RendererFrameDiagnostics lastFrameDiagnostics_ = {};
   bool gpuBackend_ = false;
   bool gpuErrorReported_ = false;
 };
