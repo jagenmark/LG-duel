@@ -45,6 +45,13 @@ private:
     std::array<PlayerState, kDuelPlayerCount> players = {};
   };
 
+  struct FootstepState {
+    Vec3 previousPosition = {};
+    float distanceSinceStep = 0.0F;
+    bool wasOnGround = false;
+    bool initialized = false;
+  };
+
   void receiveCommands();
   [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
   void resetPlayerInputState(std::size_t playerIndex);
@@ -66,6 +73,7 @@ private:
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
   void simulateRockets(float fixedDt);
+  void updateFootstepAudioEvents();
   void restoreTransientCombatEvents();
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
@@ -107,6 +115,10 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> recentWeaponFireTicks_ = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> recentRocketExplosions_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentRocketExplosionTicks_ = {};
+  std::array<FootstepAudioEvent, kDuelPlayerCount> recentFootstepAudioEvents_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
+  std::array<FootstepState, kDuelPlayerCount> footstepStates_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> footstepSequences_ = {};
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
   std::array<UserCommand, kDuelPlayerCount> commands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};

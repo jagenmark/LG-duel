@@ -663,6 +663,18 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
   return true;
 }
 
+bool writeFootstepAudioEvent(Writer& writer, const FootstepAudioEvent& event) {
+  return writer.writeBool(event.active) &&
+    writer.writeU32(event.sequence) &&
+    writeVec3(writer, event.position);
+}
+
+bool readFootstepAudioEvent(Reader& reader, FootstepAudioEvent& event) {
+  return reader.readBool(event.active) &&
+    reader.readU32(event.sequence) &&
+    readVec3(reader, event.position);
+}
+
 bool writeRocketProjectile(
   Writer& writer,
   const RocketProjectileSnapshot& projectile
@@ -902,6 +914,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const FootstepAudioEvent& event : snapshot.footstepAudioEvents) {
+    if (!writeFootstepAudioEvent(writer, event)) {
+      return false;
+    }
+  }
   for (const RocketProjectileSnapshot& projectile : snapshot.rockets) {
     if (!writeRocketProjectile(writer, projectile)) {
       return false;
@@ -1048,6 +1065,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (RocketExplosionResult& result : decoded.rocketExplosions) {
     if (!readRocketExplosion(reader, result)) {
+      return false;
+    }
+  }
+  for (FootstepAudioEvent& event : decoded.footstepAudioEvents) {
+    if (!readFootstepAudioEvent(reader, event)) {
       return false;
     }
   }
