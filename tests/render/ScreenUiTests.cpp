@@ -33,6 +33,59 @@ const lg::Text2D* findText(
   return nullptr;
 }
 
+bool commandTouchesRightHud(const lg::DrawCommand2D& command) {
+  if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+    for (const lg::ScreenPoint& point : quad->points) {
+      if (point.x > 1180.0F) {
+        return true;
+      }
+    }
+  }
+  if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+    return line->start.x > 1180.0F || line->end.x > 1180.0F;
+  }
+  return false;
+}
+
+bool commandOverlapsRect(
+  const lg::DrawCommand2D& command,
+  float x,
+  float y,
+  float width,
+  float height
+) {
+  const float right = x + width;
+  const float bottom = y + height;
+  if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+    float minX = quad->points[0].x;
+    float maxX = quad->points[0].x;
+    float minY = quad->points[0].y;
+    float maxY = quad->points[0].y;
+    for (const lg::ScreenPoint& point : quad->points) {
+      minX = std::min(minX, point.x);
+      maxX = std::max(maxX, point.x);
+      minY = std::min(minY, point.y);
+      maxY = std::max(maxY, point.y);
+    }
+    const float commandWidth = maxX - minX;
+    const float commandHeight = maxY - minY;
+    return commandWidth <= 50.0F && commandHeight <= 45.0F &&
+      maxX > x && minX < right && maxY > y && minY < bottom;
+  }
+  if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+    const float halfWidth = line->width * 0.5F;
+    const float minX = std::min(line->start.x, line->end.x) - halfWidth;
+    const float maxX = std::max(line->start.x, line->end.x) + halfWidth;
+    const float minY = std::min(line->start.y, line->end.y) - halfWidth;
+    const float maxY = std::max(line->start.y, line->end.y) + halfWidth;
+    const float commandWidth = maxX - minX;
+    const float commandHeight = maxY - minY;
+    return commandWidth <= 50.0F && commandHeight <= 45.0F &&
+      maxX > x && minX < right && maxY > y && minY < bottom;
+  }
+  return false;
+}
+
 } // namespace
 
 int main() {
@@ -278,7 +331,17 @@ int main() {
     bool foundHealthLabel = false;
     bool foundScoreboardTitle = false;
     bool foundSpeed = false;
-    bool foundSelectedWeapon = false;
+    std::array<bool, 7> foundWeaponLabels = {};
+    std::size_t rightHudShapeCount = 0;
+    constexpr std::array<std::string_view, 7> weaponLabels = {
+      "MG",
+      "SG",
+      "GL",
+      "RL",
+      "LG",
+      "RG",
+      "PG",
+    };
     for (const lg::DrawCommand2D& command : ui.overlayCommands) {
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
         foundHealthLabel =
@@ -286,13 +349,13 @@ int main() {
         foundScoreboardTitle =
           foundScoreboardTitle || text->text == "SCOREBOARD";
         foundSpeed = foundSpeed || text->text == "SPEED 320 UPS";
-        foundSelectedWeapon =
-          foundSelectedWeapon ||
-          (
-            text->text == "LG" &&
-            text->position.x > 1180.0F &&
-            text->color.red == 255
-          );
+        for (std::size_t index = 0; index < weaponLabels.size(); ++index) {
+          foundWeaponLabels[index] =
+            foundWeaponLabels[index] ||
+            (text->text == weaponLabels[index] && text->position.x > 1180.0F);
+        }
+      } else if (commandTouchesRightHud(command)) {
+        ++rightHudShapeCount;
       }
     }
     failures += expect(
@@ -300,35 +363,70 @@ int main() {
       "enemy health should move out of the static HUD"
     );
     failures += expect(
-      foundSelectedWeapon,
-      "selected weapon indicator should mark LG on the right side"
+      rightHudShapeCount >= 40,
+      "weapon HUD should draw compact per-slot icon silhouettes"
     );
-
-    hud.selectedWeapon = lg::Weapon::PlasmaGun;
-    const lg::DrawList2D plasmaUi = lg::buildScreenUi(
-      1280,
-      720,
-      opponent,
-      settings,
-      hud,
-      console
-    );
-    bool foundPlasmaWeapon = false;
-    for (const lg::DrawCommand2D& command : plasmaUi.overlayCommands) {
-      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
-        foundPlasmaWeapon =
-          foundPlasmaWeapon ||
-          (
-            text->text == "PG" &&
-            text->position.x > 1180.0F &&
-            text->color.red == 255
-          );
-      }
+    bool foundAllWeaponLabels = true;
+    for (bool foundWeaponLabel : foundWeaponLabels) {
+      foundAllWeaponLabels = foundAllWeaponLabels && foundWeaponLabel;
     }
     failures += expect(
-      foundPlasmaWeapon,
-      "selected weapon indicator should mark expanded weapon slots"
+      foundAllWeaponLabels,
+      "selected weapon indicator should show all seven weapon slots"
     );
+
+    constexpr std::array<lg::Weapon, 7> weapons = {{
+      lg::Weapon::MachineGun,
+      lg::Weapon::Shotgun,
+      lg::Weapon::GrenadeLauncher,
+      lg::Weapon::RocketLauncher,
+      lg::Weapon::LightningGun,
+      lg::Weapon::Railgun,
+      lg::Weapon::PlasmaGun,
+    }};
+
+    for (std::size_t index = 0; index < weapons.size(); ++index) {
+      hud.selectedWeapon = weapons[index];
+      const lg::DrawList2D selectedUi = lg::buildScreenUi(
+        1280,
+        720,
+        opponent,
+        settings,
+        hud,
+        console
+      );
+      bool foundSelectedWeapon = false;
+      bool iconOverlapsLabel = false;
+      for (const lg::DrawCommand2D& command : selectedUi.overlayCommands) {
+        if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+          foundSelectedWeapon =
+            foundSelectedWeapon ||
+            (
+              text->text == weaponLabels[index] &&
+              text->position.x > 1180.0F &&
+              text->color.red == 255
+            );
+        } else if (
+          commandOverlapsRect(
+            command,
+            1210.0F,
+            174.0F + 66.0F * static_cast<float>(index),
+            26.0F,
+            14.0F
+          )
+        ) {
+          iconOverlapsLabel = true;
+        }
+      }
+      failures += expect(
+        foundSelectedWeapon,
+        "selected weapon indicator should mark every weapon slot"
+      );
+      failures += expect(
+        !iconOverlapsLabel,
+        "weapon HUD icons should stay clear of their text labels"
+      );
+    }
   }
 
   {
