@@ -851,6 +851,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
+  console.registerCvar({"cl_legacy_frame_delay", "Preserve legacy SDL_Delay(1) at end of client frame.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
@@ -3008,10 +3009,11 @@ int GameApp::run() const {
         std::snprintf(
           fpsText,
           sizeof(fpsText),
-          " | %.0f FPS %.2f ms %s",
+          " | %.0f FPS %.2f ms %s delay %d",
           displayedFramesPerSecond,
           frameMilliseconds,
-          std::string(renderer.backendName()).c_str()
+          std::string(renderer.backendName()).c_str(),
+          console.getBool("cl_legacy_frame_delay") ? 1 : 0
         );
       }
       const ClientGame* titleClient = session.game();
@@ -3371,7 +3373,9 @@ int GameApp::run() const {
       consoleRenderState(consoleState)
     );
     session.update();
-    SDL_Delay(1);
+    if (console.getBool("cl_legacy_frame_delay")) {
+      SDL_Delay(1);
+    }
   }
   saveClientConfig(console, bindings, configPath);
   audio.shutdown();
