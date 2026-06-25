@@ -770,7 +770,12 @@ Scene3D buildPerspectiveScene(
     const float outlineAlpha = remote.teammate
       ? settings.teammateOutlineAlpha
       : settings.enemyOutlineAlpha;
-    if (outlineEnabled && outlineWidth > 0.0F && outlineAlpha > 0.0F) {
+    if (
+      outlineEnabled &&
+      usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
+      outlineWidth > 0.0F &&
+      outlineAlpha > 0.0F
+    ) {
       addPlayerOutline(
         scene,
         remote.player,

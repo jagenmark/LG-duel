@@ -12,6 +12,18 @@
 
 namespace lg {
 
+enum class PlayerOutlineStyle : int {
+  Geometry = 0,
+  ScreenSpace = 1,
+};
+
+[[nodiscard]] inline bool usesGeometryPlayerOutlineFallback(
+  PlayerOutlineStyle style
+) {
+  return style == PlayerOutlineStyle::Geometry ||
+    style == PlayerOutlineStyle::ScreenSpace;
+}
+
 struct RenderSettings {
   int renderMode = 0;
   float fieldOfView = 90.0F;
@@ -71,6 +83,7 @@ struct RenderSettings {
   std::uint8_t enemyBlue = 92;
   float enemyAlpha = 1.0F;
   bool enemyOutlineEnabled = true;
+  PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::Geometry;
   float enemyOutlineWidth = 0.045F;
   float enemyOutlineAlpha = 1.0F;
   std::uint8_t enemyOutlineRed = 255;

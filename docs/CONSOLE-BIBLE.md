@@ -213,6 +213,13 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_g` | int | `82` | `0..255` | Ingen exakt 1:1-default | Modellens grönkanal. |
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
+| `r_player_outline_style` | int | `0` | `0..1` | Ingen direkt | Shared player outline implementation selector. `0`: geometry-expanded fallback. `1`: screen-space mask request, currently falling back to geometry until the SDL_GPU mask/postprocess pass lands. |
+| `r_enemy_outline_enable` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
+| `r_enemy_outline_width` | float | `0.045` | `0..0.5` | Ingen direkt | Geometry fallback outline expansion in world units. |
+| `r_enemy_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy outline opacity. |
+| `r_enemy_outline_r` | int | `255` | `0..255` | Ingen direkt | Enemy outline red channel. |
+| `r_enemy_outline_g` | int | `220` | `0..255` | Ingen direkt | Enemy outline green channel. |
+| `r_enemy_outline_b` | int | `84` | `0..255` | Ingen direkt | Enemy outline blue channel. |
 | `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad model lean | Slår på/av velocity lean för motståndarmodellen i 3D. Påverkar bara renderad modell, inte lokal POV, simulation, aim, hitboxar eller nätkod. |
 | `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för motståndarmodellens velocity lean. `1` motsvarar ungefär Q3-standard, `0` ger ingen lean även om `r_enemy_lean` är på. |
 | `r_enemy_hit_enable` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
@@ -238,6 +245,12 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_g` | int | `190` | `0..255` | Ingen direkt | Modellens gröna kanal. |
 | `r_teammate_b` | int | `224` | `0..255` | Ingen direkt | Modellens blå kanal. |
 | `r_teammate_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
+| `r_teammate_outline_enable` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
+| `r_teammate_outline_width` | float | `0.045` | `0..0.5` | Ingen direkt | Geometry fallback outline expansion in world units. |
+| `r_teammate_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate outline opacity. |
+| `r_teammate_outline_r` | int | `128` | `0..255` | Ingen direkt | Teammate outline red channel. |
+| `r_teammate_outline_g` | int | `240` | `0..255` | Ingen direkt | Teammate outline green channel. |
+| `r_teammate_outline_b` | int | `255` | `0..255` | Ingen direkt | Teammate outline blue channel. |
 | `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad | Slår på/av velocity lean för lagkamratmodellen i 3D. |
 | `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för lagkamratmodellens velocity lean. |
 | `r_teammate_health_enable` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |

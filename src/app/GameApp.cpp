@@ -922,6 +922,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline_enable", "Draw an expanded enemy model outline.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_player_outline_style", "Player outline style: 0 geometry fallback, 1 screen-space mask request.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline_width", "Enemy model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
   console.registerCvar({"r_enemy_outline_alpha", "Enemy model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline_r", "Enemy model outline red channel.", 255, archivedClient, 0.0F, 255.0F});
@@ -1055,6 +1056,9 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
   settings.enemyOutlineEnabled = console.getBool("r_enemy_outline_enable");
+  settings.playerOutlineStyle = static_cast<PlayerOutlineStyle>(
+    console.getInt("r_player_outline_style")
+  );
   settings.enemyOutlineWidth = console.getFloat("r_enemy_outline_width");
   settings.enemyOutlineAlpha = console.getFloat("r_enemy_outline_alpha");
   settings.enemyOutlineRed =

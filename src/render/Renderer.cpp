@@ -1574,7 +1574,11 @@ void drawPerspectiveWorld(
     const float outlineWidth = remote.teammate
       ? settings.teammateOutlineWidth
       : settings.enemyOutlineWidth;
-    if (outlineEnabled && outlineWidth > 0.0F) {
+    if (
+      outlineEnabled &&
+      usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
+      outlineWidth > 0.0F
+    ) {
       const SDL_FColor outlineColor =
         remoteOutlineColor(settings, remote.teammate);
       SDL_SetRenderDrawColor(
