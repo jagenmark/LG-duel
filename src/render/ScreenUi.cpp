@@ -136,6 +136,60 @@ void addWeaponIcon(
   RenderColor color,
   float scale
 ) {
+  const auto rect = [&](float x, float y, float width, float height) {
+    addRect(
+      drawList,
+      centerX + x * scale,
+      centerY + y * scale,
+      width * scale,
+      height * scale,
+      color
+    );
+  };
+  const auto line =
+    [&](float x1, float y1, float x2, float y2, float width) {
+      addLine(
+        drawList,
+        {centerX + x1 * scale, centerY + y1 * scale},
+        {centerX + x2 * scale, centerY + y2 * scale},
+        color,
+        width * scale
+      );
+    };
+
+  if (weapon == Weapon::MachineGun) {
+    rect(-15.0F, -14.0F, 30.0F, 20.0F);
+    rect(-5.0F, -22.0F, 10.0F, 26.0F);
+    rect(-20.0F, 8.0F, 40.0F, 5.0F);
+    line(-2.0F, -22.0F, -2.0F, -30.0F, 2.0F);
+    line(2.0F, -22.0F, 2.0F, -30.0F, 2.0F);
+    return;
+  }
+
+  if (weapon == Weapon::Shotgun) {
+    rect(-21.0F, -15.0F, 42.0F, 6.0F);
+    rect(-21.0F, -5.0F, 42.0F, 6.0F);
+    rect(-17.0F, 8.0F, 34.0F, 8.0F);
+    line(-23.0F, 15.0F, 23.0F, 15.0F, 3.0F);
+    return;
+  }
+
+  if (weapon == Weapon::GrenadeLauncher) {
+    rect(-21.0F, -11.0F, 42.0F, 20.0F);
+    rect(-14.0F, -18.0F, 28.0F, 32.0F);
+    rect(-8.0F, -12.0F, 16.0F, 22.0F);
+    line(-20.0F, 13.0F, 20.0F, 13.0F, 3.0F);
+    return;
+  }
+
+  if (weapon == Weapon::RocketLauncher) {
+    rect(-23.0F, -10.0F, 46.0F, 20.0F);
+    rect(-15.0F, -20.0F, 30.0F, 8.0F);
+    line(-17.0F, -1.0F, 17.0F, -1.0F, 4.0F);
+    line(-11.0F, 11.0F, 11.0F, 11.0F, 3.0F);
+    return;
+  }
+
   if (weapon == Weapon::LightningGun) {
     addLine(
       drawList,
@@ -162,41 +216,20 @@ void addWeaponIcon(
   }
 
   if (weapon == Weapon::Railgun) {
-    addRect(
-      drawList,
-      centerX - 22.0F * scale,
-      centerY - 3.0F * scale,
-      44.0F * scale,
-      6.0F * scale,
-      color
-    );
-    addRect(
-      drawList,
-      centerX + 10.0F * scale,
-      centerY - 9.0F * scale,
-      8.0F * scale,
-      18.0F * scale,
-      color
-    );
+    rect(-20.0F, -3.0F, 40.0F, 6.0F);
+    rect(-4.0F, -19.0F, 8.0F, 34.0F);
+    rect(10.0F, -9.0F, 8.0F, 18.0F);
+    line(-17.0F, -9.0F, 17.0F, -9.0F, 2.0F);
     return;
   }
 
-  addRect(
-    drawList,
-    centerX - 22.0F * scale,
-    centerY - 8.0F * scale,
-    36.0F * scale,
-    16.0F * scale,
-    color
-  );
-  addRect(
-    drawList,
-    centerX + 13.0F * scale,
-    centerY - 5.0F * scale,
-    10.0F * scale,
-    10.0F * scale,
-    color
-  );
+  if (weapon == Weapon::PlasmaGun) {
+    rect(-12.0F, -20.0F, 24.0F, 30.0F);
+    rect(-25.0F, -1.0F, 10.0F, 24.0F);
+    rect(15.0F, -1.0F, 10.0F, 24.0F);
+    rect(-7.0F, -14.0F, 14.0F, 20.0F);
+    line(-18.0F, 12.0F, 18.0F, 12.0F, 3.0F);
+  }
 }
 
 void addSelectedWeaponIndicator(
@@ -268,7 +301,7 @@ void addSelectedWeaponIndicator(
     addWeaponIcon(
       drawList,
       slotX + slotSize * 0.5F,
-      slotY + slotSize * 0.42F,
+      slotY + slotSize * 0.36F,
       weapon,
       icon,
       scale
