@@ -914,6 +914,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"cl_legacy_frame_delay", "Preserve legacy SDL_Delay(1) at end of client frame.", true, archivedClient, {}, {}});
+  console.registerCvar({"cl_local_render_prediction", "Render-only local movement prediction between fixed ticks; does not affect physics or hitreg.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
@@ -3213,11 +3214,12 @@ int GameApp::run() const {
         std::snprintf(
           fpsText,
           sizeof(fpsText),
-          " | %.0f FPS %.2f ms %s delay %d frame %.2f/%.2f/%.2f/%.2f/%.2f mode %.*s%s",
+          " | %.0f FPS %.2f ms %s delay %d lrp %d frame %.2f/%.2f/%.2f/%.2f/%.2f mode %.*s%s",
           displayedFramesPerSecond,
           frameMilliseconds,
           std::string(renderer.backendName()).c_str(),
           console.getBool("cl_legacy_frame_delay") ? 1 : 0,
+          console.getBool("cl_local_render_prediction") ? 1 : 0,
           displayedFrameTimes.averageMilliseconds,
           displayedFrameTimes.p50Milliseconds,
           displayedFrameTimes.p95Milliseconds,
@@ -3280,6 +3282,12 @@ int GameApp::run() const {
       1.0F
     );
     const bool bufferedInterpolation = console.getInt("cl_interp_mode") != 0;
+    const bool localRenderPredictionEnabled =
+      console.getBool("cl_local_render_prediction");
+    const float localRenderPredictionSeconds =
+      localRenderPredictionEnabled
+        ? clamp(accumulatorSeconds, 0.0F, kFixedTickSeconds)
+        : 0.0F;
     PlayerState renderPlayer;
     LightningGunResult renderLocalLightningGun;
     std::array<RemotePlayerView, kDuelPlayerCount> renderRemotePlayers = {};
@@ -3292,6 +3300,62 @@ int GameApp::run() const {
       const std::size_t localPlayerIndex = session.playerIndex();
       renderLocalPlayerIndex = localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
+      if (
+        localRenderPredictionSeconds > 0.0F &&
+        renderPlayer.health > 0
+      ) {
+        int viewportWidth = 0;
+        int viewportHeight = 0;
+        SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
+        const bool zoomHeld = zoomPressCount > 0;
+        const float effectiveFieldOfView = zoomHeld
+          ? console.getFloat("cl_zoom_fov")
+          : console.getFloat("cl_fov");
+        const float zoomSensitivity = zoomSensitivityMultiplier(
+          console.getFloat("cl_fov"),
+          console.getFloat("cl_zoom_fov"),
+          console.getFloat("cl_zoom_sensitivity")
+        );
+        const float effectiveSensitivity = console.getFloat("sensitivity") *
+          (zoomHeld ? zoomSensitivity : 1.0F);
+        const AimMode currentAimMode =
+          aimModeFromInt(console.getInt("cl_aim_mode"));
+        const UserCommand visualCommand =
+          usePresentationView && presentationView.initialized
+            ? buildCommandWithViewAngles(
+                input,
+                commandSequence,
+                clientTick,
+                presentationView.yawRadians,
+                presentationView.pitchRadians,
+                false,
+                selectedWeapon
+              )
+            : buildCommand(
+                input,
+                renderPlayer,
+                commandSequence,
+                clientTick,
+                effectiveSensitivity,
+                currentAimMode,
+                viewportWidth,
+                viewportHeight,
+                effectiveFieldOfView,
+                console.getFloat("cl_camera_zoom"),
+                perspectiveRenderMode ? 1 : 0,
+                selectedWeapon
+              );
+
+        PlayerState visualPlayer = renderPlayer;
+        simulateMovement(
+          visualPlayer,
+          visualCommand,
+          renderClient->arena(),
+          renderClient->movementTuning(),
+          localRenderPredictionSeconds
+        );
+        renderPlayer = visualPlayer;
+      }
       const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (playerIndex == localPlayerIndex) {
