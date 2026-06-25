@@ -464,6 +464,13 @@ for cmd in pending:
         </tbody>
       </table>
       <p><code>LG_DUEL_RENDER_BACKEND=gpu</code> requests SDL_GPU. It prefers Vulkan, then automatic GPU selection, then falls back to SDL_Renderer. The 3D path uses depth-tested opaque geometry, non-depth-writing translucent geometry, and a screen-space HUD pass.</p>
+      <details>
+        <summary>Future OW-style player outlines</summary>
+        <p>The current perspective outline is backend-neutral expanded player geometry emitted by <code>Scene3D.cpp</code>. That keeps the prototype simple and unit-testable, but it is not a true constant-width screen-space silhouette.</p>
+        <p><code>r_player_outline_style 0</code> selects the geometry fallback. <code>r_player_outline_style 1</code> is a screen-space mask request and currently falls back to geometry so outlines stay visible while the GPU pass is unfinished.</p>
+        <p>A future depth-aware silhouette pass should render player mask/depth data into a separate target, then run a fullscreen postprocess that expands the mask edge in screen pixels. That would give clean, constant outlines and can support visible-through-walls behavior separately from normal visible silhouettes.</p>
+        <p>Keep this as renderer work, not gameplay simulation work: it needs extra SDL_GPU texture ownership, a pipeline, shader assets, and fallback behavior before replacing the current geometry outline.</p>
+      </details>
       <div class="note"><strong>Useful boundary:</strong> scene-building tests can inspect draw commands and vertices without creating a GPU device. Manual verification is still needed for actual backend output.</div>
     </section>
 

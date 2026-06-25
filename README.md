@@ -181,6 +181,18 @@ uniforms, depth-tested solid arena geometry, separate non-depth-writing
 translucent geometry, and a screen-space HUD pass. UI text uses a persistent
 bitmap-font atlas.
 
+Enemy outlines in the current perspective scene are intentionally simple
+world-space expanded player geometry, which keeps them testable through the
+backend-neutral scene builder. `r_player_outline_style 0` selects that geometry
+fallback; `r_player_outline_style 1` is reserved for a screen-space mask path
+and currently falls back to the same geometry outline. A future OW-style
+silhouette pass should replace or augment that path with a dedicated player
+mask/depth target plus a fullscreen edge-expansion postprocess. That design
+would provide constant-width screen-space outlines and could support separate
+"visible through walls" behavior, but it still needs SDL_GPU texture ownership,
+a pipeline, shader assets, and fallback behavior to keep the prototype
+reliable.
+
 The SDL_GPU path keeps one frame in flight. With `r_vsync 1`, it prefers
 mailbox presentation and falls back to standard synchronized presentation.
 With `r_vsync 0`, it requests immediate presentation for the lowest available
