@@ -98,6 +98,12 @@ struct RoundCombatStats {
   std::uint32_t damageDealt = 0;
 };
 
+struct FootstepAudioEvent {
+  bool active = false;
+  std::uint32_t sequence = 0;
+  Vec3 position = {};
+};
+
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
@@ -108,6 +114,7 @@ struct ServerSnapshot {
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
+  std::array<FootstepAudioEvent, kDuelPlayerCount> footstepAudioEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};

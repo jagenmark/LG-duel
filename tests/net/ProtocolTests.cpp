@@ -314,6 +314,9 @@ int main() {
     source.rocketExplosions[0].radius = 3.0F;
     source.rocketExplosions[0].ownerDamageApplied = 12;
     source.rocketExplosions[0].opponentDamageApplied = 80;
+    source.footstepAudioEvents[1].active = true;
+    source.footstepAudioEvents[1].sequence = 42;
+    source.footstepAudioEvents[1].position = {2.5F, -1.0F, 1.5F};
     source.rockets[0].active = true;
     source.rockets[0].owner = 1;
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
@@ -458,10 +461,13 @@ int main() {
         nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
         decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
         decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
+        decoded.footstepAudioEvents[1].active &&
+        decoded.footstepAudioEvents[1].sequence == 42 &&
+        nearlyEqual(decoded.footstepAudioEvents[1].position.z, 1.5F) &&
         decoded.rockets[0].active &&
         decoded.rockets[0].owner == 1 &&
         nearlyEqual(decoded.rockets[0].position.z, 1.2F),
-      "rocket projectile and explosion state should round trip"
+      "rocket, explosion, and footstep audio state should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
@@ -564,6 +570,14 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "invalid snapshot team should not encode"
+    );
+
+    invalid = source;
+    invalid.footstepAudioEvents[0].position.x =
+      std::numeric_limits<float>::infinity();
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "non-finite footstep audio event should not encode"
     );
   }
 

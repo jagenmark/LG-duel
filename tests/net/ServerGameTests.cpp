@@ -62,6 +62,31 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    bool emittedFootstep = false;
+    std::uint32_t emittedSequence = 0;
+    for (std::uint32_t tick = 0; tick < 90 && !emittedFootstep; ++tick) {
+      lg::CommandPacket command;
+      command.playerIndex = 1;
+      command.command.sequence = tick + 1;
+      command.command.forwardMove = 1.0F;
+      transport.sendCommand(command);
+      server.tick(lg::kFixedTickSeconds);
+      const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+      emittedFootstep = snapshot.footstepAudioEvents[1].active;
+      emittedSequence = snapshot.footstepAudioEvents[1].sequence;
+    }
+
+    failures += expect(
+      emittedFootstep && emittedSequence > 0,
+      "server should emit authoritative footstep audio events for moving players"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     const std::filesystem::path mapDirectory =
       std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
     std::filesystem::create_directories(mapDirectory);

@@ -79,4 +79,16 @@ WeaponFireAudioEvent routeWeaponFireAudioEvent(
   return event;
 }
 
+bool shouldPlaySnapshotAudioEvent(
+  bool hasLastEvent,
+  bool sameEvent,
+  std::uint32_t serverTick,
+  std::uint32_t lastPlayedServerTick,
+  std::uint32_t transientTicks
+) {
+  return !hasLastEvent ||
+    !sameEvent ||
+    serverTick - lastPlayedServerTick > transientTicks;
+}
+
 } // namespace lg

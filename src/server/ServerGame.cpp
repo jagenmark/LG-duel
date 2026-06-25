@@ -108,6 +108,7 @@ void ServerGame::tick(float fixedDt) {
   updateBotCommands(fixedDt);
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
+  snapshot_.footstepAudioEvents = {};
   snapshot_.rockets = {};
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
     if (cooldown > 0) {
@@ -192,6 +193,7 @@ void ServerGame::tick(float fixedDt) {
     player.position = collision.position;
     player.velocity = collision.velocity;
   }
+  updateFootstepAudioEvents();
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
@@ -557,6 +559,10 @@ void ServerGame::resetMatch() {
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
   recentRocketExplosionTicks_ = {};
+  recentFootstepAudioEvents_ = {};
+  recentFootstepAudioEventTicks_ = {};
+  footstepStates_ = {};
+  footstepSequences_ = {};
   rockets_ = {};
   fractionalVampirismHealing_ = {};
   commands_ = {};
@@ -594,11 +600,16 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.lightningGuns[playerIndex] = {};
   snapshot_.weaponFires[playerIndex] = {};
   snapshot_.rocketExplosions[playerIndex] = {};
+  snapshot_.footstepAudioEvents[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
   railgunCooldownTicks_[playerIndex] = 0;
   machineGunCooldownTicks_[playerIndex] = 0;
   shotgunCooldownTicks_[playerIndex] = 0;
   rocketCooldownTicks_[playerIndex] = 0;
+  recentFootstepAudioEvents_[playerIndex] = {};
+  recentFootstepAudioEventTicks_[playerIndex] = 0;
+  footstepStates_[playerIndex] = {};
+  footstepSequences_[playerIndex] = 0;
   fractionalVampirismHealing_[playerIndex] = 0.0;
 }
 
@@ -1163,6 +1174,66 @@ void ServerGame::simulateRockets(float fixedDt) {
   }
 }
 
+void ServerGame::updateFootstepAudioEvents() {
+  constexpr float kMinimumStepSpeed = 1.15F;
+  constexpr float kLandingStepSpeed = 2.0F;
+  constexpr float kBaseStrideDistance = 1.45F;
+  constexpr float kMinimumStrideDistance = 0.95F;
+
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    FootstepState& state = footstepStates_[playerIndex];
+    const PlayerState& player = snapshot_.players[playerIndex];
+    if (!snapshot_.participatingPlayers[playerIndex] || player.health <= 0) {
+      state = {};
+      continue;
+    }
+
+    if (!state.initialized) {
+      state.previousPosition = player.position;
+      state.wasOnGround = player.onGround;
+      state.initialized = true;
+      continue;
+    }
+
+    const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    const Vec3 delta = player.position - state.previousPosition;
+    const float horizontalDistance = std::hypot(delta.x, delta.y);
+    const bool movingOnGround =
+      player.onGround && horizontalSpeed >= kMinimumStepSpeed;
+
+    auto emitStep = [&]() {
+      FootstepAudioEvent& event = snapshot_.footstepAudioEvents[playerIndex];
+      event.active = true;
+      event.sequence = ++footstepSequences_[playerIndex];
+      event.position = player.position;
+    };
+
+    if (
+      movingOnGround &&
+      !state.wasOnGround &&
+      horizontalSpeed >= kLandingStepSpeed
+    ) {
+      emitStep();
+      state.distanceSinceStep = 0.0F;
+    } else if (movingOnGround) {
+      state.distanceSinceStep += horizontalDistance;
+      const float strideDistance = std::max(
+        kMinimumStrideDistance,
+        kBaseStrideDistance - (horizontalSpeed * 0.045F)
+      );
+      if (state.distanceSinceStep >= strideDistance) {
+        emitStep();
+        state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
+      }
+    } else if (!player.onGround || horizontalSpeed < 0.25F) {
+      state.distanceSinceStep = 0.0F;
+    }
+
+    state.previousPosition = player.position;
+    state.wasOnGround = player.onGround;
+  }
+}
+
 void ServerGame::restoreTransientCombatEvents() {
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (
@@ -1180,6 +1251,14 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.rocketExplosions[playerIndex] =
         recentRocketExplosions_[playerIndex];
     }
+    if (
+      recentFootstepAudioEvents_[playerIndex].active &&
+      snapshot_.serverTick - recentFootstepAudioEventTicks_[playerIndex] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.footstepAudioEvents[playerIndex] =
+        recentFootstepAudioEvents_[playerIndex];
+    }
   }
 }
 
@@ -1193,6 +1272,11 @@ void ServerGame::rememberTransientCombatEvents() {
       recentRocketExplosions_[playerIndex] =
         snapshot_.rocketExplosions[playerIndex];
       recentRocketExplosionTicks_[playerIndex] = snapshot_.serverTick;
+    }
+    if (snapshot_.footstepAudioEvents[playerIndex].active) {
+      recentFootstepAudioEvents_[playerIndex] =
+        snapshot_.footstepAudioEvents[playerIndex];
+      recentFootstepAudioEventTicks_[playerIndex] = snapshot_.serverTick;
     }
   }
 }
