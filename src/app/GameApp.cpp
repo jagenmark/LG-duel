@@ -284,62 +284,58 @@ public:
   }
 
   void playHit(float volume, int damageApplied) {
-    const float damageScale =
-      std::clamp(static_cast<float>(damageApplied) / 100.0F, 0.0F, 1.0F);
-    const float baseFrequency = 920.0F - (damageScale * 190.0F);
-    queueHitPing(baseFrequency, volume);
+    if (damageApplied >= 80) {
+      queueClip(hitConfirmHeavyClip_, volume, 0.0F);
+    } else if (damageApplied >= 40) {
+      queueClip(hitConfirmMediumClip_, volume, 0.0F);
+    } else {
+      queueClip(hitConfirmLightClip_, volume, 0.0F);
+    }
+  }
+
+  void playPainGrunt(float volume, float pan = 0.0F) {
+    if (painGruntFramesRemaining_ > 0U) {
+      return;
+    }
+    if (queueClip(painGruntClip_, volume, pan)) {
+      painGruntFramesRemaining_ = painGruntClip_.samples.size();
+    }
   }
 
   void playRailFire(float volume, float pan = 0.0F) {
-    queueRailDischarge(volume, pan);
+    queueClip(railgunFireClip_, volume, pan);
   }
 
   void playRailReady(float volume) {
-    queueTone(760.0F, 0.035F, volume * 0.55F);
-    queueTone(1040.0F, 0.045F, volume * 0.45F);
+    queueClip(railgunReadyClip_, volume, 0.0F);
   }
 
   void playRocketFire(float volume, float pan = 0.0F) {
-    queueRocketFire(volume, pan);
+    queueClip(rocketLauncherFireClip_, volume, pan);
   }
 
   void playMachineGunFire(float volume, float pan = 0.0F) {
-    if (queueClip(machineGunFireClip_, volume, pan)) {
-      return;
-    }
-    queueMachineGunFire(volume, pan);
+    queueClip(machineGunFireClip_, volume, pan);
   }
 
   void playShotgunFire(float volume, float pan = 0.0F) {
-    if (queueClip(shotgunFireClip_, volume, pan)) {
-      return;
-    }
-    queueShotgunFire(volume, pan);
+    queueClip(shotgunFireClip_, volume, pan);
   }
 
   void playGrenadeLauncherFire(float volume, float pan = 0.0F) {
-    if (queueClip(grenadeLauncherFireClip_, volume, pan)) {
-      return;
-    }
-    queueGrenadeLauncherFire(volume, pan);
+    queueClip(grenadeLauncherFireClip_, volume, pan);
   }
 
   void playPlasmaGunFire(float volume, float pan = 0.0F) {
-    if (queueClip(plasmaGunFireClip_, volume, pan)) {
-      return;
-    }
-    queuePlasmaGunFire(volume, pan);
+    queueClip(plasmaGunFireClip_, volume, pan);
   }
 
   void playRocketExplosion(float volume, float pan = 0.0F) {
-    queueRocketPop(volume, pan);
+    queueClip(rocketExplosionClip_, volume, pan);
   }
 
   void playFootstep(float volume, std::uint32_t stepIndex, float pan = 0.0F) {
-    if (queueClip(footstepClip_, volume * footstepGain(stepIndex), pan)) {
-      return;
-    }
-    queueFootstep(volume, stepIndex, pan);
+    queueClip(footstepClip_, volume * footstepGain(stepIndex), pan);
   }
 
   void setLightningGunFire(bool active, float volume, float pan = 0.0F) {
@@ -358,22 +354,35 @@ public:
     lightningGunFireGain_ = 0.0F;
     lightningGunFirePan_ = 0.0F;
     lightningGunSampleIndex_ = 0;
+    painGruntFramesRemaining_ = 0;
   }
 
   void playRoundResult(bool won, float volume) {
     if (won) {
-      queueTone(520.0F, 0.08F, volume);
-      queueTone(780.0F, 0.12F, volume);
+      queueClip(roundWinClip_, volume, 0.0F);
     } else {
-      queueTone(420.0F, 0.09F, volume);
-      queueTone(260.0F, 0.14F, volume);
+      queueClip(roundLossClip_, volume, 0.0F);
     }
   }
 
   void playCountdown(std::uint32_t seconds, float volume) {
-    const float urgency = 5.0F - static_cast<float>(std::min(seconds, 5U));
-    queueTone(440.0F + (urgency * 55.0F), 0.11F, volume * 0.8F);
-    queueTone(220.0F + (urgency * 27.5F), 0.07F, volume * 0.45F);
+    switch (std::min(seconds, 5U)) {
+    case 1:
+      queueClip(countdownOneClip_, volume, 0.0F);
+      break;
+    case 2:
+      queueClip(countdownTwoClip_, volume, 0.0F);
+      break;
+    case 3:
+      queueClip(countdownThreeClip_, volume, 0.0F);
+      break;
+    case 4:
+      queueClip(countdownFourClip_, volume, 0.0F);
+      break;
+    default:
+      queueClip(countdownFiveClip_, volume, 0.0F);
+      break;
+    }
   }
 
   void update() {
@@ -401,12 +410,28 @@ private:
 
   void loadCueAssets(const std::filesystem::path& assetBasePath) {
     lightningGunLoop_ = loadCueClip(assetBasePath, AudioCue::LightningGunFireLoop);
+    hitConfirmLightClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmLight);
+    hitConfirmMediumClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmMedium);
+    hitConfirmHeavyClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmHeavy);
+    painGruntClip_ = loadCueClip(assetBasePath, AudioCue::PainGrunt);
+    railgunFireClip_ = loadCueClip(assetBasePath, AudioCue::RailgunFire);
+    railgunReadyClip_ = loadCueClip(assetBasePath, AudioCue::RailgunReady);
+    rocketLauncherFireClip_ =
+      loadCueClip(assetBasePath, AudioCue::RocketLauncherFire);
+    rocketExplosionClip_ = loadCueClip(assetBasePath, AudioCue::RocketExplosion);
     machineGunFireClip_ = loadCueClip(assetBasePath, AudioCue::MachineGunFire);
     shotgunFireClip_ = loadCueClip(assetBasePath, AudioCue::ShotgunFire);
     grenadeLauncherFireClip_ =
       loadCueClip(assetBasePath, AudioCue::GrenadeLauncherFire);
     plasmaGunFireClip_ = loadCueClip(assetBasePath, AudioCue::PlasmaGunFire);
     footstepClip_ = loadCueClip(assetBasePath, AudioCue::Footstep);
+    roundWinClip_ = loadCueClip(assetBasePath, AudioCue::RoundWin);
+    roundLossClip_ = loadCueClip(assetBasePath, AudioCue::RoundLoss);
+    countdownFiveClip_ = loadCueClip(assetBasePath, AudioCue::CountdownFive);
+    countdownFourClip_ = loadCueClip(assetBasePath, AudioCue::CountdownFour);
+    countdownThreeClip_ = loadCueClip(assetBasePath, AudioCue::CountdownThree);
+    countdownTwoClip_ = loadCueClip(assetBasePath, AudioCue::CountdownTwo);
+    countdownOneClip_ = loadCueClip(assetBasePath, AudioCue::CountdownOne);
   }
 
   [[nodiscard]] static LoadedClip loadCueClip(
@@ -469,7 +494,7 @@ private:
     samples.push_back(std::clamp(sample * gains.right, -0.98F, 0.98F));
   }
 
-  [[nodiscard]] bool queueClip(const LoadedClip& clip, float volume, float pan) {
+  bool queueClip(const LoadedClip& clip, float volume, float pan) {
     if (stream_ == nullptr || volume <= 0.0F || clip.samples.empty()) {
       return false;
     }
@@ -487,165 +512,6 @@ private:
     return stepIndex % 2U == 0U ? 0.92F : 0.78F;
   }
 
-  [[nodiscard]] static float audioEnvelope(
-    float time,
-    float duration,
-    float attack,
-    float release,
-    float curve
-  ) {
-    const float clampedAttack = std::min(attack, duration * 0.35F);
-    const float clampedRelease = std::min(release, duration * 0.7F);
-    if (time < clampedAttack) {
-      return time / std::max(clampedAttack, 0.0001F);
-    }
-    if (time > duration - clampedRelease) {
-      const float releaseProgress =
-        (duration - time) / std::max(clampedRelease, 0.0001F);
-      return std::pow(std::max(0.0F, releaseProgress), curve);
-    }
-    return 1.0F;
-  }
-
-  [[nodiscard]] static float sine(float frequency, float time, float phase = 0.0F) {
-    constexpr float kTwoPi = 6.28318530718F;
-    return std::sin((kTwoPi * frequency * time) + phase);
-  }
-
-  [[nodiscard]] static float triangle(float frequency, float time) {
-    const float phase = frequency * time - std::floor(frequency * time);
-    return (4.0F * std::abs(phase - 0.5F)) - 1.0F;
-  }
-
-  [[nodiscard]] static float saw(float frequency, float time) {
-    const float phase = frequency * time - std::floor(frequency * time);
-    return (2.0F * phase) - 1.0F;
-  }
-
-  [[nodiscard]] static float noise(int sampleIndex) {
-    std::uint32_t value = static_cast<std::uint32_t>(sampleIndex) * 747796405U +
-      2891336453U;
-    value = ((value >> ((value >> 28U) + 4U)) ^ value) * 277803737U;
-    value = (value >> 22U) ^ value;
-    return (static_cast<float>(value & 0xFFFFU) / 32767.5F) - 1.0F;
-  }
-
-  void queueRailDischarge(float volume, float pan) {
-    queueSynth(0.185F, volume, pan, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.18F, 1.0F);
-      const float fastProgress = std::min(time / 0.10F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.185F, 0.002F, 0.070F, 1.35F);
-      return envelope * (
-        0.40F * sine(138.0F - (42.0F * progress), time) +
-        0.24F * sine(276.0F - (90.0F * std::min(time / 0.12F, 1.0F)), time) +
-        0.14F * saw(640.0F - (360.0F * fastProgress), time) +
-        0.06F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueHitPing(float baseFrequency, float volume) {
-    queueSynth(0.090F, volume, 0.0F, [baseFrequency](float time, int) {
-      const float progress = std::min(time / 0.03F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.090F, 0.001F, 0.070F, 1.7F);
-      return envelope * (
-        0.40F * sine(baseFrequency + (60.0F * progress), time) +
-        0.22F * sine((baseFrequency * 1.5F) + (90.0F * progress), time)
-      );
-    });
-  }
-
-  void queueRocketFire(float volume, float pan) {
-    queueSynth(0.185F, volume, pan, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.14F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.185F, 0.003F, 0.060F, 1.35F);
-      return envelope * (
-        0.34F * sine(135.0F + (175.0F * progress), time) +
-        0.18F * triangle(270.0F + (255.0F * std::min(time / 0.13F, 1.0F)), time) +
-        0.11F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueRocketPop(float volume, float pan) {
-    queueSynth(0.210F, volume, pan, [](float time, int sampleIndex) {
-      const float envelope = audioEnvelope(time, 0.210F, 0.001F, 0.095F, 1.35F);
-      const float bounceFrequency = time < 0.045F ? 520.0F : 374.0F;
-      return envelope * (
-        0.38F * sine(120.0F - (44.0F * std::min(time / 0.14F, 1.0F)), time) +
-        0.24F * triangle(240.0F - (92.0F * std::min(time / 0.10F, 1.0F)), time) +
-        0.10F * sine(bounceFrequency, time) +
-        0.10F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueMachineGunFire(float volume, float pan) {
-    queueSynth(0.055F, volume * 0.62F, pan, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.055F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.055F, 0.001F, 0.035F, 1.65F);
-      return envelope * (
-        0.30F * sine(230.0F - (80.0F * progress), time) +
-        0.18F * triangle(520.0F - (260.0F * progress), time) +
-        0.16F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueShotgunFire(float volume, float pan) {
-    queueSynth(0.155F, volume * 0.82F, pan, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.155F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.155F, 0.001F, 0.085F, 1.45F);
-      return envelope * (
-        0.36F * sine(118.0F - (38.0F * progress), time) +
-        0.20F * triangle(210.0F - (72.0F * progress), time) +
-        0.22F * noise(sampleIndex) * (1.0F - (progress * 0.35F))
-      );
-    });
-  }
-
-  void queueGrenadeLauncherFire(float volume, float pan) {
-    queueSynth(0.170F, volume * 0.78F, pan, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.145F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.170F, 0.002F, 0.075F, 1.4F);
-      return envelope * (
-        0.32F * sine(105.0F + (90.0F * progress), time) +
-        0.18F * triangle(190.0F + (110.0F * progress), time) +
-        0.15F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queuePlasmaGunFire(float volume, float pan) {
-    queueSynth(0.070F, volume * 0.52F, pan, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.070F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.070F, 0.001F, 0.040F, 1.55F);
-      return envelope * (
-        0.24F * sine(760.0F + (180.0F * progress), time) +
-        0.18F * sine(1140.0F + (260.0F * progress), time) +
-        0.08F * triangle(380.0F, time) +
-        0.06F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueFootstep(float volume, std::uint32_t stepIndex, float pan) {
-    queueSynth(0.105F, volume, pan, [stepIndex](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.105F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.105F, 0.001F, 0.055F, 1.85F);
-      const float lowThump =
-        sine(92.0F - (18.0F * progress) + static_cast<float>(stepIndex % 2U) * 7.0F, time);
-      const float slap =
-        triangle(210.0F + static_cast<float>(stepIndex % 3U) * 18.0F, time);
-      const float grit = noise(sampleIndex + static_cast<int>(stepIndex * 97U));
-      return envelope * (
-        0.30F * lowThump +
-        0.16F * slap +
-        0.18F * grit * (1.0F - progress)
-      );
-    });
-  }
-
   [[nodiscard]] float lightningGunSample() {
     if (!lightningGunLoop_.samples.empty()) {
       const float sample =
@@ -658,19 +524,7 @@ private:
         (lightningGunSampleIndex_ + 1U) % lightningGunLoop_.samples.size();
       return sample;
     }
-
-    constexpr std::uint64_t kLightningGunPeriodSamples =
-      static_cast<std::uint64_t>(kSampleRate / 48);
-    const float time =
-      static_cast<float>(lightningGunSampleIndex_) / static_cast<float>(kSampleRate);
-    lightningGunSampleIndex_ =
-      (lightningGunSampleIndex_ + 1U) % kLightningGunPeriodSamples;
-
-    return
-      0.46F * sine(96.0F, time) +
-      0.24F * sine(192.0F, time) +
-      0.16F * std::tanh(sine(48.0F, time) * 1.9F) +
-      0.07F * triangle(288.0F, time);
+    return 0.0F;
   }
 
   void mixLightningGunLoop(std::vector<float>& buffer) {
@@ -703,77 +557,8 @@ private:
   }
 
   [[nodiscard]] bool hasActiveLoop() const {
-    return lightningGunFireActive_ || lightningGunFireGain_ > 0.0005F;
-  }
-
-  template <typename Generator>
-  void queueSynth(
-    float durationSeconds,
-    float volume,
-    float pan,
-    Generator generator
-  ) {
-    if (stream_ == nullptr || volume <= 0.0F) {
-      return;
-    }
-
-    const int sampleCount =
-      std::max(1, static_cast<int>(durationSeconds * kSampleRate));
-    const StereoGains gains = stereoGains(pan);
-    std::vector<float> samples(
-      static_cast<std::size_t>(sampleCount) * kOutputChannels,
-      0.0F
-    );
-    for (int index = 0; index < sampleCount; ++index) {
-      const float time =
-        static_cast<float>(index) / static_cast<float>(kSampleRate);
-      const float sample = generator(time, index) * volume;
-      const std::size_t offset = static_cast<std::size_t>(index) * kOutputChannels;
-      samples[offset] = std::clamp(sample * gains.left, -0.98F, 0.98F);
-      samples[offset + 1U] = std::clamp(sample * gains.right, -0.98F, 0.98F);
-    }
-    const int fadeSamples = std::min(160, sampleCount / 8);
-    for (int index = 0; index < fadeSamples; ++index) {
-      const float gain = static_cast<float>(index) /
-        static_cast<float>(std::max(1, fadeSamples));
-      const std::size_t frontOffset =
-        static_cast<std::size_t>(index) * kOutputChannels;
-      const std::size_t backOffset =
-        static_cast<std::size_t>(sampleCount - 1 - index) * kOutputChannels;
-      samples[frontOffset] *= gain;
-      samples[frontOffset + 1U] *= gain;
-      samples[backOffset] *= gain;
-      samples[backOffset + 1U] *= gain;
-    }
-    addVoice(std::move(samples));
-  }
-
-  void queueTone(float frequency, float durationSeconds, float volume) {
-    if (stream_ == nullptr || volume <= 0.0F) {
-      return;
-    }
-
-    const int sampleCount =
-      std::max(1, static_cast<int>(durationSeconds * kSampleRate));
-    std::vector<float> samples(
-      static_cast<std::size_t>(sampleCount) * kOutputChannels,
-      0.0F
-    );
-    constexpr float kTwoPi = 6.28318530718F;
-    for (int index = 0; index < sampleCount; ++index) {
-      const float progress =
-        static_cast<float>(index) / static_cast<float>(sampleCount);
-      const float envelope = 1.0F - progress;
-      const float sample =
-        std::sin(
-          kTwoPi * frequency *
-          (static_cast<float>(index) / static_cast<float>(kSampleRate))
-        ) * envelope * volume;
-      const std::size_t offset = static_cast<std::size_t>(index) * kOutputChannels;
-      samples[offset] = std::clamp(sample, -0.98F, 0.98F);
-      samples[offset + 1U] = std::clamp(sample, -0.98F, 0.98F);
-    }
-    addVoice(std::move(samples));
+    return !lightningGunLoop_.samples.empty() &&
+      (lightningGunFireActive_ || lightningGunFireGain_ > 0.0005F);
   }
 
   void addVoice(std::vector<float> samples) {
@@ -833,6 +618,12 @@ private:
       for (SoundVoice& voice : voices_) {
         voice.playhead += static_cast<std::size_t>(sampleCount);
       }
+      if (painGruntFramesRemaining_ > 0U) {
+        painGruntFramesRemaining_ =
+          static_cast<std::size_t>(sampleCount) >= painGruntFramesRemaining_
+          ? 0U
+          : painGruntFramesRemaining_ - static_cast<std::size_t>(sampleCount);
+      }
       removeFinishedVoices();
       SDL_PutAudioStreamData(
         stream_,
@@ -873,17 +664,33 @@ private:
   std::vector<SoundVoice> voices_;
   std::vector<float> mixBuffer_;
   LoadedClip lightningGunLoop_;
+  LoadedClip hitConfirmLightClip_;
+  LoadedClip hitConfirmMediumClip_;
+  LoadedClip hitConfirmHeavyClip_;
+  LoadedClip painGruntClip_;
+  LoadedClip railgunFireClip_;
+  LoadedClip railgunReadyClip_;
+  LoadedClip rocketLauncherFireClip_;
+  LoadedClip rocketExplosionClip_;
   LoadedClip machineGunFireClip_;
   LoadedClip shotgunFireClip_;
   LoadedClip grenadeLauncherFireClip_;
   LoadedClip plasmaGunFireClip_;
   LoadedClip footstepClip_;
+  LoadedClip roundWinClip_;
+  LoadedClip roundLossClip_;
+  LoadedClip countdownFiveClip_;
+  LoadedClip countdownFourClip_;
+  LoadedClip countdownThreeClip_;
+  LoadedClip countdownTwoClip_;
+  LoadedClip countdownOneClip_;
   bool lightningGunFireActive_ = false;
   float lightningGunFireTargetVolume_ = 0.0F;
   float lightningGunFireTargetPan_ = 0.0F;
   float lightningGunFireGain_ = 0.0F;
   float lightningGunFirePan_ = 0.0F;
   std::uint64_t lightningGunSampleIndex_ = 0;
+  std::size_t painGruntFramesRemaining_ = 0;
 };
 
 void updateFootstepAudio(
@@ -2491,6 +2298,7 @@ int GameApp::run() const {
   bool localRailReadySoundPlayed = true;
   MatchPhase lastAudioMatchPhase = MatchPhase::WaitingForPlayers;
   std::uint32_t lastAudioCountdownSecond = 0;
+  std::array<int, kDuelPlayerCount> lastAudioPlayerHealth = {};
   bool previousLocalHit = false;
   bool audioStateInitialized = false;
   bool hasLocalPlayerAliveState = false;
@@ -3082,6 +2890,7 @@ int GameApp::run() const {
       lastLocalRailFireTick = 0;
       hasLocalRailFireTick = false;
       localRailReadySoundPlayed = true;
+      lastAudioPlayerHealth = {};
       previousLocalHit = false;
       hasLocalPlayerAliveState = false;
       wasLocalPlayerAlive = false;
@@ -3118,6 +2927,29 @@ int GameApp::run() const {
         const float volume = console.getFloat("s_volume");
         const bool soundEnabled = console.getBool("s_enable");
         const float footstepVolume = volume * console.getFloat("s_footstep_volume");
+        auto playPainGruntIfDamaged = [&](std::size_t playerIndex) {
+          if (!soundEnabled || !audioStateInitialized) {
+            return;
+          }
+          const PlayerState& player = audioSnapshot.players[playerIndex];
+          if (
+            !audioSnapshot.connectedPlayers[playerIndex] ||
+            player.health >= lastAudioPlayerHealth[playerIndex] ||
+            lastAudioPlayerHealth[playerIndex] <= 0
+          ) {
+            return;
+          }
+          const SpatialAudio painAudio = playerIndex == localPlayerIndex
+            ? SpatialAudio{volume, 0.0F}
+            : worldAudio(volume, player.position, currentAudioGame->predictedPlayer());
+          audio.playPainGrunt(painAudio.volume, painAudio.pan);
+        };
+        playPainGruntIfDamaged(localPlayerIndex);
+        for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+          if (playerIndex != localPlayerIndex) {
+            playPainGruntIfDamaged(playerIndex);
+          }
+        }
         constexpr std::uint32_t kHitSoundIntervalTicks = 10;
         if (
           soundEnabled &&
@@ -3299,6 +3131,9 @@ int GameApp::run() const {
           audio.playCountdown(countdownSecond, volume);
         }
         lastAudioCountdownSecond = countdownSecond;
+        for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+          lastAudioPlayerHealth[playerIndex] = audioSnapshot.players[playerIndex].health;
+        }
         previousLocalHit = localHit;
         lastAudioServerTick = audioSnapshot.serverTick;
         lastAudioMatchPhase = audioSnapshot.matchPhase;
