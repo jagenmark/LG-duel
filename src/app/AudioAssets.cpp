@@ -177,6 +177,8 @@ const char* audioCueFileName(AudioCue cue) {
     return "hit_confirm_heavy.wav";
   case AudioCue::PainGrunt:
     return "pain_grunt.wav";
+  case AudioCue::Frag:
+    return "frag.wav";
   case AudioCue::RailgunFire:
     return "rg_fire_discharge.wav";
   case AudioCue::RailgunReady:

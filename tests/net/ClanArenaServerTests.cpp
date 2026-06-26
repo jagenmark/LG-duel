@@ -368,6 +368,11 @@ int main() {
         snapshot.scores[0] == 1,
       "eliminating one enemy should award an individual kill without ending the round"
     );
+    failures += expect(
+      snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1,
+      "authoritative Clan Arena elimination should emit a frag event for the killer"
+    );
 
     snapshot = stopAttack(transport, server, 0, redSequence++);
     const lg::Vec3 deadPosition = snapshot.players[1].position;

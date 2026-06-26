@@ -160,12 +160,13 @@ void writeStereoPcm24ExtensibleWav(const std::filesystem::path& path) {
 } // namespace
 
 int main() {
-  const std::array<std::pair<lg::AudioCue, const char*>, 21> runtimeCues{{
+  const std::array<std::pair<lg::AudioCue, const char*>, 22> runtimeCues{{
     {lg::AudioCue::LightningGunFireLoop, "lg_fire_selected_low_drone.wav"},
     {lg::AudioCue::HitConfirmLight, "hit_confirm_light.wav"},
     {lg::AudioCue::HitConfirmMedium, "hit_confirm_medium.wav"},
     {lg::AudioCue::HitConfirmHeavy, "hit_confirm_heavy.wav"},
     {lg::AudioCue::PainGrunt, "pain_grunt.wav"},
+    {lg::AudioCue::Frag, "frag.wav"},
     {lg::AudioCue::RailgunFire, "rg_fire_discharge.wav"},
     {lg::AudioCue::RailgunReady, "rg_ready_chime.wav"},
     {lg::AudioCue::RocketLauncherFire, "rl_fire_launch.wav"},

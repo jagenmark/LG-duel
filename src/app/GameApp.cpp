@@ -1600,6 +1600,9 @@ int GameApp::run() const {
   std::array<RocketExplosionResult, kDuelPlayerCount> lastPlayedRocketExplosions = {};
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedRocketExplosionAudioTicks = {};
   std::array<bool, kDuelPlayerCount> hasLastPlayedRocketExplosion = {};
+  std::array<FragEvent, kDuelPlayerCount> lastPlayedFragEvents = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFragAudioTicks = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlayedFragEvent = {};
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
   bool hasLocalRailFireTick = false;
@@ -2191,6 +2194,9 @@ int GameApp::run() const {
       lastPlayedRocketExplosions = {};
       lastPlayedRocketExplosionAudioTicks = {};
       hasLastPlayedRocketExplosion = {};
+      lastPlayedFragEvents = {};
+      lastPlayedFragAudioTicks = {};
+      hasLastPlayedFragEvent = {};
       lastPlayedFootstepAudioSequences = {};
       lastLocalRailFireTick = 0;
       hasLocalRailFireTick = false;
@@ -2306,6 +2312,23 @@ int GameApp::run() const {
           }
         }
         if (soundEnabled && audioStateInitialized) {
+          const FragEvent& localFrag = audioSnapshot.fragEvents[localPlayerIndex];
+          if (
+            localFrag.active &&
+            shouldPlaySnapshotAudioEvent(
+              hasLastPlayedFragEvent[localPlayerIndex],
+              sameFragEvent(localFrag, lastPlayedFragEvents[localPlayerIndex]),
+              audioSnapshot.serverTick,
+              lastPlayedFragAudioTicks[localPlayerIndex],
+              kTransientAudioEventTicks
+            )
+          ) {
+            audio.playFrag(volume);
+            lastPlayedFragEvents[localPlayerIndex] = localFrag;
+            lastPlayedFragAudioTicks[localPlayerIndex] = audioSnapshot.serverTick;
+            hasLastPlayedFragEvent[localPlayerIndex] = true;
+          }
+
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
 
             const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];

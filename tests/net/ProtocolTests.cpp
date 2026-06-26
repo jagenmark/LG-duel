@@ -314,6 +314,8 @@ int main() {
     source.rocketExplosions[0].radius = 3.0F;
     source.rocketExplosions[0].ownerDamageApplied = 12;
     source.rocketExplosions[0].opponentDamageApplied = 80;
+    source.fragEvents[0].active = true;
+    source.fragEvents[0].targetPlayerIndex = 1;
     source.footstepAudioEvents[1].active = true;
     source.footstepAudioEvents[1].sequence = 42;
     source.footstepAudioEvents[1].position = {2.5F, -1.0F, 1.5F};
@@ -464,10 +466,12 @@ int main() {
         decoded.footstepAudioEvents[1].active &&
         decoded.footstepAudioEvents[1].sequence == 42 &&
         nearlyEqual(decoded.footstepAudioEvents[1].position.z, 1.5F) &&
+        decoded.fragEvents[0].active &&
+        decoded.fragEvents[0].targetPlayerIndex == 1 &&
         decoded.rockets[0].active &&
         decoded.rockets[0].owner == 1 &&
         nearlyEqual(decoded.rockets[0].position.z, 1.2F),
-      "rocket, explosion, and footstep audio state should round trip"
+      "rocket, explosion, footstep audio, and frag event state should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
@@ -578,6 +582,14 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "non-finite footstep audio event should not encode"
+    );
+
+    invalid = source;
+    invalid.fragEvents[0].active = true;
+    invalid.fragEvents[0].targetPlayerIndex = lg::kDuelPlayerCount;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "invalid frag target should not encode"
     );
   }
 

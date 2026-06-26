@@ -675,6 +675,24 @@ bool readFootstepAudioEvent(Reader& reader, FootstepAudioEvent& event) {
     readVec3(reader, event.position);
 }
 
+bool writeFragEvent(Writer& writer, const FragEvent& event) {
+  if (event.active && event.targetPlayerIndex >= kDuelPlayerCount) {
+    return false;
+  }
+  return writer.writeBool(event.active) &&
+    writer.writeU8(event.targetPlayerIndex);
+}
+
+bool readFragEvent(Reader& reader, FragEvent& event) {
+  if (
+    !reader.readBool(event.active) ||
+    !reader.readU8(event.targetPlayerIndex)
+  ) {
+    return false;
+  }
+  return !event.active || event.targetPlayerIndex < kDuelPlayerCount;
+}
+
 bool writeRocketProjectile(
   Writer& writer,
   const RocketProjectileSnapshot& projectile
@@ -919,6 +937,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const FragEvent& event : snapshot.fragEvents) {
+    if (!writeFragEvent(writer, event)) {
+      return false;
+    }
+  }
   for (const RocketProjectileSnapshot& projectile : snapshot.rockets) {
     if (!writeRocketProjectile(writer, projectile)) {
       return false;
@@ -1070,6 +1093,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (FootstepAudioEvent& event : decoded.footstepAudioEvents) {
     if (!readFootstepAudioEvent(reader, event)) {
+      return false;
+    }
+  }
+  for (FragEvent& event : decoded.fragEvents) {
+    if (!readFragEvent(reader, event)) {
       return false;
     }
   }
