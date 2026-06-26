@@ -318,7 +318,55 @@ spawn p2 2,0,0.5 yaw=180
         snapshot.lightningGuns[0].hit &&
         snapshot.lightningGuns[0].knockbackImpulse.x > 0.17F &&
         snapshot.lightningGuns[0].knockbackImpulse.x < 0.18F,
-      "g_knockback should control authoritative LG impulse magnitude"
+      "g_lg_knockback should control authoritative LG impulse magnitude"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket minimumKnockback;
+    minimumKnockback.command.sequence = 1;
+    minimumKnockback.requestMovementTuning = true;
+    minimumKnockback.lightningKnockback = 0.0F;
+    transport.sendCommand(minimumKnockback);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand attack;
+    attack.sequence = 2;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningKnockback == 0.0F &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.119F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.121F,
+      "g_lg_knockback 0 should map to the old 682 impulse"
+    );
+
+    lg::CommandPacket halfKnockback;
+    halfKnockback.command.sequence = 3;
+    halfKnockback.requestMovementTuning = true;
+    halfKnockback.lightningKnockback = 500.0F;
+    transport.sendCommand(halfKnockback);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    attack.sequence = 4;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningKnockback == 500.0F &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.147F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.149F,
+      "g_lg_knockback 500 should map to the old 841 impulse"
     );
   }
 

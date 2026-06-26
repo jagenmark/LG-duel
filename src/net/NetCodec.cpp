@@ -355,9 +355,9 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.playerSizeScaleZ >= 0.5F &&
     packet.playerSizeScaleZ <= 3.0F &&
     packet.lightningKnockback >= 0.0F &&
-    packet.lightningKnockback <= 1000.0F &&
+    packet.lightningKnockback <= kMaxLightningKnockback &&
     packet.rocketKnockback >= 0.0F &&
-    packet.rocketKnockback <= 1000.0F &&
+    packet.rocketKnockback <= kMaxRocketKnockback &&
     packet.weaponDamage.shotgunDamagePerPellet >= 1 &&
     packet.weaponDamage.shotgunDamagePerPellet <= 500 &&
     packet.weaponDamage.machineGunDamage >= 1 &&
@@ -1257,8 +1257,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.playerSizeScaleZ > 3.0F ||
     decoded.lightningKnockback < 0.0F ||
     decoded.rocketKnockback < 0.0F ||
-    decoded.rocketKnockback > 1000.0F ||
-    decoded.lightningKnockback > 1000.0F ||
+    decoded.rocketKnockback > kMaxRocketKnockback ||
+    decoded.lightningKnockback > kMaxLightningKnockback ||
     decoded.weaponDamage.shotgunDamagePerPellet < 1 ||
     decoded.weaponDamage.shotgunDamagePerPellet > 500 ||
     decoded.weaponDamage.machineGunDamage < 1 ||

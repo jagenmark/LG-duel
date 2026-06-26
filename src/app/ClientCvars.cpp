@@ -2,6 +2,7 @@
 
 #include "client/Interpolation.hpp"
 #include "console/ConsoleSystem.hpp"
+#include "net/NetProtocol.hpp"
 
 namespace lg {
 
@@ -37,8 +38,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 6.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
-  console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
-  console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
+  console.registerCvar({"g_lg_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, kMaxLightningKnockback, "1000"});
+  console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, kMaxRocketKnockback, "1000"});
   console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second.", 80, CvarFlag::Client, 1.0F, 500.0F});
