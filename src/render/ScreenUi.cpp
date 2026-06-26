@@ -2,7 +2,9 @@
 #include "render/ConsoleLayout.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -342,6 +344,108 @@ void addSelectedWeaponIndicator(
     (projected.x + 1.0F) * 0.5F * static_cast<float>(width),
     (1.0F - projected.y) * 0.5F * static_cast<float>(height),
   };
+}
+
+[[nodiscard]] bool segmentIntersectsWallBeforeEnd(
+  Vec3 start,
+  Vec3 end,
+  const ArenaWall& wall
+) {
+  const Vec3 direction = end - start;
+  float entry = 0.0F;
+  float exit = 1.0F;
+
+  const auto clipAxis = [&entry, &exit](
+    float origin,
+    float axisDirection,
+    float minimum,
+    float maximum
+  ) {
+    if (std::fabs(axisDirection) <= 0.00001F) {
+      return origin >= minimum && origin <= maximum;
+    }
+    const float first = (minimum - origin) / axisDirection;
+    const float second = (maximum - origin) / axisDirection;
+    entry = std::max(entry, std::min(first, second));
+    exit = std::min(exit, std::max(first, second));
+    return entry <= exit;
+  };
+
+  if (
+    !clipAxis(start.x, direction.x, wall.min.x, wall.max.x) ||
+    !clipAxis(start.y, direction.y, wall.min.y, wall.max.y) ||
+    !clipAxis(start.z, direction.z, wall.min.z, wall.max.z)
+  ) {
+    return false;
+  }
+  return exit >= 0.0F && entry < 0.999F;
+}
+
+[[nodiscard]] bool hasClearLineToPoint(
+  const PerspectiveCamera& camera,
+  const Arena& arena,
+  Vec3 point
+) {
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (
+      segmentIntersectsWallBeforeEnd(
+        camera.position,
+        point,
+        arena.walls[index]
+      )
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] bool enemyBodyVisibleFromCamera(
+  const PerspectiveCamera& camera,
+  const Arena& arena,
+  const PlayerState& player
+) {
+  const float radius = player.bounds.radius;
+  const float bottom = player.position.z - player.bounds.halfHeight;
+  const float middle = player.position.z;
+  const float top = player.position.z + player.bounds.halfHeight;
+  constexpr std::array<std::array<float, 2>, 9> planarOffsets = {{
+    {{0.0F, 0.0F}},
+    {{-1.0F, 0.0F}},
+    {{1.0F, 0.0F}},
+    {{0.0F, -1.0F}},
+    {{0.0F, 1.0F}},
+    {{-1.0F, -1.0F}},
+    {{-1.0F, 1.0F}},
+    {{1.0F, -1.0F}},
+    {{1.0F, 1.0F}},
+  }};
+  const std::array<float, 3> zLevels = {{bottom, middle, top}};
+  const auto sampleVisible = [&](Vec3 sample) {
+    ProjectedPoint projected;
+    return
+      projectPerspectivePoint(camera, sample, projected) &&
+      projected.x >= -1.0F &&
+      projected.x <= 1.0F &&
+      projected.y >= -1.0F &&
+      projected.y <= 1.0F &&
+      hasClearLineToPoint(camera, arena, sample);
+  };
+
+  for (float z : zLevels) {
+    for (const auto& offset : planarOffsets) {
+      if (
+        sampleVisible({
+          player.position.x + offset[0] * radius,
+          player.position.y + offset[1] * radius,
+          z,
+        })
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 void addFloatingHealthBar(
@@ -1372,6 +1476,7 @@ DrawList2D buildFloatingHealthBars(
   int outputWidth,
   int outputHeight,
   const PerspectiveCamera& camera,
+  const Arena& arena,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const RenderSettings& settings,
   const HudRenderState& hud
@@ -1385,6 +1490,12 @@ DrawList2D buildFloatingHealthBars(
   };
   for (const RemotePlayerView& remote : remotePlayers) {
     if (!remote.visible) {
+      continue;
+    }
+    if (
+      !remote.teammate &&
+      !enemyBodyVisibleFromCamera(camera, arena, remote.player)
+    ) {
       continue;
     }
     addFloatingNameTag(

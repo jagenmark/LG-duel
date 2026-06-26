@@ -833,6 +833,7 @@ const PlayerState& firstVisibleRemote(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
         perspectiveScene.camera,
+        arena,
         remotePlayers,
         settings,
         hud
@@ -2074,6 +2075,7 @@ void Renderer::render(
         width,
         height,
         camera,
+        arena,
         remotePlayers,
         settings,
         hud
