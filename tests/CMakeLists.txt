@@ -230,6 +230,16 @@ lg_duel_set_warnings(lg_duel_hud_presentation_tests)
 
 add_test(NAME lg_duel_hud_presentation_tests COMMAND lg_duel_hud_presentation_tests)
 
+add_executable(lg_duel_client_chat_tests
+  app/ClientChatTests.cpp
+)
+
+target_link_libraries(lg_duel_client_chat_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_client_chat_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_client_chat_tests)
+
+add_test(NAME lg_duel_client_chat_tests COMMAND lg_duel_client_chat_tests)
+
 add_executable(lg_duel_audio_assets_tests
   app/AudioAssetsTests.cpp
   ${PROJECT_SOURCE_DIR}/src/app/AudioAssets.cpp
