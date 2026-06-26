@@ -69,6 +69,11 @@ void skipChunkPadding(std::ifstream& file, std::uint32_t chunkSize) {
   format.sampleRate = readU32(scratch);
   scratch = {bytes[14], bytes[15], 0, 0};
   format.bitsPerSample = readU16(scratch);
+  constexpr std::uint16_t kExtensibleFormat = 0xFFFE;
+  if (format.formatTag == kExtensibleFormat && bytes.size() >= 40) {
+    scratch = {bytes[24], bytes[25], 0, 0};
+    format.formatTag = readU16(scratch);
+  }
   return format.channels > 0 && format.sampleRate > 0;
 }
 
@@ -82,6 +87,25 @@ void skipChunkPadding(std::ifstream& file, std::uint32_t chunkSize) {
       (static_cast<std::uint16_t>(bytes[1]) << 8U)
     );
     return static_cast<float>(value) / 32768.0F;
+  }
+  if (bitsPerSample == 24) {
+    std::int32_t value =
+      static_cast<std::int32_t>(bytes[0]) |
+      (static_cast<std::int32_t>(bytes[1]) << 8U) |
+      (static_cast<std::int32_t>(bytes[2]) << 16U);
+    if ((value & 0x00800000) != 0) {
+      value |= static_cast<std::int32_t>(0xFF000000);
+    }
+    return static_cast<float>(value) / 8388608.0F;
+  }
+  if (bitsPerSample == 32) {
+    const auto value = static_cast<std::int32_t>(
+      static_cast<std::uint32_t>(bytes[0]) |
+      (static_cast<std::uint32_t>(bytes[1]) << 8U) |
+      (static_cast<std::uint32_t>(bytes[2]) << 16U) |
+      (static_cast<std::uint32_t>(bytes[3]) << 24U)
+    );
+    return static_cast<float>(value) / 2147483648.0F;
   }
   return 0.0F;
 }
@@ -105,7 +129,12 @@ void skipChunkPadding(std::ifstream& file, std::uint32_t chunkSize) {
   constexpr std::uint16_t kIeeeFloatFormat = 3;
   const bool supportedPcm =
     format.formatTag == kPcmFormat &&
-    (format.bitsPerSample == 8 || format.bitsPerSample == 16);
+    (
+      format.bitsPerSample == 8 ||
+      format.bitsPerSample == 16 ||
+      format.bitsPerSample == 24 ||
+      format.bitsPerSample == 32
+    );
   const bool supportedFloat =
     format.formatTag == kIeeeFloatFormat && format.bitsPerSample == 32;
   if (!supportedPcm && !supportedFloat) {
@@ -140,6 +169,22 @@ const char* audioCueFileName(AudioCue cue) {
   switch (cue) {
   case AudioCue::LightningGunFireLoop:
     return "lg_fire_selected_low_drone.wav";
+  case AudioCue::HitConfirmLight:
+    return "hit_confirm_light.wav";
+  case AudioCue::HitConfirmMedium:
+    return "hit_confirm_medium.wav";
+  case AudioCue::HitConfirmHeavy:
+    return "hit_confirm_heavy.wav";
+  case AudioCue::PainGrunt:
+    return "pain_grunt.wav";
+  case AudioCue::RailgunFire:
+    return "rg_fire_discharge.wav";
+  case AudioCue::RailgunReady:
+    return "rg_ready_chime.wav";
+  case AudioCue::RocketLauncherFire:
+    return "rl_fire_launch.wav";
+  case AudioCue::RocketExplosion:
+    return "rl_explosion_pop.wav";
   case AudioCue::MachineGunFire:
     return "mg_fire_selected_snap.wav";
   case AudioCue::ShotgunFire:
@@ -149,7 +194,21 @@ const char* audioCueFileName(AudioCue cue) {
   case AudioCue::PlasmaGunFire:
     return "pg_fire_selected_pulse.wav";
   case AudioCue::Footstep:
-    return "footstep_preview_01_concrete_snap.wav";
+    return "footstep.wav";
+  case AudioCue::RoundWin:
+    return "round_win_chime.wav";
+  case AudioCue::RoundLoss:
+    return "round_loss_chime.wav";
+  case AudioCue::CountdownFive:
+    return "countdown_5_beep.wav";
+  case AudioCue::CountdownFour:
+    return "countdown_4_beep.wav";
+  case AudioCue::CountdownThree:
+    return "countdown_3_beep.wav";
+  case AudioCue::CountdownTwo:
+    return "countdown_2_beep.wav";
+  case AudioCue::CountdownOne:
+    return "countdown_1_beep.wav";
   }
   return "";
 }
