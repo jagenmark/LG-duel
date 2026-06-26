@@ -48,6 +48,8 @@ endif()
 
 add_library(lg_duel_client_app
   src/app/AudioAssets.cpp
+  src/app/ClientAudio.cpp
+  src/app/ClientCvars.cpp
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
   src/app/HudPresentation.cpp
