@@ -543,7 +543,7 @@ Server:
 status
 sv_roundlimit 15
 sv_countdown 3
-sv_showopponenthealth 0
+sv_showopponenthealth 1
 resetmatch
 ```
 

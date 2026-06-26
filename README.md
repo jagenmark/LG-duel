@@ -246,10 +246,10 @@ sv_playerlimit 2
 sv_countdown 5
 sv_roundend 5
 sv_matchend 5
-sv_showopponenthealth 0
+sv_showopponenthealth 1
 ```
 
-`sv_timelimit` is expressed in minutes and `0` disables it. The server replicates these settings to both clients. Opponent health is hidden by default; `sv_showopponenthealth 1` enables it symmetrically for everyone.
+`sv_timelimit` is expressed in minutes and `0` disables it. The server replicates these settings to both clients. Opponent health is visible by default; `sv_showopponenthealth 0` hides it symmetrically for everyone.
 
 ## Network Protocol
 
