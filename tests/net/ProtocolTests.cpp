@@ -93,7 +93,7 @@ int main() {
     source.movementTuning.flightGravityCancel = 1.0F;
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
-    source.lightningKnockback = 35.0F;
+    source.lightningKnockback = 1500.0F;
     source.rocketKnockback = 625.0F;
     source.weaponDamage.shotgunDamagePerPellet = 7;
     source.weaponDamage.machineGunDamage = 9;
@@ -157,7 +157,7 @@ int main() {
         nearlyEqual(decoded.movementTuning.flightGravityCancel, 1.0F) &&
         nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
         nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
-        nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+        nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
         nearlyEqual(decoded.rocketKnockback, 625.0F) &&
         decoded.weaponDamage.shotgunDamagePerPellet == 7 &&
         decoded.weaponDamage.machineGunDamage == 9 &&
@@ -365,7 +365,7 @@ int main() {
     source.movementTuning.flightGravityCancel = 1.0F;
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
-    source.lightningKnockback = 35.0F;
+    source.lightningKnockback = 1500.0F;
     source.rocketKnockback = 625.0F;
     source.weaponDamage.shotgunDamagePerPellet = 11;
     source.weaponDamage.machineGunDamage = 13;
@@ -530,7 +530,7 @@ int main() {
       nearlyEqual(decoded.movementTuning.flightGravityCancel, 1.0F) &&
       nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
       nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
-      nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+      nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
       nearlyEqual(decoded.rocketKnockback, 625.0F) &&
       decoded.weaponDamage.shotgunDamagePerPellet == 11 &&
       decoded.weaponDamage.machineGunDamage == 13 &&

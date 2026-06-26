@@ -1574,7 +1574,7 @@ int GameApp::run() const {
   float lastRequestedPlayerSizeScaleZ =
     console.getFloat("g_playersize_z");
   float lastRequestedLightningKnockback =
-    console.getFloat("g_knockback");
+    console.getFloat("g_lg_knockback");
   float lastRequestedRocketKnockback =
     console.getFloat("g_rl_knockback");
   WeaponDamageTuning lastRequestedWeaponDamage =
@@ -1997,7 +1997,7 @@ int GameApp::run() const {
     const float currentPlayerSizeScaleZ =
       console.getFloat("g_playersize_z");
     const float currentLightningKnockback =
-      console.getFloat("g_knockback");
+      console.getFloat("g_lg_knockback");
     const float currentRocketKnockback =
       console.getFloat("g_rl_knockback");
     const WeaponDamageTuning currentWeaponDamage =

@@ -23,6 +23,7 @@ constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
+constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
 
 [[nodiscard]] PlayerState spawnPlayer(
   const Arena& arena,
@@ -85,6 +86,14 @@ constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 
 [[nodiscard]] float q3KnockbackToInternal(float knockback) {
   return knockback * kQ3KnockbackToInternalScale;
+}
+
+[[nodiscard]] float lightningKnockbackToInternal(float knockback) {
+  const float remappedKnockback =
+    kLightningKnockbackUsefulMinimum +
+    (std::max(0.0F, knockback) *
+      ((1000.0F - kLightningKnockbackUsefulMinimum) / 1000.0F));
+  return q3KnockbackToInternal(remappedKnockback);
 }
 
 } // namespace
@@ -1450,7 +1459,7 @@ void ServerGame::receiveCommands() {
       snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
       lightningKnockback_ = packet.lightningKnockback;
       lightningGunTuning_.knockbackPerSecond =
-        q3KnockbackToInternal(lightningKnockback_);
+        lightningKnockbackToInternal(lightningKnockback_);
       snapshot_.lightningKnockback = lightningKnockback_;
       rocketKnockback_ = packet.rocketKnockback;
       rocketLauncherTuning_.knockback =

@@ -20,6 +20,8 @@ inline constexpr std::size_t kMaxBundledCommands = 3;
 inline constexpr std::size_t kMaxChatMessageBytes = 64;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
 inline constexpr std::size_t kMaxMapNameBytes = 32;
+inline constexpr float kMaxLightningKnockback = 100000.0F;
+inline constexpr float kMaxRocketKnockback = 1000.0F;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
