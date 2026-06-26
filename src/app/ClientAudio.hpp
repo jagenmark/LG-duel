@@ -30,6 +30,7 @@ public:
   bool initialize(const std::filesystem::path& assetBasePath);
 
   void playHit(float volume, int damageApplied);
+  void playFrag(float volume);
   void playPainGrunt(float volume, float pan = 0.0F);
   void playRailFire(float volume, float pan = 0.0F);
   void playRailReady(float volume);
@@ -88,6 +89,7 @@ private:
   LoadedClip hitConfirmLightClip_;
   LoadedClip hitConfirmMediumClip_;
   LoadedClip hitConfirmHeavyClip_;
+  LoadedClip fragClip_;
   LoadedClip painGruntClip_;
   LoadedClip railgunFireClip_;
   LoadedClip railgunReadyClip_;

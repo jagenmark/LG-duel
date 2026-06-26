@@ -117,6 +117,8 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> recentRocketExplosionTicks_ = {};
   std::array<FootstepAudioEvent, kDuelPlayerCount> recentFootstepAudioEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
+  std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
   std::array<FootstepState, kDuelPlayerCount> footstepStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences_ = {};
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};

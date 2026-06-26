@@ -109,6 +109,7 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
   snapshot_.footstepAudioEvents = {};
+  snapshot_.fragEvents = {};
   snapshot_.rockets = {};
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
     if (cooldown > 0) {
@@ -561,6 +562,8 @@ void ServerGame::resetMatch() {
   recentRocketExplosionTicks_ = {};
   recentFootstepAudioEvents_ = {};
   recentFootstepAudioEventTicks_ = {};
+  recentFragEvents_ = {};
+  recentFragEventTicks_ = {};
   footstepStates_ = {};
   footstepSequences_ = {};
   rockets_ = {};
@@ -600,6 +603,7 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.lightningGuns[playerIndex] = {};
   snapshot_.weaponFires[playerIndex] = {};
   snapshot_.rocketExplosions[playerIndex] = {};
+  snapshot_.fragEvents[playerIndex] = {};
   snapshot_.footstepAudioEvents[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
   railgunCooldownTicks_[playerIndex] = 0;
@@ -608,6 +612,8 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   rocketCooldownTicks_[playerIndex] = 0;
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
+  recentFragEvents_[playerIndex] = {};
+  recentFragEventTicks_[playerIndex] = 0;
   footstepStates_[playerIndex] = {};
   footstepSequences_[playerIndex] = 0;
   fractionalVampirismHealing_[playerIndex] = 0.0;
@@ -984,6 +990,18 @@ void ServerGame::applyDamageAndKnockback(
   if (
     wasAlive &&
     target.health == 0 &&
+    attackerIndex != targetIndex &&
+    damageApplied > 0 &&
+    damageAllowed(attackerIndex, targetIndex)
+  ) {
+    FragEvent& frag = snapshot_.fragEvents[attackerIndex];
+    frag.active = true;
+    frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
+  }
+
+  if (
+    wasAlive &&
+    target.health == 0 &&
     snapshot_.matchPhase == MatchPhase::Live
   ) {
     if (
@@ -1259,6 +1277,13 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.footstepAudioEvents[playerIndex] =
         recentFootstepAudioEvents_[playerIndex];
     }
+    if (
+      recentFragEvents_[playerIndex].active &&
+      snapshot_.serverTick - recentFragEventTicks_[playerIndex] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.fragEvents[playerIndex] = recentFragEvents_[playerIndex];
+    }
   }
 }
 
@@ -1277,6 +1302,10 @@ void ServerGame::rememberTransientCombatEvents() {
       recentFootstepAudioEvents_[playerIndex] =
         snapshot_.footstepAudioEvents[playerIndex];
       recentFootstepAudioEventTicks_[playerIndex] = snapshot_.serverTick;
+    }
+    if (snapshot_.fragEvents[playerIndex].active) {
+      recentFragEvents_[playerIndex] = snapshot_.fragEvents[playerIndex];
+      recentFragEventTicks_[playerIndex] = snapshot_.serverTick;
     }
   }
 }

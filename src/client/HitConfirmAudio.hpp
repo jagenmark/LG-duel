@@ -1,5 +1,6 @@
 #pragma once
 
+#include "net/NetProtocol.hpp"
 #include "sim/Combat.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -29,6 +30,11 @@ struct WeaponFireAudioEvent {
 [[nodiscard]] bool sameRocketExplosionEvent(
   const RocketExplosionResult& lhs,
   const RocketExplosionResult& rhs
+);
+
+[[nodiscard]] bool sameFragEvent(
+  const FragEvent& lhs,
+  const FragEvent& rhs
 );
 
 [[nodiscard]] int localWeaponFireHitConfirmDamage(

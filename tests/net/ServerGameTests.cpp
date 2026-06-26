@@ -62,6 +62,50 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    server.setConnectedPlayers({true, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+    server.setConnectedPlayers({true, true});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady,
+      "warmup frag test should start in ready-up"
+    );
+
+    lg::CommandPacket lethalWarmupDamage;
+    lethalWarmupDamage.playerIndex = 0;
+    lethalWarmupDamage.command.sequence = 1;
+    lethalWarmupDamage.requestMovementTuning = true;
+    lethalWarmupDamage.weaponDamage.railgunDamage = 100;
+    transport.sendCommand(lethalWarmupDamage);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand warmupAttack;
+    warmupAttack.sequence = 2;
+    warmupAttack.attack = true;
+    warmupAttack.planarAim = true;
+    warmupAttack.viewYawRadians = 0.0F;
+    warmupAttack.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, warmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1 &&
+        snapshot.players[1].health == 100 &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0,
+      "warmup kill should emit a frag event, respawn, and not affect score"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     bool emittedFootstep = false;
     std::uint32_t emittedSequence = 0;
     for (std::uint32_t tick = 0; tick < 90 && !emittedFootstep; ++tick) {
@@ -1251,6 +1295,11 @@ spawn p2 2,0,0.5 yaw=180
         snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
         snapshot.roundWinner == 0,
       "non-final kill should score and enter round end"
+    );
+    failures += expect(
+      snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1,
+      "authoritative duel kill should emit a frag event for the killer"
     );
     failures += expect(
       snapshot.roundCombatStats[0].lightningActiveTicks > 0 &&

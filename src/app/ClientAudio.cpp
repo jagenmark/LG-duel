@@ -90,6 +90,10 @@ void ClientAudio::playHit(float volume, int damageApplied) {
   }
 }
 
+void ClientAudio::playFrag(float volume) {
+  queueClip(fragClip_, volume, 0.0F);
+}
+
 void ClientAudio::playPainGrunt(float volume, float pan) {
   if (painGruntFramesRemaining_ > 0U) {
     return;
@@ -206,6 +210,7 @@ void ClientAudio::loadCueAssets(const std::filesystem::path& assetBasePath) {
   hitConfirmLightClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmLight);
   hitConfirmMediumClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmMedium);
   hitConfirmHeavyClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmHeavy);
+  fragClip_ = loadCueClip(assetBasePath, AudioCue::Frag);
   painGruntClip_ = loadCueClip(assetBasePath, AudioCue::PainGrunt);
   railgunFireClip_ = loadCueClip(assetBasePath, AudioCue::RailgunFire);
   railgunReadyClip_ = loadCueClip(assetBasePath, AudioCue::RailgunReady);

@@ -35,6 +35,11 @@ bool sameRocketExplosionEvent(
     sameVec3(lhs.position, rhs.position);
 }
 
+bool sameFragEvent(const FragEvent& lhs, const FragEvent& rhs) {
+  return lhs.active == rhs.active &&
+    lhs.targetPlayerIndex == rhs.targetPlayerIndex;
+}
+
 int localWeaponFireHitConfirmDamage(const WeaponFireResult& fire) {
   if (!fire.fired || !fire.hit || fire.damageApplied <= 0) {
     return 0;
