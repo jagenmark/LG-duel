@@ -19,6 +19,7 @@ namespace lg {
   int outputWidth,
   int outputHeight,
   const PerspectiveCamera& camera,
+  const Arena& arena,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const RenderSettings& settings,
   const HudRenderState& hud

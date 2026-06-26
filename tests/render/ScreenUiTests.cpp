@@ -511,10 +511,12 @@ int main() {
     settings.enemyNameTagScale = 2.0F;
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
+    lg::Arena arena;
     const lg::DrawList2D bars = lg::buildFloatingHealthBars(
       1280,
       720,
       camera,
+      arena,
       remotePlayers,
       settings,
       hud
@@ -545,6 +547,37 @@ int main() {
         fill->color.alpha == 127 &&
         fill->points[1].x - fill->points[0].x == 40.0F,
       "floating health bar should use configured color, alpha, and health ratio"
+    );
+
+    arena.wallCount = 1;
+    arena.walls[0] = {{4.0F, -1.0F, -1.0F}, {6.0F, 1.0F, 2.0F}};
+    const lg::DrawList2D occludedEnemyBars = lg::buildFloatingHealthBars(
+      1280,
+      720,
+      camera,
+      arena,
+      remotePlayers,
+      settings,
+      hud
+    );
+    failures += expect(
+      occludedEnemyBars.overlayCommands.empty(),
+      "occluded enemy should not emit a floating name tag or health bar"
+    );
+
+    remotePlayers[1].teammate = true;
+    const lg::DrawList2D occludedTeammateBars = lg::buildFloatingHealthBars(
+      1280,
+      720,
+      camera,
+      arena,
+      remotePlayers,
+      settings,
+      hud
+    );
+    failures += expect(
+      occludedTeammateBars.overlayCommands.size() == 4,
+      "occluded teammate should keep existing floating name tag and health bar behavior"
     );
   }
 
