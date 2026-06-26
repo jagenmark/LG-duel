@@ -1,6 +1,7 @@
 #include "app/GameApp.hpp"
 
 #include "app/ClientAudio.hpp"
+#include "app/ClientChat.hpp"
 #include "app/ClientCvars.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/HudPresentation.hpp"
@@ -1871,10 +1872,7 @@ int GameApp::run() const {
         snapshot.chatSequence != chatState.lastSequence
       ) {
         chatState.lastSequence = snapshot.chatSequence;
-        chatState.history.push_back(
-          "PLAYER " + std::to_string(snapshot.chatPlayerIndex + 1U) +
-          ": " + snapshot.chatMessage
-        );
+        chatState.history.push_back(chatLine(snapshot));
         while (chatState.history.size() > 8U) {
           chatState.history.pop_front();
         }
