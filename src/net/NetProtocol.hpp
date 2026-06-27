@@ -20,6 +20,8 @@ inline constexpr std::size_t kMaxBundledCommands = 3;
 inline constexpr std::size_t kMaxChatMessageBytes = 240;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
 inline constexpr std::size_t kMaxMapNameBytes = 32;
+inline constexpr float kMaxLightningKnockback = 100000.0F;
+inline constexpr float kMaxRocketKnockback = 1000.0F;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
@@ -98,6 +100,23 @@ struct RoundCombatStats {
   std::uint32_t damageDealt = 0;
 };
 
+struct FootstepAudioEvent {
+  bool active = false;
+  std::uint32_t sequence = 0;
+  Vec3 position = {};
+};
+
+struct GrenadeBounceAudioEvent {
+  bool active = false;
+  std::uint32_t sequence = 0;
+  Vec3 position = {};
+};
+
+struct FragEvent {
+  bool active = false;
+  std::uint8_t targetPlayerIndex = 255;
+};
+
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
@@ -108,6 +127,9 @@ struct ServerSnapshot {
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
+  std::array<FootstepAudioEvent, kDuelPlayerCount> footstepAudioEvents = {};
+  std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> grenadeBounceAudioEvents = {};
+  std::array<FragEvent, kDuelPlayerCount> fragEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};

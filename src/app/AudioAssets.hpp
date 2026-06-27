@@ -9,11 +9,28 @@ namespace lg {
 
 enum class AudioCue {
   LightningGunFireLoop,
+  HitConfirmLight,
+  HitConfirmMedium,
+  HitConfirmHeavy,
+  PainGrunt,
+  Frag,
+  RailgunFire,
+  RailgunReady,
+  RocketLauncherFire,
+  RocketExplosion,
   MachineGunFire,
   ShotgunFire,
   GrenadeLauncherFire,
+  GrenadeBounce,
   PlasmaGunFire,
   Footstep,
+  RoundWin,
+  RoundLoss,
+  CountdownFive,
+  CountdownFour,
+  CountdownThree,
+  CountdownTwo,
+  CountdownOne,
 };
 
 struct AudioClip {

@@ -93,7 +93,7 @@ int main() {
     source.movementTuning.flightGravityCancel = 1.0F;
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
-    source.lightningKnockback = 35.0F;
+    source.lightningKnockback = 1500.0F;
     source.rocketKnockback = 625.0F;
     source.weaponDamage.shotgunDamagePerPellet = 7;
     source.weaponDamage.machineGunDamage = 9;
@@ -157,7 +157,7 @@ int main() {
         nearlyEqual(decoded.movementTuning.flightGravityCancel, 1.0F) &&
         nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
         nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
-        nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+        nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
         nearlyEqual(decoded.rocketKnockback, 625.0F) &&
         decoded.weaponDamage.shotgunDamagePerPellet == 7 &&
         decoded.weaponDamage.machineGunDamage == 9 &&
@@ -332,13 +332,24 @@ int main() {
     source.weaponFires[2].end = {8.0F, 1.5F, 2.0F};
     source.weaponFires[2].knockbackImpulse = {0.11F, 0.0F, 0.0F};
     source.rocketExplosions[0].active = true;
+    source.rocketExplosions[0].weapon = lg::Weapon::GrenadeLauncher;
     source.rocketExplosions[0].position = {3.0F, 4.0F, 0.0F};
     source.rocketExplosions[0].radius = 3.0F;
     source.rocketExplosions[0].ownerDamageApplied = 12;
     source.rocketExplosions[0].opponentDamageApplied = 80;
+    source.fragEvents[0].active = true;
+    source.fragEvents[0].targetPlayerIndex = 1;
+    source.footstepAudioEvents[1].active = true;
+    source.footstepAudioEvents[1].sequence = 42;
+    source.footstepAudioEvents[1].position = {2.5F, -1.0F, 1.5F};
+    source.grenadeBounceAudioEvents[0].active = true;
+    source.grenadeBounceAudioEvents[0].sequence = 9;
+    source.grenadeBounceAudioEvents[0].position = {4.5F, -2.0F, 0.75F};
     source.rockets[0].active = true;
     source.rockets[0].owner = 1;
+    source.rockets[0].weapon = lg::Weapon::GrenadeLauncher;
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
+    source.rockets[0].velocity = {7.0F, 8.0F, 9.0F};
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.gameMode = lg::GameMode::ClanArena;
@@ -382,7 +393,7 @@ int main() {
     source.movementTuning.flightGravityCancel = 1.0F;
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
-    source.lightningKnockback = 35.0F;
+    source.lightningKnockback = 1500.0F;
     source.rocketKnockback = 625.0F;
     source.weaponDamage.shotgunDamagePerPellet = 11;
     source.weaponDamage.machineGunDamage = 13;
@@ -476,14 +487,25 @@ int main() {
     );
     failures += expect(
       decoded.rocketExplosions[0].active &&
+        decoded.rocketExplosions[0].weapon == lg::Weapon::GrenadeLauncher &&
         nearlyEqual(decoded.rocketExplosions[0].position.y, 4.0F) &&
         nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
         decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
         decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
+        decoded.footstepAudioEvents[1].active &&
+        decoded.footstepAudioEvents[1].sequence == 42 &&
+        nearlyEqual(decoded.footstepAudioEvents[1].position.z, 1.5F) &&
+        decoded.grenadeBounceAudioEvents[0].active &&
+        decoded.grenadeBounceAudioEvents[0].sequence == 9 &&
+        nearlyEqual(decoded.grenadeBounceAudioEvents[0].position.z, 0.75F) &&
+        decoded.fragEvents[0].active &&
+        decoded.fragEvents[0].targetPlayerIndex == 1 &&
         decoded.rockets[0].active &&
         decoded.rockets[0].owner == 1 &&
-        nearlyEqual(decoded.rockets[0].position.z, 1.2F),
-      "rocket projectile and explosion state should round trip"
+        decoded.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
+        nearlyEqual(decoded.rockets[0].position.z, 1.2F) &&
+        nearlyEqual(decoded.rockets[0].velocity.z, 9.0F),
+      "rocket, explosion, footstep audio, and frag event state should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
@@ -542,7 +564,7 @@ int main() {
       nearlyEqual(decoded.movementTuning.flightGravityCancel, 1.0F) &&
       nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
       nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
-      nearlyEqual(decoded.lightningKnockback, 35.0F) &&
+      nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
       nearlyEqual(decoded.rocketKnockback, 625.0F) &&
       decoded.weaponDamage.shotgunDamagePerPellet == 11 &&
       decoded.weaponDamage.machineGunDamage == 13 &&
@@ -586,6 +608,30 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "invalid snapshot team should not encode"
+    );
+
+    invalid = source;
+    invalid.footstepAudioEvents[0].position.x =
+      std::numeric_limits<float>::infinity();
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "non-finite footstep audio event should not encode"
+    );
+
+    invalid = source;
+    invalid.grenadeBounceAudioEvents[0].position.x =
+      std::numeric_limits<float>::infinity();
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "non-finite grenade bounce audio event should not encode"
+    );
+
+    invalid = source;
+    invalid.fragEvents[0].active = true;
+    invalid.fragEvents[0].targetPlayerIndex = lg::kDuelPlayerCount;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "invalid frag target should not encode"
     );
   }
 

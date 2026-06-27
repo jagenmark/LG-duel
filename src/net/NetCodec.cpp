@@ -355,9 +355,9 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.playerSizeScaleZ >= 0.5F &&
     packet.playerSizeScaleZ <= 3.0F &&
     packet.lightningKnockback >= 0.0F &&
-    packet.lightningKnockback <= 1000.0F &&
+    packet.lightningKnockback <= kMaxLightningKnockback &&
     packet.rocketKnockback >= 0.0F &&
-    packet.rocketKnockback <= 1000.0F &&
+    packet.rocketKnockback <= kMaxRocketKnockback &&
     packet.weaponDamage.shotgunDamagePerPellet >= 1 &&
     packet.weaponDamage.shotgunDamagePerPellet <= 500 &&
     packet.weaponDamage.machineGunDamage >= 1 &&
@@ -631,22 +631,28 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
 }
 
 bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
+  if (result.weapon > kLastWeapon) {
+    return false;
+  }
   return writeVec3(writer, result.position) &&
     writer.writeFloat(result.radius) &&
     writer.writeI32(result.ownerDamageApplied) &&
     writer.writeI32(result.opponentDamageApplied) &&
-    writer.writeBool(result.active);
+    writer.writeBool(result.active) &&
+    writer.writeU8(static_cast<std::uint8_t>(result.weapon));
 }
 
 bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
   std::int32_t ownerDamageApplied = 0;
   std::int32_t opponentDamageApplied = 0;
+  std::uint8_t weapon = 0;
   if (
     !readVec3(reader, result.position) ||
     !reader.readFloat(result.radius) ||
     !reader.readI32(ownerDamageApplied) ||
     !reader.readI32(opponentDamageApplied) ||
-    !reader.readBool(result.active)
+    !reader.readBool(result.active) ||
+    !reader.readU8(weapon)
   ) {
     return false;
   }
@@ -654,32 +660,92 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
     result.radius < 0.0F ||
     result.radius > 100.0F ||
     ownerDamageApplied < 0 ||
-    opponentDamageApplied < 0
+    opponentDamageApplied < 0 ||
+    weapon > static_cast<std::uint8_t>(kLastWeapon)
   ) {
     return false;
   }
   result.ownerDamageApplied = ownerDamageApplied;
   result.opponentDamageApplied = opponentDamageApplied;
+  result.weapon = static_cast<Weapon>(weapon);
   return true;
+}
+
+bool writeFootstepAudioEvent(Writer& writer, const FootstepAudioEvent& event) {
+  return writer.writeBool(event.active) &&
+    writer.writeU32(event.sequence) &&
+    writeVec3(writer, event.position);
+}
+
+bool readFootstepAudioEvent(Reader& reader, FootstepAudioEvent& event) {
+  return reader.readBool(event.active) &&
+    reader.readU32(event.sequence) &&
+    readVec3(reader, event.position);
+}
+
+bool writeGrenadeBounceAudioEvent(
+  Writer& writer,
+  const GrenadeBounceAudioEvent& event
+) {
+  return writer.writeBool(event.active) &&
+    writer.writeU32(event.sequence) &&
+    writeVec3(writer, event.position);
+}
+
+bool readGrenadeBounceAudioEvent(
+  Reader& reader,
+  GrenadeBounceAudioEvent& event
+) {
+  return reader.readBool(event.active) &&
+    reader.readU32(event.sequence) &&
+    readVec3(reader, event.position);
+}
+
+bool writeFragEvent(Writer& writer, const FragEvent& event) {
+  if (event.active && event.targetPlayerIndex >= kDuelPlayerCount) {
+    return false;
+  }
+  return writer.writeBool(event.active) &&
+    writer.writeU8(event.targetPlayerIndex);
+}
+
+bool readFragEvent(Reader& reader, FragEvent& event) {
+  if (
+    !reader.readBool(event.active) ||
+    !reader.readU8(event.targetPlayerIndex)
+  ) {
+    return false;
+  }
+  return !event.active || event.targetPlayerIndex < kDuelPlayerCount;
 }
 
 bool writeRocketProjectile(
   Writer& writer,
   const RocketProjectileSnapshot& projectile
 ) {
+  if (projectile.weapon > kLastWeapon) {
+    return false;
+  }
   return writer.writeBool(projectile.active) &&
     writer.writeU8(projectile.owner) &&
-    writeVec3(writer, projectile.position);
+    writer.writeU8(static_cast<std::uint8_t>(projectile.weapon)) &&
+    writeVec3(writer, projectile.position) &&
+    writeVec3(writer, projectile.velocity);
 }
 
 bool readRocketProjectile(
   Reader& reader,
   RocketProjectileSnapshot& projectile
 ) {
+  std::uint8_t weapon = 0;
   return reader.readBool(projectile.active) &&
     reader.readU8(projectile.owner) &&
+    reader.readU8(weapon) &&
     readVec3(reader, projectile.position) &&
-    projectile.owner < kDuelPlayerCount;
+    readVec3(reader, projectile.velocity) &&
+    projectile.owner < kDuelPlayerCount &&
+    weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
+    (projectile.weapon = static_cast<Weapon>(weapon), true);
 }
 
 bool writeRoundCombatStats(
@@ -902,6 +968,21 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const FootstepAudioEvent& event : snapshot.footstepAudioEvents) {
+    if (!writeFootstepAudioEvent(writer, event)) {
+      return false;
+    }
+  }
+  for (const GrenadeBounceAudioEvent& event : snapshot.grenadeBounceAudioEvents) {
+    if (!writeGrenadeBounceAudioEvent(writer, event)) {
+      return false;
+    }
+  }
+  for (const FragEvent& event : snapshot.fragEvents) {
+    if (!writeFragEvent(writer, event)) {
+      return false;
+    }
+  }
   for (const RocketProjectileSnapshot& projectile : snapshot.rockets) {
     if (!writeRocketProjectile(writer, projectile)) {
       return false;
@@ -1048,6 +1129,21 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (RocketExplosionResult& result : decoded.rocketExplosions) {
     if (!readRocketExplosion(reader, result)) {
+      return false;
+    }
+  }
+  for (FootstepAudioEvent& event : decoded.footstepAudioEvents) {
+    if (!readFootstepAudioEvent(reader, event)) {
+      return false;
+    }
+  }
+  for (GrenadeBounceAudioEvent& event : decoded.grenadeBounceAudioEvents) {
+    if (!readGrenadeBounceAudioEvent(reader, event)) {
+      return false;
+    }
+  }
+  for (FragEvent& event : decoded.fragEvents) {
+    if (!readFragEvent(reader, event)) {
       return false;
     }
   }
@@ -1207,8 +1303,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.playerSizeScaleZ > 3.0F ||
     decoded.lightningKnockback < 0.0F ||
     decoded.rocketKnockback < 0.0F ||
-    decoded.rocketKnockback > 1000.0F ||
-    decoded.lightningKnockback > 1000.0F ||
+    decoded.rocketKnockback > kMaxRocketKnockback ||
+    decoded.lightningKnockback > kMaxLightningKnockback ||
     decoded.weaponDamage.shotgunDamagePerPellet < 1 ||
     decoded.weaponDamage.shotgunDamagePerPellet > 500 ||
     decoded.weaponDamage.machineGunDamage < 1 ||

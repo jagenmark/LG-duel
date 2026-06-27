@@ -30,6 +30,7 @@ add_library(lg_duel_core
   src/sim/Combat.cpp
   src/sim/ClanArenaRules.cpp
   src/sim/DuelRules.cpp
+  src/sim/GameplayConfig.cpp
   src/sim/Movement.cpp
   src/sim/WeaponCatalog.cpp
 )
@@ -48,6 +49,8 @@ endif()
 
 add_library(lg_duel_client_app
   src/app/AudioAssets.cpp
+  src/app/ClientAudio.cpp
+  src/app/ClientCvars.cpp
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
   src/app/HudPresentation.cpp
@@ -94,6 +97,9 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_client>/maps"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/config"
+    "$<TARGET_FILE_DIR:lg_duel_client>/config"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
     "$<TARGET_FILE_DIR:lg_duel_client>/assets/audio"
 )
@@ -121,6 +127,9 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_server>/maps"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/config"
+    "$<TARGET_FILE_DIR:lg_duel_server>/config"
 )
 
 add_executable(lg_duel_server_probe

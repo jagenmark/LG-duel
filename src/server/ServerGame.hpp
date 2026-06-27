@@ -45,6 +45,13 @@ private:
     std::array<PlayerState, kDuelPlayerCount> players = {};
   };
 
+  struct FootstepState {
+    Vec3 previousPosition = {};
+    float distanceSinceStep = 0.0F;
+    bool wasOnGround = false;
+    bool initialized = false;
+  };
+
   void receiveCommands();
   [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
   void resetPlayerInputState(std::size_t playerIndex);
@@ -66,6 +73,13 @@ private:
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
   void simulateRockets(float fixedDt);
+  bool spawnProjectile(
+    std::size_t attackerIndex,
+    const PlayerState& attacker,
+    const UserCommand& command,
+    Weapon weapon
+  );
+  void updateFootstepAudioEvents();
   void restoreTransientCombatEvents();
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
@@ -94,6 +108,7 @@ private:
   MachineGunTuning machineGunTuning_ = {};
   ShotgunTuning shotgunTuning_ = {};
   RocketLauncherTuning rocketLauncherTuning_ = {};
+  GrenadeLauncherTuning grenadeLauncherTuning_ = {};
   float vampirism_ = 0.0F;
   std::uint8_t selfDamagePercent_ = 100;
   std::int32_t healthAmount_ = 100;
@@ -103,11 +118,21 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> machineGunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> shotgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> grenadeCooldownTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentWeaponFireTicks_ = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> recentRocketExplosions_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentRocketExplosionTicks_ = {};
+  std::array<FootstepAudioEvent, kDuelPlayerCount> recentFootstepAudioEvents_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
+  std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> recentGrenadeBounceAudioEvents_ = {};
+  std::array<std::uint32_t, kMaxRocketProjectiles> recentGrenadeBounceAudioEventTicks_ = {};
+  std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
+  std::array<FootstepState, kDuelPlayerCount> footstepStates_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> footstepSequences_ = {};
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
+  std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences_ = {};
   std::array<UserCommand, kDuelPlayerCount> commands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};

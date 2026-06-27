@@ -62,6 +62,75 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    server.setConnectedPlayers({true, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+    server.setConnectedPlayers({true, true});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.matchPhase == lg::MatchPhase::WaitingForReady,
+      "warmup frag test should start in ready-up"
+    );
+
+    lg::CommandPacket lethalWarmupDamage;
+    lethalWarmupDamage.playerIndex = 0;
+    lethalWarmupDamage.command.sequence = 1;
+    lethalWarmupDamage.requestMovementTuning = true;
+    lethalWarmupDamage.weaponDamage.railgunDamage = 100;
+    transport.sendCommand(lethalWarmupDamage);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand warmupAttack;
+    warmupAttack.sequence = 2;
+    warmupAttack.attack = true;
+    warmupAttack.planarAim = true;
+    warmupAttack.viewYawRadians = 0.0F;
+    warmupAttack.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, warmupAttack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1 &&
+        snapshot.players[1].health == 100 &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0,
+      "warmup kill should emit a frag event, respawn, and not affect score"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    bool emittedFootstep = false;
+    std::uint32_t emittedSequence = 0;
+    for (std::uint32_t tick = 0; tick < 90 && !emittedFootstep; ++tick) {
+      lg::CommandPacket command;
+      command.playerIndex = 1;
+      command.command.sequence = tick + 1;
+      command.command.forwardMove = 1.0F;
+      transport.sendCommand(command);
+      server.tick(lg::kFixedTickSeconds);
+      const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+      emittedFootstep = snapshot.footstepAudioEvents[1].active;
+      emittedSequence = snapshot.footstepAudioEvents[1].sequence;
+    }
+
+    failures += expect(
+      emittedFootstep && emittedSequence > 0,
+      "server should emit authoritative footstep audio events for moving players"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     const std::filesystem::path mapDirectory =
       std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
     std::filesystem::create_directories(mapDirectory);
@@ -249,7 +318,55 @@ spawn p2 2,0,0.5 yaw=180
         snapshot.lightningGuns[0].hit &&
         snapshot.lightningGuns[0].knockbackImpulse.x > 0.17F &&
         snapshot.lightningGuns[0].knockbackImpulse.x < 0.18F,
-      "g_knockback should control authoritative LG impulse magnitude"
+      "g_lg_knockback should control authoritative LG impulse magnitude"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket minimumKnockback;
+    minimumKnockback.command.sequence = 1;
+    minimumKnockback.requestMovementTuning = true;
+    minimumKnockback.lightningKnockback = 0.0F;
+    transport.sendCommand(minimumKnockback);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand attack;
+    attack.sequence = 2;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningKnockback == 0.0F &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.119F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.121F,
+      "g_lg_knockback 0 should map to the old 682 impulse"
+    );
+
+    lg::CommandPacket halfKnockback;
+    halfKnockback.command.sequence = 3;
+    halfKnockback.requestMovementTuning = true;
+    halfKnockback.lightningKnockback = 500.0F;
+    transport.sendCommand(halfKnockback);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    attack.sequence = 4;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.lightningKnockback == 500.0F &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.147F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.149F,
+      "g_lg_knockback 500 should map to the old 841 impulse"
     );
   }
 
@@ -1011,6 +1128,185 @@ spawn p2 2,0,0.5 yaw=180
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::UserCommand grenade;
+    grenade.sequence = 1;
+    grenade.attack = true;
+    grenade.weapon = lg::Weapon::GrenadeLauncher;
+    transport.sendCommand(lg::CommandPacket{0, grenade, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].fired &&
+        snapshot.weaponFires[0].weapon == lg::Weapon::GrenadeLauncher,
+      "grenade launcher should fire a weapon event"
+    );
+    failures += expect(
+      snapshot.rockets[0].active &&
+        snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
+        snapshot.rockets[0].velocity.z > 0.0F,
+      "grenade launcher should replicate arcing projectile state"
+    );
+
+    grenade.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, grenade, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    std::size_t activeGrenades = 0;
+    for (const lg::RocketProjectileSnapshot& projectile : snapshot.rockets) {
+      if (
+        projectile.active &&
+        projectile.weapon == lg::Weapon::GrenadeLauncher
+      ) {
+        ++activeGrenades;
+      }
+    }
+    failures += expect(
+      activeGrenades == 1,
+      "grenade launcher cooldown should block immediate second grenades"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket noSelfDamage;
+    noSelfDamage.command.sequence = 1;
+    noSelfDamage.requestMovementTuning = true;
+    noSelfDamage.selfDamagePercent = 0;
+    noSelfDamage.rocketKnockback = 1000.0F;
+    transport.sendCommand(noSelfDamage);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand grenadeDown;
+    grenadeDown.sequence = 2;
+    grenadeDown.attack = true;
+    grenadeDown.weapon = lg::Weapon::GrenadeLauncher;
+    grenadeDown.planarAim = false;
+    grenadeDown.viewPitchRadians = -kPi * 0.5F;
+    transport.sendCommand(lg::CommandPacket{0, grenadeDown, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+
+    bool bounced = false;
+    bool exploded = false;
+    bool emittedBounceAudio = false;
+    for (int tick = 0; tick < 80; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      bounced = bounced ||
+        (
+          snapshot.rockets[0].active &&
+          snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
+          snapshot.rockets[0].velocity.z > 0.0F
+        );
+      exploded = exploded || snapshot.rocketExplosions[0].active;
+      emittedBounceAudio = emittedBounceAudio ||
+        (
+          snapshot.grenadeBounceAudioEvents[0].active &&
+          snapshot.grenadeBounceAudioEvents[0].sequence > 0
+        );
+      if (bounced || exploded) {
+        break;
+      }
+    }
+    failures += expect(bounced, "downward grenade should bounce instead of exploding on first floor contact");
+    failures += expect(emittedBounceAudio, "grenade bounce should emit positional audio event");
+    failures += expect(!exploded, "grenade bounce should not emit an immediate explosion");
+    failures += expect(snapshot.players[0].health == 100, "bounced grenade should not damage the owner before fuse");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket lighterGrenade;
+    lighterGrenade.command.sequence = 1;
+    lighterGrenade.requestMovementTuning = true;
+    lighterGrenade.weaponDamage.rocketLauncherDamage = 50;
+    transport.sendCommand(lighterGrenade);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand grenade;
+    grenade.sequence = 2;
+    grenade.attack = true;
+    grenade.weapon = lg::Weapon::GrenadeLauncher;
+    transport.sendCommand(lg::CommandPacket{0, grenade, false});
+    bool exploded = false;
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 220; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      exploded = exploded || snapshot.rocketExplosions[0].active;
+      if (exploded && snapshot.players[1].health < 100) {
+        break;
+      }
+    }
+    failures += expect(exploded, "grenade should eventually explode on direct contact or fuse");
+    failures += expect(
+      snapshot.rocketExplosions[0].weapon == lg::Weapon::GrenadeLauncher &&
+        snapshot.rocketExplosions[0].opponentDamageApplied > 0 &&
+        snapshot.players[1].health < 100,
+      "grenade explosion should apply and report opponent damage"
+    );
+    failures += expect(
+      std::hypot(
+        snapshot.players[1].velocity.x,
+        snapshot.players[1].velocity.y,
+        snapshot.players[1].velocity.z
+      ) > 0.1F,
+      "grenade explosion should apply knockback"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-120.0F, -20.0F, 0.0F};
+    arena.max = {120.0F, 20.0F, 60.0F};
+    arena.spawnPositions[0] = {-50.0F, 0.0F, 0.5F};
+    arena.spawnPositions[1] = {50.0F, 0.0F, 0.5F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand grenade;
+    grenade.sequence = 1;
+    grenade.attack = true;
+    grenade.weapon = lg::Weapon::GrenadeLauncher;
+    grenade.planarAim = false;
+    grenade.viewPitchRadians = 0.25F;
+    transport.sendCommand(lg::CommandPacket{0, grenade, false});
+    bool expired = false;
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 340; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        expired = true;
+        break;
+      }
+    }
+    failures += expect(
+      expired &&
+        snapshot.rocketExplosions[0].weapon == lg::Weapon::GrenadeLauncher,
+      "grenade should expire through its authoritative fuse"
+    );
+    failures += expect(
+      snapshot.players[1].health == 100,
+      "long-range fuse expiration should not require direct opponent contact"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     for (std::uint32_t sequence = 0; sequence < 2; ++sequence) {
       lg::UserCommand firstCommand;
       firstCommand.sequence = sequence;
@@ -1226,6 +1522,11 @@ spawn p2 2,0,0.5 yaw=180
         snapshot.matchPhase == lg::MatchPhase::RoundEnd &&
         snapshot.roundWinner == 0,
       "non-final kill should score and enter round end"
+    );
+    failures += expect(
+      snapshot.fragEvents[0].active &&
+        snapshot.fragEvents[0].targetPlayerIndex == 1,
+      "authoritative duel kill should emit a frag event for the killer"
     );
     failures += expect(
       snapshot.roundCombatStats[0].lightningActiveTicks > 0 &&

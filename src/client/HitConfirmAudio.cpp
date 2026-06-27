@@ -29,10 +29,16 @@ bool sameRocketExplosionEvent(
   const RocketExplosionResult& rhs
 ) {
   return lhs.active == rhs.active &&
+    lhs.weapon == rhs.weapon &&
     lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
     lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
     lhs.radius == rhs.radius &&
     sameVec3(lhs.position, rhs.position);
+}
+
+bool sameFragEvent(const FragEvent& lhs, const FragEvent& rhs) {
+  return lhs.active == rhs.active &&
+    lhs.targetPlayerIndex == rhs.targetPlayerIndex;
 }
 
 int localWeaponFireHitConfirmDamage(const WeaponFireResult& fire) {
@@ -77,6 +83,18 @@ WeaponFireAudioEvent routeWeaponFireAudioEvent(
   event.localHitConfirmDamage =
     localWeaponEvent ? localWeaponFireHitConfirmDamage(fire) : 0;
   return event;
+}
+
+bool shouldPlaySnapshotAudioEvent(
+  bool hasLastEvent,
+  bool sameEvent,
+  std::uint32_t serverTick,
+  std::uint32_t lastPlayedServerTick,
+  std::uint32_t transientTicks
+) {
+  return !hasLastEvent ||
+    !sameEvent ||
+    serverTick - lastPlayedServerTick > transientTicks;
 }
 
 } // namespace lg

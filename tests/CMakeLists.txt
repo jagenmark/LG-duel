@@ -209,6 +209,17 @@ lg_duel_set_warnings(lg_duel_console_input_tests)
 
 add_test(NAME lg_duel_console_input_tests COMMAND lg_duel_console_input_tests)
 
+add_executable(lg_duel_client_cvars_tests
+  app/ClientCvarsTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/ClientCvars.cpp
+)
+
+target_link_libraries(lg_duel_client_cvars_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_client_cvars_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_client_cvars_tests)
+
+add_test(NAME lg_duel_client_cvars_tests COMMAND lg_duel_client_cvars_tests)
+
 add_executable(lg_duel_scoreboard_tests
   app/ScoreboardTests.cpp
   ${PROJECT_SOURCE_DIR}/src/app/Scoreboard.cpp
@@ -230,6 +241,16 @@ target_compile_features(lg_duel_hud_presentation_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_hud_presentation_tests)
 
 add_test(NAME lg_duel_hud_presentation_tests COMMAND lg_duel_hud_presentation_tests)
+
+add_executable(lg_duel_client_chat_tests
+  app/ClientChatTests.cpp
+)
+
+target_link_libraries(lg_duel_client_chat_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_client_chat_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_client_chat_tests)
+
+add_test(NAME lg_duel_client_chat_tests COMMAND lg_duel_client_chat_tests)
 
 add_executable(lg_duel_audio_assets_tests
   app/AudioAssetsTests.cpp

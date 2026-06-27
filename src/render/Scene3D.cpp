@@ -129,6 +129,47 @@ void addBox(
   }
 }
 
+void addSphereApprox(
+  Scene3D& scene,
+  Vec3 center,
+  float radius,
+  RenderColor color
+) {
+  constexpr std::size_t kSides = 14;
+  constexpr float kTwoPi = 6.28318530718F;
+  constexpr float kHalfPi = 1.57079632679F;
+  constexpr std::size_t kBands = 6;
+  for (std::size_t index = 0; index < kSides; ++index) {
+    const float yaw =
+      kTwoPi * static_cast<float>(index) / static_cast<float>(kSides);
+    const float nextYaw =
+      kTwoPi * static_cast<float>(index + 1) / static_cast<float>(kSides);
+    for (std::size_t band = 0; band < kBands; ++band) {
+      const float pitch =
+        -kHalfPi + kHalfPi * 2.0F * static_cast<float>(band) / static_cast<float>(kBands);
+      const float nextPitch =
+        -kHalfPi + kHalfPi * 2.0F * static_cast<float>(band + 1) / static_cast<float>(kBands);
+      const auto point = [center, radius](float yawAngle, float pitchAngle) {
+        const float pitchCos = std::cos(pitchAngle);
+        return Vec3{
+          center.x + std::cos(yawAngle) * pitchCos * radius,
+          center.y + std::sin(yawAngle) * pitchCos * radius,
+          center.z + std::sin(pitchAngle) * radius,
+        };
+      };
+      const float brightness = 0.55F + 0.35F * std::sin((pitch + kHalfPi) * 0.85F);
+      addQuad(
+        scene,
+        point(yaw, pitch),
+        point(nextYaw, pitch),
+        point(nextYaw, nextPitch),
+        point(yaw, nextPitch),
+        scaleColor(color, brightness)
+      );
+    }
+  }
+}
+
 void addWallBox(Scene3D& scene, Vec3 minimum, Vec3 maximum) {
   const std::array<Vec3, 8> corners = {{
     {minimum.x, minimum.y, minimum.z},
@@ -891,21 +932,33 @@ Scene3D buildPerspectiveScene(
       );
     }
   }
-  for (const RocketProjectileSnapshot& rocket : rockets) {
-    if (!rocket.active) {
+  for (const RocketProjectileSnapshot& projectile : rockets) {
+    if (!projectile.active) {
+      continue;
+    }
+    if (projectile.weapon == Weapon::GrenadeLauncher) {
+      constexpr float size = 0.14F;
+      addSphereApprox(scene, projectile.position, 0.15F, {8, 48, 18, 255});
+      addWireBox(
+        scene,
+        projectile.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+        projectile.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+        0.012F,
+        {255, 220, 100, 255}
+      );
       continue;
     }
     constexpr float size = 0.14F;
     addBox(
       scene,
-      rocket.position - Vec3{size, size, size},
-      rocket.position + Vec3{size, size, size},
+      projectile.position - Vec3{size, size, size},
+      projectile.position + Vec3{size, size, size},
       {255, 126, 40, 255}
     );
     addWireBox(
       scene,
-      rocket.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-      rocket.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+      projectile.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+      projectile.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
       0.012F,
       {255, 220, 100, 255}
     );

@@ -4,11 +4,13 @@
 #include "sim/ClanArenaRules.hpp"
 #include "sim/Collision.hpp"
 #include "sim/DuelRules.hpp"
+#include "sim/GameplayConfig.hpp"
 
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <iostream>
 #include <string>
 #include <utility>
 
@@ -23,6 +25,8 @@ constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
+constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
+constexpr float kProjectileCollisionEpsilon = 0.0001F;
 
 [[nodiscard]] PlayerState spawnPlayer(
   const Arena& arena,
@@ -87,10 +91,86 @@ constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
   return knockback * kQ3KnockbackToInternalScale;
 }
 
+[[nodiscard]] float lightningKnockbackToInternal(float knockback) {
+  const float remappedKnockback =
+    kLightningKnockbackUsefulMinimum +
+    (std::max(0.0F, knockback) *
+      ((1000.0F - kLightningKnockbackUsefulMinimum) / 1000.0F));
+  return q3KnockbackToInternal(remappedKnockback);
+}
+
+[[nodiscard]] Vec3 bounceNormalForPoint(const Arena& arena, Vec3 point) {
+  Vec3 bestNormal = {0.0F, 0.0F, 1.0F};
+  float bestDistance = std::fabs(point.z - arena.min.z);
+
+  const auto consider = [&bestNormal, &bestDistance](float distance, Vec3 normal) {
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestNormal = normal;
+    }
+  };
+
+  consider(std::fabs(point.x - arena.min.x), {-1.0F, 0.0F, 0.0F});
+  consider(std::fabs(point.x - arena.max.x), {1.0F, 0.0F, 0.0F});
+  consider(std::fabs(point.y - arena.min.y), {0.0F, -1.0F, 0.0F});
+  consider(std::fabs(point.y - arena.max.y), {0.0F, 1.0F, 0.0F});
+  consider(std::fabs(point.z - arena.max.z), {0.0F, 0.0F, -1.0F});
+
+  for (std::size_t wallIndex = 0; wallIndex < arena.wallCount; ++wallIndex) {
+    const ArenaWall& wall = arena.walls[wallIndex];
+    if (
+      point.x < wall.min.x - kProjectileCollisionEpsilon ||
+      point.x > wall.max.x + kProjectileCollisionEpsilon ||
+      point.y < wall.min.y - kProjectileCollisionEpsilon ||
+      point.y > wall.max.y + kProjectileCollisionEpsilon ||
+      point.z < wall.min.z - kProjectileCollisionEpsilon ||
+      point.z > wall.max.z + kProjectileCollisionEpsilon
+    ) {
+      continue;
+    }
+
+    consider(std::fabs(point.x - wall.min.x), {-1.0F, 0.0F, 0.0F});
+    consider(std::fabs(point.x - wall.max.x), {1.0F, 0.0F, 0.0F});
+    consider(std::fabs(point.y - wall.min.y), {0.0F, -1.0F, 0.0F});
+    consider(std::fabs(point.y - wall.max.y), {0.0F, 1.0F, 0.0F});
+    consider(std::fabs(point.z - wall.min.z), {0.0F, 0.0F, -1.0F});
+    consider(std::fabs(point.z - wall.max.z), {0.0F, 0.0F, 1.0F});
+  }
+
+  return bestNormal;
+}
+
+[[nodiscard]] std::filesystem::path defaultGameplayConfigPath() {
+  namespace fs = std::filesystem;
+  fs::path directory = fs::current_path();
+  for (;;) {
+    const fs::path candidate = directory / "config" / "gameplay.cfg";
+    if (fs::exists(candidate)) {
+      return candidate;
+    }
+    const fs::path parent = directory.parent_path();
+    if (parent.empty() || parent == directory) {
+      break;
+    }
+    directory = parent;
+  }
+  return {};
+}
+
 } // namespace
 
 ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
   rocketLauncherTuning_.knockback = q3KnockbackToInternal(rocketKnockback_);
+  const std::filesystem::path gameplayConfigPath = defaultGameplayConfigPath();
+  if (!gameplayConfigPath.empty()) {
+    const GameplayConfigLoadResult loaded =
+      loadGameplayConfigFromFile(gameplayConfigPath.string());
+    if (loaded.ok) {
+      grenadeLauncherTuning_ = loaded.config.grenadeLauncher;
+    } else {
+      std::cerr << "Ignoring gameplay config: " << loaded.error << '\n';
+    }
+  }
   resetMatch();
   snapshot_.connectedPlayers[0] = true;
   snapshot_.connectedPlayers[1] = true;
@@ -108,6 +188,9 @@ void ServerGame::tick(float fixedDt) {
   updateBotCommands(fixedDt);
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
+  snapshot_.footstepAudioEvents = {};
+  snapshot_.grenadeBounceAudioEvents = {};
+  snapshot_.fragEvents = {};
   snapshot_.rockets = {};
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
     if (cooldown > 0) {
@@ -125,6 +208,11 @@ void ServerGame::tick(float fixedDt) {
     }
   }
   for (std::uint32_t& cooldown : rocketCooldownTicks_) {
+    if (cooldown > 0) {
+      --cooldown;
+    }
+  }
+  for (std::uint32_t& cooldown : grenadeCooldownTicks_) {
     if (cooldown > 0) {
       --cooldown;
     }
@@ -192,6 +280,7 @@ void ServerGame::tick(float fixedDt) {
     player.position = collision.position;
     player.velocity = collision.velocity;
   }
+  updateFootstepAudioEvents();
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
@@ -389,27 +478,31 @@ void ServerGame::tick(float fixedDt) {
       command.attack &&
       rocketCooldownTicks_[attackerIndex] == 0
     ) {
-      for (RocketProjectile& rocket : rockets_) {
-        if (rocket.active) {
-          continue;
-        }
-        const Vec3 direction =
-          cameraForward(command.viewYawRadians, command.viewPitchRadians);
-        rocket.active = true;
-        rocket.owner = static_cast<std::uint8_t>(attackerIndex);
-        rocket.position =
-          weaponMuzzlePosition(combatPlayers[attackerIndex], rocketLauncherTuning_.eyeHeight);
-        rocket.previousPosition = rocket.position;
-        rocket.velocity = direction * rocketLauncherTuning_.speed;
-        rocket.ageTicks = 0;
-        rocket.ownerCollisionArmed = false;
-        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
-        fire.fired = true;
-        fire.weapon = Weapon::RocketLauncher;
-        fire.start = rocket.position;
-        fire.end = rocket.position + (direction * 1.2F);
+      if (
+        spawnProjectile(
+          attackerIndex,
+          combatPlayers[attackerIndex],
+          command,
+          Weapon::RocketLauncher
+        )
+      ) {
         rocketCooldownTicks_[attackerIndex] = kRocketLauncherCooldownTicks;
-        break;
+      }
+    } else if (
+      command.weapon == Weapon::GrenadeLauncher &&
+      command.attack &&
+      grenadeCooldownTicks_[attackerIndex] == 0
+    ) {
+      if (
+        spawnProjectile(
+          attackerIndex,
+          combatPlayers[attackerIndex],
+          command,
+          Weapon::GrenadeLauncher
+        )
+      ) {
+        grenadeCooldownTicks_[attackerIndex] =
+          grenadeLauncherTuning_.cooldownTicks;
       }
     }
     LightningGunResult& result = snapshot_.lightningGuns[attackerIndex];
@@ -553,11 +646,21 @@ void ServerGame::resetMatch() {
   machineGunCooldownTicks_ = {};
   shotgunCooldownTicks_ = {};
   rocketCooldownTicks_ = {};
+  grenadeCooldownTicks_ = {};
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
   recentRocketExplosionTicks_ = {};
+  recentFootstepAudioEvents_ = {};
+  recentFootstepAudioEventTicks_ = {};
+  recentGrenadeBounceAudioEvents_ = {};
+  recentGrenadeBounceAudioEventTicks_ = {};
+  recentFragEvents_ = {};
+  recentFragEventTicks_ = {};
+  footstepStates_ = {};
+  footstepSequences_ = {};
   rockets_ = {};
+  grenadeBounceSequences_ = {};
   fractionalVampirismHealing_ = {};
   commands_ = {};
   viewedServerTicks_ = {};
@@ -594,11 +697,20 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.lightningGuns[playerIndex] = {};
   snapshot_.weaponFires[playerIndex] = {};
   snapshot_.rocketExplosions[playerIndex] = {};
+  snapshot_.fragEvents[playerIndex] = {};
+  snapshot_.footstepAudioEvents[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
   railgunCooldownTicks_[playerIndex] = 0;
   machineGunCooldownTicks_[playerIndex] = 0;
   shotgunCooldownTicks_[playerIndex] = 0;
   rocketCooldownTicks_[playerIndex] = 0;
+  grenadeCooldownTicks_[playerIndex] = 0;
+  recentFootstepAudioEvents_[playerIndex] = {};
+  recentFootstepAudioEventTicks_[playerIndex] = 0;
+  recentFragEvents_[playerIndex] = {};
+  recentFragEventTicks_[playerIndex] = 0;
+  footstepStates_[playerIndex] = {};
+  footstepSequences_[playerIndex] = 0;
   fractionalVampirismHealing_[playerIndex] = 0.0;
 }
 
@@ -973,6 +1085,18 @@ void ServerGame::applyDamageAndKnockback(
   if (
     wasAlive &&
     target.health == 0 &&
+    attackerIndex != targetIndex &&
+    damageApplied > 0 &&
+    damageAllowed(attackerIndex, targetIndex)
+  ) {
+    FragEvent& frag = snapshot_.fragEvents[attackerIndex];
+    frag.active = true;
+    frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
+  }
+
+  if (
+    wasAlive &&
+    target.health == 0 &&
     snapshot_.matchPhase == MatchPhase::Live
   ) {
     if (
@@ -1022,6 +1146,51 @@ void ServerGame::applyDamageAndKnockback(
   }
 }
 
+bool ServerGame::spawnProjectile(
+  std::size_t attackerIndex,
+  const PlayerState& attacker,
+  const UserCommand& command,
+  Weapon weapon
+) {
+  for (RocketProjectile& rocket : rockets_) {
+    if (rocket.active) {
+      continue;
+    }
+
+    const bool grenade = weapon == Weapon::GrenadeLauncher;
+    const float eyeHeight = grenade
+      ? grenadeLauncherTuning_.eyeHeight
+      : rocketLauncherTuning_.eyeHeight;
+    const float speed = grenade
+      ? grenadeLauncherTuning_.speed
+      : rocketLauncherTuning_.speed;
+    const Vec3 direction =
+      cameraForward(command.viewYawRadians, command.viewPitchRadians);
+
+    rocket.active = true;
+    rocket.owner = static_cast<std::uint8_t>(attackerIndex);
+    rocket.weapon = weapon;
+    rocket.position = weaponMuzzlePosition(attacker, eyeHeight);
+    rocket.previousPosition = rocket.position;
+    rocket.velocity = direction * speed;
+    if (grenade) {
+      rocket.velocity.z += grenadeLauncherTuning_.verticalBoost;
+    }
+    rocket.ageTicks = 0;
+    rocket.ownerCollisionArmed = false;
+    rocket.resting = false;
+
+    WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
+    fire.fired = true;
+    fire.weapon = weapon;
+    fire.start = rocket.position;
+    fire.end = rocket.position + (direction * 1.2F);
+    return true;
+  }
+
+  return false;
+}
+
 void ServerGame::simulateRockets(float fixedDt) {
   const auto cylinderDistance = [](Vec3 point, const PlayerState& player) {
     const float radial =
@@ -1035,81 +1204,148 @@ void ServerGame::simulateRockets(float fixedDt) {
     return std::hypot(radial, vertical);
   };
 
-  for (RocketProjectile& rocket : rockets_) {
+  for (std::size_t projectileIndex = 0; projectileIndex < rockets_.size(); ++projectileIndex) {
+    RocketProjectile& rocket = rockets_[projectileIndex];
     if (!rocket.active) {
       continue;
     }
 
-    rocket.previousPosition = rocket.position;
-    const Vec3 nextPosition = rocket.position + (rocket.velocity * fixedDt);
-    const Vec3 segment = nextPosition - rocket.position;
-    const float segmentLength = length(segment);
-    const Vec3 direction = segmentLength > 0.0F
-      ? segment / segmentLength
-      : normalize(rocket.velocity);
-
-    if (
-      !rocket.ownerCollisionArmed &&
-      cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) > 0.0001F
-    ) {
-      rocket.ownerCollisionArmed = true;
-    }
-
     bool explode = false;
-    Vec3 explosionPosition = nextPosition;
+    Vec3 explosionPosition = rocket.position;
     std::size_t directTarget = kDuelPlayerCount;
+    const bool grenade = rocket.weapon == Weapon::GrenadeLauncher;
 
-    if (segmentLength > 0.0F) {
-      const WorldTrace worldTrace =
-        traceWorld(arena_, rocket.position, direction, segmentLength);
-      if (worldTrace.distance < segmentLength - 0.0001F) {
+    rocket.previousPosition = rocket.position;
+    if (grenade && rocket.resting) {
+      ++rocket.ageTicks;
+      if (rocket.ageTicks >= grenadeLauncherTuning_.fuseTicks) {
         explode = true;
-        explosionPosition = worldTrace.end;
+      } else {
+        continue;
+      }
+    } else {
+      if (grenade) {
+        rocket.velocity.z -= grenadeLauncherTuning_.gravity * fixedDt;
+      }
+      const Vec3 nextPosition = rocket.position + (rocket.velocity * fixedDt);
+      const Vec3 segment = nextPosition - rocket.position;
+      const float segmentLength = length(segment);
+      const Vec3 direction = segmentLength > 0.0F
+        ? segment / segmentLength
+        : normalize(rocket.velocity);
+
+      if (
+        !rocket.ownerCollisionArmed &&
+        cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) > 0.0001F
+      ) {
+        rocket.ownerCollisionArmed = true;
       }
 
-      float bestHitDistance = segmentLength;
-      for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-        if (
-          snapshot_.players[playerIndex].health <= 0 ||
-          !isCombatant(snapshot_, playerIndex) ||
-          (playerIndex == rocket.owner && !rocket.ownerCollisionArmed)
-        ) {
-          continue;
-        }
-        float hitDistance = 0.0F;
-        if (
-          tracePlayerCylinder(
-            rocket.position,
-            direction,
-            snapshot_.players[playerIndex],
-            bestHitDistance,
-            hitDistance
-          )
-        ) {
-          explode = true;
-          bestHitDistance = hitDistance;
-          directTarget = playerIndex;
-          explosionPosition = rocket.position + (direction * hitDistance);
-        }
-      }
-    }
-
-    ++rocket.ageTicks;
-    if (!explode && rocket.ageTicks >= rocketLauncherTuning_.maxLifetimeTicks) {
-      explode = true;
       explosionPosition = nextPosition;
-    }
+      if (segmentLength > 0.0F) {
+        const WorldTrace worldTrace =
+          traceWorld(arena_, rocket.position, direction, segmentLength);
+        if (worldTrace.distance < segmentLength - 0.0001F) {
+          explosionPosition = worldTrace.end;
+          if (grenade) {
+            const Vec3 normal = bounceNormalForPoint(arena_, explosionPosition);
+            const float normalVelocity = dot(rocket.velocity, normal);
+            const float impactSpeed = std::fabs(normalVelocity);
+            if (normalVelocity < 0.0F) {
+              rocket.velocity =
+                (rocket.velocity - (normal * (2.0F * normalVelocity))) *
+                grenadeLauncherTuning_.bounceDamping;
+            } else {
+              rocket.velocity *= grenadeLauncherTuning_.bounceDamping;
+            }
+            const bool restingOnFloor =
+              normal.z > 0.5F && length(rocket.velocity) <= grenadeLauncherTuning_.restSpeed;
+            if (restingOnFloor) {
+              rocket.velocity = {};
+              rocket.resting = true;
+            }
+            if (impactSpeed >= grenadeLauncherTuning_.bounceSoundMinSpeed) {
+              GrenadeBounceAudioEvent& bounce =
+                snapshot_.grenadeBounceAudioEvents[projectileIndex];
+              bounce.active = true;
+              bounce.sequence = ++grenadeBounceSequences_[projectileIndex];
+              bounce.position = explosionPosition;
+            }
+            rocket.position =
+              explosionPosition + (normal * (2.0F * kProjectileCollisionEpsilon));
+            ++rocket.ageTicks;
+            if (rocket.ageTicks >= grenadeLauncherTuning_.fuseTicks) {
+              explode = true;
+            } else {
+              continue;
+            }
+          } else {
+            explode = true;
+          }
+        }
 
-    if (!explode) {
-      rocket.position = nextPosition;
-      continue;
+        float bestHitDistance = segmentLength;
+        if (!explode) {
+          for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+            if (
+              snapshot_.players[playerIndex].health <= 0 ||
+              !isCombatant(snapshot_, playerIndex) ||
+              (playerIndex == rocket.owner && !rocket.ownerCollisionArmed)
+            ) {
+              continue;
+            }
+            float hitDistance = 0.0F;
+            if (
+              tracePlayerCylinder(
+                rocket.position,
+                direction,
+                snapshot_.players[playerIndex],
+                bestHitDistance,
+                hitDistance
+              )
+            ) {
+              explode = true;
+              bestHitDistance = hitDistance;
+              directTarget = playerIndex;
+              explosionPosition = rocket.position + (direction * hitDistance);
+            }
+          }
+        }
+      }
+
+      ++rocket.ageTicks;
+      const std::uint32_t maxLifetimeTicks = grenade
+        ? grenadeLauncherTuning_.fuseTicks
+        : rocketLauncherTuning_.maxLifetimeTicks;
+      if (!explode && rocket.ageTicks >= maxLifetimeTicks) {
+        explode = true;
+        explosionPosition = nextPosition;
+      }
+
+      if (!explode) {
+        rocket.position = nextPosition;
+        continue;
+      }
     }
 
     rocket.active = false;
     RocketExplosionResult& explosion = snapshot_.rocketExplosions[rocket.owner];
     explosion.active = true;
+    explosion.weapon = rocket.weapon;
     explosion.position = explosionPosition;
-    explosion.radius = rocketLauncherTuning_.radius;
+    const float radius = grenade
+      ? grenadeLauncherTuning_.radius
+      : rocketLauncherTuning_.radius;
+    const int directDamage = grenade
+      ? grenadeLauncherTuning_.directDamage
+      : rocketLauncherTuning_.directDamage;
+    const int splashDamage = grenade
+      ? grenadeLauncherTuning_.splashDamage
+      : rocketLauncherTuning_.splashDamage;
+    const float knockback = grenade
+      ? grenadeLauncherTuning_.knockback
+      : rocketLauncherTuning_.knockback;
+    explosion.radius = radius;
 
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       PlayerState& player = snapshot_.players[playerIndex];
@@ -1117,16 +1353,16 @@ void ServerGame::simulateRockets(float fixedDt) {
         continue;
       }
       const float distance = cylinderDistance(explosionPosition, player);
-      if (distance > rocketLauncherTuning_.radius) {
+      if (distance > radius) {
         continue;
       }
       const float falloff =
-        1.0F - (distance / std::max(0.001F, rocketLauncherTuning_.radius));
+        1.0F - (distance / std::max(0.001F, radius));
       int damage = static_cast<int>(std::ceil(
-        static_cast<float>(rocketLauncherTuning_.splashDamage) * falloff
+        static_cast<float>(splashDamage) * falloff
       ));
       if (playerIndex == directTarget) {
-        damage = std::max(damage, rocketLauncherTuning_.directDamage);
+        damage = std::max(damage, directDamage);
       }
       const int knockbackDamage = damage;
       int appliedDamage = playerIndex == rocket.owner
@@ -1146,12 +1382,12 @@ void ServerGame::simulateRockets(float fixedDt) {
       }
       const float knockbackScale =
         static_cast<float>(knockbackDamage) /
-        static_cast<float>(std::max(1, rocketLauncherTuning_.splashDamage));
+        static_cast<float>(std::max(1, splashDamage));
       applyDamageAndKnockback(
         rocket.owner,
         playerIndex,
         appliedDamage,
-        knockbackDirection * rocketLauncherTuning_.knockback * knockbackScale
+        knockbackDirection * knockback * knockbackScale
       );
     }
   }
@@ -1159,7 +1395,69 @@ void ServerGame::simulateRockets(float fixedDt) {
   for (std::size_t index = 0; index < rockets_.size(); ++index) {
     snapshot_.rockets[index].active = rockets_[index].active;
     snapshot_.rockets[index].owner = rockets_[index].owner;
+    snapshot_.rockets[index].weapon = rockets_[index].weapon;
     snapshot_.rockets[index].position = rockets_[index].position;
+    snapshot_.rockets[index].velocity = rockets_[index].velocity;
+  }
+}
+
+void ServerGame::updateFootstepAudioEvents() {
+  constexpr float kMinimumStepSpeed = 1.15F;
+  constexpr float kLandingStepSpeed = 2.0F;
+  constexpr float kBaseStrideDistance = 1.45F;
+  constexpr float kMinimumStrideDistance = 0.95F;
+
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    FootstepState& state = footstepStates_[playerIndex];
+    const PlayerState& player = snapshot_.players[playerIndex];
+    if (!snapshot_.participatingPlayers[playerIndex] || player.health <= 0) {
+      state = {};
+      continue;
+    }
+
+    if (!state.initialized) {
+      state.previousPosition = player.position;
+      state.wasOnGround = player.onGround;
+      state.initialized = true;
+      continue;
+    }
+
+    const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    const Vec3 delta = player.position - state.previousPosition;
+    const float horizontalDistance = std::hypot(delta.x, delta.y);
+    const bool movingOnGround =
+      player.onGround && horizontalSpeed >= kMinimumStepSpeed;
+
+    auto emitStep = [&]() {
+      FootstepAudioEvent& event = snapshot_.footstepAudioEvents[playerIndex];
+      event.active = true;
+      event.sequence = ++footstepSequences_[playerIndex];
+      event.position = player.position;
+    };
+
+    if (
+      movingOnGround &&
+      !state.wasOnGround &&
+      horizontalSpeed >= kLandingStepSpeed
+    ) {
+      emitStep();
+      state.distanceSinceStep = 0.0F;
+    } else if (movingOnGround) {
+      state.distanceSinceStep += horizontalDistance;
+      const float strideDistance = std::max(
+        kMinimumStrideDistance,
+        kBaseStrideDistance - (horizontalSpeed * 0.045F)
+      );
+      if (state.distanceSinceStep >= strideDistance) {
+        emitStep();
+        state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
+      }
+    } else if (!player.onGround || horizontalSpeed < 0.25F) {
+      state.distanceSinceStep = 0.0F;
+    }
+
+    state.previousPosition = player.position;
+    state.wasOnGround = player.onGround;
   }
 }
 
@@ -1180,6 +1478,31 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.rocketExplosions[playerIndex] =
         recentRocketExplosions_[playerIndex];
     }
+    if (
+      recentFootstepAudioEvents_[playerIndex].active &&
+      snapshot_.serverTick - recentFootstepAudioEventTicks_[playerIndex] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.footstepAudioEvents[playerIndex] =
+        recentFootstepAudioEvents_[playerIndex];
+    }
+    if (
+      recentFragEvents_[playerIndex].active &&
+      snapshot_.serverTick - recentFragEventTicks_[playerIndex] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.fragEvents[playerIndex] = recentFragEvents_[playerIndex];
+    }
+  }
+  for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
+    if (
+      recentGrenadeBounceAudioEvents_[index].active &&
+      snapshot_.serverTick - recentGrenadeBounceAudioEventTicks_[index] <=
+        kTransientCombatEventTicks
+    ) {
+      snapshot_.grenadeBounceAudioEvents[index] =
+        recentGrenadeBounceAudioEvents_[index];
+    }
   }
 }
 
@@ -1193,6 +1516,26 @@ void ServerGame::rememberTransientCombatEvents() {
       recentRocketExplosions_[playerIndex] =
         snapshot_.rocketExplosions[playerIndex];
       recentRocketExplosionTicks_[playerIndex] = snapshot_.serverTick;
+    }
+    if (snapshot_.footstepAudioEvents[playerIndex].active) {
+      recentFootstepAudioEvents_[playerIndex] =
+        snapshot_.footstepAudioEvents[playerIndex];
+      recentFootstepAudioEventTicks_[playerIndex] = snapshot_.serverTick;
+    }
+    if (snapshot_.fragEvents[playerIndex].active) {
+      recentFragEvents_[playerIndex] = snapshot_.fragEvents[playerIndex];
+      recentFragEventTicks_[playerIndex] = snapshot_.serverTick;
+    }
+  }
+  for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
+    if (
+      snapshot_.grenadeBounceAudioEvents[index].active &&
+      snapshot_.grenadeBounceAudioEvents[index].sequence !=
+        recentGrenadeBounceAudioEvents_[index].sequence
+    ) {
+      recentGrenadeBounceAudioEvents_[index] =
+        snapshot_.grenadeBounceAudioEvents[index];
+      recentGrenadeBounceAudioEventTicks_[index] = snapshot_.serverTick;
     }
   }
 }
@@ -1337,10 +1680,12 @@ void ServerGame::receiveCommands() {
       snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
       lightningKnockback_ = packet.lightningKnockback;
       lightningGunTuning_.knockbackPerSecond =
-        q3KnockbackToInternal(lightningKnockback_);
+        lightningKnockbackToInternal(lightningKnockback_);
       snapshot_.lightningKnockback = lightningKnockback_;
       rocketKnockback_ = packet.rocketKnockback;
       rocketLauncherTuning_.knockback =
+        q3KnockbackToInternal(rocketKnockback_);
+      grenadeLauncherTuning_.knockback =
         q3KnockbackToInternal(rocketKnockback_);
       snapshot_.rocketKnockback = rocketKnockback_;
       weaponDamage_ = packet.weaponDamage;
@@ -1352,6 +1697,10 @@ void ServerGame::receiveCommands() {
       rocketLauncherTuning_.directDamage =
         weaponDamage_.rocketLauncherDamage;
       rocketLauncherTuning_.splashDamage =
+        weaponDamage_.rocketLauncherDamage;
+      grenadeLauncherTuning_.directDamage =
+        weaponDamage_.rocketLauncherDamage;
+      grenadeLauncherTuning_.splashDamage =
         weaponDamage_.rocketLauncherDamage;
       snapshot_.weaponDamage = weaponDamage_;
       if (vampirism_ != packet.vampirism) {

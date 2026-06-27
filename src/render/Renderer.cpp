@@ -879,6 +879,7 @@ const PlayerState& firstVisibleRemote(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
         perspectiveScene.camera,
+        arena,
         remotePlayers,
         settings,
         hud
@@ -1839,8 +1840,21 @@ void drawPerspectiveWorld(
       );
     }
   }
-  for (const RocketProjectileSnapshot& rocket : rockets) {
-    if (!rocket.active) {
+  for (const RocketProjectileSnapshot& projectile : rockets) {
+    if (!projectile.active) {
+      continue;
+    }
+    if (projectile.weapon == Weapon::GrenadeLauncher) {
+      constexpr float size = 0.14F;
+      SDL_SetRenderDrawColor(renderer, 255, 126, 40, 255);
+      drawWireBox(
+        renderer,
+        camera,
+        width,
+        height,
+        projectile.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+        projectile.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F}
+      );
       continue;
     }
     constexpr float size = 0.14F;
@@ -1850,8 +1864,8 @@ void drawPerspectiveWorld(
       camera,
       width,
       height,
-      rocket.position - Vec3{size, size, size},
-      rocket.position + Vec3{size, size, size}
+      projectile.position - Vec3{size, size, size},
+      projectile.position + Vec3{size, size, size}
     );
   }
   for (const RocketExplosionResult& explosion : rocketExplosions) {
@@ -2120,6 +2134,7 @@ void Renderer::render(
         width,
         height,
         camera,
+        arena,
         remotePlayers,
         settings,
         hud

@@ -1,6 +1,8 @@
 #include "app/GameApp.hpp"
 
-#include "app/AudioAssets.hpp"
+#include "app/ClientAudio.hpp"
+#include "app/ClientChat.hpp"
+#include "app/ClientCvars.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/HudPresentation.hpp"
 #include "app/Scoreboard.hpp"
@@ -241,620 +243,6 @@ struct LingeringRailBeam {
   std::chrono::steady_clock::time_point expiresAt = {};
 };
 
-struct FootstepAudioState {
-  Vec3 previousPosition = {};
-  float distanceSinceStep = 0.0F;
-  std::uint32_t stepIndex = 0;
-  bool wasOnGround = false;
-  bool initialized = false;
-};
-
-class ClientAudio {
-public:
-  bool initialize(const std::filesystem::path& assetBasePath) {
-    const SDL_AudioSpec spec{SDL_AUDIO_F32, 1, kSampleRate};
-    stream_ = SDL_OpenAudioDeviceStream(
-      SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK,
-      &spec,
-      nullptr,
-      nullptr
-    );
-    if (stream_ == nullptr || !SDL_ResumeAudioStreamDevice(stream_)) {
-      return false;
-    }
-    loadCueAssets(assetBasePath);
-    return true;
-  }
-
-  void playHit(float volume, int damageApplied) {
-    const float damageScale =
-      std::clamp(static_cast<float>(damageApplied) / 100.0F, 0.0F, 1.0F);
-    const float baseFrequency = 920.0F - (damageScale * 190.0F);
-    queueHitPing(baseFrequency, volume);
-  }
-
-  void playRailFire(float volume) {
-    queueRailDischarge(volume);
-  }
-
-  void playRailReady(float volume) {
-    queueTone(760.0F, 0.035F, volume * 0.55F);
-    queueTone(1040.0F, 0.045F, volume * 0.45F);
-  }
-
-  void playRocketFire(float volume) {
-    queueRocketFire(volume);
-  }
-
-  void playMachineGunFire(float volume) {
-    if (queueClip(machineGunFireClip_, volume)) {
-      return;
-    }
-    queueMachineGunFire(volume);
-  }
-
-  void playShotgunFire(float volume) {
-    if (queueClip(shotgunFireClip_, volume)) {
-      return;
-    }
-    queueShotgunFire(volume);
-  }
-
-  void playGrenadeLauncherFire(float volume) {
-    if (queueClip(grenadeLauncherFireClip_, volume)) {
-      return;
-    }
-    queueGrenadeLauncherFire(volume);
-  }
-
-  void playPlasmaGunFire(float volume) {
-    if (queueClip(plasmaGunFireClip_, volume)) {
-      return;
-    }
-    queuePlasmaGunFire(volume);
-  }
-
-  void playRocketExplosion(float volume) {
-    queueRocketPop(volume);
-  }
-
-  void playFootstep(float volume, std::uint32_t stepIndex) {
-    if (queueClip(footstepClip_, volume * footstepGain(stepIndex))) {
-      return;
-    }
-    queueFootstep(volume, stepIndex);
-  }
-
-  void setLightningGunFire(bool active, float volume) {
-    lightningGunFireActive_ = active && volume > 0.0F;
-    lightningGunFireTargetVolume_ = lightningGunFireActive_
-      ? std::clamp(volume * 0.52F, 0.0F, 1.0F)
-      : 0.0F;
-  }
-
-  void resetLightningGunFire() {
-    lightningGunFireActive_ = false;
-    lightningGunFireTargetVolume_ = 0.0F;
-    lightningGunFireGain_ = 0.0F;
-    lightningGunSampleIndex_ = 0;
-  }
-
-  void playRoundResult(bool won, float volume) {
-    if (won) {
-      queueTone(520.0F, 0.08F, volume);
-      queueTone(780.0F, 0.12F, volume);
-    } else {
-      queueTone(420.0F, 0.09F, volume);
-      queueTone(260.0F, 0.14F, volume);
-    }
-  }
-
-  void playCountdown(std::uint32_t seconds, float volume) {
-    const float urgency = 5.0F - static_cast<float>(std::min(seconds, 5U));
-    queueTone(440.0F + (urgency * 55.0F), 0.11F, volume * 0.8F);
-    queueTone(220.0F + (urgency * 27.5F), 0.07F, volume * 0.45F);
-  }
-
-  void update() {
-    pumpAudio();
-  }
-
-  void shutdown() {
-    setLightningGunFire(false, 0.0F);
-    if (stream_ != nullptr) {
-      SDL_DestroyAudioStream(stream_);
-      stream_ = nullptr;
-    }
-    voices_.clear();
-  }
-
-private:
-  struct SoundVoice {
-    std::vector<float> samples;
-    std::size_t playhead = 0;
-  };
-
-  struct LoadedClip {
-    std::vector<float> samples;
-  };
-
-  void loadCueAssets(const std::filesystem::path& assetBasePath) {
-    lightningGunLoop_ = loadCueClip(assetBasePath, AudioCue::LightningGunFireLoop);
-    machineGunFireClip_ = loadCueClip(assetBasePath, AudioCue::MachineGunFire);
-    shotgunFireClip_ = loadCueClip(assetBasePath, AudioCue::ShotgunFire);
-    grenadeLauncherFireClip_ =
-      loadCueClip(assetBasePath, AudioCue::GrenadeLauncherFire);
-    plasmaGunFireClip_ = loadCueClip(assetBasePath, AudioCue::PlasmaGunFire);
-    footstepClip_ = loadCueClip(assetBasePath, AudioCue::Footstep);
-  }
-
-  [[nodiscard]] static LoadedClip loadCueClip(
-    const std::filesystem::path& assetBasePath,
-    AudioCue cue
-  ) {
-    if (std::optional<AudioClip> clip = loadAudioCue(assetBasePath, cue)) {
-      return LoadedClip{resampleToMixerRate(*clip)};
-    }
-    return {};
-  }
-
-  [[nodiscard]] static std::vector<float> resampleToMixerRate(const AudioClip& clip) {
-    if (clip.samples.empty() || clip.sampleRate <= 0) {
-      return {};
-    }
-    if (clip.sampleRate == kSampleRate) {
-      return clip.samples;
-    }
-
-    const double sourceStep =
-      static_cast<double>(clip.sampleRate) / static_cast<double>(kSampleRate);
-    const auto outputCount = static_cast<std::size_t>(
-      std::max(1.0, static_cast<double>(clip.samples.size()) / sourceStep)
-    );
-    std::vector<float> output(outputCount);
-    for (std::size_t index = 0; index < output.size(); ++index) {
-      const double sourcePosition = static_cast<double>(index) * sourceStep;
-      const auto sourceIndex = static_cast<std::size_t>(sourcePosition);
-      const std::size_t nextIndex =
-        std::min(sourceIndex + 1U, clip.samples.size() - 1U);
-      const float blend =
-        static_cast<float>(sourcePosition - static_cast<double>(sourceIndex));
-      output[index] =
-        (clip.samples[sourceIndex] * (1.0F - blend)) +
-        (clip.samples[nextIndex] * blend);
-    }
-    return output;
-  }
-
-  [[nodiscard]] bool queueClip(const LoadedClip& clip, float volume) {
-    if (stream_ == nullptr || volume <= 0.0F || clip.samples.empty()) {
-      return false;
-    }
-    std::vector<float> samples = clip.samples;
-    for (float& sample : samples) {
-      sample = std::clamp(sample * volume, -0.98F, 0.98F);
-    }
-    addVoice(std::move(samples));
-    return true;
-  }
-
-  [[nodiscard]] static float footstepGain(std::uint32_t stepIndex) {
-    return stepIndex % 2U == 0U ? 0.92F : 0.78F;
-  }
-
-  [[nodiscard]] static float audioEnvelope(
-    float time,
-    float duration,
-    float attack,
-    float release,
-    float curve
-  ) {
-    const float clampedAttack = std::min(attack, duration * 0.35F);
-    const float clampedRelease = std::min(release, duration * 0.7F);
-    if (time < clampedAttack) {
-      return time / std::max(clampedAttack, 0.0001F);
-    }
-    if (time > duration - clampedRelease) {
-      const float releaseProgress =
-        (duration - time) / std::max(clampedRelease, 0.0001F);
-      return std::pow(std::max(0.0F, releaseProgress), curve);
-    }
-    return 1.0F;
-  }
-
-  [[nodiscard]] static float sine(float frequency, float time, float phase = 0.0F) {
-    constexpr float kTwoPi = 6.28318530718F;
-    return std::sin((kTwoPi * frequency * time) + phase);
-  }
-
-  [[nodiscard]] static float triangle(float frequency, float time) {
-    const float phase = frequency * time - std::floor(frequency * time);
-    return (4.0F * std::abs(phase - 0.5F)) - 1.0F;
-  }
-
-  [[nodiscard]] static float saw(float frequency, float time) {
-    const float phase = frequency * time - std::floor(frequency * time);
-    return (2.0F * phase) - 1.0F;
-  }
-
-  [[nodiscard]] static float noise(int sampleIndex) {
-    std::uint32_t value = static_cast<std::uint32_t>(sampleIndex) * 747796405U +
-      2891336453U;
-    value = ((value >> ((value >> 28U) + 4U)) ^ value) * 277803737U;
-    value = (value >> 22U) ^ value;
-    return (static_cast<float>(value & 0xFFFFU) / 32767.5F) - 1.0F;
-  }
-
-  void queueRailDischarge(float volume) {
-    queueSynth(0.185F, volume, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.18F, 1.0F);
-      const float fastProgress = std::min(time / 0.10F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.185F, 0.002F, 0.070F, 1.35F);
-      return envelope * (
-        0.40F * sine(138.0F - (42.0F * progress), time) +
-        0.24F * sine(276.0F - (90.0F * std::min(time / 0.12F, 1.0F)), time) +
-        0.14F * saw(640.0F - (360.0F * fastProgress), time) +
-        0.06F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueHitPing(float baseFrequency, float volume) {
-    queueSynth(0.090F, volume, [baseFrequency](float time, int) {
-      const float progress = std::min(time / 0.03F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.090F, 0.001F, 0.070F, 1.7F);
-      return envelope * (
-        0.40F * sine(baseFrequency + (60.0F * progress), time) +
-        0.22F * sine((baseFrequency * 1.5F) + (90.0F * progress), time)
-      );
-    });
-  }
-
-  void queueRocketFire(float volume) {
-    queueSynth(0.185F, volume, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.14F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.185F, 0.003F, 0.060F, 1.35F);
-      return envelope * (
-        0.34F * sine(135.0F + (175.0F * progress), time) +
-        0.18F * triangle(270.0F + (255.0F * std::min(time / 0.13F, 1.0F)), time) +
-        0.11F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueRocketPop(float volume) {
-    queueSynth(0.210F, volume, [](float time, int sampleIndex) {
-      const float envelope = audioEnvelope(time, 0.210F, 0.001F, 0.095F, 1.35F);
-      const float bounceFrequency = time < 0.045F ? 520.0F : 374.0F;
-      return envelope * (
-        0.38F * sine(120.0F - (44.0F * std::min(time / 0.14F, 1.0F)), time) +
-        0.24F * triangle(240.0F - (92.0F * std::min(time / 0.10F, 1.0F)), time) +
-        0.10F * sine(bounceFrequency, time) +
-        0.10F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueMachineGunFire(float volume) {
-    queueSynth(0.055F, volume * 0.62F, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.055F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.055F, 0.001F, 0.035F, 1.65F);
-      return envelope * (
-        0.30F * sine(230.0F - (80.0F * progress), time) +
-        0.18F * triangle(520.0F - (260.0F * progress), time) +
-        0.16F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueShotgunFire(float volume) {
-    queueSynth(0.155F, volume * 0.82F, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.155F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.155F, 0.001F, 0.085F, 1.45F);
-      return envelope * (
-        0.36F * sine(118.0F - (38.0F * progress), time) +
-        0.20F * triangle(210.0F - (72.0F * progress), time) +
-        0.22F * noise(sampleIndex) * (1.0F - (progress * 0.35F))
-      );
-    });
-  }
-
-  void queueGrenadeLauncherFire(float volume) {
-    queueSynth(0.170F, volume * 0.78F, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.145F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.170F, 0.002F, 0.075F, 1.4F);
-      return envelope * (
-        0.32F * sine(105.0F + (90.0F * progress), time) +
-        0.18F * triangle(190.0F + (110.0F * progress), time) +
-        0.15F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queuePlasmaGunFire(float volume) {
-    queueSynth(0.070F, volume * 0.52F, [](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.070F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.070F, 0.001F, 0.040F, 1.55F);
-      return envelope * (
-        0.24F * sine(760.0F + (180.0F * progress), time) +
-        0.18F * sine(1140.0F + (260.0F * progress), time) +
-        0.08F * triangle(380.0F, time) +
-        0.06F * noise(sampleIndex)
-      );
-    });
-  }
-
-  void queueFootstep(float volume, std::uint32_t stepIndex) {
-    queueSynth(0.105F, volume, [stepIndex](float time, int sampleIndex) {
-      const float progress = std::min(time / 0.105F, 1.0F);
-      const float envelope = audioEnvelope(time, 0.105F, 0.001F, 0.055F, 1.85F);
-      const float lowThump =
-        sine(92.0F - (18.0F * progress) + static_cast<float>(stepIndex % 2U) * 7.0F, time);
-      const float slap =
-        triangle(210.0F + static_cast<float>(stepIndex % 3U) * 18.0F, time);
-      const float grit = noise(sampleIndex + static_cast<int>(stepIndex * 97U));
-      return envelope * (
-        0.30F * lowThump +
-        0.16F * slap +
-        0.18F * grit * (1.0F - progress)
-      );
-    });
-  }
-
-  [[nodiscard]] float lightningGunSample() {
-    if (!lightningGunLoop_.samples.empty()) {
-      const float sample =
-        lightningGunLoop_.samples[
-          static_cast<std::size_t>(
-            lightningGunSampleIndex_ % lightningGunLoop_.samples.size()
-          )
-        ];
-      lightningGunSampleIndex_ =
-        (lightningGunSampleIndex_ + 1U) % lightningGunLoop_.samples.size();
-      return sample;
-    }
-
-    constexpr std::uint64_t kLightningGunPeriodSamples =
-      static_cast<std::uint64_t>(kSampleRate / 48);
-    const float time =
-      static_cast<float>(lightningGunSampleIndex_) / static_cast<float>(kSampleRate);
-    lightningGunSampleIndex_ =
-      (lightningGunSampleIndex_ + 1U) % kLightningGunPeriodSamples;
-
-    return
-      0.46F * sine(96.0F, time) +
-      0.24F * sine(192.0F, time) +
-      0.16F * std::tanh(sine(48.0F, time) * 1.9F) +
-      0.07F * triangle(288.0F, time);
-  }
-
-  void mixLightningGunLoop(std::vector<float>& buffer) {
-    constexpr float kGainStepPerSample = 1.0F / 900.0F;
-    for (float& sample : buffer) {
-      if (lightningGunFireGain_ < lightningGunFireTargetVolume_) {
-        lightningGunFireGain_ =
-          std::min(lightningGunFireTargetVolume_, lightningGunFireGain_ + kGainStepPerSample);
-      } else if (lightningGunFireGain_ > lightningGunFireTargetVolume_) {
-        lightningGunFireGain_ =
-          std::max(lightningGunFireTargetVolume_, lightningGunFireGain_ - kGainStepPerSample);
-      }
-      if (lightningGunFireGain_ > 0.0005F) {
-        sample += lightningGunSample() * lightningGunFireGain_;
-      }
-    }
-  }
-
-  [[nodiscard]] bool hasActiveLoop() const {
-    return lightningGunFireActive_ || lightningGunFireGain_ > 0.0005F;
-  }
-
-  template <typename Generator>
-  void queueSynth(float durationSeconds, float volume, Generator generator) {
-    if (stream_ == nullptr || volume <= 0.0F) {
-      return;
-    }
-
-    const int sampleCount =
-      std::max(1, static_cast<int>(durationSeconds * kSampleRate));
-    std::vector<float> samples(static_cast<std::size_t>(sampleCount));
-    for (int index = 0; index < sampleCount; ++index) {
-      const float time =
-        static_cast<float>(index) / static_cast<float>(kSampleRate);
-      samples[static_cast<std::size_t>(index)] =
-        std::clamp(generator(time, index) * volume, -0.98F, 0.98F);
-    }
-    const int fadeSamples = std::min(160, sampleCount / 8);
-    for (int index = 0; index < fadeSamples; ++index) {
-      const float gain = static_cast<float>(index) /
-        static_cast<float>(std::max(1, fadeSamples));
-      samples[static_cast<std::size_t>(index)] *= gain;
-      samples[static_cast<std::size_t>(sampleCount - 1 - index)] *= gain;
-    }
-    addVoice(std::move(samples));
-  }
-
-  void queueTone(float frequency, float durationSeconds, float volume) {
-    if (stream_ == nullptr || volume <= 0.0F) {
-      return;
-    }
-
-    const int sampleCount =
-      std::max(1, static_cast<int>(durationSeconds * kSampleRate));
-    std::vector<float> samples(static_cast<std::size_t>(sampleCount));
-    constexpr float kTwoPi = 6.28318530718F;
-    for (int index = 0; index < sampleCount; ++index) {
-      const float progress =
-        static_cast<float>(index) / static_cast<float>(sampleCount);
-      const float envelope = 1.0F - progress;
-      samples[static_cast<std::size_t>(index)] =
-        std::sin(
-          kTwoPi * frequency *
-          (static_cast<float>(index) / static_cast<float>(kSampleRate))
-        ) * envelope * volume;
-    }
-    addVoice(std::move(samples));
-  }
-
-  void addVoice(std::vector<float> samples) {
-    if (samples.empty()) {
-      return;
-    }
-
-    removeFinishedVoices();
-    if (voices_.size() >= kMaxActiveVoices) {
-      const auto quietestTail = std::min_element(
-        voices_.begin(),
-        voices_.end(),
-        [](const SoundVoice& lhs, const SoundVoice& rhs) {
-          return remainingSamples(lhs) < remainingSamples(rhs);
-        }
-      );
-      voices_.erase(quietestTail);
-    }
-    voices_.push_back(SoundVoice{std::move(samples), 0});
-  }
-
-  void pumpAudio() {
-    if (stream_ == nullptr) {
-      return;
-    }
-
-    removeFinishedVoices();
-    const int queuedBytes = SDL_GetAudioStreamQueued(stream_);
-    int queuedSamples =
-      std::max(0, queuedBytes) / static_cast<int>(sizeof(float));
-    while ((!voices_.empty() || hasActiveLoop()) && queuedSamples < kTargetQueuedSamples) {
-      const int sampleCount =
-        std::min(kMixChunkSamples, kTargetQueuedSamples - queuedSamples);
-      mixBuffer_.assign(static_cast<std::size_t>(sampleCount), 0.0F);
-
-      for (SoundVoice& voice : voices_) {
-        const std::size_t remaining = remainingSamples(voice);
-        const std::size_t voiceSamples =
-          std::min(remaining, static_cast<std::size_t>(sampleCount));
-        for (std::size_t index = 0; index < voiceSamples; ++index) {
-          mixBuffer_[index] += voice.samples[voice.playhead + index];
-        }
-      }
-      if (hasActiveLoop()) {
-        mixLightningGunLoop(mixBuffer_);
-      }
-      for (float& sample : mixBuffer_) {
-        sample = std::clamp(sample, -0.98F, 0.98F);
-      }
-      for (SoundVoice& voice : voices_) {
-        voice.playhead += static_cast<std::size_t>(sampleCount);
-      }
-      removeFinishedVoices();
-      SDL_PutAudioStreamData(
-        stream_,
-        mixBuffer_.data(),
-        static_cast<int>(mixBuffer_.size() * sizeof(float))
-      );
-      queuedSamples += sampleCount;
-    }
-  }
-
-  void removeFinishedVoices() {
-    voices_.erase(
-      std::remove_if(
-        voices_.begin(),
-        voices_.end(),
-        [](const SoundVoice& voice) {
-          return voice.playhead >= voice.samples.size();
-        }
-      ),
-      voices_.end()
-    );
-  }
-
-  [[nodiscard]] static std::size_t remainingSamples(const SoundVoice& voice) {
-    if (voice.playhead >= voice.samples.size()) {
-      return 0;
-    }
-    return voice.samples.size() - voice.playhead;
-  }
-
-  static constexpr int kSampleRate = 48000;
-  static constexpr int kMixChunkSamples = 256;
-  static constexpr int kTargetQueuedSamples = 1024;
-  static constexpr std::size_t kMaxActiveVoices = 32;
-  SDL_AudioStream* stream_ = nullptr;
-  std::vector<SoundVoice> voices_;
-  std::vector<float> mixBuffer_;
-  LoadedClip lightningGunLoop_;
-  LoadedClip machineGunFireClip_;
-  LoadedClip shotgunFireClip_;
-  LoadedClip grenadeLauncherFireClip_;
-  LoadedClip plasmaGunFireClip_;
-  LoadedClip footstepClip_;
-  bool lightningGunFireActive_ = false;
-  float lightningGunFireTargetVolume_ = 0.0F;
-  float lightningGunFireGain_ = 0.0F;
-  std::uint64_t lightningGunSampleIndex_ = 0;
-};
-
-void updateFootstepAudio(
-  FootstepAudioState& state,
-  const PlayerState& player,
-  Vec3 listenerPosition,
-  bool localPlayer,
-  float volume,
-  ClientAudio& audio
-) {
-  constexpr float kMinimumStepSpeed = 1.15F;
-  constexpr float kLandingStepSpeed = 2.0F;
-  constexpr float kBaseStrideDistance = 1.45F;
-  constexpr float kMinimumStrideDistance = 0.95F;
-
-  if (!state.initialized) {
-    state.previousPosition = player.position;
-    state.wasOnGround = player.onGround;
-    state.initialized = true;
-    return;
-  }
-
-  const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
-  const Vec3 delta = player.position - state.previousPosition;
-  const float horizontalDistance = std::hypot(delta.x, delta.y);
-  const bool movingOnGround =
-    player.health > 0 && player.onGround && horizontalSpeed >= kMinimumStepSpeed;
-
-  auto playStep = [&]() {
-    float spatialVolume = volume;
-    if (!localPlayer) {
-      const Vec3 listenerDelta = player.position - listenerPosition;
-      const float distance = std::hypot(listenerDelta.x, listenerDelta.y);
-      spatialVolume *= std::clamp(1.0F - (distance / 28.0F), 0.25F, 0.70F);
-    }
-    audio.playFootstep(spatialVolume, state.stepIndex++);
-  };
-
-  if (
-    movingOnGround &&
-    !state.wasOnGround &&
-    horizontalSpeed >= kLandingStepSpeed
-  ) {
-    playStep();
-    state.distanceSinceStep = 0.0F;
-  } else if (movingOnGround) {
-    state.distanceSinceStep += horizontalDistance;
-    const float strideDistance = std::max(
-      kMinimumStrideDistance,
-      kBaseStrideDistance - (horizontalSpeed * 0.045F)
-    );
-    if (state.distanceSinceStep >= strideDistance) {
-      playStep();
-      state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
-    }
-  } else if (!player.onGround || horizontalSpeed < 0.25F) {
-    state.distanceSinceStep = 0.0F;
-  }
-
-  state.previousPosition = player.position;
-  state.wasOnGround = player.onGround;
-}
-
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
   std::istringstream stream{std::string(text)};
   std::string line;
@@ -901,180 +289,6 @@ bool saveClientConfig(
     file << line << '\n';
   }
   return file.good();
-}
-
-void registerClientCvars(ConsoleSystem& console) {
-  const CvarFlag archivedClient = CvarFlag::Archive | CvarFlag::Client;
-  console.registerCvar({"cl_config_version", "Client config migration version.", 0, archivedClient, 0.0F, 100.0F});
-  console.registerCvar({"sensitivity", "Mouse sensitivity multiplier.", 1.0F, archivedClient, 0.1F, 10.0F});
-  console.registerCvar({"cl_aim_mode", "Aim mode: 0 relative 3D, 1 absolute 2D.", 0, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"cl_render_mode", "Renderer: 0 top-down, 1 first-person 3D.", 0, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"cl_fov", "Top-down camera view extent.", 90.0F, archivedClient, 45.0F, 140.0F});
-  console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
-  console.registerCvar({"cl_zoom_sensitivity", "Mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
-  console.registerCvar({"cl_camera_zoom", "Camera zoom multiplier; values above one zoom in.", 1.0F, archivedClient, 0.25F, 4.0F});
-  console.registerCvar({"cl_rotate_view", "Rotate relative-aim view so facing direction points up.", false, archivedClient, {}, {}});
-  console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
-  console.registerCvar({"cl_showfps", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
-  console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
-  console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
-  console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
-  console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
-  console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
-  console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
-  console.registerCvar({"cl_legacy_frame_delay", "Preserve legacy SDL_Delay(1) at end of client frame.", true, archivedClient, {}, {}});
-  console.registerCvar({"cl_local_render_prediction", "Render-only local movement prediction between fixed ticks; does not affect physics or hitreg.", false, archivedClient, {}, {}});
-  console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
-  console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
-  console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 10.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
-  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 1.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
-  console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, CvarFlag::Client, {}, {}});
-  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 6.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
-  console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
-  console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
-  console.registerCvar({"g_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
-  console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, 1000.0F, "1000"});
-  console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second.", 80, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_rl_damage", "Authoritative rocket launcher direct and max splash damage.", 100, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
-  console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
-  console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
-  console.registerCvar({"g_flight", "Enable unrestricted flight symmetrically for both players.", false, CvarFlag::Client, {}, {}});
-  console.registerCvar({"g_flightaccel", "Authoritative flight thrust acceleration.", 32.0F, CvarFlag::Client, 0.0F, 1000.0F});
-  console.registerCvar({"g_flightmaxspeed", "Authoritative maximum flight speed.", 12.0F, CvarFlag::Client, 0.1F, 100.0F});
-  console.registerCvar({"g_flightdamping", "Authoritative flight velocity damping.", 2.0F, CvarFlag::Client, 0.0F, 100.0F});
-  console.registerCvar({"crosshair_enable", "Draw the crosshair.", true, archivedClient, {}, {}});
-  console.registerCvar({"crosshair_style", "Crosshair style: 0 cross, 1 cross and dot, 2 dot.", 0, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"crosshair_size", "Crosshair arm length in pixels.", 8.0F, archivedClient, 1.0F, 40.0F});
-  console.registerCvar({"crosshair_thickness", "Crosshair thickness in pixels.", 2.0F, archivedClient, 1.0F, 10.0F});
-  console.registerCvar({"crosshair_gap", "Crosshair center gap in pixels.", 3.0F, archivedClient, 0.0F, 30.0F});
-  console.registerCvar({"crosshair_alpha", "Crosshair opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"crosshair_r", "Crosshair red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"crosshair_g", "Crosshair green channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"crosshair_b", "Crosshair blue channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"crosshair_hit_enable", "Enable crosshair hit-color feedback.", true, archivedClient, {}, {}});
-  console.registerCvar({"crosshair_hit_r", "Crosshair hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"crosshair_hit_g", "Crosshair hit-feedback green channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"crosshair_hit_b", "Crosshair hit-feedback blue channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"crosshair_hit_duration", "Crosshair hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"crosshair_hit_fade", "Gradually blend crosshair hit color back to base.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_vsync", "Enable renderer vertical sync.", true, archivedClient, {}, {}});
-  console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
-  console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
-  console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
-  console.registerCvar({"r_beam_alpha", "Lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_beam_r", "Lightning beam red channel.", 74, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_beam_g", "Lightning beam green channel.", 166, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_beam_b", "Lightning beam blue channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_beam_hit_enable", "Enable local beam hit-color feedback.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_beam_hit_r", "Local beam hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_beam_hit_g", "Local beam hit-feedback green channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_beam_hit_b", "Local beam hit-feedback blue channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_beam_hit_duration", "Local beam hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"r_beam_hit_fade", "Gradually blend beam hit color back to base.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_beam_width", "Opponent lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
-  console.registerCvar({"r_enemy_beam_alpha", "Opponent lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_beam_r", "Opponent lightning beam red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_beam_g", "Opponent lightning beam green channel.", 110, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_beam_b", "Opponent lightning beam blue channel.", 80, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_hitmarker_enable", "Draw a center-screen hitmarker.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_hitmarker_duration", "Hitmarker duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"r_hitmarker_size", "Hitmarker arm length in pixels.", 10.0F, archivedClient, 2.0F, 40.0F});
-  console.registerCvar({"r_hitmarker_thickness", "Hitmarker thickness in pixels.", 2.0F, archivedClient, 1.0F, 10.0F});
-  console.registerCvar({"r_hitmarker_r", "Hitmarker red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_hitmarker_g", "Hitmarker green channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_hitmarker_b", "Hitmarker blue channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_r", "Enemy model red channel.", 224, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_outline_enable", "Draw an expanded enemy model outline.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_player_outline_style", "Player outline style: 0 geometry fallback, 1 screen-space mask request.", 0, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_outline_width", "Enemy model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
-  console.registerCvar({"r_enemy_outline_alpha", "Enemy model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_outline_r", "Enemy model outline red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_outline_g", "Enemy model outline green channel.", 220, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_outline_b", "Enemy model outline blue channel.", 84, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_lean", "Enable Q3-style velocity lean on the enemy model.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_lean_scale", "Enemy model velocity lean multiplier; 1 approximates Q3 cg_runroll.", 1.0F, archivedClient, 0.0F, 3.0F, "cg_runroll 0.005"});
-  console.registerCvar({"r_enemy_hit_enable", "Enable enemy hit-color feedback.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_hit_r", "Enemy hit-feedback red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_hit_g", "Enemy hit-feedback green channel.", 190, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_hit_b", "Enemy hit-feedback blue channel.", 198, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_hit_duration", "Enemy hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"r_enemy_hit_fade", "Gradually blend hit color back to the base color.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_health_enable", "Draw floating enemy health bars.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_health_damage_only", "Only show enemy health bars after recent damage.", false, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_health_fade", "Fade enemy health bars during their damage-only duration.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_health_duration", "Seconds to show enemy health after damage.", 5.0F, archivedClient, 0.0F, 30.0F});
-  console.registerCvar({"r_enemy_health_max_distance", "Hide enemy health bars beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
-  console.registerCvar({"r_enemy_health_width", "Floating enemy health bar width in pixels.", 72.0F, archivedClient, 12.0F, 360.0F});
-  console.registerCvar({"r_enemy_health_height", "Floating enemy health bar height in pixels.", 7.0F, archivedClient, 2.0F, 60.0F});
-  console.registerCvar({"r_enemy_health_offset_z", "Floating enemy health bar vertical world offset above the model.", 0.35F, archivedClient, -2.0F, 6.0F});
-  console.registerCvar({"r_enemy_health_offset_x", "Floating enemy health bar horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_enemy_health_offset_y", "Floating enemy health bar vertical screen offset.", -18.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_enemy_health_alpha", "Floating enemy health bar opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_health_r", "Floating enemy health bar red channel.", 224, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_health_g", "Floating enemy health bar green channel.", 82, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_health_b", "Floating enemy health bar blue channel.", 92, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_name_enable", "Draw floating enemy name tags.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_enemy_name_alpha", "Floating enemy name tag opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_name_font_size", "Floating enemy name tag font scale.", 1.5F, archivedClient, 0.5F, 6.0F});
-  console.registerCvar({"r_enemy_name_offset_z", "Floating enemy name tag vertical world offset.", 0.75F, archivedClient, -2.0F, 6.0F});
-  console.registerCvar({"r_enemy_name_offset_x", "Floating enemy name tag horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_enemy_name_offset_y", "Floating enemy name tag vertical screen offset.", -34.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_enemy_name_max_distance", "Hide enemy name tags beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
-  console.registerCvar({"r_enemy_name_r", "Floating enemy name tag red channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_name_g", "Floating enemy name tag green channel.", 235, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_enemy_name_b", "Floating enemy name tag blue channel.", 235, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_beam_width", "Teammate lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
-  console.registerCvar({"r_teammate_beam_alpha", "Teammate lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_teammate_beam_r", "Teammate lightning beam red channel.", 80, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_beam_g", "Teammate lightning beam green channel.", 220, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_beam_b", "Teammate lightning beam blue channel.", 150, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_r", "Teammate model red channel.", 82, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_g", "Teammate model green channel.", 190, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_b", "Teammate model blue channel.", 224, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_alpha", "Teammate model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_teammate_outline_enable", "Draw an expanded teammate model outline.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_outline_width", "Teammate model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
-  console.registerCvar({"r_teammate_outline_alpha", "Teammate model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_teammate_outline_r", "Teammate model outline red channel.", 128, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_outline_g", "Teammate model outline green channel.", 240, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_outline_b", "Teammate model outline blue channel.", 255, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_lean", "Enable Q3-style velocity lean on teammate models.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_lean_scale", "Teammate model velocity lean multiplier.", 1.0F, archivedClient, 0.0F, 3.0F});
-
-  console.registerCvar({"r_teammate_health_enable", "Draw floating teammate health bars.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_health_damage_only", "Only show teammate health bars after recent damage.", false, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_health_fade", "Fade teammate health bars during their damage-only duration.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_health_duration", "Seconds to show teammate health after damage.", 5.0F, archivedClient, 0.0F, 30.0F});
-  console.registerCvar({"r_teammate_health_max_distance", "Hide teammate health bars beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
-  console.registerCvar({"r_teammate_health_width", "Floating teammate health bar width in pixels.", 72.0F, archivedClient, 12.0F, 360.0F});
-  console.registerCvar({"r_teammate_health_height", "Floating teammate health bar height in pixels.", 7.0F, archivedClient, 2.0F, 60.0F});
-  console.registerCvar({"r_teammate_health_offset_z", "Floating teammate health bar vertical world offset.", 0.35F, archivedClient, -2.0F, 6.0F});
-  console.registerCvar({"r_teammate_health_offset_x", "Floating teammate health bar horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_teammate_health_offset_y", "Floating teammate health bar vertical screen offset.", -18.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_teammate_health_alpha", "Floating teammate health bar opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_teammate_health_r", "Floating teammate health bar red channel.", 82, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_health_g", "Floating teammate health bar green channel.", 190, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_health_b", "Floating teammate health bar blue channel.", 224, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_name_enable", "Draw floating teammate name tags.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_name_alpha", "Floating teammate name tag opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_teammate_name_font_size", "Floating teammate name tag font scale.", 1.5F, archivedClient, 0.5F, 6.0F});
-  console.registerCvar({"r_teammate_name_offset_z", "Floating teammate name tag vertical world offset.", 0.75F, archivedClient, -2.0F, 6.0F});
-  console.registerCvar({"r_teammate_name_offset_x", "Floating teammate name tag horizontal screen offset.", 0.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_teammate_name_offset_y", "Floating teammate name tag vertical screen offset.", -34.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_teammate_name_max_distance", "Hide teammate name tags beyond this 3D distance; zero disables the limit.", 0.0F, archivedClient, 0.0F, 1000.0F});
-  console.registerCvar({"r_teammate_name_r", "Floating teammate name tag red channel.", 210, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_name_g", "Floating teammate name tag green channel.", 245, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_teammate_name_b", "Floating teammate name tag blue channel.", 255, archivedClient, 0.0F, 255.0F});
 }
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
@@ -2449,7 +1663,7 @@ int GameApp::run() const {
   float lastRequestedPlayerSizeScaleZ =
     console.getFloat("g_playersize_z");
   float lastRequestedLightningKnockback =
-    console.getFloat("g_knockback");
+    console.getFloat("g_lg_knockback");
   float lastRequestedRocketKnockback =
     console.getFloat("g_rl_knockback");
   WeaponDamageTuning lastRequestedWeaponDamage =
@@ -2468,15 +1682,24 @@ int GameApp::run() const {
   const ClientGame* audioGame = nullptr;
   std::uint32_t lastAudioServerTick = 0;
   std::uint32_t lastHitSoundServerTick = 0;
+  constexpr std::uint32_t kTransientAudioEventTicks = 8;
   std::array<WeaponFireResult, kDuelPlayerCount> lastPlayedWeaponFires = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedWeaponFireAudioTicks = {};
   std::array<bool, kDuelPlayerCount> hasLastPlayedWeaponFire = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> lastPlayedRocketExplosions = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedRocketExplosionAudioTicks = {};
   std::array<bool, kDuelPlayerCount> hasLastPlayedRocketExplosion = {};
+  std::array<FragEvent, kDuelPlayerCount> lastPlayedFragEvents = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFragAudioTicks = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlayedFragEvent = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
+  std::array<std::uint32_t, kMaxRocketProjectiles> lastPlayedGrenadeBounceAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
   bool hasLocalRailFireTick = false;
   bool localRailReadySoundPlayed = true;
   MatchPhase lastAudioMatchPhase = MatchPhase::WaitingForPlayers;
   std::uint32_t lastAudioCountdownSecond = 0;
+  std::array<int, kDuelPlayerCount> lastAudioPlayerHealth = {};
   bool previousLocalHit = false;
   bool audioStateInitialized = false;
   bool hasLocalPlayerAliveState = false;
@@ -2916,7 +2139,7 @@ int GameApp::run() const {
     const float currentPlayerSizeScaleZ =
       console.getFloat("g_playersize_z");
     const float currentLightningKnockback =
-      console.getFloat("g_knockback");
+      console.getFloat("g_lg_knockback");
     const float currentRocketKnockback =
       console.getFloat("g_rl_knockback");
     const WeaponDamageTuning currentWeaponDamage =
@@ -3108,12 +2331,20 @@ int GameApp::run() const {
       lastAudioCountdownSecond = 0;
       lastHitSoundServerTick = 0;
       lastPlayedWeaponFires = {};
+      lastPlayedWeaponFireAudioTicks = {};
       hasLastPlayedWeaponFire = {};
       lastPlayedRocketExplosions = {};
+      lastPlayedRocketExplosionAudioTicks = {};
       hasLastPlayedRocketExplosion = {};
+      lastPlayedFragEvents = {};
+      lastPlayedFragAudioTicks = {};
+      hasLastPlayedFragEvent = {};
+      lastPlayedFootstepAudioSequences = {};
+      lastPlayedGrenadeBounceAudioSequences = {};
       lastLocalRailFireTick = 0;
       hasLocalRailFireTick = false;
       localRailReadySoundPlayed = true;
+      lastAudioPlayerHealth = {};
       previousLocalHit = false;
       hasLocalPlayerAliveState = false;
       wasLocalPlayerAlive = false;
@@ -3150,6 +2381,29 @@ int GameApp::run() const {
         const float volume = console.getFloat("s_volume");
         const bool soundEnabled = console.getBool("s_enable");
         const float footstepVolume = volume * console.getFloat("s_footstep_volume");
+        auto playPainGruntIfDamaged = [&](std::size_t playerIndex) {
+          if (!soundEnabled || !audioStateInitialized) {
+            return;
+          }
+          const PlayerState& player = audioSnapshot.players[playerIndex];
+          if (
+            !audioSnapshot.connectedPlayers[playerIndex] ||
+            player.health >= lastAudioPlayerHealth[playerIndex] ||
+            lastAudioPlayerHealth[playerIndex] <= 0
+          ) {
+            return;
+          }
+          const SpatialAudio painAudio = playerIndex == localPlayerIndex
+            ? SpatialAudio{volume, 0.0F}
+            : worldAudio(volume, player.position, currentAudioGame->predictedPlayer());
+          audio.playPainGrunt(painAudio.volume, painAudio.pan);
+        };
+        playPainGruntIfDamaged(localPlayerIndex);
+        for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+          if (playerIndex != localPlayerIndex) {
+            playPainGruntIfDamaged(playerIndex);
+          }
+        }
         constexpr std::uint32_t kHitSoundIntervalTicks = 10;
         if (
           soundEnabled &&
@@ -3168,58 +2422,128 @@ int GameApp::run() const {
           lastHitSoundServerTick = audioSnapshot.serverTick;
         }
         if (audioStateInitialized) {
-          for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-            const bool localPlayer = playerIndex == localPlayerIndex;
-            const PlayerState footstepPlayer = localPlayer
-              ? currentAudioGame->predictedPlayer()
-              : audioSnapshot.players[playerIndex];
-            updateFootstepAudio(
-              footstepAudioStates[playerIndex],
-              footstepPlayer,
-              currentAudioGame->predictedPlayer().position,
-              localPlayer,
-              soundEnabled ? footstepVolume : 0.0F,
-              audio
-            );
+          updateFootstepAudio(
+            footstepAudioStates[localPlayerIndex],
+            currentAudioGame->predictedPlayer(),
+            currentAudioGame->predictedPlayer(),
+            true,
+            soundEnabled ? footstepVolume : 0.0F,
+            audio
+          );
+          if (soundEnabled) {
+            for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+              if (playerIndex == localPlayerIndex) {
+                continue;
+              }
+              const FootstepAudioEvent& event =
+                audioSnapshot.footstepAudioEvents[playerIndex];
+              if (
+                !event.active ||
+                event.sequence == lastPlayedFootstepAudioSequences[playerIndex]
+              ) {
+                continue;
+              }
+              const SpatialAudio spatial =
+                worldAudio(
+                  footstepVolume,
+                  event.position,
+                  currentAudioGame->predictedPlayer()
+                );
+              audio.playFootstep(spatial.volume, event.sequence, spatial.pan);
+              lastPlayedFootstepAudioSequences[playerIndex] = event.sequence;
+            }
+            for (
+              std::size_t eventIndex = 0;
+              eventIndex < audioSnapshot.grenadeBounceAudioEvents.size();
+              ++eventIndex
+            ) {
+              const GrenadeBounceAudioEvent& event =
+                audioSnapshot.grenadeBounceAudioEvents[eventIndex];
+              if (
+                !event.active ||
+                event.sequence == lastPlayedGrenadeBounceAudioSequences[eventIndex]
+              ) {
+                continue;
+              }
+              const SpatialAudio spatial =
+                worldAudio(
+                  volume,
+                  event.position,
+                  currentAudioGame->predictedPlayer()
+                );
+              audio.playGrenadeBounce(spatial.volume * 0.5F, spatial.pan);
+              lastPlayedGrenadeBounceAudioSequences[eventIndex] = event.sequence;
+            }
           }
         }
         if (soundEnabled && audioStateInitialized) {
+          const FragEvent& localFrag = audioSnapshot.fragEvents[localPlayerIndex];
+          if (
+            localFrag.active &&
+            shouldPlaySnapshotAudioEvent(
+              hasLastPlayedFragEvent[localPlayerIndex],
+              sameFragEvent(localFrag, lastPlayedFragEvents[localPlayerIndex]),
+              audioSnapshot.serverTick,
+              lastPlayedFragAudioTicks[localPlayerIndex],
+              kTransientAudioEventTicks
+            )
+          ) {
+            audio.playFrag(volume);
+            lastPlayedFragEvents[localPlayerIndex] = localFrag;
+            lastPlayedFragAudioTicks[localPlayerIndex] = audioSnapshot.serverTick;
+            hasLastPlayedFragEvent[localPlayerIndex] = true;
+          }
+
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
 
             const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
             const bool localWeaponEvent = playerIndex == localPlayerIndex;
             if (
               fire.fired &&
-              (
-                !hasLastPlayedWeaponFire[playerIndex] ||
-                !sameWeaponFireEvent(fire, lastPlayedWeaponFires[playerIndex])
+              shouldPlaySnapshotAudioEvent(
+                hasLastPlayedWeaponFire[playerIndex],
+                sameWeaponFireEvent(fire, lastPlayedWeaponFires[playerIndex]),
+                audioSnapshot.serverTick,
+                lastPlayedWeaponFireAudioTicks[playerIndex],
+                kTransientAudioEventTicks
               )
             ) {
               const WeaponFireAudioEvent fireAudio =
                 routeWeaponFireAudioEvent(fire, localWeaponEvent);
+              const SpatialAudio weaponFireAudio = localWeaponEvent
+                ? SpatialAudio{volume, 0.0F}
+                : worldAudio(
+                  volume,
+                  fire.start,
+                  currentAudioGame->predictedPlayer()
+                );
               if (fireAudio.cue == WeaponFireAudioCue::Railgun) {
-                audio.playRailFire(volume);
+                audio.playRailFire(weaponFireAudio.volume, weaponFireAudio.pan);
                 if (fireAudio.startsLocalRailCooldown) {
                   lastLocalRailFireTick = audioSnapshot.serverTick;
                   hasLocalRailFireTick = true;
                   localRailReadySoundPlayed = false;
                 }
               } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
-                audio.playRocketFire(volume);
+                audio.playRocketFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::MachineGun) {
-                audio.playMachineGunFire(volume);
+                audio.playMachineGunFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::Shotgun) {
-                audio.playShotgunFire(volume);
+                audio.playShotgunFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::GrenadeLauncher) {
-                audio.playGrenadeLauncherFire(volume);
+                audio.playGrenadeLauncherFire(
+                  weaponFireAudio.volume,
+                  weaponFireAudio.pan
+                );
               } else if (fireAudio.cue == WeaponFireAudioCue::PlasmaGun) {
-                audio.playPlasmaGunFire(volume);
+                audio.playPlasmaGunFire(weaponFireAudio.volume, weaponFireAudio.pan);
               }
               if (fireAudio.localHitConfirmDamage > 0) {
                 audio.playHit(volume, fireAudio.localHitConfirmDamage);
                 lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedWeaponFires[playerIndex] = fire;
+              lastPlayedWeaponFireAudioTicks[playerIndex] = audioSnapshot.serverTick;
               hasLastPlayedWeaponFire[playerIndex] = true;
             }
 
@@ -3227,15 +2551,23 @@ int GameApp::run() const {
               audioSnapshot.rocketExplosions[playerIndex];
             if (
               explosion.active &&
-              (
-                !hasLastPlayedRocketExplosion[playerIndex] ||
-                !sameRocketExplosionEvent(
+              shouldPlaySnapshotAudioEvent(
+                hasLastPlayedRocketExplosion[playerIndex],
+                sameRocketExplosionEvent(
                   explosion,
                   lastPlayedRocketExplosions[playerIndex]
-                )
+                ),
+                audioSnapshot.serverTick,
+                lastPlayedRocketExplosionAudioTicks[playerIndex],
+                kTransientAudioEventTicks
               )
             ) {
-              audio.playRocketExplosion(volume);
+              const SpatialAudio explosionAudio = worldAudio(
+                  volume,
+                  explosion.position,
+                  currentAudioGame->predictedPlayer()
+              );
+              audio.playRocketExplosion(explosionAudio.volume, explosionAudio.pan);
               if (
                 localWeaponEvent &&
                 explosion.opponentDamageApplied > 0
@@ -3244,6 +2576,8 @@ int GameApp::run() const {
                 lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedRocketExplosions[playerIndex] = explosion;
+              lastPlayedRocketExplosionAudioTicks[playerIndex] =
+                audioSnapshot.serverTick;
               hasLastPlayedRocketExplosion[playerIndex] = true;
             }
           }
@@ -3290,6 +2624,9 @@ int GameApp::run() const {
           audio.playCountdown(countdownSecond, volume);
         }
         lastAudioCountdownSecond = countdownSecond;
+        for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+          lastAudioPlayerHealth[playerIndex] = audioSnapshot.players[playerIndex].health;
+        }
         previousLocalHit = localHit;
         lastAudioServerTick = audioSnapshot.serverTick;
         lastAudioMatchPhase = audioSnapshot.matchPhase;
@@ -3297,7 +2634,8 @@ int GameApp::run() const {
       }
     }
     if (audioAvailable) {
-      bool localLightningGunFiring = false;
+      float lightningGunVolume = 0.0F;
+      float lightningGunPan = 0.0F;
       if (
         console.getBool("s_enable") &&
         currentAudioGame != nullptr &&
@@ -3305,12 +2643,35 @@ int GameApp::run() const {
         currentAudioGame->predictedPlayer().health > 0
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
-        localLightningGunFiring =
-          currentAudioGame->snapshot().lightningGuns[localPlayerIndex].active;
+        const ServerSnapshot& snapshot = currentAudioGame->snapshot();
+        const float masterVolume = console.getFloat("s_volume");
+        if (snapshot.lightningGuns[localPlayerIndex].active) {
+          lightningGunVolume = masterVolume;
+          lightningGunPan = 0.0F;
+        }
+        for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+          if (
+            playerIndex == localPlayerIndex ||
+            !snapshot.lightningGuns[playerIndex].active ||
+            snapshot.players[playerIndex].health <= 0
+          ) {
+            continue;
+          }
+          const SpatialAudio spatial = worldAudio(
+              masterVolume,
+              snapshot.players[playerIndex].position,
+              currentAudioGame->predictedPlayer()
+          );
+          if (spatial.volume > lightningGunVolume) {
+            lightningGunVolume = spatial.volume;
+            lightningGunPan = spatial.pan;
+          }
+        }
       }
       audio.setLightningGunFire(
-        localLightningGunFiring,
-        localLightningGunFiring ? console.getFloat("s_volume") : 0.0F
+        lightningGunVolume > 0.0F,
+        lightningGunVolume,
+        lightningGunPan
       );
       audio.update();
     }

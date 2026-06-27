@@ -1,10 +1,10 @@
 # Audio Previews
 
 These WAV files are short sound proposals for the duel prototype. The client
-loads only the explicit runtime cues listed below from `assets/audio`; other
-files are kept as audition material. If a runtime WAV is missing, invalid, or
-SDL audio is unavailable, gameplay continues and the client falls back to the
-existing synthesized cue where one exists.
+loads the explicit runtime cues listed below from `assets/audio`; other files
+are kept as audition material. If a runtime WAV is missing, invalid, or SDL
+audio is unavailable, gameplay continues without that cue rather than
+regenerating the sound from code.
 
 ## Lightning Gun Fire
 
@@ -18,25 +18,45 @@ These are shooting-loop previews for holding the lightning gun beam, separate
 from the hit confirmation ping. Keep the non-selected previews around as extra
 source material for later weapon, impact, or ambience work.
 
-## Expanded Weapon Fire
+## Hit Confirm
+
+- `hit_confirm_light.wav`: low-damage hit confirmation ping.
+- `hit_confirm_medium.wav`: medium-damage hit confirmation ping.
+- `hit_confirm_heavy.wav`: high-damage hit confirmation ping.
+- `pain_grunt.wav`: played when a player takes damage; a new grunt is skipped while the previous one is still playing.
+
+The client selects one hit-confirm file from the reported damage amount. Pain
+grunts are driven by health decreases in authoritative snapshots.
+
+## Weapon Fire And Explosion
+
+- `rg_fire_discharge.wav`: railgun fire discharge.
+- `rg_ready_chime.wav`: railgun cooldown-ready notification.
+- `rl_fire_launch.wav`: rocket launcher fire cue.
+- `rl_explosion_pop.wav`: rocket explosion cue.
 
 - `mg_fire_selected_snap.wav`: short dry automatic snap for machine gun fire.
 - `sg_fire_selected_blast.wav`: compact low blast with a gritty tail for shotgun fire.
-- `gl_fire_selected_thump.wav`: rounded launcher thump for grenade launcher fire events.
+- `gl_fire.wav`: grenade launcher fire cue. Local POV shots play centered; remote shots are panned and distance-scaled from the firing position.
+- `gl_bounce.wav`: grenade bounce cue. Every authoritative world bounce is panned and distance-scaled from the bounce position.
 - `pg_fire_selected_pulse.wav`: bright short energy pulse for plasma gun fire events.
 
-The client loads these selected WAVs when present and falls back to synthesized
-fire cues from `src/app/GameApp.cpp` when a file is unavailable. MG, SG, and RL
-are driven by authoritative `weaponFires` on `main`; GL and PG preview assets
-are selected so their cues are ready when gameplay starts emitting authoritative
-fire events for those weapons.
+The current runtime cue files are all WAV-backed. Several files were converted
+from the old generated prototype sounds so designers can replace them directly.
 
 ## Footsteps
 
-- `footstep_preview_01_concrete_snap.wav`: runtime footstep cue. Short concrete-like thump with some grit.
-- `footstep_preview_02_soft_pad.wav`: softer and rounder, less distracting in sustained strafes.
-- `footstep_preview_03_metal_tick.wav`: brighter attack for a more arena-metal floor.
-- `footstep_preview_04_gritty_slide.wav`: noisier scrape with a longer tail.
+- `footstep.wav`: runtime footstep cue.
 
 Runtime footstep volume is controlled with `s_footstep_volume` and still passes
 through the global `s_volume` master.
+
+## Match UI Cues
+
+- `round_win_chime.wav`: played when the local player wins a round or match.
+- `round_loss_chime.wav`: played when the local player loses a round or match.
+- `countdown_5_beep.wav`: countdown cue for five seconds remaining.
+- `countdown_4_beep.wav`: countdown cue for four seconds remaining.
+- `countdown_3_beep.wav`: countdown cue for three seconds remaining.
+- `countdown_2_beep.wav`: countdown cue for two seconds remaining.
+- `countdown_1_beep.wav`: countdown cue for one second remaining.

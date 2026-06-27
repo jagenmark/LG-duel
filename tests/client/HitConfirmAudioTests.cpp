@@ -45,6 +45,26 @@ int main() {
   }
 
   {
+    constexpr std::uint32_t transientTicks = 8;
+    failures += expect(
+      lg::shouldPlaySnapshotAudioEvent(false, true, 100, 100, transientTicks),
+      "first snapshot audio event should play even when event payload matches defaults"
+    );
+    failures += expect(
+      !lg::shouldPlaySnapshotAudioEvent(true, true, 104, 100, transientTicks),
+      "same event should be suppressed while transient replay is still active"
+    );
+    failures += expect(
+      lg::shouldPlaySnapshotAudioEvent(true, true, 200, 100, transientTicks),
+      "same event should play again after the transient replay window"
+    );
+    failures += expect(
+      lg::shouldPlaySnapshotAudioEvent(true, false, 104, 100, transientTicks),
+      "changed event payload should play immediately"
+    );
+  }
+
+  {
     lg::WeaponFireResult shotgunHit;
     shotgunHit.fired = true;
     shotgunHit.hit = true;
