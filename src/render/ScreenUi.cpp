@@ -1,4 +1,6 @@
 #include "render/ScreenUi.hpp"
+#include "app/TextInput.hpp"
+#include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
 
 #include <algorithm>
@@ -796,21 +798,80 @@ void addHud(
     y += healthLineHeight;
   }
 
-  y = static_cast<float>(height) - 150.0F -
-    static_cast<float>(hud.chatLines.size()) * 18.0F;
-  for (const std::string& line : hud.chatLines) {
-    addText(drawList, 16.0F, y, line, {225, 235, 245, 255}, 2.0F);
-    y += 18.0F;
+  const ChatTextLayout chatLayout = buildChatTextLayout(width, height, hud);
+  for (const ChatLayoutRow& row : chatLayout.rows) {
+    addText(drawList, row.x, row.y, row.text, {225, 235, 245, 255}, 2.0F);
   }
   if (hud.chatInputOpen) {
-    addText(
-      drawList,
-      16.0F,
-      static_cast<float>(height) - 125.0F,
-      "SAY: " + hud.chatInput + '_',
-      {255, 232, 150, 255},
-      2.0F
-    );
+    if (!chatLayout.inputRows.empty()) {
+      addRect(
+        drawList,
+        chatLayout.input.x - 6.0F,
+        chatLayout.input.y - 3.0F,
+        static_cast<float>(width) - chatLayout.input.x * 2.0F + 12.0F,
+        static_cast<float>(chatLayout.inputRows.size()) * chatLayout.input.lineHeight + 6.0F,
+        {6, 9, 13, 170}
+      );
+    }
+    if (hud.chatHasSelection && hud.chatSelectionAnchor != hud.chatSelectionFocus) {
+      const std::size_t begin =
+        std::min(hud.chatSelectionAnchor, hud.chatSelectionFocus);
+      const std::size_t end =
+        std::min(
+          std::max(hud.chatSelectionAnchor, hud.chatSelectionFocus),
+          hud.chatInput.size()
+        );
+      for (const ChatInputRow& row : chatLayout.inputRows) {
+        const std::size_t rowBegin = row.inputBegin;
+        const std::size_t rowEnd = row.inputEnd;
+        const std::size_t highlightBegin = std::max(begin, rowBegin);
+        const std::size_t highlightEnd = std::min(end, rowEnd);
+        if (highlightBegin >= highlightEnd) {
+          continue;
+        }
+        const float selectionX =
+          row.x +
+          static_cast<float>(
+            row.contentColumn +
+            utf8GlyphCount(
+              hud.chatInput.substr(rowBegin, highlightBegin - rowBegin)
+            )
+          ) * chatLayout.input.characterWidth;
+        const float selectionWidth =
+          static_cast<float>(
+            utf8GlyphCount(
+              hud.chatInput.substr(highlightBegin, highlightEnd - highlightBegin)
+            )
+          ) * chatLayout.input.characterWidth;
+        addRect(
+          drawList,
+          selectionX,
+          row.y,
+          selectionWidth,
+          chatLayout.input.lineHeight,
+          {58, 118, 188, 170}
+        );
+      }
+    }
+    const ScreenPoint cursor =
+      chatInputCursorPosition(chatLayout, hud.chatInput, hud.chatCursorIndex);
+    for (const ChatInputRow& row : chatLayout.inputRows) {
+      std::string text = row.text;
+      if (std::abs(row.y - cursor.y) < 0.01F) {
+        const auto cursorColumn = static_cast<std::size_t>(
+          std::round((cursor.x - row.x) / chatLayout.input.characterWidth)
+        );
+        text.insert(utf8ByteOffsetForGlyph(text, cursorColumn), 1U, '_');
+      }
+      addText(
+        drawList,
+        row.x,
+        row.y,
+        std::move(text),
+        {255, 232, 150, 255},
+        2.0F
+      );
+    }
   }
 }
 

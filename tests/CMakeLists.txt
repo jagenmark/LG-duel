@@ -200,6 +200,7 @@ add_test(NAME lg_duel_input_binding_tests COMMAND lg_duel_input_binding_tests)
 add_executable(lg_duel_console_input_tests
   app/ConsoleInputTests.cpp
   ${PROJECT_SOURCE_DIR}/src/app/ConsoleInput.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/TextInput.cpp
 )
 
 target_link_libraries(lg_duel_console_input_tests PRIVATE lg_duel_core)
@@ -274,6 +275,8 @@ add_test(NAME lg_duel_top_down_scene_tests COMMAND lg_duel_top_down_scene_tests)
 
 add_executable(lg_duel_screen_ui_tests
   render/ScreenUiTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/TextInput.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/ChatLayout.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ConsoleLayout.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ScreenUi.cpp
 )

@@ -4,12 +4,14 @@
 #include "app/ConsoleInput.hpp"
 #include "app/HudPresentation.hpp"
 #include "app/Scoreboard.hpp"
+#include "app/TextInput.hpp"
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
 #include "render/ConsoleLayout.hpp"
+#include "render/ChatLayout.hpp"
 #include "render/Renderer.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
@@ -216,10 +218,18 @@ struct ClientConsoleState {
 };
 
 struct ClientChatState {
+  struct Message {
+    std::uint8_t playerIndex = 0;
+    std::string text;
+  };
+
   bool inputOpen = false;
   std::string input;
+  std::size_t cursorIndex = 0;
+  TextSelection selection;
+  bool selecting = false;
   std::string pendingMessage;
-  std::deque<std::string> history;
+  std::deque<Message> history;
   std::uint32_t lastSequence = 0;
   std::chrono::steady_clock::time_point visibleUntil = {};
 };
@@ -1353,6 +1363,81 @@ std::string consoleClipboardTextForWindow(
   return consoleInputClipboardText(state.input);
 }
 
+HudRenderState chatHudRenderState(const ClientChatState& state) {
+  HudRenderState hud;
+  hud.chatInputOpen = state.inputOpen;
+  hud.chatInput = state.input;
+  hud.chatCursorIndex = state.cursorIndex;
+  hud.chatHasSelection = hasSelection(state.selection);
+  hud.chatSelectionAnchor = state.selection.anchor;
+  hud.chatSelectionFocus = state.selection.focus;
+  return hud;
+}
+
+ChatTextLayout chatLayoutForWindow(SDL_Window* window, const ClientChatState& state) {
+  int viewportWidth = 0;
+  int viewportHeight = 0;
+  SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
+  return buildChatTextLayout(viewportWidth, viewportHeight, chatHudRenderState(state));
+}
+
+void clearChatSelection(ClientChatState& state) {
+  clearSelection(state.selection);
+  state.selecting = false;
+}
+
+std::string chatClipboardText(const ClientChatState& state) {
+  if (hasSelection(state.selection)) {
+    return selectedText(state.input, state.selection);
+  }
+  return state.input;
+}
+
+void pasteClipboardTextIntoChat(ClientChatState& state) {
+  char* clipboardText = SDL_GetClipboardText();
+  if (clipboardText == nullptr) {
+    return;
+  }
+  replaceSelectionOrInsert(
+    state.input,
+    state.cursorIndex,
+    state.selection,
+    clipboardText,
+    TextInputFilter::Chat,
+    kMaxChatMessageBytes
+  );
+  SDL_free(clipboardText);
+}
+
+void beginChatSelection(
+  SDL_Window* window,
+  ClientChatState& state,
+  float x,
+  float y
+) {
+  const ChatTextLayout layout = chatLayoutForWindow(window, state);
+  const std::size_t offset = chatInputOffsetAt(layout, state.input, x, y);
+  state.cursorIndex = offset;
+  state.selection.active = true;
+  state.selection.anchor = offset;
+  state.selection.focus = offset;
+  state.selecting = true;
+}
+
+void updateChatSelection(
+  SDL_Window* window,
+  ClientChatState& state,
+  float x,
+  float y
+) {
+  if (!state.selecting) {
+    return;
+  }
+  const ChatTextLayout layout = chatLayoutForWindow(window, state);
+  state.selection.focus = chatInputOffsetAt(layout, state.input, x, y);
+  state.cursorIndex = state.selection.focus;
+}
+
 void beginConsoleSelection(
   SDL_Window* window,
   ClientConsoleState& state,
@@ -2323,6 +2408,10 @@ int GameApp::run() const {
         (void)console.execute(command);
       }
       chatState.inputOpen = open;
+      if (open) {
+        chatState.cursorIndex = chatState.input.size();
+        clearChatSelection(chatState);
+      }
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
       if (open) {
@@ -2429,18 +2518,37 @@ int GameApp::run() const {
             (void)bindings.handleKey(key, false);
             break;
           }
-          if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+          if ((event.key.key == SDLK_A) && (event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0) {
+            selectAll(chatState.input, chatState.selection);
+            chatState.cursorIndex = chatState.input.size();
+          } else if (isClipboardPasteKey(event.key)) {
+            pasteClipboardTextIntoChat(chatState);
+          } else if (isClipboardCopyKey(event.key)) {
+            copyTextToClipboard(chatClipboardText(chatState));
+          } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             chatState.input.clear();
+            chatState.cursorIndex = 0U;
+            clearChatSelection(chatState);
             setChatOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
-            if (!chatState.input.empty()) {
-              chatState.input.pop_back();
-            }
+            backspaceSelectionOrText(
+              chatState.input,
+              chatState.cursorIndex,
+              chatState.selection
+            );
+          } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            clearChatSelection(chatState);
+            moveCursorLeft(chatState.input, chatState.cursorIndex);
+          } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            clearChatSelection(chatState);
+            moveCursorRight(chatState.input, chatState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (!chatState.input.empty()) {
               chatState.pendingMessage = chatState.input;
             }
             chatState.input.clear();
+            chatState.cursorIndex = 0U;
+            clearChatSelection(chatState);
             setChatOpen(false);
           }
           break;
@@ -2568,12 +2676,14 @@ int GameApp::run() const {
           );
         } else if (chatState.inputOpen) {
           suppressNextTextInput = false;
-          if (
-            chatState.input.size() + std::string_view(event.text.text).size() <=
+          replaceSelectionOrInsert(
+            chatState.input,
+            chatState.cursorIndex,
+            chatState.selection,
+            event.text.text,
+            TextInputFilter::Chat,
             kMaxChatMessageBytes
-          ) {
-            chatState.input += event.text.text;
-          }
+          );
         } else {
           suppressNextTextInput = false;
         }
@@ -2602,6 +2712,26 @@ int GameApp::run() const {
               clearConsoleSelection(consoleState);
             }
           }
+        } else if (chatState.inputOpen && event.button.button == SDL_BUTTON_LEFT) {
+          if (pressed) {
+            beginChatSelection(
+              window,
+              chatState,
+              event.button.x,
+              event.button.y
+            );
+          } else {
+            updateChatSelection(
+              window,
+              chatState,
+              event.button.x,
+              event.button.y
+            );
+            chatState.selecting = false;
+            if (chatState.selection.anchor == chatState.selection.focus) {
+              clearChatSelection(chatState);
+            }
+          }
         } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
@@ -2618,7 +2748,14 @@ int GameApp::run() const {
             event.motion.x,
             event.motion.y
           );
-        } else if (!chatState.inputOpen) {
+        } else if (chatState.inputOpen) {
+          updateChatSelection(
+            window,
+            chatState,
+            event.motion.x,
+            event.motion.y
+          );
+        } else {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
           input.mouseX = event.motion.x;
@@ -2629,6 +2766,7 @@ int GameApp::run() const {
       case SDL_EVENT_WINDOW_FOCUS_LOST:
         executeBindingCommands(bindings.releaseAll());
         consoleState.selecting = false;
+        chatState.selecting = false;
         input.mouseDeltaX = 0.0F;
         input.mouseDeltaY = 0.0F;
         break;
@@ -2653,10 +2791,10 @@ int GameApp::run() const {
         snapshot.chatSequence != chatState.lastSequence
       ) {
         chatState.lastSequence = snapshot.chatSequence;
-        chatState.history.push_back(
-          "PLAYER " + std::to_string(snapshot.chatPlayerIndex + 1U) +
-          ": " + snapshot.chatMessage
-        );
+        chatState.history.push_back(ClientChatState::Message{
+          snapshot.chatPlayerIndex,
+          snapshot.chatMessage,
+        });
         while (chatState.history.size() > 8U) {
           chatState.history.pop_front();
         }
@@ -3632,10 +3770,19 @@ int GameApp::run() const {
       );
     }
     if (chatState.inputOpen || Clock::now() < chatState.visibleUntil) {
-      hud.chatLines.assign(chatState.history.begin(), chatState.history.end());
+      for (const ClientChatState::Message& message : chatState.history) {
+        hud.chatLines.push_back(HudRenderState::ChatLine{
+          message.playerIndex,
+          message.text,
+        });
+      }
     }
     hud.chatInputOpen = chatState.inputOpen;
     hud.chatInput = chatState.input;
+    hud.chatCursorIndex = chatState.cursorIndex;
+    hud.chatHasSelection = hasSelection(chatState.selection);
+    hud.chatSelectionAnchor = chatState.selection.anchor;
+    hud.chatSelectionFocus = chatState.selection.focus;
     const Arena& renderArena =
       session.game() != nullptr && session.game()->hasSnapshot()
         ? session.game()->arena()

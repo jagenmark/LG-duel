@@ -1,4 +1,6 @@
 #include "app/ConsoleInput.hpp"
+#include "app/TextInput.hpp"
+#include "net/NetProtocol.hpp"
 
 #include <cstdlib>
 #include <iostream>
@@ -70,6 +72,94 @@ int main() {
   expectEqual(input, "r_vsync 0", "completion replaces full token at cursor");
   if (cursorIndex != 7U) {
     std::cerr << "completion updates cursor: expected `7`, got `" << cursorIndex << "`\n";
+    return 1;
+  }
+
+  input = "åäöÅÄÖ";
+  cursorIndex = input.size();
+  lg::moveConsoleCursorLeft(input, cursorIndex);
+  lg::backspaceConsoleInput(input, cursorIndex);
+  expectEqual(input, "åäöÅÖ", "UTF-8 backspace removes a full Swedish codepoint");
+  lg::moveConsoleCursorLeft(input, cursorIndex);
+  lg::moveConsoleCursorLeft(input, cursorIndex);
+  lg::insertConsoleText(input, cursorIndex, "x");
+  expectEqual(input, "åäxöÅÖ", "UTF-8 insert uses a codepoint-safe cursor");
+
+  input = "hej ö";
+  cursorIndex = input.size();
+  lg::TextSelection selection;
+  lg::selectAll(input, selection);
+  lg::replaceSelectionOrInsert(
+    input,
+    cursorIndex,
+    selection,
+    "å",
+    lg::TextInputFilter::Chat,
+    lg::kMaxChatMessageBytes
+  );
+  expectEqual(input, "å", "select all replacement keeps UTF-8 intact");
+
+  input = "hej ö";
+  cursorIndex = input.size();
+  selection = {};
+  selection.active = true;
+  selection.anchor = 4U;
+  selection.focus = input.size();
+  lg::replaceSelectionOrInsert(
+    input,
+    cursorIndex,
+    selection,
+    "åä",
+    lg::TextInputFilter::Chat,
+    lg::kMaxChatMessageBytes
+  );
+  expectEqual(input, "hej åä", "selection replacement accepts Swedish chat text");
+
+  input.assign(lg::kMaxChatMessageBytes - 1U, 'a');
+  cursorIndex = input.size();
+  lg::pasteText(
+    input,
+    cursorIndex,
+    "åö",
+    lg::TextInputFilter::Chat,
+    lg::kMaxChatMessageBytes
+  );
+  expectEqual(
+    input,
+    std::string(lg::kMaxChatMessageBytes - 1U, 'a'),
+    "chat paste rejects partial UTF-8 at byte limit"
+  );
+
+  input.assign(lg::kMaxChatMessageBytes - 2U, 'a');
+  cursorIndex = input.size();
+  lg::pasteText(
+    input,
+    cursorIndex,
+    "åö",
+    lg::TextInputFilter::Chat,
+    lg::kMaxChatMessageBytes
+  );
+  expectEqual(
+    input,
+    std::string(lg::kMaxChatMessageBytes - 2U, 'a') + "å",
+    "chat paste truncates on codepoint boundary"
+  );
+  if (!lg::isValidUtf8(input)) {
+    std::cerr << "chat paste result should remain valid UTF-8\n";
+    return 1;
+  }
+
+  input.assign(80U, 'b');
+  cursorIndex = input.size();
+  lg::insertText(
+    input,
+    cursorIndex,
+    " longer than the previous chat cap",
+    lg::TextInputFilter::Chat,
+    lg::kMaxChatMessageBytes
+  );
+  if (input.size() <= 64U) {
+    std::cerr << "chat input should allow messages longer than the old 64-byte limit\n";
     return 1;
   }
 

@@ -17,7 +17,7 @@ namespace lg {
 
 inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxBundledCommands = 3;
-inline constexpr std::size_t kMaxChatMessageBytes = 64;
+inline constexpr std::size_t kMaxChatMessageBytes = 240;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
 inline constexpr std::size_t kMaxMapNameBytes = 32;
 
