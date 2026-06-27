@@ -127,6 +127,10 @@ void ClientAudio::playGrenadeLauncherFire(float volume, float pan) {
   queueClip(grenadeLauncherFireClip_, volume, pan);
 }
 
+void ClientAudio::playGrenadeBounce(float volume, float pan) {
+  queueClip(grenadeBounceClip_, volume, pan);
+}
+
 void ClientAudio::playPlasmaGunFire(float volume, float pan) {
   queueClip(plasmaGunFireClip_, volume, pan);
 }
@@ -221,6 +225,7 @@ void ClientAudio::loadCueAssets(const std::filesystem::path& assetBasePath) {
   shotgunFireClip_ = loadCueClip(assetBasePath, AudioCue::ShotgunFire);
   grenadeLauncherFireClip_ =
     loadCueClip(assetBasePath, AudioCue::GrenadeLauncherFire);
+  grenadeBounceClip_ = loadCueClip(assetBasePath, AudioCue::GrenadeBounce);
   plasmaGunFireClip_ = loadCueClip(assetBasePath, AudioCue::PlasmaGunFire);
   footstepClip_ = loadCueClip(assetBasePath, AudioCue::Footstep);
   roundWinClip_ = loadCueClip(assetBasePath, AudioCue::RoundWin);

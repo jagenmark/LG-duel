@@ -1604,6 +1604,7 @@ int GameApp::run() const {
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFragAudioTicks = {};
   std::array<bool, kDuelPlayerCount> hasLastPlayedFragEvent = {};
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
+  std::array<std::uint32_t, kMaxRocketProjectiles> lastPlayedGrenadeBounceAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
   bool hasLocalRailFireTick = false;
   bool localRailReadySoundPlayed = true;
@@ -2198,6 +2199,7 @@ int GameApp::run() const {
       lastPlayedFragAudioTicks = {};
       hasLastPlayedFragEvent = {};
       lastPlayedFootstepAudioSequences = {};
+      lastPlayedGrenadeBounceAudioSequences = {};
       lastLocalRailFireTick = 0;
       hasLocalRailFireTick = false;
       localRailReadySoundPlayed = true;
@@ -2308,6 +2310,28 @@ int GameApp::run() const {
                 );
               audio.playFootstep(spatial.volume, event.sequence, spatial.pan);
               lastPlayedFootstepAudioSequences[playerIndex] = event.sequence;
+            }
+            for (
+              std::size_t eventIndex = 0;
+              eventIndex < audioSnapshot.grenadeBounceAudioEvents.size();
+              ++eventIndex
+            ) {
+              const GrenadeBounceAudioEvent& event =
+                audioSnapshot.grenadeBounceAudioEvents[eventIndex];
+              if (
+                !event.active ||
+                event.sequence == lastPlayedGrenadeBounceAudioSequences[eventIndex]
+              ) {
+                continue;
+              }
+              const SpatialAudio spatial =
+                worldAudio(
+                  volume,
+                  event.position,
+                  currentAudioGame->predictedPlayer()
+                );
+              audio.playGrenadeBounce(spatial.volume * 0.5F, spatial.pan);
+              lastPlayedGrenadeBounceAudioSequences[eventIndex] = event.sequence;
             }
           }
         }

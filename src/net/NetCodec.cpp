@@ -631,22 +631,28 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
 }
 
 bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
+  if (result.weapon > kLastWeapon) {
+    return false;
+  }
   return writeVec3(writer, result.position) &&
     writer.writeFloat(result.radius) &&
     writer.writeI32(result.ownerDamageApplied) &&
     writer.writeI32(result.opponentDamageApplied) &&
-    writer.writeBool(result.active);
+    writer.writeBool(result.active) &&
+    writer.writeU8(static_cast<std::uint8_t>(result.weapon));
 }
 
 bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
   std::int32_t ownerDamageApplied = 0;
   std::int32_t opponentDamageApplied = 0;
+  std::uint8_t weapon = 0;
   if (
     !readVec3(reader, result.position) ||
     !reader.readFloat(result.radius) ||
     !reader.readI32(ownerDamageApplied) ||
     !reader.readI32(opponentDamageApplied) ||
-    !reader.readBool(result.active)
+    !reader.readBool(result.active) ||
+    !reader.readU8(weapon)
   ) {
     return false;
   }
@@ -654,12 +660,14 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
     result.radius < 0.0F ||
     result.radius > 100.0F ||
     ownerDamageApplied < 0 ||
-    opponentDamageApplied < 0
+    opponentDamageApplied < 0 ||
+    weapon > static_cast<std::uint8_t>(kLastWeapon)
   ) {
     return false;
   }
   result.ownerDamageApplied = ownerDamageApplied;
   result.opponentDamageApplied = opponentDamageApplied;
+  result.weapon = static_cast<Weapon>(weapon);
   return true;
 }
 
@@ -670,6 +678,24 @@ bool writeFootstepAudioEvent(Writer& writer, const FootstepAudioEvent& event) {
 }
 
 bool readFootstepAudioEvent(Reader& reader, FootstepAudioEvent& event) {
+  return reader.readBool(event.active) &&
+    reader.readU32(event.sequence) &&
+    readVec3(reader, event.position);
+}
+
+bool writeGrenadeBounceAudioEvent(
+  Writer& writer,
+  const GrenadeBounceAudioEvent& event
+) {
+  return writer.writeBool(event.active) &&
+    writer.writeU32(event.sequence) &&
+    writeVec3(writer, event.position);
+}
+
+bool readGrenadeBounceAudioEvent(
+  Reader& reader,
+  GrenadeBounceAudioEvent& event
+) {
   return reader.readBool(event.active) &&
     reader.readU32(event.sequence) &&
     readVec3(reader, event.position);
@@ -697,19 +723,29 @@ bool writeRocketProjectile(
   Writer& writer,
   const RocketProjectileSnapshot& projectile
 ) {
+  if (projectile.weapon > kLastWeapon) {
+    return false;
+  }
   return writer.writeBool(projectile.active) &&
     writer.writeU8(projectile.owner) &&
-    writeVec3(writer, projectile.position);
+    writer.writeU8(static_cast<std::uint8_t>(projectile.weapon)) &&
+    writeVec3(writer, projectile.position) &&
+    writeVec3(writer, projectile.velocity);
 }
 
 bool readRocketProjectile(
   Reader& reader,
   RocketProjectileSnapshot& projectile
 ) {
+  std::uint8_t weapon = 0;
   return reader.readBool(projectile.active) &&
     reader.readU8(projectile.owner) &&
+    reader.readU8(weapon) &&
     readVec3(reader, projectile.position) &&
-    projectile.owner < kDuelPlayerCount;
+    readVec3(reader, projectile.velocity) &&
+    projectile.owner < kDuelPlayerCount &&
+    weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
+    (projectile.weapon = static_cast<Weapon>(weapon), true);
 }
 
 bool writeRoundCombatStats(
@@ -937,6 +973,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const GrenadeBounceAudioEvent& event : snapshot.grenadeBounceAudioEvents) {
+    if (!writeGrenadeBounceAudioEvent(writer, event)) {
+      return false;
+    }
+  }
   for (const FragEvent& event : snapshot.fragEvents) {
     if (!writeFragEvent(writer, event)) {
       return false;
@@ -1093,6 +1134,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (FootstepAudioEvent& event : decoded.footstepAudioEvents) {
     if (!readFootstepAudioEvent(reader, event)) {
+      return false;
+    }
+  }
+  for (GrenadeBounceAudioEvent& event : decoded.grenadeBounceAudioEvents) {
+    if (!readGrenadeBounceAudioEvent(reader, event)) {
       return false;
     }
   }

@@ -89,6 +89,22 @@ struct RocketLauncherTuning {
   std::uint32_t maxLifetimeTicks = 500;
 };
 
+struct GrenadeLauncherTuning {
+  float speed = 16.0F;
+  float verticalBoost = 5.0F;
+  float gravity = 9.8F;
+  float bounceDamping = 0.65F;
+  float restSpeed = 1.5F;
+  float bounceSoundMinSpeed = 1.2F;
+  float radius = 3.0F;
+  int directDamage = 100;
+  int splashDamage = 100;
+  float knockback = 22.0F;
+  float eyeHeight = 0.65F;
+  std::uint32_t fuseTicks = 313;
+  std::uint32_t cooldownTicks = 100;
+};
+
 struct WeaponDamageTuning {
   int shotgunDamagePerPellet = 5;
   int machineGunDamage = 5;
@@ -100,9 +116,11 @@ struct WeaponDamageTuning {
 struct RocketProjectile {
   bool active = false;
   std::uint8_t owner = 0;
+  Weapon weapon = Weapon::RocketLauncher;
   Vec3 position = {};
   Vec3 previousPosition = {};
   bool ownerCollisionArmed = false;
+  bool resting = false;
   Vec3 velocity = {};
   std::uint32_t ageTicks = 0;
 };
@@ -110,7 +128,9 @@ struct RocketProjectile {
 struct RocketProjectileSnapshot {
   bool active = false;
   std::uint8_t owner = 0;
+  Weapon weapon = Weapon::RocketLauncher;
   Vec3 position = {};
+  Vec3 velocity = {};
 };
 
 struct RocketExplosionResult {
@@ -119,6 +139,7 @@ struct RocketExplosionResult {
   int ownerDamageApplied = 0;
   int opponentDamageApplied = 0;
   bool active = false;
+  Weapon weapon = Weapon::RocketLauncher;
 };
 
 struct WorldTrace {

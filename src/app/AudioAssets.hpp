@@ -21,6 +21,7 @@ enum class AudioCue {
   MachineGunFire,
   ShotgunFire,
   GrenadeLauncherFire,
+  GrenadeBounce,
   PlasmaGunFire,
   Footstep,
   RoundWin,

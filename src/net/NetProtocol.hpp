@@ -106,6 +106,12 @@ struct FootstepAudioEvent {
   Vec3 position = {};
 };
 
+struct GrenadeBounceAudioEvent {
+  bool active = false;
+  std::uint32_t sequence = 0;
+  Vec3 position = {};
+};
+
 struct FragEvent {
   bool active = false;
   std::uint8_t targetPlayerIndex = 255;
@@ -122,6 +128,7 @@ struct ServerSnapshot {
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
   std::array<FootstepAudioEvent, kDuelPlayerCount> footstepAudioEvents = {};
+  std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> grenadeBounceAudioEvents = {};
   std::array<FragEvent, kDuelPlayerCount> fragEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};

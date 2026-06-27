@@ -38,6 +38,7 @@ public:
   void playMachineGunFire(float volume, float pan = 0.0F);
   void playShotgunFire(float volume, float pan = 0.0F);
   void playGrenadeLauncherFire(float volume, float pan = 0.0F);
+  void playGrenadeBounce(float volume, float pan = 0.0F);
   void playPlasmaGunFire(float volume, float pan = 0.0F);
   void playRocketExplosion(float volume, float pan = 0.0F);
   void playFootstep(float volume, std::uint32_t stepIndex, float pan = 0.0F);
@@ -98,6 +99,7 @@ private:
   LoadedClip machineGunFireClip_;
   LoadedClip shotgunFireClip_;
   LoadedClip grenadeLauncherFireClip_;
+  LoadedClip grenadeBounceClip_;
   LoadedClip plasmaGunFireClip_;
   LoadedClip footstepClip_;
   LoadedClip roundWinClip_;
