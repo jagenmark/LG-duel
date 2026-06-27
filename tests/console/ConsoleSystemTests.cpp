@@ -75,6 +75,29 @@ int main() {
     "lag compensation cvar should register"
   );
   failures += expect(
+    console.registerCvar({
+      "r_damage_numbers_color",
+      "Damage number text color.",
+      std::string("white"),
+      lg::CvarFlag::Client,
+      {},
+      {},
+    }),
+    "damage number color cvar should register"
+  );
+  failures += expect(
+    console.registerCvar({
+      "r_damage_numbers_size",
+      "Damage number text size.",
+      1.0F,
+      lg::CvarFlag::Client,
+      0.5F,
+      4.0F,
+      {},
+    }),
+    "damage number size cvar should register"
+  );
+  failures += expect(
     console.registerCommand(
       "echo",
       "Echo arguments.",
@@ -143,6 +166,11 @@ int main() {
   failures += expect(
     prefixMatches.size() == 1 && prefixMatches[0] == "set",
     "completion should prefer prefix matches over substring matches"
+  );
+  const std::vector<std::string> commonPrefixMatches = console.complete("r_damage_num");
+  failures += expect(
+    commonPrefixMatches.size() == 1 && commonPrefixMatches[0] == "r_damage_numbers_",
+    "completion should advance ambiguous matches to their shared longer prefix"
   );
   const std::vector<std::string> config = console.archivedConfigLines();
   failures += expect(config.size() == 3, "only archived cvars should serialize");

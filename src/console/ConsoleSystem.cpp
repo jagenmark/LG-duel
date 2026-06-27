@@ -55,6 +55,26 @@ bool nameLess(std::string_view lhs, std::string_view rhs) {
   return lhs < rhs;
 }
 
+std::string longestCommonPrefix(const std::vector<std::string>& values) {
+  if (values.empty()) {
+    return {};
+  }
+
+  std::string_view prefix = values.front();
+  for (const std::string& value : values) {
+    std::size_t length = 0U;
+    while (
+      length < prefix.size() &&
+      length < value.size() &&
+      prefix[length] == value[length]
+    ) {
+      ++length;
+    }
+    prefix = prefix.substr(0U, length);
+  }
+  return std::string(prefix);
+}
+
 } // namespace
 
 bool ConsoleSystem::registerCvar(CvarDefinition definition) {
@@ -209,6 +229,10 @@ std::vector<std::string> ConsoleSystem::complete(std::string_view prefix) const 
   };
   for (std::string_view name : names) {
     addIfPrefixMatching(name);
+  }
+  const std::string sharedPrefix = longestCommonPrefix(matches);
+  if (sharedPrefix.size() > prefix.size()) {
+    return {sharedPrefix};
   }
 
   if (matches.empty()) {
