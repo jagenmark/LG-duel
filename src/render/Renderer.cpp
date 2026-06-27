@@ -99,7 +99,7 @@ struct GpuVertex {
 };
 
 constexpr Uint32 kFontAtlasWidth = 128;
-constexpr Uint32 kFontAtlasHeight = 64;
+constexpr Uint32 kFontAtlasHeight = 128;
 constexpr float kSolidTextureU = 4.0F / static_cast<float>(kFontAtlasWidth);
 constexpr float kSolidTextureV = 4.0F / static_cast<float>(kFontAtlasHeight);
 
@@ -323,11 +323,16 @@ buildFontAtlas() {
     }
   }
 
-  for (Uint32 character = 33; character < 127; ++character) {
+  const std::size_t fontGlyphCount =
+    sizeof(SDL_RenderDebugTextFontData) / sizeof(SDL_RenderDebugTextFontData[0]) / 8U;
+  for (Uint32 character = 33; character < 256; ++character) {
+    const std::size_t glyphIndex = static_cast<std::size_t>(character - 33U);
+    if (glyphIndex >= fontGlyphCount) {
+      continue;
+    }
     const Uint32 cellX = (character % 16U) * 8U;
     const Uint32 cellY = (character / 16U) * 8U;
-    const std::size_t glyphOffset =
-      static_cast<std::size_t>(character - 33U) * 8U;
+    const std::size_t glyphOffset = glyphIndex * 8U;
     for (Uint32 y = 0; y < 8; ++y) {
       const std::uint8_t bits =
         SDL_RenderDebugTextFontData[glyphOffset + y];
@@ -602,14 +607,54 @@ void appendText(
   float x = text.position.x;
   float y = text.position.y;
   const float glyphSize = 8.0F * text.scale;
-  for (unsigned char rawCharacter : text.text) {
+  for (std::size_t index = 0; index < text.text.size();) {
+    const auto rawCharacter = static_cast<unsigned char>(text.text[index]);
     if (rawCharacter == '\n') {
       x = text.position.x;
       y += glyphSize;
+      ++index;
       continue;
     }
-    unsigned char character = rawCharacter;
-    if (character < 32 || character >= 127) {
+    Uint32 character = rawCharacter;
+    std::size_t advanceBytes = 1U;
+    if (
+      rawCharacter == 0xC3U &&
+      index + 1U < text.text.size()
+    ) {
+      const auto next = static_cast<unsigned char>(text.text[index + 1U]);
+      switch (next) {
+      case 0xA5U:
+        character = 0xE5U;
+        advanceBytes = 2U;
+        break;
+      case 0xA4U:
+        character = 0xE4U;
+        advanceBytes = 2U;
+        break;
+      case 0xB6U:
+        character = 0xF6U;
+        advanceBytes = 2U;
+        break;
+      case 0x85U:
+        character = 0xC5U;
+        advanceBytes = 2U;
+        break;
+      case 0x84U:
+        character = 0xC4U;
+        advanceBytes = 2U;
+        break;
+      case 0x96U:
+        character = 0xD6U;
+        advanceBytes = 2U;
+        break;
+      default:
+        character = '?';
+        break;
+      }
+    } else if (rawCharacter >= 0x80U) {
+      character = '?';
+    }
+    if (character < 32U || character >= 256U) {
       character = '?';
     }
     if (character != ' ') {
@@ -649,6 +694,7 @@ void appendText(
       );
     }
     x += glyphSize;
+    index += advanceBytes;
   }
 }
 

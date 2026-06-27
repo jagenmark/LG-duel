@@ -1,4 +1,6 @@
+#include "app/TextInput.hpp"
 #include "render/ScreenUi.hpp"
+#include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
 
 #include <array>
@@ -620,6 +622,149 @@ int main() {
         "countdown digit pixels should be centered in the screen"
       );
     }
+  }
+
+  {
+    lg::HudRenderState chatHud;
+    chatHud.chatLines.push_back({
+      0,
+      "This is a long message that wraps onto continuation rows"
+    });
+    const lg::ChatTextLayout layout =
+      lg::buildChatTextLayout(420, 720, chatHud);
+    bool foundPrefixRow = false;
+    bool foundContinuationRow = false;
+    for (const lg::ChatLayoutRow& row : layout.rows) {
+      failures += expect(
+        row.text.size() <= 24U,
+        "wrapped chat rows should fit available columns"
+      );
+      foundPrefixRow = foundPrefixRow || row.text.rfind("PLAYER 1:", 0U) == 0U;
+      foundContinuationRow =
+        foundContinuationRow ||
+        (row.continuation && row.text.rfind("         ", 0U) == 0U);
+      failures += expect(
+        !row.continuation || row.text.find("PLAYER 1:") == std::string::npos,
+        "chat continuation rows should not repeat the speaker prefix"
+      );
+    }
+    failures += expect(
+      foundPrefixRow && foundContinuationRow,
+      "chat layout should wrap with continuation indentation"
+    );
+
+    chatHud.chatLines = {{
+      {1, "supercalifragilisticexpialidocious"}
+    }};
+    const lg::ChatTextLayout longWordLayout =
+      lg::buildChatTextLayout(300, 720, chatHud);
+    for (const lg::ChatLayoutRow& row : longWordLayout.rows) {
+      failures += expect(
+        row.text.size() <= 17U,
+        "long chat words should split before overflowing"
+      );
+    }
+  }
+
+  {
+    lg::HudRenderState inputHud;
+    inputHud.chatInputOpen = true;
+    inputHud.chatInput = "one two three four five six";
+    inputHud.chatCursorIndex = inputHud.chatInput.size();
+    const lg::ChatTextLayout inputLayout =
+      lg::buildChatTextLayout(420, 720, inputHud);
+    failures += expect(
+      inputLayout.inputRows.size() >= 2U &&
+        inputHud.chatInput.find('\n') == std::string::npos,
+      "long active chat input should wrap visually without changing logical input"
+    );
+    failures += expect(
+      inputLayout.inputRows.front().text.rfind("CHAT: ", 0U) == 0U,
+      "wrapped chat input should use CHAT prefix on the first row"
+    );
+    for (std::size_t index = 1; index < inputLayout.inputRows.size(); ++index) {
+      failures += expect(
+        inputLayout.inputRows[index].text.rfind("      ", 0U) == 0U &&
+          inputLayout.inputRows[index].text.find("CHAT:") == std::string::npos,
+        "chat input continuation rows should align after the prefix"
+      );
+    }
+
+    const std::size_t continuationCursor = inputLayout.inputRows[1].inputBegin;
+    const lg::ScreenPoint continuationCaret =
+      lg::chatInputCursorPosition(
+        inputLayout,
+        inputHud.chatInput,
+        continuationCursor
+      );
+    failures += expect(
+      std::abs(continuationCaret.y - inputLayout.inputRows[1].y) < 0.01F,
+      "chat input caret after a wrap should render on the continuation row"
+    );
+
+    const std::size_t clickedOffset = lg::chatInputOffsetAt(
+      inputLayout,
+      inputHud.chatInput,
+      inputLayout.inputRows[1].x +
+        static_cast<float>(inputLayout.inputRows[1].contentColumn + 2U) *
+          inputLayout.characterWidth,
+      inputLayout.inputRows[1].y + 2.0F
+    );
+    failures += expect(
+      clickedOffset == inputLayout.inputRows[1].inputBegin + 2U,
+      "clicking a chat input continuation row should map to its UTF-8-safe cursor offset"
+    );
+
+    inputHud.chatHasSelection = true;
+    inputHud.chatSelectionAnchor = 1U;
+    inputHud.chatSelectionFocus = inputLayout.inputRows[1].inputBegin + 2U;
+    const lg::DrawList2D selectedInputUi = lg::buildScreenUi(
+      420,
+      720,
+      opponent,
+      settings,
+      inputHud,
+      {}
+    );
+    int selectionHighlights = 0;
+    for (const lg::DrawCommand2D& command : selectedInputUi.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        if (
+          quad->color.red == 58 &&
+          quad->color.green == 118 &&
+          quad->color.blue == 188
+        ) {
+          ++selectionHighlights;
+        }
+      }
+    }
+    failures += expect(
+      selectionHighlights >= 2,
+      "chat input selection spanning a wrap should highlight both visual rows"
+    );
+
+    lg::HudRenderState swedishInput;
+    swedishInput.chatInputOpen = true;
+    swedishInput.chatInput = "åäöÅÄÖ åäöÅÄÖ åäöÅÄÖ";
+    swedishInput.chatCursorIndex = swedishInput.chatInput.size();
+    const lg::ChatTextLayout swedishLayout =
+      lg::buildChatTextLayout(260, 720, swedishInput);
+    failures += expect(
+      swedishLayout.inputRows.size() >= 2U,
+      "Swedish active chat input should wrap by UTF-8 codepoint"
+    );
+    const std::size_t swedishOffset = lg::chatInputOffsetAt(
+      swedishLayout,
+      swedishInput.chatInput,
+      swedishLayout.inputRows.back().x +
+        static_cast<float>(swedishLayout.inputRows.back().contentColumn + 1U) *
+          swedishLayout.characterWidth,
+      swedishLayout.inputRows.back().y + 2.0F
+    );
+    failures += expect(
+      lg::isUtf8Boundary(swedishInput.chatInput, swedishOffset),
+      "wrapped Swedish chat input hit testing should stay on UTF-8 boundaries"
+    );
   }
 
   {

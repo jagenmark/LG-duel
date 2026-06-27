@@ -106,7 +106,7 @@ int main() {
     source.botDodgeEnabled = true;
     source.botDodgeMinIntervalMs = 250;
     source.botDodgeMaxIntervalMs = 750;
-    source.chatMessage = "ready?";
+    source.chatMessage = "åäöÅÄÖ";
     source.playerName = "yg";
     source.mapName = "thunderstruck";
     source.viewedServerTick = 88;
@@ -128,7 +128,7 @@ int main() {
     failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
     failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
-    failures += expect(decoded.chatMessage == "ready?", "chat message should round trip");
+    failures += expect(decoded.chatMessage == "åäöÅÄÖ", "Swedish chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.mapName == "thunderstruck", "map name should round trip");
     failures += expect(decoded.requestReset, "reset bit should round trip");
@@ -246,6 +246,28 @@ int main() {
       lg::encodeCommandBundle(bundle, wire) &&
         wire.size() <= lg::kMaxPacketBytes,
       "maximum chat and player names should fit a redundant command bundle"
+    );
+  }
+
+  {
+    lg::CommandPacket source;
+    source.playerIndex = 0;
+    source.chatMessage.assign(180U, 'l');
+
+    lg::WirePacket wire;
+    lg::CommandPacket decoded;
+    failures += expect(
+      lg::encodeCommandPacket(source, wire),
+      "longer chat command should encode"
+    );
+    failures += expect(
+      lg::decodeCommandPacket(wire, decoded),
+      "longer chat command should decode"
+    );
+    failures += expect(
+      decoded.chatMessage == source.chatMessage &&
+        decoded.chatMessage.size() > 64U,
+      "chat command should allow messages beyond the old 64-byte cap"
     );
   }
 
@@ -389,7 +411,7 @@ int main() {
     source.roundWinner = 0;
     source.chatSequence = 7;
     source.chatPlayerIndex = 1;
-    source.chatMessage = "nice shot";
+    source.chatMessage = "snyggt åäöÅÄÖ";
     source.matchWinner = 255;
     source.playersColliding = true;
 
@@ -498,8 +520,8 @@ int main() {
     failures += expect(
       decoded.chatSequence == 7 &&
         decoded.chatPlayerIndex == 1 &&
-        decoded.chatMessage == "nice shot",
-      "relayed chat should round trip"
+        decoded.chatMessage == "snyggt åäöÅÄÖ",
+      "relayed Swedish chat should round trip"
     );
     failures += expect(
       decoded.matchCombatStats[0].lightningActiveTicks == 500 &&
@@ -610,6 +632,29 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "invalid frag target should not encode"
+    );
+  }
+
+  {
+    lg::ServerSnapshot source;
+    source.chatSequence = 8;
+    source.chatPlayerIndex = 1;
+    source.chatMessage.assign(180U, 's');
+
+    lg::WirePacket wire;
+    lg::ServerSnapshot decoded;
+    failures += expect(
+      lg::encodeServerSnapshot(source, wire),
+      "longer snapshot chat should encode"
+    );
+    failures += expect(
+      lg::decodeServerSnapshot(wire, decoded),
+      "longer snapshot chat should decode"
+    );
+    failures += expect(
+      decoded.chatMessage == source.chatMessage &&
+        decoded.chatMessage.size() > 64U,
+      "snapshot chat should allow messages beyond the old 64-byte cap"
     );
   }
 

@@ -724,7 +724,7 @@ spawn p2 2,0,0.5 yaw=180
     lg::CommandPacket chat;
     chat.playerIndex = 1;
     chat.command.sequence = 1;
-    chat.chatMessage = "good luck";
+    chat.chatMessage = "lycka till åäöÅÄÖ";
     transport.sendCommand(chat);
     server.tick(lg::kFixedTickSeconds);
 
@@ -732,8 +732,8 @@ spawn p2 2,0,0.5 yaw=180
     failures += expect(
       snapshot.chatSequence == 1 &&
         snapshot.chatPlayerIndex == 1 &&
-        snapshot.chatMessage == "good luck",
-      "server should relay accepted player chat"
+        snapshot.chatMessage == "lycka till åäöÅÄÖ",
+      "server should relay accepted Swedish player chat"
     );
 
     transport.sendCommand(chat);

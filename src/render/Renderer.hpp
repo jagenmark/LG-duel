@@ -177,8 +177,16 @@ struct HudRenderState {
   float centerOffsetY = 0.0F;
   std::string countdownText;
   float countdownPulse = 0.0F;
-  std::vector<std::string> chatLines;
+  struct ChatLine {
+    std::uint8_t playerIndex = 0;
+    std::string message;
+  };
+  std::vector<ChatLine> chatLines;
   std::string chatInput;
+  std::size_t chatCursorIndex = 0;
+  bool chatHasSelection = false;
+  std::size_t chatSelectionAnchor = 0;
+  std::size_t chatSelectionFocus = 0;
   bool chatInputOpen = false;
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
