@@ -3028,6 +3028,7 @@ int GameApp::run() const {
             ? renderClient->interpolatedPlayer(playerIndex)
             : renderClient->interpolatedPlayer(playerIndex, interpolationAlpha),
           renderSnapshot.lightningGuns[playerIndex],
+          renderSnapshot.selectedWeapons[playerIndex],
           0.0F,
           1.0F,
           true,

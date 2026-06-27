@@ -11,6 +11,22 @@ constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr float kDegreesToRadians = 0.01745329252F;
 
+struct PlayerModelBasis {
+  Vec3 forward = {};
+  Vec3 right = {};
+  Vec3 up = {};
+  float radius = 0.0F;
+  float halfHeight = 0.0F;
+  float bottom = 0.0F;
+  float height = 0.0F;
+};
+
+struct WeaponModelFrame {
+  PlayerModelBasis basis = {};
+  Vec3 hand = {};
+  float scale = 1.0F;
+};
+
 [[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs) {
   return {
     lhs.y * rhs.z - lhs.z * rhs.y,
@@ -507,19 +523,18 @@ void addOrientedWireBox(
   }
 }
 
-template <typename AddPart>
-void forEachPlayerModelPart(
+[[nodiscard]] PlayerModelBasis playerModelBasis(
   const PlayerState& player,
   bool leanEnabled,
   float leanScale,
-  float expansion,
-  AddPart addPart
+  float expansion
 ) {
-  const float radius = player.bounds.radius + std::max(0.0F, expansion);
-  const float halfHeight = player.bounds.halfHeight + std::max(0.0F, expansion);
-  const float bottom = player.position.z - halfHeight;
-  const float height = halfHeight * 2.0F;
-  const Vec3 forward = yawForward(player.viewYawRadians);
+  PlayerModelBasis basis;
+  basis.radius = player.bounds.radius + std::max(0.0F, expansion);
+  basis.halfHeight = player.bounds.halfHeight + std::max(0.0F, expansion);
+  basis.bottom = player.position.z - basis.halfHeight;
+  basis.height = basis.halfHeight * 2.0F;
+  basis.forward = yawForward(player.viewYawRadians);
   const Vec3 baseRight = yawRight(player.viewYawRadians);
   const float lateralVelocity = dot(player.velocity, baseRight);
   const float rollDegrees = leanEnabled
@@ -529,10 +544,21 @@ void forEachPlayerModelPart(
   const float rollCos = std::cos(rollRadians);
   const float rollSin = std::sin(rollRadians);
   const Vec3 worldUp = {0.0F, 0.0F, 1.0F};
-  const Vec3 right =
-    normalize((baseRight * rollCos) + (worldUp * rollSin));
-  const Vec3 up =
-    normalize((worldUp * rollCos) - (baseRight * rollSin));
+  basis.right = normalize((baseRight * rollCos) + (worldUp * rollSin));
+  basis.up = normalize((worldUp * rollCos) - (baseRight * rollSin));
+  return basis;
+}
+
+template <typename AddPart>
+void forEachPlayerModelPart(
+  const PlayerState& player,
+  bool leanEnabled,
+  float leanScale,
+  float expansion,
+  AddPart addPart
+) {
+  const PlayerModelBasis basis =
+    playerModelBasis(player, leanEnabled, leanScale, expansion);
   const auto part =
     [&](float forwardOffset,
         float rightOffset,
@@ -540,21 +566,21 @@ void forEachPlayerModelPart(
         float topRatio,
         float forwardRadius,
         float rightRadius) {
-      const float partBottom = bottom + height * bottomRatio;
-      const float partTop = bottom + height * topRatio;
+      const float partBottom = basis.bottom + basis.height * bottomRatio;
+      const float partTop = basis.bottom + basis.height * topRatio;
       addPart(
         player.position +
-          forward * (radius * forwardOffset) +
-          right * (radius * rightOffset) +
-          up * (((partBottom + partTop) * 0.5F) - player.position.z),
+          basis.forward * (basis.radius * forwardOffset) +
+          basis.right * (basis.radius * rightOffset) +
+          basis.up * (((partBottom + partTop) * 0.5F) - player.position.z),
         {
-          radius * forwardRadius,
-          radius * rightRadius,
+          basis.radius * forwardRadius,
+          basis.radius * rightRadius,
           (partTop - partBottom) * 0.5F,
         },
-        forward,
-        right,
-        up
+        basis.forward,
+        basis.right,
+        basis.up
       );
     };
 
@@ -583,6 +609,229 @@ void addPlayerModel(
       addOrientedBox(scene, center, halfExtents, forward, right, up, color);
     }
   );
+}
+
+[[nodiscard]] WeaponModelFrame weaponModelFrame(
+  const PlayerState& player,
+  bool leanEnabled,
+  float leanScale
+) {
+  constexpr CollisionBounds kDefaultBounds = {};
+  WeaponModelFrame frame;
+  frame.basis =
+    playerModelBasis(player, leanEnabled, leanScale, 0.0F);
+  frame.scale = std::clamp(
+    (
+      frame.basis.radius / kDefaultBounds.radius +
+      frame.basis.halfHeight / kDefaultBounds.halfHeight
+    ) * 0.5F,
+    0.65F,
+    1.8F
+  );
+  frame.hand =
+    player.position +
+    frame.basis.forward * (frame.basis.radius * 0.18F) +
+    frame.basis.right * (frame.basis.radius * 0.84F) +
+    frame.basis.up *
+      ((frame.basis.bottom + frame.basis.height * 0.53F) - player.position.z);
+  return frame;
+}
+
+[[nodiscard]] Vec3 weaponLocalPoint(
+  const WeaponModelFrame& frame,
+  float forward,
+  float right,
+  float up
+) {
+  return frame.hand +
+    frame.basis.forward * (forward * frame.scale) +
+    frame.basis.right * (right * frame.scale) +
+    frame.basis.up * (up * frame.scale);
+}
+
+void addWeaponPart(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  float forward,
+  float right,
+  float up,
+  Vec3 halfExtents,
+  RenderColor color
+) {
+  addOrientedBox(
+    scene,
+    weaponLocalPoint(frame, forward, right, up),
+    halfExtents * frame.scale,
+    frame.basis.forward,
+    frame.basis.right,
+    frame.basis.up,
+    color
+  );
+}
+
+void addWeaponStrut(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  Vec3 start,
+  Vec3 end,
+  float width,
+  RenderColor color
+) {
+  addSegment(
+    scene,
+    weaponLocalPoint(frame, start.x, start.y, start.z),
+    weaponLocalPoint(frame, end.x, end.y, end.z),
+    width * frame.scale,
+    color
+  );
+}
+
+void addLightningGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  const auto part =
+    [&](float forward,
+        float right,
+        float up,
+        Vec3 halfExtents,
+        RenderColor color) {
+      addWeaponPart(scene, frame, forward, right, up, halfExtents, color);
+    };
+
+  constexpr RenderColor darkMetal = {24, 31, 40, 255};
+  constexpr RenderColor blueMetal = {38, 70, 92, 255};
+  constexpr RenderColor energy = {54, 224, 255, 255};
+  constexpr RenderColor hotEnergy = {178, 246, 255, 255};
+
+  part(0.16F, 0.0F, 0.09F, {0.27F, 0.075F, 0.07F}, darkMetal);
+  part(0.05F, 0.0F, 0.10F, {0.14F, 0.12F, 0.105F}, blueMetal);
+  part(0.46F, 0.0F, 0.09F, {0.22F, 0.04F, 0.04F}, darkMetal);
+  part(0.71F, 0.0F, 0.09F, {0.10F, 0.075F, 0.075F}, blueMetal);
+  part(0.82F, 0.0F, 0.09F, {0.045F, 0.105F, 0.105F}, energy);
+  part(0.18F, 0.0F, -0.08F, {0.06F, 0.045F, 0.16F}, darkMetal);
+  part(0.24F, 0.0F, -0.22F, {0.05F, 0.04F, 0.08F}, darkMetal);
+  part(0.05F, -0.095F, 0.205F, {0.13F, 0.018F, 0.02F}, energy);
+  part(0.05F, 0.095F, 0.205F, {0.13F, 0.018F, 0.02F}, energy);
+  part(0.35F, 0.0F, 0.155F, {0.20F, 0.02F, 0.018F}, hotEnergy);
+  addWeaponStrut(scene, frame, {0.29F, -0.075F, 0.155F}, {0.58F, 0.075F, 0.155F}, 0.018F, energy);
+}
+
+void addMachineGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  constexpr RenderColor gunmetal = {32, 35, 38, 255};
+  constexpr RenderColor steel = {82, 91, 98, 255};
+  constexpr RenderColor belt = {208, 171, 82, 255};
+  constexpr RenderColor muzzle = {168, 180, 188, 255};
+
+  addWeaponPart(scene, frame, 0.14F, 0.0F, 0.07F, {0.20F, 0.08F, 0.07F}, gunmetal);
+  addWeaponPart(scene, frame, 0.41F, -0.035F, 0.09F, {0.22F, 0.025F, 0.025F}, steel);
+  addWeaponPart(scene, frame, 0.41F, 0.035F, 0.09F, {0.22F, 0.025F, 0.025F}, steel);
+  addWeaponPart(scene, frame, 0.64F, 0.0F, 0.09F, {0.045F, 0.065F, 0.055F}, muzzle);
+  addWeaponPart(scene, frame, 0.02F, 0.13F, 0.02F, {0.12F, 0.035F, 0.09F}, belt);
+  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.045F, 0.14F}, gunmetal);
+}
+
+void addShotgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  constexpr RenderColor darkSteel = {38, 34, 31, 255};
+  constexpr RenderColor warmGrip = {104, 67, 42, 255};
+  constexpr RenderColor brass = {196, 154, 74, 255};
+
+  addWeaponPart(scene, frame, 0.12F, 0.0F, 0.07F, {0.20F, 0.09F, 0.075F}, warmGrip);
+  addWeaponPart(scene, frame, 0.43F, -0.04F, 0.105F, {0.27F, 0.026F, 0.028F}, darkSteel);
+  addWeaponPart(scene, frame, 0.43F, 0.04F, 0.105F, {0.27F, 0.026F, 0.028F}, darkSteel);
+  addWeaponPart(scene, frame, 0.72F, -0.04F, 0.105F, {0.035F, 0.04F, 0.04F}, brass);
+  addWeaponPart(scene, frame, 0.72F, 0.04F, 0.105F, {0.035F, 0.04F, 0.04F}, brass);
+  addWeaponPart(scene, frame, 0.08F, 0.0F, -0.08F, {0.055F, 0.045F, 0.14F}, darkSteel);
+}
+
+void addGrenadeLauncherModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  constexpr RenderColor olive = {35, 69, 44, 255};
+  constexpr RenderColor dark = {24, 30, 27, 255};
+  constexpr RenderColor hazard = {220, 176, 74, 255};
+  constexpr RenderColor muzzle = {68, 82, 74, 255};
+
+  addWeaponPart(scene, frame, 0.10F, 0.0F, 0.08F, {0.18F, 0.105F, 0.095F}, olive);
+  addWeaponPart(scene, frame, 0.30F, 0.0F, 0.08F, {0.12F, 0.145F, 0.145F}, dark);
+  addWeaponPart(scene, frame, 0.30F, 0.0F, 0.225F, {0.08F, 0.09F, 0.025F}, hazard);
+  addWeaponPart(scene, frame, 0.55F, 0.0F, 0.09F, {0.20F, 0.07F, 0.07F}, muzzle);
+  addWeaponPart(scene, frame, 0.76F, 0.0F, 0.09F, {0.045F, 0.095F, 0.095F}, hazard);
+  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.045F, 0.14F}, dark);
+}
+
+void addRocketLauncherModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  constexpr RenderColor tube = {42, 49, 56, 255};
+  constexpr RenderColor dark = {20, 24, 28, 255};
+  constexpr RenderColor warning = {236, 122, 48, 255};
+  constexpr RenderColor rim = {122, 137, 145, 255};
+
+  addWeaponPart(scene, frame, 0.24F, 0.0F, 0.12F, {0.42F, 0.115F, 0.115F}, tube);
+  addWeaponPart(scene, frame, -0.10F, 0.0F, 0.12F, {0.075F, 0.15F, 0.15F}, dark);
+  addWeaponPart(scene, frame, 0.68F, 0.0F, 0.12F, {0.075F, 0.155F, 0.155F}, rim);
+  addWeaponPart(scene, frame, 0.81F, 0.0F, 0.12F, {0.055F, 0.075F, 0.075F}, warning);
+  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.08F, {0.055F, 0.045F, 0.15F}, dark);
+  addWeaponPart(scene, frame, 0.32F, -0.13F, 0.19F, {0.14F, 0.02F, 0.025F}, warning);
+}
+
+void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  constexpr RenderColor dark = {28, 26, 40, 255};
+  constexpr RenderColor violet = {83, 69, 128, 255};
+  constexpr RenderColor rail = {118, 229, 255, 255};
+  constexpr RenderColor core = {255, 224, 118, 255};
+
+  addWeaponPart(scene, frame, 0.14F, 0.0F, 0.09F, {0.24F, 0.075F, 0.07F}, dark);
+  addWeaponPart(scene, frame, 0.48F, 0.0F, 0.09F, {0.30F, 0.045F, 0.045F}, violet);
+  addWeaponPart(scene, frame, 0.78F, 0.0F, 0.09F, {0.045F, 0.075F, 0.075F}, core);
+  addWeaponPart(scene, frame, 0.43F, -0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
+  addWeaponPart(scene, frame, 0.43F, 0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
+  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.04F, 0.145F}, dark);
+  addWeaponStrut(scene, frame, {0.22F, -0.08F, 0.02F}, {0.66F, 0.08F, 0.02F}, 0.016F, rail);
+}
+
+void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
+  constexpr RenderColor dark = {26, 35, 39, 255};
+  constexpr RenderColor teal = {43, 107, 103, 255};
+  constexpr RenderColor plasma = {112, 255, 142, 255};
+  constexpr RenderColor glow = {199, 255, 214, 255};
+
+  addWeaponPart(scene, frame, 0.12F, 0.0F, 0.08F, {0.20F, 0.10F, 0.085F}, dark);
+  addWeaponPart(scene, frame, 0.35F, 0.0F, 0.09F, {0.16F, 0.135F, 0.12F}, teal);
+  addSphereApprox(scene, weaponLocalPoint(frame, 0.35F, 0.0F, 0.095F), 0.085F * frame.scale, plasma);
+  addWeaponPart(scene, frame, 0.57F, 0.0F, 0.09F, {0.16F, 0.055F, 0.055F}, dark);
+  addWeaponPart(scene, frame, 0.74F, 0.0F, 0.09F, {0.045F, 0.09F, 0.09F}, glow);
+  addWeaponPart(scene, frame, 0.13F, 0.0F, -0.09F, {0.055F, 0.045F, 0.145F}, dark);
+  addWeaponStrut(scene, frame, {0.20F, -0.11F, 0.17F}, {0.54F, -0.11F, 0.17F}, 0.018F, plasma);
+  addWeaponStrut(scene, frame, {0.20F, 0.11F, 0.17F}, {0.54F, 0.11F, 0.17F}, 0.018F, plasma);
+}
+
+void addWeaponModel(
+  Scene3D& scene,
+  const PlayerState& player,
+  Weapon weapon,
+  RenderColor,
+  bool leanEnabled,
+  float leanScale
+) {
+  const WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
+  switch (weapon) {
+  case Weapon::LightningGun:
+    addLightningGunModel(scene, frame);
+    break;
+  case Weapon::Railgun:
+    addRailgunModel(scene, frame);
+    break;
+  case Weapon::RocketLauncher:
+    addRocketLauncherModel(scene, frame);
+    break;
+  case Weapon::MachineGun:
+    addMachineGunModel(scene, frame);
+    break;
+  case Weapon::Shotgun:
+    addShotgunModel(scene, frame);
+    break;
+  case Weapon::GrenadeLauncher:
+    addGrenadeLauncherModel(scene, frame);
+    break;
+  case Weapon::PlasmaGun:
+    addPlasmaGunModel(scene, frame);
+    break;
+  }
 }
 
 void addPlayerOutline(
@@ -850,6 +1099,16 @@ Scene3D buildPerspectiveScene(
         : settings.enemyLeanEnabled,
       remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
     );
+    addWeaponModel(
+      scene,
+      remote.player,
+      remote.selectedWeapon,
+      opponentColor,
+      remote.teammate
+        ? settings.teammateLeanEnabled
+        : settings.enemyLeanEnabled,
+      remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
+    );
   }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
@@ -997,6 +1256,7 @@ Scene3D buildPerspectiveScene(
   remotePlayers[0] = RemotePlayerView{
     opponent,
     opponentLightningGun,
+    Weapon::LightningGun,
     settings.enemyHitAmount,
     1.0F,
     settings.hasRemotePlayer,

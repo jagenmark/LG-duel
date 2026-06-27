@@ -124,6 +124,7 @@ struct ServerSnapshot {
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};
+  std::array<Weapon, kDuelPlayerCount> selectedWeapons = {};
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};

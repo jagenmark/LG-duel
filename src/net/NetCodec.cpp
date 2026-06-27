@@ -1,5 +1,6 @@
 #include "net/NetCodec.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 #include <cstdint>
@@ -10,6 +11,10 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kHeaderBytes = 12;
+
+[[nodiscard]] bool isValidWeapon(Weapon weapon) {
+  return weapon <= kLastWeapon;
+}
 
 class Writer {
 public:
@@ -925,6 +930,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       snapshot.teams.begin(),
       snapshot.teams.end(),
       [](Team team) { return isValidTeam(team); }
+    ) ||
+    !std::all_of(
+      snapshot.selectedWeapons.begin(),
+      snapshot.selectedWeapons.end(),
+      [](Weapon weapon) { return isValidWeapon(weapon); }
     )
   ) {
     return false;
@@ -950,6 +960,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   }
   for (const PlayerState& player : snapshot.players) {
     if (!writePlayer(writer, player)) {
+      return false;
+    }
+  }
+  for (Weapon weapon : snapshot.selectedWeapons) {
+    if (!writer.writeU8(static_cast<std::uint8_t>(weapon))) {
       return false;
     }
   }
@@ -1116,6 +1131,16 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     if (!readPlayer(reader, player)) {
       return false;
     }
+  }
+  for (Weapon& weapon : decoded.selectedWeapons) {
+    std::uint8_t encodedWeapon = 0;
+    if (!reader.readU8(encodedWeapon)) {
+      return false;
+    }
+    if (encodedWeapon > static_cast<std::uint8_t>(kLastWeapon)) {
+      return false;
+    }
+    weapon = static_cast<Weapon>(encodedWeapon);
   }
   for (LightningGunResult& result : decoded.lightningGuns) {
     if (!readLightningGun(reader, result)) {
