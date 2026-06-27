@@ -189,6 +189,7 @@ struct HudRenderState {
   struct ChatLine {
     std::uint8_t playerIndex = 0;
     std::string message;
+    std::string speakerName;
   };
   std::vector<ChatLine> chatLines;
   std::string chatInput;

@@ -233,6 +233,7 @@ struct ClientChatState {
   struct Message {
     std::uint8_t playerIndex = 0;
     std::string text;
+    std::string speakerName;
   };
 
   bool inputOpen = false;
@@ -2049,6 +2050,7 @@ int GameApp::run() const {
         chatState.history.push_back(ClientChatState::Message{
           snapshot.chatPlayerIndex,
           snapshot.chatMessage,
+          chatPlayerDisplayName(snapshot, snapshot.chatPlayerIndex),
         });
         while (chatState.history.size() > 8U) {
           chatState.history.pop_front();
@@ -3273,6 +3275,7 @@ int GameApp::run() const {
         hud.chatLines.push_back(HudRenderState::ChatLine{
           message.playerIndex,
           message.text,
+          message.speakerName,
         });
       }
     }

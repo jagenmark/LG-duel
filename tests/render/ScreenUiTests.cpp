@@ -663,7 +663,8 @@ int main() {
     lg::HudRenderState chatHud;
     chatHud.chatLines.push_back({
       0,
-      "This is a long message that wraps onto continuation rows"
+      "This is a long message that wraps onto continuation rows",
+      "Zap Witch"
     });
     const lg::ChatTextLayout layout =
       lg::buildChatTextLayout(420, 720, chatHud);
@@ -674,12 +675,12 @@ int main() {
         row.text.size() <= 24U,
         "wrapped chat rows should fit available columns"
       );
-      foundPrefixRow = foundPrefixRow || row.text.rfind("PLAYER 1:", 0U) == 0U;
+      foundPrefixRow = foundPrefixRow || row.text.rfind("Zap Witch:", 0U) == 0U;
       foundContinuationRow =
         foundContinuationRow ||
-        (row.continuation && row.text.rfind("         ", 0U) == 0U);
+        (row.continuation && row.text.rfind("           ", 0U) == 0U);
       failures += expect(
-        !row.continuation || row.text.find("PLAYER 1:") == std::string::npos,
+        !row.continuation || row.text.find("Zap Witch:") == std::string::npos,
         "chat continuation rows should not repeat the speaker prefix"
       );
     }
@@ -689,7 +690,7 @@ int main() {
     );
 
     chatHud.chatLines = {{
-      {1, "supercalifragilisticexpialidocious"}
+      {1, "supercalifragilisticexpialidocious", ""}
     }};
     const lg::ChatTextLayout longWordLayout =
       lg::buildChatTextLayout(300, 720, chatHud);
