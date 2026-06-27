@@ -10,6 +10,9 @@ namespace {
 constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr float kDegreesToRadians = 0.01745329252F;
+constexpr float kJumpPoseTorsoPitchRadians = 5.0F * kDegreesToRadians;
+constexpr float kJumpPoseArmPitchRadians = 2.0F * kDegreesToRadians;
+constexpr float kJumpPoseLegPitchRadians = -30.0F * kDegreesToRadians;
 
 struct PlayerModelBasis {
   Vec3 forward = {};
@@ -19,6 +22,10 @@ struct PlayerModelBasis {
   float halfHeight = 0.0F;
   float bottom = 0.0F;
   float height = 0.0F;
+};
+
+struct PlayerVisualPose {
+  bool airborne = false;
 };
 
 struct WeaponModelFrame {
@@ -549,6 +556,25 @@ void addOrientedWireBox(
   return basis;
 }
 
+[[nodiscard]] PlayerVisualPose makePlayerVisualPose(const PlayerState& player) {
+  PlayerVisualPose pose;
+  pose.airborne = !player.onGround && player.movementMode == MovementMode::Airborne;
+  return pose;
+}
+
+[[nodiscard]] PlayerModelBasis pitchedBasis(
+  PlayerModelBasis basis,
+  float pitchRadians
+) {
+  const float pitchCos = std::cos(pitchRadians);
+  const float pitchSin = std::sin(pitchRadians);
+  const Vec3 forward = basis.forward;
+  const Vec3 up = basis.up;
+  basis.forward = normalize((forward * pitchCos) - (up * pitchSin));
+  basis.up = normalize((up * pitchCos) + (forward * pitchSin));
+  return basis;
+}
+
 template <typename AddPart>
 void forEachPlayerModelPart(
   const PlayerState& player,
@@ -559,13 +585,18 @@ void forEachPlayerModelPart(
 ) {
   const PlayerModelBasis basis =
     playerModelBasis(player, leanEnabled, leanScale, expansion);
+  const PlayerVisualPose pose = makePlayerVisualPose(player);
   const auto part =
     [&](float forwardOffset,
         float rightOffset,
         float bottomRatio,
         float topRatio,
         float forwardRadius,
-        float rightRadius) {
+        float rightRadius,
+        float pitchRadians = 0.0F) {
+      const PlayerModelBasis partBasis = pitchRadians != 0.0F
+        ? pitchedBasis(basis, pitchRadians)
+        : basis;
       const float partBottom = basis.bottom + basis.height * bottomRatio;
       const float partTop = basis.bottom + basis.height * topRatio;
       addPart(
@@ -578,11 +609,22 @@ void forEachPlayerModelPart(
           basis.radius * rightRadius,
           (partTop - partBottom) * 0.5F,
         },
-        basis.forward,
-        basis.right,
-        basis.up
+        partBasis.forward,
+        partBasis.right,
+        partBasis.up
       );
     };
+
+  if (pose.airborne) {
+    part(0.03F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F, kJumpPoseTorsoPitchRadians); // Torso
+    part(-0.02F, 0.0F, 0.35F, 0.49F, 0.31F, 0.48F);                            // Hips
+    part(0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);                                // Head
+    part(0.02F, -0.74F, 0.41F, 0.72F, 0.20F, 0.20F, kJumpPoseArmPitchRadians);   // Left arm
+    part(0.04F, 0.74F, 0.42F, 0.72F, 0.20F, 0.20F, kJumpPoseArmPitchRadians);    // Right arm
+    part(-0.22F, -0.25F, 0.08F, 0.34F, 0.25F, 0.20F, kJumpPoseLegPitchRadians);  // Left leg
+    part(-0.14F, 0.25F, 0.06F, 0.34F, 0.25F, 0.20F, kJumpPoseLegPitchRadians);   // Right leg
+    return;
+  }
 
   part(0.0F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F);  // Torso
   part(0.0F, 0.0F, 0.34F, 0.48F, 0.31F, 0.48F);  // Hips
@@ -628,12 +670,17 @@ void addPlayerModel(
     0.65F,
     1.8F
   );
+  const PlayerVisualPose pose = makePlayerVisualPose(player);
+  const float handForwardOffset = pose.airborne ? 0.22F : 0.18F;
+  const float handRightOffset = 0.84F;
+  const float handHeightRatio = pose.airborne ? 0.56F : 0.53F;
   frame.hand =
     player.position +
-    frame.basis.forward * (frame.basis.radius * 0.18F) +
-    frame.basis.right * (frame.basis.radius * 0.84F) +
+    frame.basis.forward * (frame.basis.radius * handForwardOffset) +
+    frame.basis.right * (frame.basis.radius * handRightOffset) +
     frame.basis.up *
-      ((frame.basis.bottom + frame.basis.height * 0.53F) - player.position.z);
+      ((frame.basis.bottom + frame.basis.height * handHeightRatio) -
+        player.position.z);
   return frame;
 }
 

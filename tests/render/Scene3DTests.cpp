@@ -30,8 +30,12 @@ int main() {
   player.position = {1.0F, 2.0F, 0.9F};
   player.viewYawRadians = 0.0F;
   player.viewPitchRadians = 0.0F;
+  player.movementMode = lg::MovementMode::Grounded;
+  player.onGround = true;
   lg::PlayerState opponent;
   opponent.position = {4.0F, 2.0F, 0.9F};
+  opponent.movementMode = lg::MovementMode::Grounded;
+  opponent.onGround = true;
   lg::RenderSettings settings;
   settings.enemyOutlineRed = 31;
   settings.enemyOutlineGreen = 227;
@@ -194,6 +198,49 @@ int main() {
   failures += expect(
     opponentVertexCount >= 7U * 36U && opponentWithinBounds,
     "opponent should use a simple multi-part model inside gameplay bounds"
+  );
+
+  lg::PlayerState airborneOpponent = opponent;
+  airborneOpponent.movementMode = lg::MovementMode::Airborne;
+  airborneOpponent.onGround = false;
+  airborneOpponent.velocity.z = 4.0F;
+  const lg::Scene3D airborneScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    airborneOpponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  float groundedLowestModelZ = opponent.position.z + opponent.bounds.halfHeight;
+  float airborneLowestModelZ =
+    airborneOpponent.position.z + airborneOpponent.bounds.halfHeight;
+  for (const lg::Vertex3D& vertex : baseScene.vertices) {
+    if (
+      vertex.color.red >= 120 &&
+      vertex.color.green <= settings.enemyGreen &&
+      vertex.color.blue <= settings.enemyBlue
+    ) {
+      groundedLowestModelZ = std::min(groundedLowestModelZ, vertex.position.z);
+    }
+  }
+  for (const lg::Vertex3D& vertex : airborneScene.vertices) {
+    if (
+      vertex.color.red >= 120 &&
+      vertex.color.green <= settings.enemyGreen &&
+      vertex.color.blue <= settings.enemyBlue
+    ) {
+      airborneLowestModelZ = std::min(airborneLowestModelZ, vertex.position.z);
+    }
+  }
+  failures += expect(
+    airborneScene.vertices.size() == baseScene.vertices.size() &&
+      airborneLowestModelZ > groundedLowestModelZ + 0.05F,
+    "airborne opponent pose should visibly tuck the lower model upward"
   );
 
   std::size_t outlineVertexCount = 0;
