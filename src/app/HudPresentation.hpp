@@ -2,11 +2,90 @@
 
 #include "net/NetProtocol.hpp"
 
+#include <array>
 #include <cstddef>
+#include <cstdint>
+#include <vector>
 #include <string>
 #include <string_view>
 
 namespace lg {
+
+enum class DamageNumbersMode : int {
+  Disabled = 0,
+  PerInstance = 1,
+  PerInstanceAndTally = 2,
+  TallyOnly = 3,
+};
+
+enum class LocalDamageSource : std::uint8_t {
+  LightningGun,
+  WeaponFire,
+  RocketExplosion,
+};
+
+struct LocalDamageEvent {
+  LocalDamageSource source = LocalDamageSource::LightningGun;
+  std::uint32_t serverTick = 0;
+  std::uint8_t sourcePlayerIndex = 255;
+  std::uint8_t targetPlayerIndex = 255;
+  int damageApplied = 0;
+  bool confirmedLocal = true;
+  Weapon weapon = Weapon::LightningGun;
+};
+
+struct DamageNumbersConfig {
+  DamageNumbersMode mode = DamageNumbersMode::Disabled;
+  float burstWindowSeconds = 0.4F;
+  float entryDurationSeconds = 0.65F;
+};
+
+struct DamageNumberEntry {
+  int damage = 0;
+  std::uint8_t targetPlayerIndex = 255;
+  float ageSeconds = 0.0F;
+  std::uint32_t sequence = 0;
+};
+
+struct DamageNumberTally {
+  bool active = false;
+  int damage = 0;
+  std::uint8_t targetPlayerIndex = 255;
+  float secondsSinceLastHit = 0.0F;
+};
+
+struct DamageNumberPresentation {
+  std::vector<DamageNumberEntry> entries;
+  std::array<DamageNumberTally, kDuelPlayerCount> tallies = {};
+};
+
+class DamageNumberState {
+public:
+  void reset();
+  void update(float deltaSeconds, const DamageNumbersConfig& config);
+  void addLocalDamageEvent(
+    const LocalDamageEvent& event,
+    const DamageNumbersConfig& config
+  );
+  [[nodiscard]] DamageNumberPresentation presentation() const;
+
+private:
+  struct EventKey {
+    LocalDamageSource source = LocalDamageSource::LightningGun;
+    std::uint32_t serverTick = 0;
+    std::uint8_t sourcePlayerIndex = 255;
+    std::uint8_t targetPlayerIndex = 255;
+    int damageApplied = 0;
+  };
+
+  [[nodiscard]] bool hasSeen(const EventKey& key) const;
+  void remember(const EventKey& key);
+
+  std::vector<DamageNumberEntry> entries_;
+  std::array<DamageNumberTally, kDuelPlayerCount> tallies_ = {};
+  std::vector<EventKey> seenEvents_;
+  std::uint32_t nextSequence_ = 0;
+};
 
 [[nodiscard]] std::size_t opponentPlayerIndex(
   const ServerSnapshot& snapshot,
