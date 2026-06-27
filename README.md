@@ -108,6 +108,31 @@ Start up to two clients:
 
 The server assigns player slots during a version-checked handshake. The client retries connection requests, sends the latest three sequenced commands in each UDP datagram, measures ping with tokenized ping/pong packets, and times out silent connections after five seconds. The client remains open when disconnected or when a connection attempt fails.
 
+### Local Client/Server Crash After Protocol Changes
+
+If `Start LG Duel Server.bat` works but `Start LG Duel Client GPU.bat` opens for
+a second or two and then crashes, first assume the local build tree may contain
+stale objects or mixed client/server executables. Stop any running LG Duel
+processes, clean-rebuild both executables, then restart the server and client:
+
+```powershell
+cd C:\path\to\LG-duel
+Get-Process lg_duel_client,lg_duel_server -ErrorAction SilentlyContinue | Stop-Process -Force
+cmake --build --preset default --clean-first --target lg_duel_server lg_duel_client
+```
+
+If the crash still happens after a clean rebuild, check whether the wire protocol
+version was bumped with the packet/layout change:
+
+```powershell
+git diff -- src/net/NetCodec.hpp
+```
+
+Changes to `ServerSnapshot`, `CommandPacket`, or the codec read/write order must
+be paired with a `kProtocolVersion` bump in `src/net/NetCodec.hpp`. A new client
+and old server, or stale objects built from different snapshot layouts, can
+otherwise accept incompatible packets and crash while decoding snapshots.
+
 Client controls:
 
 - `W/S`: forward/back
