@@ -222,6 +222,7 @@ void ServerGame::tick(float fixedDt) {
     PlayerState& player = snapshot_.players[playerIndex];
     const UserCommand command =
       commandForPlayer(snapshot_, commands_, hasCommand_, playerIndex);
+    snapshot_.selectedWeapons[playerIndex] = command.weapon;
     if (player.health <= 0) {
       player.velocity = {};
       player.jumpHeld = false;

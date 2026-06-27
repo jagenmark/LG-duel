@@ -530,6 +530,7 @@ int main() {
     remotePlayers[1] = lg::RemotePlayerView{
       opponent,
       {},
+      lg::Weapon::LightningGun,
       0.0F,
       0.5F,
       true,

@@ -1,4 +1,5 @@
 #include "render/Scene3D.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #include <array>
 #include <cmath>
@@ -253,11 +254,29 @@ int main() {
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
   remotePlayers[1] =
-    lg::RemotePlayerView{opponent, inactiveBeam, 0.0F, 1.0F, true, false, {}};
+    lg::RemotePlayerView{
+      opponent,
+      inactiveBeam,
+      lg::Weapon::LightningGun,
+      0.0F,
+      1.0F,
+      true,
+      false,
+      {},
+    };
   lg::PlayerState secondOpponent = opponent;
   secondOpponent.position.y += 3.0F;
   remotePlayers[2] =
-    lg::RemotePlayerView{secondOpponent, inactiveBeam, 0.0F, 1.0F, true, false, {}};
+    lg::RemotePlayerView{
+      secondOpponent,
+      inactiveBeam,
+      lg::Weapon::LightningGun,
+      0.0F,
+      1.0F,
+      true,
+      false,
+      {},
+    };
   const lg::Scene3D multiOpponentScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -273,6 +292,48 @@ int main() {
     multiOpponentScene.vertices.size() > baseScene.vertices.size(),
     "perspective scene should emit geometry for multiple remote players"
   );
+
+  for (lg::Weapon weapon : lg::kWeaponSlotOrder) {
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> weaponRemotePlayers = {};
+    weaponRemotePlayers[1] =
+      lg::RemotePlayerView{
+        opponent,
+        inactiveBeam,
+        weapon,
+        0.0F,
+        1.0F,
+        true,
+        false,
+        {},
+      };
+    const lg::Scene3D weaponScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      weaponRemotePlayers,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings
+    );
+    std::size_t forwardWeaponVertexCount = 0;
+    for (const lg::Vertex3D& vertex : weaponScene.vertices) {
+      if (
+        vertex.position.x > opponent.position.x + opponent.bounds.radius + 0.04F &&
+        std::fabs(vertex.position.y - opponent.position.y) <=
+          opponent.bounds.radius + 0.7F &&
+        vertex.position.z > opponent.position.z - 0.25F &&
+        vertex.position.z < opponent.position.z + opponent.bounds.halfHeight + 0.25F
+      ) {
+        ++forwardWeaponVertexCount;
+      }
+    }
+    failures += expect(
+      forwardWeaponVertexCount > 0,
+      "every playable weapon should emit forward world-model geometry"
+    );
+  }
 
   lg::LightningGunResult opponentBeam;
   opponentBeam.active = true;

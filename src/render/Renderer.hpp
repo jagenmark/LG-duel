@@ -208,6 +208,7 @@ struct HudRenderState {
 struct RemotePlayerView {
   PlayerState player = {};
   LightningGunResult lightningGun = {};
+  Weapon selectedWeapon = Weapon::LightningGun;
   float enemyHitAmount = 0.0F;
   float enemyHealthAlpha = 1.0F;
   bool visible = false;

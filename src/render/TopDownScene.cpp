@@ -820,6 +820,7 @@ DrawList2D buildTopDownScene(
   remotePlayers[0] = RemotePlayerView{
     opponent,
     opponentLightningGun,
+    Weapon::LightningGun,
     settings.enemyHitAmount,
     1.0F,
     settings.hasRemotePlayer,

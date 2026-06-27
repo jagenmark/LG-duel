@@ -130,6 +130,7 @@ int main() {
     remotePlayers[1] = lg::RemotePlayerView{
       opponent,
       inactiveBeam,
+      lg::Weapon::LightningGun,
       0.0F,
       1.0F,
       true,
@@ -141,6 +142,7 @@ int main() {
     remotePlayers[2] = lg::RemotePlayerView{
       secondOpponent,
       inactiveBeam,
+      lg::Weapon::LightningGun,
       0.0F,
       1.0F,
       true,
