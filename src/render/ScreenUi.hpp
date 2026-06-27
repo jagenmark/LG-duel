@@ -25,6 +25,14 @@ namespace lg {
   const HudRenderState& hud
 );
 
+[[nodiscard]] DrawList2D buildFloatingDamageNumbers(
+  int outputWidth,
+  int outputHeight,
+  const PerspectiveCamera& camera,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+);
+
 [[nodiscard]] DrawList2D buildPerspectiveWeaponOverlay(
   int outputWidth,
   int outputHeight,

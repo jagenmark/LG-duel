@@ -890,6 +890,19 @@ const PlayerState& firstVisibleRemote(
         static_cast<float>(outputWidth),
         static_cast<float>(outputHeight)
       );
+      const DrawList2D floatingDamageNumbers = buildFloatingDamageNumbers(
+        static_cast<int>(outputWidth),
+        static_cast<int>(outputHeight),
+        perspectiveScene.camera,
+        settings,
+        hud
+      );
+      appendCommands(
+        vertices,
+        floatingDamageNumbers.overlayCommands,
+        static_cast<float>(outputWidth),
+        static_cast<float>(outputHeight)
+      );
       const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
@@ -2139,6 +2152,10 @@ void Renderer::render(
         settings,
         hud
       )
+    );
+    drawCommandList(
+      renderer,
+      buildFloatingDamageNumbers(width, height, camera, settings, hud)
     );
     drawCommandList(
       renderer,

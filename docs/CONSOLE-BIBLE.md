@@ -204,7 +204,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_hitmarker_r` | int | `255` | `0..255` | Ingen | Röd kanal. |
 | `r_hitmarker_g` | int | `255` | `0..255` | Ingen | Grön kanal. |
 | `r_hitmarker_b` | int | `255` | `0..255` | Ingen | Blå kanal. |
-| `r_damage_numbers_mode` | int | `0` | `0..3` | Diabotical/arena-shooter damage feedback | Archived damage-number mode. `0`: off. `1`: one number per confirmed local damage instance. `2`: per-instance numbers plus one immediate cumulative burst tally per target. `3`: cumulative burst tally only. |
+| `r_damage_numbers_mode` | int | `0` | `0..4` | Diabotical/arena-shooter damage feedback | Archived damage-number mode. `0`: off. `1`: one number per confirmed local damage instance. `2`: per-instance numbers plus one immediate cumulative burst tally per target. `3`: cumulative burst tally only. `4`: cumulative burst tally only, projected at the target's latest damage-event world position. |
 | `r_damage_numbers_window` | float | `0.4` | `0..2` seconds | Ingen direkt | Seconds without qualifying local damage before a target's cumulative tally expires and the next hit starts a new burst. |
 | `r_damage_numbers_duration` | float | `0.65` | `0.05..3` seconds | Ingen direkt | Visual lifetime of each individual damage number. |
 | `r_damage_numbers_size` | float | `1.6` | `0.5..6` | Ingen direkt | Damage-number font scale. |

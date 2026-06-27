@@ -64,6 +64,12 @@ int main() {
       console.getInt("r_damage_numbers_mode") == 3,
     "damage number tally-only mode should be configurable"
   );
+  failures += expect(
+    console.execute("r_damage_numbers_mode 4") ==
+      "r_damage_numbers_mode = 4" &&
+      console.getInt("r_damage_numbers_mode") == 4,
+    "world damage number tally-only mode should be configurable"
+  );
 
   return failures == 0 ? 0 : 1;
 }

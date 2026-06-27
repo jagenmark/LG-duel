@@ -248,6 +248,34 @@ int main() {
   {
     lg::DamageNumberState damageNumbers;
     lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::WorldTallyOnly,
+      0.4F,
+      0.65F,
+    };
+    lg::LocalDamageEvent first = damageEvent(1, 1, 8);
+    first.hasTargetPosition = true;
+    first.targetPosition = {10.0F, 1.0F, 0.0F};
+    lg::LocalDamageEvent second = damageEvent(2, 1, 12);
+    second.hasTargetPosition = true;
+    second.targetPosition = {12.0F, 2.0F, 0.0F};
+    damageNumbers.addLocalDamageEvent(first, config);
+    damageNumbers.addLocalDamageEvent(second, config);
+    const lg::DamageNumberPresentation presentation =
+      damageNumbers.presentation();
+    failures += expect(
+      presentation.entries.empty() &&
+        presentation.tallies[1].active &&
+        presentation.tallies[1].damage == 20 &&
+        presentation.tallies[1].hasWorldPosition &&
+        presentation.tallies[1].worldPosition.x == 12.0F &&
+        presentation.tallies[1].worldPosition.y == 2.0F,
+      "mode 4 should update the cumulative tally at the latest target position"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
       lg::DamageNumbersMode::PerInstanceAndTally,
       0.4F,
       0.65F,

@@ -809,7 +809,7 @@ void addDamageNumbers(
   }
 
   for (const DamageNumberTally& tally : hud.damageNumbers.tallies) {
-    if (!tally.active) {
+    if (!tally.active || tally.hasWorldPosition) {
       continue;
     }
     const float life =
@@ -824,7 +824,54 @@ void addDamageNumbers(
       baseX + settings.damageNumbersOffsetX - textWidth * 0.5F,
       baseY + settings.damageNumbersOffsetY - 34.0F * scale,
       text,
-      withAlpha({255, 255, 255, 255}, alphaScale * fade),
+      withAlpha(baseColor, alphaScale * fade),
+      textScale
+    );
+  }
+}
+
+void addFloatingDamageNumbers(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PerspectiveCamera& camera,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+) {
+  const float alphaScale = std::clamp(settings.damageNumbersAlpha, 0.0F, 1.0F);
+  const float duration = std::max(0.001F, settings.damageNumbersDuration);
+  const float scale = std::max(0.1F, settings.damageNumbersSize);
+  const RenderColor baseColor = {
+    settings.damageNumbersRed,
+    settings.damageNumbersGreen,
+    settings.damageNumbersBlue,
+    255,
+  };
+  for (const DamageNumberTally& tally : hud.damageNumbers.tallies) {
+    if (!tally.active || !tally.hasWorldPosition) {
+      continue;
+    }
+
+    ProjectedPoint projected;
+    if (!projectPerspectivePoint(camera, tally.worldPosition, projected)) {
+      continue;
+    }
+
+    const ScreenPoint anchorScreen =
+      screenPointFromProjection(projected, width, height);
+    const float life =
+      std::clamp(tally.secondsSinceLastHit / duration, 0.0F, 1.0F);
+    const float fade = 1.0F - life * 0.55F;
+    const float textScale = scale * 1.35F;
+    const std::string text = std::to_string(tally.damage);
+    const float textWidth =
+      static_cast<float>(text.size()) * kGlyphSize * textScale;
+    addText(
+      drawList,
+      anchorScreen.x + settings.damageNumbersOffsetX - textWidth * 0.5F,
+      anchorScreen.y + settings.damageNumbersOffsetY - 34.0F * scale,
+      text,
+      withAlpha(baseColor, alphaScale * fade),
       textScale
     );
   }
@@ -1651,6 +1698,31 @@ DrawList2D buildFloatingHealthBars(
       hud
     );
   }
+  return drawList;
+}
+
+DrawList2D buildFloatingDamageNumbers(
+  int outputWidth,
+  int outputHeight,
+  const PerspectiveCamera& camera,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+) {
+  DrawList2D drawList;
+  drawList.clip = {
+    0.0F,
+    0.0F,
+    static_cast<float>(outputWidth),
+    static_cast<float>(outputHeight),
+  };
+  addFloatingDamageNumbers(
+    drawList,
+    outputWidth,
+    outputHeight,
+    camera,
+    settings,
+    hud
+  );
   return drawList;
 }
 
