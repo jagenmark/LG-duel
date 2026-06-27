@@ -1,5 +1,6 @@
 #pragma once
 
+#include "app/HudPresentation.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
 #include "net/NetProtocol.hpp"
@@ -78,6 +79,14 @@ struct RenderSettings {
   std::uint8_t hitMarkerGreen = 255;
   std::uint8_t hitMarkerBlue = 255;
   float hitMarkerAmount = 0.0F;
+  float damageNumbersDuration = 0.65F;
+  float damageNumbersSize = 1.6F;
+  float damageNumbersAlpha = 1.0F;
+  std::uint8_t damageNumbersRed = 255;
+  std::uint8_t damageNumbersGreen = 236;
+  std::uint8_t damageNumbersBlue = 128;
+  float damageNumbersOffsetX = 0.0F;
+  float damageNumbersOffsetY = -46.0F;
   std::uint8_t enemyRed = 224;
   std::uint8_t enemyGreen = 82;
   std::uint8_t enemyBlue = 92;
@@ -193,6 +202,7 @@ struct HudRenderState {
   std::vector<Team> scoreboardLineTeams;
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
+  DamageNumberPresentation damageNumbers;
 };
 
 struct RemotePlayerView {

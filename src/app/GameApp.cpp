@@ -109,6 +109,16 @@ void copyTextToClipboard(std::string_view text) {
   };
 }
 
+[[nodiscard]] DamageNumbersConfig damageNumbersConfig(
+  const ConsoleSystem& console
+) {
+  return {
+    static_cast<DamageNumbersMode>(console.getInt("r_damage_numbers_mode")),
+    console.getFloat("r_damage_numbers_window"),
+    console.getFloat("r_damage_numbers_duration"),
+  };
+}
+
 [[nodiscard]] Vec3 cameraUp(float yawRadians, float pitchRadians) {
   return {
     -std::cos(yawRadians) * std::sin(pitchRadians),
@@ -338,6 +348,19 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_g"));
   settings.hitMarkerBlue =
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_b"));
+  settings.damageNumbersDuration = console.getFloat("r_damage_numbers_duration");
+  settings.damageNumbersSize = console.getFloat("r_damage_numbers_size");
+  settings.damageNumbersAlpha = console.getFloat("r_damage_numbers_alpha");
+  settings.damageNumbersRed =
+    static_cast<std::uint8_t>(console.getInt("r_damage_numbers_r"));
+  settings.damageNumbersGreen =
+    static_cast<std::uint8_t>(console.getInt("r_damage_numbers_g"));
+  settings.damageNumbersBlue =
+    static_cast<std::uint8_t>(console.getInt("r_damage_numbers_b"));
+  settings.damageNumbersOffsetX =
+    console.getFloat("r_damage_numbers_offset_x");
+  settings.damageNumbersOffsetY =
+    console.getFloat("r_damage_numbers_offset_y");
   settings.enemyRed = static_cast<std::uint8_t>(console.getInt("r_enemy_r"));
   settings.enemyGreen = static_cast<std::uint8_t>(console.getInt("r_enemy_g"));
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
@@ -1692,6 +1715,15 @@ int GameApp::run() const {
   std::array<FragEvent, kDuelPlayerCount> lastPlayedFragEvents = {};
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFragAudioTicks = {};
   std::array<bool, kDuelPlayerCount> hasLastPlayedFragEvent = {};
+  DamageNumberState damageNumberState;
+  std::uint32_t lastDamageNumberServerTick = 0;
+  std::array<WeaponFireResult, kDuelPlayerCount> lastDamageNumberWeaponFires = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberWeaponFireTicks = {};
+  std::array<bool, kDuelPlayerCount> hasLastDamageNumberWeaponFire = {};
+  std::array<RocketExplosionResult, kDuelPlayerCount> lastDamageNumberRocketExplosions = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberRocketExplosionTicks = {};
+  std::array<bool, kDuelPlayerCount> hasLastDamageNumberRocketExplosion = {};
+  bool damageNumberStateInitialized = false;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> lastPlayedGrenadeBounceAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
@@ -2351,6 +2383,15 @@ int GameApp::run() const {
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
       footstepAudioStates = {};
+      damageNumberState.reset();
+      lastDamageNumberServerTick = 0;
+      lastDamageNumberWeaponFires = {};
+      lastDamageNumberWeaponFireTicks = {};
+      hasLastDamageNumberWeaponFire = {};
+      lastDamageNumberRocketExplosions = {};
+      lastDamageNumberRocketExplosionTicks = {};
+      hasLastDamageNumberRocketExplosion = {};
+      damageNumberStateInitialized = false;
       audio.resetLightningGunFire();
     }
     if (
@@ -2375,6 +2416,98 @@ int GameApp::run() const {
         }
         hasLocalPlayerAliveState = true;
         wasLocalPlayerAlive = localPlayerAlive;
+
+        const DamageNumbersConfig damageConfig = damageNumbersConfig(console);
+        if (audioSnapshot.serverTick != lastDamageNumberServerTick) {
+          if (damageNumberStateInitialized) {
+            const LightningGunResult& localLightning =
+              audioSnapshot.lightningGuns[localPlayerIndex];
+            if (localLightning.hit && localLightning.damageApplied > 0) {
+              damageNumberState.addLocalDamageEvent(
+                {
+                  LocalDamageSource::LightningGun,
+                  audioSnapshot.serverTick,
+                  static_cast<std::uint8_t>(localPlayerIndex),
+                  localLightning.targetPlayerIndex,
+                  localLightning.damageApplied,
+                },
+                damageConfig
+              );
+            }
+
+            const std::uint8_t fallbackTarget =
+              static_cast<std::uint8_t>(
+                opponentPlayerIndex(audioSnapshot, localPlayerIndex)
+              );
+            const WeaponFireResult& localFire =
+              audioSnapshot.weaponFires[localPlayerIndex];
+            if (
+              localFire.fired &&
+              localFire.hit &&
+              localFire.damageApplied > 0 &&
+              shouldPlaySnapshotAudioEvent(
+                hasLastDamageNumberWeaponFire[localPlayerIndex],
+                sameWeaponFireEvent(
+                  localFire,
+                  lastDamageNumberWeaponFires[localPlayerIndex]
+                ),
+                audioSnapshot.serverTick,
+                lastDamageNumberWeaponFireTicks[localPlayerIndex],
+                kTransientAudioEventTicks
+              )
+            ) {
+              damageNumberState.addLocalDamageEvent(
+                {
+                  LocalDamageSource::WeaponFire,
+                  audioSnapshot.serverTick,
+                  static_cast<std::uint8_t>(localPlayerIndex),
+                  fallbackTarget,
+                  localFire.damageApplied,
+                },
+                damageConfig
+              );
+              lastDamageNumberWeaponFires[localPlayerIndex] = localFire;
+              lastDamageNumberWeaponFireTicks[localPlayerIndex] =
+                audioSnapshot.serverTick;
+              hasLastDamageNumberWeaponFire[localPlayerIndex] = true;
+            }
+
+            const RocketExplosionResult& localExplosion =
+              audioSnapshot.rocketExplosions[localPlayerIndex];
+            if (
+              localExplosion.active &&
+              localExplosion.opponentDamageApplied > 0 &&
+              shouldPlaySnapshotAudioEvent(
+                hasLastDamageNumberRocketExplosion[localPlayerIndex],
+                sameRocketExplosionEvent(
+                  localExplosion,
+                  lastDamageNumberRocketExplosions[localPlayerIndex]
+                ),
+                audioSnapshot.serverTick,
+                lastDamageNumberRocketExplosionTicks[localPlayerIndex],
+                kTransientAudioEventTicks
+              )
+            ) {
+              damageNumberState.addLocalDamageEvent(
+                {
+                  LocalDamageSource::RocketExplosion,
+                  audioSnapshot.serverTick,
+                  static_cast<std::uint8_t>(localPlayerIndex),
+                  fallbackTarget,
+                  localExplosion.opponentDamageApplied,
+                },
+                damageConfig
+              );
+              lastDamageNumberRocketExplosions[localPlayerIndex] =
+                localExplosion;
+              lastDamageNumberRocketExplosionTicks[localPlayerIndex] =
+                audioSnapshot.serverTick;
+              hasLastDamageNumberRocketExplosion[localPlayerIndex] = true;
+            }
+          }
+          damageNumberStateInitialized = true;
+          lastDamageNumberServerTick = audioSnapshot.serverTick;
+        }
 
         const bool localHit =
           audioSnapshot.lightningGuns[localPlayerIndex].hit;
@@ -3004,6 +3137,10 @@ int GameApp::run() const {
         true
       );
     }
+    damageNumberState.update(
+      outerFrameElapsed.count(),
+      damageNumbersConfig(console)
+    );
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       RemotePlayerView& remote = renderRemotePlayers[playerIndex];
       if (!remote.visible) {
@@ -3065,6 +3202,7 @@ int GameApp::run() const {
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
     hud.selectedWeapon = selectedWeapon;
     hud.previousWeapon = previousViewWeapon;
+    hud.damageNumbers = damageNumberState.presentation();
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F
       ? weaponSwitchSeconds / kWeaponSwitchDurationSeconds
       : 1.0F;

@@ -313,6 +313,41 @@ int main() {
   }
 
   {
+    lg::HudRenderState damageHud;
+    damageHud.damageNumbers.entries = {
+      {11, 1, 0.0F, 0},
+      {22, 1, 0.0F, 1},
+      {33, 1, 0.0F, 2},
+    };
+    lg::RenderSettings damageSettings;
+    damageSettings.crosshairEnabled = false;
+    damageSettings.damageNumbersSize = 1.0F;
+    damageSettings.damageNumbersOffsetX = 0.0F;
+    damageSettings.damageNumbersOffsetY = -40.0F;
+    const lg::DrawList2D damageUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      damageSettings,
+      damageHud,
+      {}
+    );
+    const lg::Text2D* first = findText(damageUi, "11");
+    const lg::Text2D* second = findText(damageUi, "22");
+    const lg::Text2D* third = findText(damageUi, "33");
+    failures += expect(
+      first != nullptr &&
+        second != nullptr &&
+        third != nullptr &&
+        std::abs(first->position.x - second->position.x) <= 4.0F &&
+        std::abs(second->position.x - third->position.x) <= 4.0F &&
+        first->position.y < second->position.y &&
+        second->position.y < third->position.y,
+      "individual damage numbers should stack vertically near the aim point"
+    );
+  }
+
+  {
     const lg::DrawList2D ui = lg::buildScreenUi(
       1280,
       720,

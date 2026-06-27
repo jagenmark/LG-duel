@@ -42,6 +42,28 @@ int main() {
     console.execute("g_knockback") == "unknown command: g_knockback",
     "legacy ambiguous g_knockback cvar should not be registered"
   );
+  failures += expect(
+    console.execute("r_damage_numbers_mode") ==
+      "r_damage_numbers_mode = 0 (default 0)",
+    "damage numbers should default to disabled"
+  );
+  failures += expect(
+    console.execute("r_damage_numbers_window") ==
+      "r_damage_numbers_window = 0.4 (default 0.4)",
+    "damage number burst window should default to 0.4 seconds"
+  );
+  failures += expect(
+    console.execute("r_damage_numbers_mode 2") ==
+      "r_damage_numbers_mode = 2" &&
+      console.getInt("r_damage_numbers_mode") == 2,
+    "damage number mode should be configurable"
+  );
+  failures += expect(
+    console.execute("r_damage_numbers_mode 3") ==
+      "r_damage_numbers_mode = 3" &&
+      console.getInt("r_damage_numbers_mode") == 3,
+    "damage number tally-only mode should be configurable"
+  );
 
   return failures == 0 ? 0 : 1;
 }

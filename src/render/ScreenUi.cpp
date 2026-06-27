@@ -759,6 +759,77 @@ void addHitMarker(
   );
 }
 
+void addDamageNumbers(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const RenderSettings& settings,
+  const HudRenderState& hud
+) {
+  const float baseX = settings.crosshairUseScreenPosition
+    ? std::clamp(settings.crosshairScreenX, 0.0F, static_cast<float>(width))
+    : static_cast<float>(width) * 0.5F;
+  const float baseY = settings.crosshairUseScreenPosition
+    ? std::clamp(settings.crosshairScreenY, 0.0F, static_cast<float>(height))
+    : static_cast<float>(height) * 0.5F;
+  const float alphaScale = std::clamp(settings.damageNumbersAlpha, 0.0F, 1.0F);
+  const float duration = std::max(0.001F, settings.damageNumbersDuration);
+  const float scale = std::max(0.1F, settings.damageNumbersSize);
+  const RenderColor baseColor = {
+    settings.damageNumbersRed,
+    settings.damageNumbersGreen,
+    settings.damageNumbersBlue,
+    255,
+  };
+
+  for (const DamageNumberEntry& entry : hud.damageNumbers.entries) {
+    const float life = std::clamp(entry.ageSeconds / duration, 0.0F, 1.0F);
+    const float fade = 1.0F - life;
+    const float drift = life * 28.0F * scale;
+    const float stackSlot = static_cast<float>(entry.sequence % 8U);
+    const float wobble = (entry.sequence % 2U == 0U ? -1.0F : 1.0F) *
+      2.0F * scale;
+    const float textScale = scale;
+    const std::string text = std::to_string(entry.damage);
+    const float textWidth =
+      static_cast<float>(text.size()) * kGlyphSize * textScale;
+    const float x =
+      baseX + settings.damageNumbersOffsetX + wobble - textWidth * 0.5F;
+    const float y =
+      baseY + settings.damageNumbersOffsetY - drift +
+      stackSlot * 10.0F * scale;
+    addText(
+      drawList,
+      x,
+      y,
+      text,
+      withAlpha(baseColor, alphaScale * fade),
+      textScale
+    );
+  }
+
+  for (const DamageNumberTally& tally : hud.damageNumbers.tallies) {
+    if (!tally.active) {
+      continue;
+    }
+    const float life =
+      std::clamp(tally.secondsSinceLastHit / duration, 0.0F, 1.0F);
+    const float fade = 1.0F - life * 0.55F;
+    const float textScale = scale * 1.35F;
+    const std::string text = std::to_string(tally.damage);
+    const float textWidth =
+      static_cast<float>(text.size()) * kGlyphSize * textScale;
+    addText(
+      drawList,
+      baseX + settings.damageNumbersOffsetX - textWidth * 0.5F,
+      baseY + settings.damageNumbersOffsetY - 34.0F * scale,
+      text,
+      withAlpha({255, 255, 255, 255}, alphaScale * fade),
+      textScale
+    );
+  }
+}
+
 void addHud(
   DrawList2D& drawList,
   int width,
@@ -1527,6 +1598,7 @@ DrawList2D buildScreenUi(
   (void)opponent;
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
+  addDamageNumbers(drawList, outputWidth, outputHeight, settings, hud);
   addHud(drawList, outputWidth, outputHeight, hud, settings);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
