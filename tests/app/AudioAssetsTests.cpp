@@ -146,7 +146,10 @@ void writeStereoPcm24ExtensibleWav(const std::filesystem::path& path) {
 ) {
   path = std::filesystem::absolute(path);
   for (int depth = 0; depth < 8; ++depth) {
-    if (std::filesystem::exists(path / "assets" / "audio" / "README.md")) {
+    if (
+      std::filesystem::exists(path / "assets" / "audio" / "README.md") &&
+      std::filesystem::exists(path / "src" / "app" / "AudioAssets.cpp")
+    ) {
       return path;
     }
     if (!path.has_parent_path() || path == path.parent_path()) {
@@ -160,7 +163,7 @@ void writeStereoPcm24ExtensibleWav(const std::filesystem::path& path) {
 } // namespace
 
 int main() {
-  const std::array<std::pair<lg::AudioCue, const char*>, 22> runtimeCues{{
+  const std::array<std::pair<lg::AudioCue, const char*>, 23> runtimeCues{{
     {lg::AudioCue::LightningGunFireLoop, "lg_fire_selected_low_drone.wav"},
     {lg::AudioCue::HitConfirmLight, "hit_confirm_light.wav"},
     {lg::AudioCue::HitConfirmMedium, "hit_confirm_medium.wav"},
@@ -173,7 +176,8 @@ int main() {
     {lg::AudioCue::RocketExplosion, "rl_explosion_pop.wav"},
     {lg::AudioCue::MachineGunFire, "mg_fire_selected_snap.wav"},
     {lg::AudioCue::ShotgunFire, "sg_fire_selected_blast.wav"},
-    {lg::AudioCue::GrenadeLauncherFire, "gl_fire_selected_thump.wav"},
+    {lg::AudioCue::GrenadeLauncherFire, "gl_fire.wav"},
+    {lg::AudioCue::GrenadeBounce, "gl_bounce.wav"},
     {lg::AudioCue::PlasmaGunFire, "pg_fire_selected_pulse.wav"},
     {lg::AudioCue::Footstep, "footstep.wav"},
     {lg::AudioCue::RoundWin, "round_win_chime.wav"},

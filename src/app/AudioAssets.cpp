@@ -192,7 +192,9 @@ const char* audioCueFileName(AudioCue cue) {
   case AudioCue::ShotgunFire:
     return "sg_fire_selected_blast.wav";
   case AudioCue::GrenadeLauncherFire:
-    return "gl_fire_selected_thump.wav";
+    return "gl_fire.wav";
+  case AudioCue::GrenadeBounce:
+    return "gl_bounce.wav";
   case AudioCue::PlasmaGunFire:
     return "pg_fire_selected_pulse.wav";
   case AudioCue::Footstep:

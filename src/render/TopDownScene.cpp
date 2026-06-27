@@ -594,11 +594,37 @@ DrawList2D buildTopDownScene(
       addHitMarker(drawList.commands, end);
     }
   }
-  for (const RocketProjectileSnapshot& rocket : rockets) {
-    if (!rocket.active) {
+  for (const RocketProjectileSnapshot& projectile : rockets) {
+    if (!projectile.active) {
       continue;
     }
-    const ScreenPoint point = worldToScreen(view, rocket.position);
+    const ScreenPoint point = worldToScreen(view, projectile.position);
+    if (projectile.weapon == Weapon::GrenadeLauncher) {
+      addFilledRect(
+        drawList.commands,
+        point.x - 4.0F,
+        point.y - 4.0F,
+        8.0F,
+        8.0F,
+        {255, 126, 40, 255}
+      );
+      addFilledRect(
+        drawList.commands,
+        point.x - 3.0F,
+        point.y - 3.0F,
+        6.0F,
+        6.0F,
+        {8, 48, 18, 255}
+      );
+      addLine(
+        drawList.commands,
+        {point.x - 2.0F, point.y - 2.0F},
+        {point.x + 2.0F, point.y + 2.0F},
+        {18, 82, 32, 255},
+        1.0F
+      );
+      continue;
+    }
     addFilledRect(
       drawList.commands,
       point.x - 3.0F,

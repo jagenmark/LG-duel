@@ -1,6 +1,7 @@
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
+#include "sim/GameplayConfig.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -42,6 +43,49 @@ int main() {
   const lg::HitscanTuning railTuning;
   const lg::MachineGunTuning machineGunTuning;
   const lg::ShotgunTuning shotgunTuning;
+
+  {
+    const lg::GameplayConfigLoadResult loaded =
+      lg::loadGameplayConfigFromText(R"(version 1
+grenade.speed 20.5
+grenade.vertical_boost 6.25
+grenade.gravity 12.0
+grenade.bounce_damping 0.5
+grenade.rest_speed 0.6
+grenade.bounce_sound_min_speed 1.4
+grenade.fuse_seconds 1.0
+grenade.radius 4.0
+grenade.direct_damage 90
+grenade.splash_damage 80
+grenade.knockback 18.5
+grenade.cooldown_ticks 75
+)");
+
+    failures += expect(loaded.ok, "gameplay config should parse grenade launcher tuning");
+    failures += expect(
+      nearlyEqual(loaded.config.grenadeLauncher.speed, 20.5F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.verticalBoost, 6.25F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.gravity, 12.0F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.bounceDamping, 0.5F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.restSpeed, 0.6F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.bounceSoundMinSpeed, 1.4F) &&
+        loaded.config.grenadeLauncher.fuseTicks == 125 &&
+        nearlyEqual(loaded.config.grenadeLauncher.radius, 4.0F) &&
+        loaded.config.grenadeLauncher.directDamage == 90 &&
+        loaded.config.grenadeLauncher.splashDamage == 80 &&
+        nearlyEqual(loaded.config.grenadeLauncher.knockback, 18.5F) &&
+        loaded.config.grenadeLauncher.cooldownTicks == 75,
+      "gameplay config should apply all editable grenade launcher values"
+    );
+  }
+
+  {
+    const lg::GameplayConfigLoadResult loaded =
+      lg::loadGameplayConfigFromText(R"(version 1
+grenade.gravity -1
+)");
+    failures += expect(!loaded.ok, "gameplay config should reject out-of-range grenade values");
+  }
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);

@@ -78,6 +78,7 @@ if (-not (Test-Path $shaderSource)) {
 Copy-Item $shaderSource (Join-Path $outputPath "shaders") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
+Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
 Copy-Item (Join-Path $repoRoot "package/windows/Play LG Duel.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/Host LG Duel Server.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/README.txt") $outputPath
@@ -93,6 +94,7 @@ $requiredFiles = @(
   "shaders/world3d.frag.spv",
   "SDL3.dll",
   "SDL3-LICENSE.txt",
+  "config/gameplay.cfg",
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",
   "README.txt",

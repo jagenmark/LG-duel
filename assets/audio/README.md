@@ -37,7 +37,8 @@ grunts are driven by health decreases in authoritative snapshots.
 
 - `mg_fire_selected_snap.wav`: short dry automatic snap for machine gun fire.
 - `sg_fire_selected_blast.wav`: compact low blast with a gritty tail for shotgun fire.
-- `gl_fire_selected_thump.wav`: rounded launcher thump for grenade launcher fire events.
+- `gl_fire.wav`: grenade launcher fire cue. Local POV shots play centered; remote shots are panned and distance-scaled from the firing position.
+- `gl_bounce.wav`: grenade bounce cue. Every authoritative world bounce is panned and distance-scaled from the bounce position.
 - `pg_fire_selected_pulse.wav`: bright short energy pulse for plasma gun fire events.
 
 The current runtime cue files are all WAV-backed. Several files were converted

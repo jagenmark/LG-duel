@@ -29,6 +29,7 @@ bool sameRocketExplosionEvent(
   const RocketExplosionResult& rhs
 ) {
   return lhs.active == rhs.active &&
+    lhs.weapon == rhs.weapon &&
     lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
     lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
     lhs.radius == rhs.radius &&
