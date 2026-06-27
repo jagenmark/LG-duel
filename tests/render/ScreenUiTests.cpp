@@ -324,6 +324,9 @@ int main() {
     damageSettings.damageNumbersSize = 1.0F;
     damageSettings.damageNumbersOffsetX = 0.0F;
     damageSettings.damageNumbersOffsetY = -40.0F;
+    damageSettings.damageNumbersRed = 32;
+    damageSettings.damageNumbersGreen = 96;
+    damageSettings.damageNumbersBlue = 224;
     const lg::DrawList2D damageUi = lg::buildScreenUi(
       1280,
       720,
@@ -342,8 +345,91 @@ int main() {
         std::abs(first->position.x - second->position.x) <= 4.0F &&
         std::abs(second->position.x - third->position.x) <= 4.0F &&
         first->position.y < second->position.y &&
-        second->position.y < third->position.y,
-      "individual damage numbers should stack vertically near the aim point"
+        second->position.y < third->position.y &&
+        first->color.red == 32 &&
+        first->color.green == 96 &&
+        first->color.blue == 224,
+      "individual damage numbers should stack vertically near the aim point and use configured color"
+    );
+  }
+
+  {
+    lg::HudRenderState tallyHud;
+    tallyHud.damageNumbers.tallies[1] = {
+      true,
+      45,
+      1,
+      0.0F,
+    };
+    lg::RenderSettings damageSettings;
+    damageSettings.crosshairEnabled = false;
+    damageSettings.damageNumbersRed = 32;
+    damageSettings.damageNumbersGreen = 96;
+    damageSettings.damageNumbersBlue = 224;
+    const lg::DrawList2D tallyUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      damageSettings,
+      tallyHud,
+      {}
+    );
+    const lg::Text2D* tallyText = findText(tallyUi, "45");
+    failures += expect(
+      tallyText != nullptr &&
+        tallyText->color.red == 32 &&
+        tallyText->color.green == 96 &&
+        tallyText->color.blue == 224,
+      "screen-space damage tallies should use configured damage-number color"
+    );
+  }
+
+  {
+    lg::HudRenderState worldDamageHud;
+    worldDamageHud.damageNumbers.tallies[1] = {
+      true,
+      45,
+      1,
+      0.0F,
+      true,
+      {10.0F, 0.0F, 0.0F},
+    };
+    lg::RenderSettings damageSettings;
+    damageSettings.crosshairEnabled = false;
+    damageSettings.damageNumbersSize = 1.0F;
+    damageSettings.damageNumbersOffsetX = 0.0F;
+    damageSettings.damageNumbersOffsetY = 0.0F;
+    damageSettings.damageNumbersRed = 32;
+    damageSettings.damageNumbersGreen = 96;
+    damageSettings.damageNumbersBlue = 224;
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
+    const lg::DrawList2D screenUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      damageSettings,
+      worldDamageHud,
+      {}
+    );
+    const lg::DrawList2D floatingUi = lg::buildFloatingDamageNumbers(
+      1280,
+      720,
+      camera,
+      damageSettings,
+      worldDamageHud
+    );
+    const lg::Text2D* screenText = findText(screenUi, "45");
+    const lg::Text2D* floatingText = findText(floatingUi, "45");
+    failures += expect(
+      screenText == nullptr &&
+        floatingText != nullptr &&
+        std::abs(floatingText->position.x - 629.2F) < 0.1F &&
+        std::abs(floatingText->position.y - 326.0F) < 0.1F &&
+        floatingText->color.red == 32 &&
+        floatingText->color.green == 96 &&
+        floatingText->color.blue == 224,
+      "world damage tallies should be projected from their stored world position and use configured color"
     );
   }
 

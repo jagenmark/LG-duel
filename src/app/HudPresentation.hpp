@@ -16,6 +16,7 @@ enum class DamageNumbersMode : int {
   PerInstance = 1,
   PerInstanceAndTally = 2,
   TallyOnly = 3,
+  WorldTallyOnly = 4,
 };
 
 enum class LocalDamageSource : std::uint8_t {
@@ -32,6 +33,8 @@ struct LocalDamageEvent {
   int damageApplied = 0;
   bool confirmedLocal = true;
   Weapon weapon = Weapon::LightningGun;
+  bool hasTargetPosition = false;
+  Vec3 targetPosition = {};
 };
 
 struct DamageNumbersConfig {
@@ -52,6 +55,8 @@ struct DamageNumberTally {
   int damage = 0;
   std::uint8_t targetPlayerIndex = 255;
   float secondsSinceLastHit = 0.0F;
+  bool hasWorldPosition = false;
+  Vec3 worldPosition = {};
 };
 
 struct DamageNumberPresentation {

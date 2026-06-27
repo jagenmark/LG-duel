@@ -2420,17 +2420,35 @@ int GameApp::run() const {
         const DamageNumbersConfig damageConfig = damageNumbersConfig(console);
         if (audioSnapshot.serverTick != lastDamageNumberServerTick) {
           if (damageNumberStateInitialized) {
+            const auto localDamageEvent = [&audioSnapshot, localPlayerIndex](
+              LocalDamageSource source,
+              std::uint8_t targetPlayerIndex,
+              int damageApplied
+            ) {
+              LocalDamageEvent event{
+                source,
+                audioSnapshot.serverTick,
+                static_cast<std::uint8_t>(localPlayerIndex),
+                targetPlayerIndex,
+                damageApplied,
+              };
+              if (targetPlayerIndex < kDuelPlayerCount) {
+                event.hasTargetPosition = true;
+                event.targetPosition =
+                  audioSnapshot.players[targetPlayerIndex].position;
+              }
+              return event;
+            };
+
             const LightningGunResult& localLightning =
               audioSnapshot.lightningGuns[localPlayerIndex];
             if (localLightning.hit && localLightning.damageApplied > 0) {
               damageNumberState.addLocalDamageEvent(
-                {
+                localDamageEvent(
                   LocalDamageSource::LightningGun,
-                  audioSnapshot.serverTick,
-                  static_cast<std::uint8_t>(localPlayerIndex),
                   localLightning.targetPlayerIndex,
-                  localLightning.damageApplied,
-                },
+                  localLightning.damageApplied
+                ),
                 damageConfig
               );
             }
@@ -2457,13 +2475,11 @@ int GameApp::run() const {
               )
             ) {
               damageNumberState.addLocalDamageEvent(
-                {
+                localDamageEvent(
                   LocalDamageSource::WeaponFire,
-                  audioSnapshot.serverTick,
-                  static_cast<std::uint8_t>(localPlayerIndex),
                   fallbackTarget,
-                  localFire.damageApplied,
-                },
+                  localFire.damageApplied
+                ),
                 damageConfig
               );
               lastDamageNumberWeaponFires[localPlayerIndex] = localFire;
@@ -2489,13 +2505,11 @@ int GameApp::run() const {
               )
             ) {
               damageNumberState.addLocalDamageEvent(
-                {
+                localDamageEvent(
                   LocalDamageSource::RocketExplosion,
-                  audioSnapshot.serverTick,
-                  static_cast<std::uint8_t>(localPlayerIndex),
                   fallbackTarget,
-                  localExplosion.opponentDamageApplied,
-                },
+                  localExplosion.opponentDamageApplied
+                ),
                 damageConfig
               );
               lastDamageNumberRocketExplosions[localPlayerIndex] =

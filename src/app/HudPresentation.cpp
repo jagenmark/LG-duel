@@ -91,7 +91,8 @@ void DamageNumberState::addLocalDamageEvent(
 
   if (
     config.mode != DamageNumbersMode::PerInstanceAndTally &&
-    config.mode != DamageNumbersMode::TallyOnly
+    config.mode != DamageNumbersMode::TallyOnly &&
+    config.mode != DamageNumbersMode::WorldTallyOnly
   ) {
     return;
   }
@@ -106,6 +107,11 @@ void DamageNumberState::addLocalDamageEvent(
     tally.targetPlayerIndex = event.targetPlayerIndex;
   }
   tally.secondsSinceLastHit = 0.0F;
+  tally.hasWorldPosition =
+    config.mode == DamageNumbersMode::WorldTallyOnly && event.hasTargetPosition;
+  if (tally.hasWorldPosition) {
+    tally.worldPosition = event.targetPosition;
+  }
 }
 
 DamageNumberPresentation DamageNumberState::presentation() const {
