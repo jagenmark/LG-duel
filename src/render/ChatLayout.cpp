@@ -21,7 +21,13 @@ constexpr std::size_t kMaxVisibleInputRows = 4U;
   return std::string(count, ' ');
 }
 
-[[nodiscard]] std::string prefixFor(std::uint8_t playerIndex) {
+[[nodiscard]] std::string prefixFor(
+  std::uint8_t playerIndex,
+  const std::string& speakerName
+) {
+  if (!speakerName.empty()) {
+    return speakerName + ": ";
+  }
   return "PLAYER " + std::to_string(static_cast<unsigned>(playerIndex) + 1U) + ": ";
 }
 
@@ -144,7 +150,7 @@ ChatTextLayout buildChatTextLayout(
   std::vector<ChatLayoutRow> rows;
   for (std::size_t messageIndex = 0; messageIndex < hud.chatLines.size(); ++messageIndex) {
     const HudRenderState::ChatLine& line = hud.chatLines[messageIndex];
-    const std::string prefix = prefixFor(line.playerIndex);
+    const std::string prefix = prefixFor(line.playerIndex, line.speakerName);
     std::vector<WrappedRow> wrapped = wrapText(prefix, line.message, rowColumns);
     for (std::size_t rowIndex = 0; rowIndex < wrapped.size(); ++rowIndex) {
       rows.push_back(ChatLayoutRow{
