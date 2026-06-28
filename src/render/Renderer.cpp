@@ -87,6 +87,30 @@ using RenderClock = std::chrono::steady_clock;
   }
 }
 
+[[nodiscard]] SDL_GPUPresentMode sdlGpuPresentMode(PresentMode mode) {
+  switch (mode) {
+  case PresentMode::Fifo:
+    return SDL_GPU_PRESENTMODE_VSYNC;
+  case PresentMode::Mailbox:
+    return SDL_GPU_PRESENTMODE_MAILBOX;
+  case PresentMode::Immediate:
+    return SDL_GPU_PRESENTMODE_IMMEDIATE;
+  }
+  return SDL_GPU_PRESENTMODE_VSYNC;
+}
+
+[[nodiscard]] std::string_view presentModeName(PresentMode mode) {
+  switch (mode) {
+  case PresentMode::Fifo:
+    return "FIFO/VSync";
+  case PresentMode::Mailbox:
+    return "Mailbox";
+  case PresentMode::Immediate:
+    return "Immediate";
+  }
+  return "Unknown";
+}
+
 struct GpuVertex {
   float x = 0.0F;
   float y = 0.0F;
@@ -2197,25 +2221,23 @@ void Renderer::render(
 }
 
 bool Renderer::setVSync(bool enabled) {
+  return setPresentMode(enabled ? PresentMode::Fifo : PresentMode::Immediate);
+}
+
+bool Renderer::setPresentMode(PresentMode mode) {
 #if LG_DUEL_HAS_SDL3
   if (gpuBackend_) {
     auto* device = static_cast<SDL_GPUDevice*>(gpuDevice_);
     auto* window = static_cast<SDL_Window*>(window_);
-    SDL_GPUPresentMode presentMode = SDL_GPU_PRESENTMODE_IMMEDIATE;
-    if (enabled) {
-      presentMode = SDL_WindowSupportsGPUPresentMode(
-        device,
-        window,
-        SDL_GPU_PRESENTMODE_MAILBOX
-      )
-        ? SDL_GPU_PRESENTMODE_MAILBOX
-        : SDL_GPU_PRESENTMODE_VSYNC;
-    } else if (!SDL_WindowSupportsGPUPresentMode(
-                 device,
-                 window,
-                 SDL_GPU_PRESENTMODE_IMMEDIATE
-               )) {
-      return false;
+    SDL_GPUPresentMode presentMode = sdlGpuPresentMode(mode);
+    if (
+      presentMode != SDL_GPU_PRESENTMODE_VSYNC &&
+      !SDL_WindowSupportsGPUPresentMode(device, window, presentMode)
+    ) {
+      std::cerr
+        << "Requested present mode " << presentModeName(mode)
+        << " is not supported by this SDL_GPU backend; falling back to FIFO/VSync.\n";
+      presentMode = SDL_GPU_PRESENTMODE_VSYNC;
     }
     const bool changed = SDL_SetGPUSwapchainParameters(
       device,
@@ -2231,14 +2253,21 @@ bool Renderer::setVSync(bool enabled) {
   }
 
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
+  const bool enableVSync = mode != PresentMode::Immediate;
   const bool changed = renderer != nullptr &&
-    SDL_SetRenderVSync(renderer, enabled ? 1 : SDL_RENDERER_VSYNC_DISABLED);
+    SDL_SetRenderVSync(renderer, enableVSync ? 1 : SDL_RENDERER_VSYNC_DISABLED);
   if (changed) {
-    lastFrameDiagnostics_.selectedPresentModeName = "SDL_Renderer";
+    lastFrameDiagnostics_.selectedPresentModeName =
+      enableVSync ? "SDL_Renderer VSync" : "SDL_Renderer Immediate";
+    if (mode == PresentMode::Mailbox) {
+      std::cerr
+        << "Requested present mode Mailbox is not available with SDL_Renderer; "
+        << "falling back to renderer VSync.\n";
+    }
   }
   return changed;
 #else
-  (void)enabled;
+  (void)mode;
   return false;
 #endif
 }

@@ -170,7 +170,7 @@ Gameplay actions follow Quake 3's naming scheme: `+forward`, `+back`, `+moveleft
 
 `connect <host> [port]` replaces the active connection. A numeric single argument is treated as a localhost port, so `connect 27960` connects to `127.0.0.1:27960`. `disconnect` releases the server slot immediately. `reconnect` uses the most recently requested host and port.
 
-Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `cl_interp_mode`, `cl_interp`, `cl_player_name`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `s_footstep_volume`, `r_vsync`, crosshair controls, beam controls, enemy/teammate nametag controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second. `cl_interp_mode 0` restores the legacy latest-snapshot-pair interpolation path. `cl_interp_mode 1` uses buffered interpolation, where `cl_interp` controls remote player snapshot interpolation delay in seconds; the default `0.024` is three 125 Hz simulation ticks.
+Initial client cvars include `sensitivity`, `cl_aim_mode`, `cl_fov`, `cl_zoom_fov`, `cl_zoom_sensitivity`, `cl_camera_zoom`, `cl_rotate_view`, `cl_health_size`, `cl_showfps`, `cl_showspeed`, `cl_show_net`, `cl_interp_mode`, `cl_interp`, `cl_player_name`, `vid_fullscreen`, `vid_width`, `vid_height`, `vid_refresh_hz`, `vid_display`, `r_present_mode`, `r_maxfps`, `r_vsync`, `g_playersize_xy`, `g_playersize_z`, `s_enable`, `s_volume`, `s_footstep_volume`, crosshair controls, beam controls, enemy/teammate nametag controls, enemy model controls, and hit-feedback controls. `cl_showspeed 1` displays current horizontal movement speed in Q3/QL-style units per second. `cl_interp_mode 0` restores the legacy latest-snapshot-pair interpolation path. `cl_interp_mode 1` uses buffered interpolation, where `cl_interp` controls remote player snapshot interpolation delay in seconds; the default `0.024` is three 125 Hz simulation ticks.
 
 The SDL_GPU renderer can be selected at runtime with
 `LG_DUEL_RENDER_BACKEND=gpu`. It prefers Vulkan, falls back to SDL's automatic
@@ -193,11 +193,25 @@ would provide constant-width screen-space outlines and could support separate
 a pipeline, shader assets, and fallback behavior to keep the prototype
 reliable.
 
-The SDL_GPU path keeps one frame in flight. With `r_vsync 1`, it prefers
-mailbox presentation and falls back to standard synchronized presentation.
-With `r_vsync 0`, it requests immediate presentation for the lowest available
-latency. Set `cl_showfps 1` to show average FPS, frame time, and the active
-renderer backend in the window title.
+Video settings are cvar-driven. `vid_fullscreen 0` is windowed, `1` is
+borderless fullscreen desktop, and `2` requests exclusive fullscreen using
+`vid_width`, `vid_height`, `vid_refresh_hz`, and `vid_display`; unsupported
+exclusive modes fall back to borderless fullscreen. Alt+Enter toggles only
+between windowed and borderless fullscreen.
+
+Press `F10` or run `settings` to open the in-game Settings / Video menu. The
+menu edits a pending draft and writes the same video cvars on Apply, so console
+commands and the GUI share the same apply path.
+
+The SDL_GPU path keeps one frame in flight. `r_present_mode 0` requests
+FIFO/V-sync, `1` requests Mailbox, and `2` requests Immediate. Unsupported GPU
+present modes fall back to FIFO/V-sync; the SDL_Renderer fallback maps FIFO to
+renderer V-sync on and Mailbox/Immediate to renderer V-sync off. `r_vsync` is
+kept as a deprecated compatibility alias: `1` maps to `r_present_mode 0`, and
+`0` maps to `r_present_mode 2`. `r_maxfps 0` is uncapped; positive values use a
+deadline-based CPU/render frame cap independent of the present mode. Set
+`cl_showfps 1` to show average FPS, frame time, and the active renderer backend
+in the window title.
 
 `cl_rotate_view` applies only to top-down relative aim (`cl_render_mode 0`, `cl_aim_mode 0`). Absolute cursor aim (`cl_aim_mode 1`) is available only in the top-down renderer. Perspective mode (`cl_render_mode 1`) always uses relative mouse yaw/pitch, ignores `cl_rotate_view`, and sends true 3D pitch to authoritative beam simulation.
 

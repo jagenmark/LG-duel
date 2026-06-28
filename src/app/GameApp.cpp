@@ -43,6 +43,8 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
+#include <set>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -259,6 +261,37 @@ struct ClientChatState {
   std::chrono::steady_clock::time_point visibleUntil = {};
 };
 
+struct VideoSettings {
+  int fullscreenMode = 0;
+  int width = 1280;
+  int height = 720;
+  int refreshHz = 0;
+  int displayIndex = 0;
+  PresentMode presentMode = PresentMode::Fifo;
+};
+
+struct VideoRuntimeState {
+  VideoSettings applied = {};
+  bool hasApplied = false;
+  bool hasWindowedPosition = false;
+  int windowedX = SDL_WINDOWPOS_CENTERED;
+  int windowedY = SDL_WINDOWPOS_CENTERED;
+};
+
+struct ResolutionOption {
+  int width = 0;
+  int height = 0;
+};
+
+struct SettingsMenuState {
+  bool open = false;
+  int selectedRow = 0;
+  VideoSettings pendingVideo = {};
+  int pendingMaxFps = 0;
+  VideoSettings originalVideo = {};
+  int originalMaxFps = 0;
+};
+
 struct LingeringRailBeam {
   WeaponFireResult fire;
   WeaponFireResult sourceFire;
@@ -275,6 +308,683 @@ void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
   while (state.output.size() > 128) {
     state.output.pop_front();
   }
+}
+
+[[nodiscard]] PresentMode presentModeFromInt(int value) {
+  switch (value) {
+  case 1:
+    return PresentMode::Mailbox;
+  case 2:
+    return PresentMode::Immediate;
+  default:
+    return PresentMode::Fifo;
+  }
+}
+
+[[nodiscard]] std::string_view presentModeName(PresentMode mode) {
+  switch (mode) {
+  case PresentMode::Fifo:
+    return "FIFO/VSync";
+  case PresentMode::Mailbox:
+    return "Mailbox";
+  case PresentMode::Immediate:
+    return "Immediate";
+  }
+  return "Unknown";
+}
+
+[[nodiscard]] VideoSettings videoSettingsFromConsole(const ConsoleSystem& console) {
+  return {
+    console.getInt("vid_fullscreen"),
+    console.getInt("vid_width"),
+    console.getInt("vid_height"),
+    console.getInt("vid_refresh_hz"),
+    console.getInt("vid_display"),
+    presentModeFromInt(console.getInt("r_present_mode")),
+  };
+}
+
+[[nodiscard]] bool sameVideoSettings(
+  const VideoSettings& lhs,
+  const VideoSettings& rhs
+) {
+  return lhs.fullscreenMode == rhs.fullscreenMode &&
+    lhs.width == rhs.width &&
+    lhs.height == rhs.height &&
+    lhs.refreshHz == rhs.refreshHz &&
+    lhs.displayIndex == rhs.displayIndex &&
+    lhs.presentMode == rhs.presentMode;
+}
+
+[[nodiscard]] SDL_DisplayID displayForIndex(int displayIndex, int& displayCount) {
+  displayCount = 0;
+  SDL_DisplayID* displays = SDL_GetDisplays(&displayCount);
+  if (displays == nullptr || displayCount <= 0) {
+    return 0;
+  }
+  const int clampedIndex = std::clamp(displayIndex, 0, displayCount - 1);
+  const SDL_DisplayID display = displays[clampedIndex];
+  SDL_free(displays);
+  return display;
+}
+
+[[nodiscard]] int displayCount() {
+  int count = 0;
+  SDL_DisplayID* displays = SDL_GetDisplays(&count);
+  if (displays != nullptr) {
+    SDL_free(displays);
+  }
+  return std::max(0, count);
+}
+
+[[nodiscard]] std::string displayLabel(int displayIndex) {
+  int count = 0;
+  const SDL_DisplayID display = displayForIndex(displayIndex, count);
+  std::string label =
+    "Display " + std::to_string(std::max(0, std::min(displayIndex, count - 1)) + 1);
+  if (display == 0) {
+    return label;
+  }
+  const char* name = SDL_GetDisplayName(display);
+  if (name != nullptr && std::string_view(name).size() > 0U) {
+    label += ": ";
+    label += name;
+  }
+  return label;
+}
+
+[[nodiscard]] float displayModeRefreshHz(const SDL_DisplayMode& mode) {
+  if (mode.refresh_rate > 0.0F) {
+    return mode.refresh_rate;
+  }
+  if (mode.refresh_rate_numerator > 0 && mode.refresh_rate_denominator > 0) {
+    return static_cast<float>(mode.refresh_rate_numerator) /
+      static_cast<float>(mode.refresh_rate_denominator);
+  }
+  return 0.0F;
+}
+
+[[nodiscard]] int roundedDisplayModeRefreshHz(const SDL_DisplayMode& mode) {
+  return static_cast<int>(std::lround(displayModeRefreshHz(mode)));
+}
+
+[[nodiscard]] std::vector<ResolutionOption> resolutionOptions(
+  int displayIndex,
+  ResolutionOption requested
+) {
+  std::set<std::pair<int, int>> unique;
+  int displayTotal = 0;
+  const SDL_DisplayID display = displayForIndex(displayIndex, displayTotal);
+  if (display != 0) {
+    int modeCount = 0;
+    SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &modeCount);
+    for (int index = 0; modes != nullptr && index < modeCount; ++index) {
+      if (modes[index] != nullptr && modes[index]->w > 0 && modes[index]->h > 0) {
+        unique.emplace(modes[index]->w, modes[index]->h);
+      }
+    }
+    if (modes != nullptr) {
+      SDL_free(modes);
+    }
+    if (const SDL_DisplayMode* desktop = SDL_GetDesktopDisplayMode(display)) {
+      unique.emplace(desktop->w, desktop->h);
+    }
+  }
+  for (const ResolutionOption preset : {
+         ResolutionOption{1280, 720},
+         ResolutionOption{1600, 900},
+         ResolutionOption{1920, 1080},
+         ResolutionOption{2560, 1440},
+         ResolutionOption{3840, 2160},
+       }) {
+    unique.emplace(preset.width, preset.height);
+  }
+  unique.emplace(requested.width, requested.height);
+
+  std::vector<ResolutionOption> options;
+  options.reserve(unique.size());
+  for (const auto& [width, height] : unique) {
+    options.push_back({width, height});
+  }
+  std::sort(
+    options.begin(),
+    options.end(),
+    [](ResolutionOption lhs, ResolutionOption rhs) {
+      const int lhsArea = lhs.width * lhs.height;
+      const int rhsArea = rhs.width * rhs.height;
+      if (lhsArea != rhsArea) {
+        return lhsArea < rhsArea;
+      }
+      if (lhs.width != rhs.width) {
+        return lhs.width < rhs.width;
+      }
+      return lhs.height < rhs.height;
+    }
+  );
+  return options;
+}
+
+[[nodiscard]] std::vector<int> refreshOptions(
+  int displayIndex,
+  ResolutionOption resolution,
+  int requestedRefreshHz
+) {
+  std::set<int> unique{0};
+  int displayTotal = 0;
+  const SDL_DisplayID display = displayForIndex(displayIndex, displayTotal);
+  if (display != 0) {
+    int modeCount = 0;
+    SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &modeCount);
+    for (int index = 0; modes != nullptr && index < modeCount; ++index) {
+      const SDL_DisplayMode* mode = modes[index];
+      if (
+        mode != nullptr &&
+        mode->w == resolution.width &&
+        mode->h == resolution.height
+      ) {
+        const int refreshHz = roundedDisplayModeRefreshHz(*mode);
+        if (refreshHz > 0) {
+          unique.insert(refreshHz);
+        }
+      }
+    }
+    if (modes != nullptr) {
+      SDL_free(modes);
+    }
+    if (const SDL_DisplayMode* current = SDL_GetCurrentDisplayMode(display)) {
+      const int refreshHz = roundedDisplayModeRefreshHz(*current);
+      if (refreshHz > 0) {
+        unique.insert(refreshHz);
+      }
+    }
+  }
+  if (requestedRefreshHz > 0) {
+    unique.insert(requestedRefreshHz);
+  }
+  return {unique.begin(), unique.end()};
+}
+
+template <typename T, typename Equals>
+[[nodiscard]] int optionIndex(
+  const std::vector<T>& options,
+  const T& current,
+  Equals equals
+) {
+  const auto match = std::find_if(
+    options.begin(),
+    options.end(),
+    [&](const T& option) { return equals(option, current); }
+  );
+  return match == options.end()
+    ? 0
+    : static_cast<int>(std::distance(options.begin(), match));
+}
+
+template <typename T>
+[[nodiscard]] const T& wrappedOption(const std::vector<T>& options, int index) {
+  const int count = static_cast<int>(options.size());
+  const int wrapped = ((index % count) + count) % count;
+  return options[static_cast<std::size_t>(wrapped)];
+}
+
+[[nodiscard]] const SDL_DisplayMode* chooseExclusiveDisplayMode(
+  SDL_DisplayMode** modes,
+  int modeCount,
+  const VideoSettings& requested
+) {
+  const SDL_DisplayMode* best = nullptr;
+  float bestScore = std::numeric_limits<float>::max();
+  for (int index = 0; index < modeCount; ++index) {
+    const SDL_DisplayMode* mode = modes[index];
+    if (mode == nullptr || mode->w != requested.width || mode->h != requested.height) {
+      continue;
+    }
+    const float refreshHz = displayModeRefreshHz(*mode);
+    const float score = requested.refreshHz > 0
+      ? std::abs(refreshHz - static_cast<float>(requested.refreshHz))
+      : -refreshHz;
+    if (best == nullptr || score < bestScore) {
+      best = mode;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+void appendWindowPixelSize(ClientConsoleState& consoleState, SDL_Window* window) {
+  int pixelWidth = 0;
+  int pixelHeight = 0;
+  if (SDL_GetWindowSizeInPixels(window, &pixelWidth, &pixelHeight)) {
+    appendConsoleOutput(
+      consoleState,
+      "video: drawable size " + std::to_string(pixelWidth) + "x" +
+        std::to_string(pixelHeight)
+    );
+  }
+}
+
+bool applyWindowedVideoSettings(
+  SDL_Window* window,
+  const VideoSettings& requested,
+  const VideoRuntimeState& state,
+  ClientConsoleState& consoleState
+) {
+  bool ok = true;
+  ok = SDL_SetWindowFullscreen(window, false) && ok;
+  ok = SDL_SyncWindow(window) && ok;
+  (void)SDL_SetWindowFullscreenMode(window, nullptr);
+  (void)SDL_SetWindowBordered(window, true);
+  (void)SDL_SetWindowResizable(window, true);
+  ok = SDL_SetWindowSize(window, requested.width, requested.height) && ok;
+  if (state.hasWindowedPosition) {
+    (void)SDL_SetWindowPosition(window, state.windowedX, state.windowedY);
+  }
+  ok = SDL_SyncWindow(window) && ok;
+  if (!ok) {
+    appendConsoleOutput(consoleState, "video: failed to apply windowed mode");
+  }
+  appendWindowPixelSize(consoleState, window);
+  return ok;
+}
+
+bool applyBorderlessVideoSettings(
+  SDL_Window* window,
+  const VideoSettings& requested,
+  ClientConsoleState& consoleState
+) {
+  int displayCount = 0;
+  const SDL_DisplayID display = displayForIndex(requested.displayIndex, displayCount);
+  if (display == 0) {
+    appendConsoleOutput(consoleState, "video: no displays found for borderless fullscreen");
+    return false;
+  }
+  bool ok = SDL_SetWindowFullscreen(window, false);
+  ok = SDL_SyncWindow(window) && ok;
+  ok = SDL_SetWindowFullscreenMode(window, nullptr) && ok;
+  SDL_SetWindowPosition(
+    window,
+    SDL_WINDOWPOS_CENTERED_DISPLAY(display),
+    SDL_WINDOWPOS_CENTERED_DISPLAY(display)
+  );
+  ok = SDL_SetWindowFullscreen(window, true) && ok;
+  ok = SDL_SyncWindow(window) && ok;
+  if (!ok) {
+    appendConsoleOutput(consoleState, "video: failed to apply borderless fullscreen");
+  } else {
+    appendConsoleOutput(
+      consoleState,
+      "video: borderless fullscreen on display " +
+        std::to_string(std::clamp(requested.displayIndex, 0, displayCount - 1))
+    );
+  }
+  appendWindowPixelSize(consoleState, window);
+  return ok;
+}
+
+bool applyExclusiveVideoSettings(
+  SDL_Window* window,
+  ConsoleSystem& console,
+  const VideoSettings& requested,
+  ClientConsoleState& consoleState
+) {
+  int displayCount = 0;
+  const SDL_DisplayID display = displayForIndex(requested.displayIndex, displayCount);
+  if (display == 0) {
+    appendConsoleOutput(consoleState, "video: no displays found for exclusive fullscreen");
+    return false;
+  }
+
+  int modeCount = 0;
+  SDL_DisplayMode** modes = SDL_GetFullscreenDisplayModes(display, &modeCount);
+  const SDL_DisplayMode* chosenMode =
+    modes != nullptr ? chooseExclusiveDisplayMode(modes, modeCount, requested) : nullptr;
+  if (chosenMode == nullptr) {
+    appendConsoleOutput(
+      consoleState,
+      "video: no exclusive mode for " + std::to_string(requested.width) + "x" +
+        std::to_string(requested.height) +
+        (requested.refreshHz > 0 ? "@" + std::to_string(requested.refreshHz) + "Hz" : "") +
+        "; falling back to borderless fullscreen"
+    );
+    if (modes != nullptr) {
+      SDL_free(modes);
+    }
+    (void)console.execute("set vid_fullscreen 1");
+    VideoSettings fallback = requested;
+    fallback.fullscreenMode = 1;
+    return applyBorderlessVideoSettings(window, fallback, consoleState);
+  }
+
+  const float chosenRefreshHz = displayModeRefreshHz(*chosenMode);
+  bool ok = SDL_SetWindowFullscreen(window, false);
+  ok = SDL_SyncWindow(window) && ok;
+  SDL_SetWindowPosition(
+    window,
+    SDL_WINDOWPOS_CENTERED_DISPLAY(display),
+    SDL_WINDOWPOS_CENTERED_DISPLAY(display)
+  );
+  ok = SDL_SetWindowFullscreenMode(window, chosenMode) && ok;
+  ok = SDL_SetWindowFullscreen(window, true) && ok;
+  ok = SDL_SyncWindow(window) && ok;
+  if (!ok) {
+    appendConsoleOutput(
+      consoleState,
+      "video: failed to apply exclusive fullscreen; falling back to borderless fullscreen"
+    );
+    if (modes != nullptr) {
+      SDL_free(modes);
+    }
+    (void)console.execute("set vid_fullscreen 1");
+    VideoSettings fallback = requested;
+    fallback.fullscreenMode = 1;
+    return applyBorderlessVideoSettings(window, fallback, consoleState);
+  }
+  appendConsoleOutput(
+    consoleState,
+    "video: exclusive fullscreen " + std::to_string(chosenMode->w) + "x" +
+      std::to_string(chosenMode->h) + "@" +
+      std::to_string(static_cast<int>(std::lround(chosenRefreshHz))) + "Hz"
+  );
+  if (
+    requested.refreshHz > 0 &&
+    chosenRefreshHz > 0.0F &&
+    std::abs(chosenRefreshHz - static_cast<float>(requested.refreshHz)) > 0.5F
+  ) {
+    appendConsoleOutput(
+      consoleState,
+      "video: requested refresh was unavailable; using closest matching resolution refresh"
+    );
+  }
+  if (modes != nullptr) {
+    SDL_free(modes);
+  }
+  appendWindowPixelSize(consoleState, window);
+  return true;
+}
+
+bool applyVideoSettings(
+  SDL_Window* window,
+  Renderer& renderer,
+  ConsoleSystem& console,
+  VideoRuntimeState& state,
+  const VideoSettings& requested,
+  ClientConsoleState& consoleState
+) {
+  VideoSettings clamped = requested;
+  clamped.fullscreenMode = std::clamp(clamped.fullscreenMode, 0, 2);
+  clamped.width = std::max(320, clamped.width);
+  clamped.height = std::max(200, clamped.height);
+  clamped.refreshHz = std::max(0, clamped.refreshHz);
+  clamped.displayIndex = std::max(0, clamped.displayIndex);
+
+  appendConsoleOutput(
+    consoleState,
+    "video: applying fullscreen=" + std::to_string(clamped.fullscreenMode) +
+      " size=" + std::to_string(clamped.width) + "x" +
+      std::to_string(clamped.height) +
+      " refresh=" + std::to_string(clamped.refreshHz) +
+      " display=" + std::to_string(clamped.displayIndex) +
+      " present=" + std::string(presentModeName(clamped.presentMode))
+  );
+
+  if (clamped.fullscreenMode != 0) {
+    int x = 0;
+    int y = 0;
+    if (SDL_GetWindowPosition(window, &x, &y)) {
+      state.windowedX = x;
+      state.windowedY = y;
+      state.hasWindowedPosition = true;
+    }
+  }
+
+  bool ok = true;
+  if (clamped.fullscreenMode == 0) {
+    ok = applyWindowedVideoSettings(window, clamped, state, consoleState);
+  } else if (clamped.fullscreenMode == 1) {
+    ok = applyBorderlessVideoSettings(window, clamped, consoleState);
+  } else {
+    // Future GUI flow: risky exclusive resolution/refresh changes should get
+    // an Apply/Revert countdown before being persisted.
+    ok = applyExclusiveVideoSettings(window, console, clamped, consoleState);
+    clamped = videoSettingsFromConsole(console);
+  }
+
+  if (!renderer.setPresentMode(clamped.presentMode)) {
+    appendConsoleOutput(consoleState, "video: failed to change renderer present mode");
+    ok = false;
+  } else {
+    appendConsoleOutput(
+      consoleState,
+      "video: requested present mode " + std::string(presentModeName(clamped.presentMode)) +
+        ", active " + std::string(renderer.lastFrameDiagnostics().selectedPresentModeName)
+    );
+  }
+
+  state.applied = clamped;
+  state.hasApplied = true;
+  return ok;
+}
+
+[[nodiscard]] std::string fullscreenModeLabel(int mode) {
+  switch (mode) {
+  case 1:
+    return "Borderless Fullscreen";
+  case 2:
+    return "Exclusive Fullscreen";
+  default:
+    return "Windowed";
+  }
+}
+
+[[nodiscard]] std::string resolutionLabel(const VideoSettings& settings) {
+  return std::to_string(settings.width) + " x " + std::to_string(settings.height);
+}
+
+[[nodiscard]] std::string refreshLabel(int refreshHz) {
+  return refreshHz <= 0 ? "Auto/Desktop" : std::to_string(refreshHz) + " Hz";
+}
+
+[[nodiscard]] std::string fpsLimitLabel(int maxFps) {
+  return maxFps <= 0 ? "Unlimited" : std::to_string(maxFps);
+}
+
+[[nodiscard]] int presentModeInt(PresentMode mode) {
+  return static_cast<int>(mode);
+}
+
+[[nodiscard]] std::string presentModeDisplayLabel(PresentMode mode) {
+  switch (mode) {
+  case PresentMode::Fifo:
+    return "VSync / FIFO";
+  case PresentMode::Mailbox:
+    return "Mailbox";
+  case PresentMode::Immediate:
+    return "Immediate";
+  }
+  return "Unknown";
+}
+
+[[nodiscard]] bool settingsChanged(const SettingsMenuState& menu) {
+  return !sameVideoSettings(menu.pendingVideo, menu.originalVideo) ||
+    menu.pendingMaxFps != menu.originalMaxFps;
+}
+
+void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& console) {
+  menu.pendingVideo = videoSettingsFromConsole(console);
+  menu.pendingMaxFps = console.getInt("r_maxfps");
+  menu.originalVideo = menu.pendingVideo;
+  menu.originalMaxFps = menu.pendingMaxFps;
+  menu.selectedRow = std::clamp(menu.selectedRow, 0, 7);
+}
+
+void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
+  if (direction == 0) {
+    return;
+  }
+  switch (menu.selectedRow) {
+  case 0:
+    menu.pendingVideo.fullscreenMode =
+      (menu.pendingVideo.fullscreenMode + direction + 3) % 3;
+    return;
+  case 1: {
+    const int count = std::max(1, displayCount());
+    menu.pendingVideo.displayIndex =
+      (menu.pendingVideo.displayIndex + direction + count) % count;
+    return;
+  }
+  case 2: {
+    const std::vector<ResolutionOption> options = resolutionOptions(
+      menu.pendingVideo.displayIndex,
+      {menu.pendingVideo.width, menu.pendingVideo.height}
+    );
+    const int index = optionIndex(
+      options,
+      ResolutionOption{menu.pendingVideo.width, menu.pendingVideo.height},
+      [](ResolutionOption lhs, ResolutionOption rhs) {
+        return lhs.width == rhs.width && lhs.height == rhs.height;
+      }
+    );
+    const ResolutionOption next = wrappedOption(options, index + direction);
+    menu.pendingVideo.width = next.width;
+    menu.pendingVideo.height = next.height;
+    menu.pendingVideo.refreshHz = 0;
+    return;
+  }
+  case 3: {
+    const std::vector<int> options = refreshOptions(
+      menu.pendingVideo.displayIndex,
+      {menu.pendingVideo.width, menu.pendingVideo.height},
+      menu.pendingVideo.refreshHz
+    );
+    const int index = optionIndex(
+      options,
+      menu.pendingVideo.refreshHz,
+      [](int lhs, int rhs) { return lhs == rhs; }
+    );
+    menu.pendingVideo.refreshHz = wrappedOption(options, index + direction);
+    return;
+  }
+  case 4:
+    menu.pendingVideo.presentMode =
+      presentModeFromInt((presentModeInt(menu.pendingVideo.presentMode) + direction + 3) % 3);
+    return;
+  case 5: {
+    const std::vector<int> options = {0, 60, 120, 144, 165, 240, 360, 500, 1000};
+    const int index = optionIndex(
+      options,
+      menu.pendingMaxFps,
+      [](int lhs, int rhs) { return lhs == rhs; }
+    );
+    menu.pendingMaxFps = wrappedOption(options, index + direction);
+    return;
+  }
+  default:
+    return;
+  }
+}
+
+void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
+  (void)console.execute("set vid_fullscreen " + std::to_string(menu.pendingVideo.fullscreenMode));
+  (void)console.execute("set vid_width " + std::to_string(menu.pendingVideo.width));
+  (void)console.execute("set vid_height " + std::to_string(menu.pendingVideo.height));
+  (void)console.execute("set vid_refresh_hz " + std::to_string(menu.pendingVideo.refreshHz));
+  (void)console.execute("set vid_display " + std::to_string(menu.pendingVideo.displayIndex));
+  (void)console.execute(
+    "set r_present_mode " + std::to_string(presentModeInt(menu.pendingVideo.presentMode))
+  );
+  (void)console.execute("set r_maxfps " + std::to_string(menu.pendingMaxFps));
+  menu.originalVideo = menu.pendingVideo;
+  menu.originalMaxFps = menu.pendingMaxFps;
+}
+
+[[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
+  const SettingsMenuState& menu,
+  int row,
+  std::string label,
+  std::string value,
+  bool changed,
+  bool command = false
+) {
+  return {
+    std::move(label),
+    std::move(value),
+    menu.selectedRow == row,
+    changed,
+    command,
+  };
+}
+
+void populateSettingsMenuRenderState(
+  HudRenderState& hud,
+  const SettingsMenuState& menu
+) {
+  if (!menu.open) {
+    return;
+  }
+  hud.settingsOpen = true;
+  hud.settingsItems = {
+    settingsMenuItem(
+      menu,
+      0,
+      "Display mode",
+      fullscreenModeLabel(menu.pendingVideo.fullscreenMode),
+      menu.pendingVideo.fullscreenMode != menu.originalVideo.fullscreenMode
+    ),
+    settingsMenuItem(
+      menu,
+      1,
+      "Display / Monitor",
+      displayLabel(menu.pendingVideo.displayIndex),
+      menu.pendingVideo.displayIndex != menu.originalVideo.displayIndex
+    ),
+    settingsMenuItem(
+      menu,
+      2,
+      "Resolution",
+      resolutionLabel(menu.pendingVideo),
+      menu.pendingVideo.width != menu.originalVideo.width ||
+        menu.pendingVideo.height != menu.originalVideo.height
+    ),
+    settingsMenuItem(
+      menu,
+      3,
+      "Refresh rate",
+      refreshLabel(menu.pendingVideo.refreshHz),
+      menu.pendingVideo.refreshHz != menu.originalVideo.refreshHz
+    ),
+    settingsMenuItem(
+      menu,
+      4,
+      "Presentation",
+      presentModeDisplayLabel(menu.pendingVideo.presentMode),
+      menu.pendingVideo.presentMode != menu.originalVideo.presentMode
+    ),
+    settingsMenuItem(
+      menu,
+      5,
+      "FPS limit",
+      fpsLimitLabel(menu.pendingMaxFps),
+      menu.pendingMaxFps != menu.originalMaxFps
+    ),
+    settingsMenuItem(
+      menu,
+      6,
+      "Apply changes",
+      settingsChanged(menu) ? "Enter" : "No changes",
+      settingsChanged(menu),
+      true
+    ),
+    settingsMenuItem(
+      menu,
+      7,
+      "Close / Revert draft",
+      "Esc",
+      false,
+      true
+    ),
+  };
+  hud.settingsFooter =
+    "Up/Down select   Left/Right change   Enter apply   Esc close";
 }
 
 std::string clientConfigPath() {
@@ -770,13 +1480,13 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+movedown");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
-  (void)bindings.bind("1", "weapon mg");
-  (void)bindings.bind("2", "weapon sg");
-  (void)bindings.bind("3", "weapon gl");
-  (void)bindings.bind("4", "weapon rl");
-  (void)bindings.bind("5", "weapon lg");
-  (void)bindings.bind("6", "weapon rg");
-  (void)bindings.bind("7", "weapon pg");
+  (void)bindings.bind("2", "weapon mg");
+  (void)bindings.bind("3", "weapon sg");
+  (void)bindings.bind("5", "weapon gl");
+  (void)bindings.bind("q", "weapon rl");
+  (void)bindings.bind("e", "weapon lg");
+  (void)bindings.bind("r", "weapon rg");
+  (void)bindings.bind("4", "weapon pg");
   (void)bindings.bind("q", "weapon rl");
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
@@ -785,7 +1495,8 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("t", "messagemode");
   (void)bindings.bind("z", "showchat");
   (void)bindings.bind("tab", "+scores");
-  (void)bindings.bind("escape", "quit");
+  (void)bindings.bind("f10", "settings");
+  (void)bindings.bind("f12", "quit");
 }
 
 std::string gameModeName(GameMode gameMode) {
@@ -1134,6 +1845,7 @@ int GameApp::run() const {
   bool clearRequested = false;
   bool writeConfigRequested = false;
   bool toggleConsoleRequested = false;
+  bool settingsMenuRequested = false;
   bool openChatRequested = false;
   bool showChatRequested = false;
   bool requestGameModePending = false;
@@ -1452,6 +2164,14 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+    "settings",
+    "Open the in-game Settings menu.",
+    [&settingsMenuRequested](const std::vector<std::string>&) {
+      settingsMenuRequested = true;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
     "messagemode",
     "Open team-wide chat input.",
     [&openChatRequested](const std::vector<std::string>&) {
@@ -1554,6 +2274,7 @@ int GameApp::run() const {
         "gamemode\n"
         "team\n"
 
+        "settings\n"
         "messagemode\n"
         "showchat\n"
         "toggleconsole\n"
@@ -1603,14 +2324,39 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 7");
   }
+  if (console.getInt("cl_config_version") < 8) {
+    (void)console.execute(
+      console.getBool("r_vsync")
+        ? "set r_present_mode 0"
+        : "set r_present_mode 2"
+    );
+    (void)console.execute("set cl_legacy_frame_delay 0");
+    (void)console.execute("set cl_config_version 8");
+  }
+  if (console.getInt("cl_config_version") < 9) {
+    if (bindings.binding("f10").empty()) {
+      (void)bindings.bind("f10", "settings");
+    }
+    (void)console.execute("set cl_config_version 9");
+  }
   (void)session.connect(serverHost_, serverPort_);
-  (void)renderer.setVSync(console.getBool("r_vsync"));
-  bool appliedVSync = console.getBool("r_vsync");
   ClientConsoleState consoleState;
+  SettingsMenuState settingsMenu;
   appendConsoleOutput(
     consoleState,
     "LG Duel console. Type actionlist, bindlist, cmdlist, or cvarlist."
   );
+  VideoRuntimeState videoRuntime;
+  (void)applyVideoSettings(
+    window,
+    renderer,
+    console,
+    videoRuntime,
+    videoSettingsFromConsole(console),
+    consoleState
+  );
+  bool lastCompatVSync = console.getBool("r_vsync");
+  int lastPresentModeInt = console.getInt("r_present_mode");
   bool suppressNextTextInput = false;
   const auto executeBindingCommands =
     [&console, &consoleState](const std::vector<std::string>& commands) {
@@ -1672,6 +2418,31 @@ int GameApp::run() const {
         SDL_SetWindowRelativeMouseMode(window, true);
       }
     };
+  const auto setSettingsOpen =
+    [&bindings, &console, &settingsMenu, &input, window](bool open) {
+      if (settingsMenu.open == open) {
+        return;
+      }
+      for (const std::string& command : bindings.releaseAll()) {
+        (void)console.execute(command);
+      }
+      settingsMenu.open = open;
+      input.mouseDeltaX = 0.0F;
+      input.mouseDeltaY = 0.0F;
+      if (open) {
+        syncSettingsMenuFromConsole(settingsMenu, console);
+        SDL_SetWindowRelativeMouseMode(window, false);
+      } else {
+        SDL_SetWindowRelativeMouseMode(window, true);
+      }
+    };
+  const auto applySettingsMenuToggle =
+    [&settingsMenuRequested, &setSettingsOpen, &settingsMenu]() {
+      if (settingsMenuRequested) {
+        settingsMenuRequested = false;
+        setSettingsOpen(!settingsMenu.open);
+      }
+    };
 
   const Arena fallbackArena = thunderstruckArena();
   std::uint32_t commandSequence = 0;
@@ -1680,6 +2451,8 @@ int GameApp::run() const {
   using Clock = std::chrono::steady_clock;
   auto previousTime = Clock::now();
   auto previousOuterFrameStart = previousTime;
+  Clock::time_point nextFrameDeadline = previousTime;
+  int appliedMaxFps = console.getInt("r_maxfps");
   float accumulatorSeconds = 0.0F;
   float titleAccumulatorSeconds = 0.0F;
   float frameStatsAccumulatorSeconds = 0.0F;
@@ -1823,6 +2596,31 @@ int GameApp::run() const {
           }
           break;
         }
+        if (settingsMenu.open) {
+          if (!pressed) {
+            break;
+          }
+          if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+            setSettingsOpen(false);
+          } else if (event.key.scancode == SDL_SCANCODE_UP) {
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 7) % 8;
+          } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 8;
+          } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            adjustSettingsMenuValue(settingsMenu, -1);
+          } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            adjustSettingsMenuValue(settingsMenu, 1);
+          } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
+            if (settingsMenu.selectedRow == 6) {
+              applySettingsMenu(console, settingsMenu);
+            } else if (settingsMenu.selectedRow == 7) {
+              setSettingsOpen(false);
+            } else {
+              adjustSettingsMenuValue(settingsMenu, 1);
+            }
+          }
+          break;
+        }
         if (consoleState.open) {
           if (!pressed) {
             if (bindings.binding(key) == "toggleconsole") {
@@ -1918,9 +2716,19 @@ int GameApp::run() const {
         if (pressed && bindings.binding(key) == "messagemode") {
           suppressNextTextInput = true;
         }
+        if (
+          pressed &&
+          event.key.scancode == SDL_SCANCODE_RETURN &&
+          (event.key.mod & (SDL_KMOD_ALT | SDL_KMOD_GUI)) != 0
+        ) {
+          const bool windowed = console.getInt("vid_fullscreen") == 0;
+          (void)console.execute(windowed ? "set vid_fullscreen 1" : "set vid_fullscreen 0");
+          break;
+        }
         executeBindingCommands(bindings.handleKey(key, pressed));
         applyConsoleToggle();
-        if (openChatRequested && !consoleState.open) {
+        applySettingsMenuToggle();
+        if (openChatRequested && !consoleState.open && !settingsMenu.open) {
           openChatRequested = false;
           setChatOpen(true);
         }
@@ -1954,6 +2762,8 @@ int GameApp::run() const {
             TextInputFilter::Chat,
             kMaxChatMessageBytes
           );
+        } else if (settingsMenu.open) {
+          suppressNextTextInput = false;
         } else {
           suppressNextTextInput = false;
         }
@@ -2002,16 +2812,22 @@ int GameApp::run() const {
               clearChatSelection(chatState);
             }
           }
+        } else if (settingsMenu.open) {
+          break;
         } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
+          applySettingsMenuToggle();
         } else if (!pressed) {
           executeBindingCommands(bindings.handleKey(key, false));
         }
         break;
       }
       case SDL_EVENT_MOUSE_MOTION:
-        if (consoleState.open) {
+        if (settingsMenu.open) {
+          input.mouseDeltaX = 0.0F;
+          input.mouseDeltaY = 0.0F;
+        } else if (consoleState.open) {
           updateConsoleSelection(
             window,
             consoleState,
@@ -2053,6 +2869,15 @@ int GameApp::run() const {
       chatState.visibleUntil = Clock::now() + std::chrono::seconds(5);
       showChatRequested = false;
     }
+    if (settingsMenuRequested) {
+      if (consoleState.open) {
+        setConsoleOpen(false);
+      }
+      if (chatState.inputOpen) {
+        setChatOpen(false);
+      }
+      applySettingsMenuToggle();
+    }
     if (const ClientGame* chatGame = session.game();
         chatGame != nullptr && chatGame->hasSnapshot()) {
       const ServerSnapshot& snapshot = chatGame->snapshot();
@@ -2085,12 +2910,39 @@ int GameApp::run() const {
       running = false;
     }
     session.update();
-    const bool requestedVSync = console.getBool("r_vsync");
-    if (requestedVSync != appliedVSync) {
-      if (!renderer.setVSync(requestedVSync)) {
-        appendConsoleOutput(consoleState, "failed to change r_vsync");
-      }
-      appliedVSync = requestedVSync;
+    const bool currentCompatVSync = console.getBool("r_vsync");
+    const int currentPresentModeInt = console.getInt("r_present_mode");
+    if (currentCompatVSync != lastCompatVSync) {
+      (void)console.execute(
+        currentCompatVSync
+          ? "set r_present_mode 0"
+          : "set r_present_mode 2"
+      );
+      lastCompatVSync = currentCompatVSync;
+      lastPresentModeInt = console.getInt("r_present_mode");
+    } else if (currentPresentModeInt != lastPresentModeInt) {
+      (void)console.execute(
+        currentPresentModeInt == 0 ? "set r_vsync 1" : "set r_vsync 0"
+      );
+      lastCompatVSync = console.getBool("r_vsync");
+      lastPresentModeInt = currentPresentModeInt;
+    }
+
+    const VideoSettings requestedVideoSettings = videoSettingsFromConsole(console);
+    if (
+      !videoRuntime.hasApplied ||
+      !sameVideoSettings(requestedVideoSettings, videoRuntime.applied)
+    ) {
+      (void)applyVideoSettings(
+        window,
+        renderer,
+        console,
+        videoRuntime,
+        requestedVideoSettings,
+        consoleState
+      );
+      lastCompatVSync = console.getBool("r_vsync");
+      lastPresentModeInt = console.getInt("r_present_mode");
     }
     const bool perspectiveRenderMode = console.getInt("cl_render_mode") == 1;
     const AimMode frameAimMode = perspectiveRenderMode
@@ -2099,15 +2951,18 @@ int GameApp::run() const {
     const bool usePresentationView =
       perspectiveRenderMode && frameAimMode == AimMode::Relative3D;
     const bool gameInputControlsView =
-      usePresentationView && !consoleState.open && !chatState.inputOpen;
+      usePresentationView && !consoleState.open && !chatState.inputOpen &&
+      !settingsMenu.open;
     const bool wantsRelativeMouse =
-      !consoleState.open && frameAimMode == AimMode::Relative3D;
+      !consoleState.open && !chatState.inputOpen && !settingsMenu.open &&
+      frameAimMode == AimMode::Relative3D;
 
     if (wantsRelativeMouse != relativeMouseModeEnabled) {
       SDL_SetWindowRelativeMouseMode(window, wantsRelativeMouse);
       relativeMouseModeEnabled = wantsRelativeMouse;
     }
-    if (!consoleState.open && frameAimMode == AimMode::Absolute2D) {
+    if (!consoleState.open && !chatState.inputOpen && !settingsMenu.open &&
+        frameAimMode == AimMode::Absolute2D) {
       float mouseX = 0.0F;
       float mouseY = 0.0F;
       SDL_GetMouseState(&mouseX, &mouseY);
@@ -3338,6 +4193,7 @@ int GameApp::run() const {
     hud.chatHasSelection = hasSelection(chatState.selection);
     hud.chatSelectionAnchor = chatState.selection.anchor;
     hud.chatSelectionFocus = chatState.selection.focus;
+    populateSettingsMenuRenderState(hud, settingsMenu);
     const Arena& renderArena =
       session.game() != nullptr && session.game()->hasSnapshot()
         ? session.game()->arena()
@@ -3355,8 +4211,32 @@ int GameApp::run() const {
       consoleRenderState(consoleState)
     );
     session.update();
-    if (console.getBool("cl_legacy_frame_delay")) {
-      SDL_Delay(1);
+    const int requestedMaxFps = std::max(0, console.getInt("r_maxfps"));
+    if (requestedMaxFps != appliedMaxFps) {
+      appliedMaxFps = requestedMaxFps;
+      nextFrameDeadline = Clock::now();
+    }
+    if (appliedMaxFps > 0) {
+      // r_maxfps controls CPU/render pacing. V-sync, Mailbox, and Immediate
+      // still control how completed frames are presented by SDL/driver.
+      const auto frameDuration = std::chrono::duration_cast<Clock::duration>(
+        std::chrono::duration<double>(1.0 / static_cast<double>(appliedMaxFps))
+      );
+      const auto limiterNow = Clock::now();
+      if (nextFrameDeadline <= limiterNow) {
+        nextFrameDeadline = limiterNow + frameDuration;
+      }
+      if (limiterNow < nextFrameDeadline) {
+        const auto sleepDuration = std::chrono::duration_cast<std::chrono::nanoseconds>(
+          nextFrameDeadline - limiterNow
+        );
+        SDL_DelayPrecise(static_cast<Uint64>(sleepDuration.count()));
+      }
+      const auto afterSleep = Clock::now();
+      nextFrameDeadline += frameDuration;
+      if (afterSleep > nextFrameDeadline + (frameDuration * 2)) {
+        nextFrameDeadline = afterSleep + frameDuration;
+      }
     }
   }
   saveClientConfig(console, bindings, configPath);

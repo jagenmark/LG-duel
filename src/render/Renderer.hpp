@@ -176,6 +176,14 @@ struct ConsoleRenderState {
 };
 
 struct HudRenderState {
+  struct SettingsMenuItem {
+    std::string label;
+    std::string value;
+    bool active = false;
+    bool changed = false;
+    bool command = false;
+  };
+
   std::vector<std::string> topLeftLines;
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
@@ -201,6 +209,9 @@ struct HudRenderState {
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
   std::vector<Team> scoreboardLineTeams;
+  bool settingsOpen = false;
+  std::vector<SettingsMenuItem> settingsItems;
+  std::string settingsFooter;
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
   DamageNumberPresentation damageNumbers;
@@ -225,6 +236,12 @@ struct RendererFrameDiagnostics {
   std::string_view selectedPresentModeName = "n/a";
 };
 
+enum class PresentMode : int {
+  Fifo = 0,
+  Mailbox = 1,
+  Immediate = 2,
+};
+
 class Renderer {
 public:
   Renderer() = default;
@@ -246,6 +263,7 @@ public:
     const ConsoleRenderState& console
   );
   [[nodiscard]] bool setVSync(bool enabled);
+  [[nodiscard]] bool setPresentMode(PresentMode mode);
   [[nodiscard]] std::string_view backendName() const;
   [[nodiscard]] const RendererFrameDiagnostics& lastFrameDiagnostics() const;
   void shutdown();
