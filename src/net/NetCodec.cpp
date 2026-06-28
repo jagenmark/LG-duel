@@ -780,11 +780,16 @@ bool writeRocketProjectile(
   if (projectile.weapon > kLastWeapon) {
     return false;
   }
-  return writer.writeBool(projectile.active) &&
+  if (!(
+    writer.writeBool(projectile.active) &&
     writer.writeU8(projectile.owner) &&
     writer.writeU8(static_cast<std::uint8_t>(projectile.weapon)) &&
     writeVec3(writer, projectile.position) &&
-    writeVec3(writer, projectile.velocity);
+    writeVec3(writer, projectile.velocity)
+  )) {
+    return false;
+  }
+  return !projectile.active || writer.writeFloat(projectile.radius);
 }
 
 bool readRocketProjectile(
@@ -792,13 +797,24 @@ bool readRocketProjectile(
   RocketProjectileSnapshot& projectile
 ) {
   std::uint8_t weapon = 0;
-  return reader.readBool(projectile.active) &&
+  if (!(
+    reader.readBool(projectile.active) &&
     reader.readU8(projectile.owner) &&
     reader.readU8(weapon) &&
     readVec3(reader, projectile.position) &&
-    readVec3(reader, projectile.velocity) &&
+    readVec3(reader, projectile.velocity)
+  )) {
+    return false;
+  }
+  projectile.radius = 0.0F;
+  if (projectile.active && !reader.readFloat(projectile.radius)) {
+    return false;
+  }
+  return
     projectile.owner < kDuelPlayerCount &&
     weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
+    projectile.radius >= 0.0F &&
+    projectile.radius <= 5.0F &&
     (projectile.weapon = static_cast<Weapon>(weapon), true);
 }
 

@@ -53,11 +53,20 @@ $sdlLicense = Get-ChildItem -Path $resolvedBuildDir -Filter "LICENSE.txt" -File 
   Where-Object { $_.FullName -match "[\\/]sdl3-src[\\/]" } |
   Select-Object -First 1
 if (-not $sdlLicense) {
-  $parentBuildDir = Join-Path (Split-Path -Parent $repoRoot) "build"
-  if (Test-Path $parentBuildDir) {
-    $sdlLicense = Get-ChildItem -Path $parentBuildDir -Filter "LICENSE.txt" -File -Recurse |
+  $fallbackBuildDirs = @(
+    (Join-Path $repoRoot "build"),
+    (Join-Path (Split-Path -Parent $repoRoot) "build")
+  )
+  foreach ($buildDir in $fallbackBuildDirs) {
+    if (-not (Test-Path $buildDir)) {
+      continue
+    }
+    $sdlLicense = Get-ChildItem -Path $buildDir -Filter "LICENSE.txt" -File -Recurse |
       Where-Object { $_.FullName -match "[\\/]sdl3-src[\\/]" } |
       Select-Object -First 1
+    if ($sdlLicense) {
+      break
+    }
   }
 }
 if (-not $sdlLicense) {
@@ -76,6 +85,12 @@ if (-not (Test-Path $shaderSource)) {
   throw "The compiled shader directory was not found beside lg_duel_client.exe."
 }
 Copy-Item $shaderSource (Join-Path $outputPath "shaders") -Recurse
+$audioSource = Join-Path (Split-Path -Parent $client) "assets/audio"
+if (-not (Test-Path $audioSource)) {
+  throw "The runtime audio directory was not found beside lg_duel_client.exe."
+}
+New-Item -Path (Join-Path $outputPath "assets") -ItemType Directory | Out-Null
+Copy-Item $audioSource (Join-Path $outputPath "assets/audio") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
@@ -103,6 +118,17 @@ $requiredFiles = @(
 foreach ($file in $requiredFiles) {
   if (-not (Test-Path (Join-Path $outputPath $file))) {
     throw "Package validation failed: $file is missing."
+  }
+}
+
+$requiredAudioFiles = Get-ChildItem -Path $audioSource -Filter "*.wav" -File
+if ($requiredAudioFiles.Count -eq 0) {
+  throw "Package validation failed: no runtime audio WAV files were found."
+}
+foreach ($file in $requiredAudioFiles) {
+  $packagedAudioFile = Join-Path $outputPath "assets/audio/$($file.Name)"
+  if (-not (Test-Path $packagedAudioFile)) {
+    throw "Package validation failed: assets/audio/$($file.Name) is missing."
   }
 }
 

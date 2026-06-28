@@ -48,6 +48,7 @@ lg::LocalDamageEvent worldDamageEvent(
 int main() {
   lg::ServerSnapshot snapshot;
   snapshot.gameMode = lg::GameMode::ClanArena;
+  snapshot.matchPhase = lg::MatchPhase::Live;
   snapshot.connectedPlayers = {true, true, true};
   snapshot.teams = {lg::Team::Red, lg::Team::Red, lg::Team::Blue};
   snapshot.teamScores = {4, 2};
@@ -89,9 +90,48 @@ int main() {
     "Clan Arena post-round stats should select an enemy, not a teammate"
   );
   failures += expect(
+    lg::playerPresentedAsTeammate(snapshot, 0, 1) &&
+      !lg::playerPresentedAsTeammate(snapshot, 0, 2),
+    "live Clan Arena player presentation should distinguish teammates from enemies"
+  );
+  failures += expect(
     lg::playerRoundStatsLine(snapshot, 2) == "ENEMY LG 0%  DMG 0",
     "post-round stats should display the enemy player name"
   );
+
+  {
+    lg::ServerSnapshot warmupSnapshot = snapshot;
+    warmupSnapshot.matchPhase = lg::MatchPhase::WaitingForReady;
+    warmupSnapshot.teams = {lg::Team::None, lg::Team::None, lg::Team::None};
+    warmupSnapshot.connectedPlayers = {true, true, false};
+    warmupSnapshot.participatingPlayers = {true, true, false};
+    warmupSnapshot.players[1].health = 100;
+    failures += expect(
+      lg::opponentPlayerIndex(warmupSnapshot, 0) == 1,
+      "Clan Arena warmup should select teamless opponents for health bars"
+    );
+    failures += expect(
+      !lg::playerPresentedAsTeammate(warmupSnapshot, 0, 1),
+      "teamless Clan Arena warmup players should be presented as enemies"
+    );
+  }
+
+  {
+    lg::ServerSnapshot warmupSnapshot = snapshot;
+    warmupSnapshot.matchPhase = lg::MatchPhase::WaitingForReady;
+    warmupSnapshot.teams = {lg::Team::Red, lg::Team::Red, lg::Team::None};
+    warmupSnapshot.connectedPlayers = {true, true, false};
+    warmupSnapshot.participatingPlayers = {true, true, false};
+    warmupSnapshot.players[1].health = 100;
+    failures += expect(
+      lg::opponentPlayerIndex(warmupSnapshot, 0) == 1,
+      "Clan Arena warmup should select same-team opponents for health bars"
+    );
+    failures += expect(
+      !lg::playerPresentedAsTeammate(warmupSnapshot, 0, 1),
+      "same-team Clan Arena warmup players should be presented as enemies"
+    );
+  }
 
   {
     lg::DamageNumberState damageNumbers;

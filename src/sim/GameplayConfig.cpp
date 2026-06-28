@@ -60,6 +60,10 @@ namespace {
     tuning.restSpeed = value;
   } else if (key == "grenade.bounce_sound_min_speed" && inRange(value, 0.0F, 50.0F)) {
     tuning.bounceSoundMinSpeed = value;
+  } else if (key == "grenade.projectile_radius" && inRange(value, 0.01F, 5.0F)) {
+    tuning.projectileRadius = value;
+  } else if (key == "grenade.projectile_hitbox_radius" && inRange(value, 0.0F, 5.0F)) {
+    tuning.projectileHitboxRadius = value;
   } else if (key == "grenade.radius" && inRange(value, 0.1F, 100.0F)) {
     tuning.radius = value;
   } else if (key == "grenade.knockback" && inRange(value, 0.0F, 1000.0F)) {

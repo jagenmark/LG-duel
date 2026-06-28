@@ -98,6 +98,8 @@ struct GrenadeLauncherTuning {
   float bounceDamping = 0.65F;
   float restSpeed = 1.5F;
   float bounceSoundMinSpeed = 1.2F;
+  float projectileRadius = 0.15F;
+  float projectileHitboxRadius = 0.0F;
   float radius = 3.0F;
   int directDamage = 100;
   int splashDamage = 100;
@@ -121,6 +123,8 @@ struct RocketProjectile {
   Weapon weapon = Weapon::RocketLauncher;
   Vec3 position = {};
   Vec3 previousPosition = {};
+  float projectileRadius = 0.0F;
+  float projectileHitboxRadius = 0.0F;
   bool ownerCollisionArmed = false;
   bool resting = false;
   Vec3 velocity = {};
@@ -133,6 +137,7 @@ struct RocketProjectileSnapshot {
   Weapon weapon = Weapon::RocketLauncher;
   Vec3 position = {};
   Vec3 velocity = {};
+  float radius = 0.0F;
 };
 
 struct RocketExplosionResult {
