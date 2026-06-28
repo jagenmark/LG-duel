@@ -1,8 +1,11 @@
 #include "app/ClientCvars.hpp"
 #include "console/ConsoleSystem.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -82,6 +85,29 @@ int main() {
       "r_damage_numbers_mode = 4" &&
       console.getInt("r_damage_numbers_mode") == 4,
     "world damage number tally-only mode should be configurable"
+  );
+  failures += expect(
+    console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
+      console.getFloat("s_lg_fire_volume") == 0.25F,
+    "lightning gun fire volume should be configurable"
+  );
+  failures += expect(
+    console.execute("s_rl_explosion_volume 0") == "s_rl_explosion_volume = 0" &&
+      console.getFloat("s_rl_explosion_volume") == 0.0F,
+    "rocket and grenade explosion volume should be mutable down to mute"
+  );
+  failures += expect(
+    console.execute("s_countdown_volume 2") == "value out of range for s_countdown_volume",
+    "sound mixer volumes should reject values above full volume"
+  );
+  const std::vector<std::string> archivedConfig = console.archivedConfigLines();
+  failures += expect(
+    std::find(
+      archivedConfig.begin(),
+      archivedConfig.end(),
+      "set s_lg_fire_volume 0.25"
+    ) == archivedConfig.end(),
+    "sound mixer cvars should stay controlled by sound_mixer.cfg rather than client.cfg"
   );
 
   return failures == 0 ? 0 : 1;
