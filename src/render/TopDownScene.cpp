@@ -600,26 +600,34 @@ DrawList2D buildTopDownScene(
     }
     const ScreenPoint point = worldToScreen(view, projectile.position);
     if (projectile.weapon == Weapon::GrenadeLauncher) {
+      const float worldRadius = projectile.radius > 0.0F ? projectile.radius : 0.15F;
+      const ScreenPoint radiusPoint =
+        worldToScreen(view, projectile.position + Vec3{worldRadius, 0.0F, 0.0F});
+      const float outerRadius = std::max(
+        3.0F,
+        std::hypot(radiusPoint.x - point.x, radiusPoint.y - point.y)
+      );
+      const float innerRadius = std::max(2.0F, outerRadius * 0.75F);
       addFilledRect(
         drawList.commands,
-        point.x - 4.0F,
-        point.y - 4.0F,
-        8.0F,
-        8.0F,
+        point.x - outerRadius,
+        point.y - outerRadius,
+        outerRadius * 2.0F,
+        outerRadius * 2.0F,
         {255, 126, 40, 255}
       );
       addFilledRect(
         drawList.commands,
-        point.x - 3.0F,
-        point.y - 3.0F,
-        6.0F,
-        6.0F,
+        point.x - innerRadius,
+        point.y - innerRadius,
+        innerRadius * 2.0F,
+        innerRadius * 2.0F,
         {8, 48, 18, 255}
       );
       addLine(
         drawList.commands,
-        {point.x - 2.0F, point.y - 2.0F},
-        {point.x + 2.0F, point.y + 2.0F},
+        {point.x - innerRadius * 0.65F, point.y - innerRadius * 0.65F},
+        {point.x + innerRadius * 0.65F, point.y + innerRadius * 0.65F},
         {18, 82, 32, 255},
         1.0F
       );

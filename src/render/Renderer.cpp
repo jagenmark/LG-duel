@@ -1840,8 +1840,8 @@ void drawPerspectiveWorld(
     if (!projectile.active) {
       continue;
     }
+    const float size = projectile.radius > 0.0F ? projectile.radius : 0.14F;
     if (projectile.weapon == Weapon::GrenadeLauncher) {
-      constexpr float size = 0.14F;
       SDL_SetRenderDrawColor(renderer, 255, 126, 40, 255);
       drawWireBox(
         renderer,
@@ -1853,7 +1853,6 @@ void drawPerspectiveWorld(
       );
       continue;
     }
-    constexpr float size = 0.14F;
     SDL_SetRenderDrawColor(renderer, 255, 126, 40, 255);
     drawWireBox(
       renderer,
