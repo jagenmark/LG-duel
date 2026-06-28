@@ -27,6 +27,22 @@ lg::LocalDamageEvent damageEvent(
   };
 }
 
+lg::LocalDamageEvent worldDamageEvent(
+  std::uint32_t serverTick,
+  std::uint8_t targetPlayerIndex,
+  int damageApplied,
+  lg::Vec3 targetPosition
+) {
+  lg::LocalDamageEvent event = damageEvent(
+    serverTick,
+    targetPlayerIndex,
+    damageApplied
+  );
+  event.hasTargetPosition = true;
+  event.targetPosition = targetPosition;
+  return event;
+}
+
 } // namespace
 
 int main() {
@@ -174,6 +190,47 @@ int main() {
       0.4F,
       0.65F,
     };
+    damageNumbers.addLocalDamageEvent(damageEvent(1, 1, 20), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(2, 2, 20), config);
+    const lg::DamageNumberPresentation presentation =
+      damageNumbers.presentation();
+    failures += expect(
+      presentation.tallies[1].active &&
+        presentation.tallies[1].damage == 20 &&
+        presentation.tallies[2].active &&
+        presentation.tallies[2].damage == 20,
+      "P2 and P3 hits inside one burst window should create separate tallies"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::TallyOnly,
+      0.4F,
+      0.65F,
+    };
+    damageNumbers.addLocalDamageEvent(damageEvent(1, 1, 20), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(2, 2, 20), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(3, 1, 10), config);
+    const lg::DamageNumberPresentation presentation =
+      damageNumbers.presentation();
+    failures += expect(
+      presentation.tallies[1].active &&
+        presentation.tallies[1].damage == 30 &&
+        presentation.tallies[2].active &&
+        presentation.tallies[2].damage == 20,
+      "a later P2 hit should extend only P2's tally"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::PerInstanceAndTally,
+      0.4F,
+      0.65F,
+    };
     damageNumbers.addLocalDamageEvent(damageEvent(1, 1, 0), config);
     damageNumbers.addLocalDamageEvent(damageEvent(2, 0, 15), config);
     damageNumbers.addLocalDamageEvent(
@@ -270,6 +327,117 @@ int main() {
         presentation.tallies[1].worldPosition.x == 12.0F &&
         presentation.tallies[1].worldPosition.y == 2.0F,
       "mode 4 should update the cumulative tally at the latest target position"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::WorldTallyOnly,
+      0.4F,
+      0.65F,
+    };
+    damageNumbers.addLocalDamageEvent(
+      worldDamageEvent(1, 1, 20, {10.0F, 1.0F, 0.0F}),
+      config
+    );
+    damageNumbers.addLocalDamageEvent(
+      worldDamageEvent(2, 2, 20, {30.0F, 3.0F, 0.0F}),
+      config
+    );
+    damageNumbers.addLocalDamageEvent(
+      worldDamageEvent(3, 1, 10, {12.0F, 2.0F, 0.0F}),
+      config
+    );
+    lg::DamageNumberPresentation presentation = damageNumbers.presentation();
+    failures += expect(
+      presentation.tallies[1].damage == 30 &&
+        presentation.tallies[1].worldPosition.x == 12.0F &&
+        presentation.tallies[2].damage == 20 &&
+        presentation.tallies[2].worldPosition.x == 30.0F,
+      "mode 4 should move only the target that was hit again"
+    );
+    damageNumbers.addLocalDamageEvent(
+      worldDamageEvent(4, 2, 5, {35.0F, 3.0F, 0.0F}),
+      config
+    );
+    presentation = damageNumbers.presentation();
+    failures += expect(
+      presentation.tallies[1].damage == 30 &&
+        presentation.tallies[1].worldPosition.x == 12.0F &&
+        presentation.tallies[2].damage == 25 &&
+        presentation.tallies[2].worldPosition.x == 35.0F,
+      "mode 4 should move P3 without moving P2"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::TallyOnly,
+      0.4F,
+      0.65F,
+    };
+    damageNumbers.addLocalDamageEvent(damageEvent(1, 1, 20), config);
+    damageNumbers.update(0.2F, config);
+    damageNumbers.addLocalDamageEvent(damageEvent(2, 2, 20), config);
+    damageNumbers.update(0.25F, config);
+    lg::DamageNumberPresentation presentation = damageNumbers.presentation();
+    failures += expect(
+      !presentation.tallies[1].active &&
+        presentation.tallies[2].active &&
+        presentation.tallies[2].damage == 20,
+      "P2 expiry should not reset P3's tally"
+    );
+    damageNumbers.addLocalDamageEvent(damageEvent(3, 1, 10), config);
+    damageNumbers.update(0.2F, config);
+    presentation = damageNumbers.presentation();
+    failures += expect(
+      presentation.tallies[1].active &&
+        presentation.tallies[1].damage == 10 &&
+        !presentation.tallies[2].active,
+      "P3 expiry should not reset P2's new tally"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::PerInstanceAndTally,
+      0.4F,
+      0.65F,
+    };
+    damageNumbers.addLocalDamageEvent(damageEvent(10, 1, 20), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(10, 2, 20), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(10, 1, 20), config);
+    const lg::DamageNumberPresentation presentation =
+      damageNumbers.presentation();
+    failures += expect(
+      presentation.entries.size() == 2U &&
+        presentation.tallies[1].damage == 20 &&
+        presentation.tallies[2].damage == 20,
+      "dedupe should include target identity but still ignore duplicate same-target events"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::PerInstanceAndTally,
+      0.4F,
+      0.65F,
+    };
+    damageNumbers.addLocalDamageEvent(damageEvent(1, 1, 20), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(2, 0, 10), config);
+    damageNumbers.addLocalDamageEvent(damageEvent(3, 255, 10), config);
+    const lg::DamageNumberPresentation presentation =
+      damageNumbers.presentation();
+    failures += expect(
+      presentation.entries.size() == 1U &&
+        presentation.tallies[1].active &&
+        presentation.tallies[1].damage == 20 &&
+        !presentation.tallies[0].active,
+      "invalid and self targets should not alter another player's tally"
     );
   }
 

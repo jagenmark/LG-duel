@@ -40,7 +40,8 @@ bool hasLocalHitFeedback(
   std::size_t attackerIndex,
   std::uint32_t sequence,
   std::uint8_t targetPlayerIndex,
-  lg::Weapon weapon
+  lg::Weapon weapon,
+  int damageApplied = -1
 ) {
   for (const lg::LocalHitFeedbackEvent& event :
        snapshot.localHitFeedbackEvents[attackerIndex]) {
@@ -48,6 +49,7 @@ bool hasLocalHitFeedback(
       event.active &&
       event.sequence == sequence &&
       event.targetPlayerIndex == targetPlayerIndex &&
+      (damageApplied < 0 || event.damageApplied == damageApplied) &&
       event.weapon == weapon
     ) {
       return true;
@@ -150,8 +152,8 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
-      hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Railgun),
-      "authoritative rail damage should emit one local hit feedback event"
+      hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Railgun, 80),
+      "authoritative rail damage should emit one local hit feedback event with damage"
     );
 
     server.tick(lg::kFixedTickSeconds);
@@ -207,8 +209,15 @@ int main() {
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.weaponFires[0].pelletHitCount > 0 &&
-        hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Shotgun),
-      "shotgun pellet damage should collapse to one local hit feedback event"
+        hasLocalHitFeedback(
+          snapshot,
+          0,
+          1,
+          1,
+          lg::Weapon::Shotgun,
+          snapshot.weaponFires[0].damageApplied
+        ),
+      "shotgun pellet damage should collapse to one local hit feedback event with damage"
     );
   }
 
@@ -240,9 +249,10 @@ int main() {
           0,
           1,
           1,
-          lg::Weapon::RocketLauncher
+          lg::Weapon::RocketLauncher,
+          snapshot.rocketExplosions[0].opponentDamageApplied
         ),
-      "rocket damage on the opponent should emit local hit feedback on impact"
+      "rocket damage on the opponent should emit local hit feedback with damage on impact"
     );
   }
 

@@ -734,6 +734,7 @@ bool writeLocalHitFeedbackEvent(
 ) {
   if (
     (event.active && event.targetPlayerIndex >= kDuelPlayerCount) ||
+    event.damageApplied < 0 ||
     event.weapon > kLastWeapon
   ) {
     return false;
@@ -741,6 +742,7 @@ bool writeLocalHitFeedbackEvent(
   return writer.writeBool(event.active) &&
     writer.writeU32(event.sequence) &&
     writer.writeU8(event.targetPlayerIndex) &&
+    writer.writeI32(event.damageApplied) &&
     writer.writeU8(static_cast<std::uint8_t>(event.weapon));
 }
 
@@ -749,20 +751,24 @@ bool readLocalHitFeedbackEvent(
   LocalHitFeedbackEvent& event
 ) {
   std::uint8_t weapon = 0;
+  std::int32_t damageApplied = 0;
   if (
     !reader.readBool(event.active) ||
     !reader.readU32(event.sequence) ||
     !reader.readU8(event.targetPlayerIndex) ||
+    !reader.readI32(damageApplied) ||
     !reader.readU8(weapon)
   ) {
     return false;
   }
   if (
     (event.active && event.targetPlayerIndex >= kDuelPlayerCount) ||
+    damageApplied < 0 ||
     weapon > static_cast<std::uint8_t>(kLastWeapon)
   ) {
     return false;
   }
+  event.damageApplied = damageApplied;
   event.weapon = static_cast<Weapon>(weapon);
   return true;
 }

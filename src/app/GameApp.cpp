@@ -19,6 +19,7 @@
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
 #include "shared/Math.hpp"
+#include "shared/Sequence.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
 #include "sim/Movement.hpp"
@@ -118,6 +119,16 @@ void copyTextToClipboard(std::string_view text) {
     console.getFloat("r_damage_numbers_window"),
     console.getFloat("r_damage_numbers_duration"),
   };
+}
+
+[[nodiscard]] LocalDamageSource localDamageSourceForWeapon(Weapon weapon) {
+  if (weapon == Weapon::LightningGun) {
+    return LocalDamageSource::LightningGun;
+  }
+  if (weapon == Weapon::RocketLauncher || weapon == Weapon::GrenadeLauncher) {
+    return LocalDamageSource::RocketExplosion;
+  }
+  return LocalDamageSource::WeaponFire;
 }
 
 [[nodiscard]] Vec3 cameraUp(float yawRadians, float pitchRadians) {
@@ -1721,12 +1732,8 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastPlayedFragEvent = {};
   DamageNumberState damageNumberState;
   std::uint32_t lastDamageNumberServerTick = 0;
-  std::array<WeaponFireResult, kDuelPlayerCount> lastDamageNumberWeaponFires = {};
-  std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberWeaponFireTicks = {};
-  std::array<bool, kDuelPlayerCount> hasLastDamageNumberWeaponFire = {};
-  std::array<RocketExplosionResult, kDuelPlayerCount> lastDamageNumberRocketExplosions = {};
-  std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberRocketExplosionTicks = {};
-  std::array<bool, kDuelPlayerCount> hasLastDamageNumberRocketExplosion = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastDamageNumberFeedbackSequences = {};
+  std::array<bool, kDuelPlayerCount> hasLastDamageNumberFeedbackSequence = {};
   bool damageNumberStateInitialized = false;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> lastPlayedGrenadeBounceAudioSequences = {};
@@ -2399,12 +2406,8 @@ int GameApp::run() const {
       footstepAudioStates = {};
       damageNumberState.reset();
       lastDamageNumberServerTick = 0;
-      lastDamageNumberWeaponFires = {};
-      lastDamageNumberWeaponFireTicks = {};
-      hasLastDamageNumberWeaponFire = {};
-      lastDamageNumberRocketExplosions = {};
-      lastDamageNumberRocketExplosionTicks = {};
-      hasLastDamageNumberRocketExplosion = {};
+      lastDamageNumberFeedbackSequences = {};
+      hasLastDamageNumberFeedbackSequence = {};
       damageNumberStateInitialized = false;
       audio.resetLightningGunFire();
     }
@@ -2434,103 +2437,75 @@ int GameApp::run() const {
         const DamageNumbersConfig damageConfig = damageNumbersConfig(console);
         if (audioSnapshot.serverTick != lastDamageNumberServerTick) {
           if (damageNumberStateInitialized) {
-            const auto localDamageEvent = [&audioSnapshot, localPlayerIndex](
-              LocalDamageSource source,
-              std::uint8_t targetPlayerIndex,
-              int damageApplied
+            std::uint32_t newestFeedbackSequence =
+              lastDamageNumberFeedbackSequences[localPlayerIndex];
+            const std::uint32_t previousFeedbackSequence =
+              newestFeedbackSequence;
+            const bool hadFeedbackSequence =
+              hasLastDamageNumberFeedbackSequence[localPlayerIndex];
+            bool consumedFeedback = false;
+            for (
+              const LocalHitFeedbackEvent& feedback :
+              audioSnapshot.localHitFeedbackEvents[localPlayerIndex]
             ) {
-              LocalDamageEvent event{
-                source,
-                audioSnapshot.serverTick,
-                static_cast<std::uint8_t>(localPlayerIndex),
-                targetPlayerIndex,
-                damageApplied,
-              };
-              if (targetPlayerIndex < kDuelPlayerCount) {
-                event.hasTargetPosition = true;
-                event.targetPosition =
-                  audioSnapshot.players[targetPlayerIndex].position;
+              if (
+                !feedback.active ||
+                feedback.damageApplied <= 0 ||
+                feedback.targetPlayerIndex >= kDuelPlayerCount ||
+                (
+                  hadFeedbackSequence &&
+                  !isSequenceNewer(feedback.sequence, previousFeedbackSequence)
+                )
+              ) {
+                continue;
               }
-              return event;
-            };
-
-            const LightningGunResult& localLightning =
-              audioSnapshot.lightningGuns[localPlayerIndex];
-            if (localLightning.hit && localLightning.damageApplied > 0) {
-              damageNumberState.addLocalDamageEvent(
-                localDamageEvent(
-                  LocalDamageSource::LightningGun,
-                  localLightning.targetPlayerIndex,
-                  localLightning.damageApplied
-                ),
-                damageConfig
-              );
+              LocalDamageEvent event{
+                localDamageSourceForWeapon(feedback.weapon),
+                feedback.sequence,
+                static_cast<std::uint8_t>(localPlayerIndex),
+                feedback.targetPlayerIndex,
+                feedback.damageApplied,
+                true,
+                feedback.weapon,
+              };
+              event.hasTargetPosition = true;
+              event.targetPosition =
+                audioSnapshot.players[feedback.targetPlayerIndex].position;
+              damageNumberState.addLocalDamageEvent(event, damageConfig);
+              consumedFeedback = true;
+              if (
+                !hasLastDamageNumberFeedbackSequence[localPlayerIndex] ||
+                isSequenceNewer(feedback.sequence, newestFeedbackSequence)
+              ) {
+                newestFeedbackSequence = feedback.sequence;
+              }
             }
-
-            const std::uint8_t fallbackTarget =
-              static_cast<std::uint8_t>(
-                opponentPlayerIndex(audioSnapshot, localPlayerIndex)
-              );
-            const WeaponFireResult& localFire =
-              audioSnapshot.weaponFires[localPlayerIndex];
-            if (
-              localFire.fired &&
-              localFire.hit &&
-              localFire.damageApplied > 0 &&
-              shouldPlaySnapshotAudioEvent(
-                hasLastDamageNumberWeaponFire[localPlayerIndex],
-                sameWeaponFireEvent(
-                  localFire,
-                  lastDamageNumberWeaponFires[localPlayerIndex]
-                ),
-                audioSnapshot.serverTick,
-                lastDamageNumberWeaponFireTicks[localPlayerIndex],
-                kTransientAudioEventTicks
-              )
+            lastDamageNumberFeedbackSequences[localPlayerIndex] =
+              newestFeedbackSequence;
+            hasLastDamageNumberFeedbackSequence[localPlayerIndex] =
+              hadFeedbackSequence || consumedFeedback;
+          } else {
+            bool foundFeedbackSequence = false;
+            std::uint32_t newestFeedbackSequence = 0;
+            for (
+              const LocalHitFeedbackEvent& feedback :
+              audioSnapshot.localHitFeedbackEvents[localPlayerIndex]
             ) {
-              damageNumberState.addLocalDamageEvent(
-                localDamageEvent(
-                  LocalDamageSource::WeaponFire,
-                  fallbackTarget,
-                  localFire.damageApplied
-                ),
-                damageConfig
-              );
-              lastDamageNumberWeaponFires[localPlayerIndex] = localFire;
-              lastDamageNumberWeaponFireTicks[localPlayerIndex] =
-                audioSnapshot.serverTick;
-              hasLastDamageNumberWeaponFire[localPlayerIndex] = true;
+              if (!feedback.active) {
+                continue;
+              }
+              if (
+                !foundFeedbackSequence ||
+                isSequenceNewer(feedback.sequence, newestFeedbackSequence)
+              ) {
+                newestFeedbackSequence = feedback.sequence;
+              }
+              foundFeedbackSequence = true;
             }
-
-            const RocketExplosionResult& localExplosion =
-              audioSnapshot.rocketExplosions[localPlayerIndex];
-            if (
-              localExplosion.active &&
-              localExplosion.opponentDamageApplied > 0 &&
-              shouldPlaySnapshotAudioEvent(
-                hasLastDamageNumberRocketExplosion[localPlayerIndex],
-                sameRocketExplosionEvent(
-                  localExplosion,
-                  lastDamageNumberRocketExplosions[localPlayerIndex]
-                ),
-                audioSnapshot.serverTick,
-                lastDamageNumberRocketExplosionTicks[localPlayerIndex],
-                kTransientAudioEventTicks
-              )
-            ) {
-              damageNumberState.addLocalDamageEvent(
-                localDamageEvent(
-                  LocalDamageSource::RocketExplosion,
-                  fallbackTarget,
-                  localExplosion.opponentDamageApplied
-                ),
-                damageConfig
-              );
-              lastDamageNumberRocketExplosions[localPlayerIndex] =
-                localExplosion;
-              lastDamageNumberRocketExplosionTicks[localPlayerIndex] =
-                audioSnapshot.serverTick;
-              hasLastDamageNumberRocketExplosion[localPlayerIndex] = true;
+            if (foundFeedbackSequence) {
+              lastDamageNumberFeedbackSequences[localPlayerIndex] =
+                newestFeedbackSequence;
+              hasLastDamageNumberFeedbackSequence[localPlayerIndex] = true;
             }
           }
           damageNumberStateInitialized = true;

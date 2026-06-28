@@ -27,6 +27,7 @@ LocalHitFeedbackBatch consumeLocalHitFeedbackEvents(
       batch.lightningGunHit || event.weapon == Weapon::LightningGun;
     if (event.targetPlayerIndex < kDuelPlayerCount) {
       batch.hitTargets[event.targetPlayerIndex] = true;
+      batch.damageByTarget[event.targetPlayerIndex] += event.damageApplied;
     }
     if (!state.hasLastSequence || isSequenceNewer(event.sequence, newestSequence)) {
       newestSequence = event.sequence;
