@@ -57,6 +57,7 @@ add_library(lg_duel_client_app
   src/app/HudPresentation.cpp
   src/app/Scoreboard.cpp
   src/app/TextInput.cpp
+  src/render/BitmapFont.cpp
   src/render/ChatLayout.cpp
   src/render/ConsoleLayout.cpp
   src/render/Renderer.cpp

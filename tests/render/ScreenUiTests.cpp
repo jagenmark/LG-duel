@@ -1,4 +1,5 @@
 #include "app/TextInput.hpp"
+#include "render/BitmapFont.hpp"
 #include "render/ScreenUi.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
@@ -6,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <iostream>
 #include <string_view>
@@ -747,6 +749,68 @@ int main() {
   }
 
   {
+    const std::string swedish = "ÅÄÖåäö";
+    constexpr std::array<std::uint32_t, 6> expectedCodepoints = {{
+      0x00C5U,
+      0x00C4U,
+      0x00D6U,
+      0x00E5U,
+      0x00E4U,
+      0x00F6U,
+    }};
+    std::size_t offset = 0;
+    for (const std::uint32_t expected : expectedCodepoints) {
+      const lg::BitmapGlyphLookup glyph = lg::bitmapGlyphAt(swedish, offset);
+      const auto rows = lg::supplementalBitmapGlyph(expected);
+      bool hasLitPixel = false;
+      if (rows.has_value()) {
+        for (const std::uint8_t row : *rows) {
+          hasLitPixel = hasLitPixel || row != 0U;
+        }
+      }
+      failures += expect(
+        glyph.atlasCodepoint == expected &&
+          glyph.byteLength == 2U &&
+          glyph.drawable &&
+          !glyph.fallback &&
+          rows.has_value() &&
+          hasLitPixel,
+        "Swedish glyph lookup should resolve to drawable supplemental bitmap glyphs"
+      );
+      offset += glyph.byteLength;
+    }
+    failures += expect(
+      offset == swedish.size(),
+      "Swedish glyph lookup should consume each UTF-8 codepoint exactly"
+    );
+
+    const std::string ascii = "A Z?";
+    const std::array<lg::BitmapGlyphLookup, 4> asciiGlyphs = {{
+      lg::bitmapGlyphAt(ascii, 0U),
+      lg::bitmapGlyphAt(ascii, 1U),
+      lg::bitmapGlyphAt(ascii, 2U),
+      lg::bitmapGlyphAt(ascii, 3U),
+    }};
+    failures += expect(
+      asciiGlyphs[0].atlasCodepoint == 'A' &&
+        asciiGlyphs[0].byteLength == 1U &&
+        asciiGlyphs[0].drawable &&
+        !asciiGlyphs[0].fallback &&
+        asciiGlyphs[1].atlasCodepoint == ' ' &&
+        asciiGlyphs[1].byteLength == 1U &&
+        !asciiGlyphs[1].drawable &&
+        !asciiGlyphs[1].fallback &&
+        asciiGlyphs[2].atlasCodepoint == 'Z' &&
+        asciiGlyphs[2].drawable &&
+        !asciiGlyphs[2].fallback &&
+        asciiGlyphs[3].atlasCodepoint == '?' &&
+        asciiGlyphs[3].drawable &&
+        !asciiGlyphs[3].fallback,
+      "ASCII bitmap glyph lookup should remain unchanged"
+    );
+  }
+
+  {
     lg::HudRenderState chatHud;
     chatHud.chatLines.push_back({
       0,
@@ -787,6 +851,20 @@ int main() {
         "long chat words should split before overflowing"
       );
     }
+
+    chatHud.chatLines = {{
+      {0, "rävsmörgås ÅÄÖ", ""}
+    }};
+    const lg::ChatTextLayout swedishChatLayout =
+      lg::buildChatTextLayout(800, 720, chatHud);
+    failures += expect(
+      swedishChatLayout.rows.size() == 1U &&
+        swedishChatLayout.rows.front().text == "PLAYER 1: rävsmörgås ÅÄÖ" &&
+        lg::utf8GlyphCount(swedishChatLayout.rows.front().text) == 24U &&
+        swedishChatLayout.rows.front().text.size() >
+          lg::utf8GlyphCount(swedishChatLayout.rows.front().text),
+      "Swedish chat text should contribute normal glyph width and remain visible in layout"
+    );
   }
 
   {

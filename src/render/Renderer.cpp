@@ -1,4 +1,5 @@
 #include "render/Renderer.hpp"
+#include "render/BitmapFont.hpp"
 #include "render/Scene3D.hpp"
 #include "render/ScreenUi.hpp"
 #include "render/TopDownScene.hpp"
@@ -344,6 +345,28 @@ buildFontAtlas() {
       }
     }
   }
+  for (const std::uint32_t character : {
+         0x00C5U,
+         0x00C4U,
+         0x00D6U,
+         0x00E5U,
+         0x00E4U,
+         0x00F6U,
+       }) {
+    const auto glyph = supplementalBitmapGlyph(character);
+    if (!glyph.has_value()) {
+      continue;
+    }
+    const Uint32 cellX = (character % 16U) * 8U;
+    const Uint32 cellY = (character / 16U) * 8U;
+    for (Uint32 y = 0; y < 8; ++y) {
+      const std::uint8_t bits = (*glyph)[y];
+      for (Uint32 x = 0; x < 8; ++x) {
+        const bool set = (bits & (1U << x)) != 0;
+        pixels[(cellY + y) * kFontAtlasWidth + cellX + x] = set ? 255 : 0;
+      }
+    }
+  }
   return pixels;
 }
 
@@ -615,49 +638,9 @@ void appendText(
       ++index;
       continue;
     }
-    Uint32 character = rawCharacter;
-    std::size_t advanceBytes = 1U;
-    if (
-      rawCharacter == 0xC3U &&
-      index + 1U < text.text.size()
-    ) {
-      const auto next = static_cast<unsigned char>(text.text[index + 1U]);
-      switch (next) {
-      case 0xA5U:
-        character = 0xE5U;
-        advanceBytes = 2U;
-        break;
-      case 0xA4U:
-        character = 0xE4U;
-        advanceBytes = 2U;
-        break;
-      case 0xB6U:
-        character = 0xF6U;
-        advanceBytes = 2U;
-        break;
-      case 0x85U:
-        character = 0xC5U;
-        advanceBytes = 2U;
-        break;
-      case 0x84U:
-        character = 0xC4U;
-        advanceBytes = 2U;
-        break;
-      case 0x96U:
-        character = 0xD6U;
-        advanceBytes = 2U;
-        break;
-      default:
-        character = '?';
-        break;
-      }
-    } else if (rawCharacter >= 0x80U) {
-      character = '?';
-    }
-    if (character < 32U || character >= 256U) {
-      character = '?';
-    }
-    if (character != ' ') {
+    const BitmapGlyphLookup glyph = bitmapGlyphAt(text.text, index);
+    const Uint32 character = glyph.atlasCodepoint;
+    if (glyph.drawable) {
       const float u0 =
         static_cast<float>((character % 16U) * 8U) /
         static_cast<float>(kFontAtlasWidth);
@@ -694,7 +677,7 @@ void appendText(
       );
     }
     x += glyphSize;
-    index += advanceBytes;
+    index += std::max<std::size_t>(1U, glyph.byteLength);
   }
 }
 
