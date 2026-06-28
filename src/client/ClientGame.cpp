@@ -35,7 +35,8 @@ void ClientGame::sendCommand(
     bool requestGameMode,
     GameMode requestedGameMode,
     bool requestTeam,
-    Team requestedTeam
+    Team requestedTeam,
+    WeaponSwitchingMode weaponSwitchingMode
   ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
@@ -71,6 +72,7 @@ void ClientGame::sendCommand(
       requestedGameMode,
       requestTeam,
       requestedTeam,
+      weaponSwitchingMode,
     }
   );
   if (!requestReset) {
