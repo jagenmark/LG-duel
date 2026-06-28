@@ -1010,6 +1010,9 @@ bool ServerGame::damageAllowed(
   if (attackerIndex == targetIndex) {
     return true;
   }
+  if (warmupPhase()) {
+    return areDuelOpponents(attackerIndex, targetIndex);
+  }
   return snapshot_.gameMode == GameMode::Duel
     ? areDuelOpponents(attackerIndex, targetIndex)
     : areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex);
