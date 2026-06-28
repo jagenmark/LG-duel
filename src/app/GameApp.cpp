@@ -75,6 +75,18 @@ enum class AimMode {
   );
 }
 
+[[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfigFromConsole(
+  const ConsoleSystem& console
+) {
+  return ClientNetworkSimulationConfig{
+    console.getInt("net_sim_latency_ms"),
+    console.getInt("net_sim_jitter_ms"),
+    console.getInt("net_sim_loss_percent"),
+    console.getInt("net_sim_reorder_percent"),
+    static_cast<std::uint32_t>(std::max(0, console.getInt("net_sim_seed"))),
+  };
+}
+
 #if LG_DUEL_HAS_SDL3
 [[nodiscard]] bool isClipboardPasteKey(const SDL_KeyboardEvent& event) {
   return event.key == SDLK_V && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
@@ -2286,16 +2298,29 @@ int GameApp::run() const {
     "net_stats",
     "Print current connection diagnostics.",
     [&session](const std::vector<std::string>&) {
-      char text[160];
+      const ClientNetworkSimulationConfig config = session.networkSimulationConfig();
+      const ClientNetworkSimulationStats stats = session.networkSimulationStats();
+      char text[320];
       std::snprintf(
         text,
         sizeof(text),
-        "state=%d host=%s port=%u player=%zu ping=%.1fms",
+        "state=%d host=%s port=%u player=%zu ping=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu}",
         static_cast<int>(session.state()),
         std::string(session.host()).c_str(),
         static_cast<unsigned int>(session.port()),
         session.playerIndex() + 1U,
-        session.pingMilliseconds()
+        session.pingMilliseconds(),
+        config.latencyMs,
+        config.jitterMs,
+        config.lossPercent,
+        config.reorderPercent,
+        static_cast<unsigned int>(config.seed),
+        stats.queuedOutgoingPackets,
+        stats.queuedIncomingPackets,
+        static_cast<unsigned long long>(stats.droppedOutgoingPackets),
+        static_cast<unsigned long long>(stats.droppedIncomingPackets),
+        static_cast<unsigned long long>(stats.reorderedOutgoingPackets),
+        static_cast<unsigned long long>(stats.reorderedIncomingPackets)
       );
       return std::string(text);
     }
@@ -2909,6 +2934,7 @@ int GameApp::run() const {
     if (quitRequested) {
       running = false;
     }
+    session.setNetworkSimulationConfig(networkSimulationConfigFromConsole(console));
     session.update();
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
