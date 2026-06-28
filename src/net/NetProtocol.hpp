@@ -17,11 +17,14 @@ namespace lg {
 
 inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
 inline constexpr std::size_t kMaxBundledCommands = 3;
+inline constexpr std::size_t kLocalHitFeedbackEventWindow = 4;
 inline constexpr std::size_t kMaxChatMessageBytes = 240;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
 inline constexpr std::size_t kMaxMapNameBytes = 32;
 inline constexpr float kMaxLightningKnockback = 100000.0F;
 inline constexpr float kMaxRocketKnockback = 1000.0F;
+inline constexpr float kMinLightningFireHz = 1.0F;
+inline constexpr float kMaxLightningFireHz = 125.0F;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
@@ -63,6 +66,7 @@ struct CommandPacket {
   float playerSizeScaleXY = 1.0F;
   float playerSizeScaleZ = 1.0F;
   float lightningKnockback = 1000.0F;
+  float lightningFireHz = 20.0F;
   float rocketKnockback = 1000.0F;
   WeaponDamageTuning weaponDamage = {};
   float vampirism = 0.0F;
@@ -117,6 +121,13 @@ struct FragEvent {
   std::uint8_t targetPlayerIndex = 255;
 };
 
+struct LocalHitFeedbackEvent {
+  bool active = false;
+  std::uint32_t sequence = 0;
+  std::uint8_t targetPlayerIndex = 255;
+  Weapon weapon = Weapon::LightningGun;
+};
+
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
@@ -131,6 +142,10 @@ struct ServerSnapshot {
   std::array<FootstepAudioEvent, kDuelPlayerCount> footstepAudioEvents = {};
   std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> grenadeBounceAudioEvents = {};
   std::array<FragEvent, kDuelPlayerCount> fragEvents = {};
+  std::array<
+    std::array<LocalHitFeedbackEvent, kLocalHitFeedbackEventWindow>,
+    kDuelPlayerCount
+  > localHitFeedbackEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
@@ -148,6 +163,7 @@ struct ServerSnapshot {
   float playerSizeScaleXY = 1.0F;
   float playerSizeScaleZ = 1.0F;
   float lightningKnockback = 1000.0F;
+  float lightningFireHz = 20.0F;
   float rocketKnockback = 1000.0F;
   WeaponDamageTuning weaponDamage = {};
   float vampirism = 0.0F;

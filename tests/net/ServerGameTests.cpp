@@ -35,6 +35,40 @@ lg::ServerSnapshot latestSnapshot(lg::LoopbackTransport& transport) {
   return latest;
 }
 
+bool hasLocalHitFeedback(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  std::uint32_t sequence,
+  std::uint8_t targetPlayerIndex,
+  lg::Weapon weapon
+) {
+  for (const lg::LocalHitFeedbackEvent& event :
+       snapshot.localHitFeedbackEvents[attackerIndex]) {
+    if (
+      event.active &&
+      event.sequence == sequence &&
+      event.targetPlayerIndex == targetPlayerIndex &&
+      event.weapon == weapon
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+bool hasAnyLocalHitFeedback(
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attackerIndex
+) {
+  for (const lg::LocalHitFeedbackEvent& event :
+       snapshot.localHitFeedbackEvents[attackerIndex]) {
+    if (event.active) {
+      return true;
+    }
+  }
+  return false;
+}
+
 } // namespace
 
 int main() {
@@ -98,6 +132,164 @@ int main() {
         snapshot.scores[0] == 0 &&
         snapshot.scores[1] == 0,
       "warmup kill should emit a frag event, respawn, and not affect score"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rail;
+    rail.sequence = 1;
+    rail.attack = true;
+    rail.planarAim = true;
+    rail.viewYawRadians = 0.0F;
+    rail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Railgun),
+      "authoritative rail damage should emit one local hit feedback event"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Railgun),
+      "retained hit feedback snapshots should keep the original sequence"
+    );
+
+    for (int tick = 0; tick < 10; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Railgun),
+      "hit feedback should outlive the shorter generic transient event window"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand miss;
+    miss.sequence = 1;
+    miss.attack = true;
+    miss.planarAim = true;
+    miss.viewYawRadians = kPi * 0.5F;
+    miss.weapon = lg::Weapon::MachineGun;
+    transport.sendCommand(lg::CommandPacket{0, miss, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      !hasAnyLocalHitFeedback(snapshot, 0),
+      "missed machine gun fire should not emit local hit feedback"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand shotgun;
+    shotgun.sequence = 1;
+    shotgun.attack = true;
+    shotgun.planarAim = true;
+    shotgun.viewYawRadians = 0.0F;
+    shotgun.weapon = lg::Weapon::Shotgun;
+    transport.sendCommand(lg::CommandPacket{0, shotgun, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].pelletHitCount > 0 &&
+        hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Shotgun),
+      "shotgun pellet damage should collapse to one local hit feedback event"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.planarAim = true;
+    rocket.viewYawRadians = 0.0F;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 140; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.rocketExplosions[0].active &&
+        snapshot.rocketExplosions[0].opponentDamageApplied > 0 &&
+        hasLocalHitFeedback(
+          snapshot,
+          0,
+          1,
+          1,
+          lg::Weapon::RocketLauncher
+        ),
+      "rocket damage on the opponent should emit local hit feedback on impact"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.planarAim = true;
+    rocket.viewYawRadians = kPi;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 140; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+    failures += expect(
+      !hasAnyLocalHitFeedback(snapshot, 0),
+      "own rocket splash without opponent damage should not emit local hit feedback"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand enemyRail;
+    enemyRail.sequence = 1;
+    enemyRail.attack = true;
+    enemyRail.planarAim = true;
+    enemyRail.viewYawRadians = kPi;
+    enemyRail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{1, enemyRail, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      !hasAnyLocalHitFeedback(snapshot, 0) &&
+        hasLocalHitFeedback(snapshot, 1, 1, 0, lg::Weapon::Railgun),
+      "opponent damage to the local player should only emit feedback for the attacker"
     );
   }
 
@@ -316,9 +508,9 @@ spawn p2 2,0,0.5 yaw=180
     failures += expect(
       snapshot.lightningKnockback == 1000.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.17F &&
-        snapshot.lightningGuns[0].knockbackImpulse.x < 0.18F,
-      "g_lg_knockback should control authoritative LG impulse magnitude"
+        snapshot.lightningGuns[0].knockbackImpulse.x > 1.09F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 1.11F,
+      "g_lg_knockback should control authoritative LG per-instance impulse magnitude"
     );
   }
 
@@ -344,8 +536,8 @@ spawn p2 2,0,0.5 yaw=180
     failures += expect(
       snapshot.lightningKnockback == 0.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.119F &&
-        snapshot.lightningGuns[0].knockbackImpulse.x < 0.121F,
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.749F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.751F,
       "g_lg_knockback 0 should map to the old 682 impulse"
     );
 
@@ -364,8 +556,8 @@ spawn p2 2,0,0.5 yaw=180
     failures += expect(
       snapshot.lightningKnockback == 500.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.147F &&
-        snapshot.lightningGuns[0].knockbackImpulse.x < 0.149F,
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.924F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.926F,
       "g_lg_knockback 500 should map to the old 841 impulse"
     );
   }
@@ -399,7 +591,7 @@ spawn p2 2,0,0.5 yaw=180
     }
     failures += expect(
       snapshot.players[1].health == 0,
-      "g_lg_damage should control authoritative LG damage per second"
+      "g_lg_damage should control authoritative LG damage per second across 20 Hz instances"
     );
   }
 
@@ -938,8 +1130,8 @@ spawn p2 2,0,0.5 yaw=180
     const lg::ServerSnapshot compensated = latestSnapshot(transport);
     failures += expect(compensated.lightningGuns[0].hit, "rewound LG should hit historical target");
     failures += expect(
-      compensated.players[1].health == 100,
-      "first fixed-tick hit should retain fractional damage against current state"
+      compensated.players[1].health == 94,
+      "first fixed-tick hit should apply the first 20 Hz LG damage instance"
     );
     failures += expect(
       compensated.lightningGuns[0].requestedRewindTicks == 20 &&
@@ -963,7 +1155,7 @@ spawn p2 2,0,0.5 yaw=180
     const lg::ServerSnapshot damaged = latestSnapshot(transport);
     failures += expect(damaged.lightningGuns[0].hit, "continuous rewound LG should remain active");
     failures += expect(
-      damaged.players[1].health == 99,
+      damaged.players[1].health == 94,
       "rewound hit damage should apply to the current authoritative target"
     );
   }
@@ -1319,8 +1511,8 @@ spawn p2 2,0,0.5 yaw=180
     }
 
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
-    failures += expect(snapshot.players[0].health == 99, "player one beam should apply fixed-tick damage");
-    failures += expect(snapshot.players[1].health == 99, "simultaneous beams should apply symmetrically");
+    failures += expect(snapshot.players[0].health == 94, "player one beam should apply one 20 Hz damage instance");
+    failures += expect(snapshot.players[1].health == 94, "simultaneous beams should apply symmetrically");
   }
 
   {

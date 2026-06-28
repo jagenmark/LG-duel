@@ -43,6 +43,19 @@ int main() {
     "legacy ambiguous g_knockback cvar should not be registered"
   );
   failures += expect(
+    console.execute("g_lg_damage") == "g_lg_damage = 120 (default 120)",
+    "LG damage should default to 120 DPS"
+  );
+  failures += expect(
+    console.execute("g_lg_fire_hz") == "g_lg_fire_hz = 20 (default 20)",
+    "LG fire rate should default to 20 Hz"
+  );
+  failures += expect(
+    console.execute("g_lg_fire_hz 40") == "g_lg_fire_hz = 40" &&
+      console.getFloat("g_lg_fire_hz") == 40.0F,
+    "LG fire rate should be configurable"
+  );
+  failures += expect(
     console.execute("r_damage_numbers_mode") ==
       "r_damage_numbers_mode = 0 (default 0)",
     "damage numbers should default to disabled"

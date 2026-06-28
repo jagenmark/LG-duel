@@ -23,6 +23,7 @@ constexpr std::uint32_t kRailgunCooldownTicks = 188;
 constexpr std::uint32_t kShotgunCooldownTicks = 125;
 constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
+constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
@@ -191,6 +192,7 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.footstepAudioEvents = {};
   snapshot_.grenadeBounceAudioEvents = {};
   snapshot_.fragEvents = {};
+  snapshot_.localHitFeedbackEvents = {};
   snapshot_.rockets = {};
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
     if (cooldown > 0) {
@@ -555,13 +557,15 @@ void ServerGame::tick(float fixedDt) {
       attackerIndex,
       lightningTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
-      snapshot_.lightningGuns[attackerIndex].knockbackImpulse
+      snapshot_.lightningGuns[attackerIndex].knockbackImpulse,
+      Weapon::LightningGun
     );
     applyDamageAndKnockback(
       attackerIndex,
       weaponTargets[attackerIndex],
       snapshot_.weaponFires[attackerIndex].damageApplied,
-      snapshot_.weaponFires[attackerIndex].knockbackImpulse
+      snapshot_.weaponFires[attackerIndex].knockbackImpulse,
+      snapshot_.weaponFires[attackerIndex].weapon
     );
   }
 
@@ -1033,7 +1037,8 @@ void ServerGame::applyDamageAndKnockback(
   std::size_t attackerIndex,
   std::size_t targetIndex,
   int damageApplied,
-  Vec3 knockbackImpulse
+  Vec3 knockbackImpulse,
+  Weapon weapon
 ) {
   if (targetIndex >= kDuelPlayerCount) {
     return;
@@ -1059,6 +1064,20 @@ void ServerGame::applyDamageAndKnockback(
   damageApplied = std::min(damageApplied, target.health);
   target.health = std::max(0, target.health - damageApplied);
   target.velocity += knockbackImpulse;
+
+  if (attackerIndex != targetIndex && damageApplied > 0) {
+    const std::uint32_t sequence =
+      ++localHitFeedbackSequences_[attackerIndex];
+    const std::size_t eventSlot =
+      static_cast<std::size_t>(sequence - 1U) %
+      kLocalHitFeedbackEventWindow;
+    LocalHitFeedbackEvent& event =
+      snapshot_.localHitFeedbackEvents[attackerIndex][eventSlot];
+    event.active = true;
+    event.sequence = sequence;
+    event.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
+    event.weapon = weapon;
+  }
 
   if (
     attackerIndex != targetIndex &&
@@ -1388,7 +1407,8 @@ void ServerGame::simulateRockets(float fixedDt) {
         rocket.owner,
         playerIndex,
         appliedDamage,
-        knockbackDirection * knockback * knockbackScale
+        knockbackDirection * knockback * knockbackScale,
+        rocket.weapon
       );
     }
   }
@@ -1494,6 +1514,17 @@ void ServerGame::restoreTransientCombatEvents() {
     ) {
       snapshot_.fragEvents[playerIndex] = recentFragEvents_[playerIndex];
     }
+    for (std::size_t eventSlot = 0; eventSlot < kLocalHitFeedbackEventWindow; ++eventSlot) {
+      if (
+        recentLocalHitFeedbackEvents_[playerIndex][eventSlot].active &&
+        snapshot_.serverTick -
+            recentLocalHitFeedbackEventTicks_[playerIndex][eventSlot] <=
+          kLocalHitFeedbackEventRetentionTicks
+      ) {
+        snapshot_.localHitFeedbackEvents[playerIndex][eventSlot] =
+          recentLocalHitFeedbackEvents_[playerIndex][eventSlot];
+      }
+    }
   }
   for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
     if (
@@ -1526,6 +1557,18 @@ void ServerGame::rememberTransientCombatEvents() {
     if (snapshot_.fragEvents[playerIndex].active) {
       recentFragEvents_[playerIndex] = snapshot_.fragEvents[playerIndex];
       recentFragEventTicks_[playerIndex] = snapshot_.serverTick;
+    }
+    for (std::size_t eventSlot = 0; eventSlot < kLocalHitFeedbackEventWindow; ++eventSlot) {
+      if (
+        snapshot_.localHitFeedbackEvents[playerIndex][eventSlot].active &&
+        snapshot_.localHitFeedbackEvents[playerIndex][eventSlot].sequence !=
+          recentLocalHitFeedbackEvents_[playerIndex][eventSlot].sequence
+      ) {
+        recentLocalHitFeedbackEvents_[playerIndex][eventSlot] =
+          snapshot_.localHitFeedbackEvents[playerIndex][eventSlot];
+        recentLocalHitFeedbackEventTicks_[playerIndex][eventSlot] =
+          snapshot_.serverTick;
+      }
     }
   }
   for (std::size_t index = 0; index < snapshot_.grenadeBounceAudioEvents.size(); ++index) {
@@ -1683,6 +1726,9 @@ void ServerGame::receiveCommands() {
       lightningGunTuning_.knockbackPerSecond =
         lightningKnockbackToInternal(lightningKnockback_);
       snapshot_.lightningKnockback = lightningKnockback_;
+      lightningFireHz_ = packet.lightningFireHz;
+      lightningGunTuning_.fireHz = lightningFireHz_;
+      snapshot_.lightningFireHz = lightningFireHz_;
       rocketKnockback_ = packet.rocketKnockback;
       rocketLauncherTuning_.knockback =
         q3KnockbackToInternal(rocketKnockback_);

@@ -22,7 +22,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
-  console.registerCvar({"cl_show_lagcomp", "Show current and rewound LG target bounds.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_show_lagcomp", "Show lag compensation status and real rewind data when used.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
@@ -39,10 +39,11 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
   console.registerCvar({"g_lg_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, kMaxLightningKnockback, "1000"});
+  console.registerCvar({"g_lg_fire_hz", "Authoritative lightning gun damage instances per second.", 20.0F, CvarFlag::Client, kMinLightningFireHz, kMaxLightningFireHz});
   console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, kMaxRocketKnockback, "1000"});
   console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second.", 80, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_rl_damage", "Authoritative rocket launcher direct and max splash damage.", 100, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});

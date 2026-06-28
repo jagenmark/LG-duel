@@ -127,7 +127,7 @@ The server owns two complete player states and runs movement, player collision, 
 
 The default arena is a compact 2D Thunderstruck-inspired layout with opposing courts, a broken central divider, offset cover blocks, and upper/lower connector lanes. Internal walls use the same geometry for authoritative movement collision, player separation, LG occlusion, prediction, and rendering.
 
-LG hits brighten the target and draw a hitmarker at the beam impact point. Round and match result screens show server-authoritative LG contact accuracy and damage dealt for both players.
+Server-confirmed local damage brightens the target and draws hitmarker/crosshair feedback across implemented weapons. Round and match result screens show server-authoritative LG contact accuracy and damage dealt for both players.
 
 ## Client Console
 
@@ -211,7 +211,7 @@ Client audio is client-side only and is driven from server snapshot/event state 
 
 Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspeed`, `g_maxspeed`, `g_flight`, `g_flightaccel`, `g_flightmaxspeed`, and `g_flightdamping`. Changes are sent to the authoritative server and replicated to connected clients so prediction uses the same values. `g_flight 1` equips unrestricted flight symmetrically for both players. W/S thrust along full camera pitch/yaw, A/D strafe while upright, Space thrusts up, and Ctrl/Shift thrust down. Flight has no fuel, cooldown, duration limit, or artificial hover ceiling; arena collision still applies. Disabling it transitions players back to airborne or grounded movement. Query a variable without a value to see its current value, project default, and Q3/QL reference default where applicable. These testing values are intentionally not archived.
 
-`g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
+`g_lg_damage` defaults to `120` and is distributed over `g_lg_fire_hz` damage instances per second. The default `g_lg_fire_hz 20` produces 6 damage per LG instance while keeping knockback scaled from the existing per-second LG knockback value. `g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
 
 Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set and persist a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` and reset the match; map names are limited to letters, numbers, `_`, and `-`.
 
