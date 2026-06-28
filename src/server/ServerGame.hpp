@@ -89,7 +89,8 @@ private:
     std::size_t attackerIndex,
     std::size_t targetIndex,
     int damageApplied,
-    Vec3 knockbackImpulse
+    Vec3 knockbackImpulse,
+    Weapon weapon
   );
   void publishSnapshot();
 
@@ -101,6 +102,7 @@ private:
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;
   float lightningKnockback_ = 1000.0F;
+  float lightningFireHz_ = 20.0F;
   float rocketKnockback_ = 1000.0F;
   WeaponDamageTuning weaponDamage_ = {};
   LightningGunTuning lightningGunTuning_ = {};
@@ -129,7 +131,16 @@ private:
   std::array<std::uint32_t, kMaxRocketProjectiles> recentGrenadeBounceAudioEventTicks_ = {};
   std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
+  std::array<
+    std::array<LocalHitFeedbackEvent, kLocalHitFeedbackEventWindow>,
+    kDuelPlayerCount
+  > recentLocalHitFeedbackEvents_ = {};
+  std::array<
+    std::array<std::uint32_t, kLocalHitFeedbackEventWindow>,
+    kDuelPlayerCount
+  > recentLocalHitFeedbackEventTicks_ = {};
   std::array<FootstepState, kDuelPlayerCount> footstepStates_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> localHitFeedbackSequences_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences_ = {};
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences_ = {};

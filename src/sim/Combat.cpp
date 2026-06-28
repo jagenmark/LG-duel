@@ -244,25 +244,53 @@ LightningGunResult simulateLightningGun(
   result.active = command.attack && attacker.health > 0;
 
   if (!result.active || target.health <= 0) {
+    state.shotCredit = 1.0;
     return result;
   }
 
   float hitDistance = 0.0F;
   if (!intersectPlayerCylinder(result.start, direction, target, traceDistance, hitDistance)) {
+    state.shotCredit = std::min(
+      1.0,
+      state.shotCredit +
+        static_cast<double>(std::max(0.0F, tuning.fireHz)) *
+          static_cast<double>(fixedDt)
+    );
     return result;
   }
 
   result.hit = true;
   result.end = result.start + (direction * hitDistance);
 
+  const float fireHz = std::max(1.0F, tuning.fireHz);
+  state.shotCredit = std::min(
+    state.shotCredit,
+    static_cast<double>(fireHz)
+  );
+  const int shotsApplied = static_cast<int>(std::floor(state.shotCredit));
+  if (shotsApplied <= 0) {
+    state.shotCredit +=
+      static_cast<double>(fireHz) * static_cast<double>(fixedDt);
+    return result;
+  }
+  state.shotCredit -= static_cast<double>(shotsApplied);
+  state.shotCredit +=
+    static_cast<double>(fireHz) * static_cast<double>(fixedDt);
   state.fractionalDamage +=
-    static_cast<double>(tuning.damagePerSecond) * static_cast<double>(fixedDt);
+    static_cast<double>(shotsApplied) *
+    static_cast<double>(tuning.damagePerSecond) /
+    static_cast<double>(fireHz);
   result.damageApplied = static_cast<int>(std::floor(state.fractionalDamage));
   state.fractionalDamage -= static_cast<double>(result.damageApplied);
 
   result.damageApplied = std::min(result.damageApplied, target.health);
   target.health -= result.damageApplied;
-  result.knockbackImpulse = direction * (tuning.knockbackPerSecond * fixedDt);
+  result.knockbackImpulse =
+    direction *
+    (
+      tuning.knockbackPerSecond *
+      (static_cast<float>(shotsApplied) / fireHz)
+    );
   return result;
 }
 

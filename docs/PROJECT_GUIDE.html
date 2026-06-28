@@ -332,7 +332,7 @@ accumulator -= available * fixed_dt</code></pre>
       <table>
         <thead><tr><th>Weapon</th><th>Mechanic</th><th>Defaults in code</th></tr></thead>
         <tbody>
-          <tr><td>Lightning gun</td><td>Continuous hitscan; fractional damage accumulates across ticks</td><td>18 range, 80 DPS, 22 knockback/sec</td></tr>
+          <tr><td>Lightning gun</td><td>Continuous beam trace; damage/knockback apply at configurable shot Hz</td><td>18 range, 120 DPS at 20 Hz (6 damage/instance), 22 knockback/sec</td></tr>
           <tr><td>Railgun</td><td>Single hitscan with cooldown</td><td>100 range, 80 damage, 188 ticks cooldown</td></tr>
           <tr><td>Rocket launcher</td><td>Server-owned projectiles, direct/splash impact</td><td>22.5 speed, 3 radius, 100 damage, 100 ticks cooldown</td></tr>
         </tbody>

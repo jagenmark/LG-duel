@@ -15,13 +15,15 @@ inline constexpr std::uint8_t kShotgunPelletCount = 20;
 
 struct LightningGunTuning {
   float range = 18.0F;
-  float damagePerSecond = 80.0F;
+  float damagePerSecond = 120.0F;
+  float fireHz = 20.0F;
   float eyeHeight = 0.65F;
   float knockbackPerSecond = 22.0F;
 };
 
 struct LightningGunState {
   double fractionalDamage = 0.0;
+  double shotCredit = 1.0;
 };
 
 struct LightningGunResult {
@@ -108,7 +110,7 @@ struct GrenadeLauncherTuning {
 struct WeaponDamageTuning {
   int shotgunDamagePerPellet = 5;
   int machineGunDamage = 5;
-  int lightningGunDamage = 80;
+  int lightningGunDamage = 120;
   int railgunDamage = 80;
   int rocketLauncherDamage = 100;
 };

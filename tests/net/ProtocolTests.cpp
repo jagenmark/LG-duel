@@ -94,6 +94,7 @@ int main() {
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 1500.0F;
+    source.lightningFireHz = 40.0F;
     source.rocketKnockback = 625.0F;
     source.weaponDamage.shotgunDamagePerPellet = 7;
     source.weaponDamage.machineGunDamage = 9;
@@ -158,6 +159,7 @@ int main() {
         nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
         nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
         nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
+        nearlyEqual(decoded.lightningFireHz, 40.0F) &&
         nearlyEqual(decoded.rocketKnockback, 625.0F) &&
         decoded.weaponDamage.shotgunDamagePerPellet == 7 &&
         decoded.weaponDamage.machineGunDamage == 9 &&
@@ -341,6 +343,14 @@ int main() {
     source.rocketExplosions[0].opponentDamageApplied = 80;
     source.fragEvents[0].active = true;
     source.fragEvents[0].targetPlayerIndex = 1;
+    source.localHitFeedbackEvents[0][0].active = true;
+    source.localHitFeedbackEvents[0][0].sequence = 17;
+    source.localHitFeedbackEvents[0][0].targetPlayerIndex = 1;
+    source.localHitFeedbackEvents[0][0].weapon = lg::Weapon::Shotgun;
+    source.localHitFeedbackEvents[0][1].active = true;
+    source.localHitFeedbackEvents[0][1].sequence = 18;
+    source.localHitFeedbackEvents[0][1].targetPlayerIndex = 2;
+    source.localHitFeedbackEvents[0][1].weapon = lg::Weapon::RocketLauncher;
     source.footstepAudioEvents[1].active = true;
     source.footstepAudioEvents[1].sequence = 42;
     source.footstepAudioEvents[1].position = {2.5F, -1.0F, 1.5F};
@@ -396,6 +406,7 @@ int main() {
     source.playerSizeScaleXY = 1.75F;
     source.playerSizeScaleZ = 0.75F;
     source.lightningKnockback = 1500.0F;
+    source.lightningFireHz = 25.0F;
     source.rocketKnockback = 625.0F;
     source.weaponDamage.shotgunDamagePerPellet = 11;
     source.weaponDamage.machineGunDamage = 13;
@@ -485,6 +496,17 @@ int main() {
       "shotgun pellet event data should round trip"
     );
     failures += expect(
+      decoded.localHitFeedbackEvents[0][0].active &&
+        decoded.localHitFeedbackEvents[0][0].sequence == 17 &&
+        decoded.localHitFeedbackEvents[0][0].targetPlayerIndex == 1 &&
+        decoded.localHitFeedbackEvents[0][0].weapon == lg::Weapon::Shotgun &&
+        decoded.localHitFeedbackEvents[0][1].active &&
+        decoded.localHitFeedbackEvents[0][1].sequence == 18 &&
+        decoded.localHitFeedbackEvents[0][1].targetPlayerIndex == 2 &&
+        decoded.localHitFeedbackEvents[0][1].weapon == lg::Weapon::RocketLauncher,
+      "local hit feedback event window should round trip"
+    );
+    failures += expect(
       decoded.weaponFires[2].fired &&
         decoded.weaponFires[2].hit &&
         decoded.weaponFires[2].weapon == lg::Weapon::MachineGun &&
@@ -572,6 +594,7 @@ int main() {
       nearlyEqual(decoded.playerSizeScaleXY, 1.75F) &&
       nearlyEqual(decoded.playerSizeScaleZ, 0.75F) &&
       nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
+      nearlyEqual(decoded.lightningFireHz, 25.0F) &&
       nearlyEqual(decoded.rocketKnockback, 625.0F) &&
       decoded.weaponDamage.shotgunDamagePerPellet == 11 &&
       decoded.weaponDamage.machineGunDamage == 13 &&

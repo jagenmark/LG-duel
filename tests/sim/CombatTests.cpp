@@ -251,7 +251,7 @@ grenade.gravity -1
       failures += expect(result.hit, "sustained centered beam should keep hitting");
     }
 
-    failures += expect(target.health == 920, "one second of beam contact should apply configured DPS");
+    failures += expect(target.health == 880, "one second of beam contact should apply configured LG DPS at 20 Hz");
   }
 
   {

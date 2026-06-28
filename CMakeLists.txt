@@ -16,6 +16,7 @@ add_library(lg_duel_core
   src/client/HitConfirmAudio.cpp
   src/client/ClientSession.cpp
   src/client/Interpolation.cpp
+  src/client/LocalHitFeedback.cpp
   src/client/Prediction.cpp
   src/console/ConsoleSystem.cpp
   src/input/InputBindings.cpp

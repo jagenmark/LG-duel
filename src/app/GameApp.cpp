@@ -9,6 +9,7 @@
 #include "app/TextInput.hpp"
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
+#include "client/LocalHitFeedback.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
@@ -1687,6 +1688,8 @@ int GameApp::run() const {
     console.getFloat("g_playersize_z");
   float lastRequestedLightningKnockback =
     console.getFloat("g_lg_knockback");
+  float lastRequestedLightningFireHz =
+    console.getFloat("g_lg_fire_hz");
   float lastRequestedRocketKnockback =
     console.getFloat("g_rl_knockback");
   WeaponDamageTuning lastRequestedWeaponDamage =
@@ -1738,7 +1741,11 @@ int GameApp::run() const {
   bool wasLocalPlayerAlive = false;
   bool hasEnemyHitTime = false;
   Clock::time_point lastEnemyHitTime = {};
-  std::uint8_t lastEnemyHitTarget = 255;
+  std::array<bool, kDuelPlayerCount> hasEnemyHitTimeByTarget = {};
+  std::array<Clock::time_point, kDuelPlayerCount> lastEnemyHitTimeByTarget = {};
+  bool hasBeamHitTime = false;
+  Clock::time_point lastBeamHitTime = {};
+  LocalHitFeedbackDedupeState localHitFeedbackDedupe;
   std::array<int, kDuelPlayerCount> lastRemoteHealth = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
@@ -2172,6 +2179,8 @@ int GameApp::run() const {
       console.getFloat("g_playersize_z");
     const float currentLightningKnockback =
       console.getFloat("g_lg_knockback");
+    const float currentLightningFireHz =
+      console.getFloat("g_lg_fire_hz");
     const float currentRocketKnockback =
       console.getFloat("g_rl_knockback");
     const WeaponDamageTuning currentWeaponDamage =
@@ -2189,6 +2198,7 @@ int GameApp::run() const {
         currentPlayerSizeScaleXY != lastRequestedPlayerSizeScaleXY ||
         currentPlayerSizeScaleZ != lastRequestedPlayerSizeScaleZ ||
         currentLightningKnockback != lastRequestedLightningKnockback ||
+        currentLightningFireHz != lastRequestedLightningFireHz ||
         currentVampirism != lastRequestedVampirism ||
         currentRocketKnockback != lastRequestedRocketKnockback ||
         currentWeaponDamage.shotgunDamagePerPellet !=
@@ -2210,6 +2220,7 @@ int GameApp::run() const {
       lastRequestedPlayerSizeScaleXY = currentPlayerSizeScaleXY;
       lastRequestedPlayerSizeScaleZ = currentPlayerSizeScaleZ;
       lastRequestedLightningKnockback = currentLightningKnockback;
+      lastRequestedLightningFireHz = currentLightningFireHz;
       lastRequestedVampirism = currentVampirism;
       lastRequestedRocketKnockback = currentRocketKnockback;
       lastRequestedWeaponDamage = currentWeaponDamage;
@@ -2325,6 +2336,7 @@ int GameApp::run() const {
         lastRequestedSelfDamagePercent,
         lastRequestedHealthAmount,
         lastRequestedWeaponDamage,
+        lastRequestedLightningFireHz,
         lastRequestedBotDodgeEnabled,
         lastRequestedBotDodgeMinIntervalMs,
         lastRequestedBotDodgeMaxIntervalMs,
@@ -3036,6 +3048,25 @@ int GameApp::run() const {
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
+      const LocalHitFeedbackBatch hitFeedback =
+        consumeLocalHitFeedbackEvents(
+          renderSnapshot.localHitFeedbackEvents[localPlayerIndex],
+          localHitFeedbackDedupe
+        );
+      if (hitFeedback.active) {
+        lastEnemyHitTime = now;
+        hasEnemyHitTime = true;
+        for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
+          if (hitFeedback.hitTargets[targetIndex]) {
+            lastEnemyHitTimeByTarget[targetIndex] = now;
+            hasEnemyHitTimeByTarget[targetIndex] = true;
+          }
+        }
+        if (hitFeedback.lightningGunHit) {
+          lastBeamHitTime = now;
+          hasBeamHitTime = true;
+        }
+      }
     }
     if (usePresentationView && presentationView.initialized) {
       renderPlayer.viewYawRadians = presentationView.yawRadians;
@@ -3092,36 +3123,59 @@ int GameApp::run() const {
       static_cast<float>(std::fmod(presentationSeconds, 1.0)) *
         kBeamPulseRadiansPerSecond
     );
-    if (renderLocalLightningGun.hit) {
-      lastEnemyHitTime = now;
-      lastEnemyHitTarget = renderLocalLightningGun.targetPlayerIndex;
-      hasEnemyHitTime = true;
-    }
     const float elapsedSinceHit = hasEnemyHitTime
       ? std::chrono::duration<float>(now - lastEnemyHitTime).count()
       : 0.0F;
     const auto hitFeedbackAmount =
       [&](float duration, bool fade) {
-        if (renderLocalLightningGun.hit) {
-          return 1.0F;
-        }
         if (!hasEnemyHitTime || duration <= 0.0F || elapsedSinceHit >= duration) {
           return 0.0F;
         }
         return fade ? 1.0F - (elapsedSinceHit / duration) : 1.0F;
       };
+    const auto beamHitFeedbackAmount =
+      [&](float duration, bool fade) {
+        if (!hasBeamHitTime || duration <= 0.0F) {
+          return 0.0F;
+        }
+        const float elapsedSinceBeamHit =
+          std::chrono::duration<float>(now - lastBeamHitTime).count();
+        if (elapsedSinceBeamHit >= duration) {
+          return 0.0F;
+        }
+        return fade ? 1.0F - (elapsedSinceBeamHit / duration) : 1.0F;
+      };
     currentRenderSettings.enemyHitAmount = 0.0F;
-    if (hasEnemyHitTime && lastEnemyHitTarget < renderRemotePlayers.size()) {
-      RemotePlayerView& hitRemote = renderRemotePlayers[lastEnemyHitTarget];
-      if (!hitRemote.teammate && console.getBool("r_enemy_hit_enable")) {
-        hitRemote.enemyHitAmount = hitFeedbackAmount(
-          console.getFloat("r_enemy_hit_duration"),
+    if (console.getBool("r_enemy_hit_enable")) {
+      for (
+        std::size_t playerIndex = 0;
+        playerIndex < renderRemotePlayers.size();
+        ++playerIndex
+      ) {
+        RemotePlayerView& hitRemote = renderRemotePlayers[playerIndex];
+        if (
+          hitRemote.teammate ||
+          !hasEnemyHitTimeByTarget[playerIndex]
+        ) {
+          continue;
+        }
+        const float elapsedSinceTargetHit =
+          std::chrono::duration<float>(
+            now - lastEnemyHitTimeByTarget[playerIndex]
+          ).count();
+        const float duration = console.getFloat("r_enemy_hit_duration");
+        if (duration <= 0.0F || elapsedSinceTargetHit >= duration) {
+          hitRemote.enemyHitAmount = 0.0F;
+          continue;
+        }
+        hitRemote.enemyHitAmount =
           console.getBool("r_enemy_hit_fade")
-        );
+            ? 1.0F - (elapsedSinceTargetHit / duration)
+            : 1.0F;
       }
     }
     if (console.getBool("r_beam_hit_enable")) {
-      currentRenderSettings.beamHitAmount = hitFeedbackAmount(
+      currentRenderSettings.beamHitAmount = beamHitFeedbackAmount(
         console.getFloat("r_beam_hit_duration"),
         console.getBool("r_beam_hit_fade")
       );
@@ -3230,8 +3284,9 @@ int GameApp::run() const {
       session.game()->hasSnapshot()
     ) {
       const std::size_t localPlayerIndex = session.playerIndex();
+      const ServerSnapshot& lagSnapshot = session.game()->snapshot();
       const LightningGunResult& beam =
-        session.game()->snapshot().lightningGuns[localPlayerIndex];
+        lagSnapshot.lightningGuns[localPlayerIndex];
       if (beam.hasRewindDebug) {
         char rewindText[192];
         std::snprintf(
@@ -3256,6 +3311,14 @@ int GameApp::run() const {
           beam.rewoundTargetPosition.z
         );
         hud.topLeftLines.emplace_back(rewindText);
+      } else {
+        const Weapon selectedWeapon =
+          lagSnapshot.selectedWeapons[localPlayerIndex];
+        hud.topLeftLines.emplace_back(
+          selectedWeapon == Weapon::LightningGun
+            ? "LAG COMPENSATION: NOT USED"
+            : "LAG COMPENSATION: NOT USED BY THIS WEAPON"
+        );
       }
     }
     if (
