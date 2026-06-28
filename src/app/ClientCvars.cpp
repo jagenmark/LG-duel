@@ -26,7 +26,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
-  console.registerCvar({"cl_legacy_frame_delay", "Preserve legacy SDL_Delay(1) at end of client frame.", true, archivedClient, {}, {}});
+  console.registerCvar({"cl_legacy_frame_delay", "Deprecated legacy SDL_Delay(1) frame yield; prefer r_maxfps for pacing.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_local_render_prediction", "Render-only local movement prediction between fixed ticks; does not affect physics or hitreg.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
@@ -84,7 +84,14 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"crosshair_hit_b", "Crosshair hit-feedback blue channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_hit_duration", "Crosshair hit-color duration in seconds.", 0.12F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"crosshair_hit_fade", "Gradually blend crosshair hit color back to base.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_vsync", "Enable renderer vertical sync.", true, archivedClient, {}, {}});
+  console.registerCvar({"vid_fullscreen", "Video fullscreen mode: 0 windowed, 1 borderless desktop, 2 exclusive fullscreen.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"vid_width", "Windowed width and requested exclusive fullscreen width.", 1280, archivedClient, 320.0F, 16384.0F});
+  console.registerCvar({"vid_height", "Windowed height and requested exclusive fullscreen height.", 720, archivedClient, 200.0F, 16384.0F});
+  console.registerCvar({"vid_refresh_hz", "Exclusive fullscreen refresh rate; zero uses desktop/default.", 0, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"vid_display", "Display index for fullscreen/window placement.", 0, archivedClient, 0.0F, 31.0F});
+  console.registerCvar({"r_present_mode", "Renderer present mode: 0 FIFO/V-sync, 1 Mailbox, 2 Immediate.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
   console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});

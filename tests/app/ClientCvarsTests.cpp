@@ -87,6 +87,34 @@ int main() {
     "world damage number tally-only mode should be configurable"
   );
   failures += expect(
+    console.execute("vid_fullscreen") ==
+      "vid_fullscreen = 0 (default 0)",
+    "video fullscreen mode should default to windowed"
+  );
+  failures += expect(
+    console.execute("vid_fullscreen 2") == "vid_fullscreen = 2" &&
+      console.getInt("vid_fullscreen") == 2,
+    "exclusive fullscreen mode should be configurable"
+  );
+  failures += expect(
+    console.execute("vid_fullscreen 3") ==
+      "value out of range for vid_fullscreen",
+    "fullscreen mode should reject values outside 0-2"
+  );
+  failures += expect(
+    console.execute("r_present_mode 1") == "r_present_mode = 1" &&
+      console.getInt("r_present_mode") == 1,
+    "present mode should accept mailbox"
+  );
+  failures += expect(
+    console.execute("r_present_mode 3") ==
+      "value out of range for r_present_mode",
+    "present mode should reject values outside 0-2"
+  );
+  failures += expect(
+    console.execute("r_maxfps 0") == "r_maxfps = 0" &&
+      console.execute("r_maxfps -1") == "value out of range for r_maxfps",
+    "frame limiter cvar should allow uncapped and reject negative caps"
     console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
       console.getFloat("s_lg_fire_volume") == 0.25F,
     "lightning gun fire volume should be configurable"

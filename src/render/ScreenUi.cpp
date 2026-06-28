@@ -1130,6 +1130,93 @@ void addHud(
   }
 }
 
+void addSettingsMenu(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const HudRenderState& hud
+) {
+  if (!hud.settingsOpen) {
+    return;
+  }
+
+  addRect(
+    drawList,
+    0.0F,
+    0.0F,
+    static_cast<float>(width),
+    static_cast<float>(height),
+    {0, 0, 0, 120}
+  );
+
+  const float panelWidth = std::min(760.0F, static_cast<float>(width) - 48.0F);
+  const float rowHeight = 30.0F;
+  const float panelHeight = std::min(
+    static_cast<float>(height) - 48.0F,
+    112.0F + rowHeight * static_cast<float>(hud.settingsItems.size())
+  );
+  const float panelX = (static_cast<float>(width) - panelWidth) * 0.5F;
+  const float panelY = (static_cast<float>(height) - panelHeight) * 0.45F;
+  addRect(drawList, panelX, panelY, panelWidth, panelHeight, {6, 10, 15, 238});
+  addOutline(drawList, panelX, panelY, panelWidth, panelHeight, {88, 176, 232, 255});
+  addRect(drawList, panelX, panelY, panelWidth, 3.0F, {255, 212, 92, 255});
+
+  addText(
+    drawList,
+    panelX + 22.0F,
+    panelY + 20.0F,
+    "SETTINGS / VIDEO",
+    {255, 226, 132, 255},
+    2.25F
+  );
+
+  float y = panelY + 64.0F;
+  constexpr float textScale = 2.0F;
+  constexpr float characterWidth = kGlyphSize * textScale;
+  const float labelX = panelX + 28.0F;
+  const float valueRight = panelX + panelWidth - 28.0F;
+  for (const HudRenderState::SettingsMenuItem& item : hud.settingsItems) {
+    const RenderColor labelColor = item.active
+      ? RenderColor{255, 244, 184, 255}
+      : RenderColor{214, 226, 238, 255};
+    const RenderColor valueColor = item.changed
+      ? RenderColor{255, 210, 95, 255}
+      : RenderColor{156, 214, 242, 255};
+    if (item.active) {
+      addRect(
+        drawList,
+        panelX + 14.0F,
+        y - 5.0F,
+        panelWidth - 28.0F,
+        rowHeight,
+        {32, 54, 70, 220}
+      );
+      addRect(drawList, panelX + 18.0F, y + 1.0F, 4.0F, 18.0F, {255, 212, 92, 255});
+    }
+    addText(drawList, labelX, y, item.label, labelColor, textScale);
+    const float valueX = std::max(
+      labelX + 220.0F,
+      valueRight - static_cast<float>(item.value.size()) * characterWidth
+    );
+    addText(drawList, valueX, y, item.value, valueColor, textScale);
+    if (!item.command) {
+      addText(drawList, valueRight - 9.0F * characterWidth, y, "<  >", {110, 128, 144, 255}, textScale);
+    }
+    y += rowHeight;
+  }
+
+  if (!hud.settingsFooter.empty()) {
+    addText(
+      drawList,
+      panelX + 22.0F,
+      panelY + panelHeight - 30.0F,
+      hud.settingsFooter,
+      {174, 190, 204, 255},
+      1.5F
+    );
+  }
+}
+
 void addConsole(
   DrawList2D& drawList,
   int width,
@@ -1648,6 +1735,7 @@ DrawList2D buildScreenUi(
   addDamageNumbers(drawList, outputWidth, outputHeight, settings, hud);
   addHud(drawList, outputWidth, outputHeight, hud, settings);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
+  addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
   return drawList;
 }
