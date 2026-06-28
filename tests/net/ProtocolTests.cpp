@@ -346,10 +346,12 @@ int main() {
     source.localHitFeedbackEvents[0][0].active = true;
     source.localHitFeedbackEvents[0][0].sequence = 17;
     source.localHitFeedbackEvents[0][0].targetPlayerIndex = 1;
+    source.localHitFeedbackEvents[0][0].damageApplied = 45;
     source.localHitFeedbackEvents[0][0].weapon = lg::Weapon::Shotgun;
     source.localHitFeedbackEvents[0][1].active = true;
     source.localHitFeedbackEvents[0][1].sequence = 18;
     source.localHitFeedbackEvents[0][1].targetPlayerIndex = 2;
+    source.localHitFeedbackEvents[0][1].damageApplied = 80;
     source.localHitFeedbackEvents[0][1].weapon = lg::Weapon::RocketLauncher;
     source.footstepAudioEvents[1].active = true;
     source.footstepAudioEvents[1].sequence = 42;
@@ -499,10 +501,12 @@ int main() {
       decoded.localHitFeedbackEvents[0][0].active &&
         decoded.localHitFeedbackEvents[0][0].sequence == 17 &&
         decoded.localHitFeedbackEvents[0][0].targetPlayerIndex == 1 &&
+        decoded.localHitFeedbackEvents[0][0].damageApplied == 45 &&
         decoded.localHitFeedbackEvents[0][0].weapon == lg::Weapon::Shotgun &&
         decoded.localHitFeedbackEvents[0][1].active &&
         decoded.localHitFeedbackEvents[0][1].sequence == 18 &&
         decoded.localHitFeedbackEvents[0][1].targetPlayerIndex == 2 &&
+        decoded.localHitFeedbackEvents[0][1].damageApplied == 80 &&
         decoded.localHitFeedbackEvents[0][1].weapon == lg::Weapon::RocketLauncher,
       "local hit feedback event window should round trip"
     );

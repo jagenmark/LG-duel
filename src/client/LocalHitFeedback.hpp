@@ -16,6 +16,7 @@ struct LocalHitFeedbackBatch {
   bool active = false;
   bool lightningGunHit = false;
   std::array<bool, kDuelPlayerCount> hitTargets = {};
+  std::array<int, kDuelPlayerCount> damageByTarget = {};
 };
 
 [[nodiscard]] LocalHitFeedbackBatch consumeLocalHitFeedbackEvents(

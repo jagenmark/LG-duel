@@ -23,10 +23,12 @@ int main() {
   events[0].active = true;
   events[0].sequence = 1;
   events[0].targetPlayerIndex = 1;
+  events[0].damageApplied = 80;
   events[0].weapon = lg::Weapon::Railgun;
   events[1].active = true;
   events[1].sequence = 2;
   events[1].targetPlayerIndex = 2;
+  events[1].damageApplied = 6;
   events[1].weapon = lg::Weapon::LightningGun;
 
   lg::LocalHitFeedbackDedupeState state;
@@ -36,6 +38,10 @@ int main() {
   failures += expect(
     first.hitTargets[1] && first.hitTargets[2],
     "feedback batch should preserve exact damaged targets"
+  );
+  failures += expect(
+    first.damageByTarget[1] == 80 && first.damageByTarget[2] == 6,
+    "feedback batch should preserve authoritative damage by target"
   );
   failures += expect(
     first.lightningGunHit,

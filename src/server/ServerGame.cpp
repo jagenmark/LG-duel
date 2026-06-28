@@ -1076,6 +1076,7 @@ void ServerGame::applyDamageAndKnockback(
     event.active = true;
     event.sequence = sequence;
     event.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
+    event.damageApplied = damageApplied;
     event.weapon = weapon;
   }
 
