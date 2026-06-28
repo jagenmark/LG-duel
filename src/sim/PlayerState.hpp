@@ -18,10 +18,13 @@ struct PlayerState {
   float viewPitchRadians = 0.0F;
 
   int health = 100;
+  CollisionBounds standingBounds = {};
   CollisionBounds bounds = {};
   MovementMode movementMode = MovementMode::Airborne;
   bool onGround = false;
   bool jumpHeld = false;
+  bool crouched = false;
+  float crouchAmount = 0.0F;
 };
 
 } // namespace lg

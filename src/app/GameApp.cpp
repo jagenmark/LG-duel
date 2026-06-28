@@ -1804,6 +1804,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.crouch = input.down > 0;
   command.attack = input.attack > 0;
   command.weapon = weapon;
   return command;
@@ -1828,6 +1829,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.crouch = input.down > 0;
   command.attack = input.attack > 0;
   command.weapon = weapon;
   return command;
@@ -1933,6 +1935,7 @@ int GameApp::run() const {
   registerButtonCommand("moveright", input.right);
   registerButtonCommand("moveup", input.up);
   registerButtonCommand("movedown", input.down);
+  registerButtonCommand("crouch", input.down);
   registerButtonCommand("attack", input.attack);
   registerButtonCommand("scores", scoreboardPressCount);
   registerButtonCommand("zoom", zoomPressCount);
@@ -2304,6 +2307,7 @@ int GameApp::run() const {
         "+moveright\n"
         "+moveup\n"
         "+movedown\n"
+        "+crouch\n"
         "+attack\n"
         "+scores\n"
         "+zoom\n"

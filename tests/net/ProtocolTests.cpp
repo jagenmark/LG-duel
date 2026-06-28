@@ -71,6 +71,7 @@ int main() {
     source.command.upMove = 0.75F;
     source.command.attack = true;
     source.command.jump = true;
+    source.command.crouch = true;
     source.command.planarAim = false;
     source.command.weapon = lg::Weapon::PlasmaGun;
     source.requestReset = true;
@@ -127,7 +128,10 @@ int main() {
       nearlyEqual(decoded.command.viewPitchRadians, -0.25F),
       "command pitch should round trip"
     );
-    failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
+    failures += expect(
+      decoded.command.attack && decoded.command.jump && decoded.command.crouch,
+      "command bits should round trip"
+    );
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
     failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "åäöÅÄÖ", "Swedish chat message should round trip");
@@ -295,9 +299,13 @@ int main() {
     source.players[0].viewYawRadians = 0.75F;
     source.players[0].viewPitchRadians = -0.1F;
     source.players[0].health = 81;
+    source.players[0].standingBounds = {0.7F, 1.8F};
+    source.players[0].bounds = {0.7F, 0.99F};
     source.players[0].movementMode = lg::MovementMode::Flying;
     source.players[0].onGround = false;
     source.players[0].jumpHeld = true;
+    source.players[0].crouched = true;
+    source.players[0].crouchAmount = 0.55F;
     source.players[1].health = 0;
     source.selectedWeapons[0] = lg::Weapon::LightningGun;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
@@ -454,8 +462,12 @@ int main() {
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
     failures += expect(
       decoded.players[0].movementMode == lg::MovementMode::Flying &&
-        decoded.players[0].jumpHeld,
-      "movement mode and jump latch should round trip"
+        decoded.players[0].jumpHeld &&
+        decoded.players[0].crouched &&
+        nearlyEqual(decoded.players[0].crouchAmount, 0.55F) &&
+        nearlyEqual(decoded.players[0].standingBounds.halfHeight, 1.8F) &&
+        nearlyEqual(decoded.players[0].bounds.halfHeight, 0.99F),
+      "movement mode, bounds, and movement latches should round trip"
     );
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");

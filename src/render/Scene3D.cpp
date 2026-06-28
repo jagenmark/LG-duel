@@ -26,6 +26,7 @@ struct PlayerModelBasis {
 
 struct PlayerVisualPose {
   bool airborne = false;
+  float crouchAmount = 0.0F;
 };
 
 struct WeaponModelFrame {
@@ -559,6 +560,7 @@ void addOrientedWireBox(
 [[nodiscard]] PlayerVisualPose makePlayerVisualPose(const PlayerState& player) {
   PlayerVisualPose pose;
   pose.airborne = !player.onGround && player.movementMode == MovementMode::Airborne;
+  pose.crouchAmount = std::clamp(player.crouchAmount, 0.0F, 1.0F);
   return pose;
 }
 
@@ -626,6 +628,20 @@ void forEachPlayerModelPart(
     return;
   }
 
+  if (pose.crouchAmount > 0.001F) {
+    constexpr float torsoPitch = -8.0F * kDegreesToRadians;
+    constexpr float armPitch = -10.0F * kDegreesToRadians;
+    constexpr float legPitch = 28.0F * kDegreesToRadians;
+    part(0.08F, 0.0F, 0.42F, 0.82F, 0.36F, 0.58F, torsoPitch);  // Torso
+    part(-0.04F, 0.0F, 0.27F, 0.49F, 0.34F, 0.50F);             // Hips
+    part(0.13F, 0.0F, 0.72F, 0.98F, 0.34F, 0.36F, torsoPitch);  // Head
+    part(0.10F, -0.72F, 0.33F, 0.72F, 0.20F, 0.20F, armPitch);  // Left arm
+    part(0.12F, 0.72F, 0.34F, 0.72F, 0.20F, 0.20F, armPitch);   // Right arm
+    part(0.18F, -0.28F, 0.02F, 0.38F, 0.27F, 0.20F, legPitch);  // Left leg
+    part(0.26F, 0.28F, 0.00F, 0.38F, 0.27F, 0.20F, legPitch);   // Right leg
+    return;
+  }
+
   part(0.0F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F);  // Torso
   part(0.0F, 0.0F, 0.34F, 0.48F, 0.31F, 0.48F);  // Hips
   part(0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);   // Head
@@ -658,7 +674,7 @@ void addPlayerModel(
   bool leanEnabled,
   float leanScale
 ) {
-  constexpr CollisionBounds kDefaultBounds = {};
+  constexpr CollisionBounds kDefaultBounds{};
   WeaponModelFrame frame;
   frame.basis =
     playerModelBasis(player, leanEnabled, leanScale, 0.0F);
@@ -671,9 +687,10 @@ void addPlayerModel(
     1.8F
   );
   const PlayerVisualPose pose = makePlayerVisualPose(player);
-  const float handForwardOffset = pose.airborne ? 0.22F : 0.18F;
+  const bool crouched = pose.crouchAmount > 0.001F;
+  const float handForwardOffset = pose.airborne ? 0.22F : (crouched ? 0.28F : 0.18F);
   const float handRightOffset = 0.84F;
-  const float handHeightRatio = pose.airborne ? 0.56F : 0.53F;
+  const float handHeightRatio = pose.airborne ? 0.56F : (crouched ? 0.48F : 0.53F);
   frame.hand =
     player.position +
     frame.basis.forward * (frame.basis.radius * handForwardOffset) +
@@ -1017,11 +1034,18 @@ Scene3D buildPerspectiveScene(
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings
 ) {
-  constexpr CollisionBounds defaultBounds = {};
-  const float eyeHeight =
-    0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
+  constexpr float kStandingEyeHeight = 0.65F;
+  const float footZ = player.position.z - player.bounds.halfHeight;
+  const float crouchDrop =
+    player.standingBounds.halfHeight * 0.36F *
+    std::clamp(player.crouchAmount, 0.0F, 1.0F);
   const Vec3 cameraPosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight};
+    {
+      player.position.x,
+      player.position.y,
+      footZ + player.standingBounds.halfHeight + kStandingEyeHeight -
+        crouchDrop,
+    };
 
   Scene3D scene;
   scene.camera = makePerspectiveCamera(

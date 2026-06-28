@@ -70,6 +70,27 @@ int main() {
     "scene camera should use the local player's first-person view"
   );
 
+  lg::PlayerState crouchedLocal = player;
+  crouchedLocal.crouched = true;
+  crouchedLocal.crouchAmount = 1.0F;
+  const lg::Scene3D crouchedLocalScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    crouchedLocal,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    crouchedLocalScene.camera.position.z > 1.15F &&
+      crouchedLocalScene.camera.position.z < baseScene.camera.position.z,
+    "crouch camera should drop modestly instead of following the compressed hull"
+  );
+
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -241,6 +262,53 @@ int main() {
     airborneScene.vertices.size() == baseScene.vertices.size() &&
       airborneLowestModelZ > groundedLowestModelZ + 0.05F,
     "airborne opponent pose should visibly tuck the lower model upward"
+  );
+
+  lg::PlayerState crouchedOpponent = opponent;
+  crouchedOpponent.crouched = true;
+  crouchedOpponent.crouchAmount = 1.0F;
+  const lg::Scene3D crouchedScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    crouchedOpponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  float groundedForwardSum = 0.0F;
+  float crouchedForwardSum = 0.0F;
+  std::size_t groundedPoseCount = 0;
+  std::size_t crouchedPoseCount = 0;
+  for (const lg::Vertex3D& vertex : baseScene.vertices) {
+    if (
+      vertex.color.red >= 120 &&
+      vertex.color.green <= settings.enemyGreen &&
+      vertex.color.blue <= settings.enemyBlue
+    ) {
+      groundedForwardSum += vertex.position.x - opponent.position.x;
+      ++groundedPoseCount;
+    }
+  }
+  for (const lg::Vertex3D& vertex : crouchedScene.vertices) {
+    if (
+      vertex.color.red >= 120 &&
+      vertex.color.green <= settings.enemyGreen &&
+      vertex.color.blue <= settings.enemyBlue
+    ) {
+      crouchedForwardSum += vertex.position.x - crouchedOpponent.position.x;
+      ++crouchedPoseCount;
+    }
+  }
+  failures += expect(
+    crouchedScene.vertices.size() == baseScene.vertices.size() &&
+      crouchedPoseCount == groundedPoseCount &&
+      crouchedForwardSum / static_cast<float>(crouchedPoseCount) >
+        groundedForwardSum / static_cast<float>(groundedPoseCount) + 0.02F,
+    "crouched opponent pose should lean body parts forward instead of only scaling down"
   );
 
   std::size_t outlineVertexCount = 0;

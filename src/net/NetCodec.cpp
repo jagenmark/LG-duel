@@ -235,6 +235,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(command.upMove) &&
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
+    writer.writeBool(command.crouch) &&
     writer.writeBool(command.planarAim) &&
     writer.writeU8(static_cast<std::uint8_t>(command.weapon)) &&
     writer.writeBool(packet.requestReset) &&
@@ -295,6 +296,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.command.upMove) ||
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
+    !reader.readBool(packet.command.crouch) ||
     !reader.readBool(packet.command.planarAim) ||
     !reader.readU8(weapon) ||
     !reader.readBool(packet.requestReset) ||
@@ -497,11 +499,15 @@ bool writePlayer(Writer& writer, const PlayerState& player) {
     writer.writeFloat(player.viewYawRadians) &&
     writer.writeFloat(player.viewPitchRadians) &&
     writer.writeI32(player.health) &&
+    writer.writeFloat(player.standingBounds.radius) &&
+    writer.writeFloat(player.standingBounds.halfHeight) &&
     writer.writeFloat(player.bounds.radius) &&
     writer.writeFloat(player.bounds.halfHeight) &&
     writer.writeU8(static_cast<std::uint8_t>(player.movementMode)) &&
     writer.writeBool(player.onGround) &&
-    writer.writeBool(player.jumpHeld);
+    writer.writeBool(player.jumpHeld) &&
+    writer.writeBool(player.crouched) &&
+    writer.writeFloat(player.crouchAmount);
 }
 
 bool readPlayer(Reader& reader, PlayerState& player) {
@@ -513,11 +519,15 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     !reader.readFloat(player.viewYawRadians) ||
     !reader.readFloat(player.viewPitchRadians) ||
     !reader.readI32(health) ||
+    !reader.readFloat(player.standingBounds.radius) ||
+    !reader.readFloat(player.standingBounds.halfHeight) ||
     !reader.readFloat(player.bounds.radius) ||
     !reader.readFloat(player.bounds.halfHeight) ||
     !reader.readU8(movementMode) ||
     !reader.readBool(player.onGround) ||
-    !reader.readBool(player.jumpHeld)
+    !reader.readBool(player.jumpHeld) ||
+    !reader.readBool(player.crouched) ||
+    !reader.readFloat(player.crouchAmount)
   ) {
     return false;
   }
@@ -526,10 +536,16 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     health < 0 ||
     health > 100000 ||
     movementMode > static_cast<std::uint8_t>(MovementMode::Flying) ||
+    player.standingBounds.radius <= 0.0F ||
+    player.standingBounds.radius > 100.0F ||
+    player.standingBounds.halfHeight <= 0.0F ||
+    player.standingBounds.halfHeight > 100.0F ||
     player.bounds.radius <= 0.0F ||
     player.bounds.radius > 100.0F ||
     player.bounds.halfHeight <= 0.0F ||
-    player.bounds.halfHeight > 100.0F
+    player.bounds.halfHeight > 100.0F ||
+    player.crouchAmount < 0.0F ||
+    player.crouchAmount > 1.0F
   ) {
     return false;
   }

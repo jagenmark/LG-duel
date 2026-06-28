@@ -2,6 +2,7 @@
 
 #include "net/NetProtocol.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -9,6 +10,11 @@
 namespace lg {
 
 inline constexpr float kDefaultSnapshotInterpolationDelaySeconds = 0.024F;
+
+struct InterpolationSnapshot {
+  std::uint32_t serverTick = 0;
+  std::array<PlayerState, kDuelPlayerCount> players = {};
+};
 
 [[nodiscard]] PlayerState interpolatePlayerState(
   const PlayerState& previous,
@@ -30,7 +36,7 @@ public:
   [[nodiscard]] PlayerState player(std::size_t playerIndex, float alpha) const;
 
 private:
-  std::deque<ServerSnapshot> snapshots_;
+  std::deque<InterpolationSnapshot> snapshots_;
   double presentationTick_ = 0.0;
   bool initialized_ = false;
 };

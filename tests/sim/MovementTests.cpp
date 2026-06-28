@@ -209,6 +209,60 @@ int main() {
   }
 
   {
+    lg::UserCommand run;
+    run.forwardMove = 1.0F;
+    lg::UserCommand crouch = run;
+    crouch.crouch = true;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 1000.0F;
+    tuning.crouchTransitionSpeed = 1000.0F;
+    lg::PlayerState standing = groundedPlayer();
+    lg::PlayerState crouched = groundedPlayer();
+
+    runCommand(standing, run, tuning, 20);
+    runCommand(crouched, crouch, tuning, 20);
+
+    failures += expect(
+      crouched.crouched &&
+        nearlyEqual(crouched.crouchAmount, 1.0F) &&
+        nearlyEqual(crouched.bounds.halfHeight, crouched.standingBounds.halfHeight) &&
+        nearlyEqual(crouched.bounds.radius, crouched.standingBounds.radius),
+      "holding crouch should keep standing collision bounds"
+    );
+    failures += expect(
+      crouched.velocity.x > standing.velocity.x * 0.5F &&
+        crouched.velocity.x < standing.velocity.x * 0.7F,
+      "holding crouch should reduce sustained ground speed without feeling glued down"
+    );
+    failures += expect(
+      nearlyEqual(
+        crouched.position.z,
+        standing.position.z
+      ),
+      "crouching should not resize or lower the gameplay box"
+    );
+  }
+
+  {
+    lg::UserCommand crouch;
+    crouch.crouch = true;
+    lg::UserCommand stand;
+    lg::MovementTuning tuning;
+    tuning.crouchTransitionSpeed = 1000.0F;
+    lg::PlayerState player = groundedPlayer();
+
+    runCommand(player, crouch, tuning, 1);
+    runCommand(player, stand, tuning, 1);
+
+    failures += expect(
+      !player.crouched &&
+        nearlyEqual(player.crouchAmount, 0.0F) &&
+        nearlyEqual(player.bounds.halfHeight, player.standingBounds.halfHeight),
+      "releasing crouch should restore standing bounds"
+    );
+  }
+
+  {
     lg::PlayerState player = groundedPlayer();
     lg::UserCommand command;
     command.jump = true;

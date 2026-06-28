@@ -79,6 +79,18 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   return normalize((forward * command.forwardMove) + (right * command.rightMove));
 }
 
+void updateCrouchState(PlayerState& player, const UserCommand& command, const MovementTuning& tuning, float fixedDt) {
+  const float targetAmount = command.crouch ? 1.0F : 0.0F;
+  const float maxStep = std::max(0.0F, tuning.crouchTransitionSpeed) * fixedDt;
+  if (player.crouchAmount < targetAmount) {
+    player.crouchAmount = std::min(targetAmount, player.crouchAmount + maxStep);
+  } else {
+    player.crouchAmount = std::max(targetAmount, player.crouchAmount - maxStep);
+  }
+  player.crouched = player.crouchAmount > 0.001F;
+  player.bounds = player.standingBounds;
+}
+
 void simulateGroundedOrAirborne(
   PlayerState& player,
   const UserCommand& command,
@@ -88,11 +100,13 @@ void simulateGroundedOrAirborne(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  updateCrouchState(player, command, tuning, fixedDt);
   if (!command.jump) {
     player.jumpHeld = false;
   }
 
-  const bool jumpStarted = player.onGround && command.jump && !player.jumpHeld;
+  const bool jumpStarted =
+    player.onGround && command.jump && !command.crouch && !player.jumpHeld;
   if (jumpStarted) {
     player.velocity.z = tuning.jumpImpulse;
     player.jumpHeld = true;
@@ -108,10 +122,12 @@ void simulateGroundedOrAirborne(
   const Vec3 wishDirection = movementWishDirection(command);
   if (length(wishDirection) > 0.0F) {
     const bool grounded = player.movementMode == MovementMode::Grounded;
+    const float groundSpeed = tuning.maxGroundSpeed *
+      (player.crouched ? std::clamp(tuning.crouchSpeedScale, 0.0F, 1.0F) : 1.0F);
     accelerate(
       player.velocity,
       wishDirection,
-      grounded ? tuning.maxGroundSpeed : tuning.maxAirSpeed,
+      grounded ? groundSpeed : tuning.maxAirSpeed,
       grounded ? tuning.groundAcceleration : tuning.airAcceleration,
       fixedDt
     );
@@ -157,6 +173,9 @@ void simulateFlying(
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
   player.jumpHeld = command.jump;
+  player.crouched = false;
+  player.crouchAmount = 0.0F;
+  player.bounds = player.standingBounds;
   player.onGround = false;
 
   applyFlightDamping(player.velocity, tuning, fixedDt);

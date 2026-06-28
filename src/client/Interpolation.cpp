@@ -19,8 +19,8 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 }
 
 [[nodiscard]] PlayerState samplePlayerBetweenSnapshots(
-  const ServerSnapshot& previous,
-  const ServerSnapshot& current,
+  const InterpolationSnapshot& previous,
+  const InterpolationSnapshot& current,
   std::size_t playerIndex,
   double presentationTick
 ) {
@@ -39,7 +39,7 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 }
 
 [[nodiscard]] double latestPresentationTick(
-  const std::deque<ServerSnapshot>& snapshots,
+  const std::deque<InterpolationSnapshot>& snapshots,
   float interpolationDelaySeconds
 ) {
   if (snapshots.empty()) {
@@ -60,6 +60,10 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 
 } // namespace
 
+[[nodiscard]] InterpolationSnapshot makeInterpolationSnapshot(const ServerSnapshot& snapshot) {
+  return {snapshot.serverTick, snapshot.players};
+}
+
 PlayerState interpolatePlayerState(
   const PlayerState& previous,
   const PlayerState& current,
@@ -75,8 +79,9 @@ PlayerState interpolatePlayerState(
 }
 
 void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
+  const InterpolationSnapshot bufferedSnapshot = makeInterpolationSnapshot(snapshot);
   if (!initialized_) {
-    snapshots_.push_back(snapshot);
+    snapshots_.push_back(bufferedSnapshot);
     presentationTick_ = static_cast<double>(snapshot.serverTick);
     initialized_ = true;
     return;
@@ -86,7 +91,7 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
     return;
   }
 
-  snapshots_.push_back(snapshot);
+  snapshots_.push_back(bufferedSnapshot);
   while (snapshots_.size() > kMaxBufferedSnapshots) {
     snapshots_.pop_front();
   }
@@ -169,7 +174,7 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     snapshots_.begin(),
     snapshots_.end(),
     presentationTick_,
-    [](const ServerSnapshot& snapshot, double tick) {
+    [](const InterpolationSnapshot& snapshot, double tick) {
       return static_cast<double>(snapshot.serverTick) < tick;
     }
   );

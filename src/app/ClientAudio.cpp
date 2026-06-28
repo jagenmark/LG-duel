@@ -462,7 +462,10 @@ void updateFootstepAudio(
   const Vec3 delta = player.position - state.previousPosition;
   const float horizontalDistance = std::hypot(delta.x, delta.y);
   const bool movingOnGround =
-    player.health > 0 && player.onGround && horizontalSpeed >= kMinimumStepSpeed;
+    player.health > 0 &&
+    player.onGround &&
+    !player.crouched &&
+    horizontalSpeed >= kMinimumStepSpeed;
 
   auto playStep = [&]() {
     const SpatialAudio spatial = localPlayer

@@ -381,6 +381,37 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    bool emittedFootstep = false;
+    bool observedCrouch = false;
+    for (std::uint32_t tick = 0; tick < 120; ++tick) {
+      lg::CommandPacket command;
+      command.playerIndex = 1;
+      command.command.sequence = tick + 1;
+      command.command.forwardMove = 1.0F;
+      command.command.crouch = true;
+      transport.sendCommand(command);
+      server.tick(lg::kFixedTickSeconds);
+      const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+      emittedFootstep = emittedFootstep || snapshot.footstepAudioEvents[1].active;
+      observedCrouch = observedCrouch ||
+        (
+          snapshot.players[1].crouched &&
+          snapshot.players[1].bounds.halfHeight ==
+            snapshot.players[1].standingBounds.halfHeight
+        );
+    }
+
+    failures += expect(
+      observedCrouch && !emittedFootstep,
+      "server should suppress footstep audio while crouch-walking without shrinking bounds"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     const std::filesystem::path mapDirectory =
       std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
     std::filesystem::create_directories(mapDirectory);

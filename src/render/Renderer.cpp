@@ -750,12 +750,18 @@ const PlayerState& firstVisibleRemote(
   float aspectRatio,
   float fieldOfView
 ) {
-  constexpr CollisionBounds kDefaultPlayerBounds = {};
-  const float eyeHeight =
-    0.65F *
-    (player.bounds.halfHeight / kDefaultPlayerBounds.halfHeight);
+  constexpr float kStandingEyeHeight = 0.65F;
+  const float footZ = player.position.z - player.bounds.halfHeight;
+  const float crouchDrop =
+    player.standingBounds.halfHeight * 0.36F *
+    std::clamp(player.crouchAmount, 0.0F, 1.0F);
   return makePerspectiveCamera(
-    player.position + Vec3{0.0F, 0.0F, eyeHeight},
+    {
+      player.position.x,
+      player.position.y,
+      footZ + player.standingBounds.halfHeight + kStandingEyeHeight -
+        crouchDrop,
+    },
     player.viewYawRadians,
     player.viewPitchRadians,
     fieldOfView,
@@ -2282,6 +2288,7 @@ const RendererFrameDiagnostics& Renderer::lastFrameDiagnostics() const {
 void Renderer::shutdown() {
 #if LG_DUEL_HAS_SDL3
   if (gpuDevice_ != nullptr) {
+    (void)SDL_WaitForGPUIdle(static_cast<SDL_GPUDevice*>(gpuDevice_));
     delete static_cast<std::vector<GpuVertex>*>(gpuVertexScratch_);
     gpuVertexScratch_ = nullptr;
     if (gpuDepthTexture_ != nullptr) {

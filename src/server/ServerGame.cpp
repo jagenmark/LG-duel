@@ -25,7 +25,7 @@ constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
 constexpr std::uint32_t kWeaponPulloutTicks = 20;
-constexpr CollisionBounds kDefaultPlayerBounds = {};
+constexpr CollisionBounds kDefaultPlayerBounds{};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
 constexpr float kProjectileCollisionEpsilon = 0.0001F;
@@ -39,6 +39,7 @@ constexpr float kProjectileCollisionEpsilon = 0.0001F;
   player.health = healthAmount;
   player.position = arena.spawnPositions[playerIndex];
   player.position.z += player.bounds.halfHeight;
+  player.standingBounds = player.bounds;
   player.viewYawRadians = std::atan2(-player.position.y, -player.position.x);
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
@@ -636,6 +637,7 @@ void ServerGame::resetMatch() {
       kDefaultPlayerBounds.radius * playerSizeScaleXY_;
     player.bounds.halfHeight =
       kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
+    player.standingBounds = player.bounds;
     player.position.z =
       arena_.spawnPositions[playerIndex].z + player.bounds.halfHeight;
   }
@@ -715,6 +717,8 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
     kDefaultPlayerBounds.radius * playerSizeScaleXY_;
   snapshot_.players[playerIndex].bounds.halfHeight =
     kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
+  snapshot_.players[playerIndex].standingBounds =
+    snapshot_.players[playerIndex].bounds;
   snapshot_.players[playerIndex].position.z =
     arena_.spawnPositions[playerIndex].z +
     snapshot_.players[playerIndex].bounds.halfHeight;
@@ -1547,7 +1551,7 @@ void ServerGame::updateFootstepAudioEvents() {
     const Vec3 delta = player.position - state.previousPosition;
     const float horizontalDistance = std::hypot(delta.x, delta.y);
     const bool movingOnGround =
-      player.onGround && horizontalSpeed >= kMinimumStepSpeed;
+      player.onGround && !player.crouched && horizontalSpeed >= kMinimumStepSpeed;
 
     auto emitStep = [&]() {
       FootstepAudioEvent& event = snapshot_.footstepAudioEvents[playerIndex];
@@ -1872,6 +1876,7 @@ void ServerGame::receiveCommands() {
           kDefaultPlayerBounds.radius * playerSizeScaleXY_;
         player.bounds.halfHeight =
           kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
+        player.standingBounds = player.bounds;
         player.position.z += player.bounds.halfHeight - previousHalfHeight;
         player.position.z =
           std::clamp(

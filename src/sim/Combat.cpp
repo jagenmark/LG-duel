@@ -190,7 +190,7 @@ constexpr float kTwoPi = 6.28318530718F;
 } // namespace
 
 Vec3 weaponMuzzlePosition(const PlayerState& attacker, float eyeHeight) {
-  constexpr CollisionBounds kDefaultPlayerBounds = {};
+  constexpr CollisionBounds kDefaultPlayerBounds{};
   const float heightScale =
     attacker.bounds.halfHeight / kDefaultPlayerBounds.halfHeight;
   return attacker.position + Vec3{0.0F, 0.0F, eyeHeight * heightScale};
