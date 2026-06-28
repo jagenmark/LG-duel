@@ -79,6 +79,7 @@ int main() {
     source.requestedGameMode = lg::GameMode::ClanArena;
     source.requestTeam = true;
     source.requestedTeam = lg::Team::Blue;
+    source.weaponSwitchingMode = lg::WeaponSwitchingMode::Cpma;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
     source.movementTuning.airControlEnabled = true;
@@ -142,6 +143,10 @@ int main() {
     failures += expect(
       decoded.requestTeam && decoded.requestedTeam == lg::Team::Blue,
       "explicit team request should round trip"
+    );
+    failures += expect(
+      decoded.weaponSwitchingMode == lg::WeaponSwitchingMode::Cpma,
+      "weapon switching mode request should round trip"
     );
     failures += expect(
       decoded.requestMovementTuning &&
@@ -422,6 +427,7 @@ int main() {
     source.botDodgeEnabled = true;
     source.botDodgeMinIntervalMs = 300;
     source.botDodgeMaxIntervalMs = 700;
+    source.weaponSwitchingMode = lg::WeaponSwitchingMode::Ql;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
     source.roundWinner = 0;
@@ -612,7 +618,8 @@ int main() {
       decoded.healthAmount == 150 &&
       decoded.botDodgeEnabled &&
       decoded.botDodgeMinIntervalMs == 300 &&
-      decoded.botDodgeMaxIntervalMs == 700,
+      decoded.botDodgeMaxIntervalMs == 700 &&
+      decoded.weaponSwitchingMode == lg::WeaponSwitchingMode::Ql,
       "authoritative movement tuning should round trip"
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");

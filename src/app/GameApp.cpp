@@ -114,6 +114,20 @@ void copyTextToClipboard(std::string_view text) {
   };
 }
 
+[[nodiscard]] WeaponSwitchingMode weaponSwitchingMode(const ConsoleSystem& console) {
+  std::string value = console.getString("g_weaponswitching");
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  if (value == "ql" || value == "0") {
+    return WeaponSwitchingMode::Ql;
+  }
+  if (value == "cpma" || value == "1") {
+    return WeaponSwitchingMode::Cpma;
+  }
+  return WeaponSwitchingMode::Crazy;
+}
+
 [[nodiscard]] DamageNumbersConfig damageNumbersConfig(
   const ConsoleSystem& console
 ) {
@@ -2513,6 +2527,8 @@ int GameApp::run() const {
     selfDamagePercent(console);
   std::int32_t lastRequestedHealthAmount =
     healthAmount(console);
+  WeaponSwitchingMode lastRequestedWeaponSwitchingMode =
+    weaponSwitchingMode(console);
   bool lastRequestedBotDodgeEnabled = botDodgeEnabled;
   std::int32_t lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
   std::int32_t lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
@@ -3083,6 +3099,8 @@ int GameApp::run() const {
       selfDamagePercent(console);
     const std::int32_t currentHealthAmount =
       healthAmount(console);
+    const WeaponSwitchingMode currentWeaponSwitchingMode =
+      weaponSwitchingMode(console);
     if (!sameRuntimeMovementTuning(
           currentMovementTuning,
           lastRequestedMovementTuning
@@ -3105,6 +3123,7 @@ int GameApp::run() const {
           lastRequestedWeaponDamage.rocketLauncherDamage ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
+        currentWeaponSwitchingMode != lastRequestedWeaponSwitchingMode ||
         botDodgeEnabled != lastRequestedBotDodgeEnabled ||
         botDodgeMinIntervalMs != lastRequestedBotDodgeMinIntervalMs ||
         botDodgeMaxIntervalMs != lastRequestedBotDodgeMaxIntervalMs) {
@@ -3118,6 +3137,7 @@ int GameApp::run() const {
       lastRequestedWeaponDamage = currentWeaponDamage;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
+      lastRequestedWeaponSwitchingMode = currentWeaponSwitchingMode;
       lastRequestedBotDodgeEnabled = botDodgeEnabled;
       lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
       lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
@@ -3128,9 +3148,15 @@ int GameApp::run() const {
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
     previousTime = now;
     titleAccumulatorSeconds += elapsed.count();
-    if (selectedWeapon != viewWeapon) {
+    Weapon displayedSelectedWeapon = selectedWeapon;
+    if (const ClientGame* weaponGame = session.game();
+        weaponGame != nullptr && weaponGame->hasSnapshot()) {
+      displayedSelectedWeapon =
+        weaponGame->snapshot().selectedWeapons[session.playerIndex()];
+    }
+    if (displayedSelectedWeapon != viewWeapon) {
       previousViewWeapon = viewWeapon;
-      viewWeapon = selectedWeapon;
+      viewWeapon = displayedSelectedWeapon;
       weaponSwitchSeconds = 0.0F;
     }
     weaponSwitchSeconds = std::min(
@@ -3239,7 +3265,8 @@ int GameApp::run() const {
         requestGameModePending,
         requestedGameMode,
         requestTeamPending,
-        requestedTeam
+        requestedTeam,
+        lastRequestedWeaponSwitchingMode
       );
       if (!sentPlayerName.empty()) {
         lastSentPlayerName = sentPlayerName;
@@ -3624,7 +3651,7 @@ int GameApp::run() const {
           if (
             hasLocalRailFireTick &&
             !localRailReadySoundPlayed &&
-            selectedWeapon == Weapon::Railgun &&
+            displayedSelectedWeapon == Weapon::Railgun &&
             audioSnapshot.serverTick - lastLocalRailFireTick >=
               kClientRailgunCooldownTicks
           ) {
@@ -4151,7 +4178,7 @@ int GameApp::run() const {
     }
 
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
-    hud.selectedWeapon = selectedWeapon;
+    hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F

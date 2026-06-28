@@ -41,7 +41,8 @@ public:
     bool requestGameMode = false,
     GameMode requestedGameMode = GameMode::Duel,
     bool requestTeam = false,
-    Team requestedTeam = Team::None
+    Team requestedTeam = Team::None,
+    WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy
   );
   void receiveSnapshots();
   void advanceInterpolation(float elapsedSeconds, float interpolationDelaySeconds);

@@ -65,6 +65,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
+  console.registerCvar({"g_weaponswitching", "Authoritative weapon switching rules: ql, cpma, or crazy.", std::string("crazy"), CvarFlag::Client});
   console.registerCvar({"g_flight", "Enable unrestricted flight symmetrically for both players.", false, CvarFlag::Client, {}, {}});
   console.registerCvar({"g_flightaccel", "Authoritative flight thrust acceleration.", 32.0F, CvarFlag::Client, 0.0F, 1000.0F});
   console.registerCvar({"g_flightmaxspeed", "Authoritative maximum flight speed.", 12.0F, CvarFlag::Client, 0.1F, 100.0F});

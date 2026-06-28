@@ -59,6 +59,11 @@ int main() {
     "LG fire rate should be configurable"
   );
   failures += expect(
+    console.execute("g_weaponswitching cpma") == "g_weaponswitching = cpma" &&
+      console.getString("g_weaponswitching") == "cpma",
+    "weapon switching rules should be configurable from the client console"
+  );
+  failures += expect(
     console.execute("r_damage_numbers_mode") ==
       "r_damage_numbers_mode = 0 (default 0)",
     "damage numbers should default to disabled"
