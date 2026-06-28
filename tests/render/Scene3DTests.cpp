@@ -1,4 +1,5 @@
 #include "render/Scene3D.hpp"
+#include "sim/Arena.hpp"
 #include "sim/WeaponCatalog.hpp"
 
 #include <array>
@@ -70,6 +71,52 @@ int main() {
     "scene camera should use the local player's first-person view"
   );
 
+  arena.wallCount = 1;
+  arena.walls[0] = {{3.0F, 1.0F, 0.0F}, {5.0F, 3.0F, 2.0F}};
+  arena.walls[0].materialId =
+    lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
+  const lg::Scene3D texturedWallScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  bool foundTexturedWallVertex = false;
+  bool foundWallUvSpan = false;
+  float firstWallU = 0.0F;
+  float firstWallV = 0.0F;
+  bool capturedFirstWallUv = false;
+  for (const lg::Vertex3D& vertex : texturedWallScene.vertices) {
+    if (vertex.materialId != arena.walls[0].materialId) {
+      continue;
+    }
+    foundTexturedWallVertex = true;
+    if (!capturedFirstWallUv) {
+      firstWallU = vertex.u;
+      firstWallV = vertex.v;
+      capturedFirstWallUv = true;
+      continue;
+    }
+    foundWallUvSpan = foundWallUvSpan ||
+      !nearlyEqual(vertex.u, firstWallU) ||
+      !nearlyEqual(vertex.v, firstWallV);
+  }
+  failures += expect(
+    foundTexturedWallVertex,
+    "wall scene geometry should preserve the wall material id"
+  );
+  failures += expect(
+    foundWallUvSpan,
+    "wall scene geometry should emit varying texture coordinates"
+  );
+  arena.wallCount = 0;
+
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -88,6 +135,31 @@ int main() {
     "local velocity should not roll the first-person camera"
   );
   player.velocity = {};
+
+  {
+    lg::Arena largeArena;
+    largeArena.min = {-145.0F, -97.0F, -33.0F};
+    largeArena.max = {225.0F, 225.0F, 113.0F};
+    largeArena.wallCount = 0;
+    lg::PlayerState largeMapPlayer = player;
+    largeMapPlayer.position = {0.0F, 0.0F, 1.0F};
+    const lg::Scene3D largeScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      largeArena,
+      largeMapPlayer,
+      opponent,
+      inactiveBeam,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings
+    );
+    failures += expect(
+      largeScene.vertices.size() < 131072,
+      "large TrenchBroom-scale arenas should keep perspective vertex count under the GPU buffer limit"
+    );
+  }
 
   opponent.velocity = lg::yawRight(opponent.viewYawRadians) * 8.0F;
   lg::RenderSettings leanSettings = settings;

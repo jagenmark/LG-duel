@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -14,6 +15,8 @@ namespace lg {
 struct ArenaWall {
   Vec3 min = {};
   Vec3 max = {};
+  std::uint32_t materialId = 0;
+  std::array<std::uint32_t, 6> faceMaterialIds = {};
 };
 
 struct Arena {
@@ -40,7 +43,9 @@ struct ArenaLoadResult {
 };
 
 [[nodiscard]] ArenaLoadResult loadArenaFromText(std::string_view text);
+[[nodiscard]] ArenaLoadResult loadArenaFromMapText(std::string_view text);
 [[nodiscard]] ArenaLoadResult loadArenaFromFile(const std::string& path);
+[[nodiscard]] std::uint32_t arenaMaterialId(std::string_view material);
 [[nodiscard]] Arena thunderstruckArena();
 
 struct CollisionResult {

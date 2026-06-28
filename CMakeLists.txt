@@ -20,6 +20,8 @@ add_library(lg_duel_core
   src/client/Prediction.cpp
   src/console/ConsoleSystem.cpp
   src/input/InputBindings.cpp
+  src/map/MapParser.cpp
+  src/map/MapToArena.cpp
   src/net/LoopbackTransport.cpp
   src/net/NetCodec.cpp
   src/net/SimulatedTransport.cpp
@@ -95,15 +97,6 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_SOURCE_DIR}/maps"
-    "$<TARGET_FILE_DIR:lg_duel_client>/maps"
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_SOURCE_DIR}/config"
-    "$<TARGET_FILE_DIR:lg_duel_client>/config"
-  COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
-    "$<TARGET_FILE_DIR:lg_duel_client>/assets/audio"
 )
 
 if(WIN32 AND TARGET SDL3::SDL3)
@@ -123,16 +116,44 @@ add_executable(lg_duel_server
 target_link_libraries(lg_duel_server PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_server)
 
-add_custom_command(
-  TARGET lg_duel_server
-  POST_BUILD
+add_custom_target(lg_duel_runtime_assets ALL
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/maps"
+    "$<TARGET_FILE_DIR:lg_duel_client>/maps"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/config"
+    "$<TARGET_FILE_DIR:lg_duel_client>/config"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
+    "$<TARGET_FILE_DIR:lg_duel_client>/assets/audio"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/textures"
+    "$<TARGET_FILE_DIR:lg_duel_client>/textures"
+  COMMAND ${CMAKE_COMMAND} -E make_directory
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/color2d.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/color2d.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/color2d.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/color2d.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_server>/maps"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/config"
     "$<TARGET_FILE_DIR:lg_duel_server>/config"
+  COMMENT "Syncing runtime maps, config, shaders, textures, and audio"
 )
+
+add_dependencies(lg_duel_client lg_duel_runtime_assets)
+add_dependencies(lg_duel_server lg_duel_runtime_assets)
 
 add_executable(lg_duel_server_probe
   tools/ServerProbe.cpp
@@ -140,6 +161,21 @@ add_executable(lg_duel_server_probe
 
 target_link_libraries(lg_duel_server_probe PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_server_probe)
+
+add_executable(lg_duel_map_validate
+  tools/MapValidate.cpp
+)
+
+target_link_libraries(lg_duel_map_validate PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_map_validate)
+
+add_custom_target(lg_duel_validate_maps ALL
+  COMMAND $<TARGET_FILE:lg_duel_map_validate> "${CMAKE_CURRENT_SOURCE_DIR}/maps"
+  DEPENDS lg_duel_map_validate
+  COMMENT "Validating maps"
+)
+
+add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)
 
 if(BUILD_TESTING)
   add_subdirectory(tests)

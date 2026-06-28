@@ -157,6 +157,56 @@ bindlist
 actionlist
 ```
 
+## Restricted TrenchBroom `.map` Workflow
+
+LG Duel can load a narrow Quake/TrenchBroom text `.map` subset beside the
+native `.lgmap` format. This is an authoring convenience only; it is not Quake
+or BSP compatibility.
+
+Create a new TrenchBroom map, use only rectangular axis-aligned cuboid brushes
+in `worldspawn`, place player spawns with point entities named
+`info_player_duel`, `info_player_deathmatch`, or `lg_spawn`, and save it as
+`maps/<name>.map`. Spawn entities need an `origin` key like `"4 -3 1"` and may
+include `angle` or `yaw` in degrees. Optional worldspawn keys
+`lg_bounds_min` and `lg_bounds_max` can set arena bounds; otherwise bounds are
+computed from converted boxes and spawns with padding.
+
+Brush texture names are preserved as material ids and replicated to clients.
+Referenced textures must exist under `textures/`; for example a TrenchBroom
+face material `512x512/Brick/Brick_14-512x512` resolves to
+`textures/512x512/Brick/Brick_14-512x512.png`. The SDL_GPU first-person
+renderer samples those textures on cuboid wall faces. Top-down rendering uses
+stable per-material colors for readability. The old grass/brown prototype
+treatment is no longer used.
+
+After saving from TrenchBroom, run:
+
+```powershell
+cmake --build --preset default
+```
+
+The build validates every `.lgmap` and `.map` file in `maps/`. A valid map
+prints `map ok`; an invalid map prints `map ERROR: <file>: <reason>` and stops
+the build before copying runtime assets. Fix those errors first, then build
+again. A successful build also syncs `maps/` into the runtime output directory
+along with `textures/`, shaders, config, and audio even when no C++ files
+changed.
+
+Then load it with the existing console command:
+
+```text
+map <name>
+```
+
+Bare map names still prefer `maps/<name>.lgmap` first for backwards
+compatibility, then try `maps/<name>.map`. Explicit extensions load only that
+file, for example `map dev_cuboids.map`.
+
+Unsupported geometry fails loudly instead of being approximated. Arbitrary
+Quake maps, compiled `.bsp` files, sloped or rotated brushes, curves, patches,
+concave/non-cuboid brushes, per-face networked materials, and complex entity
+behavior are not supported yet.
+
 Button-style commands automatically receive their matching release command. For example:
 
 ```text
@@ -228,7 +278,7 @@ Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspee
 
 `g_lg_damage` defaults to `120` and is distributed over `g_lg_fire_hz` damage instances per second. The default `g_lg_fire_hz 20` produces 6 damage per LG instance while keeping knockback scaled from the existing per-second LG knockback value. `g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
 
-Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set and persist a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` and reset the match; map names are limited to letters, numbers, `_`, and `-`.
+Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set and persist a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` or `maps/<name>.map` and reset the match; map names are limited to letters, numbers, `_`, and `-`, with optional `.lgmap` or `.map` extension.
 
 `cl_render_mode 0` uses the standard top-down renderer. `cl_render_mode 1` uses
 a first-person perspective view from the local player's yaw and pitch. It

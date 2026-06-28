@@ -1,8 +1,11 @@
 #include "sim/Arena.hpp"
 
+#include "map/MapToArena.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -167,6 +170,22 @@ struct ParsedArena {
 
 } // namespace
 
+std::uint32_t arenaMaterialId(std::string_view material) {
+  std::uint32_t hash = 2166136261U;
+  for (char character : material) {
+    char normalized = character;
+    if (normalized == '\\') {
+      normalized = '/';
+    }
+    if (normalized >= 'A' && normalized <= 'Z') {
+      normalized = static_cast<char>(normalized - 'A' + 'a');
+    }
+    hash ^= static_cast<unsigned char>(normalized);
+    hash *= 16777619U;
+  }
+  return hash == 0U ? 1U : hash;
+}
+
 ArenaLoadResult loadArenaFromText(std::string_view text) {
   ParsedArena parsed;
   parsed.arena.walls = {};
@@ -266,7 +285,11 @@ ArenaLoadResult loadArenaFromFile(const std::string& path) {
 
   std::ostringstream text;
   text << file.rdbuf();
-  ArenaLoadResult result = loadArenaFromText(text.str());
+  const std::filesystem::path mapPath(path);
+  const std::string extension = mapPath.extension().string();
+  ArenaLoadResult result = extension == ".map"
+    ? loadArenaFromMapText(text.str())
+    : loadArenaFromText(text.str());
   if (!result.ok) {
     result.error = path + ": " + result.error;
   }

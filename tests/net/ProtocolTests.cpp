@@ -286,6 +286,8 @@ int main() {
     source.arena.max = {20.0F, 10.0F, 12.0F};
     source.arena.wallCount = 1;
     source.arena.walls[0] = {{-1.0F, -2.0F, 0.0F}, {1.0F, 2.0F, 3.0F}};
+    source.arena.walls[0].materialId =
+      lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
     source.arena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
     source.arena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
     source.acknowledgedCommand = {12, 34};
@@ -448,6 +450,7 @@ int main() {
       decoded.arena.wallCount == 1 &&
         nearlyEqual(decoded.arena.max.x, 20.0F) &&
         nearlyEqual(decoded.arena.walls[0].max.z, 3.0F) &&
+        decoded.arena.walls[0].materialId == source.arena.walls[0].materialId &&
         nearlyEqual(decoded.arena.spawnPositions[1].x, 8.0F),
       "snapshot arena should round trip"
     );

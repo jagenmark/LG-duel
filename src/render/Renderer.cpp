@@ -17,10 +17,13 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace lg {
@@ -128,12 +131,282 @@ constexpr Uint32 kFontAtlasHeight = 128;
 constexpr float kSolidTextureU = 4.0F / static_cast<float>(kFontAtlasWidth);
 constexpr float kSolidTextureV = 4.0F / static_cast<float>(kFontAtlasHeight);
 
+struct TextureAtlasEntry {
+  float u0 = kSolidTextureU;
+  float v0 = kSolidTextureV;
+  float u1 = kSolidTextureU;
+  float v1 = kSolidTextureV;
+};
+
+struct TextureAtlas {
+  SDL_GPUTexture* texture = nullptr;
+  SDL_GPUSampler* sampler = nullptr;
+  std::unordered_map<std::uint32_t, TextureAtlasEntry> entries;
+};
+
+void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
+  if (atlas == nullptr) {
+    return;
+  }
+  if (atlas->sampler != nullptr) {
+    SDL_ReleaseGPUSampler(device, atlas->sampler);
+  }
+  if (atlas->texture != nullptr) {
+    SDL_ReleaseGPUTexture(device, atlas->texture);
+  }
+  delete atlas;
+}
+
 [[nodiscard]] std::string shaderPath(std::string_view filename) {
   const char* basePath = SDL_GetBasePath();
   std::string path = basePath != nullptr ? basePath : "";
   path += "shaders/";
   path += filename;
   return path;
+}
+
+[[nodiscard]] std::string basePath() {
+  const char* path = SDL_GetBasePath();
+  return path != nullptr ? path : "";
+}
+
+[[nodiscard]] std::string normalizedMaterialPath(std::string material) {
+  std::replace(material.begin(), material.end(), '\\', '/');
+  while (!material.empty() && material.front() == '/') {
+    material.erase(material.begin());
+  }
+  return material;
+}
+
+void collectTextureMaterials(
+  const std::filesystem::path& textureDirectory,
+  std::unordered_set<std::string>& materials
+) {
+  if (!std::filesystem::is_directory(textureDirectory)) {
+    return;
+  }
+  for (const std::filesystem::directory_entry& entry :
+       std::filesystem::recursive_directory_iterator(textureDirectory)) {
+    if (!entry.is_regular_file() || entry.path().extension() != ".png") {
+      continue;
+    }
+    std::filesystem::path relative =
+      std::filesystem::relative(entry.path(), textureDirectory);
+    const std::string withExtension = normalizedMaterialPath(relative.generic_string());
+    materials.insert(withExtension);
+    relative.replace_extension();
+    materials.insert(normalizedMaterialPath(relative.generic_string()));
+  }
+}
+
+[[nodiscard]] std::filesystem::path texturePathForMaterial(
+  const std::filesystem::path& textureDirectory,
+  const std::string& material
+) {
+  std::filesystem::path path = textureDirectory / material;
+  if (path.extension().empty()) {
+    path += ".png";
+  }
+  return path;
+}
+
+void copySurfaceToAtlas(
+  const SDL_Surface& surface,
+  std::vector<std::uint8_t>& atlasPixels,
+  int atlasWidth,
+  int atlasHeight,
+  int destinationX,
+  int destinationY,
+  int cellSize
+) {
+  const auto* sourcePixels = static_cast<const std::uint8_t*>(surface.pixels);
+  for (int y = 0; y < cellSize; ++y) {
+    if (destinationY + y >= atlasHeight) {
+      break;
+    }
+    const int sourceY = std::clamp(
+      static_cast<int>(
+        (static_cast<long long>(y) * surface.h) / std::max(1, cellSize)
+      ),
+      0,
+      std::max(0, surface.h - 1)
+    );
+    const std::uint8_t* sourceRow =
+      sourcePixels + static_cast<std::size_t>(sourceY) * static_cast<std::size_t>(surface.pitch);
+    std::uint8_t* destinationRow =
+      atlasPixels.data() +
+      (static_cast<std::size_t>(destinationY + y) * static_cast<std::size_t>(atlasWidth) +
+       static_cast<std::size_t>(destinationX)) * 4U;
+    for (int x = 0; x < cellSize && destinationX + x < atlasWidth; ++x) {
+      const int sourceX = std::clamp(
+        static_cast<int>(
+          (static_cast<long long>(x) * surface.w) / std::max(1, cellSize)
+        ),
+        0,
+        std::max(0, surface.w - 1)
+      );
+      std::memcpy(
+        destinationRow + static_cast<std::size_t>(x) * 4U,
+        sourceRow + static_cast<std::size_t>(sourceX) * 4U,
+        4U
+      );
+    }
+  }
+}
+
+[[nodiscard]] TextureAtlas* createTextureAtlas(SDL_GPUDevice* device) {
+  constexpr int kAtlasSize = 4096;
+  constexpr int kCellSize = 256;
+  constexpr int kCellsPerRow = kAtlasSize / kCellSize;
+
+  std::vector<std::uint8_t> atlasPixels(
+    static_cast<std::size_t>(kAtlasSize) * static_cast<std::size_t>(kAtlasSize) * 4U,
+    255U
+  );
+  auto atlas = new TextureAtlas();
+  std::unordered_set<std::string> materials;
+  const std::filesystem::path root = basePath();
+  collectTextureMaterials(root / "textures", materials);
+  int cellIndex = 1;
+  bool warnedAtlasFull = false;
+  for (const std::string& material : materials) {
+    if (cellIndex >= kCellsPerRow * kCellsPerRow) {
+      if (!warnedAtlasFull) {
+        std::cerr
+          << "SDL_GPU world texture atlas capacity exceeded; "
+          << "some wall textures will render as white.\n";
+        warnedAtlasFull = true;
+      }
+      break;
+    }
+    const std::filesystem::path texturePath =
+      texturePathForMaterial(root / "textures", material);
+    SDL_Surface* loaded = SDL_LoadPNG(texturePath.string().c_str());
+    if (loaded == nullptr) {
+      continue;
+    }
+    SDL_Surface* converted = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
+    SDL_DestroySurface(loaded);
+    if (converted == nullptr) {
+      continue;
+    }
+    const int cellX = (cellIndex % kCellsPerRow) * kCellSize;
+    const int cellY = (cellIndex / kCellsPerRow) * kCellSize;
+    copySurfaceToAtlas(*converted, atlasPixels, kAtlasSize, kAtlasSize, cellX, cellY, kCellSize);
+    SDL_DestroySurface(converted);
+
+    const float inset = 0.5F;
+    atlas->entries[arenaMaterialId(material)] = {
+      (static_cast<float>(cellX) + inset) / static_cast<float>(kAtlasSize),
+      (static_cast<float>(cellY) + inset) / static_cast<float>(kAtlasSize),
+      (static_cast<float>(cellX + kCellSize) - inset) / static_cast<float>(kAtlasSize),
+      (static_cast<float>(cellY + kCellSize) - inset) / static_cast<float>(kAtlasSize),
+    };
+    ++cellIndex;
+  }
+
+  const SDL_GPUTextureCreateInfo textureInfo = {
+    SDL_GPU_TEXTURETYPE_2D,
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+    SDL_GPU_TEXTUREUSAGE_SAMPLER,
+    static_cast<Uint32>(kAtlasSize),
+    static_cast<Uint32>(kAtlasSize),
+    1,
+    1,
+    SDL_GPU_SAMPLECOUNT_1,
+    0,
+  };
+  atlas->texture = SDL_CreateGPUTexture(device, &textureInfo);
+  const SDL_GPUSamplerCreateInfo samplerInfo = {
+    SDL_GPU_FILTER_LINEAR,
+    SDL_GPU_FILTER_LINEAR,
+    SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    0.0F,
+    1.0F,
+    SDL_GPU_COMPAREOP_ALWAYS,
+    0.0F,
+    0.0F,
+    false,
+    false,
+    0,
+    0,
+    0,
+  };
+  atlas->sampler = SDL_CreateGPUSampler(device, &samplerInfo);
+  const SDL_GPUTransferBufferCreateInfo transferInfo = {
+    SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+    static_cast<Uint32>(atlasPixels.size()),
+    0,
+  };
+  SDL_GPUTransferBuffer* transferBuffer =
+    SDL_CreateGPUTransferBuffer(device, &transferInfo);
+  if (atlas->texture == nullptr || atlas->sampler == nullptr || transferBuffer == nullptr) {
+    if (transferBuffer != nullptr) {
+      SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    }
+    if (atlas->sampler != nullptr) {
+      SDL_ReleaseGPUSampler(device, atlas->sampler);
+    }
+    if (atlas->texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, atlas->texture);
+    }
+    delete atlas;
+    return nullptr;
+  }
+  void* mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
+  if (mapped == nullptr) {
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    SDL_ReleaseGPUSampler(device, atlas->sampler);
+    SDL_ReleaseGPUTexture(device, atlas->texture);
+    delete atlas;
+    return nullptr;
+  }
+  std::memcpy(mapped, atlasPixels.data(), atlasPixels.size());
+  SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+
+  SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
+  SDL_GPUCopyPass* copyPass = commandBuffer != nullptr
+    ? SDL_BeginGPUCopyPass(commandBuffer)
+    : nullptr;
+  if (copyPass == nullptr) {
+    if (commandBuffer != nullptr) {
+      (void)SDL_CancelGPUCommandBuffer(commandBuffer);
+    }
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    SDL_ReleaseGPUSampler(device, atlas->sampler);
+    SDL_ReleaseGPUTexture(device, atlas->texture);
+    delete atlas;
+    return nullptr;
+  }
+  const SDL_GPUTextureTransferInfo source = {
+    transferBuffer,
+    0,
+    static_cast<Uint32>(kAtlasSize),
+    static_cast<Uint32>(kAtlasSize),
+  };
+  const SDL_GPUTextureRegion destination = {
+    atlas->texture,
+    0,
+    0,
+    0,
+    0,
+    0,
+    static_cast<Uint32>(kAtlasSize),
+    static_cast<Uint32>(kAtlasSize),
+    1,
+  };
+  SDL_UploadToGPUTexture(copyPass, &source, &destination, false);
+  SDL_EndGPUCopyPass(copyPass);
+  if (!SDL_SubmitGPUCommandBuffer(commandBuffer)) {
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    destroyTextureAtlas(device, atlas);
+    return nullptr;
+  }
+  SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+  return atlas;
 }
 
 [[nodiscard]] SDL_GPUShader* loadGpuShader(
@@ -268,7 +541,8 @@ constexpr float kSolidTextureV = 4.0F / static_cast<float>(kFontAtlasHeight);
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
     "world3d.frag.spv",
-    SDL_GPU_SHADERSTAGE_FRAGMENT
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    1
   );
   if (fragmentShader == nullptr) {
     SDL_ReleaseGPUShader(device, vertexShader);
@@ -281,7 +555,7 @@ constexpr float kSolidTextureV = 4.0F / static_cast<float>(kFontAtlasHeight);
     SDL_GPU_VERTEXINPUTRATE_VERTEX,
     0,
   };
-  const std::array<SDL_GPUVertexAttribute, 2> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 3> vertexAttributes = {{
     {
       0,
       0,
@@ -293,6 +567,12 @@ constexpr float kSolidTextureV = 4.0F / static_cast<float>(kFontAtlasHeight);
       0,
       SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
       offsetof(GpuVertex, red),
+    },
+    {
+      2,
+      0,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+      offsetof(GpuVertex, u),
     },
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
@@ -496,22 +776,41 @@ buildFontAtlas() {
   };
 }
 
+[[nodiscard]] GpuVertex gpuVertex3D(
+  const Vertex3D& vertex,
+  const TextureAtlas* atlas
+) {
+  float u = kSolidTextureU;
+  float v = kSolidTextureV;
+  if (atlas != nullptr && vertex.materialId != 0U) {
+    const auto entry = atlas->entries.find(vertex.materialId);
+    if (entry != atlas->entries.end()) {
+      const float tileU = vertex.u - std::floor(vertex.u);
+      const float tileV = vertex.v - std::floor(vertex.v);
+      u = entry->second.u0 + tileU * (entry->second.u1 - entry->second.u0);
+      v = entry->second.v0 + tileV * (entry->second.v1 - entry->second.v0);
+    }
+  }
+  return {
+    vertex.position.x,
+    vertex.position.y,
+    vertex.position.z,
+    vertex.color.red,
+    vertex.color.green,
+    vertex.color.blue,
+    vertex.color.alpha,
+    u,
+    v,
+  };
+}
+
 void appendScene3D(
   std::vector<GpuVertex>& vertices,
-  const Scene3D& scene
+  const Scene3D& scene,
+  const TextureAtlas* atlas
 ) {
   for (const Vertex3D& vertex : scene.vertices) {
-    vertices.push_back({
-      vertex.position.x,
-      vertex.position.y,
-      vertex.position.z,
-      vertex.color.red,
-      vertex.color.green,
-      vertex.color.blue,
-      vertex.color.alpha,
-      kSolidTextureU,
-      kSolidTextureV,
-    });
+    vertices.push_back(gpuVertex3D(vertex, atlas));
   }
 }
 
@@ -772,6 +1071,7 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUTransferBuffer* transferBuffer,
   SDL_GPUTexture* fontTexture,
   SDL_GPUSampler* fontSampler,
+  TextureAtlas* worldAtlas,
   SDL_GPUTexture*& depthTexture,
   Uint32& depthWidth,
   Uint32& depthHeight,
@@ -834,7 +1134,7 @@ const PlayerState& firstVisibleRemote(
         rockets,
         settings
       );
-      appendScene3D(vertices, perspectiveScene);
+      appendScene3D(vertices, perspectiveScene, worldAtlas);
     } else {
       topDownScene = buildTopDownScene(
         static_cast<int>(outputWidth),
@@ -860,17 +1160,7 @@ const PlayerState& firstVisibleRemote(
       static_cast<Uint32>(vertices.size());
     if (settings.renderMode == 1) {
       for (const Vertex3D& vertex : perspectiveScene.translucentVertices) {
-        vertices.push_back({
-          vertex.position.x,
-          vertex.position.y,
-          vertex.position.z,
-          vertex.color.red,
-          vertex.color.green,
-          vertex.color.blue,
-          vertex.color.alpha,
-          kSolidTextureU,
-          kSolidTextureV,
-        });
+        vertices.push_back(gpuVertex3D(vertex, worldAtlas));
       }
     }
     const Uint32 worldVertexCount = static_cast<Uint32>(vertices.size());
@@ -1055,6 +1345,13 @@ const PlayerState& firstVisibleRemote(
         SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
         const SDL_GPUBufferBinding binding = {vertexBuffer, 0};
         SDL_BindGPUVertexBuffers(worldPass, 0, &binding, 1);
+        if (worldAtlas != nullptr) {
+          const SDL_GPUTextureSamplerBinding worldBinding = {
+            worldAtlas->texture,
+            worldAtlas->sampler,
+          };
+          SDL_BindGPUFragmentSamplers(worldPass, 0, &worldBinding, 1);
+        }
         if (opaqueWorldVertexCount > 0) {
           SDL_DrawGPUPrimitives(
             worldPass,
@@ -1071,6 +1368,13 @@ const PlayerState& firstVisibleRemote(
             worldPass,
             pipeline3DTranslucent
           );
+          if (worldAtlas != nullptr) {
+            const SDL_GPUTextureSamplerBinding worldBinding = {
+              worldAtlas->texture,
+              worldAtlas->sampler,
+            };
+            SDL_BindGPUFragmentSamplers(worldPass, 0, &worldBinding, 1);
+          }
           SDL_DrawGPUPrimitives(
             worldPass,
             translucentVertexCount,
@@ -1971,6 +2275,7 @@ bool Renderer::initialize(void* window) {
         };
         SDL_GPUSampler* fontSampler =
           SDL_CreateGPUSampler(device, &samplerInfo);
+        TextureAtlas* worldAtlas = createTextureAtlas(device);
         if (
           pipeline != nullptr &&
           pipeline3D != nullptr &&
@@ -1979,6 +2284,7 @@ bool Renderer::initialize(void* window) {
           transferBuffer != nullptr &&
           fontTexture != nullptr &&
           fontSampler != nullptr &&
+          worldAtlas != nullptr &&
           SDL_SetGPUAllowedFramesInFlight(device, 1)
         ) {
           gpuDevice_ = device;
@@ -1989,6 +2295,7 @@ bool Renderer::initialize(void* window) {
           gpuTransferBuffer_ = transferBuffer;
           gpuFontTexture_ = fontTexture;
           gpuFontSampler_ = fontSampler;
+          gpuWorldTextureAtlas_ = worldAtlas;
           auto* vertexScratch = new std::vector<GpuVertex>();
           vertexScratch->reserve(kMaxGpuVertices);
           gpuVertexScratch_ = vertexScratch;
@@ -2008,6 +2315,7 @@ bool Renderer::initialize(void* window) {
         if (fontSampler != nullptr) {
           SDL_ReleaseGPUSampler(device, fontSampler);
         }
+        destroyTextureAtlas(device, worldAtlas);
         if (fontTexture != nullptr) {
           SDL_ReleaseGPUTexture(device, fontTexture);
         }
@@ -2084,6 +2392,7 @@ void Renderer::render(
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
           static_cast<SDL_GPUTexture*>(gpuFontTexture_),
           static_cast<SDL_GPUSampler*>(gpuFontSampler_),
+          static_cast<TextureAtlas*>(gpuWorldTextureAtlas_),
           depthTexture,
           gpuDepthWidth_,
           gpuDepthHeight_,
@@ -2307,6 +2616,11 @@ void Renderer::shutdown() {
       );
       gpuFontTexture_ = nullptr;
     }
+    destroyTextureAtlas(
+      static_cast<SDL_GPUDevice*>(gpuDevice_),
+      static_cast<TextureAtlas*>(gpuWorldTextureAtlas_)
+    );
+    gpuWorldTextureAtlas_ = nullptr;
     if (gpuTransferBuffer_ != nullptr) {
       SDL_ReleaseGPUTransferBuffer(
         static_cast<SDL_GPUDevice*>(gpuDevice_),

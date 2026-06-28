@@ -1,0 +1,159 @@
+#include "map/MapParser.hpp"
+#include "map/MapToArena.hpp"
+#include "sim/Arena.hpp"
+
+#include <cmath>
+#include <iostream>
+#include <string>
+#include <string_view>
+
+namespace {
+
+int expect(bool condition, std::string_view message) {
+  if (condition) {
+    return 0;
+  }
+
+  std::cerr << "FAILED: " << message << '\n';
+  return 1;
+}
+
+bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
+  return std::fabs(lhs - rhs) <= epsilon;
+}
+
+std::string cuboidBrush(
+  float minX,
+  float minY,
+  float minZ,
+  float maxX,
+  float maxY,
+  float maxZ
+) {
+  return
+    "{\n"
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) "
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
+    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) "
+    "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
+    "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) "
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) "
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) "
+    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) "
+    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) "
+    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) "
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "}\n";
+}
+
+std::string basicMap(std::string brush) {
+  return
+    "{\n"
+    "\"classname\" \"worldspawn\"\n" +
+    brush +
+    "}\n"
+    "{\n"
+    "\"classname\" \"info_player_duel\"\n"
+    "\"origin\" \"-2 0 1\"\n"
+    "\"angle\" \"90\"\n"
+    "}\n"
+    "{\n"
+    "\"classname\" \"lg_spawn\"\n"
+    "\"origin\" \"2 0 1\"\n"
+    "\"yaw\" \"180\"\n"
+    "}\n";
+}
+
+} // namespace
+
+int main() {
+  int failures = 0;
+
+  {
+    constexpr std::string_view text = R"({
+"classname" "worldspawn"
+"message" "hello"
+}
+)";
+    const lg::MapParseResult result = lg::parseMapDocument(text);
+    failures += expect(result.ok, "parser should read one entity");
+    failures += expect(result.document.entities.size() == 1, "parser should store entity");
+    failures += expect(
+      result.document.entities[0].property("classname") != nullptr &&
+        *result.document.entities[0].property("classname") == "worldspawn",
+      "parser should read key/value pairs"
+    );
+  }
+
+  {
+    const lg::MapParseResult result = lg::parseMapDocument(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1)));
+    failures += expect(result.ok, "parser should read a worldspawn brush");
+    failures += expect(result.document.entities[0].brushes.size() == 1, "parser should store brush");
+    failures += expect(result.document.entities[0].brushes[0].faces.size() == 6, "parser should store brush faces");
+  }
+
+  {
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1)));
+    failures += expect(result.ok, "cuboid map should convert");
+    failures += expect(result.arena.wallCount == 1, "cuboid map should produce one wall");
+    failures += expect(nearlyEqual(result.arena.walls[0].min.x, -1.0F), "wall min should match brush");
+    failures += expect(nearlyEqual(result.arena.walls[0].max.z, 1.0F), "wall max should match brush");
+    failures += expect(result.arena.walls[0].materialId != 0U, "wall material should be preserved");
+  }
+
+  {
+    const std::string brush =
+      "{\n"
+      "( -1 -1 0 ) ( -1 -1 1 ) ( -0.5 1 1 ) stone 0 0 0 1 1\n"
+      "( 1 -1 0 ) ( 1 1 1 ) ( 1 -1 1 ) stone 0 0 0 1 1\n"
+      "( -1 -1 0 ) ( 1 -1 1 ) ( -1 -1 1 ) stone 0 0 0 1 1\n"
+      "( -1 1 0 ) ( -1 1 1 ) ( 1 1 1 ) stone 0 0 0 1 1\n"
+      "( -1 -1 0 ) ( -1 1 0 ) ( 1 1 0 ) stone 0 0 0 1 1\n"
+      "( -1 -1 1 ) ( 1 1 1 ) ( -1 1 1 ) stone 0 0 0 1 1\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(basicMap(brush));
+    failures += expect(!result.ok, "sloped brush should be rejected");
+  }
+
+  {
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 0)));
+    failures += expect(!result.ok, "degenerate cuboid should be rejected");
+  }
+
+  {
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1)));
+    failures += expect(result.ok, "spawn map should convert");
+    failures += expect(
+      nearlyEqual(result.arena.spawnPositions[0].x, -2.0F) &&
+        nearlyEqual(result.arena.spawnPositions[1].x, 2.0F),
+      "converter should parse two spawn origins"
+    );
+    failures += expect(
+      nearlyEqual(result.arena.min.x, -3.0F) && nearlyEqual(result.arena.max.x, 3.0F),
+      "converter should auto-compute bounds with padding"
+    );
+  }
+
+  {
+    lg::ArenaLoadResult result = lg::loadArenaFromFile("maps/dev_cuboids.map");
+    if (!result.ok) {
+      result = lg::loadArenaFromFile("../maps/dev_cuboids.map");
+    }
+    if (!result.ok) {
+      result = lg::loadArenaFromFile("../../maps/dev_cuboids.map");
+    }
+    failures += expect(result.ok, "sample dev_cuboids.map should load");
+  }
+
+  return failures == 0 ? 0 : 1;
+}

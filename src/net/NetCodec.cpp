@@ -429,7 +429,8 @@ bool writeArena(Writer& writer, const Arena& arena) {
       for (std::size_t index = 0; index < arena.wallCount; ++index) {
         if (
           !writeVec3(writer, arena.walls[index].min) ||
-          !writeVec3(writer, arena.walls[index].max)
+          !writeVec3(writer, arena.walls[index].max) ||
+          !writer.writeU32(arena.walls[index].materialId)
         ) {
           return false;
         }
@@ -458,7 +459,8 @@ bool readArena(Reader& reader, Arena& arena) {
   for (std::size_t index = 0; index < decoded.wallCount; ++index) {
     if (
       !readVec3(reader, decoded.walls[index].min) ||
-      !readVec3(reader, decoded.walls[index].max)
+      !readVec3(reader, decoded.walls[index].max) ||
+      !reader.readU32(decoded.walls[index].materialId)
     ) {
       return false;
     }

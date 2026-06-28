@@ -11,6 +11,9 @@ namespace lg {
 struct Vertex3D {
   Vec3 position = {};
   RenderColor color = {};
+  float u = 0.0F;
+  float v = 0.0F;
+  std::uint32_t materialId = 0;
 };
 
 struct Scene3D {

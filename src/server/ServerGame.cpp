@@ -13,6 +13,7 @@
 #include <iostream>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace lg {
 namespace {
@@ -1763,7 +1764,24 @@ bool ServerGame::loadRequestedMap(const std::string& mapName) {
   if (mapName.empty() || mapName.size() > kMaxMapNameBytes) {
     return false;
   }
-  for (const unsigned char character : mapName) {
+
+  namespace fs = std::filesystem;
+  const fs::path requested(mapName);
+  if (requested.has_parent_path() || requested.filename().string() != mapName) {
+    return false;
+  }
+
+  const std::string extension = requested.extension().string();
+  const std::string stem = extension.empty()
+    ? mapName
+    : requested.stem().string();
+  if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
+    return false;
+  }
+  if (stem.empty()) {
+    return false;
+  }
+  for (const unsigned char character : stem) {
     if (
       !std::isalnum(character) &&
       character != '_' &&
@@ -1773,16 +1791,28 @@ bool ServerGame::loadRequestedMap(const std::string& mapName) {
     }
   }
 
-  namespace fs = std::filesystem;
-  const fs::path path =
-    fs::path(mapDirectory_.empty() ? "maps" : mapDirectory_) /
-    (mapName + ".lgmap");
-  const ArenaLoadResult result = loadArenaFromFile(path.string());
-  if (!result.ok) {
-    return false;
+  const fs::path directory = fs::path(mapDirectory_.empty() ? "maps" : mapDirectory_);
+  std::vector<fs::path> candidates;
+  if (extension.empty()) {
+    candidates.push_back(directory / (mapName + ".lgmap"));
+    candidates.push_back(directory / (mapName + ".map"));
+  } else {
+    candidates.push_back(directory / mapName);
   }
-  setArena(result.arena);
-  return true;
+
+  for (const fs::path& path : candidates) {
+    const ArenaLoadResult result = loadArenaFromFile(path.string());
+    if (result.ok) {
+      setArena(result.arena);
+      return true;
+    }
+  }
+  std::cerr << "map load failed for '" << mapName << "'; tried";
+  for (const fs::path& path : candidates) {
+    std::cerr << " '" << path.string() << "'";
+  }
+  std::cerr << '\n';
+  return false;
 }
 
 void ServerGame::receiveCommands() {
