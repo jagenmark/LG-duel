@@ -3005,11 +3005,11 @@ int GameApp::run() const {
         ) {
           continue;
         }
-        const bool teammate =
-          renderSnapshot.gameMode == GameMode::ClanArena &&
-          isPlayableTeam(renderSnapshot.teams[localPlayerIndex]) &&
-          renderSnapshot.teams[playerIndex] ==
-            renderSnapshot.teams[localPlayerIndex];
+        const bool teammate = playerPresentedAsTeammate(
+          renderSnapshot,
+          localPlayerIndex,
+          playerIndex
+        );
         renderRemotePlayers[playerIndex] = RemotePlayerView{
           bufferedInterpolation
             ? renderClient->interpolatedPlayer(playerIndex)

@@ -97,6 +97,12 @@ private:
   std::size_t localPlayerIndex
 );
 
+[[nodiscard]] bool playerPresentedAsTeammate(
+  const ServerSnapshot& snapshot,
+  std::size_t localPlayerIndex,
+  std::size_t remotePlayerIndex
+);
+
 [[nodiscard]] std::string hudScoreLine(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex

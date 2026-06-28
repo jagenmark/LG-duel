@@ -212,6 +212,72 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {4.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+    server.setConnectedPlayers({true, true, false, false, false, false});
+    latestSnapshot(transport);
+
+    lg::ServerSnapshot snapshot = sendAndTick(
+      transport,
+      server,
+      modeRequest(0, 1, lg::GameMode::ClanArena)
+    );
+    const int unassignedTargetHealth = snapshot.players[1].health;
+    snapshot = sendAndTick(
+      transport,
+      server,
+      aimedAttack(snapshot, 0, 1, 2, lg::Weapon::Railgun)
+    );
+    failures += expect(
+      snapshot.weaponFires[0].hit &&
+        snapshot.players[1].health < unassignedTargetHealth &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0 &&
+        snapshot.teamScores[0] == 0 &&
+        snapshot.teamScores[1] == 0,
+      "unassigned Clan Arena warmup players should damage each other without scoring"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {4.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+    server.setConnectedPlayers({true, true, false, false, false, false});
+    latestSnapshot(transport);
+
+    lg::ServerSnapshot snapshot = sendAndTick(
+      transport,
+      server,
+      modeRequest(0, 1, lg::GameMode::ClanArena)
+    );
+    snapshot = sendAndTick(transport, server, teamRequest(0, 2, lg::Team::Red));
+    snapshot = sendAndTick(transport, server, teamRequest(1, 1, lg::Team::Red));
+    const int teammateHealth = snapshot.players[1].health;
+    snapshot = sendAndTick(
+      transport,
+      server,
+      aimedAttack(snapshot, 0, 1, 3, lg::Weapon::Railgun)
+    );
+    failures += expect(
+      snapshot.weaponFires[0].hit &&
+        snapshot.players[1].health < teammateHealth &&
+        snapshot.scores[0] == 0 &&
+        snapshot.scores[1] == 0 &&
+        snapshot.teamScores[0] == 0 &&
+        snapshot.teamScores[1] == 0,
+      "same-team Clan Arena warmup players should damage each other without scoring"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
     lg::ServerSnapshot snapshot = configureLiveOneVersusTwo(transport, server);
     failures += expect(
       snapshot.matchPhase == lg::MatchPhase::Live,
