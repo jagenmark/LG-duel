@@ -53,6 +53,8 @@ grenade.gravity 12.0
 grenade.bounce_damping 0.5
 grenade.rest_speed 0.6
 grenade.bounce_sound_min_speed 1.4
+grenade.projectile_radius 0.25
+grenade.projectile_hitbox_radius 0.2
 grenade.fuse_seconds 1.0
 grenade.radius 4.0
 grenade.direct_damage 90
@@ -69,6 +71,8 @@ grenade.cooldown_ticks 75
         nearlyEqual(loaded.config.grenadeLauncher.bounceDamping, 0.5F) &&
         nearlyEqual(loaded.config.grenadeLauncher.restSpeed, 0.6F) &&
         nearlyEqual(loaded.config.grenadeLauncher.bounceSoundMinSpeed, 1.4F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.projectileRadius, 0.25F) &&
+        nearlyEqual(loaded.config.grenadeLauncher.projectileHitboxRadius, 0.2F) &&
         loaded.config.grenadeLauncher.fuseTicks == 125 &&
         nearlyEqual(loaded.config.grenadeLauncher.radius, 4.0F) &&
         loaded.config.grenadeLauncher.directDamage == 90 &&

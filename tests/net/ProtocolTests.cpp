@@ -364,6 +364,7 @@ int main() {
     source.rockets[0].weapon = lg::Weapon::GrenadeLauncher;
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.rockets[0].velocity = {7.0F, 8.0F, 9.0F};
+    source.rockets[0].radius = 0.25F;
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.gameMode = lg::GameMode::ClanArena;
@@ -537,7 +538,8 @@ int main() {
         decoded.rockets[0].owner == 1 &&
         decoded.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
         nearlyEqual(decoded.rockets[0].position.z, 1.2F) &&
-        nearlyEqual(decoded.rockets[0].velocity.z, 9.0F),
+        nearlyEqual(decoded.rockets[0].velocity.z, 9.0F) &&
+        nearlyEqual(decoded.rockets[0].radius, 0.25F),
       "rocket, explosion, footstep audio, and frag event state should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");

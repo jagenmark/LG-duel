@@ -1196,6 +1196,8 @@ bool ServerGame::spawnProjectile(
     rocket.weapon = weapon;
     rocket.position = weaponMuzzlePosition(attacker, eyeHeight);
     rocket.previousPosition = rocket.position;
+    rocket.projectileRadius = grenade ? grenadeLauncherTuning_.projectileRadius : 0.0F;
+    rocket.projectileHitboxRadius = grenade ? grenadeLauncherTuning_.projectileHitboxRadius : 0.0F;
     rocket.velocity = direction * speed;
     if (grenade) {
       rocket.velocity.z += grenadeLauncherTuning_.verticalBoost;
@@ -1260,7 +1262,8 @@ void ServerGame::simulateRockets(float fixedDt) {
 
       if (
         !rocket.ownerCollisionArmed &&
-        cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) > 0.0001F
+        cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) >
+          rocket.projectileHitboxRadius + 0.0001F
       ) {
         rocket.ownerCollisionArmed = true;
       }
@@ -1309,7 +1312,9 @@ void ServerGame::simulateRockets(float fixedDt) {
         }
 
         float bestHitDistance = segmentLength;
-        if (!explode) {
+        const bool directHitEnabled =
+          !grenade || rocket.projectileHitboxRadius > 0.0F;
+        if (!explode && directHitEnabled) {
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
             if (
               snapshot_.players[playerIndex].health <= 0 ||
@@ -1319,11 +1324,14 @@ void ServerGame::simulateRockets(float fixedDt) {
               continue;
             }
             float hitDistance = 0.0F;
+            PlayerState projectileTarget = snapshot_.players[playerIndex];
+            projectileTarget.bounds.radius += rocket.projectileHitboxRadius;
+            projectileTarget.bounds.halfHeight += rocket.projectileHitboxRadius;
             if (
               tracePlayerCylinder(
                 rocket.position,
                 direction,
-                snapshot_.players[playerIndex],
+                projectileTarget,
                 bestHitDistance,
                 hitDistance
               )
@@ -1423,6 +1431,7 @@ void ServerGame::simulateRockets(float fixedDt) {
     snapshot_.rockets[index].weapon = rockets_[index].weapon;
     snapshot_.rockets[index].position = rockets_[index].position;
     snapshot_.rockets[index].velocity = rockets_[index].velocity;
+    snapshot_.rockets[index].radius = rockets_[index].projectileRadius;
   }
 }
 
