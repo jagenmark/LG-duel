@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <memory>
 #include <vector>
 #include <string>
 #include <utility>
@@ -438,16 +439,15 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
       continue;
     }
 
-    ServerSnapshot outgoing = snapshot;
-    outgoing.hasArena =
+    const bool includeArena =
       client.lastFullArenaRevision != snapshot.mapRevision ||
       snapshot.serverTick - client.lastFullArenaTick >= kFullArenaSnapshotIntervalTicks;
 
     WirePacket wire;
-    if (!encodeServerSnapshot(outgoing, wire)) {
+    if (!encodeServerSnapshot(snapshot, includeArena, wire)) {
       continue;
     }
-    if (sendWire(impl_->socket, client.endpoint, wire) && outgoing.hasArena) {
+    if (sendWire(impl_->socket, client.endpoint, wire) && includeArena) {
       client.lastFullArenaRevision = snapshot.mapRevision;
       client.lastFullArenaTick = snapshot.serverTick;
     }
@@ -523,9 +523,9 @@ struct UdpClientTransport::Impl {
       return;
     }
     if (type == PacketType::Snapshot && connected) {
-      ServerSnapshot snapshot;
-      if (decodeServerSnapshot(wire, snapshot)) {
-        snapshots.push_back(snapshot);
+      auto snapshot = std::make_unique<ServerSnapshot>();
+      if (decodeServerSnapshot(wire, *snapshot)) {
+        snapshots.push_back(std::move(*snapshot));
         lastServerPacket = now;
       }
     } else if (type == PacketType::Pong && connected) {

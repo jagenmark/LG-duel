@@ -40,6 +40,11 @@ using WirePacket = std::vector<std::uint8_t>;
 [[nodiscard]] bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle);
 
 [[nodiscard]] bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire);
+[[nodiscard]] bool encodeServerSnapshot(
+  const ServerSnapshot& snapshot,
+  bool includeArena,
+  WirePacket& wire
+);
 [[nodiscard]] bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot);
 
 [[nodiscard]] bool encodePingPacket(PacketType type, const PingPacket& packet, WirePacket& wire);

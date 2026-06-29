@@ -11,6 +11,14 @@ include(CTest)
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Dependencies.cmake)
 
+function(lg_duel_set_windows_stack target)
+  if(MSVC)
+    target_link_options(${target} PRIVATE /STACK:67108864)
+  elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(${target} PRIVATE "-Wl,--stack,67108864")
+  endif()
+endfunction()
+
 add_library(lg_duel_core
   src/client/ClientGame.cpp
   src/client/HitConfirmAudio.cpp
@@ -169,6 +177,15 @@ add_executable(lg_duel_map_validate
 
 target_link_libraries(lg_duel_map_validate PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_map_validate)
+
+foreach(target IN ITEMS
+  lg_duel_client
+  lg_duel_server
+  lg_duel_server_probe
+  lg_duel_map_validate
+)
+  lg_duel_set_windows_stack(${target})
+endforeach()
 
 add_custom_target(lg_duel_validate_maps ALL
   COMMAND $<TARGET_FILE:lg_duel_map_validate> "${CMAKE_CURRENT_SOURCE_DIR}/maps"

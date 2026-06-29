@@ -5,7 +5,9 @@
 #include <cmath>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <string>
+#include <utility>
 
 namespace lg {
 namespace {
@@ -1106,7 +1108,11 @@ bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
   return true;
 }
 
-bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
+bool encodeServerSnapshot(
+  const ServerSnapshot& snapshot,
+  bool includeArena,
+  WirePacket& wire
+) {
   if (
     !isValidGameMode(snapshot.gameMode) ||
     !isValidWeaponSwitchingMode(snapshot.weaponSwitchingMode) ||
@@ -1131,8 +1137,8 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !writeHeader(writer, PacketType::Snapshot) ||
     !writer.writeU32(snapshot.serverTick) ||
     !writer.writeU32(snapshot.mapRevision) ||
-    !writer.writeBool(snapshot.hasArena) ||
-    (snapshot.hasArena && !writeArena(writer, snapshot.arena))
+    !writer.writeBool(includeArena) ||
+    (includeArena && !writeArena(writer, snapshot.arena))
   ) {
     return false;
   }
@@ -1304,9 +1310,14 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     finishPacket(writer);
 }
 
+bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
+  return encodeServerSnapshot(snapshot, snapshot.hasArena, wire);
+}
+
 bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   Reader reader(wire);
-  ServerSnapshot decoded;
+  auto decodedStorage = std::make_unique<ServerSnapshot>();
+  ServerSnapshot& decoded = *decodedStorage;
   if (
     !readHeader(reader, PacketType::Snapshot, wire.size()) ||
     !reader.readU32(decoded.serverTick) ||
@@ -1574,7 +1585,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   decoded.weaponSwitchingMode =
     static_cast<WeaponSwitchingMode>(weaponSwitchingMode);
 
-  snapshot = decoded;
+  snapshot = std::move(decoded);
   return true;
 }
 
