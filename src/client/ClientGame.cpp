@@ -3,35 +3,10 @@
 #include "shared/Constants.hpp"
 #include "shared/Sequence.hpp"
 
-#include <cstdint>
-#include <iostream>
 #include <memory>
 #include <utility>
 
 namespace lg {
-namespace {
-
-[[nodiscard]] std::size_t textureProjectionCount(const Arena& arena) {
-  std::size_t count = 0;
-  for (std::size_t wallIndex = 0; wallIndex < arena.wallCount; ++wallIndex) {
-    for (const TextureProjection& projection : arena.walls[wallIndex].faceTextureProjections) {
-      if (projection.valid) {
-        ++count;
-      }
-    }
-  }
-  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
-    const ArenaBrush& brush = arena.brushes[brushIndex];
-    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
-      if (brush.faces[faceIndex].textureProjection.valid) {
-        ++count;
-      }
-    }
-  }
-  return count;
-}
-
-} // namespace
 
 ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
   : transport_(transport), localPlayerIndex_(localPlayerIndex) {}
@@ -117,13 +92,6 @@ void ClientGame::receiveSnapshots() {
       if (received.hasArena) {
         arena_ = received.arena;
         mapRevision_ = received.mapRevision;
-        std::cerr
-          << "LG_DUEL_TEXTURE_PIPELINE_V2 client received arena revision="
-          << mapRevision_
-          << " walls=" << arena_.wallCount
-          << " brushes=" << arena_.brushCount
-          << " projectedFaces=" << textureProjectionCount(arena_)
-          << '\n';
       }
       received.hasArena = false;
       received.arena = {};

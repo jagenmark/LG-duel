@@ -546,9 +546,7 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
 }
 
 [[nodiscard]] bool isSpawnClass(std::string_view classname) {
-  return classname == "info_player_duel" ||
-    classname == "info_player_deathmatch" ||
-    classname == "lg_spawn";
+  return classname == "lg_spawn";
 }
 
 void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {

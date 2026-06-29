@@ -19,26 +19,6 @@
 namespace lg {
 namespace {
 
-[[nodiscard]] std::size_t textureProjectionCount(const Arena& arena) {
-  std::size_t count = 0;
-  for (std::size_t wallIndex = 0; wallIndex < arena.wallCount; ++wallIndex) {
-    for (const TextureProjection& projection : arena.walls[wallIndex].faceTextureProjections) {
-      if (projection.valid) {
-        ++count;
-      }
-    }
-  }
-  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
-    const ArenaBrush& brush = arena.brushes[brushIndex];
-    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
-      if (brush.faces[faceIndex].textureProjection.valid) {
-        ++count;
-      }
-    }
-  }
-  return count;
-}
-
 std::string defaultMapPath(const std::string& executablePath) {
   namespace fs = std::filesystem;
   constexpr const char* kRelativeMapPath = "maps/thunderstruck.lgmap";
@@ -70,7 +50,6 @@ ServerApp::ServerApp(std::uint16_t port, std::string executablePath)
   : port_(port), executablePath_(std::move(executablePath)) {}
 
 int ServerApp::run() const {
-  std::cerr << "LG_DUEL_TEXTURE_PIPELINE_V2 active server app\n";
   UdpServerTransport transport(port_);
   if (!transport.initialize()) {
     std::cerr << "UDP server initialization failed: " << transport.lastError() << '\n';
@@ -137,10 +116,6 @@ int ServerApp::run() const {
       if (!result.ok) {
         return "map invalid: " + result.error;
       }
-      std::cerr
-        << "LG_DUEL_TEXTURE_PIPELINE_V2 server map_validate path=" << path
-        << " projectedFaces=" << textureProjectionCount(result.arena)
-        << '\n';
       return "map ok: " + path + " bounds=" +
         std::to_string(result.arena.min.x) + "," +
         std::to_string(result.arena.min.y) + "," +
@@ -162,10 +137,6 @@ int ServerApp::run() const {
       if (!result.ok) {
         return "map reload failed: " + result.error;
       }
-      std::cerr
-        << "LG_DUEL_TEXTURE_PIPELINE_V2 server map_reload path=" << path
-        << " projectedFaces=" << textureProjectionCount(result.arena)
-        << '\n';
       server.setArena(result.arena);
       return "map reloaded: " + path + " boxes=" +
         std::to_string(server.arena().wallCount);

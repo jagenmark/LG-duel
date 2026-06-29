@@ -725,26 +725,6 @@ void ServerGame::resetMatch() {
 
 void ServerGame::setArena(const Arena& arena) {
   arena_ = arena;
-  std::size_t projectedFaces = 0;
-  for (std::size_t wallIndex = 0; wallIndex < arena_.wallCount; ++wallIndex) {
-    for (const TextureProjection& projection : arena_.walls[wallIndex].faceTextureProjections) {
-      if (projection.valid) {
-        ++projectedFaces;
-      }
-    }
-  }
-  for (std::size_t brushIndex = 0; brushIndex < arena_.brushCount; ++brushIndex) {
-    const ArenaBrush& brush = arena_.brushes[brushIndex];
-    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
-      if (brush.faces[faceIndex].textureProjection.valid) {
-        ++projectedFaces;
-      }
-    }
-  }
-  std::cerr
-    << "LG_DUEL_TEXTURE_PIPELINE_V2 server setArena walls=" << arena_.wallCount
-    << " brushes=" << arena_.brushCount
-    << " projectedFaces=" << projectedFaces << '\n';
   ++mapRevision_;
   if (mapRevision_ == 0) {
     mapRevision_ = 1;
@@ -1871,9 +1851,6 @@ bool ServerGame::loadRequestedMap(const std::string& mapName) {
   for (const fs::path& path : candidates) {
     const ArenaLoadResult result = loadArenaFromFile(path.string());
     if (result.ok) {
-      std::cerr
-        << "LG_DUEL_TEXTURE_PIPELINE_V2 server map load path="
-        << path.string() << '\n';
       setArena(result.arena);
       return true;
     }

@@ -34,7 +34,7 @@
 }
 }
 {
-"classname" "info_player_duel"
+"classname" "lg_spawn"
 "origin" "-160 -120 40"
 "angle" "0"
 }

@@ -1,0 +1,16 @@
+// LG Duel TrenchBroom starter map.
+{
+"classname" "worldspawn"
+"lg_bounds_min" "-512 -512 -128"
+"lg_bounds_max" "512 512 256"
+}
+{
+"classname" "lg_spawn"
+"origin" "-128 0 0"
+"angle" "0"
+}
+{
+"classname" "lg_spawn"
+"origin" "128 0 0"
+"angle" "180"
+}

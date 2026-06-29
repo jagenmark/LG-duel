@@ -60,7 +60,7 @@ std::string basicMap(std::string brush) {
     brush +
     "}\n"
     "{\n"
-    "\"classname\" \"info_player_duel\"\n"
+    "\"classname\" \"lg_spawn\"\n"
     "\"origin\" \"-2 0 1\"\n"
     "\"angle\" \"90\"\n"
     "}\n"
@@ -165,7 +165,7 @@ int main() {
       cuboidBrush(-16, -16, 0, 16, 16, 16) +
       "}\n"
       "{\n"
-      "\"classname\" \"info_player_duel\"\n"
+      "\"classname\" \"lg_spawn\"\n"
       "\"origin\" \"-40 0 40\"\n"
       "}\n"
       "{\n"

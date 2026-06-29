@@ -165,7 +165,7 @@ or BSP compatibility.
 
 Create a new TrenchBroom map, use cuboid or other convex brushes in
 `worldspawn`, place player spawns with point entities named
-`info_player_duel`, `info_player_deathmatch`, or `lg_spawn`, and save it as
+`lg_spawn`, and save it as
 `maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
 and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
 unit. A `16`-unit stair step therefore becomes `0.4` LG units, just below the
@@ -184,6 +184,11 @@ face material `512x512/Brick/Brick_14-512x512` resolves to
 renderer samples those textures on cuboid wall faces. Top-down rendering uses
 stable per-material colors for readability. The old grass/brown prototype
 treatment is no longer used.
+
+The repository includes a TrenchBroom game setup in
+`tools/trenchbroom/LG Duel/`. Install or copy that folder into TrenchBroom's
+games directory to get the `lg_spawn` point entity and LG Duel worldspawn keys
+in the editor.
 
 After saving from TrenchBroom, run:
 

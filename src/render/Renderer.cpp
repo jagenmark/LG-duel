@@ -2824,7 +2824,6 @@ Renderer::~Renderer() {
 
 bool Renderer::initialize(void* window) {
 #if LG_DUEL_HAS_SDL3
-  std::cerr << "LG_DUEL_TEXTURE_PIPELINE_V2 active renderer initialize\n";
   window_ = window;
   if (gpuBackendRequested()) {
     SDL_GPUDevice* device = createGpuDevice();
