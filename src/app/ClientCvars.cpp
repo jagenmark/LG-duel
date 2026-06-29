@@ -22,6 +22,11 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
+  console.registerCvar({"net_sim_latency_ms", "Client UDP simulator extra one-way latency in ms; 60 adds about 120 ms RTT when applied to outgoing and incoming traffic.", 0, CvarFlag::Client, 0.0F, 5000.0F});
+  console.registerCvar({"net_sim_jitter_ms", "Client UDP simulator per-datagram one-way jitter in ms around net_sim_latency_ms; delay is clamped at zero.", 0, CvarFlag::Client, 0.0F, 5000.0F});
+  console.registerCvar({"net_sim_loss_percent", "Client UDP simulator independent datagram loss percent.", 0, CvarFlag::Client, 0.0F, 100.0F});
+  console.registerCvar({"net_sim_reorder_percent", "Client UDP simulator probabilistic datagram reorder percent; selected packets get a small extra hold so later packets can pass.", 0, CvarFlag::Client, 0.0F, 100.0F});
+  console.registerCvar({"net_sim_seed", "Client UDP simulator RNG seed; 0 uses the fixed default seed.", 0, CvarFlag::Client, 0.0F, 2147483647.0F});
   console.registerCvar({"cl_show_lagcomp", "Show lag compensation status and real rewind data when used.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
@@ -62,6 +67,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_rl_damage", "Authoritative rocket launcher direct and max splash damage.", 100, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_pg_damage", "Authoritative plasma gun direct hit damage.", 20, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});

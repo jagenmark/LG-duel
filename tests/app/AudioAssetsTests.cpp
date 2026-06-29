@@ -163,7 +163,7 @@ void writeStereoPcm24ExtensibleWav(const std::filesystem::path& path) {
 } // namespace
 
 int main() {
-  const std::array<std::pair<lg::AudioCue, const char*>, 23> runtimeCues{{
+  const std::array<std::pair<lg::AudioCue, const char*>, 25> runtimeCueNames{{
     {lg::AudioCue::LightningGunFireLoop, "lg_fire_selected_low_drone.wav"},
     {lg::AudioCue::HitConfirmLight, "hit_confirm_light.wav"},
     {lg::AudioCue::HitConfirmMedium, "hit_confirm_medium.wav"},
@@ -175,11 +175,13 @@ int main() {
     {lg::AudioCue::RocketLauncherFire, "rl_fire_launch.wav"},
     {lg::AudioCue::RocketExplosion, "rl_explosion_pop.wav"},
     {lg::AudioCue::MachineGunFire, "mg_fire_selected_snap.wav"},
-    {lg::AudioCue::ShotgunFire, "sg_fire_selected_blast.wav"},
+    {lg::AudioCue::ShotgunFire, "sshotf1b.ogg"},
     {lg::AudioCue::GrenadeLauncherFire, "gl_fire.wav"},
     {lg::AudioCue::GrenadeBounce, "gl_bounce.wav"},
     {lg::AudioCue::PlasmaGunFire, "pg_fire_selected_pulse.wav"},
     {lg::AudioCue::Footstep, "footstep.wav"},
+    {lg::AudioCue::Jump, "jump1_visor.wav"},
+    {lg::AudioCue::Land, "land1.ogg"},
     {lg::AudioCue::RoundWin, "round_win_chime.wav"},
     {lg::AudioCue::RoundLoss, "round_loss_chime.wav"},
     {lg::AudioCue::CountdownFive, "countdown_5_beep.wav"},
@@ -188,7 +190,7 @@ int main() {
     {lg::AudioCue::CountdownTwo, "countdown_2_beep.wav"},
     {lg::AudioCue::CountdownOne, "countdown_1_beep.wav"},
   }};
-  for (const auto& [cue, fileName] : runtimeCues) {
+  for (const auto& [cue, fileName] : runtimeCueNames) {
     expect(
       std::string{lg::audioCueFileName(cue)} == fileName,
       "runtime audio cue should map to its selected checked-in WAV"
@@ -197,15 +199,50 @@ int main() {
 
   const auto repoRoot = findRepoRoot(std::filesystem::current_path());
   expect(repoRoot.has_value(), "test should find repository root");
-  for (const auto& [cue, fileName] : runtimeCues) {
+  const std::array<std::pair<lg::AudioCue, const char*>, 24> runtimeLoadCues{{
+    {lg::AudioCue::LightningGunFireLoop, "lg_fire_selected_low_drone.wav"},
+    {lg::AudioCue::HitConfirmLight, "hit_confirm_light.wav"},
+    {lg::AudioCue::HitConfirmMedium, "hit_confirm_medium.wav"},
+    {lg::AudioCue::HitConfirmHeavy, "hit_confirm_heavy.wav"},
+    {lg::AudioCue::PainGrunt, "pain_grunt.wav"},
+    {lg::AudioCue::Frag, "frag.wav"},
+    {lg::AudioCue::RailgunFire, "rg_fire_discharge.wav"},
+    {lg::AudioCue::RailgunReady, "rg_ready_chime.wav"},
+    {lg::AudioCue::RocketLauncherFire, "rl_fire_launch.wav"},
+    {lg::AudioCue::RocketExplosion, "rl_explosion_pop.wav"},
+    {lg::AudioCue::MachineGunFire, "mg_fire_selected_snap.wav"},
+    {lg::AudioCue::ShotgunFire, "sshotf1b.ogg"},
+    {lg::AudioCue::GrenadeLauncherFire, "gl_fire.wav"},
+    {lg::AudioCue::GrenadeBounce, "gl_bounce.wav"},
+    {lg::AudioCue::PlasmaGunFire, "pg_fire_selected_pulse.wav"},
+    {lg::AudioCue::Jump, "jump1_visor.wav"},
+    {lg::AudioCue::Land, "land1.ogg"},
+    {lg::AudioCue::RoundWin, "round_win_chime.wav"},
+    {lg::AudioCue::RoundLoss, "round_loss_chime.wav"},
+    {lg::AudioCue::CountdownFive, "countdown_5_beep.wav"},
+    {lg::AudioCue::CountdownFour, "countdown_4_beep.wav"},
+    {lg::AudioCue::CountdownThree, "countdown_3_beep.wav"},
+    {lg::AudioCue::CountdownTwo, "countdown_2_beep.wav"},
+    {lg::AudioCue::CountdownOne, "countdown_1_beep.wav"},
+  }};
+  for (const auto& [cue, fileName] : runtimeLoadCues) {
     const auto clip = lg::loadAudioCue(*repoRoot, cue);
     if (!clip.has_value()) {
-      std::cerr << "runtime audio cue WAV should load from assets/audio: "
+      std::cerr << "runtime audio cue should load from assets/audio: "
                 << fileName << '\n';
       return 1;
     }
     expect(clip->sourcePath.filename() == fileName, "loaded cue should use selected file");
     expect(!clip->samples.empty(), "loaded runtime audio cue should contain samples");
+  }
+  const std::vector<std::filesystem::path> runtimeFootsteps =
+    lg::footstepCuePaths(*repoRoot);
+  expect(runtimeFootsteps.size() == 4, "runtime footstep OGG variants should be discovered");
+  for (const auto& path : runtimeFootsteps) {
+    const auto ogg = lg::loadOggFile(path);
+    expect(ogg.has_value(), "valid runtime footstep OGG should load");
+    expect(ogg->sampleRate > 0, "loaded OGG should keep the source sample rate");
+    expect(!ogg->samples.empty(), "loaded OGG should contain mono samples");
   }
 
   const std::filesystem::path root =
@@ -225,6 +262,23 @@ int main() {
   expect(clip->samples.size() == 2, "stereo WAV should downmix to mono frames");
   expect(clip->samples[0] > 0.99F, "first downmixed sample should preserve signal");
   expect(clip->samples[1] == 0.0F, "second downmixed sample should preserve silence");
+
+  if (!runtimeFootsteps.empty()) {
+    const std::filesystem::path cueOggPath =
+      root / "assets" / "audio" / "hit_confirm_light.ogg";
+    std::filesystem::copy_file(runtimeFootsteps.front(), cueOggPath);
+    const auto cueOgg = lg::loadAudioCue(root, lg::AudioCue::HitConfirmLight);
+    expect(
+      cueOgg.has_value() && cueOgg->sourcePath.filename() == "hit_confirm_light.ogg",
+      "cue loading should fall back to an OGG file with the selected cue basename"
+    );
+  }
+
+  std::ofstream(root / "assets" / "audio" / "corrupt.ogg").write("not ogg", 7);
+  expect(
+    !lg::loadAudioFile(root / "assets" / "audio" / "corrupt.ogg").has_value(),
+    "corrupt OGG should fail without producing a clip"
+  );
 
   const std::filesystem::path pcm24Path = root / "assets" / "audio" / "pcm24.wav";
   writeStereoPcm24Wav(pcm24Path);
@@ -246,6 +300,42 @@ int main() {
   expect(
     pcm24Extensible->samples.size() == 2,
     "stereo extensible PCM24 WAV should downmix to mono frames"
+  );
+
+  const std::filesystem::path footstepOne =
+    root / "assets" / "audio" / "footstep_01.wav";
+  writeStereoPcm16Wav(footstepOne);
+  std::vector<std::filesystem::path> footstepPaths = lg::footstepCuePaths(root);
+  expect(footstepPaths.size() == 1, "one footstep variant should be discovered");
+  expect(
+    footstepPaths[0].filename() == "footstep_01.wav",
+    "single footstep variant should use the numbered basename"
+  );
+
+  writeStereoPcm16Wav(root / "assets" / "audio" / "footstep_02.wav");
+  writeStereoPcm16Wav(root / "assets" / "audio" / "footstep_03.wav");
+  writeStereoPcm16Wav(root / "assets" / "audio" / "footstep_04.wav");
+  footstepPaths = lg::footstepCuePaths(root);
+  expect(footstepPaths.size() == 4, "four footstep variants should be discovered");
+
+  std::filesystem::remove(root / "assets" / "audio" / "footstep_01.wav");
+  writeStereoPcm16Wav(root / "assets" / "audio" / "step1.wav");
+  footstepPaths = lg::footstepCuePaths(root);
+  expect(
+    footstepPaths.size() == 4 && footstepPaths[0].filename() == "step1.wav",
+    "imported step1 basename should be accepted for the first footstep slot"
+  );
+
+  std::filesystem::remove(root / "assets" / "audio" / "footstep_01.wav");
+  std::filesystem::remove(root / "assets" / "audio" / "step1.wav");
+  std::filesystem::remove(root / "assets" / "audio" / "footstep_02.wav");
+  std::filesystem::remove(root / "assets" / "audio" / "footstep_03.wav");
+  std::filesystem::remove(root / "assets" / "audio" / "footstep_04.wav");
+  writeStereoPcm16Wav(root / "assets" / "audio" / "footstep.wav");
+  footstepPaths = lg::footstepCuePaths(root);
+  expect(
+    footstepPaths.size() == 1 && footstepPaths[0].filename() == "footstep.wav",
+    "footstep variants should fall back to the legacy footstep cue"
   );
 
   std::filesystem::remove_all(root);

@@ -381,6 +381,49 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::CommandPacket warmup;
+    warmup.playerIndex = 1;
+    warmup.command.sequence = 1;
+    transport.sendCommand(warmup);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    bool emittedJump = false;
+    bool emittedLanding = false;
+    for (std::uint32_t tick = 0; tick < 180 && !emittedLanding; ++tick) {
+      lg::CommandPacket command;
+      command.playerIndex = 1;
+      command.command.sequence = tick + 2;
+      command.command.jump = tick == 0;
+      command.command.upMove = command.command.jump ? 1.0F : 0.0F;
+      transport.sendCommand(command);
+      server.tick(lg::kFixedTickSeconds);
+      const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+      emittedJump =
+        emittedJump ||
+        (
+          snapshot.footstepAudioEvents[1].active &&
+          snapshot.footstepAudioEvents[1].jumping
+        );
+      emittedLanding =
+        emittedLanding ||
+        (
+        snapshot.footstepAudioEvents[1].active &&
+          snapshot.footstepAudioEvents[1].landing
+        );
+    }
+
+    failures += expect(
+      emittedJump && emittedLanding,
+      "server should mark jump and landing audio events separately from footsteps"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     const std::filesystem::path mapDirectory =
       std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
     std::filesystem::create_directories(mapDirectory);
@@ -789,6 +832,44 @@ spawn p2 2,0,0.5 yaw=180
       snapshot.rocketExplosions[0].opponentDamageApplied == 50 &&
         snapshot.players[1].health == 50,
       "g_rl_damage should control rocket direct and max splash damage"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.plasmaGunDamage = 17;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.plasmaGunDamage == 17,
+      "g_pg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand plasma;
+    plasma.sequence = 2;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    server.tick(lg::kFixedTickSeconds);
+    for (int tick = 0; tick < 80; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+    failures += expect(
+      snapshot.rocketExplosions[0].weapon == lg::Weapon::PlasmaGun &&
+        snapshot.rocketExplosions[0].opponentDamageApplied == 17 &&
+        snapshot.players[1].health == 83,
+      "g_pg_damage should control plasma gun direct hit damage"
     );
   }
 
@@ -1368,8 +1449,33 @@ spawn p2 2,0,0.5 yaw=180
       "server should accept and acknowledge expanded weapon selections"
     );
     failures += expect(
-      !snapshot.lightningGuns[0].active && !snapshot.weaponFires[0].fired,
-      "unsupported expanded weapons should not fire implemented weapon effects"
+      snapshot.weaponFires[0].fired &&
+        snapshot.weaponFires[0].weapon == lg::Weapon::PlasmaGun,
+      "plasma gun should fire a weapon event"
+    );
+    failures += expect(
+      snapshot.rockets[0].active &&
+        snapshot.rockets[0].weapon == lg::Weapon::PlasmaGun &&
+        snapshot.rockets[0].velocity.x > 0.0F,
+      "plasma gun should replicate fast straight projectile state"
+    );
+
+    plasma.sequence = 78;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    std::size_t activePlasma = 0;
+    for (const lg::RocketProjectileSnapshot& projectile : snapshot.rockets) {
+      if (
+        projectile.active &&
+        projectile.weapon == lg::Weapon::PlasmaGun
+      ) {
+        ++activePlasma;
+      }
+    }
+    failures += expect(
+      activePlasma == 1,
+      "plasma gun cooldown should block immediate second plasma shot"
     );
   }
 

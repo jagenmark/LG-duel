@@ -580,7 +580,9 @@ DrawList2D buildTopDownScene(
     }
     const RenderColor color = fire.weapon == Weapon::Railgun
       ? (fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 230})
-      : RenderColor{255, 150, 70, 235};
+      : fire.weapon == Weapon::PlasmaGun
+        ? RenderColor{112, 255, 142, 235}
+        : RenderColor{255, 150, 70, 235};
     const ScreenPoint start = worldToScreen(view, fire.start);
     const ScreenPoint end = worldToScreen(view, fire.end);
     addLine(
@@ -630,6 +632,25 @@ DrawList2D buildTopDownScene(
         {point.x + innerRadius * 0.65F, point.y + innerRadius * 0.65F},
         {18, 82, 32, 255},
         1.0F
+      );
+      continue;
+    }
+    if (projectile.weapon == Weapon::PlasmaGun) {
+      addFilledRect(
+        drawList.commands,
+        point.x - 4.0F,
+        point.y - 4.0F,
+        8.0F,
+        8.0F,
+        {112, 255, 142, 255}
+      );
+      addFilledRect(
+        drawList.commands,
+        point.x - 2.0F,
+        point.y - 2.0F,
+        4.0F,
+        4.0F,
+        {230, 255, 210, 255}
       );
       continue;
     }
