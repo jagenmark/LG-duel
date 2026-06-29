@@ -23,7 +23,6 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace lg {
@@ -144,6 +143,11 @@ struct TextureAtlas {
   std::unordered_map<std::uint32_t, TextureAtlasEntry> entries;
 };
 
+struct TextureMaterialFile {
+  std::filesystem::path path;
+  std::array<std::string, 2> aliases = {};
+};
+
 void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
   if (atlas == nullptr) {
     return;
@@ -178,9 +182,9 @@ void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
   return material;
 }
 
-void collectTextureMaterials(
+void collectTextureMaterialFiles(
   const std::filesystem::path& textureDirectory,
-  std::unordered_set<std::string>& materials
+  std::vector<TextureMaterialFile>& materials
 ) {
   if (!std::filesystem::is_directory(textureDirectory)) {
     return;
@@ -193,21 +197,12 @@ void collectTextureMaterials(
     std::filesystem::path relative =
       std::filesystem::relative(entry.path(), textureDirectory);
     const std::string withExtension = normalizedMaterialPath(relative.generic_string());
-    materials.insert(withExtension);
     relative.replace_extension();
-    materials.insert(normalizedMaterialPath(relative.generic_string()));
+    materials.push_back({
+      entry.path(),
+      {withExtension, normalizedMaterialPath(relative.generic_string())}
+    });
   }
-}
-
-[[nodiscard]] std::filesystem::path texturePathForMaterial(
-  const std::filesystem::path& textureDirectory,
-  const std::string& material
-) {
-  std::filesystem::path path = textureDirectory / material;
-  if (path.extension().empty()) {
-    path += ".png";
-  }
-  return path;
 }
 
 void copySurfaceToAtlas(
@@ -264,12 +259,12 @@ void copySurfaceToAtlas(
     255U
   );
   auto atlas = new TextureAtlas();
-  std::unordered_set<std::string> materials;
+  std::vector<TextureMaterialFile> materials;
   const std::filesystem::path root = basePath();
-  collectTextureMaterials(root / "textures", materials);
+  collectTextureMaterialFiles(root / "textures", materials);
   int cellIndex = 1;
   bool warnedAtlasFull = false;
-  for (const std::string& material : materials) {
+  for (const TextureMaterialFile& material : materials) {
     if (cellIndex >= kCellsPerRow * kCellsPerRow) {
       if (!warnedAtlasFull) {
         std::cerr
@@ -279,9 +274,7 @@ void copySurfaceToAtlas(
       }
       break;
     }
-    const std::filesystem::path texturePath =
-      texturePathForMaterial(root / "textures", material);
-    SDL_Surface* loaded = SDL_LoadPNG(texturePath.string().c_str());
+    SDL_Surface* loaded = SDL_LoadPNG(material.path.string().c_str());
     if (loaded == nullptr) {
       continue;
     }
@@ -296,12 +289,15 @@ void copySurfaceToAtlas(
     SDL_DestroySurface(converted);
 
     const float inset = 0.5F;
-    atlas->entries[arenaMaterialId(material)] = {
+    const TextureAtlasEntry entry = {
       (static_cast<float>(cellX) + inset) / static_cast<float>(kAtlasSize),
       (static_cast<float>(cellY) + inset) / static_cast<float>(kAtlasSize),
       (static_cast<float>(cellX + kCellSize) - inset) / static_cast<float>(kAtlasSize),
       (static_cast<float>(cellY + kCellSize) - inset) / static_cast<float>(kAtlasSize),
     };
+    for (const std::string& alias : material.aliases) {
+      atlas->entries[arenaMaterialId(alias)] = entry;
+    }
     ++cellIndex;
   }
 
@@ -1895,10 +1891,10 @@ void drawPerspectiveWorld(
       );
   }
   if (floorVisible) {
-    drawFilledQuad(renderer, floorPoints, SDL_FColor{0.26F, 0.62F, 0.30F, 1.0F});
+    drawFilledQuad(renderer, floorPoints, SDL_FColor{0.10F, 0.11F, 0.13F, 1.0F});
   }
 
-  SDL_SetRenderDrawColor(renderer, 109, 195, 105, 255);
+  SDL_SetRenderDrawColor(renderer, 82, 94, 108, 255);
   constexpr float kGridStep = 1.0F;
   for (float x = arena.min.x; x <= arena.max.x; x += kGridStep) {
     drawPerspectiveLine(
@@ -1921,7 +1917,7 @@ void drawPerspectiveWorld(
     );
   }
 
-  SDL_SetRenderDrawColor(renderer, 127, 202, 111, 255);
+  SDL_SetRenderDrawColor(renderer, 120, 138, 156, 255);
   drawWireBox(renderer, camera, width, height, arena.min, arena.max);
 
   std::array<std::size_t, Arena::kWallCount> wallDrawOrder = {};
@@ -1951,15 +1947,15 @@ void drawPerspectiveWorld(
       height,
       wall.min,
       wall.max,
-      SDL_FColor{0.49F, 0.34F, 0.20F, 1.0F}
+      SDL_FColor{0.46F, 0.47F, 0.50F, 1.0F}
     );
   }
 
-  SDL_SetRenderDrawColor(renderer, 127, 202, 111, 255);
+  SDL_SetRenderDrawColor(renderer, 120, 138, 156, 255);
   for (std::size_t orderIndex = 0; orderIndex < arena.wallCount; ++orderIndex) {
     const ArenaWall& wall = arena.walls[wallDrawOrder[orderIndex]];
     drawWireBox(renderer, camera, width, height, wall.min, wall.max);
-    SDL_SetRenderDrawColor(renderer, 171, 235, 145, 255);
+    SDL_SetRenderDrawColor(renderer, 156, 170, 184, 255);
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
       drawPerspectiveLine(
         renderer, camera, width, height,
@@ -1970,7 +1966,7 @@ void drawPerspectiveWorld(
         {wall.max.x, wall.max.y, z}, {wall.min.x, wall.max.y, z}
       );
     }
-    SDL_SetRenderDrawColor(renderer, 127, 202, 111, 255);
+    SDL_SetRenderDrawColor(renderer, 120, 138, 156, 255);
   }
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);

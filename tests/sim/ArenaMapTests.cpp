@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <sstream>
 #include <string_view>
 
 namespace {
@@ -47,6 +48,23 @@ spawn p2 2,0,0 yaw=180
     failures += expect(result.ok, "valid map text should load");
     failures += expect(result.arena.wallCount == 1, "valid map should include one box");
     failures += expect(nearlyEqual(result.arena.spawnPositions[1].x, 2.0F), "valid map should parse spawns");
+  }
+
+  {
+    std::ostringstream text;
+    text << "version 1\n";
+    text << "bounds min=0,0,0 max=320,2,2\n";
+    for (int index = 0; index < 160; ++index) {
+      const float x = static_cast<float>(index) * 2.0F;
+      text << "box box_" << index << ' '
+           << x << ",0,0 "
+           << x + 1.0F << ",1,1\n";
+    }
+    text << "spawn p1 1,1.5,0\n";
+    text << "spawn p2 319,1.5,0\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromText(text.str());
+    failures += expect(result.ok, "one-hundred-sixty-box map should load under the expanded arena limit");
+    failures += expect(result.arena.wallCount == 160, "expanded arena limit should preserve all boxes");
   }
 
   {

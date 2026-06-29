@@ -11,6 +11,7 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kHeaderBytes = 12;
+static_assert(Arena::kWallCount <= std::numeric_limits<std::uint8_t>::max());
 
 [[nodiscard]] bool isValidWeapon(Weapon weapon) {
   return weapon <= kLastWeapon;

@@ -627,6 +627,42 @@ int main() {
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 
+    lg::ServerSnapshot largeArenaSnapshot;
+    largeArenaSnapshot.serverTick = 55;
+    largeArenaSnapshot.mapRevision = 3;
+    largeArenaSnapshot.arena.min = {0.0F, 0.0F, 0.0F};
+    largeArenaSnapshot.arena.max = {320.0F, 4.0F, 4.0F};
+    largeArenaSnapshot.arena.wallCount = 160;
+    for (std::size_t wallIndex = 0; wallIndex < largeArenaSnapshot.arena.wallCount; ++wallIndex) {
+      const float x = static_cast<float>(wallIndex) * 2.0F;
+      largeArenaSnapshot.arena.walls[wallIndex] = {
+        {x, 0.0F, 0.0F},
+        {x + 1.0F, 1.0F, 1.0F},
+      };
+      largeArenaSnapshot.arena.walls[wallIndex].materialId =
+        lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
+    }
+    largeArenaSnapshot.arena.spawnPositions[0] = {1.0F, 2.0F, 0.0F};
+    largeArenaSnapshot.arena.spawnPositions[1] = {319.0F, 2.0F, 0.0F};
+    lg::ServerSnapshot decodedLargeArena;
+    failures += expect(
+      lg::encodeServerSnapshot(largeArenaSnapshot, wire),
+      "large arena snapshot should encode"
+    );
+    failures += expect(
+      wire.size() <= lg::kMaxPacketBytes,
+      "large arena snapshot should respect packet limit"
+    );
+    failures += expect(
+      lg::decodeServerSnapshot(wire, decodedLargeArena),
+      "large arena snapshot should decode"
+    );
+    failures += expect(
+      decodedLargeArena.arena.wallCount == largeArenaSnapshot.arena.wallCount &&
+        nearlyEqual(decodedLargeArena.arena.walls[159].max.x, 319.0F),
+      "large arena wall list should round trip"
+    );
+
     lg::DisconnectPacket disconnect{12345};
     lg::DisconnectPacket decodedDisconnect;
     failures += expect(

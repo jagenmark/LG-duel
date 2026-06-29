@@ -166,10 +166,16 @@ or BSP compatibility.
 Create a new TrenchBroom map, use only rectangular axis-aligned cuboid brushes
 in `worldspawn`, place player spawns with point entities named
 `info_player_duel`, `info_player_deathmatch`, or `lg_spawn`, and save it as
-`maps/<name>.map`. Spawn entities need an `origin` key like `"4 -3 1"` and may
-include `angle` or `yaw` in degrees. Optional worldspawn keys
-`lg_bounds_min` and `lg_bounds_max` can set arena bounds; otherwise bounds are
-computed from converted boxes and spawns with padding.
+`maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
+and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
+unit. A `16`-unit stair step therefore becomes `0.4` LG units, just below the
+current walkable step height. Native `.lgmap` files continue to use LG Duel
+world units directly.
+
+Spawn entities need an `origin` key like `"160 -120 40"` and may include
+`angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and
+`lg_bounds_max` can set arena bounds in the same Quake/TrenchBroom units;
+otherwise bounds are computed from converted boxes and spawns with padding.
 
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom

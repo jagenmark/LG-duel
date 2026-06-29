@@ -15,6 +15,7 @@ namespace {
 
 constexpr float kPlaneEpsilon = 0.001F;
 constexpr float kBoundsPadding = 1.0F;
+constexpr float kQuakeToLgScale = 1.0F / 40.0F;
 
 [[nodiscard]] bool parseFloat(std::string_view text, float& value) {
   const char* begin = text.data();
@@ -33,6 +34,10 @@ constexpr float kBoundsPadding = 1.0F;
     return false;
   }
   return parseFloat(x, value.x) && parseFloat(y, value.y) && parseFloat(z, value.z);
+}
+
+[[nodiscard]] Vec3 scaleQuakeUnits(Vec3 value) {
+  return value * kQuakeToLgScale;
 }
 
 [[nodiscard]] bool parseOptionalYaw(const MapEntity& entity, std::string& error) {
@@ -148,6 +153,8 @@ constexpr float kBoundsPadding = 1.0F;
 
   wall.min = {planes[0][0], planes[1][0], planes[2][0]};
   wall.max = {planes[0][1], planes[1][1], planes[2][1]};
+  wall.min = scaleQuakeUnits(wall.min);
+  wall.max = scaleQuakeUnits(wall.max);
   for (const MapFace& face : brush.faces) {
     if (!face.material.empty()) {
       wall.materialId = arenaMaterialId(face.material);
@@ -215,12 +222,14 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         if (!parseSpaceVec3(*value, boundsMin)) {
           return {{}, false, "line " + std::to_string(entity.line) + ": lg_bounds_min must be 'x y z'"};
         }
+        boundsMin = scaleQuakeUnits(boundsMin);
         hasBoundsMin = true;
       }
       if (const std::string* value = entity.property("lg_bounds_max")) {
         if (!parseSpaceVec3(*value, boundsMax)) {
           return {{}, false, "line " + std::to_string(entity.line) + ": lg_bounds_max must be 'x y z'"};
         }
+        boundsMax = scaleQuakeUnits(boundsMax);
         hasBoundsMax = true;
       }
       for (const MapBrush& brush : entity.brushes) {
@@ -240,6 +249,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       if (!parseSpaceVec3(*origin, position)) {
         return {{}, false, "line " + std::to_string(entity.line) + ": spawn origin must be 'x y z'"};
       }
+      position = scaleQuakeUnits(position);
       std::string error;
       if (!parseOptionalYaw(entity, error)) {
         return {{}, false, error};

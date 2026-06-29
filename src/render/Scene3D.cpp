@@ -435,33 +435,6 @@ void addArenaBoundaryWalls(Scene3D& scene, const Arena& arena) {
   );
 }
 
-void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
-  const Vec3 topMin = {
-    wall.min.x,
-    wall.min.y,
-    wall.max.z + 0.01F,
-  };
-  const Vec3 topMax = {
-    wall.max.x,
-    wall.max.y,
-    wall.max.z + 0.08F,
-  };
-  addBox(scene, topMin, topMax, {86, 176, 96, 255});
-
-  constexpr float bandWidth = 0.026F;
-  constexpr RenderColor bandColor = {171, 235, 145, 255};
-  const float lowerBandZ = wall.min.z + 0.32F;
-  const float upperBandZ = std::max(wall.min.z + 0.34F, wall.max.z - 0.24F);
-  const auto addPerimeterBand = [&](float z, RenderColor color) {
-    addSegment(scene, {wall.min.x, wall.min.y, z}, {wall.max.x, wall.min.y, z}, bandWidth, color);
-    addSegment(scene, {wall.max.x, wall.min.y, z}, {wall.max.x, wall.max.y, z}, bandWidth, color);
-    addSegment(scene, {wall.max.x, wall.max.y, z}, {wall.min.x, wall.max.y, z}, bandWidth, color);
-    addSegment(scene, {wall.min.x, wall.max.y, z}, {wall.min.x, wall.min.y, z}, bandWidth, color);
-  };
-  addPerimeterBand(lowerBandZ, scaleColor(bandColor, 0.75F));
-  addPerimeterBand(upperBandZ, bandColor);
-}
-
 void addOrientedBox(
   Scene3D& scene,
   Vec3 center,
@@ -1047,29 +1020,11 @@ Scene3D buildPerspectiveScene(
 
   addFloorTreatment(scene, arena);
   addArenaBoundaryWalls(scene, arena);
-  addWireBox(scene, arena.min, arena.max, 0.025F, {127, 202, 111, 255});
+  addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
     addWallBox(scene, wall);
-    addWallAccents(scene, wall);
-    addWireBox(scene, wall.min, wall.max, 0.018F, {127, 202, 111, 255});
-    for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
-      addSegment(
-        scene,
-        {wall.min.x, wall.min.y, z},
-        {wall.max.x, wall.min.y, z},
-        0.012F,
-        {109, 195, 105, 255}
-      );
-      addSegment(
-        scene,
-        {wall.max.x, wall.max.y, z},
-        {wall.min.x, wall.max.y, z},
-        0.012F,
-        {109, 195, 105, 255}
-      );
-    }
   }
 
   for (const RemotePlayerView& remote : remotePlayers) {

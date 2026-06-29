@@ -21,6 +21,13 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.001F) {
   return std::fabs(lhs - rhs) <= epsilon;
 }
 
+bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
+  return lhs.red == rhs.red &&
+    lhs.green == rhs.green &&
+    lhs.blue == rhs.blue &&
+    lhs.alpha == rhs.alpha;
+}
+
 } // namespace
 
 int main() {
@@ -89,10 +96,21 @@ int main() {
   );
   bool foundTexturedWallVertex = false;
   bool foundWallUvSpan = false;
+  bool foundPrototypeWallAccent = false;
   float firstWallU = 0.0F;
   float firstWallV = 0.0F;
   bool capturedFirstWallUv = false;
   for (const lg::Vertex3D& vertex : texturedWallScene.vertices) {
+    if (
+      vertex.materialId == 0U &&
+      (
+        sameColor(vertex.color, {86, 176, 96, 255}) ||
+        sameColor(vertex.color, {171, 235, 145, 255}) ||
+        sameColor(vertex.color, {109, 195, 105, 255})
+      )
+    ) {
+      foundPrototypeWallAccent = true;
+    }
     if (vertex.materialId != arena.walls[0].materialId) {
       continue;
     }
@@ -114,6 +132,10 @@ int main() {
   failures += expect(
     foundWallUvSpan,
     "wall scene geometry should emit varying texture coordinates"
+  );
+  failures += expect(
+    !foundPrototypeWallAccent,
+    "wall scene geometry should not emit old green prototype accents over textures"
   );
   arena.wallCount = 0;
 

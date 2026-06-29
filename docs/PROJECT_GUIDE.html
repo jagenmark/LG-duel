@@ -318,7 +318,7 @@ accumulator -= available * fixed_dt</code></pre>
       <p>Notice the absence of wall-clock access, rendering, random input, or globals. Given the same inputs and initial data, it should produce the same output.</p>
 
       <h3 id="collision">Arena and collision</h3>
-      <p><a href="../src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from 24 or fewer axis-aligned boxes. The same boxes serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
+      <p><a href="../src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from 255 or fewer axis-aligned boxes. The same boxes serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
       <ul>
         <li>Players are vertical cylinders: radius plus half-height.</li>
         <li>Arena walls are axis-aligned boxes with <code>min</code>/<code>max</code> corners.</li>

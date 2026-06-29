@@ -20,7 +20,7 @@ struct ArenaWall {
 };
 
 struct Arena {
-  static constexpr std::size_t kWallCount = 24;
+  static constexpr std::size_t kWallCount = 255;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};

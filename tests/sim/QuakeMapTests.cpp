@@ -104,9 +104,43 @@ int main() {
       lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1)));
     failures += expect(result.ok, "cuboid map should convert");
     failures += expect(result.arena.wallCount == 1, "cuboid map should produce one wall");
-    failures += expect(nearlyEqual(result.arena.walls[0].min.x, -1.0F), "wall min should match brush");
-    failures += expect(nearlyEqual(result.arena.walls[0].max.z, 1.0F), "wall max should match brush");
+    failures += expect(nearlyEqual(result.arena.walls[0].min.x, -0.025F), "wall min should use Quake-to-LG scale");
+    failures += expect(nearlyEqual(result.arena.walls[0].max.z, 0.025F), "wall max should use Quake-to-LG scale");
     failures += expect(result.arena.walls[0].materialId != 0U, "wall material should be preserved");
+  }
+
+  {
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)));
+    failures += expect(result.ok, "sixteen-unit cuboid map should convert");
+    failures += expect(
+      nearlyEqual(result.arena.walls[0].max.z - result.arena.walls[0].min.z, 0.4F),
+      "sixteen TrenchBroom units should convert to 0.4 LG units"
+    );
+  }
+
+  {
+    const std::string text =
+      "{\n"
+      "\"classname\" \"worldspawn\"\n"
+      "\"lg_bounds_min\" \"-80 -80 -40\"\n"
+      "\"lg_bounds_max\" \"80 80 80\"\n" +
+      cuboidBrush(-16, -16, 0, 16, 16, 16) +
+      "}\n"
+      "{\n"
+      "\"classname\" \"info_player_duel\"\n"
+      "\"origin\" \"-40 0 40\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"lg_spawn\"\n"
+      "\"origin\" \"40 0 40\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "map with explicit bounds should convert");
+    failures += expect(
+      nearlyEqual(result.arena.min.x, -2.0F) && nearlyEqual(result.arena.max.z, 2.0F),
+      "explicit map bounds should use Quake-to-LG scale"
+    );
   }
 
   {
@@ -134,12 +168,12 @@ int main() {
       lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1)));
     failures += expect(result.ok, "spawn map should convert");
     failures += expect(
-      nearlyEqual(result.arena.spawnPositions[0].x, -2.0F) &&
-        nearlyEqual(result.arena.spawnPositions[1].x, 2.0F),
+      nearlyEqual(result.arena.spawnPositions[0].x, -0.05F) &&
+        nearlyEqual(result.arena.spawnPositions[1].x, 0.05F),
       "converter should parse two spawn origins"
     );
     failures += expect(
-      nearlyEqual(result.arena.min.x, -3.0F) && nearlyEqual(result.arena.max.x, 3.0F),
+      nearlyEqual(result.arena.min.x, -1.05F) && nearlyEqual(result.arena.max.x, 1.05F),
       "converter should auto-compute bounds with padding"
     );
   }
