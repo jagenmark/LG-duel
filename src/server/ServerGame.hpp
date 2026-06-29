@@ -120,7 +120,6 @@ private:
   ShotgunTuning shotgunTuning_ = {};
   RocketLauncherTuning rocketLauncherTuning_ = {};
   GrenadeLauncherTuning grenadeLauncherTuning_ = {};
-  PlasmaGunTuning plasmaGunTuning_ = {};
   float vampirism_ = 0.0F;
   std::uint8_t selfDamagePercent_ = 100;
   std::int32_t healthAmount_ = 100;
@@ -131,7 +130,6 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> shotgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeCooldownTicks_ = {};
-  std::array<std::uint32_t, kDuelPlayerCount> plasmaGunCooldownTicks_ = {};
   std::array<Weapon, kDuelPlayerCount> selectedWeapons_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> weaponPulloutTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};

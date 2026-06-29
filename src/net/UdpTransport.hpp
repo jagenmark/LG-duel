@@ -1,6 +1,5 @@
 #pragma once
 
-#include "net/ClientNetworkSimulator.hpp"
 #include "net/NetTransport.hpp"
 
 #include <cstddef>
@@ -50,7 +49,6 @@ public:
   [[nodiscard]] bool initialize();
   void disconnect();
   void update();
-  void setNetworkSimulationConfig(const ClientNetworkSimulationConfig& config);
 
   void sendCommand(const CommandPacket& packet) override;
   [[nodiscard]] bool receiveCommand(CommandPacket& packet) override;
@@ -61,8 +59,6 @@ public:
   [[nodiscard]] bool timedOut() const;
   [[nodiscard]] std::uint8_t playerIndex() const;
   [[nodiscard]] float pingMilliseconds() const;
-  [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;
-  [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfig() const;
   [[nodiscard]] const std::string& lastError() const;
   [[nodiscard]] const std::string& host() const;
   [[nodiscard]] std::uint16_t port() const;

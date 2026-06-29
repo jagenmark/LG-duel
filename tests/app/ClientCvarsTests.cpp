@@ -142,27 +142,6 @@ int main() {
     ) == archivedConfig.end(),
     "sound mixer cvars should stay controlled by sound_mixer.cfg rather than client.cfg"
   );
-  failures += expect(
-    console.execute("net_sim_latency_ms") ==
-      "net_sim_latency_ms = 0 (default 0)" &&
-      console.execute("net_sim_latency_ms 60") == "net_sim_latency_ms = 60",
-    "network simulation latency cvar should default to zero and accept one-way delay"
-  );
-  failures += expect(
-    console.execute("net_sim_jitter_ms 5001") ==
-      "value out of range for net_sim_jitter_ms",
-    "network simulation jitter cvar should reject absurd delay"
-  );
-  failures += expect(
-    console.execute("net_sim_loss_percent 101") ==
-      "value out of range for net_sim_loss_percent" &&
-      console.execute("net_sim_reorder_percent 2") == "net_sim_reorder_percent = 2",
-    "network simulation percent cvars should clamp to the registered range"
-  );
-  failures += expect(
-    console.execute("net_sim_seed 12345") == "net_sim_seed = 12345",
-    "network simulation seed should be configurable"
-  );
 
   return failures == 0 ? 0 : 1;
 }

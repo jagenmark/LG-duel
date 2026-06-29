@@ -101,11 +101,6 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_showfps` | bool | `0` | bool | Ingen | Arkiv | Visar FPS, genomsnittlig frame time och renderer-backend i fönstertiteln. |
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed. Intern hastighet multipliceras med `40`, så `8 = 320 UPS`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
-| `net_sim_latency_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: extra one-way latency i ms efter connect. `60` pa bade outgoing och incoming ger ungefar +120 ms RTT. |
-| `net_sim_jitter_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: slumpad one-way variation runt `net_sim_latency_ms` per datagram. Delay clampas till minst `0`. |
-| `net_sim_loss_percent` | int | `0` | `0..100` | Ingen | Nej | Lokal klient-UDP-simulator: oberoende sannolikhet per datagram att droppas. |
-| `net_sim_reorder_percent` | int | `0` | `0..100` | Ingen | Nej | Lokal klient-UDP-simulator: probabilistisk transport-reordering. Valda datagram far en liten extra hold sa senare datagram kan ga fore; packet bytes och protocol state andras inte. Effekten beror pa faktisk packet cadence. |
-| `net_sim_seed` | int | `0` | `0..2147483647` | Ingen | Nej | Lokal klient-UDP-simulator: RNG-seed for reproducerbara loss/jitter/reorder-fall. `0` anvander fast default-seed. |
 | `cl_show_lagcomp` | bool | `0` | bool | Ingen | Arkiv | Visar riktig rewind-data när den används, annars att lag compensation inte används. |
 | `cl_show_alive_counts` | bool | `0` | bool | Ingen | Arkiv | Visar antal levande röda och blå spelare på HUD:en i Clan Arena. Kan växlas med `toggle cl_show_alive_counts`. |
 | `cl_interp_mode` | int | `1` | `0..1` | Ingen | Arkiv | Remote interpolation mode. `0`: legacy senaste snapshot-par + lokal render-alpha och gammal viewed tick. `1`: buffrad interpolation med `cl_interp`. |
