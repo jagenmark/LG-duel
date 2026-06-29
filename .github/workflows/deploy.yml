@@ -4,6 +4,7 @@ name: Deploy Server
 # Optional secrets: VM_SSH_PORT, VM_DEPLOY_PATH, VM_REPOSITORY_URL.
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main

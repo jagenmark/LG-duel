@@ -1539,38 +1539,119 @@ DrawList2D buildPerspectiveWeaponOverlay(
     }
 
     if (weapon == Weapon::Shotgun) {
+      const RenderColor darkIron = {18, 20, 23, 255};
+      const RenderColor barrelSteel = {84, 88, 94, 255};
+      const RenderColor barrelHighlight = {162, 168, 176, 255};
+      const RenderColor woodDark = {58, 35, 24, 255};
+      const RenderColor woodWarm = {112, 68, 39, 255};
+      const float loweredMuzzle = muzzle + 54.0F * scale;
+
+      // Long, clean twin iron barrels, kept low and centered like a classic
+      // first-person sawed-off.
       quad(
         {{
-          {centerX - 58.0F * scale, muzzle + 12.0F * scale},
-          {centerX + 58.0F * scale, muzzle + 12.0F * scale},
-          {centerX + 94.0F * scale, bodyBottom},
-          {centerX - 94.0F * scale, bodyBottom},
+          {centerX - 48.0F * scale, loweredMuzzle - 84.0F * scale},
+          {centerX - 12.0F * scale, loweredMuzzle - 84.0F * scale},
+          {centerX - 4.0F * scale, bodyBottom},
+          {centerX - 68.0F * scale, bodyBottom},
         }},
-        {42, 38, 34, 255}
+        barrelSteel
+      );
+      quad(
+        {{
+          {centerX + 12.0F * scale, loweredMuzzle - 84.0F * scale},
+          {centerX + 48.0F * scale, loweredMuzzle - 84.0F * scale},
+          {centerX + 68.0F * scale, bodyBottom},
+          {centerX + 4.0F * scale, bodyBottom},
+        }},
+        barrelSteel
+      );
+      quad(
+        {{
+          {centerX - 22.0F * scale, loweredMuzzle - 78.0F * scale},
+          {centerX - 12.0F * scale, loweredMuzzle - 78.0F * scale},
+          {centerX - 6.0F * scale, bodyBottom},
+          {centerX - 22.0F * scale, bodyBottom},
+        }},
+        barrelHighlight
+      );
+      quad(
+        {{
+          {centerX + 12.0F * scale, loweredMuzzle - 78.0F * scale},
+          {centerX + 22.0F * scale, loweredMuzzle - 78.0F * scale},
+          {centerX + 22.0F * scale, bodyBottom},
+          {centerX + 6.0F * scale, bodyBottom},
+        }},
+        barrelHighlight
       );
       addRect(
         drawList,
-        centerX - 42.0F * scale,
-        muzzle - 31.0F * scale,
-        84.0F * scale,
-        19.0F * scale,
-        {30, 34, 36, 255}
+        centerX - 5.0F * scale,
+        loweredMuzzle - 80.0F * scale,
+        10.0F * scale,
+        100.0F * scale,
+        darkIron
+      );
+
+      // Squared-off muzzle lips and dark bore openings.
+      addRect(
+        drawList,
+        centerX - 52.0F * scale,
+        loweredMuzzle - 96.0F * scale,
+        44.0F * scale,
+        17.0F * scale,
+        barrelHighlight
       );
       addRect(
         drawList,
-        centerX - 42.0F * scale,
-        muzzle - 7.0F * scale,
-        84.0F * scale,
-        19.0F * scale,
-        {30, 34, 36, 255}
+        centerX + 8.0F * scale,
+        loweredMuzzle - 96.0F * scale,
+        44.0F * scale,
+        17.0F * scale,
+        barrelHighlight
       );
       addRect(
         drawList,
-        centerX - 54.0F * scale,
-        muzzle + 32.0F * scale,
-        108.0F * scale,
+        centerX - 36.0F * scale,
+        loweredMuzzle - 93.0F * scale,
+        14.0F * scale,
+        12.0F * scale,
+        darkIron
+      );
+      addRect(
+        drawList,
+        centerX + 22.0F * scale,
+        loweredMuzzle - 93.0F * scale,
+        14.0F * scale,
+        12.0F * scale,
+        darkIron
+      );
+
+      // Wooden holder/foregrip: the only broad mass under the clean barrels.
+      quad(
+        {{
+          {centerX - 56.0F * scale, muzzle + 62.0F * scale},
+          {centerX + 56.0F * scale, muzzle + 62.0F * scale},
+          {centerX + 86.0F * scale, bodyBottom},
+          {centerX - 86.0F * scale, bodyBottom},
+        }},
+        woodDark
+      );
+      addRect(
+        drawList,
+        centerX - 46.0F * scale,
+        muzzle + 76.0F * scale,
+        92.0F * scale,
         22.0F * scale,
-        {188, 120, 84, 255}
+        woodWarm
+      );
+      addRect(
+        drawList,
+        centerX - 38.0F * scale,
+        muzzle + 106.0F * scale,
+        76.0F * scale,
+        12.0F * scale,
+        {82, 48, 29, 255}
       );
       return;
     }

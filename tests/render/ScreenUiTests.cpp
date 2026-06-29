@@ -222,8 +222,8 @@ int main() {
       },
       {
         lg::Weapon::Shotgun,
-        {188, 120, 84, 255},
-        "shotgun viewmodel should use its wide pump accent",
+        {162, 168, 176, 255},
+        "shotgun viewmodel should use its sawed-off steel muzzle accent",
       },
       {
         lg::Weapon::GrenadeLauncher,

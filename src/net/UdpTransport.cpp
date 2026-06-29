@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstring>
 #include <deque>
+#include <vector>
 #include <string>
 #include <utility>
 
@@ -496,6 +497,58 @@ struct UdpClientTransport::Impl {
   Impl(std::string serverHost, std::uint16_t serverPort)
     : host(std::move(serverHost)), port(serverPort) {}
 
+  void sendConnectedWire(const WirePacket& wire, Clock::time_point now) {
+    if (!connected || !networkSim.active()) {
+      sendWire(socket, server, wire);
+      return;
+    }
+    if (
+      networkSim.enqueue(ClientNetworkSimDirection::Outgoing, wire, now) ==
+      ClientNetworkSimAction::Immediate
+    ) {
+      sendWire(socket, server, wire);
+    }
+  }
+
+  void flushOutgoing(Clock::time_point now) {
+    WirePacket wire;
+    while (networkSim.popDue(ClientNetworkSimDirection::Outgoing, now, wire)) {
+      sendWire(socket, server, wire);
+    }
+  }
+
+  void dispatchWire(const WirePacket& wire, Clock::time_point now) {
+    PacketType type;
+    if (!inspectPacketType(wire, type)) {
+      return;
+    }
+    if (type == PacketType::Snapshot && connected) {
+      ServerSnapshot snapshot;
+      if (decodeServerSnapshot(wire, snapshot)) {
+        snapshots.push_back(snapshot);
+        lastServerPacket = now;
+      }
+    } else if (type == PacketType::Pong && connected) {
+      PingPacket pong;
+      if (
+        decodePingPacket(wire, PacketType::Pong, pong) &&
+        pong.token == pingToken
+      ) {
+        pingMs = std::chrono::duration<float, std::milli>(
+          now - pingSentAt
+        ).count();
+        lastServerPacket = now;
+      }
+    }
+  }
+
+  void flushIncoming(Clock::time_point now) {
+    WirePacket wire;
+    while (networkSim.popDue(ClientNetworkSimDirection::Incoming, now, wire)) {
+      dispatchWire(wire, now);
+    }
+  }
+
   void sendConnect() {
     WirePacket wire;
     if (encodeConnectRequest(ConnectRequest{nonce}, wire)) {
@@ -517,11 +570,12 @@ struct UdpClientTransport::Impl {
       ++pingToken;
       WirePacket wire;
       if (encodePingPacket(PacketType::Ping, PingPacket{pingToken}, wire)) {
-        sendWire(socket, server, wire);
+        sendConnectedWire(wire, now);
         pingSentAt = now;
         lastPingSend = now;
       }
     }
+    flushOutgoing(now);
 
     while (true) {
       Endpoint sender;
@@ -549,30 +603,24 @@ struct UdpClientTransport::Impl {
           lastServerPacket = Clock::now();
           lastPingSend = Clock::now() - kPingInterval;
         }
-      } else if (type == PacketType::Snapshot && connected) {
-        ServerSnapshot snapshot;
-        if (decodeServerSnapshot(wire, snapshot)) {
-          snapshots.push_back(snapshot);
-          lastServerPacket = Clock::now();
-        }
-      } else if (type == PacketType::Pong && connected) {
-        PingPacket pong;
+      } else if (connected) {
         if (
-          decodePingPacket(wire, PacketType::Pong, pong) &&
-          pong.token == pingToken
+          networkSim.active() &&
+          networkSim.enqueue(ClientNetworkSimDirection::Incoming, wire, now) !=
+            ClientNetworkSimAction::Immediate
         ) {
-          pingMs = std::chrono::duration<float, std::milli>(
-            Clock::now() - pingSentAt
-          ).count();
-          lastServerPacket = Clock::now();
+          continue;
         }
+        dispatchWire(wire, now);
       }
     }
+    flushIncoming(Clock::now());
 
     if (connected && Clock::now() - lastServerPacket > kConnectionTimeout) {
       connected = false;
       timedOut = true;
       commandHistory.clear();
+      networkSim.clear();
     }
   }
 
@@ -583,6 +631,7 @@ struct UdpClientTransport::Impl {
   Endpoint server = {};
   std::deque<ServerSnapshot> snapshots;
   std::deque<CommandPacket> commandHistory;
+  ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
   std::uint32_t pingToken = 0;
   std::uint8_t assignedPlayer = 0;
@@ -674,6 +723,12 @@ void UdpClientTransport::update() {
   impl_->pump();
 }
 
+void UdpClientTransport::setNetworkSimulationConfig(
+  const ClientNetworkSimulationConfig& config
+) {
+  impl_->networkSim.setConfig(config);
+}
+
 void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   impl_->pump();
   if (!impl_->connected) {
@@ -696,7 +751,7 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
 
   WirePacket wire;
   if (encodeCommandBundle(bundle, wire)) {
-    sendWire(impl_->socket, impl_->server, wire);
+    impl_->sendConnectedWire(wire, Clock::now());
   }
 }
 
@@ -730,6 +785,14 @@ std::uint8_t UdpClientTransport::playerIndex() const {
 
 float UdpClientTransport::pingMilliseconds() const {
   return impl_->pingMs;
+}
+
+ClientNetworkSimulationStats UdpClientTransport::networkSimulationStats() const {
+  return impl_->networkSim.stats();
+}
+
+ClientNetworkSimulationConfig UdpClientTransport::networkSimulationConfig() const {
+  return impl_->networkSim.config();
 }
 
 const std::string& UdpClientTransport::lastError() const {

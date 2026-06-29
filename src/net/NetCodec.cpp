@@ -263,6 +263,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeI32(packet.weaponDamage.lightningGunDamage) &&
     writer.writeI32(packet.weaponDamage.railgunDamage) &&
     writer.writeI32(packet.weaponDamage.rocketLauncherDamage) &&
+    writer.writeI32(packet.weaponDamage.plasmaGunDamage) &&
     writer.writeFloat(packet.vampirism) &&
     writer.writeU8(packet.selfDamagePercent) &&
     writer.writeI32(packet.healthAmount) &&
@@ -323,6 +324,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readI32(packet.weaponDamage.lightningGunDamage) ||
     !reader.readI32(packet.weaponDamage.railgunDamage) ||
     !reader.readI32(packet.weaponDamage.rocketLauncherDamage) ||
+    !reader.readI32(packet.weaponDamage.plasmaGunDamage) ||
     !reader.readFloat(packet.vampirism) ||
     !reader.readU8(packet.selfDamagePercent) ||
     !reader.readI32(packet.healthAmount) ||
@@ -388,6 +390,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.weaponDamage.railgunDamage <= 500 &&
     packet.weaponDamage.rocketLauncherDamage >= 1 &&
     packet.weaponDamage.rocketLauncherDamage <= 500 &&
+    packet.weaponDamage.plasmaGunDamage >= 1 &&
+    packet.weaponDamage.plasmaGunDamage <= 500 &&
     packet.vampirism >= 0.0F &&
     packet.vampirism <= 2.0F &&
     packet.selfDamagePercent <= 100 &&
@@ -711,7 +715,8 @@ bool writeWeaponFire(Writer& writer, const WeaponFireResult& result) {
     writer.writeI32(result.damageApplied) &&
     writeVec3(writer, result.knockbackImpulse) &&
     writer.writeU8(result.pelletCount) &&
-    writer.writeU8(result.pelletHitCount);
+    writer.writeU8(result.pelletHitCount) &&
+    writer.writeU32(result.visualSeed);
 }
 
 bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
@@ -719,6 +724,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   std::int32_t damageApplied = 0;
   std::uint8_t pelletCount = 0;
   std::uint8_t pelletHitCount = 0;
+  std::uint32_t visualSeed = 0;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
@@ -728,7 +734,8 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
     !reader.readI32(damageApplied) ||
     !readVec3(reader, result.knockbackImpulse) ||
     !reader.readU8(pelletCount) ||
-    !reader.readU8(pelletHitCount)
+    !reader.readU8(pelletHitCount) ||
+    !reader.readU32(visualSeed)
   ) {
     return false;
   }
@@ -744,6 +751,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   result.damageApplied = damageApplied;
   result.pelletCount = pelletCount;
   result.pelletHitCount = pelletHitCount;
+  result.visualSeed = visualSeed;
   return true;
 }
 
@@ -790,12 +798,16 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
 
 bool writeFootstepAudioEvent(Writer& writer, const FootstepAudioEvent& event) {
   return writer.writeBool(event.active) &&
+    writer.writeBool(event.jumping) &&
+    writer.writeBool(event.landing) &&
     writer.writeU32(event.sequence) &&
     writeVec3(writer, event.position);
 }
 
 bool readFootstepAudioEvent(Reader& reader, FootstepAudioEvent& event) {
   return reader.readBool(event.active) &&
+    reader.readBool(event.jumping) &&
+    reader.readBool(event.landing) &&
     reader.readU32(event.sequence) &&
     readVec3(reader, event.position);
 }
@@ -1273,6 +1285,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeI32(snapshot.weaponDamage.lightningGunDamage) &&
     writer.writeI32(snapshot.weaponDamage.railgunDamage) &&
     writer.writeI32(snapshot.weaponDamage.rocketLauncherDamage) &&
+    writer.writeI32(snapshot.weaponDamage.plasmaGunDamage) &&
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
@@ -1481,6 +1494,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readI32(decoded.weaponDamage.lightningGunDamage) ||
     !reader.readI32(decoded.weaponDamage.railgunDamage) ||
     !reader.readI32(decoded.weaponDamage.rocketLauncherDamage) ||
+    !reader.readI32(decoded.weaponDamage.plasmaGunDamage) ||
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||
@@ -1537,6 +1551,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.weaponDamage.railgunDamage > 500 ||
     decoded.weaponDamage.rocketLauncherDamage < 1 ||
     decoded.weaponDamage.rocketLauncherDamage > 500 ||
+    decoded.weaponDamage.plasmaGunDamage < 1 ||
+    decoded.weaponDamage.plasmaGunDamage > 500 ||
     decoded.vampirism < 0.0F ||
     decoded.vampirism > 2.0F ||
     decoded.selfDamagePercent > 100 ||

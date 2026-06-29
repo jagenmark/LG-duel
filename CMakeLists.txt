@@ -22,6 +22,7 @@ add_library(lg_duel_core
   src/input/InputBindings.cpp
   src/map/MapParser.cpp
   src/map/MapToArena.cpp
+  src/net/ClientNetworkSimulator.cpp
   src/net/LoopbackTransport.cpp
   src/net/NetCodec.cpp
   src/net/SimulatedTransport.cpp

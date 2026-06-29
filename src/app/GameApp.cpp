@@ -60,6 +60,8 @@ constexpr int kMaxSimulationTicksPerFrame = 8;
 constexpr float kDegreesToRadians = 0.01745329252F;
 constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
 constexpr float kRailgunBeamLingerSeconds = 0.5F;
+constexpr float kMachineGunShotLingerSeconds = 0.06F;
+constexpr float kTwoPi = 6.28318530718F;
 
 enum class AimMode {
   Relative3D,
@@ -74,6 +76,18 @@ enum class AimMode {
   return static_cast<std::uint8_t>(
     std::clamp(static_cast<int>(std::lround(console.getFloat("g_selfdamage"))), 0, 100)
   );
+}
+
+[[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfigFromConsole(
+  const ConsoleSystem& console
+) {
+  return ClientNetworkSimulationConfig{
+    console.getInt("net_sim_latency_ms"),
+    console.getInt("net_sim_jitter_ms"),
+    console.getInt("net_sim_loss_percent"),
+    console.getInt("net_sim_reorder_percent"),
+    static_cast<std::uint32_t>(std::max(0, console.getInt("net_sim_seed"))),
+  };
 }
 
 #if LG_DUEL_HAS_SDL3
@@ -111,6 +125,7 @@ void copyTextToClipboard(std::string_view text) {
     console.getInt("g_lg_damage"),
     console.getInt("g_rg_damage"),
     console.getInt("g_rl_damage"),
+    console.getInt("g_pg_damage"),
   };
 }
 
@@ -165,6 +180,17 @@ void copyTextToClipboard(std::string_view text) {
   return eyePosition +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+}
+
+[[nodiscard]] Vec3 rotatingViewmodelMuzzlePosition(
+  const PlayerState& player,
+  std::uint32_t visualSeed
+) {
+  const float angle = static_cast<float>(visualSeed % 6U) * (kTwoPi / 6.0F);
+  return viewmodelMuzzlePosition(player) +
+    yawRight(player.viewYawRadians) * (std::cos(angle) * 0.045F) +
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
+      (std::sin(angle) * 0.045F);
 }
 
 struct LocalInputState {
@@ -307,7 +333,7 @@ struct SettingsMenuState {
   int originalMaxFps = 0;
 };
 
-struct LingeringRailBeam {
+struct LingeringWeaponFire {
   WeaponFireResult fire;
   WeaponFireResult sourceFire;
   bool active = false;
@@ -2339,16 +2365,29 @@ int GameApp::run() const {
     "net_stats",
     "Print current connection diagnostics.",
     [&session](const std::vector<std::string>&) {
-      char text[160];
+      const ClientNetworkSimulationConfig config = session.networkSimulationConfig();
+      const ClientNetworkSimulationStats stats = session.networkSimulationStats();
+      char text[320];
       std::snprintf(
         text,
         sizeof(text),
-        "state=%d host=%s port=%u player=%zu ping=%.1fms",
+        "state=%d host=%s port=%u player=%zu ping=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu}",
         static_cast<int>(session.state()),
         std::string(session.host()).c_str(),
         static_cast<unsigned int>(session.port()),
         session.playerIndex() + 1U,
-        session.pingMilliseconds()
+        session.pingMilliseconds(),
+        config.latencyMs,
+        config.jitterMs,
+        config.lossPercent,
+        config.reorderPercent,
+        static_cast<unsigned int>(config.seed),
+        stats.queuedOutgoingPackets,
+        stats.queuedIncomingPackets,
+        static_cast<unsigned long long>(stats.droppedOutgoingPackets),
+        static_cast<unsigned long long>(stats.droppedIncomingPackets),
+        static_cast<unsigned long long>(stats.reorderedOutgoingPackets),
+        static_cast<unsigned long long>(stats.reorderedIncomingPackets)
       );
       return std::string(text);
     }
@@ -2587,7 +2626,8 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastRemoteHealth = {};
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
-  std::array<LingeringRailBeam, kDuelPlayerCount> lingeringRailBeams = {};
+  std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
+  std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringMachineGunShots = {};
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   while (running) {
@@ -2965,6 +3005,7 @@ int GameApp::run() const {
     if (quitRequested) {
       running = false;
     }
+    session.setNetworkSimulationConfig(networkSimulationConfigFromConsole(console));
     session.update();
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
@@ -3133,6 +3174,8 @@ int GameApp::run() const {
           lastRequestedWeaponDamage.railgunDamage ||
         currentWeaponDamage.rocketLauncherDamage !=
           lastRequestedWeaponDamage.rocketLauncherDamage ||
+        currentWeaponDamage.plasmaGunDamage !=
+          lastRequestedWeaponDamage.plasmaGunDamage ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
         currentWeaponSwitchingMode != lastRequestedWeaponSwitchingMode ||
@@ -3325,6 +3368,7 @@ int GameApp::run() const {
       wasLocalPlayerAlive = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
+      lingeringMachineGunShots = {};
       footstepAudioStates = {};
       damageNumberState.reset();
       lastDamageNumberServerTick = 0;
@@ -3513,7 +3557,13 @@ int GameApp::run() const {
                   event.position,
                   currentAudioGame->predictedPlayer()
                 );
-              audio.playFootstep(spatial.volume, event.sequence, spatial.pan);
+              if (event.jumping) {
+                audio.playJump(spatial.volume, spatial.pan);
+              } else if (event.landing) {
+                audio.playLand(spatial.volume, spatial.pan);
+              } else {
+                audio.playFootstep(spatial.volume, event.sequence, spatial.pan);
+              }
               lastPlayedFootstepAudioSequences[playerIndex] = event.sequence;
             }
             for (
@@ -4015,37 +4065,79 @@ int GameApp::run() const {
     );
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       WeaponFireResult& currentFire = renderWeaponFires[playerIndex];
-      LingeringRailBeam& lingeringBeam = lingeringRailBeams[playerIndex];
+      LingeringWeaponFire& lingeringRailBeam = lingeringRailBeams[playerIndex];
+      LingeringWeaponFire& lingeringMachineGunShot =
+        lingeringMachineGunShots[playerIndex];
       if (currentFire.fired && currentFire.weapon == Weapon::Railgun) {
         const WeaponFireResult sourceFire = currentFire;
         const bool localPerspectiveRail =
           currentRenderSettings.renderMode == 1 &&
           playerIndex == renderLocalPlayerIndex;
         const bool newRailEvent =
-          !lingeringBeam.active ||
-          !sameWeaponFireEvent(sourceFire, lingeringBeam.sourceFire);
+          !lingeringRailBeam.active ||
+          !sameWeaponFireEvent(sourceFire, lingeringRailBeam.sourceFire);
         if (newRailEvent) {
           if (localPerspectiveRail) {
             currentFire.start = viewmodelMuzzlePosition(renderPlayer);
           }
-          lingeringBeam.sourceFire = sourceFire;
-          lingeringBeam.fire = currentFire;
-          lingeringBeam.active = true;
-          lingeringBeam.expiresAt =
+          lingeringRailBeam.sourceFire = sourceFire;
+          lingeringRailBeam.fire = currentFire;
+          lingeringRailBeam.active = true;
+          lingeringRailBeam.expiresAt =
             now + std::chrono::duration_cast<Clock::duration>(
               std::chrono::duration<float>(kRailgunBeamLingerSeconds)
             );
         } else {
-          currentFire = lingeringBeam.fire;
+          currentFire = lingeringRailBeam.fire;
+        }
+      } else if (currentFire.fired && currentFire.weapon == Weapon::MachineGun) {
+        const WeaponFireResult sourceFire = currentFire;
+        const bool localPerspectiveMachineGun =
+          currentRenderSettings.renderMode == 1 &&
+          playerIndex == renderLocalPlayerIndex;
+        const bool newMachineGunEvent =
+          !lingeringMachineGunShot.active ||
+          !sameWeaponFireEvent(
+            sourceFire,
+            lingeringMachineGunShot.sourceFire
+          );
+        if (newMachineGunEvent) {
+          if (localPerspectiveMachineGun) {
+            currentFire.start =
+              rotatingViewmodelMuzzlePosition(renderPlayer, currentFire.visualSeed);
+          }
+          lingeringMachineGunShot.sourceFire = sourceFire;
+          lingeringMachineGunShot.fire = currentFire;
+          lingeringMachineGunShot.active = true;
+          lingeringMachineGunShot.expiresAt =
+            now + std::chrono::duration_cast<Clock::duration>(
+              std::chrono::duration<float>(kMachineGunShotLingerSeconds)
+            );
+        } else {
+          currentFire = lingeringMachineGunShot.fire;
         }
       } else if (
         !currentFire.fired &&
-        lingeringBeam.active &&
-        now < lingeringBeam.expiresAt
+        lingeringRailBeam.active &&
+        now < lingeringRailBeam.expiresAt
       ) {
-        currentFire = lingeringBeam.fire;
-      } else if (lingeringBeam.active && now >= lingeringBeam.expiresAt) {
-        lingeringBeam.active = false;
+        currentFire = lingeringRailBeam.fire;
+      } else if (
+        !currentFire.fired &&
+        lingeringMachineGunShot.active &&
+        now < lingeringMachineGunShot.expiresAt
+      ) {
+        currentFire = lingeringMachineGunShot.fire;
+      } else {
+        if (lingeringRailBeam.active && now >= lingeringRailBeam.expiresAt) {
+          lingeringRailBeam.active = false;
+        }
+        if (
+          lingeringMachineGunShot.active &&
+          now >= lingeringMachineGunShot.expiresAt
+        ) {
+          lingeringMachineGunShot.active = false;
+        }
       }
     }
     if (zoomPressCount > 0) {

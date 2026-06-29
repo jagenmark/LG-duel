@@ -532,5 +532,145 @@ int main() {
     "transparent beam geometry should use the non-depth-writing batch"
   );
 
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> shotgunFires = {};
+  shotgunFires[0].fired = true;
+  shotgunFires[0].hit = true;
+  shotgunFires[0].weapon = lg::Weapon::Shotgun;
+  shotgunFires[0].start = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  shotgunFires[0].end = shotgunFires[0].start + lg::Vec3{8.0F, 0.0F, 0.0F};
+  shotgunFires[0].pelletCount = lg::kShotgunPelletCount;
+  shotgunFires[0].pelletHitCount = 5;
+  const lg::Scene3D shotgunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    shotgunFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  bool hasShotgunImpactColor = false;
+  bool hasShotgunFlashColor = false;
+  for (const lg::Vertex3D& vertex : shotgunScene.translucentVertices) {
+    hasShotgunImpactColor =
+      hasShotgunImpactColor ||
+      (
+        vertex.color.red >= 200 &&
+        vertex.color.green < 120 &&
+        vertex.color.blue < 100
+      );
+    hasShotgunFlashColor =
+      hasShotgunFlashColor ||
+      (
+        vertex.color.red >= 220 &&
+        vertex.color.green >= 160 &&
+        vertex.color.blue >= 80
+      );
+  }
+  failures += expect(
+    shotgunScene.translucentVertices.size() > translucentBeamScene.translucentVertices.size() &&
+      hasShotgunImpactColor &&
+      hasShotgunFlashColor,
+    "shotgun fire should add muzzle flash, pellet traces, and impact puffs"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> machineGunFires = {};
+  machineGunFires[0].fired = true;
+  machineGunFires[0].hit = true;
+  machineGunFires[0].weapon = lg::Weapon::MachineGun;
+  machineGunFires[0].start = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  machineGunFires[0].end = machineGunFires[0].start + lg::Vec3{9.0F, 0.0F, 0.0F};
+  machineGunFires[0].visualSeed = 1;
+  const lg::Scene3D machineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    machineGunFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  bool hasMachineGunImpactColor = false;
+  bool hasMachineGunFlashColor = false;
+  for (const lg::Vertex3D& vertex : machineGunScene.translucentVertices) {
+    hasMachineGunImpactColor =
+      hasMachineGunImpactColor ||
+      (
+        vertex.color.red >= 220 &&
+        vertex.color.green < 130 &&
+        vertex.color.blue < 90
+      );
+    hasMachineGunFlashColor =
+      hasMachineGunFlashColor ||
+      (
+        vertex.color.red >= 240 &&
+        vertex.color.green >= 180 &&
+        vertex.color.blue >= 100
+      );
+  }
+  failures += expect(
+    machineGunScene.translucentVertices.size() > translucentBeamScene.translucentVertices.size() &&
+      hasMachineGunImpactColor &&
+      hasMachineGunFlashColor,
+    "machine gun fire should add muzzle flash, tracer, and impact spark"
+  );
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteMachineGunFires = {};
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> machineGunRemotePlayers = {};
+  machineGunRemotePlayers[1] =
+    lg::RemotePlayerView{
+      opponent,
+      inactiveBeam,
+      lg::Weapon::MachineGun,
+      0.0F,
+      1.0F,
+      true,
+      false,
+      {},
+    };
+  remoteMachineGunFires[1].fired = true;
+  remoteMachineGunFires[1].hit = true;
+  remoteMachineGunFires[1].weapon = lg::Weapon::MachineGun;
+  remoteMachineGunFires[1].start =
+    opponent.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  remoteMachineGunFires[1].end =
+    remoteMachineGunFires[1].start + lg::Vec3{-9.0F, 0.0F, 0.0F};
+  remoteMachineGunFires[1].visualSeed = 1;
+  const lg::Scene3D remoteMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    machineGunRemotePlayers,
+    inactiveBeam,
+    remoteMachineGunFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  remoteMachineGunFires[1].visualSeed = 4;
+  const lg::Scene3D rotatedMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    machineGunRemotePlayers,
+    inactiveBeam,
+    remoteMachineGunFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  const lg::Vec3 flashDelta =
+    remoteMachineGunScene.translucentVertices.front().position -
+    rotatedMachineGunScene.translucentVertices.front().position;
+  failures += expect(
+    lg::dot(flashDelta, flashDelta) > 0.0001F,
+    "machine gun visual seed should rotate the shot source around the weapon"
+  );
+
   return failures == 0 ? 0 : 1;
 }
