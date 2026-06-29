@@ -19,6 +19,7 @@ bool sameWeaponFireEvent(
     lhs.damageApplied == rhs.damageApplied &&
     lhs.pelletCount == rhs.pelletCount &&
     lhs.pelletHitCount == rhs.pelletHitCount &&
+    lhs.visualSeed == rhs.visualSeed &&
     sameVec3(lhs.start, rhs.start) &&
     sameVec3(lhs.end, rhs.end) &&
     sameVec3(lhs.knockbackImpulse, rhs.knockbackImpulse);

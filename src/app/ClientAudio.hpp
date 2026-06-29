@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <limits>
+#include <random>
 #include <vector>
 
 struct SDL_AudioStream;
@@ -42,6 +44,8 @@ public:
   void playPlasmaGunFire(float volume, float pan = 0.0F);
   void playRocketExplosion(float volume, float pan = 0.0F);
   void playFootstep(float volume, std::uint32_t stepIndex, float pan = 0.0F);
+  void playJump(float volume, float pan = 0.0F);
+  void playLand(float volume, float pan = 0.0F);
   void setLightningGunFire(bool active, float volume, float pan = 0.0F);
   void resetLightningGunFire();
   void playRoundResult(bool won, float volume);
@@ -63,6 +67,12 @@ private:
   [[nodiscard]] static LoadedClip loadCueClip(
     const std::filesystem::path& assetBasePath,
     AudioCue cue
+  );
+  [[nodiscard]] static LoadedClip loadClipFile(
+    const std::filesystem::path& path
+  );
+  [[nodiscard]] static std::vector<LoadedClip> loadFootstepClips(
+    const std::filesystem::path& assetBasePath
   );
   [[nodiscard]] static std::vector<float> resampleToMixerRate(
     const AudioClip& clip
@@ -101,7 +111,9 @@ private:
   LoadedClip grenadeLauncherFireClip_;
   LoadedClip grenadeBounceClip_;
   LoadedClip plasmaGunFireClip_;
-  LoadedClip footstepClip_;
+  std::vector<LoadedClip> footstepClips_;
+  LoadedClip jumpClip_;
+  LoadedClip landClip_;
   LoadedClip roundWinClip_;
   LoadedClip roundLossClip_;
   LoadedClip countdownFiveClip_;
@@ -116,7 +128,15 @@ private:
   float lightningGunFirePan_ = 0.0F;
   std::uint64_t lightningGunSampleIndex_ = 0;
   std::size_t painGruntFramesRemaining_ = 0;
+  std::mt19937 footstepRng_{std::random_device{}()};
+  std::size_t lastFootstepClipIndex_ = std::numeric_limits<std::size_t>::max();
 };
+
+[[nodiscard]] std::size_t selectFootstepVariantIndex(
+  std::size_t variantCount,
+  std::size_t previousVariantIndex,
+  std::uint32_t randomValue
+);
 
 [[nodiscard]] SpatialAudio worldAudio(
   float baseVolume,

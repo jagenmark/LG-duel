@@ -24,6 +24,7 @@ public:
   void disconnect();
   bool reconnect();
   void update();
+  void setNetworkSimulationConfig(const ClientNetworkSimulationConfig& config);
 
   void sendCommand(
     const UserCommand& command,
@@ -59,6 +60,8 @@ public:
   [[nodiscard]] bool readyForPlay() const;
   [[nodiscard]] std::size_t playerIndex() const;
   [[nodiscard]] float pingMilliseconds() const;
+  [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;
+  [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfig() const;
   [[nodiscard]] std::string_view host() const;
   [[nodiscard]] std::uint16_t port() const;
   [[nodiscard]] const std::string& statusMessage() const;

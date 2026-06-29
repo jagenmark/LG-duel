@@ -70,6 +70,7 @@ struct WeaponFireResult {
   Vec3 knockbackImpulse = {};
   std::uint8_t pelletCount = 0;
   std::uint8_t pelletHitCount = 0;
+  std::uint32_t visualSeed = 0;
 };
 
 struct ShotgunTuning {
@@ -109,12 +110,23 @@ struct GrenadeLauncherTuning {
   std::uint32_t cooldownTicks = 100;
 };
 
+struct PlasmaGunTuning {
+  float speed = 50.0F;
+  float radius = 0.45F;
+  int damage = 20;
+  float knockback = 2.2F;
+  float eyeHeight = 0.65F;
+  std::uint32_t maxLifetimeTicks = 125;
+  std::uint32_t cooldownTicks = 13;
+};
+
 struct WeaponDamageTuning {
   int shotgunDamagePerPellet = 5;
   int machineGunDamage = 5;
   int lightningGunDamage = 120;
   int railgunDamage = 80;
   int rocketLauncherDamage = 100;
+  int plasmaGunDamage = 20;
 };
 
 struct RocketProjectile {
