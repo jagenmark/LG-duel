@@ -1520,10 +1520,6 @@ Scene3D buildPerspectiveScene(
       addShotgunFireVisuals(scene, fire);
     }
   }
-  for (const RocketProjectileSnapshot& projectile : rockets) {
-    if (!projectile.active) {
-      continue;
-    }
 for (const RocketProjectileSnapshot& projectile : rockets) {
   if (!projectile.active) {
     continue;
