@@ -157,19 +157,6 @@ lg_duel_set_warnings(lg_duel_protocol_tests)
 
 add_test(NAME lg_duel_protocol_tests COMMAND lg_duel_protocol_tests)
 
-add_executable(lg_duel_client_network_simulator_tests
-  net/ClientNetworkSimulatorTests.cpp
-)
-
-target_link_libraries(lg_duel_client_network_simulator_tests PRIVATE lg_duel_core)
-target_compile_features(lg_duel_client_network_simulator_tests PRIVATE cxx_std_20)
-lg_duel_set_warnings(lg_duel_client_network_simulator_tests)
-
-add_test(
-  NAME lg_duel_client_network_simulator_tests
-  COMMAND lg_duel_client_network_simulator_tests
-)
-
 add_executable(lg_duel_network_simulation_tests
   net/NetworkSimulationTests.cpp
 )
@@ -252,25 +239,6 @@ target_compile_features(lg_duel_client_cvars_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_client_cvars_tests)
 
 add_test(NAME lg_duel_client_cvars_tests COMMAND lg_duel_client_cvars_tests)
-
-add_executable(lg_duel_client_audio_tests
-  app/ClientAudioTests.cpp
-)
-
-target_link_libraries(lg_duel_client_audio_tests PRIVATE lg_duel_client_app)
-target_compile_features(lg_duel_client_audio_tests PRIVATE cxx_std_20)
-lg_duel_set_warnings(lg_duel_client_audio_tests)
-
-if(WIN32 AND TARGET SDL3::SDL3)
-  add_custom_command(
-    TARGET lg_duel_client_audio_tests
-    POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different
-      "$<TARGET_FILE:SDL3::SDL3>" "$<TARGET_FILE_DIR:lg_duel_client_audio_tests>"
-  )
-endif()
-
-add_test(NAME lg_duel_client_audio_tests COMMAND lg_duel_client_audio_tests)
 
 add_executable(lg_duel_scoreboard_tests
   app/ScoreboardTests.cpp

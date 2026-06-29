@@ -1,9 +1,8 @@
 # Audio Previews
 
-These files are short sound proposals for the duel prototype. The client
+These WAV files are short sound proposals for the duel prototype. The client
 loads the explicit runtime cues listed below from `assets/audio`; other files
-are kept as audition material. Runtime cues may be WAV or OGG Vorbis. If a
-runtime audio file is missing, invalid, or SDL
+are kept as audition material. If a runtime WAV is missing, invalid, or SDL
 audio is unavailable, gameplay continues without that cue rather than
 regenerating the sound from code.
 
@@ -37,21 +36,17 @@ grunts are driven by health decreases in authoritative snapshots.
 - `rl_explosion_pop.wav`: rocket explosion cue.
 
 - `mg_fire_selected_snap.wav`: short dry automatic snap for machine gun fire.
-- `sshotf1b.ogg`: shotgun fire cue.
+- `sg_fire_selected_blast.wav`: compact low blast with a gritty tail for shotgun fire.
 - `gl_fire.wav`: grenade launcher fire cue. Local POV shots play centered; remote shots are panned and distance-scaled from the firing position.
 - `gl_bounce.wav`: grenade bounce cue. Every authoritative world bounce is panned and distance-scaled from the bounce position.
 - `pg_fire_selected_pulse.wav`: bright short energy pulse for plasma gun fire events.
 
-Several files were converted from the old generated prototype sounds so
-designers can replace them directly.
+The current runtime cue files are all WAV-backed. Several files were converted
+from the old generated prototype sounds so designers can replace them directly.
 
 ## Footsteps
 
-- `footstep_01.wav`/`.ogg` through `footstep_04.wav`/`.ogg`: optional runtime footstep variants. Numbered variants are preferred when present.
-- `step1.wav`/`.ogg` through `step4.wav`/`.ogg`: accepted imported footstep variant names for the same four slots.
-- `footstep.wav`/`.ogg`: legacy fallback footstep cue when no numbered variants exist.
-- `jump1_visor.wav`: jump cue when a player leaves the ground from a jump.
-- `land1.ogg`: landing cue when a player returns to the ground after being airborne.
+- `footstep.wav`: runtime footstep cue.
 
 Runtime footstep volume is controlled with `s_footstep_volume` in
 `config/sound_mixer.cfg` and still passes through the global `s_volume` master.

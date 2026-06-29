@@ -68,14 +68,6 @@ void ClientSession::update() {
   }
 }
 
-void ClientSession::setNetworkSimulationConfig(
-  const ClientNetworkSimulationConfig& config
-) {
-  if (transport_) {
-    transport_->setNetworkSimulationConfig(config);
-  }
-}
-
 void ClientSession::sendCommand(
   const UserCommand& command,
   bool requestReset,
@@ -154,14 +146,6 @@ std::size_t ClientSession::playerIndex() const {
 
 float ClientSession::pingMilliseconds() const {
   return transport_ ? transport_->pingMilliseconds() : 0.0F;
-}
-
-ClientNetworkSimulationStats ClientSession::networkSimulationStats() const {
-  return transport_ ? transport_->networkSimulationStats() : ClientNetworkSimulationStats{};
-}
-
-ClientNetworkSimulationConfig ClientSession::networkSimulationConfig() const {
-  return transport_ ? transport_->networkSimulationConfig() : ClientNetworkSimulationConfig{};
 }
 
 std::string_view ClientSession::host() const {

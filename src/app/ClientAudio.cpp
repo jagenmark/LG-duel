@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <limits>
 #include <optional>
 #include <utility>
 
@@ -38,25 +37,6 @@ void appendStereoSample(
 }
 
 } // namespace
-
-std::size_t selectFootstepVariantIndex(
-  std::size_t variantCount,
-  std::size_t previousVariantIndex,
-  std::uint32_t randomValue
-) {
-  if (variantCount == 0U) {
-    return std::numeric_limits<std::size_t>::max();
-  }
-  if (variantCount == 1U) {
-    return 0U;
-  }
-  const std::size_t candidate =
-    static_cast<std::size_t>(randomValue % static_cast<std::uint32_t>(variantCount - 1U));
-  if (candidate >= previousVariantIndex && previousVariantIndex < variantCount) {
-    return candidate + 1U;
-  }
-  return candidate;
-}
 
 SpatialAudio worldAudio(
   float baseVolume,
@@ -164,25 +144,7 @@ void ClientAudio::playFootstep(
   std::uint32_t stepIndex,
   float pan
 ) {
-  const std::size_t clipIndex = selectFootstepVariantIndex(
-    footstepClips_.size(),
-    lastFootstepClipIndex_,
-    footstepRng_()
-  );
-  if (clipIndex >= footstepClips_.size()) {
-    return;
-  }
-  if (queueClip(footstepClips_[clipIndex], volume * footstepGain(stepIndex), pan)) {
-    lastFootstepClipIndex_ = clipIndex;
-  }
-}
-
-void ClientAudio::playLand(float volume, float pan) {
-  queueClip(landClip_, volume, pan);
-}
-
-void ClientAudio::playJump(float volume, float pan) {
-  queueClip(jumpClip_, volume, pan);
+  queueClip(footstepClip_, volume * footstepGain(stepIndex), pan);
 }
 
 void ClientAudio::setLightningGunFire(bool active, float volume, float pan) {
@@ -265,9 +227,7 @@ void ClientAudio::loadCueAssets(const std::filesystem::path& assetBasePath) {
     loadCueClip(assetBasePath, AudioCue::GrenadeLauncherFire);
   grenadeBounceClip_ = loadCueClip(assetBasePath, AudioCue::GrenadeBounce);
   plasmaGunFireClip_ = loadCueClip(assetBasePath, AudioCue::PlasmaGunFire);
-  footstepClips_ = loadFootstepClips(assetBasePath);
-  jumpClip_ = loadCueClip(assetBasePath, AudioCue::Jump);
-  landClip_ = loadCueClip(assetBasePath, AudioCue::Land);
+  footstepClip_ = loadCueClip(assetBasePath, AudioCue::Footstep);
   roundWinClip_ = loadCueClip(assetBasePath, AudioCue::RoundWin);
   roundLossClip_ = loadCueClip(assetBasePath, AudioCue::RoundLoss);
   countdownFiveClip_ = loadCueClip(assetBasePath, AudioCue::CountdownFive);
@@ -285,28 +245,6 @@ ClientAudio::LoadedClip ClientAudio::loadCueClip(
     return LoadedClip{resampleToMixerRate(*clip)};
   }
   return {};
-}
-
-ClientAudio::LoadedClip ClientAudio::loadClipFile(
-  const std::filesystem::path& path
-) {
-  if (std::optional<AudioClip> clip = loadAudioFile(path)) {
-    return LoadedClip{resampleToMixerRate(*clip)};
-  }
-  return {};
-}
-
-std::vector<ClientAudio::LoadedClip> ClientAudio::loadFootstepClips(
-  const std::filesystem::path& assetBasePath
-) {
-  std::vector<LoadedClip> clips;
-  for (const auto& path : footstepCuePaths(assetBasePath)) {
-    LoadedClip clip = loadClipFile(path);
-    if (!clip.samples.empty()) {
-      clips.push_back(std::move(clip));
-    }
-  }
-  return clips;
 }
 
 std::vector<float> ClientAudio::resampleToMixerRate(const AudioClip& clip) {
@@ -509,7 +447,7 @@ void updateFootstepAudio(
   ClientAudio& audio
 ) {
   constexpr float kMinimumStepSpeed = 1.15F;
-  constexpr float kMinimumJumpAudioSpeed = 1.0F;
+  constexpr float kLandingStepSpeed = 2.0F;
   constexpr float kBaseStrideDistance = 1.45F;
   constexpr float kMinimumStrideDistance = 0.95F;
 
@@ -533,30 +471,12 @@ void updateFootstepAudio(
     audio.playFootstep(spatial.volume, state.stepIndex++, spatial.pan);
   };
 
-  auto playLand = [&]() {
-    const SpatialAudio spatial = localPlayer
-      ? SpatialAudio{volume, 0.0F}
-      : worldAudio(volume, player.position, listener);
-    audio.playLand(spatial.volume, spatial.pan);
-  };
-
-  auto playJump = [&]() {
-    const SpatialAudio spatial = localPlayer
-      ? SpatialAudio{volume, 0.0F}
-      : worldAudio(volume, player.position, listener);
-    audio.playJump(spatial.volume, spatial.pan);
-  };
-
   if (
-    !player.onGround &&
-    state.wasOnGround &&
-    player.health > 0 &&
-    player.velocity.z >= kMinimumJumpAudioSpeed
+    movingOnGround &&
+    !state.wasOnGround &&
+    horizontalSpeed >= kLandingStepSpeed
   ) {
-    playJump();
-    state.distanceSinceStep = 0.0F;
-  } else if (player.onGround && !state.wasOnGround && player.health > 0) {
-    playLand();
+    playStep();
     state.distanceSinceStep = 0.0F;
   } else if (movingOnGround) {
     state.distanceSinceStep += horizontalDistance;
