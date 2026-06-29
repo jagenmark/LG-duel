@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cmath>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -53,6 +54,24 @@ void runCommand(
   for (int i = 0; i < ticks; ++i) {
     lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
   }
+}
+
+std::string basicMapWithBrush(std::string brush) {
+  return
+    "{\n"
+    "\"classname\" \"worldspawn\"\n"
+    "\"lg_bounds_min\" \"-160 -160 -40\"\n"
+    "\"lg_bounds_max\" \"160 160 120\"\n" +
+    brush +
+    "}\n"
+    "{\n"
+    "\"classname\" \"info_player_duel\"\n"
+    "\"origin\" \"-120 0 40\"\n"
+    "}\n"
+    "{\n"
+    "\"classname\" \"lg_spawn\"\n"
+    "\"origin\" \"120 0 40\"\n"
+    "}\n";
 }
 
 } // namespace
@@ -573,6 +592,62 @@ int main() {
     failures += expect(nearlyEqual(first.velocity.x, second.velocity.x), "replayed command sequence should match velocity x");
     failures += expect(nearlyEqual(first.velocity.y, second.velocity.y), "replayed command sequence should match velocity y");
     failures += expect(nearlyEqual(first.velocity.z, second.velocity.z), "replayed command sequence should match velocity z");
+  }
+
+  {
+    const std::string rampBrush =
+      "{\n"
+      "( -80 -80 0 ) ( -80 80 0 ) ( -80 80 8 ) stone 0 0 0 1 1\n"
+      "( 80 -80 0 ) ( 80 -80 48 ) ( 80 80 48 ) stone 0 0 0 1 1\n"
+      "( -80 -80 0 ) ( 80 -80 0 ) ( 80 -80 48 ) stone 0 0 0 1 1\n"
+      "( -80 80 0 ) ( -80 80 8 ) ( 80 80 48 ) stone 0 0 0 1 1\n"
+      "( -80 -80 0 ) ( -80 80 0 ) ( 80 80 0 ) stone 0 0 0 1 1\n"
+      "( -80 -80 8 ) ( 80 -80 48 ) ( 80 80 48 ) stone 0 0 0 1 1\n"
+      "}\n";
+    const lg::ArenaLoadResult loaded = lg::loadArenaFromMapText(basicMapWithBrush(rampBrush));
+    failures += expect(loaded.ok, "sloped convex brush map should load");
+    failures += expect(loaded.arena.brushCount == 1, "sloped convex brush should import as brush geometry");
+
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.5F, 0.0F, 0.2F + player.bounds.halfHeight};
+    player.onGround = true;
+    player.movementMode = lg::MovementMode::Grounded;
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    float highestPositionZ = player.position.z;
+    for (int tick = 0; tick < 80; ++tick) {
+      lg::simulateMovement(
+        player,
+        command,
+        loaded.arena,
+        tuning,
+        lg::kFixedTickSeconds
+      );
+      highestPositionZ = std::max(highestPositionZ, player.position.z);
+    }
+
+    failures += expect(player.position.x > 0.5F, "player should move across sloped brush");
+    if (!(highestPositionZ > player.bounds.halfHeight + 0.5F)) {
+      std::cerr << "ramp debug: final="
+                << player.position.x << ',' << player.position.y << ',' << player.position.z
+                << " highest=" << highestPositionZ
+                << " brushFaces=" << static_cast<int>(loaded.arena.brushes[0].faceCount)
+                << '\n';
+      for (std::uint8_t faceIndex = 0; faceIndex < loaded.arena.brushes[0].faceCount; ++faceIndex) {
+        const lg::ArenaBrushFace& face = loaded.arena.brushes[0].faces[faceIndex];
+        std::cerr << " face " << static_cast<int>(faceIndex)
+                  << " normal=" << face.normal.x << ',' << face.normal.y << ',' << face.normal.z
+                  << " d=" << face.distance
+                  << " vertices=" << static_cast<int>(face.vertexCount)
+                  << '\n';
+      }
+    }
+    failures += expect(
+      highestPositionZ > player.bounds.halfHeight + 0.5F,
+      "player should walk up sloped brush instead of being pushed away"
+    );
   }
 
   return failures == 0 ? 0 : 1;

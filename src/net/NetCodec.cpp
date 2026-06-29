@@ -12,6 +12,7 @@ namespace {
 
 constexpr std::size_t kHeaderBytes = 12;
 static_assert(Arena::kWallCount <= std::numeric_limits<std::uint8_t>::max());
+static_assert(Arena::kBrushCount <= std::numeric_limits<std::uint8_t>::max());
 
 [[nodiscard]] bool isValidWeapon(Weapon weapon) {
   return weapon <= kLastWeapon;
@@ -420,7 +421,7 @@ bool readVec3(Reader& reader, Vec3& value) {
 }
 
 bool writeArena(Writer& writer, const Arena& arena) {
-  if (arena.wallCount > Arena::kWallCount) {
+  if (arena.wallCount > Arena::kWallCount || arena.brushCount > Arena::kBrushCount) {
     return false;
   }
   return writeVec3(writer, arena.min) &&
@@ -436,6 +437,45 @@ bool writeArena(Writer& writer, const Arena& arena) {
           return false;
         }
       }
+      if (!writer.writeU8(static_cast<std::uint8_t>(arena.brushCount))) {
+        return false;
+      }
+      for (std::size_t index = 0; index < arena.brushCount; ++index) {
+        const ArenaBrush& brush = arena.brushes[index];
+        if (
+          brush.faceCount > ArenaBrush::kMaxFaces ||
+          brush.vertexCount > ArenaBrush::kMaxVertices ||
+          !writeVec3(writer, brush.min) ||
+          !writeVec3(writer, brush.max) ||
+          !writer.writeU32(brush.materialId) ||
+          !writer.writeU8(brush.vertexCount) ||
+          !writer.writeU8(brush.faceCount)
+        ) {
+          return false;
+        }
+        for (std::uint8_t vertex = 0; vertex < brush.vertexCount; ++vertex) {
+          if (!writeVec3(writer, brush.vertices[vertex])) {
+            return false;
+          }
+        }
+        for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+          const ArenaBrushFace& face = brush.faces[faceIndex];
+          if (
+            face.vertexCount > ArenaBrushFace::kMaxVertices ||
+            !writeVec3(writer, face.normal) ||
+            !writer.writeFloat(face.distance) ||
+            !writer.writeU32(face.materialId) ||
+            !writer.writeU8(face.vertexCount)
+          ) {
+            return false;
+          }
+          for (std::uint8_t vertex = 0; vertex < face.vertexCount; ++vertex) {
+            if (!writer.writeU8(face.vertices[vertex])) {
+              return false;
+            }
+          }
+        }
+      }
       for (const Vec3& spawn : arena.spawnPositions) {
         if (!writeVec3(writer, spawn)) {
           return false;
@@ -448,6 +488,7 @@ bool writeArena(Writer& writer, const Arena& arena) {
 bool readArena(Reader& reader, Arena& arena) {
   Arena decoded;
   std::uint8_t wallCount = 0;
+  std::uint8_t brushCount = 0;
   if (
     !readVec3(reader, decoded.min) ||
     !readVec3(reader, decoded.max) ||
@@ -464,6 +505,49 @@ bool readArena(Reader& reader, Arena& arena) {
       !reader.readU32(decoded.walls[index].materialId)
     ) {
       return false;
+    }
+  }
+  if (!reader.readU8(brushCount) || brushCount > Arena::kBrushCount) {
+    return false;
+  }
+  decoded.brushCount = brushCount;
+  for (std::size_t index = 0; index < decoded.brushCount; ++index) {
+    ArenaBrush& brush = decoded.brushes[index];
+    if (
+      !readVec3(reader, brush.min) ||
+      !readVec3(reader, brush.max) ||
+      !reader.readU32(brush.materialId) ||
+      !reader.readU8(brush.vertexCount) ||
+      !reader.readU8(brush.faceCount) ||
+      brush.vertexCount < 4 ||
+      brush.vertexCount > ArenaBrush::kMaxVertices ||
+      brush.faceCount < 4 ||
+      brush.faceCount > ArenaBrush::kMaxFaces
+    ) {
+      return false;
+    }
+    for (std::uint8_t vertex = 0; vertex < brush.vertexCount; ++vertex) {
+      if (!readVec3(reader, brush.vertices[vertex])) {
+        return false;
+      }
+    }
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      ArenaBrushFace& face = brush.faces[faceIndex];
+      if (
+        !readVec3(reader, face.normal) ||
+        !reader.readFloat(face.distance) ||
+        !reader.readU32(face.materialId) ||
+        !reader.readU8(face.vertexCount) ||
+        face.vertexCount < 3 ||
+        face.vertexCount > ArenaBrushFace::kMaxVertices
+      ) {
+        return false;
+      }
+      for (std::uint8_t vertex = 0; vertex < face.vertexCount; ++vertex) {
+        if (!reader.readU8(face.vertices[vertex]) || face.vertices[vertex] >= brush.vertexCount) {
+          return false;
+        }
+      }
     }
   }
   for (Vec3& spawn : decoded.spawnPositions) {
@@ -485,6 +569,16 @@ bool readArena(Reader& reader, Arena& arena) {
       wall.min.x >= wall.max.x ||
       wall.min.y >= wall.max.y ||
       wall.min.z >= wall.max.z
+    ) {
+      return false;
+    }
+  }
+  for (std::size_t index = 0; index < decoded.brushCount; ++index) {
+    const ArenaBrush& brush = decoded.brushes[index];
+    if (
+      brush.min.x >= brush.max.x ||
+      brush.min.y >= brush.max.y ||
+      brush.min.z >= brush.max.z
     ) {
       return false;
     }
@@ -1025,7 +1119,8 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !writeHeader(writer, PacketType::Snapshot) ||
     !writer.writeU32(snapshot.serverTick) ||
     !writer.writeU32(snapshot.mapRevision) ||
-    !writeArena(writer, snapshot.arena)
+    !writer.writeBool(snapshot.hasArena) ||
+    (snapshot.hasArena && !writeArena(writer, snapshot.arena))
   ) {
     return false;
   }
@@ -1203,7 +1298,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !readHeader(reader, PacketType::Snapshot, wire.size()) ||
     !reader.readU32(decoded.serverTick) ||
     !reader.readU32(decoded.mapRevision) ||
-    !readArena(reader, decoded.arena)
+    !reader.readBool(decoded.hasArena) ||
+    (decoded.hasArena && !readArena(reader, decoded.arena))
   ) {
     return false;
   }

@@ -87,7 +87,8 @@ spawn p1 -2,0,0
 spawn p2 2,0,0
 )";
     const lg::ArenaLoadResult result = lg::loadArenaFromText(text);
-    failures += expect(!result.ok, "overlapping boxes should be rejected");
+    failures += expect(result.ok, "overlapping boxes should be accepted");
+    failures += expect(result.arena.wallCount == 2, "overlapping boxes should be preserved");
   }
 
   {

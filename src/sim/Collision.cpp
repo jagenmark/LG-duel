@@ -53,6 +53,43 @@ namespace {
   return std::max(0.0F, entry);
 }
 
+[[nodiscard]] float brushTravelDistance(
+  const ArenaBrush& brush,
+  const PlayerState& player,
+  Vec3 direction
+) {
+  float entry = 0.0F;
+  float exit = std::numeric_limits<float>::max();
+  for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+    const ArenaBrushFace& face = brush.faces[index];
+    const float planarRadius =
+      player.bounds.radius * std::sqrt((face.normal.x * face.normal.x) + (face.normal.y * face.normal.y));
+    const float verticalRadius = player.bounds.halfHeight * std::fabs(face.normal.z);
+    const float expandedDistance = face.distance + planarRadius + verticalRadius;
+    const float originDistance = expandedDistance - dot(face.normal, player.position);
+    const float directionDistance = dot(face.normal, direction);
+    if (std::fabs(directionDistance) <= 0.00001F) {
+      if (originDistance < 0.0F) {
+        return std::numeric_limits<float>::max();
+      }
+      continue;
+    }
+    const float planeTime = originDistance / directionDistance;
+    if (directionDistance < 0.0F) {
+      entry = std::max(entry, planeTime);
+    } else {
+      exit = std::min(exit, planeTime);
+    }
+    if (entry > exit) {
+      return std::numeric_limits<float>::max();
+    }
+  }
+  if (exit < 0.0F) {
+    return std::numeric_limits<float>::max();
+  }
+  return std::max(0.0F, entry);
+}
+
 [[nodiscard]] float availablePlanarTravel(
   const Arena& arena,
   const PlayerState& player,
@@ -89,6 +126,12 @@ namespace {
     available = std::min(
       available,
       wallTravelDistance(arena.walls[index], player, direction)
+    );
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    available = std::min(
+      available,
+      brushTravelDistance(arena.brushes[index], player, direction)
     );
   }
   return std::max(0.0F, available);

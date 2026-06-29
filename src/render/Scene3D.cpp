@@ -241,7 +241,9 @@ void addSphereApprox(
 }
 
 [[nodiscard]] std::array<float, 2> faceUv(Vec3 point, int axis) {
-  constexpr float kTextureWorldSize = 128.0F;
+  constexpr float kQuakeUnitsPerLgUnit = 40.0F;
+  constexpr float kTextureQuakeUnits = 512.0F;
+  constexpr float kTextureWorldSize = kTextureQuakeUnits / kQuakeUnitsPerLgUnit;
   switch (axis) {
   case 0:
     return {point.y / kTextureWorldSize, point.z / kTextureWorldSize};
@@ -298,6 +300,48 @@ void addWallBox(Scene3D& scene, const ArenaWall& wall) {
       scaleColor({255, 255, 255, 255}, brightness[index]),
       materialId
     );
+  }
+}
+
+[[nodiscard]] float faceBrightness(Vec3 normal) {
+  return std::clamp(
+    0.68F + normal.z * 0.28F + std::fabs(normal.x) * 0.08F,
+    0.48F,
+    1.0F
+  );
+}
+
+void addArenaBrush(Scene3D& scene, const ArenaBrush& brush) {
+  for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+    const ArenaBrushFace& face = brush.faces[faceIndex];
+    if (face.vertexCount < 3) {
+      continue;
+    }
+    const std::uint32_t materialId = face.materialId != 0U ? face.materialId : brush.materialId;
+    const RenderColor color = scaleColor({255, 255, 255, 255}, faceBrightness(face.normal));
+    const int uvAxis =
+      std::fabs(face.normal.z) >= std::fabs(face.normal.x) &&
+        std::fabs(face.normal.z) >= std::fabs(face.normal.y)
+      ? 2
+      : std::fabs(face.normal.y) >= std::fabs(face.normal.x) ? 1 : 0;
+    const Vec3 origin = brush.vertices[face.vertices[0]];
+    for (std::uint8_t vertex = 1; vertex + 1 < face.vertexCount; ++vertex) {
+      const Vec3 second = brush.vertices[face.vertices[vertex]];
+      const Vec3 third = brush.vertices[face.vertices[vertex + 1U]];
+      addTexturedTriangle(
+        scene,
+        origin,
+        second,
+        third,
+        {{
+          faceUv(origin, uvAxis),
+          faceUv(second, uvAxis),
+          faceUv(third, uvAxis),
+        }},
+        color,
+        materialId
+      );
+    }
   }
 }
 
@@ -1025,6 +1069,9 @@ Scene3D buildPerspectiveScene(
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
     addWallBox(scene, wall);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    addArenaBrush(scene, arena.brushes[index]);
   }
 
   for (const RemotePlayerView& remote : remotePlayers) {

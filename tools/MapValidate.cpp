@@ -81,7 +81,8 @@ namespace {
     const lg::ArenaLoadResult result = lg::loadArenaFromFile(path.string());
     if (result.ok) {
       std::cout << "map ok: " << path.string() << " boxes="
-                << result.arena.wallCount << '\n';
+                << result.arena.wallCount << " brushes="
+                << result.arena.brushCount << '\n';
       return validateMapTextures(path, path.parent_path().parent_path() / "textures");
     }
     std::cerr << "map ERROR: " << result.error << '\n';

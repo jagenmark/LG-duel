@@ -139,6 +139,7 @@ struct LocalHitFeedbackEvent {
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
+  bool hasArena = true;
   Arena arena = thunderstruckArena();
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};

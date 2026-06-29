@@ -97,6 +97,10 @@ int main() {
   bool foundTexturedWallVertex = false;
   bool foundWallUvSpan = false;
   bool foundPrototypeWallAccent = false;
+  float minimumWallU = 0.0F;
+  float maximumWallU = 0.0F;
+  float minimumWallV = 0.0F;
+  float maximumWallV = 0.0F;
   float firstWallU = 0.0F;
   float firstWallV = 0.0F;
   bool capturedFirstWallUv = false;
@@ -118,9 +122,17 @@ int main() {
     if (!capturedFirstWallUv) {
       firstWallU = vertex.u;
       firstWallV = vertex.v;
+      minimumWallU = vertex.u;
+      maximumWallU = vertex.u;
+      minimumWallV = vertex.v;
+      maximumWallV = vertex.v;
       capturedFirstWallUv = true;
       continue;
     }
+    minimumWallU = std::min(minimumWallU, vertex.u);
+    maximumWallU = std::max(maximumWallU, vertex.u);
+    minimumWallV = std::min(minimumWallV, vertex.v);
+    maximumWallV = std::max(maximumWallV, vertex.v);
     foundWallUvSpan = foundWallUvSpan ||
       !nearlyEqual(vertex.u, firstWallU) ||
       !nearlyEqual(vertex.v, firstWallV);
@@ -132,6 +144,10 @@ int main() {
   failures += expect(
     foundWallUvSpan,
     "wall scene geometry should emit varying texture coordinates"
+  );
+  failures += expect(
+    maximumWallU - minimumWallU > 0.1F || maximumWallV - minimumWallV > 0.1F,
+    "wall texture coordinates should use TrenchBroom scale instead of stretched LG units"
   );
   failures += expect(
     !foundPrototypeWallAccent,

@@ -163,8 +163,8 @@ LG Duel can load a narrow Quake/TrenchBroom text `.map` subset beside the
 native `.lgmap` format. This is an authoring convenience only; it is not Quake
 or BSP compatibility.
 
-Create a new TrenchBroom map, use only rectangular axis-aligned cuboid brushes
-in `worldspawn`, place player spawns with point entities named
+Create a new TrenchBroom map, use cuboid or other convex brushes in
+`worldspawn`, place player spawns with point entities named
 `info_player_duel`, `info_player_deathmatch`, or `lg_spawn`, and save it as
 `maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
 and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
@@ -208,9 +208,11 @@ Bare map names still prefer `maps/<name>.lgmap` first for backwards
 compatibility, then try `maps/<name>.map`. Explicit extensions load only that
 file, for example `map dev_cuboids.map`.
 
-Unsupported geometry fails loudly instead of being approximated. Arbitrary
-Quake maps, compiled `.bsp` files, sloped or rotated brushes, curves, patches,
-concave/non-cuboid brushes, per-face networked materials, and complex entity
+Unsupported geometry fails loudly instead of being approximated where it cannot
+produce a valid collision volume. `.map` worldspawn brushes may be cuboids or
+closed convex non-axis-aligned brushes; convex brushes are used for collision,
+weapon traces, network snapshots, and 3D rendering. Arbitrary Quake maps,
+compiled `.bsp` files, curves, patches, concave brushes, and complex entity
 behavior are not supported yet.
 
 Button-style commands automatically receive their matching release command. For example:

@@ -146,15 +146,29 @@ int main() {
   {
     const std::string brush =
       "{\n"
-      "( -1 -1 0 ) ( -1 -1 1 ) ( -0.5 1 1 ) stone 0 0 0 1 1\n"
-      "( 1 -1 0 ) ( 1 1 1 ) ( 1 -1 1 ) stone 0 0 0 1 1\n"
-      "( -1 -1 0 ) ( 1 -1 1 ) ( -1 -1 1 ) stone 0 0 0 1 1\n"
-      "( -1 1 0 ) ( -1 1 1 ) ( 1 1 1 ) stone 0 0 0 1 1\n"
+      "( -1 -1 0 ) ( -1 1 0 ) ( -1 1 1.5 ) stone 0 0 0 1 1\n"
+      "( 1 -1 0 ) ( 1 -1 0.5 ) ( 1 1 0.5 ) stone 0 0 0 1 1\n"
+      "( -1 -1 0 ) ( 1 -1 0 ) ( 1 -1 0.5 ) stone 0 0 0 1 1\n"
+      "( -1 1 0 ) ( -1 1 1.5 ) ( 1 1 0.5 ) stone 0 0 0 1 1\n"
       "( -1 -1 0 ) ( -1 1 0 ) ( 1 1 0 ) stone 0 0 0 1 1\n"
-      "( -1 -1 1 ) ( 1 1 1 ) ( -1 1 1 ) stone 0 0 0 1 1\n"
+      "( -1 -1 1.5 ) ( 1 -1 0.5 ) ( 1 1 0.5 ) stone 0 0 0 1 1\n"
       "}\n";
     const lg::ArenaLoadResult result = lg::loadArenaFromMapText(basicMap(brush));
-    failures += expect(!result.ok, "sloped brush should be rejected");
+    if (!result.ok) {
+      std::cerr << "non-axis brush error: " << result.error << '\n';
+    }
+    failures += expect(result.ok, "non-axis-aligned brush should convert");
+    failures += expect(result.arena.wallCount == 0, "non-axis-aligned brush should not become a wall box");
+    failures += expect(result.arena.brushCount == 1, "non-axis-aligned brush should produce one convex brush");
+    failures += expect(
+      nearlyEqual(result.arena.brushes[0].min.x, -0.025F) &&
+        nearlyEqual(result.arena.brushes[0].max.x, 0.025F),
+      "non-axis-aligned brush bounds should use Quake-to-LG scale"
+    );
+    failures += expect(
+      result.arena.brushes[0].faces[0].vertexCount >= 3,
+      "non-axis-aligned brush should keep renderable face polygons"
+    );
   }
 
   {

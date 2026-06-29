@@ -84,11 +84,15 @@ void ClientGame::receiveSnapshots() {
   ServerSnapshot received;
   while (transport_.receiveSnapshot(received)) {
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
-      snapshot_ = received;
-      if (received.mapRevision != mapRevision_) {
+      if (received.mapRevision != mapRevision_ && !received.hasArena) {
+        continue;
+      }
+      if (received.hasArena) {
         arena_ = received.arena;
         mapRevision_ = received.mapRevision;
       }
+      received.arena = arena_;
+      snapshot_ = received;
       if (
         hasPendingMovementTuning_ &&
         received.hasAcknowledgedCommand[localPlayerIndex_] &&
