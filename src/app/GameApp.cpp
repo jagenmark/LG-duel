@@ -47,6 +47,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -126,6 +127,20 @@ void copyTextToClipboard(std::string_view text) {
     console.getInt("g_rl_damage"),
     console.getInt("g_pg_damage"),
   };
+}
+
+[[nodiscard]] WeaponSwitchingMode weaponSwitchingMode(const ConsoleSystem& console) {
+  std::string value = console.getString("g_weaponswitching");
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  if (value == "ql" || value == "0") {
+    return WeaponSwitchingMode::Ql;
+  }
+  if (value == "cpma" || value == "1") {
+    return WeaponSwitchingMode::Cpma;
+  }
+  return WeaponSwitchingMode::Crazy;
 }
 
 [[nodiscard]] DamageNumbersConfig damageNumbersConfig(
@@ -1027,7 +1042,33 @@ void loadClientConfig(ConsoleSystem& console, const std::string& path) {
   std::ifstream file(path);
   std::string line;
   while (std::getline(file, line)) {
+    const std::size_t firstText = line.find_first_not_of(" \t");
+    if (firstText == std::string::npos || line[firstText] == '#') {
+      continue;
+    }
     (void)console.execute(line);
+  }
+}
+
+std::filesystem::path soundMixerConfigPath(
+  const std::filesystem::path& assetBasePath
+) {
+  return assetBasePath / "config" / "sound_mixer.cfg";
+}
+
+void loadSoundMixerConfigs(
+  ConsoleSystem& console,
+  const std::filesystem::path& assetBasePath
+) {
+  loadClientConfig(console, soundMixerConfigPath(assetBasePath).string());
+
+  std::filesystem::path directory = std::filesystem::current_path();
+  for (int depth = 0; depth < 8; ++depth) {
+    loadClientConfig(console, (directory / "config" / "sound_mixer.cfg").string());
+    if (!directory.has_parent_path() || directory == directory.parent_path()) {
+      break;
+    }
+    directory = directory.parent_path();
   }
 }
 
@@ -2340,6 +2381,7 @@ int GameApp::run() const {
     }
   );
   loadClientConfig(console, configPath);
+  loadSoundMixerConfigs(console, assetBasePath);
   if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
@@ -2524,6 +2566,8 @@ int GameApp::run() const {
     selfDamagePercent(console);
   std::int32_t lastRequestedHealthAmount =
     healthAmount(console);
+  WeaponSwitchingMode lastRequestedWeaponSwitchingMode =
+    weaponSwitchingMode(console);
   bool lastRequestedBotDodgeEnabled = botDodgeEnabled;
   std::int32_t lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
   std::int32_t lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
@@ -3096,6 +3140,8 @@ int GameApp::run() const {
       selfDamagePercent(console);
     const std::int32_t currentHealthAmount =
       healthAmount(console);
+    const WeaponSwitchingMode currentWeaponSwitchingMode =
+      weaponSwitchingMode(console);
     if (!sameRuntimeMovementTuning(
           currentMovementTuning,
           lastRequestedMovementTuning
@@ -3120,6 +3166,7 @@ int GameApp::run() const {
           lastRequestedWeaponDamage.plasmaGunDamage ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
+        currentWeaponSwitchingMode != lastRequestedWeaponSwitchingMode ||
         botDodgeEnabled != lastRequestedBotDodgeEnabled ||
         botDodgeMinIntervalMs != lastRequestedBotDodgeMinIntervalMs ||
         botDodgeMaxIntervalMs != lastRequestedBotDodgeMaxIntervalMs) {
@@ -3133,6 +3180,7 @@ int GameApp::run() const {
       lastRequestedWeaponDamage = currentWeaponDamage;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
+      lastRequestedWeaponSwitchingMode = currentWeaponSwitchingMode;
       lastRequestedBotDodgeEnabled = botDodgeEnabled;
       lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
       lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
@@ -3143,9 +3191,15 @@ int GameApp::run() const {
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
     previousTime = now;
     titleAccumulatorSeconds += elapsed.count();
-    if (selectedWeapon != viewWeapon) {
+    Weapon displayedSelectedWeapon = selectedWeapon;
+    if (const ClientGame* weaponGame = session.game();
+        weaponGame != nullptr && weaponGame->hasSnapshot()) {
+      displayedSelectedWeapon =
+        weaponGame->snapshot().selectedWeapons[session.playerIndex()];
+    }
+    if (displayedSelectedWeapon != viewWeapon) {
       previousViewWeapon = viewWeapon;
-      viewWeapon = selectedWeapon;
+      viewWeapon = displayedSelectedWeapon;
       weaponSwitchSeconds = 0.0F;
     }
     weaponSwitchSeconds = std::min(
@@ -3254,7 +3308,8 @@ int GameApp::run() const {
         requestGameModePending,
         requestedGameMode,
         requestTeamPending,
-        requestedTeam
+        requestedTeam,
+        lastRequestedWeaponSwitchingMode
       );
       if (!sentPlayerName.empty()) {
         lastSentPlayerName = sentPlayerName;
@@ -3415,7 +3470,13 @@ int GameApp::run() const {
           audioSnapshot.lightningGuns[localPlayerIndex].hit;
         const float volume = console.getFloat("s_volume");
         const bool soundEnabled = console.getBool("s_enable");
-        const float footstepVolume = volume * console.getFloat("s_footstep_volume");
+        const auto soundVolume = [&console, volume](std::string_view name) {
+          return volume * console.getFloat(name);
+        };
+        const float hitVolume = soundVolume("s_hit_volume");
+        const float painVolume = soundVolume("s_pain_volume");
+        const float fragVolume = soundVolume("s_frag_volume");
+        const float footstepVolume = soundVolume("s_footstep_volume");
         auto playPainGruntIfDamaged = [&](std::size_t playerIndex) {
           if (!soundEnabled || !audioStateInitialized) {
             return;
@@ -3429,8 +3490,8 @@ int GameApp::run() const {
             return;
           }
           const SpatialAudio painAudio = playerIndex == localPlayerIndex
-            ? SpatialAudio{volume, 0.0F}
-            : worldAudio(volume, player.position, currentAudioGame->predictedPlayer());
+            ? SpatialAudio{painVolume, 0.0F}
+            : worldAudio(painVolume, player.position, currentAudioGame->predictedPlayer());
           audio.playPainGrunt(painAudio.volume, painAudio.pan);
         };
         playPainGruntIfDamaged(localPlayerIndex);
@@ -3451,7 +3512,7 @@ int GameApp::run() const {
           )
         ) {
           audio.playHit(
-            volume,
+            hitVolume,
             audioSnapshot.lightningGuns[localPlayerIndex].damageApplied
           );
           lastHitSoundServerTick = audioSnapshot.serverTick;
@@ -3508,7 +3569,7 @@ int GameApp::run() const {
               }
               const SpatialAudio spatial =
                 worldAudio(
-                  volume,
+                  soundVolume("s_gl_bounce_volume"),
                   event.position,
                   currentAudioGame->predictedPlayer()
                 );
@@ -3529,7 +3590,7 @@ int GameApp::run() const {
               kTransientAudioEventTicks
             )
           ) {
-            audio.playFrag(volume);
+            audio.playFrag(fragVolume);
             lastPlayedFragEvents[localPlayerIndex] = localFrag;
             lastPlayedFragAudioTicks[localPlayerIndex] = audioSnapshot.serverTick;
             hasLastPlayedFragEvent[localPlayerIndex] = true;
@@ -3551,10 +3612,24 @@ int GameApp::run() const {
             ) {
               const WeaponFireAudioEvent fireAudio =
                 routeWeaponFireAudioEvent(fire, localWeaponEvent);
+              float weaponFireVolume = volume;
+              if (fireAudio.cue == WeaponFireAudioCue::Railgun) {
+                weaponFireVolume = soundVolume("s_rg_fire_volume");
+              } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
+                weaponFireVolume = soundVolume("s_rl_fire_volume");
+              } else if (fireAudio.cue == WeaponFireAudioCue::MachineGun) {
+                weaponFireVolume = soundVolume("s_mg_fire_volume");
+              } else if (fireAudio.cue == WeaponFireAudioCue::Shotgun) {
+                weaponFireVolume = soundVolume("s_sg_fire_volume");
+              } else if (fireAudio.cue == WeaponFireAudioCue::GrenadeLauncher) {
+                weaponFireVolume = soundVolume("s_gl_fire_volume");
+              } else if (fireAudio.cue == WeaponFireAudioCue::PlasmaGun) {
+                weaponFireVolume = soundVolume("s_pg_fire_volume");
+              }
               const SpatialAudio weaponFireAudio = localWeaponEvent
-                ? SpatialAudio{volume, 0.0F}
+                ? SpatialAudio{weaponFireVolume, 0.0F}
                 : worldAudio(
-                  volume,
+                  weaponFireVolume,
                   fire.start,
                   currentAudioGame->predictedPlayer()
                 );
@@ -3580,7 +3655,7 @@ int GameApp::run() const {
                 audio.playPlasmaGunFire(weaponFireAudio.volume, weaponFireAudio.pan);
               }
               if (fireAudio.localHitConfirmDamage > 0) {
-                audio.playHit(volume, fireAudio.localHitConfirmDamage);
+                audio.playHit(hitVolume, fireAudio.localHitConfirmDamage);
                 lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedWeaponFires[playerIndex] = fire;
@@ -3604,7 +3679,7 @@ int GameApp::run() const {
               )
             ) {
               const SpatialAudio explosionAudio = worldAudio(
-                  volume,
+                  soundVolume("s_rl_explosion_volume"),
                   explosion.position,
                   currentAudioGame->predictedPlayer()
               );
@@ -3613,7 +3688,7 @@ int GameApp::run() const {
                 localWeaponEvent &&
                 explosion.opponentDamageApplied > 0
               ) {
-                audio.playHit(volume, explosion.opponentDamageApplied);
+                audio.playHit(hitVolume, explosion.opponentDamageApplied);
                 lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedRocketExplosions[playerIndex] = explosion;
@@ -3626,11 +3701,11 @@ int GameApp::run() const {
           if (
             hasLocalRailFireTick &&
             !localRailReadySoundPlayed &&
-            selectedWeapon == Weapon::Railgun &&
+            displayedSelectedWeapon == Weapon::Railgun &&
             audioSnapshot.serverTick - lastLocalRailFireTick >=
               kClientRailgunCooldownTicks
           ) {
-            audio.playRailReady(volume);
+            audio.playRailReady(soundVolume("s_rg_ready_volume"));
             localRailReadySoundPlayed = true;
           }
         }
@@ -3643,13 +3718,14 @@ int GameApp::run() const {
             audioSnapshot.matchPhase == MatchPhase::MatchEnd
           )
         ) {
+          const bool won = localPlayerWonResult(
+            audioSnapshot,
+            localPlayerIndex,
+            audioSnapshot.matchPhase == MatchPhase::MatchEnd
+          );
           audio.playRoundResult(
-            localPlayerWonResult(
-              audioSnapshot,
-              localPlayerIndex,
-              audioSnapshot.matchPhase == MatchPhase::MatchEnd
-            ),
-            volume
+            won,
+            soundVolume(won ? "s_round_win_volume" : "s_round_loss_volume")
           );
         }
         const std::uint32_t countdownSecond =
@@ -3662,7 +3738,7 @@ int GameApp::run() const {
           countdownSecond > 0U &&
           countdownSecond != lastAudioCountdownSecond
         ) {
-          audio.playCountdown(countdownSecond, volume);
+          audio.playCountdown(countdownSecond, soundVolume("s_countdown_volume"));
         }
         lastAudioCountdownSecond = countdownSecond;
         for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -3685,7 +3761,8 @@ int GameApp::run() const {
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
         const ServerSnapshot& snapshot = currentAudioGame->snapshot();
-        const float masterVolume = console.getFloat("s_volume");
+        const float masterVolume =
+          console.getFloat("s_volume") * console.getFloat("s_lg_fire_volume");
         if (snapshot.lightningGuns[localPlayerIndex].active) {
           lightningGunVolume = masterVolume;
           lightningGunPan = 0.0F;
@@ -3910,11 +3987,11 @@ int GameApp::run() const {
         ) {
           continue;
         }
-        const bool teammate =
-          renderSnapshot.gameMode == GameMode::ClanArena &&
-          isPlayableTeam(renderSnapshot.teams[localPlayerIndex]) &&
-          renderSnapshot.teams[playerIndex] ==
-            renderSnapshot.teams[localPlayerIndex];
+        const bool teammate = playerPresentedAsTeammate(
+          renderSnapshot,
+          localPlayerIndex,
+          playerIndex
+        );
         renderRemotePlayers[playerIndex] = RemotePlayerView{
           bufferedInterpolation
             ? renderClient->interpolatedPlayer(playerIndex)
@@ -4193,7 +4270,7 @@ int GameApp::run() const {
     }
 
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
-    hud.selectedWeapon = selectedWeapon;
+    hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F

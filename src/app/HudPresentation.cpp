@@ -140,6 +140,11 @@ void DamageNumberState::remember(const EventKey& key) {
   }
 }
 
+bool warmupPhase(MatchPhase phase) {
+  return phase == MatchPhase::WaitingForPlayers ||
+    phase == MatchPhase::WaitingForReady;
+}
+
 std::size_t opponentPlayerIndex(
   const ServerSnapshot& snapshot,
   std::size_t localPlayerIndex
@@ -150,6 +155,7 @@ std::size_t opponentPlayerIndex(
       snapshot.connectedPlayers[index] &&
       (
         snapshot.gameMode == GameMode::Duel ||
+        warmupPhase(snapshot.matchPhase) ||
         snapshot.teams[index] != snapshot.teams[localPlayerIndex]
       )
     ) {
@@ -163,6 +169,7 @@ std::size_t opponentPlayerIndex(
       snapshot.players[index].health > 0 &&
       (
         snapshot.gameMode == GameMode::Duel ||
+        warmupPhase(snapshot.matchPhase) ||
         snapshot.teams[index] != snapshot.teams[localPlayerIndex]
       )
     ) {
@@ -170,6 +177,19 @@ std::size_t opponentPlayerIndex(
     }
   }
   return localPlayerIndex;
+}
+
+bool playerPresentedAsTeammate(
+  const ServerSnapshot& snapshot,
+  std::size_t localPlayerIndex,
+  std::size_t remotePlayerIndex
+) {
+  return snapshot.gameMode == GameMode::ClanArena &&
+    !warmupPhase(snapshot.matchPhase) &&
+    localPlayerIndex < kDuelPlayerCount &&
+    remotePlayerIndex < kDuelPlayerCount &&
+    isPlayableTeam(snapshot.teams[localPlayerIndex]) &&
+    snapshot.teams[remotePlayerIndex] == snapshot.teams[localPlayerIndex];
 }
 
 std::string hudScoreLine(

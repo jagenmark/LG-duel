@@ -51,7 +51,8 @@ public:
     bool requestGameMode = false,
     GameMode requestedGameMode = GameMode::Duel,
     bool requestTeam = false,
-    Team requestedTeam = Team::None
+    Team requestedTeam = Team::None,
+    WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy
   );
 
   [[nodiscard]] ClientConnectionState state() const;

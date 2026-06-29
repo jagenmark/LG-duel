@@ -101,7 +101,8 @@ void ClientSession::sendCommand(
     bool requestGameMode,
     GameMode requestedGameMode,
     bool requestTeam,
-    Team requestedTeam
+    Team requestedTeam,
+    WeaponSwitchingMode weaponSwitchingMode
   ) {
   if (game_) {
     game_->sendCommand(
@@ -129,7 +130,8 @@ void ClientSession::sendCommand(
         requestGameMode,
         requestedGameMode,
         requestTeam,
-        requestedTeam
+        requestedTeam,
+        weaponSwitchingMode
       );
   }
 }

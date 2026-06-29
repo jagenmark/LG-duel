@@ -1,0 +1,40 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "open lg duel bats",
+      "dependsOrder": "parallel",
+      "dependsOn": [
+        "start lg duel server",
+        "start lg duel client"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "start lg duel server",
+      "type": "process",
+      "command": "${workspaceFolder}\\Start LG Duel Server.bat",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "panel": "new",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "start lg duel client",
+      "type": "process",
+      "command": "${workspaceFolder}\\Start LG Duel Client GPU.bat",
+      "options": {
+        "cwd": "${workspaceFolder}"
+      },
+      "presentation": {
+        "panel": "new",
+        "reveal": "always"
+      },
+      "problemMatcher": []
+    }
+  ]
+}

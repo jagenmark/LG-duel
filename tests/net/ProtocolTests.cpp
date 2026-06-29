@@ -79,6 +79,7 @@ int main() {
     source.requestedGameMode = lg::GameMode::ClanArena;
     source.requestTeam = true;
     source.requestedTeam = lg::Team::Blue;
+    source.weaponSwitchingMode = lg::WeaponSwitchingMode::Cpma;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
     source.movementTuning.airControlEnabled = true;
@@ -143,6 +144,10 @@ int main() {
     failures += expect(
       decoded.requestTeam && decoded.requestedTeam == lg::Team::Blue,
       "explicit team request should round trip"
+    );
+    failures += expect(
+      decoded.weaponSwitchingMode == lg::WeaponSwitchingMode::Cpma,
+      "weapon switching mode request should round trip"
     );
     failures += expect(
       decoded.requestMovementTuning &&
@@ -370,6 +375,7 @@ int main() {
     source.rockets[0].weapon = lg::Weapon::GrenadeLauncher;
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.rockets[0].velocity = {7.0F, 8.0F, 9.0F};
+    source.rockets[0].radius = 0.25F;
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.gameMode = lg::GameMode::ClanArena;
@@ -428,6 +434,7 @@ int main() {
     source.botDodgeEnabled = true;
     source.botDodgeMinIntervalMs = 300;
     source.botDodgeMaxIntervalMs = 700;
+    source.weaponSwitchingMode = lg::WeaponSwitchingMode::Ql;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
     source.roundWinner = 0;
@@ -548,7 +555,8 @@ int main() {
         decoded.rockets[0].owner == 1 &&
         decoded.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
         nearlyEqual(decoded.rockets[0].position.z, 1.2F) &&
-        nearlyEqual(decoded.rockets[0].velocity.z, 9.0F),
+        nearlyEqual(decoded.rockets[0].velocity.z, 9.0F) &&
+        nearlyEqual(decoded.rockets[0].radius, 0.25F),
       "rocket, explosion, footstep audio, and frag event state should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
@@ -622,7 +630,8 @@ int main() {
       decoded.healthAmount == 150 &&
       decoded.botDodgeEnabled &&
       decoded.botDodgeMinIntervalMs == 300 &&
-      decoded.botDodgeMaxIntervalMs == 700,
+      decoded.botDodgeMaxIntervalMs == 700 &&
+      decoded.weaponSwitchingMode == lg::WeaponSwitchingMode::Ql,
       "authoritative movement tuning should round trip"
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");

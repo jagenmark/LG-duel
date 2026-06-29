@@ -35,6 +35,12 @@ enum class MatchPhase : std::uint8_t {
   MatchEnd = 5,
 };
 
+enum class WeaponSwitchingMode : std::uint8_t {
+  Ql = 0,
+  Cpma = 1,
+  Crazy = 2,
+};
+
 struct MatchRules {
   std::uint16_t roundLimit = 10;
   std::uint16_t timeLimitMinutes = 0;
@@ -82,6 +88,7 @@ struct CommandPacket {
   GameMode requestedGameMode = GameMode::Duel;
   bool requestTeam = false;
   Team requestedTeam = Team::None;
+  WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
   std::uint32_t clientNonce = 0;
 };
 
@@ -175,6 +182,7 @@ struct ServerSnapshot {
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
+  WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
   std::array<std::string, kDuelPlayerCount> playerNames = {

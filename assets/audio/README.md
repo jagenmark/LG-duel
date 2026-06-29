@@ -53,8 +53,8 @@ designers can replace them directly.
 - `jump1_visor.wav`: jump cue when a player leaves the ground from a jump.
 - `land1.ogg`: landing cue when a player returns to the ground after being airborne.
 
-Runtime footstep volume is controlled with `s_footstep_volume` and still passes
-through the global `s_volume` master.
+Runtime footstep volume is controlled with `s_footstep_volume` in
+`config/sound_mixer.cfg` and still passes through the global `s_volume` master.
 
 ## Match UI Cues
 
@@ -65,3 +65,10 @@ through the global `s_volume` master.
 - `countdown_3_beep.wav`: countdown cue for three seconds remaining.
 - `countdown_2_beep.wav`: countdown cue for two seconds remaining.
 - `countdown_1_beep.wav`: countdown cue for one second remaining.
+
+Per-cue volume multipliers live in `config/sound_mixer.cfg`. The current
+runtime mixer covers weapon fire (`s_lg_fire_volume`, `s_mg_fire_volume`,
+`s_sg_fire_volume`, `s_gl_fire_volume`, `s_rl_fire_volume`,
+`s_rg_fire_volume`, `s_pg_fire_volume`), rail ready, rocket/grenade explosion,
+grenade bounce, hit confirm, frag, pain, footsteps, round win/loss, and
+countdown cues.

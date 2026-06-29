@@ -29,7 +29,9 @@ public:
     const std::array<std::uint32_t, kDuelPlayerCount>& playerSessions
   );
   void setMatchRules(const MatchRules& rules);
+  void setWeaponSwitchingMode(WeaponSwitchingMode mode);
   void setBotDodge(bool enabled, int minIntervalMs, int maxIntervalMs);
+  [[nodiscard]] WeaponSwitchingMode weaponSwitchingMode() const;
   [[nodiscard]] bool botDodgeEnabled() const;
   [[nodiscard]] int botDodgeMinIntervalMs() const;
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
@@ -70,6 +72,13 @@ private:
     std::size_t attackerIndex,
     std::size_t targetIndex
   ) const;
+  [[nodiscard]] std::uint32_t weaponCooldownTicks(
+    std::size_t playerIndex,
+    Weapon weapon
+  ) const;
+  [[nodiscard]] bool canSwitchWeapon(std::size_t playerIndex) const;
+  [[nodiscard]] bool canFireSelectedWeapon(std::size_t playerIndex) const;
+  void updateSelectedWeapon(std::size_t playerIndex, Weapon requestedWeapon);
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
   void simulateRockets(float fixedDt);
@@ -123,6 +132,8 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> plasmaGunCooldownTicks_ = {};
+  std::array<Weapon, kDuelPlayerCount> selectedWeapons_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> weaponPulloutTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentWeaponFireTicks_ = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> recentRocketExplosions_ = {};
@@ -159,6 +170,7 @@ private:
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};
+  WeaponSwitchingMode weaponSwitchingMode_ = WeaponSwitchingMode::Crazy;
   ServerSnapshot snapshot_ = {};
 };
 

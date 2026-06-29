@@ -6,11 +6,13 @@
 #include "sim/UserCommand.hpp"
 
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <cstdint>
 #include <iostream>
 #include <limits>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -69,6 +71,52 @@ bool hasAnyLocalHitFeedback(
     }
   }
   return false;
+}
+
+struct ScopedGameplayConfigDirectory {
+  std::filesystem::path previousPath;
+  std::filesystem::path directory;
+
+  explicit ScopedGameplayConfigDirectory(std::string_view gameplayConfigText)
+    : previousPath(std::filesystem::current_path()),
+      directory(
+        std::filesystem::temp_directory_path() /
+        ("lg-duel-gameplay-config-test-" + std::to_string(std::rand()))
+      ) {
+    std::filesystem::create_directories(directory / "config");
+    std::ofstream configFile(directory / "config" / "gameplay.cfg");
+    configFile << gameplayConfigText;
+    configFile.close();
+    std::filesystem::current_path(directory);
+  }
+
+  ~ScopedGameplayConfigDirectory() {
+    std::filesystem::current_path(previousPath);
+    std::error_code error;
+    std::filesystem::remove_all(directory, error);
+  }
+};
+
+std::string grenadeConfig(float hitboxRadius) {
+  return std::string{
+    "version 1\n"
+    "grenade.speed 16\n"
+    "grenade.vertical_boost 0\n"
+    "grenade.gravity 0\n"
+    "grenade.bounce_damping 0.7\n"
+    "grenade.rest_speed 1.5\n"
+    "grenade.bounce_sound_min_speed 1.2\n"
+    "grenade.projectile_radius 0.05\n"
+  } +
+    "grenade.projectile_hitbox_radius " + std::to_string(hitboxRadius) + "\n" +
+    std::string{
+    "grenade.fuse_seconds 2.5\n"
+    "grenade.radius 3.0\n"
+    "grenade.direct_damage 100\n"
+    "grenade.splash_damage 100\n"
+    "grenade.knockback 22.0\n"
+    "grenade.cooldown_ticks 100\n"
+  };
 }
 
 } // namespace
@@ -1432,14 +1480,24 @@ spawn p2 2,0,0.5 yaw=180
   }
 
   {
+    ScopedGameplayConfigDirectory configDirectory(grenadeConfig(0.2F));
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.5F};
+    arena.spawnPositions[1] = {4.0F, 0.0F, 0.5F};
+    server.setArena(arena);
     latestSnapshot(transport);
 
     lg::UserCommand grenade;
     grenade.sequence = 1;
     grenade.attack = true;
     grenade.weapon = lg::Weapon::GrenadeLauncher;
+    grenade.viewYawRadians = 0.0F;
     transport.sendCommand(lg::CommandPacket{0, grenade, false});
     server.tick(lg::kFixedTickSeconds);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
@@ -1450,9 +1508,17 @@ spawn p2 2,0,0.5 yaw=180
     );
     failures += expect(
       snapshot.rockets[0].active &&
-        snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
-        snapshot.rockets[0].velocity.z > 0.0F,
-      "grenade launcher should replicate arcing projectile state"
+        snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher,
+      "grenade launcher should replicate projectile state with configured hitbox"
+    );
+    for (int tick = 0; tick < 8; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[0].health == 100 &&
+        !snapshot.rocketExplosions[0].active,
+      "configured grenade hitbox should not arm while still overlapping the owner"
     );
 
     grenade.sequence = 2;
@@ -1471,6 +1537,36 @@ spawn p2 2,0,0.5 yaw=180
     failures += expect(
       activeGrenades == 1,
       "grenade launcher cooldown should block immediate second grenades"
+    );
+  }
+
+  {
+    ScopedGameplayConfigDirectory configDirectory(grenadeConfig(0.0F));
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-2.0F, 0.0F, 0.5F};
+    arena.spawnPositions[1] = {2.0F, 0.0F, 0.5F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand grenade;
+    grenade.sequence = 1;
+    grenade.attack = true;
+    grenade.weapon = lg::Weapon::GrenadeLauncher;
+    grenade.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, grenade, false});
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 40; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].health == 100 &&
+        !snapshot.rocketExplosions[0].active,
+      "zero grenade hitbox should disable player direct-hit explosions"
     );
   }
 

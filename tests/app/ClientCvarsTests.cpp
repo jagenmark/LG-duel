@@ -1,8 +1,11 @@
 #include "app/ClientCvars.hpp"
 #include "console/ConsoleSystem.hpp"
 
+#include <algorithm>
 #include <iostream>
+#include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -54,6 +57,11 @@ int main() {
     console.execute("g_lg_fire_hz 40") == "g_lg_fire_hz = 40" &&
       console.getFloat("g_lg_fire_hz") == 40.0F,
     "LG fire rate should be configurable"
+  );
+  failures += expect(
+    console.execute("g_weaponswitching cpma") == "g_weaponswitching = cpma" &&
+      console.getString("g_weaponswitching") == "cpma",
+    "weapon switching rules should be configurable from the client console"
   );
   failures += expect(
     console.execute("r_damage_numbers_mode") ==
@@ -112,6 +120,27 @@ int main() {
     console.execute("r_maxfps 0") == "r_maxfps = 0" &&
       console.execute("r_maxfps -1") == "value out of range for r_maxfps",
     "frame limiter cvar should allow uncapped and reject negative caps"
+    console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
+      console.getFloat("s_lg_fire_volume") == 0.25F,
+    "lightning gun fire volume should be configurable"
+  );
+  failures += expect(
+    console.execute("s_rl_explosion_volume 0") == "s_rl_explosion_volume = 0" &&
+      console.getFloat("s_rl_explosion_volume") == 0.0F,
+    "rocket and grenade explosion volume should be mutable down to mute"
+  );
+  failures += expect(
+    console.execute("s_countdown_volume 2") == "value out of range for s_countdown_volume",
+    "sound mixer volumes should reject values above full volume"
+  );
+  const std::vector<std::string> archivedConfig = console.archivedConfigLines();
+  failures += expect(
+    std::find(
+      archivedConfig.begin(),
+      archivedConfig.end(),
+      "set s_lg_fire_volume 0.25"
+    ) == archivedConfig.end(),
+    "sound mixer cvars should stay controlled by sound_mixer.cfg rather than client.cfg"
   );
   failures += expect(
     console.execute("net_sim_latency_ms") ==

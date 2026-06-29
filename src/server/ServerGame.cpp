@@ -24,6 +24,7 @@ constexpr std::uint32_t kShotgunCooldownTicks = 125;
 constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
+constexpr std::uint32_t kWeaponPulloutTicks = 20;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
@@ -222,14 +223,20 @@ void ServerGame::tick(float fixedDt) {
   for (std::uint32_t& cooldown : plasmaGunCooldownTicks_) {
     if (cooldown > 0) {
       --cooldown;
+  for (std::uint32_t& pullout : weaponPulloutTicks_) {
+    if (pullout > 0) {
+      --pullout;
     }
   }
 
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     PlayerState& player = snapshot_.players[playerIndex];
-    const UserCommand command =
+    UserCommand command =
       commandForPlayer(snapshot_, commands_, hasCommand_, playerIndex);
-    snapshot_.selectedWeapons[playerIndex] = command.weapon;
+    if (!hasCommand_[playerIndex]) {
+      command.weapon = selectedWeapons_[playerIndex];
+    }
+    updateSelectedWeapon(playerIndex, command.weapon);
     if (player.health <= 0) {
       player.velocity = {};
       player.jumpHeld = false;
@@ -298,6 +305,10 @@ void ServerGame::tick(float fixedDt) {
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
     UserCommand command =
       commandForPlayer(snapshot_, commands_, hasCommand_, attackerIndex);
+    if (!hasCommand_[attackerIndex]) {
+      command.weapon = selectedWeapons_[attackerIndex];
+    }
+    command.weapon = selectedWeapons_[attackerIndex];
 
     const bool warmupCombat =
       snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
@@ -309,7 +320,8 @@ void ServerGame::tick(float fixedDt) {
       (snapshot_.matchPhase == MatchPhase::Live || warmupCombat) &&
       snapshot_.connectedPlayers[attackerIndex] &&
       combatPlayers[attackerIndex].health > 0 &&
-      (warmupCombat || hasTarget);
+      (warmupCombat || hasTarget) &&
+      canFireSelectedWeapon(attackerIndex);
     if (command.planarAim) {
       command.viewPitchRadians = 0.0F;
     }
@@ -662,6 +674,7 @@ void ServerGame::resetMatch() {
   snapshot_.botDodgeEnabled = botDodgeEnabled_;
   snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+  snapshot_.weaponSwitchingMode = weaponSwitchingMode_;
   snapshot_.roundWinner = 255;
   snapshot_.matchWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
@@ -677,6 +690,10 @@ void ServerGame::resetMatch() {
   rocketCooldownTicks_ = {};
   grenadeCooldownTicks_ = {};
   plasmaGunCooldownTicks_ = {};
+  selectedWeapons_ = {};
+  selectedWeapons_.fill(Weapon::LightningGun);
+  weaponPulloutTicks_ = {};
+  snapshot_.selectedWeapons = selectedWeapons_;
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
@@ -736,6 +753,9 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   rocketCooldownTicks_[playerIndex] = 0;
   grenadeCooldownTicks_[playerIndex] = 0;
   plasmaGunCooldownTicks_[playerIndex] = 0;
+  selectedWeapons_[playerIndex] = Weapon::LightningGun;
+  weaponPulloutTicks_[playerIndex] = 0;
+  snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
   recentFragEvents_[playerIndex] = {};
@@ -843,6 +863,9 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   snapshot_.acknowledgedCommand[playerIndex] = 0;
   snapshot_.hasAcknowledgedCommand[playerIndex] = false;
   lightningGunStates_[playerIndex] = {};
+  selectedWeapons_[playerIndex] = Weapon::LightningGun;
+  weaponPulloutTicks_[playerIndex] = 0;
+  snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
 }
 
 void ServerGame::setMatchRules(const MatchRules& rules) {
@@ -854,6 +877,11 @@ void ServerGame::setMatchRules(const MatchRules& rules) {
     static_cast<std::uint8_t>(kDuelPlayerCount)
   );
   snapshot_.matchRules = matchRules_;
+}
+
+void ServerGame::setWeaponSwitchingMode(WeaponSwitchingMode mode) {
+  weaponSwitchingMode_ = mode;
+  snapshot_.weaponSwitchingMode = weaponSwitchingMode_;
 }
 
 void ServerGame::setBotDodge(
@@ -872,6 +900,10 @@ void ServerGame::setBotDodge(
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   botDodgeSwitchSeconds_ = {};
   updateParticipatingPlayers();
+}
+
+WeaponSwitchingMode ServerGame::weaponSwitchingMode() const {
+  return weaponSwitchingMode_;
 }
 
 bool ServerGame::botDodgeEnabled() const {
@@ -1036,9 +1068,65 @@ bool ServerGame::damageAllowed(
   if (attackerIndex == targetIndex) {
     return true;
   }
+  if (warmupPhase()) {
+    return areDuelOpponents(attackerIndex, targetIndex);
+  }
   return snapshot_.gameMode == GameMode::Duel
     ? areDuelOpponents(attackerIndex, targetIndex)
     : areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex);
+}
+
+std::uint32_t ServerGame::weaponCooldownTicks(
+  std::size_t playerIndex,
+  Weapon weapon
+) const {
+  switch (weapon) {
+  case Weapon::Railgun:
+    return railgunCooldownTicks_[playerIndex];
+  case Weapon::MachineGun:
+    return machineGunCooldownTicks_[playerIndex];
+  case Weapon::Shotgun:
+    return shotgunCooldownTicks_[playerIndex];
+  case Weapon::RocketLauncher:
+    return rocketCooldownTicks_[playerIndex];
+  case Weapon::GrenadeLauncher:
+    return grenadeCooldownTicks_[playerIndex];
+  case Weapon::LightningGun:
+  case Weapon::PlasmaGun:
+    return 0;
+  }
+  return 0;
+}
+
+bool ServerGame::canSwitchWeapon(std::size_t playerIndex) const {
+  return weaponSwitchingMode_ == WeaponSwitchingMode::Crazy ||
+    weaponCooldownTicks(playerIndex, selectedWeapons_[playerIndex]) == 0;
+}
+
+bool ServerGame::canFireSelectedWeapon(std::size_t playerIndex) const {
+  return weaponSwitchingMode_ != WeaponSwitchingMode::Ql ||
+    weaponPulloutTicks_[playerIndex] == 0;
+}
+
+void ServerGame::updateSelectedWeapon(
+  std::size_t playerIndex,
+  Weapon requestedWeapon
+) {
+  Weapon& selectedWeapon = selectedWeapons_[playerIndex];
+  if (requestedWeapon == selectedWeapon) {
+    snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
+    return;
+  }
+  if (!canSwitchWeapon(playerIndex)) {
+    snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
+    return;
+  }
+
+  selectedWeapon = requestedWeapon;
+  if (weaponSwitchingMode_ == WeaponSwitchingMode::Ql) {
+    weaponPulloutTicks_[playerIndex] = kWeaponPulloutTicks;
+  }
+  snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
 }
 
 void ServerGame::recordHistory() {
@@ -1224,6 +1312,8 @@ bool ServerGame::spawnProjectile(
     rocket.weapon = weapon;
     rocket.position = weaponMuzzlePosition(attacker, eyeHeight);
     rocket.previousPosition = rocket.position;
+    rocket.projectileRadius = grenade ? grenadeLauncherTuning_.projectileRadius : 0.0F;
+    rocket.projectileHitboxRadius = grenade ? grenadeLauncherTuning_.projectileHitboxRadius : 0.0F;
     rocket.velocity = direction * speed;
     if (grenade) {
       rocket.velocity.z += grenadeLauncherTuning_.verticalBoost;
@@ -1289,7 +1379,8 @@ void ServerGame::simulateRockets(float fixedDt) {
 
       if (
         !rocket.ownerCollisionArmed &&
-        cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) > 0.0001F
+        cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) >
+          rocket.projectileHitboxRadius + 0.0001F
       ) {
         rocket.ownerCollisionArmed = true;
       }
@@ -1338,7 +1429,9 @@ void ServerGame::simulateRockets(float fixedDt) {
         }
 
         float bestHitDistance = segmentLength;
-        if (!explode) {
+        const bool directHitEnabled =
+          !grenade || rocket.projectileHitboxRadius > 0.0F;
+        if (!explode && directHitEnabled) {
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
             if (
               snapshot_.players[playerIndex].health <= 0 ||
@@ -1348,11 +1441,14 @@ void ServerGame::simulateRockets(float fixedDt) {
               continue;
             }
             float hitDistance = 0.0F;
+            PlayerState projectileTarget = snapshot_.players[playerIndex];
+            projectileTarget.bounds.radius += rocket.projectileHitboxRadius;
+            projectileTarget.bounds.halfHeight += rocket.projectileHitboxRadius;
             if (
               tracePlayerCylinder(
                 rocket.position,
                 direction,
-                snapshot_.players[playerIndex],
+                projectileTarget,
                 bestHitDistance,
                 hitDistance
               )
@@ -1462,6 +1558,7 @@ void ServerGame::simulateRockets(float fixedDt) {
     snapshot_.rockets[index].weapon = rockets_[index].weapon;
     snapshot_.rockets[index].position = rockets_[index].position;
     snapshot_.rockets[index].velocity = rockets_[index].velocity;
+    snapshot_.rockets[index].radius = rockets_[index].projectileRadius;
   }
 }
 
@@ -1814,6 +1911,7 @@ void ServerGame::receiveCommands() {
         packet.botDodgeMinIntervalMs,
         packet.botDodgeMaxIntervalMs
       );
+      setWeaponSwitchingMode(packet.weaponSwitchingMode);
       for (PlayerState& player : snapshot_.players) {
         const float previousHalfHeight = player.bounds.halfHeight;
         player.bounds.radius =

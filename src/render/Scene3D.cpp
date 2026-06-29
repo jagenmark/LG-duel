@@ -1524,9 +1524,9 @@ Scene3D buildPerspectiveScene(
     if (!projectile.active) {
       continue;
     }
+    const float size = projectile.radius > 0.0F ? projectile.radius : 0.14F;
     if (projectile.weapon == Weapon::GrenadeLauncher) {
-      constexpr float size = 0.14F;
-      addSphereApprox(scene, projectile.position, 0.15F, {8, 48, 18, 255});
+      addSphereApprox(scene, projectile.position, size, {8, 48, 18, 255});
       addWireBox(
         scene,
         projectile.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},

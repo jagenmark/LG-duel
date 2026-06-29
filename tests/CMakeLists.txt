@@ -67,6 +67,16 @@ lg_duel_set_warnings(lg_duel_server_tests)
 
 add_test(NAME lg_duel_server_tests COMMAND lg_duel_server_tests)
 
+add_executable(lg_duel_weapon_switching_tests
+  net/WeaponSwitchingTests.cpp
+)
+
+target_link_libraries(lg_duel_weapon_switching_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_weapon_switching_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_weapon_switching_tests)
+
+add_test(NAME lg_duel_weapon_switching_tests COMMAND lg_duel_weapon_switching_tests)
+
 add_executable(lg_duel_clan_arena_server_tests
   net/ClanArenaServerTests.cpp
 )
