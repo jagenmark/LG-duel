@@ -2,9 +2,38 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstdint>
+#include <cstdlib>
 #include <fstream>
+#include <iostream>
 #include <limits>
+#include <string>
+#include <utility>
+
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wold-style-cast"
+#pragma clang diagnostic ignored "-Wsign-conversion"
+#pragma clang diagnostic ignored "-Wconversion"
+#pragma clang diagnostic ignored "-Wtautological-compare"
+#elif defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wsign-conversion"
+#pragma GCC diagnostic ignored "-Wconversion"
+#elif defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4244 4245 4456 4457 4701 4702)
+#endif
+#include "../../third_party/stb_vorbis.c"
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#pragma GCC diagnostic pop
+#elif defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 namespace lg {
 namespace {
@@ -33,6 +62,68 @@ struct WavFormat {
 [[nodiscard]] bool readExact(std::ifstream& file, char* data, std::streamsize size) {
   file.read(data, size);
   return file.gcount() == size;
+}
+
+[[nodiscard]] std::string lowerExtension(const std::filesystem::path& path) {
+  std::string extension = path.extension().string();
+  std::ranges::transform(extension, extension.begin(), [](unsigned char ch) {
+    return static_cast<char>(std::tolower(ch));
+  });
+  return extension;
+}
+
+[[nodiscard]] std::filesystem::path withExtension(
+  std::filesystem::path path,
+  const char* extension
+) {
+  path.replace_extension(extension);
+  return path;
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> cuePathCandidates(
+  const std::filesystem::path& basePath,
+  AudioCue cue
+) {
+  const std::filesystem::path selected = audioCuePath(basePath, cue);
+  std::vector<std::filesystem::path> paths{selected};
+  const std::filesystem::path alternate = lowerExtension(selected) == ".ogg"
+    ? withExtension(selected, ".wav")
+    : withExtension(selected, ".ogg");
+  if (alternate != selected) {
+    paths.push_back(alternate);
+  }
+  return paths;
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> basenameCandidates(
+  const std::filesystem::path& audioDir,
+  const char* basename
+) {
+  return {
+    audioDir / (std::string{basename} + ".ogg"),
+    audioDir / (std::string{basename} + ".wav"),
+  };
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> footstepSlotCandidates(
+  const std::filesystem::path& audioDir,
+  const char* preferredBasename,
+  const char* importedBasename
+) {
+  std::vector<std::filesystem::path> paths =
+    basenameCandidates(audioDir, preferredBasename);
+  std::vector<std::filesystem::path> imported =
+    basenameCandidates(audioDir, importedBasename);
+  paths.insert(paths.end(), imported.begin(), imported.end());
+  return paths;
+}
+
+void logAudioWarning(
+  const std::filesystem::path& path,
+  const char* reason
+) {
+  std::cerr << "Audio asset warning: " << reason << ": "
+            << path.string() << '\n';
 }
 
 [[nodiscard]] std::optional<std::uint32_t> readChunkHeader(
@@ -190,7 +281,7 @@ const char* audioCueFileName(AudioCue cue) {
   case AudioCue::MachineGunFire:
     return "mg_fire_selected_snap.wav";
   case AudioCue::ShotgunFire:
-    return "sg_fire_selected_blast.wav";
+    return "sshotf1b.ogg";
   case AudioCue::GrenadeLauncherFire:
     return "gl_fire.wav";
   case AudioCue::GrenadeBounce:
@@ -199,6 +290,10 @@ const char* audioCueFileName(AudioCue cue) {
     return "pg_fire_selected_pulse.wav";
   case AudioCue::Footstep:
     return "footstep.wav";
+  case AudioCue::Jump:
+    return "jump1_visor.wav";
+  case AudioCue::Land:
+    return "land1.ogg";
   case AudioCue::RoundWin:
     return "round_win_chime.wav";
   case AudioCue::RoundLoss:
@@ -224,16 +319,66 @@ std::filesystem::path audioCuePath(
   return basePath / "assets" / "audio" / audioCueFileName(cue);
 }
 
+std::vector<std::filesystem::path> footstepCuePaths(
+  const std::filesystem::path& basePath
+) {
+  const std::filesystem::path audioDir = basePath / "assets" / "audio";
+  std::vector<std::filesystem::path> paths;
+  for (const auto& [preferredBasename, importedBasename] : {
+         std::pair{"footstep_01", "step1"},
+         std::pair{"footstep_02", "step2"},
+         std::pair{"footstep_03", "step3"},
+         std::pair{"footstep_04", "step4"},
+       }) {
+    for (const auto& path :
+         footstepSlotCandidates(audioDir, preferredBasename, importedBasename)) {
+      if (std::filesystem::exists(path)) {
+        paths.push_back(path);
+        break;
+      }
+    }
+  }
+  if (!paths.empty()) {
+    return paths;
+  }
+  for (const auto& path : cuePathCandidates(basePath, AudioCue::Footstep)) {
+    if (std::filesystem::exists(path)) {
+      paths.push_back(path);
+      break;
+    }
+  }
+  return paths;
+}
+
 std::optional<AudioClip> loadAudioCue(
   const std::filesystem::path& basePath,
   AudioCue cue
 ) {
-  return loadWavFile(audioCuePath(basePath, cue));
+  for (const auto& path : cuePathCandidates(basePath, cue)) {
+    if (std::filesystem::exists(path)) {
+      return loadAudioFile(path);
+    }
+  }
+  logAudioWarning(audioCuePath(basePath, cue), "missing cue file");
+  return std::nullopt;
+}
+
+std::optional<AudioClip> loadAudioFile(const std::filesystem::path& path) {
+  const std::string extension = lowerExtension(path);
+  if (extension == ".wav") {
+    return loadWavFile(path);
+  }
+  if (extension == ".ogg") {
+    return loadOggFile(path);
+  }
+  logAudioWarning(path, "unsupported audio file extension");
+  return std::nullopt;
 }
 
 std::optional<AudioClip> loadWavFile(const std::filesystem::path& path) {
   std::ifstream file(path, std::ios::binary);
   if (!file) {
+    logAudioWarning(path, "missing WAV file");
     return std::nullopt;
   }
 
@@ -245,6 +390,7 @@ std::optional<AudioClip> loadWavFile(const std::filesystem::path& path) {
       !readExact(file, wave.data(), 4) ||
       id != std::array<char, 4>{'R', 'I', 'F', 'F'} ||
       wave != std::array<char, 4>{'W', 'A', 'V', 'E'}) {
+    logAudioWarning(path, "invalid WAV header");
     return std::nullopt;
   }
 
@@ -257,11 +403,13 @@ std::optional<AudioClip> loadWavFile(const std::filesystem::path& path) {
       break;
     }
     if (*chunkSize > static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+      logAudioWarning(path, "WAV chunk is too large");
       return std::nullopt;
     }
     std::vector<unsigned char> chunk(*chunkSize);
     if (!chunk.empty() &&
         !readExact(file, reinterpret_cast<char*>(chunk.data()), *chunkSize)) {
+      logAudioWarning(path, "truncated WAV chunk");
       return std::nullopt;
     }
     skipChunkPadding(file, *chunkSize);
@@ -273,15 +421,58 @@ std::optional<AudioClip> loadWavFile(const std::filesystem::path& path) {
   }
 
   if (!hasFormat || sampleBytes.empty()) {
+    logAudioWarning(path, "WAV is missing format or sample data");
     return std::nullopt;
   }
   std::optional<std::vector<float>> samples = decodeSamples(format, sampleBytes);
   if (!samples || samples->empty()) {
+    logAudioWarning(path, "unsupported or empty WAV sample data");
     return std::nullopt;
   }
   return AudioClip{
     std::move(*samples),
     static_cast<int>(format.sampleRate),
+    path,
+  };
+}
+
+std::optional<AudioClip> loadOggFile(const std::filesystem::path& path) {
+  int channels = 0;
+  int sampleRate = 0;
+  short* decoded = nullptr;
+  const int frameCount = stb_vorbis_decode_filename(
+    path.string().c_str(),
+    &channels,
+    &sampleRate,
+    &decoded
+  );
+  if (frameCount <= 0 || channels <= 0 || sampleRate <= 0 || decoded == nullptr) {
+    if (decoded != nullptr) {
+      std::free(decoded);
+    }
+    logAudioWarning(path, "missing or invalid OGG Vorbis file");
+    return std::nullopt;
+  }
+
+  std::vector<float> samples(static_cast<std::size_t>(frameCount));
+  const auto channelCount = static_cast<std::size_t>(channels);
+  for (std::size_t frame = 0; frame < samples.size(); ++frame) {
+    float mixed = 0.0F;
+    for (std::size_t channel = 0; channel < channelCount; ++channel) {
+      const std::size_t index = (frame * channelCount) + channel;
+      mixed += static_cast<float>(decoded[index]) / 32768.0F;
+    }
+    samples[frame] =
+      std::clamp(mixed / static_cast<float>(channelCount), -1.0F, 1.0F);
+  }
+  std::free(decoded);
+  if (samples.empty()) {
+    logAudioWarning(path, "empty OGG Vorbis sample data");
+    return std::nullopt;
+  }
+  return AudioClip{
+    std::move(samples),
+    sampleRate,
     path,
   };
 }
