@@ -42,6 +42,48 @@ constexpr float kQuakeToLgScale = 1.0F / 40.0F;
   return value * kQuakeToLgScale;
 }
 
+[[nodiscard]] TextureProjection textureProjectionForFace(
+  Vec3 normal,
+  const MapFace& face
+) {
+  TextureProjection projection;
+  Vec3 baseU = {};
+  Vec3 baseV = {};
+  const Vec3 absolute = {
+    std::fabs(normal.x),
+    std::fabs(normal.y),
+    std::fabs(normal.z),
+  };
+  if (absolute.z >= absolute.x && absolute.z >= absolute.y) {
+    baseU = {1.0F, 0.0F, 0.0F};
+    baseV = {0.0F, -1.0F, 0.0F};
+  } else if (absolute.x >= absolute.y) {
+    baseU = {0.0F, 1.0F, 0.0F};
+    baseV = {0.0F, 0.0F, -1.0F};
+  } else {
+    baseU = {1.0F, 0.0F, 0.0F};
+    baseV = {0.0F, 0.0F, -1.0F};
+  }
+
+  constexpr float kDegreesToRadians = 0.01745329252F;
+  const float radians = face.rotationDegrees * kDegreesToRadians;
+  const float sine = std::sin(radians);
+  const float cosine = std::cos(radians);
+  const Vec3 rotatedU = baseU * cosine - baseV * sine;
+  const Vec3 rotatedV = baseU * sine + baseV * cosine;
+  const float xScale = std::fabs(face.xScale) <= 0.0001F ? 1.0F : face.xScale;
+  const float yScale = std::fabs(face.yScale) <= 0.0001F ? 1.0F : face.yScale;
+  projection.uAxis = rotatedU / xScale;
+  projection.vAxis = rotatedV / yScale;
+  projection.uOffset = face.xOffset;
+  projection.vOffset = face.yOffset;
+  projection.rotationDegrees = face.rotationDegrees;
+  projection.uScale = xScale;
+  projection.vScale = yScale;
+  projection.valid = true;
+  return projection;
+}
+
 [[nodiscard]] bool parseOptionalYaw(const MapEntity& entity, std::string& error) {
   const std::string* yaw = entity.property("angle");
   if (yaw == nullptr) {
@@ -115,6 +157,16 @@ constexpr float kQuakeToLgScale = 1.0F / 40.0F;
   return axis == normalAxis;
 }
 
+[[nodiscard]] std::size_t cuboidSceneFaceIndex(int axis, std::size_t side) {
+  if (axis == 2) {
+    return side == 0U ? 0U : 1U;
+  }
+  if (axis == 1) {
+    return side == 0U ? 2U : 4U;
+  }
+  return side == 0U ? 5U : 3U;
+}
+
 [[nodiscard]] bool convertCuboidBrush(
   const MapBrush& brush,
   ArenaWall& wall,
@@ -172,8 +224,18 @@ constexpr float kQuakeToLgScale = 1.0F / 40.0F;
     const std::size_t side = nearlyEqual(coordinate, planes[static_cast<std::size_t>(axis)][0])
       ? 0U
       : 1U;
-    const std::size_t faceIndex = static_cast<std::size_t>(axis) * 2U + side;
+    const std::size_t faceIndex = cuboidSceneFaceIndex(axis, side);
     wall.faceMaterialIds[faceIndex] = arenaMaterialId(face.material);
+    Vec3 normal = {};
+    if (axis == 0) {
+      normal.x = side == 0U ? -1.0F : 1.0F;
+    } else if (axis == 1) {
+      normal.y = side == 0U ? -1.0F : 1.0F;
+    } else {
+      normal.z = side == 0U ? -1.0F : 1.0F;
+    }
+    wall.faceTextureProjections[faceIndex] =
+      textureProjectionForFace(normal, face);
   }
   if (!(wall.min.x < wall.max.x && wall.min.y < wall.max.y && wall.min.z < wall.max.z)) {
     error = "line " + std::to_string(brush.line) + ": cuboid brush has degenerate or inverted bounds";
@@ -432,6 +494,7 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     face.normal = normal;
     face.distance = distance;
     face.materialId = arenaMaterialId(mapFace.material);
+    face.textureProjection = textureProjectionForFace(normal, mapFace);
     if (arenaBrush.materialId == 0U && face.materialId != 0U) {
       arenaBrush.materialId = face.materialId;
     }
@@ -610,6 +673,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     for (std::size_t index = 0; index < result.arena.wallCount && index < walls.size(); ++index) {
       result.arena.walls[index].materialId = walls[index].materialId;
       result.arena.walls[index].faceMaterialIds = walls[index].faceMaterialIds;
+      result.arena.walls[index].faceTextureProjections =
+        walls[index].faceTextureProjections;
     }
     result.arena.brushCount = std::min(brushes.size(), Arena::kBrushCount);
     for (std::size_t index = 0; index < result.arena.brushCount; ++index) {

@@ -6,6 +6,7 @@
 #include <string_view>
 
 int main(int argc, char** argv) {
+  std::cerr << "LG_DUEL_TEXTURE_PIPELINE_V2 active server\n";
   std::uint16_t port = 27960;
   if (argc >= 2) {
     unsigned int parsedPort = 0;

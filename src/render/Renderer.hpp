@@ -231,8 +231,17 @@ struct RemotePlayerView {
 struct RendererFrameDiagnostics {
   float swapchainAcquireMilliseconds = 0.0F;
   float renderBuildUploadMilliseconds = 0.0F;
+  float sceneBuildMilliseconds = 0.0F;
+  float gpuVertexUploadMilliseconds = 0.0F;
+  float worldDrawIssueMilliseconds = 0.0F;
   float submitMilliseconds = 0.0F;
   float totalRenderMilliseconds = 0.0F;
+  std::uint32_t worldSourceTriangles = 0;
+  std::uint32_t worldRenderedTriangles = 0;
+  std::uint32_t worldVertexCount = 0;
+  std::uint32_t worldDrawCalls = 0;
+  std::uint32_t worldLoadedTextures = 0;
+  std::uint32_t worldReferencedMaterials = 0;
   std::string_view selectedPresentModeName = "n/a";
 };
 
@@ -279,6 +288,7 @@ private:
   void* gpuFontTexture_ = nullptr;
   void* gpuFontSampler_ = nullptr;
   void* gpuWorldTextureAtlas_ = nullptr;
+  void* gpuStaticWorld_ = nullptr;
   void* gpuVertexScratch_ = nullptr;
   void* gpuDepthTexture_ = nullptr;
   std::uint32_t gpuDepthWidth_ = 0;

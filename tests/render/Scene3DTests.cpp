@@ -2,9 +2,11 @@
 #include "sim/Arena.hpp"
 #include "sim/WeaponCatalog.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -26,6 +28,49 @@ bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
     lhs.green == rhs.green &&
     lhs.blue == rhs.blue &&
     lhs.alpha == rhs.alpha;
+}
+
+struct UvBounds {
+  float minU = 0.0F;
+  float maxU = 0.0F;
+  float minV = 0.0F;
+  float maxV = 0.0F;
+  bool found = false;
+};
+
+UvBounds texturedWallUvBounds(
+  const lg::TextureProjection& projection,
+  float quakeSize = 128.0F
+) {
+  lg::Arena arena;
+  arena.wallCount = 1;
+  arena.walls[0].min = {0.0F, 0.0F, 0.0F};
+  arena.walls[0].max = {quakeSize / 40.0F, quakeSize / 40.0F, 16.0F / 40.0F};
+  const std::uint32_t materialId = lg::arenaMaterialId("128x128/test/checker");
+  arena.walls[0].faceMaterialIds[1] = materialId;
+  arena.walls[0].faceTextureProjections[1] = projection;
+
+  const lg::Scene3D scene = lg::buildStaticWorldScene(arena);
+
+  UvBounds bounds;
+  for (const lg::Vertex3D& vertex : scene.vertices) {
+    if (vertex.materialId != materialId) {
+      continue;
+    }
+    if (!bounds.found) {
+      bounds.minU = vertex.u;
+      bounds.maxU = vertex.u;
+      bounds.minV = vertex.v;
+      bounds.maxV = vertex.v;
+      bounds.found = true;
+      continue;
+    }
+    bounds.minU = std::min(bounds.minU, vertex.u);
+    bounds.maxU = std::max(bounds.maxU, vertex.u);
+    bounds.minV = std::min(bounds.minV, vertex.v);
+    bounds.maxV = std::max(bounds.maxV, vertex.v);
+  }
+  return bounds;
 }
 
 } // namespace
@@ -82,18 +127,7 @@ int main() {
   arena.walls[0] = {{3.0F, 1.0F, 0.0F}, {5.0F, 3.0F, 2.0F}};
   arena.walls[0].materialId =
     lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
-  const lg::Scene3D texturedWallScene = lg::buildPerspectiveScene(
-    16.0F / 9.0F,
-    arena,
-    player,
-    opponent,
-    inactiveBeam,
-    inactiveBeam,
-    weaponFires,
-    rocketExplosions,
-    rockets,
-    settings
-  );
+  const lg::Scene3D texturedWallScene = lg::buildStaticWorldScene(arena);
   bool foundTexturedWallVertex = false;
   bool foundWallUvSpan = false;
   bool foundPrototypeWallAccent = false;
@@ -154,6 +188,114 @@ int main() {
     "wall scene geometry should not emit old green prototype accents over textures"
   );
   arena.wallCount = 0;
+
+  {
+    lg::TextureProjection projection;
+    projection.uAxis = {1.0F, 0.0F, 0.0F};
+    projection.vAxis = {0.0F, -1.0F, 0.0F};
+    projection.valid = true;
+    const UvBounds bounds = texturedWallUvBounds(projection);
+    failures += expect(bounds.found, "projected wall UV test should find textured face");
+    failures += expect(
+      nearlyEqual(bounds.maxU - bounds.minU, 128.0F) &&
+        nearlyEqual(bounds.maxV - bounds.minV, 128.0F),
+      "128-quake-unit face should produce one 128px texture repeat at scale 1"
+    );
+  }
+
+  {
+    lg::TextureProjection projection;
+    projection.uAxis = {1.0F, 0.0F, 0.0F};
+    projection.vAxis = {0.0F, -1.0F, 0.0F};
+    projection.valid = true;
+    const UvBounds bounds = texturedWallUvBounds(projection, 256.0F);
+    failures += expect(
+      nearlyEqual(bounds.maxU - bounds.minU, 256.0F),
+      "256-quake-unit face should produce two 128px texture repeats at scale 1"
+    );
+  }
+
+  {
+    lg::TextureProjection projection;
+    projection.uAxis = {1.0F, 0.0F, 0.0F};
+    projection.vAxis = {0.0F, -1.0F, 0.0F};
+    projection.uOffset = 16.0F;
+    projection.vOffset = 32.0F;
+    projection.valid = true;
+    const UvBounds bounds = texturedWallUvBounds(projection);
+    failures += expect(
+      nearlyEqual(bounds.minU, 16.0F) && nearlyEqual(bounds.maxV, 32.0F),
+      "texture offsets should shift generated UVs"
+    );
+  }
+
+  {
+    lg::TextureProjection projection;
+    projection.uAxis = {0.0F, -1.0F, 0.0F};
+    projection.vAxis = {1.0F, 0.0F, 0.0F};
+    projection.valid = true;
+    const UvBounds bounds = texturedWallUvBounds(projection);
+    failures += expect(
+      nearlyEqual(bounds.maxU - bounds.minU, 128.0F) &&
+        nearlyEqual(bounds.maxV - bounds.minV, 128.0F) &&
+        bounds.minU < -127.0F,
+      "90-degree rotation should rotate generated UV axes"
+    );
+  }
+
+  {
+    lg::TextureProjection halfScale;
+    halfScale.uAxis = {2.0F, 0.0F, 0.0F};
+    halfScale.vAxis = {0.0F, -2.0F, 0.0F};
+    halfScale.valid = true;
+    const UvBounds halfBounds = texturedWallUvBounds(halfScale);
+    lg::TextureProjection doubleScale;
+    doubleScale.uAxis = {0.5F, 0.0F, 0.0F};
+    doubleScale.vAxis = {0.0F, -0.5F, 0.0F};
+    doubleScale.valid = true;
+    const UvBounds doubleBounds = texturedWallUvBounds(doubleScale);
+    failures += expect(
+      nearlyEqual(halfBounds.maxU - halfBounds.minU, 256.0F) &&
+        nearlyEqual(doubleBounds.maxU - doubleBounds.minU, 64.0F),
+      "texture scale 0.5 and 2 should affect UV spans"
+    );
+  }
+
+  {
+    lg::Arena cubeArena;
+    cubeArena.wallCount = 1;
+    cubeArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    cubeArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    for (std::size_t faceIndex = 0; faceIndex < cubeArena.walls[0].faceMaterialIds.size(); ++faceIndex) {
+      cubeArena.walls[0].faceMaterialIds[faceIndex] =
+        lg::arenaMaterialId("face_" + std::to_string(faceIndex));
+      cubeArena.walls[0].faceTextureProjections[faceIndex].uAxis = {1.0F, 0.0F, 0.0F};
+      cubeArena.walls[0].faceTextureProjections[faceIndex].vAxis = {0.0F, 1.0F, 0.0F};
+      cubeArena.walls[0].faceTextureProjections[faceIndex].uOffset =
+        static_cast<float>(faceIndex) * 10.0F;
+      cubeArena.walls[0].faceTextureProjections[faceIndex].valid = true;
+    }
+    const lg::Scene3D cubeScene = lg::buildStaticWorldScene(cubeArena);
+    std::array<bool, 6> foundFaceMaterial = {};
+    std::array<bool, 6> foundFaceOffset = {};
+    for (const lg::Vertex3D& vertex : cubeScene.vertices) {
+      for (std::size_t faceIndex = 0; faceIndex < foundFaceMaterial.size(); ++faceIndex) {
+        if (vertex.materialId == cubeArena.walls[0].faceMaterialIds[faceIndex]) {
+          foundFaceMaterial[faceIndex] = true;
+          foundFaceOffset[faceIndex] = foundFaceOffset[faceIndex] ||
+            vertex.u >= static_cast<float>(faceIndex) * 10.0F;
+        }
+      }
+    }
+    failures += expect(
+      std::all_of(foundFaceMaterial.begin(), foundFaceMaterial.end(), [](bool value) { return value; }),
+      "six-material cube should render each face material"
+    );
+    failures += expect(
+      std::all_of(foundFaceOffset.begin(), foundFaceOffset.end(), [](bool value) { return value; }),
+      "six-material cube should keep each face projection offset"
+    );
+  }
 
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(

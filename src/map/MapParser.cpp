@@ -64,7 +64,7 @@ public:
             MapFace face;
             face.line = line_;
             if (!parseFace(face)) {
-              return fail("expected brush face");
+              return fail(lastError_.empty() ? "expected brush face" : lastError_);
             }
             brush.faces.push_back(std::move(face));
           }
@@ -184,6 +184,7 @@ private:
   }
 
   [[nodiscard]] bool parseFace(MapFace& face) {
+    lastError_.clear();
     if (!parsePoint(face.points[0]) || !parsePoint(face.points[1]) || !parsePoint(face.points[2])) {
       return false;
     }
@@ -198,6 +199,13 @@ private:
     }
     const std::size_t savedOffset = offset_;
     const int savedLine = line_;
+    skipHorizontalSpace();
+    if (peek() == '[') {
+      lastError_ = "Valve 220 texture axes are not supported yet";
+      return false;
+    }
+    offset_ = savedOffset;
+    line_ = savedLine;
     float xOffset = 0.0F;
     float yOffset = 0.0F;
     float rotation = 0.0F;
@@ -232,6 +240,7 @@ private:
   std::string_view text_;
   std::size_t offset_ = 0;
   int line_ = 1;
+  std::string lastError_;
 };
 
 } // namespace

@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
+#include <iostream>
 
 namespace lg {
 namespace {
@@ -15,6 +17,49 @@ constexpr float kJumpPoseTorsoPitchRadians = 5.0F * kDegreesToRadians;
 constexpr float kJumpPoseArmPitchRadians = 2.0F * kDegreesToRadians;
 constexpr float kJumpPoseLegPitchRadians = -30.0F * kDegreesToRadians;
 constexpr float kTwoPi = 6.28318530718F;
+
+[[nodiscard]] bool textureDebugEnabled() {
+  const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG");
+  return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+void logTextureFace(
+  std::string_view kind,
+  std::uint32_t materialId,
+  const TextureProjection& projection,
+  const std::array<std::array<float, 2>, 4>& uv,
+  int fallbackAxis
+) {
+  static int loggedFaces = 0;
+  static int loggedProjectedFaces = 0;
+  if (!textureDebugEnabled()) {
+    return;
+  }
+  if (projection.valid) {
+    if (loggedProjectedFaces >= 10) {
+      return;
+    }
+    ++loggedProjectedFaces;
+  } else if (loggedFaces >= 10) {
+    return;
+  }
+  ++loggedFaces;
+  std::cerr
+    << "LG_DUEL_TEXTURE_PIPELINE_V2 scene face#" << loggedFaces
+    << " kind=" << kind
+    << " materialId=" << materialId
+    << " hasTextureProjection=" << (projection.valid ? "true" : "false")
+    << " fallbackAxis=" << fallbackAxis
+    << " uAxis=" << projection.uAxis.x << ',' << projection.uAxis.y << ',' << projection.uAxis.z
+    << " vAxis=" << projection.vAxis.x << ',' << projection.vAxis.y << ',' << projection.vAxis.z
+    << " offset=" << projection.uOffset << ',' << projection.vOffset
+    << " rotation=" << projection.rotationDegrees
+    << " scale=" << projection.uScale << ',' << projection.vScale
+    << " uv=(" << uv[0][0] << ',' << uv[0][1] << ")"
+    << " (" << uv[1][0] << ',' << uv[1][1] << ")"
+    << " (" << uv[2][0] << ',' << uv[2][1] << ")"
+    << " (" << uv[3][0] << ',' << uv[3][1] << ")\n";
+}
 
 struct PlayerModelBasis {
   Vec3 forward = {};
@@ -241,18 +286,33 @@ void addSphereApprox(
   }
 }
 
-[[nodiscard]] std::array<float, 2> faceUv(Vec3 point, int axis) {
+[[nodiscard]] std::array<float, 2> fallbackFaceUv(Vec3 point, int axis) {
   constexpr float kQuakeUnitsPerLgUnit = 40.0F;
-  constexpr float kTextureQuakeUnits = 512.0F;
-  constexpr float kTextureWorldSize = kTextureQuakeUnits / kQuakeUnitsPerLgUnit;
+  const Vec3 quakePoint = point * kQuakeUnitsPerLgUnit;
   switch (axis) {
   case 0:
-    return {point.y / kTextureWorldSize, point.z / kTextureWorldSize};
+    return {quakePoint.y, quakePoint.z};
   case 1:
-    return {point.x / kTextureWorldSize, point.z / kTextureWorldSize};
+    return {quakePoint.x, quakePoint.z};
   default:
-    return {point.x / kTextureWorldSize, point.y / kTextureWorldSize};
+    return {quakePoint.x, quakePoint.y};
   }
+}
+
+[[nodiscard]] std::array<float, 2> projectedFaceUv(
+  Vec3 point,
+  const TextureProjection& projection,
+  int fallbackAxis
+) {
+  if (!projection.valid) {
+    return fallbackFaceUv(point, fallbackAxis);
+  }
+  constexpr float kQuakeUnitsPerLgUnit = 40.0F;
+  const Vec3 quakePoint = point * kQuakeUnitsPerLgUnit;
+  return {
+    dot(quakePoint, projection.uAxis) + projection.uOffset,
+    dot(quakePoint, projection.vAxis) + projection.vOffset,
+  };
 }
 
 void addWallBox(Scene3D& scene, const ArenaWall& wall) {
@@ -286,18 +346,20 @@ void addWallBox(Scene3D& scene, const ArenaWall& wall) {
         wall.faceMaterialIds[index] != 0U
       ? wall.faceMaterialIds[index]
       : wall.materialId;
+    const std::array<std::array<float, 2>, 4> uv = {{
+      projectedFaceUv(corners[face[0]], wall.faceTextureProjections[index], faceAxis),
+      projectedFaceUv(corners[face[1]], wall.faceTextureProjections[index], faceAxis),
+      projectedFaceUv(corners[face[2]], wall.faceTextureProjections[index], faceAxis),
+      projectedFaceUv(corners[face[3]], wall.faceTextureProjections[index], faceAxis),
+    }};
+    logTextureFace("ArenaWall", materialId, wall.faceTextureProjections[index], uv, faceAxis);
     addTexturedQuad(
       scene,
       corners[face[0]],
       corners[face[1]],
       corners[face[2]],
       corners[face[3]],
-      {{
-        faceUv(corners[face[0]], faceAxis),
-        faceUv(corners[face[1]], faceAxis),
-        faceUv(corners[face[2]], faceAxis),
-        faceUv(corners[face[3]], faceAxis),
-      }},
+      uv,
       scaleColor({255, 255, 255, 255}, brightness[index]),
       materialId
     );
@@ -329,16 +391,19 @@ void addArenaBrush(Scene3D& scene, const ArenaBrush& brush) {
     for (std::uint8_t vertex = 1; vertex + 1 < face.vertexCount; ++vertex) {
       const Vec3 second = brush.vertices[face.vertices[vertex]];
       const Vec3 third = brush.vertices[face.vertices[vertex + 1U]];
+      const std::array<std::array<float, 2>, 4> uv = {{
+        projectedFaceUv(origin, face.textureProjection, uvAxis),
+        projectedFaceUv(second, face.textureProjection, uvAxis),
+        projectedFaceUv(third, face.textureProjection, uvAxis),
+        projectedFaceUv(third, face.textureProjection, uvAxis),
+      }};
+      logTextureFace("ArenaBrush", materialId, face.textureProjection, uv, uvAxis);
       addTexturedTriangle(
         scene,
         origin,
         second,
         third,
-        {{
-          faceUv(origin, uvAxis),
-          faceUv(second, uvAxis),
-          faceUv(third, uvAxis),
-        }},
+        {{uv[0], uv[1], uv[2]}},
         color,
         materialId
       );
@@ -1309,6 +1374,7 @@ Scene3D buildPerspectiveScene(
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   const RenderSettings& settings
 ) {
+  (void)arena;
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
@@ -1325,18 +1391,6 @@ Scene3D buildPerspectiveScene(
   );
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
-
-  addFloorTreatment(scene, arena);
-  addArenaBoundaryWalls(scene, arena);
-  addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
-
-  for (std::size_t index = 0; index < arena.wallCount; ++index) {
-    const ArenaWall& wall = arena.walls[index];
-    addWallBox(scene, wall);
-  }
-  for (std::size_t index = 0; index < arena.brushCount; ++index) {
-    addArenaBrush(scene, arena.brushes[index]);
-  }
 
   for (const RemotePlayerView& remote : remotePlayers) {
     if (!remote.visible) {
@@ -1600,6 +1654,28 @@ for (const RocketProjectileSnapshot& projectile : rockets) {
     );
   }
   (void)localLightningGun;
+
+  return scene;
+}
+
+Scene3D buildStaticWorldScene(const Arena& arena) {
+  Scene3D scene;
+  scene.vertices.reserve(
+    512U +
+    arena.wallCount * 36U +
+    arena.brushCount * ArenaBrush::kMaxFaces * 12U
+  );
+
+  addFloorTreatment(scene, arena);
+  addArenaBoundaryWalls(scene, arena);
+  addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
+
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    addWallBox(scene, arena.walls[index]);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    addArenaBrush(scene, arena.brushes[index]);
+  }
 
   return scene;
 }

@@ -8,6 +8,7 @@
 #include <string_view>
 
 int main(int argc, char** argv) {
+  std::cerr << "LG_DUEL_TEXTURE_PIPELINE_V2 active client\n";
   std::string_view host = "127.0.0.1";
   std::uint16_t port = 27960;
   if (argc >= 2) {
