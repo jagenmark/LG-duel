@@ -223,6 +223,8 @@ void ServerGame::tick(float fixedDt) {
   for (std::uint32_t& cooldown : plasmaGunCooldownTicks_) {
     if (cooldown > 0) {
       --cooldown;
+    }
+  }
   for (std::uint32_t& pullout : weaponPulloutTicks_) {
     if (pullout > 0) {
       --pullout;
