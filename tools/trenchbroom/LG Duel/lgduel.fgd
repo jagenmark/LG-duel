@@ -1,0 +1,14 @@
+@SolidClass = worldspawn : "LG Duel world geometry"
+[
+  lg_bounds_min(string) : "Arena bounds min" : "" : "Optional x y z bounds in TrenchBroom units."
+  lg_bounds_max(string) : "Arena bounds max" : "" : "Optional x y z bounds in TrenchBroom units."
+]
+
+@SolidClass = func_group : "LG Duel brush group"
+[
+]
+
+@PointClass base(Angles) size(-16 -16 0, 16 16 56) color(0 220 80) = lg_spawn : "LG Duel player spawn"
+[
+  yaw(integer) : "Yaw override" : 0 : "Optional spawn yaw in degrees. The importer also accepts angle from the Angles base class."
+]

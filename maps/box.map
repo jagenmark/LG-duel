@@ -1434,7 +1434,7 @@
 }
 // entity 4
 {
-"classname" "info_player_duel"
+"classname" "lg_spawn"
 "origin" "-24 56 -712"
 "angle" "0"
 "_tb_layer" "1"

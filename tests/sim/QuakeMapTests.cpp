@@ -60,7 +60,7 @@ std::string basicMap(std::string brush) {
     brush +
     "}\n"
     "{\n"
-    "\"classname\" \"info_player_duel\"\n"
+    "\"classname\" \"lg_spawn\"\n"
     "\"origin\" \"-2 0 1\"\n"
     "\"angle\" \"90\"\n"
     "}\n"
@@ -110,6 +110,43 @@ int main() {
   }
 
   {
+    const std::string brush =
+      "{\n"
+      "( 0 0 0 ) ( 0 0 128 ) ( 0 128 128 ) stone 16 32 90 0.5 2\n"
+      "( 128 0 0 ) ( 128 128 128 ) ( 128 0 128 ) stone 0 0 0 1 1\n"
+      "( 0 0 0 ) ( 128 0 128 ) ( 0 0 128 ) stone 0 0 0 1 1\n"
+      "( 0 128 0 ) ( 0 128 128 ) ( 128 128 128 ) stone 0 0 0 1 1\n"
+      "( 0 0 0 ) ( 0 128 0 ) ( 128 128 0 ) stone 0 0 0 1 1\n"
+      "( 0 0 128 ) ( 128 128 128 ) ( 0 128 128 ) stone 0 0 0 1 1\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(basicMap(brush));
+    failures += expect(result.ok, "classic texture projection map should convert");
+    const lg::TextureProjection& projection = result.arena.walls[0].faceTextureProjections[5];
+    failures += expect(projection.valid, "cuboid wall face should preserve texture projection");
+    failures += expect(
+      nearlyEqual(projection.uOffset, 16.0F) && nearlyEqual(projection.vOffset, 32.0F),
+      "texture projection should preserve offsets"
+    );
+    failures += expect(
+      std::fabs(projection.uAxis.z) > 1.9F && std::fabs(projection.vAxis.y) > 0.49F,
+      "texture projection should apply rotation and scale to axes"
+    );
+  }
+
+  {
+    const std::string brush =
+      "{\n"
+      "( 0 0 0 ) ( 0 0 128 ) ( 0 128 128 ) stone [ 1 0 0 0 ] [ 0 1 0 0 ] 0 1 1\n"
+      "}\n";
+    const lg::MapParseResult result = lg::parseMapDocument(basicMap(brush));
+    failures += expect(!result.ok, "Valve 220 texture axes should be rejected until supported");
+    failures += expect(
+      result.error.find("Valve 220") != std::string::npos,
+      "Valve 220 rejection should explain unsupported texture axes"
+    );
+  }
+
+  {
     const lg::ArenaLoadResult result =
       lg::loadArenaFromMapText(basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)));
     failures += expect(result.ok, "sixteen-unit cuboid map should convert");
@@ -128,7 +165,7 @@ int main() {
       cuboidBrush(-16, -16, 0, 16, 16, 16) +
       "}\n"
       "{\n"
-      "\"classname\" \"info_player_duel\"\n"
+      "\"classname\" \"lg_spawn\"\n"
       "\"origin\" \"-40 0 40\"\n"
       "}\n"
       "{\n"

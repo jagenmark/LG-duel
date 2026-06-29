@@ -12,11 +12,23 @@
 
 namespace lg {
 
+struct TextureProjection {
+  Vec3 uAxis = {};
+  Vec3 vAxis = {};
+  float uOffset = 0.0F;
+  float vOffset = 0.0F;
+  float rotationDegrees = 0.0F;
+  float uScale = 1.0F;
+  float vScale = 1.0F;
+  bool valid = false;
+};
+
 struct ArenaWall {
   Vec3 min = {};
   Vec3 max = {};
   std::uint32_t materialId = 0;
   std::array<std::uint32_t, 6> faceMaterialIds = {};
+  std::array<TextureProjection, 6> faceTextureProjections = {};
 };
 
 struct ArenaBrushFace {
@@ -25,6 +37,7 @@ struct ArenaBrushFace {
   Vec3 normal = {};
   float distance = 0.0F;
   std::uint32_t materialId = 0;
+  TextureProjection textureProjection = {};
   std::array<std::uint8_t, kMaxVertices> vertices = {};
   std::uint8_t vertexCount = 0;
 };

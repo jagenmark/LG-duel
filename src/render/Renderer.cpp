@@ -135,6 +135,11 @@ struct TextureAtlasEntry {
   float v0 = kSolidTextureV;
   float u1 = kSolidTextureU;
   float v1 = kSolidTextureV;
+  float uScale = 1.0F;
+  float vScale = 1.0F;
+  int sourceWidth = 1;
+  int sourceHeight = 1;
+  std::string material;
 };
 
 struct TextureAtlas {
@@ -148,6 +153,36 @@ struct TextureMaterialFile {
   std::array<std::string, 2> aliases = {};
 };
 
+struct WorldTexture {
+  SDL_GPUTexture* texture = nullptr;
+  int width = 1;
+  int height = 1;
+  std::string material;
+  bool fallback = false;
+};
+
+struct StaticWorldBatch {
+  std::uint32_t materialId = 0;
+  Uint32 firstVertex = 0;
+  Uint32 vertexCount = 0;
+  WorldTexture* texture = nullptr;
+};
+
+struct StaticWorldMesh {
+  SDL_GPUBuffer* vertexBuffer = nullptr;
+  SDL_GPUSampler* sampler = nullptr;
+  std::vector<WorldTexture> textures;
+  std::vector<StaticWorldBatch> batches;
+  std::uint64_t arenaFingerprint = 0;
+  std::uint32_t sourceTriangles = 0;
+  std::uint32_t vertexCount = 0;
+  std::uint32_t referencedMaterials = 0;
+  std::uint32_t loadedTextures = 0;
+  std::uint32_t missingTextures = 0;
+  std::uint32_t buildCount = 0;
+  float buildMilliseconds = 0.0F;
+};
+
 void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
   if (atlas == nullptr) {
     return;
@@ -159,6 +194,24 @@ void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
     SDL_ReleaseGPUTexture(device, atlas->texture);
   }
   delete atlas;
+}
+
+void destroyStaticWorldMesh(SDL_GPUDevice* device, StaticWorldMesh* mesh) {
+  if (mesh == nullptr) {
+    return;
+  }
+  for (WorldTexture& texture : mesh->textures) {
+    if (texture.texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, texture.texture);
+    }
+  }
+  if (mesh->sampler != nullptr) {
+    SDL_ReleaseGPUSampler(device, mesh->sampler);
+  }
+  if (mesh->vertexBuffer != nullptr) {
+    SDL_ReleaseGPUBuffer(device, mesh->vertexBuffer);
+  }
+  delete mesh;
 }
 
 [[nodiscard]] std::string shaderPath(std::string_view filename) {
@@ -180,6 +233,29 @@ void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
     material.erase(material.begin());
   }
   return material;
+}
+
+[[nodiscard]] bool textureDebugEnabled() {
+  const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG");
+  return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+[[nodiscard]] bool textureDebugCheckerEnabled() {
+  const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG_UV");
+  return value != nullptr && std::string_view(value) == "checker";
+}
+
+[[nodiscard]] std::uint32_t forcedTextureMaterialId() {
+  const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG_FORCE_MATERIAL");
+  if (value == nullptr || value[0] == '\0') {
+    return 0U;
+  }
+  char* end = nullptr;
+  const unsigned long parsed = std::strtoul(value, &end, 10);
+  if (end != nullptr && *end == '\0') {
+    return static_cast<std::uint32_t>(parsed);
+  }
+  return arenaMaterialId(value);
 }
 
 void collectTextureMaterialFiles(
@@ -205,162 +281,111 @@ void collectTextureMaterialFiles(
   }
 }
 
-void copySurfaceToAtlas(
-  const SDL_Surface& surface,
-  std::vector<std::uint8_t>& atlasPixels,
-  int atlasWidth,
-  int atlasHeight,
-  int destinationX,
-  int destinationY,
-  int cellSize
-) {
-  const auto* sourcePixels = static_cast<const std::uint8_t*>(surface.pixels);
-  for (int y = 0; y < cellSize; ++y) {
-    if (destinationY + y >= atlasHeight) {
-      break;
-    }
-    const int sourceY = std::clamp(
-      static_cast<int>(
-        (static_cast<long long>(y) * surface.h) / std::max(1, cellSize)
-      ),
-      0,
-      std::max(0, surface.h - 1)
-    );
-    const std::uint8_t* sourceRow =
-      sourcePixels + static_cast<std::size_t>(sourceY) * static_cast<std::size_t>(surface.pitch);
-    std::uint8_t* destinationRow =
-      atlasPixels.data() +
-      (static_cast<std::size_t>(destinationY + y) * static_cast<std::size_t>(atlasWidth) +
-       static_cast<std::size_t>(destinationX)) * 4U;
-    for (int x = 0; x < cellSize && destinationX + x < atlasWidth; ++x) {
-      const int sourceX = std::clamp(
-        static_cast<int>(
-          (static_cast<long long>(x) * surface.w) / std::max(1, cellSize)
-        ),
-        0,
-        std::max(0, surface.w - 1)
-      );
-      std::memcpy(
-        destinationRow + static_cast<std::size_t>(x) * 4U,
-        sourceRow + static_cast<std::size_t>(sourceX) * 4U,
-        4U
-      );
-    }
-  }
+[[nodiscard]] std::uint64_t hashCombine(std::uint64_t hash, std::uint64_t value) {
+  hash ^= value + 0x9e3779b97f4a7c15ULL + (hash << 6U) + (hash >> 2U);
+  return hash;
 }
 
-[[nodiscard]] TextureAtlas* createTextureAtlas(SDL_GPUDevice* device) {
-  constexpr int kAtlasSize = 2048;
-  constexpr int kCellSize = 128;
-  constexpr int kCellsPerRow = kAtlasSize / kCellSize;
-
-  std::vector<std::uint8_t> atlasPixels(
-    static_cast<std::size_t>(kAtlasSize) * static_cast<std::size_t>(kAtlasSize) * 4U,
-    255U
-  );
-  auto atlas = new TextureAtlas();
-  std::vector<TextureMaterialFile> materials;
-  const std::filesystem::path root = basePath();
-  collectTextureMaterialFiles(root / "textures", materials);
-  int cellIndex = 1;
-  bool warnedAtlasFull = false;
-  for (const TextureMaterialFile& material : materials) {
-    if (cellIndex >= kCellsPerRow * kCellsPerRow) {
-      if (!warnedAtlasFull) {
-        std::cerr
-          << "SDL_GPU world texture atlas capacity exceeded; "
-          << "some wall textures will render as white.\n";
-        warnedAtlasFull = true;
-      }
-      break;
+[[nodiscard]] std::uint64_t arenaStaticWorldFingerprint(const Arena& arena) {
+  std::uint64_t hash = 1469598103934665603ULL;
+  hash = hashCombine(hash, arena.wallCount);
+  hash = hashCombine(hash, arena.brushCount);
+  const auto hashFloat = [](float value) {
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return static_cast<std::uint64_t>(bits);
+  };
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    const ArenaWall& wall = arena.walls[index];
+    hash = hashCombine(hash, hashFloat(wall.min.x));
+    hash = hashCombine(hash, hashFloat(wall.min.y));
+    hash = hashCombine(hash, hashFloat(wall.min.z));
+    hash = hashCombine(hash, hashFloat(wall.max.x));
+    hash = hashCombine(hash, hashFloat(wall.max.y));
+    hash = hashCombine(hash, hashFloat(wall.max.z));
+    hash = hashCombine(hash, wall.materialId);
+    for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
+      hash = hashCombine(hash, wall.faceMaterialIds[faceIndex]);
+      const TextureProjection& projection = wall.faceTextureProjections[faceIndex];
+      hash = hashCombine(hash, projection.valid ? 1U : 0U);
+      hash = hashCombine(hash, hashFloat(projection.uAxis.x));
+      hash = hashCombine(hash, hashFloat(projection.uAxis.y));
+      hash = hashCombine(hash, hashFloat(projection.uAxis.z));
+      hash = hashCombine(hash, hashFloat(projection.vAxis.x));
+      hash = hashCombine(hash, hashFloat(projection.vAxis.y));
+      hash = hashCombine(hash, hashFloat(projection.vAxis.z));
+      hash = hashCombine(hash, hashFloat(projection.uOffset));
+      hash = hashCombine(hash, hashFloat(projection.vOffset));
+      hash = hashCombine(hash, hashFloat(projection.uScale));
+      hash = hashCombine(hash, hashFloat(projection.vScale));
     }
-    SDL_Surface* loaded = SDL_LoadPNG(material.path.string().c_str());
-    if (loaded == nullptr) {
-      continue;
-    }
-    SDL_Surface* converted = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
-    SDL_DestroySurface(loaded);
-    if (converted == nullptr) {
-      continue;
-    }
-    const int cellX = (cellIndex % kCellsPerRow) * kCellSize;
-    const int cellY = (cellIndex / kCellsPerRow) * kCellSize;
-    copySurfaceToAtlas(*converted, atlasPixels, kAtlasSize, kAtlasSize, cellX, cellY, kCellSize);
-    SDL_DestroySurface(converted);
-
-    const float inset = 0.5F;
-    const TextureAtlasEntry entry = {
-      (static_cast<float>(cellX) + inset) / static_cast<float>(kAtlasSize),
-      (static_cast<float>(cellY) + inset) / static_cast<float>(kAtlasSize),
-      (static_cast<float>(cellX + kCellSize) - inset) / static_cast<float>(kAtlasSize),
-      (static_cast<float>(cellY + kCellSize) - inset) / static_cast<float>(kAtlasSize),
-    };
-    for (const std::string& alias : material.aliases) {
-      atlas->entries[arenaMaterialId(alias)] = entry;
-    }
-    ++cellIndex;
   }
+  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
+    const ArenaBrush& brush = arena.brushes[brushIndex];
+    hash = hashCombine(hash, brush.faceCount);
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      const ArenaBrushFace& face = brush.faces[faceIndex];
+      hash = hashCombine(hash, face.materialId);
+      hash = hashCombine(hash, face.vertexCount);
+      for (std::uint8_t vertexIndex = 0; vertexIndex < face.vertexCount; ++vertexIndex) {
+        const Vec3 vertex = brush.vertices[face.vertices[vertexIndex]];
+        hash = hashCombine(hash, hashFloat(vertex.x));
+        hash = hashCombine(hash, hashFloat(vertex.y));
+        hash = hashCombine(hash, hashFloat(vertex.z));
+      }
+      hash = hashCombine(hash, face.textureProjection.valid ? 1U : 0U);
+    }
+  }
+  return hash;
+}
 
+[[nodiscard]] SDL_GPUTexture* uploadRgbaTexture(
+  SDL_GPUDevice* device,
+  const std::uint8_t* pixels,
+  int width,
+  int height
+) {
+  if (width <= 0 || height <= 0) {
+    return nullptr;
+  }
   const SDL_GPUTextureCreateInfo textureInfo = {
     SDL_GPU_TEXTURETYPE_2D,
     SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
     SDL_GPU_TEXTUREUSAGE_SAMPLER,
-    static_cast<Uint32>(kAtlasSize),
-    static_cast<Uint32>(kAtlasSize),
+    static_cast<Uint32>(width),
+    static_cast<Uint32>(height),
     1,
     1,
     SDL_GPU_SAMPLECOUNT_1,
     0,
   };
-  atlas->texture = SDL_CreateGPUTexture(device, &textureInfo);
-  const SDL_GPUSamplerCreateInfo samplerInfo = {
-    SDL_GPU_FILTER_LINEAR,
-    SDL_GPU_FILTER_LINEAR,
-    SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
-    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
-    0.0F,
-    1.0F,
-    SDL_GPU_COMPAREOP_ALWAYS,
-    0.0F,
-    0.0F,
-    false,
-    false,
-    0,
-    0,
-    0,
-  };
-  atlas->sampler = SDL_CreateGPUSampler(device, &samplerInfo);
+  SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &textureInfo);
   const SDL_GPUTransferBufferCreateInfo transferInfo = {
     SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-    static_cast<Uint32>(atlasPixels.size()),
+    static_cast<Uint32>(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4U),
     0,
   };
   SDL_GPUTransferBuffer* transferBuffer =
     SDL_CreateGPUTransferBuffer(device, &transferInfo);
-  if (atlas->texture == nullptr || atlas->sampler == nullptr || transferBuffer == nullptr) {
+  if (texture == nullptr || transferBuffer == nullptr) {
     if (transferBuffer != nullptr) {
       SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
     }
-    if (atlas->sampler != nullptr) {
-      SDL_ReleaseGPUSampler(device, atlas->sampler);
+    if (texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, texture);
     }
-    if (atlas->texture != nullptr) {
-      SDL_ReleaseGPUTexture(device, atlas->texture);
-    }
-    delete atlas;
     return nullptr;
   }
   void* mapped = SDL_MapGPUTransferBuffer(device, transferBuffer, false);
   if (mapped == nullptr) {
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-    SDL_ReleaseGPUSampler(device, atlas->sampler);
-    SDL_ReleaseGPUTexture(device, atlas->texture);
-    delete atlas;
+    SDL_ReleaseGPUTexture(device, texture);
     return nullptr;
   }
-  std::memcpy(mapped, atlasPixels.data(), atlasPixels.size());
+  const std::size_t byteCount =
+    static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4U;
+  std::memcpy(mapped, pixels, byteCount);
   SDL_UnmapGPUTransferBuffer(device, transferBuffer);
 
   SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
@@ -372,37 +397,89 @@ void copySurfaceToAtlas(
       (void)SDL_CancelGPUCommandBuffer(commandBuffer);
     }
     SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-    SDL_ReleaseGPUSampler(device, atlas->sampler);
-    SDL_ReleaseGPUTexture(device, atlas->texture);
-    delete atlas;
+    SDL_ReleaseGPUTexture(device, texture);
     return nullptr;
   }
   const SDL_GPUTextureTransferInfo source = {
     transferBuffer,
     0,
-    static_cast<Uint32>(kAtlasSize),
-    static_cast<Uint32>(kAtlasSize),
+    static_cast<Uint32>(width),
+    static_cast<Uint32>(height),
   };
   const SDL_GPUTextureRegion destination = {
-    atlas->texture,
+    texture,
     0,
     0,
     0,
     0,
     0,
-    static_cast<Uint32>(kAtlasSize),
-    static_cast<Uint32>(kAtlasSize),
+    static_cast<Uint32>(width),
+    static_cast<Uint32>(height),
     1,
   };
   SDL_UploadToGPUTexture(copyPass, &source, &destination, false);
   SDL_EndGPUCopyPass(copyPass);
-  if (!SDL_SubmitGPUCommandBuffer(commandBuffer)) {
-    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-    destroyTextureAtlas(device, atlas);
+  const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+  SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+  if (!submitted) {
+    SDL_ReleaseGPUTexture(device, texture);
     return nullptr;
   }
-  SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
-  return atlas;
+  return texture;
+}
+
+[[nodiscard]] WorldTexture createFallbackWorldTexture(
+  SDL_GPUDevice* device,
+  bool missingMaterial
+) {
+  constexpr int kSize = 64;
+  std::array<std::uint8_t, kSize * kSize * 4> pixels = {};
+  for (int y = 0; y < kSize; ++y) {
+    for (int x = 0; x < kSize; ++x) {
+      const bool bright = ((x / 8) + (y / 8)) % 2 == 0;
+      const std::size_t offset = (static_cast<std::size_t>(y) * kSize + x) * 4U;
+      pixels[offset + 0U] = missingMaterial ? (bright ? 255U : 24U) : 255U;
+      pixels[offset + 1U] = missingMaterial ? (bright ? 0U : 24U) : 255U;
+      pixels[offset + 2U] = missingMaterial ? (bright ? 255U : 24U) : 255U;
+      pixels[offset + 3U] = 255U;
+    }
+  }
+  return {
+    uploadRgbaTexture(device, pixels.data(), kSize, kSize),
+    kSize,
+    kSize,
+    missingMaterial ? "__missing_world_texture" : "__white_world_texture",
+    true,
+  };
+}
+
+[[nodiscard]] WorldTexture loadWorldTexture(
+  SDL_GPUDevice* device,
+  const TextureMaterialFile& material
+) {
+  SDL_Surface* loaded = SDL_LoadPNG(material.path.string().c_str());
+  if (loaded == nullptr) {
+    return {};
+  }
+  SDL_Surface* converted = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
+  SDL_DestroySurface(loaded);
+  if (converted == nullptr) {
+    return {};
+  }
+  WorldTexture texture = {
+    uploadRgbaTexture(
+      device,
+      static_cast<const std::uint8_t*>(converted->pixels),
+      converted->w,
+      converted->h
+    ),
+    converted->w,
+    converted->h,
+    material.aliases[0],
+    false,
+  };
+  SDL_DestroySurface(converted);
+  return texture;
 }
 
 [[nodiscard]] SDL_GPUShader* loadGpuShader(
@@ -774,19 +851,9 @@ buildFontAtlas() {
 
 [[nodiscard]] GpuVertex gpuVertex3D(
   const Vertex3D& vertex,
-  const TextureAtlas* atlas
+  float u,
+  float v
 ) {
-  float u = kSolidTextureU;
-  float v = kSolidTextureV;
-  if (atlas != nullptr && vertex.materialId != 0U) {
-    const auto entry = atlas->entries.find(vertex.materialId);
-    if (entry != atlas->entries.end()) {
-      const float tileU = vertex.u - std::floor(vertex.u);
-      const float tileV = vertex.v - std::floor(vertex.v);
-      u = entry->second.u0 + tileU * (entry->second.u1 - entry->second.u0);
-      v = entry->second.v0 + tileV * (entry->second.v1 - entry->second.v0);
-    }
-  }
   return {
     vertex.position.x,
     vertex.position.y,
@@ -800,14 +867,465 @@ buildFontAtlas() {
   };
 }
 
+[[nodiscard]] float wrappedTileCoordinate(float value) {
+  return value - std::floor(value);
+}
+
+struct MaterialVertex3D {
+  Vertex3D vertex = {};
+  float u = 0.0F;
+  float v = 0.0F;
+};
+
+[[nodiscard]] std::uint8_t interpolateChannel(
+  std::uint8_t first,
+  std::uint8_t second,
+  float amount
+) {
+  return static_cast<std::uint8_t>(std::clamp(
+    static_cast<float>(first) +
+      (static_cast<float>(second) - static_cast<float>(first)) * amount,
+    0.0F,
+    255.0F
+  ));
+}
+
+[[nodiscard]] MaterialVertex3D interpolateMaterialVertex(
+  const MaterialVertex3D& first,
+  const MaterialVertex3D& second,
+  float amount
+) {
+  MaterialVertex3D result;
+  result.vertex.position = first.vertex.position +
+    (second.vertex.position - first.vertex.position) * amount;
+  result.vertex.color = {
+    interpolateChannel(first.vertex.color.red, second.vertex.color.red, amount),
+    interpolateChannel(first.vertex.color.green, second.vertex.color.green, amount),
+    interpolateChannel(first.vertex.color.blue, second.vertex.color.blue, amount),
+    interpolateChannel(first.vertex.color.alpha, second.vertex.color.alpha, amount),
+  };
+  result.vertex.materialId = first.vertex.materialId;
+  result.u = first.u + (second.u - first.u) * amount;
+  result.v = first.v + (second.v - first.v) * amount;
+  return result;
+}
+
+void appendWrappedMaterialTriangle3D(
+  std::vector<GpuVertex>& vertices,
+  const TextureAtlasEntry& entry,
+  const MaterialVertex3D& first,
+  const MaterialVertex3D& second,
+  const MaterialVertex3D& third,
+  int depth
+) {
+  constexpr int kMaxTextureSplitDepth = 24;
+  const std::array<float, 3> materialU = {{first.u, second.u, third.u}};
+  const std::array<float, 3> materialV = {{first.v, second.v, third.v}};
+  const auto uBounds = std::minmax_element(materialU.begin(), materialU.end());
+  const auto vBounds = std::minmax_element(materialV.begin(), materialV.end());
+  const float uRange = *uBounds.second - *uBounds.first;
+  const float vRange = *vBounds.second - *vBounds.first;
+
+  if ((uRange > 1.0001F || vRange > 1.0001F) && depth < kMaxTextureSplitDepth) {
+    const bool splitU = uRange >= vRange;
+    const std::array<MaterialVertex3D, 3> points = {{first, second, third}};
+    for (std::size_t index = 0; index < points.size(); ++index) {
+      const std::size_t next = (index + 1U) % points.size();
+      const float start = splitU ? points[index].u : points[index].v;
+      const float end = splitU ? points[next].u : points[next].v;
+      if (std::fabs(end - start) <= 0.0001F) {
+        continue;
+      }
+      const float low = std::min(start, end);
+      const float high = std::max(start, end);
+      const float boundary = std::ceil(low);
+      if (boundary <= low + 0.0001F || boundary >= high - 0.0001F) {
+        continue;
+      }
+      const float amount = (boundary - start) / (end - start);
+      const MaterialVertex3D split =
+        interpolateMaterialVertex(points[index], points[next], amount);
+      const MaterialVertex3D& opposite = points[(index + 2U) % points.size()];
+      appendWrappedMaterialTriangle3D(
+        vertices,
+        entry,
+        points[index],
+        split,
+        opposite,
+        depth + 1
+      );
+      appendWrappedMaterialTriangle3D(
+        vertices,
+        entry,
+        split,
+        points[next],
+        opposite,
+        depth + 1
+      );
+      return;
+    }
+  }
+
+  const float uBase = std::floor(*uBounds.first);
+  const float vBase = std::floor(*vBounds.first);
+  const bool singleURepeat = uRange <= 1.0001F;
+  const bool singleVRepeat = vRange <= 1.0001F;
+  const auto tileCoordinate = [](float value, float base, bool singleRepeat) {
+    return singleRepeat
+      ? std::clamp(value - base, 0.0F, 1.0F)
+      : wrappedTileCoordinate(value);
+  };
+  const auto atlasU = [&](float value) {
+    const float tileU = tileCoordinate(value, uBase, singleURepeat);
+    return entry.u0 + tileU * (entry.u1 - entry.u0);
+  };
+  const auto atlasV = [&](float value) {
+    const float tileV = tileCoordinate(value, vBase, singleVRepeat);
+    return entry.v0 + tileV * (entry.v1 - entry.v0);
+  };
+  vertices.push_back(gpuVertex3D(first.vertex, atlasU(first.u), atlasV(first.v)));
+  vertices.push_back(gpuVertex3D(second.vertex, atlasU(second.u), atlasV(second.v)));
+  vertices.push_back(gpuVertex3D(third.vertex, atlasU(third.u), atlasV(third.v)));
+}
+
+void logGpuTriangle3D(
+  std::uint32_t requestedMaterialId,
+  std::uint32_t effectiveMaterialId,
+  const TextureAtlasEntry& entry,
+  const MaterialVertex3D& first,
+  const MaterialVertex3D& second,
+  const MaterialVertex3D& third,
+  std::size_t beforeVertexCount,
+  std::size_t afterVertexCount
+) {
+  static int loggedTriangles = 0;
+  if (!textureDebugEnabled() || loggedTriangles >= 10) {
+    return;
+  }
+  ++loggedTriangles;
+  const std::array<float, 3> u = {{first.u, second.u, third.u}};
+  const std::array<float, 3> v = {{first.v, second.v, third.v}};
+  const auto uBounds = std::minmax_element(u.begin(), u.end());
+  const auto vBounds = std::minmax_element(v.begin(), v.end());
+  std::cerr
+    << "LG_DUEL_TEXTURE_PIPELINE_V2 renderer tri#" << loggedTriangles
+    << " requestedMaterialId=" << requestedMaterialId
+    << " effectiveMaterialId=" << effectiveMaterialId
+    << " material=" << entry.material
+    << " source=" << entry.sourceWidth << 'x' << entry.sourceHeight
+    << " preAtlasUvRange=(" << *uBounds.first << ".." << *uBounds.second
+    << ", " << *vBounds.first << ".." << *vBounds.second << ")"
+    << " atlasRect=" << entry.u0 << ',' << entry.v0
+    << " -> " << entry.u1 << ',' << entry.v1
+    << " verticesBefore=" << beforeVertexCount
+    << " verticesAfter=" << afterVertexCount
+    << " outputTriangles=" << ((afterVertexCount - beforeVertexCount) / 3U)
+    << '\n';
+}
+
+void appendGpuTriangle3D(
+  std::vector<GpuVertex>& vertices,
+  const Vertex3D& first,
+  const Vertex3D& second,
+  const Vertex3D& third,
+  const TextureAtlas* atlas
+) {
+  float u0 = kSolidTextureU;
+  float v0 = kSolidTextureV;
+  float u1 = kSolidTextureU;
+  float v1 = kSolidTextureV;
+  const std::uint32_t forcedMaterialId = forcedTextureMaterialId();
+  const std::uint32_t effectiveMaterialId =
+    forcedMaterialId != 0U ? forcedMaterialId : first.materialId;
+  if (atlas != nullptr && effectiveMaterialId != 0U) {
+    const auto entry = atlas->entries.find(effectiveMaterialId);
+    if (entry != atlas->entries.end()) {
+      const std::size_t beforeVertexCount = vertices.size();
+      const MaterialVertex3D materialFirst = {
+        first,
+        first.u * entry->second.uScale,
+        first.v * entry->second.vScale
+      };
+      const MaterialVertex3D materialSecond = {
+        second,
+        second.u * entry->second.uScale,
+        second.v * entry->second.vScale
+      };
+      const MaterialVertex3D materialThird = {
+        third,
+        third.u * entry->second.uScale,
+        third.v * entry->second.vScale
+      };
+      appendWrappedMaterialTriangle3D(
+        vertices,
+        entry->second,
+        materialFirst,
+        materialSecond,
+        materialThird,
+        0
+      );
+      logGpuTriangle3D(
+        first.materialId,
+        effectiveMaterialId,
+        entry->second,
+        materialFirst,
+        materialSecond,
+        materialThird,
+        beforeVertexCount,
+        vertices.size()
+      );
+      return;
+    }
+    if (textureDebugEnabled()) {
+      static int loggedMisses = 0;
+      if (loggedMisses < 10) {
+        ++loggedMisses;
+        std::cerr
+          << "LG_DUEL_TEXTURE_PIPELINE_V2 atlas material miss requestedMaterialId="
+          << first.materialId
+          << " effectiveMaterialId=" << effectiveMaterialId << '\n';
+      }
+    }
+  }
+  vertices.push_back(gpuVertex3D(first, u0, v0));
+  vertices.push_back(gpuVertex3D(second, u1, v1));
+  vertices.push_back(gpuVertex3D(third, u1, v1));
+}
+
+void appendVertices3D(
+  std::vector<GpuVertex>& vertices,
+  const std::vector<Vertex3D>& source,
+  const TextureAtlas* atlas
+) {
+  for (std::size_t index = 0; index + 2 < source.size(); index += 3) {
+    appendGpuTriangle3D(
+      vertices,
+      source[index],
+      source[index + 1U],
+      source[index + 2U],
+      atlas
+    );
+  }
+}
+
 void appendScene3D(
   std::vector<GpuVertex>& vertices,
   const Scene3D& scene,
   const TextureAtlas* atlas
 ) {
-  for (const Vertex3D& vertex : scene.vertices) {
-    vertices.push_back(gpuVertex3D(vertex, atlas));
+  appendVertices3D(vertices, scene.vertices, atlas);
+}
+
+[[nodiscard]] std::vector<std::uint32_t> referencedWorldMaterials(
+  const std::vector<Vertex3D>& vertices
+) {
+  std::vector<std::uint32_t> materials;
+  materials.reserve(vertices.size() / 3U);
+  for (const Vertex3D& vertex : vertices) {
+    if (vertex.materialId != 0U) {
+      materials.push_back(vertex.materialId);
+    }
   }
+  std::sort(materials.begin(), materials.end());
+  materials.erase(std::unique(materials.begin(), materials.end()), materials.end());
+  return materials;
+}
+
+[[nodiscard]] StaticWorldMesh* buildStaticWorldMesh(
+  SDL_GPUDevice* device,
+  const Arena& arena
+) {
+  const auto buildStart = RenderClock::now();
+  Scene3D worldScene = buildStaticWorldScene(arena);
+  auto mesh = new StaticWorldMesh();
+  mesh->arenaFingerprint = arenaStaticWorldFingerprint(arena);
+  mesh->sourceTriangles = static_cast<std::uint32_t>(worldScene.vertices.size() / 3U);
+  mesh->vertexCount = static_cast<std::uint32_t>(worldScene.vertices.size());
+
+  const std::vector<std::uint32_t> referenced =
+    referencedWorldMaterials(worldScene.vertices);
+  mesh->referencedMaterials = static_cast<std::uint32_t>(referenced.size());
+  mesh->textures.reserve(referenced.size() + 2U);
+  mesh->textures.push_back(createFallbackWorldTexture(device, false));
+  mesh->textures.push_back(createFallbackWorldTexture(device, true));
+  WorldTexture* whiteTexture = &mesh->textures[0];
+  WorldTexture* missingTexture = &mesh->textures[1];
+
+  std::unordered_map<std::uint32_t, WorldTexture*> textureByMaterial;
+  textureByMaterial.reserve(referenced.size() + 1U);
+  const bool debugChecker = textureDebugCheckerEnabled();
+  const std::filesystem::path root = basePath();
+  std::vector<TextureMaterialFile> materialFiles;
+  collectTextureMaterialFiles(root / "textures", materialFiles);
+  for (std::uint32_t materialId : referenced) {
+    const auto file = std::find_if(
+      materialFiles.begin(),
+      materialFiles.end(),
+      [materialId](const TextureMaterialFile& candidate) {
+        return arenaMaterialId(candidate.aliases[0]) == materialId ||
+          arenaMaterialId(candidate.aliases[1]) == materialId;
+      }
+    );
+    if (file == materialFiles.end() || debugChecker) {
+      ++mesh->missingTextures;
+      textureByMaterial[materialId] = missingTexture;
+      continue;
+    }
+    WorldTexture texture = loadWorldTexture(device, *file);
+    if (texture.texture == nullptr) {
+      ++mesh->missingTextures;
+      textureByMaterial[materialId] = missingTexture;
+      continue;
+    }
+    mesh->textures.push_back(std::move(texture));
+    WorldTexture* stored = &mesh->textures.back();
+    textureByMaterial[materialId] = stored;
+    ++mesh->loadedTextures;
+    if (textureDebugEnabled()) {
+      std::cerr
+        << "LG_DUEL_TEXTURE_PIPELINE_V2 world texture material="
+        << stored->material
+        << " source=" << stored->width << 'x' << stored->height << '\n';
+    }
+  }
+
+  std::vector<GpuVertex> gpuVertices;
+  gpuVertices.reserve(worldScene.vertices.size());
+  mesh->batches.reserve(referenced.size() + 1U);
+  const auto appendBatch = [&](std::uint32_t materialId, WorldTexture* texture) {
+    const Uint32 firstVertex = static_cast<Uint32>(gpuVertices.size());
+    const float width = static_cast<float>(std::max(1, texture->width));
+    const float height = static_cast<float>(std::max(1, texture->height));
+    for (std::size_t index = 0; index + 2U < worldScene.vertices.size(); index += 3U) {
+      if (worldScene.vertices[index].materialId != materialId) {
+        continue;
+      }
+      for (std::size_t offset = 0; offset < 3U; ++offset) {
+        const Vertex3D& source = worldScene.vertices[index + offset];
+        gpuVertices.push_back(gpuVertex3D(source, source.u / width, source.v / height));
+      }
+    }
+    const Uint32 vertexCount = static_cast<Uint32>(gpuVertices.size()) - firstVertex;
+    if (vertexCount > 0) {
+      mesh->batches.push_back({materialId, firstVertex, vertexCount, texture});
+    }
+  };
+
+  appendBatch(0U, whiteTexture);
+  for (std::uint32_t materialId : referenced) {
+    WorldTexture* texture = missingTexture;
+    if (const auto found = textureByMaterial.find(materialId); found != textureByMaterial.end()) {
+      texture = found->second;
+    }
+    appendBatch(materialId, texture);
+  }
+
+  const SDL_GPUSamplerCreateInfo samplerInfo = {
+    SDL_GPU_FILTER_NEAREST,
+    SDL_GPU_FILTER_NEAREST,
+    SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    0.0F,
+    1.0F,
+    SDL_GPU_COMPAREOP_ALWAYS,
+    0.0F,
+    0.0F,
+    false,
+    false,
+    0,
+    0,
+    0,
+  };
+  mesh->sampler = SDL_CreateGPUSampler(device, &samplerInfo);
+  const Uint32 uploadSize =
+    static_cast<Uint32>(gpuVertices.size() * sizeof(GpuVertex));
+  const SDL_GPUBufferCreateInfo vertexBufferInfo = {
+    SDL_GPU_BUFFERUSAGE_VERTEX,
+    std::max<Uint32>(uploadSize, 1U),
+    0,
+  };
+  mesh->vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferInfo);
+  if (mesh->sampler == nullptr || mesh->vertexBuffer == nullptr) {
+    destroyStaticWorldMesh(device, mesh);
+    return nullptr;
+  }
+  if (!gpuVertices.empty()) {
+    const SDL_GPUTransferBufferCreateInfo transferInfo = {
+      SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+      uploadSize,
+      0,
+    };
+    SDL_GPUTransferBuffer* transferBuffer =
+      SDL_CreateGPUTransferBuffer(device, &transferInfo);
+    void* mapped = transferBuffer != nullptr
+      ? SDL_MapGPUTransferBuffer(device, transferBuffer, false)
+      : nullptr;
+    if (mapped == nullptr) {
+      if (transferBuffer != nullptr) {
+        SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+      }
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
+    std::memcpy(mapped, gpuVertices.data(), uploadSize);
+    SDL_UnmapGPUTransferBuffer(device, transferBuffer);
+    SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
+    SDL_GPUCopyPass* copyPass = commandBuffer != nullptr
+      ? SDL_BeginGPUCopyPass(commandBuffer)
+      : nullptr;
+    if (copyPass == nullptr) {
+      if (commandBuffer != nullptr) {
+        (void)SDL_CancelGPUCommandBuffer(commandBuffer);
+      }
+      SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
+    const SDL_GPUTransferBufferLocation source = {transferBuffer, 0};
+    const SDL_GPUBufferRegion destination = {mesh->vertexBuffer, 0, uploadSize};
+    SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+    SDL_EndGPUCopyPass(copyPass);
+    const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+    SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
+    if (!submitted) {
+      destroyStaticWorldMesh(device, mesh);
+      return nullptr;
+    }
+  }
+
+  mesh->buildCount = 1U;
+  mesh->buildMilliseconds = millisecondsBetween(buildStart, RenderClock::now());
+  if (textureDebugEnabled()) {
+    std::cerr
+      << "LG_DUEL_TEXTURE_PIPELINE_V2 static world summary"
+      << " walls=" << arena.wallCount
+      << " brushes=" << arena.brushCount
+      << " sourceTriangles=" << mesh->sourceTriangles
+      << " staticVertices=" << mesh->vertexCount
+      << " staticBatches=" << mesh->batches.size()
+      << " referencedMaterials=" << mesh->referencedMaterials
+      << " loadedTextures=" << mesh->loadedTextures
+      << " missingTextures=" << mesh->missingTextures
+      << " buildMs=" << mesh->buildMilliseconds
+      << '\n';
+  }
+  return mesh;
+}
+
+[[nodiscard]] StaticWorldMesh* ensureStaticWorldMesh(
+  SDL_GPUDevice* device,
+  StaticWorldMesh*& mesh,
+  const Arena& arena
+) {
+  const std::uint64_t fingerprint = arenaStaticWorldFingerprint(arena);
+  if (mesh != nullptr && mesh->arenaFingerprint == fingerprint) {
+    return mesh;
+  }
+  destroyStaticWorldMesh(device, mesh);
+  mesh = buildStaticWorldMesh(device, arena);
+  return mesh;
 }
 
 [[nodiscard]] SDL_GPUTexture* ensureDepthTexture(
@@ -1068,6 +1586,7 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUTexture* fontTexture,
   SDL_GPUSampler* fontSampler,
   TextureAtlas* worldAtlas,
+  StaticWorldMesh*& staticWorld,
   SDL_GPUTexture*& depthTexture,
   Uint32& depthWidth,
   Uint32& depthHeight,
@@ -1087,7 +1606,16 @@ const PlayerState& firstVisibleRemote(
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
   diagnostics.renderBuildUploadMilliseconds = 0.0F;
+  diagnostics.sceneBuildMilliseconds = 0.0F;
+  diagnostics.gpuVertexUploadMilliseconds = 0.0F;
+  diagnostics.worldDrawIssueMilliseconds = 0.0F;
   diagnostics.submitMilliseconds = 0.0F;
+  diagnostics.worldSourceTriangles = 0;
+  diagnostics.worldRenderedTriangles = 0;
+  diagnostics.worldVertexCount = 0;
+  diagnostics.worldDrawCalls = 0;
+  diagnostics.worldLoadedTextures = 0;
+  diagnostics.worldReferencedMaterials = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -1118,6 +1646,7 @@ const PlayerState& firstVisibleRemote(
     DrawList2D topDownScene;
     Scene3D perspectiveScene;
     vertices.clear();
+    const auto sceneBuildStart = RenderClock::now();
     if (settings.renderMode == 1) {
       perspectiveScene = buildPerspectiveScene(
         static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
@@ -1152,14 +1681,17 @@ const PlayerState& firstVisibleRemote(
         static_cast<float>(outputHeight)
       );
     }
-    const Uint32 opaqueWorldVertexCount =
+    diagnostics.sceneBuildMilliseconds =
+      millisecondsBetween(sceneBuildStart, RenderClock::now());
+    const Uint32 opaqueDynamicVertexCount =
       static_cast<Uint32>(vertices.size());
     if (settings.renderMode == 1) {
-      for (const Vertex3D& vertex : perspectiveScene.translucentVertices) {
-        vertices.push_back(gpuVertex3D(vertex, worldAtlas));
-      }
+      appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
     }
-    const Uint32 worldVertexCount = static_cast<Uint32>(vertices.size());
+    const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
+    const Uint32 worldVertexCount = settings.renderMode == 0
+      ? static_cast<Uint32>(vertices.size())
+      : dynamic3DVertexCount;
     if (settings.renderMode == 0) {
       appendCommands(
         vertices,
@@ -1233,6 +1765,7 @@ const PlayerState& firstVisibleRemote(
     }
 
     if (!vertices.empty()) {
+      const auto uploadStart = RenderClock::now();
       void* mapped =
         SDL_MapGPUTransferBuffer(device, transferBuffer, true);
       if (mapped == nullptr) {
@@ -1262,6 +1795,8 @@ const PlayerState& firstVisibleRemote(
         true
       );
       SDL_EndGPUCopyPass(copyPass);
+      diagnostics.gpuVertexUploadMilliseconds =
+        millisecondsBetween(uploadStart, RenderClock::now());
     }
 
     SDL_GPUColorTargetInfo colorTarget = {};
@@ -1301,7 +1836,21 @@ const PlayerState& firstVisibleRemote(
         (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
         return false;
       }
-      if (worldVertexCount > 0) {
+      StaticWorldMesh* worldMesh = ensureStaticWorldMesh(device, staticWorld, arena);
+      const bool hasStaticWorld = worldMesh != nullptr &&
+        worldMesh->vertexBuffer != nullptr &&
+        worldMesh->sampler != nullptr &&
+        !worldMesh->batches.empty();
+      if (hasStaticWorld || dynamic3DVertexCount > 0) {
+        const auto worldDrawStart = RenderClock::now();
+        if (hasStaticWorld) {
+          diagnostics.worldSourceTriangles = worldMesh->sourceTriangles;
+          diagnostics.worldRenderedTriangles = worldMesh->sourceTriangles;
+          diagnostics.worldVertexCount = worldMesh->vertexCount;
+          diagnostics.worldDrawCalls = static_cast<std::uint32_t>(worldMesh->batches.size());
+          diagnostics.worldLoadedTextures = worldMesh->loadedTextures;
+          diagnostics.worldReferencedMaterials = worldMesh->referencedMaterials;
+        }
         struct alignas(16) CameraUniform {
           float position[4];
           float right[4];
@@ -1339,6 +1888,28 @@ const PlayerState& firstVisibleRemote(
           sizeof(uniform)
         );
         SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
+        if (hasStaticWorld) {
+          const SDL_GPUBufferBinding staticBinding = {worldMesh->vertexBuffer, 0};
+          SDL_BindGPUVertexBuffers(worldPass, 0, &staticBinding, 1);
+          for (const StaticWorldBatch& batch : worldMesh->batches) {
+            if (batch.vertexCount == 0 || batch.texture == nullptr ||
+                batch.texture->texture == nullptr) {
+              continue;
+            }
+            const SDL_GPUTextureSamplerBinding textureBinding = {
+              batch.texture->texture,
+              worldMesh->sampler,
+            };
+            SDL_BindGPUFragmentSamplers(worldPass, 0, &textureBinding, 1);
+            SDL_DrawGPUPrimitives(
+              worldPass,
+              batch.vertexCount,
+              1,
+              batch.firstVertex,
+              0
+            );
+          }
+        }
         const SDL_GPUBufferBinding binding = {vertexBuffer, 0};
         SDL_BindGPUVertexBuffers(worldPass, 0, &binding, 1);
         if (worldAtlas != nullptr) {
@@ -1347,18 +1918,28 @@ const PlayerState& firstVisibleRemote(
             worldAtlas->sampler,
           };
           SDL_BindGPUFragmentSamplers(worldPass, 0, &worldBinding, 1);
+        } else if (
+          hasStaticWorld &&
+          !worldMesh->textures.empty() &&
+          worldMesh->textures.front().texture != nullptr
+        ) {
+          const SDL_GPUTextureSamplerBinding whiteBinding = {
+            worldMesh->textures.front().texture,
+            worldMesh->sampler,
+          };
+          SDL_BindGPUFragmentSamplers(worldPass, 0, &whiteBinding, 1);
         }
-        if (opaqueWorldVertexCount > 0) {
+        if (opaqueDynamicVertexCount > 0) {
           SDL_DrawGPUPrimitives(
             worldPass,
-            opaqueWorldVertexCount,
+            opaqueDynamicVertexCount,
             1,
             0,
             0
           );
         }
         const Uint32 translucentVertexCount =
-          worldVertexCount - opaqueWorldVertexCount;
+          dynamic3DVertexCount - opaqueDynamicVertexCount;
         if (translucentVertexCount > 0) {
           SDL_BindGPUGraphicsPipeline(
             worldPass,
@@ -1370,14 +1951,43 @@ const PlayerState& firstVisibleRemote(
               worldAtlas->sampler,
             };
             SDL_BindGPUFragmentSamplers(worldPass, 0, &worldBinding, 1);
+          } else if (
+            hasStaticWorld &&
+            !worldMesh->textures.empty() &&
+            worldMesh->textures.front().texture != nullptr
+          ) {
+            const SDL_GPUTextureSamplerBinding whiteBinding = {
+              worldMesh->textures.front().texture,
+              worldMesh->sampler,
+            };
+            SDL_BindGPUFragmentSamplers(worldPass, 0, &whiteBinding, 1);
           }
           SDL_DrawGPUPrimitives(
             worldPass,
             translucentVertexCount,
             1,
-            opaqueWorldVertexCount,
+            opaqueDynamicVertexCount,
             0
           );
+        }
+        diagnostics.worldDrawIssueMilliseconds =
+          millisecondsBetween(worldDrawStart, RenderClock::now());
+        if (textureDebugEnabled()) {
+          static std::uint32_t loggedFrames = 0;
+          if ((loggedFrames++ % 120U) == 0U) {
+            std::cerr
+              << "LG_DUEL_TEXTURE_PIPELINE_V2 world frame counters"
+              << " sourceTriangles=" << diagnostics.worldSourceTriangles
+              << " renderedTriangles=" << diagnostics.worldRenderedTriangles
+              << " staticVertices=" << diagnostics.worldVertexCount
+              << " drawCalls=" << diagnostics.worldDrawCalls
+              << " loadedTextures=" << diagnostics.worldLoadedTextures
+              << " referencedMaterials=" << diagnostics.worldReferencedMaterials
+              << " sceneBuildMs=" << diagnostics.sceneBuildMilliseconds
+              << " dynamicUploadMs=" << diagnostics.gpuVertexUploadMilliseconds
+              << " worldDrawIssueMs=" << diagnostics.worldDrawIssueMilliseconds
+              << '\n';
+          }
         }
       }
       SDL_EndGPURenderPass(worldPass);
@@ -2271,7 +2881,6 @@ bool Renderer::initialize(void* window) {
         };
         SDL_GPUSampler* fontSampler =
           SDL_CreateGPUSampler(device, &samplerInfo);
-        TextureAtlas* worldAtlas = createTextureAtlas(device);
         if (
           pipeline != nullptr &&
           pipeline3D != nullptr &&
@@ -2280,7 +2889,6 @@ bool Renderer::initialize(void* window) {
           transferBuffer != nullptr &&
           fontTexture != nullptr &&
           fontSampler != nullptr &&
-          worldAtlas != nullptr &&
           SDL_SetGPUAllowedFramesInFlight(device, 1)
         ) {
           gpuDevice_ = device;
@@ -2291,7 +2899,7 @@ bool Renderer::initialize(void* window) {
           gpuTransferBuffer_ = transferBuffer;
           gpuFontTexture_ = fontTexture;
           gpuFontSampler_ = fontSampler;
-          gpuWorldTextureAtlas_ = worldAtlas;
+          gpuWorldTextureAtlas_ = nullptr;
           auto* vertexScratch = new std::vector<GpuVertex>();
           vertexScratch->reserve(kMaxGpuVertices);
           gpuVertexScratch_ = vertexScratch;
@@ -2311,7 +2919,6 @@ bool Renderer::initialize(void* window) {
         if (fontSampler != nullptr) {
           SDL_ReleaseGPUSampler(device, fontSampler);
         }
-        destroyTextureAtlas(device, worldAtlas);
         if (fontTexture != nullptr) {
           SDL_ReleaseGPUTexture(device, fontTexture);
         }
@@ -2377,6 +2984,7 @@ void Renderer::render(
   const auto renderStart = RenderClock::now();
   if (gpuBackend_) {
     auto* depthTexture = static_cast<SDL_GPUTexture*>(gpuDepthTexture_);
+    auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
@@ -2389,6 +2997,7 @@ void Renderer::render(
           static_cast<SDL_GPUTexture*>(gpuFontTexture_),
           static_cast<SDL_GPUSampler*>(gpuFontSampler_),
           static_cast<TextureAtlas*>(gpuWorldTextureAtlas_),
+          staticWorld,
           depthTexture,
           gpuDepthWidth_,
           gpuDepthHeight_,
@@ -2410,6 +3019,7 @@ void Renderer::render(
       std::cerr << "SDL_GPU frame submission failed: " << SDL_GetError() << '\n';
       gpuErrorReported_ = true;
     }
+    gpuStaticWorld_ = staticWorld;
     gpuDepthTexture_ = depthTexture;
     lastFrameDiagnostics_.totalRenderMilliseconds =
       millisecondsBetween(renderStart, RenderClock::now());
@@ -2418,7 +3028,16 @@ void Renderer::render(
 
   lastFrameDiagnostics_.swapchainAcquireMilliseconds = 0.0F;
   lastFrameDiagnostics_.renderBuildUploadMilliseconds = 0.0F;
+  lastFrameDiagnostics_.sceneBuildMilliseconds = 0.0F;
+  lastFrameDiagnostics_.gpuVertexUploadMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldDrawIssueMilliseconds = 0.0F;
   lastFrameDiagnostics_.submitMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldSourceTriangles = 0;
+  lastFrameDiagnostics_.worldRenderedTriangles = 0;
+  lastFrameDiagnostics_.worldVertexCount = 0;
+  lastFrameDiagnostics_.worldDrawCalls = 0;
+  lastFrameDiagnostics_.worldLoadedTextures = 0;
+  lastFrameDiagnostics_.worldReferencedMaterials = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
@@ -2598,6 +3217,11 @@ void Renderer::shutdown() {
       gpuDepthWidth_ = 0;
       gpuDepthHeight_ = 0;
     }
+    destroyStaticWorldMesh(
+      static_cast<SDL_GPUDevice*>(gpuDevice_),
+      static_cast<StaticWorldMesh*>(gpuStaticWorld_)
+    );
+    gpuStaticWorld_ = nullptr;
     if (gpuFontSampler_ != nullptr) {
       SDL_ReleaseGPUSampler(
         static_cast<SDL_GPUDevice*>(gpuDevice_),
