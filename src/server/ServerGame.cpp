@@ -219,6 +219,11 @@ void ServerGame::tick(float fixedDt) {
       --cooldown;
     }
   }
+  for (std::uint32_t& cooldown : plasmaGunCooldownTicks_) {
+    if (cooldown > 0) {
+      --cooldown;
+    }
+  }
 
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     PlayerState& player = snapshot_.players[playerIndex];
@@ -426,6 +431,7 @@ void ServerGame::tick(float fixedDt) {
       } else {
         WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
         fire.weapon = Weapon::Railgun;
+        fire.visualSeed = command.sequence;
         fire.start = attackStart;
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
@@ -448,6 +454,7 @@ void ServerGame::tick(float fixedDt) {
       } else {
         WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
         fire.weapon = Weapon::MachineGun;
+        fire.visualSeed = command.sequence;
         fire.start = attackStart;
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
@@ -470,6 +477,7 @@ void ServerGame::tick(float fixedDt) {
       } else {
         WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
         fire.weapon = Weapon::Shotgun;
+        fire.visualSeed = command.sequence;
         fire.pelletCount = shotgunTuning_.pelletCount;
         fire.start = attackStart;
         fire.end = worldTrace.end;
@@ -506,6 +514,22 @@ void ServerGame::tick(float fixedDt) {
       ) {
         grenadeCooldownTicks_[attackerIndex] =
           grenadeLauncherTuning_.cooldownTicks;
+      }
+    } else if (
+      command.weapon == Weapon::PlasmaGun &&
+      command.attack &&
+      plasmaGunCooldownTicks_[attackerIndex] == 0
+    ) {
+      if (
+        spawnProjectile(
+          attackerIndex,
+          combatPlayers[attackerIndex],
+          command,
+          Weapon::PlasmaGun
+        )
+      ) {
+        plasmaGunCooldownTicks_[attackerIndex] =
+          plasmaGunTuning_.cooldownTicks;
       }
     }
     LightningGunResult& result = snapshot_.lightningGuns[attackerIndex];
@@ -652,6 +676,7 @@ void ServerGame::resetMatch() {
   shotgunCooldownTicks_ = {};
   rocketCooldownTicks_ = {};
   grenadeCooldownTicks_ = {};
+  plasmaGunCooldownTicks_ = {};
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
@@ -710,6 +735,7 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   shotgunCooldownTicks_[playerIndex] = 0;
   rocketCooldownTicks_[playerIndex] = 0;
   grenadeCooldownTicks_[playerIndex] = 0;
+  plasmaGunCooldownTicks_[playerIndex] = 0;
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
   recentFragEvents_[playerIndex] = {};
@@ -1179,12 +1205,17 @@ bool ServerGame::spawnProjectile(
     }
 
     const bool grenade = weapon == Weapon::GrenadeLauncher;
+    const bool plasma = weapon == Weapon::PlasmaGun;
     const float eyeHeight = grenade
       ? grenadeLauncherTuning_.eyeHeight
-      : rocketLauncherTuning_.eyeHeight;
+      : plasma
+        ? plasmaGunTuning_.eyeHeight
+        : rocketLauncherTuning_.eyeHeight;
     const float speed = grenade
       ? grenadeLauncherTuning_.speed
-      : rocketLauncherTuning_.speed;
+      : plasma
+        ? plasmaGunTuning_.speed
+        : rocketLauncherTuning_.speed;
     const Vec3 direction =
       cameraForward(command.viewYawRadians, command.viewPitchRadians);
 
@@ -1235,6 +1266,7 @@ void ServerGame::simulateRockets(float fixedDt) {
     Vec3 explosionPosition = rocket.position;
     std::size_t directTarget = kDuelPlayerCount;
     const bool grenade = rocket.weapon == Weapon::GrenadeLauncher;
+    const bool plasma = rocket.weapon == Weapon::PlasmaGun;
 
     rocket.previousPosition = rocket.position;
     if (grenade && rocket.resting) {
@@ -1337,7 +1369,9 @@ void ServerGame::simulateRockets(float fixedDt) {
       ++rocket.ageTicks;
       const std::uint32_t maxLifetimeTicks = grenade
         ? grenadeLauncherTuning_.fuseTicks
-        : rocketLauncherTuning_.maxLifetimeTicks;
+        : plasma
+          ? plasmaGunTuning_.maxLifetimeTicks
+          : rocketLauncherTuning_.maxLifetimeTicks;
       if (!explode && rocket.ageTicks >= maxLifetimeTicks) {
         explode = true;
         explosionPosition = nextPosition;
@@ -1356,16 +1390,24 @@ void ServerGame::simulateRockets(float fixedDt) {
     explosion.position = explosionPosition;
     const float radius = grenade
       ? grenadeLauncherTuning_.radius
-      : rocketLauncherTuning_.radius;
+      : plasma
+        ? plasmaGunTuning_.radius
+        : rocketLauncherTuning_.radius;
     const int directDamage = grenade
       ? grenadeLauncherTuning_.directDamage
-      : rocketLauncherTuning_.directDamage;
+      : plasma
+        ? plasmaGunTuning_.damage
+        : rocketLauncherTuning_.directDamage;
     const int splashDamage = grenade
       ? grenadeLauncherTuning_.splashDamage
-      : rocketLauncherTuning_.splashDamage;
+      : plasma
+        ? plasmaGunTuning_.damage
+        : rocketLauncherTuning_.splashDamage;
     const float knockback = grenade
       ? grenadeLauncherTuning_.knockback
-      : rocketLauncherTuning_.knockback;
+      : plasma
+        ? plasmaGunTuning_.knockback
+        : rocketLauncherTuning_.knockback;
     explosion.radius = radius;
 
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -1425,7 +1467,7 @@ void ServerGame::simulateRockets(float fixedDt) {
 
 void ServerGame::updateFootstepAudioEvents() {
   constexpr float kMinimumStepSpeed = 1.15F;
-  constexpr float kLandingStepSpeed = 2.0F;
+  constexpr float kMinimumJumpAudioSpeed = 1.0F;
   constexpr float kBaseStrideDistance = 1.45F;
   constexpr float kMinimumStrideDistance = 0.95F;
 
@@ -1450,19 +1492,24 @@ void ServerGame::updateFootstepAudioEvents() {
     const bool movingOnGround =
       player.onGround && horizontalSpeed >= kMinimumStepSpeed;
 
-    auto emitStep = [&]() {
+    auto emitMovementSound = [&](bool jumping, bool landing) {
       FootstepAudioEvent& event = snapshot_.footstepAudioEvents[playerIndex];
       event.active = true;
+      event.jumping = jumping;
+      event.landing = landing;
       event.sequence = ++footstepSequences_[playerIndex];
       event.position = player.position;
     };
 
     if (
-      movingOnGround &&
-      !state.wasOnGround &&
-      horizontalSpeed >= kLandingStepSpeed
+      !player.onGround &&
+      state.wasOnGround &&
+      player.velocity.z >= kMinimumJumpAudioSpeed
     ) {
-      emitStep();
+      emitMovementSound(true, false);
+      state.distanceSinceStep = 0.0F;
+    } else if (player.onGround && !state.wasOnGround) {
+      emitMovementSound(false, true);
       state.distanceSinceStep = 0.0F;
     } else if (movingOnGround) {
       state.distanceSinceStep += horizontalDistance;
@@ -1471,7 +1518,7 @@ void ServerGame::updateFootstepAudioEvents() {
         kBaseStrideDistance - (horizontalSpeed * 0.045F)
       );
       if (state.distanceSinceStep >= strideDistance) {
-        emitStep();
+        emitMovementSound(false, false);
         state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
       }
     } else if (!player.onGround || horizontalSpeed < 0.25F) {
@@ -1750,6 +1797,7 @@ void ServerGame::receiveCommands() {
         weaponDamage_.rocketLauncherDamage;
       grenadeLauncherTuning_.splashDamage =
         weaponDamage_.rocketLauncherDamage;
+      plasmaGunTuning_.damage = weaponDamage_.plasmaGunDamage;
       snapshot_.weaponDamage = weaponDamage_;
       if (vampirism_ != packet.vampirism) {
         fractionalVampirismHealing_ = {};

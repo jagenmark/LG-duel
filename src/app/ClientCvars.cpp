@@ -51,6 +51,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_rl_damage", "Authoritative rocket launcher direct and max splash damage.", 100, CvarFlag::Client, 1.0F, 500.0F});
+  console.registerCvar({"g_pg_damage", "Authoritative plasma gun direct hit damage.", 20, CvarFlag::Client, 1.0F, 500.0F});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});

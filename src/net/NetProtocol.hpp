@@ -106,6 +106,8 @@ struct RoundCombatStats {
 
 struct FootstepAudioEvent {
   bool active = false;
+  bool jumping = false;
+  bool landing = false;
   std::uint32_t sequence = 0;
   Vec3 position = {};
 };
