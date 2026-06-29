@@ -282,6 +282,7 @@ int main() {
 
   {
     lg::ServerSnapshot source;
+    source.hasArena = true;
     source.serverTick = 1234;
     source.mapRevision = 77;
     source.arena.min = {-20.0F, -10.0F, 0.0F};
@@ -671,6 +672,7 @@ int main() {
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 
     lg::ServerSnapshot largeArenaSnapshot;
+    largeArenaSnapshot.hasArena = true;
     largeArenaSnapshot.serverTick = 55;
     largeArenaSnapshot.mapRevision = 3;
     largeArenaSnapshot.arena.min = {0.0F, 0.0F, 0.0F};

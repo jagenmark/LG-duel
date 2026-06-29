@@ -381,3 +381,8 @@ target_compile_features(lg_duel_scene_3d_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_scene_3d_tests)
 
 add_test(NAME lg_duel_scene_3d_tests COMMAND lg_duel_scene_3d_tests)
+
+get_property(lg_duel_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(target IN LISTS lg_duel_test_targets)
+  lg_duel_set_windows_stack(${target})
+endforeach()

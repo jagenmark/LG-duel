@@ -651,6 +651,7 @@ void ServerGame::resetMatch() {
   snapshot_.serverTick = serverTick;
   snapshot_.mapRevision = mapRevision_;
   snapshot_.arena = arena_;
+  snapshot_.hasArena = true;
   snapshot_.connectedPlayers = connectedPlayers;
   snapshot_.gameMode = gameMode;
   snapshot_.teams = teams;

@@ -3,6 +3,7 @@
 #include "shared/Constants.hpp"
 #include "shared/Sequence.hpp"
 
+#include <memory>
 #include <utility>
 
 namespace lg {
@@ -81,7 +82,8 @@ void ClientGame::sendCommand(
 }
 
 void ClientGame::receiveSnapshots() {
-  ServerSnapshot received;
+  auto receivedStorage = std::make_unique<ServerSnapshot>();
+  ServerSnapshot& received = *receivedStorage;
   while (transport_.receiveSnapshot(received)) {
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
       if (received.mapRevision != mapRevision_ && !received.hasArena) {
@@ -91,7 +93,8 @@ void ClientGame::receiveSnapshots() {
         arena_ = received.arena;
         mapRevision_ = received.mapRevision;
       }
-      received.arena = arena_;
+      received.hasArena = false;
+      received.arena = {};
       snapshot_ = received;
       if (
         hasPendingMovementTuning_ &&

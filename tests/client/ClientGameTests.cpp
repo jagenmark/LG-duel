@@ -177,6 +177,7 @@ int main() {
     lg::ServerSnapshot reloadedSnapshot = initialSnapshot;
     reloadedSnapshot.serverTick = 1;
     reloadedSnapshot.mapRevision = initialSnapshot.mapRevision + 1;
+    reloadedSnapshot.hasArena = true;
     reloadedSnapshot.arena = reloadedArena;
     reloadedSnapshot.players[0].position = {
       reloadedArena.max.x - reloadedSnapshot.players[0].bounds.radius,
