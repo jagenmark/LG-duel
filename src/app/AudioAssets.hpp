@@ -24,6 +24,8 @@ enum class AudioCue {
   GrenadeBounce,
   PlasmaGunFire,
   Footstep,
+  Jump,
+  Land,
   RoundWin,
   RoundLoss,
   CountdownFive,
@@ -44,11 +46,20 @@ struct AudioClip {
   const std::filesystem::path& basePath,
   AudioCue cue
 );
+[[nodiscard]] std::vector<std::filesystem::path> footstepCuePaths(
+  const std::filesystem::path& basePath
+);
 [[nodiscard]] std::optional<AudioClip> loadAudioCue(
   const std::filesystem::path& basePath,
   AudioCue cue
 );
+[[nodiscard]] std::optional<AudioClip> loadAudioFile(
+  const std::filesystem::path& path
+);
 [[nodiscard]] std::optional<AudioClip> loadWavFile(
+  const std::filesystem::path& path
+);
+[[nodiscard]] std::optional<AudioClip> loadOggFile(
   const std::filesystem::path& path
 );
 

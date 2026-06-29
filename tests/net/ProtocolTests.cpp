@@ -102,6 +102,7 @@ int main() {
     source.weaponDamage.lightningGunDamage = 111;
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 125;
+    source.weaponDamage.plasmaGunDamage = 20;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -171,6 +172,7 @@ int main() {
         decoded.weaponDamage.lightningGunDamage == 111 &&
         decoded.weaponDamage.railgunDamage == 50 &&
         decoded.weaponDamage.rocketLauncherDamage == 125 &&
+        decoded.weaponDamage.plasmaGunDamage == 20 &&
         nearlyEqual(decoded.vampirism, 0.1F) &&
         decoded.selfDamagePercent == 37 &&
         decoded.healthAmount == 175 &&
@@ -362,11 +364,13 @@ int main() {
     source.weaponFires[1].knockbackImpulse = {1.0F, 0.0F, 0.0F};
     source.weaponFires[1].pelletCount = lg::kShotgunPelletCount;
     source.weaponFires[1].pelletHitCount = 9;
+    source.weaponFires[1].visualSeed = 12;
     source.weaponFires[2].fired = true;
     source.weaponFires[2].hit = true;
     source.weaponFires[2].weapon = lg::Weapon::MachineGun;
     source.weaponFires[2].damageApplied = 5;
     source.weaponFires[2].start = {2.0F, 1.5F, 2.0F};
+    source.weaponFires[2].visualSeed = 77;
     source.weaponFires[2].end = {8.0F, 1.5F, 2.0F};
     source.weaponFires[2].knockbackImpulse = {0.11F, 0.0F, 0.0F};
     source.rocketExplosions[0].active = true;
@@ -388,6 +392,8 @@ int main() {
     source.localHitFeedbackEvents[0][1].damageApplied = 80;
     source.localHitFeedbackEvents[0][1].weapon = lg::Weapon::RocketLauncher;
     source.footstepAudioEvents[1].active = true;
+    source.footstepAudioEvents[1].jumping = true;
+    source.footstepAudioEvents[1].landing = true;
     source.footstepAudioEvents[1].sequence = 42;
     source.footstepAudioEvents[1].position = {2.5F, -1.0F, 1.5F};
     source.grenadeBounceAudioEvents[0].active = true;
@@ -450,6 +456,7 @@ int main() {
     source.weaponDamage.lightningGunDamage = 90;
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 140;
+    source.weaponDamage.plasmaGunDamage = 25;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -535,7 +542,9 @@ int main() {
         decoded.weaponFires[1].weapon == lg::Weapon::Shotgun &&
         decoded.weaponFires[1].damageApplied == 45 &&
         decoded.weaponFires[1].pelletCount == lg::kShotgunPelletCount &&
-        decoded.weaponFires[1].pelletHitCount == 9,
+        decoded.weaponFires[1].pelletHitCount == 9 &&
+        decoded.weaponFires[1].visualSeed == 12 &&
+        decoded.weaponFires[2].visualSeed == 77,
       "shotgun pellet event data should round trip"
     );
     failures += expect(
@@ -567,6 +576,8 @@ int main() {
         decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
         decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
         decoded.footstepAudioEvents[1].active &&
+        decoded.footstepAudioEvents[1].jumping &&
+        decoded.footstepAudioEvents[1].landing &&
         decoded.footstepAudioEvents[1].sequence == 42 &&
         nearlyEqual(decoded.footstepAudioEvents[1].position.z, 1.5F) &&
         decoded.grenadeBounceAudioEvents[0].active &&
@@ -647,6 +658,7 @@ int main() {
       decoded.weaponDamage.lightningGunDamage == 90 &&
       decoded.weaponDamage.railgunDamage == 50 &&
       decoded.weaponDamage.rocketLauncherDamage == 140 &&
+      decoded.weaponDamage.plasmaGunDamage == 25 &&
       nearlyEqual(decoded.vampirism, 2.0F) &&
       decoded.selfDamagePercent == 25 &&
       decoded.healthAmount == 150 &&
