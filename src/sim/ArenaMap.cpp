@@ -1,8 +1,11 @@
 #include "sim/Arena.hpp"
 
+#include "map/MapToArena.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -107,13 +110,13 @@ struct ParsedArena {
     contains(boundsMin, boundsMax, boxMax);
 }
 
-[[nodiscard]] bool boxesOverlap(const ArenaWall& lhs, const ArenaWall& rhs) {
-  return lhs.min.x < rhs.max.x &&
-    lhs.max.x > rhs.min.x &&
-    lhs.min.y < rhs.max.y &&
-    lhs.max.y > rhs.min.y &&
-    lhs.min.z < rhs.max.z &&
-    lhs.max.z > rhs.min.z;
+[[nodiscard]] bool containsBrush(Vec3 boundsMin, Vec3 boundsMax, const ArenaBrush& brush) {
+  for (std::uint8_t index = 0; index < brush.vertexCount; ++index) {
+    if (!contains(boundsMin, boundsMax, brush.vertices[index])) {
+      return false;
+    }
+  }
+  return true;
 }
 
 [[nodiscard]] std::string lineError(int lineNumber, const std::string& message) {
@@ -128,8 +131,8 @@ struct ParsedArena {
   if (!finiteAndReasonable(arena.min) || !finiteAndReasonable(arena.max)) {
     return {{}, false, "bounds coordinates must be finite and within +/-1000"};
   }
-  if (arena.wallCount == 0) {
-    return {{}, false, "map must define at least one box"};
+  if (arena.wallCount == 0 && arena.brushCount == 0) {
+    return {{}, false, "map must define at least one solid"};
   }
   if (parsed.spawnCount < kMinimumDuelSpawnCount) {
     return {{}, false, "map must define at least two spawn points"};
@@ -146,10 +149,22 @@ struct ParsedArena {
     if (!containsBox(arena.min, arena.max, wall.min, wall.max)) {
       return {{}, false, "box " + std::to_string(index) + " is outside arena bounds"};
     }
-    for (std::size_t other = index + 1; other < arena.wallCount; ++other) {
-      if (boxesOverlap(wall, arena.walls[other])) {
-        return {{}, false, "box " + std::to_string(index) + " overlaps box " + std::to_string(other)};
-      }
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    const ArenaBrush& brush = arena.brushes[index];
+    if (
+      brush.faceCount < 4 ||
+      brush.vertexCount < 4 ||
+      brush.faceCount > ArenaBrush::kMaxFaces ||
+      brush.vertexCount > ArenaBrush::kMaxVertices
+    ) {
+      return {{}, false, "brush " + std::to_string(index) + " has invalid geometry"};
+    }
+    if (!finiteAndReasonable(brush.min) || !finiteAndReasonable(brush.max)) {
+      return {{}, false, "brush " + std::to_string(index) + " coordinates are out of range"};
+    }
+    if (!containsBrush(arena.min, arena.max, brush)) {
+      return {{}, false, "brush " + std::to_string(index) + " is outside arena bounds"};
     }
   }
 
@@ -167,10 +182,28 @@ struct ParsedArena {
 
 } // namespace
 
+std::uint32_t arenaMaterialId(std::string_view material) {
+  std::uint32_t hash = 2166136261U;
+  for (char character : material) {
+    char normalized = character;
+    if (normalized == '\\') {
+      normalized = '/';
+    }
+    if (normalized >= 'A' && normalized <= 'Z') {
+      normalized = static_cast<char>(normalized - 'A' + 'a');
+    }
+    hash ^= static_cast<unsigned char>(normalized);
+    hash *= 16777619U;
+  }
+  return hash == 0U ? 1U : hash;
+}
+
 ArenaLoadResult loadArenaFromText(std::string_view text) {
   ParsedArena parsed;
   parsed.arena.walls = {};
   parsed.arena.wallCount = 0;
+  parsed.arena.brushes = {};
+  parsed.arena.brushCount = 0;
   parsed.arena.spawnPositions = {};
 
   bool hasVersion = false;
@@ -266,7 +299,11 @@ ArenaLoadResult loadArenaFromFile(const std::string& path) {
 
   std::ostringstream text;
   text << file.rdbuf();
-  ArenaLoadResult result = loadArenaFromText(text.str());
+  const std::filesystem::path mapPath(path);
+  const std::string extension = mapPath.extension().string();
+  ArenaLoadResult result = extension == ".map"
+    ? loadArenaFromMapText(text.str())
+    : loadArenaFromText(text.str());
   if (!result.ok) {
     result.error = path + ": " + result.error;
   }

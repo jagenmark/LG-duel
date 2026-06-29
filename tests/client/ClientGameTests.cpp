@@ -203,6 +203,31 @@ int main() {
       ),
       "ClientGame prediction should collide against the reloaded arena"
     );
+
+    lg::ServerSnapshot arenaLessSnapshot = reloadedSnapshot;
+    arenaLessSnapshot.serverTick = 2;
+    arenaLessSnapshot.hasArena = false;
+    arenaLessSnapshot.arena = {};
+    arenaLessSnapshot.players[0].position.x = 0.0F;
+    transport.sendSnapshot(arenaLessSnapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      client.snapshot().serverTick == 2 &&
+        nearlyEqual(client.arena().max.x, 4.0F) &&
+        client.arena().wallCount == 1,
+      "ClientGame should retain the current arena on arena-less snapshots"
+    );
+
+    lg::ServerSnapshot missingArenaReload = arenaLessSnapshot;
+    missingArenaReload.serverTick = 3;
+    missingArenaReload.mapRevision = reloadedSnapshot.mapRevision + 1;
+    transport.sendSnapshot(missingArenaReload);
+    client.receiveSnapshots();
+    failures += expect(
+      client.snapshot().serverTick == 2 &&
+        client.arena().wallCount == 1,
+      "ClientGame should wait for arena data before accepting a new map revision"
+    );
   }
 
   {

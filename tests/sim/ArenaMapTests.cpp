@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <sstream>
 #include <string_view>
 
 namespace {
@@ -50,6 +51,23 @@ spawn p2 2,0,0 yaw=180
   }
 
   {
+    std::ostringstream text;
+    text << "version 1\n";
+    text << "bounds min=0,0,0 max=320,2,2\n";
+    for (int index = 0; index < 160; ++index) {
+      const float x = static_cast<float>(index) * 2.0F;
+      text << "box box_" << index << ' '
+           << x << ",0,0 "
+           << x + 1.0F << ",1,1\n";
+    }
+    text << "spawn p1 1,1.5,0\n";
+    text << "spawn p2 319,1.5,0\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromText(text.str());
+    failures += expect(result.ok, "one-hundred-sixty-box map should load under the expanded arena limit");
+    failures += expect(result.arena.wallCount == 160, "expanded arena limit should preserve all boxes");
+  }
+
+  {
     constexpr std::string_view text = R"(version 1
 bounds min=-4,-4,0 max=4,4,4
 box bad 2,0,0 1,1,1
@@ -69,7 +87,8 @@ spawn p1 -2,0,0
 spawn p2 2,0,0
 )";
     const lg::ArenaLoadResult result = lg::loadArenaFromText(text);
-    failures += expect(!result.ok, "overlapping boxes should be rejected");
+    failures += expect(result.ok, "overlapping boxes should be accepted");
+    failures += expect(result.arena.wallCount == 2, "overlapping boxes should be preserved");
   }
 
   {

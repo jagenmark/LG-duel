@@ -102,6 +102,22 @@ void addTriangle(
   vertices.push_back({third, color});
 }
 
+void addTexturedTriangle(
+  Scene3D& scene,
+  Vec3 first,
+  Vec3 second,
+  Vec3 third,
+  std::array<std::array<float, 2>, 3> uv,
+  RenderColor color,
+  std::uint32_t materialId
+) {
+  std::vector<Vertex3D>& vertices =
+    color.alpha == 255 ? scene.vertices : scene.translucentVertices;
+  vertices.push_back({first, color, uv[0][0], uv[0][1], materialId});
+  vertices.push_back({second, color, uv[1][0], uv[1][1], materialId});
+  vertices.push_back({third, color, uv[2][0], uv[2][1], materialId});
+}
+
 void addQuad(
   Scene3D& scene,
   Vec3 first,
@@ -112,6 +128,36 @@ void addQuad(
 ) {
   addTriangle(scene, first, second, third, color);
   addTriangle(scene, first, third, fourth, color);
+}
+
+void addTexturedQuad(
+  Scene3D& scene,
+  Vec3 first,
+  Vec3 second,
+  Vec3 third,
+  Vec3 fourth,
+  std::array<std::array<float, 2>, 4> uv,
+  RenderColor color,
+  std::uint32_t materialId
+) {
+  addTexturedTriangle(
+    scene,
+    first,
+    second,
+    third,
+    {{{uv[0][0], uv[0][1]}, {uv[1][0], uv[1][1]}, {uv[2][0], uv[2][1]}}},
+    color,
+    materialId
+  );
+  addTexturedTriangle(
+    scene,
+    first,
+    third,
+    fourth,
+    {{{uv[0][0], uv[0][1]}, {uv[2][0], uv[2][1]}, {uv[3][0], uv[3][1]}}},
+    color,
+    materialId
+  );
 }
 
 void addBox(
@@ -195,7 +241,23 @@ void addSphereApprox(
   }
 }
 
-void addWallBox(Scene3D& scene, Vec3 minimum, Vec3 maximum) {
+[[nodiscard]] std::array<float, 2> faceUv(Vec3 point, int axis) {
+  constexpr float kQuakeUnitsPerLgUnit = 40.0F;
+  constexpr float kTextureQuakeUnits = 512.0F;
+  constexpr float kTextureWorldSize = kTextureQuakeUnits / kQuakeUnitsPerLgUnit;
+  switch (axis) {
+  case 0:
+    return {point.y / kTextureWorldSize, point.z / kTextureWorldSize};
+  case 1:
+    return {point.x / kTextureWorldSize, point.z / kTextureWorldSize};
+  default:
+    return {point.x / kTextureWorldSize, point.y / kTextureWorldSize};
+  }
+}
+
+void addWallBox(Scene3D& scene, const ArenaWall& wall) {
+  const Vec3 minimum = wall.min;
+  const Vec3 maximum = wall.max;
   const std::array<Vec3, 8> corners = {{
     {minimum.x, minimum.y, minimum.z},
     {maximum.x, minimum.y, minimum.z},
@@ -214,24 +276,73 @@ void addWallBox(Scene3D& scene, Vec3 minimum, Vec3 maximum) {
     {{2, 3, 7, 6}},
     {{3, 0, 4, 7}},
   }};
-  constexpr std::array<RenderColor, 6> colors = {{
-    {91, 63, 39, 255},
-    {86, 176, 96, 255},
-    {126, 87, 50, 255},
-    {146, 101, 58, 255},
-    {107, 73, 44, 255},
-    {133, 91, 53, 255},
-  }};
+  constexpr std::array<float, 6> brightness = {
+    0.62F, 1.0F, 0.76F, 0.88F, 0.70F, 0.82F,
+  };
   for (std::size_t index = 0; index < faces.size(); ++index) {
     const auto& face = faces[index];
-    addQuad(
+    const int faceAxis = index < 2 ? 2 : index < 4 ? 1 : 0;
+    const std::uint32_t materialId = index < wall.faceMaterialIds.size() &&
+        wall.faceMaterialIds[index] != 0U
+      ? wall.faceMaterialIds[index]
+      : wall.materialId;
+    addTexturedQuad(
       scene,
       corners[face[0]],
       corners[face[1]],
       corners[face[2]],
       corners[face[3]],
-      colors[index]
+      {{
+        faceUv(corners[face[0]], faceAxis),
+        faceUv(corners[face[1]], faceAxis),
+        faceUv(corners[face[2]], faceAxis),
+        faceUv(corners[face[3]], faceAxis),
+      }},
+      scaleColor({255, 255, 255, 255}, brightness[index]),
+      materialId
     );
+  }
+}
+
+[[nodiscard]] float faceBrightness(Vec3 normal) {
+  return std::clamp(
+    0.68F + normal.z * 0.28F + std::fabs(normal.x) * 0.08F,
+    0.48F,
+    1.0F
+  );
+}
+
+void addArenaBrush(Scene3D& scene, const ArenaBrush& brush) {
+  for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+    const ArenaBrushFace& face = brush.faces[faceIndex];
+    if (face.vertexCount < 3) {
+      continue;
+    }
+    const std::uint32_t materialId = face.materialId != 0U ? face.materialId : brush.materialId;
+    const RenderColor color = scaleColor({255, 255, 255, 255}, faceBrightness(face.normal));
+    const int uvAxis =
+      std::fabs(face.normal.z) >= std::fabs(face.normal.x) &&
+        std::fabs(face.normal.z) >= std::fabs(face.normal.y)
+      ? 2
+      : std::fabs(face.normal.y) >= std::fabs(face.normal.x) ? 1 : 0;
+    const Vec3 origin = brush.vertices[face.vertices[0]];
+    for (std::uint8_t vertex = 1; vertex + 1 < face.vertexCount; ++vertex) {
+      const Vec3 second = brush.vertices[face.vertices[vertex]];
+      const Vec3 third = brush.vertices[face.vertices[vertex + 1U]];
+      addTexturedTriangle(
+        scene,
+        origin,
+        second,
+        third,
+        {{
+          faceUv(origin, uvAxis),
+          faceUv(second, uvAxis),
+          faceUv(third, uvAxis),
+        }},
+        color,
+        materialId
+      );
+    }
   }
 }
 
@@ -254,13 +365,28 @@ void addFloorQuad(
   );
 }
 
+[[nodiscard]] float visualStepForRange(
+  float minimum,
+  float maximum,
+  float baseStep,
+  float maxDivisions
+) {
+  const float range = std::max(0.0F, maximum - minimum);
+  if (range <= baseStep * maxDivisions) {
+    return baseStep;
+  }
+  return std::ceil(range / maxDivisions);
+}
+
 void addFloorTreatment(Scene3D& scene, const Arena& arena) {
   constexpr float baseZ = 0.0F;
-  constexpr float tileZ = 0.001F;
-  constexpr float laneZ = 0.002F;
   constexpr float gridZ = 0.006F;
   constexpr float gridWidth = 0.012F;
-  constexpr float tileSize = 2.0F;
+  const float maxArenaRange = std::max(
+    arena.max.x - arena.min.x,
+    arena.max.y - arena.min.y
+  );
+  const float gridStep = visualStepForRange(0.0F, maxArenaRange, 1.0F, 96.0F);
 
   addFloorQuad(
     scene,
@@ -269,97 +395,25 @@ void addFloorTreatment(Scene3D& scene, const Arena& arena) {
     arena.max.x,
     arena.max.y,
     baseZ,
-    {56, 138, 70, 255}
+    {42, 48, 55, 255}
   );
 
-  for (float x = arena.min.x; x < arena.max.x; x += tileSize) {
-    for (float y = arena.min.y; y < arena.max.y; y += tileSize) {
-      const int checker =
-        static_cast<int>(std::floor((x - arena.min.x) / tileSize)) +
-        static_cast<int>(std::floor((y - arena.min.y) / tileSize));
-      const RenderColor color = checker % 2 == 0
-        ? RenderColor{67, 158, 76, 255}
-        : RenderColor{74, 174, 84, 255};
-      addFloorQuad(
-        scene,
-        x,
-        y,
-        std::min(x + tileSize, arena.max.x),
-        std::min(y + tileSize, arena.max.y),
-        tileZ,
-        color
-      );
-    }
-  }
-
-  const float laneHalfWidth = 1.15F;
-  addFloorQuad(
-    scene,
-    arena.min.x,
-    -laneHalfWidth,
-    arena.max.x,
-    laneHalfWidth,
-    laneZ,
-    {186, 151, 91, 255}
-  );
-  addFloorQuad(
-    scene,
-    -laneHalfWidth,
-    arena.min.y,
-    laneHalfWidth,
-    arena.max.y,
-    laneZ,
-    {197, 163, 101, 255}
-  );
-
-  constexpr std::array<Vec3, 6> flowerPatches = {{
-    {-10.5F, -8.5F, 0.0F},
-    {-7.5F, 8.0F, 0.0F},
-    {-2.8F, -9.2F, 0.0F},
-    {3.4F, 8.8F, 0.0F},
-    {8.4F, -8.0F, 0.0F},
-    {11.2F, 5.6F, 0.0F},
-  }};
-  constexpr std::array<RenderColor, 3> flowerColors = {{
-    {255, 224, 102, 255},
-    {255, 142, 180, 255},
-    {144, 213, 255, 255},
-  }};
-  for (std::size_t index = 0; index < flowerPatches.size(); ++index) {
-    const Vec3 patch = flowerPatches[index];
-    if (
-      patch.x < arena.min.x || patch.x > arena.max.x ||
-      patch.y < arena.min.y || patch.y > arena.max.y
-    ) {
-      continue;
-    }
-    addFloorQuad(
-      scene,
-      patch.x - 0.18F,
-      patch.y - 0.18F,
-      patch.x + 0.18F,
-      patch.y + 0.18F,
-      arena.min.z + 0.004F,
-      flowerColors[index % flowerColors.size()]
-    );
-  }
-
-  for (float x = arena.min.x; x <= arena.max.x; x += 1.0F) {
+  for (float x = arena.min.x; x <= arena.max.x; x += gridStep) {
     addSegment(
       scene,
       {x, arena.min.y, arena.min.z + gridZ},
       {x, arena.max.y, arena.min.z + gridZ},
       gridWidth,
-      {109, 195, 105, 255}
+      {82, 94, 108, 255}
     );
   }
-  for (float y = arena.min.y; y <= arena.max.y; y += 1.0F) {
+  for (float y = arena.min.y; y <= arena.max.y; y += gridStep) {
     addSegment(
       scene,
       {arena.min.x, y, arena.min.z + gridZ},
       {arena.max.x, y, arena.min.z + gridZ},
       gridWidth,
-      {109, 195, 105, 255}
+      {82, 94, 108, 255}
     );
   }
 
@@ -368,14 +422,14 @@ void addFloorTreatment(Scene3D& scene, const Arena& arena) {
     {arena.min.x, 0.0F, arena.min.z + 0.018F},
     {arena.max.x, 0.0F, arena.min.z + 0.018F},
     0.04F,
-    {236, 205, 126, 255}
+    {120, 138, 156, 255}
   );
   addSegment(
     scene,
     {0.0F, arena.min.y, arena.min.z + 0.018F},
     {0.0F, arena.max.y, arena.min.z + 0.018F},
     0.04F,
-    {236, 205, 126, 255}
+    {120, 138, 156, 255}
   );
 }
 
@@ -424,33 +478,6 @@ void addArenaBoundaryWalls(Scene3D& scene, const Arena& arena) {
     {arena.min.x, arena.max.y, arena.max.z},
     ceiling
   );
-}
-
-void addWallAccents(Scene3D& scene, const ArenaWall& wall) {
-  const Vec3 topMin = {
-    wall.min.x,
-    wall.min.y,
-    wall.max.z + 0.01F,
-  };
-  const Vec3 topMax = {
-    wall.max.x,
-    wall.max.y,
-    wall.max.z + 0.08F,
-  };
-  addBox(scene, topMin, topMax, {86, 176, 96, 255});
-
-  constexpr float bandWidth = 0.026F;
-  constexpr RenderColor bandColor = {171, 235, 145, 255};
-  const float lowerBandZ = wall.min.z + 0.32F;
-  const float upperBandZ = std::max(wall.min.z + 0.34F, wall.max.z - 0.24F);
-  const auto addPerimeterBand = [&](float z, RenderColor color) {
-    addSegment(scene, {wall.min.x, wall.min.y, z}, {wall.max.x, wall.min.y, z}, bandWidth, color);
-    addSegment(scene, {wall.max.x, wall.min.y, z}, {wall.max.x, wall.max.y, z}, bandWidth, color);
-    addSegment(scene, {wall.max.x, wall.max.y, z}, {wall.min.x, wall.max.y, z}, bandWidth, color);
-    addSegment(scene, {wall.min.x, wall.max.y, z}, {wall.min.x, wall.min.y, z}, bandWidth, color);
-  };
-  addPerimeterBand(lowerBandZ, scaleColor(bandColor, 0.75F));
-  addPerimeterBand(upperBandZ, bandColor);
 }
 
 void addOrientedBox(
@@ -1301,29 +1328,14 @@ Scene3D buildPerspectiveScene(
 
   addFloorTreatment(scene, arena);
   addArenaBoundaryWalls(scene, arena);
-  addWireBox(scene, arena.min, arena.max, 0.025F, {127, 202, 111, 255});
+  addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
-    addWallBox(scene, wall.min, wall.max);
-    addWallAccents(scene, wall);
-    addWireBox(scene, wall.min, wall.max, 0.018F, {127, 202, 111, 255});
-    for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {
-      addSegment(
-        scene,
-        {wall.min.x, wall.min.y, z},
-        {wall.max.x, wall.min.y, z},
-        0.012F,
-        {109, 195, 105, 255}
-      );
-      addSegment(
-        scene,
-        {wall.max.x, wall.max.y, z},
-        {wall.min.x, wall.max.y, z},
-        0.012F,
-        {109, 195, 105, 255}
-      );
-    }
+    addWallBox(scene, wall);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    addArenaBrush(scene, arena.brushes[index]);
   }
 
   for (const RemotePlayerView& remote : remotePlayers) {

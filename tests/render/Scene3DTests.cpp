@@ -1,4 +1,5 @@
 #include "render/Scene3D.hpp"
+#include "sim/Arena.hpp"
 #include "sim/WeaponCatalog.hpp"
 
 #include <array>
@@ -18,6 +19,13 @@ int expect(bool condition, std::string_view message) {
 
 bool nearlyEqual(float lhs, float rhs, float epsilon = 0.001F) {
   return std::fabs(lhs - rhs) <= epsilon;
+}
+
+bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
+  return lhs.red == rhs.red &&
+    lhs.green == rhs.green &&
+    lhs.blue == rhs.blue &&
+    lhs.alpha == rhs.alpha;
 }
 
 } // namespace
@@ -70,6 +78,83 @@ int main() {
     "scene camera should use the local player's first-person view"
   );
 
+  arena.wallCount = 1;
+  arena.walls[0] = {{3.0F, 1.0F, 0.0F}, {5.0F, 3.0F, 2.0F}};
+  arena.walls[0].materialId =
+    lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
+  const lg::Scene3D texturedWallScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  bool foundTexturedWallVertex = false;
+  bool foundWallUvSpan = false;
+  bool foundPrototypeWallAccent = false;
+  float minimumWallU = 0.0F;
+  float maximumWallU = 0.0F;
+  float minimumWallV = 0.0F;
+  float maximumWallV = 0.0F;
+  float firstWallU = 0.0F;
+  float firstWallV = 0.0F;
+  bool capturedFirstWallUv = false;
+  for (const lg::Vertex3D& vertex : texturedWallScene.vertices) {
+    if (
+      vertex.materialId == 0U &&
+      (
+        sameColor(vertex.color, {86, 176, 96, 255}) ||
+        sameColor(vertex.color, {171, 235, 145, 255}) ||
+        sameColor(vertex.color, {109, 195, 105, 255})
+      )
+    ) {
+      foundPrototypeWallAccent = true;
+    }
+    if (vertex.materialId != arena.walls[0].materialId) {
+      continue;
+    }
+    foundTexturedWallVertex = true;
+    if (!capturedFirstWallUv) {
+      firstWallU = vertex.u;
+      firstWallV = vertex.v;
+      minimumWallU = vertex.u;
+      maximumWallU = vertex.u;
+      minimumWallV = vertex.v;
+      maximumWallV = vertex.v;
+      capturedFirstWallUv = true;
+      continue;
+    }
+    minimumWallU = std::min(minimumWallU, vertex.u);
+    maximumWallU = std::max(maximumWallU, vertex.u);
+    minimumWallV = std::min(minimumWallV, vertex.v);
+    maximumWallV = std::max(maximumWallV, vertex.v);
+    foundWallUvSpan = foundWallUvSpan ||
+      !nearlyEqual(vertex.u, firstWallU) ||
+      !nearlyEqual(vertex.v, firstWallV);
+  }
+  failures += expect(
+    foundTexturedWallVertex,
+    "wall scene geometry should preserve the wall material id"
+  );
+  failures += expect(
+    foundWallUvSpan,
+    "wall scene geometry should emit varying texture coordinates"
+  );
+  failures += expect(
+    maximumWallU - minimumWallU > 0.1F || maximumWallV - minimumWallV > 0.1F,
+    "wall texture coordinates should use TrenchBroom scale instead of stretched LG units"
+  );
+  failures += expect(
+    !foundPrototypeWallAccent,
+    "wall scene geometry should not emit old green prototype accents over textures"
+  );
+  arena.wallCount = 0;
+
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -88,6 +173,31 @@ int main() {
     "local velocity should not roll the first-person camera"
   );
   player.velocity = {};
+
+  {
+    lg::Arena largeArena;
+    largeArena.min = {-145.0F, -97.0F, -33.0F};
+    largeArena.max = {225.0F, 225.0F, 113.0F};
+    largeArena.wallCount = 0;
+    lg::PlayerState largeMapPlayer = player;
+    largeMapPlayer.position = {0.0F, 0.0F, 1.0F};
+    const lg::Scene3D largeScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      largeArena,
+      largeMapPlayer,
+      opponent,
+      inactiveBeam,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings
+    );
+    failures += expect(
+      largeScene.vertices.size() < 131072,
+      "large TrenchBroom-scale arenas should keep perspective vertex count under the GPU buffer limit"
+    );
+  }
 
   opponent.velocity = lg::yawRight(opponent.viewYawRadians) * 8.0F;
   lg::RenderSettings leanSettings = settings;

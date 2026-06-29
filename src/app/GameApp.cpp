@@ -2062,7 +2062,7 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "map",
-    "Request a server map change: map <name> loads maps/<name>.lgmap.",
+    "Request a server map change: map <name> loads maps/<name>.lgmap, then maps/<name>.map.",
     [&pendingMapName](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
         return std::string("usage: map <name>");
@@ -2072,7 +2072,19 @@ int GameApp::run() const {
         return "map name is limited to " +
           std::to_string(kMaxMapNameBytes) + " characters";
       }
-      for (const unsigned char character : name) {
+      const std::filesystem::path requested(name);
+      if (requested.has_parent_path() || requested.filename().string() != name) {
+        return std::string("map name may not include a path");
+      }
+      const std::string extension = requested.extension().string();
+      if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
+        return std::string("map extension must be .lgmap or .map");
+      }
+      const std::string stem = extension.empty() ? name : requested.stem().string();
+      if (stem.empty()) {
+        return std::string("map name may not be empty");
+      }
+      for (const unsigned char character : stem) {
         if (
           !std::isalnum(character) &&
           character != '_' &&

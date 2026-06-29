@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -14,15 +15,43 @@ namespace lg {
 struct ArenaWall {
   Vec3 min = {};
   Vec3 max = {};
+  std::uint32_t materialId = 0;
+  std::array<std::uint32_t, 6> faceMaterialIds = {};
+};
+
+struct ArenaBrushFace {
+  static constexpr std::size_t kMaxVertices = 12;
+
+  Vec3 normal = {};
+  float distance = 0.0F;
+  std::uint32_t materialId = 0;
+  std::array<std::uint8_t, kMaxVertices> vertices = {};
+  std::uint8_t vertexCount = 0;
+};
+
+struct ArenaBrush {
+  static constexpr std::size_t kMaxFaces = 16;
+  static constexpr std::size_t kMaxVertices = 32;
+
+  Vec3 min = {};
+  Vec3 max = {};
+  std::uint32_t materialId = 0;
+  std::array<Vec3, kMaxVertices> vertices = {};
+  std::uint8_t vertexCount = 0;
+  std::array<ArenaBrushFace, kMaxFaces> faces = {};
+  std::uint8_t faceCount = 0;
 };
 
 struct Arena {
-  static constexpr std::size_t kWallCount = 24;
+  static constexpr std::size_t kWallCount = 255;
+  static constexpr std::size_t kBrushCount = 128;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
   std::array<ArenaWall, kWallCount> walls = {};
   std::size_t wallCount = 0;
+  std::array<ArenaBrush, kBrushCount> brushes = {};
+  std::size_t brushCount = 0;
   std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},
@@ -40,7 +69,9 @@ struct ArenaLoadResult {
 };
 
 [[nodiscard]] ArenaLoadResult loadArenaFromText(std::string_view text);
+[[nodiscard]] ArenaLoadResult loadArenaFromMapText(std::string_view text);
 [[nodiscard]] ArenaLoadResult loadArenaFromFile(const std::string& path);
+[[nodiscard]] std::uint32_t arenaMaterialId(std::string_view material);
 [[nodiscard]] Arena thunderstruckArena();
 
 struct CollisionResult {

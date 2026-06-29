@@ -318,10 +318,10 @@ accumulator -= available * fixed_dt</code></pre>
       <p>Notice the absence of wall-clock access, rendering, random input, or globals. Given the same inputs and initial data, it should produce the same output.</p>
 
       <h3 id="collision">Arena and collision</h3>
-      <p><a href="../src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from 24 or fewer axis-aligned boxes. The same boxes serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
+      <p><a href="../src/sim/Arena.cpp"><code>Arena.cpp</code></a> constructs a Thunderstruck-inspired arena from axis-aligned boxes, and imported TrenchBroom maps may also include closed convex brushes. The same solids serve four purposes: movement blocking, weapon occlusion, prediction, and rendering.</p>
       <ul>
         <li>Players are vertical cylinders: radius plus half-height.</li>
-        <li>Arena walls are axis-aligned boxes with <code>min</code>/<code>max</code> corners.</li>
+        <li>Native <code>.lgmap</code> arena walls are axis-aligned boxes with <code>min</code>/<code>max</code> corners; imported <code>.map</code> files can add convex brush solids.</li>
         <li><code>resolvePlayerArenaCollision</code> clamps world bounds, resolves floors/ceilings/walls, and supports 0.45-unit steps.</li>
         <li><code>resolvePlayerCollision</code> separates overlapping player cylinders and removes inward relative velocity.</li>
       </ul>

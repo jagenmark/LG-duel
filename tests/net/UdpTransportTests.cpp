@@ -108,6 +108,44 @@ int main() {
     "two UDP clients should enter ready-up"
   );
 
+  lg::Arena largeArena;
+  largeArena.min = {-20.0F, -20.0F, 0.0F};
+  largeArena.max = {400.0F, 20.0F, 8.0F};
+  largeArena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
+  largeArena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
+  largeArena.wallCount = 160;
+  for (std::size_t wallIndex = 0; wallIndex < largeArena.wallCount; ++wallIndex) {
+    const float x = static_cast<float>(wallIndex) * 2.0F;
+    largeArena.walls[wallIndex] = {
+      {x, 10.0F, 0.0F},
+      {x + 1.0F, 11.0F, 1.0F},
+    };
+  }
+  server.setArena(largeArena);
+  for (int iteration = 0; iteration < 200; ++iteration) {
+    serverTransport.update();
+    syncConnectedPlayers(server, serverTransport);
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    if (
+      firstClient.arena().wallCount == largeArena.wallCount &&
+      secondClient.arena().wallCount == largeArena.wallCount
+    ) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  failures += expect(
+    firstTransport.connected() &&
+      secondTransport.connected() &&
+      firstClient.arena().wallCount == largeArena.wallCount &&
+      secondClient.arena().wallCount == largeArena.wallCount,
+    "UDP clients should receive large map arena data without timing out"
+  );
+
   const std::size_t firstPlayerIndex = firstTransport.playerIndex();
   const std::size_t firstTargetIndex = 1U - firstPlayerIndex;
   const lg::Vec3 warmupTargetStart =

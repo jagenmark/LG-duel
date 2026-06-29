@@ -278,6 +278,7 @@ private:
   void* gpuTransferBuffer_ = nullptr;
   void* gpuFontTexture_ = nullptr;
   void* gpuFontSampler_ = nullptr;
+  void* gpuWorldTextureAtlas_ = nullptr;
   void* gpuVertexScratch_ = nullptr;
   void* gpuDepthTexture_ = nullptr;
   std::uint32_t gpuDepthWidth_ = 0;

@@ -187,6 +187,8 @@ struct UdpServerTransport::Impl {
     std::uint32_t nonce = 0;
     std::uint32_t session = 0;
     Clock::time_point lastHeard = {};
+    std::uint32_t lastFullArenaRevision = 0;
+    std::uint32_t lastFullArenaTick = 0;
   };
 
   explicit Impl(std::uint16_t requestedPort) : port(requestedPort) {}
@@ -247,6 +249,8 @@ struct UdpServerTransport::Impl {
           if (nextSession == 0) {
             nextSession = 1;
           }
+          clients[slotIndex].lastFullArenaRevision = 0;
+          clients[slotIndex].lastFullArenaTick = 0;
         }
         clients[slotIndex].lastHeard = Clock::now();
         WirePacket response;
@@ -428,13 +432,24 @@ bool UdpServerTransport::receiveCommand(CommandPacket& packet) {
 
 void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   impl_->lastServerTick = snapshot.serverTick;
-  WirePacket wire;
-  if (!encodeServerSnapshot(snapshot, wire)) {
-    return;
-  }
-  for (const Impl::ClientSlot& client : impl_->clients) {
-    if (client.active) {
-      sendWire(impl_->socket, client.endpoint, wire);
+  constexpr std::uint32_t kFullArenaSnapshotIntervalTicks = 125;
+  for (Impl::ClientSlot& client : impl_->clients) {
+    if (!client.active) {
+      continue;
+    }
+
+    ServerSnapshot outgoing = snapshot;
+    outgoing.hasArena =
+      client.lastFullArenaRevision != snapshot.mapRevision ||
+      snapshot.serverTick - client.lastFullArenaTick >= kFullArenaSnapshotIntervalTicks;
+
+    WirePacket wire;
+    if (!encodeServerSnapshot(outgoing, wire)) {
+      continue;
+    }
+    if (sendWire(impl_->socket, client.endpoint, wire) && outgoing.hasArena) {
+      client.lastFullArenaRevision = snapshot.mapRevision;
+      client.lastFullArenaTick = snapshot.serverTick;
     }
   }
 }

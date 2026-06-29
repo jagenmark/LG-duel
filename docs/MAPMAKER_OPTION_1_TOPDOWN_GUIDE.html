@@ -419,8 +419,8 @@ spawn player_2 8,-9,2 yaw=180</code></pre>
           <tbody>
             <tr>
               <td>Boxes</td>
-              <td>Maximum 24, at least 1</td>
-              <td>Merge simple surfaces or remove decorative pieces.</td>
+              <td>Maximum 255, at least 1</td>
+              <td>Merge simple surfaces or remove decorative collision pieces if the layout becomes hard to read or expensive to test.</td>
             </tr>
             <tr>
               <td>Spawns</td>
@@ -439,8 +439,8 @@ spawn player_2 8,-9,2 yaw=180</code></pre>
             </tr>
             <tr>
               <td>Box placement</td>
-              <td>Boxes must be inside bounds and must not overlap</td>
-              <td>Split, move, or resize touching geometry. Stacked stairs should touch faces, not overlap volumes.</td>
+              <td>Boxes must be inside bounds</td>
+              <td>Overlaps are accepted, but keep collision brushwork readable and playtest for snagging.</td>
             </tr>
             <tr>
               <td>Spawn placement</td>
@@ -470,7 +470,7 @@ spawn player_2 8,-9,2 yaw=180</code></pre>
       <ul>
         <li><span class="ok">Valid</span> in the top-down preview tool.</li>
         <li><span class="ok">Readable</span> object names and comments for major layout sections.</li>
-        <li><span class="ok">Compact</span> geometry count under the 24-box limit.</li>
+        <li><span class="ok">Compact</span> geometry count under the 255-box limit.</li>
         <li><span class="warn-text">Playtested</span> for stuck spots, unfair spawns, and accidental full-map sightlines.</li>
         <li><span class="warn-text">Tested</span> with the repository's CMake preset before code or map changes are handed off.</li>
       </ul>

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdlib>
+#include <limits>
 
 namespace lg {
 namespace {
@@ -159,6 +160,102 @@ void resolveWallCollision(
   }
 }
 
+void resolveBrushCollision(
+  const ArenaBrush& brush,
+  const PlayerState& player,
+  Vec3 previousPosition,
+  CollisionResult& result
+) {
+  constexpr float kCollisionEpsilon = 0.0001F;
+  constexpr float kStepHeight = 0.45F;
+  constexpr float kWalkableNormalZ = 0.35F;
+  const float previousBottom = previousPosition.z - player.bounds.halfHeight;
+  const float currentBottom = result.position.z - player.bounds.halfHeight;
+
+  const auto planarRadiusForFace =
+    [&](const ArenaBrushFace& face) {
+      return player.bounds.radius *
+        std::sqrt((face.normal.x * face.normal.x) + (face.normal.y * face.normal.y));
+    };
+
+  const auto pointInsideBrushPlanarExpansion =
+    [&](Vec3 point, std::uint8_t ignoredFace) {
+      for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+        if (index == ignoredFace) {
+          continue;
+        }
+        const ArenaBrushFace& face = brush.faces[index];
+        const float expandedDistance = face.distance + planarRadiusForFace(face);
+        if (dot(face.normal, point) > expandedDistance + kCollisionEpsilon) {
+          return false;
+        }
+      }
+      return true;
+    };
+
+  for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+    const ArenaBrushFace& face = brush.faces[index];
+    if (face.normal.z <= kWalkableNormalZ) {
+      continue;
+    }
+    const float surfaceZ =
+      (face.distance - (face.normal.x * result.position.x) - (face.normal.y * result.position.y)) /
+      face.normal.z;
+    if (!std::isfinite(surfaceZ)) {
+      continue;
+    }
+    const bool landingOnFace =
+      previousBottom >= surfaceZ - kCollisionEpsilon &&
+      currentBottom <= surfaceZ + kCollisionEpsilon &&
+      result.velocity.z <= 0.0F;
+    const bool steppingOntoFace =
+      player.onGround &&
+      surfaceZ >= previousBottom - kCollisionEpsilon &&
+      surfaceZ - previousBottom <= kStepHeight;
+    if (!landingOnFace && !steppingOntoFace) {
+      continue;
+    }
+    if (!pointInsideBrushPlanarExpansion({result.position.x, result.position.y, surfaceZ}, index)) {
+      continue;
+    }
+    result.position.z = surfaceZ + player.bounds.halfHeight;
+    result.velocity.z = std::max(0.0F, result.velocity.z);
+    result.onGround = true;
+    return;
+  }
+
+  float minimumPenetration = std::numeric_limits<float>::max();
+  const ArenaBrushFace* separatingFace = nullptr;
+
+  for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+    const ArenaBrushFace& face = brush.faces[index];
+    const float planarRadius = planarRadiusForFace(face);
+    const float verticalRadius = player.bounds.halfHeight * std::fabs(face.normal.z);
+    const float expandedDistance = face.distance + planarRadius + verticalRadius;
+    const float penetration = expandedDistance - dot(face.normal, result.position);
+    if (penetration < -kCollisionEpsilon) {
+      return;
+    }
+    if (penetration < minimumPenetration) {
+      minimumPenetration = penetration;
+      separatingFace = &face;
+    }
+  }
+
+  if (separatingFace == nullptr || minimumPenetration < -kCollisionEpsilon) {
+    return;
+  }
+
+  result.position += separatingFace->normal * (minimumPenetration + kCollisionEpsilon);
+  const float velocityIntoBrush = dot(result.velocity, separatingFace->normal);
+  if (velocityIntoBrush < 0.0F) {
+    result.velocity -= separatingFace->normal * velocityIntoBrush;
+  }
+  if (separatingFace->normal.z > 0.5F) {
+    result.onGround = true;
+  }
+}
+
 } // namespace
 
 Arena thunderstruckArena() {
@@ -216,6 +313,9 @@ CollisionResult resolvePlayerArenaCollision(
   for (int pass = 0; pass < 2; ++pass) {
     for (std::size_t index = 0; index < arena.wallCount; ++index) {
       resolveWallCollision(arena.walls[index], player, player.position, result);
+    }
+    for (std::size_t index = 0; index < arena.brushCount; ++index) {
+      resolveBrushCollision(arena.brushes[index], player, player.position, result);
     }
   }
 

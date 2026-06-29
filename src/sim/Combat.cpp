@@ -130,6 +130,39 @@ constexpr float kTwoPi = 6.28318530718F;
   return std::max(0.0F, entry);
 }
 
+[[nodiscard]] float brushHitDistance(
+  const ArenaBrush& brush,
+  Vec3 origin,
+  Vec3 direction
+) {
+  float entry = 0.0F;
+  float exit = std::numeric_limits<float>::max();
+  for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+    const ArenaBrushFace& face = brush.faces[index];
+    const float numerator = face.distance - dot(face.normal, origin);
+    const float denominator = dot(face.normal, direction);
+    if (std::fabs(denominator) <= kTraceEpsilon) {
+      if (numerator < 0.0F) {
+        return std::numeric_limits<float>::max();
+      }
+      continue;
+    }
+    const float planeDistance = numerator / denominator;
+    if (denominator < 0.0F) {
+      entry = std::max(entry, planeDistance);
+    } else {
+      exit = std::min(exit, planeDistance);
+    }
+    if (entry > exit) {
+      return std::numeric_limits<float>::max();
+    }
+  }
+  if (exit < 0.0F) {
+    return std::numeric_limits<float>::max();
+  }
+  return std::max(0.0F, entry);
+}
+
 [[nodiscard]] bool intersectPlayerCylinder(
   Vec3 origin,
   Vec3 direction,
@@ -209,6 +242,12 @@ WorldTrace traceWorld(
     trace.distance = std::min(
       trace.distance,
       wallHitDistance(arena.walls[index], origin, direction)
+    );
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    trace.distance = std::min(
+      trace.distance,
+      brushHitDistance(arena.brushes[index], origin, direction)
     );
   }
   trace.end = origin + (direction * trace.distance);

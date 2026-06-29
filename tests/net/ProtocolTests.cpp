@@ -288,6 +288,35 @@ int main() {
     source.arena.max = {20.0F, 10.0F, 12.0F};
     source.arena.wallCount = 1;
     source.arena.walls[0] = {{-1.0F, -2.0F, 0.0F}, {1.0F, 2.0F, 3.0F}};
+    source.arena.walls[0].materialId =
+      lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
+    source.arena.brushCount = 1;
+    source.arena.brushes[0].min = {2.0F, 2.0F, 0.0F};
+    source.arena.brushes[0].max = {4.0F, 4.0F, 2.0F};
+    source.arena.brushes[0].materialId = lg::arenaMaterialId("stone");
+    source.arena.brushes[0].vertexCount = 4;
+    source.arena.brushes[0].vertices[0] = {2.0F, 2.0F, 0.0F};
+    source.arena.brushes[0].vertices[1] = {4.0F, 2.0F, 0.0F};
+    source.arena.brushes[0].vertices[2] = {2.0F, 4.0F, 0.0F};
+    source.arena.brushes[0].vertices[3] = {2.0F, 2.0F, 2.0F};
+    source.arena.brushes[0].faceCount = 4;
+    source.arena.brushes[0].faces[0].normal = {0.0F, 0.0F, -1.0F};
+    source.arena.brushes[0].faces[0].distance = 0.0F;
+    source.arena.brushes[0].faces[0].materialId = lg::arenaMaterialId("floor");
+    source.arena.brushes[0].faces[0].vertexCount = 3;
+    source.arena.brushes[0].faces[0].vertices = {0, 2, 1};
+    source.arena.brushes[0].faces[1].normal = {0.0F, -1.0F, 0.0F};
+    source.arena.brushes[0].faces[1].distance = -2.0F;
+    source.arena.brushes[0].faces[1].vertexCount = 3;
+    source.arena.brushes[0].faces[1].vertices = {0, 1, 3};
+    source.arena.brushes[0].faces[2].normal = {-1.0F, 0.0F, 0.0F};
+    source.arena.brushes[0].faces[2].distance = -2.0F;
+    source.arena.brushes[0].faces[2].vertexCount = 3;
+    source.arena.brushes[0].faces[2].vertices = {0, 3, 2};
+    source.arena.brushes[0].faces[3].normal = {0.577F, 0.577F, 0.577F};
+    source.arena.brushes[0].faces[3].distance = 3.464F;
+    source.arena.brushes[0].faces[3].vertexCount = 3;
+    source.arena.brushes[0].faces[3].vertices = {1, 2, 3};
     source.arena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
     source.arena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
     source.acknowledgedCommand = {12, 34};
@@ -453,8 +482,13 @@ int main() {
     failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
     failures += expect(
       decoded.arena.wallCount == 1 &&
+        decoded.arena.brushCount == 1 &&
         nearlyEqual(decoded.arena.max.x, 20.0F) &&
         nearlyEqual(decoded.arena.walls[0].max.z, 3.0F) &&
+        decoded.arena.walls[0].materialId == source.arena.walls[0].materialId &&
+        decoded.arena.brushes[0].faceCount == 4 &&
+        decoded.arena.brushes[0].faces[0].materialId == source.arena.brushes[0].faces[0].materialId &&
+        nearlyEqual(decoded.arena.brushes[0].vertices[3].z, 2.0F) &&
         nearlyEqual(decoded.arena.spawnPositions[1].x, 8.0F),
       "snapshot arena should round trip"
     );
@@ -635,6 +669,62 @@ int main() {
       "authoritative movement tuning should round trip"
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
+
+    lg::ServerSnapshot largeArenaSnapshot;
+    largeArenaSnapshot.serverTick = 55;
+    largeArenaSnapshot.mapRevision = 3;
+    largeArenaSnapshot.arena.min = {0.0F, 0.0F, 0.0F};
+    largeArenaSnapshot.arena.max = {320.0F, 4.0F, 4.0F};
+    largeArenaSnapshot.arena.wallCount = 160;
+    for (std::size_t wallIndex = 0; wallIndex < largeArenaSnapshot.arena.wallCount; ++wallIndex) {
+      const float x = static_cast<float>(wallIndex) * 2.0F;
+      largeArenaSnapshot.arena.walls[wallIndex] = {
+        {x, 0.0F, 0.0F},
+        {x + 1.0F, 1.0F, 1.0F},
+      };
+      largeArenaSnapshot.arena.walls[wallIndex].materialId =
+        lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
+    }
+    largeArenaSnapshot.arena.spawnPositions[0] = {1.0F, 2.0F, 0.0F};
+    largeArenaSnapshot.arena.spawnPositions[1] = {319.0F, 2.0F, 0.0F};
+    lg::ServerSnapshot decodedLargeArena;
+    failures += expect(
+      lg::encodeServerSnapshot(largeArenaSnapshot, wire),
+      "large arena snapshot should encode"
+    );
+    failures += expect(
+      wire.size() <= lg::kMaxPacketBytes,
+      "large arena snapshot should respect packet limit"
+    );
+    failures += expect(
+      lg::decodeServerSnapshot(wire, decodedLargeArena),
+      "large arena snapshot should decode"
+    );
+    failures += expect(
+      decodedLargeArena.arena.wallCount == largeArenaSnapshot.arena.wallCount &&
+        nearlyEqual(decodedLargeArena.arena.walls[159].max.x, 319.0F),
+      "large arena wall list should round trip"
+    );
+
+    const std::size_t fullArenaSnapshotBytes = wire.size();
+    largeArenaSnapshot.hasArena = false;
+    failures += expect(
+      lg::encodeServerSnapshot(largeArenaSnapshot, wire),
+      "large arena delta snapshot should encode without arena payload"
+    );
+    failures += expect(
+      wire.size() + 3000U < fullArenaSnapshotBytes,
+      "large arena delta snapshot should omit most arena bytes"
+    );
+    failures += expect(
+      lg::decodeServerSnapshot(wire, decodedLargeArena),
+      "large arena delta snapshot should decode"
+    );
+    failures += expect(
+      !decodedLargeArena.hasArena &&
+        decodedLargeArena.mapRevision == largeArenaSnapshot.mapRevision,
+      "large arena delta snapshot should preserve revision without arena payload"
+    );
 
     lg::DisconnectPacket disconnect{12345};
     lg::DisconnectPacket decodedDisconnect;

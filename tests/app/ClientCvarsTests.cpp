@@ -120,6 +120,8 @@ int main() {
     console.execute("r_maxfps 0") == "r_maxfps = 0" &&
       console.execute("r_maxfps -1") == "value out of range for r_maxfps",
     "frame limiter cvar should allow uncapped and reject negative caps"
+  );
+  failures += expect(
     console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
       console.getFloat("s_lg_fire_volume") == 0.25F,
     "lightning gun fire volume should be configurable"

@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -264,6 +265,18 @@ void addWorldQuad(
   );
 }
 
+[[nodiscard]] RenderColor materialColor(std::uint32_t materialId) {
+  if (materialId == 0U) {
+    return {96, 104, 112, 255};
+  }
+  return {
+    static_cast<std::uint8_t>(96U + ((materialId >> 0U) & 0x7FU)),
+    static_cast<std::uint8_t>(96U + ((materialId >> 8U) & 0x7FU)),
+    static_cast<std::uint8_t>(96U + ((materialId >> 16U) & 0x7FU)),
+    255,
+  };
+}
+
 void addFloorTreatment(
   std::vector<DrawCommand2D>& commands,
   const ViewProjection& view,
@@ -274,80 +287,23 @@ void addFloorTreatment(
     view,
     arena.min,
     arena.max,
-    {56, 138, 70, 255}
+    {42, 48, 55, 255}
   );
 
-  constexpr float tileSize = 2.0F;
-  for (float x = arena.min.x; x < arena.max.x; x += tileSize) {
-    for (float y = arena.min.y; y < arena.max.y; y += tileSize) {
-      const int checker =
-        static_cast<int>(std::floor((x - arena.min.x) / tileSize)) +
-        static_cast<int>(std::floor((y - arena.min.y) / tileSize));
-      const RenderColor color = checker % 2 == 0
-        ? RenderColor{67, 158, 76, 255}
-        : RenderColor{74, 174, 84, 255};
-      addWorldQuad(
-        commands,
-        view,
-        {x, y, arena.min.z},
-        {
-          std::min(x + tileSize, arena.max.x),
-          std::min(y + tileSize, arena.max.y),
-          arena.min.z,
-        },
-        color
-      );
+  const auto visualStepForRange = [](float range, float baseStep, float maxDivisions) {
+    if (range <= baseStep * maxDivisions) {
+      return baseStep;
     }
-  }
-
-  constexpr float laneHalfWidth = 1.15F;
-  addWorldQuad(
-    commands,
-    view,
-    {arena.min.x, -laneHalfWidth, arena.min.z},
-    {arena.max.x, laneHalfWidth, arena.min.z},
-    {186, 151, 91, 255}
+    return std::ceil(range / maxDivisions);
+  };
+  const float maxArenaRange = std::max(
+    arena.max.x - arena.min.x,
+    arena.max.y - arena.min.y
   );
-  addWorldQuad(
-    commands,
-    view,
-    {-laneHalfWidth, arena.min.y, arena.min.z},
-    {laneHalfWidth, arena.max.y, arena.min.z},
-    {197, 163, 101, 255}
-  );
+  const float gridStep = visualStepForRange(maxArenaRange, 1.0F, 96.0F);
 
-  constexpr std::array<Vec3, 6> flowerPatches = {{
-    {-10.5F, -8.5F, 0.0F},
-    {-7.5F, 8.0F, 0.0F},
-    {-2.8F, -9.2F, 0.0F},
-    {3.4F, 8.8F, 0.0F},
-    {8.4F, -8.0F, 0.0F},
-    {11.2F, 5.6F, 0.0F},
-  }};
-  constexpr std::array<RenderColor, 3> flowerColors = {{
-    {255, 224, 102, 255},
-    {255, 142, 180, 255},
-    {144, 213, 255, 255},
-  }};
-  for (std::size_t index = 0; index < flowerPatches.size(); ++index) {
-    const Vec3 patch = flowerPatches[index];
-    if (
-      patch.x < arena.min.x || patch.x > arena.max.x ||
-      patch.y < arena.min.y || patch.y > arena.max.y
-    ) {
-      continue;
-    }
-    addWorldQuad(
-      commands,
-      view,
-      {patch.x - 0.18F, patch.y - 0.18F, arena.min.z},
-      {patch.x + 0.18F, patch.y + 0.18F, arena.min.z},
-      flowerColors[index % flowerColors.size()]
-    );
-  }
-
-  constexpr RenderColor gridColor = {109, 195, 105, 255};
-  for (float x = arena.min.x; x <= arena.max.x; x += 1.0F) {
+  constexpr RenderColor gridColor = {82, 94, 108, 255};
+  for (float x = arena.min.x; x <= arena.max.x; x += gridStep) {
     addLine(
       commands,
       worldToScreen(view, {x, arena.min.y, arena.min.z}),
@@ -355,7 +311,7 @@ void addFloorTreatment(
       gridColor
     );
   }
-  for (float y = arena.min.y; y <= arena.max.y; y += 1.0F) {
+  for (float y = arena.min.y; y <= arena.max.y; y += gridStep) {
     addLine(
       commands,
       worldToScreen(view, {arena.min.x, y, arena.min.z}),
@@ -368,14 +324,14 @@ void addFloorTreatment(
     commands,
     worldToScreen(view, {arena.min.x, 0.0F, arena.min.z}),
     worldToScreen(view, {arena.max.x, 0.0F, arena.min.z}),
-    {236, 205, 126, 255},
+    {120, 138, 156, 255},
     2.0F
   );
   addLine(
     commands,
     worldToScreen(view, {0.0F, arena.min.y, arena.min.z}),
     worldToScreen(view, {0.0F, arena.max.y, arena.min.z}),
-    {236, 205, 126, 255},
+    {120, 138, 156, 255},
     2.0F
   );
 }
@@ -468,23 +424,8 @@ DrawList2D buildTopDownScene(
       worldToScreen(view, {wall.max.x, wall.max.y, 0.0F}),
       worldToScreen(view, {wall.min.x, wall.max.y, 0.0F}),
     };
-    addFilledQuad(drawList.commands, wallCorners, {126, 87, 50, 255});
-    addWorldQuad(
-      drawList.commands,
-      view,
-      {
-        wall.min.x + 0.08F,
-        wall.min.y + 0.08F,
-        wall.min.z,
-      },
-      {
-        wall.max.x - 0.08F,
-        wall.max.y - 0.08F,
-        wall.min.z,
-      },
-      {109, 195, 105, 255}
-    );
-    addQuadOutline(drawList.commands, wallCorners, {127, 202, 111, 255});
+    addFilledQuad(drawList.commands, wallCorners, materialColor(wall.materialId));
+    addQuadOutline(drawList.commands, wallCorners, {156, 170, 184, 255});
   }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {
