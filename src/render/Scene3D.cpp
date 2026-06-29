@@ -1524,25 +1524,47 @@ Scene3D buildPerspectiveScene(
     if (!projectile.active) {
       continue;
     }
-    const float size = projectile.radius > 0.0F ? projectile.radius : 0.14F;
-    if (projectile.weapon == Weapon::GrenadeLauncher) {
-      addSphereApprox(scene, projectile.position, size, {8, 48, 18, 255});
-      addWireBox(
-        scene,
-        projectile.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-        projectile.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-        0.012F,
-        {255, 220, 100, 255}
-      );
-      continue;
-    }
-    if (projectile.weapon == Weapon::PlasmaGun) {
-      addSphereApprox(scene, projectile.position, 0.12F, {112, 255, 142, 255});
-      addSphereApprox(scene, projectile.position, 0.07F, {230, 255, 210, 255});
-      continue;
-    }
-    constexpr float size = 0.14F;
-    addBox(
+for (const RocketProjectileSnapshot& projectile : rockets) {
+  if (!projectile.active) {
+    continue;
+  }
+
+  const float projectileSize =
+    projectile.radius > 0.0F ? projectile.radius : 0.14F;
+
+  if (projectile.weapon == Weapon::GrenadeLauncher) {
+    addSphereApprox(
+      scene,
+      projectile.position,
+      projectileSize,
+      {8, 48, 18, 255}
+    );
+    addWireBox(
+      scene,
+      projectile.position - Vec3{
+        projectileSize * 1.4F,
+        projectileSize * 1.4F,
+        projectileSize * 1.4F
+      },
+      projectile.position + Vec3{
+        projectileSize * 1.4F,
+        projectileSize * 1.4F,
+        projectileSize * 1.4F
+      },
+      0.012F,
+      {255, 220, 100, 255}
+    );
+    continue;
+  }
+
+  if (projectile.weapon == Weapon::PlasmaGun) {
+    addSphereApprox(scene, projectile.position, 0.12F, {112, 255, 142, 255});
+    addSphereApprox(scene, projectile.position, 0.07F, {230, 255, 210, 255});
+    continue;
+  }
+
+  constexpr float size = 0.14F;
+  addBox(
       scene,
       projectile.position - Vec3{size, size, size},
       projectile.position + Vec3{size, size, size},
