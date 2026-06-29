@@ -250,8 +250,8 @@ void copySurfaceToAtlas(
 }
 
 [[nodiscard]] TextureAtlas* createTextureAtlas(SDL_GPUDevice* device) {
-  constexpr int kAtlasSize = 4096;
-  constexpr int kCellSize = 256;
+  constexpr int kAtlasSize = 2048;
+  constexpr int kCellSize = 128;
   constexpr int kCellsPerRow = kAtlasSize / kCellSize;
 
   std::vector<std::uint8_t> atlasPixels(

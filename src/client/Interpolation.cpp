@@ -19,8 +19,8 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 }
 
 [[nodiscard]] PlayerState samplePlayerBetweenSnapshots(
-  const ServerSnapshot& previous,
-  const ServerSnapshot& current,
+  const SnapshotInterpolation::Frame& previous,
+  const SnapshotInterpolation::Frame& current,
   std::size_t playerIndex,
   double presentationTick
 ) {
@@ -39,7 +39,7 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 }
 
 [[nodiscard]] double latestPresentationTick(
-  const std::deque<ServerSnapshot>& snapshots,
+  const std::deque<SnapshotInterpolation::Frame>& snapshots,
   float interpolationDelaySeconds
 ) {
   if (snapshots.empty()) {
@@ -75,18 +75,19 @@ PlayerState interpolatePlayerState(
 }
 
 void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
+  const Frame frame{snapshot.serverTick, snapshot.players};
   if (!initialized_) {
-    snapshots_.push_back(snapshot);
-    presentationTick_ = static_cast<double>(snapshot.serverTick);
+    snapshots_.push_back(frame);
+    presentationTick_ = static_cast<double>(frame.serverTick);
     initialized_ = true;
     return;
   }
 
-  if (!snapshots_.empty() && snapshot.serverTick <= snapshots_.back().serverTick) {
+  if (!snapshots_.empty() && frame.serverTick <= snapshots_.back().serverTick) {
     return;
   }
 
-  snapshots_.push_back(snapshot);
+  snapshots_.push_back(frame);
   while (snapshots_.size() > kMaxBufferedSnapshots) {
     snapshots_.pop_front();
   }
@@ -169,7 +170,7 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     snapshots_.begin(),
     snapshots_.end(),
     presentationTick_,
-    [](const ServerSnapshot& snapshot, double tick) {
+    [](const SnapshotInterpolation::Frame& snapshot, double tick) {
       return static_cast<double>(snapshot.serverTick) < tick;
     }
   );

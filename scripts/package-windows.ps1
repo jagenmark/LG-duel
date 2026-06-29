@@ -94,6 +94,11 @@ Copy-Item $audioSource (Join-Path $outputPath "assets/audio") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
+$textureSource = Join-Path $repoRoot "textures"
+if (-not (Test-Path $textureSource)) {
+  throw "The runtime texture directory was not found in the repository."
+}
+Copy-Item $textureSource (Join-Path $outputPath "textures") -Recurse
 Copy-Item (Join-Path $repoRoot "package/windows/Play LG Duel.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/Host LG Duel Server.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/README.txt") $outputPath
@@ -110,6 +115,8 @@ $requiredFiles = @(
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/gameplay.cfg",
+  "textures/License.txt",
+  "textures/512x512/Stone/Stone_01-512x512.png",
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",
   "README.txt",

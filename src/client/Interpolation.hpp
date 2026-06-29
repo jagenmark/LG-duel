@@ -2,6 +2,7 @@
 
 #include "net/NetProtocol.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -18,6 +19,11 @@ inline constexpr float kDefaultSnapshotInterpolationDelaySeconds = 0.024F;
 
 class SnapshotInterpolation {
 public:
+  struct Frame {
+    std::uint32_t serverTick = 0;
+    std::array<PlayerState, kDuelPlayerCount> players = {};
+  };
+
   void push(const ServerSnapshot& snapshot);
   void advance(
     float elapsedSeconds,
@@ -30,7 +36,7 @@ public:
   [[nodiscard]] PlayerState player(std::size_t playerIndex, float alpha) const;
 
 private:
-  std::deque<ServerSnapshot> snapshots_;
+  std::deque<Frame> snapshots_;
   double presentationTick_ = 0.0;
   bool initialized_ = false;
 };
