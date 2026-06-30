@@ -62,6 +62,15 @@ struct ArenaStaticLight {
   float radius = 8.0F;
 };
 
+struct ArenaSunLight {
+  // Direction the light rays travel in world space. A direction of {0, 0, -1}
+  // shines downward; surface lighting uses dot(surfaceNormal, -direction).
+  Vec3 direction = {0.25916052F, -0.43193421F, -0.86386842F};
+  Vec3 color = {1.0F, 0.94117647F, 0.78431374F};
+  float intensity = 0.7F;
+  bool enabled = false;
+};
+
 struct Arena {
   static constexpr std::size_t kWallCount = 255;
   static constexpr std::size_t kBrushCount = 128;
@@ -75,6 +84,7 @@ struct Arena {
   std::size_t brushCount = 0;
   std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
   std::size_t staticLightCount = 0;
+  ArenaSunLight sunLight = {};
   std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},

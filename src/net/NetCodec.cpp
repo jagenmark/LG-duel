@@ -564,6 +564,14 @@ bool writeArena(Writer& writer, const Arena& arena) {
           return false;
         }
       }
+      if (
+        !writer.writeBool(arena.sunLight.enabled) ||
+        !writeVec3(writer, arena.sunLight.direction) ||
+        !writeVec3(writer, arena.sunLight.color) ||
+        !writer.writeFloat(arena.sunLight.intensity)
+      ) {
+        return false;
+      }
       return true;
     }();
 }
@@ -668,6 +676,23 @@ bool readArena(Reader& reader, Arena& arena) {
       return false;
     }
   }
+  if (
+    !reader.readBool(decoded.sunLight.enabled) ||
+    !readVec3(reader, decoded.sunLight.direction) ||
+    !readVec3(reader, decoded.sunLight.color) ||
+    !reader.readFloat(decoded.sunLight.intensity) ||
+    decoded.sunLight.color.x < 0.0F ||
+    decoded.sunLight.color.y < 0.0F ||
+    decoded.sunLight.color.z < 0.0F ||
+    decoded.sunLight.color.x > 1.0F ||
+    decoded.sunLight.color.y > 1.0F ||
+    decoded.sunLight.color.z > 1.0F ||
+    decoded.sunLight.intensity < 0.0F ||
+    length(decoded.sunLight.direction) <= 0.0001F
+  ) {
+    return false;
+  }
+  decoded.sunLight.direction = normalize(decoded.sunLight.direction);
 
   if (
     decoded.min.x >= decoded.max.x ||

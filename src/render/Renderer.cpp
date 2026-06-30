@@ -290,6 +290,7 @@ void collectTextureMaterialFiles(
   std::uint64_t hash = 1469598103934665603ULL;
   hash = hashCombine(hash, arena.wallCount);
   hash = hashCombine(hash, arena.brushCount);
+  hash = hashCombine(hash, arena.staticLightCount);
   const auto hashFloat = [](float value) {
     static_assert(sizeof(float) == sizeof(std::uint32_t));
     std::uint32_t bits = 0;
@@ -337,6 +338,25 @@ void collectTextureMaterialFiles(
       hash = hashCombine(hash, face.textureProjection.valid ? 1U : 0U);
     }
   }
+  for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+    const ArenaStaticLight& light = arena.staticLights[index];
+    hash = hashCombine(hash, hashFloat(light.position.x));
+    hash = hashCombine(hash, hashFloat(light.position.y));
+    hash = hashCombine(hash, hashFloat(light.position.z));
+    hash = hashCombine(hash, hashFloat(light.color.x));
+    hash = hashCombine(hash, hashFloat(light.color.y));
+    hash = hashCombine(hash, hashFloat(light.color.z));
+    hash = hashCombine(hash, hashFloat(light.intensity));
+    hash = hashCombine(hash, hashFloat(light.radius));
+  }
+  hash = hashCombine(hash, arena.sunLight.enabled ? 1U : 0U);
+  hash = hashCombine(hash, hashFloat(arena.sunLight.direction.x));
+  hash = hashCombine(hash, hashFloat(arena.sunLight.direction.y));
+  hash = hashCombine(hash, hashFloat(arena.sunLight.direction.z));
+  hash = hashCombine(hash, hashFloat(arena.sunLight.color.x));
+  hash = hashCombine(hash, hashFloat(arena.sunLight.color.y));
+  hash = hashCombine(hash, hashFloat(arena.sunLight.color.z));
+  hash = hashCombine(hash, hashFloat(arena.sunLight.intensity));
   return hash;
 }
 

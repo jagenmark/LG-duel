@@ -325,6 +325,10 @@ int main() {
     source.arena.staticLights[0].color = {1.0F, 0.75F, 0.5F};
     source.arena.staticLights[0].intensity = 1.25F;
     source.arena.staticLights[0].radius = 9.0F;
+    source.arena.sunLight.enabled = true;
+    source.arena.sunLight.direction = {0.0F, 0.0F, -1.0F};
+    source.arena.sunLight.color = {1.0F, 0.9F, 0.7F};
+    source.arena.sunLight.intensity = 0.8F;
     source.acknowledgedCommand = {12, 34};
     source.hasAcknowledgedCommand = {true, false};
     source.players[0].position = {1.0F, 2.0F, 3.0F};
@@ -498,6 +502,10 @@ int main() {
         nearlyEqual(decoded.arena.brushes[0].vertices[3].z, 2.0F) &&
         nearlyEqual(decoded.arena.staticLights[0].color.y, 0.75F) &&
         nearlyEqual(decoded.arena.staticLights[0].radius, 9.0F) &&
+        decoded.arena.sunLight.enabled &&
+        nearlyEqual(decoded.arena.sunLight.direction.z, -1.0F) &&
+        nearlyEqual(decoded.arena.sunLight.color.y, 0.9F) &&
+        nearlyEqual(decoded.arena.sunLight.intensity, 0.8F) &&
         nearlyEqual(decoded.arena.spawnPositions[1].x, 8.0F),
       "snapshot arena should round trip"
     );
