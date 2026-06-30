@@ -1138,6 +1138,8 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_g"));
   settings.hitMarkerBlue =
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_b"));
+  settings.shotgunWeaponModelStart =
+    console.getBool("r_sg_weapon_model_start");
   settings.damageNumbersDuration = console.getFloat("r_damage_numbers_duration");
   settings.damageNumbersSize = console.getFloat("r_damage_numbers_size");
   settings.damageNumbersAlpha = console.getFloat("r_damage_numbers_alpha");
@@ -4058,6 +4060,9 @@ int GameApp::run() const {
       renderPlayer.viewPitchRadians = presentationView.pitchRadians;
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
+    currentRenderSettings.localPlayerIndex =
+      static_cast<std::uint8_t>(renderLocalPlayerIndex);
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),

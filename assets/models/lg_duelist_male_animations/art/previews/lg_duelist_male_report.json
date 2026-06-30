@@ -1,0 +1,116 @@
+{
+  "blend": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male.blend",
+  "backup_blend": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v7_backup.blend",
+  "glb": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\exports\\lg_duelist_male.glb",
+  "screenshots": [
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_front.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_side.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_three_quarter.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_head_closeup.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_head_profile.png"
+  ],
+  "triangles": 1108,
+  "height": 1.715,
+  "min_z": 0.0,
+  "mesh_objects": [
+    "LGDuelist_Male_Body"
+  ],
+  "materials": [
+    "MAT_Skin",
+    "MAT_SkinShadow",
+    "MAT_Hair",
+    "MAT_ClothPrimary",
+    "MAT_ClothAccent",
+    "MAT_BootsGear",
+    "MAT_EyeWhite"
+  ],
+  "bones": [
+    "root",
+    "pelvis",
+    "spine_01",
+    "spine_02",
+    "neck",
+    "head",
+    "upper_arm_l",
+    "lower_arm_l",
+    "hand_l",
+    "upper_arm_r",
+    "lower_arm_r",
+    "hand_r",
+    "weapon_socket_r",
+    "thigh_l",
+    "calf_l",
+    "foot_l",
+    "thigh_r",
+    "calf_r",
+    "foot_r"
+  ],
+  "weapon_socket_present": true,
+  "forward": "Blender -Y",
+  "revision": "v12 head proportion polish: rebuilt head kept, narrowed and de-rounded, smaller ears, rear cranium trimmed.",
+  "notes": [
+    "Old head was replaced, not retained",
+    "Head narrowed and rear cranium trimmed",
+    "Ears reduced",
+    "Top lowered slightly"
+  ],
+  "backup_blend_v8": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v8_backup.blend",
+  "backup_blend_v9": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v9_backup.blend",
+  "backup_before_head_replace": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v10_before_head_replace.blend",
+  "backup_before_proportion_polish": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v11_before_proportion_polish.blend",
+  "backup_before_anim_pass": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v12_before_anim_pass.blend",
+  "animation_revision": "anim_v1: skinned GLB export contains jump, lean_left, lean_right.",
+  "animations": [
+    {
+      "name": "lg_duelist_jump",
+      "frames": [
+        1,
+        32
+      ],
+      "description": "anticipation crouch, takeoff, apex, landing squash, recover"
+    },
+    {
+      "name": "lg_duelist_lean_left",
+      "frames": [
+        1,
+        28
+      ],
+      "description": "side lean left"
+    },
+    {
+      "name": "lg_duelist_lean_right",
+      "frames": [
+        1,
+        28
+      ],
+      "description": "mirrored side lean right"
+    }
+  ],
+  "rig_check": {
+    "vertex_groups_count": 19,
+    "weighted_vertices": 990,
+    "group_counts": {
+      "spine_01": 40,
+      "spine_02": 376,
+      "neck": 8,
+      "head": 124,
+      "upper_arm_l": 18,
+      "lower_arm_l": 87,
+      "upper_arm_r": 18,
+      "lower_arm_r": 99,
+      "thigh_l": 12,
+      "calf_l": 25,
+      "foot_l": 67,
+      "thigh_r": 24,
+      "calf_r": 25,
+      "foot_r": 67
+    },
+    "armature_modifier": "LGDuelist armature deform",
+    "nla_tracks": [
+      "lg_duelist_jump",
+      "lg_duelist_lean_left",
+      "lg_duelist_lean_right"
+    ]
+  },
+  "removed_animation": "weapon_hold_preview removed from current export; older backups retain it if needed."
+}

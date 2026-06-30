@@ -1196,21 +1196,26 @@ const PlayerState& firstVisibleRemote(
         static_cast<float>(outputWidth),
         static_cast<float>(outputHeight)
       );
-      const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
-        static_cast<int>(outputWidth),
-        static_cast<int>(outputHeight),
-        localLightningGun,
-        hud.selectedWeapon,
-        hud.previousWeapon,
-        hud.weaponSwitchProgress,
-        settings
-      );
-      appendCommands(
-        vertices,
-        weaponOverlay.overlayCommands,
-        static_cast<float>(outputWidth),
-        static_cast<float>(outputHeight)
-      );
+      if (
+        hud.selectedWeapon != Weapon::MachineGun &&
+        hud.selectedWeapon != Weapon::Shotgun
+      ) {
+        const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
+          static_cast<int>(outputWidth),
+          static_cast<int>(outputHeight),
+          localLightningGun,
+          hud.selectedWeapon,
+          hud.previousWeapon,
+          hud.weaponSwitchProgress,
+          settings
+        );
+        appendCommands(
+          vertices,
+          weaponOverlay.overlayCommands,
+          static_cast<float>(outputWidth),
+          static_cast<float>(outputHeight)
+        );
+      }
     }
     const DrawList2D ui = buildScreenUi(
       static_cast<int>(outputWidth),

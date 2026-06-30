@@ -71,6 +71,7 @@ add_library(lg_duel_client_app
   src/render/BitmapFont.cpp
   src/render/ChatLayout.cpp
   src/render/ConsoleLayout.cpp
+  src/render/GltfSkinnedModel.cpp
   src/render/Renderer.cpp
   src/render/Scene3D.cpp
   src/render/ScreenUi.cpp
@@ -135,6 +136,9 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/audio"
     "$<TARGET_FILE_DIR:lg_duel_client>/assets/audio"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/models"
+    "$<TARGET_FILE_DIR:lg_duel_client>/assets/models"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/textures"
     "$<TARGET_FILE_DIR:lg_duel_client>/textures"

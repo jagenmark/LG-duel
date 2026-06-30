@@ -161,6 +161,9 @@ struct RenderSettings {
   std::uint8_t teammateNameTagRed = 210;
   std::uint8_t teammateNameTagGreen = 245;
   std::uint8_t teammateNameTagBlue = 255;
+  Weapon localSelectedWeapon = Weapon::LightningGun;
+  bool shotgunWeaponModelStart = false;
+  std::uint8_t localPlayerIndex = 0;
   bool showLagCompensation = false;
   bool hasRemotePlayer = true;
 };

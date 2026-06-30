@@ -1,4 +1,6 @@
 #include "render/Scene3D.hpp"
+#include "render/BakedWeaponModels.hpp"
+#include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
 #include <array>
@@ -15,6 +17,10 @@ constexpr float kJumpPoseTorsoPitchRadians = 5.0F * kDegreesToRadians;
 constexpr float kJumpPoseArmPitchRadians = 2.0F * kDegreesToRadians;
 constexpr float kJumpPoseLegPitchRadians = -30.0F * kDegreesToRadians;
 constexpr float kTwoPi = 6.28318530718F;
+constexpr float kQuarterTurnRadians = 1.57079632679F;
+constexpr float kDuelistMaleHeight = 1.67400002F;
+constexpr float kDuelistMaleHalfWidth = 0.42503331F;
+constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 
 struct PlayerModelBasis {
   Vec3 forward = {};
@@ -80,6 +86,30 @@ struct WeaponModelFrame {
   };
 }
 
+[[nodiscard]] RenderColor blendColor(
+  RenderColor base,
+  RenderColor tint,
+  float tintAmount
+) {
+  const auto blend = [tintAmount](
+                       std::uint8_t baseChannel,
+                       std::uint8_t tintChannel
+                     ) {
+    return static_cast<std::uint8_t>(std::clamp(
+      static_cast<float>(baseChannel) * (1.0F - tintAmount) +
+        static_cast<float>(tintChannel) * tintAmount,
+      0.0F,
+      255.0F
+    ));
+  };
+  return {
+    blend(base.red, tint.red),
+    blend(base.green, tint.green),
+    blend(base.blue, tint.blue),
+    tint.alpha,
+  };
+}
+
 void addSegment(
   Scene3D& scene,
   Vec3 start,
@@ -87,6 +117,8 @@ void addSegment(
   float width,
   RenderColor color
 );
+
+[[nodiscard]] Vec3 cameraUp(float yawRadians, float pitchRadians);
 
 void addTriangle(
   Scene3D& scene,
@@ -703,15 +735,68 @@ void addPlayerModel(
   bool leanEnabled,
   float leanScale
 ) {
-  forEachPlayerModelPart(
-    player,
-    leanEnabled,
-    leanScale,
-    0.0F,
-    [&](Vec3 center, Vec3 halfExtents, Vec3 forward, Vec3 right, Vec3 up) {
-      addOrientedBox(scene, center, halfExtents, forward, right, up, color);
+  const PlayerModelBasis basis =
+    playerModelBasis(player, false, leanScale, 0.0F);
+  const PlayerVisualPose pose = makePlayerVisualPose(player);
+  const float verticalScale = basis.height / kDuelistMaleHeight;
+  const float horizontalScale = basis.radius / kDuelistMaleHalfWidth * 0.94F;
+  const Vec3 base = player.position - basis.up * basis.halfHeight;
+  const Vec3 lightDirection = normalize(Vec3{-0.35F, -0.45F, 0.82F});
+  const float lateralVelocity = dot(player.velocity, yawRight(player.viewYawRadians));
+  const float leanAmount = leanEnabled
+    ? std::clamp(lateralVelocity / 8.0F * leanScale, -1.0F, 1.0F)
+    : 0.0F;
+  std::vector<SkinnedModelPoseRequest> poseRequests;
+  if (pose.airborne) {
+    const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 16.0F, 0.0F, 1.0F);
+    const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
+    poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+  } else if (leanAmount > 0.02F) {
+    poseRequests.push_back({"lg_duelist_lean_right", 0.5833333F, std::fabs(leanAmount)});
+  } else if (leanAmount < -0.02F) {
+    poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
+  }
+
+  const auto point = [&](Vec3 local) {
+    return base +
+      basis.forward * ((local.z - kDuelistMaleDepthCenter) * horizontalScale) +
+      basis.right * (local.x * horizontalScale) +
+      basis.up * (local.y * verticalScale);
+  };
+
+  const GltfSkinnedModel& model = duelistMaleModel();
+  if (!model.loaded()) {
+    forEachPlayerModelPart(
+      player,
+      leanEnabled,
+      leanScale,
+      0.0F,
+      [&](Vec3 center, Vec3 halfExtents, Vec3 forward, Vec3 right, Vec3 up) {
+        addOrientedBox(scene, center, halfExtents, forward, right, up, color);
+      }
+    );
+    return;
+  }
+
+  for (const SkinnedModelTriangle& triangle : model.triangles(poseRequests)) {
+    const Vec3 first = point(triangle.vertices[0]);
+    const Vec3 second = point(triangle.vertices[1]);
+    const Vec3 third = point(triangle.vertices[2]);
+    const Vec3 normal = normalize(cross(second - first, third - first));
+    const float brightness = std::clamp(
+      0.70F +
+        std::max(0.0F, dot(normal, lightDirection)) * 0.38F +
+        std::fabs(normal.z) * 0.12F,
+      0.62F,
+      1.22F
+    );
+    RenderColor shaded = scaleColor(triangle.color, brightness);
+    if (triangle.tintable) {
+      shaded = blendColor(shaded, color, 0.70F);
     }
-  );
+    shaded.alpha = triangle.tintable ? color.alpha : shaded.alpha;
+    addTriangle(scene, first, second, third, shaded);
+  }
 }
 
 [[nodiscard]] WeaponModelFrame weaponModelFrame(
@@ -794,6 +879,90 @@ void addWeaponStrut(
   );
 }
 
+template <std::size_t Count>
+void addBakedWeaponModel(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  const std::array<BakedWeaponModelTriangle, Count>& model,
+  float modelScale,
+  float rollRadians = 0.0F
+) {
+  const float rollCos = std::cos(rollRadians);
+  const float rollSin = std::sin(rollRadians);
+  const auto point = [&](Vec3 local) {
+    local = {
+      local.x,
+      local.y * rollCos - local.z * rollSin,
+      local.y * rollSin + local.z * rollCos,
+    };
+    return frame.hand +
+      frame.basis.forward * (local.x * frame.scale * modelScale) +
+      frame.basis.right * (local.y * frame.scale * modelScale) +
+      frame.basis.up * (local.z * frame.scale * modelScale);
+  };
+  for (const BakedWeaponModelTriangle& triangle : model) {
+    const Vec3 first = point(triangle.vertices[0]);
+    const Vec3 second = point(triangle.vertices[1]);
+    const Vec3 third = point(triangle.vertices[2]);
+    const Vec3 normal = normalize(cross(second - first, third - first));
+    const Vec3 lightDirection = normalize(Vec3{-0.35F, -0.45F, 0.82F});
+    const float brightness = std::clamp(
+      0.70F +
+        std::max(0.0F, dot(normal, lightDirection)) * 0.42F +
+        std::fabs(normal.z) * 0.16F,
+      0.58F,
+      1.30F
+    );
+    RenderColor color = scaleColor(triangle.color, brightness);
+    color.alpha = 255;
+    addTriangle(scene, first, second, third, color);
+  }
+}
+
+[[nodiscard]] WeaponModelFrame firstPersonWeaponModelFrame(
+  const PlayerState& player
+) {
+  WeaponModelFrame frame;
+  frame.basis.forward =
+    cameraForward(player.viewYawRadians, player.viewPitchRadians);
+  frame.basis.right = yawRight(player.viewYawRadians);
+  frame.basis.up = cameraUp(player.viewYawRadians, player.viewPitchRadians);
+  constexpr CollisionBounds defaultBounds = {};
+  const float eyeHeight =
+    0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
+  const Vec3 eyePosition = player.position + Vec3{0.0F, 0.0F, eyeHeight};
+  frame.hand =
+    eyePosition +
+    frame.basis.forward * 0.32F -
+    frame.basis.up * 0.38F;
+  frame.scale = 0.50F;
+  return frame;
+}
+
+void addFirstPersonWeaponModel(
+  Scene3D& scene,
+  const PlayerState& player,
+  Weapon weapon
+) {
+  const WeaponModelFrame frame = firstPersonWeaponModelFrame(player);
+  switch (weapon) {
+  case Weapon::MachineGun:
+    addBakedWeaponModel(scene, frame, kMachineGunWeaponModel, 1.0F);
+    break;
+  case Weapon::Shotgun:
+    addBakedWeaponModel(
+      scene,
+      frame,
+      kShotgunWeaponModel,
+      1.0F,
+      kQuarterTurnRadians
+    );
+    break;
+  default:
+    break;
+  }
+}
+
 void addLightningGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
   constexpr RenderColor bodyDark = {14, 20, 29, 255};
   constexpr RenderColor panelTeal = {34, 76, 91, 255};
@@ -837,34 +1006,17 @@ void addLightningGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
 }
 
 void addMachineGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  constexpr RenderColor gunmetal = {32, 35, 38, 255};
-  constexpr RenderColor steel = {82, 91, 98, 255};
-  constexpr RenderColor belt = {208, 171, 82, 255};
-  constexpr RenderColor muzzle = {168, 180, 188, 255};
-
-  addWeaponPart(scene, frame, 0.14F, 0.0F, 0.07F, {0.20F, 0.08F, 0.07F}, gunmetal);
-  addWeaponPart(scene, frame, 0.41F, -0.035F, 0.09F, {0.22F, 0.025F, 0.025F}, steel);
-  addWeaponPart(scene, frame, 0.41F, 0.035F, 0.09F, {0.22F, 0.025F, 0.025F}, steel);
-  addWeaponPart(scene, frame, 0.64F, 0.0F, 0.09F, {0.045F, 0.065F, 0.055F}, muzzle);
-  addWeaponPart(scene, frame, 0.02F, 0.13F, 0.02F, {0.12F, 0.035F, 0.09F}, belt);
-  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.045F, 0.14F}, gunmetal);
+  addBakedWeaponModel(scene, frame, kMachineGunWeaponModel, 0.78F);
 }
 
 void addShotgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  constexpr RenderColor darkSteel = {24, 27, 30, 255};
-  constexpr RenderColor gunSteel = {92, 101, 108, 255};
-  constexpr RenderColor brightSteel = {162, 172, 178, 255};
-  constexpr RenderColor wornGrip = {58, 45, 36, 255};
-
-  addWeaponPart(scene, frame, 0.10F, 0.0F, 0.075F, {0.17F, 0.105F, 0.085F}, gunSteel);
-  addWeaponPart(scene, frame, 0.24F, 0.0F, 0.125F, {0.10F, 0.125F, 0.045F}, darkSteel);
-  addWeaponPart(scene, frame, 0.41F, -0.055F, 0.115F, {0.22F, 0.033F, 0.035F}, gunSteel);
-  addWeaponPart(scene, frame, 0.41F, 0.055F, 0.115F, {0.22F, 0.033F, 0.035F}, gunSteel);
-  addWeaponPart(scene, frame, 0.62F, -0.055F, 0.115F, {0.040F, 0.045F, 0.045F}, brightSteel);
-  addWeaponPart(scene, frame, 0.62F, 0.055F, 0.115F, {0.040F, 0.045F, 0.045F}, brightSteel);
-  addWeaponPart(scene, frame, 0.08F, 0.0F, -0.085F, {0.060F, 0.050F, 0.135F}, wornGrip);
-  addWeaponPart(scene, frame, 0.27F, 0.0F, -0.020F, {0.105F, 0.095F, 0.032F}, darkSteel);
-  addWeaponPart(scene, frame, 0.19F, 0.0F, 0.205F, {0.070F, 0.085F, 0.020F}, brightSteel);
+  addBakedWeaponModel(
+    scene,
+    frame,
+    kShotgunWeaponModel,
+    0.78F,
+    kQuarterTurnRadians
+  );
 }
 
 void addGrenadeLauncherModel(Scene3D& scene, const WeaponModelFrame& frame) {
@@ -926,6 +1078,18 @@ void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
   addWeaponStrut(scene, frame, {0.20F, 0.11F, 0.17F}, {0.54F, 0.11F, 0.17F}, 0.018F, plasma);
 }
 
+[[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::LightningGun:
+    return 0.55F;
+  case Weapon::RocketLauncher:
+  case Weapon::GrenadeLauncher:
+    return 0.68F;
+  default:
+    return 0.65F;
+  }
+}
+
 void addWeaponModel(
   Scene3D& scene,
   const PlayerState& player,
@@ -934,7 +1098,8 @@ void addWeaponModel(
   bool leanEnabled,
   float leanScale
 ) {
-  const WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
+  WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
+  frame.scale *= thirdPersonWeaponVisualScale(weapon);
   switch (weapon) {
   case Weapon::LightningGun:
     addLightningGunModel(scene, frame);
@@ -1088,6 +1253,59 @@ void addWireBox(
   return dot(delta, delta);
 }
 
+[[nodiscard]] Vec3 playerEyePosition(const PlayerState& player) {
+  constexpr CollisionBounds defaultBounds = {};
+  return player.position +
+    Vec3{
+      0.0F,
+      0.0F,
+      0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight)
+    };
+}
+
+[[nodiscard]] Vec3 cameraUp(float yawRadians, float pitchRadians) {
+  return {
+    -std::cos(yawRadians) * std::sin(pitchRadians),
+    -std::sin(yawRadians) * std::sin(pitchRadians),
+    std::cos(pitchRadians),
+  };
+}
+
+[[nodiscard]] Vec3 firstPersonWeaponMuzzlePosition(const PlayerState& player) {
+  return playerEyePosition(player) +
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+}
+
+[[nodiscard]] Vec3 remoteWeaponModelPoint(
+  Vec3 fallback,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings,
+  float forward,
+  float right,
+  float up
+) {
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return firstPersonWeaponMuzzlePosition(localPlayer);
+  }
+  if (playerIndex < remotePlayers.size() && remotePlayers[playerIndex].visible) {
+    const RemotePlayerView& remote = remotePlayers[playerIndex];
+    const bool leanEnabled = remote.teammate
+      ? settings.teammateLeanEnabled
+      : settings.enemyLeanEnabled;
+    const float leanScale = remote.teammate
+      ? settings.teammateLeanScale
+      : settings.enemyLeanScale;
+    const WeaponModelFrame frame =
+      weaponModelFrame(remote.player, leanEnabled, leanScale);
+    return weaponLocalPoint(frame, forward, right, up);
+  }
+
+  return fallback;
+}
+
 [[nodiscard]] Vec3 machineGunVisualSource(
   const WeaponFireResult& fire,
   const PlayerState& localPlayer,
@@ -1102,40 +1320,76 @@ void addWireBox(
 
   const float angle =
     static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
-  const float barrelRight = std::cos(angle) * 0.055F;
-  const float barrelUp = std::sin(angle) * 0.055F;
-  constexpr CollisionBounds defaultBounds = {};
-  const Vec3 localEye =
-    localPlayer.position +
-    Vec3{
-      0.0F,
-      0.0F,
-      0.65F * (localPlayer.bounds.halfHeight / defaultBounds.halfHeight)
-    };
-
-  if (playerIndex < remotePlayers.size() && remotePlayers[playerIndex].visible) {
-    const RemotePlayerView& remote = remotePlayers[playerIndex];
-    const Vec3 remoteEye =
-      remote.player.position +
-      Vec3{
-        0.0F,
-        0.0F,
-        0.65F * (remote.player.bounds.halfHeight / defaultBounds.halfHeight)
-      };
-    if (distanceSquared(fire.start, remoteEye) < distanceSquared(fire.start, localEye)) {
-      const bool leanEnabled = remote.teammate
-        ? settings.teammateLeanEnabled
-        : settings.enemyLeanEnabled;
-      const float leanScale = remote.teammate
-        ? settings.teammateLeanScale
-        : settings.enemyLeanScale;
-      const WeaponModelFrame frame =
-        weaponModelFrame(remote.player, leanEnabled, leanScale);
-      return weaponLocalPoint(frame, 0.64F, barrelRight, 0.09F + barrelUp);
-    }
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return fire.start;
   }
+  return remoteWeaponModelPoint(
+    fire.start,
+    localPlayer,
+    remotePlayers,
+    playerIndex,
+    settings,
+    0.64F,
+    std::cos(angle) * 0.055F,
+    0.09F + std::sin(angle) * 0.055F
+  );
+}
 
-  return fire.start;
+[[nodiscard]] Vec3 shotgunVisualSource(
+  const WeaponFireResult& fire,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+) {
+  if (!settings.shotgunWeaponModelStart) {
+    return fire.start;
+  }
+  return remoteWeaponModelPoint(
+    fire.start,
+    localPlayer,
+    remotePlayers,
+    playerIndex,
+    settings,
+    0.62F,
+    0.0F,
+    0.115F
+  );
+}
+
+[[nodiscard]] Vec3 projectileVisualPosition(
+  const RocketProjectileSnapshot& projectile,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const RenderSettings& settings
+) {
+  if (projectile.weapon != Weapon::PlasmaGun) {
+    return projectile.position;
+  }
+  const std::size_t owner = static_cast<std::size_t>(projectile.owner);
+  if (owner == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return projectile.position +
+      (firstPersonWeaponMuzzlePosition(localPlayer) - playerEyePosition(localPlayer));
+  }
+  if (owner >= remotePlayers.size() || !remotePlayers[owner].visible) {
+    return projectile.position;
+  }
+  const RemotePlayerView& remote = remotePlayers[owner];
+  const Vec3 remoteEye = playerEyePosition(remote.player);
+  const Vec3 localEye = playerEyePosition(localPlayer);
+  if (distanceSquared(projectile.position, remoteEye) >= distanceSquared(projectile.position, localEye)) {
+    return projectile.position;
+  }
+  const bool leanEnabled = remote.teammate
+    ? settings.teammateLeanEnabled
+    : settings.enemyLeanEnabled;
+  const float leanScale = remote.teammate
+    ? settings.teammateLeanScale
+    : settings.enemyLeanScale;
+  const WeaponModelFrame frame =
+    weaponModelFrame(remote.player, leanEnabled, leanScale);
+  return projectile.position +
+    (weaponLocalPoint(frame, 0.74F, 0.0F, 0.09F) - remoteEye);
 }
 
 void addMachineGunMuzzleFlash(
@@ -1214,14 +1468,18 @@ void addMachineGunFireVisuals(
   addMachineGunImpactSpark(scene, fire);
 }
 
-void addShotgunMuzzleFlash(Scene3D& scene, const WeaponFireResult& fire) {
-  const Vec3 forward = normalize(fire.end - fire.start);
+void addShotgunMuzzleFlash(
+  Scene3D& scene,
+  const WeaponFireResult& fire,
+  Vec3 visualStart
+) {
+  const Vec3 forward = normalize(fire.end - visualStart);
   if (length(forward) <= 0.0001F) {
     return;
   }
   const Vec3 right = perpendicularRight(forward);
   const Vec3 up = normalize(cross(right, forward));
-  const Vec3 center = fire.start + forward * 0.18F;
+  const Vec3 center = visualStart + forward * 0.18F;
   constexpr RenderColor hotCore = {255, 246, 178, 240};
   constexpr RenderColor warmEdge = {255, 132, 54, 205};
 
@@ -1237,9 +1495,13 @@ void addShotgunMuzzleFlash(Scene3D& scene, const WeaponFireResult& fire) {
   );
 }
 
-void addShotgunPelletTraces(Scene3D& scene, const WeaponFireResult& fire) {
-  const Vec3 forward = normalize(fire.end - fire.start);
-  const float distance = length(fire.end - fire.start);
+void addShotgunPelletTraces(
+  Scene3D& scene,
+  const WeaponFireResult& fire,
+  Vec3 visualStart
+) {
+  const Vec3 forward = normalize(fire.end - visualStart);
+  const float distance = length(fire.end - visualStart);
   if (length(forward) <= 0.0001F || distance <= 0.01F) {
     return;
   }
@@ -1257,16 +1519,20 @@ void addShotgunPelletTraces(Scene3D& scene, const WeaponFireResult& fire) {
       : RenderColor{255, 196, 92, 145};
     addSegment(
       scene,
-      fire.start + direction * 0.20F,
-      fire.start + direction * traceDistance,
+      visualStart + direction * 0.20F,
+      visualStart + direction * traceDistance,
       pelletIndex == 0 ? 0.018F : 0.011F,
       color
     );
   }
 }
 
-void addShotgunImpactPuffs(Scene3D& scene, const WeaponFireResult& fire) {
-  const Vec3 forward = normalize(fire.end - fire.start);
+void addShotgunImpactPuffs(
+  Scene3D& scene,
+  const WeaponFireResult& fire,
+  Vec3 visualStart
+) {
+  const Vec3 forward = normalize(fire.end - visualStart);
   if (length(forward) <= 0.0001F) {
     return;
   }
@@ -1290,10 +1556,14 @@ void addShotgunImpactPuffs(Scene3D& scene, const WeaponFireResult& fire) {
   }
 }
 
-void addShotgunFireVisuals(Scene3D& scene, const WeaponFireResult& fire) {
-  addShotgunMuzzleFlash(scene, fire);
-  addShotgunPelletTraces(scene, fire);
-  addShotgunImpactPuffs(scene, fire);
+void addShotgunFireVisuals(
+  Scene3D& scene,
+  const WeaponFireResult& fire,
+  Vec3 visualStart
+) {
+  addShotgunMuzzleFlash(scene, fire, visualStart);
+  addShotgunPelletTraces(scene, fire, visualStart);
+  addShotgunImpactPuffs(scene, fire, visualStart);
 }
 
 } // namespace
@@ -1336,6 +1606,10 @@ Scene3D buildPerspectiveScene(
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     addArenaBrush(scene, arena.brushes[index]);
+  }
+
+  if (settings.renderMode == 1) {
+    addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
   }
 
   for (const RemotePlayerView& remote : remotePlayers) {
@@ -1514,14 +1788,6 @@ Scene3D buildPerspectiveScene(
         0.04F,
         {255, 150, 70, 255}
       );
-    } else if (fire.weapon == Weapon::PlasmaGun) {
-      addSegment(
-        scene,
-        fire.start,
-        fire.end,
-        0.035F,
-        {112, 255, 142, 255}
-      );
     } else if (fire.weapon == Weapon::MachineGun) {
       addMachineGunFireVisuals(
         scene,
@@ -1529,7 +1795,11 @@ Scene3D buildPerspectiveScene(
         machineGunVisualSource(fire, player, remotePlayers, fireIndex, settings)
       );
     } else if (fire.weapon == Weapon::Shotgun) {
-      addShotgunFireVisuals(scene, fire);
+      addShotgunFireVisuals(
+        scene,
+        fire,
+        shotgunVisualSource(fire, player, remotePlayers, fireIndex, settings)
+      );
     }
   }
 for (const RocketProjectileSnapshot& projectile : rockets) {
@@ -1537,24 +1807,26 @@ for (const RocketProjectileSnapshot& projectile : rockets) {
     continue;
   }
 
+  const Vec3 projectilePosition =
+    projectileVisualPosition(projectile, player, remotePlayers, settings);
   const float projectileSize =
     projectile.radius > 0.0F ? projectile.radius : 0.14F;
 
   if (projectile.weapon == Weapon::GrenadeLauncher) {
     addSphereApprox(
       scene,
-      projectile.position,
+      projectilePosition,
       projectileSize,
       {8, 48, 18, 255}
     );
     addWireBox(
       scene,
-      projectile.position - Vec3{
+      projectilePosition - Vec3{
         projectileSize * 1.4F,
         projectileSize * 1.4F,
         projectileSize * 1.4F
       },
-      projectile.position + Vec3{
+      projectilePosition + Vec3{
         projectileSize * 1.4F,
         projectileSize * 1.4F,
         projectileSize * 1.4F
@@ -1566,22 +1838,22 @@ for (const RocketProjectileSnapshot& projectile : rockets) {
   }
 
   if (projectile.weapon == Weapon::PlasmaGun) {
-    addSphereApprox(scene, projectile.position, 0.12F, {112, 255, 142, 255});
-    addSphereApprox(scene, projectile.position, 0.07F, {230, 255, 210, 255});
+    addSphereApprox(scene, projectilePosition, 0.12F, {112, 255, 142, 255});
+    addSphereApprox(scene, projectilePosition, 0.07F, {230, 255, 210, 255});
     continue;
   }
 
   constexpr float size = 0.14F;
   addBox(
       scene,
-      projectile.position - Vec3{size, size, size},
-      projectile.position + Vec3{size, size, size},
+      projectilePosition - Vec3{size, size, size},
+      projectilePosition + Vec3{size, size, size},
       {255, 126, 40, 255}
     );
     addWireBox(
       scene,
-      projectile.position - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-      projectile.position + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+      projectilePosition - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
+      projectilePosition + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
       0.012F,
       {255, 220, 100, 255}
     );

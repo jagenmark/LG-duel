@@ -124,6 +124,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_hitmarker_r", "Hitmarker red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_hitmarker_g", "Hitmarker green channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_hitmarker_b", "Hitmarker blue channel.", 255, archivedClient, 0.0F, 255.0F});
+  console.registerCvar({"r_sg_weapon_model_start", "Draw shotgun fire from the remote weapon model instead of the gameplay muzzle.", false, archivedClient, {}, {}});
   console.registerCvar({"r_damage_numbers_mode", "Damage number display: 0 off, 1 per damage instance, 2 per instance plus burst tally, 3 burst tally only, 4 world-space burst tally only.", 0, archivedClient, 0.0F, 4.0F});
   console.registerCvar({"r_damage_numbers_window", "Seconds without local damage before a burst tally resets.", 0.4F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_damage_numbers_duration", "Visual lifetime of each individual damage number.", 0.65F, archivedClient, 0.05F, 3.0F});

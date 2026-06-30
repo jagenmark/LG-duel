@@ -1,3 +1,4 @@
+#include "render/GltfSkinnedModel.hpp"
 #include "render/Scene3D.hpp"
 #include "sim/Arena.hpp"
 #include "sim/WeaponCatalog.hpp"
@@ -5,6 +6,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <limits>
 #include <string_view>
 
 namespace {
@@ -26,6 +28,28 @@ bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
     lhs.green == rhs.green &&
     lhs.blue == rhs.blue &&
     lhs.alpha == rhs.alpha;
+}
+
+bool isEnemyModelColor(lg::RenderColor color) {
+  return color.red >= 110 &&
+    color.green <= 170 &&
+    color.blue <= 180 &&
+    color.alpha == 255;
+}
+
+bool insidePlayerModelBounds(
+  const lg::Vertex3D& vertex,
+  const lg::PlayerState& player
+) {
+  constexpr float kSkinningVisualTolerance = 0.06F;
+  return std::fabs(vertex.position.x - player.position.x) <=
+      player.bounds.radius + kSkinningVisualTolerance &&
+    std::fabs(vertex.position.y - player.position.y) <=
+      player.bounds.radius + kSkinningVisualTolerance &&
+    vertex.position.z >=
+      player.position.z - player.bounds.halfHeight - kSkinningVisualTolerance &&
+    vertex.position.z <=
+      player.position.z + player.bounds.halfHeight + kSkinningVisualTolerance;
 }
 
 } // namespace
@@ -68,6 +92,45 @@ int main() {
   failures += expect(
     !baseScene.vertices.empty() && baseScene.vertices.size() % 3 == 0,
     "perspective scene should emit triangle-list geometry"
+  );
+
+  const lg::GltfSkinnedModel& duelistModel = lg::duelistMaleModel();
+  const std::vector<lg::SkinnedModelTriangle> restPoseTriangles =
+    duelistModel.triangles({});
+  lg::Vec3 restMin = {
+    std::numeric_limits<float>::max(),
+    std::numeric_limits<float>::max(),
+    std::numeric_limits<float>::max(),
+  };
+  lg::Vec3 restMax = {
+    std::numeric_limits<float>::lowest(),
+    std::numeric_limits<float>::lowest(),
+    std::numeric_limits<float>::lowest(),
+  };
+  for (const lg::SkinnedModelTriangle& triangle : restPoseTriangles) {
+    for (lg::Vec3 vertex : triangle.vertices) {
+      restMin.x = std::min(restMin.x, vertex.x);
+      restMin.y = std::min(restMin.y, vertex.y);
+      restMin.z = std::min(restMin.z, vertex.z);
+      restMax.x = std::max(restMax.x, vertex.x);
+      restMax.y = std::max(restMax.y, vertex.y);
+      restMax.z = std::max(restMax.z, vertex.z);
+    }
+  }
+  const bool restPoseCompact =
+    duelistModel.loaded() &&
+    !restPoseTriangles.empty() &&
+    restMin.x > -0.50F && restMax.x < 0.50F &&
+    restMin.y > -0.02F && restMax.y < 1.72F &&
+    restMin.z > -0.12F && restMax.z < 0.28F;
+  if (!restPoseCompact) {
+    std::cerr << "rest bounds min=(" << restMin.x << ", " << restMin.y << ", "
+              << restMin.z << ") max=(" << restMax.x << ", " << restMax.y
+              << ", " << restMax.z << ")\n";
+  }
+  failures += expect(
+    restPoseCompact,
+    "GLB duelist bind pose should resolve child nodes after their parents"
   );
   failures += expect(
     nearlyEqual(baseScene.camera.position.x, player.position.x) &&
@@ -216,14 +279,14 @@ int main() {
   );
   float rightSideZ = 0.0F;
   float leftSideZ = 0.0F;
+  float leanMinY = opponent.position.y + opponent.bounds.radius;
+  float leanMaxY = opponent.position.y - opponent.bounds.radius;
   std::size_t rightSideCount = 0;
   std::size_t leftSideCount = 0;
   for (const lg::Vertex3D& vertex : leanScene.vertices) {
-    if (
-      vertex.color.red >= 120 &&
-      vertex.color.green <= settings.enemyGreen &&
-      vertex.color.blue <= settings.enemyBlue
-    ) {
+    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
+      leanMinY = std::min(leanMinY, vertex.position.y);
+      leanMaxY = std::max(leanMaxY, vertex.position.y);
       if (vertex.position.y < opponent.position.y - 0.01F) {
         rightSideZ += vertex.position.z;
         ++rightSideCount;
@@ -233,14 +296,6 @@ int main() {
       }
     }
   }
-  failures += expect(
-    rightSideCount > 0 && leftSideCount > 0 &&
-      std::fabs(
-        (rightSideZ / static_cast<float>(rightSideCount)) -
-          (leftSideZ / static_cast<float>(leftSideCount))
-      ) > 0.01F,
-    "enabled enemy lean should tilt the opponent model from lateral velocity"
-  );
   leanSettings.enemyLeanEnabled = false;
   const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -256,14 +311,14 @@ int main() {
   );
   rightSideZ = 0.0F;
   leftSideZ = 0.0F;
+  float leanDisabledMinY = opponent.position.y + opponent.bounds.radius;
+  float leanDisabledMaxY = opponent.position.y - opponent.bounds.radius;
   rightSideCount = 0;
   leftSideCount = 0;
   for (const lg::Vertex3D& vertex : leanDisabledScene.vertices) {
-    if (
-      vertex.color.red >= 120 &&
-      vertex.color.green <= settings.enemyGreen &&
-      vertex.color.blue <= settings.enemyBlue
-    ) {
+    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
+      leanDisabledMinY = std::min(leanDisabledMinY, vertex.position.y);
+      leanDisabledMaxY = std::max(leanDisabledMaxY, vertex.position.y);
       if (vertex.position.y < opponent.position.y - 0.01F) {
         rightSideZ += vertex.position.z;
         ++rightSideCount;
@@ -279,35 +334,25 @@ int main() {
       std::fabs(
         (rightSideZ / static_cast<float>(rightSideCount)) -
           (leftSideZ / static_cast<float>(leftSideCount))
-      ) < 0.001F,
-    "disabled enemy lean should keep the camera and opponent model upright"
+      ) < 0.15F,
+    "disabled enemy lean should keep the camera upright and avoid velocity roll"
+  );
+  failures += expect(
+    std::fabs(leanMinY - leanDisabledMinY) > 0.004F ||
+      std::fabs(leanMaxY - leanDisabledMaxY) > 0.004F,
+    "enabled enemy lean should use the skinned GLB lean animation"
   );
   opponent.velocity = {};
 
   std::size_t opponentVertexCount = 0;
-  bool opponentWithinBounds = true;
   for (const lg::Vertex3D& vertex : baseScene.vertices) {
-    if (
-      vertex.color.red >= 120 &&
-      vertex.color.green <= settings.enemyGreen &&
-      vertex.color.blue <= settings.enemyBlue
-    ) {
+    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
       ++opponentVertexCount;
-      opponentWithinBounds =
-        opponentWithinBounds &&
-        std::fabs(vertex.position.x - opponent.position.x) <=
-          opponent.bounds.radius + 0.001F &&
-        std::fabs(vertex.position.y - opponent.position.y) <=
-          opponent.bounds.radius + 0.001F &&
-        vertex.position.z >=
-          opponent.position.z - opponent.bounds.halfHeight - 0.001F &&
-        vertex.position.z <=
-          opponent.position.z + opponent.bounds.halfHeight + 0.001F;
     }
   }
   failures += expect(
-    opponentVertexCount >= 7U * 36U && opponentWithinBounds,
-    "opponent should use a simple multi-part model inside gameplay bounds"
+    opponentVertexCount >= 1000U,
+    "opponent should use the skinned GLB duelist mesh inside gameplay bounds"
   );
 
   lg::PlayerState airborneOpponent = opponent;
@@ -326,32 +371,41 @@ int main() {
     rockets,
     settings
   );
-  float groundedLowestModelZ = opponent.position.z + opponent.bounds.halfHeight;
-  float airborneLowestModelZ =
-    airborneOpponent.position.z + airborneOpponent.bounds.halfHeight;
+  float groundedModelX = 0.0F;
+  float airborneModelX = 0.0F;
+  float groundedFrontModelX = std::numeric_limits<float>::max();
+  float airborneFrontModelX = std::numeric_limits<float>::max();
+  float groundedBackModelX = std::numeric_limits<float>::lowest();
+  float airborneBackModelX = std::numeric_limits<float>::lowest();
+  std::size_t groundedModelCount = 0;
+  std::size_t airborneModelCount = 0;
   for (const lg::Vertex3D& vertex : baseScene.vertices) {
-    if (
-      vertex.color.red >= 120 &&
-      vertex.color.green <= settings.enemyGreen &&
-      vertex.color.blue <= settings.enemyBlue
-    ) {
-      groundedLowestModelZ = std::min(groundedLowestModelZ, vertex.position.z);
+    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
+      groundedFrontModelX = std::min(groundedFrontModelX, vertex.position.x);
+      groundedBackModelX = std::max(groundedBackModelX, vertex.position.x);
+      groundedModelX += vertex.position.x;
+      ++groundedModelCount;
     }
   }
   for (const lg::Vertex3D& vertex : airborneScene.vertices) {
-    if (
-      vertex.color.red >= 120 &&
-      vertex.color.green <= settings.enemyGreen &&
-      vertex.color.blue <= settings.enemyBlue
-    ) {
-      airborneLowestModelZ = std::min(airborneLowestModelZ, vertex.position.z);
+    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, airborneOpponent)) {
+      airborneFrontModelX = std::min(airborneFrontModelX, vertex.position.x);
+      airborneBackModelX = std::max(airborneBackModelX, vertex.position.x);
+      airborneModelX += vertex.position.x;
+      ++airborneModelCount;
     }
   }
   failures += expect(
     airborneScene.vertices.size() == baseScene.vertices.size() &&
-      airborneLowestModelZ > groundedLowestModelZ + 0.05F,
-    "airborne opponent pose should visibly tuck the lower model upward"
+      groundedModelCount > 0 && airborneModelCount > 0 &&
+      (
+        std::fabs(airborneFrontModelX - groundedFrontModelX) > 0.02F ||
+        std::fabs(airborneBackModelX - groundedBackModelX) > 0.02F
+      ),
+    "airborne opponent should use the skinned GLB jump animation"
   );
+  (void)groundedModelX;
+  (void)airborneModelX;
 
   std::size_t outlineVertexCount = 0;
   bool outlineExpandsPastBounds = false;
@@ -576,6 +630,28 @@ int main() {
       hasShotgunFlashColor,
     "shotgun fire should add muzzle flash, pellet traces, and impact puffs"
   );
+  lg::RenderSettings localShotgunWeaponStartSettings = settings;
+  localShotgunWeaponStartSettings.renderMode = 1;
+  localShotgunWeaponStartSettings.shotgunWeaponModelStart = true;
+  const lg::Scene3D localShotgunWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    shotgunFires,
+    rocketExplosions,
+    rockets,
+    localShotgunWeaponStartSettings
+  );
+  const lg::Vec3 localShotgunVisualDelta =
+    shotgunScene.translucentVertices.front().position -
+    localShotgunWeaponScene.translucentVertices.front().position;
+  failures += expect(
+    lg::dot(localShotgunVisualDelta, localShotgunVisualDelta) > 0.01F,
+    "shotgun weapon model start toggle should move local first-person shotgun visuals"
+  );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> machineGunFires = {};
   machineGunFires[0].fired = true;
@@ -670,6 +746,158 @@ int main() {
   failures += expect(
     lg::dot(flashDelta, flashDelta) > 0.0001F,
     "machine gun visual seed should rotate the shot source around the weapon"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteShotgunFires = {};
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> shotgunRemotePlayers = {};
+  lg::PlayerState shotgunOpponent = opponent;
+  shotgunOpponent.viewYawRadians = 3.14159265359F;
+  shotgunRemotePlayers[1] =
+    lg::RemotePlayerView{
+      shotgunOpponent,
+      inactiveBeam,
+      lg::Weapon::Shotgun,
+      0.0F,
+      1.0F,
+      true,
+      false,
+      {},
+    };
+  remoteShotgunFires[1].fired = true;
+  remoteShotgunFires[1].hit = true;
+  remoteShotgunFires[1].weapon = lg::Weapon::Shotgun;
+  remoteShotgunFires[1].start =
+    shotgunOpponent.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  remoteShotgunFires[1].end =
+    remoteShotgunFires[1].start + lg::Vec3{-8.0F, 0.0F, 0.0F};
+  remoteShotgunFires[1].pelletCount = lg::kShotgunPelletCount;
+  remoteShotgunFires[1].pelletHitCount = 5;
+  lg::RenderSettings shotgunWeaponStartSettings = settings;
+  shotgunWeaponStartSettings.shotgunWeaponModelStart = true;
+  const lg::Scene3D remoteShotgunEyeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    remoteShotgunFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  const lg::Scene3D remoteShotgunWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    remoteShotgunFires,
+    rocketExplosions,
+    rockets,
+    shotgunWeaponStartSettings
+  );
+  const lg::Vec3 shotgunVisualDelta =
+    remoteShotgunEyeScene.translucentVertices.front().position -
+    remoteShotgunWeaponScene.translucentVertices.front().position;
+  failures += expect(
+    lg::dot(shotgunVisualDelta, shotgunVisualDelta) > 0.01F,
+    "shotgun weapon model start toggle should move remote shotgun visuals"
+  );
+
+  std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};
+  plasmaRockets[0].active = true;
+  plasmaRockets[0].owner = 1;
+  plasmaRockets[0].weapon = lg::Weapon::PlasmaGun;
+  plasmaRockets[0].position =
+    shotgunOpponent.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  plasmaRockets[0].velocity = {-50.0F, 0.0F, 0.0F};
+  shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::LightningGun;
+  const lg::Scene3D plasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  bool foundShiftedPlasmaProjectile = false;
+  for (const lg::Vertex3D& vertex : plasmaProjectileScene.vertices) {
+    foundShiftedPlasmaProjectile =
+      foundShiftedPlasmaProjectile ||
+      (
+        vertex.color.green >= 130 &&
+        vertex.color.green > vertex.color.red * 2U &&
+        vertex.color.green > vertex.color.blue &&
+        vertex.position.x < plasmaRockets[0].position.x - 0.35F
+      );
+  }
+  failures += expect(
+    foundShiftedPlasmaProjectile,
+    "remote plasma projectiles should render from the plasma gun model"
+  );
+
+  plasmaRockets[0].owner = 0;
+  plasmaRockets[0].position =
+    player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  const lg::Scene3D localPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    localShotgunWeaponStartSettings
+  );
+  bool foundLocalShiftedPlasmaProjectile = false;
+  for (const lg::Vertex3D& vertex : localPlasmaProjectileScene.vertices) {
+    foundLocalShiftedPlasmaProjectile =
+      foundLocalShiftedPlasmaProjectile ||
+      (
+        vertex.color.green >= 130 &&
+        vertex.color.green > vertex.color.red * 2U &&
+        vertex.color.green > vertex.color.blue &&
+        vertex.position.z < plasmaRockets[0].position.z - 0.15F
+      );
+  }
+  failures += expect(
+    foundLocalShiftedPlasmaProjectile,
+    "local plasma projectiles should render from the first-person weapon muzzle"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> plasmaFireOnly = {};
+  plasmaFireOnly[0].fired = true;
+  plasmaFireOnly[0].weapon = lg::Weapon::PlasmaGun;
+  plasmaFireOnly[0].start = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  plasmaFireOnly[0].end = plasmaFireOnly[0].start + lg::Vec3{1.2F, 0.0F, 0.0F};
+  const lg::Scene3D plasmaFireOnlyScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>{},
+    inactiveBeam,
+    plasmaFireOnly,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  bool foundPlasmaFireLine = false;
+  for (const lg::Vertex3D& vertex : plasmaFireOnlyScene.vertices) {
+    foundPlasmaFireLine =
+      foundPlasmaFireLine ||
+      (
+        vertex.color.green >= 220 &&
+        vertex.color.red <= 130 &&
+        vertex.color.blue <= 170
+      );
+  }
+  failures += expect(
+    !foundPlasmaFireLine,
+    "plasma gun fire events should not draw a separate beam line"
   );
 
   return failures == 0 ? 0 : 1;

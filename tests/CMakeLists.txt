@@ -373,6 +373,7 @@ add_test(NAME lg_duel_screen_ui_tests COMMAND lg_duel_screen_ui_tests)
 
 add_executable(lg_duel_scene_3d_tests
   render/Scene3DTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/GltfSkinnedModel.cpp
   ${PROJECT_SOURCE_DIR}/src/render/Scene3D.cpp
 )
 

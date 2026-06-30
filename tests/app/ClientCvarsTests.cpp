@@ -69,6 +69,12 @@ int main() {
     "damage numbers should default to disabled"
   );
   failures += expect(
+    console.execute("r_sg_weapon_model_start 1") ==
+        "r_sg_weapon_model_start = 1" &&
+      console.getBool("r_sg_weapon_model_start"),
+    "shotgun weapon model start should be toggleable"
+  );
+  failures += expect(
     console.execute("r_damage_numbers_window") ==
       "r_damage_numbers_window = 0.4 (default 0.4)",
     "damage number burst window should default to 0.4 seconds"

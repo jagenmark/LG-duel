@@ -1,0 +1,50 @@
+{
+  "blend": "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\blender\\lg_duelist_male.blend",
+  "glb": "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\exports\\lg_duelist_male.glb",
+  "screenshots": [
+    "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\previews\\lg_duelist_male\\lg_duelist_male_front.png",
+    "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\previews\\lg_duelist_male\\lg_duelist_male_side.png",
+    "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\previews\\lg_duelist_male\\lg_duelist_male_three_quarter.png",
+    "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\previews\\lg_duelist_male\\lg_duelist_male_head_closeup.png",
+    "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\art\\previews\\lg_duelist_male\\lg_duelist_male_head_profile.png"
+  ],
+  "triangles": 1374,
+  "height": 1.72,
+  "min_z": 0.0,
+  "mesh_objects": [
+    "LGDuelist_Male_Body"
+  ],
+  "materials": [
+    "MAT_Skin",
+    "MAT_SkinShadow",
+    "MAT_Hair",
+    "MAT_ClothPrimary",
+    "MAT_ClothAccent",
+    "MAT_BootsGear",
+    "MAT_EyeWhite"
+  ],
+  "bones": [
+    "root",
+    "pelvis",
+    "spine_01",
+    "spine_02",
+    "neck",
+    "head",
+    "upper_arm_l",
+    "lower_arm_l",
+    "hand_l",
+    "upper_arm_r",
+    "lower_arm_r",
+    "hand_r",
+    "weapon_socket_r",
+    "thigh_l",
+    "calf_l",
+    "foot_l",
+    "thigh_r",
+    "calf_r",
+    "foot_r"
+  ],
+  "weapon_socket_present": true,
+  "forward": "Blender -Y",
+  "revision": "v7 profile-first head fix: no floating face planes in profile; integrated brow/nose/mouth/chin silhouette."
+}
