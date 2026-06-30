@@ -79,12 +79,12 @@ run can override either value with the optional `server_host` input and the
 completes.
 
 The package contains the client and server executables, `SDL3.dll`, the required
-GPU shaders, double-click client and server launchers, the player guide, and
-`server-address.txt`. The packaging script writes the workflow-selected host and
-port to that file. `Play LG Duel.bat` reads only that file and reports an error
-if it is missing or malformed; it has no hardcoded server-address fallback. The
-client launcher selects SDL_GPU, preferring Vulkan with automatic renderer
-fallback.
+GPU shaders, runtime maps, double-click client and server launchers, the player
+guide, and `server-address.txt`. The packaging script writes the
+workflow-selected host and port to that file. `Play LG Duel.bat` reads only that
+file and reports an error if it is missing or malformed; it has no hardcoded
+server-address fallback. The client launcher selects SDL_GPU, preferring Vulkan
+with automatic renderer fallback.
 Friends should extract the entire ZIP and keep all files together.
 
 ## Current Playable Slice
@@ -211,7 +211,7 @@ again. A successful build also syncs `maps/` into the runtime output directory
 along with `textures/`, shaders, config, and audio even when no C++ files
 changed.
 
-For faster local iteration on Windows, run `Watch Maps.bat` while editing; it
+For faster local iteration on Windows, run `scripts/watch-maps.ps1` while editing; it
 copies changed `.map` and `.lgmap` files from `maps/` into
 `build/default/maps/` without rebuilding.
 

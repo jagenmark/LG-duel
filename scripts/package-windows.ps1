@@ -94,6 +94,11 @@ Copy-Item $audioSource (Join-Path $outputPath "assets/audio") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
+$mapSource = Join-Path $repoRoot "maps"
+if (-not (Test-Path $mapSource)) {
+  throw "The runtime map directory was not found in the repository."
+}
+Copy-Item $mapSource (Join-Path $outputPath "maps") -Recurse
 $textureSource = Join-Path $repoRoot "textures"
 if (-not (Test-Path $textureSource)) {
   throw "The runtime texture directory was not found in the repository."
@@ -115,6 +120,7 @@ $requiredFiles = @(
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/gameplay.cfg",
+  "maps/thunderstruck.lgmap",
   "textures/License.txt",
   "textures/512x512/Stone/Stone_01-512x512.png",
   "Play LG Duel.bat",
@@ -125,6 +131,18 @@ $requiredFiles = @(
 foreach ($file in $requiredFiles) {
   if (-not (Test-Path (Join-Path $outputPath $file))) {
     throw "Package validation failed: $file is missing."
+  }
+}
+
+$requiredMapFiles = Get-ChildItem -Path $mapSource -File |
+  Where-Object { $_.Extension -in ".lgmap", ".map" }
+if ($requiredMapFiles.Count -eq 0) {
+  throw "Package validation failed: no runtime map files were found."
+}
+foreach ($file in $requiredMapFiles) {
+  $packagedMapFile = Join-Path $outputPath "maps/$($file.Name)"
+  if (-not (Test-Path $packagedMapFile)) {
+    throw "Package validation failed: maps/$($file.Name) is missing."
   }
 }
 
