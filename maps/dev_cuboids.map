@@ -43,3 +43,10 @@
 "origin" "160 -120 40"
 "yaw" "180"
 }
+{
+"classname" "light"
+"origin" "160 -120 60"
+"light" "450"
+"radius" "420"
+"_color" "1 0.92 0.78"
+}

@@ -158,6 +158,49 @@ int main() {
 
   {
     const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light\"\n"
+      "\"origin\" \"0 0 160\"\n"
+      "\"_color\" \"1 0.5 0.25\"\n"
+      "\"light\" \"600\"\n"
+      "\"radius\" \"400\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"light_point\"\n"
+      "\"origin\" \"80 0 120\"\n"
+      "\"_light\" \"0.25 0.5 1 300\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "map lights should convert");
+    failures += expect(result.arena.staticLightCount == 2, "light entities should be stored in arena data");
+    failures += expect(
+      nearlyEqual(result.arena.staticLights[0].position.z, 4.0F) &&
+        nearlyEqual(result.arena.staticLights[0].intensity, 2.0F) &&
+        nearlyEqual(result.arena.staticLights[0].radius, 10.0F),
+      "light origin, intensity, and radius should use importer scale"
+    );
+    failures += expect(
+      nearlyEqual(result.arena.staticLights[0].color.y, 0.5F) &&
+        nearlyEqual(result.arena.staticLights[1].color.z, 1.0F),
+      "light colors should be preserved"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light\"\n"
+      "\"origin\" \"0 0 160\"\n"
+      "\"_color\" \"300 0 0\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "invalid light color should be rejected");
+  }
+
+  {
+    const std::string text =
       "{\n"
       "\"classname\" \"worldspawn\"\n"
       "\"lg_bounds_min\" \"-80 -80 -40\"\n"

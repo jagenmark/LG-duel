@@ -153,14 +153,12 @@ void addTexturedTriangle(
   Vec3 second,
   Vec3 third,
   std::array<std::array<float, 2>, 3> uv,
-  RenderColor color,
+  std::array<RenderColor, 3> colors,
   std::uint32_t materialId
 ) {
-  std::vector<Vertex3D>& vertices =
-    color.alpha == 255 ? scene.vertices : scene.translucentVertices;
-  vertices.push_back({first, color, uv[0][0], uv[0][1], materialId});
-  vertices.push_back({second, color, uv[1][0], uv[1][1], materialId});
-  vertices.push_back({third, color, uv[2][0], uv[2][1], materialId});
+  scene.vertices.push_back({first, colors[0], uv[0][0], uv[0][1], materialId});
+  scene.vertices.push_back({second, colors[1], uv[1][0], uv[1][1], materialId});
+  scene.vertices.push_back({third, colors[2], uv[2][0], uv[2][1], materialId});
 }
 
 void addQuad(
@@ -182,7 +180,7 @@ void addTexturedQuad(
   Vec3 third,
   Vec3 fourth,
   std::array<std::array<float, 2>, 4> uv,
-  RenderColor color,
+  std::array<RenderColor, 4> colors,
   std::uint32_t materialId
 ) {
   addTexturedTriangle(
@@ -191,7 +189,7 @@ void addTexturedQuad(
     second,
     third,
     {{{uv[0][0], uv[0][1]}, {uv[1][0], uv[1][1]}, {uv[2][0], uv[2][1]}}},
-    color,
+    {{colors[0], colors[1], colors[2]}},
     materialId
   );
   addTexturedTriangle(
@@ -200,7 +198,7 @@ void addTexturedQuad(
     third,
     fourth,
     {{{uv[0][0], uv[0][1]}, {uv[2][0], uv[2][1]}, {uv[3][0], uv[3][1]}}},
-    color,
+    {{colors[0], colors[2], colors[3]}},
     materialId
   );
 }
@@ -315,7 +313,63 @@ void addSphereApprox(
   };
 }
 
-void addWallBox(Scene3D& scene, const ArenaWall& wall) {
+[[nodiscard]] Vec3 wallFaceNormal(std::size_t faceIndex) {
+  switch (faceIndex) {
+  case 0:
+    return {0.0F, 0.0F, -1.0F};
+  case 1:
+    return {0.0F, 0.0F, 1.0F};
+  case 2:
+    return {0.0F, -1.0F, 0.0F};
+  case 3:
+    return {1.0F, 0.0F, 0.0F};
+  case 4:
+    return {0.0F, 1.0F, 0.0F};
+  default:
+    return {-1.0F, 0.0F, 0.0F};
+  }
+}
+
+[[nodiscard]] RenderColor shadeStaticVertex(
+  const Arena& arena,
+  Vec3 position,
+  Vec3 normal,
+  RenderColor base
+) {
+  if (arena.staticLightCount == 0) {
+    return base;
+  }
+
+  constexpr float kAmbient = 0.18F;
+  Vec3 lightColor = {
+    static_cast<float>(base.red) * kAmbient,
+    static_cast<float>(base.green) * kAmbient,
+    static_cast<float>(base.blue) * kAmbient,
+  };
+  for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+    const ArenaStaticLight& light = arena.staticLights[index];
+    const Vec3 toLight = light.position - position;
+    const float distance = length(toLight);
+    if (distance <= 0.0001F || distance >= light.radius) {
+      continue;
+    }
+    const Vec3 direction = toLight / distance;
+    const float facing = std::max(0.0F, dot(normal, direction));
+    const float distanceFactor = 1.0F - std::clamp(distance / light.radius, 0.0F, 1.0F);
+    const float contribution = light.intensity * facing * distanceFactor * distanceFactor;
+    lightColor.x += static_cast<float>(base.red) * light.color.x * contribution;
+    lightColor.y += static_cast<float>(base.green) * light.color.y * contribution;
+    lightColor.z += static_cast<float>(base.blue) * light.color.z * contribution;
+  }
+  return {
+    static_cast<std::uint8_t>(std::clamp(lightColor.x, 0.0F, 255.0F)),
+    static_cast<std::uint8_t>(std::clamp(lightColor.y, 0.0F, 255.0F)),
+    static_cast<std::uint8_t>(std::clamp(lightColor.z, 0.0F, 255.0F)),
+    base.alpha,
+  };
+}
+
+void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
   const Vec3 minimum = wall.min;
   const Vec3 maximum = wall.max;
   const std::array<Vec3, 8> corners = {{
@@ -352,6 +406,14 @@ void addWallBox(Scene3D& scene, const ArenaWall& wall) {
       projectedFaceUv(corners[face[2]], wall.faceTextureProjections[index], faceAxis),
       projectedFaceUv(corners[face[3]], wall.faceTextureProjections[index], faceAxis),
     }};
+    const RenderColor baseColor = scaleColor({255, 255, 255, 255}, brightness[index]);
+    const Vec3 normal = wallFaceNormal(index);
+    const std::array<RenderColor, 4> colors = {{
+      shadeStaticVertex(arena, corners[face[0]], normal, baseColor),
+      shadeStaticVertex(arena, corners[face[1]], normal, baseColor),
+      shadeStaticVertex(arena, corners[face[2]], normal, baseColor),
+      shadeStaticVertex(arena, corners[face[3]], normal, baseColor),
+    }};
     logTextureFace("ArenaWall", materialId, wall.faceTextureProjections[index], uv, faceAxis);
     addTexturedQuad(
       scene,
@@ -360,7 +422,7 @@ void addWallBox(Scene3D& scene, const ArenaWall& wall) {
       corners[face[2]],
       corners[face[3]],
       uv,
-      scaleColor({255, 255, 255, 255}, brightness[index]),
+      colors,
       materialId
     );
   }
@@ -374,7 +436,7 @@ void addWallBox(Scene3D& scene, const ArenaWall& wall) {
   );
 }
 
-void addArenaBrush(Scene3D& scene, const ArenaBrush& brush) {
+void addArenaBrush(Scene3D& scene, const Arena& arena, const ArenaBrush& brush) {
   for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
     const ArenaBrushFace& face = brush.faces[faceIndex];
     if (face.vertexCount < 3) {
@@ -397,6 +459,11 @@ void addArenaBrush(Scene3D& scene, const ArenaBrush& brush) {
         projectedFaceUv(third, face.textureProjection, uvAxis),
         projectedFaceUv(third, face.textureProjection, uvAxis),
       }};
+      const std::array<RenderColor, 3> colors = {{
+        shadeStaticVertex(arena, origin, face.normal, color),
+        shadeStaticVertex(arena, second, face.normal, color),
+        shadeStaticVertex(arena, third, face.normal, color),
+      }};
       logTextureFace("ArenaBrush", materialId, face.textureProjection, uv, uvAxis);
       addTexturedTriangle(
         scene,
@@ -404,7 +471,7 @@ void addArenaBrush(Scene3D& scene, const ArenaBrush& brush) {
         second,
         third,
         {{uv[0], uv[1], uv[2]}},
-        color,
+        colors,
         materialId
       );
     }
@@ -1671,10 +1738,10 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
   addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
-    addWallBox(scene, arena.walls[index]);
+    addWallBox(scene, arena, arena.walls[index]);
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
-    addArenaBrush(scene, arena.brushes[index]);
+    addArenaBrush(scene, arena, arena.brushes[index]);
   }
 
   return scene;

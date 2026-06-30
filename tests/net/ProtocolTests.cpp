@@ -320,6 +320,11 @@ int main() {
     source.arena.brushes[0].faces[3].vertices = {1, 2, 3};
     source.arena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
     source.arena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
+    source.arena.staticLightCount = 1;
+    source.arena.staticLights[0].position = {0.5F, 1.5F, 6.0F};
+    source.arena.staticLights[0].color = {1.0F, 0.75F, 0.5F};
+    source.arena.staticLights[0].intensity = 1.25F;
+    source.arena.staticLights[0].radius = 9.0F;
     source.acknowledgedCommand = {12, 34};
     source.hasAcknowledgedCommand = {true, false};
     source.players[0].position = {1.0F, 2.0F, 3.0F};
@@ -484,12 +489,15 @@ int main() {
     failures += expect(
       decoded.arena.wallCount == 1 &&
         decoded.arena.brushCount == 1 &&
+        decoded.arena.staticLightCount == 1 &&
         nearlyEqual(decoded.arena.max.x, 20.0F) &&
         nearlyEqual(decoded.arena.walls[0].max.z, 3.0F) &&
         decoded.arena.walls[0].materialId == source.arena.walls[0].materialId &&
         decoded.arena.brushes[0].faceCount == 4 &&
         decoded.arena.brushes[0].faces[0].materialId == source.arena.brushes[0].faces[0].materialId &&
         nearlyEqual(decoded.arena.brushes[0].vertices[3].z, 2.0F) &&
+        nearlyEqual(decoded.arena.staticLights[0].color.y, 0.75F) &&
+        nearlyEqual(decoded.arena.staticLights[0].radius, 9.0F) &&
         nearlyEqual(decoded.arena.spawnPositions[1].x, 8.0F),
       "snapshot arena should round trip"
     );
