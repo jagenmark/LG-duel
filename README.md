@@ -178,6 +178,12 @@ Spawn entities need an `origin` key like `"160 -120 40"` and may include
 `angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and
 `lg_bounds_max` can set arena bounds in the same Quake/TrenchBroom units;
 otherwise bounds are computed from converted boxes and spawns with padding.
+Static point lights may use `classname` `light` or `light_point` with an
+`origin`. The importer accepts Quake-style `light` intensity, optional
+`radius`, `_color`/`color` as `0..1` RGB triples, and `_light` as either an
+intensity or `r g b intensity`. Light positions and radii are converted from
+TrenchBroom units at the same `1/40` scale and are baked into static world
+vertex colors in the first-person renderer.
 
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom

@@ -55,9 +55,17 @@ struct ArenaBrush {
   std::uint8_t faceCount = 0;
 };
 
+struct ArenaStaticLight {
+  Vec3 position = {};
+  Vec3 color = {1.0F, 1.0F, 1.0F};
+  float intensity = 1.0F;
+  float radius = 8.0F;
+};
+
 struct Arena {
   static constexpr std::size_t kWallCount = 255;
   static constexpr std::size_t kBrushCount = 128;
+  static constexpr std::size_t kStaticLightCount = 64;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
@@ -65,6 +73,8 @@ struct Arena {
   std::size_t wallCount = 0;
   std::array<ArenaBrush, kBrushCount> brushes = {};
   std::size_t brushCount = 0;
+  std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
+  std::size_t staticLightCount = 0;
   std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},

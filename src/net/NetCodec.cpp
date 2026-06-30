@@ -17,6 +17,7 @@ namespace {
 constexpr std::size_t kHeaderBytes = 12;
 static_assert(Arena::kWallCount <= std::numeric_limits<std::uint8_t>::max());
 static_assert(Arena::kBrushCount <= std::numeric_limits<std::uint8_t>::max());
+static_assert(Arena::kStaticLightCount <= std::numeric_limits<std::uint8_t>::max());
 
 [[nodiscard]] bool isValidWeapon(Weapon weapon) {
   return weapon <= kLastWeapon;
@@ -476,7 +477,11 @@ bool readTextureProjection(Reader& reader, TextureProjection& projection) {
 }
 
 bool writeArena(Writer& writer, const Arena& arena) {
-  if (arena.wallCount > Arena::kWallCount || arena.brushCount > Arena::kBrushCount) {
+  if (
+    arena.wallCount > Arena::kWallCount ||
+    arena.brushCount > Arena::kBrushCount ||
+    arena.staticLightCount > Arena::kStaticLightCount
+  ) {
     return false;
   }
   return writeVec3(writer, arena.min) &&
@@ -545,6 +550,20 @@ bool writeArena(Writer& writer, const Arena& arena) {
           return false;
         }
       }
+      if (!writer.writeU8(static_cast<std::uint8_t>(arena.staticLightCount))) {
+        return false;
+      }
+      for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+        const ArenaStaticLight& light = arena.staticLights[index];
+        if (
+          !writeVec3(writer, light.position) ||
+          !writeVec3(writer, light.color) ||
+          !writer.writeFloat(light.intensity) ||
+          !writer.writeFloat(light.radius)
+        ) {
+          return false;
+        }
+      }
       return true;
     }();
 }
@@ -553,6 +572,7 @@ bool readArena(Reader& reader, Arena& arena) {
   Arena decoded;
   std::uint8_t wallCount = 0;
   std::uint8_t brushCount = 0;
+  std::uint8_t staticLightCount = 0;
   if (
     !readVec3(reader, decoded.min) ||
     !readVec3(reader, decoded.max) ||
@@ -625,6 +645,26 @@ bool readArena(Reader& reader, Arena& arena) {
   }
   for (Vec3& spawn : decoded.spawnPositions) {
     if (!readVec3(reader, spawn)) {
+      return false;
+    }
+  }
+  if (!reader.readU8(staticLightCount) || staticLightCount > Arena::kStaticLightCount) {
+    return false;
+  }
+  decoded.staticLightCount = staticLightCount;
+  for (std::size_t index = 0; index < decoded.staticLightCount; ++index) {
+    ArenaStaticLight& light = decoded.staticLights[index];
+    if (
+      !readVec3(reader, light.position) ||
+      !readVec3(reader, light.color) ||
+      !reader.readFloat(light.intensity) ||
+      !reader.readFloat(light.radius) ||
+      light.color.x < 0.0F ||
+      light.color.y < 0.0F ||
+      light.color.z < 0.0F ||
+      light.intensity <= 0.0F ||
+      light.radius <= 0.0F
+    ) {
       return false;
     }
   }

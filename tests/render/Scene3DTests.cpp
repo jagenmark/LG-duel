@@ -297,6 +297,43 @@ int main() {
     );
   }
 
+  {
+    lg::Arena litArena;
+    litArena.wallCount = 1;
+    litArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    litArena.walls[0].max = {4.0F, 4.0F, 1.0F};
+    litArena.walls[0].materialId = lg::arenaMaterialId("lit_static_wall");
+    litArena.staticLightCount = 1;
+    litArena.staticLights[0].position = {0.2F, 0.2F, 3.0F};
+    litArena.staticLights[0].color = {1.0F, 0.65F, 0.35F};
+    litArena.staticLights[0].intensity = 2.5F;
+    litArena.staticLights[0].radius = 7.0F;
+    const lg::Scene3D litScene = lg::buildStaticWorldScene(litArena);
+    int minTopRed = 255;
+    int maxTopRed = 0;
+    int maxTopGreen = 0;
+    int maxTopBlue = 0;
+    for (const lg::Vertex3D& vertex : litScene.vertices) {
+      if (
+        vertex.materialId == litArena.walls[0].materialId &&
+        nearlyEqual(vertex.position.z, litArena.walls[0].max.z)
+      ) {
+        minTopRed = std::min(minTopRed, static_cast<int>(vertex.color.red));
+        maxTopRed = std::max(maxTopRed, static_cast<int>(vertex.color.red));
+        maxTopGreen = std::max(maxTopGreen, static_cast<int>(vertex.color.green));
+        maxTopBlue = std::max(maxTopBlue, static_cast<int>(vertex.color.blue));
+      }
+    }
+    failures += expect(
+      maxTopRed > minTopRed + 20,
+      "static lights should create per-vertex brightness variation"
+    );
+    failures += expect(
+      maxTopRed > maxTopGreen && maxTopGreen > maxTopBlue,
+      "static lights should tint world vertices with light color"
+    );
+  }
+
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
