@@ -4,6 +4,7 @@
 #include "sim/Combat.hpp"
 #include "sim/Arena.hpp"
 #include "sim/GameMode.hpp"
+#include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -141,6 +142,7 @@ struct LocalHitFeedbackEvent {
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
+  MapDescriptor map = {};
   bool hasArena = false;
   Arena arena = {};
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};

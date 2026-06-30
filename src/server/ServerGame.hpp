@@ -4,6 +4,7 @@
 #include "net/NetTransport.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
+#include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
 
 #include <array>
@@ -56,6 +57,7 @@ private:
 
   void receiveCommands();
   [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
+  void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
   void respawnRound();
@@ -105,6 +107,7 @@ private:
 
   NetTransport& transport_;
   Arena arena_ = thunderstruckArena();
+  MapDescriptor mapDescriptor_ = {};
   std::string mapDirectory_ = "maps";
   std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};

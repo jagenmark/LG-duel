@@ -22,6 +22,10 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
   return std::fabs(lhs - rhs) <= epsilon;
 }
 
+lg::MapDescriptor testMapDescriptor() {
+  return lg::describeMap("thunderstruck", lg::thunderstruckArena());
+}
+
 } // namespace
 
 int main() {
@@ -285,6 +289,7 @@ int main() {
     source.hasArena = true;
     source.serverTick = 1234;
     source.mapRevision = 77;
+    source.map = testMapDescriptor();
     source.arena.min = {-20.0F, -10.0F, 0.0F};
     source.arena.max = {20.0F, 10.0F, 12.0F};
     source.arena.wallCount = 1;
@@ -482,16 +487,11 @@ int main() {
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
     failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
     failures += expect(
-      decoded.arena.wallCount == 1 &&
-        decoded.arena.brushCount == 1 &&
-        nearlyEqual(decoded.arena.max.x, 20.0F) &&
-        nearlyEqual(decoded.arena.walls[0].max.z, 3.0F) &&
-        decoded.arena.walls[0].materialId == source.arena.walls[0].materialId &&
-        decoded.arena.brushes[0].faceCount == 4 &&
-        decoded.arena.brushes[0].faces[0].materialId == source.arena.brushes[0].faces[0].materialId &&
-        nearlyEqual(decoded.arena.brushes[0].vertices[3].z, 2.0F) &&
-        nearlyEqual(decoded.arena.spawnPositions[1].x, 8.0F),
-      "snapshot arena should round trip"
+      !decoded.hasArena &&
+        decoded.arena.wallCount == 0 &&
+        decoded.map.mapName == source.map.mapName &&
+        decoded.map.contentHash == source.map.contentHash,
+      "snapshot map descriptor should round trip without arena geometry"
     );
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
     failures += expect(
@@ -675,6 +675,7 @@ int main() {
     largeArenaSnapshot.hasArena = true;
     largeArenaSnapshot.serverTick = 55;
     largeArenaSnapshot.mapRevision = 3;
+    largeArenaSnapshot.map = testMapDescriptor();
     largeArenaSnapshot.arena.min = {0.0F, 0.0F, 0.0F};
     largeArenaSnapshot.arena.max = {320.0F, 4.0F, 4.0F};
     largeArenaSnapshot.arena.wallCount = 160;
@@ -703,20 +704,21 @@ int main() {
       "large arena snapshot should decode"
     );
     failures += expect(
-      decodedLargeArena.arena.wallCount == largeArenaSnapshot.arena.wallCount &&
-        nearlyEqual(decodedLargeArena.arena.walls[159].max.x, 319.0F),
-      "large arena wall list should round trip"
+      !decodedLargeArena.hasArena &&
+        decodedLargeArena.arena.wallCount == 0 &&
+        decodedLargeArena.map.contentHash == largeArenaSnapshot.map.contentHash,
+      "large arena wall list should not be serialized"
     );
 
-    const std::size_t fullArenaSnapshotBytes = wire.size();
+    const std::size_t descriptorSnapshotBytes = wire.size();
     largeArenaSnapshot.hasArena = false;
     failures += expect(
       lg::encodeServerSnapshot(largeArenaSnapshot, wire),
       "large arena delta snapshot should encode without arena payload"
     );
     failures += expect(
-      wire.size() + 3000U < fullArenaSnapshotBytes,
-      "large arena delta snapshot should omit most arena bytes"
+      wire.size() == descriptorSnapshotBytes,
+      "snapshot size should not depend on full arena payload"
     );
     failures += expect(
       lg::decodeServerSnapshot(wire, decodedLargeArena),
@@ -784,6 +786,7 @@ int main() {
 
   {
     lg::ServerSnapshot source;
+    source.map = testMapDescriptor();
     source.chatSequence = 8;
     source.chatPlayerIndex = 1;
     source.chatMessage.assign(180U, 's');

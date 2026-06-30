@@ -426,7 +426,7 @@ bool readVec3(Reader& reader, Vec3& value) {
     reader.readFloat(value.z);
 }
 
-bool writeArena(Writer& writer, const Arena& arena) {
+[[maybe_unused]] bool writeArena(Writer& writer, const Arena& arena) {
   if (arena.wallCount > Arena::kWallCount || arena.brushCount > Arena::kBrushCount) {
     return false;
   }
@@ -491,7 +491,7 @@ bool writeArena(Writer& writer, const Arena& arena) {
     }();
 }
 
-bool readArena(Reader& reader, Arena& arena) {
+[[maybe_unused]] bool readArena(Reader& reader, Arena& arena) {
   Arena decoded;
   std::uint8_t wallCount = 0;
   std::uint8_t brushCount = 0;
@@ -1110,11 +1110,13 @@ bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
 
 bool encodeServerSnapshot(
   const ServerSnapshot& snapshot,
-  bool includeArena,
+  bool,
   WirePacket& wire
 ) {
   if (
     !isValidGameMode(snapshot.gameMode) ||
+    !isValidMapName(snapshot.map.mapName) ||
+    snapshot.map.contentHash == 0 ||
     !isValidWeaponSwitchingMode(snapshot.weaponSwitchingMode) ||
     !isValidTeam(snapshot.roundWinningTeam) ||
     !isValidTeam(snapshot.matchWinningTeam) ||
@@ -1137,8 +1139,9 @@ bool encodeServerSnapshot(
     !writeHeader(writer, PacketType::Snapshot) ||
     !writer.writeU32(snapshot.serverTick) ||
     !writer.writeU32(snapshot.mapRevision) ||
-    !writer.writeBool(includeArena) ||
-    (includeArena && !writeArena(writer, snapshot.arena))
+    !writer.writeString(snapshot.map.mapName, kMaxMapNameBytes) ||
+    !writer.writeU32(snapshot.map.contentHash) ||
+    !writer.writeBool(false)
   ) {
     return false;
   }
@@ -1322,8 +1325,12 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !readHeader(reader, PacketType::Snapshot, wire.size()) ||
     !reader.readU32(decoded.serverTick) ||
     !reader.readU32(decoded.mapRevision) ||
+    !reader.readString(decoded.map.mapName, kMaxMapNameBytes) ||
+    !reader.readU32(decoded.map.contentHash) ||
     !reader.readBool(decoded.hasArena) ||
-    (decoded.hasArena && !readArena(reader, decoded.arena))
+    decoded.hasArena ||
+    !isValidMapName(decoded.map.mapName) ||
+    decoded.map.contentHash == 0
   ) {
     return false;
   }

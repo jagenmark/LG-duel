@@ -1,7 +1,6 @@
 #include "net/LoopbackTransport.hpp"
 
 namespace lg {
-
 void LoopbackTransport::sendCommand(const CommandPacket& packet) {
   WirePacket wire;
   if (encodeCommandPacket(packet, wire)) {
@@ -20,10 +19,7 @@ bool LoopbackTransport::receiveCommand(CommandPacket& packet) {
 }
 
 void LoopbackTransport::sendSnapshot(const ServerSnapshot& snapshot) {
-  WirePacket wire;
-  if (encodeServerSnapshot(snapshot, wire)) {
-    snapshots_.push_back(wire);
-  }
+  snapshots_.push_back(snapshot);
 }
 
 bool LoopbackTransport::receiveSnapshot(ServerSnapshot& snapshot) {
@@ -31,9 +27,9 @@ bool LoopbackTransport::receiveSnapshot(ServerSnapshot& snapshot) {
     return false;
   }
 
-  const WirePacket wire = snapshots_.front();
+  snapshot = snapshots_.front();
   snapshots_.pop_front();
-  return decodeServerSnapshot(wire, snapshot);
+  return true;
 }
 
 } // namespace lg

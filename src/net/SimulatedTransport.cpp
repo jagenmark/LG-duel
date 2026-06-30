@@ -11,6 +11,13 @@ namespace {
   return std::clamp(value, 0.0F, 1.0F);
 }
 
+ServerSnapshot snapshotWithDefaultMapDescriptor(ServerSnapshot snapshot) {
+  if (snapshot.map.contentHash == 0 && snapshot.map.mapName == "thunderstruck") {
+    snapshot.map = describeMap("thunderstruck", thunderstruckArena());
+  }
+  return snapshot;
+}
+
 } // namespace
 
 SimulatedTransport::SimulatedTransport(NetworkSimulationConfig config)
@@ -37,7 +44,11 @@ bool SimulatedTransport::receiveCommand(CommandPacket& packet) {
 
 void SimulatedTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   WirePacket wire;
-  if (encodeServerSnapshot(snapshot, wire)) {
+  ServerSnapshot normalized = snapshotWithDefaultMapDescriptor(snapshot);
+  if (!encodeServerSnapshot(normalized, wire)) {
+    normalized.map = describeMap("thunderstruck", normalized.arena);
+  }
+  if (encodeServerSnapshot(normalized, wire)) {
     schedule(wire, config_.snapshots, snapshots_);
   }
 }

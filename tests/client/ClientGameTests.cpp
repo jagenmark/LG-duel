@@ -4,6 +4,7 @@
 #include "net/LoopbackTransport.hpp"
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
+#include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
 #include "sim/MovementModes.hpp"
 #include "sim/PlayerState.hpp"
@@ -12,6 +13,7 @@
 #include <cmath>
 #include <cstdint>
 #include <iostream>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -50,6 +52,7 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
+    initialSnapshot.map = lg::describeMap("thunderstruck", lg::thunderstruckArena());
     initialSnapshot.players[0] = groundedPlayer();
     transport.sendSnapshot(initialSnapshot);
     client.receiveSnapshots();
@@ -166,19 +169,16 @@ int main() {
     transport.sendSnapshot(initialSnapshot);
     client.receiveSnapshots();
 
-    lg::Arena reloadedArena;
-    reloadedArena.min = {-4.0F, -4.0F, 0.0F};
-    reloadedArena.max = {4.0F, 4.0F, 4.0F};
-    reloadedArena.wallCount = 1;
-    reloadedArena.walls[0] = {{-0.5F, -0.5F, 0.0F}, {0.5F, 0.5F, 1.0F}};
-    reloadedArena.spawnPositions[0] = {-2.0F, 0.0F, 0.0F};
-    reloadedArena.spawnPositions[1] = {2.0F, 0.0F, 0.0F};
+    const lg::LocalMapLoadResult reloadedMap = lg::loadLocalMap("thunderstorm");
+    failures += expect(reloadedMap.ok, "test map thunderstorm should load locally");
+    const lg::Arena& reloadedArena = reloadedMap.arena;
 
     lg::ServerSnapshot reloadedSnapshot = initialSnapshot;
     reloadedSnapshot.serverTick = 1;
     reloadedSnapshot.mapRevision = initialSnapshot.mapRevision + 1;
+    reloadedSnapshot.map = reloadedMap.descriptor;
     reloadedSnapshot.hasArena = true;
-    reloadedSnapshot.arena = reloadedArena;
+    reloadedSnapshot.arena = {};
     reloadedSnapshot.players[0].position = {
       reloadedArena.max.x - reloadedSnapshot.players[0].bounds.radius,
       0.0F,
@@ -188,9 +188,9 @@ int main() {
     client.receiveSnapshots();
 
     failures += expect(
-      nearlyEqual(client.arena().max.x, 4.0F) &&
-        client.arena().wallCount == 1,
-      "ClientGame should adopt reloaded arena snapshots"
+      nearlyEqual(client.arena().max.x, reloadedArena.max.x) &&
+        client.arena().wallCount == reloadedArena.wallCount,
+      "ClientGame should load reloaded maps locally from descriptors"
     );
 
     lg::UserCommand command;
@@ -198,11 +198,8 @@ int main() {
     command.forwardMove = 1.0F;
     client.sendCommand(command, false);
     failures += expect(
-      nearlyEqual(
-        client.predictedPlayer().position.x,
-        reloadedArena.max.x - client.predictedPlayer().bounds.radius
-      ),
-      "ClientGame prediction should collide against the reloaded arena"
+      lg::hashArena(client.arena()) == reloadedMap.descriptor.contentHash,
+      "ClientGame prediction should use the locally loaded reloaded arena"
     );
 
     lg::ServerSnapshot arenaLessSnapshot = reloadedSnapshot;
@@ -214,20 +211,47 @@ int main() {
     client.receiveSnapshots();
     failures += expect(
       client.snapshot().serverTick == 2 &&
-        nearlyEqual(client.arena().max.x, 4.0F) &&
-        client.arena().wallCount == 1,
+        nearlyEqual(client.arena().max.x, reloadedArena.max.x) &&
+        client.arena().wallCount == reloadedArena.wallCount,
       "ClientGame should retain the current arena on arena-less snapshots"
     );
 
     lg::ServerSnapshot missingArenaReload = arenaLessSnapshot;
     missingArenaReload.serverTick = 3;
     missingArenaReload.mapRevision = reloadedSnapshot.mapRevision + 1;
+    missingArenaReload.map = {"missing_map", 12345};
     transport.sendSnapshot(missingArenaReload);
     client.receiveSnapshots();
     failures += expect(
       client.snapshot().serverTick == 2 &&
-        client.arena().wallCount == 1,
-      "ClientGame should wait for arena data before accepting a new map revision"
+        client.arena().wallCount == reloadedArena.wallCount &&
+        client.hasConnectionError(),
+      "ClientGame should reject unknown map descriptors before accepting a new map revision"
+    );
+  }
+
+  {
+    const lg::LocalMapLoadResult localMap = lg::loadLocalMap("thunderstruck");
+    failures += expect(localMap.ok, "thunderstruck should load from the local map registry");
+    failures += expect(
+      lg::hashArena(localMap.arena) == localMap.descriptor.contentHash &&
+        lg::hashArena(localMap.arena) == lg::hashArena(localMap.arena),
+      "local map hash should be deterministic"
+    );
+
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot mismatchSnapshot;
+    mismatchSnapshot.serverTick = 1;
+    mismatchSnapshot.mapRevision = 2;
+    mismatchSnapshot.map = localMap.descriptor;
+    mismatchSnapshot.map.contentHash ^= 0x1U;
+    transport.sendSnapshot(mismatchSnapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      client.hasConnectionError() &&
+        client.connectionError().find("Map mismatch:") != std::string::npos,
+      "ClientGame should reject mismatched map hashes with a clear error"
     );
   }
 

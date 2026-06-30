@@ -433,21 +433,16 @@ bool UdpServerTransport::receiveCommand(CommandPacket& packet) {
 
 void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   impl_->lastServerTick = snapshot.serverTick;
-  constexpr std::uint32_t kFullArenaSnapshotIntervalTicks = 125;
   for (Impl::ClientSlot& client : impl_->clients) {
     if (!client.active) {
       continue;
     }
 
-    const bool includeArena =
-      client.lastFullArenaRevision != snapshot.mapRevision ||
-      snapshot.serverTick - client.lastFullArenaTick >= kFullArenaSnapshotIntervalTicks;
-
     WirePacket wire;
-    if (!encodeServerSnapshot(snapshot, includeArena, wire)) {
+    if (!encodeServerSnapshot(snapshot, false, wire)) {
       continue;
     }
-    if (sendWire(impl_->socket, client.endpoint, wire) && includeArena) {
+    if (sendWire(impl_->socket, client.endpoint, wire)) {
       client.lastFullArenaRevision = snapshot.mapRevision;
       client.lastFullArenaTick = snapshot.serverTick;
     }

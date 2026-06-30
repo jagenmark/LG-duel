@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 namespace lg {
 
@@ -57,6 +58,8 @@ public:
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
   [[nodiscard]] const MovementTuning& movementTuning() const;
   [[nodiscard]] const Arena& arena() const;
+  [[nodiscard]] bool hasConnectionError() const;
+  [[nodiscard]] const std::string& connectionError() const;
 
 private:
   NetTransport& transport_;
@@ -67,6 +70,8 @@ private:
   Prediction prediction_ = {};
   SnapshotInterpolation interpolation_ = {};
   ServerSnapshot snapshot_ = {};
+  MapDescriptor map_ = {};
+  std::string connectionError_;
   std::uint32_t pendingMovementTuningCommand_ = 0;
   bool hasPendingMovementTuning_ = false;
   bool hasSnapshot_ = false;

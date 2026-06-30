@@ -448,8 +448,10 @@ spawn p2 2,0,0.5 yaw=180
     lg::ServerSnapshot mapSnapshot = latestSnapshot(transport);
     failures += expect(
       mapSnapshot.mapRevision == initialRevision + 1 &&
-        mapSnapshot.arena.wallCount == 1 &&
-        mapSnapshot.arena.max.x == 6.0F &&
+        mapSnapshot.map.mapName == "tiny" &&
+        mapSnapshot.map.contentHash == lg::hashArena(server.arena()) &&
+        server.arena().wallCount == 1 &&
+        server.arena().max.x == 6.0F &&
         mapSnapshot.players[0].position.x == -2.0F &&
         mapSnapshot.players[1].position.x == 2.0F,
       "client map request should load a server-local .lgmap and reset spawns"

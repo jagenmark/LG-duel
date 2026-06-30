@@ -44,6 +44,7 @@ add_library(lg_duel_core
   src/sim/DuelRules.cpp
   src/sim/GameplayConfig.cpp
   src/sim/Movement.cpp
+  src/sim/MapRegistry.cpp
   src/sim/WeaponCatalog.cpp
 )
 
