@@ -183,7 +183,11 @@ Static point lights may use `classname` `light` or `light_point` with an
 `radius`, `_color`/`color` as `0..1` RGB triples, and `_light` as either an
 intensity or `r g b intensity`. Light positions and radii are converted from
 TrenchBroom units at the same `1/40` scale and are baked into static world
-vertex colors in the first-person renderer.
+vertex colors in the first-person renderer. Outdoor maps may also define one
+invisible `light_sun` entity with `direction` as the direction light rays
+travel, for example `0 0 -1` for downward light. `light_sun` supports
+`intensity`, `color`/`_color`, and `angle` plus `pitch` as a fallback when
+`direction` is omitted.
 
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom
