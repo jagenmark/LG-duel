@@ -263,6 +263,17 @@ lg_duel_set_warnings(lg_duel_client_cvars_tests)
 
 add_test(NAME lg_duel_client_cvars_tests COMMAND lg_duel_client_cvars_tests)
 
+add_executable(lg_duel_perf_telemetry_tests
+  app/PerfTelemetryTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/PerfTelemetry.cpp
+)
+
+target_link_libraries(lg_duel_perf_telemetry_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_perf_telemetry_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_perf_telemetry_tests)
+
+add_test(NAME lg_duel_perf_telemetry_tests COMMAND lg_duel_perf_telemetry_tests)
+
 add_executable(lg_duel_client_audio_tests
   app/ClientAudioTests.cpp
 )

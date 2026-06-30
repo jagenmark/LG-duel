@@ -128,6 +128,18 @@ int main() {
     "frame limiter cvar should allow uncapped and reject negative caps"
   );
   failures += expect(
+    !console.getBool("r_perf") &&
+      !console.getBool("r_perf_detail") &&
+      !console.getBool("r_perf_reset"),
+    "performance HUD cvars should default disabled"
+  );
+  failures += expect(
+    console.getBool("r_draw_remote_players") &&
+      console.getBool("r_draw_remote_weapons") &&
+      console.getBool("r_draw_player_outlines"),
+    "render isolation cvars should preserve default remote render categories"
+  );
+  failures += expect(
     console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
       console.getFloat("s_lg_fire_volume") == 0.25F,
     "lightning gun fire volume should be configurable"

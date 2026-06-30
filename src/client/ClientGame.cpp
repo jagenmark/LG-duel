@@ -4,6 +4,7 @@
 #include "shared/Sequence.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <chrono>
 #include <memory>
 #include <string>
 #include <utility>
@@ -88,11 +89,15 @@ void ClientGame::sendCommand(
 void ClientGame::receiveSnapshots() {
   auto receivedStorage = std::make_unique<ServerSnapshot>();
   ServerSnapshot& received = *receivedStorage;
+  SnapshotDiagnostics diagnostics = transport_.snapshotDiagnostics();
+  diagnostics.snapshotsApplied = 0;
+  diagnostics.snapshotApplyMilliseconds = 0.0F;
   while (connectionError_.empty() && transport_.receiveSnapshot(received)) {
     if (received.map.contentHash == 0 && received.map.mapName == map_.mapName) {
       received.map = map_;
     }
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
+      const auto applyStart = std::chrono::steady_clock::now();
       const bool mapChanged =
         received.mapRevision != mapRevision_ ||
         received.map.mapName != map_.mapName ||
@@ -132,8 +137,22 @@ void ClientGame::receiveSnapshots() {
         movementTuning_,
         kFixedTickSeconds
       );
+      diagnostics.snapshotApplyMilliseconds +=
+        std::chrono::duration<float, std::milli>(
+          std::chrono::steady_clock::now() - applyStart
+        ).count();
+      ++diagnostics.snapshotsApplied;
     }
   }
+  const SnapshotDiagnostics transportDiagnostics =
+    transport_.snapshotDiagnostics();
+  diagnostics.snapshotPacketsDecoded =
+    transportDiagnostics.snapshotPacketsDecoded - lastSnapshotPacketsDecoded_;
+  lastSnapshotPacketsDecoded_ = transportDiagnostics.snapshotPacketsDecoded;
+  diagnostics.snapshotDecodeMilliseconds =
+    transportDiagnostics.snapshotDecodeMilliseconds;
+  diagnostics.snapshotQueueDepth = transportDiagnostics.snapshotQueueDepth;
+  snapshotDiagnostics_ = diagnostics;
 }
 
 void ClientGame::advanceInterpolation(
@@ -181,6 +200,10 @@ const MovementTuning& ClientGame::movementTuning() const {
 
 const Arena& ClientGame::arena() const {
   return arena_;
+}
+
+SnapshotDiagnostics ClientGame::snapshotDiagnostics() const {
+  return snapshotDiagnostics_;
 }
 
 bool ClientGame::hasConnectionError() const {

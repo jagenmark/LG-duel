@@ -5,6 +5,7 @@
 #include "app/ClientCvars.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/HudPresentation.hpp"
+#include "app/PerfTelemetry.hpp"
 #include "app/Scoreboard.hpp"
 #include "app/TextInput.hpp"
 #include "client/ClientSession.hpp"
@@ -269,6 +270,128 @@ struct FrameTimeHistory {
     };
   }
 };
+
+[[nodiscard]] PerfSample perfSampleFromFrame(
+  float frameMilliseconds,
+  const RendererFrameDiagnostics& renderDiagnostics,
+  const SnapshotDiagnostics& snapshotDiagnostics
+) {
+  PerfSample sample;
+  sample.frameMilliseconds = frameMilliseconds;
+  sample.sceneBuildMilliseconds = renderDiagnostics.sceneBuildMilliseconds;
+  sample.gpuVertexUploadMilliseconds =
+    renderDiagnostics.gpuVertexUploadMilliseconds;
+  sample.swapchainAcquireMilliseconds =
+    renderDiagnostics.swapchainAcquireMilliseconds;
+  sample.worldDrawIssueMilliseconds =
+    renderDiagnostics.worldDrawIssueMilliseconds;
+  sample.submitMilliseconds = renderDiagnostics.submitMilliseconds;
+  sample.totalRenderMilliseconds =
+    renderDiagnostics.totalRenderMilliseconds;
+  sample.dynamicOpaqueVertices = renderDiagnostics.dynamicOpaqueVertices;
+  sample.dynamicTranslucentVertices =
+    renderDiagnostics.dynamicTranslucentVertices;
+  sample.totalUploadedVertices = renderDiagnostics.totalUploadedVertices;
+  sample.dynamicTriangles = renderDiagnostics.dynamicTriangles;
+  sample.visibleRemotePlayers = renderDiagnostics.visibleRemotePlayers;
+  sample.remoteBodyModelsBuilt = renderDiagnostics.remoteBodyModelsBuilt;
+  sample.remoteWeaponModelsBuilt = renderDiagnostics.remoteWeaponModelsBuilt;
+  sample.playerOutlinesBuilt = renderDiagnostics.playerOutlinesBuilt;
+  sample.snapshot = snapshotDiagnostics;
+  return sample;
+}
+
+void appendPerfHudLines(
+  HudRenderState& hud,
+  const PerfWindowSummary& summary,
+  bool detail,
+  const ConsoleSystem& console
+) {
+  const PerfSample& latest = summary.latest;
+  char text[192];
+  std::snprintf(
+    text,
+    sizeof(text),
+    "PERF frame %.2f ms | scene %.2f | upload %.2f | acquire %.2f | render %.2f",
+    summary.frame.average,
+    summary.sceneBuild.average,
+    summary.gpuVertexUpload.average,
+    summary.swapchainAcquire.average,
+    summary.totalRender.average
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  if (!detail) {
+    return;
+  }
+
+  hud.topLeftLines.emplace_back("PERF WINDOW (recent samples)");
+  std::snprintf(
+    text,
+    sizeof(text),
+    "frame:   avg %.2f | p50 %.2f | p95 %.2f | p99 %.2f | max %.2f ms",
+    summary.frame.average,
+    summary.frame.p50,
+    summary.frame.p95,
+    summary.frame.p99,
+    summary.frame.max
+  );
+  hud.topLeftLines.emplace_back(text);
+  const auto appendMetric = [&](const char* label, const PerfMetricSummary& metric) {
+    std::snprintf(
+      text,
+      sizeof(text),
+      "%-8s avg %.2f | p95 %.2f ms",
+      label,
+      metric.average,
+      metric.p95
+    );
+    hud.topLeftLines.emplace_back(text);
+  };
+  appendMetric("scene:", summary.sceneBuild);
+  appendMetric("upload:", summary.gpuVertexUpload);
+  appendMetric("acquire:", summary.swapchainAcquire);
+  appendMetric("draw:", summary.worldDrawIssue);
+  appendMetric("submit:", summary.submit);
+  appendMetric("render:", summary.totalRender);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "dynamic: %u vertices | %u triangles",
+    latest.dynamicOpaqueVertices + latest.dynamicTranslucentVertices,
+    latest.dynamicTriangles
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "remote:  visible %u | bodies %u | weapons %u | outlines %u",
+    latest.visibleRemotePlayers,
+    latest.remoteBodyModelsBuilt,
+    latest.remoteWeaponModelsBuilt,
+    latest.playerOutlinesBuilt
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "snapshot: decode %.2f ms | apply %.2f ms | packets %u | queued %zu",
+    summary.snapshotDecode.average,
+    summary.snapshotApply.average,
+    latest.snapshot.snapshotPacketsDecoded,
+    latest.snapshot.snapshotQueueDepth
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "toggles:  remote_players %d | remote_weapons %d | outlines %d",
+    console.getBool("r_draw_remote_players") ? 1 : 0,
+    console.getBool("r_draw_remote_weapons") ? 1 : 0,
+    console.getBool("r_draw_player_outlines") ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+}
 
 #if LG_DUEL_HAS_SDL3
 struct ClientConsoleState {
@@ -1140,6 +1263,9 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_b"));
   settings.shotgunWeaponModelStart =
     console.getBool("r_sg_weapon_model_start");
+  settings.drawRemotePlayers = console.getBool("r_draw_remote_players");
+  settings.drawRemoteWeapons = console.getBool("r_draw_remote_weapons");
+  settings.drawPlayerOutlines = console.getBool("r_draw_player_outlines");
   settings.damageNumbersDuration = console.getFloat("r_damage_numbers_duration");
   settings.damageNumbersSize = console.getFloat("r_damage_numbers_size");
   settings.damageNumbersAlpha = console.getFloat("r_damage_numbers_alpha");
@@ -2558,6 +2684,7 @@ int GameApp::run() const {
   float displayedFramesPerSecond = 0.0F;
   FrameTimeHistory outerFrameTimes;
   FrameTimeSummary displayedFrameTimes;
+  PerfTelemetry perfTelemetry;
   PresentationViewState presentationView;
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
@@ -2637,7 +2764,12 @@ int GameApp::run() const {
     const auto outerFrameElapsed =
       std::chrono::duration<float>(outerFrameStart - previousOuterFrameStart);
     previousOuterFrameStart = outerFrameStart;
-    outerFrameTimes.push(outerFrameElapsed.count() * 1000.0F);
+    const float outerFrameMilliseconds = outerFrameElapsed.count() * 1000.0F;
+    if (console.getBool("r_perf_reset")) {
+      perfTelemetry.clear();
+      (void)console.execute("set r_perf_reset 0");
+    }
+    outerFrameTimes.push(outerFrameMilliseconds);
     frameStatsAccumulatorSeconds += outerFrameElapsed.count();
     if (frameStatsAccumulatorSeconds >= 0.25F) {
       displayedFrameTimes = outerFrameTimes.summarize();
@@ -3833,7 +3965,7 @@ int GameApp::run() const {
           std::snprintf(
             rendererTimingText,
             sizeof(rendererTimingText),
-            " gpu %.2f/%.2f/%.2f/%.2f",
+            " render %.2f/%.2f/%.2f/%.2f",
             renderDiagnostics.swapchainAcquireMilliseconds,
             renderDiagnostics.renderBuildUploadMilliseconds,
             renderDiagnostics.submitMilliseconds,
@@ -4380,6 +4512,14 @@ int GameApp::run() const {
     hud.chatSelectionAnchor = chatState.selection.anchor;
     hud.chatSelectionFocus = chatState.selection.focus;
     populateSettingsMenuRenderState(hud, settingsMenu);
+    if (console.getBool("r_perf")) {
+      appendPerfHudLines(
+        hud,
+        perfTelemetry.summarize(),
+        console.getBool("r_perf_detail"),
+        console
+      );
+    }
     const Arena& renderArena =
       session.game() != nullptr && session.game()->hasSnapshot()
         ? session.game()->arena()
@@ -4396,6 +4536,16 @@ int GameApp::run() const {
       hud,
       consoleRenderState(consoleState)
     );
+    if (console.getBool("r_perf")) {
+      const ClientGame* perfGame = session.game();
+      perfTelemetry.push(
+        perfSampleFromFrame(
+          outerFrameMilliseconds,
+          renderer.lastFrameDiagnostics(),
+          perfGame != nullptr ? perfGame->snapshotDiagnostics() : SnapshotDiagnostics{}
+        )
+      );
+    }
     session.update();
     const int requestedMaxFps = std::max(0, console.getInt("r_maxfps"));
     if (requestedMaxFps != appliedMaxFps) {

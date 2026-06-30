@@ -519,8 +519,16 @@ struct UdpClientTransport::Impl {
     }
     if (type == PacketType::Snapshot && connected) {
       auto snapshot = std::make_unique<ServerSnapshot>();
+      const auto decodeStart = Clock::now();
       if (decodeServerSnapshot(wire, *snapshot)) {
+        const auto decodeEnd = Clock::now();
+        ++snapshotDiagnostics.snapshotPacketsDecoded;
+        snapshotDiagnostics.snapshotDecodeMilliseconds =
+          std::chrono::duration<float, std::milli>(
+            decodeEnd - decodeStart
+          ).count();
         snapshots.push_back(std::move(*snapshot));
+        snapshotDiagnostics.snapshotQueueDepth = snapshots.size();
         lastServerPacket = now;
       }
     } else if (type == PacketType::Pong && connected) {
@@ -625,6 +633,7 @@ struct UdpClientTransport::Impl {
   SocketHandle socket = kInvalidSocket;
   Endpoint server = {};
   std::deque<ServerSnapshot> snapshots;
+  SnapshotDiagnostics snapshotDiagnostics = {};
   std::deque<CommandPacket> commandHistory;
   ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
@@ -759,11 +768,19 @@ void UdpClientTransport::sendSnapshot(const ServerSnapshot&) {}
 bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   impl_->pump();
   if (impl_->snapshots.empty()) {
+    impl_->snapshotDiagnostics.snapshotQueueDepth = 0;
     return false;
   }
   snapshot = impl_->snapshots.front();
   impl_->snapshots.pop_front();
+  impl_->snapshotDiagnostics.snapshotQueueDepth = impl_->snapshots.size();
   return true;
+}
+
+SnapshotDiagnostics UdpClientTransport::snapshotDiagnostics() const {
+  SnapshotDiagnostics diagnostics = impl_->snapshotDiagnostics;
+  diagnostics.snapshotQueueDepth = impl_->snapshots.size();
+  return diagnostics;
 }
 
 bool UdpClientTransport::connected() const {

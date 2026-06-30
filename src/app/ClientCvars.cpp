@@ -20,6 +20,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
   console.registerCvar({"cl_showfps", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_perf", "Show client performance diagnostics on the HUD.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_perf_detail", "Show expanded client performance diagnostic breakdown.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_perf_reset", "Clear client performance diagnostic sample history once, then reset.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"net_sim_latency_ms", "Client UDP simulator extra one-way latency in ms; 60 adds about 120 ms RTT when applied to outgoing and incoming traffic.", 0, CvarFlag::Client, 0.0F, 5000.0F});
@@ -99,6 +102,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_present_mode", "Renderer present mode: 0 FIFO/V-sync, 1 Mailbox, 2 Immediate.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_draw_player_outlines", "Draw player outline geometry.", true, archivedClient, {}, {}});
   console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});

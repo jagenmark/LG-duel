@@ -20,6 +20,10 @@ struct Scene3D {
   PerspectiveCamera camera = {};
   std::vector<Vertex3D> vertices;
   std::vector<Vertex3D> translucentVertices;
+  std::uint32_t visibleRemotePlayers = 0;
+  std::uint32_t remoteBodyModelsBuilt = 0;
+  std::uint32_t remoteWeaponModelsBuilt = 0;
+  std::uint32_t playerOutlinesBuilt = 0;
 };
 
 [[nodiscard]] Scene3D buildPerspectiveScene(

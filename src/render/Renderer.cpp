@@ -1086,8 +1086,19 @@ const PlayerState& firstVisibleRemote(
   RendererFrameDiagnostics& diagnostics
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
+  diagnostics.sceneBuildMilliseconds = 0.0F;
+  diagnostics.gpuVertexUploadMilliseconds = 0.0F;
+  diagnostics.worldDrawIssueMilliseconds = 0.0F;
   diagnostics.renderBuildUploadMilliseconds = 0.0F;
   diagnostics.submitMilliseconds = 0.0F;
+  diagnostics.dynamicOpaqueVertices = 0;
+  diagnostics.dynamicTranslucentVertices = 0;
+  diagnostics.totalUploadedVertices = 0;
+  diagnostics.dynamicTriangles = 0;
+  diagnostics.visibleRemotePlayers = 0;
+  diagnostics.remoteBodyModelsBuilt = 0;
+  diagnostics.remoteWeaponModelsBuilt = 0;
+  diagnostics.playerOutlinesBuilt = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -1113,6 +1124,7 @@ const PlayerState& firstVisibleRemote(
   diagnostics.swapchainAcquireMilliseconds =
     millisecondsBetween(acquireStart, acquireEnd);
   const auto buildStart = acquireEnd;
+  auto uploadStart = buildStart;
 
   if (swapchainTexture != nullptr && outputWidth > 0 && outputHeight > 0) {
     DrawList2D topDownScene;
@@ -1231,6 +1243,20 @@ const PlayerState& firstVisibleRemote(
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
+    uploadStart = RenderClock::now();
+    diagnostics.sceneBuildMilliseconds =
+      millisecondsBetween(buildStart, uploadStart);
+    diagnostics.dynamicOpaqueVertices = opaqueWorldVertexCount;
+    diagnostics.dynamicTranslucentVertices =
+      settings.renderMode == 1
+        ? worldVertexCount - opaqueWorldVertexCount
+        : 0U;
+    diagnostics.visibleRemotePlayers = perspectiveScene.visibleRemotePlayers;
+    diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
+    diagnostics.remoteWeaponModelsBuilt = perspectiveScene.remoteWeaponModelsBuilt;
+    diagnostics.playerOutlinesBuilt = perspectiveScene.playerOutlinesBuilt;
+    diagnostics.dynamicTriangles =
+      (diagnostics.dynamicOpaqueVertices + diagnostics.dynamicTranslucentVertices) / 3U;
     if (vertices.size() > kMaxGpuVertices) {
       (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
       SDL_SetError("SDL_GPU 2D vertex capacity exceeded");
@@ -1268,7 +1294,13 @@ const PlayerState& firstVisibleRemote(
       );
       SDL_EndGPUCopyPass(copyPass);
     }
+    const auto uploadEnd = RenderClock::now();
+    diagnostics.gpuVertexUploadMilliseconds =
+      millisecondsBetween(uploadStart, uploadEnd);
+    diagnostics.totalUploadedVertices =
+      static_cast<std::uint32_t>(vertices.size());
 
+    const auto drawIssueStart = uploadEnd;
     SDL_GPUColorTargetInfo colorTarget = {};
     colorTarget.texture = swapchainTexture;
     colorTarget.clear_color = {0.047F, 0.055F, 0.071F, 1.0F};
@@ -1448,6 +1480,8 @@ const PlayerState& firstVisibleRemote(
       }
     }
     SDL_EndGPURenderPass(overlayPass);
+    diagnostics.worldDrawIssueMilliseconds =
+      millisecondsBetween(drawIssueStart, RenderClock::now());
   }
 
   const auto submitStart = RenderClock::now();
@@ -2422,8 +2456,19 @@ void Renderer::render(
   }
 
   lastFrameDiagnostics_.swapchainAcquireMilliseconds = 0.0F;
+  lastFrameDiagnostics_.sceneBuildMilliseconds = 0.0F;
+  lastFrameDiagnostics_.gpuVertexUploadMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldDrawIssueMilliseconds = 0.0F;
   lastFrameDiagnostics_.renderBuildUploadMilliseconds = 0.0F;
   lastFrameDiagnostics_.submitMilliseconds = 0.0F;
+  lastFrameDiagnostics_.dynamicOpaqueVertices = 0;
+  lastFrameDiagnostics_.dynamicTranslucentVertices = 0;
+  lastFrameDiagnostics_.totalUploadedVertices = 0;
+  lastFrameDiagnostics_.dynamicTriangles = 0;
+  lastFrameDiagnostics_.visibleRemotePlayers = 0;
+  lastFrameDiagnostics_.remoteBodyModelsBuilt = 0;
+  lastFrameDiagnostics_.remoteWeaponModelsBuilt = 0;
+  lastFrameDiagnostics_.playerOutlinesBuilt = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
