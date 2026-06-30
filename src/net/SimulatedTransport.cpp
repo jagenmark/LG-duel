@@ -45,9 +45,6 @@ bool SimulatedTransport::receiveCommand(CommandPacket& packet) {
 void SimulatedTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   WirePacket wire;
   ServerSnapshot normalized = snapshotWithDefaultMapDescriptor(snapshot);
-  if (!encodeServerSnapshot(normalized, wire)) {
-    normalized.map = describeMap("thunderstruck", normalized.arena);
-  }
   if (encodeServerSnapshot(normalized, wire)) {
     schedule(wire, config_.snapshots, snapshots_);
   }

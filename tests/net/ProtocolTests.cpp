@@ -286,45 +286,9 @@ int main() {
 
   {
     lg::ServerSnapshot source;
-    source.hasArena = true;
     source.serverTick = 1234;
     source.mapRevision = 77;
     source.map = testMapDescriptor();
-    source.arena.min = {-20.0F, -10.0F, 0.0F};
-    source.arena.max = {20.0F, 10.0F, 12.0F};
-    source.arena.wallCount = 1;
-    source.arena.walls[0] = {{-1.0F, -2.0F, 0.0F}, {1.0F, 2.0F, 3.0F}};
-    source.arena.walls[0].materialId =
-      lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
-    source.arena.brushCount = 1;
-    source.arena.brushes[0].min = {2.0F, 2.0F, 0.0F};
-    source.arena.brushes[0].max = {4.0F, 4.0F, 2.0F};
-    source.arena.brushes[0].materialId = lg::arenaMaterialId("stone");
-    source.arena.brushes[0].vertexCount = 4;
-    source.arena.brushes[0].vertices[0] = {2.0F, 2.0F, 0.0F};
-    source.arena.brushes[0].vertices[1] = {4.0F, 2.0F, 0.0F};
-    source.arena.brushes[0].vertices[2] = {2.0F, 4.0F, 0.0F};
-    source.arena.brushes[0].vertices[3] = {2.0F, 2.0F, 2.0F};
-    source.arena.brushes[0].faceCount = 4;
-    source.arena.brushes[0].faces[0].normal = {0.0F, 0.0F, -1.0F};
-    source.arena.brushes[0].faces[0].distance = 0.0F;
-    source.arena.brushes[0].faces[0].materialId = lg::arenaMaterialId("floor");
-    source.arena.brushes[0].faces[0].vertexCount = 3;
-    source.arena.brushes[0].faces[0].vertices = {0, 2, 1};
-    source.arena.brushes[0].faces[1].normal = {0.0F, -1.0F, 0.0F};
-    source.arena.brushes[0].faces[1].distance = -2.0F;
-    source.arena.brushes[0].faces[1].vertexCount = 3;
-    source.arena.brushes[0].faces[1].vertices = {0, 1, 3};
-    source.arena.brushes[0].faces[2].normal = {-1.0F, 0.0F, 0.0F};
-    source.arena.brushes[0].faces[2].distance = -2.0F;
-    source.arena.brushes[0].faces[2].vertexCount = 3;
-    source.arena.brushes[0].faces[2].vertices = {0, 3, 2};
-    source.arena.brushes[0].faces[3].normal = {0.577F, 0.577F, 0.577F};
-    source.arena.brushes[0].faces[3].distance = 3.464F;
-    source.arena.brushes[0].faces[3].vertexCount = 3;
-    source.arena.brushes[0].faces[3].vertices = {1, 2, 3};
-    source.arena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
-    source.arena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
     source.acknowledgedCommand = {12, 34};
     source.hasAcknowledgedCommand = {true, false};
     source.players[0].position = {1.0F, 2.0F, 3.0F};
@@ -487,9 +451,7 @@ int main() {
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
     failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
     failures += expect(
-      !decoded.hasArena &&
-        decoded.arena.wallCount == 0 &&
-        decoded.map.mapName == source.map.mapName &&
+      decoded.map.mapName == source.map.mapName &&
         decoded.map.contentHash == source.map.contentHash,
       "snapshot map descriptor should round trip without arena geometry"
     );
@@ -671,63 +633,51 @@ int main() {
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 
-    lg::ServerSnapshot largeArenaSnapshot;
-    largeArenaSnapshot.hasArena = true;
-    largeArenaSnapshot.serverTick = 55;
-    largeArenaSnapshot.mapRevision = 3;
-    largeArenaSnapshot.map = testMapDescriptor();
-    largeArenaSnapshot.arena.min = {0.0F, 0.0F, 0.0F};
-    largeArenaSnapshot.arena.max = {320.0F, 4.0F, 4.0F};
-    largeArenaSnapshot.arena.wallCount = 160;
-    for (std::size_t wallIndex = 0; wallIndex < largeArenaSnapshot.arena.wallCount; ++wallIndex) {
+    lg::Arena smallArena = lg::thunderstruckArena();
+    lg::Arena largeArena = smallArena;
+    largeArena.wallCount = 160;
+    for (std::size_t wallIndex = 0; wallIndex < largeArena.wallCount; ++wallIndex) {
       const float x = static_cast<float>(wallIndex) * 2.0F;
-      largeArenaSnapshot.arena.walls[wallIndex] = {
+      largeArena.walls[wallIndex] = {
         {x, 0.0F, 0.0F},
         {x + 1.0F, 1.0F, 1.0F},
       };
-      largeArenaSnapshot.arena.walls[wallIndex].materialId =
-        lg::arenaMaterialId("512x512/Brick/Brick_14-512x512");
     }
-    largeArenaSnapshot.arena.spawnPositions[0] = {1.0F, 2.0F, 0.0F};
-    largeArenaSnapshot.arena.spawnPositions[1] = {319.0F, 2.0F, 0.0F};
-    lg::ServerSnapshot decodedLargeArena;
+
+    lg::ServerSnapshot smallMapSnapshot;
+    smallMapSnapshot.serverTick = 55;
+    smallMapSnapshot.mapRevision = 3;
+    smallMapSnapshot.map = {"small_map", lg::hashArena(smallArena)};
     failures += expect(
-      lg::encodeServerSnapshot(largeArenaSnapshot, wire),
-      "large arena snapshot should encode"
+      lg::encodeServerSnapshot(smallMapSnapshot, wire),
+      "small map descriptor snapshot should encode"
     );
     failures += expect(
       wire.size() <= lg::kMaxPacketBytes,
-      "large arena snapshot should respect packet limit"
+      "small map descriptor snapshot should respect packet limit"
     );
-    failures += expect(
-      lg::decodeServerSnapshot(wire, decodedLargeArena),
-      "large arena snapshot should decode"
-    );
-    failures += expect(
-      !decodedLargeArena.hasArena &&
-        decodedLargeArena.arena.wallCount == 0 &&
-        decodedLargeArena.map.contentHash == largeArenaSnapshot.map.contentHash,
-      "large arena wall list should not be serialized"
-    );
+    const std::size_t smallMapSnapshotBytes = wire.size();
+    lg::ServerSnapshot decodedLargeMap;
 
-    const std::size_t descriptorSnapshotBytes = wire.size();
-    largeArenaSnapshot.hasArena = false;
+    lg::ServerSnapshot largeMapSnapshot = smallMapSnapshot;
+    largeMapSnapshot.map = {"large_map", lg::hashArena(largeArena)};
     failures += expect(
-      lg::encodeServerSnapshot(largeArenaSnapshot, wire),
-      "large arena delta snapshot should encode without arena payload"
+      lg::encodeServerSnapshot(largeMapSnapshot, wire),
+      "large map descriptor snapshot should encode"
     );
     failures += expect(
-      wire.size() == descriptorSnapshotBytes,
-      "snapshot size should not depend on full arena payload"
+      wire.size() == smallMapSnapshotBytes,
+      "snapshot wire size should not scale with static map complexity"
     );
     failures += expect(
-      lg::decodeServerSnapshot(wire, decodedLargeArena),
-      "large arena delta snapshot should decode"
+      lg::decodeServerSnapshot(wire, decodedLargeMap),
+      "large map descriptor snapshot should decode"
     );
     failures += expect(
-      !decodedLargeArena.hasArena &&
-        decodedLargeArena.mapRevision == largeArenaSnapshot.mapRevision,
-      "large arena delta snapshot should preserve revision without arena payload"
+      decodedLargeMap.map.mapName == "large_map" &&
+        decodedLargeMap.map.contentHash == largeMapSnapshot.map.contentHash &&
+        decodedLargeMap.mapRevision == largeMapSnapshot.mapRevision,
+      "large map descriptor snapshot should preserve revision without arena payload"
     );
 
     lg::DisconnectPacket disconnect{12345};

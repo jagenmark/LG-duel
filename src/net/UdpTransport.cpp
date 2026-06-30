@@ -439,7 +439,7 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
     }
 
     WirePacket wire;
-    if (!encodeServerSnapshot(snapshot, false, wire)) {
+    if (!encodeServerSnapshot(snapshot, wire)) {
       continue;
     }
     if (sendWire(impl_->socket, client.endpoint, wire)) {

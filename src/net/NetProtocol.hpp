@@ -143,8 +143,6 @@ struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
   MapDescriptor map = {};
-  bool hasArena = false;
-  Arena arena = {};
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};
@@ -205,5 +203,13 @@ struct ServerSnapshot {
   std::uint8_t chatPlayerIndex = 0;
   std::string chatMessage;
 };
+
+// Snapshots are decoded, queued, copied, assigned, and interpolated constantly.
+// The current dynamic-state snapshot is about 3 KiB; keep static map geometry
+// owned by map/server/client state, not snapshots.
+static_assert(
+  sizeof(ServerSnapshot) < 4096,
+  "ServerSnapshot must remain compact; static Arena data belongs outside snapshots."
+);
 
 } // namespace lg

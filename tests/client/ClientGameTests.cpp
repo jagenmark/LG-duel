@@ -177,8 +177,6 @@ int main() {
     reloadedSnapshot.serverTick = 1;
     reloadedSnapshot.mapRevision = initialSnapshot.mapRevision + 1;
     reloadedSnapshot.map = reloadedMap.descriptor;
-    reloadedSnapshot.hasArena = true;
-    reloadedSnapshot.arena = {};
     reloadedSnapshot.players[0].position = {
       reloadedArena.max.x - reloadedSnapshot.players[0].bounds.radius,
       0.0F,
@@ -204,8 +202,6 @@ int main() {
 
     lg::ServerSnapshot arenaLessSnapshot = reloadedSnapshot;
     arenaLessSnapshot.serverTick = 2;
-    arenaLessSnapshot.hasArena = false;
-    arenaLessSnapshot.arena = {};
     arenaLessSnapshot.players[0].position.x = 0.0F;
     transport.sendSnapshot(arenaLessSnapshot);
     client.receiveSnapshots();
@@ -216,11 +212,11 @@ int main() {
       "ClientGame should retain the current arena on arena-less snapshots"
     );
 
-    lg::ServerSnapshot missingArenaReload = arenaLessSnapshot;
-    missingArenaReload.serverTick = 3;
-    missingArenaReload.mapRevision = reloadedSnapshot.mapRevision + 1;
-    missingArenaReload.map = {"missing_map", 12345};
-    transport.sendSnapshot(missingArenaReload);
+    lg::ServerSnapshot descriptorOnlyReload = arenaLessSnapshot;
+    descriptorOnlyReload.serverTick = 3;
+    descriptorOnlyReload.mapRevision = reloadedSnapshot.mapRevision + 1;
+    descriptorOnlyReload.map = {"missing_map", 12345};
+    transport.sendSnapshot(descriptorOnlyReload);
     client.receiveSnapshots();
     failures += expect(
       client.snapshot().serverTick == 2 &&

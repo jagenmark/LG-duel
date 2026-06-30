@@ -107,8 +107,6 @@ void ClientGame::receiveSnapshots() {
         map_ = loaded.descriptor;
         mapRevision_ = received.mapRevision;
       }
-      received.hasArena = false;
-      received.arena = {};
       snapshot_ = received;
       if (
         hasPendingMovementTuning_ &&
