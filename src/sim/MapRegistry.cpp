@@ -73,7 +73,7 @@ bool isValidMapName(std::string_view mapName) {
   const std::string stem = extension.empty()
     ? std::string(mapName)
     : requested.stem().string();
-  if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
+  if (!extension.empty() && extension != ".map") {
     return false;
   }
   if (stem.empty()) {
@@ -123,6 +123,18 @@ std::uint32_t hashArena(const Arena& arena) {
   for (const Vec3& spawn : arena.spawnPositions) {
     hashVec3(hash, spawn);
   }
+  hashU32(hash, static_cast<std::uint32_t>(arena.staticLightCount));
+  for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+    const ArenaStaticLight& light = arena.staticLights[index];
+    hashVec3(hash, light.position);
+    hashVec3(hash, light.color);
+    hashFloat(hash, light.intensity);
+    hashFloat(hash, light.radius);
+  }
+  hashU32(hash, arena.sunLight.enabled ? 1U : 0U);
+  hashVec3(hash, arena.sunLight.direction);
+  hashVec3(hash, arena.sunLight.color);
+  hashFloat(hash, arena.sunLight.intensity);
   return hash == 0U ? 1U : hash;
 }
 
@@ -152,7 +164,6 @@ LocalMapLoadResult loadLocalMap(
   const std::filesystem::path directory = resolveMapDirectory(mapDirectory);
   std::vector<std::filesystem::path> candidates;
   if (extension.empty()) {
-    candidates.push_back(directory / (mapName + ".lgmap"));
     candidates.push_back(directory / (mapName + ".map"));
   } else {
     candidates.push_back(directory / mapName);

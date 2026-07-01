@@ -21,24 +21,38 @@ enum class PlayerOutlineStyle : int {
 [[nodiscard]] inline bool usesGeometryPlayerOutlineFallback(
   PlayerOutlineStyle style
 ) {
-  return style == PlayerOutlineStyle::Geometry ||
-    style == PlayerOutlineStyle::ScreenSpace;
+  return style == PlayerOutlineStyle::Geometry;
 }
 
+enum class OutlineGroup : std::uint8_t {
+  None = 0,
+  Enemy = 1,
+  Teammate = 2,
+};
+
+enum class OutlineVisibility : std::uint8_t {
+  None = 0,
+  VisibleOnly = 1,
+  OccludedOnly = 2,
+  VisibleAndOccluded = 3,
+};
+
+struct OutlineState {
+  OutlineGroup group = OutlineGroup::None;
+  OutlineVisibility visibility = OutlineVisibility::None;
+  float widthPixels = 0.0F;
+  float alpha = 1.0F;
+  float pulse = 0.0F;
+};
+
 struct RenderSettings {
-  int renderMode = 0;
   float fieldOfView = 90.0F;
-  float cameraZoom = 1.0F;
-  bool rotateView = false;
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
   bool teammateLeanEnabled = true;
   float teammateLeanScale = 1.0F;
   float healthTextScale = 2.0F;
   float playerSizePixels = 14.0F;
-  bool crosshairUseScreenPosition = false;
-  float crosshairScreenX = 0.0F;
-  float crosshairScreenY = 0.0F;
   bool crosshairEnabled = true;
   int crosshairStyle = 0;
   float crosshairSize = 8.0F;
@@ -93,8 +107,8 @@ struct RenderSettings {
   float enemyAlpha = 1.0F;
   int playerModel = 1;
   bool enemyOutlineEnabled = true;
-  PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::Geometry;
-  float enemyOutlineWidth = 0.045F;
+  PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::ScreenSpace;
+  float enemyOutlineWidth = 3.0F;
   float enemyOutlineAlpha = 1.0F;
   std::uint8_t enemyOutlineRed = 255;
   std::uint8_t enemyOutlineGreen = 220;
@@ -108,7 +122,7 @@ struct RenderSettings {
   std::uint8_t teammateBlue = 224;
   float teammateAlpha = 1.0F;
   bool teammateOutlineEnabled = true;
-  float teammateOutlineWidth = 0.045F;
+  float teammateOutlineWidth = 3.0F;
   float teammateOutlineAlpha = 1.0F;
   std::uint8_t teammateOutlineRed = 128;
   std::uint8_t teammateOutlineGreen = 240;
@@ -256,6 +270,14 @@ struct RendererFrameDiagnostics {
   std::uint32_t dynamicTranslucentVertices = 0;
   std::uint32_t totalUploadedVertices = 0;
   std::uint32_t dynamicTriangles = 0;
+  std::uint32_t normalPlayerBodyDynamicVertices = 0;
+  std::uint32_t geometryOutlineDynamicVertices = 0;
+  std::uint32_t outlinedPlayers = 0;
+  std::uint32_t outlineMaskWidth = 0;
+  std::uint32_t outlineMaskHeight = 0;
+  std::uint32_t outlinePasses = 0;
+  bool outlineCompositeEnabled = false;
+  bool geometryOutlineFallbackUsed = false;
   std::uint32_t visibleRemotePlayers = 0;
   std::uint32_t remoteBodyModelsBuilt = 0;
   std::uint32_t remoteWeaponModelsBuilt = 0;
@@ -263,6 +285,24 @@ struct RendererFrameDiagnostics {
   std::uint32_t remoteCandidates = 0;
   std::uint32_t remoteFrustumVisible = 0;
   std::uint32_t remoteFrustumCulled = 0;
+  std::uint32_t remoteWeaponCandidates = 0;
+  std::uint32_t remoteWeaponsFrustumCulled = 0;
+  std::uint32_t remoteWeaponInstances = 0;
+  std::uint32_t remoteWeaponInstanceUploadBytes = 0;
+  std::uint32_t remoteWeaponBatches = 0;
+  std::uint32_t remoteWeaponDrawCalls = 0;
+  std::uint32_t legacyRemoteWeaponDynamicVertices = 0;
+  std::uint32_t firstPersonViewModelDrawCalls = 0;
+  std::uint32_t firstPersonViewModelDynamicVertices = 0;
+  std::uint32_t projectilesActive = 0;
+  std::uint32_t projectilesFrustumCulled = 0;
+  std::uint32_t projectilesRendered = 0;
+  std::uint32_t projectileCoreInstances = 0;
+  std::uint32_t projectileGlowInstances = 0;
+  std::uint32_t projectileInstanceUploadBytes = 0;
+  std::uint32_t projectileMeshDrawCalls = 0;
+  std::uint32_t projectileGlowDrawCalls = 0;
+  std::uint32_t legacyProjectileDynamicVertices = 0;
   std::string_view selectedPresentModeName = "n/a";
 };
 
@@ -304,16 +344,26 @@ private:
   void* gpuPipeline_ = nullptr;
   void* gpuPipeline3D_ = nullptr;
   void* gpuPipeline3DTranslucent_ = nullptr;
+  void* gpuPipelineInstancedMesh_ = nullptr;
+  void* gpuPipelineStaticMesh_ = nullptr;
+  void* gpuPipelineInstancedGlow_ = nullptr;
+  void* gpuPipelineOutlineMask_ = nullptr;
+  void* gpuPipelineOutlineComposite_ = nullptr;
   void* gpuVertexBuffer_ = nullptr;
   void* gpuTransferBuffer_ = nullptr;
+  void* gpuSimpleResources_ = nullptr;
   void* gpuFontTexture_ = nullptr;
   void* gpuFontSampler_ = nullptr;
   void* gpuWorldTextureAtlas_ = nullptr;
   void* gpuStaticWorld_ = nullptr;
   void* gpuVertexScratch_ = nullptr;
   void* gpuDepthTexture_ = nullptr;
+  void* gpuOutlineMaskTexture_ = nullptr;
+  void* gpuOutlineMaskSampler_ = nullptr;
   std::uint32_t gpuDepthWidth_ = 0;
   std::uint32_t gpuDepthHeight_ = 0;
+  std::uint32_t gpuOutlineMaskWidth_ = 0;
+  std::uint32_t gpuOutlineMaskHeight_ = 0;
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
   RendererFrameDiagnostics lastFrameDiagnostics_ = {};

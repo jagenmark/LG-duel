@@ -756,8 +756,8 @@
 "yaw" "270"
 "angle" "90"
 }
-<<<<<<< Updated upstream
-=======
+
+
 // entity 14
 {
 "classname" "light_sun"
@@ -988,4 +988,3 @@
 "radius" "500"
 "_tb_group" "230"
 }
->>>>>>> Stashed changes

@@ -13,16 +13,18 @@
   yaw(integer) : "Yaw override" : 0 : "Optional spawn yaw in degrees. The importer also accepts angle from the Angles base class."
 ]
 
-@PointClass size(-8 -8 -8, 8 8 8) color(255 220 96) = light : "Static point light"
+@PointClass size(-8 -8 -8, 8 8 8) color(255 220 96) = light_point : "Static point light"
 [
   light(integer) : "Intensity" : 300 : "Quake-style intensity. 300 is the default LG Duel brightness."
   radius(integer) : "Radius" : 320 : "Light falloff radius in TrenchBroom units."
   _color(color255) : "Color" : "255 255 255" : "Static light color."
 ]
 
-@PointClass size(-8 -8 -8, 8 8 8) color(255 220 96) = light_point : "Static point light"
+@PointClass color(255 240 180) size(-12 -12 -12, 12 12 12) = light_sun : "directional sun light"
 [
-  light(integer) : "Intensity" : 300 : "Quake-style intensity. 300 is the default LG Duel brightness."
-  radius(integer) : "Radius" : 320 : "Light falloff radius in TrenchBroom units."
-  _color(color255) : "Color" : "255 255 255" : "Static light color."
+  intensity(float) : "intensity" : 0.7
+  color(color255) : "color" : "255 240 200"
+  direction(string) : "direction vector x y z" : "0.3 -0.5 -1"
+  angle(integer) : "yaw angle fallback" : 0
+  pitch(integer) : "pitch angle fallback" : -45
 ]

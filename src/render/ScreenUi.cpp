@@ -632,12 +632,8 @@ void addCrosshair(
     return;
   }
 
-  const float centerX = settings.crosshairUseScreenPosition
-    ? std::clamp(settings.crosshairScreenX, 0.0F, static_cast<float>(width))
-    : static_cast<float>(width) * 0.5F;
-  const float centerY = settings.crosshairUseScreenPosition
-    ? std::clamp(settings.crosshairScreenY, 0.0F, static_cast<float>(height))
-    : static_cast<float>(height) * 0.5F;
+  const float centerX = static_cast<float>(width) * 0.5F;
+  const float centerY = static_cast<float>(height) * 0.5F;
   const float size = settings.crosshairSize;
   const float gap = settings.crosshairGap;
   const float thickness = settings.crosshairThickness;
@@ -766,12 +762,8 @@ void addDamageNumbers(
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
-  const float baseX = settings.crosshairUseScreenPosition
-    ? std::clamp(settings.crosshairScreenX, 0.0F, static_cast<float>(width))
-    : static_cast<float>(width) * 0.5F;
-  const float baseY = settings.crosshairUseScreenPosition
-    ? std::clamp(settings.crosshairScreenY, 0.0F, static_cast<float>(height))
-    : static_cast<float>(height) * 0.5F;
+  const float baseX = static_cast<float>(width) * 0.5F;
+  const float baseY = static_cast<float>(height) * 0.5F;
   const float alphaScale = std::clamp(settings.damageNumbersAlpha, 0.0F, 1.0F);
   const float duration = std::max(0.001F, settings.damageNumbersDuration);
   const float scale = std::max(0.1F, settings.damageNumbersSize);

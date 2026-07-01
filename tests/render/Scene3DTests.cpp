@@ -139,11 +139,23 @@ int main() {
     "perspective scene should emit triangle-list geometry"
   );
   failures += expect(
+    settings.playerOutlineStyle == lg::PlayerOutlineStyle::ScreenSpace &&
+      !lg::usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle),
+    "SDL_GPU outline settings should prefer screen-space outlines over geometry fallback"
+  );
+  failures += expect(
     baseScene.visibleRemotePlayers == 1 &&
       baseScene.remoteBodyModelsBuilt == 1 &&
       baseScene.remoteWeaponModelsBuilt == 1 &&
-      baseScene.playerOutlinesBuilt == 1,
-    "default render settings should build visible remote body, weapon, and outline"
+      baseScene.playerOutlinesBuilt == 1 &&
+      baseScene.outlinedPlayers == 1 &&
+      baseScene.outlineMaskDraws.size() == 1U &&
+      baseScene.normalPlayerBodyDynamicVertices > 0 &&
+      baseScene.geometryOutlineDynamicVertices == 0 &&
+      !baseScene.geometryOutlineFallbackUsed &&
+      baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
+      baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
+    "default render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
   );
 
   lg::RenderSettings noWeaponSettings = settings;
@@ -164,7 +176,9 @@ int main() {
     noWeaponScene.visibleRemotePlayers == 1 &&
       noWeaponScene.remoteBodyModelsBuilt == 1 &&
       noWeaponScene.remoteWeaponModelsBuilt == 0 &&
-      noWeaponScene.playerOutlinesBuilt == 1,
+      noWeaponScene.remoteWeaponStats.instancesSubmitted == 0 &&
+      noWeaponScene.playerOutlinesBuilt == 1 &&
+      noWeaponScene.outlineMaskDraws.size() == 1U,
     "disabled remote weapons should prevent only remote weapon model construction"
   );
 
@@ -202,7 +216,9 @@ int main() {
     noBodyBeamScene.visibleRemotePlayers == 1 &&
       noBodyBeamScene.remoteBodyModelsBuilt == 0 &&
       noBodyBeamScene.remoteWeaponModelsBuilt == 1 &&
-      noBodyBeamScene.playerOutlinesBuilt == 1 &&
+      noBodyBeamScene.remoteWeaponStats.instancesSubmitted == 1 &&
+      noBodyBeamScene.playerOutlinesBuilt == 0 &&
+      noBodyBeamScene.outlineMaskDraws.empty() &&
       noBodyBeamScene.vertices.size() > noBodyNoBeamScene.vertices.size(),
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
   );
@@ -465,6 +481,64 @@ int main() {
     );
   }
 
+  {
+    lg::Arena sunArena;
+    sunArena.wallCount = 1;
+    sunArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    sunArena.walls[0].max = {2.0F, 2.0F, 1.0F};
+    const std::uint32_t topMaterial = lg::arenaMaterialId("sunlit_top");
+    const std::uint32_t bottomMaterial = lg::arenaMaterialId("sunlit_bottom");
+    sunArena.walls[0].faceMaterialIds[0] = bottomMaterial;
+    sunArena.walls[0].faceMaterialIds[1] = topMaterial;
+    sunArena.sunLight.enabled = true;
+    sunArena.sunLight.direction = {0.0F, 0.0F, -1.0F};
+    sunArena.sunLight.color = {1.0F, 1.0F, 1.0F};
+    sunArena.sunLight.intensity = 0.7F;
+    const lg::Scene3D sunScene = lg::buildStaticWorldScene(sunArena);
+    int topRed = 0;
+    int bottomRed = 0;
+    for (const lg::Vertex3D& vertex : sunScene.vertices) {
+      if (vertex.materialId == topMaterial) {
+        topRed = std::max(topRed, static_cast<int>(vertex.color.red));
+      } else if (vertex.materialId == bottomMaterial) {
+        bottomRed = std::max(bottomRed, static_cast<int>(vertex.color.red));
+      }
+    }
+    failures += expect(
+      topRed > bottomRed + 80,
+      "downward sun should make upward-facing floor brighter"
+    );
+  }
+
+  {
+    lg::Arena sunArena;
+    sunArena.wallCount = 1;
+    sunArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    sunArena.walls[0].max = {2.0F, 2.0F, 1.0F};
+    const std::uint32_t facingMaterial = lg::arenaMaterialId("sun_facing_wall");
+    const std::uint32_t awayMaterial = lg::arenaMaterialId("sun_away_wall");
+    sunArena.walls[0].faceMaterialIds[5] = facingMaterial;
+    sunArena.walls[0].faceMaterialIds[3] = awayMaterial;
+    sunArena.sunLight.enabled = true;
+    sunArena.sunLight.direction = {1.0F, 0.0F, 0.0F};
+    sunArena.sunLight.color = {1.0F, 1.0F, 1.0F};
+    sunArena.sunLight.intensity = 0.8F;
+    const lg::Scene3D sunScene = lg::buildStaticWorldScene(sunArena);
+    int facingRed = 0;
+    int awayRed = 0;
+    for (const lg::Vertex3D& vertex : sunScene.vertices) {
+      if (vertex.materialId == facingMaterial) {
+        facingRed = std::max(facingRed, static_cast<int>(vertex.color.red));
+      } else if (vertex.materialId == awayMaterial) {
+        awayRed = std::max(awayRed, static_cast<int>(vertex.color.red));
+      }
+    }
+    failures += expect(
+      facingRed > awayRed + 80,
+      "wall facing sun should receive more sun contribution than wall facing away"
+    );
+  }
+
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -678,30 +752,17 @@ int main() {
   (void)groundedModelX;
   (void)airborneModelX;
 
-  std::size_t outlineVertexCount = 0;
-  bool outlineExpandsPastBounds = false;
-  for (const lg::Vertex3D& vertex : baseScene.vertices) {
-    if (
-      vertex.color.red == settings.enemyOutlineRed &&
-      vertex.color.green == settings.enemyOutlineGreen &&
-      vertex.color.blue == settings.enemyOutlineBlue
-    ) {
-      ++outlineVertexCount;
-      outlineExpandsPastBounds =
-        outlineExpandsPastBounds ||
-        std::fabs(vertex.position.x - opponent.position.x) >
-          opponent.bounds.radius + 0.001F ||
-        std::fabs(vertex.position.y - opponent.position.y) >
-          opponent.bounds.radius + 0.001F ||
-        vertex.position.z <
-          opponent.position.z - opponent.bounds.halfHeight - 0.001F ||
-        vertex.position.z >
-          opponent.position.z + opponent.bounds.halfHeight + 0.001F;
-    }
-  }
+  const lg::OutlineMaskDraw& enemyMaskDraw = baseScene.outlineMaskDraws.front();
   failures += expect(
-    outlineVertexCount > 0 && outlineExpandsPastBounds,
-    "enabled enemy outline should emit expanded player geometry"
+    enemyMaskDraw.state.group == lg::OutlineGroup::Enemy &&
+      enemyMaskDraw.state.visibility == lg::OutlineVisibility::VisibleOnly &&
+      nearlyEqual(enemyMaskDraw.state.widthPixels, settings.enemyOutlineWidth) &&
+      nearlyEqual(enemyMaskDraw.state.alpha, settings.enemyOutlineAlpha) &&
+      enemyMaskDraw.firstVertex < baseScene.vertices.size() &&
+      enemyMaskDraw.vertexCount == baseScene.normalPlayerBodyDynamicVertices &&
+      enemyMaskDraw.firstVertex + enemyMaskDraw.vertexCount <=
+        baseScene.vertices.size(),
+    "enabled enemy outline should reuse the remote player body draw range as mask input"
   );
 
   lg::RenderSettings outlineDisabledSettings = settings;
@@ -718,20 +779,69 @@ int main() {
     rockets,
     outlineDisabledSettings
   );
-  bool disabledOutlinePresent = false;
-  for (const lg::Vertex3D& vertex : outlineDisabledScene.vertices) {
-    disabledOutlinePresent =
-      disabledOutlinePresent ||
-      (
-        vertex.color.red == settings.enemyOutlineRed &&
-        vertex.color.green == settings.enemyOutlineGreen &&
-        vertex.color.blue == settings.enemyOutlineBlue
-      );
-  }
   failures += expect(
-    !disabledOutlinePresent &&
-      outlineDisabledScene.vertices.size() < baseScene.vertices.size(),
-    "disabled enemy outline should not emit outline geometry"
+    outlineDisabledScene.playerOutlinesBuilt == 0 &&
+      outlineDisabledScene.outlineMaskDraws.empty() &&
+      outlineDisabledScene.geometryOutlineDynamicVertices == 0 &&
+      outlineDisabledScene.vertices.size() == baseScene.vertices.size(),
+    "disabled enemy outline should exclude the player from the outline mask without changing normal geometry"
+  );
+
+  lg::RenderSettings legacyOutlineSettings = settings;
+  legacyOutlineSettings.playerOutlineStyle = lg::PlayerOutlineStyle::Geometry;
+  const lg::Scene3D legacyOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    legacyOutlineSettings
+  );
+  failures += expect(
+    legacyOutlineScene.playerOutlinesBuilt == 1 &&
+      legacyOutlineScene.outlineMaskDraws.empty() &&
+      legacyOutlineScene.geometryOutlineFallbackUsed &&
+      legacyOutlineScene.geometryOutlineDynamicVertices > 0 &&
+      legacyOutlineScene.vertices.size() > baseScene.vertices.size(),
+    "legacy geometry outline style should remain explicit fallback behavior"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> teammateOnlyPlayers = {};
+  teammateOnlyPlayers[1] =
+    lg::RemotePlayerView{
+      opponent,
+      inactiveBeam,
+      lg::Weapon::LightningGun,
+      0.0F,
+      1.0F,
+      true,
+      true,
+      {},
+    };
+  const lg::Scene3D teammateOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    teammateOnlyPlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    teammateOutlineScene.outlineMaskDraws.size() == 1U &&
+      teammateOutlineScene.outlineMaskDraws.front().state.group ==
+        lg::OutlineGroup::Teammate &&
+      nearlyEqual(
+        teammateOutlineScene.outlineMaskDraws.front().state.widthPixels,
+        settings.teammateOutlineWidth
+      ),
+    "teammate and enemy outline mask groups should remain distinct"
   );
 
   lg::RenderSettings isolationOutlineDisabledSettings = settings;
@@ -752,8 +862,9 @@ int main() {
     isolationOutlineDisabledScene.visibleRemotePlayers == 1 &&
       isolationOutlineDisabledScene.remoteBodyModelsBuilt == 1 &&
       isolationOutlineDisabledScene.remoteWeaponModelsBuilt == 1 &&
-      isolationOutlineDisabledScene.playerOutlinesBuilt == 0,
-    "disabled player outlines should prevent only outline geometry construction"
+      isolationOutlineDisabledScene.playerOutlinesBuilt == 0 &&
+      isolationOutlineDisabledScene.outlineMaskDraws.empty(),
+    "disabled player outlines should prevent only outline mask construction"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
@@ -795,6 +906,31 @@ int main() {
   failures += expect(
     multiOpponentScene.vertices.size() > baseScene.vertices.size(),
     "perspective scene should emit geometry for multiple remote players"
+  );
+  failures += expect(
+    multiOpponentScene.remoteWeaponStats.instancesSubmitted == 2 &&
+      multiOpponentScene.remoteWeaponStats.batches == 1 &&
+      multiOpponentScene.remoteWeaponStats.drawCalls == 1,
+    "multiple remotes holding the same weapon should form one remote weapon batch"
+  );
+
+  remotePlayers[2].selectedWeapon = lg::Weapon::RocketLauncher;
+  const lg::Scene3D mixedWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    remotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    mixedWeaponScene.remoteWeaponStats.instancesSubmitted == 2 &&
+      mixedWeaponScene.remoteWeaponStats.batches == 2 &&
+      mixedWeaponScene.remoteWeaponStats.drawCalls == 2,
+    "remotes holding different weapons should form separate remote weapon batches"
   );
 
   lg::PlayerState behindOpponent = opponent;
@@ -839,6 +975,9 @@ int main() {
       culledBehindScene.remoteFrustumCulled == 1 &&
       culledBehindScene.remoteBodyModelsBuilt == 0 &&
       culledBehindScene.remoteWeaponModelsBuilt == 0 &&
+      culledBehindScene.remoteWeaponStats.candidates == 1 &&
+      culledBehindScene.remoteWeaponStats.frustumCulled == 1 &&
+      culledBehindScene.remoteWeaponStats.instancesSubmitted == 0 &&
       culledBehindScene.playerOutlinesBuilt == 0 &&
       culledBehindScene.vertices.size() == noRemoteScene.vertices.size(),
     "remote behind camera should not add body, weapon, or outline vertices when culling is enabled"
@@ -862,6 +1001,7 @@ int main() {
       uncullableBehindScene.remoteFrustumCulled == 0 &&
       uncullableBehindScene.remoteBodyModelsBuilt == 1 &&
       uncullableBehindScene.remoteWeaponModelsBuilt == 1 &&
+      uncullableBehindScene.remoteWeaponStats.instancesSubmitted == 1 &&
       uncullableBehindScene.playerOutlinesBuilt == 1 &&
       uncullableBehindScene.vertices.size() > noRemoteScene.vertices.size(),
     "r_frustum_cull 0 should preserve remote body, weapon, and outline construction"
@@ -891,21 +1031,22 @@ int main() {
       rockets,
       settings
     );
-    std::size_t forwardWeaponVertexCount = 0;
-    for (const lg::Vertex3D& vertex : weaponScene.vertices) {
-      if (
-        vertex.position.x > opponent.position.x + opponent.bounds.radius + 0.04F &&
-        std::fabs(vertex.position.y - opponent.position.y) <=
-          opponent.bounds.radius + 0.7F &&
-        vertex.position.z > opponent.position.z - 0.25F &&
-        vertex.position.z < opponent.position.z + opponent.bounds.halfHeight + 0.25F
-      ) {
-        ++forwardWeaponVertexCount;
-      }
+    const lg::MeshHandle mesh = lg::remoteWeaponMeshHandle(weapon);
+    const lg::StaticMeshAsset* asset = lg::staticMeshAsset(mesh);
+    bool foundWeaponInstance = false;
+    for (const lg::StaticMeshInstance& instance : weaponScene.staticMeshInstances) {
+      foundWeaponInstance =
+        foundWeaponInstance ||
+        (instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld);
     }
     failures += expect(
-      forwardWeaponVertexCount > 0,
-      "every playable weapon should emit forward world-model geometry"
+      mesh != lg::MeshHandle::Invalid &&
+        asset != nullptr &&
+        !asset->vertices.empty() &&
+        foundWeaponInstance &&
+        weaponScene.remoteWeaponStats.instancesSubmitted == 1 &&
+        weaponScene.remoteWeaponStats.legacyDynamicVertices == 0,
+      "every playable weapon should map to a static mesh and submit one remote weapon instance"
     );
   }
 
@@ -994,7 +1135,6 @@ int main() {
     "shotgun fire should add muzzle flash, pellet traces, and impact puffs"
   );
   lg::RenderSettings localShotgunWeaponStartSettings = settings;
-  localShotgunWeaponStartSettings.renderMode = 1;
   localShotgunWeaponStartSettings.shotgunWeaponModelStart = true;
   const lg::Scene3D localShotgunWeaponScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -1058,6 +1198,66 @@ int main() {
       hasMachineGunImpactColor &&
       hasMachineGunFlashColor,
     "machine gun fire should add muzzle flash, tracer, and impact spark"
+  );
+
+  lg::RenderSettings localMachineGunSettings = settings;
+  localMachineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
+  const lg::Scene3D localMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localMachineGunSettings
+  );
+  bool hasMachineGunViewModel = false;
+  for (const lg::StaticMeshInstance& instance : localMachineGunScene.staticMeshInstances) {
+    hasMachineGunViewModel =
+      hasMachineGunViewModel ||
+      (
+        instance.mesh == lg::MeshHandle::RemoteMachineGun &&
+        instance.pass == lg::RenderPass::ViewModel
+      );
+  }
+  failures += expect(
+    hasMachineGunViewModel &&
+      localMachineGunScene.viewModelStats.drawCalls == 1 &&
+      localMachineGunScene.viewModelStats.dynamicVertices == 0,
+    "first-person machine gun should use a static viewmodel mesh without dynamic vertices"
+  );
+
+  lg::RenderSettings localShotgunSettings = settings;
+  localShotgunSettings.localSelectedWeapon = lg::Weapon::Shotgun;
+  const lg::Scene3D localShotgunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localShotgunSettings
+  );
+  bool hasShotgunViewModel = false;
+  for (const lg::StaticMeshInstance& instance : localShotgunScene.staticMeshInstances) {
+    hasShotgunViewModel =
+      hasShotgunViewModel ||
+      (
+        instance.mesh == lg::MeshHandle::RemoteShotgun &&
+        instance.pass == lg::RenderPass::ViewModel
+      );
+  }
+  failures += expect(
+    hasShotgunViewModel &&
+      localShotgunScene.viewModelStats.drawCalls == 1 &&
+      localShotgunScene.viewModelStats.dynamicVertices == 0,
+    "first-person shotgun should use a static viewmodel mesh without dynamic vertices"
   );
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteMachineGunFires = {};
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> machineGunRemotePlayers = {};
@@ -1168,6 +1368,16 @@ int main() {
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};
+  const lg::ProjectileVisualDescriptor* plasmaDescriptor =
+    lg::projectileVisualDescriptor(lg::ProjectileVisualType::Plasma);
+  failures += expect(
+    plasmaDescriptor != nullptr &&
+      plasmaDescriptor->coreMesh != lg::MeshHandle::Invalid &&
+      plasmaDescriptor->glowBillboard != lg::BillboardHandle::Invalid &&
+      lg::staticMeshAsset(plasmaDescriptor->coreMesh) != nullptr &&
+      lg::billboardAsset(plasmaDescriptor->glowBillboard) != nullptr,
+    "plasma projectile visual descriptor should resolve to core mesh and glow billboard assets"
+  );
   plasmaRockets[0].active = true;
   plasmaRockets[0].owner = 1;
   plasmaRockets[0].weapon = lg::Weapon::PlasmaGun;
@@ -1186,20 +1396,22 @@ int main() {
     plasmaRockets,
     settings
   );
-  bool foundShiftedPlasmaProjectile = false;
-  for (const lg::Vertex3D& vertex : plasmaProjectileScene.vertices) {
-    foundShiftedPlasmaProjectile =
-      foundShiftedPlasmaProjectile ||
-      (
-        vertex.color.green >= 130 &&
-        vertex.color.green > vertex.color.red * 2U &&
-        vertex.color.green > vertex.color.blue &&
-        vertex.position.x < plasmaRockets[0].position.x - 0.35F
-      );
-  }
   failures += expect(
-    foundShiftedPlasmaProjectile,
-    "remote plasma projectiles should render from the plasma gun model"
+    plasmaProjectileScene.projectileStats.projectilesActive == 1 &&
+      plasmaProjectileScene.projectileStats.projectilesRendered == 1 &&
+      plasmaProjectileScene.projectileStats.projectileCoreInstances == 1 &&
+      plasmaProjectileScene.projectileStats.projectileGlowInstances == 1 &&
+      plasmaProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
+      plasmaProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
+      plasmaProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
+      plasmaProjectileScene.simpleInstances.size() == 2U &&
+      plasmaProjectileScene.simpleBatches.size() == 2U,
+    "active plasma projectile should produce one core instance, one glow instance, and no legacy vertices"
+  );
+  failures += expect(
+    plasmaProjectileScene.simpleInstances[0].position.x <
+      plasmaRockets[0].position.x - 0.35F,
+    "remote plasma projectile instances should render from the plasma gun model"
   );
 
   plasmaRockets[0].owner = 0;
@@ -1216,20 +1428,94 @@ int main() {
     plasmaRockets,
     localShotgunWeaponStartSettings
   );
-  bool foundLocalShiftedPlasmaProjectile = false;
-  for (const lg::Vertex3D& vertex : localPlasmaProjectileScene.vertices) {
-    foundLocalShiftedPlasmaProjectile =
-      foundLocalShiftedPlasmaProjectile ||
-      (
-        vertex.color.green >= 130 &&
-        vertex.color.green > vertex.color.red * 2U &&
-        vertex.color.green > vertex.color.blue &&
-        vertex.position.z < plasmaRockets[0].position.z - 0.15F
-      );
-  }
   failures += expect(
-    foundLocalShiftedPlasmaProjectile,
-    "local plasma projectiles should render from the first-person weapon muzzle"
+    localPlasmaProjectileScene.simpleInstances.size() == 2U &&
+      localPlasmaProjectileScene.simpleInstances[0].position.z <
+        plasmaRockets[0].position.z - 0.15F,
+    "local plasma projectile instances should render from the first-person weapon muzzle"
+  );
+
+  plasmaRockets[0].active = false;
+  const lg::Scene3D inactivePlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  failures += expect(
+    inactivePlasmaProjectileScene.projectileStats.projectilesActive == 0 &&
+      inactivePlasmaProjectileScene.simpleInstances.empty(),
+    "inactive plasma projectile should produce no render instances"
+  );
+
+  plasmaRockets[0].active = true;
+  plasmaRockets[0].owner = 0;
+  plasmaRockets[0].position = player.position + lg::Vec3{-12.0F, 0.0F, 0.65F};
+  const lg::Scene3D culledPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  failures += expect(
+    culledPlasmaProjectileScene.projectileStats.projectilesActive == 1 &&
+      culledPlasmaProjectileScene.projectileStats.projectilesFrustumCulled == 1 &&
+      culledPlasmaProjectileScene.simpleInstances.empty(),
+    "outside-frustum plasma projectile should produce no render instances when culling is enabled"
+  );
+  const lg::Scene3D uncullablePlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    frustumCullDisabledSettings
+  );
+  failures += expect(
+    uncullablePlasmaProjectileScene.projectileStats.projectilesRendered == 1 &&
+      uncullablePlasmaProjectileScene.simpleInstances.size() == 2U,
+    "outside-frustum plasma projectile should produce instances when culling is disabled"
+  );
+
+  plasmaRockets[0].position = player.position + lg::Vec3{3.0F, 0.0F, 0.65F};
+  plasmaRockets[1] = plasmaRockets[0];
+  plasmaRockets[1].position = player.position + lg::Vec3{4.0F, 0.25F, 0.65F};
+  const lg::Scene3D multiPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  failures += expect(
+    multiPlasmaProjectileScene.projectileStats.projectileCoreInstances == 2 &&
+      multiPlasmaProjectileScene.projectileStats.projectileGlowInstances == 2 &&
+      multiPlasmaProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
+      multiPlasmaProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
+      multiPlasmaProjectileScene.simpleBatches.size() == 2U,
+    "multiple plasma projectiles should group into one core batch and one glow batch"
+  );
+  failures += expect(
+    multiPlasmaProjectileScene.projectileStats.projectileInstanceUploadBytes ==
+      plasmaProjectileScene.projectileStats.projectileInstanceUploadBytes * 2U,
+    "projectile instance upload bytes should scale by instance count, not mesh vertex count"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> plasmaFireOnly = {};

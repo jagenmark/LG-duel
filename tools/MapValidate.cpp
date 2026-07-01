@@ -13,7 +13,7 @@ namespace {
 
 [[nodiscard]] bool isMapFile(const std::filesystem::path& path) {
   const std::string extension = path.extension().string();
-  return extension == ".lgmap" || extension == ".map";
+  return extension == ".map";
 }
 
 [[nodiscard]] std::string normalizedTextureMaterial(std::string material) {

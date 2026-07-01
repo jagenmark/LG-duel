@@ -64,15 +64,6 @@ constexpr float kRailgunBeamLingerSeconds = 0.5F;
 constexpr float kMachineGunShotLingerSeconds = 0.06F;
 constexpr float kTwoPi = 6.28318530718F;
 
-enum class AimMode {
-  Relative3D,
-  Absolute2D,
-};
-
-[[nodiscard]] AimMode aimModeFromInt(int value) {
-  return value == 1 ? AimMode::Absolute2D : AimMode::Relative3D;
-}
-
 [[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
   return static_cast<std::uint8_t>(
     std::clamp(static_cast<int>(std::lround(console.getFloat("g_selfdamage"))), 0, 100)
@@ -205,9 +196,6 @@ struct LocalInputState {
 
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
-  float mouseX = 0.0F;
-  float mouseY = 0.0F;
-  bool hasMousePosition = false;
 };
 
 struct PresentationViewState {
@@ -297,6 +285,42 @@ struct FrameTimeHistory {
   sample.remoteBodyModelsBuilt = renderDiagnostics.remoteBodyModelsBuilt;
   sample.remoteWeaponModelsBuilt = renderDiagnostics.remoteWeaponModelsBuilt;
   sample.playerOutlinesBuilt = renderDiagnostics.playerOutlinesBuilt;
+  sample.normalPlayerBodyDynamicVertices =
+    renderDiagnostics.normalPlayerBodyDynamicVertices;
+  sample.geometryOutlineDynamicVertices =
+    renderDiagnostics.geometryOutlineDynamicVertices;
+  sample.outlinedPlayers = renderDiagnostics.outlinedPlayers;
+  sample.outlineMaskWidth = renderDiagnostics.outlineMaskWidth;
+  sample.outlineMaskHeight = renderDiagnostics.outlineMaskHeight;
+  sample.outlinePasses = renderDiagnostics.outlinePasses;
+  sample.outlineCompositeEnabled = renderDiagnostics.outlineCompositeEnabled;
+  sample.geometryOutlineFallbackUsed =
+    renderDiagnostics.geometryOutlineFallbackUsed;
+  sample.remoteWeaponCandidates = renderDiagnostics.remoteWeaponCandidates;
+  sample.remoteWeaponsFrustumCulled =
+    renderDiagnostics.remoteWeaponsFrustumCulled;
+  sample.remoteWeaponInstances = renderDiagnostics.remoteWeaponInstances;
+  sample.remoteWeaponInstanceUploadBytes =
+    renderDiagnostics.remoteWeaponInstanceUploadBytes;
+  sample.remoteWeaponBatches = renderDiagnostics.remoteWeaponBatches;
+  sample.remoteWeaponDrawCalls = renderDiagnostics.remoteWeaponDrawCalls;
+  sample.legacyRemoteWeaponDynamicVertices =
+    renderDiagnostics.legacyRemoteWeaponDynamicVertices;
+  sample.firstPersonViewModelDrawCalls =
+    renderDiagnostics.firstPersonViewModelDrawCalls;
+  sample.firstPersonViewModelDynamicVertices =
+    renderDiagnostics.firstPersonViewModelDynamicVertices;
+  sample.projectilesActive = renderDiagnostics.projectilesActive;
+  sample.projectilesFrustumCulled = renderDiagnostics.projectilesFrustumCulled;
+  sample.projectilesRendered = renderDiagnostics.projectilesRendered;
+  sample.projectileCoreInstances = renderDiagnostics.projectileCoreInstances;
+  sample.projectileGlowInstances = renderDiagnostics.projectileGlowInstances;
+  sample.projectileInstanceUploadBytes =
+    renderDiagnostics.projectileInstanceUploadBytes;
+  sample.projectileMeshDrawCalls = renderDiagnostics.projectileMeshDrawCalls;
+  sample.projectileGlowDrawCalls = renderDiagnostics.projectileGlowDrawCalls;
+  sample.legacyProjectileDynamicVertices =
+    renderDiagnostics.legacyProjectileDynamicVertices;
   sample.snapshot = snapshotDiagnostics;
   return sample;
 }
@@ -365,11 +389,79 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
+    "projectiles: active %u | rendered %u | culled %u",
+    latest.projectilesActive,
+    latest.projectilesRendered,
+    latest.projectilesFrustumCulled
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "plasma: core %u | glow %u | instance upload %.1f KB | draws mesh %u glow %u",
+    latest.projectileCoreInstances,
+    latest.projectileGlowInstances,
+    static_cast<float>(latest.projectileInstanceUploadBytes) / 1024.0F,
+    latest.projectileMeshDrawCalls,
+    latest.projectileGlowDrawCalls
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "legacy projectile vertices %u",
+    latest.legacyProjectileDynamicVertices
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
     "remote:  visible %u | bodies %u | weapons %u | outlines %u",
     latest.visibleRemotePlayers,
     latest.remoteBodyModelsBuilt,
     latest.remoteWeaponModelsBuilt,
     latest.playerOutlinesBuilt
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "players: body verts %u | geom outline verts %u | legacy outline %d",
+    latest.normalPlayerBodyDynamicVertices,
+    latest.geometryOutlineDynamicVertices,
+    latest.geometryOutlineFallbackUsed ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "outline: players %u | mask %ux%u | passes %u | composite %d",
+    latest.outlinedPlayers,
+    latest.outlineMaskWidth,
+    latest.outlineMaskHeight,
+    latest.outlinePasses,
+    latest.outlineCompositeEnabled ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "remote weapons: cand %u | inst %u | culled %u | batches %u | draws %u",
+    latest.remoteWeaponCandidates,
+    latest.remoteWeaponInstances,
+    latest.remoteWeaponsFrustumCulled,
+    latest.remoteWeaponBatches,
+    latest.remoteWeaponDrawCalls
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "weapon uploads: remote inst %.1f KB | legacy remote verts %u | viewmodel draws %u dyn verts %u",
+    static_cast<float>(latest.remoteWeaponInstanceUploadBytes) / 1024.0F,
+    latest.legacyRemoteWeaponDynamicVertices,
+    latest.firstPersonViewModelDrawCalls,
+    latest.firstPersonViewModelDynamicVertices
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -1216,10 +1308,7 @@ bool saveClientConfig(
 
 RenderSettings renderSettings(const ConsoleSystem& console) {
   RenderSettings settings;
-  settings.renderMode = console.getInt("cl_render_mode");
   settings.fieldOfView = console.getFloat("cl_fov");
-  settings.cameraZoom = console.getFloat("cl_camera_zoom");
-  settings.rotateView = console.getBool("cl_rotate_view");
   settings.healthTextScale = console.getFloat("cl_health_size");
   settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
   settings.showRendererPerf = console.getBool("r_perf");
@@ -1876,87 +1965,29 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   return hud;
 }
 
-[[nodiscard]] float absolute2DYaw(
-  const LocalInputState& input,
-  const PlayerState& player,
-  int viewportWidth,
-  int viewportHeight,
-  float fieldOfView,
-  float cameraZoom
-) {
-  if (!input.hasMousePosition || viewportWidth <= 0 || viewportHeight <= 0) {
-    return player.viewYawRadians;
-  }
-
-  constexpr float margin = 40.0F;
-  const float arenaSize =
-    static_cast<float>(std::min(viewportWidth, viewportHeight)) - (margin * 2.0F);
-  if (arenaSize <= 1.0F) {
-    return player.viewYawRadians;
-  }
-
-  const float arenaLeft = (static_cast<float>(viewportWidth) - arenaSize) * 0.5F;
-  const float arenaTop = (static_cast<float>(viewportHeight) - arenaSize) * 0.5F;
-  const float worldHalfExtent =
-    10.0F * (fieldOfView / 90.0F) / cameraZoom;
-  const float viewX =
-    (((input.mouseX - arenaLeft) / arenaSize) * 2.0F - 1.0F) * worldHalfExtent;
-  const float viewY =
-    (1.0F - ((input.mouseY - arenaTop) / arenaSize) * 2.0F) * worldHalfExtent;
-
-  const Vec3 aimOffset{viewX, viewY, 0.0F};
-  if ((aimOffset.x * aimOffset.x + aimOffset.y * aimOffset.y) <= 0.0001F) {
-    return player.viewYawRadians;
-  }
-  return std::atan2(aimOffset.y, aimOffset.x);
-}
-
 [[nodiscard]] UserCommand buildCommand(
   const LocalInputState& input,
   const PlayerState& player,
   std::uint32_t sequence,
   std::uint32_t clientTick,
   float sensitivity,
-  AimMode aimMode,
-  int viewportWidth,
-  int viewportHeight,
-  float fieldOfView,
-  float cameraZoom,
-  int renderMode,
   Weapon weapon
 ) {
   UserCommand command;
   command.sequence = sequence;
   command.clientTick = clientTick;
-  const bool perspective = renderMode == 1;
-  const AimMode effectiveAimMode =
-    perspective ? AimMode::Relative3D : aimMode;
-  if (effectiveAimMode == AimMode::Relative3D) {
-    command.viewYawRadians = relativeMouseYaw(
-      player.viewYawRadians,
-      input.mouseDeltaX,
-      sensitivity
-    );
-    command.viewPitchRadians = perspective
-      ? clamp(
-          player.viewPitchRadians -
-            (input.mouseDeltaY * kBaseMouseSensitivityRadians * sensitivity),
-          -kMaxPitchRadians,
-          kMaxPitchRadians
-        )
-      : 0.0F;
-  } else {
-    command.viewYawRadians = absolute2DYaw(
-      input,
-      player,
-      viewportWidth,
-      viewportHeight,
-      fieldOfView,
-      cameraZoom
-    );
-    command.viewPitchRadians = 0.0F;
-  }
-  command.planarAim = !perspective;
+  command.viewYawRadians = relativeMouseYaw(
+    player.viewYawRadians,
+    input.mouseDeltaX,
+    sensitivity
+  );
+  command.viewPitchRadians = clamp(
+    player.viewPitchRadians -
+      (input.mouseDeltaY * kBaseMouseSensitivityRadians * sensitivity),
+    -kMaxPitchRadians,
+    kMaxPitchRadians
+  );
+  command.planarAim = false;
 
   command.forwardMove = (input.forward > 0 ? 1.0F : 0.0F) - (input.back > 0 ? 1.0F : 0.0F);
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
@@ -1973,7 +2004,6 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   std::uint32_t clientTick,
   float yawRadians,
   float pitchRadians,
-  bool planarAim,
   Weapon weapon
 ) {
   UserCommand command;
@@ -1981,7 +2011,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.clientTick = clientTick;
   command.viewYawRadians = yawRadians;
   command.viewPitchRadians = pitchRadians;
-  command.planarAim = planarAim;
+  command.planarAim = false;
   command.forwardMove = (input.forward > 0 ? 1.0F : 0.0F) - (input.back > 0 ? 1.0F : 0.0F);
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
@@ -2194,7 +2224,7 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "map",
-    "Request a server map change: map <name> loads maps/<name>.lgmap, then maps/<name>.map.",
+    "Request a server map change: map <name> loads maps/<name>.map.",
     [&pendingMapName](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
         return std::string("usage: map <name>");
@@ -2209,8 +2239,8 @@ int GameApp::run() const {
         return std::string("map name may not include a path");
       }
       const std::string extension = requested.extension().string();
-      if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
-        return std::string("map extension must be .lgmap or .map");
+      if (!extension.empty() && extension != ".map") {
+        return std::string("map extension must be .map");
       }
       const std::string stem = extension.empty() ? name : requested.stem().string();
       if (stem.empty()) {
@@ -2563,6 +2593,9 @@ int GameApp::run() const {
       (void)bindings.bind("f10", "settings");
     }
     (void)console.execute("set cl_config_version 9");
+  }
+  if (console.getInt("cl_config_version") < 10) {
+    (void)console.execute("set cl_config_version 10");
   }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
@@ -3078,9 +3111,6 @@ int GameApp::run() const {
         } else {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
-          input.mouseX = event.motion.x;
-          input.mouseY = event.motion.y;
-          input.hasMousePosition = true;
         }
         break;
       case SDL_EVENT_WINDOW_FOCUS_LOST:
@@ -3179,31 +3209,16 @@ int GameApp::run() const {
       lastCompatVSync = console.getBool("r_vsync");
       lastPresentModeInt = console.getInt("r_present_mode");
     }
-    const bool perspectiveRenderMode = console.getInt("cl_render_mode") == 1;
-    const AimMode frameAimMode = perspectiveRenderMode
-      ? AimMode::Relative3D
-      : aimModeFromInt(console.getInt("cl_aim_mode"));
-    const bool usePresentationView =
-      perspectiveRenderMode && frameAimMode == AimMode::Relative3D;
+    const bool usePresentationView = true;
     const bool gameInputControlsView =
       usePresentationView && !consoleState.open && !chatState.inputOpen &&
       !settingsMenu.open;
     const bool wantsRelativeMouse =
-      !consoleState.open && !chatState.inputOpen && !settingsMenu.open &&
-      frameAimMode == AimMode::Relative3D;
+      !consoleState.open && !chatState.inputOpen && !settingsMenu.open;
 
     if (wantsRelativeMouse != relativeMouseModeEnabled) {
       SDL_SetWindowRelativeMouseMode(window, wantsRelativeMouse);
       relativeMouseModeEnabled = wantsRelativeMouse;
-    }
-    if (!consoleState.open && !chatState.inputOpen && !settingsMenu.open &&
-        frameAimMode == AimMode::Absolute2D) {
-      float mouseX = 0.0F;
-      float mouseY = 0.0F;
-      SDL_GetMouseState(&mouseX, &mouseY);
-      input.mouseX = mouseX;
-      input.mouseY = mouseY;
-      input.hasMousePosition = true;
     }
     ClientGame* currentPresentationGame = session.game();
     if (currentPresentationGame == nullptr) {
@@ -3381,15 +3396,7 @@ int GameApp::run() const {
       }
       const PlayerState& predictedPlayer = client->predictedPlayer();
 
-      int viewportWidth = 0;
-      int viewportHeight = 0;
-      SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
-      const AimMode currentAimMode =
-        aimModeFromInt(console.getInt("cl_aim_mode"));
       const bool zoomHeld = zoomPressCount > 0;
-      const float effectiveFieldOfView = zoomHeld
-        ? console.getFloat("cl_zoom_fov")
-        : console.getFloat("cl_fov");
       const float zoomSensitivity = zoomSensitivityMultiplier(
         console.getFloat("cl_fov"),
         console.getFloat("cl_zoom_fov"),
@@ -3406,7 +3413,6 @@ int GameApp::run() const {
               clientTick++,
               presentationView.yawRadians,
               presentationView.pitchRadians,
-              false,
               selectedWeapon
             )
           : buildCommand(
@@ -3415,12 +3421,6 @@ int GameApp::run() const {
               commandSequence++,
               clientTick++,
               effectiveSensitivity,
-              currentAimMode,
-              viewportWidth,
-              viewportHeight,
-              effectiveFieldOfView,
-              console.getFloat("cl_camera_zoom"),
-              perspectiveRenderMode ? 1 : 0,
               selectedWeapon
             );
       std::string playerNameForCommand = std::move(pendingPlayerName);
@@ -4071,13 +4071,7 @@ int GameApp::run() const {
         localRenderPredictionSeconds > 0.0F &&
         renderPlayer.health > 0
       ) {
-        int viewportWidth = 0;
-        int viewportHeight = 0;
-        SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
         const bool zoomHeld = zoomPressCount > 0;
-        const float effectiveFieldOfView = zoomHeld
-          ? console.getFloat("cl_zoom_fov")
-          : console.getFloat("cl_fov");
         const float zoomSensitivity = zoomSensitivityMultiplier(
           console.getFloat("cl_fov"),
           console.getFloat("cl_zoom_fov"),
@@ -4085,8 +4079,6 @@ int GameApp::run() const {
         );
         const float effectiveSensitivity = console.getFloat("sensitivity") *
           (zoomHeld ? zoomSensitivity : 1.0F);
-        const AimMode currentAimMode =
-          aimModeFromInt(console.getInt("cl_aim_mode"));
         const UserCommand visualCommand =
           usePresentationView && presentationView.initialized
             ? buildCommandWithViewAngles(
@@ -4095,7 +4087,6 @@ int GameApp::run() const {
                 clientTick,
                 presentationView.yawRadians,
                 presentationView.pitchRadians,
-                false,
                 selectedWeapon
               )
             : buildCommand(
@@ -4104,12 +4095,6 @@ int GameApp::run() const {
                 commandSequence,
                 clientTick,
                 effectiveSensitivity,
-                currentAimMode,
-                viewportWidth,
-                viewportHeight,
-                effectiveFieldOfView,
-                console.getFloat("cl_camera_zoom"),
-                perspectiveRenderMode ? 1 : 0,
                 selectedWeapon
               );
 
@@ -4212,7 +4197,6 @@ int GameApp::run() const {
       if (currentFire.fired && currentFire.weapon == Weapon::Railgun) {
         const WeaponFireResult sourceFire = currentFire;
         const bool localPerspectiveRail =
-          currentRenderSettings.renderMode == 1 &&
           playerIndex == renderLocalPlayerIndex;
         const bool newRailEvent =
           !lingeringRailBeam.active ||
@@ -4234,7 +4218,6 @@ int GameApp::run() const {
       } else if (currentFire.fired && currentFire.weapon == Weapon::MachineGun) {
         const WeaponFireResult sourceFire = currentFire;
         const bool localPerspectiveMachineGun =
-          currentRenderSettings.renderMode == 1 &&
           playerIndex == renderLocalPlayerIndex;
         const bool newMachineGunEvent =
           !lingeringMachineGunShot.active ||
@@ -4396,31 +4379,6 @@ int GameApp::run() const {
     }
     currentRenderSettings.playerSizePixels =
       14.0F * (renderPlayer.bounds.radius / 0.35F);
-    const AimMode renderAimMode = currentRenderSettings.renderMode == 1
-      ? AimMode::Relative3D
-      : aimModeFromInt(console.getInt("cl_aim_mode"));
-    if (currentRenderSettings.renderMode == 1) {
-      currentRenderSettings.rotateView = false;
-      currentRenderSettings.crosshairUseScreenPosition = false;
-    }
-    if (
-      renderAimMode == AimMode::Relative3D &&
-      currentRenderSettings.renderMode == 0
-    ) {
-      currentRenderSettings.crosshairEnabled = false;
-    } else {
-      // Absolute screen-space aiming needs a stable world-aligned camera.
-      currentRenderSettings.rotateView = false;
-    }
-    if (
-      renderAimMode == AimMode::Absolute2D &&
-      input.hasMousePosition &&
-      !consoleState.open
-    ) {
-      currentRenderSettings.crosshairUseScreenPosition = true;
-      currentRenderSettings.crosshairScreenX = input.mouseX;
-      currentRenderSettings.crosshairScreenY = input.mouseY;
-    }
 
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
     hud.selectedWeapon = displayedSelectedWeapon;
@@ -4469,6 +4427,55 @@ int GameApp::run() const {
           std::to_string(diagnostics.remoteWeaponModelsBuilt) +
           " | outlines " +
           std::to_string(diagnostics.playerOutlinesBuilt)
+        );
+        hud.topLeftLines.emplace_back(
+          "remote weapon instances: candidates " +
+          std::to_string(diagnostics.remoteWeaponCandidates) +
+          " | submitted " +
+          std::to_string(diagnostics.remoteWeaponInstances) +
+          " | culled " +
+          std::to_string(diagnostics.remoteWeaponsFrustumCulled)
+        );
+        hud.topLeftLines.emplace_back(
+          "remote weapon batches: batches " +
+          std::to_string(diagnostics.remoteWeaponBatches) +
+          " | draws " +
+          std::to_string(diagnostics.remoteWeaponDrawCalls) +
+          " | upload " +
+          std::to_string(diagnostics.remoteWeaponInstanceUploadBytes) +
+          " B | legacy vertices " +
+          std::to_string(diagnostics.legacyRemoteWeaponDynamicVertices)
+        );
+        hud.topLeftLines.emplace_back(
+          "viewmodel static: draws " +
+          std::to_string(diagnostics.firstPersonViewModelDrawCalls) +
+          " | dynamic vertices " +
+          std::to_string(diagnostics.firstPersonViewModelDynamicVertices)
+        );
+        hud.topLeftLines.emplace_back(
+          "projectiles: active " +
+          std::to_string(diagnostics.projectilesActive) +
+          " | rendered " +
+          std::to_string(diagnostics.projectilesRendered) +
+          " | culled " +
+          std::to_string(diagnostics.projectilesFrustumCulled)
+        );
+        hud.topLeftLines.emplace_back(
+          "plasma: core instances " +
+          std::to_string(diagnostics.projectileCoreInstances) +
+          " | glow instances " +
+          std::to_string(diagnostics.projectileGlowInstances) +
+          " | instance upload " +
+          std::to_string(diagnostics.projectileInstanceUploadBytes) +
+          " B"
+        );
+        hud.topLeftLines.emplace_back(
+          "projectile draws: mesh " +
+          std::to_string(diagnostics.projectileMeshDrawCalls) +
+          " | glow " +
+          std::to_string(diagnostics.projectileGlowDrawCalls) +
+          " | legacy projectile vertices " +
+          std::to_string(diagnostics.legacyProjectileDynamicVertices)
         );
       }
     }

@@ -119,6 +119,31 @@ std::string grenadeConfig(float hitboxRadius) {
   };
 }
 
+std::string tinyQuakeMap() {
+  return R"({
+"classname" "worldspawn"
+"lg_bounds_min" "-240 -240 0"
+"lg_bounds_max" "240 240 240"
+{
+( -240 -240 0 ) ( -240 -240 20 ) ( -240 240 20 ) stone 0 0 0 1 1
+( 240 -240 0 ) ( 240 240 20 ) ( 240 -240 20 ) stone 0 0 0 1 1
+( -240 -240 0 ) ( 240 -240 20 ) ( -240 -240 20 ) stone 0 0 0 1 1
+( -240 240 0 ) ( -240 240 20 ) ( 240 240 20 ) stone 0 0 0 1 1
+( -240 -240 0 ) ( -240 240 0 ) ( 240 240 0 ) stone 0 0 0 1 1
+( -240 -240 20 ) ( 240 240 20 ) ( -240 240 20 ) stone 0 0 0 1 1
+}
+}
+{
+"classname" "lg_spawn"
+"origin" "-80 0 20"
+}
+{
+"classname" "lg_spawn"
+"origin" "80 0 20"
+}
+)";
+}
+
 } // namespace
 
 int main() {
@@ -428,13 +453,8 @@ int main() {
       std::filesystem::temp_directory_path() / "lg_duel_server_map_tests";
     std::filesystem::create_directories(mapDirectory);
     {
-      std::ofstream mapFile(mapDirectory / "tiny.lgmap");
-      mapFile << R"(version 1
-bounds min=-6,-6,0 max=6,6,6
-box floor -6,-6,0 6,6,0.5
-spawn p1 -2,0,0.5 yaw=0
-spawn p2 2,0,0.5 yaw=180
-)";
+      std::ofstream mapFile(mapDirectory / "tiny.map");
+      mapFile << tinyQuakeMap();
     }
     server.setMapDirectory(mapDirectory.string());
     const std::uint32_t initialRevision = server.snapshot().mapRevision;
@@ -454,7 +474,7 @@ spawn p2 2,0,0.5 yaw=180
         server.arena().max.x == 6.0F &&
         mapSnapshot.players[0].position.x == -2.0F &&
         mapSnapshot.players[1].position.x == 2.0F,
-      "client map request should load a server-local .lgmap and reset spawns"
+      "client map request should load a server-local .map and reset spawns"
     );
 
     lg::CommandPacket invalidMapRequest;
@@ -1015,7 +1035,7 @@ spawn p2 2,0,0.5 yaw=180
     const lg::ServerSnapshot planarSnapshot = latestSnapshot(transport);
     failures += expect(
       std::fabs(planarSnapshot.lightningGuns[0].end.z - 3.55F) <= 0.01F,
-      "top-down relative aim should flatten beam pitch authoritatively"
+      "planar command aim should flatten beam pitch authoritatively"
     );
 
     lg::UserCommand perspective = planar;
