@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.24)
 project(
   lg_duel
   VERSION 0.1.0
-  DESCRIPTION "Narrow Quake-like Lightning Gun duel prototype"
+  DESCRIPTION "Competitive first-person 3D arena FPS foundation"
   LANGUAGES CXX
 )
 
@@ -77,7 +77,6 @@ add_library(lg_duel_client_app
   src/render/Renderer.cpp
   src/render/Scene3D.cpp
   src/render/ScreenUi.cpp
-  src/render/TopDownScene.cpp
 )
 
 target_link_libraries(lg_duel_client_app PUBLIC lg_duel_core)
@@ -109,6 +108,18 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_mesh.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_mesh.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_billboard.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_billboard.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_color.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_color.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_glow.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_glow.frag.spv"
 )
 
 if(WIN32 AND TARGET SDL3::SDL3)
@@ -158,6 +169,18 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_mesh.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_mesh.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_billboard.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_billboard.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_color.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_color.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_glow.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_glow.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_server>/maps"

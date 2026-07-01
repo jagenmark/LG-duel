@@ -1035,7 +1035,7 @@ int main() {
     const lg::ServerSnapshot planarSnapshot = latestSnapshot(transport);
     failures += expect(
       std::fabs(planarSnapshot.lightningGuns[0].end.z - 3.55F) <= 0.01F,
-      "top-down relative aim should flatten beam pitch authoritatively"
+      "planar command aim should flatten beam pitch authoritatively"
     );
 
     lg::UserCommand perspective = planar;

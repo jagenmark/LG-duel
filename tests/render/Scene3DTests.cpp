@@ -1052,7 +1052,6 @@ int main() {
     "shotgun fire should add muzzle flash, pellet traces, and impact puffs"
   );
   lg::RenderSettings localShotgunWeaponStartSettings = settings;
-  localShotgunWeaponStartSettings.renderMode = 1;
   localShotgunWeaponStartSettings.shotgunWeaponModelStart = true;
   const lg::Scene3D localShotgunWeaponScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
