@@ -638,12 +638,15 @@ int main() {
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
     lg::Arena arena;
+    std::array<bool, lg::kDuelPlayerCount> remoteRenderVisible = {};
+    remoteRenderVisible.fill(true);
     const lg::DrawList2D bars = lg::buildFloatingHealthBars(
       1280,
       720,
       camera,
       arena,
       remotePlayers,
+      remoteRenderVisible,
       settings,
       hud
     );
@@ -683,6 +686,7 @@ int main() {
       camera,
       arena,
       remotePlayers,
+      remoteRenderVisible,
       settings,
       hud
     );
@@ -698,6 +702,7 @@ int main() {
       camera,
       arena,
       remotePlayers,
+      remoteRenderVisible,
       settings,
       hud
     );

@@ -1624,6 +1624,9 @@ const PlayerState& firstVisibleRemote(
   diagnostics.remoteBodyModelsBuilt = 0;
   diagnostics.remoteWeaponModelsBuilt = 0;
   diagnostics.playerOutlinesBuilt = 0;
+  diagnostics.remoteCandidates = 0;
+  diagnostics.remoteFrustumVisible = 0;
+  diagnostics.remoteFrustumCulled = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -1668,6 +1671,13 @@ const PlayerState& firstVisibleRemote(
         rockets,
         settings
       );
+      diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
+      diagnostics.remoteFrustumVisible = perspectiveScene.remoteFrustumVisible;
+      diagnostics.remoteFrustumCulled = perspectiveScene.remoteFrustumCulled;
+      diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
+      diagnostics.remoteWeaponModelsBuilt =
+        perspectiveScene.remoteWeaponModelsBuilt;
+      diagnostics.playerOutlinesBuilt = perspectiveScene.playerOutlinesBuilt;
       appendScene3D(vertices, perspectiveScene, worldAtlas);
     } else {
       topDownScene = buildTopDownScene(
@@ -1715,6 +1725,7 @@ const PlayerState& firstVisibleRemote(
         perspectiveScene.camera,
         arena,
         remotePlayers,
+        perspectiveScene.remoteRenderVisible,
         settings,
         hud
       );
@@ -1775,10 +1786,10 @@ const PlayerState& firstVisibleRemote(
     uploadStart = RenderClock::now();
     diagnostics.sceneBuildMilliseconds =
       millisecondsBetween(buildStart, uploadStart);
-    diagnostics.dynamicOpaqueVertices = opaqueWorldVertexCount;
+    diagnostics.dynamicOpaqueVertices = opaqueDynamicVertexCount;
     diagnostics.dynamicTranslucentVertices =
       settings.renderMode == 1
-        ? worldVertexCount - opaqueWorldVertexCount
+        ? worldVertexCount - opaqueDynamicVertexCount
         : 0U;
     diagnostics.visibleRemotePlayers = perspectiveScene.visibleRemotePlayers;
     diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
@@ -2507,6 +2518,7 @@ void drawPerspectiveWorld(
   const Arena& arena,
   const PlayerState& player,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const std::array<bool, kDuelPlayerCount>& remoteRenderVisible,
   const LightningGunResult& localLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
@@ -2616,8 +2628,12 @@ void drawPerspectiveWorld(
   }
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
-  for (const RemotePlayerView& remote : remotePlayers) {
+  for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
+    const RemotePlayerView& remote = remotePlayers[remoteIndex];
     if (!remote.visible) {
+      continue;
+    }
+    if (!remoteRenderVisible[remoteIndex]) {
       continue;
     }
     const PlayerState& remotePlayer = remote.player;
@@ -3082,6 +3098,9 @@ void Renderer::render(
   lastFrameDiagnostics_.remoteBodyModelsBuilt = 0;
   lastFrameDiagnostics_.remoteWeaponModelsBuilt = 0;
   lastFrameDiagnostics_.playerOutlinesBuilt = 0;
+  lastFrameDiagnostics_.remoteCandidates = 0;
+  lastFrameDiagnostics_.remoteFrustumVisible = 0;
+  lastFrameDiagnostics_.remoteFrustumCulled = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
@@ -3097,6 +3116,33 @@ void Renderer::render(
   SDL_RenderClear(renderer);
 
   if (settings.renderMode == 1) {
+    const Scene3D perspectiveScene = buildPerspectiveScene(
+      static_cast<float>(width) / static_cast<float>(std::max(1, height)),
+      arena,
+      player,
+      remotePlayers,
+      localLightningGun,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings
+    );
+    lastFrameDiagnostics_.totalUploadedVertices =
+      static_cast<std::uint32_t>(
+        perspectiveScene.vertices.size() +
+        perspectiveScene.translucentVertices.size()
+      );
+    lastFrameDiagnostics_.remoteCandidates = perspectiveScene.remoteCandidates;
+    lastFrameDiagnostics_.remoteFrustumVisible =
+      perspectiveScene.remoteFrustumVisible;
+    lastFrameDiagnostics_.remoteFrustumCulled =
+      perspectiveScene.remoteFrustumCulled;
+    lastFrameDiagnostics_.remoteBodyModelsBuilt =
+      perspectiveScene.remoteBodyModelsBuilt;
+    lastFrameDiagnostics_.remoteWeaponModelsBuilt =
+      perspectiveScene.remoteWeaponModelsBuilt;
+    lastFrameDiagnostics_.playerOutlinesBuilt =
+      perspectiveScene.playerOutlinesBuilt;
     drawPerspectiveWorld(
       renderer,
       width,
@@ -3104,6 +3150,7 @@ void Renderer::render(
       arena,
       player,
       remotePlayers,
+      perspectiveScene.remoteRenderVisible,
       localLightningGun,
       weaponFires,
       rocketExplosions,
@@ -3123,6 +3170,7 @@ void Renderer::render(
         camera,
         arena,
         remotePlayers,
+        perspectiveScene.remoteRenderVisible,
         settings,
         hud
       )

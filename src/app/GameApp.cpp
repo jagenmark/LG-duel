@@ -1221,6 +1221,9 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.cameraZoom = console.getFloat("cl_camera_zoom");
   settings.rotateView = console.getBool("cl_rotate_view");
   settings.healthTextScale = console.getFloat("cl_health_size");
+  settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
+  settings.showRendererPerf = console.getBool("r_perf");
+  settings.showRendererPerfDetail = console.getBool("r_perf_detail");
   settings.crosshairEnabled = console.getBool("crosshair_enable");
   settings.crosshairStyle = console.getInt("crosshair_style");
   settings.crosshairSize = console.getFloat("crosshair_size");
@@ -4442,6 +4445,32 @@ int GameApp::run() const {
           horizontalSpeed * kQuakeUnitsPerProjectUnit
         ))) + " UPS"
       );
+    }
+    if (currentRenderSettings.showRendererPerf) {
+      const RendererFrameDiagnostics& diagnostics =
+        renderer.lastFrameDiagnostics();
+      hud.topLeftLines.emplace_back(
+        "dynamic vertices " +
+        std::to_string(diagnostics.totalUploadedVertices)
+      );
+      if (currentRenderSettings.showRendererPerfDetail) {
+        hud.topLeftLines.emplace_back(
+          "culling: candidates " +
+          std::to_string(diagnostics.remoteCandidates) +
+          " | frustum visible " +
+          std::to_string(diagnostics.remoteFrustumVisible) +
+          " | culled " +
+          std::to_string(diagnostics.remoteFrustumCulled)
+        );
+        hud.topLeftLines.emplace_back(
+          "remote geometry: bodies " +
+          std::to_string(diagnostics.remoteBodyModelsBuilt) +
+          " | weapons " +
+          std::to_string(diagnostics.remoteWeaponModelsBuilt) +
+          " | outlines " +
+          std::to_string(diagnostics.playerOutlinesBuilt)
+        );
+      }
     }
     if (
       currentRenderSettings.showLagCompensation &&

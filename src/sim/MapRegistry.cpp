@@ -34,6 +34,29 @@ void hashVec3(std::uint32_t& hash, Vec3 value) {
   hashFloat(hash, value.z);
 }
 
+std::filesystem::path resolveMapDirectory(const std::string& mapDirectory) {
+  const std::filesystem::path requested(
+    mapDirectory.empty() ? "maps" : mapDirectory
+  );
+  if (requested.is_absolute() || std::filesystem::exists(requested)) {
+    return requested;
+  }
+
+  std::filesystem::path directory = std::filesystem::current_path();
+  for (;;) {
+    const std::filesystem::path candidate = directory / requested;
+    if (std::filesystem::exists(candidate)) {
+      return candidate;
+    }
+    const std::filesystem::path parent = directory.parent_path();
+    if (parent.empty() || parent == directory) {
+      break;
+    }
+    directory = parent;
+  }
+  return requested;
+}
+
 } // namespace
 
 bool isValidMapName(std::string_view mapName) {
@@ -126,8 +149,7 @@ LocalMapLoadResult loadLocalMap(
     return {arena, describeMap(canonicalName, arena), true, {}};
   }
 
-  const std::filesystem::path directory =
-    std::filesystem::path(mapDirectory.empty() ? "maps" : mapDirectory);
+  const std::filesystem::path directory = resolveMapDirectory(mapDirectory);
   std::vector<std::filesystem::path> candidates;
   if (extension.empty()) {
     candidates.push_back(directory / (mapName + ".lgmap"));

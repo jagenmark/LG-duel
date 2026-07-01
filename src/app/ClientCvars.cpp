@@ -102,6 +102,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_present_mode", "Renderer present mode: 0 FIFO/V-sync, 1 Mailbox, 2 Immediate.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_player_outlines", "Draw player outline geometry.", true, archivedClient, {}, {}});

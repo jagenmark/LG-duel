@@ -4,6 +4,8 @@
 #include "render/Perspective.hpp"
 #include "render/Renderer.hpp"
 
+#include <array>
+#include <cstdint>
 #include <vector>
 
 namespace lg {
@@ -20,10 +22,14 @@ struct Scene3D {
   PerspectiveCamera camera = {};
   std::vector<Vertex3D> vertices;
   std::vector<Vertex3D> translucentVertices;
+  std::array<bool, kDuelPlayerCount> remoteRenderVisible = {};
   std::uint32_t visibleRemotePlayers = 0;
   std::uint32_t remoteBodyModelsBuilt = 0;
   std::uint32_t remoteWeaponModelsBuilt = 0;
   std::uint32_t playerOutlinesBuilt = 0;
+  std::uint32_t remoteCandidates = 0;
+  std::uint32_t remoteFrustumVisible = 0;
+  std::uint32_t remoteFrustumCulled = 0;
 };
 
 [[nodiscard]] Scene3D buildPerspectiveScene(

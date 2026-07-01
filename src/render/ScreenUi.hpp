@@ -4,6 +4,8 @@
 #include "render/Perspective.hpp"
 #include "render/Renderer.hpp"
 
+#include <array>
+
 namespace lg {
 
 [[nodiscard]] DrawList2D buildScreenUi(
@@ -21,6 +23,7 @@ namespace lg {
   const PerspectiveCamera& camera,
   const Arena& arena,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const std::array<bool, kDuelPlayerCount>& remoteRenderVisible,
   const RenderSettings& settings,
   const HudRenderState& hud
 );

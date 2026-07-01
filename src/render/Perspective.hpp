@@ -2,6 +2,7 @@
 
 #include "shared/Math.hpp"
 
+#include <algorithm>
 #include <cmath>
 
 namespace lg {
@@ -73,6 +74,39 @@ struct ProjectedPoint {
   projected.x =
     (view.x * camera.focalLength) / (view.z * camera.aspectRatio);
   projected.y = (view.y * camera.focalLength) / view.z;
+  return true;
+}
+
+[[nodiscard]] inline bool sphereIntersectsPerspectiveFrustum(
+  const PerspectiveCamera& camera,
+  Vec3 center,
+  float radius
+) {
+  const Vec3 view = perspectiveCameraSpace(camera, center);
+  const float safeRadius = std::max(0.0F, radius);
+  if (view.z + safeRadius < camera.nearPlane) {
+    return false;
+  }
+
+  const float horizontalScale = camera.aspectRatio / camera.focalLength;
+  const float verticalScale = 1.0F / camera.focalLength;
+  const auto outsidePlane =
+    [safeRadius](float signedDistance, float normalLength) {
+      return signedDistance < -safeRadius * normalLength;
+    };
+
+  if (outsidePlane(view.x + view.z * horizontalScale, std::hypot(1.0F, horizontalScale))) {
+    return false;
+  }
+  if (outsidePlane(-view.x + view.z * horizontalScale, std::hypot(1.0F, horizontalScale))) {
+    return false;
+  }
+  if (outsidePlane(view.y + view.z * verticalScale, std::hypot(1.0F, verticalScale))) {
+    return false;
+  }
+  if (outsidePlane(-view.y + view.z * verticalScale, std::hypot(1.0F, verticalScale))) {
+    return false;
+  }
   return true;
 }
 
