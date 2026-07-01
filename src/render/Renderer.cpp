@@ -1134,6 +1134,103 @@ void appendScene3D(
   const TextureAtlas* atlas
 ) {
   appendVertices3D(vertices, scene.vertices, atlas);
+  for (const SimpleRenderBatch& batch : scene.simpleBatches) {
+    if (batch.mesh == MeshHandle::Invalid || batch.pass != RenderPass::OpaqueWorld) {
+      continue;
+    }
+    const StaticMeshAsset* asset = staticMeshAsset(batch.mesh);
+    if (asset == nullptr) {
+      continue;
+    }
+    const std::uint32_t end = batch.firstInstance + batch.instanceCount;
+    for (std::uint32_t instanceIndex = batch.firstInstance; instanceIndex < end; ++instanceIndex) {
+      const SimpleRenderInstance& instance = scene.simpleInstances[instanceIndex];
+      const float rotationCos = std::cos(instance.rotationRadians);
+      const float rotationSin = std::sin(instance.rotationRadians);
+      for (const Vertex3D& source : asset->vertices) {
+        const Vec3 scaled = {
+          source.position.x * instance.scale.x,
+          source.position.y * instance.scale.y,
+          source.position.z * instance.scale.z,
+        };
+        const Vec3 rotated = {
+          scaled.x * rotationCos - scaled.y * rotationSin,
+          scaled.x * rotationSin + scaled.y * rotationCos,
+          scaled.z,
+        };
+        vertices.push_back({
+          instance.position.x + rotated.x,
+          instance.position.y + rotated.y,
+          instance.position.z + rotated.z,
+          instance.color.red,
+          instance.color.green,
+          instance.color.blue,
+          instance.color.alpha,
+          kSolidTextureU,
+          kSolidTextureV,
+        });
+      }
+    }
+  }
+}
+
+void appendTranslucentSimpleInstances3D(
+  std::vector<GpuVertex>& vertices,
+  const Scene3D& scene
+) {
+  const PerspectiveCamera& camera = scene.camera;
+  for (const SimpleRenderBatch& batch : scene.simpleBatches) {
+    if (
+      batch.billboard == BillboardHandle::Invalid ||
+      (batch.pass != RenderPass::AdditiveGlow && batch.pass != RenderPass::TranslucentWorld)
+    ) {
+      continue;
+    }
+    if (billboardAsset(batch.billboard) == nullptr) {
+      continue;
+    }
+    const std::uint32_t end = batch.firstInstance + batch.instanceCount;
+    for (std::uint32_t instanceIndex = batch.firstInstance; instanceIndex < end; ++instanceIndex) {
+      const SimpleRenderInstance& instance = scene.simpleInstances[instanceIndex];
+      const float pulse =
+        1.0F + 0.045F * std::sin(instance.visualPhase * 6.28318530718F);
+      const float halfWidth = instance.scale.x * pulse;
+      const float halfHeight = instance.scale.y * pulse;
+      const Vec3 right = camera.right * halfWidth;
+      const Vec3 up = camera.up * halfHeight;
+      const Vec3 p0 = instance.position - right - up;
+      const Vec3 p1 = instance.position + right - up;
+      const Vec3 p2 = instance.position + right + up;
+      const Vec3 p3 = instance.position - right + up;
+      const auto append = [&](Vec3 position, float u, float v, std::uint8_t alpha) {
+        vertices.push_back({
+          position.x,
+          position.y,
+          position.z,
+          instance.color.red,
+          instance.color.green,
+          instance.color.blue,
+          alpha,
+          u,
+          v,
+        });
+      };
+      const std::uint8_t edgeAlpha =
+        static_cast<std::uint8_t>(static_cast<float>(instance.color.alpha) * 0.25F);
+      append(p0, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(p1, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
+      append(p1, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(p2, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
+      append(p2, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(p3, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
+      append(p3, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(p0, kSolidTextureU, kSolidTextureV, edgeAlpha);
+      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
+    }
+  }
 }
 
 [[nodiscard]] std::vector<std::uint32_t> referencedWorldMaterials(
@@ -1647,6 +1744,15 @@ const PlayerState& firstVisibleRemote(
   diagnostics.remoteCandidates = 0;
   diagnostics.remoteFrustumVisible = 0;
   diagnostics.remoteFrustumCulled = 0;
+  diagnostics.projectilesActive = 0;
+  diagnostics.projectilesFrustumCulled = 0;
+  diagnostics.projectilesRendered = 0;
+  diagnostics.projectileCoreInstances = 0;
+  diagnostics.projectileGlowInstances = 0;
+  diagnostics.projectileInstanceUploadBytes = 0;
+  diagnostics.projectileMeshDrawCalls = 0;
+  diagnostics.projectileGlowDrawCalls = 0;
+  diagnostics.legacyProjectileDynamicVertices = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -1694,6 +1800,24 @@ const PlayerState& firstVisibleRemote(
       diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
       diagnostics.remoteFrustumVisible = perspectiveScene.remoteFrustumVisible;
       diagnostics.remoteFrustumCulled = perspectiveScene.remoteFrustumCulled;
+      diagnostics.projectilesActive =
+        perspectiveScene.projectileStats.projectilesActive;
+      diagnostics.projectilesFrustumCulled =
+        perspectiveScene.projectileStats.projectilesFrustumCulled;
+      diagnostics.projectilesRendered =
+        perspectiveScene.projectileStats.projectilesRendered;
+      diagnostics.projectileCoreInstances =
+        perspectiveScene.projectileStats.projectileCoreInstances;
+      diagnostics.projectileGlowInstances =
+        perspectiveScene.projectileStats.projectileGlowInstances;
+      diagnostics.projectileInstanceUploadBytes =
+        perspectiveScene.projectileStats.projectileInstanceUploadBytes;
+      diagnostics.projectileMeshDrawCalls =
+        perspectiveScene.projectileStats.projectileMeshDrawCalls;
+      diagnostics.projectileGlowDrawCalls =
+        perspectiveScene.projectileStats.projectileGlowDrawCalls;
+      diagnostics.legacyProjectileDynamicVertices =
+        perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
       diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
       diagnostics.remoteWeaponModelsBuilt =
         perspectiveScene.remoteWeaponModelsBuilt;
@@ -1726,6 +1850,7 @@ const PlayerState& firstVisibleRemote(
       static_cast<Uint32>(vertices.size());
     if (settings.renderMode == 1) {
       appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
+      appendTranslucentSimpleInstances3D(vertices, perspectiveScene);
     }
     const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
     const Uint32 worldVertexCount = settings.renderMode == 0
@@ -3121,6 +3246,15 @@ void Renderer::render(
   lastFrameDiagnostics_.remoteCandidates = 0;
   lastFrameDiagnostics_.remoteFrustumVisible = 0;
   lastFrameDiagnostics_.remoteFrustumCulled = 0;
+  lastFrameDiagnostics_.projectilesActive = 0;
+  lastFrameDiagnostics_.projectilesFrustumCulled = 0;
+  lastFrameDiagnostics_.projectilesRendered = 0;
+  lastFrameDiagnostics_.projectileCoreInstances = 0;
+  lastFrameDiagnostics_.projectileGlowInstances = 0;
+  lastFrameDiagnostics_.projectileInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.projectileMeshDrawCalls = 0;
+  lastFrameDiagnostics_.projectileGlowDrawCalls = 0;
+  lastFrameDiagnostics_.legacyProjectileDynamicVertices = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
@@ -3157,6 +3291,24 @@ void Renderer::render(
       perspectiveScene.remoteFrustumVisible;
     lastFrameDiagnostics_.remoteFrustumCulled =
       perspectiveScene.remoteFrustumCulled;
+    lastFrameDiagnostics_.projectilesActive =
+      perspectiveScene.projectileStats.projectilesActive;
+    lastFrameDiagnostics_.projectilesFrustumCulled =
+      perspectiveScene.projectileStats.projectilesFrustumCulled;
+    lastFrameDiagnostics_.projectilesRendered =
+      perspectiveScene.projectileStats.projectilesRendered;
+    lastFrameDiagnostics_.projectileCoreInstances =
+      perspectiveScene.projectileStats.projectileCoreInstances;
+    lastFrameDiagnostics_.projectileGlowInstances =
+      perspectiveScene.projectileStats.projectileGlowInstances;
+    lastFrameDiagnostics_.projectileInstanceUploadBytes =
+      perspectiveScene.projectileStats.projectileInstanceUploadBytes;
+    lastFrameDiagnostics_.projectileMeshDrawCalls =
+      perspectiveScene.projectileStats.projectileMeshDrawCalls;
+    lastFrameDiagnostics_.projectileGlowDrawCalls =
+      perspectiveScene.projectileStats.projectileGlowDrawCalls;
+    lastFrameDiagnostics_.legacyProjectileDynamicVertices =
+      perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
     lastFrameDiagnostics_.remoteBodyModelsBuilt =
       perspectiveScene.remoteBodyModelsBuilt;
     lastFrameDiagnostics_.remoteWeaponModelsBuilt =

@@ -297,6 +297,17 @@ struct FrameTimeHistory {
   sample.remoteBodyModelsBuilt = renderDiagnostics.remoteBodyModelsBuilt;
   sample.remoteWeaponModelsBuilt = renderDiagnostics.remoteWeaponModelsBuilt;
   sample.playerOutlinesBuilt = renderDiagnostics.playerOutlinesBuilt;
+  sample.projectilesActive = renderDiagnostics.projectilesActive;
+  sample.projectilesFrustumCulled = renderDiagnostics.projectilesFrustumCulled;
+  sample.projectilesRendered = renderDiagnostics.projectilesRendered;
+  sample.projectileCoreInstances = renderDiagnostics.projectileCoreInstances;
+  sample.projectileGlowInstances = renderDiagnostics.projectileGlowInstances;
+  sample.projectileInstanceUploadBytes =
+    renderDiagnostics.projectileInstanceUploadBytes;
+  sample.projectileMeshDrawCalls = renderDiagnostics.projectileMeshDrawCalls;
+  sample.projectileGlowDrawCalls = renderDiagnostics.projectileGlowDrawCalls;
+  sample.legacyProjectileDynamicVertices =
+    renderDiagnostics.legacyProjectileDynamicVertices;
   sample.snapshot = snapshotDiagnostics;
   return sample;
 }
@@ -360,6 +371,33 @@ void appendPerfHudLines(
     "dynamic: %u vertices | %u triangles",
     latest.dynamicOpaqueVertices + latest.dynamicTranslucentVertices,
     latest.dynamicTriangles
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "projectiles: active %u | rendered %u | culled %u",
+    latest.projectilesActive,
+    latest.projectilesRendered,
+    latest.projectilesFrustumCulled
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "plasma: core %u | glow %u | instance upload %.1f KB | draws mesh %u glow %u",
+    latest.projectileCoreInstances,
+    latest.projectileGlowInstances,
+    static_cast<float>(latest.projectileInstanceUploadBytes) / 1024.0F,
+    latest.projectileMeshDrawCalls,
+    latest.projectileGlowDrawCalls
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "legacy projectile vertices %u",
+    latest.legacyProjectileDynamicVertices
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -4469,6 +4507,31 @@ int GameApp::run() const {
           std::to_string(diagnostics.remoteWeaponModelsBuilt) +
           " | outlines " +
           std::to_string(diagnostics.playerOutlinesBuilt)
+        );
+        hud.topLeftLines.emplace_back(
+          "projectiles: active " +
+          std::to_string(diagnostics.projectilesActive) +
+          " | rendered " +
+          std::to_string(diagnostics.projectilesRendered) +
+          " | culled " +
+          std::to_string(diagnostics.projectilesFrustumCulled)
+        );
+        hud.topLeftLines.emplace_back(
+          "plasma: core instances " +
+          std::to_string(diagnostics.projectileCoreInstances) +
+          " | glow instances " +
+          std::to_string(diagnostics.projectileGlowInstances) +
+          " | instance upload " +
+          std::to_string(diagnostics.projectileInstanceUploadBytes) +
+          " B"
+        );
+        hud.topLeftLines.emplace_back(
+          "projectile draws: mesh " +
+          std::to_string(diagnostics.projectileMeshDrawCalls) +
+          " | glow " +
+          std::to_string(diagnostics.projectileGlowDrawCalls) +
+          " | legacy projectile vertices " +
+          std::to_string(diagnostics.legacyProjectileDynamicVertices)
         );
       }
     }

@@ -27,6 +27,58 @@ constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
+constexpr std::uint32_t kSimpleInstanceUploadBytes = 56U;
+
+constexpr std::array<Vertex3D, 24> kPlasmaCoreMeshVertices = {{
+  {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+}};
+
+constexpr StaticMeshAsset kPlasmaCoreAsset = {
+  MeshHandle::PlasmaCore,
+  std::span<const Vertex3D>(kPlasmaCoreMeshVertices.data(), kPlasmaCoreMeshVertices.size()),
+  {{}, 1.0F},
+  RenderPass::OpaqueWorld,
+};
+
+constexpr BillboardAsset kPlasmaGlowAsset = {
+  BillboardHandle::PlasmaGlow,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
+constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
+  ProjectileVisualType::Plasma,
+  MeshHandle::PlasmaCore,
+  BillboardHandle::PlasmaGlow,
+  {132, 255, 154, 255},
+  {96, 255, 132, 150},
+  0.115F,
+  0.34F,
+  true,
+};
 
 [[nodiscard]] bool textureDebugEnabled() {
   const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG");
@@ -1741,6 +1793,198 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 
 } // namespace
 
+const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
+  switch (handle) {
+  case MeshHandle::PlasmaCore:
+    return &kPlasmaCoreAsset;
+  case MeshHandle::Invalid:
+    break;
+  }
+  return nullptr;
+}
+
+const BillboardAsset* billboardAsset(BillboardHandle handle) {
+  switch (handle) {
+  case BillboardHandle::PlasmaGlow:
+    return &kPlasmaGlowAsset;
+  case BillboardHandle::Invalid:
+    break;
+  }
+  return nullptr;
+}
+
+const ProjectileVisualDescriptor* projectileVisualDescriptor(
+  ProjectileVisualType type
+) {
+  switch (type) {
+  case ProjectileVisualType::Plasma:
+    return &kPlasmaProjectileVisual;
+  case ProjectileVisualType::Rocket:
+  case ProjectileVisualType::Grenade:
+    break;
+  }
+  return nullptr;
+}
+
+ProjectileVisualType projectileVisualTypeForWeapon(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::PlasmaGun:
+    return ProjectileVisualType::Plasma;
+  case Weapon::GrenadeLauncher:
+    return ProjectileVisualType::Grenade;
+  case Weapon::RocketLauncher:
+  default:
+    return ProjectileVisualType::Rocket;
+  }
+}
+
+namespace {
+
+[[nodiscard]] bool sameSimpleBatchKey(
+  const SimpleRenderBatch& batch,
+  const SimpleRenderInstance& instance
+) {
+  return batch.mesh == instance.mesh &&
+    batch.billboard == instance.billboard &&
+    batch.pass == instance.pass;
+}
+
+void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) {
+  const std::uint32_t index =
+    static_cast<std::uint32_t>(scene.simpleInstances.size());
+  scene.simpleInstances.push_back(instance);
+  for (SimpleRenderBatch& batch : scene.simpleBatches) {
+    const std::uint32_t batchEnd = batch.firstInstance + batch.instanceCount;
+    if (sameSimpleBatchKey(batch, instance) && batchEnd == index) {
+      ++batch.instanceCount;
+      return;
+    }
+  }
+  scene.simpleBatches.push_back({
+    instance.mesh,
+    instance.billboard,
+    instance.pass,
+    index,
+    1U,
+  });
+}
+
+void addProjectileInstances(
+  Scene3D& scene,
+  const RocketProjectileSnapshot& projectile,
+  std::size_t projectileIndex,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const RenderSettings& settings
+) {
+  const ProjectileVisualDescriptor* descriptor =
+    projectileVisualDescriptor(projectileVisualTypeForWeapon(projectile.weapon));
+  if (descriptor == nullptr) {
+    return;
+  }
+
+  const Vec3 position =
+    projectileVisualPosition(projectile, player, remotePlayers, settings);
+  const float pulseSeed = static_cast<float>(projectileIndex) * 0.371F;
+  const float cullRadius =
+    std::max(descriptor->coreScale, descriptor->glowScale);
+  if (
+    settings.frustumCullRemotePlayers &&
+    !sphereIntersectsPerspectiveFrustum(scene.camera, position, cullRadius)
+  ) {
+    ++scene.projectileStats.projectilesFrustumCulled;
+    return;
+  }
+
+  ++scene.projectileStats.projectilesRendered;
+  if (descriptor->coreMesh != MeshHandle::Invalid) {
+    appendSimpleInstance(
+      scene,
+      {
+        descriptor->coreMesh,
+        BillboardHandle::Invalid,
+        RenderPass::OpaqueWorld,
+        position,
+        {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
+        0.0F,
+        descriptor->coreColor,
+        pulseSeed,
+        {position, descriptor->coreScale},
+      }
+    );
+    ++scene.projectileStats.projectileCoreInstances;
+  }
+  if (descriptor->glowBillboard != BillboardHandle::Invalid) {
+    appendSimpleInstance(
+      scene,
+      {
+        MeshHandle::Invalid,
+        descriptor->glowBillboard,
+        descriptor->usesAdditiveGlow ? RenderPass::AdditiveGlow : RenderPass::TranslucentWorld,
+        position,
+        {descriptor->glowScale, descriptor->glowScale, descriptor->glowScale},
+        0.0F,
+        descriptor->glowColor,
+        pulseSeed,
+        {position, descriptor->glowScale},
+      }
+    );
+    ++scene.projectileStats.projectileGlowInstances;
+  }
+}
+
+void finalizeProjectileInstanceStats(Scene3D& scene) {
+  std::sort(
+    scene.simpleInstances.begin(),
+    scene.simpleInstances.end(),
+    [](const SimpleRenderInstance& lhs, const SimpleRenderInstance& rhs) {
+      if (lhs.pass != rhs.pass) {
+        return static_cast<int>(lhs.pass) < static_cast<int>(rhs.pass);
+      }
+      if (lhs.mesh != rhs.mesh) {
+        return static_cast<std::uint16_t>(lhs.mesh) < static_cast<std::uint16_t>(rhs.mesh);
+      }
+      return static_cast<std::uint16_t>(lhs.billboard) <
+        static_cast<std::uint16_t>(rhs.billboard);
+    }
+  );
+  scene.simpleBatches.clear();
+  for (const SimpleRenderInstance& instance : scene.simpleInstances) {
+    const std::uint32_t index =
+      static_cast<std::uint32_t>(scene.simpleBatches.empty()
+        ? 0U
+        : scene.simpleBatches.back().firstInstance + scene.simpleBatches.back().instanceCount);
+    if (!scene.simpleBatches.empty() &&
+        sameSimpleBatchKey(scene.simpleBatches.back(), instance)) {
+      ++scene.simpleBatches.back().instanceCount;
+      continue;
+    }
+    scene.simpleBatches.push_back({
+      instance.mesh,
+      instance.billboard,
+      instance.pass,
+      index,
+      1U,
+    });
+  }
+  scene.projectileStats.projectileInstanceUploadBytes =
+    static_cast<std::uint32_t>(scene.simpleInstances.size()) *
+    kSimpleInstanceUploadBytes;
+  for (const SimpleRenderBatch& batch : scene.simpleBatches) {
+    if (batch.instanceCount == 0U) {
+      continue;
+    }
+    if (batch.mesh != MeshHandle::Invalid) {
+      ++scene.projectileStats.projectileMeshDrawCalls;
+    }
+    if (batch.billboard != BillboardHandle::Invalid) {
+      ++scene.projectileStats.projectileGlowDrawCalls;
+    }
+  }
+}
+
+} // namespace
+
 Scene3D buildPerspectiveScene(
   float aspectRatio,
   const Arena& arena,
@@ -1989,49 +2233,64 @@ Scene3D buildPerspectiveScene(
       );
     }
   }
-for (const RocketProjectileSnapshot& projectile : rockets) {
-  if (!projectile.active) {
-    continue;
-  }
+  for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {
+    const RocketProjectileSnapshot& projectile = rockets[projectileIndex];
+    if (!projectile.active) {
+      continue;
+    }
+    ++scene.projectileStats.projectilesActive;
 
-  const Vec3 projectilePosition =
-    projectileVisualPosition(projectile, player, remotePlayers, settings);
-  const float projectileSize =
-    projectile.radius > 0.0F ? projectile.radius : 0.14F;
+    const Vec3 projectilePosition =
+      projectileVisualPosition(projectile, player, remotePlayers, settings);
+    const float projectileSize =
+      projectile.radius > 0.0F ? projectile.radius : 0.14F;
 
-  if (projectile.weapon == Weapon::GrenadeLauncher) {
-    addSphereApprox(
-      scene,
-      projectilePosition,
-      projectileSize,
-      {8, 48, 18, 255}
-    );
-    addWireBox(
-      scene,
-      projectilePosition - Vec3{
-        projectileSize * 1.4F,
-        projectileSize * 1.4F,
-        projectileSize * 1.4F
-      },
-      projectilePosition + Vec3{
-        projectileSize * 1.4F,
-        projectileSize * 1.4F,
-        projectileSize * 1.4F
-      },
-      0.012F,
-      {255, 220, 100, 255}
-    );
-    continue;
-  }
+    if (projectile.weapon == Weapon::PlasmaGun) {
+      addProjectileInstances(
+        scene,
+        projectile,
+        projectileIndex,
+        player,
+        remotePlayers,
+        settings
+      );
+      continue;
+    }
 
-  if (projectile.weapon == Weapon::PlasmaGun) {
-    addSphereApprox(scene, projectilePosition, 0.12F, {112, 255, 142, 255});
-    addSphereApprox(scene, projectilePosition, 0.07F, {230, 255, 210, 255});
-    continue;
-  }
+    if (projectile.weapon == Weapon::GrenadeLauncher) {
+      const std::uint32_t before =
+        static_cast<std::uint32_t>(scene.vertices.size());
+      addSphereApprox(
+        scene,
+        projectilePosition,
+        projectileSize,
+        {8, 48, 18, 255}
+      );
+      addWireBox(
+        scene,
+        projectilePosition - Vec3{
+          projectileSize * 1.4F,
+          projectileSize * 1.4F,
+          projectileSize * 1.4F
+        },
+        projectilePosition + Vec3{
+          projectileSize * 1.4F,
+          projectileSize * 1.4F,
+          projectileSize * 1.4F
+        },
+        0.012F,
+        {255, 220, 100, 255}
+      );
+      scene.projectileStats.legacyProjectileDynamicVertices +=
+        static_cast<std::uint32_t>(scene.vertices.size()) - before;
+      ++scene.projectileStats.projectilesRendered;
+      continue;
+    }
 
-  constexpr float size = 0.14F;
-  addBox(
+    constexpr float size = 0.14F;
+    const std::uint32_t before =
+      static_cast<std::uint32_t>(scene.vertices.size());
+    addBox(
       scene,
       projectilePosition - Vec3{size, size, size},
       projectilePosition + Vec3{size, size, size},
@@ -2044,6 +2303,9 @@ for (const RocketProjectileSnapshot& projectile : rockets) {
       0.012F,
       {255, 220, 100, 255}
     );
+    scene.projectileStats.legacyProjectileDynamicVertices +=
+      static_cast<std::uint32_t>(scene.vertices.size()) - before;
+    ++scene.projectileStats.projectilesRendered;
   }
   for (const RocketExplosionResult& explosion : rocketExplosions) {
     if (!explosion.active) {
@@ -2059,6 +2321,7 @@ for (const RocketProjectileSnapshot& projectile : rockets) {
     );
   }
   (void)localLightningGun;
+  finalizeProjectileInstanceStats(scene);
 
   return scene;
 }

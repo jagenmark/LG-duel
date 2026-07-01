@@ -1226,6 +1226,16 @@ int main() {
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};
+  const lg::ProjectileVisualDescriptor* plasmaDescriptor =
+    lg::projectileVisualDescriptor(lg::ProjectileVisualType::Plasma);
+  failures += expect(
+    plasmaDescriptor != nullptr &&
+      plasmaDescriptor->coreMesh != lg::MeshHandle::Invalid &&
+      plasmaDescriptor->glowBillboard != lg::BillboardHandle::Invalid &&
+      lg::staticMeshAsset(plasmaDescriptor->coreMesh) != nullptr &&
+      lg::billboardAsset(plasmaDescriptor->glowBillboard) != nullptr,
+    "plasma projectile visual descriptor should resolve to core mesh and glow billboard assets"
+  );
   plasmaRockets[0].active = true;
   plasmaRockets[0].owner = 1;
   plasmaRockets[0].weapon = lg::Weapon::PlasmaGun;
@@ -1244,20 +1254,22 @@ int main() {
     plasmaRockets,
     settings
   );
-  bool foundShiftedPlasmaProjectile = false;
-  for (const lg::Vertex3D& vertex : plasmaProjectileScene.vertices) {
-    foundShiftedPlasmaProjectile =
-      foundShiftedPlasmaProjectile ||
-      (
-        vertex.color.green >= 130 &&
-        vertex.color.green > vertex.color.red * 2U &&
-        vertex.color.green > vertex.color.blue &&
-        vertex.position.x < plasmaRockets[0].position.x - 0.35F
-      );
-  }
   failures += expect(
-    foundShiftedPlasmaProjectile,
-    "remote plasma projectiles should render from the plasma gun model"
+    plasmaProjectileScene.projectileStats.projectilesActive == 1 &&
+      plasmaProjectileScene.projectileStats.projectilesRendered == 1 &&
+      plasmaProjectileScene.projectileStats.projectileCoreInstances == 1 &&
+      plasmaProjectileScene.projectileStats.projectileGlowInstances == 1 &&
+      plasmaProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
+      plasmaProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
+      plasmaProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
+      plasmaProjectileScene.simpleInstances.size() == 2U &&
+      plasmaProjectileScene.simpleBatches.size() == 2U,
+    "active plasma projectile should produce one core instance, one glow instance, and no legacy vertices"
+  );
+  failures += expect(
+    plasmaProjectileScene.simpleInstances[0].position.x <
+      plasmaRockets[0].position.x - 0.35F,
+    "remote plasma projectile instances should render from the plasma gun model"
   );
 
   plasmaRockets[0].owner = 0;
@@ -1274,20 +1286,94 @@ int main() {
     plasmaRockets,
     localShotgunWeaponStartSettings
   );
-  bool foundLocalShiftedPlasmaProjectile = false;
-  for (const lg::Vertex3D& vertex : localPlasmaProjectileScene.vertices) {
-    foundLocalShiftedPlasmaProjectile =
-      foundLocalShiftedPlasmaProjectile ||
-      (
-        vertex.color.green >= 130 &&
-        vertex.color.green > vertex.color.red * 2U &&
-        vertex.color.green > vertex.color.blue &&
-        vertex.position.z < plasmaRockets[0].position.z - 0.15F
-      );
-  }
   failures += expect(
-    foundLocalShiftedPlasmaProjectile,
-    "local plasma projectiles should render from the first-person weapon muzzle"
+    localPlasmaProjectileScene.simpleInstances.size() == 2U &&
+      localPlasmaProjectileScene.simpleInstances[0].position.z <
+        plasmaRockets[0].position.z - 0.15F,
+    "local plasma projectile instances should render from the first-person weapon muzzle"
+  );
+
+  plasmaRockets[0].active = false;
+  const lg::Scene3D inactivePlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  failures += expect(
+    inactivePlasmaProjectileScene.projectileStats.projectilesActive == 0 &&
+      inactivePlasmaProjectileScene.simpleInstances.empty(),
+    "inactive plasma projectile should produce no render instances"
+  );
+
+  plasmaRockets[0].active = true;
+  plasmaRockets[0].owner = 0;
+  plasmaRockets[0].position = player.position + lg::Vec3{-12.0F, 0.0F, 0.65F};
+  const lg::Scene3D culledPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  failures += expect(
+    culledPlasmaProjectileScene.projectileStats.projectilesActive == 1 &&
+      culledPlasmaProjectileScene.projectileStats.projectilesFrustumCulled == 1 &&
+      culledPlasmaProjectileScene.simpleInstances.empty(),
+    "outside-frustum plasma projectile should produce no render instances when culling is enabled"
+  );
+  const lg::Scene3D uncullablePlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    frustumCullDisabledSettings
+  );
+  failures += expect(
+    uncullablePlasmaProjectileScene.projectileStats.projectilesRendered == 1 &&
+      uncullablePlasmaProjectileScene.simpleInstances.size() == 2U,
+    "outside-frustum plasma projectile should produce instances when culling is disabled"
+  );
+
+  plasmaRockets[0].position = player.position + lg::Vec3{3.0F, 0.0F, 0.65F};
+  plasmaRockets[1] = plasmaRockets[0];
+  plasmaRockets[1].position = player.position + lg::Vec3{4.0F, 0.25F, 0.65F};
+  const lg::Scene3D multiPlasmaProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    plasmaRockets,
+    settings
+  );
+  failures += expect(
+    multiPlasmaProjectileScene.projectileStats.projectileCoreInstances == 2 &&
+      multiPlasmaProjectileScene.projectileStats.projectileGlowInstances == 2 &&
+      multiPlasmaProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
+      multiPlasmaProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
+      multiPlasmaProjectileScene.simpleBatches.size() == 2U,
+    "multiple plasma projectiles should group into one core batch and one glow batch"
+  );
+  failures += expect(
+    multiPlasmaProjectileScene.projectileStats.projectileInstanceUploadBytes ==
+      plasmaProjectileScene.projectileStats.projectileInstanceUploadBytes * 2U,
+    "projectile instance upload bytes should scale by instance count, not mesh vertex count"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> plasmaFireOnly = {};
