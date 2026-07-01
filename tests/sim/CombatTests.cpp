@@ -1,7 +1,7 @@
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
+#include "sim/BalanceConfig.hpp"
 #include "sim/Combat.hpp"
-#include "sim/GameplayConfig.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -45,25 +45,22 @@ int main() {
   const lg::ShotgunTuning shotgunTuning;
 
   {
-    const lg::GameplayConfigLoadResult loaded =
-      lg::loadGameplayConfigFromText(R"(version 1
-grenade.speed 20.5
-grenade.vertical_boost 6.25
-grenade.gravity 12.0
-grenade.bounce_damping 0.5
-grenade.rest_speed 0.6
-grenade.bounce_sound_min_speed 1.4
-grenade.projectile_radius 0.25
-grenade.projectile_hitbox_radius 0.2
-grenade.fuse_seconds 1.0
-grenade.radius 4.0
-grenade.direct_damage 90
-grenade.splash_damage 80
-grenade.knockback 18.5
-grenade.cooldown_ticks 75
+    const lg::BalanceConfigLoadResult loaded =
+      lg::loadBalanceConfigFromText(R"(version 1
+weapon.gl.speed 20.5
+weapon.gl.vertical_boost 6.25
+weapon.gl.gravity 12.0
+weapon.gl.bounce_damping 0.5
+weapon.gl.rest_speed 0.6
+weapon.gl.bounce_sound_min_speed 1.4
+weapon.gl.projectile_radius 0.25
+weapon.gl.projectile_hitbox_radius 0.2
+weapon.gl.fuse_seconds 1.0
+weapon.gl.radius 4.0
+weapon.gl.cooldown_ticks 75
 )");
 
-    failures += expect(loaded.ok, "gameplay config should parse grenade launcher tuning");
+    failures += expect(loaded.ok, "balance config should parse grenade launcher tuning");
     failures += expect(
       nearlyEqual(loaded.config.grenadeLauncher.speed, 20.5F) &&
         nearlyEqual(loaded.config.grenadeLauncher.verticalBoost, 6.25F) &&
@@ -75,20 +72,17 @@ grenade.cooldown_ticks 75
         nearlyEqual(loaded.config.grenadeLauncher.projectileHitboxRadius, 0.2F) &&
         loaded.config.grenadeLauncher.fuseTicks == 125 &&
         nearlyEqual(loaded.config.grenadeLauncher.radius, 4.0F) &&
-        loaded.config.grenadeLauncher.directDamage == 90 &&
-        loaded.config.grenadeLauncher.splashDamage == 80 &&
-        nearlyEqual(loaded.config.grenadeLauncher.knockback, 18.5F) &&
         loaded.config.grenadeLauncher.cooldownTicks == 75,
-      "gameplay config should apply all editable grenade launcher values"
+      "balance config should apply non-cvar grenade launcher values"
     );
   }
 
   {
-    const lg::GameplayConfigLoadResult loaded =
-      lg::loadGameplayConfigFromText(R"(version 1
-grenade.gravity -1
+    const lg::BalanceConfigLoadResult loaded =
+      lg::loadBalanceConfigFromText(R"(version 1
+weapon.gl.gravity -1
 )");
-    failures += expect(!loaded.ok, "gameplay config should reject out-of-range grenade values");
+    failures += expect(!loaded.ok, "balance config should reject out-of-range grenade values");
   }
 
   {

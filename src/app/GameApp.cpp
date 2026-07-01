@@ -11,6 +11,7 @@
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
 #include "client/LocalHitFeedback.hpp"
+#include "console/ConsoleConfig.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
@@ -23,6 +24,7 @@
 #include "shared/Sequence.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
+#include "sim/GameplayCvars.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -79,6 +81,80 @@ enum class AimMode {
   );
 }
 
+[[nodiscard]] bool nearlyEqualGameplayFloat(float lhs, float rhs) {
+  return std::fabs(lhs - rhs) <= 0.0001F;
+}
+
+[[nodiscard]] bool nearlySameGameplayMovementTuning(
+  const MovementTuning& lhs,
+  const MovementTuning& rhs
+) {
+  return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.airControlEnabled == rhs.airControlEnabled &&
+    nearlyEqualGameplayFloat(lhs.groundAcceleration, rhs.groundAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.airAcceleration, rhs.airAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.groundFriction, rhs.groundFriction) &&
+    nearlyEqualGameplayFloat(lhs.stopSpeed, rhs.stopSpeed) &&
+    nearlyEqualGameplayFloat(lhs.maxGroundSpeed, rhs.maxGroundSpeed) &&
+    nearlyEqualGameplayFloat(lhs.flightAcceleration, rhs.flightAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.maxFlightSpeed, rhs.maxFlightSpeed) &&
+    nearlyEqualGameplayFloat(lhs.flightDamping, rhs.flightDamping);
+}
+
+[[nodiscard]] const char* weaponSwitchingModeCvarValue(
+  WeaponSwitchingMode mode
+) {
+  switch (mode) {
+    case WeaponSwitchingMode::Ql:
+      return "ql";
+    case WeaponSwitchingMode::Cpma:
+      return "cpma";
+    case WeaponSwitchingMode::Crazy:
+      return "crazy";
+  }
+  return "crazy";
+}
+
+void syncGameplayCvarsFromSnapshot(
+  ConsoleSystem& console,
+  const ServerSnapshot& snapshot
+) {
+  (void)console.execute(
+    std::string("set g_flight ") +
+    (snapshot.movementTuning.flightEnabled ? "1" : "0")
+  );
+  (void)console.execute("set g_accel " + std::to_string(snapshot.movementTuning.groundAcceleration));
+  (void)console.execute("set g_airaccel " + std::to_string(snapshot.movementTuning.airAcceleration));
+  (void)console.execute(
+    std::string("set g_aircontrol ") +
+    (snapshot.movementTuning.airControlEnabled ? "1" : "0")
+  );
+  (void)console.execute("set g_friction " + std::to_string(snapshot.movementTuning.groundFriction));
+  (void)console.execute("set g_stopspeed " + std::to_string(snapshot.movementTuning.stopSpeed));
+  (void)console.execute("set g_maxspeed " + std::to_string(snapshot.movementTuning.maxGroundSpeed));
+  (void)console.execute("set g_flightaccel " + std::to_string(snapshot.movementTuning.flightAcceleration));
+  (void)console.execute("set g_flightmaxspeed " + std::to_string(snapshot.movementTuning.maxFlightSpeed));
+  (void)console.execute("set g_flightdamping " + std::to_string(snapshot.movementTuning.flightDamping));
+  (void)console.execute("set g_playersize_xy " + std::to_string(snapshot.playerSizeScaleXY));
+  (void)console.execute("set g_playersize_z " + std::to_string(snapshot.playerSizeScaleZ));
+  (void)console.execute("set g_lg_knockback " + std::to_string(snapshot.lightningKnockback));
+  (void)console.execute("set g_lg_fire_hz " + std::to_string(snapshot.lightningFireHz));
+  (void)console.execute("set g_rl_knockback " + std::to_string(snapshot.rocketKnockback));
+  (void)console.execute("set g_sg_damage " + std::to_string(snapshot.weaponDamage.shotgunDamagePerPellet));
+  (void)console.execute("set g_mg_damage " + std::to_string(snapshot.weaponDamage.machineGunDamage));
+  (void)console.execute("set g_lg_damage " + std::to_string(snapshot.weaponDamage.lightningGunDamage));
+  (void)console.execute("set g_rg_damage " + std::to_string(snapshot.weaponDamage.railgunDamage));
+  (void)console.execute("set g_rl_damage " + std::to_string(snapshot.weaponDamage.rocketLauncherDamage));
+  (void)console.execute("set g_pg_damage " + std::to_string(snapshot.weaponDamage.plasmaGunDamage));
+  (void)console.execute("set g_vampirism " + std::to_string(snapshot.vampirism));
+  (void)console.execute("set g_selfdamage " + std::to_string(snapshot.selfDamagePercent));
+  (void)console.execute("set g_healthamount " + std::to_string(snapshot.healthAmount));
+  (void)console.execute(
+    std::string("set g_weaponswitching ") +
+    weaponSwitchingModeCvarValue(snapshot.weaponSwitchingMode)
+  );
+}
+
 [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfigFromConsole(
   const ConsoleSystem& console
 ) {
@@ -114,35 +190,6 @@ void copyTextToClipboard(std::string_view text) {
   (void)SDL_SetClipboardText(clipboardText.c_str());
 }
 #endif
-
-[[nodiscard]] std::int32_t healthAmount(const ConsoleSystem& console) {
-  return std::clamp(console.getInt("g_healthamount"), 1, 100000);
-}
-
-[[nodiscard]] WeaponDamageTuning weaponDamageTuning(const ConsoleSystem& console) {
-  return {
-    console.getInt("g_sg_damage"),
-    console.getInt("g_mg_damage"),
-    console.getInt("g_lg_damage"),
-    console.getInt("g_rg_damage"),
-    console.getInt("g_rl_damage"),
-    console.getInt("g_pg_damage"),
-  };
-}
-
-[[nodiscard]] WeaponSwitchingMode weaponSwitchingMode(const ConsoleSystem& console) {
-  std::string value = console.getString("g_weaponswitching");
-  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
-    return static_cast<char>(std::tolower(character));
-  });
-  if (value == "ql" || value == "0") {
-    return WeaponSwitchingMode::Ql;
-  }
-  if (value == "cpma" || value == "1") {
-    return WeaponSwitchingMode::Cpma;
-  }
-  return WeaponSwitchingMode::Crazy;
-}
 
 [[nodiscard]] DamageNumbersConfig damageNumbersConfig(
   const ConsoleSystem& console
@@ -1163,14 +1210,21 @@ std::string clientConfigPath() {
 
 void loadClientConfig(ConsoleSystem& console, const std::string& path) {
   std::ifstream file(path);
-  std::string line;
-  while (std::getline(file, line)) {
-    const std::size_t firstText = line.find_first_not_of(" \t");
-    if (firstText == std::string::npos || line[firstText] == '#') {
-      continue;
-    }
-    (void)console.execute(line);
+  if (!file) {
+    return;
   }
+  std::ostringstream text;
+  text << file.rdbuf();
+  const ConsoleConfigResult result = executeConsoleConfigText(console, text.str());
+  for (const std::string& error : result.errors) {
+    std::cerr << "Config warning: " << path << ": " << error << '\n';
+  }
+}
+
+std::filesystem::path defaultClientConfigPath(
+  const std::filesystem::path& assetBasePath
+) {
+  return assetBasePath / "config" / "default_client.cfg";
 }
 
 std::filesystem::path soundMixerConfigPath(
@@ -1439,23 +1493,6 @@ float zoomSensitivityMultiplier(
     return 1.0F;
   }
   return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
-}
-
-MovementTuning movementTuning(const ConsoleSystem& console) {
-  MovementTuning tuning;
-  tuning.flightEnabled = console.getBool("g_flight");
-  tuning.groundAcceleration = console.getFloat("g_accel");
-  tuning.airAcceleration = console.getFloat("g_airaccel");
-  tuning.airControlEnabled = console.getBool("g_aircontrol");
-  tuning.groundFriction = console.getFloat("g_friction");
-  tuning.stopSpeed = console.getFloat("g_stopspeed");
-  tuning.maxGroundSpeed = console.getFloat("g_maxspeed");
-  tuning.maxAirSpeed = tuning.maxGroundSpeed;
-  tuning.flightAcceleration = console.getFloat("g_flightaccel");
-  tuning.maxFlightSpeed = console.getFloat("g_flightmaxspeed");
-  tuning.flightDamping = console.getFloat("g_flightdamping");
-  tuning.flightGravityCancel = 1.0F;
-  return tuning;
 }
 
 bool sameRuntimeMovementTuning(
@@ -2034,7 +2071,6 @@ int GameApp::run() const {
   ConsoleSystem console;
   registerClientCvars(console);
   InputBindings bindings;
-  installDefaultBindings(bindings);
   const std::string configPath = clientConfigPath();
   LocalInputState input;
   bool running = true;
@@ -2524,6 +2560,14 @@ int GameApp::run() const {
       return std::string(text);
     }
   );
+  const std::filesystem::path defaultConfigPath =
+    defaultClientConfigPath(assetBasePath);
+  if (std::filesystem::exists(defaultConfigPath)) {
+    loadClientConfig(console, defaultConfigPath.string());
+  } else {
+    installDefaultBindings(bindings);
+    std::cerr << "Config warning: config/default_client.cfg not found; using code default binds\n";
+  }
   loadClientConfig(console, configPath);
   loadSoundMixerConfigs(console, assetBasePath);
   if (console.getInt("cl_config_version") < 7) {
@@ -2692,7 +2736,7 @@ int GameApp::run() const {
   PresentationViewState presentationView;
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
-  MovementTuning lastRequestedMovementTuning = movementTuning(console);
+  MovementTuning lastRequestedMovementTuning = movementTuningFromCvars(console);
   float lastRequestedPlayerSizeScaleXY =
     console.getFloat("g_playersize_xy");
   float lastRequestedPlayerSizeScaleZ =
@@ -2704,19 +2748,19 @@ int GameApp::run() const {
   float lastRequestedRocketKnockback =
     console.getFloat("g_rl_knockback");
   WeaponDamageTuning lastRequestedWeaponDamage =
-    weaponDamageTuning(console);
+    weaponDamageTuningFromCvars(console);
   float lastRequestedVampirism =
     console.getFloat("g_vampirism");
   std::uint8_t lastRequestedSelfDamagePercent =
     selfDamagePercent(console);
   std::int32_t lastRequestedHealthAmount =
-    healthAmount(console);
+    healthAmountFromCvars(console);
   WeaponSwitchingMode lastRequestedWeaponSwitchingMode =
-    weaponSwitchingMode(console);
+    weaponSwitchingModeFromCvars(console);
   bool lastRequestedBotDodgeEnabled = botDodgeEnabled;
   std::int32_t lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
   std::int32_t lastRequestedBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
-  bool movementTuningRequestPending = true;
+  bool movementTuningRequestPending = false;
   bool relativeMouseModeEnabled = true;
   const ClientGame* audioGame = nullptr;
   std::uint32_t lastAudioServerTick = 0;
@@ -3271,7 +3315,7 @@ int GameApp::run() const {
       input.mouseDeltaY = 0.0F;
     }
     previousFrameUsedPresentationView = usePresentationView;
-    const MovementTuning currentMovementTuning = movementTuning(console);
+    const MovementTuning currentMovementTuning = movementTuningFromCvars(console);
     const float currentPlayerSizeScaleXY =
       console.getFloat("g_playersize_xy");
     const float currentPlayerSizeScaleZ =
@@ -3283,15 +3327,15 @@ int GameApp::run() const {
     const float currentRocketKnockback =
       console.getFloat("g_rl_knockback");
     const WeaponDamageTuning currentWeaponDamage =
-      weaponDamageTuning(console);
+      weaponDamageTuningFromCvars(console);
     const float currentVampirism =
       console.getFloat("g_vampirism");
     const std::uint8_t currentSelfDamagePercent =
       selfDamagePercent(console);
     const std::int32_t currentHealthAmount =
-      healthAmount(console);
+      healthAmountFromCvars(console);
     const WeaponSwitchingMode currentWeaponSwitchingMode =
-      weaponSwitchingMode(console);
+      weaponSwitchingModeFromCvars(console);
     if (!sameRuntimeMovementTuning(
           currentMovementTuning,
           lastRequestedMovementTuning
@@ -3473,6 +3517,82 @@ int GameApp::run() const {
       requestTeamPending = false;
       movementTuningRequestPending = false;
       session.update();
+      if (ClientGame* updatedGame = session.game();
+          updatedGame != nullptr &&
+          updatedGame->hasSnapshot() &&
+          !updatedGame->hasPendingMovementTuning()) {
+        const ServerSnapshot& updatedSnapshot = updatedGame->snapshot();
+        const MovementTuning consoleMovementTuning =
+          movementTuningFromCvars(console);
+        const WeaponDamageTuning consoleWeaponDamage =
+          weaponDamageTuningFromCvars(console);
+        const bool gameplayConsoleOutOfDate =
+          !nearlySameGameplayMovementTuning(
+            consoleMovementTuning,
+            updatedSnapshot.movementTuning
+          ) ||
+          !nearlyEqualGameplayFloat(
+            console.getFloat("g_playersize_xy"),
+            updatedSnapshot.playerSizeScaleXY
+          ) ||
+          !nearlyEqualGameplayFloat(
+            console.getFloat("g_playersize_z"),
+            updatedSnapshot.playerSizeScaleZ
+          ) ||
+          !nearlyEqualGameplayFloat(
+            console.getFloat("g_lg_knockback"),
+            updatedSnapshot.lightningKnockback
+          ) ||
+          !nearlyEqualGameplayFloat(
+            console.getFloat("g_lg_fire_hz"),
+            updatedSnapshot.lightningFireHz
+          ) ||
+          !nearlyEqualGameplayFloat(
+            console.getFloat("g_rl_knockback"),
+            updatedSnapshot.rocketKnockback
+          ) ||
+          !nearlyEqualGameplayFloat(
+            console.getFloat("g_vampirism"),
+            updatedSnapshot.vampirism
+          ) ||
+          selfDamagePercent(console) != updatedSnapshot.selfDamagePercent ||
+          healthAmountFromCvars(console) != updatedSnapshot.healthAmount ||
+          weaponSwitchingModeFromCvars(console) != updatedSnapshot.weaponSwitchingMode ||
+          consoleWeaponDamage.shotgunDamagePerPellet !=
+            updatedSnapshot.weaponDamage.shotgunDamagePerPellet ||
+          consoleWeaponDamage.machineGunDamage !=
+            updatedSnapshot.weaponDamage.machineGunDamage ||
+          consoleWeaponDamage.lightningGunDamage !=
+            updatedSnapshot.weaponDamage.lightningGunDamage ||
+          consoleWeaponDamage.railgunDamage !=
+            updatedSnapshot.weaponDamage.railgunDamage ||
+          consoleWeaponDamage.rocketLauncherDamage !=
+            updatedSnapshot.weaponDamage.rocketLauncherDamage ||
+          consoleWeaponDamage.plasmaGunDamage !=
+            updatedSnapshot.weaponDamage.plasmaGunDamage;
+        if (gameplayConsoleOutOfDate) {
+          syncGameplayCvarsFromSnapshot(console, updatedSnapshot);
+          lastRequestedMovementTuning = updatedSnapshot.movementTuning;
+          lastRequestedMovementTuning.maxAirSpeed =
+            lastRequestedMovementTuning.maxGroundSpeed;
+          lastRequestedPlayerSizeScaleXY = updatedSnapshot.playerSizeScaleXY;
+          lastRequestedPlayerSizeScaleZ = updatedSnapshot.playerSizeScaleZ;
+          lastRequestedLightningKnockback = updatedSnapshot.lightningKnockback;
+          lastRequestedLightningFireHz = updatedSnapshot.lightningFireHz;
+          lastRequestedRocketKnockback = updatedSnapshot.rocketKnockback;
+          lastRequestedWeaponDamage = updatedSnapshot.weaponDamage;
+          lastRequestedVampirism = updatedSnapshot.vampirism;
+          lastRequestedSelfDamagePercent = updatedSnapshot.selfDamagePercent;
+          lastRequestedHealthAmount = updatedSnapshot.healthAmount;
+          lastRequestedWeaponSwitchingMode = updatedSnapshot.weaponSwitchingMode;
+          lastRequestedBotDodgeEnabled = updatedSnapshot.botDodgeEnabled;
+          lastRequestedBotDodgeMinIntervalMs =
+            updatedSnapshot.botDodgeMinIntervalMs;
+          lastRequestedBotDodgeMaxIntervalMs =
+            updatedSnapshot.botDodgeMaxIntervalMs;
+          movementTuningRequestPending = false;
+        }
+      }
       consumedMouseForTick = true;
     }
     if (consumedMouseForTick) {

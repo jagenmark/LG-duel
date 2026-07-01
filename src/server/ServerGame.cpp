@@ -1,10 +1,10 @@
 #include "server/ServerGame.hpp"
 
 #include "shared/Sequence.hpp"
+#include "sim/BalanceConfig.hpp"
 #include "sim/ClanArenaRules.hpp"
 #include "sim/Collision.hpp"
 #include "sim/DuelRules.hpp"
-#include "sim/GameplayConfig.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -19,13 +19,8 @@ namespace lg {
 namespace {
 
 constexpr std::uint32_t kMaxLagCompensationTicks = 25;
-constexpr std::uint32_t kMachineGunCooldownTicks = 13;
-constexpr std::uint32_t kRailgunCooldownTicks = 188;
-constexpr std::uint32_t kShotgunCooldownTicks = 125;
-constexpr std::uint32_t kRocketLauncherCooldownTicks = 100;
 constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
-constexpr std::uint32_t kWeaponPulloutTicks = 20;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
@@ -102,6 +97,24 @@ constexpr float kProjectileCollisionEpsilon = 0.0001F;
   return q3KnockbackToInternal(remappedKnockback);
 }
 
+[[nodiscard]] bool nearlyEqualGameplayFloat(float lhs, float rhs) {
+  return std::fabs(lhs - rhs) <= 0.0001F;
+}
+
+[[nodiscard]] const char* weaponSwitchingModeCommandValue(
+  WeaponSwitchingMode mode
+) {
+  switch (mode) {
+    case WeaponSwitchingMode::Ql:
+      return "ql";
+    case WeaponSwitchingMode::Cpma:
+      return "cpma";
+    case WeaponSwitchingMode::Crazy:
+      return "crazy";
+  }
+  return "crazy";
+}
+
 [[nodiscard]] Vec3 bounceNormalForPoint(const Arena& arena, Vec3 point) {
   Vec3 bestNormal = {0.0F, 0.0F, 1.0F};
   float bestDistance = std::fabs(point.z - arena.min.z);
@@ -143,11 +156,11 @@ constexpr float kProjectileCollisionEpsilon = 0.0001F;
   return bestNormal;
 }
 
-[[nodiscard]] std::filesystem::path defaultGameplayConfigPath() {
+[[nodiscard]] std::filesystem::path defaultBalanceConfigPath() {
   namespace fs = std::filesystem;
   fs::path directory = fs::current_path();
   for (;;) {
-    const fs::path candidate = directory / "config" / "gameplay.cfg";
+    const fs::path candidate = directory / "config" / "balance.cfg";
     if (fs::exists(candidate)) {
       return candidate;
     }
@@ -160,19 +173,37 @@ constexpr float kProjectileCollisionEpsilon = 0.0001F;
   return {};
 }
 
+void logClientGameplayCommand(
+  const std::string& playerName,
+  const std::string& command,
+  const std::string& value
+) {
+  std::cout << "player " << playerName << " executed command " <<
+    command << " " << value << '\n';
+}
+
 } // namespace
 
-ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
+ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
+  : transport_(transport) {
   mapDescriptor_ = describeMap("thunderstruck", arena_);
   rocketLauncherTuning_.knockback = q3KnockbackToInternal(rocketKnockback_);
-  const std::filesystem::path gameplayConfigPath = defaultGameplayConfigPath();
-  if (!gameplayConfigPath.empty()) {
-    const GameplayConfigLoadResult loaded =
-      loadGameplayConfigFromFile(gameplayConfigPath.string());
+  if (!balanceConfigPath.empty()) {
+    const BalanceConfigLoadResult loaded =
+      loadBalanceConfigFromFile(balanceConfigPath);
     if (loaded.ok) {
-      grenadeLauncherTuning_ = loaded.config.grenadeLauncher;
+      applyBalanceConfig(loaded.config);
     } else {
-      std::cerr << "Ignoring gameplay config: " << loaded.error << '\n';
+      std::cerr << "Ignoring balance config: " << loaded.error << '\n';
+    }
+  } else if (const std::filesystem::path fallbackPath = defaultBalanceConfigPath();
+             !fallbackPath.empty()) {
+    const BalanceConfigLoadResult loaded =
+      loadBalanceConfigFromFile(fallbackPath.string());
+    if (loaded.ok) {
+      applyBalanceConfig(loaded.config);
+    } else {
+      std::cerr << "Ignoring balance config: " << loaded.error << '\n';
     }
   }
   resetMatch();
@@ -183,6 +214,53 @@ ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
   snapshot_.matchPhase = MatchPhase::Live;
   updateParticipatingPlayers();
   publishSnapshot();
+}
+
+void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
+  lightningGunTuning_.range = config.lightningGun.range;
+  lightningGunTuning_.eyeHeight = config.lightningGun.eyeHeight;
+  railgunTuning_.range = config.railgun.range;
+  railgunTuning_.eyeHeight = config.railgun.eyeHeight;
+  railgunTuning_.knockback = config.railgun.knockback;
+  railgunCooldownDurationTicks_ = config.railgunCooldownTicks;
+  machineGunTuning_.range = config.machineGun.range;
+  machineGunTuning_.eyeHeight = config.machineGun.eyeHeight;
+  machineGunTuning_.knockback = config.machineGun.knockback;
+  machineGunTuning_.spreadRadians = config.machineGun.spreadRadians;
+  machineGunCooldownDurationTicks_ = config.machineGunCooldownTicks;
+  shotgunTuning_.range = config.shotgun.range;
+  shotgunTuning_.pelletCount = config.shotgun.pelletCount;
+  shotgunTuning_.spreadRadians = config.shotgun.spreadRadians;
+  shotgunTuning_.eyeHeight = config.shotgun.eyeHeight;
+  shotgunTuning_.knockback = config.shotgun.knockback;
+  shotgunCooldownDurationTicks_ = config.shotgunCooldownTicks;
+  rocketLauncherTuning_.speed = config.rocketLauncher.speed;
+  rocketLauncherTuning_.radius = config.rocketLauncher.radius;
+  rocketLauncherTuning_.eyeHeight = config.rocketLauncher.eyeHeight;
+  rocketLauncherTuning_.maxLifetimeTicks = config.rocketLauncher.maxLifetimeTicks;
+  rocketLauncherCooldownDurationTicks_ = config.rocketLauncherCooldownTicks;
+  grenadeLauncherTuning_.speed = config.grenadeLauncher.speed;
+  grenadeLauncherTuning_.verticalBoost = config.grenadeLauncher.verticalBoost;
+  grenadeLauncherTuning_.gravity = config.grenadeLauncher.gravity;
+  grenadeLauncherTuning_.bounceDamping = config.grenadeLauncher.bounceDamping;
+  grenadeLauncherTuning_.restSpeed = config.grenadeLauncher.restSpeed;
+  grenadeLauncherTuning_.bounceSoundMinSpeed =
+    config.grenadeLauncher.bounceSoundMinSpeed;
+  grenadeLauncherTuning_.projectileRadius =
+    config.grenadeLauncher.projectileRadius;
+  grenadeLauncherTuning_.projectileHitboxRadius =
+    config.grenadeLauncher.projectileHitboxRadius;
+  grenadeLauncherTuning_.radius = config.grenadeLauncher.radius;
+  grenadeLauncherTuning_.eyeHeight = config.grenadeLauncher.eyeHeight;
+  grenadeLauncherTuning_.fuseTicks = config.grenadeLauncher.fuseTicks;
+  grenadeLauncherTuning_.cooldownTicks = config.grenadeLauncher.cooldownTicks;
+  plasmaGunTuning_.speed = config.plasmaGun.speed;
+  plasmaGunTuning_.radius = config.plasmaGun.radius;
+  plasmaGunTuning_.knockback = config.plasmaGun.knockback;
+  plasmaGunTuning_.eyeHeight = config.plasmaGun.eyeHeight;
+  plasmaGunTuning_.maxLifetimeTicks = config.plasmaGun.maxLifetimeTicks;
+  plasmaGunTuning_.cooldownTicks = config.plasmaGun.cooldownTicks;
+  weaponPulloutDurationTicks_ = config.weaponPulloutTicks;
 }
 
 void ServerGame::tick(float fixedDt) {
@@ -452,7 +530,7 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
-      railgunCooldownTicks_[attackerIndex] = kRailgunCooldownTicks;
+      railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
     } else if (
       command.weapon == Weapon::MachineGun &&
       command.attack &&
@@ -475,7 +553,7 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
-      machineGunCooldownTicks_[attackerIndex] = kMachineGunCooldownTicks;
+      machineGunCooldownTicks_[attackerIndex] = machineGunCooldownDurationTicks_;
     } else if (
       command.weapon == Weapon::Shotgun &&
       command.attack &&
@@ -499,7 +577,7 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
-      shotgunCooldownTicks_[attackerIndex] = kShotgunCooldownTicks;
+      shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
     } else if (
       command.weapon == Weapon::RocketLauncher &&
       command.attack &&
@@ -513,7 +591,7 @@ void ServerGame::tick(float fixedDt) {
           Weapon::RocketLauncher
         )
       ) {
-        rocketCooldownTicks_[attackerIndex] = kRocketLauncherCooldownTicks;
+        rocketCooldownTicks_[attackerIndex] = rocketLauncherCooldownDurationTicks_;
       }
     } else if (
       command.weapon == Weapon::GrenadeLauncher &&
@@ -892,6 +970,99 @@ void ServerGame::setMatchRules(const MatchRules& rules) {
   snapshot_.matchRules = matchRules_;
 }
 
+void ServerGame::setRuntimeGameplayTuning(
+  const MovementTuning& movementTuning,
+  float playerSizeScaleXY,
+  float playerSizeScaleZ,
+  float lightningKnockback,
+  float lightningFireHz,
+  float rocketKnockback,
+  const WeaponDamageTuning& weaponDamage,
+  float vampirism,
+  std::uint8_t selfDamagePercent,
+  std::int32_t healthAmount,
+  bool botDodgeEnabled,
+  int botDodgeMinIntervalMs,
+  int botDodgeMaxIntervalMs,
+  WeaponSwitchingMode weaponSwitchingMode
+) {
+  movementTuning_ = movementTuning;
+  movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
+  snapshot_.movementTuning = movementTuning_;
+  playerSizeScaleXY_ = playerSizeScaleXY;
+  playerSizeScaleZ_ = playerSizeScaleZ;
+  snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
+  snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
+  lightningKnockback_ = lightningKnockback;
+  lightningGunTuning_.knockbackPerSecond =
+    lightningKnockbackToInternal(lightningKnockback_);
+  snapshot_.lightningKnockback = lightningKnockback_;
+  lightningFireHz_ = lightningFireHz;
+  lightningGunTuning_.fireHz = lightningFireHz_;
+  snapshot_.lightningFireHz = lightningFireHz_;
+  rocketKnockback_ = rocketKnockback;
+  rocketLauncherTuning_.knockback =
+    q3KnockbackToInternal(rocketKnockback_);
+  grenadeLauncherTuning_.knockback =
+    q3KnockbackToInternal(rocketKnockback_);
+  snapshot_.rocketKnockback = rocketKnockback_;
+  weaponDamage_ = weaponDamage;
+  shotgunTuning_.damagePerPellet = weaponDamage_.shotgunDamagePerPellet;
+  machineGunTuning_.damage = weaponDamage_.machineGunDamage;
+  lightningGunTuning_.damagePerSecond =
+    static_cast<float>(weaponDamage_.lightningGunDamage);
+  railgunTuning_.damage = weaponDamage_.railgunDamage;
+  rocketLauncherTuning_.directDamage = weaponDamage_.rocketLauncherDamage;
+  rocketLauncherTuning_.splashDamage = weaponDamage_.rocketLauncherDamage;
+  grenadeLauncherTuning_.directDamage = weaponDamage_.rocketLauncherDamage;
+  grenadeLauncherTuning_.splashDamage = weaponDamage_.rocketLauncherDamage;
+  plasmaGunTuning_.damage = weaponDamage_.plasmaGunDamage;
+  snapshot_.weaponDamage = weaponDamage_;
+  if (vampirism_ != vampirism) {
+    fractionalVampirismHealing_ = {};
+  }
+  vampirism_ = vampirism;
+  snapshot_.vampirism = vampirism_;
+  selfDamagePercent_ = selfDamagePercent;
+  snapshot_.selfDamagePercent = selfDamagePercent_;
+  const bool healthAmountChanged = healthAmount_ != healthAmount;
+  healthAmount_ = healthAmount;
+  snapshot_.healthAmount = healthAmount_;
+  if (
+    botDodgeEnabled_ != botDodgeEnabled ||
+    botDodgeMinIntervalMs_ != botDodgeMinIntervalMs ||
+    botDodgeMaxIntervalMs_ != botDodgeMaxIntervalMs
+  ) {
+    setBotDodge(botDodgeEnabled, botDodgeMinIntervalMs, botDodgeMaxIntervalMs);
+  }
+  if (weaponSwitchingMode_ != weaponSwitchingMode) {
+    setWeaponSwitchingMode(weaponSwitchingMode);
+  }
+  for (PlayerState& player : snapshot_.players) {
+    const float previousHalfHeight = player.bounds.halfHeight;
+    player.bounds.radius =
+      kDefaultPlayerBounds.radius * playerSizeScaleXY_;
+    player.bounds.halfHeight =
+      kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
+    player.position.z += player.bounds.halfHeight - previousHalfHeight;
+    player.position.z =
+      std::clamp(
+        player.position.z,
+        arena_.min.z + player.bounds.halfHeight,
+        arena_.max.z - player.bounds.halfHeight
+      );
+  }
+  if (
+    healthAmountChanged &&
+    (
+      snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
+      snapshot_.matchPhase == MatchPhase::WaitingForReady
+    )
+  ) {
+    respawnRound();
+  }
+}
+
 void ServerGame::setWeaponSwitchingMode(WeaponSwitchingMode mode) {
   weaponSwitchingMode_ = mode;
   snapshot_.weaponSwitchingMode = weaponSwitchingMode_;
@@ -1137,7 +1308,7 @@ void ServerGame::updateSelectedWeapon(
 
   selectedWeapon = requestedWeapon;
   if (weaponSwitchingMode_ == WeaponSwitchingMode::Ql) {
-    weaponPulloutTicks_[playerIndex] = kWeaponPulloutTicks;
+    weaponPulloutTicks_[playerIndex] = weaponPulloutDurationTicks_;
   }
   snapshot_.selectedWeapons[playerIndex] = selectedWeapon;
 }
@@ -1847,95 +2018,144 @@ void ServerGame::receiveCommands() {
     }
 
     if (packet.requestMovementTuning) {
-      movementTuning_.flightEnabled = packet.movementTuning.flightEnabled;
-      movementTuning_.airControlEnabled = packet.movementTuning.airControlEnabled;
-      movementTuning_.groundAcceleration = packet.movementTuning.groundAcceleration;
-      movementTuning_.airAcceleration = packet.movementTuning.airAcceleration;
-      movementTuning_.groundFriction = packet.movementTuning.groundFriction;
-      movementTuning_.stopSpeed = packet.movementTuning.stopSpeed;
-      movementTuning_.maxGroundSpeed = packet.movementTuning.maxGroundSpeed;
-      movementTuning_.maxAirSpeed = packet.movementTuning.maxGroundSpeed;
-      movementTuning_.flightAcceleration =
-        packet.movementTuning.flightAcceleration;
-      movementTuning_.maxFlightSpeed =
-        packet.movementTuning.maxFlightSpeed;
-      movementTuning_.flightDamping =
-        packet.movementTuning.flightDamping;
-      movementTuning_.flightGravityCancel =
-        packet.movementTuning.flightGravityCancel;
-      snapshot_.movementTuning = movementTuning_;
-      playerSizeScaleXY_ = packet.playerSizeScaleXY;
-      playerSizeScaleZ_ = packet.playerSizeScaleZ;
-      snapshot_.playerSizeScaleXY = playerSizeScaleXY_;
-      snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
-      lightningKnockback_ = packet.lightningKnockback;
-      lightningGunTuning_.knockbackPerSecond =
-        lightningKnockbackToInternal(lightningKnockback_);
-      snapshot_.lightningKnockback = lightningKnockback_;
-      lightningFireHz_ = packet.lightningFireHz;
-      lightningGunTuning_.fireHz = lightningFireHz_;
-      snapshot_.lightningFireHz = lightningFireHz_;
-      rocketKnockback_ = packet.rocketKnockback;
-      rocketLauncherTuning_.knockback =
-        q3KnockbackToInternal(rocketKnockback_);
-      grenadeLauncherTuning_.knockback =
-        q3KnockbackToInternal(rocketKnockback_);
-      snapshot_.rocketKnockback = rocketKnockback_;
-      weaponDamage_ = packet.weaponDamage;
-      shotgunTuning_.damagePerPellet = weaponDamage_.shotgunDamagePerPellet;
-      machineGunTuning_.damage = weaponDamage_.machineGunDamage;
-      lightningGunTuning_.damagePerSecond =
-        static_cast<float>(weaponDamage_.lightningGunDamage);
-      railgunTuning_.damage = weaponDamage_.railgunDamage;
-      rocketLauncherTuning_.directDamage =
-        weaponDamage_.rocketLauncherDamage;
-      rocketLauncherTuning_.splashDamage =
-        weaponDamage_.rocketLauncherDamage;
-      grenadeLauncherTuning_.directDamage =
-        weaponDamage_.rocketLauncherDamage;
-      grenadeLauncherTuning_.splashDamage =
-        weaponDamage_.rocketLauncherDamage;
-      plasmaGunTuning_.damage = weaponDamage_.plasmaGunDamage;
-      snapshot_.weaponDamage = weaponDamage_;
-      if (vampirism_ != packet.vampirism) {
-        fractionalVampirismHealing_ = {};
+      const std::string playerName = packet.playerName.empty()
+        ? snapshot_.playerNames[playerIndex]
+        : packet.playerName;
+      const auto logBool = [&](const char* command, bool current, bool next) {
+        if (current != next) {
+          logClientGameplayCommand(playerName, command, next ? "1" : "0");
+        }
+      };
+      const auto logFloat = [&](const char* command, float current, float next) {
+        if (!nearlyEqualGameplayFloat(current, next)) {
+          logClientGameplayCommand(playerName, command, std::to_string(next));
+        }
+      };
+      const auto logInt = [&](const char* command, int current, int next) {
+        if (current != next) {
+          logClientGameplayCommand(playerName, command, std::to_string(next));
+        }
+      };
+
+      logBool(
+        "g_flight",
+        movementTuning_.flightEnabled,
+        packet.movementTuning.flightEnabled
+      );
+      logFloat(
+        "g_accel",
+        movementTuning_.groundAcceleration,
+        packet.movementTuning.groundAcceleration
+      );
+      logFloat(
+        "g_airaccel",
+        movementTuning_.airAcceleration,
+        packet.movementTuning.airAcceleration
+      );
+      logBool(
+        "g_aircontrol",
+        movementTuning_.airControlEnabled,
+        packet.movementTuning.airControlEnabled
+      );
+      logFloat(
+        "g_friction",
+        movementTuning_.groundFriction,
+        packet.movementTuning.groundFriction
+      );
+      logFloat(
+        "g_stopspeed",
+        movementTuning_.stopSpeed,
+        packet.movementTuning.stopSpeed
+      );
+      logFloat(
+        "g_maxspeed",
+        movementTuning_.maxGroundSpeed,
+        packet.movementTuning.maxGroundSpeed
+      );
+      logFloat(
+        "g_flightaccel",
+        movementTuning_.flightAcceleration,
+        packet.movementTuning.flightAcceleration
+      );
+      logFloat(
+        "g_flightmaxspeed",
+        movementTuning_.maxFlightSpeed,
+        packet.movementTuning.maxFlightSpeed
+      );
+      logFloat(
+        "g_flightdamping",
+        movementTuning_.flightDamping,
+        packet.movementTuning.flightDamping
+      );
+      logFloat("g_playersize_xy", playerSizeScaleXY_, packet.playerSizeScaleXY);
+      logFloat("g_playersize_z", playerSizeScaleZ_, packet.playerSizeScaleZ);
+      logInt(
+        "g_healthamount",
+        healthAmount_,
+        packet.healthAmount
+      );
+      logInt(
+        "g_sg_damage",
+        weaponDamage_.shotgunDamagePerPellet,
+        packet.weaponDamage.shotgunDamagePerPellet
+      );
+      logInt(
+        "g_mg_damage",
+        weaponDamage_.machineGunDamage,
+        packet.weaponDamage.machineGunDamage
+      );
+      logInt(
+        "g_lg_damage",
+        weaponDamage_.lightningGunDamage,
+        packet.weaponDamage.lightningGunDamage
+      );
+      logFloat("g_lg_fire_hz", lightningFireHz_, packet.lightningFireHz);
+      logFloat("g_lg_knockback", lightningKnockback_, packet.lightningKnockback);
+      logInt(
+        "g_rg_damage",
+        weaponDamage_.railgunDamage,
+        packet.weaponDamage.railgunDamage
+      );
+      logInt(
+        "g_rl_damage",
+        weaponDamage_.rocketLauncherDamage,
+        packet.weaponDamage.rocketLauncherDamage
+      );
+      logFloat("g_rl_knockback", rocketKnockback_, packet.rocketKnockback);
+      logInt(
+        "g_pg_damage",
+        weaponDamage_.plasmaGunDamage,
+        packet.weaponDamage.plasmaGunDamage
+      );
+      logInt(
+        "g_selfdamage",
+        selfDamagePercent_,
+        packet.selfDamagePercent
+      );
+      logFloat("g_vampirism", vampirism_, packet.vampirism);
+      if (weaponSwitchingMode_ != packet.weaponSwitchingMode) {
+        logClientGameplayCommand(
+          playerName,
+          "g_weaponswitching",
+          weaponSwitchingModeCommandValue(packet.weaponSwitchingMode)
+        );
       }
-      vampirism_ = packet.vampirism;
-      snapshot_.vampirism = vampirism_;
-      selfDamagePercent_ = packet.selfDamagePercent;
-      snapshot_.selfDamagePercent = selfDamagePercent_;
-      const bool healthAmountChanged = healthAmount_ != packet.healthAmount;
-      healthAmount_ = packet.healthAmount;
-      snapshot_.healthAmount = healthAmount_;
-      setBotDodge(
+      setRuntimeGameplayTuning(
+        packet.movementTuning,
+        packet.playerSizeScaleXY,
+        packet.playerSizeScaleZ,
+        packet.lightningKnockback,
+        packet.lightningFireHz,
+        packet.rocketKnockback,
+        packet.weaponDamage,
+        packet.vampirism,
+        packet.selfDamagePercent,
+        packet.healthAmount,
         packet.botDodgeEnabled,
         packet.botDodgeMinIntervalMs,
-        packet.botDodgeMaxIntervalMs
+        packet.botDodgeMaxIntervalMs,
+        packet.weaponSwitchingMode
       );
-      setWeaponSwitchingMode(packet.weaponSwitchingMode);
-      for (PlayerState& player : snapshot_.players) {
-        const float previousHalfHeight = player.bounds.halfHeight;
-        player.bounds.radius =
-          kDefaultPlayerBounds.radius * playerSizeScaleXY_;
-        player.bounds.halfHeight =
-          kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
-        player.position.z += player.bounds.halfHeight - previousHalfHeight;
-        player.position.z =
-          std::clamp(
-            player.position.z,
-            arena_.min.z + player.bounds.halfHeight,
-            arena_.max.z - player.bounds.halfHeight
-          );
-      }
-      if (
-        healthAmountChanged &&
-        (
-          snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
-          snapshot_.matchPhase == MatchPhase::WaitingForReady
-        )
-      ) {
-        respawnRound();
-      }
     }
 
     if (

@@ -12,6 +12,8 @@ Supported packet types are connect request/accept, command, command bundle, snap
 
 Clients own input intent: movement axes, view angles, attack/jump/weapon request, ready/reset/team/game-mode requests, chat/name/map requests, and optional cvar/tuning values. The server owns acceptance. `ServerGame::receiveCommands()` ignores stale command sequences using `isSequenceNewer()`, stores `viewedServerTick` for lag compensation, and writes acknowledged sequence state into the snapshot.
 
+The optional client-carried `g_*` tuning path is a temporary development affordance. Server startup defaults for those values come from `config/server_cvars.cfg`, while non-cvar authoritative balance comes from server-side `config/balance.cfg`. Clients must not load local `balance.cfg` for gameplay authority.
+
 ## Snapshot Ownership
 
 `ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire events, projectile/explosion events, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, chat state, map revision, and optional arena data.

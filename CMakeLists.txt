@@ -26,6 +26,7 @@ add_library(lg_duel_core
   src/client/Interpolation.cpp
   src/client/LocalHitFeedback.cpp
   src/client/Prediction.cpp
+  src/console/ConsoleConfig.cpp
   src/console/ConsoleSystem.cpp
   src/input/InputBindings.cpp
   src/map/MapParser.cpp
@@ -38,11 +39,12 @@ add_library(lg_duel_core
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/ArenaMap.cpp
+  src/sim/BalanceConfig.cpp
   src/sim/Collision.cpp
   src/sim/Combat.cpp
   src/sim/ClanArenaRules.cpp
   src/sim/DuelRules.cpp
-  src/sim/GameplayConfig.cpp
+  src/sim/GameplayCvars.cpp
   src/sim/Movement.cpp
   src/sim/MapRegistry.cpp
   src/sim/WeaponCatalog.cpp

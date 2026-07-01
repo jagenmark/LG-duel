@@ -3,6 +3,7 @@
 #include "client/Interpolation.hpp"
 #include "console/ConsoleSystem.hpp"
 #include "net/NetProtocol.hpp"
+#include "sim/GameplayCvars.hpp"
 
 namespace lg {
 
@@ -56,29 +57,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_round_win_volume", "Round win sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_round_loss_volume", "Round loss sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_countdown_volume", "Round countdown sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
-  console.registerCvar({"g_accel", "Authoritative ground acceleration; affects time to reach g_maxspeed.", 10.0F, CvarFlag::Client, 0.0F, 1000.0F, "10"});
-  console.registerCvar({"g_airaccel", "Authoritative air acceleration.", 1.0F, CvarFlag::Client, 0.0F, 1000.0F, "1"});
-  console.registerCvar({"g_aircontrol", "Enable QuakeWorld-style air control while holding forward.", false, CvarFlag::Client, {}, {}});
-  console.registerCvar({"g_friction", "Authoritative grounded coasting friction; release movement to evaluate it.", 6.0F, CvarFlag::Client, 0.0F, 100.0F, "6"});
-  console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, CvarFlag::Client, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
-  console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, CvarFlag::Client, 0.1F, 100.0F, "8 (g_speed 320)"});
-  console.registerCvar({"g_lg_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, CvarFlag::Client, 0.0F, kMaxLightningKnockback, "1000"});
-  console.registerCvar({"g_lg_fire_hz", "Authoritative lightning gun damage instances per second.", 20.0F, CvarFlag::Client, kMinLightningFireHz, kMaxLightningFireHz});
-  console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, CvarFlag::Client, 0.0F, kMaxRocketKnockback, "1000"});
-  console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_rl_damage", "Authoritative rocket launcher direct and max splash damage.", 100, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_pg_damage", "Authoritative plasma gun direct hit damage.", 20, CvarFlag::Client, 1.0F, 500.0F});
-  console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, CvarFlag::Client, 0.0F, 2.0F});
-  console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, CvarFlag::Client, 0.0F, 100.0F});
-  console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, CvarFlag::Client, 1.0F, 100000.0F});
-  console.registerCvar({"g_weaponswitching", "Authoritative weapon switching rules: ql, cpma, or crazy.", std::string("crazy"), CvarFlag::Client});
-  console.registerCvar({"g_flight", "Enable unrestricted flight symmetrically for both players.", false, CvarFlag::Client, {}, {}});
-  console.registerCvar({"g_flightaccel", "Authoritative flight thrust acceleration.", 32.0F, CvarFlag::Client, 0.0F, 1000.0F});
-  console.registerCvar({"g_flightmaxspeed", "Authoritative maximum flight speed.", 12.0F, CvarFlag::Client, 0.1F, 100.0F});
-  console.registerCvar({"g_flightdamping", "Authoritative flight velocity damping.", 2.0F, CvarFlag::Client, 0.0F, 100.0F});
+  registerGameplayCvars(console, CvarFlag::Client);
   console.registerCvar({"crosshair_enable", "Draw the crosshair.", true, archivedClient, {}, {}});
   console.registerCvar({"crosshair_style", "Crosshair style: 0 cross, 1 cross and dot, 2 dot.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"crosshair_size", "Crosshair arm length in pixels.", 8.0F, archivedClient, 1.0F, 40.0F});
@@ -106,8 +85,6 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_player_outlines", "Draw player outline geometry.", true, archivedClient, {}, {}});
-  console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
-  console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
   console.registerCvar({"r_beam_alpha", "Lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_beam_r", "Lightning beam red channel.", 74, archivedClient, 0.0F, 255.0F});

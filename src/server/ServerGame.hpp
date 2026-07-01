@@ -3,6 +3,7 @@
 #include "net/NetProtocol.hpp"
 #include "net/NetTransport.hpp"
 #include "sim/Arena.hpp"
+#include "sim/BalanceConfig.hpp"
 #include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
@@ -16,10 +17,11 @@ namespace lg {
 
 class ServerGame {
 public:
-  explicit ServerGame(NetTransport& transport);
+  explicit ServerGame(NetTransport& transport, std::string balanceConfigPath = {});
 
   void tick(float fixedDt);
   void resetMatch();
+  void applyBalanceConfig(const BalanceConfig& config);
   void setArena(const Arena& arena);
   void setMapDirectory(std::string mapDirectory);
   void setConnectedPlayers(
@@ -30,6 +32,22 @@ public:
     const std::array<std::uint32_t, kDuelPlayerCount>& playerSessions
   );
   void setMatchRules(const MatchRules& rules);
+  void setRuntimeGameplayTuning(
+    const MovementTuning& movementTuning,
+    float playerSizeScaleXY,
+    float playerSizeScaleZ,
+    float lightningKnockback,
+    float lightningFireHz,
+    float rocketKnockback,
+    const WeaponDamageTuning& weaponDamage,
+    float vampirism,
+    std::uint8_t selfDamagePercent,
+    std::int32_t healthAmount,
+    bool botDodgeEnabled,
+    int botDodgeMinIntervalMs,
+    int botDodgeMaxIntervalMs,
+    WeaponSwitchingMode weaponSwitchingMode
+  );
   void setWeaponSwitchingMode(WeaponSwitchingMode mode);
   void setBotDodge(bool enabled, int minIntervalMs, int maxIntervalMs);
   [[nodiscard]] WeaponSwitchingMode weaponSwitchingMode() const;
@@ -128,6 +146,11 @@ private:
   std::uint8_t selfDamagePercent_ = 100;
   std::int32_t healthAmount_ = 100;
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
+  std::uint32_t railgunCooldownDurationTicks_ = 188;
+  std::uint32_t machineGunCooldownDurationTicks_ = 13;
+  std::uint32_t shotgunCooldownDurationTicks_ = 125;
+  std::uint32_t rocketLauncherCooldownDurationTicks_ = 100;
+  std::uint32_t weaponPulloutDurationTicks_ = 20;
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> machineGunCooldownTicks_ = {};

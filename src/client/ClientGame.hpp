@@ -51,6 +51,7 @@ public:
   [[nodiscard]] bool hasSnapshot() const;
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] bool hasAcknowledgedCommand() const;
+  [[nodiscard]] bool hasPendingMovementTuning() const;
   [[nodiscard]] std::uint32_t lastAcknowledgedCommand() const;
   [[nodiscard]] const PlayerState& predictedPlayer() const;
   [[nodiscard]] PlayerState interpolatedPlayer(std::size_t playerIndex) const;
