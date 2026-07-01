@@ -10,7 +10,7 @@ LG Duel is a small fixed-tick arena FPS. The architecture is split around an aut
 - Shared simulation: `src/sim/Movement.*`, `src/sim/Combat.*`, `src/sim/Collision.*`, `src/sim/Arena.*`, `src/sim/DuelRules.*`, and `src/sim/ClanArenaRules.*` are used by both client and server where deterministic behavior matters.
 - Networking: `src/net/NetProtocol.hpp` defines packet/snapshot structs; `src/net/NetCodec.*` defines the wire layout and validation; `src/net/UdpTransport.*` and loopback/simulated transports move packets.
 - Rendering: `src/render/Renderer.*` selects SDL_GPU or SDL_Renderer fallback. `src/render/Scene3D.*`, `TopDownScene.*`, and `ScreenUi.*` build renderable geometry/UI from simulation snapshots and presentation state.
-- Maps/assets/config: `src/sim/Arena.*` loads `.lgmap`; `src/map/MapParser.*` and `MapToArena.*` convert Quake `.map` files; `config/gameplay.cfg` currently configures authoritative grenade tuning.
+- Maps/assets/config: `src/map/MapParser.*` and `MapToArena.*` load restricted Quake `.map` files into `src/sim/Arena.*`; `config/gameplay.cfg` currently configures authoritative grenade tuning.
 - Tests: `tests/CMakeLists.txt` defines focused executables for sim, net/protocol, server, client prediction, render scene building, cvars, input, HUD, audio, and smoke coverage.
 
 ## Core Flow

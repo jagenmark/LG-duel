@@ -303,9 +303,10 @@ ArenaLoadResult loadArenaFromFile(const std::string& path) {
   text << file.rdbuf();
   const std::filesystem::path mapPath(path);
   const std::string extension = mapPath.extension().string();
-  ArenaLoadResult result = extension == ".map"
-    ? loadArenaFromMapText(text.str())
-    : loadArenaFromText(text.str());
+  if (extension != ".map") {
+    return {{}, false, path + ": unsupported map extension '" + extension + "'"};
+  }
+  ArenaLoadResult result = loadArenaFromMapText(text.str());
   if (!result.ok) {
     result.error = path + ": " + result.error;
   }

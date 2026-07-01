@@ -11,7 +11,7 @@ LG Duel is a compact C++ arena FPS focused on Quake-like duel combat: fixed-tick
 - Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
 - Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
 - SDL rendering with an SDL_GPU path for cached static world rendering and an SDL_Renderer fallback.
-- Native `.lgmap` arena loading plus a restricted Quake/TrenchBroom `.map` import path.
+- Restricted Quake/TrenchBroom `.map` arena loading.
 
 ## Build And Test
 
@@ -77,7 +77,7 @@ Bindings, cvars, and console commands are documented in [docs/CONSOLE-BIBLE.md](
 
 ## Maps And Assets
 
-Runtime maps live in `maps/`. The native format is `.lgmap`; restricted TrenchBroom/Quake `.map` files are also supported for authoring. Map requests are server-authoritative and replicated to clients by map revision.
+Runtime maps live in `maps/` as restricted TrenchBroom/Quake `.map` files. Map requests are server-authoritative and replicated to clients by map revision.
 
 Textures live under `textures/`; shaders, audio, and models live under `assets/`. Gameplay grenade tuning is loaded from `config/gameplay.cfg`.
 
@@ -105,18 +105,16 @@ Reference:
 
 ### Restricted TrenchBroom `.map` Workflow
 
-LG Duel can load a narrow Quake/TrenchBroom text `.map` subset beside the
-native `.lgmap` format. This is an authoring convenience only; it is not Quake
-or BSP compatibility.
+LG Duel loads a narrow Quake/TrenchBroom text `.map` subset. This is an
+authoring format only; it is not Quake or BSP compatibility.
 
 Create a new TrenchBroom map, use cuboid or other convex brushes in
 `worldspawn`, place player spawns with point entities named
 `lg_spawn`, and save it as
-`maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
+`maps/<name>.map`. Coordinates are authored in Quake/TrenchBroom units
 and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
 unit. A `16`-unit stair step therefore becomes `0.4` LG units, just below the
-current walkable step height. Native `.lgmap` files continue to use LG Duel
-world units directly.
+current walkable step height.
 
 Spawn entities need an `origin` key like `"160 -120 40"` and may include
 `angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and

@@ -4,9 +4,9 @@ Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, fixed-size cuboid 
 
 ## Loading Pipeline
 
-`.lgmap` text is parsed by `loadArenaFromText()` in `src/sim/ArenaMap.cpp` via `loadArenaFromFile()`. The embedded fallback arena is `thunderstruckArena()` in `src/sim/Arena.cpp`, unless `LG_DUEL_MAP` points to a loadable map.
+Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaFromMapText()` in `src/map/MapParser.cpp` and converted by `src/map/MapToArena.cpp` via `loadArenaFromFile()`. The embedded fallback arena is `thunderstruckArena()` in `src/sim/Arena.cpp`, unless `LG_DUEL_MAP` points to a loadable map.
 
-Quake `.map` support is a conversion layer:
+`.map` support is a conversion layer:
 
 - `src/map/MapParser.*` parses entities, properties, brushes, and Quake-style face texture parameters.
 - `src/map/MapToArena.*` converts `worldspawn` and `func_group` brushes to cuboid `ArenaWall`s when possible, otherwise convex `ArenaBrush` hulls.
@@ -14,7 +14,7 @@ Quake `.map` support is a conversion layer:
 - `light`/`light_point` and `light_sun` become static lighting data.
 - `trigger_teleport` is currently ignored.
 
-Server map requests flow through `ServerGame::loadRequestedMap()`. Names are restricted to simple stems/extensions, resolved under `mapDirectory_`, and attempted as `.lgmap` then `.map` when no extension is given. Successful loads call `setArena()`, bump `mapRevision_`, reset the match, and force clients to receive updated arena data.
+Server map requests flow through `ServerGame::loadRequestedMap()`. Names are restricted to simple stems/extensions, resolved under `mapDirectory_`, and attempted as `.map` when no extension is given. Successful loads call `setArena()`, bump `mapRevision_`, reset the match, and force clients to receive updated arena data.
 
 ## Collision Vs Render Data
 
@@ -32,7 +32,7 @@ Materials are hashed/stable ids from material paths. Renderer texture loading ex
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
 - Arena counts are fixed: 255 walls, 128 brushes, 64 static lights.
 - Multiple `light_sun` entities are not supported.
-- Spawn yaw is parsed only for validity in `.map` conversion; converted output currently writes `yaw=0`, so actual orientation intent is unclear.
+- Spawn yaw is parsed only for validity; spawn orientation is not stored in `Arena`, so actual orientation intent is unclear.
 - Teleport triggers are parsed as ignored entities, not gameplay.
 
 ## Footguns

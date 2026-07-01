@@ -2194,7 +2194,7 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "map",
-    "Request a server map change: map <name> loads maps/<name>.lgmap, then maps/<name>.map.",
+    "Request a server map change: map <name> loads maps/<name>.map.",
     [&pendingMapName](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
         return std::string("usage: map <name>");
@@ -2209,8 +2209,8 @@ int GameApp::run() const {
         return std::string("map name may not include a path");
       }
       const std::string extension = requested.extension().string();
-      if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
-        return std::string("map extension must be .lgmap or .map");
+      if (!extension.empty() && extension != ".map") {
+        return std::string("map extension must be .map");
       }
       const std::string stem = extension.empty() ? name : requested.stem().string();
       if (stem.empty()) {
