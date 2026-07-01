@@ -1738,6 +1738,7 @@ Scene3D buildPerspectiveScene(
     if (!remote.visible) {
       continue;
     }
+    ++scene.visibleRemotePlayers;
     const float hitAmount = remote.teammate
       ? 0.0F
       : std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
@@ -1781,11 +1782,13 @@ Scene3D buildPerspectiveScene(
       ? settings.teammateOutlineAlpha
       : settings.enemyOutlineAlpha;
     if (
+      settings.drawPlayerOutlines &&
       outlineEnabled &&
       usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
       outlineWidth > 0.0F &&
       outlineAlpha > 0.0F
     ) {
+      ++scene.playerOutlinesBuilt;
       addPlayerOutline(
         scene,
         remote.player,
@@ -1810,26 +1813,32 @@ Scene3D buildPerspectiveScene(
         outlineWidth
       );
     }
-    addPlayerModel(
-      scene,
-      remote.player,
-      opponentColor,
-      settings.playerModel,
-      remote.teammate
-        ? settings.teammateLeanEnabled
-        : settings.enemyLeanEnabled,
-      remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
-    );
-    addWeaponModel(
-      scene,
-      remote.player,
-      remote.selectedWeapon,
-      opponentColor,
-      remote.teammate
-        ? settings.teammateLeanEnabled
-        : settings.enemyLeanEnabled,
-      remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
-    );
+    if (settings.drawRemotePlayers) {
+      ++scene.remoteBodyModelsBuilt;
+      addPlayerModel(
+        scene,
+        remote.player,
+        opponentColor,
+        settings.playerModel,
+        remote.teammate
+          ? settings.teammateLeanEnabled
+          : settings.enemyLeanEnabled,
+        remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
+      );
+    }
+    if (settings.drawRemoteWeapons) {
+      ++scene.remoteWeaponModelsBuilt;
+      addWeaponModel(
+        scene,
+        remote.player,
+        remote.selectedWeapon,
+        opponentColor,
+        remote.teammate
+          ? settings.teammateLeanEnabled
+          : settings.enemyLeanEnabled,
+        remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
+      );
+    }
   }
 
   if (settings.showLagCompensation && localLightningGun.hasRewindDebug) {

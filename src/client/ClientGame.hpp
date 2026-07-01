@@ -58,6 +58,7 @@ public:
   [[nodiscard]] const PredictionDiagnostics& predictionDiagnostics() const;
   [[nodiscard]] const MovementTuning& movementTuning() const;
   [[nodiscard]] const Arena& arena() const;
+  [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const;
   [[nodiscard]] bool hasConnectionError() const;
   [[nodiscard]] const std::string& connectionError() const;
 
@@ -71,6 +72,8 @@ private:
   SnapshotInterpolation interpolation_ = {};
   ServerSnapshot snapshot_ = {};
   MapDescriptor map_ = {};
+  SnapshotDiagnostics snapshotDiagnostics_ = {};
+  std::uint32_t lastSnapshotPacketsDecoded_ = 0;
   std::string connectionError_;
   std::uint32_t pendingMovementTuningCommand_ = 0;
   bool hasPendingMovementTuning_ = false;

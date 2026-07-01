@@ -56,6 +56,7 @@ public:
   [[nodiscard]] bool receiveCommand(CommandPacket& packet) override;
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const override;
 
   [[nodiscard]] bool connected() const;
   [[nodiscard]] bool timedOut() const;

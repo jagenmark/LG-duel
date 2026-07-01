@@ -138,6 +138,74 @@ int main() {
     !baseScene.vertices.empty() && baseScene.vertices.size() % 3 == 0,
     "perspective scene should emit triangle-list geometry"
   );
+  failures += expect(
+    baseScene.visibleRemotePlayers == 1 &&
+      baseScene.remoteBodyModelsBuilt == 1 &&
+      baseScene.remoteWeaponModelsBuilt == 1 &&
+      baseScene.playerOutlinesBuilt == 1,
+    "default render settings should build visible remote body, weapon, and outline"
+  );
+
+  lg::RenderSettings noWeaponSettings = settings;
+  noWeaponSettings.drawRemoteWeapons = false;
+  const lg::Scene3D noWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    noWeaponSettings
+  );
+  failures += expect(
+    noWeaponScene.visibleRemotePlayers == 1 &&
+      noWeaponScene.remoteBodyModelsBuilt == 1 &&
+      noWeaponScene.remoteWeaponModelsBuilt == 0 &&
+      noWeaponScene.playerOutlinesBuilt == 1,
+    "disabled remote weapons should prevent only remote weapon model construction"
+  );
+
+  lg::RenderSettings noBodySettings = settings;
+  noBodySettings.drawRemotePlayers = false;
+  lg::LightningGunResult activeOpponentBeam;
+  activeOpponentBeam.active = true;
+  activeOpponentBeam.start = opponent.position;
+  activeOpponentBeam.end = player.position;
+  const lg::Scene3D noBodyNoBeamScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    noBodySettings
+  );
+  const lg::Scene3D noBodyBeamScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    activeOpponentBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    noBodySettings
+  );
+  failures += expect(
+    noBodyBeamScene.visibleRemotePlayers == 1 &&
+      noBodyBeamScene.remoteBodyModelsBuilt == 0 &&
+      noBodyBeamScene.remoteWeaponModelsBuilt == 1 &&
+      noBodyBeamScene.playerOutlinesBuilt == 1 &&
+      noBodyBeamScene.vertices.size() > noBodyNoBeamScene.vertices.size(),
+    "disabled remote bodies should not suppress unrelated remote effects or scene data"
+  );
 
   const lg::GltfSkinnedModel& duelistModel = lg::duelistMaleModel();
   const std::vector<lg::SkinnedModelTriangle> restPoseTriangles =
@@ -664,6 +732,28 @@ int main() {
     !disabledOutlinePresent &&
       outlineDisabledScene.vertices.size() < baseScene.vertices.size(),
     "disabled enemy outline should not emit outline geometry"
+  );
+
+  lg::RenderSettings isolationOutlineDisabledSettings = settings;
+  isolationOutlineDisabledSettings.drawPlayerOutlines = false;
+  const lg::Scene3D isolationOutlineDisabledScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    isolationOutlineDisabledSettings
+  );
+  failures += expect(
+    isolationOutlineDisabledScene.visibleRemotePlayers == 1 &&
+      isolationOutlineDisabledScene.remoteBodyModelsBuilt == 1 &&
+      isolationOutlineDisabledScene.remoteWeaponModelsBuilt == 1 &&
+      isolationOutlineDisabledScene.playerOutlinesBuilt == 0,
+    "disabled player outlines should prevent only outline geometry construction"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};
