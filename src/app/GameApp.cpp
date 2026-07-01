@@ -285,6 +285,20 @@ struct FrameTimeHistory {
   sample.remoteBodyModelsBuilt = renderDiagnostics.remoteBodyModelsBuilt;
   sample.remoteWeaponModelsBuilt = renderDiagnostics.remoteWeaponModelsBuilt;
   sample.playerOutlinesBuilt = renderDiagnostics.playerOutlinesBuilt;
+  sample.remoteWeaponCandidates = renderDiagnostics.remoteWeaponCandidates;
+  sample.remoteWeaponsFrustumCulled =
+    renderDiagnostics.remoteWeaponsFrustumCulled;
+  sample.remoteWeaponInstances = renderDiagnostics.remoteWeaponInstances;
+  sample.remoteWeaponInstanceUploadBytes =
+    renderDiagnostics.remoteWeaponInstanceUploadBytes;
+  sample.remoteWeaponBatches = renderDiagnostics.remoteWeaponBatches;
+  sample.remoteWeaponDrawCalls = renderDiagnostics.remoteWeaponDrawCalls;
+  sample.legacyRemoteWeaponDynamicVertices =
+    renderDiagnostics.legacyRemoteWeaponDynamicVertices;
+  sample.firstPersonViewModelDrawCalls =
+    renderDiagnostics.firstPersonViewModelDrawCalls;
+  sample.firstPersonViewModelDynamicVertices =
+    renderDiagnostics.firstPersonViewModelDynamicVertices;
   sample.projectilesActive = renderDiagnostics.projectilesActive;
   sample.projectilesFrustumCulled = renderDiagnostics.projectilesFrustumCulled;
   sample.projectilesRendered = renderDiagnostics.projectilesRendered;
@@ -396,6 +410,27 @@ void appendPerfHudLines(
     latest.remoteBodyModelsBuilt,
     latest.remoteWeaponModelsBuilt,
     latest.playerOutlinesBuilt
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "remote weapons: cand %u | inst %u | culled %u | batches %u | draws %u",
+    latest.remoteWeaponCandidates,
+    latest.remoteWeaponInstances,
+    latest.remoteWeaponsFrustumCulled,
+    latest.remoteWeaponBatches,
+    latest.remoteWeaponDrawCalls
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "weapon uploads: remote inst %.1f KB | legacy remote verts %u | viewmodel draws %u dyn verts %u",
+    static_cast<float>(latest.remoteWeaponInstanceUploadBytes) / 1024.0F,
+    latest.legacyRemoteWeaponDynamicVertices,
+    latest.firstPersonViewModelDrawCalls,
+    latest.firstPersonViewModelDynamicVertices
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -4361,6 +4396,30 @@ int GameApp::run() const {
           std::to_string(diagnostics.remoteWeaponModelsBuilt) +
           " | outlines " +
           std::to_string(diagnostics.playerOutlinesBuilt)
+        );
+        hud.topLeftLines.emplace_back(
+          "remote weapon instances: candidates " +
+          std::to_string(diagnostics.remoteWeaponCandidates) +
+          " | submitted " +
+          std::to_string(diagnostics.remoteWeaponInstances) +
+          " | culled " +
+          std::to_string(diagnostics.remoteWeaponsFrustumCulled)
+        );
+        hud.topLeftLines.emplace_back(
+          "remote weapon batches: batches " +
+          std::to_string(diagnostics.remoteWeaponBatches) +
+          " | draws " +
+          std::to_string(diagnostics.remoteWeaponDrawCalls) +
+          " | upload " +
+          std::to_string(diagnostics.remoteWeaponInstanceUploadBytes) +
+          " B | legacy vertices " +
+          std::to_string(diagnostics.legacyRemoteWeaponDynamicVertices)
+        );
+        hud.topLeftLines.emplace_back(
+          "viewmodel static: draws " +
+          std::to_string(diagnostics.firstPersonViewModelDrawCalls) +
+          " | dynamic vertices " +
+          std::to_string(diagnostics.firstPersonViewModelDynamicVertices)
         );
         hud.topLeftLines.emplace_back(
           "projectiles: active " +

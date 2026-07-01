@@ -142,8 +142,10 @@ int main() {
     baseScene.visibleRemotePlayers == 1 &&
       baseScene.remoteBodyModelsBuilt == 1 &&
       baseScene.remoteWeaponModelsBuilt == 1 &&
-      baseScene.playerOutlinesBuilt == 1,
-    "default render settings should build visible remote body, weapon, and outline"
+      baseScene.playerOutlinesBuilt == 1 &&
+      baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
+      baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
+    "default render settings should build visible remote body, remote weapon instance, and outline"
   );
 
   lg::RenderSettings noWeaponSettings = settings;
@@ -164,6 +166,7 @@ int main() {
     noWeaponScene.visibleRemotePlayers == 1 &&
       noWeaponScene.remoteBodyModelsBuilt == 1 &&
       noWeaponScene.remoteWeaponModelsBuilt == 0 &&
+      noWeaponScene.remoteWeaponStats.instancesSubmitted == 0 &&
       noWeaponScene.playerOutlinesBuilt == 1,
     "disabled remote weapons should prevent only remote weapon model construction"
   );
@@ -202,6 +205,7 @@ int main() {
     noBodyBeamScene.visibleRemotePlayers == 1 &&
       noBodyBeamScene.remoteBodyModelsBuilt == 0 &&
       noBodyBeamScene.remoteWeaponModelsBuilt == 1 &&
+      noBodyBeamScene.remoteWeaponStats.instancesSubmitted == 1 &&
       noBodyBeamScene.playerOutlinesBuilt == 1 &&
       noBodyBeamScene.vertices.size() > noBodyNoBeamScene.vertices.size(),
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
@@ -854,6 +858,31 @@ int main() {
     multiOpponentScene.vertices.size() > baseScene.vertices.size(),
     "perspective scene should emit geometry for multiple remote players"
   );
+  failures += expect(
+    multiOpponentScene.remoteWeaponStats.instancesSubmitted == 2 &&
+      multiOpponentScene.remoteWeaponStats.batches == 1 &&
+      multiOpponentScene.remoteWeaponStats.drawCalls == 1,
+    "multiple remotes holding the same weapon should form one remote weapon batch"
+  );
+
+  remotePlayers[2].selectedWeapon = lg::Weapon::RocketLauncher;
+  const lg::Scene3D mixedWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    remotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    mixedWeaponScene.remoteWeaponStats.instancesSubmitted == 2 &&
+      mixedWeaponScene.remoteWeaponStats.batches == 2 &&
+      mixedWeaponScene.remoteWeaponStats.drawCalls == 2,
+    "remotes holding different weapons should form separate remote weapon batches"
+  );
 
   lg::PlayerState behindOpponent = opponent;
   behindOpponent.position = {-4.0F, 2.0F, 0.9F};
@@ -897,6 +926,9 @@ int main() {
       culledBehindScene.remoteFrustumCulled == 1 &&
       culledBehindScene.remoteBodyModelsBuilt == 0 &&
       culledBehindScene.remoteWeaponModelsBuilt == 0 &&
+      culledBehindScene.remoteWeaponStats.candidates == 1 &&
+      culledBehindScene.remoteWeaponStats.frustumCulled == 1 &&
+      culledBehindScene.remoteWeaponStats.instancesSubmitted == 0 &&
       culledBehindScene.playerOutlinesBuilt == 0 &&
       culledBehindScene.vertices.size() == noRemoteScene.vertices.size(),
     "remote behind camera should not add body, weapon, or outline vertices when culling is enabled"
@@ -920,6 +952,7 @@ int main() {
       uncullableBehindScene.remoteFrustumCulled == 0 &&
       uncullableBehindScene.remoteBodyModelsBuilt == 1 &&
       uncullableBehindScene.remoteWeaponModelsBuilt == 1 &&
+      uncullableBehindScene.remoteWeaponStats.instancesSubmitted == 1 &&
       uncullableBehindScene.playerOutlinesBuilt == 1 &&
       uncullableBehindScene.vertices.size() > noRemoteScene.vertices.size(),
     "r_frustum_cull 0 should preserve remote body, weapon, and outline construction"
@@ -949,21 +982,22 @@ int main() {
       rockets,
       settings
     );
-    std::size_t forwardWeaponVertexCount = 0;
-    for (const lg::Vertex3D& vertex : weaponScene.vertices) {
-      if (
-        vertex.position.x > opponent.position.x + opponent.bounds.radius + 0.04F &&
-        std::fabs(vertex.position.y - opponent.position.y) <=
-          opponent.bounds.radius + 0.7F &&
-        vertex.position.z > opponent.position.z - 0.25F &&
-        vertex.position.z < opponent.position.z + opponent.bounds.halfHeight + 0.25F
-      ) {
-        ++forwardWeaponVertexCount;
-      }
+    const lg::MeshHandle mesh = lg::remoteWeaponMeshHandle(weapon);
+    const lg::StaticMeshAsset* asset = lg::staticMeshAsset(mesh);
+    bool foundWeaponInstance = false;
+    for (const lg::StaticMeshInstance& instance : weaponScene.staticMeshInstances) {
+      foundWeaponInstance =
+        foundWeaponInstance ||
+        (instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld);
     }
     failures += expect(
-      forwardWeaponVertexCount > 0,
-      "every playable weapon should emit forward world-model geometry"
+      mesh != lg::MeshHandle::Invalid &&
+        asset != nullptr &&
+        !asset->vertices.empty() &&
+        foundWeaponInstance &&
+        weaponScene.remoteWeaponStats.instancesSubmitted == 1 &&
+        weaponScene.remoteWeaponStats.legacyDynamicVertices == 0,
+      "every playable weapon should map to a static mesh and submit one remote weapon instance"
     );
   }
 
@@ -1115,6 +1149,66 @@ int main() {
       hasMachineGunImpactColor &&
       hasMachineGunFlashColor,
     "machine gun fire should add muzzle flash, tracer, and impact spark"
+  );
+
+  lg::RenderSettings localMachineGunSettings = settings;
+  localMachineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
+  const lg::Scene3D localMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localMachineGunSettings
+  );
+  bool hasMachineGunViewModel = false;
+  for (const lg::StaticMeshInstance& instance : localMachineGunScene.staticMeshInstances) {
+    hasMachineGunViewModel =
+      hasMachineGunViewModel ||
+      (
+        instance.mesh == lg::MeshHandle::RemoteMachineGun &&
+        instance.pass == lg::RenderPass::ViewModel
+      );
+  }
+  failures += expect(
+    hasMachineGunViewModel &&
+      localMachineGunScene.viewModelStats.drawCalls == 1 &&
+      localMachineGunScene.viewModelStats.dynamicVertices == 0,
+    "first-person machine gun should use a static viewmodel mesh without dynamic vertices"
+  );
+
+  lg::RenderSettings localShotgunSettings = settings;
+  localShotgunSettings.localSelectedWeapon = lg::Weapon::Shotgun;
+  const lg::Scene3D localShotgunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localShotgunSettings
+  );
+  bool hasShotgunViewModel = false;
+  for (const lg::StaticMeshInstance& instance : localShotgunScene.staticMeshInstances) {
+    hasShotgunViewModel =
+      hasShotgunViewModel ||
+      (
+        instance.mesh == lg::MeshHandle::RemoteShotgun &&
+        instance.pass == lg::RenderPass::ViewModel
+      );
+  }
+  failures += expect(
+    hasShotgunViewModel &&
+      localShotgunScene.viewModelStats.drawCalls == 1 &&
+      localShotgunScene.viewModelStats.dynamicVertices == 0,
+    "first-person shotgun should use a static viewmodel mesh without dynamic vertices"
   );
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteMachineGunFires = {};
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> machineGunRemotePlayers = {};

@@ -28,6 +28,7 @@ constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
+constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
 
 constexpr std::array<Vertex3D, 24> kPlasmaCoreMeshVertices = {{
   {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
@@ -62,6 +63,71 @@ constexpr StaticMeshAsset kPlasmaCoreAsset = {
   {{}, 1.0F},
   RenderPass::OpaqueWorld,
 };
+
+[[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs);
+[[nodiscard]] RenderColor scaleColor(RenderColor color, float amount);
+
+template <std::size_t Count>
+[[nodiscard]] std::vector<Vertex3D> bakedWeaponVertices(
+  const std::array<BakedWeaponModelTriangle, Count>& model,
+  float modelScale,
+  float rollRadians = 0.0F
+) {
+  std::vector<Vertex3D> vertices;
+  vertices.reserve(model.size() * 3U);
+  const float rollCos = std::cos(rollRadians);
+  const float rollSin = std::sin(rollRadians);
+  const Vec3 lightDirection = normalize(Vec3{-0.35F, -0.45F, 0.82F});
+  const auto point = [&](Vec3 local) {
+    local = {
+      local.x,
+      local.y * rollCos - local.z * rollSin,
+      local.y * rollSin + local.z * rollCos,
+    };
+    return local * modelScale;
+  };
+  for (const BakedWeaponModelTriangle& triangle : model) {
+    const Vec3 first = point(triangle.vertices[0]);
+    const Vec3 second = point(triangle.vertices[1]);
+    const Vec3 third = point(triangle.vertices[2]);
+    const Vec3 normal = normalize(cross(second - first, third - first));
+    const float brightness = std::clamp(
+      0.70F +
+        std::max(0.0F, dot(normal, lightDirection)) * 0.42F +
+        std::fabs(normal.z) * 0.16F,
+      0.58F,
+      1.30F
+    );
+    RenderColor color = scaleColor(triangle.color, brightness);
+    color.alpha = 255;
+    vertices.push_back({first, color, 0.0F, 0.0F, 0U});
+    vertices.push_back({second, color, 0.0F, 0.0F, 0U});
+    vertices.push_back({third, color, 0.0F, 0.0F, 0U});
+  }
+  return vertices;
+}
+
+[[nodiscard]] BoundingSphere meshBounds(std::span<const Vertex3D> vertices) {
+  if (vertices.empty()) {
+    return {};
+  }
+  Vec3 minimum = vertices.front().position;
+  Vec3 maximum = vertices.front().position;
+  for (const Vertex3D& vertex : vertices) {
+    minimum.x = std::min(minimum.x, vertex.position.x);
+    minimum.y = std::min(minimum.y, vertex.position.y);
+    minimum.z = std::min(minimum.z, vertex.position.z);
+    maximum.x = std::max(maximum.x, vertex.position.x);
+    maximum.y = std::max(maximum.y, vertex.position.y);
+    maximum.z = std::max(maximum.z, vertex.position.z);
+  }
+  const Vec3 center = (minimum + maximum) * 0.5F;
+  float radius = 0.0F;
+  for (const Vertex3D& vertex : vertices) {
+    radius = std::max(radius, length(vertex.position - center));
+  }
+  return {center, radius};
+}
 
 constexpr BillboardAsset kPlasmaGlowAsset = {
   BillboardHandle::PlasmaGlow,
@@ -147,6 +213,9 @@ struct WeaponModelFrame {
   Vec3 hand = {};
   float scale = 1.0F;
 };
+
+[[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs);
+[[nodiscard]] RenderColor scaleColor(RenderColor color, float amount);
 
 [[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs) {
   return {
@@ -1148,20 +1217,114 @@ void addFirstPersonWeaponModel(
   Scene3D& scene,
   const PlayerState& player,
   Weapon weapon
+) ;
+
+[[nodiscard]] StaticMeshInstance weaponMeshInstance(
+  MeshHandle mesh,
+  RenderPass pass,
+  const WeaponModelFrame& frame,
+  float instanceScale,
+  RenderColor color
+) {
+  const StaticMeshAsset* asset = staticMeshAsset(mesh);
+  const float scale = frame.scale * instanceScale;
+  const Vec3 row0 = {
+    frame.basis.forward.x * scale,
+    frame.basis.right.x * scale,
+    frame.basis.up.x * scale,
+  };
+  const Vec3 row1 = {
+    frame.basis.forward.y * scale,
+    frame.basis.right.y * scale,
+    frame.basis.up.y * scale,
+  };
+  const Vec3 row2 = {
+    frame.basis.forward.z * scale,
+    frame.basis.right.z * scale,
+    frame.basis.up.z * scale,
+  };
+  const float boundsScale = std::max(
+    std::max(length(frame.basis.forward * scale), length(frame.basis.right * scale)),
+    length(frame.basis.up * scale)
+  );
+  const float radius =
+    asset != nullptr ? asset->localBounds.radius * boundsScale : 0.0F;
+  return {
+    mesh,
+    pass,
+    row0,
+    row1,
+    row2,
+    frame.hand,
+    color,
+    {frame.hand, radius},
+  };
+}
+
+[[nodiscard]] StaticMeshInstance weaponMeshInstance(
+  MeshHandle mesh,
+  RenderPass pass,
+  const WeaponModelFrame& frame,
+  RenderColor color
+) {
+  return weaponMeshInstance(mesh, pass, frame, 1.0F, color);
+}
+
+void appendStaticMeshInstance(Scene3D& scene, const StaticMeshInstance& instance) {
+  const std::uint32_t index =
+    static_cast<std::uint32_t>(scene.staticMeshInstances.size());
+  scene.staticMeshInstances.push_back(instance);
+  for (StaticMeshBatch& batch : scene.staticMeshBatches) {
+    const std::uint32_t batchEnd = batch.firstInstance + batch.instanceCount;
+    if (
+      batch.mesh == instance.mesh &&
+      batch.pass == instance.pass &&
+      batchEnd == index
+    ) {
+      ++batch.instanceCount;
+      return;
+    }
+  }
+  scene.staticMeshBatches.push_back({
+    instance.mesh,
+    instance.pass,
+    index,
+    1U,
+  });
+}
+
+void addFirstPersonWeaponModel(
+  Scene3D& scene,
+  const PlayerState& player,
+  Weapon weapon
 ) {
   const WeaponModelFrame frame = firstPersonWeaponModelFrame(player);
   switch (weapon) {
   case Weapon::MachineGun:
-    addBakedWeaponModel(scene, frame, kMachineGunWeaponModel, 1.0F);
+    appendStaticMeshInstance(
+      scene,
+      weaponMeshInstance(
+        MeshHandle::RemoteMachineGun,
+        RenderPass::ViewModel,
+        frame,
+        1.0F / 0.78F,
+        {255, 255, 255, 255}
+      )
+    );
+    ++scene.viewModelStats.drawCalls;
     break;
   case Weapon::Shotgun:
-    addBakedWeaponModel(
+    appendStaticMeshInstance(
       scene,
-      frame,
-      kShotgunWeaponModel,
-      1.0F,
-      kQuarterTurnRadians
+      weaponMeshInstance(
+        MeshHandle::RemoteShotgun,
+        RenderPass::ViewModel,
+        frame,
+        1.0F / 0.78F,
+        {255, 255, 255, 255}
+      )
     );
+    ++scene.viewModelStats.drawCalls;
     break;
   default:
     break;
@@ -1208,20 +1371,6 @@ void addLightningGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
   addWeaponPart(scene, frame, 0.32F, 0.0F, 0.275F, {0.24F, 0.028F, 0.025F}, bodyDark);
   addWeaponStrut(scene, frame, {0.25F, -0.105F, 0.02F}, {0.61F, -0.145F, 0.145F}, 0.018F, energyCyan);
   addWeaponStrut(scene, frame, {0.25F, 0.105F, 0.02F}, {0.61F, 0.145F, 0.145F}, 0.018F, energyCyan);
-}
-
-void addMachineGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  addBakedWeaponModel(scene, frame, kMachineGunWeaponModel, 0.78F);
-}
-
-void addShotgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  addBakedWeaponModel(
-    scene,
-    frame,
-    kShotgunWeaponModel,
-    0.78F,
-    kQuarterTurnRadians
-  );
 }
 
 void addGrenadeLauncherModel(Scene3D& scene, const WeaponModelFrame& frame) {
@@ -1292,41 +1441,6 @@ void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
     return 0.68F;
   default:
     return 0.65F;
-  }
-}
-
-void addWeaponModel(
-  Scene3D& scene,
-  const PlayerState& player,
-  Weapon weapon,
-  RenderColor,
-  bool leanEnabled,
-  float leanScale
-) {
-  WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
-  frame.scale *= thirdPersonWeaponVisualScale(weapon);
-  switch (weapon) {
-  case Weapon::LightningGun:
-    addLightningGunModel(scene, frame);
-    break;
-  case Weapon::Railgun:
-    addRailgunModel(scene, frame);
-    break;
-  case Weapon::RocketLauncher:
-    addRocketLauncherModel(scene, frame);
-    break;
-  case Weapon::MachineGun:
-    addMachineGunModel(scene, frame);
-    break;
-  case Weapon::Shotgun:
-    addShotgunModel(scene, frame);
-    break;
-  case Weapon::GrenadeLauncher:
-    addGrenadeLauncherModel(scene, frame);
-    break;
-  case Weapon::PlasmaGun:
-    addPlasmaGunModel(scene, frame);
-    break;
   }
 }
 
@@ -1793,14 +1907,106 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 
 } // namespace
 
+[[nodiscard]] std::vector<Vertex3D> proceduralWeaponVertices(Weapon weapon);
+
 const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
+  static const std::vector<Vertex3D> machineGunVertices =
+    bakedWeaponVertices(kMachineGunWeaponModel, 0.78F);
+  static const std::vector<Vertex3D> shotgunVertices =
+    bakedWeaponVertices(kShotgunWeaponModel, 0.78F, kQuarterTurnRadians);
+  static const std::vector<Vertex3D> grenadeLauncherVertices =
+    proceduralWeaponVertices(Weapon::GrenadeLauncher);
+  static const std::vector<Vertex3D> rocketLauncherVertices =
+    proceduralWeaponVertices(Weapon::RocketLauncher);
+  static const std::vector<Vertex3D> lightningGunVertices =
+    proceduralWeaponVertices(Weapon::LightningGun);
+  static const std::vector<Vertex3D> railgunVertices =
+    proceduralWeaponVertices(Weapon::Railgun);
+  static const std::vector<Vertex3D> plasmaGunVertices =
+    proceduralWeaponVertices(Weapon::PlasmaGun);
+  static const StaticMeshAsset machineGunAsset = {
+    MeshHandle::RemoteMachineGun,
+    std::span<const Vertex3D>(machineGunVertices.data(), machineGunVertices.size()),
+    meshBounds(machineGunVertices),
+    RenderPass::OpaqueWorld,
+  };
+  static const StaticMeshAsset shotgunAsset = {
+    MeshHandle::RemoteShotgun,
+    std::span<const Vertex3D>(shotgunVertices.data(), shotgunVertices.size()),
+    meshBounds(shotgunVertices),
+    RenderPass::OpaqueWorld,
+  };
+  static const StaticMeshAsset grenadeLauncherAsset = {
+    MeshHandle::RemoteGrenadeLauncher,
+    std::span<const Vertex3D>(grenadeLauncherVertices.data(), grenadeLauncherVertices.size()),
+    meshBounds(grenadeLauncherVertices),
+    RenderPass::OpaqueWorld,
+  };
+  static const StaticMeshAsset rocketLauncherAsset = {
+    MeshHandle::RemoteRocketLauncher,
+    std::span<const Vertex3D>(rocketLauncherVertices.data(), rocketLauncherVertices.size()),
+    meshBounds(rocketLauncherVertices),
+    RenderPass::OpaqueWorld,
+  };
+  static const StaticMeshAsset lightningGunAsset = {
+    MeshHandle::RemoteLightningGun,
+    std::span<const Vertex3D>(lightningGunVertices.data(), lightningGunVertices.size()),
+    meshBounds(lightningGunVertices),
+    RenderPass::OpaqueWorld,
+  };
+  static const StaticMeshAsset railgunAsset = {
+    MeshHandle::RemoteRailgun,
+    std::span<const Vertex3D>(railgunVertices.data(), railgunVertices.size()),
+    meshBounds(railgunVertices),
+    RenderPass::OpaqueWorld,
+  };
+  static const StaticMeshAsset plasmaGunAsset = {
+    MeshHandle::RemotePlasmaGun,
+    std::span<const Vertex3D>(plasmaGunVertices.data(), plasmaGunVertices.size()),
+    meshBounds(plasmaGunVertices),
+    RenderPass::OpaqueWorld,
+  };
   switch (handle) {
   case MeshHandle::PlasmaCore:
     return &kPlasmaCoreAsset;
+  case MeshHandle::RemoteMachineGun:
+    return &machineGunAsset;
+  case MeshHandle::RemoteShotgun:
+    return &shotgunAsset;
+  case MeshHandle::RemoteGrenadeLauncher:
+    return &grenadeLauncherAsset;
+  case MeshHandle::RemoteRocketLauncher:
+    return &rocketLauncherAsset;
+  case MeshHandle::RemoteLightningGun:
+    return &lightningGunAsset;
+  case MeshHandle::RemoteRailgun:
+    return &railgunAsset;
+  case MeshHandle::RemotePlasmaGun:
+    return &plasmaGunAsset;
   case MeshHandle::Invalid:
     break;
   }
   return nullptr;
+}
+
+MeshHandle remoteWeaponMeshHandle(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun:
+    return MeshHandle::RemoteMachineGun;
+  case Weapon::Shotgun:
+    return MeshHandle::RemoteShotgun;
+  case Weapon::GrenadeLauncher:
+    return MeshHandle::RemoteGrenadeLauncher;
+  case Weapon::RocketLauncher:
+    return MeshHandle::RemoteRocketLauncher;
+  case Weapon::LightningGun:
+    return MeshHandle::RemoteLightningGun;
+  case Weapon::Railgun:
+    return MeshHandle::RemoteRailgun;
+  case Weapon::PlasmaGun:
+    return MeshHandle::RemotePlasmaGun;
+  }
+  return MeshHandle::Invalid;
 }
 
 const BillboardAsset* billboardAsset(BillboardHandle handle) {
@@ -1838,6 +2044,57 @@ ProjectileVisualType projectileVisualTypeForWeapon(Weapon weapon) {
   }
 }
 
+void addRemoteWeaponInstance(
+  Scene3D& scene,
+  const PlayerState& player,
+  Weapon weapon,
+  bool leanEnabled,
+  float leanScale
+) {
+  MeshHandle mesh = remoteWeaponMeshHandle(weapon);
+  if (mesh == MeshHandle::Invalid) {
+    return;
+  }
+  WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
+  frame.scale *= thirdPersonWeaponVisualScale(weapon);
+  appendStaticMeshInstance(
+    scene,
+    weaponMeshInstance(mesh, RenderPass::OpaqueWorld, frame, {255, 255, 255, 255})
+  );
+  ++scene.remoteWeaponStats.instancesSubmitted;
+}
+
+[[nodiscard]] std::vector<Vertex3D> proceduralWeaponVertices(Weapon weapon) {
+  Scene3D meshScene;
+  WeaponModelFrame frame;
+  frame.basis.forward = {1.0F, 0.0F, 0.0F};
+  frame.basis.right = {0.0F, 1.0F, 0.0F};
+  frame.basis.up = {0.0F, 0.0F, 1.0F};
+  frame.hand = {};
+  frame.scale = 1.0F;
+  switch (weapon) {
+  case Weapon::LightningGun:
+    addLightningGunModel(meshScene, frame);
+    break;
+  case Weapon::GrenadeLauncher:
+    addGrenadeLauncherModel(meshScene, frame);
+    break;
+  case Weapon::RocketLauncher:
+    addRocketLauncherModel(meshScene, frame);
+    break;
+  case Weapon::Railgun:
+    addRailgunModel(meshScene, frame);
+    break;
+  case Weapon::PlasmaGun:
+    addPlasmaGunModel(meshScene, frame);
+    break;
+  case Weapon::MachineGun:
+  case Weapon::Shotgun:
+    break;
+  }
+  return meshScene.vertices;
+}
+
 namespace {
 
 [[nodiscard]] bool sameSimpleBatchKey(
@@ -1867,6 +2124,49 @@ void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) 
     index,
     1U,
   });
+}
+
+void finalizeStaticMeshBatches(Scene3D& scene) {
+  std::sort(
+    scene.staticMeshInstances.begin(),
+    scene.staticMeshInstances.end(),
+    [](const StaticMeshInstance& lhs, const StaticMeshInstance& rhs) {
+      if (lhs.pass != rhs.pass) {
+        return static_cast<int>(lhs.pass) < static_cast<int>(rhs.pass);
+      }
+      return static_cast<std::uint16_t>(lhs.mesh) <
+        static_cast<std::uint16_t>(rhs.mesh);
+    }
+  );
+  scene.staticMeshBatches.clear();
+  for (std::uint32_t index = 0;
+       index < static_cast<std::uint32_t>(scene.staticMeshInstances.size());
+       ++index) {
+    const StaticMeshInstance& instance = scene.staticMeshInstances[index];
+    if (
+      !scene.staticMeshBatches.empty() &&
+      scene.staticMeshBatches.back().mesh == instance.mesh &&
+      scene.staticMeshBatches.back().pass == instance.pass
+    ) {
+      ++scene.staticMeshBatches.back().instanceCount;
+      continue;
+    }
+    scene.staticMeshBatches.push_back({
+      instance.mesh,
+      instance.pass,
+      index,
+      1U,
+    });
+  }
+  scene.remoteWeaponStats.instanceUploadBytes =
+    scene.remoteWeaponStats.instancesSubmitted * kStaticMeshInstanceUploadBytes;
+  for (const StaticMeshBatch& batch : scene.staticMeshBatches) {
+    if (batch.instanceCount == 0U || batch.pass != RenderPass::OpaqueWorld) {
+      continue;
+    }
+    ++scene.remoteWeaponStats.batches;
+    ++scene.remoteWeaponStats.drawCalls;
+  }
 }
 
 void addProjectileInstances(
@@ -2022,6 +2322,9 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     ++scene.remoteCandidates;
+    if (settings.drawRemoteWeapons) {
+      ++scene.remoteWeaponStats.candidates;
+    }
     const bool renderVisible =
       !settings.frustumCullRemotePlayers ||
       sphereIntersectsPerspectiveFrustum(
@@ -2032,6 +2335,9 @@ Scene3D buildPerspectiveScene(
     scene.remoteRenderVisible[remoteIndex] = renderVisible;
     if (!renderVisible) {
       ++scene.remoteFrustumCulled;
+      if (settings.drawRemoteWeapons) {
+        ++scene.remoteWeaponStats.frustumCulled;
+      }
       continue;
     }
     ++scene.remoteFrustumVisible;
@@ -2125,11 +2431,10 @@ Scene3D buildPerspectiveScene(
     }
     if (settings.drawRemoteWeapons) {
       ++scene.remoteWeaponModelsBuilt;
-      addWeaponModel(
+      addRemoteWeaponInstance(
         scene,
         remote.player,
         remote.selectedWeapon,
-        opponentColor,
         remote.teammate
           ? settings.teammateLeanEnabled
           : settings.enemyLeanEnabled,
@@ -2319,6 +2624,7 @@ Scene3D buildPerspectiveScene(
     );
   }
   (void)localLightningGun;
+  finalizeStaticMeshBatches(scene);
   finalizeProjectileInstanceStats(scene);
 
   return scene;
