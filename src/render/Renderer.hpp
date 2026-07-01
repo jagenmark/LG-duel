@@ -163,6 +163,9 @@ struct RenderSettings {
   std::uint8_t teammateNameTagBlue = 255;
   Weapon localSelectedWeapon = Weapon::LightningGun;
   bool shotgunWeaponModelStart = false;
+  bool frustumCullRemotePlayers = true;
+  bool showRendererPerf = false;
+  bool showRendererPerfDetail = false;
   std::uint8_t localPlayerIndex = 0;
   bool showLagCompensation = false;
   bool hasRemotePlayer = true;
@@ -236,6 +239,13 @@ struct RendererFrameDiagnostics {
   float renderBuildUploadMilliseconds = 0.0F;
   float submitMilliseconds = 0.0F;
   float totalRenderMilliseconds = 0.0F;
+  std::uint32_t dynamicVertexCount = 0;
+  std::uint32_t remoteCandidates = 0;
+  std::uint32_t remoteFrustumVisible = 0;
+  std::uint32_t remoteFrustumCulled = 0;
+  std::uint32_t remoteBodiesBuilt = 0;
+  std::uint32_t remoteWeaponsBuilt = 0;
+  std::uint32_t remoteOutlinesBuilt = 0;
   std::string_view selectedPresentModeName = "n/a";
 };
 

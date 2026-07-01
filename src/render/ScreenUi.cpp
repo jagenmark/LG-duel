@@ -1827,6 +1827,7 @@ DrawList2D buildFloatingHealthBars(
   const PerspectiveCamera& camera,
   const Arena& arena,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const std::array<bool, kDuelPlayerCount>& remoteRenderVisible,
   const RenderSettings& settings,
   const HudRenderState& hud
 ) {
@@ -1837,8 +1838,12 @@ DrawList2D buildFloatingHealthBars(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
-  for (const RemotePlayerView& remote : remotePlayers) {
+  for (std::size_t index = 0; index < remotePlayers.size(); ++index) {
+    const RemotePlayerView& remote = remotePlayers[index];
     if (!remote.visible) {
+      continue;
+    }
+    if (!remoteRenderVisible[index]) {
       continue;
     }
     if (

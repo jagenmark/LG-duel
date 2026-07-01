@@ -128,6 +128,18 @@ int main() {
     "frame limiter cvar should allow uncapped and reject negative caps"
   );
   failures += expect(
+    console.execute("r_frustum_cull") ==
+      "r_frustum_cull = 1 (default 1)" &&
+      console.execute("r_frustum_cull 0") == "r_frustum_cull = 0" &&
+      !console.getBool("r_frustum_cull"),
+    "remote frustum culling should default on and be toggleable"
+  );
+  failures += expect(
+    console.execute("r_perf 1") == "r_perf = 1" &&
+      console.execute("r_perf_detail 1") == "r_perf_detail = 1",
+    "renderer performance diagnostics cvars should be toggleable"
+  );
+  failures += expect(
     console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
       console.getFloat("s_lg_fire_volume") == 0.25F,
     "lightning gun fire volume should be configurable"

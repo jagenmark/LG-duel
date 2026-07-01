@@ -99,6 +99,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_present_mode", "Renderer present mode: 0 FIFO/V-sync, 1 Mailbox, 2 Immediate.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_perf", "Show renderer performance diagnostics on the HUD.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_perf_detail", "Show detailed renderer culling and geometry diagnostics on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});

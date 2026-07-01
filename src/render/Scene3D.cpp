@@ -1566,6 +1566,26 @@ void addShotgunFireVisuals(
   addShotgunImpactPuffs(scene, fire, visualStart);
 }
 
+constexpr float kRemotePlayerVisualCullMargin = 0.35F;
+
+[[nodiscard]] Vec3 remotePlayerVisualSphereCenter(
+  const PlayerState& player
+) {
+  return player.position;
+}
+
+[[nodiscard]] float remotePlayerVisualSphereRadius(
+  const PlayerState& player
+) {
+  const float baseRadius = std::sqrt(
+    player.bounds.radius * player.bounds.radius +
+      player.bounds.halfHeight * player.bounds.halfHeight
+  );
+  // Covers held weapon reach, expanded outline width, modest pose/lean
+  // displacement, and the default floating healthbar/name anchor above the body.
+  return baseRadius + kRemotePlayerVisualCullMargin;
+}
+
 } // namespace
 
 Scene3D buildPerspectiveScene(
@@ -1612,10 +1632,25 @@ Scene3D buildPerspectiveScene(
     addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
   }
 
-  for (const RemotePlayerView& remote : remotePlayers) {
+  for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
+    const RemotePlayerView& remote = remotePlayers[remoteIndex];
     if (!remote.visible) {
       continue;
     }
+    ++scene.remoteCandidates;
+    const bool renderVisible =
+      !settings.frustumCullRemotePlayers ||
+      sphereIntersectsPerspectiveFrustum(
+        scene.camera,
+        remotePlayerVisualSphereCenter(remote.player),
+        remotePlayerVisualSphereRadius(remote.player)
+      );
+    scene.remoteRenderVisible[remoteIndex] = renderVisible;
+    if (!renderVisible) {
+      ++scene.remoteFrustumCulled;
+      continue;
+    }
+    ++scene.remoteFrustumVisible;
     const float hitAmount = remote.teammate
       ? 0.0F
       : std::clamp(remote.enemyHitAmount, 0.0F, 1.0F);
@@ -1687,7 +1722,9 @@ Scene3D buildPerspectiveScene(
         remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
         outlineWidth
       );
+      ++scene.remoteOutlinesBuilt;
     }
+    ++scene.remoteBodiesBuilt;
     addPlayerModel(
       scene,
       remote.player,
@@ -1697,6 +1734,7 @@ Scene3D buildPerspectiveScene(
         : settings.enemyLeanEnabled,
       remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
     );
+    ++scene.remoteWeaponsBuilt;
     addWeaponModel(
       scene,
       remote.player,

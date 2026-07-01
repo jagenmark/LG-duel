@@ -504,6 +504,76 @@ int main() {
     "perspective scene should emit geometry for multiple remote players"
   );
 
+  lg::PlayerState behindOpponent = opponent;
+  behindOpponent.position = {-4.0F, 2.0F, 0.9F};
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> behindRemotePlayers = {};
+  behindRemotePlayers[1] =
+    lg::RemotePlayerView{
+      behindOpponent,
+      inactiveBeam,
+      lg::Weapon::LightningGun,
+      0.0F,
+      1.0F,
+      true,
+      false,
+      {},
+    };
+  const lg::Scene3D noRemoteScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>{},
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  const lg::Scene3D culledBehindScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    behindRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    culledBehindScene.remoteCandidates == 1 &&
+      culledBehindScene.remoteFrustumVisible == 0 &&
+      culledBehindScene.remoteFrustumCulled == 1 &&
+      culledBehindScene.remoteBodiesBuilt == 0 &&
+      culledBehindScene.remoteWeaponsBuilt == 0 &&
+      culledBehindScene.remoteOutlinesBuilt == 0 &&
+      culledBehindScene.vertices.size() == noRemoteScene.vertices.size(),
+    "remote behind camera should not add body, weapon, or outline vertices when culling is enabled"
+  );
+  lg::RenderSettings frustumCullDisabledSettings = settings;
+  frustumCullDisabledSettings.frustumCullRemotePlayers = false;
+  const lg::Scene3D uncullableBehindScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    behindRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    frustumCullDisabledSettings
+  );
+  failures += expect(
+    uncullableBehindScene.remoteCandidates == 1 &&
+      uncullableBehindScene.remoteFrustumVisible == 1 &&
+      uncullableBehindScene.remoteFrustumCulled == 0 &&
+      uncullableBehindScene.remoteBodiesBuilt == 1 &&
+      uncullableBehindScene.remoteWeaponsBuilt == 1 &&
+      uncullableBehindScene.remoteOutlinesBuilt == 1 &&
+      uncullableBehindScene.vertices.size() > noRemoteScene.vertices.size(),
+    "r_frustum_cull 0 should preserve remote body, weapon, and outline construction"
+  );
+
   for (lg::Weapon weapon : lg::kWeaponSlotOrder) {
     std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> weaponRemotePlayers = {};
     weaponRemotePlayers[1] =

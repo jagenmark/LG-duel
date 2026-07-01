@@ -85,5 +85,40 @@ int main() {
     );
   }
 
+  {
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 1.0F);
+    failures += expect(
+      lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, 0.0F, 0.0F}, 0.5F),
+      "sphere directly in front of camera should be visible"
+    );
+    failures += expect(
+      !lg::sphereIntersectsPerspectiveFrustum(camera, {-1.0F, 0.0F, 0.0F}, 0.25F),
+      "sphere completely behind camera should be culled"
+    );
+    failures += expect(
+      !lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, 12.0F, 0.0F}, 0.5F) &&
+        !lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, -12.0F, 0.0F}, 0.5F),
+      "spheres beyond the left and right frustum planes should be culled"
+    );
+    failures += expect(
+      !lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, 0.0F, 12.0F}, 0.5F) &&
+        !lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, 0.0F, -12.0F}, 0.5F),
+      "spheres beyond the top and bottom frustum planes should be culled"
+    );
+    failures += expect(
+      lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, 10.4F, 0.0F}, 0.5F),
+      "sphere intersecting an edge plane should be kept"
+    );
+    failures += expect(
+      lg::sphereIntersectsPerspectiveFrustum(camera, {0.02F, 0.0F, 0.0F}, 0.05F),
+      "sphere intersecting the near plane should be kept"
+    );
+    failures += expect(
+      lg::sphereIntersectsPerspectiveFrustum(camera, {10.0F, -11.5F, 0.0F}, 2.0F),
+      "larger sphere near an edge should not be falsely culled"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }
