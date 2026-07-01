@@ -1,0 +1,40 @@
+# Rendering
+
+Rendering is presentation-only. The renderer consumes arena data, predicted/interpolated player states, authoritative transient events, HUD state, console state, and cvar-derived `RenderSettings`.
+
+## Scene Construction
+
+`src/app/GameApp.cpp` prepares each frame: predicted local player, interpolated remote players, team/name/health presentation, lingering rail/machine-gun events, hit feedback, damage numbers, HUD, and console state. It then calls `Renderer::render()`.
+
+3D scene geometry is built in `src/render/Scene3D.*`. `buildStaticWorldScene()` creates arena floor/bounds/walls/brushes with material ids, UVs, and static light coloring. `buildPerspectiveScene()` creates dynamic players, weapons, beams, hitscan traces, projectile visuals, explosions, and optional lag-compensation bounds.
+
+Top-down rendering uses `src/render/TopDownScene.*`; screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`, and `BitmapFont.*`.
+
+## GPU And Fallback Paths
+
+`Renderer::initialize()` tries SDL_GPU only when `LG_DUEL_RENDER_BACKEND` requests `gpu`, `sdl_gpu`, or `vulkan`; otherwise it uses SDL_Renderer fallback. SDL_GPU creates pipelines, font texture, transfer/vertex buffers, depth texture, and static world cache. If GPU setup fails, it falls back to SDL_Renderer.
+
+The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `arenaStaticWorldFingerprint()`. It batches by material and uploads static world vertices/textures when the arena/material fingerprint changes. Dynamic vertices are rebuilt/uploaded per frame into a bounded scratch path.
+
+The SDL_Renderer fallback draws immediate geometry and does not have the same static-world GPU cache. It is simpler but less representative of the intended high-performance 3D path.
+
+## Textures And Materials
+
+Material ids are produced by `arenaMaterialId()`. GPU texture loading scans the `textures` directory, creates aliases with and without `.png`, uploads PNGs, and uses fallback checker/white textures when needed. UV projection comes from `TextureProjection` on arena walls/brush faces, with fallback axis projection when missing.
+
+Texture and light debug output are gated by environment variables such as `LG_DUEL_TEXTURE_DEBUG`, `LG_DUEL_TEXTURE_DEBUG_UV`, `LG_DUEL_TEXTURE_DEBUG_FORCE_MATERIAL`, and `LG_DUEL_LIGHT_DEBUG`.
+
+## Performance Assumptions
+
+- Static world geometry should be rebuilt only when the arena fingerprint changes.
+- Dynamic scene geometry is per-frame and should stay bounded by player/projectile/effect counts.
+- Projectile visuals are cheap boxes/spheres/wire boxes, not unique high-poly assets.
+- GPU frames use `kMaxGpuVertices`; exceeding this budget should be treated as a rendering bug or content budget issue.
+- Debug overlays/logging must remain gated and off by default.
+
+## Footguns
+
+- Do not rebuild/upload static world buffers every frame on the GPU path.
+- Do not add high-vertex dynamic meshes for frequent effects without a budget and caching strategy.
+- Static lighting is baked into generated vertex colors at world-scene build time; changing light data should change the arena fingerprint or otherwise trigger rebuild.
+- Keep visual-only changes out of server simulation and network authority.
