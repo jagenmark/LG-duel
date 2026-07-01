@@ -1,17 +1,51 @@
 # LG Duel
 
-LG Duel is a compact C++ arena FPS focused on Quake-like duel combat: fixed-tick movement, authoritative server simulation, UDP snapshots, client prediction/reconciliation, and fast old-school rendering. The aim is to keep the simulation testable, keep packets small, keep frame and server tick costs predictable, and make gameplay changes easy to reason about.
+LG Duel is a playable reference game and testbed for a broader, high-performance competitive FPS foundation.
+
+The project is inspired by Quake-like arena shooters, with particular focus on low input latency, stable frame pacing, high and predictable frame rates, authoritative networking, responsive client prediction, and clear competitive combat feedback.
+
+LG Duel is not intended to remain only a small Lightning Gun duel prototype. Its current duel gameplay is used to develop, measure, and validate reusable FPS systems that can later support more weapons, projectiles, player bodies, maps, teams, abilities, and game modes.
+
+The long-term goal is an original game in the space between arena FPS and hero shooter: mechanically expressive movement and combat, combined with distinct body archetypes, weapons, abilities, and team-oriented strategic variety.
+
+See PROJECT_CONTEXT.md, located in C:\Users\gosee\Documents\Codex\LG-duel-clean\docs, for the project’s scope, architectural direction, performance priorities, current transitional systems, and implementation principles.
 
 ## Current Shape
 
-- Native C++ client and headless C++ server.
-- Fixed 125 Hz authoritative server tick.
-- Shared client/server movement, collision, combat, and map structures.
-- UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
-- Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
-- Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
-- SDL rendering with an SDL_GPU path for cached static world rendering and an SDL_Renderer fallback.
-- Restricted Quake/TrenchBroom `.map` arena loading.
+LG Duel currently includes:
+
+* Native C++ client and headless C++ server.
+* Fixed 125 Hz authoritative server tick.
+* Shared client/server movement, collision, combat, and map structures.
+* UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
+* Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
+* Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
+* SDL rendering with an SDL_GPU path for cached static world rendering and an SDL_Renderer fallback.
+* Restricted Quake/TrenchBroom `.map` arena loading.
+
+Several current rendering and content paths remain prototype or transitional implementations. They are documented as such in PROJECT_CONTEXT.md; new substantial work should converge toward the reusable architecture described there.
+
+## Documentation
+
+Project direction:
+
+* [Project context and implementation principles](PROJECT_CONTEXT.md)
+
+Architecture docs:
+
+* [Architecture overview](docs/architecture/README.md)
+* [Server tick](docs/architecture/server-tick.md)
+* [Networking](docs/architecture/networking.md)
+* [Combat and projectiles](docs/architecture/combat-projectiles.md)
+* [Rendering](docs/architecture/rendering.md)
+* [Maps and assets](docs/architecture/maps-assets.md)
+* [Config and testing](docs/architecture/config-testing.md)
+* [Performance](docs/architecture/performance.md)
+
+Reference:
+
+* [Console and cvar bible](docs/CONSOLE-BIBLE.md)
+
 
 ## Build And Test
 

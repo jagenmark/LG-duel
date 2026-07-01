@@ -24,6 +24,15 @@ struct PerfSample {
   std::uint32_t remoteBodyModelsBuilt = 0;
   std::uint32_t remoteWeaponModelsBuilt = 0;
   std::uint32_t playerOutlinesBuilt = 0;
+  std::uint32_t projectilesActive = 0;
+  std::uint32_t projectilesFrustumCulled = 0;
+  std::uint32_t projectilesRendered = 0;
+  std::uint32_t projectileCoreInstances = 0;
+  std::uint32_t projectileGlowInstances = 0;
+  std::uint32_t projectileInstanceUploadBytes = 0;
+  std::uint32_t projectileMeshDrawCalls = 0;
+  std::uint32_t projectileGlowDrawCalls = 0;
+  std::uint32_t legacyProjectileDynamicVertices = 0;
   SnapshotDiagnostics snapshot = {};
 };
 
