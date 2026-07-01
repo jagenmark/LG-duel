@@ -16,7 +16,7 @@ Runtime tuning is split between console cvars, command-carried tuning requests, 
 
 ## Runtime Configurable
 
-Client cvars are registered in `src/app/ClientCvars.*` and consumed heavily in `GameApp.cpp`. Some values are local presentation only: render mode, colors, crosshair, HUD, audio, interpolation, frame cap, video, debug display, and network simulation.
+Client cvars are registered in `src/app/ClientCvars.*` and consumed heavily in `GameApp.cpp`. Some values are local presentation only: first-person FOV/zoom, colors, crosshair, HUD, audio, interpolation, frame cap, video, debug display, and network simulation.
 
 Some cvar-derived values are sent in `CommandPacket` when requested and become authoritative after the server accepts them: movement tuning, player size scales, weapon damage values, lightning/rocket knockback, lightning fire rate, vampirism, self-damage percent, health amount, bot dodge settings, and weapon switching mode.
 
@@ -30,7 +30,7 @@ Tests are many small CMake executables in `tests/CMakeLists.txt`. Important grou
 - Net/server: protocol encoding/decoding, UDP transport, network simulation, client network simulator, server game, clan arena server, weapon switching.
 - Client: prediction/session/game state, local hit feedback, hit confirm audio.
 - App/UI: console system/input, client cvars, audio assets/audio behavior, scoreboard, HUD presentation, chat/input bindings.
-- Render: perspective math, top-down scene, 3D scene, screen UI.
+- Render: perspective math, 3D scene construction, screen UI.
 - Smoke: executable-level sanity through `lg_duel_smoke_tests`.
 
 ## Regressions Tests Should Catch

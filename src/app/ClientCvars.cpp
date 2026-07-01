@@ -10,13 +10,9 @@ void registerClientCvars(ConsoleSystem& console) {
   const CvarFlag archivedClient = CvarFlag::Archive | CvarFlag::Client;
   console.registerCvar({"cl_config_version", "Client config migration version.", 0, archivedClient, 0.0F, 100.0F});
   console.registerCvar({"sensitivity", "Mouse sensitivity multiplier.", 1.0F, archivedClient, 0.1F, 10.0F});
-  console.registerCvar({"cl_aim_mode", "Aim mode: 0 relative 3D, 1 absolute 2D.", 0, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"cl_render_mode", "Renderer: 0 top-down, 1 first-person 3D.", 0, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"cl_fov", "Top-down camera view extent.", 90.0F, archivedClient, 45.0F, 140.0F});
+  console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
-  console.registerCvar({"cl_zoom_sensitivity", "Mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
-  console.registerCvar({"cl_camera_zoom", "Camera zoom multiplier; values above one zoom in.", 1.0F, archivedClient, 0.25F, 4.0F});
-  console.registerCvar({"cl_rotate_view", "Rotate relative-aim view so facing direction points up.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
   console.registerCvar({"cl_showfps", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});

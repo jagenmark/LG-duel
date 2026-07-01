@@ -2,7 +2,6 @@
 #include "render/BitmapFont.hpp"
 #include "render/Scene3D.hpp"
 #include "render/ScreenUi.hpp"
-#include "render/TopDownScene.hpp"
 #include "render/Perspective.hpp"
 
 #if LG_DUEL_HAS_SDL3
@@ -19,6 +18,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -183,6 +183,50 @@ struct StaticWorldMesh {
   float buildMilliseconds = 0.0F;
 };
 
+struct GpuStaticMesh {
+  SDL_GPUBuffer* vertexBuffer = nullptr;
+  Uint32 vertexCount = 0;
+  MeshHandle handle = MeshHandle::Invalid;
+};
+
+struct GpuBillboardMesh {
+  SDL_GPUBuffer* vertexBuffer = nullptr;
+  Uint32 vertexCount = 0;
+  BillboardHandle handle = BillboardHandle::Invalid;
+};
+
+// Vertex stream 1 for instanced mesh/billboard shaders:
+// location 3: instancePosition float3, offset 0
+// location 4: instanceScale float3, offset 12
+// location 5: instanceRotation float, offset 24
+// location 6: instanceColor ubyte4 normalized, offset 28
+// location 7: instancePhase float, offset 32
+struct GpuSimpleInstance {
+  float position[3] = {};
+  float scale[3] = {1.0F, 1.0F, 1.0F};
+  float rotationRadians = 0.0F;
+  std::uint8_t red = 255;
+  std::uint8_t green = 255;
+  std::uint8_t blue = 255;
+  std::uint8_t alpha = 255;
+  float visualPhase = 0.0F;
+};
+
+static_assert(sizeof(GpuSimpleInstance) == 36);
+
+struct GpuInstanceBuffer {
+  SDL_GPUBuffer* buffer = nullptr;
+  SDL_GPUTransferBuffer* transfer = nullptr;
+  Uint32 capacity = 0;
+  std::vector<GpuSimpleInstance> staging;
+};
+
+struct GpuSimpleResources {
+  GpuStaticMesh plasmaCore;
+  GpuBillboardMesh plasmaGlow;
+  GpuInstanceBuffer instances;
+};
+
 void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
   if (atlas == nullptr) {
     return;
@@ -212,6 +256,33 @@ void destroyStaticWorldMesh(SDL_GPUDevice* device, StaticWorldMesh* mesh) {
     SDL_ReleaseGPUBuffer(device, mesh->vertexBuffer);
   }
   delete mesh;
+}
+
+void destroyGpuInstanceBuffer(SDL_GPUDevice* device, GpuInstanceBuffer& buffer) {
+  if (buffer.transfer != nullptr) {
+    SDL_ReleaseGPUTransferBuffer(device, buffer.transfer);
+    buffer.transfer = nullptr;
+  }
+  if (buffer.buffer != nullptr) {
+    SDL_ReleaseGPUBuffer(device, buffer.buffer);
+    buffer.buffer = nullptr;
+  }
+  buffer.capacity = 0;
+  buffer.staging.clear();
+}
+
+void destroyGpuSimpleResources(SDL_GPUDevice* device, GpuSimpleResources* resources) {
+  if (resources == nullptr) {
+    return;
+  }
+  if (resources->plasmaCore.vertexBuffer != nullptr) {
+    SDL_ReleaseGPUBuffer(device, resources->plasmaCore.vertexBuffer);
+  }
+  if (resources->plasmaGlow.vertexBuffer != nullptr) {
+    SDL_ReleaseGPUBuffer(device, resources->plasmaGlow.vertexBuffer);
+  }
+  destroyGpuInstanceBuffer(device, resources->instances);
+  delete resources;
 }
 
 [[nodiscard]] std::string shaderPath(std::string_view filename) {
@@ -712,6 +783,145 @@ void collectTextureMaterialFiles(
   return pipeline;
 }
 
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuInstancedPipeline3D(
+  SDL_GPUDevice* device,
+  SDL_Window* window,
+  std::string_view vertexShaderName,
+  std::string_view fragmentShaderName,
+  bool depthWrite,
+  bool additiveBlend
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    vertexShaderName,
+    SDL_GPU_SHADERSTAGE_VERTEX,
+    0,
+    1
+  );
+  if (vertexShader == nullptr) {
+    return nullptr;
+  }
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    fragmentShaderName,
+    SDL_GPU_SHADERSTAGE_FRAGMENT
+  );
+  if (fragmentShader == nullptr) {
+    SDL_ReleaseGPUShader(device, vertexShader);
+    return nullptr;
+  }
+
+  const std::array<SDL_GPUVertexBufferDescription, 2> vertexBufferDescriptions = {{
+    {
+      0,
+      sizeof(GpuVertex),
+      SDL_GPU_VERTEXINPUTRATE_VERTEX,
+      0,
+    },
+    {
+      1,
+      sizeof(GpuSimpleInstance),
+      SDL_GPU_VERTEXINPUTRATE_INSTANCE,
+      0,
+    },
+  }};
+  const std::array<SDL_GPUVertexAttribute, 8> vertexAttributes = {{
+    {
+      0,
+      0,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+      offsetof(GpuVertex, x),
+    },
+    {
+      1,
+      0,
+      SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
+      offsetof(GpuVertex, red),
+    },
+    {
+      2,
+      0,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+      offsetof(GpuVertex, u),
+    },
+    {
+      3,
+      1,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+      offsetof(GpuSimpleInstance, position),
+    },
+    {
+      4,
+      1,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+      offsetof(GpuSimpleInstance, scale),
+    },
+    {
+      5,
+      1,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
+      offsetof(GpuSimpleInstance, rotationRadians),
+    },
+    {
+      6,
+      1,
+      SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
+      offsetof(GpuSimpleInstance, red),
+    },
+    {
+      7,
+      1,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
+      offsetof(GpuSimpleInstance, visualPhase),
+    },
+  }};
+  SDL_GPUColorTargetDescription colorTarget = {};
+  colorTarget.format = SDL_GetGPUSwapchainTextureFormat(device, window);
+  if (additiveBlend) {
+    colorTarget.blend_state.src_color_blendfactor =
+      SDL_GPU_BLENDFACTOR_SRC_ALPHA;
+    colorTarget.blend_state.dst_color_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    colorTarget.blend_state.color_blend_op = SDL_GPU_BLENDOP_ADD;
+    colorTarget.blend_state.src_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    colorTarget.blend_state.dst_alpha_blendfactor = SDL_GPU_BLENDFACTOR_ONE;
+    colorTarget.blend_state.alpha_blend_op = SDL_GPU_BLENDOP_ADD;
+    colorTarget.blend_state.enable_blend = true;
+  } else {
+    colorTarget.blend_state.enable_blend = false;
+  }
+
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.vertex_input_state.vertex_buffer_descriptions =
+    vertexBufferDescriptions.data();
+  createInfo.vertex_input_state.num_vertex_buffers =
+    static_cast<Uint32>(vertexBufferDescriptions.size());
+  createInfo.vertex_input_state.vertex_attributes = vertexAttributes.data();
+  createInfo.vertex_input_state.num_vertex_attributes =
+    static_cast<Uint32>(vertexAttributes.size());
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.rasterizer_state.enable_depth_clip = true;
+  createInfo.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+  createInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+  createInfo.depth_stencil_state.enable_depth_test = true;
+  createInfo.depth_stencil_state.enable_depth_write = depthWrite;
+  createInfo.target_info.color_target_descriptions = &colorTarget;
+  createInfo.target_info.num_color_targets = 1;
+  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.has_depth_stencil_target = true;
+
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
+}
+
 [[nodiscard]] std::array<std::uint8_t, kFontAtlasWidth * kFontAtlasHeight>
 buildFontAtlas() {
   std::array<std::uint8_t, kFontAtlasWidth * kFontAtlasHeight> pixels = {};
@@ -1134,103 +1344,6 @@ void appendScene3D(
   const TextureAtlas* atlas
 ) {
   appendVertices3D(vertices, scene.vertices, atlas);
-  for (const SimpleRenderBatch& batch : scene.simpleBatches) {
-    if (batch.mesh == MeshHandle::Invalid || batch.pass != RenderPass::OpaqueWorld) {
-      continue;
-    }
-    const StaticMeshAsset* asset = staticMeshAsset(batch.mesh);
-    if (asset == nullptr) {
-      continue;
-    }
-    const std::uint32_t end = batch.firstInstance + batch.instanceCount;
-    for (std::uint32_t instanceIndex = batch.firstInstance; instanceIndex < end; ++instanceIndex) {
-      const SimpleRenderInstance& instance = scene.simpleInstances[instanceIndex];
-      const float rotationCos = std::cos(instance.rotationRadians);
-      const float rotationSin = std::sin(instance.rotationRadians);
-      for (const Vertex3D& source : asset->vertices) {
-        const Vec3 scaled = {
-          source.position.x * instance.scale.x,
-          source.position.y * instance.scale.y,
-          source.position.z * instance.scale.z,
-        };
-        const Vec3 rotated = {
-          scaled.x * rotationCos - scaled.y * rotationSin,
-          scaled.x * rotationSin + scaled.y * rotationCos,
-          scaled.z,
-        };
-        vertices.push_back({
-          instance.position.x + rotated.x,
-          instance.position.y + rotated.y,
-          instance.position.z + rotated.z,
-          instance.color.red,
-          instance.color.green,
-          instance.color.blue,
-          instance.color.alpha,
-          kSolidTextureU,
-          kSolidTextureV,
-        });
-      }
-    }
-  }
-}
-
-void appendTranslucentSimpleInstances3D(
-  std::vector<GpuVertex>& vertices,
-  const Scene3D& scene
-) {
-  const PerspectiveCamera& camera = scene.camera;
-  for (const SimpleRenderBatch& batch : scene.simpleBatches) {
-    if (
-      batch.billboard == BillboardHandle::Invalid ||
-      (batch.pass != RenderPass::AdditiveGlow && batch.pass != RenderPass::TranslucentWorld)
-    ) {
-      continue;
-    }
-    if (billboardAsset(batch.billboard) == nullptr) {
-      continue;
-    }
-    const std::uint32_t end = batch.firstInstance + batch.instanceCount;
-    for (std::uint32_t instanceIndex = batch.firstInstance; instanceIndex < end; ++instanceIndex) {
-      const SimpleRenderInstance& instance = scene.simpleInstances[instanceIndex];
-      const float pulse =
-        1.0F + 0.045F * std::sin(instance.visualPhase * 6.28318530718F);
-      const float halfWidth = instance.scale.x * pulse;
-      const float halfHeight = instance.scale.y * pulse;
-      const Vec3 right = camera.right * halfWidth;
-      const Vec3 up = camera.up * halfHeight;
-      const Vec3 p0 = instance.position - right - up;
-      const Vec3 p1 = instance.position + right - up;
-      const Vec3 p2 = instance.position + right + up;
-      const Vec3 p3 = instance.position - right + up;
-      const auto append = [&](Vec3 position, float u, float v, std::uint8_t alpha) {
-        vertices.push_back({
-          position.x,
-          position.y,
-          position.z,
-          instance.color.red,
-          instance.color.green,
-          instance.color.blue,
-          alpha,
-          u,
-          v,
-        });
-      };
-      const std::uint8_t edgeAlpha =
-        static_cast<std::uint8_t>(static_cast<float>(instance.color.alpha) * 0.25F);
-      append(p0, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(p1, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
-      append(p1, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(p2, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
-      append(p2, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(p3, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
-      append(p3, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(p0, kSolidTextureU, kSolidTextureV, edgeAlpha);
-      append(instance.position, kSolidTextureU, kSolidTextureV, instance.color.alpha);
-    }
-  }
 }
 
 [[nodiscard]] std::vector<std::uint32_t> referencedWorldMaterials(
@@ -1443,6 +1556,275 @@ void appendTranslucentSimpleInstances3D(
   destroyStaticWorldMesh(device, mesh);
   mesh = buildStaticWorldMesh(device, arena);
   return mesh;
+}
+
+[[nodiscard]] bool uploadStaticVertices(
+  SDL_GPUDevice* device,
+  std::span<const GpuVertex> vertices,
+  SDL_GPUBuffer*& buffer
+) {
+  const Uint32 uploadSize =
+    static_cast<Uint32>(vertices.size() * sizeof(GpuVertex));
+  const SDL_GPUBufferCreateInfo vertexBufferInfo = {
+    SDL_GPU_BUFFERUSAGE_VERTEX,
+    std::max<Uint32>(uploadSize, 1U),
+    0,
+  };
+  buffer = SDL_CreateGPUBuffer(device, &vertexBufferInfo);
+  if (buffer == nullptr) {
+    return false;
+  }
+  if (vertices.empty()) {
+    return true;
+  }
+
+  const SDL_GPUTransferBufferCreateInfo transferInfo = {
+    SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+    uploadSize,
+    0,
+  };
+  SDL_GPUTransferBuffer* transfer = SDL_CreateGPUTransferBuffer(device, &transferInfo);
+  void* mapped = transfer != nullptr
+    ? SDL_MapGPUTransferBuffer(device, transfer, false)
+    : nullptr;
+  if (mapped == nullptr) {
+    if (transfer != nullptr) {
+      SDL_ReleaseGPUTransferBuffer(device, transfer);
+    }
+    SDL_ReleaseGPUBuffer(device, buffer);
+    buffer = nullptr;
+    return false;
+  }
+  std::memcpy(mapped, vertices.data(), uploadSize);
+  SDL_UnmapGPUTransferBuffer(device, transfer);
+
+  SDL_GPUCommandBuffer* commandBuffer = SDL_AcquireGPUCommandBuffer(device);
+  SDL_GPUCopyPass* copyPass = commandBuffer != nullptr
+    ? SDL_BeginGPUCopyPass(commandBuffer)
+    : nullptr;
+  if (copyPass == nullptr) {
+    if (commandBuffer != nullptr) {
+      (void)SDL_CancelGPUCommandBuffer(commandBuffer);
+    }
+    SDL_ReleaseGPUTransferBuffer(device, transfer);
+    SDL_ReleaseGPUBuffer(device, buffer);
+    buffer = nullptr;
+    return false;
+  }
+  const SDL_GPUTransferBufferLocation source = {transfer, 0};
+  const SDL_GPUBufferRegion destination = {buffer, 0, uploadSize};
+  SDL_UploadToGPUBuffer(copyPass, &source, &destination, false);
+  SDL_EndGPUCopyPass(copyPass);
+  const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+  SDL_ReleaseGPUTransferBuffer(device, transfer);
+  if (!submitted) {
+    SDL_ReleaseGPUBuffer(device, buffer);
+    buffer = nullptr;
+  }
+  return submitted;
+}
+
+[[nodiscard]] GpuSimpleResources* createGpuSimpleResources(SDL_GPUDevice* device) {
+  auto* resources = new GpuSimpleResources();
+  const StaticMeshAsset* plasmaCore = staticMeshAsset(MeshHandle::PlasmaCore);
+  if (plasmaCore == nullptr || plasmaCore->vertices.empty()) {
+    destroyGpuSimpleResources(device, resources);
+    return nullptr;
+  }
+
+  std::vector<GpuVertex> coreVertices;
+  coreVertices.reserve(plasmaCore->vertices.size());
+  for (const Vertex3D& vertex : plasmaCore->vertices) {
+    coreVertices.push_back({
+      vertex.position.x,
+      vertex.position.y,
+      vertex.position.z,
+      vertex.color.red,
+      vertex.color.green,
+      vertex.color.blue,
+      vertex.color.alpha,
+      0.0F,
+      0.0F,
+    });
+  }
+  if (!uploadStaticVertices(device, coreVertices, resources->plasmaCore.vertexBuffer)) {
+    destroyGpuSimpleResources(device, resources);
+    return nullptr;
+  }
+  resources->plasmaCore.vertexCount = static_cast<Uint32>(coreVertices.size());
+  resources->plasmaCore.handle = MeshHandle::PlasmaCore;
+
+  const std::array<GpuVertex, 6> glowQuad = {{
+    {-1.0F, -1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 0.0F},
+    { 1.0F, -1.0F, 0.0F, 255, 255, 255, 255, 1.0F, 0.0F},
+    { 1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 1.0F, 1.0F},
+    {-1.0F, -1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 0.0F},
+    { 1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 1.0F, 1.0F},
+    {-1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 1.0F},
+  }};
+  if (!uploadStaticVertices(device, glowQuad, resources->plasmaGlow.vertexBuffer)) {
+    destroyGpuSimpleResources(device, resources);
+    return nullptr;
+  }
+  resources->plasmaGlow.vertexCount = static_cast<Uint32>(glowQuad.size());
+  resources->plasmaGlow.handle = BillboardHandle::PlasmaGlow;
+  resources->instances.staging.reserve(kMaxRocketProjectiles * 2U);
+  return resources;
+}
+
+[[nodiscard]] bool ensureGpuInstanceCapacity(
+  SDL_GPUDevice* device,
+  GpuInstanceBuffer& buffer,
+  Uint32 required
+) {
+  if (required <= buffer.capacity) {
+    return true;
+  }
+  Uint32 capacity = std::max<Uint32>(8U, buffer.capacity);
+  while (capacity < required) {
+    capacity *= 2U;
+  }
+  destroyGpuInstanceBuffer(device, buffer);
+  const Uint32 byteSize = capacity * static_cast<Uint32>(sizeof(GpuSimpleInstance));
+  const SDL_GPUBufferCreateInfo bufferInfo = {
+    SDL_GPU_BUFFERUSAGE_VERTEX,
+    byteSize,
+    0,
+  };
+  buffer.buffer = SDL_CreateGPUBuffer(device, &bufferInfo);
+  const SDL_GPUTransferBufferCreateInfo transferInfo = {
+    SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+    byteSize,
+    0,
+  };
+  buffer.transfer = SDL_CreateGPUTransferBuffer(device, &transferInfo);
+  if (buffer.buffer == nullptr || buffer.transfer == nullptr) {
+    destroyGpuInstanceBuffer(device, buffer);
+    return false;
+  }
+  buffer.capacity = capacity;
+  buffer.staging.reserve(capacity);
+  return true;
+}
+
+[[nodiscard]] bool uploadSimpleInstances(
+  SDL_GPUDevice* device,
+  SDL_GPUCommandBuffer* commandBuffer,
+  GpuInstanceBuffer& buffer,
+  const Scene3D& scene
+) {
+  buffer.staging.clear();
+  buffer.staging.reserve(scene.simpleInstances.size());
+  for (const SimpleRenderInstance& instance : scene.simpleInstances) {
+    buffer.staging.push_back({
+      {instance.position.x, instance.position.y, instance.position.z},
+      {instance.scale.x, instance.scale.y, instance.scale.z},
+      instance.rotationRadians,
+      instance.color.red,
+      instance.color.green,
+      instance.color.blue,
+      instance.color.alpha,
+      instance.visualPhase,
+    });
+  }
+  if (buffer.staging.empty()) {
+    return true;
+  }
+  const Uint32 instanceCount = static_cast<Uint32>(buffer.staging.size());
+  if (!ensureGpuInstanceCapacity(device, buffer, instanceCount)) {
+    return false;
+  }
+  const Uint32 uploadSize =
+    instanceCount * static_cast<Uint32>(sizeof(GpuSimpleInstance));
+  void* mapped = SDL_MapGPUTransferBuffer(device, buffer.transfer, true);
+  if (mapped == nullptr) {
+    return false;
+  }
+  std::memcpy(mapped, buffer.staging.data(), uploadSize);
+  SDL_UnmapGPUTransferBuffer(device, buffer.transfer);
+  SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
+  if (copyPass == nullptr) {
+    return false;
+  }
+  const SDL_GPUTransferBufferLocation source = {buffer.transfer, 0};
+  const SDL_GPUBufferRegion destination = {buffer.buffer, 0, uploadSize};
+  SDL_UploadToGPUBuffer(copyPass, &source, &destination, true);
+  SDL_EndGPUCopyPass(copyPass);
+  return true;
+}
+
+void drawSimpleInstanceBatches(
+  SDL_GPURenderPass* pass,
+  SDL_GPUGraphicsPipeline* meshPipeline,
+  SDL_GPUGraphicsPipeline* glowPipeline,
+  GpuSimpleResources* resources,
+  const Scene3D& scene
+) {
+  if (
+    resources == nullptr ||
+    resources->instances.buffer == nullptr ||
+    scene.simpleBatches.empty()
+  ) {
+    return;
+  }
+
+  for (const SimpleRenderBatch& batch : scene.simpleBatches) {
+    if (batch.instanceCount == 0U) {
+      continue;
+    }
+    if (batch.mesh == MeshHandle::PlasmaCore && batch.pass == RenderPass::OpaqueWorld) {
+      if (
+        meshPipeline == nullptr ||
+        resources->plasmaCore.vertexBuffer == nullptr ||
+        resources->plasmaCore.vertexCount == 0U
+      ) {
+        continue;
+      }
+      SDL_BindGPUGraphicsPipeline(pass, meshPipeline);
+      const std::array<SDL_GPUBufferBinding, 2> bindings = {{
+        {resources->plasmaCore.vertexBuffer, 0},
+        {
+          resources->instances.buffer,
+          batch.firstInstance * static_cast<Uint32>(sizeof(GpuSimpleInstance)),
+        },
+      }};
+      SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
+      SDL_DrawGPUPrimitives(
+        pass,
+        resources->plasmaCore.vertexCount,
+        batch.instanceCount,
+        0,
+        0
+      );
+    } else if (
+      batch.billboard == BillboardHandle::PlasmaGlow &&
+      batch.pass == RenderPass::AdditiveGlow
+    ) {
+      if (
+        glowPipeline == nullptr ||
+        resources->plasmaGlow.vertexBuffer == nullptr ||
+        resources->plasmaGlow.vertexCount == 0U
+      ) {
+        continue;
+      }
+      SDL_BindGPUGraphicsPipeline(pass, glowPipeline);
+      const std::array<SDL_GPUBufferBinding, 2> bindings = {{
+        {resources->plasmaGlow.vertexBuffer, 0},
+        {
+          resources->instances.buffer,
+          batch.firstInstance * static_cast<Uint32>(sizeof(GpuSimpleInstance)),
+        },
+      }};
+      SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
+      SDL_DrawGPUPrimitives(
+        pass,
+        resources->plasmaGlow.vertexCount,
+        batch.instanceCount,
+        0,
+        0
+      );
+    }
+  }
 }
 
 [[nodiscard]] SDL_GPUTexture* ensureDepthTexture(
@@ -1698,8 +2080,11 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUGraphicsPipeline* pipeline2D,
   SDL_GPUGraphicsPipeline* pipeline3D,
   SDL_GPUGraphicsPipeline* pipeline3DTranslucent,
+  SDL_GPUGraphicsPipeline* instancedMeshPipeline,
+  SDL_GPUGraphicsPipeline* instancedGlowPipeline,
   SDL_GPUBuffer* vertexBuffer,
   SDL_GPUTransferBuffer* transferBuffer,
+  GpuSimpleResources* simpleResources,
   SDL_GPUTexture* fontTexture,
   SDL_GPUSampler* fontSampler,
   TextureAtlas* worldAtlas,
@@ -1781,138 +2166,101 @@ const PlayerState& firstVisibleRemote(
   auto uploadStart = buildStart;
 
   if (swapchainTexture != nullptr && outputWidth > 0 && outputHeight > 0) {
-    DrawList2D topDownScene;
     Scene3D perspectiveScene;
     vertices.clear();
     const auto sceneBuildStart = RenderClock::now();
-    if (settings.renderMode == 1) {
-      perspectiveScene = buildPerspectiveScene(
-        static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
-        arena,
-        player,
-        remotePlayers,
-        localLightningGun,
-        weaponFires,
-        rocketExplosions,
-        rockets,
-        settings
-      );
-      diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
-      diagnostics.remoteFrustumVisible = perspectiveScene.remoteFrustumVisible;
-      diagnostics.remoteFrustumCulled = perspectiveScene.remoteFrustumCulled;
-      diagnostics.projectilesActive =
-        perspectiveScene.projectileStats.projectilesActive;
-      diagnostics.projectilesFrustumCulled =
-        perspectiveScene.projectileStats.projectilesFrustumCulled;
-      diagnostics.projectilesRendered =
-        perspectiveScene.projectileStats.projectilesRendered;
-      diagnostics.projectileCoreInstances =
-        perspectiveScene.projectileStats.projectileCoreInstances;
-      diagnostics.projectileGlowInstances =
-        perspectiveScene.projectileStats.projectileGlowInstances;
-      diagnostics.projectileInstanceUploadBytes =
-        perspectiveScene.projectileStats.projectileInstanceUploadBytes;
-      diagnostics.projectileMeshDrawCalls =
-        perspectiveScene.projectileStats.projectileMeshDrawCalls;
-      diagnostics.projectileGlowDrawCalls =
-        perspectiveScene.projectileStats.projectileGlowDrawCalls;
-      diagnostics.legacyProjectileDynamicVertices =
-        perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
-      diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
-      diagnostics.remoteWeaponModelsBuilt =
-        perspectiveScene.remoteWeaponModelsBuilt;
-      diagnostics.playerOutlinesBuilt = perspectiveScene.playerOutlinesBuilt;
-      appendScene3D(vertices, perspectiveScene, worldAtlas);
-    } else {
-      topDownScene = buildTopDownScene(
-        static_cast<int>(outputWidth),
-        static_cast<int>(outputHeight),
-        arena,
-        player,
-        remotePlayers,
-        localLightningGun,
-        weaponFires,
-        rocketExplosions,
-        rockets,
-        settings,
-        hud
-      );
-      appendCommands(
-        vertices,
-        topDownScene.commands,
-        static_cast<float>(outputWidth),
-        static_cast<float>(outputHeight)
-      );
-    }
+    perspectiveScene = buildPerspectiveScene(
+      static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
+      arena,
+      player,
+      remotePlayers,
+      localLightningGun,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings
+    );
+    diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
+    diagnostics.remoteFrustumVisible = perspectiveScene.remoteFrustumVisible;
+    diagnostics.remoteFrustumCulled = perspectiveScene.remoteFrustumCulled;
+    diagnostics.projectilesActive =
+      perspectiveScene.projectileStats.projectilesActive;
+    diagnostics.projectilesFrustumCulled =
+      perspectiveScene.projectileStats.projectilesFrustumCulled;
+    diagnostics.projectilesRendered =
+      perspectiveScene.projectileStats.projectilesRendered;
+    diagnostics.projectileCoreInstances =
+      perspectiveScene.projectileStats.projectileCoreInstances;
+    diagnostics.projectileGlowInstances =
+      perspectiveScene.projectileStats.projectileGlowInstances;
+    diagnostics.projectileInstanceUploadBytes =
+      perspectiveScene.projectileStats.projectileInstanceUploadBytes;
+    diagnostics.projectileMeshDrawCalls =
+      perspectiveScene.projectileStats.projectileMeshDrawCalls;
+    diagnostics.projectileGlowDrawCalls =
+      perspectiveScene.projectileStats.projectileGlowDrawCalls;
+    diagnostics.legacyProjectileDynamicVertices =
+      perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
+    diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
+    diagnostics.remoteWeaponModelsBuilt =
+      perspectiveScene.remoteWeaponModelsBuilt;
+    diagnostics.playerOutlinesBuilt = perspectiveScene.playerOutlinesBuilt;
+    appendScene3D(vertices, perspectiveScene, worldAtlas);
     diagnostics.sceneBuildMilliseconds =
       millisecondsBetween(sceneBuildStart, RenderClock::now());
     const Uint32 opaqueDynamicVertexCount =
       static_cast<Uint32>(vertices.size());
-    if (settings.renderMode == 1) {
-      appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
-      appendTranslucentSimpleInstances3D(vertices, perspectiveScene);
-    }
+    appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
     const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
-    const Uint32 worldVertexCount = settings.renderMode == 0
-      ? static_cast<Uint32>(vertices.size())
-      : dynamic3DVertexCount;
-    if (settings.renderMode == 0) {
-      appendCommands(
-        vertices,
-        topDownScene.overlayCommands,
-        static_cast<float>(outputWidth),
-        static_cast<float>(outputHeight)
-      );
-    } else {
-      const DrawList2D floatingHealthBars = buildFloatingHealthBars(
+    const Uint32 worldVertexCount = dynamic3DVertexCount;
+    const DrawList2D floatingHealthBars = buildFloatingHealthBars(
+      static_cast<int>(outputWidth),
+      static_cast<int>(outputHeight),
+      perspectiveScene.camera,
+      arena,
+      remotePlayers,
+      perspectiveScene.remoteRenderVisible,
+      settings,
+      hud
+    );
+    appendCommands(
+      vertices,
+      floatingHealthBars.overlayCommands,
+      static_cast<float>(outputWidth),
+      static_cast<float>(outputHeight)
+    );
+    const DrawList2D floatingDamageNumbers = buildFloatingDamageNumbers(
+      static_cast<int>(outputWidth),
+      static_cast<int>(outputHeight),
+      perspectiveScene.camera,
+      settings,
+      hud
+    );
+    appendCommands(
+      vertices,
+      floatingDamageNumbers.overlayCommands,
+      static_cast<float>(outputWidth),
+      static_cast<float>(outputHeight)
+    );
+    if (
+      hud.selectedWeapon != Weapon::MachineGun &&
+      hud.selectedWeapon != Weapon::Shotgun
+    ) {
+      const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
-        perspectiveScene.camera,
-        arena,
-        remotePlayers,
-        perspectiveScene.remoteRenderVisible,
-        settings,
-        hud
+        localLightningGun,
+        hud.selectedWeapon,
+        hud.previousWeapon,
+        hud.weaponSwitchProgress,
+        settings
       );
       appendCommands(
         vertices,
-        floatingHealthBars.overlayCommands,
+        weaponOverlay.overlayCommands,
         static_cast<float>(outputWidth),
         static_cast<float>(outputHeight)
       );
-      const DrawList2D floatingDamageNumbers = buildFloatingDamageNumbers(
-        static_cast<int>(outputWidth),
-        static_cast<int>(outputHeight),
-        perspectiveScene.camera,
-        settings,
-        hud
-      );
-      appendCommands(
-        vertices,
-        floatingDamageNumbers.overlayCommands,
-        static_cast<float>(outputWidth),
-        static_cast<float>(outputHeight)
-      );
-      if (
-        hud.selectedWeapon != Weapon::MachineGun &&
-        hud.selectedWeapon != Weapon::Shotgun
-      ) {
-        const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
-          static_cast<int>(outputWidth),
-          static_cast<int>(outputHeight),
-          localLightningGun,
-          hud.selectedWeapon,
-          hud.previousWeapon,
-          hud.weaponSwitchProgress,
-          settings
-        );
-        appendCommands(
-          vertices,
-          weaponOverlay.overlayCommands,
-          static_cast<float>(outputWidth),
-          static_cast<float>(outputHeight)
-        );
-      }
     }
     const DrawList2D ui = buildScreenUi(
       static_cast<int>(outputWidth),
@@ -1933,9 +2281,7 @@ const PlayerState& firstVisibleRemote(
       millisecondsBetween(buildStart, uploadStart);
     diagnostics.dynamicOpaqueVertices = opaqueDynamicVertexCount;
     diagnostics.dynamicTranslucentVertices =
-      settings.renderMode == 1
-        ? worldVertexCount - opaqueDynamicVertexCount
-        : 0U;
+      worldVertexCount - opaqueDynamicVertexCount;
     diagnostics.visibleRemotePlayers = perspectiveScene.visibleRemotePlayers;
     diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
     diagnostics.remoteWeaponModelsBuilt = perspectiveScene.remoteWeaponModelsBuilt;
@@ -1982,6 +2328,22 @@ const PlayerState& firstVisibleRemote(
       diagnostics.gpuVertexUploadMilliseconds =
         millisecondsBetween(uploadStart, RenderClock::now());
     }
+    if (
+      simpleResources == nullptr ||
+      !uploadSimpleInstances(
+          device,
+          commandBuffer,
+          simpleResources->instances,
+          perspectiveScene
+      )
+    ) {
+      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      return false;
+    }
+    diagnostics.projectileInstanceUploadBytes =
+      static_cast<std::uint32_t>(
+        perspectiveScene.simpleInstances.size() * sizeof(GpuSimpleInstance)
+      );
     const auto uploadEnd = RenderClock::now();
     diagnostics.gpuVertexUploadMilliseconds =
       millisecondsBetween(uploadStart, uploadEnd);
@@ -1994,44 +2356,43 @@ const PlayerState& firstVisibleRemote(
     colorTarget.clear_color = {0.047F, 0.055F, 0.071F, 1.0F};
     colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
     colorTarget.store_op = SDL_GPU_STOREOP_STORE;
-    if (settings.renderMode == 1) {
-      depthTexture = ensureDepthTexture(
-        device,
-        depthTexture,
-        depthWidth,
-        depthHeight,
-        outputWidth,
-        outputHeight
-      );
-      if (depthTexture == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
-        return false;
-      }
+    depthTexture = ensureDepthTexture(
+      device,
+      depthTexture,
+      depthWidth,
+      depthHeight,
+      outputWidth,
+      outputHeight
+    );
+    if (depthTexture == nullptr) {
+      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      return false;
+    }
 
-      SDL_GPUDepthStencilTargetInfo depthTarget = {};
-      depthTarget.texture = depthTexture;
-      depthTarget.clear_depth = 1.0F;
-      depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
-      depthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
-      depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
-      depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-      depthTarget.cycle = true;
-      SDL_GPURenderPass* worldPass = SDL_BeginGPURenderPass(
-        commandBuffer,
-        &colorTarget,
-        1,
-        &depthTarget
-      );
-      if (worldPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
-        return false;
-      }
+    SDL_GPUDepthStencilTargetInfo depthTarget = {};
+    depthTarget.texture = depthTexture;
+    depthTarget.clear_depth = 1.0F;
+    depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+    depthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+    depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+    depthTarget.cycle = true;
+    SDL_GPURenderPass* worldPass = SDL_BeginGPURenderPass(
+      commandBuffer,
+      &colorTarget,
+      1,
+      &depthTarget
+    );
+    if (worldPass == nullptr) {
+      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      return false;
+    }
       StaticWorldMesh* worldMesh = ensureStaticWorldMesh(device, staticWorld, arena);
       const bool hasStaticWorld = worldMesh != nullptr &&
         worldMesh->vertexBuffer != nullptr &&
         worldMesh->sampler != nullptr &&
         !worldMesh->batches.empty();
-      if (hasStaticWorld || dynamic3DVertexCount > 0) {
+      if (hasStaticWorld || dynamic3DVertexCount > 0 || !perspectiveScene.simpleInstances.empty()) {
         const auto worldDrawStart = RenderClock::now();
         if (hasStaticWorld) {
           diagnostics.worldSourceTriangles = worldMesh->sourceTriangles;
@@ -2160,6 +2521,13 @@ const PlayerState& firstVisibleRemote(
             0
           );
         }
+        drawSimpleInstanceBatches(
+          worldPass,
+          instancedMeshPipeline,
+          instancedGlowPipeline,
+          simpleResources,
+          perspectiveScene
+        );
         diagnostics.worldDrawIssueMilliseconds =
           millisecondsBetween(worldDrawStart, RenderClock::now());
         if (textureDebugEnabled()) {
@@ -2180,9 +2548,8 @@ const PlayerState& firstVisibleRemote(
           }
         }
       }
-      SDL_EndGPURenderPass(worldPass);
-      colorTarget.load_op = SDL_GPU_LOADOP_LOAD;
-    }
+    SDL_EndGPURenderPass(worldPass);
+    colorTarget.load_op = SDL_GPU_LOADOP_LOAD;
 
     SDL_GPURenderPass* overlayPass =
       SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
@@ -2205,23 +2572,6 @@ const PlayerState& firstVisibleRemote(
         &fontBinding,
         1
       );
-
-      if (settings.renderMode == 0 && worldVertexCount > 0) {
-        const SDL_Rect worldScissor = {
-          std::max(0, static_cast<int>(topDownScene.clip.x)),
-          std::max(0, static_cast<int>(topDownScene.clip.y)),
-          std::max(0, static_cast<int>(topDownScene.clip.width)),
-          std::max(0, static_cast<int>(topDownScene.clip.height)),
-        };
-        SDL_SetGPUScissor(overlayPass, &worldScissor);
-        SDL_DrawGPUPrimitives(
-          overlayPass,
-          worldVertexCount,
-          1,
-          0,
-          0
-        );
-      }
 
       const Uint32 overlayVertexCount =
         static_cast<Uint32>(vertices.size()) - worldVertexCount;
@@ -3043,6 +3393,25 @@ bool Renderer::initialize(void* window) {
           static_cast<SDL_Window*>(window),
           false
         );
+        SDL_GPUGraphicsPipeline* instancedMeshPipeline =
+          createGpuInstancedPipeline3D(
+            device,
+            static_cast<SDL_Window*>(window),
+            "instanced_mesh.vert.spv",
+            "instanced_color.frag.spv",
+            true,
+            false
+          );
+        SDL_GPUGraphicsPipeline* instancedGlowPipeline =
+          createGpuInstancedPipeline3D(
+            device,
+            static_cast<SDL_Window*>(window),
+            "instanced_billboard.vert.spv",
+            "instanced_glow.frag.spv",
+            false,
+            true
+          );
+        GpuSimpleResources* simpleResources = createGpuSimpleResources(device);
         const SDL_GPUBufferCreateInfo vertexBufferInfo = {
           SDL_GPU_BUFFERUSAGE_VERTEX,
           static_cast<Uint32>(kMaxGpuVertices * sizeof(GpuVertex)),
@@ -3082,6 +3451,9 @@ bool Renderer::initialize(void* window) {
           pipeline != nullptr &&
           pipeline3D != nullptr &&
           pipeline3DTranslucent != nullptr &&
+          instancedMeshPipeline != nullptr &&
+          instancedGlowPipeline != nullptr &&
+          simpleResources != nullptr &&
           vertexBuffer != nullptr &&
           transferBuffer != nullptr &&
           fontTexture != nullptr &&
@@ -3092,8 +3464,11 @@ bool Renderer::initialize(void* window) {
           gpuPipeline_ = pipeline;
           gpuPipeline3D_ = pipeline3D;
           gpuPipeline3DTranslucent_ = pipeline3DTranslucent;
+          gpuPipelineInstancedMesh_ = instancedMeshPipeline;
+          gpuPipelineInstancedGlow_ = instancedGlowPipeline;
           gpuVertexBuffer_ = vertexBuffer;
           gpuTransferBuffer_ = transferBuffer;
+          gpuSimpleResources_ = simpleResources;
           gpuFontTexture_ = fontTexture;
           gpuFontSampler_ = fontSampler;
           gpuWorldTextureAtlas_ = nullptr;
@@ -3122,6 +3497,7 @@ bool Renderer::initialize(void* window) {
         if (vertexBuffer != nullptr) {
           SDL_ReleaseGPUBuffer(device, vertexBuffer);
         }
+        destroyGpuSimpleResources(device, simpleResources);
         if (pipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         }
@@ -3130,6 +3506,12 @@ bool Renderer::initialize(void* window) {
         }
         if (pipeline3DTranslucent != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline3DTranslucent);
+        }
+        if (instancedMeshPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, instancedMeshPipeline);
+        }
+        if (instancedGlowPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, instancedGlowPipeline);
         }
         SDL_ReleaseWindowFromGPUDevice(
           device,
@@ -3189,8 +3571,11 @@ void Renderer::render(
           static_cast<SDL_GPUGraphicsPipeline*>(
             gpuPipeline3DTranslucent_
           ),
+          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedMesh_),
+          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedGlow_),
           static_cast<SDL_GPUBuffer*>(gpuVertexBuffer_),
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
+          static_cast<GpuSimpleResources*>(gpuSimpleResources_),
           static_cast<SDL_GPUTexture*>(gpuFontTexture_),
           static_cast<SDL_GPUSampler*>(gpuFontSampler_),
           static_cast<TextureAtlas*>(gpuWorldTextureAtlas_),
@@ -3269,108 +3654,8 @@ void Renderer::render(
   SDL_SetRenderDrawColor(renderer, 12, 14, 18, 255);
   SDL_RenderClear(renderer);
 
-  if (settings.renderMode == 1) {
-    const Scene3D perspectiveScene = buildPerspectiveScene(
-      static_cast<float>(width) / static_cast<float>(std::max(1, height)),
-      arena,
-      player,
-      remotePlayers,
-      localLightningGun,
-      weaponFires,
-      rocketExplosions,
-      rockets,
-      settings
-    );
-    lastFrameDiagnostics_.totalUploadedVertices =
-      static_cast<std::uint32_t>(
-        perspectiveScene.vertices.size() +
-        perspectiveScene.translucentVertices.size()
-      );
-    lastFrameDiagnostics_.remoteCandidates = perspectiveScene.remoteCandidates;
-    lastFrameDiagnostics_.remoteFrustumVisible =
-      perspectiveScene.remoteFrustumVisible;
-    lastFrameDiagnostics_.remoteFrustumCulled =
-      perspectiveScene.remoteFrustumCulled;
-    lastFrameDiagnostics_.projectilesActive =
-      perspectiveScene.projectileStats.projectilesActive;
-    lastFrameDiagnostics_.projectilesFrustumCulled =
-      perspectiveScene.projectileStats.projectilesFrustumCulled;
-    lastFrameDiagnostics_.projectilesRendered =
-      perspectiveScene.projectileStats.projectilesRendered;
-    lastFrameDiagnostics_.projectileCoreInstances =
-      perspectiveScene.projectileStats.projectileCoreInstances;
-    lastFrameDiagnostics_.projectileGlowInstances =
-      perspectiveScene.projectileStats.projectileGlowInstances;
-    lastFrameDiagnostics_.projectileInstanceUploadBytes =
-      perspectiveScene.projectileStats.projectileInstanceUploadBytes;
-    lastFrameDiagnostics_.projectileMeshDrawCalls =
-      perspectiveScene.projectileStats.projectileMeshDrawCalls;
-    lastFrameDiagnostics_.projectileGlowDrawCalls =
-      perspectiveScene.projectileStats.projectileGlowDrawCalls;
-    lastFrameDiagnostics_.legacyProjectileDynamicVertices =
-      perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
-    lastFrameDiagnostics_.remoteBodyModelsBuilt =
-      perspectiveScene.remoteBodyModelsBuilt;
-    lastFrameDiagnostics_.remoteWeaponModelsBuilt =
-      perspectiveScene.remoteWeaponModelsBuilt;
-    lastFrameDiagnostics_.playerOutlinesBuilt =
-      perspectiveScene.playerOutlinesBuilt;
-    drawPerspectiveWorld(
-      renderer,
-      width,
-      height,
-      arena,
-      player,
-      remotePlayers,
-      perspectiveScene.remoteRenderVisible,
-      localLightningGun,
-      weaponFires,
-      rocketExplosions,
-      rockets,
-      settings
-    );
-    const PerspectiveCamera camera = playerPerspectiveCamera(
-      player,
-      static_cast<float>(width) / static_cast<float>(std::max(1, height)),
-      settings.fieldOfView
-    );
-    drawCommandList(
-      renderer,
-      buildFloatingHealthBars(
-        width,
-        height,
-        camera,
-        arena,
-        remotePlayers,
-        perspectiveScene.remoteRenderVisible,
-        settings,
-        hud
-      )
-    );
-    drawCommandList(
-      renderer,
-      buildFloatingDamageNumbers(width, height, camera, settings, hud)
-    );
-    drawCommandList(
-      renderer,
-      buildScreenUi(
-        width,
-        height,
-        firstVisibleRemote(remotePlayers),
-        settings,
-        hud,
-        console
-      )
-    );
-    SDL_RenderPresent(renderer);
-    lastFrameDiagnostics_.totalRenderMilliseconds =
-      millisecondsBetween(renderStart, RenderClock::now());
-    return;
-  }
-
-  const DrawList2D topDownScene = buildTopDownScene(
-    width,
-    height,
+  const Scene3D perspectiveScene = buildPerspectiveScene(
+    static_cast<float>(width) / static_cast<float>(std::max(1, height)),
     arena,
     player,
     remotePlayers,
@@ -3378,10 +3663,78 @@ void Renderer::render(
     weaponFires,
     rocketExplosions,
     rockets,
-    settings,
-    hud
+    settings
   );
-  drawCommandList(renderer, topDownScene);
+  lastFrameDiagnostics_.totalUploadedVertices =
+    static_cast<std::uint32_t>(
+      perspectiveScene.vertices.size() +
+      perspectiveScene.translucentVertices.size()
+    );
+  lastFrameDiagnostics_.remoteCandidates = perspectiveScene.remoteCandidates;
+  lastFrameDiagnostics_.remoteFrustumVisible =
+    perspectiveScene.remoteFrustumVisible;
+  lastFrameDiagnostics_.remoteFrustumCulled =
+    perspectiveScene.remoteFrustumCulled;
+  lastFrameDiagnostics_.projectilesActive =
+    perspectiveScene.projectileStats.projectilesActive;
+  lastFrameDiagnostics_.projectilesFrustumCulled =
+    perspectiveScene.projectileStats.projectilesFrustumCulled;
+  lastFrameDiagnostics_.projectilesRendered =
+    perspectiveScene.projectileStats.projectilesRendered;
+  lastFrameDiagnostics_.projectileCoreInstances =
+    perspectiveScene.projectileStats.projectileCoreInstances;
+  lastFrameDiagnostics_.projectileGlowInstances =
+    perspectiveScene.projectileStats.projectileGlowInstances;
+  lastFrameDiagnostics_.projectileInstanceUploadBytes =
+    perspectiveScene.projectileStats.projectileInstanceUploadBytes;
+  lastFrameDiagnostics_.projectileMeshDrawCalls =
+    perspectiveScene.projectileStats.projectileMeshDrawCalls;
+  lastFrameDiagnostics_.projectileGlowDrawCalls =
+    perspectiveScene.projectileStats.projectileGlowDrawCalls;
+  lastFrameDiagnostics_.legacyProjectileDynamicVertices =
+    perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
+  lastFrameDiagnostics_.remoteBodyModelsBuilt =
+    perspectiveScene.remoteBodyModelsBuilt;
+  lastFrameDiagnostics_.remoteWeaponModelsBuilt =
+    perspectiveScene.remoteWeaponModelsBuilt;
+  lastFrameDiagnostics_.playerOutlinesBuilt =
+    perspectiveScene.playerOutlinesBuilt;
+  drawPerspectiveWorld(
+    renderer,
+    width,
+    height,
+    arena,
+    player,
+    remotePlayers,
+    perspectiveScene.remoteRenderVisible,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  const PerspectiveCamera camera = playerPerspectiveCamera(
+    player,
+    static_cast<float>(width) / static_cast<float>(std::max(1, height)),
+    settings.fieldOfView
+  );
+  drawCommandList(
+    renderer,
+    buildFloatingHealthBars(
+      width,
+      height,
+      camera,
+      arena,
+      remotePlayers,
+      perspectiveScene.remoteRenderVisible,
+      settings,
+      hud
+    )
+  );
+  drawCommandList(
+    renderer,
+    buildFloatingDamageNumbers(width, height, camera, settings, hud)
+  );
   drawCommandList(
     renderer,
     buildScreenUi(
@@ -3505,6 +3858,11 @@ void Renderer::shutdown() {
       static_cast<TextureAtlas*>(gpuWorldTextureAtlas_)
     );
     gpuWorldTextureAtlas_ = nullptr;
+    destroyGpuSimpleResources(
+      static_cast<SDL_GPUDevice*>(gpuDevice_),
+      static_cast<GpuSimpleResources*>(gpuSimpleResources_)
+    );
+    gpuSimpleResources_ = nullptr;
     if (gpuTransferBuffer_ != nullptr) {
       SDL_ReleaseGPUTransferBuffer(
         static_cast<SDL_GPUDevice*>(gpuDevice_),
@@ -3541,6 +3899,20 @@ void Renderer::shutdown() {
         )
       );
       gpuPipeline3DTranslucent_ = nullptr;
+    }
+    if (gpuPipelineInstancedMesh_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedMesh_)
+      );
+      gpuPipelineInstancedMesh_ = nullptr;
+    }
+    if (gpuPipelineInstancedGlow_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedGlow_)
+      );
+      gpuPipelineInstancedGlow_ = nullptr;
     }
     SDL_ReleaseWindowFromGPUDevice(
       static_cast<SDL_GPUDevice*>(gpuDevice_),

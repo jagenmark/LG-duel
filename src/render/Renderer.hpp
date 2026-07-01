@@ -26,19 +26,13 @@ enum class PlayerOutlineStyle : int {
 }
 
 struct RenderSettings {
-  int renderMode = 0;
   float fieldOfView = 90.0F;
-  float cameraZoom = 1.0F;
-  bool rotateView = false;
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
   bool teammateLeanEnabled = true;
   float teammateLeanScale = 1.0F;
   float healthTextScale = 2.0F;
   float playerSizePixels = 14.0F;
-  bool crosshairUseScreenPosition = false;
-  float crosshairScreenX = 0.0F;
-  float crosshairScreenY = 0.0F;
   bool crosshairEnabled = true;
   int crosshairStyle = 0;
   float crosshairSize = 8.0F;
@@ -313,8 +307,11 @@ private:
   void* gpuPipeline_ = nullptr;
   void* gpuPipeline3D_ = nullptr;
   void* gpuPipeline3DTranslucent_ = nullptr;
+  void* gpuPipelineInstancedMesh_ = nullptr;
+  void* gpuPipelineInstancedGlow_ = nullptr;
   void* gpuVertexBuffer_ = nullptr;
   void* gpuTransferBuffer_ = nullptr;
+  void* gpuSimpleResources_ = nullptr;
   void* gpuFontTexture_ = nullptr;
   void* gpuFontSampler_ = nullptr;
   void* gpuWorldTextureAtlas_ = nullptr;

@@ -9,7 +9,7 @@ LG Duel is a small fixed-tick arena FPS. The architecture is split around an aut
 - Server: `src/server/ServerApp.*` hosts transports and ticks `src/server/ServerGame.*`, which owns authoritative match state, commands, bots, combat, projectiles, transient events, history, and snapshot publishing.
 - Shared simulation: `src/sim/Movement.*`, `src/sim/Combat.*`, `src/sim/Collision.*`, `src/sim/Arena.*`, `src/sim/DuelRules.*`, and `src/sim/ClanArenaRules.*` are used by both client and server where deterministic behavior matters.
 - Networking: `src/net/NetProtocol.hpp` defines packet/snapshot structs; `src/net/NetCodec.*` defines the wire layout and validation; `src/net/UdpTransport.*` and loopback/simulated transports move packets.
-- Rendering: `src/render/Renderer.*` selects SDL_GPU or SDL_Renderer fallback. `src/render/Scene3D.*`, `TopDownScene.*`, and `ScreenUi.*` build renderable geometry/UI from simulation snapshots and presentation state.
+- Rendering: `src/render/Renderer.*` selects SDL_GPU or SDL_Renderer fallback. `src/render/Scene3D.*` builds first-person 3D world/effect geometry, and `ScreenUi.*` builds screen-space HUD/UI overlays from simulation snapshots and presentation state.
 - Maps/assets/config: `src/map/MapParser.*` and `MapToArena.*` load restricted Quake `.map` files into `src/sim/Arena.*`; `config/gameplay.cfg` currently configures authoritative grenade tuning.
 - Tests: `tests/CMakeLists.txt` defines focused executables for sim, net/protocol, server, client prediction, render scene building, cvars, input, HUD, audio, and smoke coverage.
 

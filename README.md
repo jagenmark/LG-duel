@@ -20,7 +20,7 @@ LG Duel currently includes:
 * UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
 * Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
 * Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
-* SDL rendering with an SDL_GPU path for cached static world rendering and an SDL_Renderer fallback.
+* First-person 3D SDL rendering with an SDL_GPU path for cached static world rendering, dynamic effects, player/weapon/projectile presentation, and a 2D HUD/UI overlay.
 * Restricted Quake/TrenchBroom `.map` arena loading.
 
 Several current rendering and content paths remain prototype or transitional implementations. They are documented as such in PROJECT_CONTEXT.md; new substantial work should converge toward the reusable architecture described there.
@@ -169,9 +169,8 @@ Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom
 face material `512x512/Brick/Brick_14-512x512` resolves to
 `textures/512x512/Brick/Brick_14-512x512.png`. The SDL_GPU first-person
-renderer samples those textures on cuboid wall faces. Top-down rendering uses
-stable per-material colors for readability. The old grass/brown prototype
-treatment is no longer used.
+renderer samples those textures on cuboid wall faces. The old grass/brown
+prototype treatment is no longer used.
 
 The repository includes a TrenchBroom game setup in
 `tools/trenchbroom/LG Duel/`. Install or copy that folder into TrenchBroom's

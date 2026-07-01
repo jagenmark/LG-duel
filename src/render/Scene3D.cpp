@@ -27,7 +27,7 @@ constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
-constexpr std::uint32_t kSimpleInstanceUploadBytes = 56U;
+constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
 
 constexpr std::array<Vertex3D, 24> kPlasmaCoreMeshVertices = {{
   {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
@@ -2014,9 +2014,7 @@ Scene3D buildPerspectiveScene(
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
 
-  if (settings.renderMode == 1) {
-    addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
-  }
+  addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
     const RemotePlayerView& remote = remotePlayers[remoteIndex];
