@@ -18,6 +18,8 @@ constexpr float kPlaneEpsilon = 0.001F;
 constexpr float kPlaneIntersectionEpsilon = 0.000001F;
 constexpr float kBoundsPadding = 1.0F;
 constexpr float kQuakeToLgScale = 1.0F / 40.0F;
+constexpr float kDefaultLightIntensity = 1.0F;
+constexpr float kDefaultLightRadiusQuakeUnits = 320.0F;
 
 [[nodiscard]] bool parseFloat(std::string_view text, float& value) {
   const char* begin = text.data();
@@ -40,6 +42,66 @@ constexpr float kQuakeToLgScale = 1.0F / 40.0F;
 
 [[nodiscard]] Vec3 scaleQuakeUnits(Vec3 value) {
   return value * kQuakeToLgScale;
+}
+
+[[nodiscard]] bool parsePositiveFloat(
+  const MapEntity& entity,
+  std::string_view key,
+  float& value,
+  std::string& error
+) {
+  const std::string* text = entity.property(key);
+  if (text == nullptr) {
+    return true;
+  }
+  if (!parseFloat(*text, value) || value <= 0.0F) {
+    error = "line " + std::to_string(entity.line) + ": light " +
+      std::string(key) + " must be a positive finite float";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] TextureProjection textureProjectionForFace(
+  Vec3 normal,
+  const MapFace& face
+) {
+  TextureProjection projection;
+  Vec3 baseU = {};
+  Vec3 baseV = {};
+  const Vec3 absolute = {
+    std::fabs(normal.x),
+    std::fabs(normal.y),
+    std::fabs(normal.z),
+  };
+  if (absolute.z >= absolute.x && absolute.z >= absolute.y) {
+    baseU = {1.0F, 0.0F, 0.0F};
+    baseV = {0.0F, -1.0F, 0.0F};
+  } else if (absolute.x >= absolute.y) {
+    baseU = {0.0F, 1.0F, 0.0F};
+    baseV = {0.0F, 0.0F, -1.0F};
+  } else {
+    baseU = {1.0F, 0.0F, 0.0F};
+    baseV = {0.0F, 0.0F, -1.0F};
+  }
+
+  constexpr float kDegreesToRadians = 0.01745329252F;
+  const float radians = face.rotationDegrees * kDegreesToRadians;
+  const float sine = std::sin(radians);
+  const float cosine = std::cos(radians);
+  const Vec3 rotatedU = baseU * cosine - baseV * sine;
+  const Vec3 rotatedV = baseU * sine + baseV * cosine;
+  const float xScale = std::fabs(face.xScale) <= 0.0001F ? 1.0F : face.xScale;
+  const float yScale = std::fabs(face.yScale) <= 0.0001F ? 1.0F : face.yScale;
+  projection.uAxis = rotatedU / xScale;
+  projection.vAxis = rotatedV / yScale;
+  projection.uOffset = face.xOffset;
+  projection.vOffset = face.yOffset;
+  projection.rotationDegrees = face.rotationDegrees;
+  projection.uScale = xScale;
+  projection.vScale = yScale;
+  projection.valid = true;
+  return projection;
 }
 
 [[nodiscard]] bool parseOptionalYaw(const MapEntity& entity, std::string& error) {
@@ -115,6 +177,16 @@ constexpr float kQuakeToLgScale = 1.0F / 40.0F;
   return axis == normalAxis;
 }
 
+[[nodiscard]] std::size_t cuboidSceneFaceIndex(int axis, std::size_t side) {
+  if (axis == 2) {
+    return side == 0U ? 0U : 1U;
+  }
+  if (axis == 1) {
+    return side == 0U ? 2U : 4U;
+  }
+  return side == 0U ? 5U : 3U;
+}
+
 [[nodiscard]] bool convertCuboidBrush(
   const MapBrush& brush,
   ArenaWall& wall,
@@ -172,8 +244,18 @@ constexpr float kQuakeToLgScale = 1.0F / 40.0F;
     const std::size_t side = nearlyEqual(coordinate, planes[static_cast<std::size_t>(axis)][0])
       ? 0U
       : 1U;
-    const std::size_t faceIndex = static_cast<std::size_t>(axis) * 2U + side;
+    const std::size_t faceIndex = cuboidSceneFaceIndex(axis, side);
     wall.faceMaterialIds[faceIndex] = arenaMaterialId(face.material);
+    Vec3 normal = {};
+    if (axis == 0) {
+      normal.x = side == 0U ? -1.0F : 1.0F;
+    } else if (axis == 1) {
+      normal.y = side == 0U ? -1.0F : 1.0F;
+    } else {
+      normal.z = side == 0U ? -1.0F : 1.0F;
+    }
+    wall.faceTextureProjections[faceIndex] =
+      textureProjectionForFace(normal, face);
   }
   if (!(wall.min.x < wall.max.x && wall.min.y < wall.max.y && wall.min.z < wall.max.z)) {
     error = "line " + std::to_string(brush.line) + ": cuboid brush has degenerate or inverted bounds";
@@ -432,6 +514,7 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     face.normal = normal;
     face.distance = distance;
     face.materialId = arenaMaterialId(mapFace.material);
+    face.textureProjection = textureProjectionForFace(normal, mapFace);
     if (arenaBrush.materialId == 0U && face.materialId != 0U) {
       arenaBrush.materialId = face.materialId;
     }
@@ -483,9 +566,135 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
 }
 
 [[nodiscard]] bool isSpawnClass(std::string_view classname) {
-  return classname == "info_player_duel" ||
-    classname == "info_player_deathmatch" ||
-    classname == "lg_spawn";
+  return classname == "lg_spawn";
+}
+
+[[nodiscard]] bool isLightClass(std::string_view classname) {
+  return classname == "light" || classname == "light_point";
+}
+
+[[nodiscard]] bool parseLightColor(
+  const MapEntity& entity,
+  ArenaStaticLight& light,
+  std::string& error
+) {
+  const std::string* color = entity.property("_color");
+  if (color == nullptr) {
+    color = entity.property("color");
+  }
+  if (color == nullptr) {
+    return true;
+  }
+  if (!parseSpaceVec3(*color, light.color)) {
+    error = "line " + std::to_string(entity.line) + ": light color must be 'r g b'";
+    return false;
+  }
+  if (light.color.x > 1.0F || light.color.y > 1.0F || light.color.z > 1.0F) {
+    light.color = light.color / 255.0F;
+  }
+  if (
+    light.color.x < 0.0F || light.color.y < 0.0F || light.color.z < 0.0F ||
+    light.color.x > 1.0F || light.color.y > 1.0F || light.color.z > 1.0F
+  ) {
+    error = "line " + std::to_string(entity.line) +
+      ": light color channels must be normalized or 0..255";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool parseQuakeLightTuple(
+  const MapEntity& entity,
+  ArenaStaticLight& light,
+  std::string& error
+) {
+  const std::string* value = entity.property("_light");
+  if (value == nullptr) {
+    return true;
+  }
+
+  std::istringstream input{*value};
+  std::vector<float> values;
+  std::string token;
+  while (input >> token) {
+    float parsed = 0.0F;
+    if (!parseFloat(token, parsed)) {
+      error = "line " + std::to_string(entity.line) +
+        ": _light values must be finite floats";
+      return false;
+    }
+    values.push_back(parsed);
+  }
+
+  if (values.size() == 1U) {
+    if (values[0] <= 0.0F) {
+      error = "line " + std::to_string(entity.line) + ": _light intensity must be positive";
+      return false;
+    }
+    light.intensity = values[0] / 300.0F;
+    return true;
+  }
+  if (values.size() == 4U) {
+    if (
+      values[0] < 0.0F || values[1] < 0.0F || values[2] < 0.0F ||
+      values[0] > 1.0F || values[1] > 1.0F || values[2] > 1.0F ||
+      values[3] <= 0.0F
+    ) {
+      error = "line " + std::to_string(entity.line) +
+        ": _light must be intensity or 'r g b intensity'";
+      return false;
+    }
+    light.color = {values[0], values[1], values[2]};
+    light.intensity = values[3] / 300.0F;
+    return true;
+  }
+
+  error = "line " + std::to_string(entity.line) +
+    ": _light must be intensity or 'r g b intensity'";
+  return false;
+}
+
+[[nodiscard]] bool convertLightEntity(
+  const MapEntity& entity,
+  ArenaStaticLight& light,
+  std::string& error
+) {
+  const std::string* origin = entity.property("origin");
+  if (origin == nullptr) {
+    error = "line " + std::to_string(entity.line) + ": light entity is missing origin";
+    return false;
+  }
+  if (!parseSpaceVec3(*origin, light.position)) {
+    error = "line " + std::to_string(entity.line) + ": light origin must be 'x y z'";
+    return false;
+  }
+  light.position = scaleQuakeUnits(light.position);
+  light.intensity = kDefaultLightIntensity;
+  light.radius = scaleQuakeUnits({kDefaultLightRadiusQuakeUnits, 0.0F, 0.0F}).x;
+
+  if (
+    !parseLightColor(entity, light, error) ||
+    !parseQuakeLightTuple(entity, light, error)
+  ) {
+    return false;
+  }
+  if (const std::string* value = entity.property("light")) {
+    if (!parseFloat(*value, light.intensity) || light.intensity <= 0.0F) {
+      error = "line " + std::to_string(entity.line) +
+        ": light intensity must be a positive finite float";
+      return false;
+    }
+    light.intensity /= 300.0F;
+  }
+  if (!parsePositiveFloat(entity, "intensity", light.intensity, error)) {
+    return false;
+  }
+  float radiusQuakeUnits = light.radius / kQuakeToLgScale;
+  if (!parsePositiveFloat(entity, "radius", radiusQuakeUnits, error)) {
+    return false;
+  }
+  light.radius = radiusQuakeUnits * kQuakeToLgScale;
+  return true;
 }
 
 void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {
@@ -508,6 +717,7 @@ void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {
 ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaWall> walls;
   std::vector<ArenaBrush> brushes;
+  std::vector<ArenaStaticLight> staticLights;
   std::vector<Vec3> spawns;
   bool hasBoundsMin = false;
   bool hasBoundsMax = false;
@@ -559,6 +769,16 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         return {{}, false, error};
       }
       spawns.push_back(position);
+    } else if (isLightClass(*classname)) {
+      if (staticLights.size() >= Arena::kStaticLightCount) {
+        return {{}, false, "line " + std::to_string(entity.line) + ": too many light entities"};
+      }
+      ArenaStaticLight light;
+      std::string error;
+      if (!convertLightEntity(entity, light, error)) {
+        return {{}, false, error};
+      }
+      staticLights.push_back(light);
     } else if (*classname == "trigger_teleport") {
       continue;
     }
@@ -610,10 +830,16 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     for (std::size_t index = 0; index < result.arena.wallCount && index < walls.size(); ++index) {
       result.arena.walls[index].materialId = walls[index].materialId;
       result.arena.walls[index].faceMaterialIds = walls[index].faceMaterialIds;
+      result.arena.walls[index].faceTextureProjections =
+        walls[index].faceTextureProjections;
     }
     result.arena.brushCount = std::min(brushes.size(), Arena::kBrushCount);
     for (std::size_t index = 0; index < result.arena.brushCount; ++index) {
       result.arena.brushes[index] = brushes[index];
+    }
+    result.arena.staticLightCount = staticLights.size();
+    for (std::size_t index = 0; index < result.arena.staticLightCount; ++index) {
+      result.arena.staticLights[index] = staticLights[index];
     }
   }
   return result;

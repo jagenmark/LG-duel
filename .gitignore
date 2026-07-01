@@ -5,4 +5,5 @@
 skills-lock.json
 .agents
 AGENTS.md
-vscode/
+.vscode/
+maps/autosave/

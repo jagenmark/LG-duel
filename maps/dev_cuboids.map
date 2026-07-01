@@ -34,7 +34,7 @@
 }
 }
 {
-"classname" "info_player_duel"
+"classname" "lg_spawn"
 "origin" "-160 -120 40"
 "angle" "0"
 }
@@ -42,4 +42,11 @@
 "classname" "lg_spawn"
 "origin" "160 -120 40"
 "yaw" "180"
+}
+{
+"classname" "light"
+"origin" "160 -120 60"
+"light" "450"
+"radius" "420"
+"_color" "1 0.92 0.78"
 }

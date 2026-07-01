@@ -3,7 +3,9 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
+#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -15,6 +17,7 @@ namespace {
 constexpr std::size_t kHeaderBytes = 12;
 static_assert(Arena::kWallCount <= std::numeric_limits<std::uint8_t>::max());
 static_assert(Arena::kBrushCount <= std::numeric_limits<std::uint8_t>::max());
+static_assert(Arena::kStaticLightCount <= std::numeric_limits<std::uint8_t>::max());
 
 [[nodiscard]] bool isValidWeapon(Weapon weapon) {
   return weapon <= kLastWeapon;
@@ -426,8 +429,59 @@ bool readVec3(Reader& reader, Vec3& value) {
     reader.readFloat(value.z);
 }
 
+bool writeTextureProjection(Writer& writer, const TextureProjection& projection) {
+  return writeVec3(writer, projection.uAxis) &&
+    writeVec3(writer, projection.vAxis) &&
+    writer.writeFloat(projection.uOffset) &&
+    writer.writeFloat(projection.vOffset) &&
+    writer.writeFloat(projection.rotationDegrees) &&
+    writer.writeFloat(projection.uScale) &&
+    writer.writeFloat(projection.vScale) &&
+    writer.writeBool(projection.valid);
+}
+
+bool readTextureProjection(Reader& reader, TextureProjection& projection) {
+  return readVec3(reader, projection.uAxis) &&
+    readVec3(reader, projection.vAxis) &&
+    reader.readFloat(projection.uOffset) &&
+    reader.readFloat(projection.vOffset) &&
+    reader.readFloat(projection.rotationDegrees) &&
+    reader.readFloat(projection.uScale) &&
+    reader.readFloat(projection.vScale) &&
+    reader.readBool(projection.valid);
+}
+
+[[nodiscard]] bool textureDebugEnabled() {
+  const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG");
+  return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+[[nodiscard]] std::size_t textureProjectionCount(const Arena& arena) {
+  std::size_t count = 0;
+  for (std::size_t wallIndex = 0; wallIndex < arena.wallCount; ++wallIndex) {
+    for (const TextureProjection& projection : arena.walls[wallIndex].faceTextureProjections) {
+      if (projection.valid) {
+        ++count;
+      }
+    }
+  }
+  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
+    const ArenaBrush& brush = arena.brushes[brushIndex];
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      if (brush.faces[faceIndex].textureProjection.valid) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
 bool writeArena(Writer& writer, const Arena& arena) {
-  if (arena.wallCount > Arena::kWallCount || arena.brushCount > Arena::kBrushCount) {
+  if (
+    arena.wallCount > Arena::kWallCount ||
+    arena.brushCount > Arena::kBrushCount ||
+    arena.staticLightCount > Arena::kStaticLightCount
+  ) {
     return false;
   }
   return writeVec3(writer, arena.min) &&
@@ -441,6 +495,14 @@ bool writeArena(Writer& writer, const Arena& arena) {
           !writer.writeU32(arena.walls[index].materialId)
         ) {
           return false;
+        }
+        for (std::size_t faceIndex = 0; faceIndex < arena.walls[index].faceTextureProjections.size(); ++faceIndex) {
+          if (
+            !writer.writeU32(arena.walls[index].faceMaterialIds[faceIndex]) ||
+            !writeTextureProjection(writer, arena.walls[index].faceTextureProjections[faceIndex])
+          ) {
+            return false;
+          }
         }
       }
       if (!writer.writeU8(static_cast<std::uint8_t>(arena.brushCount))) {
@@ -471,6 +533,7 @@ bool writeArena(Writer& writer, const Arena& arena) {
             !writeVec3(writer, face.normal) ||
             !writer.writeFloat(face.distance) ||
             !writer.writeU32(face.materialId) ||
+            !writeTextureProjection(writer, face.textureProjection) ||
             !writer.writeU8(face.vertexCount)
           ) {
             return false;
@@ -487,6 +550,20 @@ bool writeArena(Writer& writer, const Arena& arena) {
           return false;
         }
       }
+      if (!writer.writeU8(static_cast<std::uint8_t>(arena.staticLightCount))) {
+        return false;
+      }
+      for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+        const ArenaStaticLight& light = arena.staticLights[index];
+        if (
+          !writeVec3(writer, light.position) ||
+          !writeVec3(writer, light.color) ||
+          !writer.writeFloat(light.intensity) ||
+          !writer.writeFloat(light.radius)
+        ) {
+          return false;
+        }
+      }
       return true;
     }();
 }
@@ -495,6 +572,7 @@ bool readArena(Reader& reader, Arena& arena) {
   Arena decoded;
   std::uint8_t wallCount = 0;
   std::uint8_t brushCount = 0;
+  std::uint8_t staticLightCount = 0;
   if (
     !readVec3(reader, decoded.min) ||
     !readVec3(reader, decoded.max) ||
@@ -511,6 +589,14 @@ bool readArena(Reader& reader, Arena& arena) {
       !reader.readU32(decoded.walls[index].materialId)
     ) {
       return false;
+    }
+    for (std::size_t faceIndex = 0; faceIndex < decoded.walls[index].faceTextureProjections.size(); ++faceIndex) {
+      if (
+        !reader.readU32(decoded.walls[index].faceMaterialIds[faceIndex]) ||
+        !readTextureProjection(reader, decoded.walls[index].faceTextureProjections[faceIndex])
+      ) {
+        return false;
+      }
     }
   }
   if (!reader.readU8(brushCount) || brushCount > Arena::kBrushCount) {
@@ -543,6 +629,7 @@ bool readArena(Reader& reader, Arena& arena) {
         !readVec3(reader, face.normal) ||
         !reader.readFloat(face.distance) ||
         !reader.readU32(face.materialId) ||
+        !readTextureProjection(reader, face.textureProjection) ||
         !reader.readU8(face.vertexCount) ||
         face.vertexCount < 3 ||
         face.vertexCount > ArenaBrushFace::kMaxVertices
@@ -558,6 +645,26 @@ bool readArena(Reader& reader, Arena& arena) {
   }
   for (Vec3& spawn : decoded.spawnPositions) {
     if (!readVec3(reader, spawn)) {
+      return false;
+    }
+  }
+  if (!reader.readU8(staticLightCount) || staticLightCount > Arena::kStaticLightCount) {
+    return false;
+  }
+  decoded.staticLightCount = staticLightCount;
+  for (std::size_t index = 0; index < decoded.staticLightCount; ++index) {
+    ArenaStaticLight& light = decoded.staticLights[index];
+    if (
+      !readVec3(reader, light.position) ||
+      !readVec3(reader, light.color) ||
+      !reader.readFloat(light.intensity) ||
+      !reader.readFloat(light.radius) ||
+      light.color.x < 0.0F ||
+      light.color.y < 0.0F ||
+      light.color.z < 0.0F ||
+      light.intensity <= 0.0F ||
+      light.radius <= 0.0F
+    ) {
       return false;
     }
   }
@@ -1133,6 +1240,13 @@ bool encodeServerSnapshot(
   }
 
   Writer writer(wire);
+  if (textureDebugEnabled() && includeArena) {
+    std::cerr
+      << "LG_DUEL_TEXTURE_PIPELINE_V2 encode snapshot arena revision="
+      << snapshot.mapRevision
+      << " projectedFaces=" << textureProjectionCount(snapshot.arena)
+      << '\n';
+  }
   if (
     !writeHeader(writer, PacketType::Snapshot) ||
     !writer.writeU32(snapshot.serverTick) ||
@@ -1326,6 +1440,13 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     (decoded.hasArena && !readArena(reader, decoded.arena))
   ) {
     return false;
+  }
+  if (textureDebugEnabled() && decoded.hasArena) {
+    std::cerr
+      << "LG_DUEL_TEXTURE_PIPELINE_V2 decode snapshot arena revision="
+      << decoded.mapRevision
+      << " projectedFaces=" << textureProjectionCount(decoded.arena)
+      << '\n';
   }
 
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {

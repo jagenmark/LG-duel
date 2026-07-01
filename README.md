@@ -79,12 +79,12 @@ run can override either value with the optional `server_host` input and the
 completes.
 
 The package contains the client and server executables, `SDL3.dll`, the required
-GPU shaders, double-click client and server launchers, the player guide, and
-`server-address.txt`. The packaging script writes the workflow-selected host and
-port to that file. `Play LG Duel.bat` reads only that file and reports an error
-if it is missing or malformed; it has no hardcoded server-address fallback. The
-client launcher selects SDL_GPU, preferring Vulkan with automatic renderer
-fallback.
+GPU shaders, runtime maps, double-click client and server launchers, the player
+guide, and `server-address.txt`. The packaging script writes the
+workflow-selected host and port to that file. `Play LG Duel.bat` reads only that
+file and reports an error if it is missing or malformed; it has no hardcoded
+server-address fallback. The client launcher selects SDL_GPU, preferring Vulkan
+with automatic renderer fallback.
 Friends should extract the entire ZIP and keep all files together.
 
 ## Current Playable Slice
@@ -157,7 +157,9 @@ bindlist
 actionlist
 ```
 
-## Restricted TrenchBroom `.map` Workflow
+## Mapmaking
+
+### Restricted TrenchBroom `.map` Workflow
 
 LG Duel can load a narrow Quake/TrenchBroom text `.map` subset beside the
 native `.lgmap` format. This is an authoring convenience only; it is not Quake
@@ -165,7 +167,7 @@ or BSP compatibility.
 
 Create a new TrenchBroom map, use cuboid or other convex brushes in
 `worldspawn`, place player spawns with point entities named
-`info_player_duel`, `info_player_deathmatch`, or `lg_spawn`, and save it as
+`lg_spawn`, and save it as
 `maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
 and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
 unit. A `16`-unit stair step therefore becomes `0.4` LG units, just below the
@@ -176,6 +178,12 @@ Spawn entities need an `origin` key like `"160 -120 40"` and may include
 `angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and
 `lg_bounds_max` can set arena bounds in the same Quake/TrenchBroom units;
 otherwise bounds are computed from converted boxes and spawns with padding.
+Static point lights may use `classname` `light` or `light_point` with an
+`origin`. The importer accepts Quake-style `light` intensity, optional
+`radius`, `_color`/`color` as `0..1` RGB triples, and `_light` as either an
+intensity or `r g b intensity`. Light positions and radii are converted from
+TrenchBroom units at the same `1/40` scale and are baked into static world
+vertex colors in the first-person renderer.
 
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom
@@ -184,6 +192,11 @@ face material `512x512/Brick/Brick_14-512x512` resolves to
 renderer samples those textures on cuboid wall faces. Top-down rendering uses
 stable per-material colors for readability. The old grass/brown prototype
 treatment is no longer used.
+
+The repository includes a TrenchBroom game setup in
+`tools/trenchbroom/LG Duel/`. Install or copy that folder into TrenchBroom's
+games directory to get the `lg_spawn` point entity and LG Duel worldspawn keys
+in the editor.
 
 After saving from TrenchBroom, run:
 
@@ -198,6 +211,10 @@ again. A successful build also syncs `maps/` into the runtime output directory
 along with `textures/`, shaders, config, and audio even when no C++ files
 changed.
 
+For faster local iteration on Windows, run `scripts/watch-maps.ps1` while editing; it
+copies changed `.map` and `.lgmap` files from `maps/` into
+`build/default/maps/` without rebuilding.
+
 Then load it with the existing console command:
 
 ```text
@@ -207,6 +224,8 @@ map <name>
 Bare map names still prefer `maps/<name>.lgmap` first for backwards
 compatibility, then try `maps/<name>.map`. Explicit extensions load only that
 file, for example `map dev_cuboids.map`.
+Map names are limited to letters, numbers, `_`, and `-`, with optional
+`.lgmap` or `.map` extension.
 
 Unsupported geometry fails loudly instead of being approximated where it cannot
 produce a valid collision volume. `.map` worldspawn brushes may be cuboids or
@@ -286,7 +305,7 @@ Runtime movement testing uses `g_accel`, `g_airaccel`, `g_friction`, `g_stopspee
 
 `g_lg_damage` defaults to `120` and is distributed over `g_lg_fire_hz` damage instances per second. The default `g_lg_fire_hz 20` produces 6 damage per LG instance while keeping knockback scaled from the existing per-second LG knockback value. `g_rl_knockback` controls authoritative rocket knockback on the Q3 `g_knockback` scale. Its default and Q3 reference value are `1000`, converted to an internal impulse of `22` before splash-damage falloff is applied.
 
-Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set and persist a name. Use `map <name>` to ask the authoritative server to load `maps/<name>.lgmap` or `maps/<name>.map` and reset the match; map names are limited to letters, numbers, `_`, and `-`, with optional `.lgmap` or `.map` extension.
+Hold `Tab` to show the scoreboard. It displays both replicated player names, round score, aggregate LG accuracy, and aggregate damage for the current match. Use `player <name>` in the client console to set and persist a name.
 
 `cl_render_mode 0` uses the standard top-down renderer. `cl_render_mode 1` uses
 a first-person perspective view from the local player's yaw and pitch. It

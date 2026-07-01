@@ -47,4 +47,6 @@ struct Scene3D {
   const RenderSettings& settings
 );
 
+[[nodiscard]] Scene3D buildStaticWorldScene(const Arena& arena);
+
 } // namespace lg

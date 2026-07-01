@@ -12,11 +12,23 @@
 
 namespace lg {
 
+struct TextureProjection {
+  Vec3 uAxis = {};
+  Vec3 vAxis = {};
+  float uOffset = 0.0F;
+  float vOffset = 0.0F;
+  float rotationDegrees = 0.0F;
+  float uScale = 1.0F;
+  float vScale = 1.0F;
+  bool valid = false;
+};
+
 struct ArenaWall {
   Vec3 min = {};
   Vec3 max = {};
   std::uint32_t materialId = 0;
   std::array<std::uint32_t, 6> faceMaterialIds = {};
+  std::array<TextureProjection, 6> faceTextureProjections = {};
 };
 
 struct ArenaBrushFace {
@@ -25,6 +37,7 @@ struct ArenaBrushFace {
   Vec3 normal = {};
   float distance = 0.0F;
   std::uint32_t materialId = 0;
+  TextureProjection textureProjection = {};
   std::array<std::uint8_t, kMaxVertices> vertices = {};
   std::uint8_t vertexCount = 0;
 };
@@ -42,9 +55,17 @@ struct ArenaBrush {
   std::uint8_t faceCount = 0;
 };
 
+struct ArenaStaticLight {
+  Vec3 position = {};
+  Vec3 color = {1.0F, 1.0F, 1.0F};
+  float intensity = 1.0F;
+  float radius = 8.0F;
+};
+
 struct Arena {
   static constexpr std::size_t kWallCount = 255;
   static constexpr std::size_t kBrushCount = 128;
+  static constexpr std::size_t kStaticLightCount = 64;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
@@ -52,6 +73,8 @@ struct Arena {
   std::size_t wallCount = 0;
   std::array<ArenaBrush, kBrushCount> brushes = {};
   std::size_t brushCount = 0;
+  std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
+  std::size_t staticLightCount = 0;
   std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},

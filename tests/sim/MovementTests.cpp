@@ -65,7 +65,7 @@ std::string basicMapWithBrush(std::string brush) {
     brush +
     "}\n"
     "{\n"
-    "\"classname\" \"info_player_duel\"\n"
+    "\"classname\" \"lg_spawn\"\n"
     "\"origin\" \"-120 0 40\"\n"
     "}\n"
     "{\n"

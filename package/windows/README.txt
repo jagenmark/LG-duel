@@ -13,6 +13,8 @@ LG DUEL WINDOWS PLAYTEST
 The launcher selects the SDL_GPU renderer, which prefers Vulkan and falls
 back automatically when Vulkan is unavailable.
 
+The maps folder is required for switching maps from the in-game console.
+
 The server address is stored in server-address.txt. The player launcher uses
 the host and port from that file; the host launcher uses the port. Packages
 built by GitHub Actions receive this file from the workflow's server settings,
