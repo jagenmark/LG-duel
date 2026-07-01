@@ -354,6 +354,30 @@ int main() {
     opponentVertexCount >= 1000U,
     "opponent should use the skinned GLB duelist mesh inside gameplay bounds"
   );
+  lg::RenderSettings legacyModelSettings = settings;
+  legacyModelSettings.playerModel = 0;
+  const lg::Scene3D legacyModelScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    legacyModelSettings
+  );
+  std::size_t legacyOpponentVertexCount = 0;
+  for (const lg::Vertex3D& vertex : legacyModelScene.vertices) {
+    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
+      ++legacyOpponentVertexCount;
+    }
+  }
+  failures += expect(
+    legacyOpponentVertexCount > 0U && legacyOpponentVertexCount < opponentVertexCount,
+    "r_player_model 0 should keep the previous legacy box model available"
+  );
 
   lg::PlayerState airborneOpponent = opponent;
   airborneOpponent.movementMode = lg::MovementMode::Airborne;

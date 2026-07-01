@@ -1157,6 +1157,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.enemyGreen = static_cast<std::uint8_t>(console.getInt("r_enemy_g"));
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
+  settings.playerModel = console.getInt("r_player_model");
   settings.enemyOutlineEnabled = console.getBool("r_enemy_outline_enable");
   settings.playerOutlineStyle = static_cast<PlayerOutlineStyle>(
     console.getInt("r_player_outline_style")

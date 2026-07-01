@@ -732,6 +732,7 @@ void addPlayerModel(
   Scene3D& scene,
   const PlayerState& player,
   RenderColor color,
+  int modelStyle,
   bool leanEnabled,
   float leanScale
 ) {
@@ -764,8 +765,8 @@ void addPlayerModel(
       basis.up * (local.y * verticalScale);
   };
 
-  const GltfSkinnedModel& model = duelistMaleModel();
-  if (!model.loaded()) {
+  const GltfSkinnedModel* model = modelStyle == 1 ? &duelistMaleModel() : nullptr;
+  if (model == nullptr || !model->loaded()) {
     forEachPlayerModelPart(
       player,
       leanEnabled,
@@ -778,7 +779,7 @@ void addPlayerModel(
     return;
   }
 
-  for (const SkinnedModelTriangle& triangle : model.triangles(poseRequests)) {
+  for (const SkinnedModelTriangle& triangle : model->triangles(poseRequests)) {
     const Vec3 first = point(triangle.vertices[0]);
     const Vec3 second = point(triangle.vertices[1]);
     const Vec3 third = point(triangle.vertices[2]);
@@ -1692,6 +1693,7 @@ Scene3D buildPerspectiveScene(
       scene,
       remote.player,
       opponentColor,
+      settings.playerModel,
       remote.teammate
         ? settings.teammateLeanEnabled
         : settings.enemyLeanEnabled,
