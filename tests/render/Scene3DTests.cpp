@@ -465,6 +465,64 @@ int main() {
     );
   }
 
+  {
+    lg::Arena sunArena;
+    sunArena.wallCount = 1;
+    sunArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    sunArena.walls[0].max = {2.0F, 2.0F, 1.0F};
+    const std::uint32_t topMaterial = lg::arenaMaterialId("sunlit_top");
+    const std::uint32_t bottomMaterial = lg::arenaMaterialId("sunlit_bottom");
+    sunArena.walls[0].faceMaterialIds[0] = bottomMaterial;
+    sunArena.walls[0].faceMaterialIds[1] = topMaterial;
+    sunArena.sunLight.enabled = true;
+    sunArena.sunLight.direction = {0.0F, 0.0F, -1.0F};
+    sunArena.sunLight.color = {1.0F, 1.0F, 1.0F};
+    sunArena.sunLight.intensity = 0.7F;
+    const lg::Scene3D sunScene = lg::buildStaticWorldScene(sunArena);
+    int topRed = 0;
+    int bottomRed = 0;
+    for (const lg::Vertex3D& vertex : sunScene.vertices) {
+      if (vertex.materialId == topMaterial) {
+        topRed = std::max(topRed, static_cast<int>(vertex.color.red));
+      } else if (vertex.materialId == bottomMaterial) {
+        bottomRed = std::max(bottomRed, static_cast<int>(vertex.color.red));
+      }
+    }
+    failures += expect(
+      topRed > bottomRed + 80,
+      "downward sun should make upward-facing floor brighter"
+    );
+  }
+
+  {
+    lg::Arena sunArena;
+    sunArena.wallCount = 1;
+    sunArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    sunArena.walls[0].max = {2.0F, 2.0F, 1.0F};
+    const std::uint32_t facingMaterial = lg::arenaMaterialId("sun_facing_wall");
+    const std::uint32_t awayMaterial = lg::arenaMaterialId("sun_away_wall");
+    sunArena.walls[0].faceMaterialIds[5] = facingMaterial;
+    sunArena.walls[0].faceMaterialIds[3] = awayMaterial;
+    sunArena.sunLight.enabled = true;
+    sunArena.sunLight.direction = {1.0F, 0.0F, 0.0F};
+    sunArena.sunLight.color = {1.0F, 1.0F, 1.0F};
+    sunArena.sunLight.intensity = 0.8F;
+    const lg::Scene3D sunScene = lg::buildStaticWorldScene(sunArena);
+    int facingRed = 0;
+    int awayRed = 0;
+    for (const lg::Vertex3D& vertex : sunScene.vertices) {
+      if (vertex.materialId == facingMaterial) {
+        facingRed = std::max(facingRed, static_cast<int>(vertex.color.red));
+      } else if (vertex.materialId == awayMaterial) {
+        awayRed = std::max(awayRed, static_cast<int>(vertex.color.red));
+      }
+    }
+    failures += expect(
+      facingRed > awayRed + 80,
+      "wall facing sun should receive more sun contribution than wall facing away"
+    );
+  }
+
   player.velocity = lg::yawRight(player.viewYawRadians) * 8.0F;
   const lg::Scene3D movingLocalScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,

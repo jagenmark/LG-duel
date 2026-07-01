@@ -201,6 +201,92 @@ int main() {
 
   {
     const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light_sun\"\n"
+      "\"direction\" \"0 0 -2\"\n"
+      "\"color\" \"255 240 200\"\n"
+      "\"intensity\" \"0.8\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "light_sun entity should convert");
+    failures += expect(result.arena.sunLight.enabled, "light_sun should enable arena sun light");
+    failures += expect(
+      nearlyEqual(result.arena.sunLight.direction.z, -1.0F) &&
+        nearlyEqual(result.arena.sunLight.intensity, 0.8F),
+      "light_sun direction should be normalized and intensity preserved"
+    );
+    failures += expect(
+      nearlyEqual(result.arena.sunLight.color.x, 1.0F) &&
+        result.arena.sunLight.color.y > 0.93F &&
+        result.arena.sunLight.color.z > 0.78F,
+      "light_sun 0..255 color should normalize"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light_sun\"\n"
+      "\"direction\" \"1 0 0\"\n"
+      "\"_color\" \"0.25 0.5 1\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "light_sun should accept _color");
+    failures += expect(
+      nearlyEqual(result.arena.sunLight.color.x, 0.25F) &&
+        nearlyEqual(result.arena.sunLight.color.y, 0.5F) &&
+        nearlyEqual(result.arena.sunLight.color.z, 1.0F),
+      "light_sun 0..1 color should be preserved"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light_sun\"\n"
+      "\"direction\" \"0 0 0\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "zero light_sun direction should be rejected");
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light_sun\"\n"
+      "\"angle\" \"90\"\n"
+      "\"pitch\" \"0\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "light_sun angle/pitch fallback should convert");
+    failures += expect(
+      nearlyEqual(result.arena.sunLight.direction.x, 0.0F) &&
+        nearlyEqual(result.arena.sunLight.direction.y, 1.0F) &&
+        nearlyEqual(result.arena.sunLight.direction.z, 0.0F),
+      "light_sun angle/pitch fallback should derive direction"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light_sun\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"light_sun\"\n"
+      "\"direction\" \"0 0 -1\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "multiple light_sun entities should be rejected");
+  }
+
+  {
+    const std::string text =
       "{\n"
       "\"classname\" \"worldspawn\"\n"
       "\"lg_bounds_min\" \"-80 -80 -40\"\n"

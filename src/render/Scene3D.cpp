@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstdint>
@@ -23,9 +24,17 @@ constexpr float kQuarterTurnRadians = 1.57079632679F;
 constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
+constexpr float kStaticLightAmbient = 0.18F;
+constexpr float kSunWrapMinimum = 0.15F;
+constexpr float kStaticLightMax = 2.0F;
 
 [[nodiscard]] bool textureDebugEnabled() {
   const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG");
+  return value != nullptr && value[0] != '\0' && value[0] != '0';
+}
+
+[[nodiscard]] bool lightDebugEnabled() {
+  const char* value = std::getenv("LG_DUEL_LIGHT_DEBUG");
   return value != nullptr && value[0] != '\0' && value[0] != '0';
 }
 
@@ -368,15 +377,14 @@ void addSphereApprox(
   Vec3 normal,
   RenderColor base
 ) {
-  if (arena.staticLightCount == 0) {
+  if (arena.staticLightCount == 0 && !arena.sunLight.enabled) {
     return base;
   }
 
-  constexpr float kAmbient = 0.18F;
   Vec3 lightColor = {
-    static_cast<float>(base.red) * kAmbient,
-    static_cast<float>(base.green) * kAmbient,
-    static_cast<float>(base.blue) * kAmbient,
+    static_cast<float>(base.red) * kStaticLightAmbient,
+    static_cast<float>(base.green) * kStaticLightAmbient,
+    static_cast<float>(base.blue) * kStaticLightAmbient,
   };
   for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
     const ArenaStaticLight& light = arena.staticLights[index];
@@ -393,10 +401,22 @@ void addSphereApprox(
     lightColor.y += static_cast<float>(base.green) * light.color.y * contribution;
     lightColor.z += static_cast<float>(base.blue) * light.color.z * contribution;
   }
+  if (arena.sunLight.enabled) {
+    const ArenaSunLight& sun = arena.sunLight;
+    // Sun direction is the direction rays travel; negate it for the incoming
+    // light vector from the surface toward the sun.
+    const float sunFactor =
+      std::max(dot(normal, sun.direction * -1.0F), kSunWrapMinimum);
+    const float contribution = sun.intensity * sunFactor;
+    lightColor.x += static_cast<float>(base.red) * sun.color.x * contribution;
+    lightColor.y += static_cast<float>(base.green) * sun.color.y * contribution;
+    lightColor.z += static_cast<float>(base.blue) * sun.color.z * contribution;
+  }
+  const float maxChannel = 255.0F * kStaticLightMax;
   return {
-    static_cast<std::uint8_t>(std::clamp(lightColor.x, 0.0F, 255.0F)),
-    static_cast<std::uint8_t>(std::clamp(lightColor.y, 0.0F, 255.0F)),
-    static_cast<std::uint8_t>(std::clamp(lightColor.z, 0.0F, 255.0F)),
+    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.x, 0.0F, maxChannel), 255.0F)),
+    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.y, 0.0F, maxChannel), 255.0F)),
+    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.z, 0.0F, maxChannel), 255.0F)),
     base.alpha,
   };
 }
@@ -2044,6 +2064,7 @@ for (const RocketProjectileSnapshot& projectile : rockets) {
 }
 
 Scene3D buildStaticWorldScene(const Arena& arena) {
+  const auto buildStart = std::chrono::steady_clock::now();
   Scene3D scene;
   scene.vertices.reserve(
     512U +
@@ -2060,6 +2081,23 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     addArenaBrush(scene, arena, arena.brushes[index]);
+  }
+
+  if (lightDebugEnabled()) {
+    const auto buildEnd = std::chrono::steady_clock::now();
+    const float buildMs =
+      std::chrono::duration<float, std::milli>(buildEnd - buildStart).count();
+    std::cerr
+      << "LG_DUEL_LIGHT_DEBUG static lighting"
+      << " sunEnabled=" << (arena.sunLight.enabled ? "true" : "false")
+      << " sunDirection=" << arena.sunLight.direction.x << ','
+      << arena.sunLight.direction.y << ',' << arena.sunLight.direction.z
+      << " sunIntensity=" << arena.sunLight.intensity
+      << " sunColor=" << arena.sunLight.color.x << ','
+      << arena.sunLight.color.y << ',' << arena.sunLight.color.z
+      << " ambient=" << kStaticLightAmbient
+      << " buildMs=" << buildMs
+      << '\n';
   }
 
   return scene;

@@ -43,7 +43,6 @@ The expected local build tree is `build/default`.
 ## Run Locally
 
 Start a server:
-
 ```powershell
 .\build\default\lg_duel_server.exe 27960
 ```
@@ -100,3 +99,49 @@ Architecture docs:
 Reference:
 
 - [Console and cvar bible](docs/CONSOLE-BIBLE.md)
+
+
+## Mapmaking
+
+### Restricted TrenchBroom `.map` Workflow
+
+LG Duel can load a narrow Quake/TrenchBroom text `.map` subset beside the
+native `.lgmap` format. This is an authoring convenience only; it is not Quake
+or BSP compatibility.
+
+Create a new TrenchBroom map, use cuboid or other convex brushes in
+`worldspawn`, place player spawns with point entities named
+`lg_spawn`, and save it as
+`maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
+and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
+unit. A `16`-unit stair step therefore becomes `0.4` LG units, just below the
+current walkable step height. Native `.lgmap` files continue to use LG Duel
+world units directly.
+
+Spawn entities need an `origin` key like `"160 -120 40"` and may include
+`angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and
+`lg_bounds_max` can set arena bounds in the same Quake/TrenchBroom units;
+otherwise bounds are computed from converted boxes and spawns with padding.
+Static point lights may use `classname` `light` or `light_point` with an
+`origin`. The importer accepts Quake-style `light` intensity, optional
+`radius`, `_color`/`color` as `0..1` RGB triples, and `_light` as either an
+intensity or `r g b intensity`. Light positions and radii are converted from
+TrenchBroom units at the same `1/40` scale and are baked into static world
+vertex colors in the first-person renderer. Outdoor maps may also define one
+invisible `light_sun` entity with `direction` as the direction light rays
+travel, for example `0 0 -1` for downward light. `light_sun` supports
+`intensity`, `color`/`_color`, and `angle` plus `pitch` as a fallback when
+`direction` is omitted.
+
+Brush texture names are preserved as material ids and replicated to clients.
+Referenced textures must exist under `textures/`; for example a TrenchBroom
+face material `512x512/Brick/Brick_14-512x512` resolves to
+`textures/512x512/Brick/Brick_14-512x512.png`. The SDL_GPU first-person
+renderer samples those textures on cuboid wall faces. Top-down rendering uses
+stable per-material colors for readability. The old grass/brown prototype
+treatment is no longer used.
+
+The repository includes a TrenchBroom game setup in
+`tools/trenchbroom/LG Duel/`. Install or copy that folder into TrenchBroom's
+games directory to get the `lg_spawn` point entity and LG Duel worldspawn keys
+in the editor.
