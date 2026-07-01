@@ -448,8 +448,10 @@ spawn p2 2,0,0.5 yaw=180
     lg::ServerSnapshot mapSnapshot = latestSnapshot(transport);
     failures += expect(
       mapSnapshot.mapRevision == initialRevision + 1 &&
-        mapSnapshot.arena.wallCount == 1 &&
-        mapSnapshot.arena.max.x == 6.0F &&
+        mapSnapshot.map.mapName == "tiny" &&
+        mapSnapshot.map.contentHash == lg::hashArena(server.arena()) &&
+        server.arena().wallCount == 1 &&
+        server.arena().max.x == 6.0F &&
         mapSnapshot.players[0].position.x == -2.0F &&
         mapSnapshot.players[1].position.x == 2.0F,
       "client map request should load a server-local .lgmap and reset spawns"
@@ -1625,6 +1627,12 @@ spawn p2 2,0,0.5 yaw=180
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {20.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-2.0F, 0.0F, 0.5F};
+    arena.spawnPositions[1] = {2.0F, 0.0F, 0.5F};
+    server.setArena(arena);
     latestSnapshot(transport);
 
     lg::CommandPacket lighterGrenade;
@@ -1639,6 +1647,8 @@ spawn p2 2,0,0.5 yaw=180
     grenade.sequence = 2;
     grenade.attack = true;
     grenade.weapon = lg::Weapon::GrenadeLauncher;
+    grenade.planarAim = false;
+    grenade.viewPitchRadians = -0.2F;
     transport.sendCommand(lg::CommandPacket{0, grenade, false});
     bool exploded = false;
     lg::ServerSnapshot snapshot;

@@ -39,7 +39,7 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 }
 
 [[nodiscard]] double latestPresentationTick(
-  const std::deque<SnapshotInterpolation::Frame>& snapshots,
+  const std::vector<SnapshotInterpolation::Frame>& snapshots,
   float interpolationDelaySeconds
 ) {
   if (snapshots.empty()) {
@@ -75,6 +75,9 @@ PlayerState interpolatePlayerState(
 }
 
 void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
+  if (snapshots_.capacity() < kMaxBufferedSnapshots) {
+    snapshots_.reserve(kMaxBufferedSnapshots);
+  }
   const Frame frame{snapshot.serverTick, snapshot.players};
   if (!initialized_) {
     snapshots_.push_back(frame);
@@ -89,7 +92,7 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
 
   snapshots_.push_back(frame);
   while (snapshots_.size() > kMaxBufferedSnapshots) {
-    snapshots_.pop_front();
+    snapshots_.erase(snapshots_.begin());
   }
 
   presentationTick_ = std::min(
@@ -122,7 +125,7 @@ void SnapshotInterpolation::advance(
     snapshots_.size() > 2 &&
     static_cast<double>(snapshots_[1].serverTick) < presentationTick_ - 1.0
   ) {
-    snapshots_.pop_front();
+    snapshots_.erase(snapshots_.begin());
   }
 }
 

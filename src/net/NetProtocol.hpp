@@ -4,6 +4,7 @@
 #include "sim/Combat.hpp"
 #include "sim/Arena.hpp"
 #include "sim/GameMode.hpp"
+#include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -74,7 +75,14 @@ struct CommandPacket {
   float lightningKnockback = 1000.0F;
   float lightningFireHz = 20.0F;
   float rocketKnockback = 1000.0F;
-  WeaponDamageTuning weaponDamage = {};
+  WeaponDamageTuning weaponDamage = {
+    5,
+    5,
+    120,
+    80,
+    100,
+    20,
+  };
   float vampirism = 0.0F;
   std::string chatMessage;
   std::string playerName;
@@ -141,8 +149,7 @@ struct LocalHitFeedbackEvent {
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
-  bool hasArena = false;
-  Arena arena = {};
+  MapDescriptor map = {};
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};
@@ -203,5 +210,13 @@ struct ServerSnapshot {
   std::uint8_t chatPlayerIndex = 0;
   std::string chatMessage;
 };
+
+// Snapshots are decoded, queued, copied, assigned, and interpolated constantly.
+// The current dynamic-state snapshot is about 3 KiB; keep static map geometry
+// owned by map/server/client state, not snapshots.
+static_assert(
+  sizeof(ServerSnapshot) < 4096,
+  "ServerSnapshot must remain compact; static Arena data belongs outside snapshots."
+);
 
 } // namespace lg

@@ -65,6 +65,13 @@ void ClientSession::update() {
   }
   if (game_) {
     game_->receiveSnapshots();
+    if (game_->hasConnectionError()) {
+      statusMessage_ = game_->connectionError();
+      game_.reset();
+      transport_.reset();
+      state_ = ClientConnectionState::Failed;
+      return;
+    }
   }
 }
 

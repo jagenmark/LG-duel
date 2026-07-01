@@ -163,6 +163,7 @@ constexpr float kProjectileCollisionEpsilon = 0.0001F;
 } // namespace
 
 ServerGame::ServerGame(NetTransport& transport) : transport_(transport) {
+  mapDescriptor_ = describeMap("thunderstruck", arena_);
   rocketLauncherTuning_.knockback = q3KnockbackToInternal(rocketKnockback_);
   const std::filesystem::path gameplayConfigPath = defaultGameplayConfigPath();
   if (!gameplayConfigPath.empty()) {
@@ -650,8 +651,7 @@ void ServerGame::resetMatch() {
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
   snapshot_.mapRevision = mapRevision_;
-  snapshot_.arena = arena_;
-  snapshot_.hasArena = true;
+  snapshot_.map = mapDescriptor_;
   snapshot_.connectedPlayers = connectedPlayers;
   snapshot_.gameMode = gameMode;
   snapshot_.teams = teams;
@@ -724,7 +724,12 @@ void ServerGame::resetMatch() {
 }
 
 void ServerGame::setArena(const Arena& arena) {
+  setArena(arena, describeMap("custom", arena));
+}
+
+void ServerGame::setArena(const Arena& arena, MapDescriptor descriptor) {
   arena_ = arena;
+  mapDescriptor_ = std::move(descriptor);
   ++mapRevision_;
   if (mapRevision_ == 0) {
     mapRevision_ = 1;
@@ -770,6 +775,10 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
 }
 
 void ServerGame::respawnRound() {
+  commands_ = {};
+  viewedServerTicks_ = {};
+  hasCommand_ = {};
+  receivedCommandThisTick_ = {};
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     respawnPlayer(playerIndex);
   }
@@ -1809,57 +1818,16 @@ const std::string& ServerGame::mapDirectory() const {
 }
 
 bool ServerGame::loadRequestedMap(const std::string& mapName) {
-  if (mapName.empty() || mapName.size() > kMaxMapNameBytes) {
+  if (!isValidMapName(mapName)) {
     return false;
   }
 
-  namespace fs = std::filesystem;
-  const fs::path requested(mapName);
-  if (requested.has_parent_path() || requested.filename().string() != mapName) {
-    return false;
+  const LocalMapLoadResult result = loadLocalMap(mapName, mapDirectory_);
+  if (result.ok) {
+    setArena(result.arena, result.descriptor);
+    return true;
   }
-
-  const std::string extension = requested.extension().string();
-  const std::string stem = extension.empty()
-    ? mapName
-    : requested.stem().string();
-  if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
-    return false;
-  }
-  if (stem.empty()) {
-    return false;
-  }
-  for (const unsigned char character : stem) {
-    if (
-      !std::isalnum(character) &&
-      character != '_' &&
-      character != '-'
-    ) {
-      return false;
-    }
-  }
-
-  const fs::path directory = fs::path(mapDirectory_.empty() ? "maps" : mapDirectory_);
-  std::vector<fs::path> candidates;
-  if (extension.empty()) {
-    candidates.push_back(directory / (mapName + ".lgmap"));
-    candidates.push_back(directory / (mapName + ".map"));
-  } else {
-    candidates.push_back(directory / mapName);
-  }
-
-  for (const fs::path& path : candidates) {
-    const ArenaLoadResult result = loadArenaFromFile(path.string());
-    if (result.ok) {
-      setArena(result.arena);
-      return true;
-    }
-  }
-  std::cerr << "map load failed for '" << mapName << "'; tried";
-  for (const fs::path& path : candidates) {
-    std::cerr << " '" << path.string() << "'";
-  }
-  std::cerr << '\n';
+  std::cerr << "map load failed for '" << mapName << "': " << result.error << '\n';
   return false;
 }
 

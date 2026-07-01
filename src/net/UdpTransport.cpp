@@ -433,21 +433,16 @@ bool UdpServerTransport::receiveCommand(CommandPacket& packet) {
 
 void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   impl_->lastServerTick = snapshot.serverTick;
-  constexpr std::uint32_t kFullArenaSnapshotIntervalTicks = 125;
   for (Impl::ClientSlot& client : impl_->clients) {
     if (!client.active) {
       continue;
     }
 
-    const bool includeArena =
-      client.lastFullArenaRevision != snapshot.mapRevision ||
-      snapshot.serverTick - client.lastFullArenaTick >= kFullArenaSnapshotIntervalTicks;
-
     WirePacket wire;
-    if (!encodeServerSnapshot(snapshot, includeArena, wire)) {
+    if (!encodeServerSnapshot(snapshot, wire)) {
       continue;
     }
-    if (sendWire(impl_->socket, client.endpoint, wire) && includeArena) {
+    if (sendWire(impl_->socket, client.endpoint, wire)) {
       client.lastFullArenaRevision = snapshot.mapRevision;
       client.lastFullArenaTick = snapshot.serverTick;
     }
@@ -525,7 +520,7 @@ struct UdpClientTransport::Impl {
     if (type == PacketType::Snapshot && connected) {
       auto snapshot = std::make_unique<ServerSnapshot>();
       if (decodeServerSnapshot(wire, *snapshot)) {
-        snapshots.push_back(std::move(*snapshot));
+        snapshots.push_back(wire);
         lastServerPacket = now;
       }
     } else if (type == PacketType::Pong && connected) {
@@ -629,7 +624,7 @@ struct UdpClientTransport::Impl {
   std::uint16_t port = 0;
   SocketHandle socket = kInvalidSocket;
   Endpoint server = {};
-  std::deque<ServerSnapshot> snapshots;
+  std::deque<WirePacket> snapshots;
   std::deque<CommandPacket> commandHistory;
   ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
@@ -766,9 +761,9 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   if (impl_->snapshots.empty()) {
     return false;
   }
-  snapshot = impl_->snapshots.front();
+  const WirePacket wire = impl_->snapshots.front();
   impl_->snapshots.pop_front();
-  return true;
+  return decodeServerSnapshot(wire, snapshot);
 }
 
 bool UdpClientTransport::connected() const {

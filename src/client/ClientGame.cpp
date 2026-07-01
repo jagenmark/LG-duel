@@ -2,14 +2,18 @@
 
 #include "shared/Constants.hpp"
 #include "shared/Sequence.hpp"
+#include "sim/MapRegistry.hpp"
 
 #include <memory>
+#include <string>
 #include <utility>
 
 namespace lg {
 
 ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
-  : transport_(transport), localPlayerIndex_(localPlayerIndex) {}
+  : transport_(transport), localPlayerIndex_(localPlayerIndex) {
+  map_ = describeMap("thunderstruck", arena_);
+}
 
 void ClientGame::sendCommand(
   const UserCommand& command,
@@ -84,17 +88,25 @@ void ClientGame::sendCommand(
 void ClientGame::receiveSnapshots() {
   auto receivedStorage = std::make_unique<ServerSnapshot>();
   ServerSnapshot& received = *receivedStorage;
-  while (transport_.receiveSnapshot(received)) {
+  while (connectionError_.empty() && transport_.receiveSnapshot(received)) {
+    if (received.map.contentHash == 0 && received.map.mapName == map_.mapName) {
+      received.map = map_;
+    }
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
-      if (received.mapRevision != mapRevision_ && !received.hasArena) {
-        continue;
-      }
-      if (received.hasArena) {
-        arena_ = received.arena;
+      const bool mapChanged =
+        received.mapRevision != mapRevision_ ||
+        received.map.mapName != map_.mapName ||
+        received.map.contentHash != map_.contentHash;
+      if (mapChanged) {
+        LocalMapLoadResult loaded = loadAndVerifyLocalMap(received.map);
+        if (!loaded.ok) {
+          connectionError_ = loaded.error;
+          continue;
+        }
+        arena_ = loaded.arena;
+        map_ = loaded.descriptor;
         mapRevision_ = received.mapRevision;
       }
-      received.hasArena = false;
-      received.arena = {};
       snapshot_ = received;
       if (
         hasPendingMovementTuning_ &&
@@ -169,6 +181,14 @@ const MovementTuning& ClientGame::movementTuning() const {
 
 const Arena& ClientGame::arena() const {
   return arena_;
+}
+
+bool ClientGame::hasConnectionError() const {
+  return !connectionError_.empty();
+}
+
+const std::string& ClientGame::connectionError() const {
+  return connectionError_;
 }
 
 } // namespace lg

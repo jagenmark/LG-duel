@@ -3,9 +3,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
-#include <cstdlib>
 #include <cstdint>
-#include <iostream>
 #include <limits>
 #include <memory>
 #include <string>
@@ -15,9 +13,6 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kHeaderBytes = 12;
-static_assert(Arena::kWallCount <= std::numeric_limits<std::uint8_t>::max());
-static_assert(Arena::kBrushCount <= std::numeric_limits<std::uint8_t>::max());
-static_assert(Arena::kStaticLightCount <= std::numeric_limits<std::uint8_t>::max());
 
 [[nodiscard]] bool isValidWeapon(Weapon weapon) {
   return weapon <= kLastWeapon;
@@ -427,278 +422,6 @@ bool readVec3(Reader& reader, Vec3& value) {
   return reader.readFloat(value.x) &&
     reader.readFloat(value.y) &&
     reader.readFloat(value.z);
-}
-
-bool writeTextureProjection(Writer& writer, const TextureProjection& projection) {
-  return writeVec3(writer, projection.uAxis) &&
-    writeVec3(writer, projection.vAxis) &&
-    writer.writeFloat(projection.uOffset) &&
-    writer.writeFloat(projection.vOffset) &&
-    writer.writeFloat(projection.rotationDegrees) &&
-    writer.writeFloat(projection.uScale) &&
-    writer.writeFloat(projection.vScale) &&
-    writer.writeBool(projection.valid);
-}
-
-bool readTextureProjection(Reader& reader, TextureProjection& projection) {
-  return readVec3(reader, projection.uAxis) &&
-    readVec3(reader, projection.vAxis) &&
-    reader.readFloat(projection.uOffset) &&
-    reader.readFloat(projection.vOffset) &&
-    reader.readFloat(projection.rotationDegrees) &&
-    reader.readFloat(projection.uScale) &&
-    reader.readFloat(projection.vScale) &&
-    reader.readBool(projection.valid);
-}
-
-[[nodiscard]] bool textureDebugEnabled() {
-  const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG");
-  return value != nullptr && value[0] != '\0' && value[0] != '0';
-}
-
-[[nodiscard]] std::size_t textureProjectionCount(const Arena& arena) {
-  std::size_t count = 0;
-  for (std::size_t wallIndex = 0; wallIndex < arena.wallCount; ++wallIndex) {
-    for (const TextureProjection& projection : arena.walls[wallIndex].faceTextureProjections) {
-      if (projection.valid) {
-        ++count;
-      }
-    }
-  }
-  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
-    const ArenaBrush& brush = arena.brushes[brushIndex];
-    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
-      if (brush.faces[faceIndex].textureProjection.valid) {
-        ++count;
-      }
-    }
-  }
-  return count;
-}
-
-bool writeArena(Writer& writer, const Arena& arena) {
-  if (
-    arena.wallCount > Arena::kWallCount ||
-    arena.brushCount > Arena::kBrushCount ||
-    arena.staticLightCount > Arena::kStaticLightCount
-  ) {
-    return false;
-  }
-  return writeVec3(writer, arena.min) &&
-    writeVec3(writer, arena.max) &&
-    writer.writeU8(static_cast<std::uint8_t>(arena.wallCount)) &&
-    [&]() {
-      for (std::size_t index = 0; index < arena.wallCount; ++index) {
-        if (
-          !writeVec3(writer, arena.walls[index].min) ||
-          !writeVec3(writer, arena.walls[index].max) ||
-          !writer.writeU32(arena.walls[index].materialId)
-        ) {
-          return false;
-        }
-        for (std::size_t faceIndex = 0; faceIndex < arena.walls[index].faceTextureProjections.size(); ++faceIndex) {
-          if (
-            !writer.writeU32(arena.walls[index].faceMaterialIds[faceIndex]) ||
-            !writeTextureProjection(writer, arena.walls[index].faceTextureProjections[faceIndex])
-          ) {
-            return false;
-          }
-        }
-      }
-      if (!writer.writeU8(static_cast<std::uint8_t>(arena.brushCount))) {
-        return false;
-      }
-      for (std::size_t index = 0; index < arena.brushCount; ++index) {
-        const ArenaBrush& brush = arena.brushes[index];
-        if (
-          brush.faceCount > ArenaBrush::kMaxFaces ||
-          brush.vertexCount > ArenaBrush::kMaxVertices ||
-          !writeVec3(writer, brush.min) ||
-          !writeVec3(writer, brush.max) ||
-          !writer.writeU32(brush.materialId) ||
-          !writer.writeU8(brush.vertexCount) ||
-          !writer.writeU8(brush.faceCount)
-        ) {
-          return false;
-        }
-        for (std::uint8_t vertex = 0; vertex < brush.vertexCount; ++vertex) {
-          if (!writeVec3(writer, brush.vertices[vertex])) {
-            return false;
-          }
-        }
-        for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
-          const ArenaBrushFace& face = brush.faces[faceIndex];
-          if (
-            face.vertexCount > ArenaBrushFace::kMaxVertices ||
-            !writeVec3(writer, face.normal) ||
-            !writer.writeFloat(face.distance) ||
-            !writer.writeU32(face.materialId) ||
-            !writeTextureProjection(writer, face.textureProjection) ||
-            !writer.writeU8(face.vertexCount)
-          ) {
-            return false;
-          }
-          for (std::uint8_t vertex = 0; vertex < face.vertexCount; ++vertex) {
-            if (!writer.writeU8(face.vertices[vertex])) {
-              return false;
-            }
-          }
-        }
-      }
-      for (const Vec3& spawn : arena.spawnPositions) {
-        if (!writeVec3(writer, spawn)) {
-          return false;
-        }
-      }
-      if (!writer.writeU8(static_cast<std::uint8_t>(arena.staticLightCount))) {
-        return false;
-      }
-      for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
-        const ArenaStaticLight& light = arena.staticLights[index];
-        if (
-          !writeVec3(writer, light.position) ||
-          !writeVec3(writer, light.color) ||
-          !writer.writeFloat(light.intensity) ||
-          !writer.writeFloat(light.radius)
-        ) {
-          return false;
-        }
-      }
-      return true;
-    }();
-}
-
-bool readArena(Reader& reader, Arena& arena) {
-  Arena decoded;
-  std::uint8_t wallCount = 0;
-  std::uint8_t brushCount = 0;
-  std::uint8_t staticLightCount = 0;
-  if (
-    !readVec3(reader, decoded.min) ||
-    !readVec3(reader, decoded.max) ||
-    !reader.readU8(wallCount) ||
-    wallCount > Arena::kWallCount
-  ) {
-    return false;
-  }
-  decoded.wallCount = wallCount;
-  for (std::size_t index = 0; index < decoded.wallCount; ++index) {
-    if (
-      !readVec3(reader, decoded.walls[index].min) ||
-      !readVec3(reader, decoded.walls[index].max) ||
-      !reader.readU32(decoded.walls[index].materialId)
-    ) {
-      return false;
-    }
-    for (std::size_t faceIndex = 0; faceIndex < decoded.walls[index].faceTextureProjections.size(); ++faceIndex) {
-      if (
-        !reader.readU32(decoded.walls[index].faceMaterialIds[faceIndex]) ||
-        !readTextureProjection(reader, decoded.walls[index].faceTextureProjections[faceIndex])
-      ) {
-        return false;
-      }
-    }
-  }
-  if (!reader.readU8(brushCount) || brushCount > Arena::kBrushCount) {
-    return false;
-  }
-  decoded.brushCount = brushCount;
-  for (std::size_t index = 0; index < decoded.brushCount; ++index) {
-    ArenaBrush& brush = decoded.brushes[index];
-    if (
-      !readVec3(reader, brush.min) ||
-      !readVec3(reader, brush.max) ||
-      !reader.readU32(brush.materialId) ||
-      !reader.readU8(brush.vertexCount) ||
-      !reader.readU8(brush.faceCount) ||
-      brush.vertexCount < 4 ||
-      brush.vertexCount > ArenaBrush::kMaxVertices ||
-      brush.faceCount < 4 ||
-      brush.faceCount > ArenaBrush::kMaxFaces
-    ) {
-      return false;
-    }
-    for (std::uint8_t vertex = 0; vertex < brush.vertexCount; ++vertex) {
-      if (!readVec3(reader, brush.vertices[vertex])) {
-        return false;
-      }
-    }
-    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
-      ArenaBrushFace& face = brush.faces[faceIndex];
-      if (
-        !readVec3(reader, face.normal) ||
-        !reader.readFloat(face.distance) ||
-        !reader.readU32(face.materialId) ||
-        !readTextureProjection(reader, face.textureProjection) ||
-        !reader.readU8(face.vertexCount) ||
-        face.vertexCount < 3 ||
-        face.vertexCount > ArenaBrushFace::kMaxVertices
-      ) {
-        return false;
-      }
-      for (std::uint8_t vertex = 0; vertex < face.vertexCount; ++vertex) {
-        if (!reader.readU8(face.vertices[vertex]) || face.vertices[vertex] >= brush.vertexCount) {
-          return false;
-        }
-      }
-    }
-  }
-  for (Vec3& spawn : decoded.spawnPositions) {
-    if (!readVec3(reader, spawn)) {
-      return false;
-    }
-  }
-  if (!reader.readU8(staticLightCount) || staticLightCount > Arena::kStaticLightCount) {
-    return false;
-  }
-  decoded.staticLightCount = staticLightCount;
-  for (std::size_t index = 0; index < decoded.staticLightCount; ++index) {
-    ArenaStaticLight& light = decoded.staticLights[index];
-    if (
-      !readVec3(reader, light.position) ||
-      !readVec3(reader, light.color) ||
-      !reader.readFloat(light.intensity) ||
-      !reader.readFloat(light.radius) ||
-      light.color.x < 0.0F ||
-      light.color.y < 0.0F ||
-      light.color.z < 0.0F ||
-      light.intensity <= 0.0F ||
-      light.radius <= 0.0F
-    ) {
-      return false;
-    }
-  }
-
-  if (
-    decoded.min.x >= decoded.max.x ||
-    decoded.min.y >= decoded.max.y ||
-    decoded.min.z >= decoded.max.z
-  ) {
-    return false;
-  }
-  for (std::size_t index = 0; index < decoded.wallCount; ++index) {
-    const ArenaWall& wall = decoded.walls[index];
-    if (
-      wall.min.x >= wall.max.x ||
-      wall.min.y >= wall.max.y ||
-      wall.min.z >= wall.max.z
-    ) {
-      return false;
-    }
-  }
-  for (std::size_t index = 0; index < decoded.brushCount; ++index) {
-    const ArenaBrush& brush = decoded.brushes[index];
-    if (
-      brush.min.x >= brush.max.x ||
-      brush.min.y >= brush.max.y ||
-      brush.min.z >= brush.max.z
-    ) {
-      return false;
-    }
-  }
-
-  arena = decoded;
-  return true;
 }
 
 bool writePlayer(Writer& writer, const PlayerState& player) {
@@ -1215,13 +938,11 @@ bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
   return true;
 }
 
-bool encodeServerSnapshot(
-  const ServerSnapshot& snapshot,
-  bool includeArena,
-  WirePacket& wire
-) {
+bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   if (
     !isValidGameMode(snapshot.gameMode) ||
+    !isValidMapName(snapshot.map.mapName) ||
+    snapshot.map.contentHash == 0 ||
     !isValidWeaponSwitchingMode(snapshot.weaponSwitchingMode) ||
     !isValidTeam(snapshot.roundWinningTeam) ||
     !isValidTeam(snapshot.matchWinningTeam) ||
@@ -1240,19 +961,12 @@ bool encodeServerSnapshot(
   }
 
   Writer writer(wire);
-  if (textureDebugEnabled() && includeArena) {
-    std::cerr
-      << "LG_DUEL_TEXTURE_PIPELINE_V2 encode snapshot arena revision="
-      << snapshot.mapRevision
-      << " projectedFaces=" << textureProjectionCount(snapshot.arena)
-      << '\n';
-  }
   if (
     !writeHeader(writer, PacketType::Snapshot) ||
     !writer.writeU32(snapshot.serverTick) ||
     !writer.writeU32(snapshot.mapRevision) ||
-    !writer.writeBool(includeArena) ||
-    (includeArena && !writeArena(writer, snapshot.arena))
+    !writer.writeString(snapshot.map.mapName, kMaxMapNameBytes) ||
+    !writer.writeU32(snapshot.map.contentHash)
   ) {
     return false;
   }
@@ -1424,10 +1138,6 @@ bool encodeServerSnapshot(
     finishPacket(writer);
 }
 
-bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
-  return encodeServerSnapshot(snapshot, snapshot.hasArena, wire);
-}
-
 bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   Reader reader(wire);
   auto decodedStorage = std::make_unique<ServerSnapshot>();
@@ -1436,17 +1146,12 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !readHeader(reader, PacketType::Snapshot, wire.size()) ||
     !reader.readU32(decoded.serverTick) ||
     !reader.readU32(decoded.mapRevision) ||
-    !reader.readBool(decoded.hasArena) ||
-    (decoded.hasArena && !readArena(reader, decoded.arena))
+    !reader.readString(decoded.map.mapName, kMaxMapNameBytes) ||
+    !reader.readU32(decoded.map.contentHash) ||
+    !isValidMapName(decoded.map.mapName) ||
+    decoded.map.contentHash == 0
   ) {
     return false;
-  }
-  if (textureDebugEnabled() && decoded.hasArena) {
-    std::cerr
-      << "LG_DUEL_TEXTURE_PIPELINE_V2 decode snapshot arena revision="
-      << decoded.mapRevision
-      << " projectedFaces=" << textureProjectionCount(decoded.arena)
-      << '\n';
   }
 
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {

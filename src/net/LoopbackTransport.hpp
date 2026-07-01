@@ -17,7 +17,7 @@ public:
 
 private:
   std::deque<WirePacket> commands_;
-  std::deque<WirePacket> snapshots_;
+  std::deque<ServerSnapshot> snapshots_;
 };
 
 } // namespace lg

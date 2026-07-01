@@ -5,7 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <deque>
+#include <vector>
 
 namespace lg {
 
@@ -36,7 +36,7 @@ public:
   [[nodiscard]] PlayerState player(std::size_t playerIndex, float alpha) const;
 
 private:
-  std::deque<Frame> snapshots_;
+  std::vector<Frame> snapshots_;
   double presentationTick_ = 0.0;
   bool initialized_ = false;
 };
