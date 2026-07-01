@@ -139,13 +139,23 @@ int main() {
     "perspective scene should emit triangle-list geometry"
   );
   failures += expect(
+    settings.playerOutlineStyle == lg::PlayerOutlineStyle::ScreenSpace &&
+      !lg::usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle),
+    "SDL_GPU outline settings should prefer screen-space outlines over geometry fallback"
+  );
+  failures += expect(
     baseScene.visibleRemotePlayers == 1 &&
       baseScene.remoteBodyModelsBuilt == 1 &&
       baseScene.remoteWeaponModelsBuilt == 1 &&
       baseScene.playerOutlinesBuilt == 1 &&
+      baseScene.outlinedPlayers == 1 &&
+      baseScene.outlineMaskDraws.size() == 1U &&
+      baseScene.normalPlayerBodyDynamicVertices > 0 &&
+      baseScene.geometryOutlineDynamicVertices == 0 &&
+      !baseScene.geometryOutlineFallbackUsed &&
       baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
       baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
-    "default render settings should build visible remote body, remote weapon instance, and outline"
+    "default render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
   );
 
   lg::RenderSettings noWeaponSettings = settings;
@@ -167,7 +177,8 @@ int main() {
       noWeaponScene.remoteBodyModelsBuilt == 1 &&
       noWeaponScene.remoteWeaponModelsBuilt == 0 &&
       noWeaponScene.remoteWeaponStats.instancesSubmitted == 0 &&
-      noWeaponScene.playerOutlinesBuilt == 1,
+      noWeaponScene.playerOutlinesBuilt == 1 &&
+      noWeaponScene.outlineMaskDraws.size() == 1U,
     "disabled remote weapons should prevent only remote weapon model construction"
   );
 
@@ -206,7 +217,8 @@ int main() {
       noBodyBeamScene.remoteBodyModelsBuilt == 0 &&
       noBodyBeamScene.remoteWeaponModelsBuilt == 1 &&
       noBodyBeamScene.remoteWeaponStats.instancesSubmitted == 1 &&
-      noBodyBeamScene.playerOutlinesBuilt == 1 &&
+      noBodyBeamScene.playerOutlinesBuilt == 0 &&
+      noBodyBeamScene.outlineMaskDraws.empty() &&
       noBodyBeamScene.vertices.size() > noBodyNoBeamScene.vertices.size(),
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
   );
@@ -740,30 +752,17 @@ int main() {
   (void)groundedModelX;
   (void)airborneModelX;
 
-  std::size_t outlineVertexCount = 0;
-  bool outlineExpandsPastBounds = false;
-  for (const lg::Vertex3D& vertex : baseScene.vertices) {
-    if (
-      vertex.color.red == settings.enemyOutlineRed &&
-      vertex.color.green == settings.enemyOutlineGreen &&
-      vertex.color.blue == settings.enemyOutlineBlue
-    ) {
-      ++outlineVertexCount;
-      outlineExpandsPastBounds =
-        outlineExpandsPastBounds ||
-        std::fabs(vertex.position.x - opponent.position.x) >
-          opponent.bounds.radius + 0.001F ||
-        std::fabs(vertex.position.y - opponent.position.y) >
-          opponent.bounds.radius + 0.001F ||
-        vertex.position.z <
-          opponent.position.z - opponent.bounds.halfHeight - 0.001F ||
-        vertex.position.z >
-          opponent.position.z + opponent.bounds.halfHeight + 0.001F;
-    }
-  }
+  const lg::OutlineMaskDraw& enemyMaskDraw = baseScene.outlineMaskDraws.front();
   failures += expect(
-    outlineVertexCount > 0 && outlineExpandsPastBounds,
-    "enabled enemy outline should emit expanded player geometry"
+    enemyMaskDraw.state.group == lg::OutlineGroup::Enemy &&
+      enemyMaskDraw.state.visibility == lg::OutlineVisibility::VisibleOnly &&
+      nearlyEqual(enemyMaskDraw.state.widthPixels, settings.enemyOutlineWidth) &&
+      nearlyEqual(enemyMaskDraw.state.alpha, settings.enemyOutlineAlpha) &&
+      enemyMaskDraw.firstVertex < baseScene.vertices.size() &&
+      enemyMaskDraw.vertexCount == baseScene.normalPlayerBodyDynamicVertices &&
+      enemyMaskDraw.firstVertex + enemyMaskDraw.vertexCount <=
+        baseScene.vertices.size(),
+    "enabled enemy outline should reuse the remote player body draw range as mask input"
   );
 
   lg::RenderSettings outlineDisabledSettings = settings;
@@ -780,20 +779,69 @@ int main() {
     rockets,
     outlineDisabledSettings
   );
-  bool disabledOutlinePresent = false;
-  for (const lg::Vertex3D& vertex : outlineDisabledScene.vertices) {
-    disabledOutlinePresent =
-      disabledOutlinePresent ||
-      (
-        vertex.color.red == settings.enemyOutlineRed &&
-        vertex.color.green == settings.enemyOutlineGreen &&
-        vertex.color.blue == settings.enemyOutlineBlue
-      );
-  }
   failures += expect(
-    !disabledOutlinePresent &&
-      outlineDisabledScene.vertices.size() < baseScene.vertices.size(),
-    "disabled enemy outline should not emit outline geometry"
+    outlineDisabledScene.playerOutlinesBuilt == 0 &&
+      outlineDisabledScene.outlineMaskDraws.empty() &&
+      outlineDisabledScene.geometryOutlineDynamicVertices == 0 &&
+      outlineDisabledScene.vertices.size() == baseScene.vertices.size(),
+    "disabled enemy outline should exclude the player from the outline mask without changing normal geometry"
+  );
+
+  lg::RenderSettings legacyOutlineSettings = settings;
+  legacyOutlineSettings.playerOutlineStyle = lg::PlayerOutlineStyle::Geometry;
+  const lg::Scene3D legacyOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    legacyOutlineSettings
+  );
+  failures += expect(
+    legacyOutlineScene.playerOutlinesBuilt == 1 &&
+      legacyOutlineScene.outlineMaskDraws.empty() &&
+      legacyOutlineScene.geometryOutlineFallbackUsed &&
+      legacyOutlineScene.geometryOutlineDynamicVertices > 0 &&
+      legacyOutlineScene.vertices.size() > baseScene.vertices.size(),
+    "legacy geometry outline style should remain explicit fallback behavior"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> teammateOnlyPlayers = {};
+  teammateOnlyPlayers[1] =
+    lg::RemotePlayerView{
+      opponent,
+      inactiveBeam,
+      lg::Weapon::LightningGun,
+      0.0F,
+      1.0F,
+      true,
+      true,
+      {},
+    };
+  const lg::Scene3D teammateOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    teammateOnlyPlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    teammateOutlineScene.outlineMaskDraws.size() == 1U &&
+      teammateOutlineScene.outlineMaskDraws.front().state.group ==
+        lg::OutlineGroup::Teammate &&
+      nearlyEqual(
+        teammateOutlineScene.outlineMaskDraws.front().state.widthPixels,
+        settings.teammateOutlineWidth
+      ),
+    "teammate and enemy outline mask groups should remain distinct"
   );
 
   lg::RenderSettings isolationOutlineDisabledSettings = settings;
@@ -814,8 +862,9 @@ int main() {
     isolationOutlineDisabledScene.visibleRemotePlayers == 1 &&
       isolationOutlineDisabledScene.remoteBodyModelsBuilt == 1 &&
       isolationOutlineDisabledScene.remoteWeaponModelsBuilt == 1 &&
-      isolationOutlineDisabledScene.playerOutlinesBuilt == 0,
-    "disabled player outlines should prevent only outline geometry construction"
+      isolationOutlineDisabledScene.playerOutlinesBuilt == 0 &&
+      isolationOutlineDisabledScene.outlineMaskDraws.empty(),
+    "disabled player outlines should prevent only outline mask construction"
   );
 
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> remotePlayers = {};

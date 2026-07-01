@@ -285,6 +285,17 @@ struct FrameTimeHistory {
   sample.remoteBodyModelsBuilt = renderDiagnostics.remoteBodyModelsBuilt;
   sample.remoteWeaponModelsBuilt = renderDiagnostics.remoteWeaponModelsBuilt;
   sample.playerOutlinesBuilt = renderDiagnostics.playerOutlinesBuilt;
+  sample.normalPlayerBodyDynamicVertices =
+    renderDiagnostics.normalPlayerBodyDynamicVertices;
+  sample.geometryOutlineDynamicVertices =
+    renderDiagnostics.geometryOutlineDynamicVertices;
+  sample.outlinedPlayers = renderDiagnostics.outlinedPlayers;
+  sample.outlineMaskWidth = renderDiagnostics.outlineMaskWidth;
+  sample.outlineMaskHeight = renderDiagnostics.outlineMaskHeight;
+  sample.outlinePasses = renderDiagnostics.outlinePasses;
+  sample.outlineCompositeEnabled = renderDiagnostics.outlineCompositeEnabled;
+  sample.geometryOutlineFallbackUsed =
+    renderDiagnostics.geometryOutlineFallbackUsed;
   sample.remoteWeaponCandidates = renderDiagnostics.remoteWeaponCandidates;
   sample.remoteWeaponsFrustumCulled =
     renderDiagnostics.remoteWeaponsFrustumCulled;
@@ -410,6 +421,26 @@ void appendPerfHudLines(
     latest.remoteBodyModelsBuilt,
     latest.remoteWeaponModelsBuilt,
     latest.playerOutlinesBuilt
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "players: body verts %u | geom outline verts %u | legacy outline %d",
+    latest.normalPlayerBodyDynamicVertices,
+    latest.geometryOutlineDynamicVertices,
+    latest.geometryOutlineFallbackUsed ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "outline: players %u | mask %ux%u | passes %u | composite %d",
+    latest.outlinedPlayers,
+    latest.outlineMaskWidth,
+    latest.outlineMaskHeight,
+    latest.outlinePasses,
+    latest.outlineCompositeEnabled ? 1 : 0
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(

@@ -143,10 +143,17 @@ struct ViewModelRenderStats {
   std::uint32_t dynamicVertices = 0;
 };
 
+struct OutlineMaskDraw {
+  std::uint32_t firstVertex = 0;
+  std::uint32_t vertexCount = 0;
+  OutlineState state = {};
+};
+
 struct Scene3D {
   PerspectiveCamera camera = {};
   std::vector<Vertex3D> vertices;
   std::vector<Vertex3D> translucentVertices;
+  std::vector<OutlineMaskDraw> outlineMaskDraws;
   std::vector<StaticMeshInstance> staticMeshInstances;
   std::vector<StaticMeshBatch> staticMeshBatches;
   std::vector<SimpleRenderInstance> simpleInstances;
@@ -159,6 +166,10 @@ struct Scene3D {
   std::uint32_t remoteBodyModelsBuilt = 0;
   std::uint32_t remoteWeaponModelsBuilt = 0;
   std::uint32_t playerOutlinesBuilt = 0;
+  std::uint32_t normalPlayerBodyDynamicVertices = 0;
+  std::uint32_t geometryOutlineDynamicVertices = 0;
+  std::uint32_t outlinedPlayers = 0;
+  bool geometryOutlineFallbackUsed = false;
   std::uint32_t remoteCandidates = 0;
   std::uint32_t remoteFrustumVisible = 0;
   std::uint32_t remoteFrustumCulled = 0;

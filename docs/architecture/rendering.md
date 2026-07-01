@@ -18,6 +18,12 @@ The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `ar
 
 The SDL_Renderer fallback draws immediate geometry and does not have the same static-world GPU cache. It is simpler but less representative of the intended high-performance 3D path.
 
+## Player Outlines
+
+SDL_GPU player outlines are object-mask-based screen-space outlines. `Scene3D` records outline eligibility separately from normal player materials, including enemy/teammate group, visibility mode, alpha, pulse, and pixel width. The mask pass redraws the same already-built player body vertex ranges used by the normal world pass; it does not generate expanded outline meshes or rebuild player geometry for outlines.
+
+The SDL_GPU frame renders the world depth/color pass, redraws eligible player body ranges into a full-resolution RGBA outline mask with depth testing, composites a pixel-width dilated contour over the scene, and then draws 2D HUD/UI. The SDL_Renderer fallback does not implement this mask path; style `r_player_outline_style 0` keeps the old approximate geometry fallback as explicit legacy behavior.
+
 ## Textures And Materials
 
 Material ids are produced by `arenaMaterialId()`. GPU texture loading scans the `textures` directory, creates aliases with and without `.png`, uploads PNGs, and uses fallback checker/white textures when needed. UV projection comes from `TextureProjection` on arena walls/brush faces, with fallback axis projection when missing.
