@@ -1,17 +1,51 @@
 # LG Duel
 
-LG Duel is a compact C++ arena FPS focused on Quake-like duel combat: fixed-tick movement, authoritative server simulation, UDP snapshots, client prediction/reconciliation, and fast old-school rendering. The aim is to keep the simulation testable, keep packets small, keep frame and server tick costs predictable, and make gameplay changes easy to reason about.
+LG Duel is a playable reference game and testbed for a broader, high-performance competitive FPS foundation.
+
+The project is inspired by Quake-like arena shooters, with particular focus on low input latency, stable frame pacing, high and predictable frame rates, authoritative networking, responsive client prediction, and clear competitive combat feedback.
+
+LG Duel is not intended to remain only a small Lightning Gun duel prototype. Its current duel gameplay is used to develop, measure, and validate reusable FPS systems that can later support more weapons, projectiles, player bodies, maps, teams, abilities, and game modes.
+
+The long-term goal is an original game in the space between arena FPS and hero shooter: mechanically expressive movement and combat, combined with distinct body archetypes, weapons, abilities, and team-oriented strategic variety.
+
+See PROJECT_CONTEXT.md, located in C:\Users\gosee\Documents\Codex\LG-duel-clean\docs, for the project’s scope, architectural direction, performance priorities, current transitional systems, and implementation principles.
 
 ## Current Shape
 
-- Native C++ client and headless C++ server.
-- Fixed 125 Hz authoritative server tick.
-- Shared client/server movement, collision, combat, and map structures.
-- UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
-- Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
-- Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
-- SDL rendering with an SDL_GPU path for cached static world rendering and an SDL_Renderer fallback.
-- Native `.lgmap` arena loading plus a restricted Quake/TrenchBroom `.map` import path.
+LG Duel currently includes:
+
+* Native C++ client and headless C++ server.
+* Fixed 125 Hz authoritative server tick.
+* Shared client/server movement, collision, combat, and map structures.
+* UDP protocol with versioned command packets, command bundles, snapshots, ping/pong, connect, and disconnect packets.
+* Local movement prediction, authoritative reconciliation, and buffered remote interpolation.
+* Hitscan and projectile weapons, duel and clan-arena rules, transient combat/audio events, and server-side lag compensation for hitscan-style traces.
+* First-person 3D SDL rendering with an SDL_GPU path for cached static world rendering, dynamic effects, player/weapon/projectile presentation, and a 2D HUD/UI overlay.
+* Restricted Quake/TrenchBroom `.map` arena loading.
+
+Several current rendering and content paths remain prototype or transitional implementations. They are documented as such in PROJECT_CONTEXT.md; new substantial work should converge toward the reusable architecture described there.
+
+## Documentation
+
+Project direction:
+
+* [Project context and implementation principles](PROJECT_CONTEXT.md)
+
+Architecture docs:
+
+* [Architecture overview](docs/architecture/README.md)
+* [Server tick](docs/architecture/server-tick.md)
+* [Networking](docs/architecture/networking.md)
+* [Combat and projectiles](docs/architecture/combat-projectiles.md)
+* [Rendering](docs/architecture/rendering.md)
+* [Maps and assets](docs/architecture/maps-assets.md)
+* [Config and testing](docs/architecture/config-testing.md)
+* [Performance](docs/architecture/performance.md)
+
+Reference:
+
+* [Console and cvar bible](docs/CONSOLE-BIBLE.md)
+
 
 ## Build And Test
 
@@ -77,7 +111,7 @@ Bindings, cvars, and console commands are documented in [docs/CONSOLE-BIBLE.md](
 
 ## Maps And Assets
 
-Runtime maps live in `maps/`. The native format is `.lgmap`; restricted TrenchBroom/Quake `.map` files are also supported for authoring. Map requests are server-authoritative and replicated to clients by map revision.
+Runtime maps live in `maps/` as restricted TrenchBroom/Quake `.map` files. Map requests are server-authoritative and replicated to clients by map revision.
 
 Textures live under `textures/`; shaders, audio, and models live under `assets/`. Gameplay tuning files live under `config/`: authoritative non-cvar balance in `balance.cfg`, server startup cvars in `server_cvars.cfg`, default client cvars/binds in `default_client.cfg`, and client-only sound cue volumes in `sound_mixer.cfg`.
 
@@ -105,18 +139,16 @@ Reference:
 
 ### Restricted TrenchBroom `.map` Workflow
 
-LG Duel can load a narrow Quake/TrenchBroom text `.map` subset beside the
-native `.lgmap` format. This is an authoring convenience only; it is not Quake
-or BSP compatibility.
+LG Duel loads a narrow Quake/TrenchBroom text `.map` subset. This is an
+authoring format only; it is not Quake or BSP compatibility.
 
 Create a new TrenchBroom map, use cuboid or other convex brushes in
 `worldspawn`, place player spawns with point entities named
 `lg_spawn`, and save it as
-`maps/<name>.map`. `.map` coordinates are authored in Quake/TrenchBroom units
+`maps/<name>.map`. Coordinates are authored in Quake/TrenchBroom units
 and imported at `1/40` scale, so `40` editor units become `1` LG Duel world
 unit. A `16`-unit stair step therefore becomes `0.4` LG units, just below the
-current walkable step height. Native `.lgmap` files continue to use LG Duel
-world units directly.
+current walkable step height.
 
 Spawn entities need an `origin` key like `"160 -120 40"` and may include
 `angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and
@@ -137,9 +169,8 @@ Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom
 face material `512x512/Brick/Brick_14-512x512` resolves to
 `textures/512x512/Brick/Brick_14-512x512.png`. The SDL_GPU first-person
-renderer samples those textures on cuboid wall faces. Top-down rendering uses
-stable per-material colors for readability. The old grass/brown prototype
-treatment is no longer used.
+renderer samples those textures on cuboid wall faces. The old grass/brown
+prototype treatment is no longer used.
 
 The repository includes a TrenchBroom game setup in
 `tools/trenchbroom/LG Duel/`. Install or copy that folder into TrenchBroom's

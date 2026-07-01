@@ -937,9 +937,9 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     boundsMax = {boundsMax.x + kBoundsPadding, boundsMax.y + kBoundsPadding, boundsMax.z + kBoundsPadding};
   }
 
-  std::ostringstream lgmap;
-  lgmap << "version 1\n";
-  lgmap << "bounds min=" << boundsMin.x << ',' << boundsMin.y << ',' << boundsMin.z
+  std::ostringstream arenaText;
+  arenaText << "version 1\n";
+  arenaText << "bounds min=" << boundsMin.x << ',' << boundsMin.y << ',' << boundsMin.z
         << " max=" << boundsMax.x << ',' << boundsMax.y << ',' << boundsMax.z << '\n';
   const bool needsValidationPlaceholder = walls.empty() && !brushes.empty();
   const std::size_t emittedWallCount = needsValidationPlaceholder ? 1U : walls.size();
@@ -948,16 +948,16 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       ? ArenaWall{brushes[0].min, brushes[0].max}
       : ArenaWall{};
     const ArenaWall& wall = needsValidationPlaceholder ? placeholder : walls[index];
-    lgmap << "box brush_" << index << ' '
+    arenaText << "box brush_" << index << ' '
           << wall.min.x << ',' << wall.min.y << ',' << wall.min.z << ' '
           << wall.max.x << ',' << wall.max.y << ',' << wall.max.z << '\n';
   }
   for (std::size_t index = 0; index < spawns.size(); ++index) {
     const Vec3 spawn = spawns[index];
-    lgmap << "spawn spawn_" << index << ' '
+    arenaText << "spawn spawn_" << index << ' '
           << spawn.x << ',' << spawn.y << ',' << spawn.z << " yaw=0\n";
   }
-  ArenaLoadResult result = loadArenaFromText(lgmap.str());
+  ArenaLoadResult result = loadArenaFromText(arenaText.str());
   if (result.ok) {
     result.arena.wallCount = walls.size();
     for (std::size_t index = 0; index < result.arena.wallCount && index < walls.size(); ++index) {

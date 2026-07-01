@@ -73,7 +73,7 @@ bool isValidMapName(std::string_view mapName) {
   const std::string stem = extension.empty()
     ? std::string(mapName)
     : requested.stem().string();
-  if (!extension.empty() && extension != ".lgmap" && extension != ".map") {
+  if (!extension.empty() && extension != ".map") {
     return false;
   }
   if (stem.empty()) {
@@ -164,7 +164,6 @@ LocalMapLoadResult loadLocalMap(
   const std::filesystem::path directory = resolveMapDirectory(mapDirectory);
   std::vector<std::filesystem::path> candidates;
   if (extension.empty()) {
-    candidates.push_back(directory / (mapName + ".lgmap"));
     candidates.push_back(directory / (mapName + ".map"));
   } else {
     candidates.push_back(directory / mapName);

@@ -23,9 +23,11 @@
 namespace lg {
 namespace {
 
+constexpr const char* kDefaultMapName = "eyetoeye";
+
 std::string defaultMapPath(const std::string& executablePath) {
   namespace fs = std::filesystem;
-  constexpr const char* kRelativeMapPath = "maps/thunderstruck.lgmap";
+  constexpr const char* kRelativeMapPath = "maps/eyetoeye.map";
   if (!executablePath.empty()) {
     const fs::path executable = fs::absolute(fs::path(executablePath));
     const fs::path executableMap = executable.parent_path() / kRelativeMapPath;
@@ -225,6 +227,7 @@ int ServerApp::run() const {
     balanceConfigPath.empty() ? std::string{} : balanceConfigPath.string()
   );
   server.setMapDirectory(defaultMapDirectory(executablePath_));
+  (void)server.loadRequestedMap(kDefaultMapName);
   std::cout << "LG Duel server listening on UDP port " << transport.localPort() << '\n';
 
   ConsoleSystem console;

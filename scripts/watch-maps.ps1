@@ -16,7 +16,7 @@ if ([string]::IsNullOrWhiteSpace($Destination)) {
 
 $sourcePath = [System.IO.Path]::GetFullPath($Source)
 $destinationPath = [System.IO.Path]::GetFullPath($Destination)
-$extensions = @(".map", ".lgmap")
+$extensions = @(".map")
 $knownFiles = @{}
 
 function Copy-MapFile {

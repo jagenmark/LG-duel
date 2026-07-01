@@ -169,8 +169,8 @@ int main() {
     transport.sendSnapshot(initialSnapshot);
     client.receiveSnapshots();
 
-    const lg::LocalMapLoadResult reloadedMap = lg::loadLocalMap("thunderstorm");
-    failures += expect(reloadedMap.ok, "test map thunderstorm should load locally");
+    const lg::LocalMapLoadResult reloadedMap = lg::loadLocalMap("eyetoeye");
+    failures += expect(reloadedMap.ok, "test map eyetoeye should load locally");
     const lg::Arena& reloadedArena = reloadedMap.arena;
 
     lg::ServerSnapshot reloadedSnapshot = initialSnapshot;

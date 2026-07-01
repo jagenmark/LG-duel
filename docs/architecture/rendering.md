@@ -6,17 +6,23 @@ Rendering is presentation-only. The renderer consumes arena data, predicted/inte
 
 `src/app/GameApp.cpp` prepares each frame: predicted local player, interpolated remote players, team/name/health presentation, lingering rail/machine-gun events, hit feedback, damage numbers, HUD, and console state. It then calls `Renderer::render()`.
 
-3D scene geometry is built in `src/render/Scene3D.*`. `buildStaticWorldScene()` creates arena floor/bounds/walls/brushes with material ids, UVs, and static light coloring. `buildPerspectiveScene()` creates dynamic players, weapons, beams, hitscan traces, projectile visuals, explosions, and optional lag-compensation bounds.
+3D scene geometry is built in `src/render/Scene3D.*`. `buildStaticWorldScene()` creates arena floor/bounds/walls/brushes with material ids, UVs, and static light coloring. `buildPerspectiveScene()` creates the first-person camera scene: dynamic players, weapons, beams, hitscan traces, projectile visuals, explosions, and optional lag-compensation bounds.
 
-Top-down rendering uses `src/render/TopDownScene.*`; screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`, and `BitmapFont.*`.
+Screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`, `BitmapFont.*`, and the retained 2D draw-list/overlay pipeline.
 
 ## GPU And Fallback Paths
 
 `Renderer::initialize()` tries SDL_GPU only when `LG_DUEL_RENDER_BACKEND` requests `gpu`, `sdl_gpu`, or `vulkan`; otherwise it uses SDL_Renderer fallback. SDL_GPU creates pipelines, font texture, transfer/vertex buffers, depth texture, and static world cache. If GPU setup fails, it falls back to SDL_Renderer.
 
-The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `arenaStaticWorldFingerprint()`. It batches by material and uploads static world vertices/textures when the arena/material fingerprint changes. Dynamic vertices are rebuilt/uploaded per frame into a bounded scratch path.
+The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `arenaStaticWorldFingerprint()`. It batches by material and uploads static world vertices/textures when the arena/material fingerprint changes. Dynamic 3D vertices are rebuilt/uploaded per frame into a bounded scratch path, followed by a 2D overlay pass for HUD, console, chat, scoreboard, settings, crosshair, and screen-space combat UI.
 
 The SDL_Renderer fallback draws immediate geometry and does not have the same static-world GPU cache. It is simpler but less representative of the intended high-performance 3D path.
+
+## Player Outlines
+
+SDL_GPU player outlines are object-mask-based screen-space outlines. `Scene3D` records outline eligibility separately from normal player materials, including enemy/teammate group, visibility mode, alpha, pulse, and pixel width. The mask pass redraws the same already-built player body vertex ranges used by the normal world pass; it does not generate expanded outline meshes or rebuild player geometry for outlines.
+
+The SDL_GPU frame renders the world depth/color pass, redraws eligible player body ranges into a full-resolution RGBA outline mask with depth testing, composites a pixel-width dilated contour over the scene, and then draws 2D HUD/UI. The SDL_Renderer fallback does not implement this mask path; style `r_player_outline_style 0` keeps the old approximate geometry fallback as explicit legacy behavior.
 
 ## Textures And Materials
 

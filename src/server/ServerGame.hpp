@@ -24,6 +24,7 @@ public:
   void applyBalanceConfig(const BalanceConfig& config);
   void setArena(const Arena& arena);
   void setMapDirectory(std::string mapDirectory);
+  [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
   void setConnectedPlayers(
     const std::array<bool, kDuelPlayerCount>& connectedPlayers
   );
@@ -74,7 +75,6 @@ private:
   };
 
   void receiveCommands();
-  [[nodiscard]] bool loadRequestedMap(const std::string& mapName);
   void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
