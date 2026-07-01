@@ -258,6 +258,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(packet.lightningKnockback) &&
     writer.writeFloat(packet.lightningFireHz) &&
     writer.writeFloat(packet.rocketKnockback) &&
+    writer.writeI32(packet.knockbackTimeMs) &&
     writer.writeI32(packet.weaponDamage.shotgunDamagePerPellet) &&
     writer.writeI32(packet.weaponDamage.machineGunDamage) &&
     writer.writeI32(packet.weaponDamage.lightningGunDamage) &&
@@ -319,6 +320,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.lightningKnockback) ||
     !reader.readFloat(packet.lightningFireHz) ||
     !reader.readFloat(packet.rocketKnockback) ||
+    !reader.readI32(packet.knockbackTimeMs) ||
     !reader.readI32(packet.weaponDamage.shotgunDamagePerPellet) ||
     !reader.readI32(packet.weaponDamage.machineGunDamage) ||
     !reader.readI32(packet.weaponDamage.lightningGunDamage) ||
@@ -380,6 +382,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.lightningFireHz <= kMaxLightningFireHz &&
     packet.rocketKnockback >= 0.0F &&
     packet.rocketKnockback <= kMaxRocketKnockback &&
+    packet.knockbackTimeMs >= 0 &&
+    packet.knockbackTimeMs <= 250 &&
     packet.weaponDamage.shotgunDamagePerPellet >= 1 &&
     packet.weaponDamage.shotgunDamagePerPellet <= 500 &&
     packet.weaponDamage.machineGunDamage >= 1 &&
@@ -433,6 +437,7 @@ bool writePlayer(Writer& writer, const PlayerState& player) {
     writer.writeFloat(player.bounds.radius) &&
     writer.writeFloat(player.bounds.halfHeight) &&
     writer.writeU8(static_cast<std::uint8_t>(player.movementMode)) &&
+    writer.writeU16(player.knockbackTicksRemaining) &&
     writer.writeBool(player.onGround) &&
     writer.writeBool(player.jumpHeld);
 }
@@ -449,6 +454,7 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     !reader.readFloat(player.bounds.radius) ||
     !reader.readFloat(player.bounds.halfHeight) ||
     !reader.readU8(movementMode) ||
+    !reader.readU16(player.knockbackTicksRemaining) ||
     !reader.readBool(player.onGround) ||
     !reader.readBool(player.jumpHeld)
   ) {
@@ -1114,6 +1120,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.lightningKnockback) &&
     writer.writeFloat(snapshot.lightningFireHz) &&
     writer.writeFloat(snapshot.rocketKnockback) &&
+    writer.writeI32(snapshot.knockbackTimeMs) &&
     writer.writeI32(snapshot.weaponDamage.shotgunDamagePerPellet) &&
     writer.writeI32(snapshot.weaponDamage.machineGunDamage) &&
     writer.writeI32(snapshot.weaponDamage.lightningGunDamage) &&
@@ -1326,6 +1333,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.lightningKnockback) ||
     !reader.readFloat(decoded.lightningFireHz) ||
     !reader.readFloat(decoded.rocketKnockback) ||
+    !reader.readI32(decoded.knockbackTimeMs) ||
     !reader.readI32(decoded.weaponDamage.shotgunDamagePerPellet) ||
     !reader.readI32(decoded.weaponDamage.machineGunDamage) ||
     !reader.readI32(decoded.weaponDamage.lightningGunDamage) ||
@@ -1377,6 +1385,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.lightningFireHz > kMaxLightningFireHz ||
     decoded.rocketKnockback < 0.0F ||
     decoded.rocketKnockback > kMaxRocketKnockback ||
+    decoded.knockbackTimeMs < 0 ||
+    decoded.knockbackTimeMs > 250 ||
     decoded.lightningKnockback > kMaxLightningKnockback ||
     decoded.weaponDamage.shotgunDamagePerPellet < 1 ||
     decoded.weaponDamage.shotgunDamagePerPellet > 500 ||

@@ -142,6 +142,7 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_lg_knockback` | float | `1000` | `0..100000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. Skalas om linjärt så `0` motsvarar gamla `682`, `500` gamla `841`, och `1000` gamla `1000`. |
 | `g_lg_fire_hz` | float | `20` | `1..125` | Ingen direkt stabil cvar | Antal auktoritativa LG damage/knockback-instanser per sekund. Default 20 Hz ger 6 damage per instans med `g_lg_damage 120`. |
 | `g_rl_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | RL-knockback per explosion, skalad med splash-damage. |
+| `g_knockback_time_ms` | int | `100` | `0..250` | Q3-style knockback movement timer | Antal millisekunder som grounded knockback anvander air movement utan ground friction. `0` stanger av speciallaget men behaller damage och direkt knockback. |
 | `g_vampirism` | float | `0` | `0..2` | Ingen standardmekanik | Healing som multipel av utdelad skada. `0.1 = 10%`, `1 = 100%`, `2 = 200%`. Fraktioner ackumuleras och avrundas när helt HP kan delas ut. |
 | `g_selfdamage` | float | `100` | `0..100` | `100` | Procent av egen splash-damage som appliceras. Värdet rundas till närmaste heltal innan det skickas till servern. |
 | `g_healthamount` | int | `100` | `1..100000` | `100` | HP som varje spelare startar med vid spawn, rundstart och warmup-respawn. |

@@ -131,6 +131,7 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute("set g_lg_knockback " + std::to_string(snapshot.lightningKnockback));
   (void)console.execute("set g_lg_fire_hz " + std::to_string(snapshot.lightningFireHz));
   (void)console.execute("set g_rl_knockback " + std::to_string(snapshot.rocketKnockback));
+  (void)console.execute("set g_knockback_time_ms " + std::to_string(snapshot.knockbackTimeMs));
   (void)console.execute("set g_sg_damage " + std::to_string(snapshot.weaponDamage.shotgunDamagePerPellet));
   (void)console.execute("set g_mg_damage " + std::to_string(snapshot.weaponDamage.machineGunDamage));
   (void)console.execute("set g_lg_damage " + std::to_string(snapshot.weaponDamage.lightningGunDamage));
@@ -2780,6 +2781,8 @@ int GameApp::run() const {
     console.getFloat("g_lg_fire_hz");
   float lastRequestedRocketKnockback =
     console.getFloat("g_rl_knockback");
+  std::int32_t lastRequestedKnockbackTimeMs =
+    knockbackTimeMsFromCvars(console);
   WeaponDamageTuning lastRequestedWeaponDamage =
     weaponDamageTuningFromCvars(console);
   float lastRequestedVampirism =
@@ -3341,6 +3344,8 @@ int GameApp::run() const {
       console.getFloat("g_lg_fire_hz");
     const float currentRocketKnockback =
       console.getFloat("g_rl_knockback");
+    const std::int32_t currentKnockbackTimeMs =
+      knockbackTimeMsFromCvars(console);
     const WeaponDamageTuning currentWeaponDamage =
       weaponDamageTuningFromCvars(console);
     const float currentVampirism =
@@ -3361,6 +3366,7 @@ int GameApp::run() const {
         currentLightningFireHz != lastRequestedLightningFireHz ||
         currentVampirism != lastRequestedVampirism ||
         currentRocketKnockback != lastRequestedRocketKnockback ||
+        currentKnockbackTimeMs != lastRequestedKnockbackTimeMs ||
         currentWeaponDamage.shotgunDamagePerPellet !=
           lastRequestedWeaponDamage.shotgunDamagePerPellet ||
         currentWeaponDamage.machineGunDamage !=
@@ -3386,6 +3392,7 @@ int GameApp::run() const {
       lastRequestedLightningFireHz = currentLightningFireHz;
       lastRequestedVampirism = currentVampirism;
       lastRequestedRocketKnockback = currentRocketKnockback;
+      lastRequestedKnockbackTimeMs = currentKnockbackTimeMs;
       lastRequestedWeaponDamage = currentWeaponDamage;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
@@ -3487,6 +3494,7 @@ int GameApp::run() const {
         lastRequestedPlayerSizeScaleZ,
         lastRequestedLightningKnockback,
         lastRequestedRocketKnockback,
+        lastRequestedKnockbackTimeMs,
         lastRequestedVampirism,
         lastRequestedSelfDamagePercent,
         lastRequestedHealthAmount,
@@ -3551,6 +3559,8 @@ int GameApp::run() const {
             console.getFloat("g_rl_knockback"),
             updatedSnapshot.rocketKnockback
           ) ||
+          knockbackTimeMsFromCvars(console) !=
+            updatedSnapshot.knockbackTimeMs ||
           !nearlyEqualGameplayFloat(
             console.getFloat("g_vampirism"),
             updatedSnapshot.vampirism
@@ -3580,6 +3590,7 @@ int GameApp::run() const {
           lastRequestedLightningKnockback = updatedSnapshot.lightningKnockback;
           lastRequestedLightningFireHz = updatedSnapshot.lightningFireHz;
           lastRequestedRocketKnockback = updatedSnapshot.rocketKnockback;
+          lastRequestedKnockbackTimeMs = updatedSnapshot.knockbackTimeMs;
           lastRequestedWeaponDamage = updatedSnapshot.weaponDamage;
           lastRequestedVampirism = updatedSnapshot.vampirism;
           lastRequestedSelfDamagePercent = updatedSnapshot.selfDamagePercent;

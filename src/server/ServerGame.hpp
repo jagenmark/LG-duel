@@ -40,6 +40,7 @@ public:
     float lightningKnockback,
     float lightningFireHz,
     float rocketKnockback,
+    std::int32_t knockbackTimeMs,
     const WeaponDamageTuning& weaponDamage,
     float vampirism,
     std::uint8_t selfDamagePercent,
@@ -134,6 +135,7 @@ private:
   float lightningKnockback_ = 1000.0F;
   float lightningFireHz_ = 20.0F;
   float rocketKnockback_ = 1000.0F;
+  std::int32_t knockbackTimeMs_ = 100;
   WeaponDamageTuning weaponDamage_ = {};
   LightningGunTuning lightningGunTuning_ = {};
   HitscanTuning railgunTuning_ = {};

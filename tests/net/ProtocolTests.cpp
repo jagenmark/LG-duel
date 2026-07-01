@@ -101,6 +101,7 @@ int main() {
     source.lightningKnockback = 1500.0F;
     source.lightningFireHz = 40.0F;
     source.rocketKnockback = 625.0F;
+    source.knockbackTimeMs = 125;
     source.weaponDamage.shotgunDamagePerPellet = 7;
     source.weaponDamage.machineGunDamage = 9;
     source.weaponDamage.lightningGunDamage = 111;
@@ -171,6 +172,7 @@ int main() {
         nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
         nearlyEqual(decoded.lightningFireHz, 40.0F) &&
         nearlyEqual(decoded.rocketKnockback, 625.0F) &&
+        decoded.knockbackTimeMs == 125 &&
         decoded.weaponDamage.shotgunDamagePerPellet == 7 &&
         decoded.weaponDamage.machineGunDamage == 9 &&
         decoded.weaponDamage.lightningGunDamage == 111 &&
@@ -299,6 +301,7 @@ int main() {
     source.players[0].movementMode = lg::MovementMode::Flying;
     source.players[0].onGround = false;
     source.players[0].jumpHeld = true;
+    source.players[0].knockbackTicksRemaining = 9;
     source.players[1].health = 0;
     source.selectedWeapons[0] = lg::Weapon::LightningGun;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
@@ -421,6 +424,7 @@ int main() {
     source.lightningKnockback = 1500.0F;
     source.lightningFireHz = 25.0F;
     source.rocketKnockback = 625.0F;
+    source.knockbackTimeMs = 125;
     source.weaponDamage.shotgunDamagePerPellet = 11;
     source.weaponDamage.machineGunDamage = 13;
     source.weaponDamage.lightningGunDamage = 90;
@@ -458,8 +462,9 @@ int main() {
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
     failures += expect(
       decoded.players[0].movementMode == lg::MovementMode::Flying &&
-        decoded.players[0].jumpHeld,
-      "movement mode and jump latch should round trip"
+        decoded.players[0].jumpHeld &&
+        decoded.players[0].knockbackTicksRemaining == 9,
+      "movement mode, jump latch, and knockback timer should round trip"
     );
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
@@ -616,6 +621,7 @@ int main() {
       nearlyEqual(decoded.lightningKnockback, 1500.0F) &&
       nearlyEqual(decoded.lightningFireHz, 25.0F) &&
       nearlyEqual(decoded.rocketKnockback, 625.0F) &&
+      decoded.knockbackTimeMs == 125 &&
       decoded.weaponDamage.shotgunDamagePerPellet == 11 &&
       decoded.weaponDamage.machineGunDamage == 13 &&
       decoded.weaponDamage.lightningGunDamage == 90 &&
