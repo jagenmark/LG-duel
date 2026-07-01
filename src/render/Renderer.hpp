@@ -297,8 +297,13 @@ struct RendererFrameDiagnostics {
   std::uint32_t projectilesActive = 0;
   std::uint32_t projectilesFrustumCulled = 0;
   std::uint32_t projectilesRendered = 0;
+  std::uint32_t plasmaInstances = 0;
+  std::uint32_t rocketInstances = 0;
+  std::uint32_t grenadeInstances = 0;
   std::uint32_t projectileCoreInstances = 0;
   std::uint32_t projectileGlowInstances = 0;
+  std::uint32_t opaqueProjectileBatches = 0;
+  std::uint32_t additiveProjectileBatches = 0;
   std::uint32_t projectileInstanceUploadBytes = 0;
   std::uint32_t projectileMeshDrawCalls = 0;
   std::uint32_t projectileGlowDrawCalls = 0;

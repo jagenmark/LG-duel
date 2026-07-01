@@ -361,8 +361,13 @@ struct FrameTimeHistory {
   sample.projectilesActive = renderDiagnostics.projectilesActive;
   sample.projectilesFrustumCulled = renderDiagnostics.projectilesFrustumCulled;
   sample.projectilesRendered = renderDiagnostics.projectilesRendered;
+  sample.plasmaInstances = renderDiagnostics.plasmaInstances;
+  sample.rocketInstances = renderDiagnostics.rocketInstances;
+  sample.grenadeInstances = renderDiagnostics.grenadeInstances;
   sample.projectileCoreInstances = renderDiagnostics.projectileCoreInstances;
   sample.projectileGlowInstances = renderDiagnostics.projectileGlowInstances;
+  sample.opaqueProjectileBatches = renderDiagnostics.opaqueProjectileBatches;
+  sample.additiveProjectileBatches = renderDiagnostics.additiveProjectileBatches;
   sample.projectileInstanceUploadBytes =
     renderDiagnostics.projectileInstanceUploadBytes;
   sample.projectileMeshDrawCalls = renderDiagnostics.projectileMeshDrawCalls;
@@ -446,12 +451,21 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "plasma: core %u | glow %u | instance upload %.1f KB | draws mesh %u glow %u",
-    latest.projectileCoreInstances,
-    latest.projectileGlowInstances,
+    "projectile instances: plasma %u | rocket %u | grenade %u | glow %u",
+    latest.plasmaInstances,
+    latest.rocketInstances,
+    latest.grenadeInstances,
+    latest.projectileGlowInstances
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "projectile batches: opaque %u | additive %u | upload %.1f KB | draws %u",
+    latest.opaqueProjectileBatches,
+    latest.additiveProjectileBatches,
     static_cast<float>(latest.projectileInstanceUploadBytes) / 1024.0F,
-    latest.projectileMeshDrawCalls,
-    latest.projectileGlowDrawCalls
+    latest.projectileMeshDrawCalls + latest.projectileGlowDrawCalls
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -4592,19 +4606,28 @@ int GameApp::run() const {
           std::to_string(diagnostics.projectilesFrustumCulled)
         );
         hud.topLeftLines.emplace_back(
-          "plasma: core instances " +
-          std::to_string(diagnostics.projectileCoreInstances) +
-          " | glow instances " +
+          "projectile instances: plasma " +
+          std::to_string(diagnostics.plasmaInstances) +
+          " | rocket " +
+          std::to_string(diagnostics.rocketInstances) +
+          " | grenade " +
+          std::to_string(diagnostics.grenadeInstances) +
+          " | glow " +
           std::to_string(diagnostics.projectileGlowInstances) +
           " | instance upload " +
           std::to_string(diagnostics.projectileInstanceUploadBytes) +
           " B"
         );
         hud.topLeftLines.emplace_back(
-          "projectile draws: mesh " +
-          std::to_string(diagnostics.projectileMeshDrawCalls) +
-          " | glow " +
-          std::to_string(diagnostics.projectileGlowDrawCalls) +
+          "projectile batches: opaque " +
+          std::to_string(diagnostics.opaqueProjectileBatches) +
+          " | additive " +
+          std::to_string(diagnostics.additiveProjectileBatches) +
+          " | draw calls " +
+          std::to_string(
+            diagnostics.projectileMeshDrawCalls +
+            diagnostics.projectileGlowDrawCalls
+          ) +
           " | legacy projectile vertices " +
           std::to_string(diagnostics.legacyProjectileDynamicVertices)
         );

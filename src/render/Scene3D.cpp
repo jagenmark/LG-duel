@@ -65,6 +65,92 @@ constexpr StaticMeshAsset kPlasmaCoreAsset = {
   RenderPass::OpaqueWorld,
 };
 
+constexpr std::array<Vertex3D, 36> kRocketProjectileMeshVertices = {{
+  {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+}};
+
+constexpr std::array<Vertex3D, 24> kGrenadeProjectileMeshVertices = {{
+  {{ 0.0F,  0.0F,  0.72F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F,  0.72F}, {48, 72, 38, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {48, 72, 38, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {48, 72, 38, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F,  0.72F}, {42, 64, 34, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {42, 64, 34, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {42, 64, 34, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F,  0.72F}, {66, 98, 52, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {66, 98, 52, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {66, 98, 52, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {34, 54, 30, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {34, 54, 30, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {34, 54, 30, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {38, 60, 32, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {38, 60, 32, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {38, 60, 32, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {30, 48, 26, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {30, 48, 26, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {30, 48, 26, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {46, 70, 36, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {46, 70, 36, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {46, 70, 36, 255}, 0.0F, 0.0F, 0U},
+}};
+
+constexpr StaticMeshAsset kRocketProjectileAsset = {
+  MeshHandle::RocketProjectile,
+  std::span<const Vertex3D>(
+    kRocketProjectileMeshVertices.data(),
+    kRocketProjectileMeshVertices.size()
+  ),
+  {{}, 0.92F},
+  RenderPass::OpaqueWorld,
+};
+
+constexpr StaticMeshAsset kGrenadeProjectileAsset = {
+  MeshHandle::GrenadeProjectile,
+  std::span<const Vertex3D>(
+    kGrenadeProjectileMeshVertices.data(),
+    kGrenadeProjectileMeshVertices.size()
+  ),
+  {{}, 0.72F},
+  RenderPass::OpaqueWorld,
+};
+
 [[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs);
 [[nodiscard]] RenderColor scaleColor(RenderColor color, float amount);
 
@@ -136,6 +222,12 @@ constexpr BillboardAsset kPlasmaGlowAsset = {
   RenderPass::AdditiveGlow,
 };
 
+constexpr BillboardAsset kRocketFlameAsset = {
+  BillboardHandle::RocketFlame,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
 constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   ProjectileVisualType::Plasma,
   MeshHandle::PlasmaCore,
@@ -145,6 +237,28 @@ constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   0.115F,
   0.34F,
   true,
+};
+
+constexpr ProjectileVisualDescriptor kRocketProjectileVisual = {
+  ProjectileVisualType::Rocket,
+  MeshHandle::RocketProjectile,
+  BillboardHandle::RocketFlame,
+  {255, 255, 255, 255},
+  {255, 126, 48, 132},
+  0.18F,
+  0.22F,
+  true,
+};
+
+constexpr ProjectileVisualDescriptor kGrenadeProjectileVisual = {
+  ProjectileVisualType::Grenade,
+  MeshHandle::GrenadeProjectile,
+  BillboardHandle::Invalid,
+  {255, 255, 255, 255},
+  {},
+  0.18F,
+  0.0F,
+  false,
 };
 
 [[nodiscard]] bool textureDebugEnabled() {
@@ -364,46 +478,6 @@ void addTexturedQuad(
     {{colors[0], colors[2], colors[3]}},
     materialId
   );
-}
-
-void addBox(
-  Scene3D& scene,
-  Vec3 minimum,
-  Vec3 maximum,
-  RenderColor color
-) {
-  const std::array<Vec3, 8> corners = {{
-    {minimum.x, minimum.y, minimum.z},
-    {maximum.x, minimum.y, minimum.z},
-    {maximum.x, maximum.y, minimum.z},
-    {minimum.x, maximum.y, minimum.z},
-    {minimum.x, minimum.y, maximum.z},
-    {maximum.x, minimum.y, maximum.z},
-    {maximum.x, maximum.y, maximum.z},
-    {minimum.x, maximum.y, maximum.z},
-  }};
-  constexpr std::array<std::array<std::size_t, 4>, 6> faces = {{
-    {{0, 3, 2, 1}},
-    {{4, 5, 6, 7}},
-    {{0, 1, 5, 4}},
-    {{1, 2, 6, 5}},
-    {{2, 3, 7, 6}},
-    {{3, 0, 4, 7}},
-  }};
-  constexpr std::array<float, 6> brightness = {
-    0.55F, 1.0F, 0.72F, 0.86F, 0.66F, 0.78F,
-  };
-  for (std::size_t index = 0; index < faces.size(); ++index) {
-    const auto& face = faces[index];
-    addQuad(
-      scene,
-      corners[face[0]],
-      corners[face[1]],
-      corners[face[2]],
-      corners[face[3]],
-      scaleColor(color, brightness[index])
-    );
-  }
 }
 
 void addSphereApprox(
@@ -1683,7 +1757,10 @@ void addWireBox(
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const RenderSettings& settings
 ) {
-  if (projectile.weapon != Weapon::PlasmaGun) {
+  if (
+    projectile.weapon != Weapon::PlasmaGun &&
+    projectile.weapon != Weapon::RocketLauncher
+  ) {
     return projectile.position;
   }
   const std::size_t owner = static_cast<std::size_t>(projectile.owner);
@@ -1708,8 +1785,12 @@ void addWireBox(
     : settings.enemyLeanScale;
   const WeaponModelFrame frame =
     weaponModelFrame(remote.player, leanEnabled, leanScale);
+  const float muzzleForward =
+    projectile.weapon == Weapon::RocketLauncher ? 0.81F : 0.74F;
+  const float muzzleUp =
+    projectile.weapon == Weapon::RocketLauncher ? 0.12F : 0.09F;
   return projectile.position +
-    (weaponLocalPoint(frame, 0.74F, 0.0F, 0.09F) - remoteEye);
+    (weaponLocalPoint(frame, muzzleForward, 0.0F, muzzleUp) - remoteEye);
 }
 
 void addMachineGunMuzzleFlash(
@@ -1970,6 +2051,10 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   switch (handle) {
   case MeshHandle::PlasmaCore:
     return &kPlasmaCoreAsset;
+  case MeshHandle::RocketProjectile:
+    return &kRocketProjectileAsset;
+  case MeshHandle::GrenadeProjectile:
+    return &kGrenadeProjectileAsset;
   case MeshHandle::RemoteMachineGun:
     return &machineGunAsset;
   case MeshHandle::RemoteShotgun:
@@ -2014,6 +2099,8 @@ const BillboardAsset* billboardAsset(BillboardHandle handle) {
   switch (handle) {
   case BillboardHandle::PlasmaGlow:
     return &kPlasmaGlowAsset;
+  case BillboardHandle::RocketFlame:
+    return &kRocketFlameAsset;
   case BillboardHandle::Invalid:
     break;
   }
@@ -2027,8 +2114,9 @@ const ProjectileVisualDescriptor* projectileVisualDescriptor(
   case ProjectileVisualType::Plasma:
     return &kPlasmaProjectileVisual;
   case ProjectileVisualType::Rocket:
+    return &kRocketProjectileVisual;
   case ProjectileVisualType::Grenade:
-    break;
+    return &kGrenadeProjectileVisual;
   }
   return nullptr;
 }
@@ -2127,6 +2215,50 @@ void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) 
   });
 }
 
+[[nodiscard]] float projectileVelocityYaw(Vec3 velocity) {
+  if (std::fabs(velocity.x) <= 0.0001F && std::fabs(velocity.y) <= 0.0001F) {
+    return 0.0F;
+  }
+  const float yaw = std::atan2(velocity.y, velocity.x);
+  return std::isfinite(yaw) ? yaw : 0.0F;
+}
+
+[[nodiscard]] float projectileRotationRadians(
+  const RocketProjectileSnapshot& projectile,
+  std::size_t projectileIndex
+) {
+  const float yaw = projectileVelocityYaw(projectile.velocity);
+  if (projectile.weapon != Weapon::GrenadeLauncher) {
+    return yaw;
+  }
+  const float velocityPhase =
+    projectile.position.x * 0.73F +
+    projectile.position.y * 1.17F +
+    projectile.position.z * 0.41F +
+    length(projectile.velocity) * 0.019F +
+    static_cast<float>(projectileIndex) * 0.67F;
+  const float rotation = yaw + std::fmod(velocityPhase, kTwoPi);
+  return std::isfinite(rotation) ? rotation : yaw;
+}
+
+void countProjectileCoreInstance(
+  ProjectileRenderStats& stats,
+  ProjectileVisualType type
+) {
+  ++stats.projectileCoreInstances;
+  switch (type) {
+  case ProjectileVisualType::Plasma:
+    ++stats.plasmaInstances;
+    break;
+  case ProjectileVisualType::Rocket:
+    ++stats.rocketInstances;
+    break;
+  case ProjectileVisualType::Grenade:
+    ++stats.grenadeInstances;
+    break;
+  }
+}
+
 void finalizeStaticMeshBatches(Scene3D& scene) {
   std::sort(
     scene.staticMeshInstances.begin(),
@@ -2187,6 +2319,7 @@ void addProjectileInstances(
   const Vec3 position =
     projectileVisualPosition(projectile, player, remotePlayers, settings);
   const float pulseSeed = static_cast<float>(projectileIndex) * 0.371F;
+  const float rotation = projectileRotationRadians(projectile, projectileIndex);
   const float cullRadius =
     std::max(descriptor->coreScale, descriptor->glowScale);
   if (
@@ -2207,27 +2340,30 @@ void addProjectileInstances(
         RenderPass::OpaqueWorld,
         position,
         {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
-        0.0F,
+        rotation,
         descriptor->coreColor,
         pulseSeed,
         {position, descriptor->coreScale},
       }
     );
-    ++scene.projectileStats.projectileCoreInstances;
+    countProjectileCoreInstance(scene.projectileStats, descriptor->type);
   }
   if (descriptor->glowBillboard != BillboardHandle::Invalid) {
+    const Vec3 glowPosition = descriptor->type == ProjectileVisualType::Rocket
+      ? position - yawForward(rotation) * (descriptor->coreScale * 0.9F)
+      : position;
     appendSimpleInstance(
       scene,
       {
         MeshHandle::Invalid,
         descriptor->glowBillboard,
         descriptor->usesAdditiveGlow ? RenderPass::AdditiveGlow : RenderPass::TranslucentWorld,
-        position,
+        glowPosition,
         {descriptor->glowScale, descriptor->glowScale, descriptor->glowScale},
         0.0F,
         descriptor->glowColor,
         pulseSeed,
-        {position, descriptor->glowScale},
+        {glowPosition, descriptor->glowScale},
       }
     );
     ++scene.projectileStats.projectileGlowInstances;
@@ -2277,9 +2413,15 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
     }
     if (batch.mesh != MeshHandle::Invalid) {
       ++scene.projectileStats.projectileMeshDrawCalls;
+      if (batch.pass == RenderPass::OpaqueWorld) {
+        ++scene.projectileStats.opaqueProjectileBatches;
+      }
     }
     if (batch.billboard != BillboardHandle::Invalid) {
       ++scene.projectileStats.projectileGlowDrawCalls;
+      if (batch.pass == RenderPass::AdditiveGlow) {
+        ++scene.projectileStats.additiveProjectileBatches;
+      }
     }
   }
 }
@@ -2549,14 +2691,6 @@ Scene3D buildPerspectiveScene(
         fire.hit ? 0.045F : 0.03F,
         fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}
       );
-    } else if (fire.weapon == Weapon::RocketLauncher) {
-      addSegment(
-        scene,
-        fire.start,
-        fire.end,
-        0.04F,
-        {255, 150, 70, 255}
-      );
     } else if (fire.weapon == Weapon::MachineGun) {
       addMachineGunFireVisuals(
         scene,
@@ -2578,72 +2712,14 @@ Scene3D buildPerspectiveScene(
     }
     ++scene.projectileStats.projectilesActive;
 
-    const Vec3 projectilePosition =
-      projectileVisualPosition(projectile, player, remotePlayers, settings);
-    const float projectileSize =
-      projectile.radius > 0.0F ? projectile.radius : 0.14F;
-
-    if (projectile.weapon == Weapon::PlasmaGun) {
-      addProjectileInstances(
-        scene,
-        projectile,
-        projectileIndex,
-        player,
-        remotePlayers,
-        settings
-      );
-      continue;
-    }
-
-    if (projectile.weapon == Weapon::GrenadeLauncher) {
-      const std::uint32_t before =
-        static_cast<std::uint32_t>(scene.vertices.size());
-      addSphereApprox(
-        scene,
-        projectilePosition,
-        projectileSize,
-        {8, 48, 18, 255}
-      );
-      addWireBox(
-        scene,
-        projectilePosition - Vec3{
-          projectileSize * 1.4F,
-          projectileSize * 1.4F,
-          projectileSize * 1.4F
-        },
-        projectilePosition + Vec3{
-          projectileSize * 1.4F,
-          projectileSize * 1.4F,
-          projectileSize * 1.4F
-        },
-        0.012F,
-        {255, 220, 100, 255}
-      );
-      scene.projectileStats.legacyProjectileDynamicVertices +=
-        static_cast<std::uint32_t>(scene.vertices.size()) - before;
-      ++scene.projectileStats.projectilesRendered;
-      continue;
-    }
-
-    constexpr float size = 0.14F;
-    const std::uint32_t before =
-      static_cast<std::uint32_t>(scene.vertices.size());
-    addBox(
+    addProjectileInstances(
       scene,
-      projectilePosition - Vec3{size, size, size},
-      projectilePosition + Vec3{size, size, size},
-      {255, 126, 40, 255}
+      projectile,
+      projectileIndex,
+      player,
+      remotePlayers,
+      settings
     );
-    addWireBox(
-      scene,
-      projectilePosition - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-      projectilePosition + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-      0.012F,
-      {255, 220, 100, 255}
-    );
-    scene.projectileStats.legacyProjectileDynamicVertices +=
-      static_cast<std::uint32_t>(scene.vertices.size()) - before;
-    ++scene.projectileStats.projectilesRendered;
   }
   for (const RocketExplosionResult& explosion : rocketExplosions) {
     if (!explosion.active) {

@@ -1518,6 +1518,222 @@ int main() {
     "projectile instance upload bytes should scale by instance count, not mesh vertex count"
   );
 
+  const lg::ProjectileVisualDescriptor* rocketDescriptor =
+    lg::projectileVisualDescriptor(lg::ProjectileVisualType::Rocket);
+  const lg::ProjectileVisualDescriptor* grenadeDescriptor =
+    lg::projectileVisualDescriptor(lg::ProjectileVisualType::Grenade);
+  failures += expect(
+    rocketDescriptor != nullptr &&
+      rocketDescriptor->coreMesh == lg::MeshHandle::RocketProjectile &&
+      rocketDescriptor->glowBillboard == lg::BillboardHandle::RocketFlame &&
+      lg::staticMeshAsset(rocketDescriptor->coreMesh) != nullptr &&
+      lg::billboardAsset(rocketDescriptor->glowBillboard) != nullptr,
+    "rocket projectile descriptor should resolve to rocket mesh and flame billboard assets"
+  );
+  failures += expect(
+    grenadeDescriptor != nullptr &&
+      grenadeDescriptor->coreMesh == lg::MeshHandle::GrenadeProjectile &&
+      grenadeDescriptor->glowBillboard == lg::BillboardHandle::Invalid &&
+      lg::staticMeshAsset(grenadeDescriptor->coreMesh) != nullptr,
+    "grenade projectile descriptor should resolve to grenade mesh without glow billboard"
+  );
+
+  std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> rocketProjectiles = {};
+  rocketProjectiles[0].active = true;
+  rocketProjectiles[0].owner = 1;
+  rocketProjectiles[0].weapon = lg::Weapon::RocketLauncher;
+  rocketProjectiles[0].position = player.position + lg::Vec3{3.0F, 0.0F, 0.65F};
+  rocketProjectiles[0].velocity = {30.0F, 0.0F, 0.0F};
+  const lg::Scene3D rocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    settings
+  );
+  failures += expect(
+    rocketProjectileScene.projectileStats.projectilesRendered == 1 &&
+      rocketProjectileScene.projectileStats.rocketInstances == 1 &&
+      rocketProjectileScene.projectileStats.projectileGlowInstances == 1 &&
+      rocketProjectileScene.projectileStats.opaqueProjectileBatches == 1 &&
+      rocketProjectileScene.projectileStats.additiveProjectileBatches == 1 &&
+      rocketProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
+      rocketProjectileScene.simpleInstances.size() == 2U,
+    "active rocket projectile should produce one opaque rocket instance and one additive flame instance"
+  );
+  failures += expect(
+    rocketProjectileScene.simpleInstances[0].position.x <
+      rocketProjectiles[0].position.x - 0.35F,
+    "remote rocket projectile instances should render from the rocket launcher barrel"
+  );
+  failures += expect(
+    rocketProjectileScene.simpleBatches.size() == 2U &&
+      rocketProjectileScene.simpleBatches[0].mesh == lg::MeshHandle::RocketProjectile &&
+      rocketProjectileScene.simpleBatches[0].pass == lg::RenderPass::OpaqueWorld &&
+      rocketProjectileScene.simpleBatches[1].billboard == lg::BillboardHandle::RocketFlame &&
+      rocketProjectileScene.simpleBatches[1].pass == lg::RenderPass::AdditiveGlow,
+    "rocket projectile should use the rocket mesh opaque pass and flame additive pass"
+  );
+
+  rocketProjectiles[0].owner = 0;
+  rocketProjectiles[0].position = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  const lg::Scene3D localRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    localShotgunWeaponStartSettings
+  );
+  failures += expect(
+    localRocketProjectileScene.simpleInstances.size() == 2U &&
+      localRocketProjectileScene.simpleInstances[0].position.z <
+        rocketProjectiles[0].position.z - 0.15F,
+    "local rocket projectile instances should render from the first-person weapon barrel"
+  );
+
+  std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> grenadeProjectiles = {};
+  grenadeProjectiles[0].active = true;
+  grenadeProjectiles[0].owner = 1;
+  grenadeProjectiles[0].weapon = lg::Weapon::GrenadeLauncher;
+  grenadeProjectiles[0].position = player.position + lg::Vec3{3.0F, 0.0F, 0.65F};
+  grenadeProjectiles[0].velocity = {18.0F, 2.0F, 6.0F};
+  const lg::Scene3D grenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    settings
+  );
+  failures += expect(
+    grenadeProjectileScene.projectileStats.projectilesRendered == 1 &&
+      grenadeProjectileScene.projectileStats.grenadeInstances == 1 &&
+      grenadeProjectileScene.projectileStats.projectileGlowInstances == 0 &&
+      grenadeProjectileScene.projectileStats.opaqueProjectileBatches == 1 &&
+      grenadeProjectileScene.projectileStats.additiveProjectileBatches == 0 &&
+      grenadeProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
+      grenadeProjectileScene.simpleInstances.size() == 1U &&
+      grenadeProjectileScene.simpleInstances[0].mesh == lg::MeshHandle::GrenadeProjectile &&
+      grenadeProjectileScene.simpleInstances[0].pass == lg::RenderPass::OpaqueWorld,
+    "active grenade projectile should produce one opaque grenade instance and no glow"
+  );
+
+  grenadeProjectiles[0].velocity = {};
+  const lg::Scene3D stillGrenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    settings
+  );
+  failures += expect(
+    stillGrenadeProjectileScene.simpleInstances.size() == 1U &&
+      std::isfinite(stillGrenadeProjectileScene.simpleInstances[0].rotationRadians),
+    "zero-velocity grenade projectile rotation should remain finite"
+  );
+
+  rocketProjectiles[0].position = player.position + lg::Vec3{-12.0F, 0.0F, 0.65F};
+  const lg::Scene3D culledRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    settings
+  );
+  grenadeProjectiles[0].position = player.position + lg::Vec3{-12.0F, 0.0F, 0.65F};
+  const lg::Scene3D culledGrenadeProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    grenadeProjectiles,
+    settings
+  );
+  failures += expect(
+    culledRocketProjectileScene.projectileStats.projectilesFrustumCulled == 1 &&
+      culledRocketProjectileScene.simpleInstances.empty() &&
+      culledGrenadeProjectileScene.projectileStats.projectilesFrustumCulled == 1 &&
+      culledGrenadeProjectileScene.simpleInstances.empty(),
+    "frustum culling should exclude off-screen rocket and grenade projectiles"
+  );
+
+  rocketProjectiles[0].position = player.position + lg::Vec3{3.0F, 0.0F, 0.65F};
+  rocketProjectiles[1] = rocketProjectiles[0];
+  rocketProjectiles[1].position = player.position + lg::Vec3{4.0F, 0.2F, 0.65F};
+  const lg::Scene3D multiRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    settings
+  );
+  failures += expect(
+    multiRocketProjectileScene.projectileStats.rocketInstances == 2 &&
+      multiRocketProjectileScene.projectileStats.projectileGlowInstances == 2 &&
+      multiRocketProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
+      multiRocketProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
+      multiRocketProjectileScene.simpleBatches.size() == 2U,
+    "multiple rocket projectiles should batch into shared opaque and additive draws"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> rocketFireOnly = {};
+  rocketFireOnly[0].fired = true;
+  rocketFireOnly[0].weapon = lg::Weapon::RocketLauncher;
+  rocketFireOnly[0].start = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  rocketFireOnly[0].end = rocketFireOnly[0].start + lg::Vec3{1.2F, 0.0F, 0.0F};
+  const lg::Scene3D rocketFireOnlyScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>{},
+    inactiveBeam,
+    rocketFireOnly,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  bool foundRocketFireLine = false;
+  for (const lg::Vertex3D& vertex : rocketFireOnlyScene.vertices) {
+    foundRocketFireLine =
+      foundRocketFireLine ||
+      (
+        vertex.color.red >= 240 &&
+        vertex.color.green >= 120 &&
+        vertex.color.green <= 175 &&
+        vertex.color.blue <= 90
+      );
+  }
+  failures += expect(
+    !foundRocketFireLine,
+    "rocket launcher fire events should not draw a separate projectile line"
+  );
+
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> plasmaFireOnly = {};
   plasmaFireOnly[0].fired = true;
   plasmaFireOnly[0].weapon = lg::Weapon::PlasmaGun;
