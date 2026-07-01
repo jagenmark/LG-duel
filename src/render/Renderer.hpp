@@ -257,6 +257,15 @@ struct RendererFrameDiagnostics {
   std::uint32_t remoteCandidates = 0;
   std::uint32_t remoteFrustumVisible = 0;
   std::uint32_t remoteFrustumCulled = 0;
+  std::uint32_t remoteWeaponCandidates = 0;
+  std::uint32_t remoteWeaponsFrustumCulled = 0;
+  std::uint32_t remoteWeaponInstances = 0;
+  std::uint32_t remoteWeaponInstanceUploadBytes = 0;
+  std::uint32_t remoteWeaponBatches = 0;
+  std::uint32_t remoteWeaponDrawCalls = 0;
+  std::uint32_t legacyRemoteWeaponDynamicVertices = 0;
+  std::uint32_t firstPersonViewModelDrawCalls = 0;
+  std::uint32_t firstPersonViewModelDynamicVertices = 0;
   std::uint32_t projectilesActive = 0;
   std::uint32_t projectilesFrustumCulled = 0;
   std::uint32_t projectilesRendered = 0;
@@ -308,6 +317,7 @@ private:
   void* gpuPipeline3D_ = nullptr;
   void* gpuPipeline3DTranslucent_ = nullptr;
   void* gpuPipelineInstancedMesh_ = nullptr;
+  void* gpuPipelineStaticMesh_ = nullptr;
   void* gpuPipelineInstancedGlow_ = nullptr;
   void* gpuVertexBuffer_ = nullptr;
   void* gpuTransferBuffer_ = nullptr;

@@ -29,6 +29,13 @@ enum class RenderPass {
 enum class MeshHandle : std::uint16_t {
   Invalid = 0,
   PlasmaCore,
+  RemoteMachineGun,
+  RemoteShotgun,
+  RemoteGrenadeLauncher,
+  RemoteRocketLauncher,
+  RemoteLightningGun,
+  RemoteRailgun,
+  RemotePlasmaGun,
 };
 
 enum class BillboardHandle : std::uint16_t {
@@ -91,6 +98,24 @@ struct SimpleRenderBatch {
   std::uint32_t instanceCount = 0;
 };
 
+struct StaticMeshInstance {
+  MeshHandle mesh = MeshHandle::Invalid;
+  RenderPass pass = RenderPass::OpaqueWorld;
+  Vec3 modelRow0 = {};
+  Vec3 modelRow1 = {};
+  Vec3 modelRow2 = {};
+  Vec3 modelTranslation = {};
+  RenderColor color = {};
+  BoundingSphere worldBounds = {};
+};
+
+struct StaticMeshBatch {
+  MeshHandle mesh = MeshHandle::Invalid;
+  RenderPass pass = RenderPass::OpaqueWorld;
+  std::uint32_t firstInstance = 0;
+  std::uint32_t instanceCount = 0;
+};
+
 struct ProjectileRenderStats {
   std::uint32_t projectilesActive = 0;
   std::uint32_t projectilesFrustumCulled = 0;
@@ -103,13 +128,32 @@ struct ProjectileRenderStats {
   std::uint32_t legacyProjectileDynamicVertices = 0;
 };
 
+struct RemoteWeaponRenderStats {
+  std::uint32_t candidates = 0;
+  std::uint32_t frustumCulled = 0;
+  std::uint32_t instancesSubmitted = 0;
+  std::uint32_t instanceUploadBytes = 0;
+  std::uint32_t batches = 0;
+  std::uint32_t drawCalls = 0;
+  std::uint32_t legacyDynamicVertices = 0;
+};
+
+struct ViewModelRenderStats {
+  std::uint32_t drawCalls = 0;
+  std::uint32_t dynamicVertices = 0;
+};
+
 struct Scene3D {
   PerspectiveCamera camera = {};
   std::vector<Vertex3D> vertices;
   std::vector<Vertex3D> translucentVertices;
+  std::vector<StaticMeshInstance> staticMeshInstances;
+  std::vector<StaticMeshBatch> staticMeshBatches;
   std::vector<SimpleRenderInstance> simpleInstances;
   std::vector<SimpleRenderBatch> simpleBatches;
   ProjectileRenderStats projectileStats = {};
+  RemoteWeaponRenderStats remoteWeaponStats = {};
+  ViewModelRenderStats viewModelStats = {};
   std::array<bool, kDuelPlayerCount> remoteRenderVisible = {};
   std::uint32_t visibleRemotePlayers = 0;
   std::uint32_t remoteBodyModelsBuilt = 0;
@@ -121,6 +165,7 @@ struct Scene3D {
 };
 
 [[nodiscard]] const StaticMeshAsset* staticMeshAsset(MeshHandle handle);
+[[nodiscard]] MeshHandle remoteWeaponMeshHandle(Weapon weapon);
 [[nodiscard]] const BillboardAsset* billboardAsset(BillboardHandle handle);
 [[nodiscard]] const ProjectileVisualDescriptor* projectileVisualDescriptor(
   ProjectileVisualType type
