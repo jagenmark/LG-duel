@@ -24,7 +24,7 @@ Collision and traces use `ArenaWall` AABBs and `ArenaBrush` convex planes/vertic
 
 Quake map units convert to LG units with `1 / 40`. Texture projection stores Quake-space axes/offsets/scales and rendering multiplies LG positions back by 40 for UV generation.
 
-Materials are hashed/stable ids from material paths. Renderer texture loading expects PNGs under `textures`, with aliases both including and excluding `.png`. Packaged builds also rely on shaders under `assets/shaders` and audio/model assets under `assets`.
+Materials are hashed/stable ids from material paths. Renderer texture loading expects PNGs under `textures`, with aliases both including and excluding `.png`. Windows packages copy only texture PNGs referenced by at least one map face, so new map materials must resolve under `textures`. Packaged builds also rely on shaders under `assets/shaders` and audio/model assets under `assets`.
 
 ## Current Limitations
 
