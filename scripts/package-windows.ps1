@@ -21,6 +21,152 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $resolvedBuildDir = (Resolve-Path $BuildDir).Path
 $outputPath = [System.IO.Path]::GetFullPath($OutputDir)
 
+function Normalize-TextureMaterial {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Material
+  )
+
+  $normalized = $Material.Replace("\", "/").Trim()
+  while ($normalized.StartsWith("/")) {
+    $normalized = $normalized.Substring(1)
+  }
+  if ($normalized.StartsWith("textures/", [System.StringComparison]::OrdinalIgnoreCase)) {
+    $normalized = $normalized.Substring("textures/".Length)
+  }
+  return $normalized
+}
+
+function Get-MapTextureMaterials {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$MapSource
+  )
+
+  $materials = New-Object "System.Collections.Generic.HashSet[string]" ([System.StringComparer]::OrdinalIgnoreCase)
+  $facePattern = '^\s*\([^)]*\)\s*\([^)]*\)\s*\([^)]*\)\s+([^\s\}]+)'
+  Get-ChildItem -Path $MapSource -File |
+    Where-Object { $_.Extension -in ".lgmap", ".map" } |
+    ForEach-Object {
+      Select-String -Path $_.FullName -Pattern $facePattern | ForEach-Object {
+        $material = Normalize-TextureMaterial $_.Matches[0].Groups[1].Value
+        if (-not [string]::IsNullOrWhiteSpace($material)) {
+          [void]$materials.Add($material)
+        }
+      }
+    }
+
+  return $materials | Sort-Object
+}
+
+function Resolve-TextureMaterialPath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TextureSource,
+
+    [Parameter(Mandatory = $true)]
+    [string]$Material
+  )
+
+  $normalized = Normalize-TextureMaterial $Material
+  if ([string]::IsNullOrWhiteSpace($normalized)) {
+    return $null
+  }
+
+  $relative = $normalized
+  if ([System.IO.Path]::GetExtension($relative) -eq "") {
+    $relative = "$relative.png"
+  }
+  $candidate = $TextureSource
+  foreach ($part in ($relative -split "/")) {
+    if ([string]::IsNullOrWhiteSpace($part)) {
+      continue
+    }
+    $candidate = Join-Path $candidate $part
+  }
+
+  $textureRoot = [System.IO.Path]::GetFullPath($TextureSource)
+  $candidatePath = [System.IO.Path]::GetFullPath($candidate)
+  $rootWithSeparator = $textureRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar) + [System.IO.Path]::DirectorySeparatorChar
+  if (-not $candidatePath.StartsWith($rootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Texture material '$Material' resolves outside the texture directory."
+  }
+  if (-not (Test-Path $candidatePath -PathType Leaf)) {
+    return $null
+  }
+
+  return Get-Item $candidatePath
+}
+
+function Get-TextureRelativePath {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$TextureSource,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TextureFile
+  )
+
+  $textureRoot = [System.IO.Path]::GetFullPath($TextureSource).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+  $texturePath = [System.IO.Path]::GetFullPath($TextureFile)
+  $rootWithSeparator = $textureRoot + [System.IO.Path]::DirectorySeparatorChar
+  if (-not $texturePath.StartsWith($rootWithSeparator, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Texture file '$TextureFile' is outside the texture directory."
+  }
+
+  return $texturePath.Substring($rootWithSeparator.Length)
+}
+
+function Copy-UsedMapTextures {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$MapSource,
+
+    [Parameter(Mandatory = $true)]
+    [string]$TextureSource,
+
+    [Parameter(Mandatory = $true)]
+    [string]$OutputPath
+  )
+
+  $textureOutput = Join-Path $OutputPath "textures"
+  New-Item -Path $textureOutput -ItemType Directory | Out-Null
+
+  $licenseSource = Join-Path $TextureSource "License.txt"
+  if (Test-Path $licenseSource -PathType Leaf) {
+    Copy-Item $licenseSource (Join-Path $textureOutput "License.txt")
+  }
+
+  $missingMaterials = New-Object System.Collections.Generic.List[string]
+  $copiedTextures = New-Object "System.Collections.Generic.HashSet[string]" ([System.StringComparer]::OrdinalIgnoreCase)
+  $materials = Get-MapTextureMaterials $MapSource
+  foreach ($material in $materials) {
+    $textureFile = Resolve-TextureMaterialPath $TextureSource $material
+    if ($null -eq $textureFile) {
+      $missingMaterials.Add($material)
+      continue
+    }
+
+    $relativePath = Get-TextureRelativePath $TextureSource $textureFile.FullName
+    if (-not $copiedTextures.Add($relativePath)) {
+      continue
+    }
+
+    $destination = Join-Path $textureOutput $relativePath
+    $destinationDirectory = Split-Path -Parent $destination
+    if (-not (Test-Path $destinationDirectory)) {
+      New-Item -Path $destinationDirectory -ItemType Directory | Out-Null
+    }
+    Copy-Item $textureFile.FullName $destination
+  }
+
+  if ($missingMaterials.Count -gt 0) {
+    throw "Package validation failed: missing texture files for map materials: $($missingMaterials -join ', ')"
+  }
+
+  return $copiedTextures.Count
+}
+
 $clientCandidates = @(
   (Join-Path $resolvedBuildDir "$Configuration/lg_duel_client.exe"),
   (Join-Path $resolvedBuildDir "lg_duel_client.exe")
@@ -103,11 +249,10 @@ $textureSource = Join-Path $repoRoot "textures"
 if (-not (Test-Path $textureSource)) {
   throw "The runtime texture directory was not found in the repository."
 }
-Copy-Item $textureSource (Join-Path $outputPath "textures") -Recurse
+$copiedTextureCount = Copy-UsedMapTextures $mapSource $textureSource $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/Play LG Duel.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/Host LG Duel Server.bat") $outputPath
 Copy-Item (Join-Path $repoRoot "package/windows/README.txt") $outputPath
-Copy-Item (Join-Path $repoRoot "docs/PLAYTEST_GUIDE.html") $outputPath
 Set-Content -Path (Join-Path $outputPath "server-address.txt") -Value "${ServerHost}:${ServerPort}" -Encoding ASCII
 
 $requiredFiles = @(
@@ -122,7 +267,6 @@ $requiredFiles = @(
   "config/gameplay.cfg",
   "maps/thunderstruck.lgmap",
   "textures/License.txt",
-  "textures/512x512/Stone/Stone_01-512x512.png",
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",
   "README.txt",
@@ -146,6 +290,21 @@ foreach ($file in $requiredMapFiles) {
   }
 }
 
+$requiredTextureMaterials = Get-MapTextureMaterials $mapSource
+if ($requiredTextureMaterials.Count -gt 0 -and $copiedTextureCount -eq 0) {
+  throw "Package validation failed: map materials were found but no textures were copied."
+}
+foreach ($material in $requiredTextureMaterials) {
+  $textureFile = Resolve-TextureMaterialPath $textureSource $material
+  if ($null -eq $textureFile) {
+    throw "Package validation failed: missing texture file for map material $material."
+  }
+  $packagedTextureFile = Join-Path (Join-Path $outputPath "textures") (Get-TextureRelativePath $textureSource $textureFile.FullName)
+  if (-not (Test-Path $packagedTextureFile)) {
+    throw "Package validation failed: textures/$(Get-TextureRelativePath $textureSource $textureFile.FullName) is missing."
+  }
+}
+
 $requiredAudioFiles = Get-ChildItem -Path $audioSource -Filter "*.wav" -File
 if ($requiredAudioFiles.Count -eq 0) {
   throw "Package validation failed: no runtime audio WAV files were found."
@@ -158,4 +317,5 @@ foreach ($file in $requiredAudioFiles) {
 }
 
 Write-Host "Windows playtest package created at $outputPath"
+Write-Host "Copied $copiedTextureCount map texture(s)."
 Get-ChildItem $outputPath | Select-Object Name, Length
