@@ -46,7 +46,7 @@ function Get-MapTextureMaterials {
   $materials = New-Object "System.Collections.Generic.HashSet[string]" ([System.StringComparer]::OrdinalIgnoreCase)
   $facePattern = '^\s*\([^)]*\)\s*\([^)]*\)\s*\([^)]*\)\s+([^\s\}]+)'
   Get-ChildItem -Path $MapSource -File |
-    Where-Object { $_.Extension -in ".lgmap", ".map" } |
+    Where-Object { $_.Extension -in ".map" } |
     ForEach-Object {
       Select-String -Path $_.FullName -Pattern $facePattern | ForEach-Object {
         $material = Normalize-TextureMaterial $_.Matches[0].Groups[1].Value
@@ -265,7 +265,7 @@ $requiredFiles = @(
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/gameplay.cfg",
-  "maps/thunderstruck.lgmap",
+  "maps/eyetoeye.map",
   "textures/License.txt",
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",
@@ -279,7 +279,7 @@ foreach ($file in $requiredFiles) {
 }
 
 $requiredMapFiles = Get-ChildItem -Path $mapSource -File |
-  Where-Object { $_.Extension -in ".lgmap", ".map" }
+  Where-Object { $_.Extension -in ".map" }
 if ($requiredMapFiles.Count -eq 0) {
   throw "Package validation failed: no runtime map files were found."
 }
