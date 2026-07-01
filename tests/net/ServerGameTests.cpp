@@ -73,24 +73,24 @@ bool hasAnyLocalHitFeedback(
   return false;
 }
 
-struct ScopedGameplayConfigDirectory {
+struct ScopedBalanceConfigDirectory {
   std::filesystem::path previousPath;
   std::filesystem::path directory;
 
-  explicit ScopedGameplayConfigDirectory(std::string_view gameplayConfigText)
+  explicit ScopedBalanceConfigDirectory(std::string_view balanceConfigText)
     : previousPath(std::filesystem::current_path()),
       directory(
         std::filesystem::temp_directory_path() /
-        ("lg-duel-gameplay-config-test-" + std::to_string(std::rand()))
+        ("lg-duel-balance-config-test-" + std::to_string(std::rand()))
       ) {
     std::filesystem::create_directories(directory / "config");
-    std::ofstream configFile(directory / "config" / "gameplay.cfg");
-    configFile << gameplayConfigText;
+    std::ofstream configFile(directory / "config" / "balance.cfg");
+    configFile << balanceConfigText;
     configFile.close();
     std::filesystem::current_path(directory);
   }
 
-  ~ScopedGameplayConfigDirectory() {
+  ~ScopedBalanceConfigDirectory() {
     std::filesystem::current_path(previousPath);
     std::error_code error;
     std::filesystem::remove_all(directory, error);
@@ -100,22 +100,19 @@ struct ScopedGameplayConfigDirectory {
 std::string grenadeConfig(float hitboxRadius) {
   return std::string{
     "version 1\n"
-    "grenade.speed 16\n"
-    "grenade.vertical_boost 0\n"
-    "grenade.gravity 0\n"
-    "grenade.bounce_damping 0.7\n"
-    "grenade.rest_speed 1.5\n"
-    "grenade.bounce_sound_min_speed 1.2\n"
-    "grenade.projectile_radius 0.05\n"
+    "weapon.gl.speed 16\n"
+    "weapon.gl.vertical_boost 0\n"
+    "weapon.gl.gravity 0\n"
+    "weapon.gl.bounce_damping 0.7\n"
+    "weapon.gl.rest_speed 1.5\n"
+    "weapon.gl.bounce_sound_min_speed 1.2\n"
+    "weapon.gl.projectile_radius 0.05\n"
   } +
-    "grenade.projectile_hitbox_radius " + std::to_string(hitboxRadius) + "\n" +
+    "weapon.gl.projectile_hitbox_radius " + std::to_string(hitboxRadius) + "\n" +
     std::string{
-    "grenade.fuse_seconds 2.5\n"
-    "grenade.radius 3.0\n"
-    "grenade.direct_damage 100\n"
-    "grenade.splash_damage 100\n"
-    "grenade.knockback 22.0\n"
-    "grenade.cooldown_ticks 100\n"
+    "weapon.gl.fuse_seconds 2.5\n"
+    "weapon.gl.radius 3.0\n"
+    "weapon.gl.cooldown_ticks 100\n"
   };
 }
 
@@ -1502,7 +1499,7 @@ int main() {
   }
 
   {
-    ScopedGameplayConfigDirectory configDirectory(grenadeConfig(0.2F));
+    ScopedBalanceConfigDirectory configDirectory(grenadeConfig(0.2F));
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     latestSnapshot(transport);
@@ -1563,7 +1560,7 @@ int main() {
   }
 
   {
-    ScopedGameplayConfigDirectory configDirectory(grenadeConfig(0.0F));
+    ScopedBalanceConfigDirectory configDirectory(grenadeConfig(0.0F));
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     lg::Arena arena;

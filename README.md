@@ -113,7 +113,7 @@ Bindings, cvars, and console commands are documented in [docs/CONSOLE-BIBLE.md](
 
 Runtime maps live in `maps/` as restricted TrenchBroom/Quake `.map` files. Map requests are server-authoritative and replicated to clients by map revision.
 
-Textures live under `textures/`; shaders, audio, and models live under `assets/`. Gameplay grenade tuning is loaded from `config/gameplay.cfg`.
+Textures live under `textures/`; shaders, audio, and models live under `assets/`. Gameplay tuning files live under `config/`: authoritative non-cvar balance in `balance.cfg`, server startup cvars in `server_cvars.cfg`, default client cvars/binds in `default_client.cfg`, and client-only sound cue volumes in `sound_mixer.cfg`.
 
 See [docs/architecture/maps-assets.md](docs/architecture/maps-assets.md) for the map pipeline, limitations, texture/material assumptions, and collision/render data split.
 

@@ -45,13 +45,19 @@ referens.
 
 Intervall är inklusiva. Ett värde exakt på min- eller maxgränsen är giltigt.
 
-### Lagring och auktoritet
+### Lagring, defaultfiler och auktoritet
 
 - `Arkiv`: sparas automatiskt i klientens `client.cfg`.
 - `Runtime`: återställs när klienten eller servern startas om.
 - `Serverstyrd`: klientens värde skickas till servern och replikeras tillbaka
   så att server och prediction använder samma värde.
-- Serverkonsolens `sv_*` är runtime-värden och sparas inte automatiskt.
+- Klienten laddar `config/default_client.cfg` före användarens `client.cfg`.
+  `writeconfig` skriver bara användarens arkiverade cvars och bindings.
+- Servern laddar `config/server_cvars.cfg` vid start. Den filen innehåller
+  serverns `sv_*`-defaults och de tillfälliga utvecklings-`g_*`-defaultsen.
+- Servern laddar `config/balance.cfg` för auktoritativa gameplay-värden som
+  inte är console-cvars. Klienter ska inte ladda en lokal `balance.cfg`.
+- Serverkonsolens `sv_*` och `g_*` är runtime-värden och sparas inte automatiskt.
 
 ## 2. Klientstart och miljö
 
@@ -117,9 +123,11 @@ SDL_Renderer om GPU-initiering misslyckas.
 
 ### 3.3 Serverstyrd movement och gameplay
 
-Dessa cvars skrivs i klientkonsolen men skickas till den auktoritativa servern.
-De gäller symmetriskt för båda spelarna och replikeras tillbaka till klienterna.
-De arkiveras inte.
+Dessa cvars kan skrivas i serverkonsolen och defaultas från
+`config/server_cvars.cfg`. Under utveckling kan de också skrivas i
+klientkonsolen och skickas till den auktoritativa servern. De gäller
+symmetriskt för båda spelarna och replikeras tillbaka till klienterna.
+Klientens `g_*`-värden arkiveras inte.
 
 Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 
@@ -459,8 +467,9 @@ Servern kör auktoritativ simulation i `125 Hz`.
 
 ### Server-cvars
 
-Skriv kommandona på serverprocessens stdin. Alla är runtime och återställs vid
-omstart.
+Skriv kommandona på serverprocessens stdin. `config/server_cvars.cfg` körs vid
+serverstart och sätter defaultvärdena. Alla är runtime och sparas inte
+automatiskt.
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
@@ -566,10 +575,14 @@ resetmatch
 - Nuvarande nätprotokoll och simulation har upp till `6` spelarslots.
 - `sv_playerlimit` kan vara `1..6` och styr hur många anslutna spelare som
   krävs för att matchflödet ska börja.
-- Klientens gameplay-`g_*` är serverstyrda genom nätprotokollet men ställs från
-  klientkonsolen. Serverns stdin-konsol registrerar i nuläget inte dessa `g_*`.
-- `client.cfg` arkiverar client/render/audio-cvars och bindings, inte gameplay
-  tuning-`g_*` eller serverns `sv_*`.
+- `config/balance.cfg` är serverauktoritativ och innehåller bara icke-cvar
+  gameplayvärden. Lokala klientkopior ska inte påverka gameplay.
+- `config/server_cvars.cfg` sätter serverns `sv_*` och tillfälliga utvecklings-
+  `g_*` vid start. Klientens gameplay-`g_*` pushas fortfarande genom
+  nätprotokollet för utveckling, men den vägen är avsedd att tas bort senare.
+- `config/default_client.cfg` laddas före användarens `client.cfg` och innehåller
+  standardcvars och bindings. `client.cfg` arkiverar client/render/audio-cvars
+  och bindings, inte gameplay tuning-`g_*` eller serverns `sv_*`.
 - String-tokenisering stöder dubbla citattecken men inga escape-sekvenser.
 - RGB-värden är heltal `0..255`; alpha är float `0..1`.
 - Q3/QL-referenser är jämförelsevärden, inte ett löfte om identisk fysik.

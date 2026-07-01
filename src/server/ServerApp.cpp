@@ -1,20 +1,24 @@
 #include "server/ServerApp.hpp"
 
 #include "console/ConsoleSystem.hpp"
+#include "console/ConsoleConfig.hpp"
 #include "net/UdpTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
+#include "sim/GameplayCvars.hpp"
 
 #include <algorithm>
 #include <charconv>
 #include <chrono>
 #include <deque>
 #include <filesystem>
+#include <cmath>
 #include <iostream>
 #include <mutex>
 #include <string>
 #include <thread>
+#include <vector>
 
 namespace lg {
 namespace {
@@ -46,6 +50,164 @@ std::string defaultMapDirectory(const std::string& executablePath) {
   return "maps";
 }
 
+std::filesystem::path defaultConfigPath(
+  const std::string& executablePath,
+  const char* filename
+) {
+  namespace fs = std::filesystem;
+  std::vector<fs::path> starts;
+  if (!executablePath.empty()) {
+    starts.push_back(fs::absolute(fs::path(executablePath)).parent_path());
+  }
+  starts.push_back(fs::current_path());
+
+  for (fs::path directory : starts) {
+    for (;;) {
+      const fs::path candidate = directory / "config" / filename;
+      if (fs::exists(candidate)) {
+        return candidate;
+      }
+      const fs::path parent = directory.parent_path();
+      if (parent.empty() || parent == directory) {
+        break;
+      }
+      directory = parent;
+    }
+  }
+  return {};
+}
+
+void logConsoleConfigErrors(const ConsoleConfigResult& result) {
+  for (const std::string& error : result.errors) {
+    std::cerr << "Config warning: " << error << '\n';
+  }
+}
+
+bool sameMovementTuning(const MovementTuning& lhs, const MovementTuning& rhs) {
+  return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.groundAcceleration == rhs.groundAcceleration &&
+    lhs.airAcceleration == rhs.airAcceleration &&
+    lhs.groundFriction == rhs.groundFriction &&
+    lhs.stopSpeed == rhs.stopSpeed &&
+    lhs.gravity == rhs.gravity &&
+    lhs.maxGroundSpeed == rhs.maxGroundSpeed &&
+    lhs.maxAirSpeed == rhs.maxAirSpeed &&
+    lhs.jumpImpulse == rhs.jumpImpulse &&
+    lhs.airControlEnabled == rhs.airControlEnabled &&
+    lhs.flightAcceleration == rhs.flightAcceleration &&
+    lhs.maxFlightSpeed == rhs.maxFlightSpeed &&
+    lhs.flightDamping == rhs.flightDamping &&
+    lhs.flightGravityCancel == rhs.flightGravityCancel;
+}
+
+bool sameWeaponDamage(
+  const WeaponDamageTuning& lhs,
+  const WeaponDamageTuning& rhs
+) {
+  return lhs.shotgunDamagePerPellet == rhs.shotgunDamagePerPellet &&
+    lhs.machineGunDamage == rhs.machineGunDamage &&
+    lhs.lightningGunDamage == rhs.lightningGunDamage &&
+    lhs.railgunDamage == rhs.railgunDamage &&
+    lhs.rocketLauncherDamage == rhs.rocketLauncherDamage &&
+    lhs.plasmaGunDamage == rhs.plasmaGunDamage;
+}
+
+[[nodiscard]] bool nearlyEqualGameplayFloat(float lhs, float rhs) {
+  return std::fabs(lhs - rhs) <= 0.0001F;
+}
+
+[[nodiscard]] bool nearlySameGameplayMovementTuning(
+  const MovementTuning& lhs,
+  const MovementTuning& rhs
+) {
+  return lhs.flightEnabled == rhs.flightEnabled &&
+    lhs.airControlEnabled == rhs.airControlEnabled &&
+    nearlyEqualGameplayFloat(lhs.groundAcceleration, rhs.groundAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.airAcceleration, rhs.airAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.groundFriction, rhs.groundFriction) &&
+    nearlyEqualGameplayFloat(lhs.stopSpeed, rhs.stopSpeed) &&
+    nearlyEqualGameplayFloat(lhs.maxGroundSpeed, rhs.maxGroundSpeed) &&
+    nearlyEqualGameplayFloat(lhs.flightAcceleration, rhs.flightAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.maxFlightSpeed, rhs.maxFlightSpeed) &&
+    nearlyEqualGameplayFloat(lhs.flightDamping, rhs.flightDamping);
+}
+
+[[nodiscard]] const char* weaponSwitchingModeCvarValue(
+  WeaponSwitchingMode mode
+) {
+  switch (mode) {
+    case WeaponSwitchingMode::Ql:
+      return "ql";
+    case WeaponSwitchingMode::Cpma:
+      return "cpma";
+    case WeaponSwitchingMode::Crazy:
+      return "crazy";
+  }
+  return "crazy";
+}
+
+[[nodiscard]] bool gameplayConsoleMatchesSnapshot(
+  const ConsoleSystem& console,
+  const ServerSnapshot& snapshot
+) {
+  const WeaponDamageTuning weaponDamage = weaponDamageTuningFromCvars(console);
+  return
+    nearlySameGameplayMovementTuning(
+      movementTuningFromCvars(console),
+      snapshot.movementTuning
+    ) &&
+    nearlyEqualGameplayFloat(console.getFloat("g_playersize_xy"), snapshot.playerSizeScaleXY) &&
+    nearlyEqualGameplayFloat(console.getFloat("g_playersize_z"), snapshot.playerSizeScaleZ) &&
+    nearlyEqualGameplayFloat(console.getFloat("g_lg_knockback"), snapshot.lightningKnockback) &&
+    nearlyEqualGameplayFloat(console.getFloat("g_lg_fire_hz"), snapshot.lightningFireHz) &&
+    nearlyEqualGameplayFloat(console.getFloat("g_rl_knockback"), snapshot.rocketKnockback) &&
+    nearlyEqualGameplayFloat(console.getFloat("g_vampirism"), snapshot.vampirism) &&
+    selfDamagePercentFromCvars(console) == snapshot.selfDamagePercent &&
+    healthAmountFromCvars(console) == snapshot.healthAmount &&
+    weaponSwitchingModeFromCvars(console) == snapshot.weaponSwitchingMode &&
+    sameWeaponDamage(weaponDamage, snapshot.weaponDamage);
+}
+
+void syncGameplayConsoleFromSnapshot(
+  ConsoleSystem& console,
+  const ServerSnapshot& snapshot
+) {
+  (void)console.execute(
+    std::string("set g_flight ") +
+    (snapshot.movementTuning.flightEnabled ? "1" : "0")
+  );
+  (void)console.execute("set g_accel " + std::to_string(snapshot.movementTuning.groundAcceleration));
+  (void)console.execute("set g_airaccel " + std::to_string(snapshot.movementTuning.airAcceleration));
+  (void)console.execute(
+    std::string("set g_aircontrol ") +
+    (snapshot.movementTuning.airControlEnabled ? "1" : "0")
+  );
+  (void)console.execute("set g_friction " + std::to_string(snapshot.movementTuning.groundFriction));
+  (void)console.execute("set g_stopspeed " + std::to_string(snapshot.movementTuning.stopSpeed));
+  (void)console.execute("set g_maxspeed " + std::to_string(snapshot.movementTuning.maxGroundSpeed));
+  (void)console.execute("set g_flightaccel " + std::to_string(snapshot.movementTuning.flightAcceleration));
+  (void)console.execute("set g_flightmaxspeed " + std::to_string(snapshot.movementTuning.maxFlightSpeed));
+  (void)console.execute("set g_flightdamping " + std::to_string(snapshot.movementTuning.flightDamping));
+  (void)console.execute("set g_playersize_xy " + std::to_string(snapshot.playerSizeScaleXY));
+  (void)console.execute("set g_playersize_z " + std::to_string(snapshot.playerSizeScaleZ));
+  (void)console.execute("set g_lg_knockback " + std::to_string(snapshot.lightningKnockback));
+  (void)console.execute("set g_lg_fire_hz " + std::to_string(snapshot.lightningFireHz));
+  (void)console.execute("set g_rl_knockback " + std::to_string(snapshot.rocketKnockback));
+  (void)console.execute("set g_sg_damage " + std::to_string(snapshot.weaponDamage.shotgunDamagePerPellet));
+  (void)console.execute("set g_mg_damage " + std::to_string(snapshot.weaponDamage.machineGunDamage));
+  (void)console.execute("set g_lg_damage " + std::to_string(snapshot.weaponDamage.lightningGunDamage));
+  (void)console.execute("set g_rg_damage " + std::to_string(snapshot.weaponDamage.railgunDamage));
+  (void)console.execute("set g_rl_damage " + std::to_string(snapshot.weaponDamage.rocketLauncherDamage));
+  (void)console.execute("set g_pg_damage " + std::to_string(snapshot.weaponDamage.plasmaGunDamage));
+  (void)console.execute("set g_vampirism " + std::to_string(snapshot.vampirism));
+  (void)console.execute("set g_selfdamage " + std::to_string(snapshot.selfDamagePercent));
+  (void)console.execute("set g_healthamount " + std::to_string(snapshot.healthAmount));
+  (void)console.execute(
+    std::string("set g_weaponswitching ") +
+    weaponSwitchingModeCvarValue(snapshot.weaponSwitchingMode)
+  );
+}
+
 } // namespace
 
 ServerApp::ServerApp(std::uint16_t port, std::string executablePath)
@@ -58,7 +220,12 @@ int ServerApp::run() const {
     return 1;
   }
 
-  ServerGame server(transport);
+  const std::filesystem::path balanceConfigPath =
+    defaultConfigPath(executablePath_, "balance.cfg");
+  ServerGame server(
+    transport,
+    balanceConfigPath.empty() ? std::string{} : balanceConfigPath.string()
+  );
   server.setMapDirectory(defaultMapDirectory(executablePath_));
   (void)server.loadRequestedMap(kDefaultMapName);
   std::cout << "LG Duel server listening on UDP port " << transport.localPort() << '\n';
@@ -77,6 +244,7 @@ int ServerApp::run() const {
     defaultMapPath(executablePath_),
     CvarFlag::None,
   });
+  registerGameplayCvars(console, CvarFlag::None);
   bool resetRequested = false;
   console.registerCommand(
     "resetmatch",
@@ -198,6 +366,108 @@ int ServerApp::run() const {
     }
   );
 
+  const std::filesystem::path serverCvarsPath =
+    defaultConfigPath(executablePath_, "server_cvars.cfg");
+  if (!serverCvarsPath.empty()) {
+    logConsoleConfigErrors(
+      executeConsoleConfigFile(console, serverCvarsPath.string())
+    );
+  } else {
+    std::cerr << "Config warning: config/server_cvars.cfg not found; using code defaults\n";
+  }
+
+  MovementTuning lastAppliedMovementTuning;
+  float lastAppliedPlayerSizeScaleXY = 1.0F;
+  float lastAppliedPlayerSizeScaleZ = 1.0F;
+  float lastAppliedLightningKnockback = 1000.0F;
+  float lastAppliedLightningFireHz = 20.0F;
+  float lastAppliedRocketKnockback = 1000.0F;
+  WeaponDamageTuning lastAppliedWeaponDamage;
+  float lastAppliedVampirism = 0.0F;
+  std::uint8_t lastAppliedSelfDamagePercent = 100;
+  std::int32_t lastAppliedHealthAmount = 100;
+  WeaponSwitchingMode lastAppliedWeaponSwitchingMode = WeaponSwitchingMode::Crazy;
+  bool firstRuntimeCvarApply = true;
+
+  const auto applyConsoleCvarsToServer = [&] {
+    MatchRules rules;
+    rules.roundLimit = static_cast<std::uint16_t>(console.getInt("sv_roundlimit"));
+    rules.timeLimitMinutes = static_cast<std::uint16_t>(console.getInt("sv_timelimit"));
+    rules.playerLimit = static_cast<std::uint8_t>(console.getInt("sv_playerlimit"));
+    rules.countdownTicks = static_cast<std::uint16_t>(
+      console.getFloat("sv_countdown") * kFixedTickRate
+    );
+    rules.roundEndTicks = static_cast<std::uint16_t>(
+      console.getFloat("sv_roundend") * kFixedTickRate
+    );
+    rules.matchEndTicks = static_cast<std::uint16_t>(
+      console.getFloat("sv_matchend") * kFixedTickRate
+    );
+    rules.showOpponentHealth = console.getBool("sv_showopponenthealth");
+    server.setMatchRules(rules);
+
+    const MovementTuning movementTuning = movementTuningFromCvars(console);
+    const float playerSizeScaleXY = console.getFloat("g_playersize_xy");
+    const float playerSizeScaleZ = console.getFloat("g_playersize_z");
+    const float lightningKnockback = console.getFloat("g_lg_knockback");
+    const float lightningFireHz = console.getFloat("g_lg_fire_hz");
+    const float rocketKnockback = console.getFloat("g_rl_knockback");
+    const WeaponDamageTuning weaponDamage = weaponDamageTuningFromCvars(console);
+    const float vampirism = console.getFloat("g_vampirism");
+    const std::uint8_t selfDamagePercent = selfDamagePercentFromCvars(console);
+    const std::int32_t healthAmount = healthAmountFromCvars(console);
+    const WeaponSwitchingMode weaponSwitchingMode =
+      weaponSwitchingModeFromCvars(console);
+
+    const bool runtimeChanged =
+      firstRuntimeCvarApply ||
+      !sameMovementTuning(movementTuning, lastAppliedMovementTuning) ||
+      playerSizeScaleXY != lastAppliedPlayerSizeScaleXY ||
+      playerSizeScaleZ != lastAppliedPlayerSizeScaleZ ||
+      lightningKnockback != lastAppliedLightningKnockback ||
+      lightningFireHz != lastAppliedLightningFireHz ||
+      rocketKnockback != lastAppliedRocketKnockback ||
+      !sameWeaponDamage(weaponDamage, lastAppliedWeaponDamage) ||
+      vampirism != lastAppliedVampirism ||
+      selfDamagePercent != lastAppliedSelfDamagePercent ||
+      healthAmount != lastAppliedHealthAmount ||
+      weaponSwitchingMode != lastAppliedWeaponSwitchingMode;
+    if (!runtimeChanged) {
+      return;
+    }
+
+    server.setRuntimeGameplayTuning(
+      movementTuning,
+      playerSizeScaleXY,
+      playerSizeScaleZ,
+      lightningKnockback,
+      lightningFireHz,
+      rocketKnockback,
+      weaponDamage,
+      vampirism,
+      selfDamagePercent,
+      healthAmount,
+      server.botDodgeEnabled(),
+      server.botDodgeMinIntervalMs(),
+      server.botDodgeMaxIntervalMs(),
+      weaponSwitchingMode
+    );
+    lastAppliedMovementTuning = movementTuning;
+    lastAppliedPlayerSizeScaleXY = playerSizeScaleXY;
+    lastAppliedPlayerSizeScaleZ = playerSizeScaleZ;
+    lastAppliedLightningKnockback = lightningKnockback;
+    lastAppliedLightningFireHz = lightningFireHz;
+    lastAppliedRocketKnockback = rocketKnockback;
+    lastAppliedWeaponDamage = weaponDamage;
+    lastAppliedVampirism = vampirism;
+    lastAppliedSelfDamagePercent = selfDamagePercent;
+    lastAppliedHealthAmount = healthAmount;
+    lastAppliedWeaponSwitchingMode = weaponSwitchingMode;
+    firstRuntimeCvarApply = false;
+  };
+  applyConsoleCvarsToServer();
+  bool consoleCvarsDirty = false;
+
   std::mutex inputMutex;
   std::deque<std::string> inputLines;
   std::thread([&inputMutex, &inputLines] {
@@ -228,27 +498,17 @@ int ServerApp::run() const {
       while (!inputLines.empty()) {
         const std::string result = console.execute(inputLines.front());
         inputLines.pop_front();
+        consoleCvarsDirty = true;
         if (!result.empty()) {
           std::cout << result << '\n';
         }
       }
     }
 
-    MatchRules rules;
-    rules.roundLimit = static_cast<std::uint16_t>(console.getInt("sv_roundlimit"));
-    rules.timeLimitMinutes = static_cast<std::uint16_t>(console.getInt("sv_timelimit"));
-    rules.playerLimit = static_cast<std::uint8_t>(console.getInt("sv_playerlimit"));
-    rules.countdownTicks = static_cast<std::uint16_t>(
-      console.getFloat("sv_countdown") * kFixedTickRate
-    );
-    rules.roundEndTicks = static_cast<std::uint16_t>(
-      console.getFloat("sv_roundend") * kFixedTickRate
-    );
-    rules.matchEndTicks = static_cast<std::uint16_t>(
-      console.getFloat("sv_matchend") * kFixedTickRate
-    );
-    rules.showOpponentHealth = console.getBool("sv_showopponenthealth");
-    server.setMatchRules(rules);
+    if (consoleCvarsDirty) {
+      applyConsoleCvarsToServer();
+      consoleCvarsDirty = false;
+    }
     if (resetRequested) {
       server.resetMatch();
       server.setConnectedPlayers(
@@ -258,6 +518,10 @@ int ServerApp::run() const {
       resetRequested = false;
     }
     server.tick(kFixedTickSeconds);
+    if (!gameplayConsoleMatchesSnapshot(console, server.snapshot())) {
+      syncGameplayConsoleFromSnapshot(console, server.snapshot());
+      applyConsoleCvarsToServer();
+    }
 
     const std::size_t clientCount = transport.connectedClientCount();
     if (clientCount != previousClientCount) {

@@ -174,6 +174,10 @@ bool ClientGame::hasAcknowledgedCommand() const {
   return snapshot_.hasAcknowledgedCommand[localPlayerIndex_];
 }
 
+bool ClientGame::hasPendingMovementTuning() const {
+  return hasPendingMovementTuning_;
+}
+
 std::uint32_t ClientGame::lastAcknowledgedCommand() const {
   return snapshot_.acknowledgedCommand[localPlayerIndex_];
 }
