@@ -24,6 +24,14 @@ struct PerfSample {
   std::uint32_t remoteBodyModelsBuilt = 0;
   std::uint32_t remoteWeaponModelsBuilt = 0;
   std::uint32_t playerOutlinesBuilt = 0;
+  std::uint32_t normalPlayerBodyDynamicVertices = 0;
+  std::uint32_t geometryOutlineDynamicVertices = 0;
+  std::uint32_t outlinedPlayers = 0;
+  std::uint32_t outlineMaskWidth = 0;
+  std::uint32_t outlineMaskHeight = 0;
+  std::uint32_t outlinePasses = 0;
+  bool outlineCompositeEnabled = false;
+  bool geometryOutlineFallbackUsed = false;
   std::uint32_t remoteWeaponCandidates = 0;
   std::uint32_t remoteWeaponsFrustumCulled = 0;
   std::uint32_t remoteWeaponInstances = 0;

@@ -101,7 +101,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_draw_player_outlines", "Draw player outline geometry.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_draw_player_outlines", "Draw player outlines.", true, archivedClient, {}, {}});
   console.registerCvar({"g_playersize_xy", "Authoritative player X/Y radius scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"g_playersize_z", "Authoritative player height scale.", 1.0F, CvarFlag::Client, 0.5F, 3.0F});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
@@ -143,10 +143,10 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 animated GLB.", 1, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_outline_enable", "Draw an expanded enemy model outline.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_player_outline_style", "Player outline style: 0 geometry fallback, 1 screen-space mask request.", 0, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_enemy_outline_width", "Enemy model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
-  console.registerCvar({"r_enemy_outline_alpha", "Enemy model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_outline_enable", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_player_outline_style", "Player outline style: 0 legacy geometry fallback, 1 screen-space mask.", 1, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_enemy_outline_width", "Enemy outline width in screen pixels.", 3.0F, archivedClient, 0.0F, 16.0F});
+  console.registerCvar({"r_enemy_outline_alpha", "Enemy outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline_r", "Enemy model outline red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_outline_g", "Enemy model outline green channel.", 220, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_outline_b", "Enemy model outline blue channel.", 84, archivedClient, 0.0F, 255.0F});
@@ -191,9 +191,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_teammate_g", "Teammate model green channel.", 190, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_b", "Teammate model blue channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_alpha", "Teammate model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_teammate_outline_enable", "Draw an expanded teammate model outline.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_teammate_outline_width", "Teammate model outline expansion in world units.", 0.045F, archivedClient, 0.0F, 0.5F});
-  console.registerCvar({"r_teammate_outline_alpha", "Teammate model outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_teammate_outline_enable", "Draw teammate screen-space outline.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_teammate_outline_width", "Teammate outline width in screen pixels.", 3.0F, archivedClient, 0.0F, 16.0F});
+  console.registerCvar({"r_teammate_outline_alpha", "Teammate outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_teammate_outline_r", "Teammate model outline red channel.", 128, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_outline_g", "Teammate model outline green channel.", 240, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_outline_b", "Teammate model outline blue channel.", 255, archivedClient, 0.0F, 255.0F});

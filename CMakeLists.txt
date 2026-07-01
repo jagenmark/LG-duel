@@ -109,6 +109,15 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_composite.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_composite.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_composite.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_composite.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_mesh.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_mesh.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -172,6 +181,15 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_composite.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_composite.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_composite.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_composite.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_mesh.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_mesh.vert.spv"

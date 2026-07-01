@@ -27,6 +27,7 @@ constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
+constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
 
@@ -2313,6 +2314,7 @@ Scene3D buildPerspectiveScene(
   );
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
+  scene.outlineMaskDraws.reserve(kDuelPlayerCount);
 
   addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
 
@@ -2384,14 +2386,27 @@ Scene3D buildPerspectiveScene(
     const float outlineAlpha = remote.teammate
       ? settings.teammateOutlineAlpha
       : settings.enemyOutlineAlpha;
-    if (
+    const OutlineState outlineState = {
+      remote.teammate ? OutlineGroup::Teammate : OutlineGroup::Enemy,
+      outlineEnabled ? OutlineVisibility::VisibleOnly : OutlineVisibility::None,
+      outlineWidth,
+      std::clamp(outlineAlpha, 0.0F, 1.0F),
+      hitAmount,
+    };
+    const bool wantsOutline =
       settings.drawPlayerOutlines &&
       outlineEnabled &&
+      outlineState.group != OutlineGroup::None &&
+      outlineState.visibility != OutlineVisibility::None &&
+      outlineState.widthPixels > 0.0F &&
+      outlineState.alpha > 0.0F;
+    if (
+      wantsOutline &&
       usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
-      outlineWidth > 0.0F &&
-      outlineAlpha > 0.0F
+      settings.drawRemotePlayers
     ) {
       ++scene.playerOutlinesBuilt;
+      const std::size_t outlineStart = scene.vertices.size();
       addPlayerOutline(
         scene,
         remote.player,
@@ -2413,11 +2428,15 @@ Scene3D buildPerspectiveScene(
           ? settings.teammateLeanEnabled
           : settings.enemyLeanEnabled,
         remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
-        outlineWidth
+        outlineWidth * kLegacyOutlineWorldUnitsPerPixel
       );
+      scene.geometryOutlineDynamicVertices +=
+        static_cast<std::uint32_t>(scene.vertices.size() - outlineStart);
+      scene.geometryOutlineFallbackUsed = true;
     }
     if (settings.drawRemotePlayers) {
       ++scene.remoteBodyModelsBuilt;
+      const std::size_t bodyStart = scene.vertices.size();
       addPlayerModel(
         scene,
         remote.player,
@@ -2428,6 +2447,22 @@ Scene3D buildPerspectiveScene(
           : settings.enemyLeanEnabled,
         remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
       );
+      const std::uint32_t bodyVertexCount =
+        static_cast<std::uint32_t>(scene.vertices.size() - bodyStart);
+      scene.normalPlayerBodyDynamicVertices += bodyVertexCount;
+      if (
+        wantsOutline &&
+        settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace &&
+        bodyVertexCount > 0U
+      ) {
+        ++scene.playerOutlinesBuilt;
+        ++scene.outlinedPlayers;
+        scene.outlineMaskDraws.push_back({
+          static_cast<std::uint32_t>(bodyStart),
+          bodyVertexCount,
+          outlineState,
+        });
+      }
     }
     if (settings.drawRemoteWeapons) {
       ++scene.remoteWeaponModelsBuilt;
