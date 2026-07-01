@@ -20,6 +20,10 @@ constexpr float kBoundsPadding = 1.0F;
 constexpr float kQuakeToLgScale = 1.0F / 40.0F;
 constexpr float kDefaultLightIntensity = 1.0F;
 constexpr float kDefaultLightRadiusQuakeUnits = 320.0F;
+constexpr float kDegreesToRadians = 0.01745329252F;
+constexpr Vec3 kDefaultSunDirection = {0.25916052F, -0.43193421F, -0.86386842F};
+constexpr Vec3 kDefaultSunColor = {1.0F, 0.94117647F, 0.78431374F};
+constexpr float kDefaultSunIntensity = 0.7F;
 
 [[nodiscard]] bool parseFloat(std::string_view text, float& value) {
   const char* begin = text.data();
@@ -57,6 +61,24 @@ constexpr float kDefaultLightRadiusQuakeUnits = 320.0F;
   if (!parseFloat(*text, value) || value <= 0.0F) {
     error = "line " + std::to_string(entity.line) + ": light " +
       std::string(key) + " must be a positive finite float";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool parseNonNegativeFloat(
+  const MapEntity& entity,
+  std::string_view key,
+  float& value,
+  std::string& error
+) {
+  const std::string* text = entity.property(key);
+  if (text == nullptr) {
+    return true;
+  }
+  if (!parseFloat(*text, value) || value < 0.0F) {
+    error = "line " + std::to_string(entity.line) + ": light_sun " +
+      std::string(key) + " must be a non-negative finite float";
     return false;
   }
   return true;
@@ -573,6 +595,25 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   return classname == "light" || classname == "light_point";
 }
 
+[[nodiscard]] bool isSunLightClass(std::string_view classname) {
+  return classname == "light_sun";
+}
+
+[[nodiscard]] bool normalizeColor(Vec3& color, std::string& error, const MapEntity& entity) {
+  if (color.x > 1.0F || color.y > 1.0F || color.z > 1.0F) {
+    color = color / 255.0F;
+  }
+  if (
+    color.x < 0.0F || color.y < 0.0F || color.z < 0.0F ||
+    color.x > 1.0F || color.y > 1.0F || color.z > 1.0F
+  ) {
+    error = "line " + std::to_string(entity.line) +
+      ": light color channels must be normalized or 0..255";
+    return false;
+  }
+  return true;
+}
+
 [[nodiscard]] bool parseLightColor(
   const MapEntity& entity,
   ArenaStaticLight& light,
@@ -589,18 +630,7 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     error = "line " + std::to_string(entity.line) + ": light color must be 'r g b'";
     return false;
   }
-  if (light.color.x > 1.0F || light.color.y > 1.0F || light.color.z > 1.0F) {
-    light.color = light.color / 255.0F;
-  }
-  if (
-    light.color.x < 0.0F || light.color.y < 0.0F || light.color.z < 0.0F ||
-    light.color.x > 1.0F || light.color.y > 1.0F || light.color.z > 1.0F
-  ) {
-    error = "line " + std::to_string(entity.line) +
-      ": light color channels must be normalized or 0..255";
-    return false;
-  }
-  return true;
+  return normalizeColor(light.color, error, entity);
 }
 
 [[nodiscard]] bool parseQuakeLightTuple(
@@ -697,6 +727,98 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   return true;
 }
 
+[[nodiscard]] bool parseSunColor(
+  const MapEntity& entity,
+  ArenaSunLight& light,
+  std::string& error
+) {
+  const std::string* color = entity.property("color");
+  if (color == nullptr) {
+    color = entity.property("_color");
+  }
+  if (color == nullptr) {
+    return true;
+  }
+  if (!parseSpaceVec3(*color, light.color)) {
+    error = "line " + std::to_string(entity.line) + ": light_sun color must be 'r g b'";
+    return false;
+  }
+  return normalizeColor(light.color, error, entity);
+}
+
+[[nodiscard]] bool parseSunAngleFallback(
+  const MapEntity& entity,
+  ArenaSunLight& light,
+  std::string& error
+) {
+  const std::string* angleText = entity.property("angle");
+  const std::string* pitchText = entity.property("pitch");
+  if (angleText == nullptr && pitchText == nullptr) {
+    light.direction = kDefaultSunDirection;
+    return true;
+  }
+
+  float angle = 0.0F;
+  float pitch = -45.0F;
+  if (angleText != nullptr && !parseFloat(*angleText, angle)) {
+    error = "line " + std::to_string(entity.line) + ": light_sun angle must be a finite float";
+    return false;
+  }
+  if (pitchText != nullptr && !parseFloat(*pitchText, pitch)) {
+    error = "line " + std::to_string(entity.line) + ": light_sun pitch must be a finite float";
+    return false;
+  }
+
+  const float yawRadians = angle * kDegreesToRadians;
+  const float pitchRadians = pitch * kDegreesToRadians;
+  const float pitchCos = std::cos(pitchRadians);
+  light.direction = normalize({
+    std::cos(yawRadians) * pitchCos,
+    std::sin(yawRadians) * pitchCos,
+    std::sin(pitchRadians),
+  });
+  return true;
+}
+
+[[nodiscard]] bool convertSunLightEntity(
+  const MapEntity& entity,
+  ArenaSunLight& light,
+  std::string& error
+) {
+  light.enabled = true;
+  light.intensity = kDefaultSunIntensity;
+  light.color = kDefaultSunColor;
+  light.direction = kDefaultSunDirection;
+
+  if (!parseSunColor(entity, light, error) ||
+      !parseNonNegativeFloat(entity, "intensity", light.intensity, error)) {
+    return false;
+  }
+
+  if (const std::string* direction = entity.property("direction")) {
+    if (!parseSpaceVec3(*direction, light.direction)) {
+      error = "line " + std::to_string(entity.line) +
+        ": light_sun direction must be 'x y z'";
+      return false;
+    }
+    light.direction = normalize(light.direction);
+  } else if (!parseSunAngleFallback(entity, light, error)) {
+    return false;
+  }
+
+  if (
+    length(light.direction) <= 0.0001F ||
+    !std::isfinite(light.direction.x) ||
+    !std::isfinite(light.direction.y) ||
+    !std::isfinite(light.direction.z)
+  ) {
+    error = "line " + std::to_string(entity.line) +
+      ": light_sun direction must be non-zero finite vector";
+    return false;
+  }
+  return true;
+}
+
 void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {
   if (!initialized) {
     minimum = point;
@@ -718,6 +840,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaWall> walls;
   std::vector<ArenaBrush> brushes;
   std::vector<ArenaStaticLight> staticLights;
+  ArenaSunLight sunLight;
+  bool hasSunLight = false;
   std::vector<Vec3> spawns;
   bool hasBoundsMin = false;
   bool hasBoundsMax = false;
@@ -779,6 +903,15 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         return {{}, false, error};
       }
       staticLights.push_back(light);
+    } else if (isSunLightClass(*classname)) {
+      if (hasSunLight) {
+        return {{}, false, "line " + std::to_string(entity.line) + ": multiple light_sun entities are not supported"};
+      }
+      std::string error;
+      if (!convertSunLightEntity(entity, sunLight, error)) {
+        return {{}, false, error};
+      }
+      hasSunLight = true;
     } else if (*classname == "trigger_teleport") {
       continue;
     }
@@ -841,6 +974,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     for (std::size_t index = 0; index < result.arena.staticLightCount; ++index) {
       result.arena.staticLights[index] = staticLights[index];
     }
+    result.arena.sunLight = sunLight;
   }
   return result;
 }

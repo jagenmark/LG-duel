@@ -711,3 +711,8 @@
 "yaw" "270"
 "angle" "90"
 }
+// entity 14
+{
+"classname" "light_sun"
+"origin" "-20 60 540.322"
+}
