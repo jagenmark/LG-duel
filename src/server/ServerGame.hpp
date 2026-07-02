@@ -11,9 +11,23 @@
 #include <array>
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <string>
 
 namespace lg {
+
+enum class BotAttackMode {
+  Off,
+  Easy,
+  Medium,
+  Hard,
+};
+
+struct BotRosterChange {
+  bool ok = false;
+  std::size_t changed = 0;
+  std::string message;
+};
 
 class ServerGame {
 public:
@@ -52,10 +66,29 @@ public:
   );
   void setWeaponSwitchingMode(WeaponSwitchingMode mode);
   void setBotDodge(bool enabled, int minIntervalMs, int maxIntervalMs);
+  void setBotBehavior(
+    bool stareEnabled,
+    bool standstillEnabled,
+    bool dodgeEnabled,
+    int dodgeMinIntervalMs,
+    int dodgeMaxIntervalMs,
+    BotAttackMode attackMode
+  );
+  void setBotAttackMode(BotAttackMode mode);
+  [[nodiscard]] BotRosterChange addBots(std::optional<std::size_t> count = std::nullopt);
+  [[nodiscard]] BotRosterChange kickAllBots();
+  [[nodiscard]] BotRosterChange kickBotAtPlayerIndex(std::size_t playerIndex);
   [[nodiscard]] WeaponSwitchingMode weaponSwitchingMode() const;
+  [[nodiscard]] bool botStareEnabled() const;
+  [[nodiscard]] bool botStandstillEnabled() const;
   [[nodiscard]] bool botDodgeEnabled() const;
   [[nodiscard]] int botDodgeMinIntervalMs() const;
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
+  [[nodiscard]] BotAttackMode botAttackMode() const;
+  [[nodiscard]] bool isBotSlot(std::size_t playerIndex) const;
+  [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
+  [[nodiscard]] bool isOccupiedSlot(std::size_t playerIndex) const;
+  [[nodiscard]] std::array<bool, kDuelPlayerCount> occupiedPlayers() const;
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] const Arena& arena() const;
@@ -75,6 +108,17 @@ private:
     bool initialized = false;
   };
 
+  struct BotCombatState {
+    float reactionSecondsRemaining = 0.0F;
+    std::size_t targetPlayerIndex = kDuelPlayerCount;
+    float desiredYawRadians = 0.0F;
+    float desiredPitchRadians = 0.0F;
+    float aimErrorYawRadians = 0.0F;
+    float aimErrorPitchRadians = 0.0F;
+    float nextAimErrorRefreshSeconds = 0.0F;
+    bool initialized = false;
+  };
+
   void receiveCommands();
   void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
@@ -89,6 +133,19 @@ private:
   [[nodiscard]] bool enoughPlayersConnected() const;
   [[nodiscard]] bool allConnectedPlayersReady() const;
   [[nodiscard]] bool warmupPhase() const;
+  [[nodiscard]] bool isActiveCombatant(std::size_t playerIndex) const;
+  [[nodiscard]] bool isValidEnemyTarget(
+    std::size_t attackerIndex,
+    std::size_t targetIndex
+  ) const;
+  [[nodiscard]] std::size_t nearestValidEnemy(
+    std::size_t attackerIndex,
+    bool requireLineOfSight
+  ) const;
+  [[nodiscard]] bool hasLineOfSight(
+    std::size_t attackerIndex,
+    std::size_t targetIndex
+  ) const;
   [[nodiscard]] bool damageAllowed(
     std::size_t attackerIndex,
     std::size_t targetIndex
@@ -114,7 +171,12 @@ private:
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
   void updateBotCommands(float fixedDt);
+  void updateClanArenaBotTeams();
+  void refreshWarmupRosterState();
+  void addBotAtPlayerIndex(std::size_t playerIndex);
+  void removeBotAtPlayerIndex(std::size_t playerIndex);
   [[nodiscard]] std::uint32_t randomU32();
+  [[nodiscard]] float randomFloat(float minValue, float maxValue);
   void applyDamageAndKnockback(
     std::size_t attackerIndex,
     std::size_t targetIndex,
@@ -191,11 +253,16 @@ private:
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};
   std::array<bool, kDuelPlayerCount> receivedCommandThisTick_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> playerSessions_ = {};
+  std::array<bool, kDuelPlayerCount> botPlayers_ = {};
+  bool botStareEnabled_ = true;
+  bool botStandstillEnabled_ = false;
   bool botDodgeEnabled_ = false;
   int botDodgeMinIntervalMs_ = 250;
   int botDodgeMaxIntervalMs_ = 750;
   std::array<int, kDuelPlayerCount> botDodgeDirections_ = {};
   std::array<float, kDuelPlayerCount> botDodgeSwitchSeconds_ = {};
+  BotAttackMode botAttackMode_ = BotAttackMode::Off;
+  std::array<BotCombatState, kDuelPlayerCount> botCombatStates_ = {};
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};

@@ -1309,6 +1309,79 @@ void collectTextureMaterialFiles(
   return pipeline;
 }
 
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuStaticMeshOutlineMaskPipeline(
+  SDL_GPUDevice* device
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    "static_mesh_instance.vert.spv",
+    SDL_GPU_SHADERSTAGE_VERTEX,
+    0,
+    1
+  );
+  if (vertexShader == nullptr) {
+    return nullptr;
+  }
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    "outline_mask.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    0,
+    1
+  );
+  if (fragmentShader == nullptr) {
+    SDL_ReleaseGPUShader(device, vertexShader);
+    return nullptr;
+  }
+
+  const std::array<SDL_GPUVertexBufferDescription, 2> vertexBufferDescriptions = {{
+    {0, sizeof(GpuVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
+    {1, sizeof(GpuStaticInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
+  }};
+  const std::array<SDL_GPUVertexAttribute, 7> vertexAttributes = {{
+    {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, x)},
+    {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuVertex, red)},
+    {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, u)},
+    {3, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row0)},
+    {4, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row1)},
+    {5, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row2)},
+    {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, red)},
+  }};
+  SDL_GPUColorTargetDescription colorTarget = {};
+  colorTarget.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.vertex_input_state.vertex_buffer_descriptions =
+    vertexBufferDescriptions.data();
+  createInfo.vertex_input_state.num_vertex_buffers =
+    static_cast<Uint32>(vertexBufferDescriptions.size());
+  createInfo.vertex_input_state.vertex_attributes = vertexAttributes.data();
+  createInfo.vertex_input_state.num_vertex_attributes =
+    static_cast<Uint32>(vertexAttributes.size());
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.rasterizer_state.enable_depth_clip = true;
+  createInfo.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+  createInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS_OR_EQUAL;
+  createInfo.depth_stencil_state.enable_depth_test = true;
+  createInfo.depth_stencil_state.enable_depth_write = false;
+  createInfo.target_info.color_target_descriptions = &colorTarget;
+  createInfo.target_info.num_color_targets = 1;
+  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.has_depth_stencil_target = true;
+
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
+}
+
 [[nodiscard]] std::array<std::uint8_t, kFontAtlasWidth * kFontAtlasHeight>
 buildFontAtlas() {
   std::array<std::uint8_t, kFontAtlasWidth * kFontAtlasHeight> pixels = {};
@@ -2078,7 +2151,8 @@ void appendScene3D(
     billboard.handle = handle;
     resources->projectileBillboards.push_back(billboard);
   }
-  const std::array<MeshHandle, 7> staticMeshHandles = {{
+  const std::array<MeshHandle, 8> staticMeshHandles = {{
+    MeshHandle::PlayerBoxCube,
     MeshHandle::RemoteMachineGun,
     MeshHandle::RemoteShotgun,
     MeshHandle::RemoteGrenadeLauncher,
@@ -2119,7 +2193,7 @@ void appendScene3D(
     resources->staticMeshes.push_back(mesh);
   }
   resources->instances.staging.reserve(kMaxRocketProjectiles * 2U);
-  resources->staticInstances.staging.reserve(kDuelPlayerCount + 1U);
+  resources->staticInstances.staging.reserve(kDuelPlayerCount * 8U + 1U);
   return resources;
 }
 
@@ -2369,6 +2443,38 @@ void drawStaticMeshBatches(
     SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
     SDL_DrawGPUPrimitives(pass, mesh->vertexCount, batch.instanceCount, 0, 0);
   }
+}
+
+void drawStaticMeshInstanceRange(
+  SDL_GPURenderPass* pass,
+  SDL_GPUGraphicsPipeline* pipeline,
+  GpuSimpleResources* resources,
+  MeshHandle meshHandle,
+  std::uint32_t firstInstance,
+  std::uint32_t instanceCount
+) {
+  if (
+    resources == nullptr ||
+    resources->staticInstances.buffer == nullptr ||
+    pipeline == nullptr ||
+    instanceCount == 0U
+  ) {
+    return;
+  }
+  const GpuStaticMesh* mesh = findStaticMesh(*resources, meshHandle);
+  if (mesh == nullptr || mesh->vertexBuffer == nullptr || mesh->vertexCount == 0U) {
+    return;
+  }
+  SDL_BindGPUGraphicsPipeline(pass, pipeline);
+  const std::array<SDL_GPUBufferBinding, 2> bindings = {{
+    {mesh->vertexBuffer, 0},
+    {
+      resources->staticInstances.buffer,
+      firstInstance * static_cast<Uint32>(sizeof(GpuStaticInstance)),
+    },
+  }};
+  SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
+  SDL_DrawGPUPrimitives(pass, mesh->vertexCount, instanceCount, 0, 0);
 }
 
 void drawSimpleInstanceBatches(
@@ -2749,6 +2855,7 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUGraphicsPipeline* pipelineOutlineClear,
   SDL_GPUGraphicsPipeline* pipelineOutlineColorClear,
   SDL_GPUGraphicsPipeline* pipelineOutlineMask,
+  SDL_GPUGraphicsPipeline* staticMeshOutlineMaskPipeline,
   SDL_GPUGraphicsPipeline* pipelineOutlineDilation,
   SDL_GPUGraphicsPipeline* pipelineOutlineComposite,
   SDL_GPUBuffer* vertexBuffer,
@@ -2937,6 +3044,28 @@ const PlayerState& firstVisibleRemote(
       perspectiveScene.remoteWeaponStats.drawCalls;
     diagnostics.legacyRemoteWeaponDynamicVertices =
       perspectiveScene.remoteWeaponStats.legacyDynamicVertices;
+    diagnostics.visibleProceduralBoxPlayers =
+      perspectiveScene.playerBoxStats.visiblePlayers;
+    diagnostics.culledProceduralBoxPlayers =
+      perspectiveScene.playerBoxStats.culledPlayers;
+    diagnostics.playerBoxInstancesSubmitted =
+      perspectiveScene.playerBoxStats.instancesSubmitted;
+    diagnostics.playerBoxInstanceUploadBytes =
+      perspectiveScene.playerBoxStats.instanceUploadBytes;
+    diagnostics.sharedCubeStaticGpuBytes =
+      perspectiveScene.playerBoxStats.sharedCubeStaticGpuBytes;
+    diagnostics.proceduralPlayerOpaqueBatches =
+      perspectiveScene.playerBoxStats.opaqueBatches;
+    diagnostics.proceduralPlayerOpaqueDrawCalls =
+      perspectiveScene.playerBoxStats.opaqueDrawCalls;
+    diagnostics.proceduralPlayerOutlineMaskBatches =
+      perspectiveScene.playerBoxStats.outlineMaskBatches;
+    diagnostics.proceduralPlayerOutlineMaskDrawCalls =
+      perspectiveScene.playerBoxStats.outlineMaskDrawCalls;
+    diagnostics.legacyCpuGeneratedPlayerVertices =
+      perspectiveScene.playerBoxStats.legacyCpuGeneratedVertices;
+    diagnostics.legacyDynamicPlayerVertexUploadBytes =
+      perspectiveScene.playerBoxStats.legacyDynamicVertexUploadBytes;
     diagnostics.firstPersonViewModelDrawCalls =
       perspectiveScene.viewModelStats.drawCalls;
     diagnostics.firstPersonViewModelDynamicVertices =
@@ -3393,6 +3522,10 @@ const PlayerState& firstVisibleRemote(
         perspectiveScene.vertices.data(),
         perspectiveScene.vertices.size()
       ),
+      std::span<const StaticMeshInstance>(
+        perspectiveScene.staticMeshInstances.data(),
+        perspectiveScene.staticMeshInstances.size()
+      ),
       std::span<const OutlineMaskDraw>(
         perspectiveScene.outlineMaskDraws.data(),
         perspectiveScene.outlineMaskDraws.size()
@@ -3404,6 +3537,7 @@ const PlayerState& firstVisibleRemote(
       pipelineOutlineClear != nullptr &&
       pipelineOutlineColorClear != nullptr &&
       pipelineOutlineMask != nullptr &&
+      staticMeshOutlineMaskPipeline != nullptr &&
       pipelineOutlineDilation != nullptr &&
       pipelineOutlineComposite != nullptr &&
       outlineMaskSampler != nullptr &&
@@ -3682,9 +3816,6 @@ const PlayerState& firstVisibleRemote(
       }
       SDL_SetGPUViewport(maskPass, &outlineViewport);
       SDL_SetGPUScissor(maskPass, &workScissor);
-      SDL_BindGPUGraphicsPipeline(maskPass, pipelineOutlineMask);
-      const SDL_GPUBufferBinding maskBinding = {vertexBuffer, 0};
-      SDL_BindGPUVertexBuffers(maskPass, 0, &maskBinding, 1);
       SDL_PushGPUVertexUniformData(
         commandBuffer,
         0,
@@ -3695,7 +3826,7 @@ const PlayerState& firstVisibleRemote(
         float group[4];
       };
       for (const OutlineMaskDraw& draw : perspectiveScene.outlineMaskDraws) {
-        if (draw.vertexCount == 0U) {
+        if (draw.vertexCount == 0U && draw.instanceCount == 0U) {
           continue;
         }
         const MaskUniform maskUniform = {{
@@ -3712,13 +3843,27 @@ const PlayerState& firstVisibleRemote(
           &maskUniform,
           sizeof(maskUniform)
         );
-        SDL_DrawGPUPrimitives(
-          maskPass,
-          draw.vertexCount,
-          1,
-          draw.firstVertex,
-          0
-        );
+        if (draw.instanceCount > 0U) {
+          drawStaticMeshInstanceRange(
+            maskPass,
+            staticMeshOutlineMaskPipeline,
+            simpleResources,
+            draw.mesh,
+            draw.firstInstance,
+            draw.instanceCount
+          );
+        } else {
+          SDL_BindGPUGraphicsPipeline(maskPass, pipelineOutlineMask);
+          const SDL_GPUBufferBinding maskBinding = {vertexBuffer, 0};
+          SDL_BindGPUVertexBuffers(maskPass, 0, &maskBinding, 1);
+          SDL_DrawGPUPrimitives(
+            maskPass,
+            draw.vertexCount,
+            1,
+            draw.firstVertex,
+            0
+          );
+        }
       }
       SDL_EndGPURenderPass(maskPass);
 
@@ -4764,6 +4909,8 @@ bool Renderer::initialize(void* window) {
           );
         SDL_GPUGraphicsPipeline* pipelineOutlineMask =
           createGpuPipelineOutlineMask(device);
+        SDL_GPUGraphicsPipeline* staticMeshOutlineMaskPipeline =
+          createGpuStaticMeshOutlineMaskPipeline(device);
         SDL_GPUGraphicsPipeline* pipelineOutlineClear =
           createGpuPipelineOutlineClear(device);
         SDL_GPUGraphicsPipeline* pipelineOutlineColorClear =
@@ -4823,6 +4970,7 @@ bool Renderer::initialize(void* window) {
           pipelineOutlineClear != nullptr &&
           pipelineOutlineColorClear != nullptr &&
           pipelineOutlineMask != nullptr &&
+          staticMeshOutlineMaskPipeline != nullptr &&
           pipelineOutlineDilation != nullptr &&
           pipelineOutlineComposite != nullptr &&
           simpleResources != nullptr &&
@@ -4843,6 +4991,7 @@ bool Renderer::initialize(void* window) {
           gpuPipelineOutlineClear_ = pipelineOutlineClear;
           gpuPipelineOutlineColorClear_ = pipelineOutlineColorClear;
           gpuPipelineOutlineMask_ = pipelineOutlineMask;
+          gpuPipelineStaticMeshOutlineMask_ = staticMeshOutlineMaskPipeline;
           gpuPipelineOutlineDilation_ = pipelineOutlineDilation;
           gpuPipelineOutlineComposite_ = pipelineOutlineComposite;
           gpuVertexBuffer_ = vertexBuffer;
@@ -4907,6 +5056,9 @@ bool Renderer::initialize(void* window) {
         }
         if (pipelineOutlineMask != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineMask);
+        }
+        if (staticMeshOutlineMaskPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, staticMeshOutlineMaskPipeline);
         }
         if (pipelineOutlineDilation != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineDilation);
@@ -4987,6 +5139,7 @@ void Renderer::render(
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineClear_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineColorClear_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineMask_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMeshOutlineMask_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineDilation_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineComposite_),
           static_cast<SDL_GPUBuffer*>(gpuVertexBuffer_),
@@ -5093,6 +5246,17 @@ void Renderer::render(
   lastFrameDiagnostics_.remoteWeaponBatches = 0;
   lastFrameDiagnostics_.remoteWeaponDrawCalls = 0;
   lastFrameDiagnostics_.legacyRemoteWeaponDynamicVertices = 0;
+  lastFrameDiagnostics_.visibleProceduralBoxPlayers = 0;
+  lastFrameDiagnostics_.culledProceduralBoxPlayers = 0;
+  lastFrameDiagnostics_.playerBoxInstancesSubmitted = 0;
+  lastFrameDiagnostics_.playerBoxInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.sharedCubeStaticGpuBytes = 0;
+  lastFrameDiagnostics_.proceduralPlayerOpaqueBatches = 0;
+  lastFrameDiagnostics_.proceduralPlayerOpaqueDrawCalls = 0;
+  lastFrameDiagnostics_.proceduralPlayerOutlineMaskBatches = 0;
+  lastFrameDiagnostics_.proceduralPlayerOutlineMaskDrawCalls = 0;
+  lastFrameDiagnostics_.legacyCpuGeneratedPlayerVertices = 0;
+  lastFrameDiagnostics_.legacyDynamicPlayerVertexUploadBytes = 0;
   lastFrameDiagnostics_.firstPersonViewModelDrawCalls = 0;
   lastFrameDiagnostics_.firstPersonViewModelDynamicVertices = 0;
   lastFrameDiagnostics_.projectilesActive = 0;
@@ -5180,6 +5344,28 @@ void Renderer::render(
     perspectiveScene.remoteWeaponStats.drawCalls;
   lastFrameDiagnostics_.legacyRemoteWeaponDynamicVertices =
     perspectiveScene.remoteWeaponStats.legacyDynamicVertices;
+  lastFrameDiagnostics_.visibleProceduralBoxPlayers =
+    perspectiveScene.playerBoxStats.visiblePlayers;
+  lastFrameDiagnostics_.culledProceduralBoxPlayers =
+    perspectiveScene.playerBoxStats.culledPlayers;
+  lastFrameDiagnostics_.playerBoxInstancesSubmitted =
+    perspectiveScene.playerBoxStats.instancesSubmitted;
+  lastFrameDiagnostics_.playerBoxInstanceUploadBytes =
+    perspectiveScene.playerBoxStats.instanceUploadBytes;
+  lastFrameDiagnostics_.sharedCubeStaticGpuBytes =
+    perspectiveScene.playerBoxStats.sharedCubeStaticGpuBytes;
+  lastFrameDiagnostics_.proceduralPlayerOpaqueBatches =
+    perspectiveScene.playerBoxStats.opaqueBatches;
+  lastFrameDiagnostics_.proceduralPlayerOpaqueDrawCalls =
+    perspectiveScene.playerBoxStats.opaqueDrawCalls;
+  lastFrameDiagnostics_.proceduralPlayerOutlineMaskBatches =
+    perspectiveScene.playerBoxStats.outlineMaskBatches;
+  lastFrameDiagnostics_.proceduralPlayerOutlineMaskDrawCalls =
+    perspectiveScene.playerBoxStats.outlineMaskDrawCalls;
+  lastFrameDiagnostics_.legacyCpuGeneratedPlayerVertices =
+    perspectiveScene.playerBoxStats.legacyCpuGeneratedVertices;
+  lastFrameDiagnostics_.legacyDynamicPlayerVertexUploadBytes =
+    perspectiveScene.playerBoxStats.legacyDynamicVertexUploadBytes;
   lastFrameDiagnostics_.firstPersonViewModelDrawCalls =
     perspectiveScene.viewModelStats.drawCalls;
   lastFrameDiagnostics_.firstPersonViewModelDynamicVertices =
@@ -5555,6 +5741,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineMask_)
       );
       gpuPipelineOutlineMask_ = nullptr;
+    }
+    if (gpuPipelineStaticMeshOutlineMask_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMeshOutlineMask_)
+      );
+      gpuPipelineStaticMeshOutlineMask_ = nullptr;
     }
     if (gpuPipelineOutlineDilation_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(

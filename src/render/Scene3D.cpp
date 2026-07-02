@@ -30,6 +30,58 @@ constexpr float kStaticLightMax = 2.0F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
+constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
+
+// Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
+// cuboids use per-instance basis columns scaled to the desired full extents.
+constexpr std::array<Vertex3D, 36> kPlayerBoxCubeMeshVertices = {{
+  {{-0.5F, -0.5F, -0.5F}, {140, 140, 140, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F, -0.5F}, {140, 140, 140, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F, -0.5F}, {140, 140, 140, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F, -0.5F}, {140, 140, 140, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F, -0.5F}, {140, 140, 140, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F, -0.5F}, {140, 140, 140, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F,  0.5F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F,  0.5F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F,  0.5F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F,  0.5F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F,  0.5F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F,  0.5F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F, -0.5F}, {183, 183, 183, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F, -0.5F}, {183, 183, 183, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F,  0.5F}, {183, 183, 183, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F, -0.5F}, {183, 183, 183, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F,  0.5F}, {183, 183, 183, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F,  0.5F}, {183, 183, 183, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F, -0.5F}, {219, 219, 219, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F, -0.5F}, {219, 219, 219, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F,  0.5F}, {219, 219, 219, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F, -0.5F}, {219, 219, 219, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F,  0.5F}, {219, 219, 219, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F, -0.5F,  0.5F}, {219, 219, 219, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F, -0.5F}, {168, 168, 168, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F, -0.5F}, {168, 168, 168, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F,  0.5F}, {168, 168, 168, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F, -0.5F}, {168, 168, 168, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F,  0.5F}, {168, 168, 168, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.5F,  0.5F,  0.5F}, {168, 168, 168, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F, -0.5F}, {198, 198, 198, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F, -0.5F}, {198, 198, 198, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F,  0.5F}, {198, 198, 198, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F, -0.5F}, {198, 198, 198, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F, -0.5F,  0.5F}, {198, 198, 198, 255}, 0.0F, 0.0F, 0U},
+  {{-0.5F,  0.5F,  0.5F}, {198, 198, 198, 255}, 0.0F, 0.0F, 0U},
+}};
+
+constexpr StaticMeshAsset kPlayerBoxCubeAsset = {
+  MeshHandle::PlayerBoxCube,
+  std::span<const Vertex3D>(
+    kPlayerBoxCubeMeshVertices.data(),
+    kPlayerBoxCubeMeshVertices.size()
+  ),
+  {{}, 0.8660254F},
+  RenderPass::OpaqueWorld,
+};
 
 constexpr std::array<Vertex3D, 24> kPlasmaCoreMeshVertices = {{
   {{0.0F, 0.0F, 1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
@@ -1044,7 +1096,8 @@ void forEachPlayerModelPart(
     playerModelBasis(player, leanEnabled, leanScale, expansion);
   const PlayerVisualPose pose = makePlayerVisualPose(player);
   const auto part =
-    [&](float forwardOffset,
+    [&](PlayerBodyPartType bodyPart,
+        float forwardOffset,
         float rightOffset,
         float bottomRatio,
         float topRatio,
@@ -1066,30 +1119,31 @@ void forEachPlayerModelPart(
           basis.radius * rightRadius,
           (partTop - partBottom) * 0.5F,
         },
-        partBasis.forward,
-        partBasis.right,
-        partBasis.up
+          partBasis.forward,
+          partBasis.right,
+          partBasis.up,
+          bodyPart
       );
     };
 
   if (pose.airborne) {
-    part(0.03F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F, kJumpPoseTorsoPitchRadians); // Torso
-    part(-0.02F, 0.0F, 0.35F, 0.49F, 0.31F, 0.48F);                            // Hips
-    part(0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);                                // Head
-    part(0.02F, -0.74F, 0.41F, 0.72F, 0.20F, 0.20F, kJumpPoseArmPitchRadians);   // Left arm
-    part(0.04F, 0.74F, 0.42F, 0.72F, 0.20F, 0.20F, kJumpPoseArmPitchRadians);    // Right arm
-    part(-0.22F, -0.25F, 0.08F, 0.34F, 0.25F, 0.20F, kJumpPoseLegPitchRadians);  // Left leg
-    part(-0.14F, 0.25F, 0.06F, 0.34F, 0.25F, 0.20F, kJumpPoseLegPitchRadians);   // Right leg
+    part(PlayerBodyPartType::Torso, 0.03F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F, kJumpPoseTorsoPitchRadians);
+    part(PlayerBodyPartType::Hips, -0.02F, 0.0F, 0.35F, 0.49F, 0.31F, 0.48F);
+    part(PlayerBodyPartType::Head, 0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);
+    part(PlayerBodyPartType::LeftArm, 0.02F, -0.74F, 0.41F, 0.72F, 0.20F, 0.20F, kJumpPoseArmPitchRadians);
+    part(PlayerBodyPartType::RightArm, 0.04F, 0.74F, 0.42F, 0.72F, 0.20F, 0.20F, kJumpPoseArmPitchRadians);
+    part(PlayerBodyPartType::LeftLeg, -0.22F, -0.25F, 0.08F, 0.34F, 0.25F, 0.20F, kJumpPoseLegPitchRadians);
+    part(PlayerBodyPartType::RightLeg, -0.14F, 0.25F, 0.06F, 0.34F, 0.25F, 0.20F, kJumpPoseLegPitchRadians);
     return;
   }
 
-  part(0.0F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F);  // Torso
-  part(0.0F, 0.0F, 0.34F, 0.48F, 0.31F, 0.48F);  // Hips
-  part(0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);   // Head
-  part(0.0F, -0.74F, 0.38F, 0.72F, 0.20F, 0.20F); // Left arm
-  part(0.0F, 0.74F, 0.38F, 0.72F, 0.20F, 0.20F);  // Right arm
-  part(0.0F, -0.25F, 0.0F, 0.36F, 0.25F, 0.20F);  // Left leg
-  part(0.0F, 0.25F, 0.0F, 0.36F, 0.25F, 0.20F);   // Right leg
+  part(PlayerBodyPartType::Torso, 0.0F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F);
+  part(PlayerBodyPartType::Hips, 0.0F, 0.0F, 0.34F, 0.48F, 0.31F, 0.48F);
+  part(PlayerBodyPartType::Head, 0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);
+  part(PlayerBodyPartType::LeftArm, 0.0F, -0.74F, 0.38F, 0.72F, 0.20F, 0.20F);
+  part(PlayerBodyPartType::RightArm, 0.0F, 0.74F, 0.38F, 0.72F, 0.20F, 0.20F);
+  part(PlayerBodyPartType::LeftLeg, 0.0F, -0.25F, 0.0F, 0.36F, 0.25F, 0.20F);
+  part(PlayerBodyPartType::RightLeg, 0.0F, 0.25F, 0.0F, 0.36F, 0.25F, 0.20F);
 }
 
 void addPlayerModel(
@@ -1136,7 +1190,12 @@ void addPlayerModel(
       leanEnabled,
       leanScale,
       0.0F,
-      [&](Vec3 center, Vec3 halfExtents, Vec3 forward, Vec3 right, Vec3 up) {
+      [&](Vec3 center,
+          Vec3 halfExtents,
+          Vec3 forward,
+          Vec3 right,
+          Vec3 up,
+          PlayerBodyPartType) {
         addOrientedBox(scene, center, halfExtents, forward, right, up, color);
       }
     );
@@ -1550,7 +1609,12 @@ void addPlayerOutline(
     leanEnabled,
     leanScale,
     expansion,
-    [&](Vec3 center, Vec3 halfExtents, Vec3 forward, Vec3 right, Vec3 up) {
+    [&](Vec3 center,
+        Vec3 halfExtents,
+        Vec3 forward,
+        Vec3 right,
+        Vec3 up,
+        PlayerBodyPartType) {
       addOrientedWireBox(
         scene,
         center,
@@ -1811,6 +1875,8 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     RenderPass::OpaqueWorld,
   };
   switch (handle) {
+  case MeshHandle::PlayerBoxCube:
+    return &kPlayerBoxCubeAsset;
   case MeshHandle::PlasmaCore:
     return &kPlasmaCoreAsset;
   case MeshHandle::ExplosionCore:
@@ -1985,6 +2051,97 @@ void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) 
     index,
     1U,
   });
+}
+
+[[nodiscard]] bool finiteVec3(Vec3 value) {
+  return std::isfinite(value.x) &&
+    std::isfinite(value.y) &&
+    std::isfinite(value.z);
+}
+
+[[nodiscard]] StaticMeshInstance playerBoxMeshInstance(
+  Vec3 center,
+  Vec3 halfExtents,
+  Vec3 forward,
+  Vec3 right,
+  Vec3 up,
+  RenderColor color,
+  PlayerBodyPartType bodyPart,
+  std::uint8_t playerIndex,
+  OutlineState outlineState,
+  bool outlined
+) {
+  const Vec3 forwardColumn = forward * (halfExtents.x * 2.0F);
+  const Vec3 rightColumn = right * (halfExtents.y * 2.0F);
+  const Vec3 upColumn = up * (halfExtents.z * 2.0F);
+  return {
+    MeshHandle::PlayerBoxCube,
+    RenderPass::OpaqueWorld,
+    {forwardColumn.x, rightColumn.x, upColumn.x},
+    {forwardColumn.y, rightColumn.y, upColumn.y},
+    {forwardColumn.z, rightColumn.z, upColumn.z},
+    center,
+    color,
+    {center, length(halfExtents)},
+    bodyPart,
+    playerIndex,
+    outlineState,
+    true,
+    outlined,
+  };
+}
+
+void addPlayerBoxInstances(
+  Scene3D& scene,
+  const PlayerState& player,
+  RenderColor color,
+  bool leanEnabled,
+  float leanScale,
+  std::uint8_t playerIndex,
+  OutlineState outlineState,
+  bool outlined
+) {
+  forEachPlayerModelPart(
+    player,
+    leanEnabled,
+    leanScale,
+    0.0F,
+    [&](Vec3 center,
+        Vec3 halfExtents,
+        Vec3 forward,
+        Vec3 right,
+        Vec3 up,
+        PlayerBodyPartType bodyPart) {
+      if (
+        !finiteVec3(center) ||
+        !finiteVec3(halfExtents) ||
+        !finiteVec3(forward) ||
+        !finiteVec3(right) ||
+        !finiteVec3(up) ||
+        halfExtents.x <= 0.0F ||
+        halfExtents.y <= 0.0F ||
+        halfExtents.z <= 0.0F
+      ) {
+        return;
+      }
+      appendStaticMeshInstance(
+        scene,
+        playerBoxMeshInstance(
+          center,
+          halfExtents,
+          forward,
+          right,
+          up,
+          color,
+          bodyPart,
+          playerIndex,
+          outlineState,
+          outlined
+        )
+      );
+      ++scene.playerBoxStats.instancesSubmitted;
+    }
+  );
 }
 
 [[nodiscard]] float projectileVelocityYaw(Vec3 velocity) {
@@ -2201,7 +2358,7 @@ void addTransientEffectInstances(
 }
 
 void finalizeStaticMeshBatches(Scene3D& scene) {
-  std::sort(
+  std::stable_sort(
     scene.staticMeshInstances.begin(),
     scene.staticMeshInstances.end(),
     [](const StaticMeshInstance& lhs, const StaticMeshInstance& rhs) {
@@ -2234,13 +2391,96 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
   }
   scene.remoteWeaponStats.instanceUploadBytes =
     scene.remoteWeaponStats.instancesSubmitted * kStaticMeshInstanceUploadBytes;
+  scene.playerBoxStats.instanceUploadBytes =
+    scene.playerBoxStats.instancesSubmitted * kStaticMeshInstanceUploadBytes;
+  scene.playerBoxStats.sharedCubeStaticGpuBytes =
+    static_cast<std::uint32_t>(
+      kPlayerBoxCubeMeshVertices.size() * kStaticMeshVertexUploadBytes
+    );
   for (const StaticMeshBatch& batch : scene.staticMeshBatches) {
     if (batch.instanceCount == 0U || batch.pass != RenderPass::OpaqueWorld) {
       continue;
     }
-    ++scene.remoteWeaponStats.batches;
-    ++scene.remoteWeaponStats.drawCalls;
+    if (batch.mesh == MeshHandle::PlayerBoxCube) {
+      ++scene.playerBoxStats.opaqueBatches;
+      ++scene.playerBoxStats.opaqueDrawCalls;
+    } else if (
+      batch.mesh == MeshHandle::RemoteMachineGun ||
+      batch.mesh == MeshHandle::RemoteShotgun ||
+      batch.mesh == MeshHandle::RemoteGrenadeLauncher ||
+      batch.mesh == MeshHandle::RemoteRocketLauncher ||
+      batch.mesh == MeshHandle::RemoteLightningGun ||
+      batch.mesh == MeshHandle::RemoteRailgun ||
+      batch.mesh == MeshHandle::RemotePlasmaGun
+    ) {
+      ++scene.remoteWeaponStats.batches;
+      ++scene.remoteWeaponStats.drawCalls;
+    }
   }
+
+  std::uint32_t runFirst = 0;
+  std::uint32_t runCount = 0;
+  std::uint8_t runPlayerIndex = 0;
+  OutlineState runState = {};
+  const auto flushRun = [&]() {
+    if (runCount == 0U) {
+      return;
+    }
+    scene.outlineMaskDraws.push_back({
+      0U,
+      0U,
+      runState,
+      MeshHandle::PlayerBoxCube,
+      runFirst,
+      runCount,
+    });
+    ++scene.playerOutlinesBuilt;
+    ++scene.outlinedPlayers;
+    ++scene.playerBoxStats.outlineMaskBatches;
+    ++scene.playerBoxStats.outlineMaskDrawCalls;
+    runCount = 0;
+  };
+  for (
+    std::uint32_t index = 0;
+    index < static_cast<std::uint32_t>(scene.staticMeshInstances.size());
+    ++index
+  ) {
+    const StaticMeshInstance& instance = scene.staticMeshInstances[index];
+    if (
+      !instance.playerBoxBody ||
+      !instance.playerBoxOutlined ||
+      instance.mesh != MeshHandle::PlayerBoxCube ||
+      instance.pass != RenderPass::OpaqueWorld
+    ) {
+      flushRun();
+      continue;
+    }
+    if (
+      runCount == 0U ||
+      (
+        instance.playerIndex == runPlayerIndex &&
+        instance.outlineState.group == runState.group &&
+        instance.outlineState.visibility == runState.visibility &&
+        instance.outlineState.widthPixels == runState.widthPixels &&
+        instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.pulse == runState.pulse
+      )
+    ) {
+      if (runCount == 0U) {
+        runFirst = index;
+        runPlayerIndex = instance.playerIndex;
+        runState = instance.outlineState;
+      }
+      ++runCount;
+    } else {
+      flushRun();
+      runFirst = index;
+      runPlayerIndex = instance.playerIndex;
+      runState = instance.outlineState;
+      runCount = 1U;
+    }
+  }
+  flushRun();
 }
 
 void addProjectileInstances(
@@ -2446,9 +2686,15 @@ Scene3D buildPerspectiveScene(
         remotePlayerVisualSphereCenter(remote.player),
         remotePlayerVisualSphereRadius(remote.player)
       );
+    const bool usePlayerBoxModel =
+      settings.drawRemotePlayers &&
+      (settings.playerModel != 1 || !duelistMaleModel().loaded());
     scene.remoteRenderVisible[remoteIndex] = renderVisible;
     if (!renderVisible) {
       ++scene.remoteFrustumCulled;
+      if (settings.drawRemotePlayers && usePlayerBoxModel) {
+        ++scene.playerBoxStats.culledPlayers;
+      }
       if (settings.drawRemoteWeapons) {
         ++scene.remoteWeaponStats.frustumCulled;
       }
@@ -2548,32 +2794,49 @@ Scene3D buildPerspectiveScene(
     }
     if (settings.drawRemotePlayers) {
       ++scene.remoteBodyModelsBuilt;
-      const std::size_t bodyStart = scene.vertices.size();
-      addPlayerModel(
-        scene,
-        remote.player,
-        opponentColor,
-        settings.playerModel,
-        remote.teammate
-          ? settings.teammateLeanEnabled
-          : settings.enemyLeanEnabled,
-        remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
-      );
-      const std::uint32_t bodyVertexCount =
-        static_cast<std::uint32_t>(scene.vertices.size() - bodyStart);
-      scene.normalPlayerBodyDynamicVertices += bodyVertexCount;
-      if (
-        wantsOutline &&
-        settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace &&
-        bodyVertexCount > 0U
-      ) {
-        ++scene.playerOutlinesBuilt;
-        ++scene.outlinedPlayers;
-        scene.outlineMaskDraws.push_back({
-          static_cast<std::uint32_t>(bodyStart),
-          bodyVertexCount,
+      if (usePlayerBoxModel) {
+        ++scene.playerBoxStats.visiblePlayers;
+        addPlayerBoxInstances(
+          scene,
+          remote.player,
+          opponentColor,
+          remote.teammate
+            ? settings.teammateLeanEnabled
+            : settings.enemyLeanEnabled,
+          remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
+          static_cast<std::uint8_t>(remoteIndex),
           outlineState,
-        });
+          wantsOutline &&
+            settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace
+        );
+      } else {
+        const std::size_t bodyStart = scene.vertices.size();
+        addPlayerModel(
+          scene,
+          remote.player,
+          opponentColor,
+          settings.playerModel,
+          remote.teammate
+            ? settings.teammateLeanEnabled
+            : settings.enemyLeanEnabled,
+          remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
+        );
+        const std::uint32_t bodyVertexCount =
+          static_cast<std::uint32_t>(scene.vertices.size() - bodyStart);
+        scene.normalPlayerBodyDynamicVertices += bodyVertexCount;
+        if (
+          wantsOutline &&
+          settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace &&
+          bodyVertexCount > 0U
+        ) {
+          ++scene.playerOutlinesBuilt;
+          ++scene.outlinedPlayers;
+          scene.outlineMaskDraws.push_back({
+            static_cast<std::uint32_t>(bodyStart),
+            bodyVertexCount,
+            outlineState,
+          });
+        }
       }
     }
     if (settings.drawRemoteWeapons) {

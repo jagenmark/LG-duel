@@ -31,6 +31,7 @@ enum class RenderPass {
 
 enum class MeshHandle : std::uint16_t {
   Invalid = 0,
+  PlayerBoxCube,
   PlasmaCore,
   RocketProjectile,
   GrenadeProjectile,
@@ -44,6 +45,17 @@ enum class MeshHandle : std::uint16_t {
   RemoteLightningGun,
   RemoteRailgun,
   RemotePlasmaGun,
+};
+
+enum class PlayerBodyPartType : std::uint8_t {
+  None = 0,
+  Torso,
+  Hips,
+  Head,
+  LeftArm,
+  RightArm,
+  LeftLeg,
+  RightLeg,
 };
 
 enum class BillboardHandle : std::uint16_t {
@@ -141,6 +153,11 @@ struct StaticMeshInstance {
   Vec3 modelTranslation = {};
   RenderColor color = {};
   BoundingSphere worldBounds = {};
+  PlayerBodyPartType playerBodyPart = PlayerBodyPartType::None;
+  std::uint8_t playerIndex = 0;
+  OutlineState outlineState = {};
+  bool playerBoxBody = false;
+  bool playerBoxOutlined = false;
 };
 
 struct StaticMeshBatch {
@@ -177,6 +194,20 @@ struct RemoteWeaponRenderStats {
   std::uint32_t legacyDynamicVertices = 0;
 };
 
+struct PlayerBoxRenderStats {
+  std::uint32_t visiblePlayers = 0;
+  std::uint32_t culledPlayers = 0;
+  std::uint32_t instancesSubmitted = 0;
+  std::uint32_t instanceUploadBytes = 0;
+  std::uint32_t sharedCubeStaticGpuBytes = 0;
+  std::uint32_t opaqueBatches = 0;
+  std::uint32_t opaqueDrawCalls = 0;
+  std::uint32_t outlineMaskBatches = 0;
+  std::uint32_t outlineMaskDrawCalls = 0;
+  std::uint32_t legacyCpuGeneratedVertices = 0;
+  std::uint32_t legacyDynamicVertexUploadBytes = 0;
+};
+
 struct ViewModelRenderStats {
   std::uint32_t drawCalls = 0;
   std::uint32_t dynamicVertices = 0;
@@ -186,6 +217,9 @@ struct OutlineMaskDraw {
   std::uint32_t firstVertex = 0;
   std::uint32_t vertexCount = 0;
   OutlineState state = {};
+  MeshHandle mesh = MeshHandle::Invalid;
+  std::uint32_t firstInstance = 0;
+  std::uint32_t instanceCount = 0;
 };
 
 constexpr float kOutlineWorkScale = 0.5F;
@@ -303,6 +337,7 @@ struct OutlineWorkPlan {
 [[nodiscard]] inline OutlineWorkPlan buildOutlineWorkPlan(
   const PerspectiveCamera& camera,
   std::span<const Vertex3D> vertices,
+  std::span<const StaticMeshInstance> staticMeshInstances,
   std::span<const OutlineMaskDraw> draws,
   std::uint32_t framebufferWidth,
   std::uint32_t framebufferHeight
@@ -328,27 +363,17 @@ struct OutlineWorkPlan {
   bool fallback = false;
   std::uint32_t drawCalls = 0;
   for (const OutlineMaskDraw& draw : draws) {
-    if (draw.vertexCount == 0U) {
+    if (draw.vertexCount == 0U && draw.instanceCount == 0U) {
       continue;
     }
     ++drawCalls;
     plan.maxFinalWidthPixels =
       std::max(plan.maxFinalWidthPixels, outlineFinalWidthPixels(draw.state.widthPixels));
-    const std::uint64_t end =
-      static_cast<std::uint64_t>(draw.firstVertex) + draw.vertexCount;
-    if (draw.firstVertex >= vertices.size() || end > vertices.size()) {
-      fallback = true;
-      break;
-    }
-    for (
-      std::uint32_t index = draw.firstVertex;
-      index < draw.firstVertex + draw.vertexCount;
-      ++index
-    ) {
+    const auto addProjectedPoint = [&](Vec3 position) {
       ProjectedPoint projected;
-      if (!projectPerspectivePoint(camera, vertices[index].position, projected)) {
+      if (!projectPerspectivePoint(camera, position, projected)) {
         fallback = true;
-        break;
+        return;
       }
       const float screenX =
         (projected.x + 1.0F) * 0.5F * static_cast<float>(framebufferWidth);
@@ -356,13 +381,72 @@ struct OutlineWorkPlan {
         (1.0F - projected.y) * 0.5F * static_cast<float>(framebufferHeight);
       if (!std::isfinite(screenX) || !std::isfinite(screenY)) {
         fallback = true;
-        break;
+        return;
       }
       minX = std::min(minX, screenX);
       minY = std::min(minY, screenY);
       maxX = std::max(maxX, screenX);
       maxY = std::max(maxY, screenY);
       anyProjected = true;
+    };
+
+    if (draw.instanceCount > 0U) {
+      const std::uint64_t end =
+        static_cast<std::uint64_t>(draw.firstInstance) + draw.instanceCount;
+      if (
+        draw.firstInstance >= staticMeshInstances.size() ||
+        end > staticMeshInstances.size()
+      ) {
+        fallback = true;
+        break;
+      }
+      constexpr std::array<Vec3, 8> kUnitCubeCorners = {{
+        {-0.5F, -0.5F, -0.5F},
+        { 0.5F, -0.5F, -0.5F},
+        { 0.5F,  0.5F, -0.5F},
+        {-0.5F,  0.5F, -0.5F},
+        {-0.5F, -0.5F,  0.5F},
+        { 0.5F, -0.5F,  0.5F},
+        { 0.5F,  0.5F,  0.5F},
+        {-0.5F,  0.5F,  0.5F},
+      }};
+      for (
+        std::uint32_t index = draw.firstInstance;
+        index < draw.firstInstance + draw.instanceCount;
+        ++index
+      ) {
+        const StaticMeshInstance& instance = staticMeshInstances[index];
+        for (Vec3 local : kUnitCubeCorners) {
+          addProjectedPoint({
+            dot(instance.modelRow0, local) + instance.modelTranslation.x,
+            dot(instance.modelRow1, local) + instance.modelTranslation.y,
+            dot(instance.modelRow2, local) + instance.modelTranslation.z,
+          });
+          if (fallback) {
+            break;
+          }
+        }
+        if (fallback) {
+          break;
+        }
+      }
+    } else {
+      const std::uint64_t end =
+        static_cast<std::uint64_t>(draw.firstVertex) + draw.vertexCount;
+      if (draw.firstVertex >= vertices.size() || end > vertices.size()) {
+        fallback = true;
+        break;
+      }
+      for (
+        std::uint32_t index = draw.firstVertex;
+        index < draw.firstVertex + draw.vertexCount;
+        ++index
+      ) {
+        addProjectedPoint(vertices[index].position);
+        if (fallback) {
+          break;
+        }
+      }
     }
     if (fallback) {
       break;
@@ -420,6 +504,23 @@ struct OutlineWorkPlan {
   return plan;
 }
 
+[[nodiscard]] inline OutlineWorkPlan buildOutlineWorkPlan(
+  const PerspectiveCamera& camera,
+  std::span<const Vertex3D> vertices,
+  std::span<const OutlineMaskDraw> draws,
+  std::uint32_t framebufferWidth,
+  std::uint32_t framebufferHeight
+) {
+  return buildOutlineWorkPlan(
+    camera,
+    vertices,
+    std::span<const StaticMeshInstance>(),
+    draws,
+    framebufferWidth,
+    framebufferHeight
+  );
+}
+
 struct Scene3D {
   PerspectiveCamera camera = {};
   std::vector<Vertex3D> vertices;
@@ -431,6 +532,7 @@ struct Scene3D {
   std::vector<SimpleRenderBatch> simpleBatches;
   ProjectileRenderStats projectileStats = {};
   RemoteWeaponRenderStats remoteWeaponStats = {};
+  PlayerBoxRenderStats playerBoxStats = {};
   ViewModelRenderStats viewModelStats = {};
   TransientVfxStats transientVfxStats = {};
   std::array<bool, kDuelPlayerCount> remoteRenderVisible = {};

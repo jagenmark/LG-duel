@@ -152,7 +152,7 @@ std::size_t opponentPlayerIndex(
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     if (
       index != localPlayerIndex &&
-      snapshot.connectedPlayers[index] &&
+      (snapshot.connectedPlayers[index] || snapshot.botPlayers[index]) &&
       (
         snapshot.gameMode == GameMode::Duel ||
         warmupPhase(snapshot.matchPhase) ||

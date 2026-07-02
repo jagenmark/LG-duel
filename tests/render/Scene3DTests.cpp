@@ -55,6 +55,31 @@ bool insidePlayerModelBounds(
       player.position.z + player.bounds.halfHeight + kSkinningVisualTolerance;
 }
 
+bool finiteVec3(lg::Vec3 value) {
+  return std::isfinite(value.x) &&
+    std::isfinite(value.y) &&
+    std::isfinite(value.z);
+}
+
+lg::Vec3 transformPoint(const lg::StaticMeshInstance& instance, lg::Vec3 local) {
+  return {
+    lg::dot(instance.modelRow0, local) + instance.modelTranslation.x,
+    lg::dot(instance.modelRow1, local) + instance.modelTranslation.y,
+    lg::dot(instance.modelRow2, local) + instance.modelTranslation.z,
+  };
+}
+
+std::size_t playerBoxInstanceCount(const lg::Scene3D& scene) {
+  return static_cast<std::size_t>(std::count_if(
+    scene.staticMeshInstances.begin(),
+    scene.staticMeshInstances.end(),
+    [](const lg::StaticMeshInstance& instance) {
+      return instance.playerBoxBody &&
+        instance.mesh == lg::MeshHandle::PlayerBoxCube;
+    }
+  ));
+}
+
 struct UvBounds {
   float minU = 0.0F;
   float maxU = 0.0F;
@@ -690,15 +715,60 @@ int main() {
     rockets,
     legacyModelSettings
   );
-  std::size_t legacyOpponentVertexCount = 0;
-  for (const lg::Vertex3D& vertex : legacyModelScene.vertices) {
-    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
-      ++legacyOpponentVertexCount;
+  const lg::StaticMeshAsset* playerBoxCube =
+    lg::staticMeshAsset(lg::MeshHandle::PlayerBoxCube);
+  const lg::StaticMeshAsset* playerBoxCubeAgain =
+    lg::staticMeshAsset(lg::MeshHandle::PlayerBoxCube);
+  failures += expect(
+    playerBoxCube != nullptr &&
+      playerBoxCube == playerBoxCubeAgain &&
+      playerBoxCube->vertices.size() == 36U &&
+      playerBoxCube->localBounds.radius > 0.86F &&
+      playerBoxCube->localBounds.radius < 0.87F,
+    "procedural player boxes should reuse one centered static cube asset"
+  );
+  failures += expect(
+    playerBoxInstanceCount(legacyModelScene) == 7U &&
+      legacyModelScene.playerBoxStats.visiblePlayers == 1 &&
+      legacyModelScene.playerBoxStats.instancesSubmitted == 7 &&
+      legacyModelScene.playerBoxStats.instanceUploadBytes == 7U * 52U &&
+      legacyModelScene.playerBoxStats.sharedCubeStaticGpuBytes == 36U * 24U &&
+      legacyModelScene.normalPlayerBodyDynamicVertices == 0 &&
+      legacyModelScene.playerBoxStats.legacyCpuGeneratedVertices == 0 &&
+      legacyModelScene.playerBoxStats.legacyDynamicVertexUploadBytes == 0,
+    "r_player_model 0 should submit seven compact cube instances and no legacy body vertices"
+  );
+  bool foundTorso = false;
+  bool foundHead = false;
+  bool boxTransformsFinite = true;
+  bool boxTintMatchesEnemy = false;
+  for (const lg::StaticMeshInstance& instance : legacyModelScene.staticMeshInstances) {
+    if (!instance.playerBoxBody) {
+      continue;
     }
+    foundTorso = foundTorso || instance.playerBodyPart == lg::PlayerBodyPartType::Torso;
+    foundHead = foundHead || instance.playerBodyPart == lg::PlayerBodyPartType::Head;
+    boxTintMatchesEnemy = boxTintMatchesEnemy || isEnemyModelColor(instance.color);
+    boxTransformsFinite = boxTransformsFinite &&
+      finiteVec3(instance.modelRow0) &&
+      finiteVec3(instance.modelRow1) &&
+      finiteVec3(instance.modelRow2) &&
+      finiteVec3(instance.modelTranslation) &&
+      finiteVec3(transformPoint(instance, {-0.5F, -0.5F, -0.5F})) &&
+      finiteVec3(transformPoint(instance, {0.5F, 0.5F, 0.5F}));
   }
   failures += expect(
-    legacyOpponentVertexCount > 0U && legacyOpponentVertexCount < opponentVertexCount,
-    "r_player_model 0 should keep the previous legacy box model available"
+    foundTorso && foundHead && boxTransformsFinite && boxTintMatchesEnemy,
+    "procedural box instances should preserve body-part metadata, finite transforms, and enemy tint"
+  );
+  failures += expect(
+    legacyModelScene.outlineMaskDraws.size() == 1U &&
+      legacyModelScene.outlineMaskDraws.front().mesh == lg::MeshHandle::PlayerBoxCube &&
+      legacyModelScene.outlineMaskDraws.front().instanceCount == 7U &&
+      legacyModelScene.outlineMaskDraws.front().vertexCount == 0U &&
+      legacyModelScene.playerBoxStats.outlineMaskBatches == 1 &&
+      legacyModelScene.playerBoxStats.outlineMaskDrawCalls == 1,
+    "screen-space outline mask should consume the same procedural box cube instances"
   );
 
   lg::PlayerState airborneOpponent = opponent;
@@ -844,6 +914,26 @@ int main() {
       ),
     "teammate and enemy outline mask groups should remain distinct"
   );
+  const lg::Scene3D teammateBoxOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    teammateOnlyPlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    legacyModelSettings
+  );
+  failures += expect(
+    teammateBoxOutlineScene.outlineMaskDraws.size() == 1U &&
+      teammateBoxOutlineScene.outlineMaskDraws.front().state.group ==
+        lg::OutlineGroup::Teammate &&
+      teammateBoxOutlineScene.outlineMaskDraws.front().mesh ==
+        lg::MeshHandle::PlayerBoxCube &&
+      teammateBoxOutlineScene.outlineMaskDraws.front().instanceCount == 7U,
+    "teammate procedural box outline mask should keep teammate grouping on cube instances"
+  );
 
   const lg::OutlineTargetDimensions oddOutlineDimensions =
     lg::outlineTargetDimensions(1921U, 1081U);
@@ -892,6 +982,31 @@ int main() {
       centeredOutlinePlan.dilationDrawCalls == 1U &&
       centeredOutlinePlan.compositeDrawCalls == 1U,
     "centered outlined player should use a bounded half-resolution work rectangle"
+  );
+  const lg::OutlineWorkPlan centeredBoxOutlinePlan = lg::buildOutlineWorkPlan(
+    legacyModelScene.camera,
+    std::span<const lg::Vertex3D>(
+      legacyModelScene.vertices.data(),
+      legacyModelScene.vertices.size()
+    ),
+    std::span<const lg::StaticMeshInstance>(
+      legacyModelScene.staticMeshInstances.data(),
+      legacyModelScene.staticMeshInstances.size()
+    ),
+    std::span<const lg::OutlineMaskDraw>(
+      legacyModelScene.outlineMaskDraws.data(),
+      legacyModelScene.outlineMaskDraws.size()
+    ),
+    1920U,
+    1080U
+  );
+  failures += expect(
+    centeredBoxOutlinePlan.hasWork &&
+      !centeredBoxOutlinePlan.conservativeFallback &&
+      centeredBoxOutlinePlan.maskDrawCalls == 1U &&
+      centeredBoxOutlinePlan.dilationDrawCalls == 1U &&
+      centeredBoxOutlinePlan.compositeDrawCalls == 1U,
+    "procedural box outline work plan should project static cube instance bounds"
   );
 
   lg::PlayerState edgeOpponent = opponent;
@@ -1021,6 +1136,26 @@ int main() {
       multiOpponentScene.remoteWeaponStats.drawCalls == 1,
     "multiple remotes holding the same weapon should form one remote weapon batch"
   );
+  const lg::Scene3D multiBoxOpponentScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    remotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    legacyModelSettings
+  );
+  failures += expect(
+    multiBoxOpponentScene.playerBoxStats.visiblePlayers == 2 &&
+      multiBoxOpponentScene.playerBoxStats.instancesSubmitted == 14 &&
+      multiBoxOpponentScene.playerBoxStats.opaqueBatches == 1 &&
+      multiBoxOpponentScene.playerBoxStats.opaqueDrawCalls == 1 &&
+      multiBoxOpponentScene.playerBoxStats.outlineMaskDrawCalls == 2 &&
+      multiBoxOpponentScene.normalPlayerBodyDynamicVertices == 0,
+    "two visible procedural box players should combine into one compatible cube body batch"
+  );
 
   remotePlayers[2].selectedWeapon = lg::Weapon::RocketLauncher;
   const lg::Scene3D mixedWeaponScene = lg::buildPerspectiveScene(
@@ -1089,6 +1224,24 @@ int main() {
       culledBehindScene.playerOutlinesBuilt == 0 &&
       culledBehindScene.vertices.size() == noRemoteScene.vertices.size(),
     "remote behind camera should not add body, weapon, or outline vertices when culling is enabled"
+  );
+  const lg::Scene3D culledBehindBoxScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    behindRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    legacyModelSettings
+  );
+  failures += expect(
+    culledBehindBoxScene.playerBoxStats.culledPlayers == 1 &&
+      culledBehindBoxScene.playerBoxStats.visiblePlayers == 0 &&
+      culledBehindBoxScene.playerBoxStats.instancesSubmitted == 0 &&
+      playerBoxInstanceCount(culledBehindBoxScene) == 0U,
+    "off-screen procedural box player should be culled before body-part instances are emitted"
   );
   lg::RenderSettings frustumCullDisabledSettings = settings;
   frustumCullDisabledSettings.frustumCullRemotePlayers = false;
