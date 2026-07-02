@@ -31,6 +31,9 @@ constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
 constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
+constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 60U;
+constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
+constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -473,30 +476,6 @@ struct WeaponModelFrame {
       255.0F
     )),
     color.alpha,
-  };
-}
-
-[[nodiscard]] RenderColor blendColor(
-  RenderColor base,
-  RenderColor tint,
-  float tintAmount
-) {
-  const auto blend = [tintAmount](
-                       std::uint8_t baseChannel,
-                       std::uint8_t tintChannel
-                     ) {
-    return static_cast<std::uint8_t>(std::clamp(
-      static_cast<float>(baseChannel) * (1.0F - tintAmount) +
-        static_cast<float>(tintChannel) * tintAmount,
-      0.0F,
-      255.0F
-    ));
-  };
-  return {
-    blend(base.red, tint.red),
-    blend(base.green, tint.green),
-    blend(base.blue, tint.blue),
-    tint.alpha,
   };
 }
 
@@ -1146,21 +1125,12 @@ void forEachPlayerModelPart(
   part(PlayerBodyPartType::RightLeg, 0.0F, 0.25F, 0.0F, 0.36F, 0.25F, 0.20F);
 }
 
-void addPlayerModel(
-  Scene3D& scene,
+[[nodiscard]] std::vector<SkinnedModelPoseRequest> duelistPoseRequests(
   const PlayerState& player,
-  RenderColor color,
-  int modelStyle,
   bool leanEnabled,
   float leanScale
 ) {
-  const PlayerModelBasis basis =
-    playerModelBasis(player, false, leanScale, 0.0F);
   const PlayerVisualPose pose = makePlayerVisualPose(player);
-  const float verticalScale = basis.height / kDuelistMaleHeight;
-  const float horizontalScale = basis.radius / kDuelistMaleHalfWidth * 0.94F;
-  const Vec3 base = player.position - basis.up * basis.halfHeight;
-  const Vec3 lightDirection = normalize(Vec3{-0.35F, -0.45F, 0.82F});
   const float lateralVelocity = dot(player.velocity, yawRight(player.viewYawRadians));
   const float leanAmount = leanEnabled
     ? std::clamp(lateralVelocity / 8.0F * leanScale, -1.0F, 1.0F)
@@ -1171,55 +1141,76 @@ void addPlayerModel(
     const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
     poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
   } else if (leanAmount > 0.02F) {
-    poseRequests.push_back({"lg_duelist_lean_right", 0.5833333F, std::fabs(leanAmount)});
-  } else if (leanAmount < -0.02F) {
     poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
+  } else if (leanAmount < -0.02F) {
+    poseRequests.push_back({"lg_duelist_lean_right", 0.5833333F, std::fabs(leanAmount)});
   }
+  return poseRequests;
+}
 
-  const auto point = [&](Vec3 local) {
-    return base +
-      basis.forward * ((local.z - kDuelistMaleDepthCenter) * horizontalScale) +
-      basis.right * (local.x * horizontalScale) +
-      basis.up * (local.y * verticalScale);
-  };
-
-  const GltfSkinnedModel* model = modelStyle == 1 ? &duelistMaleModel() : nullptr;
-  if (model == nullptr || !model->loaded()) {
-    forEachPlayerModelPart(
-      player,
-      leanEnabled,
-      leanScale,
-      0.0F,
-      [&](Vec3 center,
-          Vec3 halfExtents,
-          Vec3 forward,
-          Vec3 right,
-          Vec3 up,
-          PlayerBodyPartType) {
-        addOrientedBox(scene, center, halfExtents, forward, right, up, color);
-      }
-    );
+void addGltfPlayerModelInstance(
+  Scene3D& scene,
+  const GltfSkinnedModel& model,
+  const PlayerState& player,
+  RenderColor color,
+  bool leanEnabled,
+  float leanScale,
+  std::uint8_t playerIndex,
+  OutlineState outlineState,
+  bool outlined,
+  GltfSkinnedModel::PoseScratch& poseScratch
+) {
+  if (!model.loaded() || model.primitives().empty()) {
     return;
   }
 
-  for (const SkinnedModelTriangle& triangle : model->triangles(poseRequests)) {
-    const Vec3 first = point(triangle.vertices[0]);
-    const Vec3 second = point(triangle.vertices[1]);
-    const Vec3 third = point(triangle.vertices[2]);
-    const Vec3 normal = normalize(cross(second - first, third - first));
-    const float brightness = std::clamp(
-      0.70F +
-        std::max(0.0F, dot(normal, lightDirection)) * 0.38F +
-        std::fabs(normal.z) * 0.12F,
-      0.62F,
-      1.22F
-    );
-    RenderColor shaded = scaleColor(triangle.color, brightness);
-    if (triangle.tintable) {
-      shaded = blendColor(shaded, color, 0.70F);
-    }
-    shaded.alpha = triangle.tintable ? color.alpha : shaded.alpha;
-    addTriangle(scene, first, second, third, shaded);
+  const PlayerModelBasis basis =
+    playerModelBasis(player, false, leanScale, 0.0F);
+  const float verticalScale = basis.height / kDuelistMaleHeight;
+  const float horizontalScale = basis.radius / kDuelistMaleHalfWidth * 0.94F;
+  const Vec3 base = player.position - basis.up * basis.halfHeight;
+  const Vec3 translation = base -
+    basis.forward * (kDuelistMaleDepthCenter * horizontalScale);
+  const std::uint32_t firstBone =
+    static_cast<std::uint32_t>(scene.gltfBonePalette.size());
+  const std::vector<SkinnedModelPoseRequest> poseRequests =
+    duelistPoseRequests(player, leanEnabled, leanScale);
+  if (!model.appendBonePalette(poseRequests, scene.gltfBonePalette, poseScratch)) {
+    return;
+  }
+  const std::uint32_t boneCount =
+    static_cast<std::uint32_t>(scene.gltfBonePalette.size()) - firstBone;
+  GltfPlayerModelInstance instance;
+  instance.modelRow0 = {
+    basis.right.x * horizontalScale,
+    basis.up.x * verticalScale,
+    basis.forward.x * horizontalScale,
+  };
+  instance.modelRow1 = {
+    basis.right.y * horizontalScale,
+    basis.up.y * verticalScale,
+    basis.forward.y * horizontalScale,
+  };
+  instance.modelRow2 = {
+    basis.right.z * horizontalScale,
+    basis.up.z * verticalScale,
+    basis.forward.z * horizontalScale,
+  };
+  instance.modelTranslation = translation;
+  instance.color = color;
+  instance.localBounds = model.localBounds();
+  instance.firstBone = firstBone;
+  instance.boneCount = boneCount;
+  instance.playerIndex = playerIndex;
+  instance.outlineState = outlineState;
+  instance.skinned = model.hasSkinnedPrimitives() && boneCount > 0U;
+  instance.outlined = outlined;
+  scene.gltfPlayerModelInstances.push_back(instance);
+  ++scene.gltfPlayerModelStats.activeInstances;
+  if (instance.skinned) {
+    ++scene.gltfPlayerModelStats.gpuSkinnedInstances;
+  } else {
+    ++scene.gltfPlayerModelStats.rigidFallbackInstances;
   }
 }
 
@@ -2483,6 +2474,119 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
   flushRun();
 }
 
+void finalizeGltfPlayerModelBatches(
+  Scene3D& scene,
+  const GltfSkinnedModel* model
+) {
+  if (
+    model == nullptr ||
+    !model->loaded()
+  ) {
+    return;
+  }
+
+  std::uint32_t vertexBytes = 0;
+  std::uint32_t indexBytes = 0;
+  for (const GltfSkinnedModel::Primitive& primitive : model->primitives()) {
+    vertexBytes += static_cast<std::uint32_t>(
+      primitive.vertices.size() * kGltfPlayerModelVertexGpuBytes
+    );
+    indexBytes += static_cast<std::uint32_t>(
+      primitive.indices.size() * kGltfPlayerModelIndexGpuBytes
+    );
+  }
+  scene.gltfPlayerModelStats.staticMeshGpuBytes = vertexBytes;
+  scene.gltfPlayerModelStats.staticIndexGpuBytes = indexBytes;
+  scene.gltfPlayerModelStats.bonePaletteEntriesUploaded =
+    static_cast<std::uint32_t>(scene.gltfBonePalette.size());
+  scene.gltfPlayerModelStats.poseUploadBytes =
+    scene.gltfPlayerModelStats.bonePaletteEntriesUploaded *
+    kGltfBonePaletteEntryBytes;
+  scene.gltfPlayerModelStats.legacyCpuSkinnedVertexUploadBytes = 0;
+
+  if (scene.gltfPlayerModelInstances.empty()) {
+    return;
+  }
+
+  std::uint32_t primitiveCount = 0;
+  for (const GltfSkinnedModel::Primitive& primitive : model->primitives()) {
+    if (!primitive.vertices.empty() && !primitive.indices.empty()) {
+      scene.gltfPlayerModelBatches.push_back({
+        primitiveCount,
+        0U,
+        static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size()),
+      });
+      ++scene.gltfPlayerModelStats.bodyBatches;
+      ++scene.gltfPlayerModelStats.bodyDrawCalls;
+    }
+    ++primitiveCount;
+  }
+
+  std::uint32_t runFirst = 0;
+  std::uint32_t runCount = 0;
+  std::uint8_t runPlayerIndex = 0;
+  OutlineState runState = {};
+  const auto flushRun = [&]() {
+    if (runCount == 0U) {
+      return;
+    }
+    scene.outlineMaskDraws.push_back({
+      0U,
+      0U,
+      runState,
+      MeshHandle::Invalid,
+      0U,
+      0U,
+      true,
+      runFirst,
+      runCount,
+    });
+    ++scene.playerOutlinesBuilt;
+    ++scene.outlinedPlayers;
+    ++scene.gltfPlayerModelStats.outlineMaskBatches;
+    scene.gltfPlayerModelStats.outlineMaskDrawCalls +=
+      scene.gltfPlayerModelStats.bodyDrawCalls;
+    runCount = 0;
+  };
+
+  for (
+    std::uint32_t index = 0;
+    index < static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size());
+    ++index
+  ) {
+    const GltfPlayerModelInstance& instance = scene.gltfPlayerModelInstances[index];
+    if (!instance.outlined) {
+      flushRun();
+      continue;
+    }
+    if (
+      runCount == 0U ||
+      (
+        instance.playerIndex == runPlayerIndex &&
+        instance.outlineState.group == runState.group &&
+        instance.outlineState.visibility == runState.visibility &&
+        instance.outlineState.widthPixels == runState.widthPixels &&
+        instance.outlineState.alpha == runState.alpha &&
+        instance.outlineState.pulse == runState.pulse
+      )
+    ) {
+      if (runCount == 0U) {
+        runFirst = index;
+        runPlayerIndex = instance.playerIndex;
+        runState = instance.outlineState;
+      }
+      ++runCount;
+    } else {
+      flushRun();
+      runFirst = index;
+      runPlayerIndex = instance.playerIndex;
+      runState = instance.outlineState;
+      runCount = 1U;
+    }
+  }
+  flushRun();
+}
+
 void addProjectileInstances(
   Scene3D& scene,
   const RocketProjectileSnapshot& projectile,
@@ -2667,6 +2771,17 @@ Scene3D buildPerspectiveScene(
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
   scene.outlineMaskDraws.reserve(kDuelPlayerCount);
+  scene.gltfPlayerModelInstances.reserve(kDuelPlayerCount);
+  scene.gltfBonePalette.reserve(kDuelPlayerCount * 64U);
+  GltfSkinnedModel::PoseScratch gltfPoseScratch;
+  const GltfSkinnedModel* gltfPlayerModel =
+    settings.playerModel == 1 ? &duelistMaleModel() : nullptr;
+  if (gltfPlayerModel != nullptr && gltfPlayerModel->loaded()) {
+    scene.gltfBonePalette.reserve(
+      kDuelPlayerCount *
+      std::max<std::uint32_t>(1U, gltfPlayerModel->jointCount())
+    );
+  }
 
   addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
 
@@ -2688,12 +2803,21 @@ Scene3D buildPerspectiveScene(
       );
     const bool usePlayerBoxModel =
       settings.drawRemotePlayers &&
-      (settings.playerModel != 1 || !duelistMaleModel().loaded());
+      (
+        settings.playerModel != 1 ||
+        gltfPlayerModel == nullptr ||
+        !gltfPlayerModel->loaded()
+      );
+    const bool useGltfPlayerModel =
+      settings.drawRemotePlayers && !usePlayerBoxModel;
     scene.remoteRenderVisible[remoteIndex] = renderVisible;
     if (!renderVisible) {
       ++scene.remoteFrustumCulled;
       if (settings.drawRemotePlayers && usePlayerBoxModel) {
         ++scene.playerBoxStats.culledPlayers;
+      }
+      if (useGltfPlayerModel) {
+        ++scene.gltfPlayerModelStats.frustumCulled;
       }
       if (settings.drawRemoteWeapons) {
         ++scene.remoteWeaponStats.frustumCulled;
@@ -2810,33 +2934,21 @@ Scene3D buildPerspectiveScene(
             settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace
         );
       } else {
-        const std::size_t bodyStart = scene.vertices.size();
-        addPlayerModel(
+        addGltfPlayerModelInstance(
           scene,
+          *gltfPlayerModel,
           remote.player,
           opponentColor,
-          settings.playerModel,
           remote.teammate
             ? settings.teammateLeanEnabled
             : settings.enemyLeanEnabled,
-          remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
-        );
-        const std::uint32_t bodyVertexCount =
-          static_cast<std::uint32_t>(scene.vertices.size() - bodyStart);
-        scene.normalPlayerBodyDynamicVertices += bodyVertexCount;
-        if (
+          remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
+          static_cast<std::uint8_t>(remoteIndex),
+          outlineState,
           wantsOutline &&
-          settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace &&
-          bodyVertexCount > 0U
-        ) {
-          ++scene.playerOutlinesBuilt;
-          ++scene.outlinedPlayers;
-          scene.outlineMaskDraws.push_back({
-            static_cast<std::uint32_t>(bodyStart),
-            bodyVertexCount,
-            outlineState,
-          });
-        }
+            settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace,
+          gltfPoseScratch
+        );
       }
     }
     if (settings.drawRemoteWeapons) {
@@ -2947,6 +3059,7 @@ Scene3D buildPerspectiveScene(
   (void)rocketExplosions;
   (void)localLightningGun;
   finalizeStaticMeshBatches(scene);
+  finalizeGltfPlayerModelBatches(scene, gltfPlayerModel);
   finalizeProjectileInstanceStats(scene);
 
   return scene;

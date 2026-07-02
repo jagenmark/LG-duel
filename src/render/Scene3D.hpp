@@ -71,6 +71,11 @@ struct BoundingSphere {
   float radius = 0.0F;
 };
 
+struct GltfModelBounds {
+  Vec3 min = {};
+  Vec3 max = {};
+};
+
 struct StaticMeshAsset {
   MeshHandle handle = MeshHandle::Invalid;
   std::span<const Vertex3D> vertices;
@@ -208,6 +213,22 @@ struct PlayerBoxRenderStats {
   std::uint32_t legacyDynamicVertexUploadBytes = 0;
 };
 
+struct GltfPlayerModelRenderStats {
+  std::uint32_t activeInstances = 0;
+  std::uint32_t frustumCulled = 0;
+  std::uint32_t staticMeshGpuBytes = 0;
+  std::uint32_t staticIndexGpuBytes = 0;
+  std::uint32_t poseUploadBytes = 0;
+  std::uint32_t bonePaletteEntriesUploaded = 0;
+  std::uint32_t rigidFallbackInstances = 0;
+  std::uint32_t gpuSkinnedInstances = 0;
+  std::uint32_t bodyBatches = 0;
+  std::uint32_t bodyDrawCalls = 0;
+  std::uint32_t outlineMaskBatches = 0;
+  std::uint32_t outlineMaskDrawCalls = 0;
+  std::uint32_t legacyCpuSkinnedVertexUploadBytes = 0;
+};
+
 struct ViewModelRenderStats {
   std::uint32_t drawCalls = 0;
   std::uint32_t dynamicVertices = 0;
@@ -218,6 +239,30 @@ struct OutlineMaskDraw {
   std::uint32_t vertexCount = 0;
   OutlineState state = {};
   MeshHandle mesh = MeshHandle::Invalid;
+  std::uint32_t firstInstance = 0;
+  std::uint32_t instanceCount = 0;
+  bool gltfPlayerModel = false;
+  std::uint32_t gltfFirstInstance = 0;
+  std::uint32_t gltfInstanceCount = 0;
+};
+
+struct GltfPlayerModelInstance {
+  Vec3 modelRow0 = {};
+  Vec3 modelRow1 = {};
+  Vec3 modelRow2 = {};
+  Vec3 modelTranslation = {};
+  RenderColor color = {};
+  GltfModelBounds localBounds = {};
+  std::uint32_t firstBone = 0;
+  std::uint32_t boneCount = 0;
+  std::uint8_t playerIndex = 0;
+  OutlineState outlineState = {};
+  bool skinned = false;
+  bool outlined = false;
+};
+
+struct GltfPlayerModelBatch {
+  std::uint32_t primitiveIndex = 0;
   std::uint32_t firstInstance = 0;
   std::uint32_t instanceCount = 0;
 };
@@ -338,6 +383,7 @@ struct OutlineWorkPlan {
   const PerspectiveCamera& camera,
   std::span<const Vertex3D> vertices,
   std::span<const StaticMeshInstance> staticMeshInstances,
+  std::span<const GltfPlayerModelInstance> gltfPlayerModelInstances,
   std::span<const OutlineMaskDraw> draws,
   std::uint32_t framebufferWidth,
   std::uint32_t framebufferHeight
@@ -363,7 +409,11 @@ struct OutlineWorkPlan {
   bool fallback = false;
   std::uint32_t drawCalls = 0;
   for (const OutlineMaskDraw& draw : draws) {
-    if (draw.vertexCount == 0U && draw.instanceCount == 0U) {
+    if (
+      draw.vertexCount == 0U &&
+      draw.instanceCount == 0U &&
+      (!draw.gltfPlayerModel || draw.gltfInstanceCount == 0U)
+    ) {
       continue;
     }
     ++drawCalls;
@@ -390,7 +440,49 @@ struct OutlineWorkPlan {
       anyProjected = true;
     };
 
-    if (draw.instanceCount > 0U) {
+    if (draw.gltfPlayerModel && draw.gltfInstanceCount > 0U) {
+      const std::uint64_t end =
+        static_cast<std::uint64_t>(draw.gltfFirstInstance) +
+        draw.gltfInstanceCount;
+      if (
+        draw.gltfFirstInstance >= gltfPlayerModelInstances.size() ||
+        end > gltfPlayerModelInstances.size()
+      ) {
+        fallback = true;
+        break;
+      }
+      for (
+        std::uint32_t index = draw.gltfFirstInstance;
+        index < draw.gltfFirstInstance + draw.gltfInstanceCount;
+        ++index
+      ) {
+        const GltfPlayerModelInstance& instance = gltfPlayerModelInstances[index];
+        const GltfModelBounds& bounds = instance.localBounds;
+        const std::array<Vec3, 8> corners = {{
+          {bounds.min.x, bounds.min.y, bounds.min.z},
+          {bounds.max.x, bounds.min.y, bounds.min.z},
+          {bounds.max.x, bounds.max.y, bounds.min.z},
+          {bounds.min.x, bounds.max.y, bounds.min.z},
+          {bounds.min.x, bounds.min.y, bounds.max.z},
+          {bounds.max.x, bounds.min.y, bounds.max.z},
+          {bounds.max.x, bounds.max.y, bounds.max.z},
+          {bounds.min.x, bounds.max.y, bounds.max.z},
+        }};
+        for (Vec3 local : corners) {
+          addProjectedPoint({
+            dot(instance.modelRow0, local) + instance.modelTranslation.x,
+            dot(instance.modelRow1, local) + instance.modelTranslation.y,
+            dot(instance.modelRow2, local) + instance.modelTranslation.z,
+          });
+          if (fallback) {
+            break;
+          }
+        }
+        if (fallback) {
+          break;
+        }
+      }
+    } else if (draw.instanceCount > 0U) {
       const std::uint64_t end =
         static_cast<std::uint64_t>(draw.firstInstance) + draw.instanceCount;
       if (
@@ -515,6 +607,26 @@ struct OutlineWorkPlan {
     camera,
     vertices,
     std::span<const StaticMeshInstance>(),
+    std::span<const GltfPlayerModelInstance>(),
+    draws,
+    framebufferWidth,
+    framebufferHeight
+  );
+}
+
+[[nodiscard]] inline OutlineWorkPlan buildOutlineWorkPlan(
+  const PerspectiveCamera& camera,
+  std::span<const Vertex3D> vertices,
+  std::span<const StaticMeshInstance> staticMeshInstances,
+  std::span<const OutlineMaskDraw> draws,
+  std::uint32_t framebufferWidth,
+  std::uint32_t framebufferHeight
+) {
+  return buildOutlineWorkPlan(
+    camera,
+    vertices,
+    staticMeshInstances,
+    std::span<const GltfPlayerModelInstance>(),
     draws,
     framebufferWidth,
     framebufferHeight
@@ -528,11 +640,15 @@ struct Scene3D {
   std::vector<OutlineMaskDraw> outlineMaskDraws;
   std::vector<StaticMeshInstance> staticMeshInstances;
   std::vector<StaticMeshBatch> staticMeshBatches;
+  std::vector<GltfPlayerModelInstance> gltfPlayerModelInstances;
+  std::vector<GltfPlayerModelBatch> gltfPlayerModelBatches;
+  std::vector<std::array<float, 16>> gltfBonePalette;
   std::vector<SimpleRenderInstance> simpleInstances;
   std::vector<SimpleRenderBatch> simpleBatches;
   ProjectileRenderStats projectileStats = {};
   RemoteWeaponRenderStats remoteWeaponStats = {};
   PlayerBoxRenderStats playerBoxStats = {};
+  GltfPlayerModelRenderStats gltfPlayerModelStats = {};
   ViewModelRenderStats viewModelStats = {};
   TransientVfxStats transientVfxStats = {};
   std::array<bool, kDuelPlayerCount> remoteRenderVisible = {};
