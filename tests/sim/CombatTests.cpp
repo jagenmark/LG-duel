@@ -34,6 +34,26 @@ lg::PlayerState playerAt(float x, float y) {
   return player;
 }
 
+lg::ArenaBrush convexBox(lg::Vec3 min, lg::Vec3 max) {
+  lg::ArenaBrush brush;
+  brush.min = min;
+  brush.max = max;
+  brush.faceCount = 6;
+  brush.faces[0].normal = {-1.0F, 0.0F, 0.0F};
+  brush.faces[0].distance = -min.x;
+  brush.faces[1].normal = {1.0F, 0.0F, 0.0F};
+  brush.faces[1].distance = max.x;
+  brush.faces[2].normal = {0.0F, -1.0F, 0.0F};
+  brush.faces[2].distance = -min.y;
+  brush.faces[3].normal = {0.0F, 1.0F, 0.0F};
+  brush.faces[3].distance = max.y;
+  brush.faces[4].normal = {0.0F, 0.0F, -1.0F};
+  brush.faces[4].distance = -min.z;
+  brush.faces[5].normal = {0.0F, 0.0F, 1.0F};
+  brush.faces[5].distance = max.z;
+  return brush;
+}
+
 } // namespace
 
 int main() {
@@ -43,6 +63,32 @@ int main() {
   const lg::HitscanTuning railTuning;
   const lg::MachineGunTuning machineGunTuning;
   const lg::ShotgunTuning shotgunTuning;
+
+  {
+    lg::Arena brushArena;
+    brushArena.wallCount = 0;
+    brushArena.brushCount = 2;
+    brushArena.brushes[0] =
+      convexBox({4.0F, -1.0F, 0.0F}, {5.0F, 1.0F, 2.0F});
+    brushArena.brushes[1] =
+      convexBox({4.0F, 4.0F, 0.0F}, {5.0F, 5.0F, 2.0F});
+
+    lg::setTraceWorldDiagnosticsEnabled(true);
+    lg::resetTraceWorldDiagnostics();
+    const lg::WorldTrace trace =
+      lg::traceWorld(brushArena, {0.0F, 0.0F, 1.0F}, {1.0F, 0.0F, 0.0F}, 10.0F);
+    const lg::TraceWorldDiagnostics diagnostics =
+      lg::traceWorldDiagnostics();
+    lg::setTraceWorldDiagnosticsEnabled(false);
+
+    failures += expect(nearlyEqual(trace.distance, 4.0F), "trace should still hit nearby convex brush");
+    failures += expect(
+      diagnostics.brushCandidates == 2 &&
+        diagnostics.brushExactTests == 1 &&
+        diagnostics.brushBoxSkips == 1,
+      "trace should skip exact plane tests for convex brushes outside the segment bounds"
+    );
+  }
 
   {
     const lg::BalanceConfigLoadResult loaded =
