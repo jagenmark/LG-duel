@@ -3,6 +3,8 @@
 #include "shared/Math.hpp"
 #include "sim/MovementModes.hpp"
 
+#include <cstdint>
+
 namespace lg {
 
 struct CollisionBounds {
@@ -20,6 +22,7 @@ struct PlayerState {
   int health = 100;
   CollisionBounds bounds = {};
   MovementMode movementMode = MovementMode::Airborne;
+  std::uint16_t knockbackTicksRemaining = 0;
   bool onGround = false;
   bool jumpHeld = false;
 };

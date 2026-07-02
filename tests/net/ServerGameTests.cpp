@@ -632,6 +632,90 @@ int main() {
         snapshot.lightningGuns[0].knockbackImpulse.x < 1.11F,
       "g_lg_knockback should control authoritative LG per-instance impulse magnitude"
     );
+    failures += expect(
+      snapshot.players[1].knockbackTicksRemaining == 13,
+      "default g_knockback_time_ms 100 should start a 13 tick knockback timer at 125 Hz"
+    );
+    failures += expect(
+      snapshot.players[1].onGround,
+      "grounded knockback target should remain physically grounded in the authoritative snapshot"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuningRequest;
+    tuningRequest.command.sequence = 1;
+    tuningRequest.requestMovementTuning = true;
+    tuningRequest.knockbackTimeMs = 0;
+    transport.sendCommand(tuningRequest);
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    lg::UserCommand attack;
+    attack.sequence = 2;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.knockbackTimeMs == 0 &&
+        snapshot.lightningGuns[0].hit &&
+        lg::length(snapshot.lightningGuns[0].knockbackImpulse) > 0.0F &&
+        snapshot.players[1].knockbackTicksRemaining == 0,
+      "g_knockback_time_ms 0 should preserve direct knockback while disabling the special movement timer"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::UserCommand attack;
+    attack.sequence = 1;
+    attack.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[1].knockbackTicksRemaining == 13,
+      "first knockback hit should start the configured timer"
+    );
+
+    for (int i = 0; i < 6; ++i) {
+      lg::UserCommand idle;
+      idle.sequence = static_cast<std::uint32_t>(2 + i);
+      transport.sendCommand(lg::CommandPacket{0, idle, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].knockbackTicksRemaining == 7,
+      "knockback timer should expire one tick per completed simulation tick"
+    );
+
+    lg::CommandPacket shorterTimer;
+    shorterTimer.command.sequence = 8;
+    shorterTimer.requestMovementTuning = true;
+    shorterTimer.knockbackTimeMs = 1;
+    transport.sendCommand(shorterTimer);
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+
+    attack.sequence = 9;
+    transport.sendCommand(lg::CommandPacket{0, attack, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.knockbackTimeMs == 1 &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.players[1].knockbackTicksRemaining == 6,
+      "later shorter knockback hit should refresh with max() and never shorten the active timer"
+    );
   }
 
   {

@@ -26,6 +26,7 @@ void ClientGame::sendCommand(
   float playerSizeScaleZ,
   float lightningKnockback,
   float rocketKnockback,
+  std::int32_t knockbackTimeMs,
   float vampirism,
   std::uint8_t selfDamagePercent,
   std::int32_t healthAmount,
@@ -79,6 +80,8 @@ void ClientGame::sendCommand(
       requestTeam,
       requestedTeam,
       weaponSwitchingMode,
+      0,
+      knockbackTimeMs,
     }
   );
   if (!requestReset) {
