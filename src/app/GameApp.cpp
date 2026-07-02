@@ -2574,7 +2574,10 @@ std::string aliveCountLine(const ServerSnapshot& snapshot) {
   std::uint32_t redAlive = 0;
   std::uint32_t blueAlive = 0;
   for (std::size_t index = 0; index < snapshot.players.size(); ++index) {
-    if (!snapshot.connectedPlayers[index] || snapshot.players[index].health <= 0) {
+    if (
+      (!snapshot.connectedPlayers[index] && !snapshot.botPlayers[index]) ||
+      snapshot.players[index].health <= 0
+    ) {
       continue;
     }
     if (snapshot.teams[index] == Team::Red) {
@@ -2616,11 +2619,12 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   const std::size_t localPlayerIndex = session.playerIndex();
   const std::size_t remotePlayerIndex =
     opponentPlayerIndex(snapshot, localPlayerIndex);
-  const std::size_t connectedCount = static_cast<std::size_t>(std::count(
-    snapshot.connectedPlayers.begin(),
-    snapshot.connectedPlayers.end(),
-    true
-  ));
+  std::size_t occupiedCount = 0;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (snapshot.connectedPlayers[index] || snapshot.botPlayers[index]) {
+      ++occupiedCount;
+    }
+  }
 
   hud.healthAmount = snapshot.healthAmount;
   hud.centerLines.clear();
@@ -2628,7 +2632,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
   );
   hud.topLeftLines.push_back(
-    "PLAYERS " + std::to_string(connectedCount) + '/' +
+    "PLAYERS " + std::to_string(occupiedCount) + '/' +
     std::to_string(kDuelPlayerCount)
   );
   if (snapshot.matchPhase != MatchPhase::Live) {
@@ -2666,8 +2670,8 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
     hud.centerLines.push_back(
-      std::to_string(connectedCount) + '/' +
-      std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
+      std::to_string(occupiedCount) + '/' +
+      std::to_string(kDuelPlayerCount) + " PLAYER SLOTS OCCUPIED"
     );
     break;
   case MatchPhase::WaitingForReady:
@@ -4493,7 +4497,10 @@ int GameApp::run() const {
           }
           const PlayerState& player = audioSnapshot.players[playerIndex];
           if (
-            !audioSnapshot.connectedPlayers[playerIndex] ||
+            (
+              !audioSnapshot.connectedPlayers[playerIndex] &&
+              !audioSnapshot.botPlayers[playerIndex]
+            ) ||
             player.health >= lastAudioPlayerHealth[playerIndex] ||
             lastAudioPlayerHealth[playerIndex] <= 0
           ) {
@@ -5248,6 +5255,35 @@ int GameApp::run() const {
           std::to_string(diagnostics.remoteWeaponModelsBuilt) +
           " | outlines " +
           std::to_string(diagnostics.playerOutlinesBuilt)
+        );
+        hud.topLeftLines.emplace_back(
+          "procedural box players: visible " +
+          std::to_string(diagnostics.visibleProceduralBoxPlayers) +
+          " | culled " +
+          std::to_string(diagnostics.culledProceduralBoxPlayers) +
+          " | instances " +
+          std::to_string(diagnostics.playerBoxInstancesSubmitted)
+        );
+        hud.topLeftLines.emplace_back(
+          "procedural box batches: opaque " +
+          std::to_string(diagnostics.proceduralPlayerOpaqueBatches) +
+          " | draws " +
+          std::to_string(diagnostics.proceduralPlayerOpaqueDrawCalls) +
+          " | outline batches " +
+          std::to_string(diagnostics.proceduralPlayerOutlineMaskBatches) +
+          " | outline draws " +
+          std::to_string(diagnostics.proceduralPlayerOutlineMaskDrawCalls)
+        );
+        hud.topLeftLines.emplace_back(
+          "procedural box upload: instances " +
+          std::to_string(diagnostics.playerBoxInstanceUploadBytes) +
+          " B | shared cube " +
+          std::to_string(diagnostics.sharedCubeStaticGpuBytes) +
+          " B | legacy player vertices " +
+          std::to_string(diagnostics.legacyCpuGeneratedPlayerVertices) +
+          " | legacy upload " +
+          std::to_string(diagnostics.legacyDynamicPlayerVertexUploadBytes) +
+          " B"
         );
         hud.topLeftLines.emplace_back(
           "remote weapon instances: candidates " +

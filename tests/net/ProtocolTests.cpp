@@ -394,6 +394,7 @@ int main() {
     source.roundWinningTeam = lg::Team::Red;
     source.matchWinningTeam = lg::Team::None;
     source.connectedPlayers = {true, true};
+    source.botPlayers = {false, false, true, false};
     source.participatingPlayers = {true, true, true};
     source.readyPlayers = {true, false};
     source.roundCombatStats[0] = {250, 125, 80};
@@ -589,9 +590,10 @@ int main() {
     );
     failures += expect(
       decoded.connectedPlayers == source.connectedPlayers &&
+        decoded.botPlayers == source.botPlayers &&
         decoded.participatingPlayers == source.participatingPlayers &&
         decoded.readyPlayers == source.readyPlayers,
-      "lobby and participating-player state should round trip"
+      "lobby, bot, and participating-player state should round trip"
     );
     failures += expect(
       decoded.roundCombatStats[0].lightningActiveTicks == 250 &&

@@ -1073,6 +1073,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (bool bot : snapshot.botPlayers) {
+    if (!writer.writeBool(bot)) {
+      return false;
+    }
+  }
   for (bool participating : snapshot.participatingPlayers) {
     if (!writer.writeBool(participating)) {
       return false;
@@ -1279,6 +1284,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (bool& connected : decoded.connectedPlayers) {
     if (!reader.readBool(connected)) {
+      return false;
+    }
+  }
+  for (bool& bot : decoded.botPlayers) {
+    if (!reader.readBool(bot)) {
       return false;
     }
   }

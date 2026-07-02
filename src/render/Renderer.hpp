@@ -347,6 +347,17 @@ struct RendererFrameDiagnostics {
   std::uint32_t remoteWeaponBatches = 0;
   std::uint32_t remoteWeaponDrawCalls = 0;
   std::uint32_t legacyRemoteWeaponDynamicVertices = 0;
+  std::uint32_t visibleProceduralBoxPlayers = 0;
+  std::uint32_t culledProceduralBoxPlayers = 0;
+  std::uint32_t playerBoxInstancesSubmitted = 0;
+  std::uint32_t playerBoxInstanceUploadBytes = 0;
+  std::uint32_t sharedCubeStaticGpuBytes = 0;
+  std::uint32_t proceduralPlayerOpaqueBatches = 0;
+  std::uint32_t proceduralPlayerOpaqueDrawCalls = 0;
+  std::uint32_t proceduralPlayerOutlineMaskBatches = 0;
+  std::uint32_t proceduralPlayerOutlineMaskDrawCalls = 0;
+  std::uint32_t legacyCpuGeneratedPlayerVertices = 0;
+  std::uint32_t legacyDynamicPlayerVertexUploadBytes = 0;
   std::uint32_t firstPersonViewModelDrawCalls = 0;
   std::uint32_t firstPersonViewModelDynamicVertices = 0;
   std::uint32_t projectilesActive = 0;
@@ -433,6 +444,7 @@ private:
   void* gpuPipelineOutlineClear_ = nullptr;
   void* gpuPipelineOutlineColorClear_ = nullptr;
   void* gpuPipelineOutlineMask_ = nullptr;
+  void* gpuPipelineStaticMeshOutlineMask_ = nullptr;
   void* gpuPipelineOutlineDilation_ = nullptr;
   void* gpuPipelineOutlineComposite_ = nullptr;
   void* gpuVertexBuffer_ = nullptr;
