@@ -695,6 +695,37 @@ int main() {
       "occluded enemy should not emit a floating name tag or health bar"
     );
 
+    arena.wallCount = 0;
+    arena.brushCount = 1;
+    lg::ArenaBrush& angledBrush = arena.brushes[0];
+    angledBrush.faceCount = 6;
+    angledBrush.faces[0].normal = {-1.0F, 0.25F, 0.0F};
+    angledBrush.faces[0].distance = -4.0F;
+    angledBrush.faces[1].normal = {1.0F, -0.25F, 0.0F};
+    angledBrush.faces[1].distance = 6.0F;
+    angledBrush.faces[2].normal = {0.0F, -1.0F, 0.0F};
+    angledBrush.faces[2].distance = 4.0F;
+    angledBrush.faces[3].normal = {0.0F, 1.0F, 0.0F};
+    angledBrush.faces[3].distance = 4.0F;
+    angledBrush.faces[4].normal = {0.0F, 0.0F, -1.0F};
+    angledBrush.faces[4].distance = 2.0F;
+    angledBrush.faces[5].normal = {0.0F, 0.0F, 1.0F};
+    angledBrush.faces[5].distance = 4.0F;
+    const lg::DrawList2D brushOccludedEnemyBars = lg::buildFloatingHealthBars(
+      1280,
+      720,
+      camera,
+      arena,
+      remotePlayers,
+      remoteRenderVisible,
+      settings,
+      hud
+    );
+    failures += expect(
+      brushOccludedEnemyBars.overlayCommands.empty(),
+      "convex angled brush should occlude enemy floating name tag and health bar"
+    );
+
     remotePlayers[1].teammate = true;
     const lg::DrawList2D occludedTeammateBars = lg::buildFloatingHealthBars(
       1280,
