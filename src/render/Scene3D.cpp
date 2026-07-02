@@ -151,6 +151,35 @@ constexpr StaticMeshAsset kGrenadeProjectileAsset = {
   RenderPass::OpaqueWorld,
 };
 
+constexpr std::array<Vertex3D, 12> kTracerBeamMeshVertices = {{
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 1.0F, 0.0F, 0U},
+  {{1.0F,  1.0F, 0.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F,  1.0F, 0.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F,  1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 1.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 1.0F, 0.0F, 0U},
+  {{1.0F, 0.0F,  1.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F,  1.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F, 0.0F,  1.0F}, {255, 255, 255, 255}, 0.0F, 1.0F, 0U},
+}};
+
+constexpr StaticMeshAsset kMachineGunTracerAsset = {
+  MeshHandle::MachineGunTracer,
+  std::span<const Vertex3D>(kTracerBeamMeshVertices.data(), kTracerBeamMeshVertices.size()),
+  {{0.5F, 0.0F, 0.0F}, 1.12F},
+  RenderPass::TranslucentWorld,
+};
+
+constexpr StaticMeshAsset kShotgunTracerAsset = {
+  MeshHandle::ShotgunTracer,
+  std::span<const Vertex3D>(kTracerBeamMeshVertices.data(), kTracerBeamMeshVertices.size()),
+  {{0.5F, 0.0F, 0.0F}, 1.12F},
+  RenderPass::TranslucentWorld,
+};
+
 [[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs);
 [[nodiscard]] RenderColor scaleColor(RenderColor color, float amount);
 
@@ -939,38 +968,6 @@ void addOrientedWireBox(
   }
 }
 
-[[nodiscard]] Vec3 perpendicularRight(Vec3 forward) {
-  Vec3 right = normalize(cross(forward, Vec3{0.0F, 0.0F, 1.0F}));
-  if (length(right) <= 0.0001F) {
-    right = {1.0F, 0.0F, 0.0F};
-  }
-  return right;
-}
-
-[[nodiscard]] Vec3 shotgunPelletVisualDirection(
-  Vec3 forward,
-  std::uint8_t pelletIndex,
-  std::uint8_t pelletCount
-) {
-  if (pelletIndex == 0 || pelletCount <= 1U) {
-    return forward;
-  }
-  constexpr float kGoldenAngle = 2.39996323F;
-  constexpr float kVisualSpread = 0.13F;
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const float normalizedRadius = std::sqrt(
-    static_cast<float>(pelletIndex) /
-    static_cast<float>(std::max<std::uint8_t>(1U, pelletCount - 1U))
-  );
-  const float angle = static_cast<float>(pelletIndex) * kGoldenAngle;
-  return normalize(
-    forward +
-    (right * (std::cos(angle) * kVisualSpread * normalizedRadius)) +
-    (up * (std::sin(angle) * kVisualSpread * normalizedRadius))
-  );
-}
-
 [[nodiscard]] PlayerModelBasis playerModelBasis(
   const PlayerState& player,
   bool leanEnabled,
@@ -1671,86 +1668,6 @@ void addWireBox(
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
 }
 
-[[nodiscard]] Vec3 remoteWeaponModelPoint(
-  Vec3 fallback,
-  const PlayerState& localPlayer,
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
-  std::size_t playerIndex,
-  const RenderSettings& settings,
-  float forward,
-  float right,
-  float up
-) {
-  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
-    return firstPersonWeaponMuzzlePosition(localPlayer);
-  }
-  if (playerIndex < remotePlayers.size() && remotePlayers[playerIndex].visible) {
-    const RemotePlayerView& remote = remotePlayers[playerIndex];
-    const bool leanEnabled = remote.teammate
-      ? settings.teammateLeanEnabled
-      : settings.enemyLeanEnabled;
-    const float leanScale = remote.teammate
-      ? settings.teammateLeanScale
-      : settings.enemyLeanScale;
-    const WeaponModelFrame frame =
-      weaponModelFrame(remote.player, leanEnabled, leanScale);
-    return weaponLocalPoint(frame, forward, right, up);
-  }
-
-  return fallback;
-}
-
-[[nodiscard]] Vec3 machineGunVisualSource(
-  const WeaponFireResult& fire,
-  const PlayerState& localPlayer,
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
-  std::size_t playerIndex,
-  const RenderSettings& settings
-) {
-  const Vec3 forward = normalize(fire.end - fire.start);
-  if (length(forward) <= 0.0001F) {
-    return fire.start;
-  }
-
-  const float angle =
-    static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
-  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
-    return fire.start;
-  }
-  return remoteWeaponModelPoint(
-    fire.start,
-    localPlayer,
-    remotePlayers,
-    playerIndex,
-    settings,
-    0.64F,
-    std::cos(angle) * 0.055F,
-    0.09F + std::sin(angle) * 0.055F
-  );
-}
-
-[[nodiscard]] Vec3 shotgunVisualSource(
-  const WeaponFireResult& fire,
-  const PlayerState& localPlayer,
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
-  std::size_t playerIndex,
-  const RenderSettings& settings
-) {
-  if (!settings.shotgunWeaponModelStart) {
-    return fire.start;
-  }
-  return remoteWeaponModelPoint(
-    fire.start,
-    localPlayer,
-    remotePlayers,
-    playerIndex,
-    settings,
-    0.62F,
-    0.0F,
-    0.115F
-  );
-}
-
 [[nodiscard]] Vec3 projectileVisualPosition(
   const RocketProjectileSnapshot& projectile,
   const PlayerState& localPlayer,
@@ -1791,180 +1708,6 @@ void addWireBox(
     projectile.weapon == Weapon::RocketLauncher ? 0.12F : 0.09F;
   return projectile.position +
     (weaponLocalPoint(frame, muzzleForward, 0.0F, muzzleUp) - remoteEye);
-}
-
-void addMachineGunMuzzleFlash(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const Vec3 center = visualStart + forward * 0.13F;
-
-  addSphereApprox(scene, center + forward * 0.030F, 0.045F, {255, 242, 176, 220});
-  addSegment(scene, center - right * 0.060F, center + right * 0.060F, 0.024F, {255, 180, 72, 180});
-  addSegment(scene, center - up * 0.045F, center + up * 0.045F, 0.020F, {255, 210, 104, 165});
-}
-
-void addMachineGunTrace(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  const float distance = length(fire.end - visualStart);
-  if (length(forward) <= 0.0001F || distance <= 0.01F) {
-    return;
-  }
-  addSegment(
-    scene,
-    visualStart + forward * 0.22F,
-    fire.end,
-    fire.hit ? 0.016F : 0.010F,
-    fire.hit ? RenderColor{255, 236, 150, 205} : RenderColor{255, 196, 92, 150}
-  );
-}
-
-void addMachineGunImpactSpark(Scene3D& scene, const WeaponFireResult& fire) {
-  const Vec3 forward = normalize(fire.end - fire.start);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const RenderColor core = fire.hit
-    ? RenderColor{255, 94, 54, 220}
-    : RenderColor{234, 206, 148, 175};
-  const RenderColor spark = fire.hit
-    ? RenderColor{255, 212, 116, 205}
-    : RenderColor{188, 152, 92, 155};
-
-  addSphereApprox(scene, fire.end - forward * 0.025F, fire.hit ? 0.060F : 0.045F, core);
-  for (std::uint8_t index = 0; index < 4U; ++index) {
-    const float angle = static_cast<float>(index) * (kTwoPi * 0.25F);
-    const Vec3 direction =
-      normalize((right * std::cos(angle)) + (up * std::sin(angle)) - forward * 0.35F);
-    addSegment(
-      scene,
-      fire.end - forward * 0.015F,
-      fire.end + direction * (fire.hit ? 0.18F : 0.12F),
-      0.012F,
-      spark
-    );
-  }
-}
-
-void addMachineGunFireVisuals(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  addMachineGunMuzzleFlash(scene, fire, visualStart);
-  addMachineGunTrace(scene, fire, visualStart);
-  addMachineGunImpactSpark(scene, fire);
-}
-
-void addShotgunMuzzleFlash(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const Vec3 center = visualStart + forward * 0.18F;
-  constexpr RenderColor hotCore = {255, 246, 178, 240};
-  constexpr RenderColor warmEdge = {255, 132, 54, 205};
-
-  addSphereApprox(scene, center + forward * 0.05F, 0.12F, hotCore);
-  addSegment(scene, center - right * 0.20F, center + right * 0.20F, 0.07F, warmEdge);
-  addSegment(scene, center - up * 0.15F, center + up * 0.15F, 0.055F, warmEdge);
-  addSegment(
-    scene,
-    center - (right + up) * 0.12F,
-    center + (right + up) * 0.12F,
-    0.045F,
-    {255, 205, 92, 210}
-  );
-}
-
-void addShotgunPelletTraces(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  const float distance = length(fire.end - visualStart);
-  if (length(forward) <= 0.0001F || distance <= 0.01F) {
-    return;
-  }
-  const std::uint8_t pelletCount = std::clamp<std::uint8_t>(
-    fire.pelletCount == 0U ? 10U : fire.pelletCount,
-    1U,
-    12U
-  );
-  for (std::uint8_t pelletIndex = 0; pelletIndex < pelletCount; ++pelletIndex) {
-    const Vec3 direction =
-      shotgunPelletVisualDirection(forward, pelletIndex, pelletCount);
-    const float traceDistance = distance * (pelletIndex == 0 ? 1.0F : 0.92F);
-    const RenderColor color = pelletIndex == 0
-      ? RenderColor{255, 236, 158, 210}
-      : RenderColor{255, 196, 92, 145};
-    addSegment(
-      scene,
-      visualStart + direction * 0.20F,
-      visualStart + direction * traceDistance,
-      pelletIndex == 0 ? 0.018F : 0.011F,
-      color
-    );
-  }
-}
-
-void addShotgunImpactPuffs(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const std::uint8_t puffCount = fire.hit
-    ? std::clamp<std::uint8_t>(fire.pelletHitCount, 3U, 8U)
-    : 5U;
-  const RenderColor core = fire.hit
-    ? RenderColor{255, 82, 56, 230}
-    : RenderColor{238, 210, 154, 190};
-  const RenderColor fleck = fire.hit
-    ? RenderColor{255, 185, 112, 210}
-    : RenderColor{166, 132, 91, 170};
-  for (std::uint8_t index = 0; index < puffCount; ++index) {
-    const float angle = static_cast<float>(index) / static_cast<float>(puffCount) * kTwoPi;
-    const float radius = 0.055F + 0.018F * static_cast<float>(index % 3U);
-    const Vec3 offset =
-      (right * std::cos(angle) + up * std::sin(angle)) * (0.10F + radius);
-    addSphereApprox(scene, fire.end + offset - forward * 0.03F, radius, index == 0 ? core : fleck);
-  }
-}
-
-void addShotgunFireVisuals(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  addShotgunMuzzleFlash(scene, fire, visualStart);
-  addShotgunPelletTraces(scene, fire, visualStart);
-  addShotgunImpactPuffs(scene, fire, visualStart);
 }
 
 constexpr float kRemotePlayerVisualCullMargin = 0.35F;
@@ -2055,6 +1798,10 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     return &kRocketProjectileAsset;
   case MeshHandle::GrenadeProjectile:
     return &kGrenadeProjectileAsset;
+  case MeshHandle::MachineGunTracer:
+    return &kMachineGunTracerAsset;
+  case MeshHandle::ShotgunTracer:
+    return &kShotgunTracerAsset;
   case MeshHandle::RemoteMachineGun:
     return &machineGunAsset;
   case MeshHandle::RemoteShotgun:
@@ -2259,6 +2006,69 @@ void countProjectileCoreInstance(
   }
 }
 
+[[nodiscard]] MeshHandle tracerMeshHandle(TracerStyle style) {
+  return style == TracerStyle::Shotgun
+    ? MeshHandle::ShotgunTracer
+    : MeshHandle::MachineGunTracer;
+}
+
+void addTransientTracerInstances(
+  Scene3D& scene,
+  std::span<const TransientTracer> tracers,
+  const RenderSettings& settings
+) {
+  scene.transientVfxStats.activeEffects =
+    static_cast<std::uint32_t>(tracers.size());
+  for (const TransientTracer& tracer : tracers) {
+    if (tracer.style == TracerStyle::Shotgun) {
+      ++scene.transientVfxStats.activeShotgunTracers;
+    } else {
+      ++scene.transientVfxStats.activeMachineGunTracers;
+    }
+    ++scene.transientVfxStats.tracerCandidates;
+    const Vec3 delta = tracer.end - tracer.start;
+    const float tracerLength = length(delta);
+    if (tracerLength <= 0.001F || !std::isfinite(tracerLength)) {
+      continue;
+    }
+    const Vec3 center = (tracer.start + tracer.end) * 0.5F;
+    const float radius = tracerLength * 0.5F + std::max(0.01F, tracer.width);
+    if (
+      settings.frustumCullRemotePlayers &&
+      !sphereIntersectsPerspectiveFrustum(scene.camera, center, radius)
+    ) {
+      ++scene.transientVfxStats.tracerFrustumCulled;
+      continue;
+    }
+    const float fade = std::clamp(
+      1.0F - tracer.ageSeconds / std::max(0.001F, tracer.lifetimeSeconds),
+      0.0F,
+      1.0F
+    );
+    RenderColor color = tracer.color;
+    color.alpha = static_cast<std::uint8_t>(std::clamp(
+      static_cast<float>(color.alpha) * fade,
+      0.0F,
+      255.0F
+    ));
+    appendSimpleInstance(
+      scene,
+      {
+        tracerMeshHandle(tracer.style),
+        BillboardHandle::Invalid,
+        RenderPass::TranslucentWorld,
+        tracer.start,
+        {tracerLength, std::max(0.002F, tracer.width), std::max(0.002F, tracer.width)},
+        projectileVelocityYaw(delta),
+        color,
+        static_cast<float>(tracer.seed & 0xffffU),
+        {center, radius},
+      }
+    );
+    ++scene.transientVfxStats.tracerInstancesSubmitted;
+  }
+}
+
 void finalizeStaticMeshBatches(Scene3D& scene) {
   std::sort(
     scene.staticMeshInstances.begin(),
@@ -2405,14 +2215,27 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
     });
   }
   scene.projectileStats.projectileInstanceUploadBytes =
-    static_cast<std::uint32_t>(scene.simpleInstances.size()) *
+    (
+      scene.projectileStats.projectileCoreInstances +
+      scene.projectileStats.projectileGlowInstances
+    ) * kSimpleInstanceUploadBytes;
+  scene.transientVfxStats.tracerInstanceUploadBytes =
+    scene.transientVfxStats.tracerInstancesSubmitted *
     kSimpleInstanceUploadBytes;
   for (const SimpleRenderBatch& batch : scene.simpleBatches) {
     if (batch.instanceCount == 0U) {
       continue;
     }
     if (batch.mesh != MeshHandle::Invalid) {
-      ++scene.projectileStats.projectileMeshDrawCalls;
+      if (
+        batch.mesh == MeshHandle::MachineGunTracer ||
+        batch.mesh == MeshHandle::ShotgunTracer
+      ) {
+        ++scene.transientVfxStats.tracerBatches;
+        ++scene.transientVfxStats.tracerDrawCalls;
+      } else {
+        ++scene.projectileStats.projectileMeshDrawCalls;
+      }
       if (batch.pass == RenderPass::OpaqueWorld) {
         ++scene.projectileStats.opaqueProjectileBatches;
       }
@@ -2437,6 +2260,7 @@ Scene3D buildPerspectiveScene(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
   const RenderSettings& settings
 ) {
   (void)arena;
@@ -2691,20 +2515,9 @@ Scene3D buildPerspectiveScene(
         fire.hit ? 0.045F : 0.03F,
         fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}
       );
-    } else if (fire.weapon == Weapon::MachineGun) {
-      addMachineGunFireVisuals(
-        scene,
-        fire,
-        machineGunVisualSource(fire, player, remotePlayers, fireIndex, settings)
-      );
-    } else if (fire.weapon == Weapon::Shotgun) {
-      addShotgunFireVisuals(
-        scene,
-        fire,
-        shotgunVisualSource(fire, player, remotePlayers, fireIndex, settings)
-      );
     }
   }
+  addTransientTracerInstances(scene, transientTracers, settings);
   for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {
     const RocketProjectileSnapshot& projectile = rockets[projectileIndex];
     if (!projectile.active) {
@@ -2791,6 +2604,7 @@ Scene3D buildPerspectiveScene(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
   const RenderSettings& settings
 ) {
   std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
@@ -2813,6 +2627,59 @@ Scene3D buildPerspectiveScene(
     weaponFires,
     rocketExplosions,
     rockets,
+    transientTracers,
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    opponent,
+    localLightningGun,
+    opponentLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const TransientTracer>{},
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const TransientTracer>{},
     settings
   );
 }

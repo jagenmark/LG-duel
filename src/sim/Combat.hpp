@@ -179,6 +179,14 @@ struct WorldTrace {
   float maxDistance
 );
 
+[[nodiscard]] Vec3 shotgunPelletDirection(
+  Vec3 forward,
+  Vec3 right,
+  Vec3 up,
+  float spreadRadians,
+  std::uint8_t pelletIndex
+);
+
 [[nodiscard]] bool tracePlayerCylinder(
   Vec3 origin,
   Vec3 direction,

@@ -55,6 +55,16 @@ struct PerfSample {
   std::uint32_t projectileMeshDrawCalls = 0;
   std::uint32_t projectileGlowDrawCalls = 0;
   std::uint32_t legacyProjectileDynamicVertices = 0;
+  std::uint32_t activeTransientEffects = 0;
+  std::uint32_t activeMachineGunTracers = 0;
+  std::uint32_t activeShotgunTracers = 0;
+  std::uint32_t tracerCandidates = 0;
+  std::uint32_t tracerFrustumCulled = 0;
+  std::uint32_t tracerInstancesSubmitted = 0;
+  std::uint32_t tracerInstanceUploadBytes = 0;
+  std::uint32_t tracerBatches = 0;
+  std::uint32_t tracerDrawCalls = 0;
+  std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
   SnapshotDiagnostics snapshot = {};
 };
 

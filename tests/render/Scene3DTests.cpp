@@ -8,6 +8,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <span>
 #include <string>
 #include <string_view>
 
@@ -1110,51 +1111,13 @@ int main() {
     rockets,
     settings
   );
-  bool hasShotgunImpactColor = false;
-  bool hasShotgunFlashColor = false;
-  for (const lg::Vertex3D& vertex : shotgunScene.translucentVertices) {
-    hasShotgunImpactColor =
-      hasShotgunImpactColor ||
-      (
-        vertex.color.red >= 200 &&
-        vertex.color.green < 120 &&
-        vertex.color.blue < 100
-      );
-    hasShotgunFlashColor =
-      hasShotgunFlashColor ||
-      (
-        vertex.color.red >= 220 &&
-        vertex.color.green >= 160 &&
-        vertex.color.blue >= 80
-      );
-  }
   failures += expect(
-    shotgunScene.translucentVertices.size() > translucentBeamScene.translucentVertices.size() &&
-      hasShotgunImpactColor &&
-      hasShotgunFlashColor,
-    "shotgun fire should add muzzle flash, pellet traces, and impact puffs"
+    shotgunScene.transientVfxStats.tracerInstancesSubmitted == 0 &&
+      shotgunScene.transientVfxStats.legacyMachineGunShotgunVisualDraws == 0,
+    "retained shotgun fire should not emit legacy dynamic tracer geometry"
   );
   lg::RenderSettings localShotgunWeaponStartSettings = settings;
   localShotgunWeaponStartSettings.shotgunWeaponModelStart = true;
-  const lg::Scene3D localShotgunWeaponScene = lg::buildPerspectiveScene(
-    16.0F / 9.0F,
-    arena,
-    player,
-    opponent,
-    inactiveBeam,
-    inactiveBeam,
-    shotgunFires,
-    rocketExplosions,
-    rockets,
-    localShotgunWeaponStartSettings
-  );
-  const lg::Vec3 localShotgunVisualDelta =
-    shotgunScene.translucentVertices.front().position -
-    localShotgunWeaponScene.translucentVertices.front().position;
-  failures += expect(
-    lg::dot(localShotgunVisualDelta, localShotgunVisualDelta) > 0.01F,
-    "shotgun weapon model start toggle should move local first-person shotgun visuals"
-  );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> machineGunFires = {};
   machineGunFires[0].fired = true;
@@ -1175,29 +1138,110 @@ int main() {
     rockets,
     settings
   );
-  bool hasMachineGunImpactColor = false;
-  bool hasMachineGunFlashColor = false;
-  for (const lg::Vertex3D& vertex : machineGunScene.translucentVertices) {
-    hasMachineGunImpactColor =
-      hasMachineGunImpactColor ||
-      (
-        vertex.color.red >= 220 &&
-        vertex.color.green < 130 &&
-        vertex.color.blue < 90
-      );
-    hasMachineGunFlashColor =
-      hasMachineGunFlashColor ||
-      (
-        vertex.color.red >= 240 &&
-        vertex.color.green >= 180 &&
-        vertex.color.blue >= 100
-      );
-  }
   failures += expect(
-    machineGunScene.translucentVertices.size() > translucentBeamScene.translucentVertices.size() &&
-      hasMachineGunImpactColor &&
-      hasMachineGunFlashColor,
-    "machine gun fire should add muzzle flash, tracer, and impact spark"
+    machineGunScene.transientVfxStats.tracerInstancesSubmitted == 0 &&
+      machineGunScene.transientVfxStats.legacyMachineGunShotgunVisualDraws == 0,
+    "retained machine gun fire should not emit legacy dynamic tracer geometry"
+  );
+  std::array<lg::TransientTracer, 8> tracerInstances = {};
+  tracerInstances[0] = {
+    machineGunFires[0].start,
+    machineGunFires[0].end,
+    0.0F,
+    0.05F,
+    0.012F,
+    {255, 220, 128, 180},
+    machineGunFires[0].visualSeed,
+    lg::TracerStyle::MachineGun,
+  };
+  const lg::Scene3D machineGunTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 1U),
+    settings
+  );
+  failures += expect(
+    machineGunTracerScene.transientVfxStats.tracerInstancesSubmitted == 1 &&
+      machineGunTracerScene.transientVfxStats.activeMachineGunTracers == 1 &&
+      machineGunTracerScene.simpleInstances.size() == 1U &&
+      machineGunTracerScene.simpleInstances[0].mesh == lg::MeshHandle::MachineGunTracer &&
+      machineGunTracerScene.simpleInstances[0].pass == lg::RenderPass::TranslucentWorld,
+    "one active MG transient tracer should emit one instanced tracer mesh"
+  );
+
+  for (std::size_t index = 0; index < 6U; ++index) {
+    tracerInstances[index] = {
+      shotgunFires[0].start,
+      shotgunFires[0].start + lg::Vec3{4.0F, static_cast<float>(index) * 0.08F, 0.0F},
+      0.0F,
+      0.065F,
+      0.008F,
+      {230, 180, 96, 150},
+      static_cast<std::uint32_t>(index),
+      lg::TracerStyle::Shotgun,
+    };
+  }
+  const lg::Scene3D shotgunTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 6U),
+    settings
+  );
+  failures += expect(
+    shotgunTracerScene.transientVfxStats.tracerInstancesSubmitted == 6 &&
+      shotgunTracerScene.transientVfxStats.activeShotgunTracers == 6 &&
+      shotgunTracerScene.transientVfxStats.tracerBatches == 1 &&
+      shotgunTracerScene.transientVfxStats.tracerDrawCalls == 1,
+    "SG representative tracers should batch into one instanced tracer draw"
+  );
+  const lg::Vec3 sharedPelletDirection = lg::shotgunPelletDirection(
+    {1.0F, 0.0F, 0.0F},
+    {0.0F, -1.0F, 0.0F},
+    {0.0F, 0.0F, 1.0F},
+    0.0872665F,
+    5U
+  );
+  failures += expect(
+    std::isfinite(sharedPelletDirection.x) &&
+      std::isfinite(sharedPelletDirection.y) &&
+      std::isfinite(sharedPelletDirection.z) &&
+      lg::length(sharedPelletDirection) > 0.99F,
+    "shotgun tracer directions should come from the finite shared pellet-spread helper"
+  );
+  tracerInstances[0].start = player.position + lg::Vec3{-100.0F, 0.0F, 0.0F};
+  tracerInstances[0].end = player.position + lg::Vec3{-90.0F, 0.0F, 0.0F};
+  const lg::Scene3D culledTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 1U),
+    settings
+  );
+  failures += expect(
+    culledTracerScene.transientVfxStats.tracerCandidates == 1 &&
+      culledTracerScene.transientVfxStats.tracerFrustumCulled == 1 &&
+      culledTracerScene.simpleInstances.empty(),
+    "offscreen transient tracers should be frustum culled before instancing"
   );
 
   lg::RenderSettings localMachineGunSettings = settings;
@@ -1303,12 +1347,10 @@ int main() {
     rockets,
     settings
   );
-  const lg::Vec3 flashDelta =
-    remoteMachineGunScene.translucentVertices.front().position -
-    rotatedMachineGunScene.translucentVertices.front().position;
   failures += expect(
-    lg::dot(flashDelta, flashDelta) > 0.0001F,
-    "machine gun visual seed should rotate the shot source around the weapon"
+    remoteMachineGunScene.transientVfxStats.tracerInstancesSubmitted == 0 &&
+      rotatedMachineGunScene.transientVfxStats.tracerInstancesSubmitted == 0,
+    "remote machine gun retained fires should wait for transient VFX consumption"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteShotgunFires = {};
@@ -1359,12 +1401,10 @@ int main() {
     rockets,
     shotgunWeaponStartSettings
   );
-  const lg::Vec3 shotgunVisualDelta =
-    remoteShotgunEyeScene.translucentVertices.front().position -
-    remoteShotgunWeaponScene.translucentVertices.front().position;
   failures += expect(
-    lg::dot(shotgunVisualDelta, shotgunVisualDelta) > 0.01F,
-    "shotgun weapon model start toggle should move remote shotgun visuals"
+    remoteShotgunEyeScene.transientVfxStats.tracerInstancesSubmitted == 0 &&
+      remoteShotgunWeaponScene.transientVfxStats.tracerInstancesSubmitted == 0,
+    "remote shotgun retained fires should wait for transient VFX consumption"
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};
