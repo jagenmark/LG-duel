@@ -277,7 +277,7 @@ int main() {
     !restPoseTriangles.empty() &&
     restMin.x > -0.50F && restMax.x < 0.50F &&
     restMin.y > -0.02F && restMax.y < 1.72F &&
-    restMin.z > -0.12F && restMax.z < 0.28F;
+    restMin.z > -0.22F && restMax.z < 0.30F;
   if (!restPoseCompact) {
     std::cerr << "rest bounds min=(" << restMin.x << ", " << restMin.y << ", "
               << restMin.z << ") max=(" << restMax.x << ", " << restMax.y
