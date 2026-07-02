@@ -983,6 +983,30 @@ struct FrameTimeHistory {
   sample.remoteWeaponDrawCalls = renderDiagnostics.remoteWeaponDrawCalls;
   sample.legacyRemoteWeaponDynamicVertices =
     renderDiagnostics.legacyRemoteWeaponDynamicVertices;
+  sample.gltfPlayerModelInstances =
+    renderDiagnostics.gltfPlayerModelInstances;
+  sample.gltfPlayerModelFrustumCulled =
+    renderDiagnostics.gltfPlayerModelFrustumCulled;
+  sample.gltfStaticMeshGpuBytes =
+    renderDiagnostics.gltfStaticMeshGpuBytes;
+  sample.gltfStaticIndexGpuBytes =
+    renderDiagnostics.gltfStaticIndexGpuBytes;
+  sample.gltfPoseUploadBytes =
+    renderDiagnostics.gltfPoseUploadBytes;
+  sample.gltfBonePaletteEntriesUploaded =
+    renderDiagnostics.gltfBonePaletteEntriesUploaded;
+  sample.gltfRigidFallbackInstances =
+    renderDiagnostics.gltfRigidFallbackInstances;
+  sample.gltfGpuSkinnedInstances =
+    renderDiagnostics.gltfGpuSkinnedInstances;
+  sample.gltfBodyBatches = renderDiagnostics.gltfBodyBatches;
+  sample.gltfBodyDrawCalls = renderDiagnostics.gltfBodyDrawCalls;
+  sample.gltfOutlineMaskBatches =
+    renderDiagnostics.gltfOutlineMaskBatches;
+  sample.gltfOutlineMaskDrawCalls =
+    renderDiagnostics.gltfOutlineMaskDrawCalls;
+  sample.legacyCpuSkinnedGltfVertexUploadBytes =
+    renderDiagnostics.legacyCpuSkinnedGltfVertexUploadBytes;
   sample.firstPersonViewModelDrawCalls =
     renderDiagnostics.firstPersonViewModelDrawCalls;
   sample.firstPersonViewModelDynamicVertices =
@@ -5283,6 +5307,41 @@ int GameApp::run() const {
           std::to_string(diagnostics.legacyCpuGeneratedPlayerVertices) +
           " | legacy upload " +
           std::to_string(diagnostics.legacyDynamicPlayerVertexUploadBytes) +
+          " B"
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf players: active " +
+          std::to_string(diagnostics.gltfPlayerModelInstances) +
+          " | culled " +
+          std::to_string(diagnostics.gltfPlayerModelFrustumCulled) +
+          " | skinned " +
+          std::to_string(diagnostics.gltfGpuSkinnedInstances) +
+          " | rigid " +
+          std::to_string(diagnostics.gltfRigidFallbackInstances)
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf resident: vertex " +
+          std::to_string(diagnostics.gltfStaticMeshGpuBytes) +
+          " B | index " +
+          std::to_string(diagnostics.gltfStaticIndexGpuBytes) +
+          " B | pose " +
+          std::to_string(diagnostics.gltfPoseUploadBytes) +
+          " B | bones " +
+          std::to_string(diagnostics.gltfBonePaletteEntriesUploaded)
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf batches: body " +
+          std::to_string(diagnostics.gltfBodyBatches) +
+          " | body draws " +
+          std::to_string(diagnostics.gltfBodyDrawCalls) +
+          " | outline batches " +
+          std::to_string(diagnostics.gltfOutlineMaskBatches) +
+          " | outline draws " +
+          std::to_string(diagnostics.gltfOutlineMaskDrawCalls)
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf legacy cpu-skinned upload " +
+          std::to_string(diagnostics.legacyCpuSkinnedGltfVertexUploadBytes) +
           " B"
         );
         hud.topLeftLines.emplace_back(

@@ -40,21 +40,6 @@ bool isEnemyModelColor(lg::RenderColor color) {
     color.alpha == 255;
 }
 
-bool insidePlayerModelBounds(
-  const lg::Vertex3D& vertex,
-  const lg::PlayerState& player
-) {
-  constexpr float kSkinningVisualTolerance = 0.06F;
-  return std::fabs(vertex.position.x - player.position.x) <=
-      player.bounds.radius + kSkinningVisualTolerance &&
-    std::fabs(vertex.position.y - player.position.y) <=
-      player.bounds.radius + kSkinningVisualTolerance &&
-    vertex.position.z >=
-      player.position.z - player.bounds.halfHeight - kSkinningVisualTolerance &&
-    vertex.position.z <=
-      player.position.z + player.bounds.halfHeight + kSkinningVisualTolerance;
-}
-
 bool finiteVec3(lg::Vec3 value) {
   return std::isfinite(value.x) &&
     std::isfinite(value.y) &&
@@ -78,6 +63,20 @@ std::size_t playerBoxInstanceCount(const lg::Scene3D& scene) {
         instance.mesh == lg::MeshHandle::PlayerBoxCube;
     }
   ));
+}
+
+float maxPaletteDelta(
+  std::span<const std::array<float, 16>> lhs,
+  std::span<const std::array<float, 16>> rhs
+) {
+  const std::size_t count = std::min(lhs.size(), rhs.size());
+  float delta = 0.0F;
+  for (std::size_t index = 0; index < count; ++index) {
+    for (std::size_t value = 0; value < 16U; ++value) {
+      delta = std::max(delta, std::fabs(lhs[index][value] - rhs[index][value]));
+    }
+  }
+  return delta;
 }
 
 struct UvBounds {
@@ -143,6 +142,7 @@ int main() {
   settings.enemyOutlineRed = 31;
   settings.enemyOutlineGreen = 227;
   settings.enemyOutlineBlue = 19;
+  settings.playerModel = 1;
   lg::LightningGunResult inactiveBeam;
   const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
   const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
@@ -161,8 +161,10 @@ int main() {
     settings
   );
   failures += expect(
-    !baseScene.vertices.empty() && baseScene.vertices.size() % 3 == 0,
-    "perspective scene should emit triangle-list geometry"
+    !baseScene.gltfPlayerModelInstances.empty() ||
+      !baseScene.staticMeshInstances.empty() ||
+      !baseScene.vertices.empty(),
+    "perspective scene should emit renderable geometry or GPU model instances"
   );
   failures += expect(
     settings.playerOutlineStyle == lg::PlayerOutlineStyle::ScreenSpace &&
@@ -176,12 +178,16 @@ int main() {
       baseScene.playerOutlinesBuilt == 1 &&
       baseScene.outlinedPlayers == 1 &&
       baseScene.outlineMaskDraws.size() == 1U &&
-      baseScene.normalPlayerBodyDynamicVertices > 0 &&
+      baseScene.normalPlayerBodyDynamicVertices == 0 &&
+      baseScene.gltfPlayerModelStats.activeInstances == 1 &&
+      baseScene.gltfPlayerModelStats.gpuSkinnedInstances == 1 &&
+      baseScene.gltfPlayerModelStats.bodyBatches > 0 &&
+      baseScene.gltfPlayerModelStats.legacyCpuSkinnedVertexUploadBytes == 0 &&
       baseScene.geometryOutlineDynamicVertices == 0 &&
       !baseScene.geometryOutlineFallbackUsed &&
       baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
       baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
-    "default render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
+    "GLB render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
   );
 
   lg::RenderSettings noWeaponSettings = settings;
@@ -250,6 +256,57 @@ int main() {
   );
 
   const lg::GltfSkinnedModel& duelistModel = lg::duelistMaleModel();
+  bool primitivesFiniteAndSafe = duelistModel.loaded() &&
+    !duelistModel.primitives().empty() &&
+    duelistModel.hasSkin() &&
+    duelistModel.hasSkinnedPrimitives() &&
+    duelistModel.jointCount() > 0U;
+  std::uint32_t primitiveVertexCount = 0;
+  std::uint32_t primitiveIndexCount = 0;
+  for (const lg::GltfSkinnedModel::Primitive& primitive : duelistModel.primitives()) {
+    primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
+      !primitive.vertices.empty() &&
+      !primitive.indices.empty() &&
+      finiteVec3(primitive.localBounds.min) &&
+      finiteVec3(primitive.localBounds.max) &&
+      primitive.localBounds.min.x <= primitive.localBounds.max.x &&
+      primitive.localBounds.min.y <= primitive.localBounds.max.y &&
+      primitive.localBounds.min.z <= primitive.localBounds.max.z;
+    primitiveVertexCount += static_cast<std::uint32_t>(primitive.vertices.size());
+    primitiveIndexCount += static_cast<std::uint32_t>(primitive.indices.size());
+    for (const lg::GltfSkinnedModel::GpuVertex& vertex : primitive.vertices) {
+      float weightSum = 0.0F;
+      for (std::size_t influence = 0; influence < vertex.weights.size(); ++influence) {
+        const float weight = vertex.weights[influence];
+        primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
+          std::isfinite(weight) &&
+          weight >= 0.0F &&
+          vertex.joints[influence] < duelistModel.jointCount();
+        weightSum += weight;
+      }
+      primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
+        std::isfinite(vertex.position.x) &&
+        std::isfinite(vertex.position.y) &&
+        std::isfinite(vertex.position.z) &&
+        std::isfinite(vertex.normal.x) &&
+        std::isfinite(vertex.normal.y) &&
+        std::isfinite(vertex.normal.z) &&
+        (weightSum == 0.0F || nearlyEqual(weightSum, 1.0F, 0.001F));
+    }
+  }
+  failures += expect(
+    primitivesFiniteAndSafe &&
+      primitiveVertexCount > 0U &&
+      primitiveIndexCount > 0U,
+    "GLB duelist asset should load persistent finite primitives with normalized safe skin weights"
+  );
+  failures += expect(
+    baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 60U &&
+      baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
+      baseScene.gltfPlayerModelStats.poseUploadBytes ==
+        duelistModel.jointCount() * 64U,
+    "GLB render metrics should report resident static bytes and compact per-player pose bytes"
+  );
   const std::vector<lg::SkinnedModelTriangle> restPoseTriangles =
     duelistModel.triangles({});
   lg::Vec3 restMin = {
@@ -277,7 +334,7 @@ int main() {
     !restPoseTriangles.empty() &&
     restMin.x > -0.50F && restMax.x < 0.50F &&
     restMin.y > -0.02F && restMax.y < 1.72F &&
-    restMin.z > -0.12F && restMax.z < 0.28F;
+    restMin.z > -0.22F && restMax.z < 0.30F;
   if (!restPoseCompact) {
     std::cerr << "rest bounds min=(" << restMin.x << ", " << restMin.y << ", "
               << restMin.z << ") max=(" << restMax.x << ", " << restMax.y
@@ -624,25 +681,6 @@ int main() {
     rockets,
     leanSettings
   );
-  float rightSideZ = 0.0F;
-  float leftSideZ = 0.0F;
-  float leanMinY = opponent.position.y + opponent.bounds.radius;
-  float leanMaxY = opponent.position.y - opponent.bounds.radius;
-  std::size_t rightSideCount = 0;
-  std::size_t leftSideCount = 0;
-  for (const lg::Vertex3D& vertex : leanScene.vertices) {
-    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
-      leanMinY = std::min(leanMinY, vertex.position.y);
-      leanMaxY = std::max(leanMaxY, vertex.position.y);
-      if (vertex.position.y < opponent.position.y - 0.01F) {
-        rightSideZ += vertex.position.z;
-        ++rightSideCount;
-      } else if (vertex.position.y > opponent.position.y + 0.01F) {
-        leftSideZ += vertex.position.z;
-        ++leftSideCount;
-      }
-    }
-  }
   leanSettings.enemyLeanEnabled = false;
   const lg::Scene3D leanDisabledScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -656,50 +694,28 @@ int main() {
     rockets,
     leanSettings
   );
-  rightSideZ = 0.0F;
-  leftSideZ = 0.0F;
-  float leanDisabledMinY = opponent.position.y + opponent.bounds.radius;
-  float leanDisabledMaxY = opponent.position.y - opponent.bounds.radius;
-  rightSideCount = 0;
-  leftSideCount = 0;
-  for (const lg::Vertex3D& vertex : leanDisabledScene.vertices) {
-    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
-      leanDisabledMinY = std::min(leanDisabledMinY, vertex.position.y);
-      leanDisabledMaxY = std::max(leanDisabledMaxY, vertex.position.y);
-      if (vertex.position.y < opponent.position.y - 0.01F) {
-        rightSideZ += vertex.position.z;
-        ++rightSideCount;
-      } else if (vertex.position.y > opponent.position.y + 0.01F) {
-        leftSideZ += vertex.position.z;
-        ++leftSideCount;
-      }
-    }
-  }
   failures += expect(
     nearlyEqual(leanDisabledScene.camera.right.z, 0.0F) &&
-      rightSideCount > 0 && leftSideCount > 0 &&
-      std::fabs(
-        (rightSideZ / static_cast<float>(rightSideCount)) -
-          (leftSideZ / static_cast<float>(leftSideCount))
-      ) < 0.15F,
+      leanDisabledScene.gltfPlayerModelInstances.size() == 1U,
     "disabled enemy lean should keep the camera upright and avoid velocity roll"
   );
   failures += expect(
-    std::fabs(leanMinY - leanDisabledMinY) > 0.004F ||
-      std::fabs(leanMaxY - leanDisabledMaxY) > 0.004F,
+    leanScene.gltfPlayerModelInstances.size() == 1U &&
+      leanScene.gltfBonePalette.size() == leanDisabledScene.gltfBonePalette.size() &&
+      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) > 0.0001F,
     "enabled enemy lean should use the skinned GLB lean animation"
   );
   opponent.velocity = {};
 
-  std::size_t opponentVertexCount = 0;
-  for (const lg::Vertex3D& vertex : baseScene.vertices) {
-    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
-      ++opponentVertexCount;
-    }
-  }
   failures += expect(
-    opponentVertexCount >= 1000U,
-    "opponent should use the skinned GLB duelist mesh inside gameplay bounds"
+    baseScene.gltfPlayerModelInstances.size() == 1U &&
+      baseScene.gltfPlayerModelInstances.front().skinned &&
+      baseScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      baseScene.gltfPlayerModelStats.bodyBatches ==
+        static_cast<std::uint32_t>(duelistModel.primitives().size()) &&
+      baseScene.gltfPlayerModelStats.bodyDrawCalls ==
+        baseScene.gltfPlayerModelStats.bodyBatches,
+    "opponent should use the GPU-skinned GLB duelist mesh path"
   );
   lg::RenderSettings legacyModelSettings = settings;
   legacyModelSettings.playerModel = 0;
@@ -787,41 +803,13 @@ int main() {
     rockets,
     settings
   );
-  float groundedModelX = 0.0F;
-  float airborneModelX = 0.0F;
-  float groundedFrontModelX = std::numeric_limits<float>::max();
-  float airborneFrontModelX = std::numeric_limits<float>::max();
-  float groundedBackModelX = std::numeric_limits<float>::lowest();
-  float airborneBackModelX = std::numeric_limits<float>::lowest();
-  std::size_t groundedModelCount = 0;
-  std::size_t airborneModelCount = 0;
-  for (const lg::Vertex3D& vertex : baseScene.vertices) {
-    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, opponent)) {
-      groundedFrontModelX = std::min(groundedFrontModelX, vertex.position.x);
-      groundedBackModelX = std::max(groundedBackModelX, vertex.position.x);
-      groundedModelX += vertex.position.x;
-      ++groundedModelCount;
-    }
-  }
-  for (const lg::Vertex3D& vertex : airborneScene.vertices) {
-    if (isEnemyModelColor(vertex.color) && insidePlayerModelBounds(vertex, airborneOpponent)) {
-      airborneFrontModelX = std::min(airborneFrontModelX, vertex.position.x);
-      airborneBackModelX = std::max(airborneBackModelX, vertex.position.x);
-      airborneModelX += vertex.position.x;
-      ++airborneModelCount;
-    }
-  }
   failures += expect(
-    airborneScene.vertices.size() == baseScene.vertices.size() &&
-      groundedModelCount > 0 && airborneModelCount > 0 &&
-      (
-        std::fabs(airborneFrontModelX - groundedFrontModelX) > 0.02F ||
-        std::fabs(airborneBackModelX - groundedBackModelX) > 0.02F
-      ),
+    airborneScene.gltfPlayerModelInstances.size() == baseScene.gltfPlayerModelInstances.size() &&
+      !airborneScene.gltfBonePalette.empty() &&
+      airborneScene.gltfBonePalette.size() == baseScene.gltfBonePalette.size() &&
+      maxPaletteDelta(airborneScene.gltfBonePalette, baseScene.gltfBonePalette) > 0.0001F,
     "airborne opponent should use the skinned GLB jump animation"
   );
-  (void)groundedModelX;
-  (void)airborneModelX;
 
   const lg::OutlineMaskDraw& enemyMaskDraw = baseScene.outlineMaskDraws.front();
   failures += expect(
@@ -829,11 +817,12 @@ int main() {
       enemyMaskDraw.state.visibility == lg::OutlineVisibility::VisibleOnly &&
       nearlyEqual(enemyMaskDraw.state.widthPixels, settings.enemyOutlineWidth) &&
       nearlyEqual(enemyMaskDraw.state.alpha, settings.enemyOutlineAlpha) &&
-      enemyMaskDraw.firstVertex < baseScene.vertices.size() &&
-      enemyMaskDraw.vertexCount == baseScene.normalPlayerBodyDynamicVertices &&
-      enemyMaskDraw.firstVertex + enemyMaskDraw.vertexCount <=
-        baseScene.vertices.size(),
-    "enabled enemy outline should reuse the remote player body draw range as mask input"
+      enemyMaskDraw.gltfPlayerModel &&
+      enemyMaskDraw.gltfFirstInstance == 0U &&
+      enemyMaskDraw.gltfInstanceCount == baseScene.gltfPlayerModelInstances.size() &&
+      enemyMaskDraw.vertexCount == 0U &&
+      enemyMaskDraw.instanceCount == 0U,
+    "enabled enemy outline should reuse the GPU player model instance range as mask input"
   );
 
   lg::RenderSettings outlineDisabledSettings = settings;
@@ -964,6 +953,14 @@ int main() {
   const lg::OutlineWorkPlan centeredOutlinePlan = lg::buildOutlineWorkPlan(
     baseScene.camera,
     std::span<const lg::Vertex3D>(baseScene.vertices.data(), baseScene.vertices.size()),
+    std::span<const lg::StaticMeshInstance>(
+      baseScene.staticMeshInstances.data(),
+      baseScene.staticMeshInstances.size()
+    ),
+    std::span<const lg::GltfPlayerModelInstance>(
+      baseScene.gltfPlayerModelInstances.data(),
+      baseScene.gltfPlayerModelInstances.size()
+    ),
     std::span<const lg::OutlineMaskDraw>(
       baseScene.outlineMaskDraws.data(),
       baseScene.outlineMaskDraws.size()
@@ -1026,6 +1023,14 @@ int main() {
   const lg::OutlineWorkPlan edgeOutlinePlan = lg::buildOutlineWorkPlan(
     edgeScene.camera,
     std::span<const lg::Vertex3D>(edgeScene.vertices.data(), edgeScene.vertices.size()),
+    std::span<const lg::StaticMeshInstance>(
+      edgeScene.staticMeshInstances.data(),
+      edgeScene.staticMeshInstances.size()
+    ),
+    std::span<const lg::GltfPlayerModelInstance>(
+      edgeScene.gltfPlayerModelInstances.data(),
+      edgeScene.gltfPlayerModelInstances.size()
+    ),
     std::span<const lg::OutlineMaskDraw>(
       edgeScene.outlineMaskDraws.data(),
       edgeScene.outlineMaskDraws.size()
@@ -1127,8 +1132,18 @@ int main() {
     settings
   );
   failures += expect(
-    multiOpponentScene.vertices.size() > baseScene.vertices.size(),
-    "perspective scene should emit geometry for multiple remote players"
+    multiOpponentScene.gltfPlayerModelInstances.size() == 2U &&
+      multiOpponentScene.gltfPlayerModelInstances[0].firstBone !=
+        multiOpponentScene.gltfPlayerModelInstances[1].firstBone &&
+      multiOpponentScene.gltfPlayerModelInstances[0].boneCount ==
+        duelistModel.jointCount() &&
+      multiOpponentScene.gltfPlayerModelInstances[1].boneCount ==
+        duelistModel.jointCount() &&
+      multiOpponentScene.gltfPlayerModelStats.bodyBatches ==
+        static_cast<std::uint32_t>(duelistModel.primitives().size()) &&
+      multiOpponentScene.gltfPlayerModelStats.bodyDrawCalls ==
+        multiOpponentScene.gltfPlayerModelStats.bodyBatches,
+    "perspective scene should batch multiple GLB remote players by primitive"
   );
   failures += expect(
     multiOpponentScene.remoteWeaponStats.instancesSubmitted == 2 &&
@@ -1264,7 +1279,7 @@ int main() {
       uncullableBehindScene.remoteWeaponModelsBuilt == 1 &&
       uncullableBehindScene.remoteWeaponStats.instancesSubmitted == 1 &&
       uncullableBehindScene.playerOutlinesBuilt == 1 &&
-      uncullableBehindScene.vertices.size() > noRemoteScene.vertices.size(),
+      uncullableBehindScene.gltfPlayerModelInstances.size() == 1U,
     "r_frustum_cull 0 should preserve remote body, weapon, and outline construction"
   );
 

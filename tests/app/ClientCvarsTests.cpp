@@ -81,7 +81,7 @@ int main() {
   );
   failures += expect(
     console.execute("r_player_model") ==
-      "r_player_model = 1 (default 1)" &&
+      "r_player_model = 0 (default 0)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&
       console.execute("r_player_model 2") == "value out of range for r_player_model",
     "remote player model cvar should select legacy or animated models"

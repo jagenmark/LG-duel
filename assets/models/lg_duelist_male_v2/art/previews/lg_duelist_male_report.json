@@ -1,0 +1,292 @@
+{
+  "blend": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male.blend",
+  "backup_blend": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v7_backup.blend",
+  "glb": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\exports\\lg_duelist_male.glb",
+  "screenshots": [
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_front.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_side.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_three_quarter.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_head_closeup.png",
+    "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\previews\\lg_duelist_male_head_profile.png"
+  ],
+  "triangles": 2942,
+  "height": 1.715,
+  "min_z": 0.0,
+  "mesh_objects": [
+    "LGDuelist_Male_Body"
+  ],
+  "materials": [
+    "MAT_Skin",
+    "MAT_SkinShadow",
+    "MAT_Hair",
+    "MAT_ClothPrimary",
+    "MAT_ClothAccent",
+    "MAT_BootsGear",
+    "MAT_EyeWhite"
+  ],
+  "bones": [
+    "root",
+    "pelvis",
+    "spine_01",
+    "spine_02",
+    "neck",
+    "head",
+    "upper_arm_l",
+    "lower_arm_l",
+    "hand_l",
+    "upper_arm_r",
+    "lower_arm_r",
+    "hand_r",
+    "weapon_socket_r",
+    "thigh_l",
+    "calf_l",
+    "foot_l",
+    "thigh_r",
+    "calf_r",
+    "foot_r"
+  ],
+  "weapon_socket_present": true,
+  "forward": "Blender -Y",
+  "revision": "v22 arm pose/weapon hold: arms moved closer, elbows bent, forearms/hands enlarged, right arm/socket posed for weapon hold.",
+  "notes": [
+    "Arms moved inward toward torso",
+    "Elbows given slight bend",
+    "Forearms/hands enlarged",
+    "Right arm and weapon_socket_r moved into a weapon-ready forward angle",
+    "Arm vertex groups reassigned to match armature side labels",
+    "Torso and feet left intact"
+  ],
+  "backup_blend_v8": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v8_backup.blend",
+  "backup_blend_v9": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v9_backup.blend",
+  "backup_before_head_replace": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v10_before_head_replace.blend",
+  "backup_before_proportion_polish": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v11_before_proportion_polish.blend",
+  "backup_before_anim_pass": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v12_before_anim_pass.blend",
+  "animation_revision": "anim_v1 retained after v16, rigid skin weights restored.",
+  "animations": [
+    {
+      "name": "lg_duelist_jump",
+      "frames": [
+        1,
+        32
+      ]
+    },
+    {
+      "name": "lg_duelist_lean_left",
+      "frames": [
+        1,
+        28
+      ]
+    },
+    {
+      "name": "lg_duelist_lean_right",
+      "frames": [
+        1,
+        28
+      ]
+    }
+  ],
+  "rig_check": {
+    "vertex_groups_count": 19,
+    "group_counts": {
+      "spine_01": 56,
+      "spine_02": 516,
+      "neck": 8,
+      "head": 106,
+      "upper_arm_l": 17,
+      "lower_arm_l": 87,
+      "upper_arm_r": 17,
+      "lower_arm_r": 87,
+      "thigh_l": 9,
+      "calf_l": 26,
+      "foot_l": 67,
+      "thigh_r": 21,
+      "calf_r": 26,
+      "foot_r": 67
+    }
+  },
+  "removed_animation": "weapon_hold_preview removed from current export; older backups retain it if needed.",
+  "backup_before_width_limb_pass": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v12_before_width_limb_pass.blend",
+  "bounds_before": {
+    "min": [
+      -0.425,
+      -0.2425,
+      0.0
+    ],
+    "max": [
+      0.425,
+      0.1005,
+      1.715
+    ]
+  },
+  "bounds_after": {
+    "min": [
+      -0.4715,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4715,
+      0.1924,
+      1.715
+    ]
+  },
+  "backup_before_torso_leg_ratio_pass": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v13_before_torso_leg_ratio_pass.blend",
+  "bounds_before_torso_leg_pass": {
+    "min": [
+      -0.4715,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4715,
+      0.1924,
+      1.715
+    ]
+  },
+  "bounds_after_torso_leg_pass": {
+    "min": [
+      -0.4715,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4715,
+      0.1924,
+      1.715
+    ]
+  },
+  "backup_before_simplified_bigger_head": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v14_before_simplified_bigger_head.blend",
+  "bounds_after_simplified_bigger_head": {
+    "min": [
+      -0.4715,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4715,
+      0.1924,
+      1.715
+    ]
+  },
+  "backup_before_integrated_jaw_chin": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v15_before_integrated_jaw_chin.blend",
+  "backup_before_integrated_surface_mouth": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v16_before_integrated_surface_mouth.blend",
+  "backup_before_reference_mouth": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v17_before_reference_mouth.blend",
+  "backup_before_head_limb_thickness_pass": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v18_before_head_limb_thickness_pass.blend",
+  "bounds_before_head_limb_thickness": {
+    "min": [
+      -0.4715,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4715,
+      0.1924,
+      1.715
+    ]
+  },
+  "bounds_after_head_limb_thickness": {
+    "min": [
+      -0.4973,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4973,
+      0.2574,
+      1.715
+    ]
+  },
+  "changed_vertex_counts": {
+    "head": 106,
+    "arms": 212,
+    "legs": 82
+  },
+  "backup_before_targeted_detail_pass": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v19_before_targeted_detail_pass.blend",
+  "triangles_before_targeted_detail": 1073,
+  "vertices_before_targeted_detail": 1110,
+  "vertices_after_targeted_detail": 2047,
+  "bounds_before_targeted_detail": {
+    "min": [
+      -0.4973,
+      -0.2862,
+      0.0
+    ],
+    "max": [
+      0.4973,
+      0.2574,
+      1.715
+    ]
+  },
+  "bounds_after_targeted_detail": {
+    "min": [
+      -0.512,
+      -0.292,
+      0.0
+    ],
+    "max": [
+      0.512,
+      0.3046,
+      1.715
+    ]
+  },
+  "backup_before_smaller_skirt": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v20_before_smaller_skirt.blend",
+  "bounds_before_smaller_skirt": {
+    "min": [
+      -0.512,
+      -0.292,
+      0.0
+    ],
+    "max": [
+      0.512,
+      0.3046,
+      1.715
+    ]
+  },
+  "bounds_after_smaller_skirt": {
+    "min": [
+      -0.512,
+      -0.292,
+      0.0
+    ],
+    "max": [
+      0.512,
+      0.2051,
+      1.715
+    ]
+  },
+  "changed_skirt_vertices": 50,
+  "backup_before_arm_pose_weapon_hold": "C:\\Users\\gosee\\Documents\\LG-duel\\LG-duel-clean\\LG-duel\\assets\\models\\lg_duelist_male\\art\\blender\\lg_duelist_male_v21_before_arm_pose_weapon_hold.blend",
+  "bounds_before_arm_pose_weapon_hold": {
+    "min": [
+      -0.512,
+      -0.292,
+      0.0
+    ],
+    "max": [
+      0.512,
+      0.2051,
+      1.715
+    ]
+  },
+  "bounds_after_arm_pose_weapon_hold": {
+    "min": [
+      -0.4742,
+      -0.292,
+      0.0
+    ],
+    "max": [
+      0.4662,
+      0.2051,
+      1.715
+    ]
+  },
+  "arm_group_reassignment_counts": {
+    "upper_arm_l": 45,
+    "lower_arm_l": 231,
+    "hand_l": 8,
+    "upper_arm_r": 45,
+    "lower_arm_r": 231,
+    "hand_r": 8
+  },
+  "final_package_note": "Finalized for transfer after v22 arm pose/weapon hold pass; GLB verified skinned with three animations."
+}
