@@ -65,6 +65,128 @@ constexpr StaticMeshAsset kPlasmaCoreAsset = {
   RenderPass::OpaqueWorld,
 };
 
+constexpr StaticMeshAsset kExplosionCoreAsset = {
+  MeshHandle::ExplosionCore,
+  std::span<const Vertex3D>(kPlasmaCoreMeshVertices.data(), kPlasmaCoreMeshVertices.size()),
+  {{}, 1.0F},
+  RenderPass::OpaqueWorld,
+};
+
+constexpr std::array<Vertex3D, 36> kRocketProjectileMeshVertices = {{
+  {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{-0.85F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F, -0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F,  0.18F,  0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F,  0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.82F,  0.0F,  0.0F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.45F, -0.18F, -0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+}};
+
+constexpr std::array<Vertex3D, 24> kGrenadeProjectileMeshVertices = {{
+  {{ 0.0F,  0.0F,  0.72F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F,  0.72F}, {48, 72, 38, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {48, 72, 38, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {48, 72, 38, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F,  0.72F}, {42, 64, 34, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {42, 64, 34, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {42, 64, 34, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F,  0.72F}, {66, 98, 52, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {66, 98, 52, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {66, 98, 52, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {34, 54, 30, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {34, 54, 30, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {34, 54, 30, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {38, 60, 32, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {38, 60, 32, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.58F,  0.0F}, {38, 60, 32, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {30, 48, 26, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {30, 48, 26, 255}, 0.0F, 0.0F, 0U},
+  {{-0.58F,  0.0F,  0.0F}, {30, 48, 26, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F,  0.0F, -0.72F}, {46, 70, 36, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.58F,  0.0F,  0.0F}, {46, 70, 36, 255}, 0.0F, 0.0F, 0U},
+  {{ 0.0F, -0.58F,  0.0F}, {46, 70, 36, 255}, 0.0F, 0.0F, 0U},
+}};
+
+constexpr StaticMeshAsset kRocketProjectileAsset = {
+  MeshHandle::RocketProjectile,
+  std::span<const Vertex3D>(
+    kRocketProjectileMeshVertices.data(),
+    kRocketProjectileMeshVertices.size()
+  ),
+  {{}, 0.92F},
+  RenderPass::OpaqueWorld,
+};
+
+constexpr StaticMeshAsset kGrenadeProjectileAsset = {
+  MeshHandle::GrenadeProjectile,
+  std::span<const Vertex3D>(
+    kGrenadeProjectileMeshVertices.data(),
+    kGrenadeProjectileMeshVertices.size()
+  ),
+  {{}, 0.72F},
+  RenderPass::OpaqueWorld,
+};
+
+constexpr std::array<Vertex3D, 12> kTracerBeamMeshVertices = {{
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 1.0F, 0.0F, 0U},
+  {{1.0F,  1.0F, 0.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F, -1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F,  1.0F, 0.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F,  1.0F, 0.0F}, {255, 255, 255, 255}, 0.0F, 1.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 1.0F, 0.0F, 0U},
+  {{1.0F, 0.0F,  1.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F, 0.0F, -1.0F}, {255, 255, 255, 255}, 0.0F, 0.0F, 0U},
+  {{1.0F, 0.0F,  1.0F}, {255, 255, 255, 255}, 1.0F, 1.0F, 0U},
+  {{0.0F, 0.0F,  1.0F}, {255, 255, 255, 255}, 0.0F, 1.0F, 0U},
+}};
+
+constexpr StaticMeshAsset kMachineGunTracerAsset = {
+  MeshHandle::MachineGunTracer,
+  std::span<const Vertex3D>(kTracerBeamMeshVertices.data(), kTracerBeamMeshVertices.size()),
+  {{0.5F, 0.0F, 0.0F}, 1.12F},
+  RenderPass::TranslucentWorld,
+};
+
+constexpr StaticMeshAsset kShotgunTracerAsset = {
+  MeshHandle::ShotgunTracer,
+  std::span<const Vertex3D>(kTracerBeamMeshVertices.data(), kTracerBeamMeshVertices.size()),
+  {{0.5F, 0.0F, 0.0F}, 1.12F},
+  RenderPass::TranslucentWorld,
+};
+
 [[nodiscard]] Vec3 cross(Vec3 lhs, Vec3 rhs);
 [[nodiscard]] RenderColor scaleColor(RenderColor color, float amount);
 
@@ -136,6 +258,24 @@ constexpr BillboardAsset kPlasmaGlowAsset = {
   RenderPass::AdditiveGlow,
 };
 
+constexpr BillboardAsset kRocketFlameAsset = {
+  BillboardHandle::RocketFlame,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
+constexpr BillboardAsset kExplosionFlashAsset = {
+  BillboardHandle::ExplosionFlash,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
+constexpr BillboardAsset kExplosionHaloAsset = {
+  BillboardHandle::ExplosionHalo,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
 constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   ProjectileVisualType::Plasma,
   MeshHandle::PlasmaCore,
@@ -145,6 +285,28 @@ constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   0.115F,
   0.34F,
   true,
+};
+
+constexpr ProjectileVisualDescriptor kRocketProjectileVisual = {
+  ProjectileVisualType::Rocket,
+  MeshHandle::RocketProjectile,
+  BillboardHandle::RocketFlame,
+  {255, 255, 255, 255},
+  {255, 126, 48, 132},
+  0.18F,
+  0.22F,
+  true,
+};
+
+constexpr ProjectileVisualDescriptor kGrenadeProjectileVisual = {
+  ProjectileVisualType::Grenade,
+  MeshHandle::GrenadeProjectile,
+  BillboardHandle::Invalid,
+  {255, 255, 255, 255},
+  {},
+  0.18F,
+  0.0F,
+  false,
 };
 
 [[nodiscard]] bool textureDebugEnabled() {
@@ -364,46 +526,6 @@ void addTexturedQuad(
     {{colors[0], colors[2], colors[3]}},
     materialId
   );
-}
-
-void addBox(
-  Scene3D& scene,
-  Vec3 minimum,
-  Vec3 maximum,
-  RenderColor color
-) {
-  const std::array<Vec3, 8> corners = {{
-    {minimum.x, minimum.y, minimum.z},
-    {maximum.x, minimum.y, minimum.z},
-    {maximum.x, maximum.y, minimum.z},
-    {minimum.x, maximum.y, minimum.z},
-    {minimum.x, minimum.y, maximum.z},
-    {maximum.x, minimum.y, maximum.z},
-    {maximum.x, maximum.y, maximum.z},
-    {minimum.x, maximum.y, maximum.z},
-  }};
-  constexpr std::array<std::array<std::size_t, 4>, 6> faces = {{
-    {{0, 3, 2, 1}},
-    {{4, 5, 6, 7}},
-    {{0, 1, 5, 4}},
-    {{1, 2, 6, 5}},
-    {{2, 3, 7, 6}},
-    {{3, 0, 4, 7}},
-  }};
-  constexpr std::array<float, 6> brightness = {
-    0.55F, 1.0F, 0.72F, 0.86F, 0.66F, 0.78F,
-  };
-  for (std::size_t index = 0; index < faces.size(); ++index) {
-    const auto& face = faces[index];
-    addQuad(
-      scene,
-      corners[face[0]],
-      corners[face[1]],
-      corners[face[2]],
-      corners[face[3]],
-      scaleColor(color, brightness[index])
-    );
-  }
 }
 
 void addSphereApprox(
@@ -863,38 +985,6 @@ void addOrientedWireBox(
   for (const auto& edge : edges) {
     addSegment(scene, corners[edge[0]], corners[edge[1]], width, color);
   }
-}
-
-[[nodiscard]] Vec3 perpendicularRight(Vec3 forward) {
-  Vec3 right = normalize(cross(forward, Vec3{0.0F, 0.0F, 1.0F}));
-  if (length(right) <= 0.0001F) {
-    right = {1.0F, 0.0F, 0.0F};
-  }
-  return right;
-}
-
-[[nodiscard]] Vec3 shotgunPelletVisualDirection(
-  Vec3 forward,
-  std::uint8_t pelletIndex,
-  std::uint8_t pelletCount
-) {
-  if (pelletIndex == 0 || pelletCount <= 1U) {
-    return forward;
-  }
-  constexpr float kGoldenAngle = 2.39996323F;
-  constexpr float kVisualSpread = 0.13F;
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const float normalizedRadius = std::sqrt(
-    static_cast<float>(pelletIndex) /
-    static_cast<float>(std::max<std::uint8_t>(1U, pelletCount - 1U))
-  );
-  const float angle = static_cast<float>(pelletIndex) * kGoldenAngle;
-  return normalize(
-    forward +
-    (right * (std::cos(angle) * kVisualSpread * normalizedRadius)) +
-    (up * (std::sin(angle) * kVisualSpread * normalizedRadius))
-  );
 }
 
 [[nodiscard]] PlayerModelBasis playerModelBasis(
@@ -1597,93 +1687,16 @@ void addWireBox(
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
 }
 
-[[nodiscard]] Vec3 remoteWeaponModelPoint(
-  Vec3 fallback,
-  const PlayerState& localPlayer,
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
-  std::size_t playerIndex,
-  const RenderSettings& settings,
-  float forward,
-  float right,
-  float up
-) {
-  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
-    return firstPersonWeaponMuzzlePosition(localPlayer);
-  }
-  if (playerIndex < remotePlayers.size() && remotePlayers[playerIndex].visible) {
-    const RemotePlayerView& remote = remotePlayers[playerIndex];
-    const bool leanEnabled = remote.teammate
-      ? settings.teammateLeanEnabled
-      : settings.enemyLeanEnabled;
-    const float leanScale = remote.teammate
-      ? settings.teammateLeanScale
-      : settings.enemyLeanScale;
-    const WeaponModelFrame frame =
-      weaponModelFrame(remote.player, leanEnabled, leanScale);
-    return weaponLocalPoint(frame, forward, right, up);
-  }
-
-  return fallback;
-}
-
-[[nodiscard]] Vec3 machineGunVisualSource(
-  const WeaponFireResult& fire,
-  const PlayerState& localPlayer,
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
-  std::size_t playerIndex,
-  const RenderSettings& settings
-) {
-  const Vec3 forward = normalize(fire.end - fire.start);
-  if (length(forward) <= 0.0001F) {
-    return fire.start;
-  }
-
-  const float angle =
-    static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
-  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
-    return fire.start;
-  }
-  return remoteWeaponModelPoint(
-    fire.start,
-    localPlayer,
-    remotePlayers,
-    playerIndex,
-    settings,
-    0.64F,
-    std::cos(angle) * 0.055F,
-    0.09F + std::sin(angle) * 0.055F
-  );
-}
-
-[[nodiscard]] Vec3 shotgunVisualSource(
-  const WeaponFireResult& fire,
-  const PlayerState& localPlayer,
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
-  std::size_t playerIndex,
-  const RenderSettings& settings
-) {
-  if (!settings.shotgunWeaponModelStart) {
-    return fire.start;
-  }
-  return remoteWeaponModelPoint(
-    fire.start,
-    localPlayer,
-    remotePlayers,
-    playerIndex,
-    settings,
-    0.62F,
-    0.0F,
-    0.115F
-  );
-}
-
 [[nodiscard]] Vec3 projectileVisualPosition(
   const RocketProjectileSnapshot& projectile,
   const PlayerState& localPlayer,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const RenderSettings& settings
 ) {
-  if (projectile.weapon != Weapon::PlasmaGun) {
+  if (
+    projectile.weapon != Weapon::PlasmaGun &&
+    projectile.weapon != Weapon::RocketLauncher
+  ) {
     return projectile.position;
   }
   const std::size_t owner = static_cast<std::size_t>(projectile.owner);
@@ -1708,182 +1721,12 @@ void addWireBox(
     : settings.enemyLeanScale;
   const WeaponModelFrame frame =
     weaponModelFrame(remote.player, leanEnabled, leanScale);
+  const float muzzleForward =
+    projectile.weapon == Weapon::RocketLauncher ? 0.81F : 0.74F;
+  const float muzzleUp =
+    projectile.weapon == Weapon::RocketLauncher ? 0.12F : 0.09F;
   return projectile.position +
-    (weaponLocalPoint(frame, 0.74F, 0.0F, 0.09F) - remoteEye);
-}
-
-void addMachineGunMuzzleFlash(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const Vec3 center = visualStart + forward * 0.13F;
-
-  addSphereApprox(scene, center + forward * 0.030F, 0.045F, {255, 242, 176, 220});
-  addSegment(scene, center - right * 0.060F, center + right * 0.060F, 0.024F, {255, 180, 72, 180});
-  addSegment(scene, center - up * 0.045F, center + up * 0.045F, 0.020F, {255, 210, 104, 165});
-}
-
-void addMachineGunTrace(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  const float distance = length(fire.end - visualStart);
-  if (length(forward) <= 0.0001F || distance <= 0.01F) {
-    return;
-  }
-  addSegment(
-    scene,
-    visualStart + forward * 0.22F,
-    fire.end,
-    fire.hit ? 0.016F : 0.010F,
-    fire.hit ? RenderColor{255, 236, 150, 205} : RenderColor{255, 196, 92, 150}
-  );
-}
-
-void addMachineGunImpactSpark(Scene3D& scene, const WeaponFireResult& fire) {
-  const Vec3 forward = normalize(fire.end - fire.start);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const RenderColor core = fire.hit
-    ? RenderColor{255, 94, 54, 220}
-    : RenderColor{234, 206, 148, 175};
-  const RenderColor spark = fire.hit
-    ? RenderColor{255, 212, 116, 205}
-    : RenderColor{188, 152, 92, 155};
-
-  addSphereApprox(scene, fire.end - forward * 0.025F, fire.hit ? 0.060F : 0.045F, core);
-  for (std::uint8_t index = 0; index < 4U; ++index) {
-    const float angle = static_cast<float>(index) * (kTwoPi * 0.25F);
-    const Vec3 direction =
-      normalize((right * std::cos(angle)) + (up * std::sin(angle)) - forward * 0.35F);
-    addSegment(
-      scene,
-      fire.end - forward * 0.015F,
-      fire.end + direction * (fire.hit ? 0.18F : 0.12F),
-      0.012F,
-      spark
-    );
-  }
-}
-
-void addMachineGunFireVisuals(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  addMachineGunMuzzleFlash(scene, fire, visualStart);
-  addMachineGunTrace(scene, fire, visualStart);
-  addMachineGunImpactSpark(scene, fire);
-}
-
-void addShotgunMuzzleFlash(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const Vec3 center = visualStart + forward * 0.18F;
-  constexpr RenderColor hotCore = {255, 246, 178, 240};
-  constexpr RenderColor warmEdge = {255, 132, 54, 205};
-
-  addSphereApprox(scene, center + forward * 0.05F, 0.12F, hotCore);
-  addSegment(scene, center - right * 0.20F, center + right * 0.20F, 0.07F, warmEdge);
-  addSegment(scene, center - up * 0.15F, center + up * 0.15F, 0.055F, warmEdge);
-  addSegment(
-    scene,
-    center - (right + up) * 0.12F,
-    center + (right + up) * 0.12F,
-    0.045F,
-    {255, 205, 92, 210}
-  );
-}
-
-void addShotgunPelletTraces(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  const float distance = length(fire.end - visualStart);
-  if (length(forward) <= 0.0001F || distance <= 0.01F) {
-    return;
-  }
-  const std::uint8_t pelletCount = std::clamp<std::uint8_t>(
-    fire.pelletCount == 0U ? 10U : fire.pelletCount,
-    1U,
-    12U
-  );
-  for (std::uint8_t pelletIndex = 0; pelletIndex < pelletCount; ++pelletIndex) {
-    const Vec3 direction =
-      shotgunPelletVisualDirection(forward, pelletIndex, pelletCount);
-    const float traceDistance = distance * (pelletIndex == 0 ? 1.0F : 0.92F);
-    const RenderColor color = pelletIndex == 0
-      ? RenderColor{255, 236, 158, 210}
-      : RenderColor{255, 196, 92, 145};
-    addSegment(
-      scene,
-      visualStart + direction * 0.20F,
-      visualStart + direction * traceDistance,
-      pelletIndex == 0 ? 0.018F : 0.011F,
-      color
-    );
-  }
-}
-
-void addShotgunImpactPuffs(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  const Vec3 forward = normalize(fire.end - visualStart);
-  if (length(forward) <= 0.0001F) {
-    return;
-  }
-  const Vec3 right = perpendicularRight(forward);
-  const Vec3 up = normalize(cross(right, forward));
-  const std::uint8_t puffCount = fire.hit
-    ? std::clamp<std::uint8_t>(fire.pelletHitCount, 3U, 8U)
-    : 5U;
-  const RenderColor core = fire.hit
-    ? RenderColor{255, 82, 56, 230}
-    : RenderColor{238, 210, 154, 190};
-  const RenderColor fleck = fire.hit
-    ? RenderColor{255, 185, 112, 210}
-    : RenderColor{166, 132, 91, 170};
-  for (std::uint8_t index = 0; index < puffCount; ++index) {
-    const float angle = static_cast<float>(index) / static_cast<float>(puffCount) * kTwoPi;
-    const float radius = 0.055F + 0.018F * static_cast<float>(index % 3U);
-    const Vec3 offset =
-      (right * std::cos(angle) + up * std::sin(angle)) * (0.10F + radius);
-    addSphereApprox(scene, fire.end + offset - forward * 0.03F, radius, index == 0 ? core : fleck);
-  }
-}
-
-void addShotgunFireVisuals(
-  Scene3D& scene,
-  const WeaponFireResult& fire,
-  Vec3 visualStart
-) {
-  addShotgunMuzzleFlash(scene, fire, visualStart);
-  addShotgunPelletTraces(scene, fire, visualStart);
-  addShotgunImpactPuffs(scene, fire, visualStart);
+    (weaponLocalPoint(frame, muzzleForward, 0.0F, muzzleUp) - remoteEye);
 }
 
 constexpr float kRemotePlayerVisualCullMargin = 0.35F;
@@ -1970,6 +1813,16 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   switch (handle) {
   case MeshHandle::PlasmaCore:
     return &kPlasmaCoreAsset;
+  case MeshHandle::ExplosionCore:
+    return &kExplosionCoreAsset;
+  case MeshHandle::RocketProjectile:
+    return &kRocketProjectileAsset;
+  case MeshHandle::GrenadeProjectile:
+    return &kGrenadeProjectileAsset;
+  case MeshHandle::MachineGunTracer:
+    return &kMachineGunTracerAsset;
+  case MeshHandle::ShotgunTracer:
+    return &kShotgunTracerAsset;
   case MeshHandle::RemoteMachineGun:
     return &machineGunAsset;
   case MeshHandle::RemoteShotgun:
@@ -2014,6 +1867,12 @@ const BillboardAsset* billboardAsset(BillboardHandle handle) {
   switch (handle) {
   case BillboardHandle::PlasmaGlow:
     return &kPlasmaGlowAsset;
+  case BillboardHandle::RocketFlame:
+    return &kRocketFlameAsset;
+  case BillboardHandle::ExplosionFlash:
+    return &kExplosionFlashAsset;
+  case BillboardHandle::ExplosionHalo:
+    return &kExplosionHaloAsset;
   case BillboardHandle::Invalid:
     break;
   }
@@ -2027,8 +1886,9 @@ const ProjectileVisualDescriptor* projectileVisualDescriptor(
   case ProjectileVisualType::Plasma:
     return &kPlasmaProjectileVisual;
   case ProjectileVisualType::Rocket:
+    return &kRocketProjectileVisual;
   case ProjectileVisualType::Grenade:
-    break;
+    return &kGrenadeProjectileVisual;
   }
   return nullptr;
 }
@@ -2127,6 +1987,219 @@ void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) 
   });
 }
 
+[[nodiscard]] float projectileVelocityYaw(Vec3 velocity) {
+  if (std::fabs(velocity.x) <= 0.0001F && std::fabs(velocity.y) <= 0.0001F) {
+    return 0.0F;
+  }
+  const float yaw = std::atan2(velocity.y, velocity.x);
+  return std::isfinite(yaw) ? yaw : 0.0F;
+}
+
+[[nodiscard]] float projectileRotationRadians(
+  const RocketProjectileSnapshot& projectile,
+  std::size_t projectileIndex
+) {
+  const float yaw = projectileVelocityYaw(projectile.velocity);
+  if (projectile.weapon != Weapon::GrenadeLauncher) {
+    return yaw;
+  }
+  const float velocityPhase =
+    projectile.position.x * 0.73F +
+    projectile.position.y * 1.17F +
+    projectile.position.z * 0.41F +
+    length(projectile.velocity) * 0.019F +
+    static_cast<float>(projectileIndex) * 0.67F;
+  const float rotation = yaw + std::fmod(velocityPhase, kTwoPi);
+  return std::isfinite(rotation) ? rotation : yaw;
+}
+
+void countProjectileCoreInstance(
+  ProjectileRenderStats& stats,
+  ProjectileVisualType type
+) {
+  ++stats.projectileCoreInstances;
+  switch (type) {
+  case ProjectileVisualType::Plasma:
+    ++stats.plasmaInstances;
+    break;
+  case ProjectileVisualType::Rocket:
+    ++stats.rocketInstances;
+    break;
+  case ProjectileVisualType::Grenade:
+    ++stats.grenadeInstances;
+    break;
+  }
+}
+
+[[nodiscard]] MeshHandle tracerMeshHandle(TracerStyle style) {
+  return style == TracerStyle::Shotgun
+    ? MeshHandle::ShotgunTracer
+    : MeshHandle::MachineGunTracer;
+}
+
+void addTransientTracerInstances(
+  Scene3D& scene,
+  std::span<const TransientTracer> tracers,
+  const RenderSettings& settings
+) {
+  scene.transientVfxStats.activeEffects +=
+    static_cast<std::uint32_t>(tracers.size());
+  for (const TransientTracer& tracer : tracers) {
+    if (tracer.style == TracerStyle::Shotgun) {
+      ++scene.transientVfxStats.activeShotgunTracers;
+    } else {
+      ++scene.transientVfxStats.activeMachineGunTracers;
+    }
+    ++scene.transientVfxStats.tracerCandidates;
+    const Vec3 delta = tracer.end - tracer.start;
+    const float tracerLength = length(delta);
+    if (tracerLength <= 0.001F || !std::isfinite(tracerLength)) {
+      continue;
+    }
+    const Vec3 center = (tracer.start + tracer.end) * 0.5F;
+    const float radius = tracerLength * 0.5F + std::max(0.01F, tracer.width);
+    if (
+      settings.frustumCullRemotePlayers &&
+      !sphereIntersectsPerspectiveFrustum(scene.camera, center, radius)
+    ) {
+      ++scene.transientVfxStats.tracerFrustumCulled;
+      continue;
+    }
+    const float fade = std::clamp(
+      1.0F - tracer.ageSeconds / std::max(0.001F, tracer.lifetimeSeconds),
+      0.0F,
+      1.0F
+    );
+    RenderColor color = tracer.color;
+    color.alpha = static_cast<std::uint8_t>(std::clamp(
+      static_cast<float>(color.alpha) * fade,
+      0.0F,
+      255.0F
+    ));
+    appendSimpleInstance(
+      scene,
+      {
+        tracerMeshHandle(tracer.style),
+        BillboardHandle::Invalid,
+        RenderPass::TranslucentWorld,
+        tracer.start,
+        {tracerLength, std::max(0.002F, tracer.width), std::max(0.002F, tracer.width)},
+        projectileVelocityYaw(delta),
+        color,
+        static_cast<float>(tracer.seed & 0xffffU),
+        {center, radius},
+      }
+    );
+    ++scene.transientVfxStats.tracerInstancesSubmitted;
+  }
+}
+
+[[nodiscard]] float effectNormalizedAge(const TransientEffect& effect) {
+  if (
+    effect.lifetimeSeconds <= 0.001F ||
+    !std::isfinite(effect.ageSeconds) ||
+    !std::isfinite(effect.lifetimeSeconds)
+  ) {
+    return 1.0F;
+  }
+  return std::clamp(effect.ageSeconds / effect.lifetimeSeconds, 0.0F, 1.0F);
+}
+
+[[nodiscard]] bool effectUsesCoreMesh(TransientEffectType type) {
+  switch (type) {
+  case TransientEffectType::RocketExplosionCore:
+  case TransientEffectType::PlasmaExplosionCore:
+  case TransientEffectType::GrenadeExplosionCore:
+    return true;
+  case TransientEffectType::RocketExplosionFlash:
+  case TransientEffectType::RocketExplosionHalo:
+  case TransientEffectType::PlasmaExplosionFlash:
+  case TransientEffectType::PlasmaExplosionHalo:
+  case TransientEffectType::GrenadeExplosionFlash:
+    return false;
+  }
+  return false;
+}
+
+[[nodiscard]] BillboardHandle effectBillboard(TransientEffectType type) {
+  switch (type) {
+  case TransientEffectType::RocketExplosionFlash:
+  case TransientEffectType::PlasmaExplosionFlash:
+  case TransientEffectType::GrenadeExplosionFlash:
+    return BillboardHandle::ExplosionFlash;
+  case TransientEffectType::RocketExplosionHalo:
+  case TransientEffectType::PlasmaExplosionHalo:
+    return BillboardHandle::ExplosionHalo;
+  case TransientEffectType::RocketExplosionCore:
+  case TransientEffectType::PlasmaExplosionCore:
+  case TransientEffectType::GrenadeExplosionCore:
+    break;
+  }
+  return BillboardHandle::Invalid;
+}
+
+void addTransientEffectInstances(
+  Scene3D& scene,
+  std::span<const TransientEffect> effects,
+  const RenderSettings& settings
+) {
+  scene.transientVfxStats.activeEffects += static_cast<std::uint32_t>(effects.size());
+  scene.transientVfxStats.activeExplosionEffects =
+    static_cast<std::uint32_t>(effects.size());
+  for (const TransientEffect& effect : effects) {
+    ++scene.transientVfxStats.explosionCandidates;
+    if (
+      !std::isfinite(effect.position.x) ||
+      !std::isfinite(effect.position.y) ||
+      !std::isfinite(effect.position.z)
+    ) {
+      continue;
+    }
+    const float t = effectNormalizedAge(effect);
+    const float initialScale = std::isfinite(effect.initialScale)
+      ? std::clamp(effect.initialScale, 0.01F, 8.0F)
+      : 0.1F;
+    const float finalScale = std::isfinite(effect.finalScale)
+      ? std::clamp(effect.finalScale, 0.01F, 8.0F)
+      : initialScale;
+    const float scale = initialScale + (finalScale - initialScale) * t;
+    const float fade = (1.0F - t) * (1.0F - t);
+    if (scale <= 0.0F || fade <= 0.0F || !std::isfinite(scale)) {
+      continue;
+    }
+    if (
+      settings.frustumCullRemotePlayers &&
+      !sphereIntersectsPerspectiveFrustum(scene.camera, effect.position, scale)
+    ) {
+      ++scene.transientVfxStats.explosionFrustumCulled;
+      continue;
+    }
+    RenderColor color = effect.color;
+    color.alpha = static_cast<std::uint8_t>(std::clamp(
+      static_cast<float>(color.alpha) * fade,
+      0.0F,
+      255.0F
+    ));
+    const bool coreMesh = effectUsesCoreMesh(effect.type);
+    appendSimpleInstance(
+      scene,
+      {
+        coreMesh ? MeshHandle::ExplosionCore : MeshHandle::Invalid,
+        coreMesh ? BillboardHandle::Invalid : effectBillboard(effect.type),
+        coreMesh ? RenderPass::OpaqueWorld : RenderPass::AdditiveGlow,
+        effect.position,
+        {scale, scale, scale},
+        static_cast<float>((effect.seed * 2654435761U) & 1023U) *
+          (kTwoPi / 1024.0F),
+        color,
+        t,
+        {effect.position, scale},
+      }
+    );
+    ++scene.transientVfxStats.explosionInstancesSubmitted;
+  }
+}
+
 void finalizeStaticMeshBatches(Scene3D& scene) {
   std::sort(
     scene.staticMeshInstances.begin(),
@@ -2187,6 +2260,7 @@ void addProjectileInstances(
   const Vec3 position =
     projectileVisualPosition(projectile, player, remotePlayers, settings);
   const float pulseSeed = static_cast<float>(projectileIndex) * 0.371F;
+  const float rotation = projectileRotationRadians(projectile, projectileIndex);
   const float cullRadius =
     std::max(descriptor->coreScale, descriptor->glowScale);
   if (
@@ -2207,27 +2281,30 @@ void addProjectileInstances(
         RenderPass::OpaqueWorld,
         position,
         {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
-        0.0F,
+        rotation,
         descriptor->coreColor,
         pulseSeed,
         {position, descriptor->coreScale},
       }
     );
-    ++scene.projectileStats.projectileCoreInstances;
+    countProjectileCoreInstance(scene.projectileStats, descriptor->type);
   }
   if (descriptor->glowBillboard != BillboardHandle::Invalid) {
+    const Vec3 glowPosition = descriptor->type == ProjectileVisualType::Rocket
+      ? position - yawForward(rotation) * (descriptor->coreScale * 0.9F)
+      : position;
     appendSimpleInstance(
       scene,
       {
         MeshHandle::Invalid,
         descriptor->glowBillboard,
         descriptor->usesAdditiveGlow ? RenderPass::AdditiveGlow : RenderPass::TranslucentWorld,
-        position,
+        glowPosition,
         {descriptor->glowScale, descriptor->glowScale, descriptor->glowScale},
         0.0F,
         descriptor->glowColor,
         pulseSeed,
-        {position, descriptor->glowScale},
+        {glowPosition, descriptor->glowScale},
       }
     );
     ++scene.projectileStats.projectileGlowInstances;
@@ -2269,17 +2346,50 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
     });
   }
   scene.projectileStats.projectileInstanceUploadBytes =
-    static_cast<std::uint32_t>(scene.simpleInstances.size()) *
+    (
+      scene.projectileStats.projectileCoreInstances +
+      scene.projectileStats.projectileGlowInstances
+    ) * kSimpleInstanceUploadBytes;
+  scene.transientVfxStats.tracerInstanceUploadBytes =
+    scene.transientVfxStats.tracerInstancesSubmitted *
+    kSimpleInstanceUploadBytes;
+  scene.transientVfxStats.explosionInstanceUploadBytes =
+    scene.transientVfxStats.explosionInstancesSubmitted *
     kSimpleInstanceUploadBytes;
   for (const SimpleRenderBatch& batch : scene.simpleBatches) {
     if (batch.instanceCount == 0U) {
       continue;
     }
     if (batch.mesh != MeshHandle::Invalid) {
-      ++scene.projectileStats.projectileMeshDrawCalls;
+      if (
+        batch.mesh == MeshHandle::MachineGunTracer ||
+        batch.mesh == MeshHandle::ShotgunTracer
+      ) {
+        ++scene.transientVfxStats.tracerBatches;
+        ++scene.transientVfxStats.tracerDrawCalls;
+      } else if (batch.mesh == MeshHandle::ExplosionCore) {
+        ++scene.transientVfxStats.explosionOpaqueBatches;
+        ++scene.transientVfxStats.explosionDrawCalls;
+      } else {
+        ++scene.projectileStats.projectileMeshDrawCalls;
+      }
+      if (batch.pass == RenderPass::OpaqueWorld) {
+        ++scene.projectileStats.opaqueProjectileBatches;
+      }
     }
     if (batch.billboard != BillboardHandle::Invalid) {
-      ++scene.projectileStats.projectileGlowDrawCalls;
+      if (
+        batch.billboard == BillboardHandle::ExplosionFlash ||
+        batch.billboard == BillboardHandle::ExplosionHalo
+      ) {
+        ++scene.transientVfxStats.explosionAdditiveBatches;
+        ++scene.transientVfxStats.explosionDrawCalls;
+      } else {
+        ++scene.projectileStats.projectileGlowDrawCalls;
+        if (batch.pass == RenderPass::AdditiveGlow) {
+          ++scene.projectileStats.additiveProjectileBatches;
+        }
+      }
     }
   }
 }
@@ -2295,6 +2405,8 @@ Scene3D buildPerspectiveScene(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 ) {
   (void)arena;
@@ -2549,28 +2661,10 @@ Scene3D buildPerspectiveScene(
         fire.hit ? 0.045F : 0.03F,
         fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}
       );
-    } else if (fire.weapon == Weapon::RocketLauncher) {
-      addSegment(
-        scene,
-        fire.start,
-        fire.end,
-        0.04F,
-        {255, 150, 70, 255}
-      );
-    } else if (fire.weapon == Weapon::MachineGun) {
-      addMachineGunFireVisuals(
-        scene,
-        fire,
-        machineGunVisualSource(fire, player, remotePlayers, fireIndex, settings)
-      );
-    } else if (fire.weapon == Weapon::Shotgun) {
-      addShotgunFireVisuals(
-        scene,
-        fire,
-        shotgunVisualSource(fire, player, remotePlayers, fireIndex, settings)
-      );
     }
   }
+  addTransientTracerInstances(scene, transientTracers, settings);
+  addTransientEffectInstances(scene, transientEffects, settings);
   for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {
     const RocketProjectileSnapshot& projectile = rockets[projectileIndex];
     if (!projectile.active) {
@@ -2578,86 +2672,16 @@ Scene3D buildPerspectiveScene(
     }
     ++scene.projectileStats.projectilesActive;
 
-    const Vec3 projectilePosition =
-      projectileVisualPosition(projectile, player, remotePlayers, settings);
-    const float projectileSize =
-      projectile.radius > 0.0F ? projectile.radius : 0.14F;
-
-    if (projectile.weapon == Weapon::PlasmaGun) {
-      addProjectileInstances(
-        scene,
-        projectile,
-        projectileIndex,
-        player,
-        remotePlayers,
-        settings
-      );
-      continue;
-    }
-
-    if (projectile.weapon == Weapon::GrenadeLauncher) {
-      const std::uint32_t before =
-        static_cast<std::uint32_t>(scene.vertices.size());
-      addSphereApprox(
-        scene,
-        projectilePosition,
-        projectileSize,
-        {8, 48, 18, 255}
-      );
-      addWireBox(
-        scene,
-        projectilePosition - Vec3{
-          projectileSize * 1.4F,
-          projectileSize * 1.4F,
-          projectileSize * 1.4F
-        },
-        projectilePosition + Vec3{
-          projectileSize * 1.4F,
-          projectileSize * 1.4F,
-          projectileSize * 1.4F
-        },
-        0.012F,
-        {255, 220, 100, 255}
-      );
-      scene.projectileStats.legacyProjectileDynamicVertices +=
-        static_cast<std::uint32_t>(scene.vertices.size()) - before;
-      ++scene.projectileStats.projectilesRendered;
-      continue;
-    }
-
-    constexpr float size = 0.14F;
-    const std::uint32_t before =
-      static_cast<std::uint32_t>(scene.vertices.size());
-    addBox(
+    addProjectileInstances(
       scene,
-      projectilePosition - Vec3{size, size, size},
-      projectilePosition + Vec3{size, size, size},
-      {255, 126, 40, 255}
-    );
-    addWireBox(
-      scene,
-      projectilePosition - Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-      projectilePosition + Vec3{size * 1.4F, size * 1.4F, size * 1.4F},
-      0.012F,
-      {255, 220, 100, 255}
-    );
-    scene.projectileStats.legacyProjectileDynamicVertices +=
-      static_cast<std::uint32_t>(scene.vertices.size()) - before;
-    ++scene.projectileStats.projectilesRendered;
-  }
-  for (const RocketExplosionResult& explosion : rocketExplosions) {
-    if (!explosion.active) {
-      continue;
-    }
-    const Vec3 radius{explosion.radius, explosion.radius, explosion.radius};
-    addWireBox(
-      scene,
-      explosion.position - radius,
-      explosion.position + radius,
-      0.025F,
-      {255, 185, 80, 220}
+      projectile,
+      projectileIndex,
+      player,
+      remotePlayers,
+      settings
     );
   }
+  (void)rocketExplosions;
   (void)localLightningGun;
   finalizeStaticMeshBatches(scene);
   finalizeProjectileInstanceStats(scene);
@@ -2715,6 +2739,8 @@ Scene3D buildPerspectiveScene(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 ) {
   std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
@@ -2737,6 +2763,118 @@ Scene3D buildPerspectiveScene(
     weaponFires,
     rocketExplosions,
     rockets,
+    transientTracers,
+    transientEffects,
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    opponent,
+    localLightningGun,
+    opponentLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    transientTracers,
+    std::span<const TransientEffect>{},
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    opponent,
+    localLightningGun,
+    opponentLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const TransientTracer>{},
+    std::span<const TransientEffect>{},
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    transientTracers,
+    std::span<const TransientEffect>{},
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const TransientTracer>{},
+    std::span<const TransientEffect>{},
     settings
   );
 }

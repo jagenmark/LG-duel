@@ -40,6 +40,7 @@ public:
     float lightningKnockback,
     float lightningFireHz,
     float rocketKnockback,
+    std::int32_t knockbackTimeMs,
     const WeaponDamageTuning& weaponDamage,
     float vampirism,
     std::uint8_t selfDamagePercent,
@@ -134,6 +135,7 @@ private:
   float lightningKnockback_ = 1000.0F;
   float lightningFireHz_ = 20.0F;
   float rocketKnockback_ = 1000.0F;
+  std::int32_t knockbackTimeMs_ = 100;
   WeaponDamageTuning weaponDamage_ = {};
   LightningGunTuning lightningGunTuning_ = {};
   HitscanTuning railgunTuning_ = {};
@@ -158,6 +160,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> plasmaGunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> rocketExplosionSequences_ = {};
   std::array<Weapon, kDuelPlayerCount> selectedWeapons_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> weaponPulloutTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};

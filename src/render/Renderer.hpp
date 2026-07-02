@@ -1,12 +1,14 @@
 #pragma once
 
 #include "app/HudPresentation.hpp"
+#include "render/DrawList2D.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
 #include "net/NetProtocol.hpp"
 #include "sim/PlayerState.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -252,6 +254,44 @@ struct RemotePlayerView {
   std::string name;
 };
 
+enum class TracerStyle : std::uint8_t {
+  MachineGun,
+  Shotgun,
+};
+
+struct TransientTracer {
+  Vec3 start = {};
+  Vec3 end = {};
+  float ageSeconds = 0.0F;
+  float lifetimeSeconds = 0.05F;
+  float width = 0.012F;
+  RenderColor color = {};
+  std::uint32_t seed = 0;
+  TracerStyle style = TracerStyle::MachineGun;
+};
+
+enum class TransientEffectType : std::uint8_t {
+  RocketExplosionFlash,
+  RocketExplosionCore,
+  RocketExplosionHalo,
+  PlasmaExplosionFlash,
+  PlasmaExplosionCore,
+  PlasmaExplosionHalo,
+  GrenadeExplosionFlash,
+  GrenadeExplosionCore,
+};
+
+struct TransientEffect {
+  TransientEffectType type = TransientEffectType::RocketExplosionCore;
+  Vec3 position = {};
+  float ageSeconds = 0.0F;
+  float lifetimeSeconds = 0.0F;
+  float initialScale = 1.0F;
+  float finalScale = 1.0F;
+  RenderColor color = {};
+  std::uint32_t seed = 0;
+};
+
 struct RendererFrameDiagnostics {
   float swapchainAcquireMilliseconds = 0.0F;
   float sceneBuildMilliseconds = 0.0F;
@@ -297,12 +337,37 @@ struct RendererFrameDiagnostics {
   std::uint32_t projectilesActive = 0;
   std::uint32_t projectilesFrustumCulled = 0;
   std::uint32_t projectilesRendered = 0;
+  std::uint32_t plasmaInstances = 0;
+  std::uint32_t rocketInstances = 0;
+  std::uint32_t grenadeInstances = 0;
   std::uint32_t projectileCoreInstances = 0;
   std::uint32_t projectileGlowInstances = 0;
+  std::uint32_t opaqueProjectileBatches = 0;
+  std::uint32_t additiveProjectileBatches = 0;
   std::uint32_t projectileInstanceUploadBytes = 0;
   std::uint32_t projectileMeshDrawCalls = 0;
   std::uint32_t projectileGlowDrawCalls = 0;
   std::uint32_t legacyProjectileDynamicVertices = 0;
+  std::uint32_t activeTransientEffects = 0;
+  std::uint32_t activeMachineGunTracers = 0;
+  std::uint32_t activeShotgunTracers = 0;
+  std::uint32_t activeExplosionEffects = 0;
+  std::uint32_t newExplosionEventsConsumed = 0;
+  std::uint32_t tracerCandidates = 0;
+  std::uint32_t tracerFrustumCulled = 0;
+  std::uint32_t tracerInstancesSubmitted = 0;
+  std::uint32_t tracerInstanceUploadBytes = 0;
+  std::uint32_t tracerBatches = 0;
+  std::uint32_t tracerDrawCalls = 0;
+  std::uint32_t explosionCandidates = 0;
+  std::uint32_t explosionFrustumCulled = 0;
+  std::uint32_t explosionInstancesSubmitted = 0;
+  std::uint32_t explosionInstanceUploadBytes = 0;
+  std::uint32_t explosionOpaqueBatches = 0;
+  std::uint32_t explosionAdditiveBatches = 0;
+  std::uint32_t explosionDrawCalls = 0;
+  std::uint32_t legacyWireframeExplosionDraws = 0;
+  std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
   std::string_view selectedPresentModeName = "n/a";
 };
 
@@ -328,6 +393,9 @@ public:
     const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
     const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
     const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+    std::span<const TransientTracer> transientTracers,
+    std::span<const TransientEffect> transientEffects,
+    std::uint32_t newExplosionEventsConsumed,
     const RenderSettings& settings,
     const HudRenderState& hud,
     const ConsoleRenderState& console

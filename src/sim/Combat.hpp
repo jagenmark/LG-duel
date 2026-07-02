@@ -157,6 +157,7 @@ struct RocketExplosionResult {
   float radius = 0.0F;
   int ownerDamageApplied = 0;
   int opponentDamageApplied = 0;
+  std::uint32_t sequence = 0;
   bool active = false;
   Weapon weapon = Weapon::RocketLauncher;
 };
@@ -191,6 +192,14 @@ void resetTraceWorldDiagnostics();
   Vec3 origin,
   Vec3 direction,
   float maxDistance
+);
+
+[[nodiscard]] Vec3 shotgunPelletDirection(
+  Vec3 forward,
+  Vec3 right,
+  Vec3 up,
+  float spreadRadians,
+  std::uint8_t pelletIndex
 );
 
 [[nodiscard]] bool tracePlayerCylinder(

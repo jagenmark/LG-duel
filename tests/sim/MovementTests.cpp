@@ -134,6 +134,78 @@ int main() {
 
   {
     lg::UserCommand coast;
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 20.0F;
+    lg::PlayerState normal = groundedPlayer();
+    lg::PlayerState disabledTimer = groundedPlayer();
+    normal.velocity.x = 8.0F;
+    disabledTimer.velocity.x = 8.0F;
+    disabledTimer.knockbackTicksRemaining = 0;
+
+    runCommand(normal, coast, tuning, 1);
+    runCommand(disabledTimer, coast, tuning, 1);
+
+    failures += expect(
+      nearlyEqual(normal.velocity.x, disabledTimer.velocity.x),
+      "disabled knockback timer should preserve normal grounded friction"
+    );
+  }
+
+  {
+    lg::UserCommand coast;
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 20.0F;
+    lg::PlayerState normal = groundedPlayer();
+    lg::PlayerState knocked = groundedPlayer();
+    normal.velocity.x = 8.0F;
+    knocked.velocity.x = 8.0F;
+    knocked.knockbackTicksRemaining = 2;
+
+    runCommand(normal, coast, tuning, 1);
+    runCommand(knocked, coast, tuning, 1);
+
+    failures += expect(
+      knocked.velocity.x > normal.velocity.x + 1.0F,
+      "active knockback timer should skip grounded friction"
+    );
+    failures += expect(
+      knocked.onGround &&
+        knocked.movementMode == lg::MovementMode::Grounded,
+      "active knockback timer should preserve physical grounded state"
+    );
+    failures += expect(
+      knocked.knockbackTicksRemaining == 1,
+      "knockback timer should decrement after the affected movement tick"
+    );
+  }
+
+  {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 100.0F;
+    tuning.airAcceleration = 1.0F;
+    tuning.maxGroundSpeed = 8.0F;
+    tuning.maxAirSpeed = 8.0F;
+    lg::PlayerState normal = groundedPlayer();
+    lg::PlayerState knocked = groundedPlayer();
+    knocked.knockbackTicksRemaining = 1;
+
+    runCommand(normal, command, tuning, 1);
+    runCommand(knocked, command, tuning, 1);
+
+    failures += expect(
+      normal.velocity.x > knocked.velocity.x * 10.0F,
+      "grounded knockback timer should use air acceleration instead of ground acceleration"
+    );
+    failures += expect(
+      knocked.knockbackTicksRemaining == 0,
+      "one tick of knockback timer should expire after exactly one movement tick"
+    );
+  }
+
+  {
+    lg::UserCommand coast;
     lg::MovementTuning lowStopSpeed;
     lowStopSpeed.groundFriction = 6.0F;
     lowStopSpeed.stopSpeed = 0.0F;

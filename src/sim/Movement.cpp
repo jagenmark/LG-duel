@@ -92,6 +92,8 @@ void simulateGroundedOrAirborne(
     player.jumpHeld = false;
   }
 
+  const bool knockbackActive = player.knockbackTicksRemaining > 0;
+  const bool useAirMovement = !player.onGround || knockbackActive;
   const bool jumpStarted = player.onGround && command.jump && !player.jumpHeld;
   if (jumpStarted) {
     player.velocity.z = tuning.jumpImpulse;
@@ -100,22 +102,23 @@ void simulateGroundedOrAirborne(
     player.movementMode = MovementMode::Airborne;
   } else if (player.onGround) {
     player.movementMode = MovementMode::Grounded;
-    applyGroundFriction(player.velocity, tuning, fixedDt);
+    if (!knockbackActive) {
+      applyGroundFriction(player.velocity, tuning, fixedDt);
+    }
   } else {
     player.movementMode = MovementMode::Airborne;
   }
 
   const Vec3 wishDirection = movementWishDirection(command);
   if (length(wishDirection) > 0.0F) {
-    const bool grounded = player.movementMode == MovementMode::Grounded;
     accelerate(
       player.velocity,
       wishDirection,
-      grounded ? tuning.maxGroundSpeed : tuning.maxAirSpeed,
-      grounded ? tuning.groundAcceleration : tuning.airAcceleration,
+      useAirMovement ? tuning.maxAirSpeed : tuning.maxGroundSpeed,
+      useAirMovement ? tuning.airAcceleration : tuning.groundAcceleration,
       fixedDt
     );
-    if (!grounded && tuning.airControlEnabled) {
+    if (useAirMovement && tuning.airControlEnabled) {
       applyAirControl(player.velocity, command, wishDirection, fixedDt);
     }
   }
@@ -135,6 +138,9 @@ void simulateGroundedOrAirborne(
   player.velocity = collision.velocity;
   player.onGround = collision.onGround;
   player.movementMode = player.onGround ? MovementMode::Grounded : MovementMode::Airborne;
+  if (player.knockbackTicksRemaining > 0) {
+    --player.knockbackTicksRemaining;
+  }
 }
 
 void applyFlightDamping(
