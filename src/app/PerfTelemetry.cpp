@@ -69,6 +69,11 @@ PerfWindowSummary PerfTelemetry::summarize() {
   summary.totalRender = summarizeMetric(
     [](const PerfSample& sample) { return sample.totalRenderMilliseconds; }
   );
+  summary.traceWorld = summarizeMetric(
+    [](const PerfSample& sample) {
+      return static_cast<float>(sample.traceWorld.totalNanoseconds) / 1000000.0F;
+    }
+  );
   summary.snapshotDecode = summarizeMetric(
     [](const PerfSample& sample) {
       return sample.snapshot.snapshotDecodeMilliseconds;

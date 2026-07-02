@@ -168,10 +168,24 @@ struct WorldTrace {
   float distance = 0.0F;
 };
 
+struct TraceWorldDiagnostics {
+  std::uint64_t calls = 0;
+  std::uint64_t wallChecks = 0;
+  std::uint64_t brushCandidates = 0;
+  std::uint64_t brushExactTests = 0;
+  std::uint64_t brushFaceChecks = 0;
+  std::uint64_t brushBoxSkips = 0;
+  std::uint64_t totalNanoseconds = 0;
+};
+
 [[nodiscard]] Vec3 weaponMuzzlePosition(
   const PlayerState& attacker,
   float eyeHeight
 );
+
+void setTraceWorldDiagnosticsEnabled(bool enabled);
+void resetTraceWorldDiagnostics();
+[[nodiscard]] TraceWorldDiagnostics traceWorldDiagnostics();
 
 [[nodiscard]] WorldTrace traceWorld(
   const Arena& arena,

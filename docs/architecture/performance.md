@@ -51,6 +51,10 @@ Projectile visuals use cheap approximations: boxes, wire boxes, and low-detail s
 
 Static world triangles may be larger, but should be built and uploaded only when the arena or material/light data changes. Debug render overlays and logs are gated by cvars or environment variables and should stay off by default.
 
+`traceWorld()` instrumentation is gated by `r_perf` or `trace_record_start`. When `r_perf` is enabled, the detailed perf HUD reports trace calls, wall checks, convex brush candidates, exact brush tests, face checks, brush-box skips, and latest/average/p95 trace time. Keep it off for normal play; use `r_perf_reset` before repeated HUD measurement runs.
+
+For route-based trace experiments, use `trace_record_start` at the route start and `trace_record_stop [csv_path]` at the route end. The recorder keeps every per-frame sample from that interval, writes the samples to CSV, and prints totals, per-frame averages, and trace-time percentiles. Use this before and after trace optimizations on the same map, route, resolution, player count, and visual settings; compare calls, brush candidates, exact brush tests, face checks, box skips, and total trace time.
+
 ## Networking Budgets
 
 Do not send static map, mesh, texture, or verbose debug data every tick. Use ids, revisions, checksums, deltas, or explicit on-change payloads. New snapshot fields should answer whether the data is authoritative, whether clients can derive it, whether it can be quantized, and whether it is per-tick or event-only.
