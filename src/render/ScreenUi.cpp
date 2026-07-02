@@ -2,6 +2,7 @@
 #include "app/TextInput.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
+#include "sim/Combat.hpp"
 
 #include <algorithm>
 #include <array>
@@ -348,58 +349,16 @@ void addSelectedWeaponIndicator(
   };
 }
 
-[[nodiscard]] bool segmentIntersectsWallBeforeEnd(
-  Vec3 start,
-  Vec3 end,
-  const ArenaWall& wall
-) {
-  const Vec3 direction = end - start;
-  float entry = 0.0F;
-  float exit = 1.0F;
-
-  const auto clipAxis = [&entry, &exit](
-    float origin,
-    float axisDirection,
-    float minimum,
-    float maximum
-  ) {
-    if (std::fabs(axisDirection) <= 0.00001F) {
-      return origin >= minimum && origin <= maximum;
-    }
-    const float first = (minimum - origin) / axisDirection;
-    const float second = (maximum - origin) / axisDirection;
-    entry = std::max(entry, std::min(first, second));
-    exit = std::min(exit, std::max(first, second));
-    return entry <= exit;
-  };
-
-  if (
-    !clipAxis(start.x, direction.x, wall.min.x, wall.max.x) ||
-    !clipAxis(start.y, direction.y, wall.min.y, wall.max.y) ||
-    !clipAxis(start.z, direction.z, wall.min.z, wall.max.z)
-  ) {
-    return false;
-  }
-  return exit >= 0.0F && entry < 0.999F;
-}
-
 [[nodiscard]] bool hasClearLineToPoint(
   const PerspectiveCamera& camera,
   const Arena& arena,
   Vec3 point
 ) {
-  for (std::size_t index = 0; index < arena.wallCount; ++index) {
-    if (
-      segmentIntersectsWallBeforeEnd(
-        camera.position,
-        point,
-        arena.walls[index]
-      )
-    ) {
-      return false;
-    }
+  const Vec3 direction = point - camera.position;
+  if (length(direction) <= 0.00001F) {
+    return true;
   }
-  return true;
+  return traceWorld(arena, camera.position, direction, 1.0F).distance >= 0.999F;
 }
 
 [[nodiscard]] bool enemyBodyVisibleFromCamera(
