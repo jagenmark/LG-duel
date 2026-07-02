@@ -33,6 +33,7 @@ bool sameRocketExplosionEvent(
     lhs.weapon == rhs.weapon &&
     lhs.ownerDamageApplied == rhs.ownerDamageApplied &&
     lhs.opponentDamageApplied == rhs.opponentDamageApplied &&
+    lhs.sequence == rhs.sequence &&
     lhs.radius == rhs.radius &&
     sameVec3(lhs.position, rhs.position);
 }

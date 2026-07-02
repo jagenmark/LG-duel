@@ -245,9 +245,9 @@ struct GpuStaticInstanceBuffer {
 };
 
 struct GpuSimpleResources {
-  GpuStaticMesh plasmaCore;
-  GpuBillboardMesh plasmaGlow;
   GpuInstanceBuffer instances;
+  std::vector<GpuStaticMesh> projectileMeshes;
+  std::vector<GpuBillboardMesh> projectileBillboards;
   std::vector<GpuStaticMesh> staticMeshes;
   GpuStaticInstanceBuffer staticInstances;
 };
@@ -316,11 +316,15 @@ void destroyGpuSimpleResources(SDL_GPUDevice* device, GpuSimpleResources* resour
   if (resources == nullptr) {
     return;
   }
-  if (resources->plasmaCore.vertexBuffer != nullptr) {
-    SDL_ReleaseGPUBuffer(device, resources->plasmaCore.vertexBuffer);
+  for (GpuStaticMesh& mesh : resources->projectileMeshes) {
+    if (mesh.vertexBuffer != nullptr) {
+      SDL_ReleaseGPUBuffer(device, mesh.vertexBuffer);
+    }
   }
-  if (resources->plasmaGlow.vertexBuffer != nullptr) {
-    SDL_ReleaseGPUBuffer(device, resources->plasmaGlow.vertexBuffer);
+  for (GpuBillboardMesh& billboard : resources->projectileBillboards) {
+    if (billboard.vertexBuffer != nullptr) {
+      SDL_ReleaseGPUBuffer(device, billboard.vertexBuffer);
+    }
   }
   for (GpuStaticMesh& mesh : resources->staticMeshes) {
     if (mesh.vertexBuffer != nullptr) {
@@ -1873,33 +1877,45 @@ void appendScene3D(
 
 [[nodiscard]] GpuSimpleResources* createGpuSimpleResources(SDL_GPUDevice* device) {
   auto* resources = new GpuSimpleResources();
-  const StaticMeshAsset* plasmaCore = staticMeshAsset(MeshHandle::PlasmaCore);
-  if (plasmaCore == nullptr || plasmaCore->vertices.empty()) {
-    destroyGpuSimpleResources(device, resources);
-    return nullptr;
+  const std::array<MeshHandle, 6> projectileMeshHandles = {{
+    MeshHandle::PlasmaCore,
+    MeshHandle::RocketProjectile,
+    MeshHandle::GrenadeProjectile,
+    MeshHandle::ExplosionCore,
+    MeshHandle::MachineGunTracer,
+    MeshHandle::ShotgunTracer,
+  }};
+  resources->projectileMeshes.reserve(projectileMeshHandles.size());
+  for (MeshHandle handle : projectileMeshHandles) {
+    const StaticMeshAsset* asset = staticMeshAsset(handle);
+    if (asset == nullptr || asset->vertices.empty()) {
+      destroyGpuSimpleResources(device, resources);
+      return nullptr;
+    }
+    std::vector<GpuVertex> meshVertices;
+    meshVertices.reserve(asset->vertices.size());
+    for (const Vertex3D& vertex : asset->vertices) {
+      meshVertices.push_back({
+        vertex.position.x,
+        vertex.position.y,
+        vertex.position.z,
+        vertex.color.red,
+        vertex.color.green,
+        vertex.color.blue,
+        vertex.color.alpha,
+        0.0F,
+        0.0F,
+      });
+    }
+    GpuStaticMesh mesh;
+    if (!uploadStaticVertices(device, meshVertices, mesh.vertexBuffer)) {
+      destroyGpuSimpleResources(device, resources);
+      return nullptr;
+    }
+    mesh.vertexCount = static_cast<Uint32>(meshVertices.size());
+    mesh.handle = handle;
+    resources->projectileMeshes.push_back(mesh);
   }
-
-  std::vector<GpuVertex> coreVertices;
-  coreVertices.reserve(plasmaCore->vertices.size());
-  for (const Vertex3D& vertex : plasmaCore->vertices) {
-    coreVertices.push_back({
-      vertex.position.x,
-      vertex.position.y,
-      vertex.position.z,
-      vertex.color.red,
-      vertex.color.green,
-      vertex.color.blue,
-      vertex.color.alpha,
-      0.0F,
-      0.0F,
-    });
-  }
-  if (!uploadStaticVertices(device, coreVertices, resources->plasmaCore.vertexBuffer)) {
-    destroyGpuSimpleResources(device, resources);
-    return nullptr;
-  }
-  resources->plasmaCore.vertexCount = static_cast<Uint32>(coreVertices.size());
-  resources->plasmaCore.handle = MeshHandle::PlasmaCore;
 
   const std::array<GpuVertex, 6> glowQuad = {{
     {-1.0F, -1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 0.0F},
@@ -1909,12 +1925,23 @@ void appendScene3D(
     { 1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 1.0F, 1.0F},
     {-1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 1.0F},
   }};
-  if (!uploadStaticVertices(device, glowQuad, resources->plasmaGlow.vertexBuffer)) {
-    destroyGpuSimpleResources(device, resources);
-    return nullptr;
+  const std::array<BillboardHandle, 4> projectileBillboardHandles = {{
+    BillboardHandle::PlasmaGlow,
+    BillboardHandle::RocketFlame,
+    BillboardHandle::ExplosionFlash,
+    BillboardHandle::ExplosionHalo,
+  }};
+  resources->projectileBillboards.reserve(projectileBillboardHandles.size());
+  for (BillboardHandle handle : projectileBillboardHandles) {
+    GpuBillboardMesh billboard;
+    if (!uploadStaticVertices(device, glowQuad, billboard.vertexBuffer)) {
+      destroyGpuSimpleResources(device, resources);
+      return nullptr;
+    }
+    billboard.vertexCount = static_cast<Uint32>(glowQuad.size());
+    billboard.handle = handle;
+    resources->projectileBillboards.push_back(billboard);
   }
-  resources->plasmaGlow.vertexCount = static_cast<Uint32>(glowQuad.size());
-  resources->plasmaGlow.handle = BillboardHandle::PlasmaGlow;
   const std::array<MeshHandle, 7> staticMeshHandles = {{
     MeshHandle::RemoteMachineGun,
     MeshHandle::RemoteShotgun,
@@ -2148,6 +2175,30 @@ void appendScene3D(
   return nullptr;
 }
 
+[[nodiscard]] const GpuStaticMesh* findProjectileMesh(
+  const GpuSimpleResources& resources,
+  MeshHandle handle
+) {
+  for (const GpuStaticMesh& mesh : resources.projectileMeshes) {
+    if (mesh.handle == handle) {
+      return &mesh;
+    }
+  }
+  return nullptr;
+}
+
+[[nodiscard]] const GpuBillboardMesh* findProjectileBillboard(
+  const GpuSimpleResources& resources,
+  BillboardHandle handle
+) {
+  for (const GpuBillboardMesh& billboard : resources.projectileBillboards) {
+    if (billboard.handle == handle) {
+      return &billboard;
+    }
+  }
+  return nullptr;
+}
+
 void drawStaticMeshBatches(
   SDL_GPURenderPass* pass,
   SDL_GPUGraphicsPipeline* pipeline,
@@ -2203,17 +2254,25 @@ void drawSimpleInstanceBatches(
     if (batch.instanceCount == 0U) {
       continue;
     }
-    if (batch.mesh == MeshHandle::PlasmaCore && batch.pass == RenderPass::OpaqueWorld) {
+    if (
+      batch.mesh != MeshHandle::Invalid &&
+      (
+        batch.pass == RenderPass::OpaqueWorld ||
+        batch.pass == RenderPass::TranslucentWorld
+      )
+    ) {
+      const GpuStaticMesh* mesh = findProjectileMesh(*resources, batch.mesh);
       if (
         meshPipeline == nullptr ||
-        resources->plasmaCore.vertexBuffer == nullptr ||
-        resources->plasmaCore.vertexCount == 0U
+        mesh == nullptr ||
+        mesh->vertexBuffer == nullptr ||
+        mesh->vertexCount == 0U
       ) {
         continue;
       }
       SDL_BindGPUGraphicsPipeline(pass, meshPipeline);
       const std::array<SDL_GPUBufferBinding, 2> bindings = {{
-        {resources->plasmaCore.vertexBuffer, 0},
+        {mesh->vertexBuffer, 0},
         {
           resources->instances.buffer,
           batch.firstInstance * static_cast<Uint32>(sizeof(GpuSimpleInstance)),
@@ -2222,25 +2281,28 @@ void drawSimpleInstanceBatches(
       SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
       SDL_DrawGPUPrimitives(
         pass,
-        resources->plasmaCore.vertexCount,
+        mesh->vertexCount,
         batch.instanceCount,
         0,
         0
       );
     } else if (
-      batch.billboard == BillboardHandle::PlasmaGlow &&
+      batch.billboard != BillboardHandle::Invalid &&
       batch.pass == RenderPass::AdditiveGlow
     ) {
+      const GpuBillboardMesh* billboard =
+        findProjectileBillboard(*resources, batch.billboard);
       if (
         glowPipeline == nullptr ||
-        resources->plasmaGlow.vertexBuffer == nullptr ||
-        resources->plasmaGlow.vertexCount == 0U
+        billboard == nullptr ||
+        billboard->vertexBuffer == nullptr ||
+        billboard->vertexCount == 0U
       ) {
         continue;
       }
       SDL_BindGPUGraphicsPipeline(pass, glowPipeline);
       const std::array<SDL_GPUBufferBinding, 2> bindings = {{
-        {resources->plasmaGlow.vertexBuffer, 0},
+        {billboard->vertexBuffer, 0},
         {
           resources->instances.buffer,
           batch.firstInstance * static_cast<Uint32>(sizeof(GpuSimpleInstance)),
@@ -2249,7 +2311,7 @@ void drawSimpleInstanceBatches(
       SDL_BindGPUVertexBuffers(pass, 0, bindings.data(), static_cast<Uint32>(bindings.size()));
       SDL_DrawGPUPrimitives(
         pass,
-        resources->plasmaGlow.vertexCount,
+        billboard->vertexCount,
         batch.instanceCount,
         0,
         0
@@ -2573,6 +2635,9 @@ const PlayerState& firstVisibleRemote(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  std::uint32_t newExplosionEventsConsumed,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console,
@@ -2621,12 +2686,37 @@ const PlayerState& firstVisibleRemote(
   diagnostics.projectilesActive = 0;
   diagnostics.projectilesFrustumCulled = 0;
   diagnostics.projectilesRendered = 0;
+  diagnostics.plasmaInstances = 0;
+  diagnostics.rocketInstances = 0;
+  diagnostics.grenadeInstances = 0;
   diagnostics.projectileCoreInstances = 0;
   diagnostics.projectileGlowInstances = 0;
+  diagnostics.opaqueProjectileBatches = 0;
+  diagnostics.additiveProjectileBatches = 0;
   diagnostics.projectileInstanceUploadBytes = 0;
   diagnostics.projectileMeshDrawCalls = 0;
   diagnostics.projectileGlowDrawCalls = 0;
   diagnostics.legacyProjectileDynamicVertices = 0;
+  diagnostics.activeTransientEffects = 0;
+  diagnostics.activeMachineGunTracers = 0;
+  diagnostics.activeShotgunTracers = 0;
+  diagnostics.activeExplosionEffects = 0;
+  diagnostics.newExplosionEventsConsumed = 0;
+  diagnostics.tracerCandidates = 0;
+  diagnostics.tracerFrustumCulled = 0;
+  diagnostics.tracerInstancesSubmitted = 0;
+  diagnostics.tracerInstanceUploadBytes = 0;
+  diagnostics.tracerBatches = 0;
+  diagnostics.tracerDrawCalls = 0;
+  diagnostics.explosionCandidates = 0;
+  diagnostics.explosionFrustumCulled = 0;
+  diagnostics.explosionInstancesSubmitted = 0;
+  diagnostics.explosionInstanceUploadBytes = 0;
+  diagnostics.explosionOpaqueBatches = 0;
+  diagnostics.explosionAdditiveBatches = 0;
+  diagnostics.explosionDrawCalls = 0;
+  diagnostics.legacyWireframeExplosionDraws = 0;
+  diagnostics.legacyMachineGunShotgunVisualDraws = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -2667,6 +2757,8 @@ const PlayerState& firstVisibleRemote(
       weaponFires,
       rocketExplosions,
       rockets,
+      transientTracers,
+      transientEffects,
       settings
     );
     diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
@@ -2695,10 +2787,20 @@ const PlayerState& firstVisibleRemote(
       perspectiveScene.projectileStats.projectilesFrustumCulled;
     diagnostics.projectilesRendered =
       perspectiveScene.projectileStats.projectilesRendered;
+    diagnostics.plasmaInstances =
+      perspectiveScene.projectileStats.plasmaInstances;
+    diagnostics.rocketInstances =
+      perspectiveScene.projectileStats.rocketInstances;
+    diagnostics.grenadeInstances =
+      perspectiveScene.projectileStats.grenadeInstances;
     diagnostics.projectileCoreInstances =
       perspectiveScene.projectileStats.projectileCoreInstances;
     diagnostics.projectileGlowInstances =
       perspectiveScene.projectileStats.projectileGlowInstances;
+    diagnostics.opaqueProjectileBatches =
+      perspectiveScene.projectileStats.opaqueProjectileBatches;
+    diagnostics.additiveProjectileBatches =
+      perspectiveScene.projectileStats.additiveProjectileBatches;
     diagnostics.projectileInstanceUploadBytes =
       perspectiveScene.projectileStats.projectileInstanceUploadBytes;
     diagnostics.projectileMeshDrawCalls =
@@ -2707,6 +2809,45 @@ const PlayerState& firstVisibleRemote(
       perspectiveScene.projectileStats.projectileGlowDrawCalls;
     diagnostics.legacyProjectileDynamicVertices =
       perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
+    diagnostics.activeTransientEffects =
+      perspectiveScene.transientVfxStats.activeEffects;
+    diagnostics.activeMachineGunTracers =
+      perspectiveScene.transientVfxStats.activeMachineGunTracers;
+    diagnostics.activeShotgunTracers =
+      perspectiveScene.transientVfxStats.activeShotgunTracers;
+    diagnostics.activeExplosionEffects =
+      perspectiveScene.transientVfxStats.activeExplosionEffects;
+    diagnostics.newExplosionEventsConsumed = newExplosionEventsConsumed;
+    diagnostics.tracerCandidates =
+      perspectiveScene.transientVfxStats.tracerCandidates;
+    diagnostics.tracerFrustumCulled =
+      perspectiveScene.transientVfxStats.tracerFrustumCulled;
+    diagnostics.tracerInstancesSubmitted =
+      perspectiveScene.transientVfxStats.tracerInstancesSubmitted;
+    diagnostics.tracerInstanceUploadBytes =
+      perspectiveScene.transientVfxStats.tracerInstanceUploadBytes;
+    diagnostics.tracerBatches =
+      perspectiveScene.transientVfxStats.tracerBatches;
+    diagnostics.tracerDrawCalls =
+      perspectiveScene.transientVfxStats.tracerDrawCalls;
+    diagnostics.explosionCandidates =
+      perspectiveScene.transientVfxStats.explosionCandidates;
+    diagnostics.explosionFrustumCulled =
+      perspectiveScene.transientVfxStats.explosionFrustumCulled;
+    diagnostics.explosionInstancesSubmitted =
+      perspectiveScene.transientVfxStats.explosionInstancesSubmitted;
+    diagnostics.explosionInstanceUploadBytes =
+      perspectiveScene.transientVfxStats.explosionInstanceUploadBytes;
+    diagnostics.explosionOpaqueBatches =
+      perspectiveScene.transientVfxStats.explosionOpaqueBatches;
+    diagnostics.explosionAdditiveBatches =
+      perspectiveScene.transientVfxStats.explosionAdditiveBatches;
+    diagnostics.explosionDrawCalls =
+      perspectiveScene.transientVfxStats.explosionDrawCalls;
+    diagnostics.legacyWireframeExplosionDraws =
+      perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
+    diagnostics.legacyMachineGunShotgunVisualDraws =
+      perspectiveScene.transientVfxStats.legacyMachineGunShotgunVisualDraws;
     diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
     diagnostics.remoteWeaponModelsBuilt =
       perspectiveScene.remoteWeaponModelsBuilt;
@@ -2867,9 +3008,11 @@ const PlayerState& firstVisibleRemote(
       return false;
     }
     diagnostics.projectileInstanceUploadBytes =
-      static_cast<std::uint32_t>(
-        perspectiveScene.simpleInstances.size() * sizeof(GpuSimpleInstance)
-      );
+      perspectiveScene.projectileStats.projectileInstanceUploadBytes;
+    diagnostics.tracerInstanceUploadBytes =
+      perspectiveScene.transientVfxStats.tracerInstanceUploadBytes;
+    diagnostics.explosionInstanceUploadBytes =
+      perspectiveScene.transientVfxStats.explosionInstanceUploadBytes;
     const auto uploadEnd = RenderClock::now();
     diagnostics.gpuVertexUploadMilliseconds =
       millisecondsBetween(uploadStart, uploadEnd);
@@ -4069,17 +4212,6 @@ void drawPerspectiveWorld(
         fire.end,
         fire.hit ? 4.0F : 2.5F
       );
-    } else if (fire.weapon == Weapon::RocketLauncher) {
-      SDL_SetRenderDrawColor(renderer, 255, 150, 70, 235);
-      drawThickPerspectiveLine(
-        renderer,
-        camera,
-        width,
-        height,
-        fire.start,
-        fire.end,
-        3.0F
-      );
     }
   }
   for (const RocketProjectileSnapshot& projectile : rockets) {
@@ -4109,21 +4241,7 @@ void drawPerspectiveWorld(
       projectile.position + Vec3{size, size, size}
     );
   }
-  for (const RocketExplosionResult& explosion : rocketExplosions) {
-    if (!explosion.active) {
-      continue;
-    }
-    SDL_SetRenderDrawColor(renderer, 255, 185, 80, 220);
-    const Vec3 radius{explosion.radius, explosion.radius, explosion.radius};
-    drawWireBox(
-      renderer,
-      camera,
-      width,
-      height,
-      explosion.position - radius,
-      explosion.position + radius
-    );
-  }
+  (void)rocketExplosions;
 }
 
 #endif
@@ -4354,6 +4472,9 @@ void Renderer::render(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  std::uint32_t newExplosionEventsConsumed,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console
@@ -4397,9 +4518,12 @@ void Renderer::render(
           player,
           remotePlayers,
           localLightningGun,
-          weaponFires,
+      weaponFires,
           rocketExplosions,
           rockets,
+          transientTracers,
+          transientEffects,
+          newExplosionEventsConsumed,
           settings,
           hud,
           console,
@@ -4460,12 +4584,37 @@ void Renderer::render(
   lastFrameDiagnostics_.projectilesActive = 0;
   lastFrameDiagnostics_.projectilesFrustumCulled = 0;
   lastFrameDiagnostics_.projectilesRendered = 0;
+  lastFrameDiagnostics_.plasmaInstances = 0;
+  lastFrameDiagnostics_.rocketInstances = 0;
+  lastFrameDiagnostics_.grenadeInstances = 0;
   lastFrameDiagnostics_.projectileCoreInstances = 0;
   lastFrameDiagnostics_.projectileGlowInstances = 0;
+  lastFrameDiagnostics_.opaqueProjectileBatches = 0;
+  lastFrameDiagnostics_.additiveProjectileBatches = 0;
   lastFrameDiagnostics_.projectileInstanceUploadBytes = 0;
   lastFrameDiagnostics_.projectileMeshDrawCalls = 0;
   lastFrameDiagnostics_.projectileGlowDrawCalls = 0;
   lastFrameDiagnostics_.legacyProjectileDynamicVertices = 0;
+  lastFrameDiagnostics_.activeTransientEffects = 0;
+  lastFrameDiagnostics_.activeMachineGunTracers = 0;
+  lastFrameDiagnostics_.activeShotgunTracers = 0;
+  lastFrameDiagnostics_.activeExplosionEffects = 0;
+  lastFrameDiagnostics_.newExplosionEventsConsumed = 0;
+  lastFrameDiagnostics_.tracerCandidates = 0;
+  lastFrameDiagnostics_.tracerFrustumCulled = 0;
+  lastFrameDiagnostics_.tracerInstancesSubmitted = 0;
+  lastFrameDiagnostics_.tracerInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.tracerBatches = 0;
+  lastFrameDiagnostics_.tracerDrawCalls = 0;
+  lastFrameDiagnostics_.explosionCandidates = 0;
+  lastFrameDiagnostics_.explosionFrustumCulled = 0;
+  lastFrameDiagnostics_.explosionInstancesSubmitted = 0;
+  lastFrameDiagnostics_.explosionInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.explosionOpaqueBatches = 0;
+  lastFrameDiagnostics_.explosionAdditiveBatches = 0;
+  lastFrameDiagnostics_.explosionDrawCalls = 0;
+  lastFrameDiagnostics_.legacyWireframeExplosionDraws = 0;
+  lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
@@ -4489,6 +4638,8 @@ void Renderer::render(
     weaponFires,
     rocketExplosions,
     rockets,
+    transientTracers,
+    transientEffects,
     settings
   );
   lastFrameDiagnostics_.totalUploadedVertices =
@@ -4525,10 +4676,20 @@ void Renderer::render(
     perspectiveScene.projectileStats.projectilesFrustumCulled;
   lastFrameDiagnostics_.projectilesRendered =
     perspectiveScene.projectileStats.projectilesRendered;
+  lastFrameDiagnostics_.plasmaInstances =
+    perspectiveScene.projectileStats.plasmaInstances;
+  lastFrameDiagnostics_.rocketInstances =
+    perspectiveScene.projectileStats.rocketInstances;
+  lastFrameDiagnostics_.grenadeInstances =
+    perspectiveScene.projectileStats.grenadeInstances;
   lastFrameDiagnostics_.projectileCoreInstances =
     perspectiveScene.projectileStats.projectileCoreInstances;
   lastFrameDiagnostics_.projectileGlowInstances =
     perspectiveScene.projectileStats.projectileGlowInstances;
+  lastFrameDiagnostics_.opaqueProjectileBatches =
+    perspectiveScene.projectileStats.opaqueProjectileBatches;
+  lastFrameDiagnostics_.additiveProjectileBatches =
+    perspectiveScene.projectileStats.additiveProjectileBatches;
   lastFrameDiagnostics_.projectileInstanceUploadBytes =
     perspectiveScene.projectileStats.projectileInstanceUploadBytes;
   lastFrameDiagnostics_.projectileMeshDrawCalls =
@@ -4537,6 +4698,44 @@ void Renderer::render(
     perspectiveScene.projectileStats.projectileGlowDrawCalls;
   lastFrameDiagnostics_.legacyProjectileDynamicVertices =
     perspectiveScene.projectileStats.legacyProjectileDynamicVertices;
+  lastFrameDiagnostics_.activeTransientEffects =
+    perspectiveScene.transientVfxStats.activeEffects;
+  lastFrameDiagnostics_.activeMachineGunTracers =
+    perspectiveScene.transientVfxStats.activeMachineGunTracers;
+  lastFrameDiagnostics_.activeShotgunTracers =
+    perspectiveScene.transientVfxStats.activeShotgunTracers;
+  lastFrameDiagnostics_.activeExplosionEffects =
+    perspectiveScene.transientVfxStats.activeExplosionEffects;
+  lastFrameDiagnostics_.newExplosionEventsConsumed = newExplosionEventsConsumed;
+  lastFrameDiagnostics_.tracerCandidates =
+    perspectiveScene.transientVfxStats.tracerCandidates;
+  lastFrameDiagnostics_.tracerFrustumCulled =
+    perspectiveScene.transientVfxStats.tracerFrustumCulled;
+  lastFrameDiagnostics_.tracerInstancesSubmitted =
+    perspectiveScene.transientVfxStats.tracerInstancesSubmitted;
+  lastFrameDiagnostics_.tracerInstanceUploadBytes =
+    perspectiveScene.transientVfxStats.tracerInstanceUploadBytes;
+  lastFrameDiagnostics_.tracerBatches =
+    perspectiveScene.transientVfxStats.tracerBatches;
+  lastFrameDiagnostics_.tracerDrawCalls =
+    perspectiveScene.transientVfxStats.tracerDrawCalls;
+  lastFrameDiagnostics_.explosionCandidates =
+    perspectiveScene.transientVfxStats.explosionCandidates;
+  lastFrameDiagnostics_.explosionFrustumCulled =
+    perspectiveScene.transientVfxStats.explosionFrustumCulled;
+  lastFrameDiagnostics_.explosionInstancesSubmitted =
+    perspectiveScene.transientVfxStats.explosionInstancesSubmitted;
+  lastFrameDiagnostics_.explosionInstanceUploadBytes =
+    perspectiveScene.transientVfxStats.explosionInstanceUploadBytes;
+  lastFrameDiagnostics_.explosionOpaqueBatches =
+    perspectiveScene.transientVfxStats.explosionOpaqueBatches;
+  lastFrameDiagnostics_.explosionAdditiveBatches =
+    perspectiveScene.transientVfxStats.explosionAdditiveBatches;
+  lastFrameDiagnostics_.explosionDrawCalls =
+    perspectiveScene.transientVfxStats.explosionDrawCalls;
+  lastFrameDiagnostics_.legacyWireframeExplosionDraws =
+    perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
+  lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
   lastFrameDiagnostics_.remoteBodyModelsBuilt =
     perspectiveScene.remoteBodyModelsBuilt;
   lastFrameDiagnostics_.remoteWeaponModelsBuilt =
@@ -4550,6 +4749,22 @@ void Renderer::render(
   lastFrameDiagnostics_.outlinedPlayers = perspectiveScene.outlinedPlayers;
   lastFrameDiagnostics_.geometryOutlineFallbackUsed =
     perspectiveScene.geometryOutlineFallbackUsed;
+  lastFrameDiagnostics_.plasmaInstances = 0;
+  lastFrameDiagnostics_.rocketInstances = 0;
+  lastFrameDiagnostics_.grenadeInstances = 0;
+  lastFrameDiagnostics_.projectileCoreInstances = 0;
+  lastFrameDiagnostics_.projectileGlowInstances = 0;
+  lastFrameDiagnostics_.opaqueProjectileBatches = 0;
+  lastFrameDiagnostics_.additiveProjectileBatches = 0;
+  lastFrameDiagnostics_.projectileInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.projectileMeshDrawCalls = 0;
+  lastFrameDiagnostics_.projectileGlowDrawCalls = 0;
+  lastFrameDiagnostics_.legacyProjectileDynamicVertices =
+    lastFrameDiagnostics_.projectilesRendered * 24U;
+  lastFrameDiagnostics_.tracerInstancesSubmitted = 0;
+  lastFrameDiagnostics_.tracerInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.tracerBatches = 0;
+  lastFrameDiagnostics_.tracerDrawCalls = 0;
   drawPerspectiveWorld(
     renderer,
     width,

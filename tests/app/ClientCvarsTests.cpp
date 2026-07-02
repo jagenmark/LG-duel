@@ -30,6 +30,11 @@ int main() {
     "LG knockback cvar should use the g_lg_knockback name"
   );
   failures += expect(
+    console.execute("g_knockback_time_ms") ==
+      "g_knockback_time_ms = 100 (default 100, Q3/QL default 100)",
+    "knockback movement timer cvar should default to the Q3 100 ms value"
+  );
+  failures += expect(
     console.execute("g_lg_knockback 500") == "g_lg_knockback = 500",
     "g_lg_knockback should be configurable"
   );

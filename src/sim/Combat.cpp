@@ -254,6 +254,16 @@ WorldTrace traceWorld(
   return trace;
 }
 
+Vec3 shotgunPelletDirection(
+  Vec3 forward,
+  Vec3 right,
+  Vec3 up,
+  float spreadRadians,
+  std::uint8_t pelletIndex
+) {
+  return pelletDirection(forward, right, up, spreadRadians, pelletIndex);
+}
+
 bool tracePlayerCylinder(
   Vec3 origin,
   Vec3 direction,

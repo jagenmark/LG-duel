@@ -29,6 +29,11 @@ enum class RenderPass {
 enum class MeshHandle : std::uint16_t {
   Invalid = 0,
   PlasmaCore,
+  RocketProjectile,
+  GrenadeProjectile,
+  ExplosionCore,
+  MachineGunTracer,
+  ShotgunTracer,
   RemoteMachineGun,
   RemoteShotgun,
   RemoteGrenadeLauncher,
@@ -41,6 +46,9 @@ enum class MeshHandle : std::uint16_t {
 enum class BillboardHandle : std::uint16_t {
   Invalid = 0,
   PlasmaGlow,
+  RocketFlame,
+  ExplosionFlash,
+  ExplosionHalo,
 };
 
 struct BoundingSphere {
@@ -98,6 +106,29 @@ struct SimpleRenderBatch {
   std::uint32_t instanceCount = 0;
 };
 
+struct TransientVfxStats {
+  std::uint32_t activeEffects = 0;
+  std::uint32_t activeMachineGunTracers = 0;
+  std::uint32_t activeShotgunTracers = 0;
+  std::uint32_t activeExplosionEffects = 0;
+  std::uint32_t newExplosionEventsConsumed = 0;
+  std::uint32_t tracerCandidates = 0;
+  std::uint32_t tracerFrustumCulled = 0;
+  std::uint32_t tracerInstancesSubmitted = 0;
+  std::uint32_t tracerInstanceUploadBytes = 0;
+  std::uint32_t tracerBatches = 0;
+  std::uint32_t tracerDrawCalls = 0;
+  std::uint32_t explosionCandidates = 0;
+  std::uint32_t explosionFrustumCulled = 0;
+  std::uint32_t explosionInstancesSubmitted = 0;
+  std::uint32_t explosionInstanceUploadBytes = 0;
+  std::uint32_t explosionOpaqueBatches = 0;
+  std::uint32_t explosionAdditiveBatches = 0;
+  std::uint32_t explosionDrawCalls = 0;
+  std::uint32_t legacyWireframeExplosionDraws = 0;
+  std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
+};
+
 struct StaticMeshInstance {
   MeshHandle mesh = MeshHandle::Invalid;
   RenderPass pass = RenderPass::OpaqueWorld;
@@ -120,8 +151,13 @@ struct ProjectileRenderStats {
   std::uint32_t projectilesActive = 0;
   std::uint32_t projectilesFrustumCulled = 0;
   std::uint32_t projectilesRendered = 0;
+  std::uint32_t plasmaInstances = 0;
+  std::uint32_t rocketInstances = 0;
+  std::uint32_t grenadeInstances = 0;
   std::uint32_t projectileCoreInstances = 0;
   std::uint32_t projectileGlowInstances = 0;
+  std::uint32_t opaqueProjectileBatches = 0;
+  std::uint32_t additiveProjectileBatches = 0;
   std::uint32_t projectileInstanceUploadBytes = 0;
   std::uint32_t projectileMeshDrawCalls = 0;
   std::uint32_t projectileGlowDrawCalls = 0;
@@ -161,6 +197,7 @@ struct Scene3D {
   ProjectileRenderStats projectileStats = {};
   RemoteWeaponRenderStats remoteWeaponStats = {};
   ViewModelRenderStats viewModelStats = {};
+  TransientVfxStats transientVfxStats = {};
   std::array<bool, kDuelPlayerCount> remoteRenderVisible = {};
   std::uint32_t visibleRemotePlayers = 0;
   std::uint32_t remoteBodyModelsBuilt = 0;
@@ -193,6 +230,62 @@ struct Scene3D {
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  const RenderSettings& settings
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  const RenderSettings& settings
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  const RenderSettings& settings
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
   const RenderSettings& settings
 );
 

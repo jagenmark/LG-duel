@@ -36,6 +36,7 @@ public:
     float playerSizeScaleZ = 1.0F,
     float lightningKnockback = 1000.0F,
     float rocketKnockback = 1000.0F,
+    std::int32_t knockbackTimeMs = 100,
     float vampirism = 0.0F,
     std::uint8_t selfDamagePercent = 100,
     std::int32_t healthAmount = 100,

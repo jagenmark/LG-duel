@@ -161,6 +161,7 @@ bool sameWeaponDamage(
     nearlyEqualGameplayFloat(console.getFloat("g_lg_knockback"), snapshot.lightningKnockback) &&
     nearlyEqualGameplayFloat(console.getFloat("g_lg_fire_hz"), snapshot.lightningFireHz) &&
     nearlyEqualGameplayFloat(console.getFloat("g_rl_knockback"), snapshot.rocketKnockback) &&
+    knockbackTimeMsFromCvars(console) == snapshot.knockbackTimeMs &&
     nearlyEqualGameplayFloat(console.getFloat("g_vampirism"), snapshot.vampirism) &&
     selfDamagePercentFromCvars(console) == snapshot.selfDamagePercent &&
     healthAmountFromCvars(console) == snapshot.healthAmount &&
@@ -193,6 +194,7 @@ void syncGameplayConsoleFromSnapshot(
   (void)console.execute("set g_lg_knockback " + std::to_string(snapshot.lightningKnockback));
   (void)console.execute("set g_lg_fire_hz " + std::to_string(snapshot.lightningFireHz));
   (void)console.execute("set g_rl_knockback " + std::to_string(snapshot.rocketKnockback));
+  (void)console.execute("set g_knockback_time_ms " + std::to_string(snapshot.knockbackTimeMs));
   (void)console.execute("set g_sg_damage " + std::to_string(snapshot.weaponDamage.shotgunDamagePerPellet));
   (void)console.execute("set g_mg_damage " + std::to_string(snapshot.weaponDamage.machineGunDamage));
   (void)console.execute("set g_lg_damage " + std::to_string(snapshot.weaponDamage.lightningGunDamage));
@@ -382,6 +384,7 @@ int ServerApp::run() const {
   float lastAppliedLightningKnockback = 1000.0F;
   float lastAppliedLightningFireHz = 20.0F;
   float lastAppliedRocketKnockback = 1000.0F;
+  std::int32_t lastAppliedKnockbackTimeMs = 100;
   WeaponDamageTuning lastAppliedWeaponDamage;
   float lastAppliedVampirism = 0.0F;
   std::uint8_t lastAppliedSelfDamagePercent = 100;
@@ -412,6 +415,7 @@ int ServerApp::run() const {
     const float lightningKnockback = console.getFloat("g_lg_knockback");
     const float lightningFireHz = console.getFloat("g_lg_fire_hz");
     const float rocketKnockback = console.getFloat("g_rl_knockback");
+    const std::int32_t knockbackTimeMs = knockbackTimeMsFromCvars(console);
     const WeaponDamageTuning weaponDamage = weaponDamageTuningFromCvars(console);
     const float vampirism = console.getFloat("g_vampirism");
     const std::uint8_t selfDamagePercent = selfDamagePercentFromCvars(console);
@@ -427,6 +431,7 @@ int ServerApp::run() const {
       lightningKnockback != lastAppliedLightningKnockback ||
       lightningFireHz != lastAppliedLightningFireHz ||
       rocketKnockback != lastAppliedRocketKnockback ||
+      knockbackTimeMs != lastAppliedKnockbackTimeMs ||
       !sameWeaponDamage(weaponDamage, lastAppliedWeaponDamage) ||
       vampirism != lastAppliedVampirism ||
       selfDamagePercent != lastAppliedSelfDamagePercent ||
@@ -443,6 +448,7 @@ int ServerApp::run() const {
       lightningKnockback,
       lightningFireHz,
       rocketKnockback,
+      knockbackTimeMs,
       weaponDamage,
       vampirism,
       selfDamagePercent,
@@ -458,6 +464,7 @@ int ServerApp::run() const {
     lastAppliedLightningKnockback = lightningKnockback;
     lastAppliedLightningFireHz = lightningFireHz;
     lastAppliedRocketKnockback = rocketKnockback;
+    lastAppliedKnockbackTimeMs = knockbackTimeMs;
     lastAppliedWeaponDamage = weaponDamage;
     lastAppliedVampirism = vampirism;
     lastAppliedSelfDamagePercent = selfDamagePercent;

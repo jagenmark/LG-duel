@@ -98,6 +98,7 @@ struct CommandPacket {
   Team requestedTeam = Team::None;
   WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
   std::uint32_t clientNonce = 0;
+  std::int32_t knockbackTimeMs = 100;
 };
 
 struct CommandBundle {
@@ -183,6 +184,7 @@ struct ServerSnapshot {
   float lightningKnockback = 1000.0F;
   float lightningFireHz = 20.0F;
   float rocketKnockback = 1000.0F;
+  std::int32_t knockbackTimeMs = 100;
   WeaponDamageTuning weaponDamage = {};
   float vampirism = 0.0F;
   std::uint8_t selfDamagePercent = 100;

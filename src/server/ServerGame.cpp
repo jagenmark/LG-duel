@@ -5,6 +5,7 @@
 #include "sim/ClanArenaRules.hpp"
 #include "sim/Collision.hpp"
 #include "sim/DuelRules.hpp"
+#include "sim/GameplayCvars.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -749,6 +750,7 @@ void ServerGame::resetMatch() {
   snapshot_.playerSizeScaleZ = playerSizeScaleZ_;
   snapshot_.lightningKnockback = lightningKnockback_;
   snapshot_.rocketKnockback = rocketKnockback_;
+  snapshot_.knockbackTimeMs = knockbackTimeMs_;
   snapshot_.weaponDamage = weaponDamage_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
@@ -977,6 +979,7 @@ void ServerGame::setRuntimeGameplayTuning(
   float lightningKnockback,
   float lightningFireHz,
   float rocketKnockback,
+  std::int32_t knockbackTimeMs,
   const WeaponDamageTuning& weaponDamage,
   float vampirism,
   std::uint8_t selfDamagePercent,
@@ -1006,6 +1009,8 @@ void ServerGame::setRuntimeGameplayTuning(
   grenadeLauncherTuning_.knockback =
     q3KnockbackToInternal(rocketKnockback_);
   snapshot_.rocketKnockback = rocketKnockback_;
+  knockbackTimeMs_ = std::clamp(knockbackTimeMs, 0, 250);
+  snapshot_.knockbackTimeMs = knockbackTimeMs_;
   weaponDamage_ = weaponDamage;
   shotgunTuning_.damagePerPellet = weaponDamage_.shotgunDamagePerPellet;
   machineGunTuning_.damage = weaponDamage_.machineGunDamage;
@@ -1362,6 +1367,17 @@ void ServerGame::applyDamageAndKnockback(
   damageApplied = std::min(damageApplied, target.health);
   target.health = std::max(0, target.health - damageApplied);
   target.velocity += knockbackImpulse;
+  const std::uint16_t configuredKnockbackTicks =
+    knockbackTimeMsToTicks(knockbackTimeMs_);
+  if (
+    configuredKnockbackTicks > 0 &&
+    length(knockbackImpulse) > 0.0001F
+  ) {
+    target.knockbackTicksRemaining = std::max(
+      target.knockbackTicksRemaining,
+      configuredKnockbackTicks
+    );
+  }
 
   if (attackerIndex != targetIndex && damageApplied > 0) {
     const std::uint32_t sequence =
@@ -1424,6 +1440,7 @@ void ServerGame::applyDamageAndKnockback(
     ) {
       ++snapshot_.scores[attackerIndex];
     }
+    target.knockbackTicksRemaining = 0;
     target.velocity = {};
     lightningGunStates_[targetIndex] = {};
     snapshot_.lightningGuns[targetIndex] = {};
@@ -1667,6 +1684,7 @@ void ServerGame::simulateRockets(float fixedDt) {
     RocketExplosionResult& explosion = snapshot_.rocketExplosions[rocket.owner];
     explosion.active = true;
     explosion.weapon = rocket.weapon;
+    explosion.sequence = ++rocketExplosionSequences_[rocket.owner];
     explosion.position = explosionPosition;
     const float radius = grenade
       ? grenadeLauncherTuning_.radius
@@ -2111,6 +2129,7 @@ void ServerGame::receiveCommands() {
       );
       logFloat("g_lg_fire_hz", lightningFireHz_, packet.lightningFireHz);
       logFloat("g_lg_knockback", lightningKnockback_, packet.lightningKnockback);
+      logInt("g_knockback_time_ms", knockbackTimeMs_, packet.knockbackTimeMs);
       logInt(
         "g_rg_damage",
         weaponDamage_.railgunDamage,
@@ -2147,6 +2166,7 @@ void ServerGame::receiveCommands() {
         packet.lightningKnockback,
         packet.lightningFireHz,
         packet.rocketKnockback,
+        packet.knockbackTimeMs,
         packet.weaponDamage,
         packet.vampirism,
         packet.selfDamagePercent,

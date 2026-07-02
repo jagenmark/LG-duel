@@ -1,7 +1,10 @@
 #include "sim/GameplayCvars.hpp"
 
+#include "shared/Constants.hpp"
+
 #include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <string>
 
 namespace lg {
@@ -16,6 +19,7 @@ void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
   console.registerCvar({"g_lg_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, flags, 0.0F, kMaxLightningKnockback, "1000"});
   console.registerCvar({"g_lg_fire_hz", "Authoritative lightning gun damage instances per second.", 20.0F, flags, kMinLightningFireHz, kMaxLightningFireHz});
   console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, flags, 0.0F, kMaxRocketKnockback, "1000"});
+  console.registerCvar({"g_knockback_time_ms", "Authoritative Q3-style knockback movement timer in milliseconds; 0 disables the special movement state.", 100, flags, 0.0F, 250.0F, "100"});
   console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, flags, 1.0F, 500.0F});
   console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, flags, 1.0F, 500.0F});
   console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, flags, 1.0F, 500.0F});
@@ -70,6 +74,22 @@ std::uint8_t selfDamagePercentFromCvars(const ConsoleSystem& console) {
 
 std::int32_t healthAmountFromCvars(const ConsoleSystem& console) {
   return std::clamp(console.getInt("g_healthamount"), 1, 100000);
+}
+
+std::int32_t knockbackTimeMsFromCvars(const ConsoleSystem& console) {
+  return std::clamp(console.getInt("g_knockback_time_ms"), 0, 250);
+}
+
+std::uint16_t knockbackTimeMsToTicks(std::int32_t milliseconds) {
+  const int clampedMilliseconds = std::clamp(milliseconds, 0, 250);
+  if (clampedMilliseconds == 0) {
+    return 0;
+  }
+  return static_cast<std::uint16_t>(
+    std::ceil(
+      (static_cast<float>(clampedMilliseconds) * kFixedTickRate) / 1000.0F
+    )
+  );
 }
 
 WeaponSwitchingMode weaponSwitchingModeFromCvars(const ConsoleSystem& console) {
