@@ -1,7 +1,6 @@
 #pragma once
 
 #include "net/NetTransport.hpp"
-#include "sim/Combat.hpp"
 
 #include <array>
 #include <cstddef>
@@ -56,7 +55,6 @@ struct PerfSample {
   std::uint32_t projectileMeshDrawCalls = 0;
   std::uint32_t projectileGlowDrawCalls = 0;
   std::uint32_t legacyProjectileDynamicVertices = 0;
-  TraceWorldDiagnostics traceWorld = {};
   std::uint32_t activeTransientEffects = 0;
   std::uint32_t activeMachineGunTracers = 0;
   std::uint32_t activeShotgunTracers = 0;
@@ -96,7 +94,6 @@ struct PerfWindowSummary {
   PerfMetricSummary worldDrawIssue = {};
   PerfMetricSummary submit = {};
   PerfMetricSummary totalRender = {};
-  PerfMetricSummary traceWorld = {};
   PerfMetricSummary snapshotDecode = {};
   PerfMetricSummary snapshotApply = {};
   PerfSample latest = {};

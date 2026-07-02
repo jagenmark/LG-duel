@@ -918,144 +918,10 @@ struct FrameTimeHistory {
   }
 };
 
-struct TraceRecordState {
-  bool active = false;
-  std::vector<PerfSample> samples;
-};
-
-[[nodiscard]] PerfMetricSummary summarizeTraceRecordMilliseconds(
-  const std::vector<PerfSample>& samples
-) {
-  if (samples.empty()) {
-    return {};
-  }
-
-  std::vector<float> milliseconds;
-  milliseconds.reserve(samples.size());
-  float sum = 0.0F;
-  for (const PerfSample& sample : samples) {
-    const float value =
-      static_cast<float>(sample.traceWorld.totalNanoseconds) / 1000000.0F;
-    milliseconds.push_back(value);
-    sum += value;
-  }
-  std::sort(milliseconds.begin(), milliseconds.end());
-  const auto percentile =
-    [&](float fraction) {
-      const std::size_t index = std::min(
-        milliseconds.size() - 1U,
-        static_cast<std::size_t>(
-          std::round(fraction * static_cast<float>(milliseconds.size() - 1U))
-        )
-      );
-      return milliseconds[index];
-    };
-
-  return {
-    sum / static_cast<float>(milliseconds.size()),
-    percentile(0.50F),
-    percentile(0.95F),
-    percentile(0.99F),
-    milliseconds.back(),
-  };
-}
-
-[[nodiscard]] std::string summarizeTraceRecord(
-  const std::vector<PerfSample>& samples
-) {
-  if (samples.empty()) {
-    return "trace record: no samples captured";
-  }
-
-  TraceWorldDiagnostics totals;
-  double totalFrameMilliseconds = 0.0;
-  for (const PerfSample& sample : samples) {
-    totalFrameMilliseconds += static_cast<double>(sample.frameMilliseconds);
-    totals.calls += sample.traceWorld.calls;
-    totals.wallChecks += sample.traceWorld.wallChecks;
-    totals.brushCandidates += sample.traceWorld.brushCandidates;
-    totals.brushExactTests += sample.traceWorld.brushExactTests;
-    totals.brushFaceChecks += sample.traceWorld.brushFaceChecks;
-    totals.brushBoxSkips += sample.traceWorld.brushBoxSkips;
-    totals.totalNanoseconds += sample.traceWorld.totalNanoseconds;
-  }
-
-  const double frames = static_cast<double>(samples.size());
-  const double totalTraceMilliseconds =
-    static_cast<double>(totals.totalNanoseconds) / 1000000.0;
-  const PerfMetricSummary traceMilliseconds =
-    summarizeTraceRecordMilliseconds(samples);
-  char text[1400];
-  std::snprintf(
-    text,
-    sizeof(text),
-    "trace record summary\n"
-    "frames=%zu approx_duration=%.2fs avg_frame=%.3fms\n"
-    "totals: calls=%llu walls=%llu brushes=%llu exact=%llu faces=%llu box_skips=%llu trace_ms=%.3f\n"
-    "per_frame_avg: calls=%.2f walls=%.2f brushes=%.2f exact=%.2f faces=%.2f box_skips=%.2f trace_ms=%.4f\n"
-    "trace_ms_window: p50=%.4f p95=%.4f p99=%.4f max=%.4f",
-    samples.size(),
-    totalFrameMilliseconds / 1000.0,
-    totalFrameMilliseconds / frames,
-    static_cast<unsigned long long>(totals.calls),
-    static_cast<unsigned long long>(totals.wallChecks),
-    static_cast<unsigned long long>(totals.brushCandidates),
-    static_cast<unsigned long long>(totals.brushExactTests),
-    static_cast<unsigned long long>(totals.brushFaceChecks),
-    static_cast<unsigned long long>(totals.brushBoxSkips),
-    totalTraceMilliseconds,
-    static_cast<double>(totals.calls) / frames,
-    static_cast<double>(totals.wallChecks) / frames,
-    static_cast<double>(totals.brushCandidates) / frames,
-    static_cast<double>(totals.brushExactTests) / frames,
-    static_cast<double>(totals.brushFaceChecks) / frames,
-    static_cast<double>(totals.brushBoxSkips) / frames,
-    totalTraceMilliseconds / frames,
-    traceMilliseconds.p50,
-    traceMilliseconds.p95,
-    traceMilliseconds.p99,
-    traceMilliseconds.max
-  );
-  return text;
-}
-
-[[nodiscard]] std::string writeTraceRecordCsv(
-  const std::vector<PerfSample>& samples,
-  const std::filesystem::path& path
-) {
-  std::ofstream file(path);
-  if (!file.is_open()) {
-    return "could not write " + path.string();
-  }
-
-  file <<
-    "frame,frame_ms,calls,wall_checks,brush_candidates,brush_exact_tests,"
-    "brush_face_checks,brush_box_skips,trace_ms\n";
-  for (std::size_t index = 0; index < samples.size(); ++index) {
-    const PerfSample& sample = samples[index];
-    file
-      << index << ','
-      << sample.frameMilliseconds << ','
-      << sample.traceWorld.calls << ','
-      << sample.traceWorld.wallChecks << ','
-      << sample.traceWorld.brushCandidates << ','
-      << sample.traceWorld.brushExactTests << ','
-      << sample.traceWorld.brushFaceChecks << ','
-      << sample.traceWorld.brushBoxSkips << ','
-      << static_cast<double>(sample.traceWorld.totalNanoseconds) / 1000000.0
-      << '\n';
-  }
-  if (!file.good()) {
-    return "could not finish writing " + path.string();
-  }
-  return "wrote samples: " + path.string();
-}
-
 [[nodiscard]] PerfSample perfSampleFromFrame(
   float frameMilliseconds,
   const RendererFrameDiagnostics& renderDiagnostics,
-  const SnapshotDiagnostics& snapshotDiagnostics,
-  const TraceWorldDiagnostics& traceDiagnostics
+  const SnapshotDiagnostics& snapshotDiagnostics
 ) {
   PerfSample sample;
   sample.frameMilliseconds = frameMilliseconds;
@@ -1119,7 +985,6 @@ struct TraceRecordState {
   sample.projectileGlowDrawCalls = renderDiagnostics.projectileGlowDrawCalls;
   sample.legacyProjectileDynamicVertices =
     renderDiagnostics.legacyProjectileDynamicVertices;
-  sample.traceWorld = traceDiagnostics;
   sample.activeTransientEffects = renderDiagnostics.activeTransientEffects;
   sample.activeMachineGunTracers = renderDiagnostics.activeMachineGunTracers;
   sample.activeShotgunTracers = renderDiagnostics.activeShotgunTracers;
@@ -1333,27 +1198,6 @@ void appendPerfHudLines(
     latest.legacyRemoteWeaponDynamicVertices,
     latest.firstPersonViewModelDrawCalls,
     latest.firstPersonViewModelDynamicVertices
-  );
-  hud.topLeftLines.emplace_back(text);
-  std::snprintf(
-    text,
-    sizeof(text),
-    "traceWorld: calls %llu | walls %llu | brushes %llu | exact %llu | faces %llu",
-    static_cast<unsigned long long>(latest.traceWorld.calls),
-    static_cast<unsigned long long>(latest.traceWorld.wallChecks),
-    static_cast<unsigned long long>(latest.traceWorld.brushCandidates),
-    static_cast<unsigned long long>(latest.traceWorld.brushExactTests),
-    static_cast<unsigned long long>(latest.traceWorld.brushFaceChecks)
-  );
-  hud.topLeftLines.emplace_back(text);
-  std::snprintf(
-    text,
-    sizeof(text),
-    "traceWorld: box skips %llu | latest %.3f ms | avg %.3f | p95 %.3f",
-    static_cast<unsigned long long>(latest.traceWorld.brushBoxSkips),
-    static_cast<double>(latest.traceWorld.totalNanoseconds) / 1000000.0,
-    summary.traceWorld.average,
-    summary.traceWorld.p95
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -2960,7 +2804,6 @@ int GameApp::run() const {
   bool showChatRequested = false;
   bool requestGameModePending = false;
   bool requestTeamPending = false;
-  TraceRecordState traceRecord;
   GameMode requestedGameMode = GameMode::Duel;
   Team requestedTeam = Team::None;
   int scoreboardPressCount = 0;
@@ -3400,9 +3243,6 @@ int GameApp::run() const {
         "settings\n"
         "messagemode\n"
         "showchat\n"
-        "trace_record_start\n"
-        "trace_record_stop\n"
-        "trace_record_clear\n"
         "toggleconsole\n"
         "quit"
       );
@@ -3437,53 +3277,6 @@ int GameApp::run() const {
         static_cast<unsigned long long>(stats.reorderedIncomingPackets)
       );
       return std::string(text);
-    }
-  );
-  console.registerCommand(
-    "trace_record_start",
-    "Start recording per-frame traceWorld diagnostics until trace_record_stop.",
-    [&traceRecord](const std::vector<std::string>& arguments) {
-      if (arguments.size() != 1) {
-        return std::string("usage: trace_record_start");
-      }
-      traceRecord.samples.clear();
-      traceRecord.active = true;
-      setTraceWorldDiagnosticsEnabled(true);
-      resetTraceWorldDiagnostics();
-      return std::string("trace record started");
-    }
-  );
-  console.registerCommand(
-    "trace_record_stop",
-    "Stop recording traceWorld diagnostics and print a route summary.",
-    [&traceRecord](const std::vector<std::string>& arguments) {
-      if (arguments.size() > 2) {
-        return std::string("usage: trace_record_stop [csv_path]");
-      }
-      if (!traceRecord.active && traceRecord.samples.empty()) {
-        return std::string("trace record: not recording");
-      }
-      traceRecord.active = false;
-      setTraceWorldDiagnosticsEnabled(false);
-      const std::filesystem::path outputPath =
-        arguments.size() == 2
-          ? std::filesystem::path(arguments[1])
-          : std::filesystem::path("trace_world_record.csv");
-      return summarizeTraceRecord(traceRecord.samples) + '\n' +
-        writeTraceRecordCsv(traceRecord.samples, outputPath);
-    }
-  );
-  console.registerCommand(
-    "trace_record_clear",
-    "Clear captured traceWorld diagnostic samples.",
-    [&traceRecord](const std::vector<std::string>& arguments) {
-      if (arguments.size() != 1) {
-        return std::string("usage: trace_record_clear");
-      }
-      traceRecord.samples.clear();
-      traceRecord.active = false;
-      setTraceWorldDiagnosticsEnabled(false);
-      return std::string("trace record cleared");
     }
   );
   const std::filesystem::path defaultConfigPath =
@@ -3751,12 +3544,6 @@ int GameApp::run() const {
     if (console.getBool("r_perf_reset")) {
       perfTelemetry.clear();
       (void)console.execute("set r_perf_reset 0");
-    }
-    const bool perfHudEnabled = console.getBool("r_perf");
-    const bool traceInstrumentationEnabled = perfHudEnabled || traceRecord.active;
-    setTraceWorldDiagnosticsEnabled(traceInstrumentationEnabled);
-    if (traceInstrumentationEnabled) {
-      resetTraceWorldDiagnostics();
     }
     outerFrameTimes.push(outerFrameMilliseconds);
     frameStatsAccumulatorSeconds += outerFrameElapsed.count();
@@ -5638,20 +5425,15 @@ int GameApp::run() const {
       consoleRenderState(consoleState)
     );
     session.update();
-    if (traceInstrumentationEnabled) {
+    if (console.getBool("r_perf")) {
       const ClientGame* perfGame = session.game();
-      const PerfSample frameSample = perfSampleFromFrame(
-        outerFrameMilliseconds,
-        renderer.lastFrameDiagnostics(),
-        perfGame != nullptr ? perfGame->snapshotDiagnostics() : SnapshotDiagnostics{},
-        traceWorldDiagnostics()
+      perfTelemetry.push(
+        perfSampleFromFrame(
+          outerFrameMilliseconds,
+          renderer.lastFrameDiagnostics(),
+          perfGame != nullptr ? perfGame->snapshotDiagnostics() : SnapshotDiagnostics{}
+        )
       );
-      if (perfHudEnabled) {
-        perfTelemetry.push(frameSample);
-      }
-      if (traceRecord.active) {
-        traceRecord.samples.push_back(frameSample);
-      }
     }
     const int requestedMaxFps = std::max(0, console.getInt("r_maxfps"));
     if (requestedMaxFps != appliedMaxFps) {

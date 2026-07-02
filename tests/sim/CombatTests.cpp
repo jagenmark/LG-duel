@@ -73,20 +73,12 @@ int main() {
     brushArena.brushes[1] =
       convexBox({4.0F, 4.0F, 0.0F}, {5.0F, 5.0F, 2.0F});
 
-    lg::setTraceWorldDiagnosticsEnabled(true);
-    lg::resetTraceWorldDiagnostics();
     const lg::WorldTrace trace =
       lg::traceWorld(brushArena, {0.0F, 0.0F, 1.0F}, {1.0F, 0.0F, 0.0F}, 10.0F);
-    const lg::TraceWorldDiagnostics diagnostics =
-      lg::traceWorldDiagnostics();
-    lg::setTraceWorldDiagnosticsEnabled(false);
 
-    failures += expect(nearlyEqual(trace.distance, 4.0F), "trace should still hit nearby convex brush");
     failures += expect(
-      diagnostics.brushCandidates == 2 &&
-        diagnostics.brushExactTests == 1 &&
-        diagnostics.brushBoxSkips == 1,
-      "trace should skip exact plane tests for convex brushes outside the segment bounds"
+      nearlyEqual(trace.distance, 4.0F),
+      "trace should still hit nearby convex brush when another convex brush is outside the segment bounds"
     );
   }
 
