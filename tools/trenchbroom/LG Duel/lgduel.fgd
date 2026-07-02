@@ -1,10 +1,10 @@
-@SolidClass = worldspawn : "LG Duel world geometry"
+@SolidClass = worldspawn : "LG Duel world geometry. Use common/playerclip on every face for invisible player clipping."
 [
   lg_bounds_min(string) : "Arena bounds min" : "" : "Optional x y z bounds in TrenchBroom units."
   lg_bounds_max(string) : "Arena bounds max" : "" : "Optional x y z bounds in TrenchBroom units."
 ]
 
-@SolidClass = func_group : "LG Duel brush group"
+@SolidClass = func_group : "LG Duel brush group. Use common/playerclip on every face for invisible player clipping."
 [
 ]
 

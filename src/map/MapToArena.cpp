@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cctype>
 #include <cmath>
 #include <limits>
 #include <sstream>
@@ -65,6 +66,66 @@ struct TargetPosition {
 
 [[nodiscard]] Vec3 scaleQuakeUnits(Vec3 value) {
   return value * kQuakeToLgScale;
+}
+
+[[nodiscard]] std::string normalizedMaterialName(std::string_view material) {
+  std::string normalized(material);
+  std::replace(normalized.begin(), normalized.end(), '\\', '/');
+  while (!normalized.empty() && normalized.front() == '/') {
+    normalized.erase(normalized.begin());
+  }
+  std::transform(
+    normalized.begin(),
+    normalized.end(),
+    normalized.begin(),
+    [](unsigned char character) {
+      return static_cast<char>(std::tolower(character));
+    }
+  );
+  constexpr std::string_view prefix = "textures/";
+  if (normalized.rfind(prefix, 0) == 0) {
+    normalized.erase(0, prefix.size());
+  }
+  return normalized;
+}
+
+[[nodiscard]] bool isPlayerClipMaterial(std::string_view material) {
+  return normalizedMaterialName(material) == "common/playerclip";
+}
+
+[[nodiscard]] bool brushHasPlayerClipMaterial(const MapBrush& brush) {
+  return std::any_of(
+    brush.faces.begin(),
+    brush.faces.end(),
+    [](const MapFace& face) {
+      return isPlayerClipMaterial(face.material);
+    }
+  );
+}
+
+[[nodiscard]] bool brushIsPlayerClip(const MapBrush& brush) {
+  return !brush.faces.empty() &&
+    std::all_of(
+      brush.faces.begin(),
+      brush.faces.end(),
+      [](const MapFace& face) {
+        return isPlayerClipMaterial(face.material);
+      }
+    );
+}
+
+void clearRenderableMaterial(ArenaWall& wall) {
+  wall.materialId = 0;
+  wall.faceMaterialIds = {};
+  wall.faceTextureProjections = {};
+}
+
+void clearRenderableMaterial(ArenaBrush& brush) {
+  brush.materialId = 0;
+  for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+    brush.faces[faceIndex].materialId = 0;
+    brush.faces[faceIndex].textureProjection = {};
+  }
 }
 
 [[nodiscard]] bool brushPointBounds(
@@ -717,14 +778,28 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
 ) {
   for (std::size_t brushIndex = 0; brushIndex < entity.brushes.size(); ++brushIndex) {
     const MapBrush& brush = entity.brushes[brushIndex];
+    const bool playerClip = brushIsPlayerClip(brush);
+    if (!playerClip && brushHasPlayerClipMaterial(brush)) {
+      error = "line " + std::to_string(brush.line) +
+        ": playerclip brushes must use common/playerclip on every face";
+      return false;
+    }
     ArenaWall wall;
     if (convertCuboidBrush(brush, wall, error)) {
+      wall.renderable = !playerClip;
+      if (playerClip) {
+        clearRenderableMaterial(wall);
+      }
       walls.push_back(wall);
       continue;
     }
     ArenaBrush arenaBrush;
     if (!convertConvexBrush(brush, ownerClass, brushIndex, arenaBrush, error)) {
       return false;
+    }
+    arenaBrush.renderable = !playerClip;
+    if (playerClip) {
+      clearRenderableMaterial(arenaBrush);
     }
     brushes.push_back(arenaBrush);
   }
@@ -1240,6 +1315,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       result.arena.walls[index].faceMaterialIds = walls[index].faceMaterialIds;
       result.arena.walls[index].faceTextureProjections =
         walls[index].faceTextureProjections;
+      result.arena.walls[index].renderable = walls[index].renderable;
     }
     result.arena.brushCount = std::min(brushes.size(), Arena::kBrushCount);
     for (std::size_t index = 0; index < result.arena.brushCount; ++index) {

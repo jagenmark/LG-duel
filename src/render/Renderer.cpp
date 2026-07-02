@@ -421,6 +421,7 @@ void collectTextureMaterialFiles(
   };
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
+    hash = hashCombine(hash, wall.renderable ? 1U : 0U);
     hash = hashCombine(hash, hashFloat(wall.min.x));
     hash = hashCombine(hash, hashFloat(wall.min.y));
     hash = hashCombine(hash, hashFloat(wall.min.z));
@@ -446,6 +447,7 @@ void collectTextureMaterialFiles(
   }
   for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
     const ArenaBrush& brush = arena.brushes[brushIndex];
+    hash = hashCombine(hash, brush.renderable ? 1U : 0U);
     hash = hashCombine(hash, brush.faceCount);
     for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
       const ArenaBrushFace& face = brush.faces[faceIndex];
@@ -3974,12 +3976,16 @@ void drawPerspectiveWorld(
   drawWireBox(renderer, camera, width, height, arena.min, arena.max);
 
   std::array<std::size_t, Arena::kWallCount> wallDrawOrder = {};
+  std::size_t wallDrawCount = 0;
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
-    wallDrawOrder[index] = index;
+    if (!arena.walls[index].renderable) {
+      continue;
+    }
+    wallDrawOrder[wallDrawCount++] = index;
   }
   std::sort(
     wallDrawOrder.begin(),
-    wallDrawOrder.begin() + static_cast<std::ptrdiff_t>(arena.wallCount),
+    wallDrawOrder.begin() + static_cast<std::ptrdiff_t>(wallDrawCount),
     [&arena, &camera](std::size_t lhs, std::size_t rhs) {
       const Vec3 lhsCenter =
         (arena.walls[lhs].min + arena.walls[lhs].max) * 0.5F;
@@ -3991,7 +3997,7 @@ void drawPerspectiveWorld(
   );
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
-  for (std::size_t orderIndex = 0; orderIndex < arena.wallCount; ++orderIndex) {
+  for (std::size_t orderIndex = 0; orderIndex < wallDrawCount; ++orderIndex) {
     const ArenaWall& wall = arena.walls[wallDrawOrder[orderIndex]];
     drawSolidBox(
       renderer,
@@ -4005,7 +4011,7 @@ void drawPerspectiveWorld(
   }
 
   SDL_SetRenderDrawColor(renderer, 120, 138, 156, 255);
-  for (std::size_t orderIndex = 0; orderIndex < arena.wallCount; ++orderIndex) {
+  for (std::size_t orderIndex = 0; orderIndex < wallDrawCount; ++orderIndex) {
     const ArenaWall& wall = arena.walls[wallDrawOrder[orderIndex]];
     drawWireBox(renderer, camera, width, height, wall.min, wall.max);
     SDL_SetRenderDrawColor(renderer, 156, 170, 184, 255);

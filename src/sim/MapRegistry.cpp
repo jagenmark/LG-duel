@@ -97,6 +97,7 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, wall.min);
     hashVec3(hash, wall.max);
     hashU32(hash, wall.materialId);
+    hashU32(hash, wall.renderable ? 1U : 0U);
   }
   hashU32(hash, static_cast<std::uint32_t>(arena.brushCount));
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
@@ -104,6 +105,7 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, brush.min);
     hashVec3(hash, brush.max);
     hashU32(hash, brush.materialId);
+    hashU32(hash, brush.renderable ? 1U : 0U);
     hashU32(hash, brush.vertexCount);
     hashU32(hash, brush.faceCount);
     for (std::uint8_t vertex = 0; vertex < brush.vertexCount; ++vertex) {

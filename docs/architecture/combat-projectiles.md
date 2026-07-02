@@ -4,7 +4,7 @@ Combat logic is split between shared trace/simulation helpers in `src/sim/Combat
 
 ## Hitscan Weapons
 
-Lightning Gun, Railgun, Machine Gun, and Shotgun use world/player traces. `traceWorld()` clips against arena bounds, cuboid walls, and convex brushes. `tracePlayerCylinder()` tests player collision cylinders.
+Lightning Gun, Railgun, Machine Gun, and Shotgun use world/player traces. `traceWorld()` clips against arena bounds, cuboid walls, and convex brushes, including non-rendered playerclip solids. `tracePlayerCylinder()` tests player collision cylinders.
 
 `simulateLightningGun()` uses `LightningGunState` to accumulate shot credit and fractional damage based on `fireHz` and fixed dt. Railgun and Machine Gun produce single `WeaponFireResult`s. Shotgun uses deterministic pellet directions and reports pellet count/hit count.
 
@@ -36,5 +36,6 @@ Combat visuals/audio are snapshot events, not independent gameplay systems: `Wea
 - Projectile slots are bounded. Do not add unbounded active projectile/event lists.
 - Owner collision for projectiles arms only after the projectile leaves the owner cylinder, avoiding immediate self-hit on spawn.
 - Grenade direct hits can be disabled by `projectile_hitbox_radius = 0`.
+- Playerclip currently blocks projectile world traces because trace masks are not separated yet.
 - Shotgun pellet visuals are derived from deterministic result data; do not network every pellet unless there is a gameplay reason.
 - If adding weapons, document cooldowns, damage source, snapshot fields, prediction assumptions, and packet-size impact.

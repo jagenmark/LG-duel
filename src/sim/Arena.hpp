@@ -31,6 +31,7 @@ struct ArenaWall {
   std::uint32_t materialId = 0;
   std::array<std::uint32_t, 6> faceMaterialIds = {};
   std::array<TextureProjection, 6> faceTextureProjections = {};
+  bool renderable = true;
 };
 
 struct ArenaBrushFace {
@@ -51,6 +52,7 @@ struct ArenaBrush {
   Vec3 min = {};
   Vec3 max = {};
   std::uint32_t materialId = 0;
+  bool renderable = true;
   std::array<Vec3, kMaxVertices> vertices = {};
   std::uint8_t vertexCount = 0;
   std::array<ArenaBrushFace, kMaxFaces> faces = {};

@@ -7,6 +7,7 @@
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -20,6 +21,10 @@ namespace {
   std::replace(material.begin(), material.end(), '\\', '/');
   while (!material.empty() && material.front() == '/') {
     material.erase(material.begin());
+  }
+  constexpr std::string_view prefix = "textures/";
+  if (material.rfind(prefix, 0) == 0) {
+    material.erase(0, prefix.size());
   }
   return material;
 }

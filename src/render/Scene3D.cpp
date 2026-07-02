@@ -2703,9 +2703,15 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
   addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (!arena.walls[index].renderable) {
+      continue;
+    }
     addWallBox(scene, arena, arena.walls[index]);
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (!arena.brushes[index].renderable) {
+      continue;
+    }
     addArenaBrush(scene, arena, arena.brushes[index]);
   }
 
