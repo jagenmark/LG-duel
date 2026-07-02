@@ -949,8 +949,26 @@ struct FrameTimeHistory {
   sample.geometryOutlineDynamicVertices =
     renderDiagnostics.geometryOutlineDynamicVertices;
   sample.outlinedPlayers = renderDiagnostics.outlinedPlayers;
+  sample.outlineStyle = renderDiagnostics.outlineStyle;
   sample.outlineMaskWidth = renderDiagnostics.outlineMaskWidth;
   sample.outlineMaskHeight = renderDiagnostics.outlineMaskHeight;
+  sample.outlineWorkWidth = renderDiagnostics.outlineWorkWidth;
+  sample.outlineWorkHeight = renderDiagnostics.outlineWorkHeight;
+  sample.outlineWorkScale = renderDiagnostics.outlineWorkScale;
+  sample.outlineWorkRectX = renderDiagnostics.outlineWorkRectX;
+  sample.outlineWorkRectY = renderDiagnostics.outlineWorkRectY;
+  sample.outlineWorkRectWidth = renderDiagnostics.outlineWorkRectWidth;
+  sample.outlineWorkRectHeight = renderDiagnostics.outlineWorkRectHeight;
+  sample.outlineWorkAreaPercent = renderDiagnostics.outlineWorkAreaPercent;
+  sample.outlineMaskDrawCalls = renderDiagnostics.outlineMaskDrawCalls;
+  sample.outlineDilationDrawCalls =
+    renderDiagnostics.outlineDilationDrawCalls;
+  sample.outlineCompositeDrawCalls =
+    renderDiagnostics.outlineCompositeDrawCalls;
+  sample.outlineUploadBytes = renderDiagnostics.outlineUploadBytes;
+  sample.outlineGpuTimingAvailable =
+    renderDiagnostics.outlineGpuTimingAvailable;
+  sample.outlineGpuMilliseconds = renderDiagnostics.outlineGpuMilliseconds;
   sample.outlinePasses = renderDiagnostics.outlinePasses;
   sample.outlineCompositeEnabled = renderDiagnostics.outlineCompositeEnabled;
   sample.geometryOutlineFallbackUsed =
@@ -1171,12 +1189,29 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "outline: players %u | mask %ux%u | passes %u | composite %d",
+    "outline: players %u | style %d | work %ux%u scale %.2f | mask %ux%u",
     latest.outlinedPlayers,
+    latest.outlineStyle,
+    latest.outlineWorkWidth,
+    latest.outlineWorkHeight,
+    latest.outlineWorkScale,
     latest.outlineMaskWidth,
-    latest.outlineMaskHeight,
-    latest.outlinePasses,
-    latest.outlineCompositeEnabled ? 1 : 0
+    latest.outlineMaskHeight
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "outline rect: %d,%d %dx%d | %.1f%% fb | draws m/d/c %u/%u/%u | gpu timing %s",
+    latest.outlineWorkRectX,
+    latest.outlineWorkRectY,
+    latest.outlineWorkRectWidth,
+    latest.outlineWorkRectHeight,
+    latest.outlineWorkAreaPercent,
+    latest.outlineMaskDrawCalls,
+    latest.outlineDilationDrawCalls,
+    latest.outlineCompositeDrawCalls,
+    latest.outlineGpuTimingAvailable ? "available" : "unavailable"
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(

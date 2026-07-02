@@ -845,6 +845,113 @@ int main() {
     "teammate and enemy outline mask groups should remain distinct"
   );
 
+  const lg::OutlineTargetDimensions oddOutlineDimensions =
+    lg::outlineTargetDimensions(1921U, 1081U);
+  failures += expect(
+    oddOutlineDimensions.workWidth == 961U &&
+      oddOutlineDimensions.workHeight == 541U &&
+      nearlyEqual(lg::outlineWorkRadiusPixels(3.0F), 1.5F) &&
+      nearlyEqual(lg::outlineWorkRadiusPixels(8.0F), 3.0F) &&
+      lg::kOutlineFixedDilationKernelTaps == 49U,
+    "screen-space outline widths should map to half-resolution radius with a fixed 7x7 kernel"
+  );
+
+  const lg::OutlineWorkPlan noOutlinePlan = lg::buildOutlineWorkPlan(
+    baseScene.camera,
+    std::span<const lg::Vertex3D>(baseScene.vertices.data(), baseScene.vertices.size()),
+    std::span<const lg::OutlineMaskDraw>(),
+    1920U,
+    1080U
+  );
+  failures += expect(
+    !noOutlinePlan.hasWork &&
+      noOutlinePlan.maskDrawCalls == 0U &&
+      noOutlinePlan.dilationDrawCalls == 0U &&
+      noOutlinePlan.compositeDrawCalls == 0U,
+    "no outlined players should produce no work rectangle and no outline passes"
+  );
+
+  const lg::OutlineWorkPlan centeredOutlinePlan = lg::buildOutlineWorkPlan(
+    baseScene.camera,
+    std::span<const lg::Vertex3D>(baseScene.vertices.data(), baseScene.vertices.size()),
+    std::span<const lg::OutlineMaskDraw>(
+      baseScene.outlineMaskDraws.data(),
+      baseScene.outlineMaskDraws.size()
+    ),
+    1920U,
+    1080U
+  );
+  failures += expect(
+    centeredOutlinePlan.hasWork &&
+      centeredOutlinePlan.dimensions.workWidth == 960U &&
+      centeredOutlinePlan.dimensions.workHeight == 540U &&
+      centeredOutlinePlan.workRect.valid() &&
+      centeredOutlinePlan.finalRect.width < 1920 &&
+      centeredOutlinePlan.finalRect.height < 1080 &&
+      centeredOutlinePlan.maskDrawCalls == 1U &&
+      centeredOutlinePlan.dilationDrawCalls == 1U &&
+      centeredOutlinePlan.compositeDrawCalls == 1U,
+    "centered outlined player should use a bounded half-resolution work rectangle"
+  );
+
+  lg::PlayerState edgeOpponent = opponent;
+  edgeOpponent.position = {4.0F, -3.0F, 0.9F};
+  const lg::Scene3D edgeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    edgeOpponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  const lg::OutlineWorkPlan edgeOutlinePlan = lg::buildOutlineWorkPlan(
+    edgeScene.camera,
+    std::span<const lg::Vertex3D>(edgeScene.vertices.data(), edgeScene.vertices.size()),
+    std::span<const lg::OutlineMaskDraw>(
+      edgeScene.outlineMaskDraws.data(),
+      edgeScene.outlineMaskDraws.size()
+    ),
+    1920U,
+    1080U
+  );
+  failures += expect(
+    edgeOutlinePlan.hasWork &&
+      edgeOutlinePlan.finalRect.x >= 0 &&
+      edgeOutlinePlan.finalRect.x + edgeOutlinePlan.finalRect.width <= 1920 &&
+      edgeOutlinePlan.workRect.x >= 0 &&
+      edgeOutlinePlan.workRect.x + edgeOutlinePlan.workRect.width <= 960 &&
+      edgeOutlinePlan.finalRect.width >=
+        static_cast<int>(settings.enemyOutlineWidth + 4.0F),
+    "screen-edge outlined player should receive a clamped rectangle with outline and filtering margin"
+  );
+
+  std::array<lg::Vertex3D, 1> invalidOutlineVertices = {{
+    {baseScene.camera.position, {}, 0.0F, 0.0F, 0U},
+  }};
+  const std::array<lg::OutlineMaskDraw, 1> invalidOutlineDraws = {{
+    {0U, 1U, enemyMaskDraw.state},
+  }};
+  const lg::OutlineWorkPlan invalidOutlinePlan = lg::buildOutlineWorkPlan(
+    baseScene.camera,
+    invalidOutlineVertices,
+    invalidOutlineDraws,
+    1920U,
+    1080U
+  );
+  failures += expect(
+    invalidOutlinePlan.hasWork &&
+      invalidOutlinePlan.conservativeFallback &&
+      invalidOutlinePlan.finalRect.x == 0 &&
+      invalidOutlinePlan.finalRect.y == 0 &&
+      invalidOutlinePlan.finalRect.width == 1920 &&
+      invalidOutlinePlan.finalRect.height == 1080,
+    "invalid or camera-intersecting outline bounds should use the conservative full-target fallback"
+  );
+
   lg::RenderSettings isolationOutlineDisabledSettings = settings;
   isolationOutlineDisabledSettings.drawPlayerOutlines = false;
   const lg::Scene3D isolationOutlineDisabledScene = lg::buildPerspectiveScene(

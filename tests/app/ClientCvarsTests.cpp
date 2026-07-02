@@ -164,6 +164,16 @@ int main() {
     "renderer performance diagnostics cvars should be toggleable"
   );
   failures += expect(
+    console.execute("r_enemy_outline_width 6") == "r_enemy_outline_width = 6" &&
+      console.execute("r_enemy_outline_width 7") ==
+        "value out of range for r_enemy_outline_width" &&
+      console.execute("r_teammate_outline_width 6") ==
+        "r_teammate_outline_width = 6" &&
+      console.execute("r_teammate_outline_width 7") ==
+        "value out of range for r_teammate_outline_width",
+    "screen-space outline width cvars should be capped at six final display pixels"
+  );
+  failures += expect(
     console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&
       console.getFloat("s_lg_fire_volume") == 0.25F,
     "lightning gun fire volume should be configurable"

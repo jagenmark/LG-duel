@@ -22,7 +22,9 @@ The SDL_Renderer fallback draws immediate geometry and does not have the same st
 
 SDL_GPU player outlines are object-mask-based screen-space outlines. `Scene3D` records outline eligibility separately from normal player materials, including enemy/teammate group, visibility mode, alpha, pulse, and pixel width. The mask pass redraws the same already-built player body vertex ranges used by the normal world pass; it does not generate expanded outline meshes or rebuild player geometry for outlines.
 
-The SDL_GPU frame renders the world depth/color pass, redraws eligible player body ranges into a full-resolution RGBA outline mask with depth testing, composites a pixel-width dilated contour over the scene, and then draws 2D HUD/UI. The SDL_Renderer fallback does not implement this mask path; style `r_player_outline_style 0` keeps the old approximate geometry fallback as explicit legacy behavior.
+The SDL_GPU frame renders the world depth/color pass, then uses a bounded screen-space work rectangle for outline work. Style `r_player_outline_style 1` allocates persistent half-resolution mask, dilation, and depth targets sized to `ceil(framebuffer * 0.5)`. The active rectangle is derived from the projected mask input vertices, expanded by outline/filtering/safety margins, and falls back to the full target if projection is unreliable or intersects the camera/near plane.
+
+Within that half-resolution rectangle, the renderer clears mask/depth deterministically, rebuilds opaque depth, redraws eligible player body ranges into the mask with depth testing, runs a fixed 7x7 dilation kernel, and finally composites the contour into the full-resolution scene with a matching full-resolution scissor. Public outline width cvars remain final display pixels and are converted to half-resolution radii internally. The SDL_Renderer fallback does not implement this mask path; style `r_player_outline_style 0` keeps the old approximate geometry fallback as explicit legacy behavior.
 
 ## Textures And Materials
 

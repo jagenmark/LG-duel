@@ -905,6 +905,142 @@ void collectTextureMaterialFiles(
   return pipeline;
 }
 
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineClear(
+  SDL_GPUDevice* device
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    "outline_clear.vert.spv",
+    SDL_GPU_SHADERSTAGE_VERTEX
+  );
+  if (vertexShader == nullptr) {
+    return nullptr;
+  }
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    "outline_clear.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT
+  );
+  if (fragmentShader == nullptr) {
+    SDL_ReleaseGPUShader(device, vertexShader);
+    return nullptr;
+  }
+
+  SDL_GPUColorTargetDescription colorTarget = {};
+  colorTarget.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+  createInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_ALWAYS;
+  createInfo.depth_stencil_state.enable_depth_test = true;
+  createInfo.depth_stencil_state.enable_depth_write = true;
+  createInfo.target_info.color_target_descriptions = &colorTarget;
+  createInfo.target_info.num_color_targets = 1;
+  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.has_depth_stencil_target = true;
+
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
+}
+
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineColorClear(
+  SDL_GPUDevice* device
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    "outline_composite.vert.spv",
+    SDL_GPU_SHADERSTAGE_VERTEX
+  );
+  if (vertexShader == nullptr) {
+    return nullptr;
+  }
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    "outline_clear.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT
+  );
+  if (fragmentShader == nullptr) {
+    SDL_ReleaseGPUShader(device, vertexShader);
+    return nullptr;
+  }
+
+  SDL_GPUColorTargetDescription colorTarget = {};
+  colorTarget.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+  createInfo.target_info.color_target_descriptions = &colorTarget;
+  createInfo.target_info.num_color_targets = 1;
+
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
+}
+
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineDilation(
+  SDL_GPUDevice* device
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    "outline_composite.vert.spv",
+    SDL_GPU_SHADERSTAGE_VERTEX
+  );
+  if (vertexShader == nullptr) {
+    return nullptr;
+  }
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    "outline_dilate.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    1,
+    1
+  );
+  if (fragmentShader == nullptr) {
+    SDL_ReleaseGPUShader(device, vertexShader);
+    return nullptr;
+  }
+
+  SDL_GPUColorTargetDescription colorTarget = {};
+  colorTarget.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+  createInfo.target_info.color_target_descriptions = &colorTarget;
+  createInfo.target_info.num_color_targets = 1;
+
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
+}
+
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineComposite(
   SDL_GPUDevice* device,
   SDL_Window* window
@@ -921,7 +1057,7 @@ void collectTextureMaterialFiles(
     device,
     "outline_composite.frag.spv",
     SDL_GPU_SHADERSTAGE_FRAGMENT,
-    1,
+    2,
     1
   );
   if (fragmentShader == nullptr) {
@@ -2610,7 +2746,10 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUGraphicsPipeline* instancedMeshPipeline,
   SDL_GPUGraphicsPipeline* staticMeshPipeline,
   SDL_GPUGraphicsPipeline* instancedGlowPipeline,
+  SDL_GPUGraphicsPipeline* pipelineOutlineClear,
+  SDL_GPUGraphicsPipeline* pipelineOutlineColorClear,
   SDL_GPUGraphicsPipeline* pipelineOutlineMask,
+  SDL_GPUGraphicsPipeline* pipelineOutlineDilation,
   SDL_GPUGraphicsPipeline* pipelineOutlineComposite,
   SDL_GPUBuffer* vertexBuffer,
   SDL_GPUTransferBuffer* transferBuffer,
@@ -2621,11 +2760,17 @@ const PlayerState& firstVisibleRemote(
   StaticWorldMesh*& staticWorld,
   SDL_GPUTexture*& depthTexture,
   SDL_GPUTexture*& outlineMaskTexture,
+  SDL_GPUTexture*& outlineDilationTexture,
+  SDL_GPUTexture*& outlineDepthTexture,
   SDL_GPUSampler* outlineMaskSampler,
   Uint32& depthWidth,
   Uint32& depthHeight,
   Uint32& outlineMaskWidth,
   Uint32& outlineMaskHeight,
+  Uint32& outlineDilationWidth,
+  Uint32& outlineDilationHeight,
+  Uint32& outlineDepthWidth,
+  Uint32& outlineDepthHeight,
   std::vector<GpuVertex>& vertices,
   SDL_Window* window,
   const Arena& arena,
@@ -2662,8 +2807,23 @@ const PlayerState& firstVisibleRemote(
   diagnostics.normalPlayerBodyDynamicVertices = 0;
   diagnostics.geometryOutlineDynamicVertices = 0;
   diagnostics.outlinedPlayers = 0;
+  diagnostics.outlineStyle = static_cast<int>(settings.playerOutlineStyle);
   diagnostics.outlineMaskWidth = 0;
   diagnostics.outlineMaskHeight = 0;
+  diagnostics.outlineWorkWidth = 0;
+  diagnostics.outlineWorkHeight = 0;
+  diagnostics.outlineWorkScale = 0.0F;
+  diagnostics.outlineWorkRectX = 0;
+  diagnostics.outlineWorkRectY = 0;
+  diagnostics.outlineWorkRectWidth = 0;
+  diagnostics.outlineWorkRectHeight = 0;
+  diagnostics.outlineWorkAreaPercent = 0.0F;
+  diagnostics.outlineMaskDrawCalls = 0;
+  diagnostics.outlineDilationDrawCalls = 0;
+  diagnostics.outlineCompositeDrawCalls = 0;
+  diagnostics.outlineUploadBytes = 0;
+  diagnostics.outlineGpuTimingAvailable = false;
+  diagnostics.outlineGpuMilliseconds = 0.0F;
   diagnostics.outlinePasses = 0;
   diagnostics.outlineCompositeEnabled = false;
   diagnostics.geometryOutlineFallbackUsed = false;
@@ -3042,10 +3202,7 @@ const PlayerState& firstVisibleRemote(
     depthTarget.texture = depthTexture;
     depthTarget.clear_depth = 1.0F;
     depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
-    depthTarget.store_op =
-      perspectiveScene.outlineMaskDraws.empty()
-        ? SDL_GPU_STOREOP_DONT_CARE
-        : SDL_GPU_STOREOP_STORE;
+    depthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
     depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     depthTarget.cycle = true;
@@ -3230,52 +3387,145 @@ const PlayerState& firstVisibleRemote(
     SDL_EndGPURenderPass(worldPass);
     colorTarget.load_op = SDL_GPU_LOADOP_LOAD;
 
+    const OutlineWorkPlan outlinePlan = buildOutlineWorkPlan(
+      perspectiveScene.camera,
+      std::span<const Vertex3D>(
+        perspectiveScene.vertices.data(),
+        perspectiveScene.vertices.size()
+      ),
+      std::span<const OutlineMaskDraw>(
+        perspectiveScene.outlineMaskDraws.data(),
+        perspectiveScene.outlineMaskDraws.size()
+      ),
+      outputWidth,
+      outputHeight
+    );
     const bool outlineCompositeEnabled =
+      pipelineOutlineClear != nullptr &&
+      pipelineOutlineColorClear != nullptr &&
       pipelineOutlineMask != nullptr &&
+      pipelineOutlineDilation != nullptr &&
       pipelineOutlineComposite != nullptr &&
       outlineMaskSampler != nullptr &&
-      !perspectiveScene.outlineMaskDraws.empty();
+      outlinePlan.hasWork;
     if (outlineCompositeEnabled) {
+      const Uint32 workWidth = outlinePlan.dimensions.workWidth;
+      const Uint32 workHeight = outlinePlan.dimensions.workHeight;
+      const bool outlineTargetsResized =
+        outlineMaskTexture == nullptr ||
+        outlineDilationTexture == nullptr ||
+        outlineDepthTexture == nullptr ||
+        outlineMaskWidth != workWidth ||
+        outlineMaskHeight != workHeight ||
+        outlineDilationWidth != workWidth ||
+        outlineDilationHeight != workHeight ||
+        outlineDepthWidth != workWidth ||
+        outlineDepthHeight != workHeight;
       outlineMaskTexture = ensureOutlineMaskTexture(
         device,
         outlineMaskTexture,
         outlineMaskWidth,
         outlineMaskHeight,
-        outputWidth,
-        outputHeight
+        workWidth,
+        workHeight
       );
-      if (outlineMaskTexture == nullptr) {
+      outlineDilationTexture = ensureOutlineMaskTexture(
+        device,
+        outlineDilationTexture,
+        outlineDilationWidth,
+        outlineDilationHeight,
+        workWidth,
+        workHeight
+      );
+      outlineDepthTexture = ensureDepthTexture(
+        device,
+        outlineDepthTexture,
+        outlineDepthWidth,
+        outlineDepthHeight,
+        workWidth,
+        workHeight
+      );
+      if (
+        outlineMaskTexture == nullptr ||
+        outlineDilationTexture == nullptr ||
+        outlineDepthTexture == nullptr
+      ) {
         (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
         return false;
       }
 
+      const SDL_Rect workScissor = {
+        outlinePlan.workRect.x,
+        outlinePlan.workRect.y,
+        outlinePlan.workRect.width,
+        outlinePlan.workRect.height,
+      };
+      const SDL_Rect compositeScissor = {
+        outlinePlan.finalRect.x,
+        outlinePlan.finalRect.y,
+        outlinePlan.finalRect.width,
+        outlinePlan.finalRect.height,
+      };
+      const SDL_GPUViewport outlineViewport = {
+        0.0F,
+        0.0F,
+        static_cast<float>(workWidth),
+        static_cast<float>(workHeight),
+        0.0F,
+        1.0F,
+      };
+
       SDL_GPUColorTargetInfo maskColorTarget = {};
       maskColorTarget.texture = outlineMaskTexture;
       maskColorTarget.clear_color = {0.0F, 0.0F, 0.0F, 0.0F};
-      maskColorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
+      maskColorTarget.load_op =
+        outlineTargetsResized ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
       maskColorTarget.store_op = SDL_GPU_STOREOP_STORE;
-      maskColorTarget.cycle = true;
+      maskColorTarget.cycle = outlineTargetsResized;
 
       SDL_GPUDepthStencilTargetInfo maskDepthTarget = {};
-      maskDepthTarget.texture = depthTexture;
-      maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
-      maskDepthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
+      maskDepthTarget.texture = outlineDepthTexture;
+      maskDepthTarget.clear_depth = 1.0F;
+      maskDepthTarget.load_op =
+        outlineTargetsResized ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+      maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
       maskDepthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
       maskDepthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-      maskDepthTarget.cycle = false;
-      SDL_GPURenderPass* maskPass = SDL_BeginGPURenderPass(
+      maskDepthTarget.cycle = outlineTargetsResized;
+      SDL_GPURenderPass* outlineClearPass = SDL_BeginGPURenderPass(
         commandBuffer,
         &maskColorTarget,
         1,
         &maskDepthTarget
       );
-      if (maskPass == nullptr) {
+      if (outlineClearPass == nullptr) {
         (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
         return false;
       }
-      SDL_BindGPUGraphicsPipeline(maskPass, pipelineOutlineMask);
-      const SDL_GPUBufferBinding maskBinding = {vertexBuffer, 0};
-      SDL_BindGPUVertexBuffers(maskPass, 0, &maskBinding, 1);
+      SDL_SetGPUViewport(outlineClearPass, &outlineViewport);
+      SDL_SetGPUScissor(outlineClearPass, &workScissor);
+      SDL_BindGPUGraphicsPipeline(outlineClearPass, pipelineOutlineClear);
+      SDL_DrawGPUPrimitives(outlineClearPass, 3, 1, 0, 0);
+      SDL_EndGPURenderPass(outlineClearPass);
+
+      maskColorTarget.load_op = SDL_GPU_LOADOP_LOAD;
+      maskColorTarget.store_op = SDL_GPU_STOREOP_STORE;
+      maskColorTarget.cycle = false;
+      maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
+      maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
+      maskDepthTarget.cycle = false;
+      SDL_GPURenderPass* outlineDepthPass = SDL_BeginGPURenderPass(
+        commandBuffer,
+        &maskColorTarget,
+        1,
+        &maskDepthTarget
+      );
+      if (outlineDepthPass == nullptr) {
+        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        return false;
+      }
+      SDL_SetGPUViewport(outlineDepthPass, &outlineViewport);
+      SDL_SetGPUScissor(outlineDepthPass, &workScissor);
       struct alignas(16) MaskCameraUniform {
         float position[4];
         float right[4];
@@ -3312,6 +3562,135 @@ const PlayerState& firstVisibleRemote(
         &maskCameraUniform,
         sizeof(maskCameraUniform)
       );
+      StaticWorldMesh* outlineWorldMesh =
+        ensureStaticWorldMesh(device, staticWorld, arena);
+      const bool outlineHasStaticWorld =
+        outlineWorldMesh != nullptr &&
+        outlineWorldMesh->vertexBuffer != nullptr &&
+        outlineWorldMesh->sampler != nullptr &&
+        !outlineWorldMesh->batches.empty();
+      if (outlineHasStaticWorld) {
+        SDL_BindGPUGraphicsPipeline(outlineDepthPass, pipeline3D);
+        const SDL_GPUBufferBinding staticBinding = {
+          outlineWorldMesh->vertexBuffer,
+          0,
+        };
+        SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &staticBinding, 1);
+        for (const StaticWorldBatch& batch : outlineWorldMesh->batches) {
+          if (
+            batch.vertexCount == 0 ||
+            batch.texture == nullptr ||
+            batch.texture->texture == nullptr
+          ) {
+            continue;
+          }
+          const SDL_GPUTextureSamplerBinding textureBinding = {
+            batch.texture->texture,
+            outlineWorldMesh->sampler,
+          };
+          SDL_BindGPUFragmentSamplers(
+            outlineDepthPass,
+            0,
+            &textureBinding,
+            1
+          );
+          SDL_DrawGPUPrimitives(
+            outlineDepthPass,
+            batch.vertexCount,
+            1,
+            batch.firstVertex,
+            0
+          );
+        }
+      }
+      const SDL_GPUBufferBinding outlineDynamicBinding = {vertexBuffer, 0};
+      SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &outlineDynamicBinding, 1);
+      if (worldAtlas != nullptr) {
+        const SDL_GPUTextureSamplerBinding worldBinding = {
+          worldAtlas->texture,
+          worldAtlas->sampler,
+        };
+        SDL_BindGPUFragmentSamplers(outlineDepthPass, 0, &worldBinding, 1);
+      } else if (
+        outlineHasStaticWorld &&
+        !outlineWorldMesh->textures.empty() &&
+        outlineWorldMesh->textures.front().texture != nullptr
+      ) {
+        const SDL_GPUTextureSamplerBinding whiteBinding = {
+          outlineWorldMesh->textures.front().texture,
+          outlineWorldMesh->sampler,
+        };
+        SDL_BindGPUFragmentSamplers(outlineDepthPass, 0, &whiteBinding, 1);
+      }
+      if (opaqueDynamicVertexCount > 0) {
+        SDL_BindGPUGraphicsPipeline(outlineDepthPass, pipeline3D);
+        SDL_DrawGPUPrimitives(
+          outlineDepthPass,
+          opaqueDynamicVertexCount,
+          1,
+          0,
+          0
+        );
+      }
+      drawStaticMeshBatches(
+        outlineDepthPass,
+        staticMeshPipeline,
+        simpleResources,
+        perspectiveScene,
+        RenderPass::OpaqueWorld
+      );
+      drawSimpleInstanceBatches(
+        outlineDepthPass,
+        instancedMeshPipeline,
+        instancedGlowPipeline,
+        simpleResources,
+        perspectiveScene
+      );
+      SDL_EndGPURenderPass(outlineDepthPass);
+
+      maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
+      maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
+      maskDepthTarget.cycle = false;
+      SDL_GPURenderPass* outlineColorClearPass = SDL_BeginGPURenderPass(
+        commandBuffer,
+        &maskColorTarget,
+        1,
+        nullptr
+      );
+      if (outlineColorClearPass == nullptr) {
+        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        return false;
+      }
+      SDL_SetGPUViewport(outlineColorClearPass, &outlineViewport);
+      SDL_SetGPUScissor(outlineColorClearPass, &workScissor);
+      SDL_BindGPUGraphicsPipeline(outlineColorClearPass, pipelineOutlineColorClear);
+      SDL_DrawGPUPrimitives(outlineColorClearPass, 3, 1, 0, 0);
+      SDL_EndGPURenderPass(outlineColorClearPass);
+
+      maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
+      maskDepthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
+      maskDepthTarget.cycle = false;
+      SDL_GPURenderPass* maskPass = SDL_BeginGPURenderPass(
+        commandBuffer,
+        &maskColorTarget,
+        1,
+        &maskDepthTarget
+      );
+      if (maskPass == nullptr) {
+        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        return false;
+      }
+      SDL_SetGPUViewport(maskPass, &outlineViewport);
+      SDL_SetGPUScissor(maskPass, &workScissor);
+      SDL_BindGPUGraphicsPipeline(maskPass, pipelineOutlineMask);
+      const SDL_GPUBufferBinding maskBinding = {vertexBuffer, 0};
+      SDL_BindGPUVertexBuffers(maskPass, 0, &maskBinding, 1);
+      SDL_PushGPUVertexUniformData(
+        commandBuffer,
+        0,
+        &maskCameraUniform,
+        sizeof(maskCameraUniform)
+      );
       struct alignas(16) MaskUniform {
         float group[4];
       };
@@ -3342,6 +3721,58 @@ const PlayerState& firstVisibleRemote(
         );
       }
       SDL_EndGPURenderPass(maskPass);
+
+      SDL_GPUColorTargetInfo dilationColorTarget = {};
+      dilationColorTarget.texture = outlineDilationTexture;
+      dilationColorTarget.clear_color = {0.0F, 0.0F, 0.0F, 0.0F};
+      dilationColorTarget.load_op =
+        outlineTargetsResized ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+      dilationColorTarget.store_op = SDL_GPU_STOREOP_STORE;
+      dilationColorTarget.cycle = outlineTargetsResized;
+      SDL_GPURenderPass* dilationPass = SDL_BeginGPURenderPass(
+        commandBuffer,
+        &dilationColorTarget,
+        1,
+        nullptr
+      );
+      if (dilationPass == nullptr) {
+        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        return false;
+      }
+      SDL_SetGPUViewport(dilationPass, &outlineViewport);
+      SDL_SetGPUScissor(dilationPass, &workScissor);
+      SDL_BindGPUGraphicsPipeline(dilationPass, pipelineOutlineDilation);
+      const SDL_GPUTextureSamplerBinding dilationMaskBinding = {
+        outlineMaskTexture,
+        outlineMaskSampler,
+      };
+      SDL_BindGPUFragmentSamplers(dilationPass, 0, &dilationMaskBinding, 1);
+      struct alignas(16) DilationUniform {
+        float texelSizeAndWidths[4];
+        float workRect[4];
+      };
+      const DilationUniform dilationUniform = {
+        {
+          1.0F / static_cast<float>(workWidth),
+          1.0F / static_cast<float>(workHeight),
+          outlineWorkRadiusPixels(settings.enemyOutlineWidth),
+          outlineWorkRadiusPixels(settings.teammateOutlineWidth),
+        },
+        {
+          static_cast<float>(outlinePlan.workRect.x),
+          static_cast<float>(outlinePlan.workRect.y),
+          static_cast<float>(outlinePlan.workRect.x + outlinePlan.workRect.width),
+          static_cast<float>(outlinePlan.workRect.y + outlinePlan.workRect.height),
+        },
+      };
+      SDL_PushGPUFragmentUniformData(
+        commandBuffer,
+        0,
+        &dilationUniform,
+        sizeof(dilationUniform)
+      );
+      SDL_DrawGPUPrimitives(dilationPass, 3, 1, 0, 0);
+      SDL_EndGPURenderPass(dilationPass);
 
       float enemyPulse = 0.0F;
       float teammatePulse = 0.0F;
@@ -3384,14 +3815,14 @@ const PlayerState& firstVisibleRemote(
         float texelSizeAndWidths[4];
         float enemyColor[4];
         float teammateColor[4];
-        float reserved[4];
+        float workRect[4];
       };
       const CompositeUniform compositeUniform = {
         {
-          1.0F / static_cast<float>(outputWidth),
-          1.0F / static_cast<float>(outputHeight),
-          std::clamp(settings.enemyOutlineWidth, 0.0F, 16.0F),
-          std::clamp(settings.teammateOutlineWidth, 0.0F, 16.0F),
+          1.0F / static_cast<float>(workWidth),
+          1.0F / static_cast<float>(workHeight),
+          static_cast<float>(outputWidth),
+          static_cast<float>(outputHeight),
         },
         {enemyColor[0], enemyColor[1], enemyColor[2], enemyColor[3]},
         {
@@ -3400,7 +3831,12 @@ const PlayerState& firstVisibleRemote(
           teammateColor[2],
           teammateColor[3],
         },
-        {0.0F, 0.0F, 0.0F, 0.0F},
+        {
+          static_cast<float>(outlinePlan.workRect.x),
+          static_cast<float>(outlinePlan.workRect.y),
+          static_cast<float>(outlinePlan.workRect.x + outlinePlan.workRect.width),
+          static_cast<float>(outlinePlan.workRect.y + outlinePlan.workRect.height),
+        },
       };
 
       SDL_GPURenderPass* compositePass =
@@ -3410,11 +3846,17 @@ const PlayerState& firstVisibleRemote(
         return false;
       }
       SDL_BindGPUGraphicsPipeline(compositePass, pipelineOutlineComposite);
-      const SDL_GPUTextureSamplerBinding samplerBinding = {
-        outlineMaskTexture,
-        outlineMaskSampler,
-      };
-      SDL_BindGPUFragmentSamplers(compositePass, 0, &samplerBinding, 1);
+      SDL_SetGPUScissor(compositePass, &compositeScissor);
+      const std::array<SDL_GPUTextureSamplerBinding, 2> samplerBindings = {{
+        {outlineMaskTexture, outlineMaskSampler},
+        {outlineDilationTexture, outlineMaskSampler},
+      }};
+      SDL_BindGPUFragmentSamplers(
+        compositePass,
+        0,
+        samplerBindings.data(),
+        static_cast<Uint32>(samplerBindings.size())
+      );
       SDL_PushGPUFragmentUniformData(
         commandBuffer,
         0,
@@ -3426,7 +3868,28 @@ const PlayerState& firstVisibleRemote(
 
       diagnostics.outlineMaskWidth = outlineMaskWidth;
       diagnostics.outlineMaskHeight = outlineMaskHeight;
-      diagnostics.outlinePasses = 2;
+      diagnostics.outlineWorkWidth = workWidth;
+      diagnostics.outlineWorkHeight = workHeight;
+      diagnostics.outlineWorkScale = outlinePlan.dimensions.workScale;
+      diagnostics.outlineWorkRectX = outlinePlan.finalRect.x;
+      diagnostics.outlineWorkRectY = outlinePlan.finalRect.y;
+      diagnostics.outlineWorkRectWidth = outlinePlan.finalRect.width;
+      diagnostics.outlineWorkRectHeight = outlinePlan.finalRect.height;
+      diagnostics.outlineWorkAreaPercent =
+        outputWidth > 0U && outputHeight > 0U
+          ? (
+              static_cast<float>(
+                outlinePlan.finalRect.width * outlinePlan.finalRect.height
+              ) * 100.0F
+            ) / static_cast<float>(outputWidth * outputHeight)
+          : 0.0F;
+      diagnostics.outlineMaskDrawCalls = outlinePlan.maskDrawCalls;
+      diagnostics.outlineDilationDrawCalls = outlinePlan.dilationDrawCalls;
+      diagnostics.outlineCompositeDrawCalls = outlinePlan.compositeDrawCalls;
+      diagnostics.outlineUploadBytes = outlinePlan.uploadBytes;
+      diagnostics.outlineGpuTimingAvailable = false;
+      diagnostics.outlineGpuMilliseconds = 0.0F;
+      diagnostics.outlinePasses = 6;
       diagnostics.outlineCompositeEnabled = true;
     }
 
@@ -4301,6 +4764,12 @@ bool Renderer::initialize(void* window) {
           );
         SDL_GPUGraphicsPipeline* pipelineOutlineMask =
           createGpuPipelineOutlineMask(device);
+        SDL_GPUGraphicsPipeline* pipelineOutlineClear =
+          createGpuPipelineOutlineClear(device);
+        SDL_GPUGraphicsPipeline* pipelineOutlineColorClear =
+          createGpuPipelineOutlineColorClear(device);
+        SDL_GPUGraphicsPipeline* pipelineOutlineDilation =
+          createGpuPipelineOutlineDilation(device);
         SDL_GPUGraphicsPipeline* pipelineOutlineComposite =
           createGpuPipelineOutlineComposite(
             device,
@@ -4351,7 +4820,10 @@ bool Renderer::initialize(void* window) {
           instancedMeshPipeline != nullptr &&
           staticMeshPipeline != nullptr &&
           instancedGlowPipeline != nullptr &&
+          pipelineOutlineClear != nullptr &&
+          pipelineOutlineColorClear != nullptr &&
           pipelineOutlineMask != nullptr &&
+          pipelineOutlineDilation != nullptr &&
           pipelineOutlineComposite != nullptr &&
           simpleResources != nullptr &&
           vertexBuffer != nullptr &&
@@ -4368,7 +4840,10 @@ bool Renderer::initialize(void* window) {
           gpuPipelineInstancedMesh_ = instancedMeshPipeline;
           gpuPipelineStaticMesh_ = staticMeshPipeline;
           gpuPipelineInstancedGlow_ = instancedGlowPipeline;
+          gpuPipelineOutlineClear_ = pipelineOutlineClear;
+          gpuPipelineOutlineColorClear_ = pipelineOutlineColorClear;
           gpuPipelineOutlineMask_ = pipelineOutlineMask;
+          gpuPipelineOutlineDilation_ = pipelineOutlineDilation;
           gpuPipelineOutlineComposite_ = pipelineOutlineComposite;
           gpuVertexBuffer_ = vertexBuffer;
           gpuTransferBuffer_ = transferBuffer;
@@ -4424,8 +4899,17 @@ bool Renderer::initialize(void* window) {
         if (instancedGlowPipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, instancedGlowPipeline);
         }
+        if (pipelineOutlineClear != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineClear);
+        }
+        if (pipelineOutlineColorClear != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineColorClear);
+        }
         if (pipelineOutlineMask != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineMask);
+        }
+        if (pipelineOutlineDilation != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineDilation);
         }
         if (pipelineOutlineComposite != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineComposite);
@@ -4485,6 +4969,10 @@ void Renderer::render(
     auto* depthTexture = static_cast<SDL_GPUTexture*>(gpuDepthTexture_);
     auto* outlineMaskTexture =
       static_cast<SDL_GPUTexture*>(gpuOutlineMaskTexture_);
+    auto* outlineDilationTexture =
+      static_cast<SDL_GPUTexture*>(gpuOutlineDilationTexture_);
+    auto* outlineDepthTexture =
+      static_cast<SDL_GPUTexture*>(gpuOutlineDepthTexture_);
     auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
@@ -4494,10 +4982,13 @@ void Renderer::render(
             gpuPipeline3DTranslucent_
           ),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedMesh_),
-          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMesh_),
-          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedGlow_),
-          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineMask_),
-          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineComposite_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMesh_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineInstancedGlow_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineClear_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineColorClear_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineMask_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineDilation_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineComposite_),
           static_cast<SDL_GPUBuffer*>(gpuVertexBuffer_),
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
           static_cast<GpuSimpleResources*>(gpuSimpleResources_),
@@ -4507,11 +4998,17 @@ void Renderer::render(
           staticWorld,
           depthTexture,
           outlineMaskTexture,
+          outlineDilationTexture,
+          outlineDepthTexture,
           static_cast<SDL_GPUSampler*>(gpuOutlineMaskSampler_),
           gpuDepthWidth_,
           gpuDepthHeight_,
           gpuOutlineMaskWidth_,
           gpuOutlineMaskHeight_,
+          gpuOutlineDilationWidth_,
+          gpuOutlineDilationHeight_,
+          gpuOutlineDepthWidth_,
+          gpuOutlineDepthHeight_,
           *static_cast<std::vector<GpuVertex>*>(gpuVertexScratch_),
           static_cast<SDL_Window*>(window_),
           arena,
@@ -4536,6 +5033,8 @@ void Renderer::render(
     gpuStaticWorld_ = staticWorld;
     gpuDepthTexture_ = depthTexture;
     gpuOutlineMaskTexture_ = outlineMaskTexture;
+    gpuOutlineDilationTexture_ = outlineDilationTexture;
+    gpuOutlineDepthTexture_ = outlineDepthTexture;
     lastFrameDiagnostics_.totalRenderMilliseconds =
       millisecondsBetween(renderStart, RenderClock::now());
     return;
@@ -4560,8 +5059,23 @@ void Renderer::render(
   lastFrameDiagnostics_.normalPlayerBodyDynamicVertices = 0;
   lastFrameDiagnostics_.geometryOutlineDynamicVertices = 0;
   lastFrameDiagnostics_.outlinedPlayers = 0;
+  lastFrameDiagnostics_.outlineStyle = static_cast<int>(settings.playerOutlineStyle);
   lastFrameDiagnostics_.outlineMaskWidth = 0;
   lastFrameDiagnostics_.outlineMaskHeight = 0;
+  lastFrameDiagnostics_.outlineWorkWidth = 0;
+  lastFrameDiagnostics_.outlineWorkHeight = 0;
+  lastFrameDiagnostics_.outlineWorkScale = 0.0F;
+  lastFrameDiagnostics_.outlineWorkRectX = 0;
+  lastFrameDiagnostics_.outlineWorkRectY = 0;
+  lastFrameDiagnostics_.outlineWorkRectWidth = 0;
+  lastFrameDiagnostics_.outlineWorkRectHeight = 0;
+  lastFrameDiagnostics_.outlineWorkAreaPercent = 0.0F;
+  lastFrameDiagnostics_.outlineMaskDrawCalls = 0;
+  lastFrameDiagnostics_.outlineDilationDrawCalls = 0;
+  lastFrameDiagnostics_.outlineCompositeDrawCalls = 0;
+  lastFrameDiagnostics_.outlineUploadBytes = 0;
+  lastFrameDiagnostics_.outlineGpuTimingAvailable = false;
+  lastFrameDiagnostics_.outlineGpuMilliseconds = 0.0F;
   lastFrameDiagnostics_.outlinePasses = 0;
   lastFrameDiagnostics_.outlineCompositeEnabled = false;
   lastFrameDiagnostics_.geometryOutlineFallbackUsed = false;
@@ -4909,6 +5423,24 @@ void Renderer::shutdown() {
       gpuOutlineMaskWidth_ = 0;
       gpuOutlineMaskHeight_ = 0;
     }
+    if (gpuOutlineDilationTexture_ != nullptr) {
+      SDL_ReleaseGPUTexture(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUTexture*>(gpuOutlineDilationTexture_)
+      );
+      gpuOutlineDilationTexture_ = nullptr;
+      gpuOutlineDilationWidth_ = 0;
+      gpuOutlineDilationHeight_ = 0;
+    }
+    if (gpuOutlineDepthTexture_ != nullptr) {
+      SDL_ReleaseGPUTexture(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUTexture*>(gpuOutlineDepthTexture_)
+      );
+      gpuOutlineDepthTexture_ = nullptr;
+      gpuOutlineDepthWidth_ = 0;
+      gpuOutlineDepthHeight_ = 0;
+    }
     destroyStaticWorldMesh(
       static_cast<SDL_GPUDevice*>(gpuDevice_),
       static_cast<StaticWorldMesh*>(gpuStaticWorld_)
@@ -5003,12 +5535,33 @@ void Renderer::shutdown() {
       );
       gpuPipelineInstancedGlow_ = nullptr;
     }
+    if (gpuPipelineOutlineClear_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineClear_)
+      );
+      gpuPipelineOutlineClear_ = nullptr;
+    }
+    if (gpuPipelineOutlineColorClear_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineColorClear_)
+      );
+      gpuPipelineOutlineColorClear_ = nullptr;
+    }
     if (gpuPipelineOutlineMask_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(
         static_cast<SDL_GPUDevice*>(gpuDevice_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineMask_)
       );
       gpuPipelineOutlineMask_ = nullptr;
+    }
+    if (gpuPipelineOutlineDilation_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineDilation_)
+      );
+      gpuPipelineOutlineDilation_ = nullptr;
     }
     if (gpuPipelineOutlineComposite_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(

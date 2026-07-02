@@ -237,9 +237,9 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_g` | int | `82` | `0..255` | Ingen exakt 1:1-default | Modellens grönkanal. |
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
-| `r_player_outline_style` | int | `0` | `0..1` | Ingen direkt | Shared player outline implementation selector. `0`: geometry-expanded fallback. `1`: screen-space mask request, currently falling back to geometry until the SDL_GPU mask/postprocess pass lands. |
+| `r_player_outline_style` | int | `0` | `0..1` | Ingen direkt | Shared player outline implementation selector. `0`: legacy geometry-expanded fallback. `1`: SDL_GPU half-resolution screen-space mask/dilation/composite path. |
 | `r_enemy_outline_enable` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
-| `r_enemy_outline_width` | float | `0.045` | `0..0.5` | Ingen direkt | Geometry fallback outline expansion in world units. |
+| `r_enemy_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_enemy_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy outline opacity. |
 | `r_enemy_outline_r` | int | `255` | `0..255` | Ingen direkt | Enemy outline red channel. |
 | `r_enemy_outline_g` | int | `220` | `0..255` | Ingen direkt | Enemy outline green channel. |
@@ -270,7 +270,7 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_b` | int | `224` | `0..255` | Ingen direkt | Modellens blå kanal. |
 | `r_teammate_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
 | `r_teammate_outline_enable` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
-| `r_teammate_outline_width` | float | `0.045` | `0..0.5` | Ingen direkt | Geometry fallback outline expansion in world units. |
+| `r_teammate_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_teammate_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate outline opacity. |
 | `r_teammate_outline_r` | int | `128` | `0..255` | Ingen direkt | Teammate outline red channel. |
 | `r_teammate_outline_g` | int | `240` | `0..255` | Ingen direkt | Teammate outline green channel. |
