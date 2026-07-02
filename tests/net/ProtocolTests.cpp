@@ -352,6 +352,7 @@ int main() {
     source.rocketExplosions[0].radius = 3.0F;
     source.rocketExplosions[0].ownerDamageApplied = 12;
     source.rocketExplosions[0].opponentDamageApplied = 80;
+    source.rocketExplosions[0].sequence = 42;
     source.fragEvents[0].active = true;
     source.fragEvents[0].targetPlayerIndex = 1;
     source.localHitFeedbackEvents[0][0].active = true;
@@ -543,6 +544,7 @@ int main() {
         nearlyEqual(decoded.rocketExplosions[0].radius, 3.0F) &&
         decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
         decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
+        decoded.rocketExplosions[0].sequence == 42 &&
         decoded.footstepAudioEvents[1].active &&
         decoded.footstepAudioEvents[1].jumping &&
         decoded.footstepAudioEvents[1].landing &&

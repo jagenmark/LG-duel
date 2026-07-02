@@ -67,7 +67,9 @@ constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
 constexpr float kRailgunBeamLingerSeconds = 0.5F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr std::size_t kMaxTransientTracers = 128;
+constexpr std::size_t kMaxTransientEffects = 192;
 constexpr std::size_t kMaxConsumedTracerEvents = 64;
+constexpr std::size_t kMaxConsumedExplosionEvents = 64;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
 
 [[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
@@ -422,23 +424,47 @@ struct ConsumedTracerEvent {
   bool active = false;
 };
 
+struct ConsumedExplosionEvent {
+  std::uint8_t ownerIndex = 0;
+  std::uint32_t sequence = 0;
+  bool active = false;
+};
+
 struct TransientTracerStore {
   std::array<TransientTracer, kMaxTransientTracers> tracers = {};
   std::array<bool, kMaxTransientTracers> active = {};
   std::array<bool, kMaxTransientTracers> followLocalMuzzle = {};
   std::array<Weapon, kMaxTransientTracers> followWeapon = {};
   std::array<std::uint32_t, kMaxTransientTracers> followSeed = {};
+  std::array<TransientEffect, kMaxTransientEffects> effects = {};
+  std::array<bool, kMaxTransientEffects> effectActive = {};
   std::array<ConsumedTracerEvent, kMaxConsumedTracerEvents> consumedEvents = {};
+  std::array<ConsumedExplosionEvent, kMaxConsumedExplosionEvents> consumedExplosionEvents = {};
+  std::array<bool, kDuelPlayerCount> hasLastExplosionSequence = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastExplosionSequence = {};
   std::uint32_t nextConsumedEvent = 0;
+  std::uint32_t nextConsumedExplosionEvent = 0;
+  std::uint32_t explosionEventsConsumedThisFrame = 0;
 
   void update(float dt) {
+    explosionEventsConsumedThisFrame = 0;
+    const float elapsed = std::max(0.0F, dt);
     for (std::size_t index = 0; index < tracers.size(); ++index) {
       if (!active[index]) {
         continue;
       }
-      tracers[index].ageSeconds += std::max(0.0F, dt);
+      tracers[index].ageSeconds += elapsed;
       if (tracers[index].ageSeconds >= tracers[index].lifetimeSeconds) {
         active[index] = false;
+      }
+    }
+    for (std::size_t index = 0; index < effects.size(); ++index) {
+      if (!effectActive[index]) {
+        continue;
+      }
+      effects[index].ageSeconds += elapsed;
+      if (effects[index].ageSeconds >= effects[index].lifetimeSeconds) {
+        effectActive[index] = false;
       }
     }
   }
@@ -471,6 +497,48 @@ struct TransientTracerStore {
     ++nextConsumedEvent;
   }
 
+  [[nodiscard]] bool consumedExplosion(
+    std::uint8_t ownerIndex,
+    std::uint32_t sequence
+  ) const {
+    if (ownerIndex >= kDuelPlayerCount) {
+      return true;
+    }
+    if (
+      hasLastExplosionSequence[ownerIndex] &&
+      !isSequenceNewer(sequence, lastExplosionSequence[ownerIndex])
+    ) {
+      return true;
+    }
+    for (const ConsumedExplosionEvent& event : consumedExplosionEvents) {
+      if (
+        event.active &&
+        event.ownerIndex == ownerIndex &&
+        event.sequence == sequence
+      ) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void rememberExplosion(std::uint8_t ownerIndex, std::uint32_t sequence) {
+    if (ownerIndex >= kDuelPlayerCount) {
+      return;
+    }
+    consumedExplosionEvents[
+      nextConsumedExplosionEvent % consumedExplosionEvents.size()
+    ] = {
+      ownerIndex,
+      sequence,
+      true,
+    };
+    ++nextConsumedExplosionEvent;
+    lastExplosionSequence[ownerIndex] = sequence;
+    hasLastExplosionSequence[ownerIndex] = true;
+    ++explosionEventsConsumedThisFrame;
+  }
+
   void add(
     const TransientTracer& tracer,
     bool followMuzzle = false,
@@ -497,6 +565,26 @@ struct TransientTracerStore {
     followLocalMuzzle[slot] = followMuzzle;
     followWeapon[slot] = weapon;
     followSeed[slot] = seed;
+  }
+
+  void addEffect(const TransientEffect& effect) {
+    std::size_t slot = effects.size();
+    for (std::size_t index = 0; index < effectActive.size(); ++index) {
+      if (!effectActive[index]) {
+        slot = index;
+        break;
+      }
+    }
+    if (slot == effects.size()) {
+      slot = 0;
+      for (std::size_t index = 1; index < effectActive.size(); ++index) {
+        if (effects[index].ageSeconds > effects[slot].ageSeconds) {
+          slot = index;
+        }
+      }
+    }
+    effects[slot] = effect;
+    effectActive[slot] = true;
   }
 
   void fillActive(
@@ -533,6 +621,17 @@ struct TransientTracerStore {
       }
     }
   }
+
+  void fillActiveEffects(std::vector<TransientEffect>& result) const {
+    result.clear();
+    result.reserve(effects.size());
+    for (std::size_t index = 0; index < effects.size(); ++index) {
+      if (effectActive[index]) {
+        result.push_back(effects[index]);
+      }
+    }
+  }
+
 };
 
 [[nodiscard]] RenderColor tracerColor(Weapon weapon, std::uint32_t seed) {
@@ -687,6 +786,64 @@ void consumeTracerWeaponFires(
   }
 }
 
+[[nodiscard]] float explosionPresentationRadius(float radius, Weapon weapon) {
+  const float fallback = weapon == Weapon::PlasmaGun ? 0.45F : 3.0F;
+  const float finiteRadius = std::isfinite(radius) && radius > 0.0F
+    ? radius
+    : fallback;
+  if (weapon == Weapon::PlasmaGun) {
+    return std::clamp(finiteRadius, 0.25F, 0.9F);
+  }
+  return std::clamp(finiteRadius, 0.75F, 3.6F);
+}
+
+void spawnExplosionEffects(
+  TransientTracerStore& store,
+  const RocketExplosionResult& explosion
+) {
+  if (
+    !std::isfinite(explosion.position.x) ||
+    !std::isfinite(explosion.position.y) ||
+    !std::isfinite(explosion.position.z)
+  ) {
+    return;
+  }
+  const float radius = explosionPresentationRadius(explosion.radius, explosion.weapon);
+  const std::uint32_t seed = explosion.sequence * 1103515245U + 12345U;
+  if (explosion.weapon == Weapon::PlasmaGun) {
+    store.addEffect({TransientEffectType::PlasmaExplosionFlash, explosion.position, 0.0F, 0.04F, radius * 0.35F, radius * 0.72F, {122, 255, 184, 210}, seed});
+    store.addEffect({TransientEffectType::PlasmaExplosionCore, explosion.position, 0.0F, 0.14F, radius * 0.28F, radius * 0.95F, {76, 248, 210, 185}, seed + 1U});
+    store.addEffect({TransientEffectType::PlasmaExplosionHalo, explosion.position, 0.0F, 0.10F, radius * 0.55F, radius * 1.25F, {64, 255, 168, 88}, seed + 2U});
+    return;
+  }
+  if (explosion.weapon == Weapon::GrenadeLauncher) {
+    store.addEffect({TransientEffectType::GrenadeExplosionFlash, explosion.position, 0.0F, 0.05F, radius * 0.22F, radius * 0.58F, {255, 224, 104, 220}, seed});
+    store.addEffect({TransientEffectType::GrenadeExplosionCore, explosion.position, 0.0F, 0.20F, radius * 0.25F, radius * 1.05F, {255, 178, 66, 190}, seed + 1U});
+    return;
+  }
+  store.addEffect({TransientEffectType::RocketExplosionFlash, explosion.position, 0.0F, 0.05F, radius * 0.28F, radius * 0.68F, {255, 228, 132, 230}, seed});
+  store.addEffect({TransientEffectType::RocketExplosionCore, explosion.position, 0.0F, 0.18F, radius * 0.26F, radius * 1.08F, {255, 112, 44, 200}, seed + 1U});
+  store.addEffect({TransientEffectType::RocketExplosionHalo, explosion.position, 0.0F, 0.12F, radius * 0.70F, radius * 1.45F, {255, 72, 28, 82}, seed + 2U});
+}
+
+void consumeExplosionEvents(
+  TransientTracerStore& store,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& explosions
+) {
+  for (std::size_t owner = 0; owner < explosions.size(); ++owner) {
+    const RocketExplosionResult& explosion = explosions[owner];
+    if (!explosion.active) {
+      continue;
+    }
+    const std::uint8_t eventOwner = static_cast<std::uint8_t>(owner);
+    if (store.consumedExplosion(eventOwner, explosion.sequence)) {
+      continue;
+    }
+    spawnExplosionEffects(store, explosion);
+    store.rememberExplosion(eventOwner, explosion.sequence);
+  }
+}
+
 struct LocalInputState {
   int forward = 0;
   int back = 0;
@@ -831,12 +988,24 @@ struct FrameTimeHistory {
   sample.activeTransientEffects = renderDiagnostics.activeTransientEffects;
   sample.activeMachineGunTracers = renderDiagnostics.activeMachineGunTracers;
   sample.activeShotgunTracers = renderDiagnostics.activeShotgunTracers;
+  sample.activeExplosionEffects = renderDiagnostics.activeExplosionEffects;
+  sample.newExplosionEventsConsumed = renderDiagnostics.newExplosionEventsConsumed;
   sample.tracerCandidates = renderDiagnostics.tracerCandidates;
   sample.tracerFrustumCulled = renderDiagnostics.tracerFrustumCulled;
   sample.tracerInstancesSubmitted = renderDiagnostics.tracerInstancesSubmitted;
   sample.tracerInstanceUploadBytes = renderDiagnostics.tracerInstanceUploadBytes;
   sample.tracerBatches = renderDiagnostics.tracerBatches;
   sample.tracerDrawCalls = renderDiagnostics.tracerDrawCalls;
+  sample.explosionCandidates = renderDiagnostics.explosionCandidates;
+  sample.explosionFrustumCulled = renderDiagnostics.explosionFrustumCulled;
+  sample.explosionInstancesSubmitted = renderDiagnostics.explosionInstancesSubmitted;
+  sample.explosionInstanceUploadBytes =
+    renderDiagnostics.explosionInstanceUploadBytes;
+  sample.explosionOpaqueBatches = renderDiagnostics.explosionOpaqueBatches;
+  sample.explosionAdditiveBatches = renderDiagnostics.explosionAdditiveBatches;
+  sample.explosionDrawCalls = renderDiagnostics.explosionDrawCalls;
+  sample.legacyWireframeExplosionDraws =
+    renderDiagnostics.legacyWireframeExplosionDraws;
   sample.legacyMachineGunShotgunVisualDraws =
     renderDiagnostics.legacyMachineGunShotgunVisualDraws;
   sample.snapshot = snapshotDiagnostics;
@@ -943,12 +1112,12 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "transient VFX: active %u | MG %u | SG %u | submitted %u | culled %u",
+    "transient VFX: active %u | MG %u | SG %u | explosions %u | new exp %u",
     latest.activeTransientEffects,
     latest.activeMachineGunTracers,
     latest.activeShotgunTracers,
-    latest.tracerInstancesSubmitted,
-    latest.tracerFrustumCulled
+    latest.activeExplosionEffects,
+    latest.newExplosionEventsConsumed
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -959,6 +1128,25 @@ void appendPerfHudLines(
     latest.tracerDrawCalls,
     static_cast<float>(latest.tracerInstanceUploadBytes) / 1024.0F,
     latest.legacyMachineGunShotgunVisualDraws
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "explosions: instances %u | culled %u | batches %u/%u | draws %u | upload %.1f KB",
+    latest.explosionInstancesSubmitted,
+    latest.explosionFrustumCulled,
+    latest.explosionOpaqueBatches,
+    latest.explosionAdditiveBatches,
+    latest.explosionDrawCalls,
+    static_cast<float>(latest.explosionInstanceUploadBytes) / 1024.0F
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "legacy explosion wireframes %u",
+    latest.legacyWireframeExplosionDraws
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -3342,7 +3530,9 @@ int GameApp::run() const {
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
   TransientTracerStore transientTracerStore;
   std::vector<TransientTracer> activeTransientTracers;
+  std::vector<TransientEffect> activeTransientEffects;
   activeTransientTracers.reserve(kMaxTransientTracers);
+  activeTransientEffects.reserve(kMaxTransientEffects);
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   while (running) {
@@ -4141,6 +4331,7 @@ int GameApp::run() const {
       lingeringRailBeams = {};
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
+      activeTransientEffects.clear();
       footstepAudioStates = {};
       damageNumberState.reset();
       lastDamageNumberServerTick = 0;
@@ -5088,10 +5279,10 @@ int GameApp::run() const {
           std::to_string(diagnostics.activeMachineGunTracers) +
           " | SG " +
           std::to_string(diagnostics.activeShotgunTracers) +
-          " | candidates " +
-          std::to_string(diagnostics.tracerCandidates) +
-          " | culled " +
-          std::to_string(diagnostics.tracerFrustumCulled)
+          " | explosions " +
+          std::to_string(diagnostics.activeExplosionEffects) +
+          " | new explosions " +
+          std::to_string(diagnostics.newExplosionEventsConsumed)
         );
         hud.topLeftLines.emplace_back(
           "tracer instances: submitted " +
@@ -5104,6 +5295,23 @@ int GameApp::run() const {
           std::to_string(diagnostics.tracerDrawCalls) +
           " | legacy MG/SG draws " +
           std::to_string(diagnostics.legacyMachineGunShotgunVisualDraws)
+        );
+        hud.topLeftLines.emplace_back(
+          "explosion instances: submitted " +
+          std::to_string(diagnostics.explosionInstancesSubmitted) +
+          " | culled " +
+          std::to_string(diagnostics.explosionFrustumCulled) +
+          " | upload " +
+          std::to_string(diagnostics.explosionInstanceUploadBytes) +
+          " B | batches " +
+          std::to_string(
+            diagnostics.explosionOpaqueBatches +
+            diagnostics.explosionAdditiveBatches
+          ) +
+          " | draws " +
+          std::to_string(diagnostics.explosionDrawCalls) +
+          " | legacy wireframes " +
+          std::to_string(diagnostics.legacyWireframeExplosionDraws)
         );
       }
     }
@@ -5198,7 +5406,9 @@ int GameApp::run() const {
       renderWeaponFires,
       currentRenderSettings
     );
+    consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
     transientTracerStore.fillActive(activeTransientTracers, renderPlayer);
+    transientTracerStore.fillActiveEffects(activeTransientEffects);
     renderer.render(
       renderArena,
       renderPlayer,
@@ -5208,6 +5418,8 @@ int GameApp::run() const {
       renderRocketExplosions,
       renderRockets,
       activeTransientTracers,
+      activeTransientEffects,
+      transientTracerStore.explosionEventsConsumedThisFrame,
       currentRenderSettings,
       hud,
       consoleRenderState(consoleState)

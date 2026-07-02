@@ -1877,10 +1877,11 @@ void appendScene3D(
 
 [[nodiscard]] GpuSimpleResources* createGpuSimpleResources(SDL_GPUDevice* device) {
   auto* resources = new GpuSimpleResources();
-  const std::array<MeshHandle, 5> projectileMeshHandles = {{
+  const std::array<MeshHandle, 6> projectileMeshHandles = {{
     MeshHandle::PlasmaCore,
     MeshHandle::RocketProjectile,
     MeshHandle::GrenadeProjectile,
+    MeshHandle::ExplosionCore,
     MeshHandle::MachineGunTracer,
     MeshHandle::ShotgunTracer,
   }};
@@ -1924,9 +1925,11 @@ void appendScene3D(
     { 1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 1.0F, 1.0F},
     {-1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 1.0F},
   }};
-  const std::array<BillboardHandle, 2> projectileBillboardHandles = {{
+  const std::array<BillboardHandle, 4> projectileBillboardHandles = {{
     BillboardHandle::PlasmaGlow,
     BillboardHandle::RocketFlame,
+    BillboardHandle::ExplosionFlash,
+    BillboardHandle::ExplosionHalo,
   }};
   resources->projectileBillboards.reserve(projectileBillboardHandles.size());
   for (BillboardHandle handle : projectileBillboardHandles) {
@@ -2633,6 +2636,8 @@ const PlayerState& firstVisibleRemote(
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  std::uint32_t newExplosionEventsConsumed,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console,
@@ -2695,12 +2700,22 @@ const PlayerState& firstVisibleRemote(
   diagnostics.activeTransientEffects = 0;
   diagnostics.activeMachineGunTracers = 0;
   diagnostics.activeShotgunTracers = 0;
+  diagnostics.activeExplosionEffects = 0;
+  diagnostics.newExplosionEventsConsumed = 0;
   diagnostics.tracerCandidates = 0;
   diagnostics.tracerFrustumCulled = 0;
   diagnostics.tracerInstancesSubmitted = 0;
   diagnostics.tracerInstanceUploadBytes = 0;
   diagnostics.tracerBatches = 0;
   diagnostics.tracerDrawCalls = 0;
+  diagnostics.explosionCandidates = 0;
+  diagnostics.explosionFrustumCulled = 0;
+  diagnostics.explosionInstancesSubmitted = 0;
+  diagnostics.explosionInstanceUploadBytes = 0;
+  diagnostics.explosionOpaqueBatches = 0;
+  diagnostics.explosionAdditiveBatches = 0;
+  diagnostics.explosionDrawCalls = 0;
+  diagnostics.legacyWireframeExplosionDraws = 0;
   diagnostics.legacyMachineGunShotgunVisualDraws = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
@@ -2743,6 +2758,7 @@ const PlayerState& firstVisibleRemote(
       rocketExplosions,
       rockets,
       transientTracers,
+      transientEffects,
       settings
     );
     diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
@@ -2799,6 +2815,9 @@ const PlayerState& firstVisibleRemote(
       perspectiveScene.transientVfxStats.activeMachineGunTracers;
     diagnostics.activeShotgunTracers =
       perspectiveScene.transientVfxStats.activeShotgunTracers;
+    diagnostics.activeExplosionEffects =
+      perspectiveScene.transientVfxStats.activeExplosionEffects;
+    diagnostics.newExplosionEventsConsumed = newExplosionEventsConsumed;
     diagnostics.tracerCandidates =
       perspectiveScene.transientVfxStats.tracerCandidates;
     diagnostics.tracerFrustumCulled =
@@ -2811,6 +2830,22 @@ const PlayerState& firstVisibleRemote(
       perspectiveScene.transientVfxStats.tracerBatches;
     diagnostics.tracerDrawCalls =
       perspectiveScene.transientVfxStats.tracerDrawCalls;
+    diagnostics.explosionCandidates =
+      perspectiveScene.transientVfxStats.explosionCandidates;
+    diagnostics.explosionFrustumCulled =
+      perspectiveScene.transientVfxStats.explosionFrustumCulled;
+    diagnostics.explosionInstancesSubmitted =
+      perspectiveScene.transientVfxStats.explosionInstancesSubmitted;
+    diagnostics.explosionInstanceUploadBytes =
+      perspectiveScene.transientVfxStats.explosionInstanceUploadBytes;
+    diagnostics.explosionOpaqueBatches =
+      perspectiveScene.transientVfxStats.explosionOpaqueBatches;
+    diagnostics.explosionAdditiveBatches =
+      perspectiveScene.transientVfxStats.explosionAdditiveBatches;
+    diagnostics.explosionDrawCalls =
+      perspectiveScene.transientVfxStats.explosionDrawCalls;
+    diagnostics.legacyWireframeExplosionDraws =
+      perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
     diagnostics.legacyMachineGunShotgunVisualDraws =
       perspectiveScene.transientVfxStats.legacyMachineGunShotgunVisualDraws;
     diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
@@ -2976,6 +3011,8 @@ const PlayerState& firstVisibleRemote(
       perspectiveScene.projectileStats.projectileInstanceUploadBytes;
     diagnostics.tracerInstanceUploadBytes =
       perspectiveScene.transientVfxStats.tracerInstanceUploadBytes;
+    diagnostics.explosionInstanceUploadBytes =
+      perspectiveScene.transientVfxStats.explosionInstanceUploadBytes;
     const auto uploadEnd = RenderClock::now();
     diagnostics.gpuVertexUploadMilliseconds =
       millisecondsBetween(uploadStart, uploadEnd);
@@ -4204,21 +4241,7 @@ void drawPerspectiveWorld(
       projectile.position + Vec3{size, size, size}
     );
   }
-  for (const RocketExplosionResult& explosion : rocketExplosions) {
-    if (!explosion.active) {
-      continue;
-    }
-    SDL_SetRenderDrawColor(renderer, 255, 185, 80, 220);
-    const Vec3 radius{explosion.radius, explosion.radius, explosion.radius};
-    drawWireBox(
-      renderer,
-      camera,
-      width,
-      height,
-      explosion.position - radius,
-      explosion.position + radius
-    );
-  }
+  (void)rocketExplosions;
 }
 
 #endif
@@ -4450,6 +4473,8 @@ void Renderer::render(
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  std::uint32_t newExplosionEventsConsumed,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console
@@ -4494,10 +4519,12 @@ void Renderer::render(
           remotePlayers,
           localLightningGun,
       weaponFires,
-      rocketExplosions,
-      rockets,
-      transientTracers,
-      settings,
+          rocketExplosions,
+          rockets,
+          transientTracers,
+          transientEffects,
+          newExplosionEventsConsumed,
+          settings,
           hud,
           console,
           lastFrameDiagnostics_
@@ -4571,12 +4598,22 @@ void Renderer::render(
   lastFrameDiagnostics_.activeTransientEffects = 0;
   lastFrameDiagnostics_.activeMachineGunTracers = 0;
   lastFrameDiagnostics_.activeShotgunTracers = 0;
+  lastFrameDiagnostics_.activeExplosionEffects = 0;
+  lastFrameDiagnostics_.newExplosionEventsConsumed = 0;
   lastFrameDiagnostics_.tracerCandidates = 0;
   lastFrameDiagnostics_.tracerFrustumCulled = 0;
   lastFrameDiagnostics_.tracerInstancesSubmitted = 0;
   lastFrameDiagnostics_.tracerInstanceUploadBytes = 0;
   lastFrameDiagnostics_.tracerBatches = 0;
   lastFrameDiagnostics_.tracerDrawCalls = 0;
+  lastFrameDiagnostics_.explosionCandidates = 0;
+  lastFrameDiagnostics_.explosionFrustumCulled = 0;
+  lastFrameDiagnostics_.explosionInstancesSubmitted = 0;
+  lastFrameDiagnostics_.explosionInstanceUploadBytes = 0;
+  lastFrameDiagnostics_.explosionOpaqueBatches = 0;
+  lastFrameDiagnostics_.explosionAdditiveBatches = 0;
+  lastFrameDiagnostics_.explosionDrawCalls = 0;
+  lastFrameDiagnostics_.legacyWireframeExplosionDraws = 0;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
@@ -4602,6 +4639,7 @@ void Renderer::render(
     rocketExplosions,
     rockets,
     transientTracers,
+    transientEffects,
     settings
   );
   lastFrameDiagnostics_.totalUploadedVertices =
@@ -4666,6 +4704,9 @@ void Renderer::render(
     perspectiveScene.transientVfxStats.activeMachineGunTracers;
   lastFrameDiagnostics_.activeShotgunTracers =
     perspectiveScene.transientVfxStats.activeShotgunTracers;
+  lastFrameDiagnostics_.activeExplosionEffects =
+    perspectiveScene.transientVfxStats.activeExplosionEffects;
+  lastFrameDiagnostics_.newExplosionEventsConsumed = newExplosionEventsConsumed;
   lastFrameDiagnostics_.tracerCandidates =
     perspectiveScene.transientVfxStats.tracerCandidates;
   lastFrameDiagnostics_.tracerFrustumCulled =
@@ -4678,6 +4719,22 @@ void Renderer::render(
     perspectiveScene.transientVfxStats.tracerBatches;
   lastFrameDiagnostics_.tracerDrawCalls =
     perspectiveScene.transientVfxStats.tracerDrawCalls;
+  lastFrameDiagnostics_.explosionCandidates =
+    perspectiveScene.transientVfxStats.explosionCandidates;
+  lastFrameDiagnostics_.explosionFrustumCulled =
+    perspectiveScene.transientVfxStats.explosionFrustumCulled;
+  lastFrameDiagnostics_.explosionInstancesSubmitted =
+    perspectiveScene.transientVfxStats.explosionInstancesSubmitted;
+  lastFrameDiagnostics_.explosionInstanceUploadBytes =
+    perspectiveScene.transientVfxStats.explosionInstanceUploadBytes;
+  lastFrameDiagnostics_.explosionOpaqueBatches =
+    perspectiveScene.transientVfxStats.explosionOpaqueBatches;
+  lastFrameDiagnostics_.explosionAdditiveBatches =
+    perspectiveScene.transientVfxStats.explosionAdditiveBatches;
+  lastFrameDiagnostics_.explosionDrawCalls =
+    perspectiveScene.transientVfxStats.explosionDrawCalls;
+  lastFrameDiagnostics_.legacyWireframeExplosionDraws =
+    perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
   lastFrameDiagnostics_.remoteBodyModelsBuilt =
     perspectiveScene.remoteBodyModelsBuilt;

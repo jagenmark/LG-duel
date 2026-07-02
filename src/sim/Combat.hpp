@@ -157,6 +157,7 @@ struct RocketExplosionResult {
   float radius = 0.0F;
   int ownerDamageApplied = 0;
   int opponentDamageApplied = 0;
+  std::uint32_t sequence = 0;
   bool active = false;
   Weapon weapon = Weapon::RocketLauncher;
 };

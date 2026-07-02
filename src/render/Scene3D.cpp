@@ -65,6 +65,13 @@ constexpr StaticMeshAsset kPlasmaCoreAsset = {
   RenderPass::OpaqueWorld,
 };
 
+constexpr StaticMeshAsset kExplosionCoreAsset = {
+  MeshHandle::ExplosionCore,
+  std::span<const Vertex3D>(kPlasmaCoreMeshVertices.data(), kPlasmaCoreMeshVertices.size()),
+  {{}, 1.0F},
+  RenderPass::OpaqueWorld,
+};
+
 constexpr std::array<Vertex3D, 36> kRocketProjectileMeshVertices = {{
   {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
   {{ 0.45F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
@@ -253,6 +260,18 @@ constexpr BillboardAsset kPlasmaGlowAsset = {
 
 constexpr BillboardAsset kRocketFlameAsset = {
   BillboardHandle::RocketFlame,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
+constexpr BillboardAsset kExplosionFlashAsset = {
+  BillboardHandle::ExplosionFlash,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
+constexpr BillboardAsset kExplosionHaloAsset = {
+  BillboardHandle::ExplosionHalo,
   {{}, 1.0F},
   RenderPass::AdditiveGlow,
 };
@@ -1794,6 +1813,8 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   switch (handle) {
   case MeshHandle::PlasmaCore:
     return &kPlasmaCoreAsset;
+  case MeshHandle::ExplosionCore:
+    return &kExplosionCoreAsset;
   case MeshHandle::RocketProjectile:
     return &kRocketProjectileAsset;
   case MeshHandle::GrenadeProjectile:
@@ -1848,6 +1869,10 @@ const BillboardAsset* billboardAsset(BillboardHandle handle) {
     return &kPlasmaGlowAsset;
   case BillboardHandle::RocketFlame:
     return &kRocketFlameAsset;
+  case BillboardHandle::ExplosionFlash:
+    return &kExplosionFlashAsset;
+  case BillboardHandle::ExplosionHalo:
+    return &kExplosionHaloAsset;
   case BillboardHandle::Invalid:
     break;
   }
@@ -2017,7 +2042,7 @@ void addTransientTracerInstances(
   std::span<const TransientTracer> tracers,
   const RenderSettings& settings
 ) {
-  scene.transientVfxStats.activeEffects =
+  scene.transientVfxStats.activeEffects +=
     static_cast<std::uint32_t>(tracers.size());
   for (const TransientTracer& tracer : tracers) {
     if (tracer.style == TracerStyle::Shotgun) {
@@ -2066,6 +2091,112 @@ void addTransientTracerInstances(
       }
     );
     ++scene.transientVfxStats.tracerInstancesSubmitted;
+  }
+}
+
+[[nodiscard]] float effectNormalizedAge(const TransientEffect& effect) {
+  if (
+    effect.lifetimeSeconds <= 0.001F ||
+    !std::isfinite(effect.ageSeconds) ||
+    !std::isfinite(effect.lifetimeSeconds)
+  ) {
+    return 1.0F;
+  }
+  return std::clamp(effect.ageSeconds / effect.lifetimeSeconds, 0.0F, 1.0F);
+}
+
+[[nodiscard]] bool effectUsesCoreMesh(TransientEffectType type) {
+  switch (type) {
+  case TransientEffectType::RocketExplosionCore:
+  case TransientEffectType::PlasmaExplosionCore:
+  case TransientEffectType::GrenadeExplosionCore:
+    return true;
+  case TransientEffectType::RocketExplosionFlash:
+  case TransientEffectType::RocketExplosionHalo:
+  case TransientEffectType::PlasmaExplosionFlash:
+  case TransientEffectType::PlasmaExplosionHalo:
+  case TransientEffectType::GrenadeExplosionFlash:
+    return false;
+  }
+  return false;
+}
+
+[[nodiscard]] BillboardHandle effectBillboard(TransientEffectType type) {
+  switch (type) {
+  case TransientEffectType::RocketExplosionFlash:
+  case TransientEffectType::PlasmaExplosionFlash:
+  case TransientEffectType::GrenadeExplosionFlash:
+    return BillboardHandle::ExplosionFlash;
+  case TransientEffectType::RocketExplosionHalo:
+  case TransientEffectType::PlasmaExplosionHalo:
+    return BillboardHandle::ExplosionHalo;
+  case TransientEffectType::RocketExplosionCore:
+  case TransientEffectType::PlasmaExplosionCore:
+  case TransientEffectType::GrenadeExplosionCore:
+    break;
+  }
+  return BillboardHandle::Invalid;
+}
+
+void addTransientEffectInstances(
+  Scene3D& scene,
+  std::span<const TransientEffect> effects,
+  const RenderSettings& settings
+) {
+  scene.transientVfxStats.activeEffects += static_cast<std::uint32_t>(effects.size());
+  scene.transientVfxStats.activeExplosionEffects =
+    static_cast<std::uint32_t>(effects.size());
+  for (const TransientEffect& effect : effects) {
+    ++scene.transientVfxStats.explosionCandidates;
+    if (
+      !std::isfinite(effect.position.x) ||
+      !std::isfinite(effect.position.y) ||
+      !std::isfinite(effect.position.z)
+    ) {
+      continue;
+    }
+    const float t = effectNormalizedAge(effect);
+    const float initialScale = std::isfinite(effect.initialScale)
+      ? std::clamp(effect.initialScale, 0.01F, 8.0F)
+      : 0.1F;
+    const float finalScale = std::isfinite(effect.finalScale)
+      ? std::clamp(effect.finalScale, 0.01F, 8.0F)
+      : initialScale;
+    const float scale = initialScale + (finalScale - initialScale) * t;
+    const float fade = (1.0F - t) * (1.0F - t);
+    if (scale <= 0.0F || fade <= 0.0F || !std::isfinite(scale)) {
+      continue;
+    }
+    if (
+      settings.frustumCullRemotePlayers &&
+      !sphereIntersectsPerspectiveFrustum(scene.camera, effect.position, scale)
+    ) {
+      ++scene.transientVfxStats.explosionFrustumCulled;
+      continue;
+    }
+    RenderColor color = effect.color;
+    color.alpha = static_cast<std::uint8_t>(std::clamp(
+      static_cast<float>(color.alpha) * fade,
+      0.0F,
+      255.0F
+    ));
+    const bool coreMesh = effectUsesCoreMesh(effect.type);
+    appendSimpleInstance(
+      scene,
+      {
+        coreMesh ? MeshHandle::ExplosionCore : MeshHandle::Invalid,
+        coreMesh ? BillboardHandle::Invalid : effectBillboard(effect.type),
+        coreMesh ? RenderPass::OpaqueWorld : RenderPass::AdditiveGlow,
+        effect.position,
+        {scale, scale, scale},
+        static_cast<float>((effect.seed * 2654435761U) & 1023U) *
+          (kTwoPi / 1024.0F),
+        color,
+        t,
+        {effect.position, scale},
+      }
+    );
+    ++scene.transientVfxStats.explosionInstancesSubmitted;
   }
 }
 
@@ -2222,6 +2353,9 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
   scene.transientVfxStats.tracerInstanceUploadBytes =
     scene.transientVfxStats.tracerInstancesSubmitted *
     kSimpleInstanceUploadBytes;
+  scene.transientVfxStats.explosionInstanceUploadBytes =
+    scene.transientVfxStats.explosionInstancesSubmitted *
+    kSimpleInstanceUploadBytes;
   for (const SimpleRenderBatch& batch : scene.simpleBatches) {
     if (batch.instanceCount == 0U) {
       continue;
@@ -2233,6 +2367,9 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
       ) {
         ++scene.transientVfxStats.tracerBatches;
         ++scene.transientVfxStats.tracerDrawCalls;
+      } else if (batch.mesh == MeshHandle::ExplosionCore) {
+        ++scene.transientVfxStats.explosionOpaqueBatches;
+        ++scene.transientVfxStats.explosionDrawCalls;
       } else {
         ++scene.projectileStats.projectileMeshDrawCalls;
       }
@@ -2241,9 +2378,17 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
       }
     }
     if (batch.billboard != BillboardHandle::Invalid) {
-      ++scene.projectileStats.projectileGlowDrawCalls;
-      if (batch.pass == RenderPass::AdditiveGlow) {
-        ++scene.projectileStats.additiveProjectileBatches;
+      if (
+        batch.billboard == BillboardHandle::ExplosionFlash ||
+        batch.billboard == BillboardHandle::ExplosionHalo
+      ) {
+        ++scene.transientVfxStats.explosionAdditiveBatches;
+        ++scene.transientVfxStats.explosionDrawCalls;
+      } else {
+        ++scene.projectileStats.projectileGlowDrawCalls;
+        if (batch.pass == RenderPass::AdditiveGlow) {
+          ++scene.projectileStats.additiveProjectileBatches;
+        }
       }
     }
   }
@@ -2261,6 +2406,7 @@ Scene3D buildPerspectiveScene(
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 ) {
   (void)arena;
@@ -2518,6 +2664,7 @@ Scene3D buildPerspectiveScene(
     }
   }
   addTransientTracerInstances(scene, transientTracers, settings);
+  addTransientEffectInstances(scene, transientEffects, settings);
   for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {
     const RocketProjectileSnapshot& projectile = rockets[projectileIndex];
     if (!projectile.active) {
@@ -2534,19 +2681,7 @@ Scene3D buildPerspectiveScene(
       settings
     );
   }
-  for (const RocketExplosionResult& explosion : rocketExplosions) {
-    if (!explosion.active) {
-      continue;
-    }
-    const Vec3 radius{explosion.radius, explosion.radius, explosion.radius};
-    addWireBox(
-      scene,
-      explosion.position - radius,
-      explosion.position + radius,
-      0.025F,
-      {255, 185, 80, 220}
-    );
-  }
+  (void)rocketExplosions;
   (void)localLightningGun;
   finalizeStaticMeshBatches(scene);
   finalizeProjectileInstanceStats(scene);
@@ -2605,6 +2740,7 @@ Scene3D buildPerspectiveScene(
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 ) {
   std::array<RemotePlayerView, kDuelPlayerCount> remotePlayers = {};
@@ -2628,6 +2764,36 @@ Scene3D buildPerspectiveScene(
     rocketExplosions,
     rockets,
     transientTracers,
+    transientEffects,
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    opponent,
+    localLightningGun,
+    opponentLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    transientTracers,
+    std::span<const TransientEffect>{},
     settings
   );
 }
@@ -2655,6 +2821,34 @@ Scene3D buildPerspectiveScene(
     rocketExplosions,
     rockets,
     std::span<const TransientTracer>{},
+    std::span<const TransientEffect>{},
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    transientTracers,
+    std::span<const TransientEffect>{},
     settings
   );
 }
@@ -2680,6 +2874,7 @@ Scene3D buildPerspectiveScene(
     rocketExplosions,
     rockets,
     std::span<const TransientTracer>{},
+    std::span<const TransientEffect>{},
     settings
   );
 }

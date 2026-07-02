@@ -1684,6 +1684,7 @@ void ServerGame::simulateRockets(float fixedDt) {
     RocketExplosionResult& explosion = snapshot_.rocketExplosions[rocket.owner];
     explosion.active = true;
     explosion.weapon = rocket.weapon;
+    explosion.sequence = ++rocketExplosionSequences_[rocket.owner];
     explosion.position = explosionPosition;
     const float radius = grenade
       ? grenadeLauncherTuning_.radius

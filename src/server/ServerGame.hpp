@@ -160,6 +160,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> grenadeCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> plasmaGunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> rocketExplosionSequences_ = {};
   std::array<Weapon, kDuelPlayerCount> selectedWeapons_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> weaponPulloutTicks_ = {};
   std::array<WeaponFireResult, kDuelPlayerCount> recentWeaponFires_ = {};

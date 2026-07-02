@@ -601,6 +601,7 @@ bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
     writer.writeFloat(result.radius) &&
     writer.writeI32(result.ownerDamageApplied) &&
     writer.writeI32(result.opponentDamageApplied) &&
+    writer.writeU32(result.sequence) &&
     writer.writeBool(result.active) &&
     writer.writeU8(static_cast<std::uint8_t>(result.weapon));
 }
@@ -614,6 +615,7 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
     !reader.readFloat(result.radius) ||
     !reader.readI32(ownerDamageApplied) ||
     !reader.readI32(opponentDamageApplied) ||
+    !reader.readU32(result.sequence) ||
     !reader.readBool(result.active) ||
     !reader.readU8(weapon)
   ) {

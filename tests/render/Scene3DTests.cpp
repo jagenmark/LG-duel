@@ -1805,5 +1805,248 @@ int main() {
     "plasma gun fire events should not draw a separate beam line"
   );
 
+  std::array<lg::TransientEffect, 8> explosionEffects = {};
+  explosionEffects[0] = {
+    lg::TransientEffectType::RocketExplosionFlash,
+    player.position + lg::Vec3{3.0F, 0.0F, 0.65F},
+    0.01F,
+    0.05F,
+    0.8F,
+    1.6F,
+    {255, 228, 132, 230},
+    11U,
+  };
+  explosionEffects[1] = {
+    lg::TransientEffectType::RocketExplosionCore,
+    explosionEffects[0].position,
+    0.04F,
+    0.18F,
+    0.7F,
+    2.6F,
+    {255, 112, 44, 200},
+    12U,
+  };
+  explosionEffects[2] = {
+    lg::TransientEffectType::RocketExplosionHalo,
+    explosionEffects[0].position,
+    0.02F,
+    0.12F,
+    1.5F,
+    3.2F,
+    {255, 72, 28, 82},
+    13U,
+  };
+  const lg::Scene3D rocketExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 3U),
+    settings
+  );
+  failures += expect(
+    rocketExplosionScene.transientVfxStats.activeExplosionEffects == 3 &&
+      rocketExplosionScene.transientVfxStats.explosionInstancesSubmitted == 3 &&
+      rocketExplosionScene.transientVfxStats.explosionDrawCalls == 3 &&
+      rocketExplosionScene.transientVfxStats.explosionOpaqueBatches == 1 &&
+      rocketExplosionScene.transientVfxStats.explosionAdditiveBatches == 2 &&
+      rocketExplosionScene.transientVfxStats.legacyWireframeExplosionDraws == 0,
+    "rocket explosion effects should submit flash, faceted core, halo, and no legacy wireframe draws"
+  );
+  bool foundRocketExplosionCore = false;
+  bool foundRocketExplosionFlash = false;
+  bool foundRocketExplosionHalo = false;
+  for (const lg::SimpleRenderInstance& instance : rocketExplosionScene.simpleInstances) {
+    foundRocketExplosionCore =
+      foundRocketExplosionCore || instance.mesh == lg::MeshHandle::ExplosionCore;
+    foundRocketExplosionFlash =
+      foundRocketExplosionFlash || instance.billboard == lg::BillboardHandle::ExplosionFlash;
+    foundRocketExplosionHalo =
+      foundRocketExplosionHalo || instance.billboard == lg::BillboardHandle::ExplosionHalo;
+  }
+  failures += expect(
+    foundRocketExplosionCore && foundRocketExplosionFlash && foundRocketExplosionHalo,
+    "rocket explosion burst should use reusable core, flash, and halo assets"
+  );
+
+  explosionEffects[0].type = lg::TransientEffectType::PlasmaExplosionFlash;
+  explosionEffects[0].color = {122, 255, 184, 210};
+  explosionEffects[0].finalScale = 0.55F;
+  explosionEffects[1].type = lg::TransientEffectType::PlasmaExplosionCore;
+  explosionEffects[1].color = {76, 248, 210, 185};
+  explosionEffects[1].finalScale = 0.75F;
+  explosionEffects[2].type = lg::TransientEffectType::PlasmaExplosionHalo;
+  explosionEffects[2].color = {64, 255, 168, 88};
+  explosionEffects[2].finalScale = 0.95F;
+  const lg::Scene3D plasmaExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 3U),
+    settings
+  );
+  failures += expect(
+    plasmaExplosionScene.transientVfxStats.explosionInstancesSubmitted == 3 &&
+      plasmaExplosionScene.simpleInstances.size() == 3U,
+    "plasma explosion effects should submit a distinct compact three-instance burst"
+  );
+
+  explosionEffects[0] = {
+    lg::TransientEffectType::GrenadeExplosionFlash,
+    player.position + lg::Vec3{3.0F, 0.2F, 0.65F},
+    0.01F,
+    0.05F,
+    0.7F,
+    1.4F,
+    {255, 224, 104, 220},
+    21U,
+  };
+  explosionEffects[1] = {
+    lg::TransientEffectType::GrenadeExplosionCore,
+    explosionEffects[0].position,
+    0.04F,
+    0.20F,
+    0.8F,
+    2.7F,
+    {255, 178, 66, 190},
+    22U,
+  };
+  const lg::Scene3D grenadeExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 2U),
+    settings
+  );
+  failures += expect(
+    grenadeExplosionScene.transientVfxStats.explosionInstancesSubmitted == 2 &&
+      grenadeExplosionScene.transientVfxStats.explosionDrawCalls == 2,
+    "grenade detonation should use the bounded flash plus amber core burst"
+  );
+
+  explosionEffects[0] = {
+    lg::TransientEffectType::RocketExplosionCore,
+    player.position + lg::Vec3{3.0F, 0.0F, 0.65F},
+    0.02F,
+    0.20F,
+    std::numeric_limits<float>::infinity(),
+    10000.0F,
+    {255, 112, 44, 200},
+    31U,
+  };
+  const lg::Scene3D clampedExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 1U),
+    settings
+  );
+  failures += expect(
+    clampedExplosionScene.simpleInstances.size() == 1U &&
+      std::isfinite(clampedExplosionScene.simpleInstances[0].scale.x) &&
+      clampedExplosionScene.simpleInstances[0].scale.x <= 8.0F,
+    "explosion effect scale should remain finite and clamped for unusual input"
+  );
+
+  explosionEffects[0].ageSeconds = explosionEffects[0].lifetimeSeconds;
+  const lg::Scene3D expiredExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 1U),
+    settings
+  );
+  failures += expect(
+    expiredExplosionScene.transientVfxStats.explosionInstancesSubmitted == 0,
+    "expired explosion effects should not submit render instances"
+  );
+
+  for (std::size_t index = 0; index < 6U; ++index) {
+    explosionEffects[index] = {
+      index % 3U == 0
+        ? lg::TransientEffectType::RocketExplosionFlash
+        : index % 3U == 1
+          ? lg::TransientEffectType::RocketExplosionCore
+          : lg::TransientEffectType::RocketExplosionHalo,
+      player.position + lg::Vec3{3.0F + static_cast<float>(index) * 0.1F, 0.0F, 0.65F},
+      0.01F,
+      0.16F,
+      0.6F,
+      1.8F,
+      {255, 180, 80, 180},
+      static_cast<std::uint32_t>(index),
+    };
+  }
+  const lg::Scene3D multiExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 6U),
+    settings
+  );
+  failures += expect(
+    multiExplosionScene.transientVfxStats.explosionInstancesSubmitted == 6 &&
+      multiExplosionScene.transientVfxStats.explosionDrawCalls == 3,
+    "multiple overlapping explosions should batch into bounded reusable VFX draws"
+  );
+
+  std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> retainedExplosions = {};
+  retainedExplosions[0].active = true;
+  retainedExplosions[0].weapon = lg::Weapon::RocketLauncher;
+  retainedExplosions[0].position = player.position + lg::Vec3{3.0F, 0.0F, 0.65F};
+  retainedExplosions[0].radius = 3.0F;
+  retainedExplosions[0].sequence = 99U;
+  const lg::Scene3D retainedExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    retainedExplosions,
+    rockets,
+    settings
+  );
+  failures += expect(
+    retainedExplosionScene.transientVfxStats.legacyWireframeExplosionDraws == 0 &&
+      retainedExplosionScene.simpleInstances.empty(),
+    "retained authoritative explosions should not draw legacy wireframe boxes directly"
+  );
+
   return failures == 0 ? 0 : 1;
 }

@@ -31,6 +31,7 @@ enum class MeshHandle : std::uint16_t {
   PlasmaCore,
   RocketProjectile,
   GrenadeProjectile,
+  ExplosionCore,
   MachineGunTracer,
   ShotgunTracer,
   RemoteMachineGun,
@@ -46,6 +47,8 @@ enum class BillboardHandle : std::uint16_t {
   Invalid = 0,
   PlasmaGlow,
   RocketFlame,
+  ExplosionFlash,
+  ExplosionHalo,
 };
 
 struct BoundingSphere {
@@ -107,12 +110,22 @@ struct TransientVfxStats {
   std::uint32_t activeEffects = 0;
   std::uint32_t activeMachineGunTracers = 0;
   std::uint32_t activeShotgunTracers = 0;
+  std::uint32_t activeExplosionEffects = 0;
+  std::uint32_t newExplosionEventsConsumed = 0;
   std::uint32_t tracerCandidates = 0;
   std::uint32_t tracerFrustumCulled = 0;
   std::uint32_t tracerInstancesSubmitted = 0;
   std::uint32_t tracerInstanceUploadBytes = 0;
   std::uint32_t tracerBatches = 0;
   std::uint32_t tracerDrawCalls = 0;
+  std::uint32_t explosionCandidates = 0;
+  std::uint32_t explosionFrustumCulled = 0;
+  std::uint32_t explosionInstancesSubmitted = 0;
+  std::uint32_t explosionInstanceUploadBytes = 0;
+  std::uint32_t explosionOpaqueBatches = 0;
+  std::uint32_t explosionAdditiveBatches = 0;
+  std::uint32_t explosionDrawCalls = 0;
+  std::uint32_t legacyWireframeExplosionDraws = 0;
   std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
 };
 
@@ -218,6 +231,7 @@ struct Scene3D {
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 );
 
@@ -231,6 +245,34 @@ struct Scene3D {
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  const RenderSettings& settings
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const PlayerState& opponent,
+  const LightningGunResult& localLightningGun,
+  const LightningGunResult& opponentLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const RenderSettings& settings
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings
 );
 
