@@ -5,7 +5,10 @@
 #include "render/Renderer.hpp"
 
 #include <array>
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
+#include <limits>
 #include <span>
 #include <vector>
 
@@ -184,6 +187,238 @@ struct OutlineMaskDraw {
   std::uint32_t vertexCount = 0;
   OutlineState state = {};
 };
+
+constexpr float kOutlineWorkScale = 0.5F;
+constexpr float kMaxOutlineWidthFinalPixels = 6.0F;
+constexpr float kMaxOutlineRadiusWorkPixels =
+  kMaxOutlineWidthFinalPixels * kOutlineWorkScale;
+constexpr std::uint32_t kOutlineFixedDilationRadiusPixels = 3;
+constexpr std::uint32_t kOutlineFixedDilationKernelTaps =
+  (kOutlineFixedDilationRadiusPixels * 2U + 1U) *
+  (kOutlineFixedDilationRadiusPixels * 2U + 1U);
+
+struct OutlineTargetDimensions {
+  std::uint32_t framebufferWidth = 0;
+  std::uint32_t framebufferHeight = 0;
+  std::uint32_t workWidth = 0;
+  std::uint32_t workHeight = 0;
+  float workScale = kOutlineWorkScale;
+};
+
+struct OutlinePixelRect {
+  std::int32_t x = 0;
+  std::int32_t y = 0;
+  std::int32_t width = 0;
+  std::int32_t height = 0;
+
+  [[nodiscard]] bool valid() const {
+    return width > 0 && height > 0;
+  }
+};
+
+struct OutlineWorkPlan {
+  OutlineTargetDimensions dimensions = {};
+  OutlinePixelRect finalRect = {};
+  OutlinePixelRect workRect = {};
+  bool hasWork = false;
+  bool conservativeFallback = false;
+  float maxFinalWidthPixels = 0.0F;
+  float maxWorkRadiusPixels = 0.0F;
+  std::uint32_t outlinedPlayers = 0;
+  std::uint32_t maskDrawCalls = 0;
+  std::uint32_t dilationDrawCalls = 0;
+  std::uint32_t compositeDrawCalls = 0;
+  std::uint32_t uploadBytes = 0;
+};
+
+[[nodiscard]] inline float outlineFinalWidthPixels(float requestedWidthPixels) {
+  if (!std::isfinite(requestedWidthPixels)) {
+    return 0.0F;
+  }
+  return std::clamp(requestedWidthPixels, 0.0F, kMaxOutlineWidthFinalPixels);
+}
+
+[[nodiscard]] inline float outlineWorkRadiusPixels(float requestedWidthPixels) {
+  return outlineFinalWidthPixels(requestedWidthPixels) * kOutlineWorkScale;
+}
+
+[[nodiscard]] inline OutlineTargetDimensions outlineTargetDimensions(
+  std::uint32_t framebufferWidth,
+  std::uint32_t framebufferHeight
+) {
+  return {
+    framebufferWidth,
+    framebufferHeight,
+    (framebufferWidth + 1U) / 2U,
+    (framebufferHeight + 1U) / 2U,
+    kOutlineWorkScale,
+  };
+}
+
+[[nodiscard]] inline OutlinePixelRect fullOutlineRect(
+  std::uint32_t width,
+  std::uint32_t height
+) {
+  return {
+    0,
+    0,
+    static_cast<std::int32_t>(width),
+    static_cast<std::int32_t>(height),
+  };
+}
+
+[[nodiscard]] inline OutlinePixelRect outlineWorkRectFromFinalRect(
+  OutlinePixelRect rect,
+  const OutlineTargetDimensions& dimensions
+) {
+  const float scale = dimensions.workScale;
+  const auto x0 = static_cast<std::int32_t>(
+    std::floor(static_cast<float>(rect.x) * scale)
+  );
+  const auto y0 = static_cast<std::int32_t>(
+    std::floor(static_cast<float>(rect.y) * scale)
+  );
+  const auto x1 = static_cast<std::int32_t>(
+    std::ceil(static_cast<float>(rect.x + rect.width) * scale)
+  );
+  const auto y1 = static_cast<std::int32_t>(
+    std::ceil(static_cast<float>(rect.y + rect.height) * scale)
+  );
+  const std::int32_t maxX =
+    static_cast<std::int32_t>(dimensions.workWidth);
+  const std::int32_t maxY =
+    static_cast<std::int32_t>(dimensions.workHeight);
+  const std::int32_t clampedX0 = std::clamp(x0, 0, maxX);
+  const std::int32_t clampedY0 = std::clamp(y0, 0, maxY);
+  const std::int32_t clampedX1 = std::clamp(x1, 0, maxX);
+  const std::int32_t clampedY1 = std::clamp(y1, 0, maxY);
+  return {
+    clampedX0,
+    clampedY0,
+    clampedX1 - clampedX0,
+    clampedY1 - clampedY0,
+  };
+}
+
+[[nodiscard]] inline OutlineWorkPlan buildOutlineWorkPlan(
+  const PerspectiveCamera& camera,
+  std::span<const Vertex3D> vertices,
+  std::span<const OutlineMaskDraw> draws,
+  std::uint32_t framebufferWidth,
+  std::uint32_t framebufferHeight
+) {
+  OutlineWorkPlan plan;
+  plan.dimensions = outlineTargetDimensions(framebufferWidth, framebufferHeight);
+  plan.outlinedPlayers = static_cast<std::uint32_t>(draws.size());
+  if (
+    framebufferWidth == 0U ||
+    framebufferHeight == 0U ||
+    plan.dimensions.workWidth == 0U ||
+    plan.dimensions.workHeight == 0U ||
+    draws.empty()
+  ) {
+    return plan;
+  }
+
+  float minX = std::numeric_limits<float>::max();
+  float minY = std::numeric_limits<float>::max();
+  float maxX = std::numeric_limits<float>::lowest();
+  float maxY = std::numeric_limits<float>::lowest();
+  bool anyProjected = false;
+  bool fallback = false;
+  std::uint32_t drawCalls = 0;
+  for (const OutlineMaskDraw& draw : draws) {
+    if (draw.vertexCount == 0U) {
+      continue;
+    }
+    ++drawCalls;
+    plan.maxFinalWidthPixels =
+      std::max(plan.maxFinalWidthPixels, outlineFinalWidthPixels(draw.state.widthPixels));
+    const std::uint64_t end =
+      static_cast<std::uint64_t>(draw.firstVertex) + draw.vertexCount;
+    if (draw.firstVertex >= vertices.size() || end > vertices.size()) {
+      fallback = true;
+      break;
+    }
+    for (
+      std::uint32_t index = draw.firstVertex;
+      index < draw.firstVertex + draw.vertexCount;
+      ++index
+    ) {
+      ProjectedPoint projected;
+      if (!projectPerspectivePoint(camera, vertices[index].position, projected)) {
+        fallback = true;
+        break;
+      }
+      const float screenX =
+        (projected.x + 1.0F) * 0.5F * static_cast<float>(framebufferWidth);
+      const float screenY =
+        (1.0F - projected.y) * 0.5F * static_cast<float>(framebufferHeight);
+      if (!std::isfinite(screenX) || !std::isfinite(screenY)) {
+        fallback = true;
+        break;
+      }
+      minX = std::min(minX, screenX);
+      minY = std::min(minY, screenY);
+      maxX = std::max(maxX, screenX);
+      maxY = std::max(maxY, screenY);
+      anyProjected = true;
+    }
+    if (fallback) {
+      break;
+    }
+  }
+  plan.maskDrawCalls = drawCalls;
+  plan.maxWorkRadiusPixels = outlineWorkRadiusPixels(plan.maxFinalWidthPixels);
+
+  if (drawCalls == 0U) {
+    return plan;
+  }
+
+  if (fallback || !anyProjected) {
+    plan.conservativeFallback = true;
+    plan.finalRect = fullOutlineRect(framebufferWidth, framebufferHeight);
+    plan.workRect = fullOutlineRect(
+      plan.dimensions.workWidth,
+      plan.dimensions.workHeight
+    );
+    plan.hasWork = plan.finalRect.valid() && plan.workRect.valid();
+  } else {
+    constexpr float kFilteringMarginPixels = 2.0F;
+    constexpr float kAnimationSafetyMarginPixels = 2.0F;
+    const float margin =
+      plan.maxFinalWidthPixels + kFilteringMarginPixels + kAnimationSafetyMarginPixels;
+    const std::int32_t x0 = std::clamp(
+      static_cast<std::int32_t>(std::floor(minX - margin)),
+      0,
+      static_cast<std::int32_t>(framebufferWidth)
+    );
+    const std::int32_t y0 = std::clamp(
+      static_cast<std::int32_t>(std::floor(minY - margin)),
+      0,
+      static_cast<std::int32_t>(framebufferHeight)
+    );
+    const std::int32_t x1 = std::clamp(
+      static_cast<std::int32_t>(std::ceil(maxX + margin)),
+      0,
+      static_cast<std::int32_t>(framebufferWidth)
+    );
+    const std::int32_t y1 = std::clamp(
+      static_cast<std::int32_t>(std::ceil(maxY + margin)),
+      0,
+      static_cast<std::int32_t>(framebufferHeight)
+    );
+    plan.finalRect = {x0, y0, x1 - x0, y1 - y0};
+    plan.workRect = outlineWorkRectFromFinalRect(plan.finalRect, plan.dimensions);
+    plan.hasWork = plan.finalRect.valid() && plan.workRect.valid();
+  }
+
+  if (plan.hasWork) {
+    plan.dilationDrawCalls = 1U;
+    plan.compositeDrawCalls = 1U;
+  }
+  return plan;
+}
 
 struct Scene3D {
   PerspectiveCamera camera = {};
