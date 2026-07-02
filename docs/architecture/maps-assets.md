@@ -1,6 +1,6 @@
 # Maps And Assets
 
-Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, fixed-size cuboid walls, convex brushes, static lights, optional sun light, and spawn positions. The same arena is used for server collision/combat traces and client rendering.
+Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, fixed-size cuboid walls, convex brushes, fixed-size jumppad triggers, static lights, optional sun light, and spawn positions. Solid geometry is used for server collision/combat traces and client rendering; jumppad triggers are gameplay-only.
 
 ## Loading Pipeline
 
@@ -11,6 +11,8 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
 - `src/map/MapParser.*` parses entities, properties, brushes, and Quake-style face texture parameters.
 - `src/map/MapToArena.*` converts `worldspawn` and `func_group` brushes to cuboid `ArenaWall`s when possible, otherwise convex `ArenaBrush` hulls.
 - `lg_spawn` entities become spawn positions.
+- `trigger_jumppad` brush entities become non-solid, non-rendered `ArenaJumpPad` trigger AABBs. Visible pad surfaces should be ordinary `worldspawn` or `func_group` geometry; the trigger brush can use `common/trigger` or `textures/common/trigger` for editor visibility only.
+- `target_position` point entities provide optional jumppad landing targets by `targetname`.
 - `light`/`light_point` and `light_sun` become static lighting data.
 - `trigger_teleport` is currently ignored.
 
@@ -18,7 +20,7 @@ Server map requests flow through `ServerGame::loadRequestedMap()`. Names are res
 
 ## Collision Vs Render Data
 
-Collision and traces use `ArenaWall` AABBs and `ArenaBrush` convex planes/vertices. Rendering uses the same structures plus material ids, face material ids, texture projections, and light data. There is no separate server-only collision asset yet, so avoid adding render-only heavyweight data to `Arena` unless it is revision-gated and justified.
+Collision and traces use `ArenaWall` AABBs and `ArenaBrush` convex planes/vertices. Rendering uses the same structures plus material ids, face material ids, texture projections, and light data. `ArenaJumpPad` data is not solid, is not rendered, and is checked only by movement. There is no separate server-only collision asset yet, so avoid adding render-only heavyweight data to `Arena` unless it is revision-gated and justified.
 
 ## Units, Materials, And Textures
 
@@ -30,9 +32,10 @@ Materials are hashed/stable ids from material paths. Renderer texture loading ex
 
 - Valve 220 texture axes are explicitly rejected by `MapParser`.
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
-- Arena counts are fixed: 255 walls, 128 brushes, 64 static lights.
+- Arena counts are fixed: 255 walls, 128 brushes, 32 jumppads, 64 static lights.
 - Multiple `light_sun` entities are not supported.
 - Spawn yaw is parsed only for validity; spawn orientation is not stored in `Arena`, so actual orientation intent is unclear.
+- Jumppads do not use brush/entity rotation as launch authority. Launch priority is target-based ballistic, explicit direction and speed, angle/pitch and speed, then straight up.
 - Teleport triggers are parsed as ignored entities, not gameplay.
 
 ## Footguns

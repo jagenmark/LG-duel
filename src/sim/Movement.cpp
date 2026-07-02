@@ -12,6 +12,83 @@ namespace {
   return {value.x, value.y, 0.0F};
 }
 
+[[nodiscard]] bool playerOverlapsJumpPad(
+  const PlayerState& player,
+  const ArenaJumpPad& jumpPad
+) {
+  const float closestX = clamp(player.position.x, jumpPad.min.x, jumpPad.max.x);
+  const float closestY = clamp(player.position.y, jumpPad.min.y, jumpPad.max.y);
+  const float deltaX = player.position.x - closestX;
+  const float deltaY = player.position.y - closestY;
+  const bool overlapsPlanar =
+    (deltaX * deltaX) + (deltaY * deltaY) <=
+      (player.bounds.radius * player.bounds.radius);
+  const float playerMinZ = player.position.z - player.bounds.halfHeight;
+  const float playerMaxZ = player.position.z + player.bounds.halfHeight;
+  return overlapsPlanar &&
+    playerMaxZ >= jumpPad.min.z &&
+    playerMinZ <= jumpPad.max.z;
+}
+
+[[nodiscard]] Vec3 ballisticLaunchVelocity(
+  Vec3 origin,
+  Vec3 target,
+  float gravity,
+  float requestedHorizontalSpeed
+) {
+  constexpr float kMinimumFlightTime = 0.15F;
+  gravity = std::max(0.001F, gravity);
+
+  const Vec3 delta = target - origin;
+  const float horizontalDistance = std::hypot(delta.x, delta.y);
+  float flightTime = 0.0F;
+  if (requestedHorizontalSpeed > 0.0F) {
+    flightTime = horizontalDistance / requestedHorizontalSpeed;
+  } else if (delta.z > 0.0F) {
+    flightTime = std::sqrt((2.0F * delta.z) / gravity);
+  } else {
+    flightTime = horizontalDistance / kDefaultJumpPadSpeed;
+  }
+  flightTime = std::max(kMinimumFlightTime, flightTime);
+
+  return {
+    delta.x / flightTime,
+    delta.y / flightTime,
+    (delta.z + (0.5F * gravity * flightTime * flightTime)) / flightTime,
+  };
+}
+
+void applyJumpPads(
+  PlayerState& player,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  std::uint16_t jumpPadCooldownDurationTicks
+) {
+  if (player.jumpPadCooldownTicksRemaining > 0) {
+    --player.jumpPadCooldownTicksRemaining;
+    return;
+  }
+
+  for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
+    const ArenaJumpPad& jumpPad = arena.jumpPads[index];
+    if (!playerOverlapsJumpPad(player, jumpPad)) {
+      continue;
+    }
+    player.velocity = jumpPad.hasTarget
+      ? ballisticLaunchVelocity(
+          player.position,
+          jumpPad.targetPosition,
+          tuning.gravity,
+          jumpPad.hasTargetSpeed ? jumpPad.targetSpeed : 0.0F
+        )
+      : jumpPad.launchVelocity;
+    player.onGround = false;
+    player.movementMode = MovementMode::Airborne;
+    player.jumpPadCooldownTicksRemaining = jumpPadCooldownDurationTicks;
+    return;
+  }
+}
+
 void accelerate(Vec3& velocity, Vec3 wishDirection, float wishSpeed, float acceleration, float fixedDt) {
   const float currentSpeed = dot(velocity, wishDirection);
   const float addSpeed = wishSpeed - currentSpeed;
@@ -84,7 +161,8 @@ void simulateGroundedOrAirborne(
   const UserCommand& command,
   const Arena& arena,
   const MovementTuning& tuning,
-  float fixedDt
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
@@ -141,6 +219,7 @@ void simulateGroundedOrAirborne(
   if (player.knockbackTicksRemaining > 0) {
     --player.knockbackTicksRemaining;
   }
+  applyJumpPads(player, arena, tuning, jumpPadCooldownDurationTicks);
 }
 
 void applyFlightDamping(
@@ -158,7 +237,8 @@ void simulateFlying(
   const UserCommand& command,
   const Arena& arena,
   const MovementTuning& tuning,
-  float fixedDt
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
@@ -197,6 +277,7 @@ void simulateFlying(
   player.velocity = collision.velocity;
   player.onGround = collision.onGround;
   player.movementMode = MovementMode::Flying;
+  applyJumpPads(player, arena, tuning, jumpPadCooldownDurationTicks);
 }
 
 } // namespace
@@ -208,6 +289,24 @@ void simulateMovement(
   const MovementTuning& tuning,
   float fixedDt
 ) {
+  simulateMovement(
+    player,
+    command,
+    arena,
+    tuning,
+    fixedDt,
+    kDefaultJumpPadCooldownTicks
+  );
+}
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks
+) {
   if (tuning.flightEnabled) {
     player.movementMode = MovementMode::Flying;
   } else if (player.movementMode == MovementMode::Flying) {
@@ -218,10 +317,24 @@ void simulateMovement(
   switch (player.movementMode) {
   case MovementMode::Grounded:
   case MovementMode::Airborne:
-    simulateGroundedOrAirborne(player, command, arena, tuning, fixedDt);
+    simulateGroundedOrAirborne(
+      player,
+      command,
+      arena,
+      tuning,
+      fixedDt,
+      jumpPadCooldownDurationTicks
+    );
     break;
   case MovementMode::Flying:
-    simulateFlying(player, command, arena, tuning, fixedDt);
+    simulateFlying(
+      player,
+      command,
+      arena,
+      tuning,
+      fixedDt,
+      jumpPadCooldownDurationTicks
+    );
     break;
   }
 }

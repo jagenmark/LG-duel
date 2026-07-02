@@ -206,6 +206,8 @@ ArenaLoadResult loadArenaFromText(std::string_view text) {
   parsed.arena.brushCount = 0;
   parsed.arena.staticLights = {};
   parsed.arena.staticLightCount = 0;
+  parsed.arena.jumpPads = {};
+  parsed.arena.jumpPadCount = 0;
   parsed.arena.spawnPositions = {};
 
   bool hasVersion = false;

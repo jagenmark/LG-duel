@@ -287,6 +287,90 @@ int main() {
 
   {
     const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"target_position\"\n"
+      "\"targetname\" \"jp_land\"\n"
+      "\"origin\" \"80 0 120\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"target\" \"jp_land\"\n"
+      "\"speed\" \"12\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "target-based jumppad map should convert");
+    failures += expect(result.arena.jumpPadCount == 1, "jumppad trigger should be stored in arena data");
+    failures += expect(result.arena.wallCount == 1, "jumppad trigger should not become a solid wall");
+    failures += expect(result.arena.brushCount == 0, "jumppad trigger should not become a renderable brush");
+    failures += expect(result.arena.jumpPads[0].hasTarget, "targeted jumppad should keep target launch mode");
+    failures += expect(result.arena.jumpPads[0].hasTargetSpeed, "targeted jumppad should keep optional speed");
+    failures += expect(
+      nearlyEqual(result.arena.jumpPads[0].targetPosition.x, 2.0F) &&
+        nearlyEqual(result.arena.jumpPads[0].targetPosition.z, 3.0F),
+      "target_position origin should use Quake-to-LG scale"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"target\" \"missing_target\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "jumppad with missing target should be rejected");
+    failures += expect(
+      result.error.find("line ") != std::string::npos &&
+        result.error.find("missing_target") != std::string::npos,
+      "missing jumppad target error should be line-numbered"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"speed\" \"fast\"\n"
+      "\"direction\" \"0 0 1\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "jumppad with invalid speed should be rejected");
+    failures += expect(
+      result.error.find("line ") != std::string::npos &&
+        result.error.find("speed") != std::string::npos,
+      "invalid jumppad speed error should be line-numbered"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"direction\" \"0 0 1\"\n"
+      "\"speed\" \"10\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "direction fallback jumppad should convert");
+    failures += expect(result.arena.wallCount == 1, "trigger brush should not become solid geometry");
+    failures += expect(result.arena.brushCount == 0, "trigger brush should not become rendered geometry");
+    failures += expect(result.arena.jumpPadCount == 1, "trigger brush should become jumppad data");
+    failures += expect(
+      !result.arena.jumpPads[0].hasTarget &&
+        nearlyEqual(result.arena.jumpPads[0].launchVelocity.z, 10.0F),
+      "direction fallback should precompute launch velocity"
+    );
+  }
+
+  {
+    const std::string text =
       "{\n"
       "\"classname\" \"worldspawn\"\n"
       "\"lg_bounds_min\" \"-80 -80 -40\"\n"

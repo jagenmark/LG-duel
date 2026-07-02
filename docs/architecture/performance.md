@@ -15,7 +15,7 @@ LG Duel is designed around predictable fixed-tick simulation, compact snapshots,
 Per server tick:
 
 - `ServerGame::tick()` receives commands, updates match state, movement, collision, combat, projectiles, transient events, history, and sends a snapshot.
-- Main scaling factors are `kDuelPlayerCount`, `kMaxRocketProjectiles`, `arena.wallCount`, and `arena.brushCount`.
+- Main scaling factors are `kDuelPlayerCount`, `kMaxRocketProjectiles`, `arena.wallCount`, `arena.brushCount`, and the fixed `arena.jumpPadCount`.
 - Avoid allocations, logging, filesystem access, rendering work, and unbounded loops here.
 
 Per client frame:
@@ -41,7 +41,7 @@ Packet encode/decode:
 
 - Players are capped by `kMaxPlayers`/`kDuelPlayerCount`.
 - Active projectiles are capped by `kMaxRocketProjectiles`.
-- Arena geometry counts are fixed-size in `Arena`.
+- Arena geometry and gameplay trigger counts are fixed-size in `Arena`.
 - Scene geometry scales with visible players, active projectiles/effects, and arena geometry. Static world cost should be paid on arena change, not each frame on the GPU path.
 - Network cost scales mostly with fixed snapshot fields, player count, projectile count, transient event windows, and only occasionally arena payload size.
 

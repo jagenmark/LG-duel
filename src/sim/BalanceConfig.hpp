@@ -21,6 +21,7 @@ struct BalanceConfig {
   GrenadeLauncherTuning grenadeLauncher = {};
   PlasmaGunTuning plasmaGun = {};
   std::uint32_t weaponPulloutTicks = 20;
+  std::uint32_t jumpPadRetriggerCooldownTicks = 25;
 };
 
 struct BalanceConfigLoadResult {

@@ -616,6 +616,56 @@ int main() {
   }
 
   {
+    lg::Arena arena;
+    arena.min = {-4.0F, -4.0F, 0.0F};
+    arena.max = {4.0F, 4.0F, 40.0F};
+    arena.jumpPadCount = 1;
+    arena.jumpPads[0].min = {-1.0F, -1.0F, 0.0F};
+    arena.jumpPads[0].max = {1.0F, 1.0F, 40.0F};
+    arena.jumpPads[0].launchVelocity = {2.0F, 0.0F, 10.0F};
+
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(!player.onGround, "jumppad trigger should force airborne state");
+    failures += expect(
+      player.movementMode == lg::MovementMode::Airborne,
+      "jumppad trigger should force airborne movement mode"
+    );
+    failures += expect(
+      nearlyEqual(player.velocity.x, 2.0F) &&
+        nearlyEqual(player.velocity.z, 10.0F),
+      "jumppad trigger should set launch velocity"
+    );
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 3,
+      "jumppad trigger should arm retrigger cooldown"
+    );
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 2 &&
+        player.velocity.z < 10.0F,
+      "jumppad cooldown should prevent immediate retrigger"
+    );
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 0 &&
+        player.velocity.z < 10.0F,
+      "jumppad cooldown should count down without relaunching on the expiry tick"
+    );
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 3 &&
+        nearlyEqual(player.velocity.z, 10.0F),
+      "jumppad should retrigger after cooldown expires while still overlapping"
+    );
+  }
+
+  {
     const lg::Arena arena = lg::thunderstruckArena();
     const lg::MovementTuning tuning;
     lg::PlayerState player = groundedPlayer();

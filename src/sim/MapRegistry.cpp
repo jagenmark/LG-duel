@@ -135,6 +135,17 @@ std::uint32_t hashArena(const Arena& arena) {
   hashVec3(hash, arena.sunLight.direction);
   hashVec3(hash, arena.sunLight.color);
   hashFloat(hash, arena.sunLight.intensity);
+  hashU32(hash, static_cast<std::uint32_t>(arena.jumpPadCount));
+  for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
+    const ArenaJumpPad& jumpPad = arena.jumpPads[index];
+    hashVec3(hash, jumpPad.min);
+    hashVec3(hash, jumpPad.max);
+    hashVec3(hash, jumpPad.targetPosition);
+    hashVec3(hash, jumpPad.launchVelocity);
+    hashFloat(hash, jumpPad.targetSpeed);
+    hashU32(hash, jumpPad.hasTarget ? 1U : 0U);
+    hashU32(hash, jumpPad.hasTargetSpeed ? 1U : 0U);
+  }
   return hash == 0U ? 1U : hash;
 }
 

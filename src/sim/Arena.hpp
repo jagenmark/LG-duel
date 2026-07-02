@@ -12,6 +12,8 @@
 
 namespace lg {
 
+inline constexpr float kDefaultJumpPadSpeed = 20.0F;
+
 struct TextureProjection {
   Vec3 uAxis = {};
   Vec3 vAxis = {};
@@ -71,10 +73,21 @@ struct ArenaSunLight {
   bool enabled = false;
 };
 
+struct ArenaJumpPad {
+  Vec3 min = {};
+  Vec3 max = {};
+  Vec3 targetPosition = {};
+  Vec3 launchVelocity = {0.0F, 0.0F, kDefaultJumpPadSpeed};
+  float targetSpeed = 0.0F;
+  bool hasTarget = false;
+  bool hasTargetSpeed = false;
+};
+
 struct Arena {
   static constexpr std::size_t kWallCount = 255;
   static constexpr std::size_t kBrushCount = 128;
   static constexpr std::size_t kStaticLightCount = 64;
+  static constexpr std::size_t kJumpPadCount = 32;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
@@ -85,6 +98,8 @@ struct Arena {
   std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
   std::size_t staticLightCount = 0;
   ArenaSunLight sunLight = {};
+  std::array<ArenaJumpPad, kJumpPadCount> jumpPads = {};
+  std::size_t jumpPadCount = 0;
   std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},

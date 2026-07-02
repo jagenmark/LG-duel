@@ -12,6 +12,7 @@
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -262,6 +263,7 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   plasmaGunTuning_.maxLifetimeTicks = config.plasmaGun.maxLifetimeTicks;
   plasmaGunTuning_.cooldownTicks = config.plasmaGun.cooldownTicks;
   weaponPulloutDurationTicks_ = config.weaponPulloutTicks;
+  jumpPadRetriggerCooldownTicks_ = config.jumpPadRetriggerCooldownTicks;
 }
 
 void ServerGame::tick(float fixedDt) {
@@ -333,7 +335,13 @@ void ServerGame::tick(float fixedDt) {
       command,
       arena_,
       movementTuning_,
-      fixedDt
+      fixedDt,
+      static_cast<std::uint16_t>(
+        std::min<std::uint32_t>(
+          jumpPadRetriggerCooldownTicks_,
+          std::numeric_limits<std::uint16_t>::max()
+        )
+      )
     );
   }
 

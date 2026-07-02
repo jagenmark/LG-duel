@@ -23,6 +23,8 @@ struct PlayerState {
   CollisionBounds bounds = {};
   MovementMode movementMode = MovementMode::Airborne;
   std::uint16_t knockbackTicksRemaining = 0;
+  // Runtime-only trigger guard; NetCodec intentionally does not serialize it.
+  std::uint16_t jumpPadCooldownTicksRemaining = 0;
   bool onGround = false;
   bool jumpHeld = false;
 };

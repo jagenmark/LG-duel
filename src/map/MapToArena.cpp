@@ -9,6 +9,7 @@
 #include <limits>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace lg {
@@ -24,6 +25,24 @@ constexpr float kDegreesToRadians = 0.01745329252F;
 constexpr Vec3 kDefaultSunDirection = {0.25916052F, -0.43193421F, -0.86386842F};
 constexpr Vec3 kDefaultSunColor = {1.0F, 0.94117647F, 0.78431374F};
 constexpr float kDefaultSunIntensity = 0.7F;
+
+struct TargetPosition {
+  std::string targetname;
+  Vec3 position = {};
+  int line = 0;
+};
+
+[[nodiscard]] const MapProperty* findProperty(
+  const MapEntity& entity,
+  std::string_view key
+) {
+  for (const MapProperty& property : entity.properties) {
+    if (property.key == key) {
+      return &property;
+    }
+  }
+  return nullptr;
+}
 
 [[nodiscard]] bool parseFloat(std::string_view text, float& value) {
   const char* begin = text.data();
@@ -46,6 +65,41 @@ constexpr float kDefaultSunIntensity = 0.7F;
 
 [[nodiscard]] Vec3 scaleQuakeUnits(Vec3 value) {
   return value * kQuakeToLgScale;
+}
+
+[[nodiscard]] bool brushPointBounds(
+  const MapBrush& brush,
+  Vec3& minimum,
+  Vec3& maximum,
+  std::string& error
+) {
+  bool initialized = false;
+  for (const MapFace& face : brush.faces) {
+    for (Vec3 point : face.points) {
+      point = scaleQuakeUnits(point);
+      if (!initialized) {
+        minimum = point;
+        maximum = point;
+        initialized = true;
+        continue;
+      }
+      minimum.x = std::min(minimum.x, point.x);
+      minimum.y = std::min(minimum.y, point.y);
+      minimum.z = std::min(minimum.z, point.z);
+      maximum.x = std::max(maximum.x, point.x);
+      maximum.y = std::max(maximum.y, point.y);
+      maximum.z = std::max(maximum.z, point.z);
+    }
+  }
+  if (
+    !initialized ||
+    !(minimum.x < maximum.x && minimum.y < maximum.y && minimum.z < maximum.z)
+  ) {
+    error = "line " + std::to_string(brush.line) +
+      ": trigger_jumppad brush has degenerate or inverted bounds";
+    return false;
+  }
+  return true;
 }
 
 [[nodiscard]] bool parsePositiveFloat(
@@ -139,6 +193,96 @@ constexpr float kDefaultSunIntensity = 0.7F;
     error = "line " + std::to_string(entity.line) + ": spawn yaw must be a finite float";
     return false;
   }
+  return true;
+}
+
+[[nodiscard]] bool parseOptionalPositivePropertyFloat(
+  const MapEntity& entity,
+  std::string_view key,
+  std::string_view ownerClass,
+  float& value,
+  bool& present,
+  std::string& error
+) {
+  const MapProperty* property = findProperty(entity, key);
+  if (property == nullptr) {
+    present = false;
+    return true;
+  }
+  present = true;
+  if (!parseFloat(property->value, value) || value <= 0.0F) {
+    error = "line " + std::to_string(property->line) + ": " +
+      std::string(ownerClass) + " " + std::string(key) +
+      " must be a positive finite float";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool parseOptionalFinitePropertyFloat(
+  const MapEntity& entity,
+  std::string_view key,
+  std::string_view ownerClass,
+  float& value,
+  bool& present,
+  std::string& error
+) {
+  const MapProperty* property = findProperty(entity, key);
+  if (property == nullptr) {
+    present = false;
+    return true;
+  }
+  present = true;
+  if (!parseFloat(property->value, value)) {
+    error = "line " + std::to_string(property->line) + ": " +
+      std::string(ownerClass) + " " + std::string(key) +
+      " must be a finite float";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool fallbackJumpPadVelocity(
+  const MapEntity& entity,
+  float speed,
+  ArenaJumpPad& jumpPad,
+  std::string& error
+) {
+  if (const MapProperty* direction = findProperty(entity, "direction")) {
+    Vec3 parsed = {};
+    if (!parseSpaceVec3(direction->value, parsed)) {
+      error = "line " + std::to_string(direction->line) +
+        ": trigger_jumppad direction must be 'x y z'";
+      return false;
+    }
+    parsed = normalize(parsed);
+    if (length(parsed) <= 0.0001F) {
+      error = "line " + std::to_string(direction->line) +
+        ": trigger_jumppad direction must be non-zero";
+      return false;
+    }
+    jumpPad.launchVelocity = parsed * speed;
+    return true;
+  }
+
+  float angle = 0.0F;
+  float pitch = 90.0F;
+  bool hasAngle = false;
+  bool hasPitch = false;
+  if (
+    !parseOptionalFinitePropertyFloat(entity, "angle", "trigger_jumppad", angle, hasAngle, error) ||
+    !parseOptionalFinitePropertyFloat(entity, "pitch", "trigger_jumppad", pitch, hasPitch, error)
+  ) {
+    return false;
+  }
+  if (hasAngle || hasPitch) {
+    const float yawRadians = angle * kDegreesToRadians;
+    const float pitchRadians = pitch * kDegreesToRadians;
+    jumpPad.launchVelocity = cameraForward(yawRadians, pitchRadians) * speed;
+    return true;
+  }
+
+  jumpPad.launchVelocity = {0.0F, 0.0F, speed};
   return true;
 }
 
@@ -819,6 +963,104 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   return true;
 }
 
+[[nodiscard]] bool convertTargetPositionEntity(
+  const MapEntity& entity,
+  TargetPosition& target,
+  std::string& error
+) {
+  const MapProperty* targetname = findProperty(entity, "targetname");
+  if (targetname == nullptr || targetname->value.empty()) {
+    error = "line " + std::to_string(entity.line) +
+      ": target_position is missing targetname";
+    return false;
+  }
+  const MapProperty* origin = findProperty(entity, "origin");
+  if (origin == nullptr) {
+    error = "line " + std::to_string(entity.line) +
+      ": target_position is missing origin";
+    return false;
+  }
+  Vec3 position = {};
+  if (!parseSpaceVec3(origin->value, position)) {
+    error = "line " + std::to_string(origin->line) +
+      ": target_position origin must be 'x y z'";
+    return false;
+  }
+  target.targetname = targetname->value;
+  target.position = scaleQuakeUnits(position);
+  target.line = entity.line;
+  return true;
+}
+
+[[nodiscard]] const TargetPosition* findTargetPosition(
+  const std::vector<TargetPosition>& targets,
+  std::string_view targetname
+) {
+  for (const TargetPosition& target : targets) {
+    if (target.targetname == targetname) {
+      return &target;
+    }
+  }
+  return nullptr;
+}
+
+[[nodiscard]] bool convertJumpPadEntity(
+  const MapEntity& entity,
+  const std::vector<TargetPosition>& targets,
+  std::vector<ArenaJumpPad>& jumpPads,
+  std::string& error
+) {
+  if (entity.brushes.empty()) {
+    error = "line " + std::to_string(entity.line) +
+      ": trigger_jumppad requires at least one brush";
+    return false;
+  }
+
+  float speed = kDefaultJumpPadSpeed;
+  bool hasSpeed = false;
+  if (!parseOptionalPositivePropertyFloat(
+        entity,
+        "speed",
+        "trigger_jumppad",
+        speed,
+        hasSpeed,
+        error
+      )) {
+    return false;
+  }
+
+  ArenaJumpPad templatePad;
+  templatePad.targetSpeed = speed;
+  templatePad.hasTargetSpeed = hasSpeed;
+  if (const MapProperty* target = findProperty(entity, "target")) {
+    const TargetPosition* targetPosition = findTargetPosition(targets, target->value);
+    if (targetPosition == nullptr) {
+      error = "line " + std::to_string(target->line) +
+        ": trigger_jumppad target '" + target->value +
+        "' does not match a target_position";
+      return false;
+    }
+    templatePad.hasTarget = true;
+    templatePad.targetPosition = targetPosition->position;
+  } else if (!fallbackJumpPadVelocity(entity, speed, templatePad, error)) {
+    return false;
+  }
+
+  for (const MapBrush& brush : entity.brushes) {
+    if (jumpPads.size() >= Arena::kJumpPadCount) {
+      error = "line " + std::to_string(entity.line) +
+        ": too many trigger_jumppad brushes";
+      return false;
+    }
+    ArenaJumpPad jumpPad = templatePad;
+    if (!brushPointBounds(brush, jumpPad.min, jumpPad.max, error)) {
+      return false;
+    }
+    jumpPads.push_back(jumpPad);
+  }
+  return true;
+}
+
 void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {
   if (!initialized) {
     minimum = point;
@@ -840,6 +1082,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaWall> walls;
   std::vector<ArenaBrush> brushes;
   std::vector<ArenaStaticLight> staticLights;
+  std::vector<ArenaJumpPad> jumpPads;
+  std::vector<TargetPosition> targetPositions;
   ArenaSunLight sunLight;
   bool hasSunLight = false;
   std::vector<Vec3> spawns;
@@ -847,6 +1091,23 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   bool hasBoundsMax = false;
   Vec3 boundsMin = {};
   Vec3 boundsMax = {};
+
+  for (const MapEntity& entity : document.entities) {
+    const std::string* classname = entity.property("classname");
+    if (classname == nullptr || *classname != "target_position") {
+      continue;
+    }
+    TargetPosition target;
+    std::string error;
+    if (!convertTargetPositionEntity(entity, target, error)) {
+      return {{}, false, error};
+    }
+    if (findTargetPosition(targetPositions, target.targetname) != nullptr) {
+      return {{}, false, "line " + std::to_string(entity.line) +
+        ": duplicate target_position targetname '" + target.targetname + "'"};
+    }
+    targetPositions.push_back(std::move(target));
+  }
 
   for (const MapEntity& entity : document.entities) {
     const std::string* classname = entity.property("classname");
@@ -912,6 +1173,13 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         return {{}, false, error};
       }
       hasSunLight = true;
+    } else if (*classname == "trigger_jumppad") {
+      std::string error;
+      if (!convertJumpPadEntity(entity, targetPositions, jumpPads, error)) {
+        return {{}, false, error};
+      }
+    } else if (*classname == "target_position") {
+      continue;
     } else if (*classname == "trigger_teleport") {
       continue;
     }
@@ -929,6 +1197,13 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     for (const ArenaBrush& brush : brushes) {
       expandBounds(brush.min, boundsMin, boundsMax, initialized);
       expandBounds(brush.max, boundsMin, boundsMax, initialized);
+    }
+    for (const ArenaJumpPad& jumpPad : jumpPads) {
+      expandBounds(jumpPad.min, boundsMin, boundsMax, initialized);
+      expandBounds(jumpPad.max, boundsMin, boundsMax, initialized);
+      if (jumpPad.hasTarget) {
+        expandBounds(jumpPad.targetPosition, boundsMin, boundsMax, initialized);
+      }
     }
     for (Vec3 spawn : spawns) {
       expandBounds(spawn, boundsMin, boundsMax, initialized);
@@ -975,6 +1250,10 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       result.arena.staticLights[index] = staticLights[index];
     }
     result.arena.sunLight = sunLight;
+    result.arena.jumpPadCount = jumpPads.size();
+    for (std::size_t index = 0; index < result.arena.jumpPadCount; ++index) {
+      result.arena.jumpPads[index] = jumpPads[index];
+    }
   }
   return result;
 }
