@@ -9,7 +9,7 @@
 3. `updateBotCommands()` fills commands for bot-controlled participant slots.
 4. One-tick snapshot event arrays are cleared: weapon fires, explosions, footsteps, grenade bounces, frags, local hit feedback, and projectile snapshots.
 5. Weapon cooldowns and pullout timers are decremented.
-6. For each player, the selected weapon is updated and `simulateMovement()` runs for living players.
+6. For each player, the selected weapon is updated and `simulateMovement()` runs for living players, including bounded jumppad trigger checks after arena collision.
 7. Player/player collision is resolved, then player/arena collision is resolved, then footstep events are generated.
 8. Hitscan/lightning targeting uses a copy of pre-damage `combatPlayers`; optional lag compensation selects a stored `HistoryFrame`.
 9. Hitscan weapon results are generated, cooldowns are set, and damage/knockback is applied through `applyDamageAndKnockback()`.
@@ -28,6 +28,7 @@
 - Commands must be received before match state, bot commands, movement, and combat so authoritative state reflects the latest accepted input.
 - Movement and collision run before combat; hit traces use post-movement positions, while `combatPlayers` freezes positions for consistent per-attacker combat resolution during the tick.
 - Arena collision runs after player/player collision to clamp final positions back into valid space.
+- Jumppad launch is server-authoritative movement state. Trigger cooldown comes from `balance.cfg`, runs as a fixed tick countdown on player state, and is not added to per-tick network packets.
 - `recordHistory()` happens after `serverTick` increments so lag compensation can find a frame by authoritative tick number.
 - Transient events are remembered before restore; restoring after simulation keeps short-lived events visible across packet loss without making them persistent gameplay state.
 

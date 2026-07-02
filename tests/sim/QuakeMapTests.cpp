@@ -28,28 +28,30 @@ std::string cuboidBrush(
   float minZ,
   float maxX,
   float maxY,
-  float maxZ
+  float maxZ,
+  std::string_view material = "stone"
 ) {
+  const std::string materialName(material);
   return
     "{\n"
     "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
     "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) "
-    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) " + materialName + " 0 0 0 1 1\n"
     "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
     "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) "
-    "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) " + materialName + " 0 0 0 1 1\n"
     "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
     "( " + std::to_string(maxX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) "
-    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) " + materialName + " 0 0 0 1 1\n"
     "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) "
     "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) "
-    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) " + materialName + " 0 0 0 1 1\n"
     "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(minZ) + " ) "
     "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) "
-    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(minZ) + " ) " + materialName + " 0 0 0 1 1\n"
     "( " + std::to_string(minX) + " " + std::to_string(minY) + " " + std::to_string(maxZ) + " ) "
     "( " + std::to_string(maxX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) "
-    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) stone 0 0 0 1 1\n"
+    "( " + std::to_string(minX) + " " + std::to_string(maxY) + " " + std::to_string(maxZ) + " ) " + materialName + " 0 0 0 1 1\n"
     "}\n";
 }
 
@@ -100,6 +102,16 @@ int main() {
   }
 
   {
+    const lg::MapParseResult result =
+      lg::parseMapDocument(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1, "common/playerclip")));
+    failures += expect(result.ok, "parser should read playerclip brush materials");
+    failures += expect(
+      result.document.entities[0].brushes[0].faces[0].material == "common/playerclip",
+      "parser should preserve playerclip material names"
+    );
+  }
+
+  {
     const lg::ArenaLoadResult result =
       lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1)));
     failures += expect(result.ok, "cuboid map should convert");
@@ -107,6 +119,96 @@ int main() {
     failures += expect(nearlyEqual(result.arena.walls[0].min.x, -0.025F), "wall min should use Quake-to-LG scale");
     failures += expect(nearlyEqual(result.arena.walls[0].max.z, 0.025F), "wall max should use Quake-to-LG scale");
     failures += expect(result.arena.walls[0].materialId != 0U, "wall material should be preserved");
+  }
+
+  {
+    const std::string text =
+      "{\n"
+      "\"classname\" \"worldspawn\"\n"
+      "\"lg_bounds_min\" \"-120 -120 -40\"\n"
+      "\"lg_bounds_max\" \"160 120 120\"\n" +
+      cuboidBrush(-80, -80, -8, -48, 80, 0, "stone") +
+      cuboidBrush(20, -80, 0, 60, 80, 80, "textures/common/playerclip") +
+      "}\n"
+      "{\n"
+      "\"classname\" \"lg_spawn\"\n"
+      "\"origin\" \"-80 0 40\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"lg_spawn\"\n"
+      "\"origin\" \"120 0 40\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "playerclip and normal solid map should convert");
+    failures += expect(result.arena.wallCount == 2, "playerclip cuboid should remain collision geometry");
+    failures += expect(result.arena.walls[0].renderable, "normal textured brush should remain renderable");
+    failures += expect(!result.arena.walls[1].renderable, "playerclip brush should be marked non-renderable");
+    failures += expect(
+      result.arena.walls[1].materialId == 0U &&
+        result.arena.walls[1].faceMaterialIds[0] == 0U,
+      "playerclip should not preserve render material output"
+    );
+
+    lg::PlayerState player;
+    player.position = {0.0F, 0.0F, player.bounds.halfHeight};
+    player.onGround = true;
+    player.movementMode = lg::MovementMode::Grounded;
+    const lg::CollisionResult collision = lg::resolvePlayerArenaCollision(
+      result.arena,
+      player,
+      {1.0F, 0.0F, player.bounds.halfHeight},
+      {8.0F, 0.0F, 0.0F}
+    );
+    failures += expect(
+      collision.position.x < 1.0F && nearlyEqual(collision.velocity.x, 0.0F),
+      "playerclip should block player arena collision like a normal solid"
+    );
+  }
+
+  {
+    const std::string text =
+      "{\n"
+      "\"classname\" \"worldspawn\"\n"
+      "\"lg_bounds_min\" \"-120 -120 -40\"\n"
+      "\"lg_bounds_max\" \"160 120 120\"\n" +
+      cuboidBrush(-80, -80, -8, -48, 80, 0, "stone") +
+      "}\n"
+      "{\n"
+      "\"classname\" \"func_group\"\n" +
+      cuboidBrush(20, -80, 0, 60, 80, 80, "common/playerclip") +
+      "}\n"
+      "{\n"
+      "\"classname\" \"lg_spawn\"\n"
+      "\"origin\" \"-80 0 40\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"lg_spawn\"\n"
+      "\"origin\" \"120 0 40\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "func_group playerclip map should convert");
+    failures += expect(
+      result.arena.wallCount == 2 && !result.arena.walls[1].renderable,
+      "func_group playerclip brush should become non-renderable collision geometry"
+    );
+  }
+
+  {
+    const std::string mixedBrush =
+      "{\n"
+      "( 0 0 0 ) ( 0 0 16 ) ( 0 16 16 ) common/playerclip 0 0 0 1 1\n"
+      "( 16 0 0 ) ( 16 16 16 ) ( 16 0 16 ) stone 0 0 0 1 1\n"
+      "( 0 0 0 ) ( 16 0 16 ) ( 0 0 16 ) stone 0 0 0 1 1\n"
+      "( 0 16 0 ) ( 0 16 16 ) ( 16 16 16 ) stone 0 0 0 1 1\n"
+      "( 0 0 0 ) ( 0 16 0 ) ( 16 16 0 ) stone 0 0 0 1 1\n"
+      "( 0 0 16 ) ( 16 16 16 ) ( 0 16 16 ) stone 0 0 0 1 1\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(basicMap(mixedBrush));
+    failures += expect(!result.ok, "mixed playerclip brushes should be rejected");
+    failures += expect(
+      result.error.find("playerclip") != std::string::npos,
+      "mixed playerclip rejection should explain the whole-brush rule"
+    );
   }
 
   {
@@ -283,6 +385,90 @@ int main() {
       "}\n";
     const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
     failures += expect(!result.ok, "multiple light_sun entities should be rejected");
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"target_position\"\n"
+      "\"targetname\" \"jp_land\"\n"
+      "\"origin\" \"80 0 120\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"target\" \"jp_land\"\n"
+      "\"speed\" \"12\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "target-based jumppad map should convert");
+    failures += expect(result.arena.jumpPadCount == 1, "jumppad trigger should be stored in arena data");
+    failures += expect(result.arena.wallCount == 1, "jumppad trigger should not become a solid wall");
+    failures += expect(result.arena.brushCount == 0, "jumppad trigger should not become a renderable brush");
+    failures += expect(result.arena.jumpPads[0].hasTarget, "targeted jumppad should keep target launch mode");
+    failures += expect(result.arena.jumpPads[0].hasTargetSpeed, "targeted jumppad should keep optional speed");
+    failures += expect(
+      nearlyEqual(result.arena.jumpPads[0].targetPosition.x, 2.0F) &&
+        nearlyEqual(result.arena.jumpPads[0].targetPosition.z, 3.0F),
+      "target_position origin should use Quake-to-LG scale"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"target\" \"missing_target\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "jumppad with missing target should be rejected");
+    failures += expect(
+      result.error.find("line ") != std::string::npos &&
+        result.error.find("missing_target") != std::string::npos,
+      "missing jumppad target error should be line-numbered"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"speed\" \"fast\"\n"
+      "\"direction\" \"0 0 1\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "jumppad with invalid speed should be rejected");
+    failures += expect(
+      result.error.find("line ") != std::string::npos &&
+        result.error.find("speed") != std::string::npos,
+      "invalid jumppad speed error should be line-numbered"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"trigger_jumppad\"\n"
+      "\"direction\" \"0 0 1\"\n"
+      "\"speed\" \"10\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "direction fallback jumppad should convert");
+    failures += expect(result.arena.wallCount == 1, "trigger brush should not become solid geometry");
+    failures += expect(result.arena.brushCount == 0, "trigger brush should not become rendered geometry");
+    failures += expect(result.arena.jumpPadCount == 1, "trigger brush should become jumppad data");
+    failures += expect(
+      !result.arena.jumpPads[0].hasTarget &&
+        nearlyEqual(result.arena.jumpPads[0].launchVelocity.z, 10.0F),
+      "direction fallback should precompute launch velocity"
+    );
   }
 
   {

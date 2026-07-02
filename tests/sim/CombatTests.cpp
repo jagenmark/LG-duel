@@ -96,6 +96,7 @@ weapon.gl.projectile_hitbox_radius 0.2
 weapon.gl.fuse_seconds 1.0
 weapon.gl.radius 4.0
 weapon.gl.cooldown_ticks 75
+jumppad.retrigger_cooldown_ms 200
 )");
 
     failures += expect(loaded.ok, "balance config should parse grenade launcher tuning");
@@ -110,8 +111,9 @@ weapon.gl.cooldown_ticks 75
         nearlyEqual(loaded.config.grenadeLauncher.projectileHitboxRadius, 0.2F) &&
         loaded.config.grenadeLauncher.fuseTicks == 125 &&
         nearlyEqual(loaded.config.grenadeLauncher.radius, 4.0F) &&
-        loaded.config.grenadeLauncher.cooldownTicks == 75,
-      "balance config should apply non-cvar grenade launcher values"
+        loaded.config.grenadeLauncher.cooldownTicks == 75 &&
+        loaded.config.jumpPadRetriggerCooldownTicks == 25,
+      "balance config should apply non-cvar grenade launcher and jumppad values"
     );
   }
 

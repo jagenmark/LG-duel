@@ -6,7 +6,7 @@ Rendering is presentation-only. The renderer consumes arena data, predicted/inte
 
 `src/app/GameApp.cpp` prepares each frame: predicted local player, interpolated remote players, team/name/health presentation, lingering rail/machine-gun events, hit feedback, damage numbers, HUD, and console state. It then calls `Renderer::render()`.
 
-3D scene geometry is built in `src/render/Scene3D.*`. `buildStaticWorldScene()` creates arena floor/bounds/walls/brushes with material ids, UVs, and static light coloring. `buildPerspectiveScene()` creates the first-person camera scene: dynamic players, weapons, beams, hitscan traces, projectile visuals, explosions, and optional lag-compensation bounds.
+3D scene geometry is built in `src/render/Scene3D.*`. `buildStaticWorldScene()` creates arena floor/bounds/renderable walls/renderable brushes with material ids, UVs, and static light coloring. Collision-only playerclip solids remain in arena data but are skipped before static lighting and vertex emission. `buildPerspectiveScene()` creates the first-person camera scene: dynamic players, weapons, beams, hitscan traces, projectile visuals, explosions, and optional lag-compensation bounds.
 
 Screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`, `BitmapFont.*`, and the retained 2D draw-list/overlay pipeline.
 
@@ -35,6 +35,7 @@ Texture and light debug output are gated by environment variables such as `LG_DU
 ## Performance Assumptions
 
 - Static world geometry should be rebuilt only when the arena fingerprint changes.
+- Collision-only playerclip brushes must not add static world vertices, material references, texture loads, or batches.
 - Dynamic scene geometry is per-frame and should stay bounded by player/projectile/effect counts.
 - Projectile visuals are cheap boxes/spheres/wire boxes, not unique high-poly assets.
 - GPU frames use `kMaxGpuVertices`; exceeding this budget should be treated as a rendering bug or content budget issue.

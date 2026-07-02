@@ -4,7 +4,11 @@
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <cstdint>
+
 namespace lg {
+
+inline constexpr std::uint16_t kDefaultJumpPadCooldownTicks = 25;
 
 struct MovementTuning {
   bool flightEnabled = false;
@@ -30,6 +34,15 @@ void simulateMovement(
   const Arena& arena,
   const MovementTuning& tuning,
   float fixedDt
+);
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks
 );
 
 } // namespace lg

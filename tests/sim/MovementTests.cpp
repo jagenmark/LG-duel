@@ -616,6 +616,56 @@ int main() {
   }
 
   {
+    lg::Arena arena;
+    arena.min = {-4.0F, -4.0F, 0.0F};
+    arena.max = {4.0F, 4.0F, 40.0F};
+    arena.jumpPadCount = 1;
+    arena.jumpPads[0].min = {-1.0F, -1.0F, 0.0F};
+    arena.jumpPads[0].max = {1.0F, 1.0F, 40.0F};
+    arena.jumpPads[0].launchVelocity = {2.0F, 0.0F, 10.0F};
+
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(!player.onGround, "jumppad trigger should force airborne state");
+    failures += expect(
+      player.movementMode == lg::MovementMode::Airborne,
+      "jumppad trigger should force airborne movement mode"
+    );
+    failures += expect(
+      nearlyEqual(player.velocity.x, 2.0F) &&
+        nearlyEqual(player.velocity.z, 10.0F),
+      "jumppad trigger should set launch velocity"
+    );
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 3,
+      "jumppad trigger should arm retrigger cooldown"
+    );
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 2 &&
+        player.velocity.z < 10.0F,
+      "jumppad cooldown should prevent immediate retrigger"
+    );
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 0 &&
+        player.velocity.z < 10.0F,
+      "jumppad cooldown should count down without relaunching on the expiry tick"
+    );
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds, 3);
+    failures += expect(
+      player.jumpPadCooldownTicksRemaining == 3 &&
+        nearlyEqual(player.velocity.z, 10.0F),
+      "jumppad should retrigger after cooldown expires while still overlapping"
+    );
+  }
+
+  {
     const lg::Arena arena = lg::thunderstruckArena();
     const lg::MovementTuning tuning;
     lg::PlayerState player = groundedPlayer();
@@ -719,6 +769,48 @@ int main() {
     failures += expect(
       highestPositionZ > player.bounds.halfHeight + 0.5F,
       "player should walk up sloped brush instead of being pushed away"
+    );
+  }
+
+  {
+    const std::string rampBrush =
+      "{\n"
+      "( -80 -80 0 ) ( -80 80 0 ) ( -80 80 8 ) textures/common/playerclip 0 0 0 1 1\n"
+      "( 80 -80 0 ) ( 80 -80 48 ) ( 80 80 48 ) textures/common/playerclip 0 0 0 1 1\n"
+      "( -80 -80 0 ) ( 80 -80 0 ) ( 80 -80 48 ) textures/common/playerclip 0 0 0 1 1\n"
+      "( -80 80 0 ) ( -80 80 8 ) ( 80 80 48 ) textures/common/playerclip 0 0 0 1 1\n"
+      "( -80 -80 0 ) ( -80 80 0 ) ( 80 80 0 ) textures/common/playerclip 0 0 0 1 1\n"
+      "( -80 -80 8 ) ( 80 -80 48 ) ( 80 80 48 ) textures/common/playerclip 0 0 0 1 1\n"
+      "}\n";
+    const lg::ArenaLoadResult loaded = lg::loadArenaFromMapText(basicMapWithBrush(rampBrush));
+    failures += expect(loaded.ok, "sloped playerclip brush map should load");
+    failures += expect(loaded.arena.brushCount == 1, "sloped playerclip brush should import as collision geometry");
+    failures += expect(!loaded.arena.brushes[0].renderable, "sloped playerclip brush should be non-renderable");
+
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.5F, 0.0F, 0.2F + player.bounds.halfHeight};
+    player.onGround = true;
+    player.movementMode = lg::MovementMode::Grounded;
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    float highestPositionZ = player.position.z;
+    for (int tick = 0; tick < 80; ++tick) {
+      lg::simulateMovement(
+        player,
+        command,
+        loaded.arena,
+        tuning,
+        lg::kFixedTickSeconds
+      );
+      highestPositionZ = std::max(highestPositionZ, player.position.z);
+    }
+
+    failures += expect(player.position.x > 0.5F, "player should move across sloped playerclip brush");
+    failures += expect(
+      highestPositionZ > player.bounds.halfHeight + 0.5F,
+      "player should walk smoothly up a sloped playerclip ramp"
     );
   }
 

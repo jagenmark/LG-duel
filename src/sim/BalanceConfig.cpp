@@ -111,6 +111,14 @@ namespace {
     config.plasmaGun.knockback = value;
   } else if (key == "weapon.pg.eye_height" && inRange(value, 0.0F, 10.0F)) {
     config.plasmaGun.eyeHeight = value;
+  } else if (key == "jumppad.retrigger_cooldown_ms" && inRange(value, 0.0F, 5000.0F)) {
+    config.jumpPadRetriggerCooldownTicks =
+      std::max<std::uint32_t>(
+        1U,
+        static_cast<std::uint32_t>(
+          std::lround((value / 1000.0F) / kFixedTickSeconds)
+        )
+      );
   } else {
     return false;
   }

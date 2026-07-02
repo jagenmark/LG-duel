@@ -420,6 +420,27 @@ int main() {
   arena.wallCount = 0;
 
   {
+    lg::Arena clipArena;
+    const lg::Scene3D baselineStaticScene = lg::buildStaticWorldScene(clipArena);
+    clipArena.wallCount = 1;
+    clipArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    clipArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    clipArena.walls[0].materialId = lg::arenaMaterialId("common/playerclip");
+    clipArena.walls[0].renderable = false;
+    const lg::Scene3D clippedStaticScene = lg::buildStaticWorldScene(clipArena);
+    bool foundPlayerClipMaterial = false;
+    for (const lg::Vertex3D& vertex : clippedStaticScene.vertices) {
+      foundPlayerClipMaterial =
+        foundPlayerClipMaterial || vertex.materialId == clipArena.walls[0].materialId;
+    }
+    failures += expect(
+      clippedStaticScene.vertices.size() == baselineStaticScene.vertices.size() &&
+        !foundPlayerClipMaterial,
+      "non-renderable playerclip walls should not emit static world geometry"
+    );
+  }
+
+  {
     lg::TextureProjection projection;
     projection.uAxis = {1.0F, 0.0F, 0.0F};
     projection.vAxis = {0.0F, -1.0F, 0.0F};

@@ -8,6 +8,7 @@ Runtime tuning is split between three editable config files, command-carried dev
 
 - weapon ranges, eye-height offsets, spreads, projectile sizes, projectile speeds, projectile lifetimes, fuse/bounce values, and cooldown ticks
 - weapon switch pullout ticks
+- jumppad retrigger cooldown, stored in milliseconds and converted to fixed ticks at load time
 - no `sv_*`, `g_*`, `cl_*`, `r_*`, `s_*`, `vid_*`, or binds
 
 `src/server/ServerApp.*` executes `config/server_cvars.cfg` after registering server cvars. This file owns server startup defaults for `sv_*` and the temporary development `g_*` gameplay cvars. Server stdin can still change these cvars at runtime.

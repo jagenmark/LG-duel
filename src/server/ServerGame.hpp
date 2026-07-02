@@ -215,6 +215,7 @@ private:
   std::uint32_t shotgunCooldownDurationTicks_ = 125;
   std::uint32_t rocketLauncherCooldownDurationTicks_ = 100;
   std::uint32_t weaponPulloutDurationTicks_ = 20;
+  std::uint32_t jumpPadRetriggerCooldownTicks_ = kDefaultJumpPadCooldownTicks;
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> machineGunCooldownTicks_ = {};

@@ -12,6 +12,7 @@ Examples:
 - weapon ranges, spread, projectile speed, projectile radius, projectile fuse
 - weapon cooldown ticks
 - QL weapon pullout ticks
+- jumppad retrigger cooldown
 
 Do not put `sv_*`, `g_*`, `r_*`, `cl_*`, `s_*`, `vid_*`, or binds here. If a
 value can be changed through the console, it belongs in a cvar config instead.
