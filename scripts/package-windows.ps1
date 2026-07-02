@@ -131,12 +131,7 @@ function Copy-UsedMapTextures {
 
   $textureOutput = Join-Path $OutputPath "textures"
   New-Item -Path $textureOutput -ItemType Directory | Out-Null
-
-  $licenseSource = Join-Path $TextureSource "License.txt"
-  if (Test-Path $licenseSource -PathType Leaf) {
-    Copy-Item $licenseSource (Join-Path $textureOutput "License.txt")
-  }
-
+  
   $missingMaterials = New-Object System.Collections.Generic.List[string]
   $copiedTextures = New-Object "System.Collections.Generic.HashSet[string]" ([System.StringComparer]::OrdinalIgnoreCase)
   $materials = Get-MapTextureMaterials $MapSource
@@ -276,7 +271,6 @@ $requiredFiles = @(
   "config/sound_mixer.cfg",
   "config/README.md",
   "maps/eyetoeye.map",
-  "textures/License.txt",
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",
   "README.txt",
