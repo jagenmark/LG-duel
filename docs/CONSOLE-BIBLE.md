@@ -179,8 +179,8 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 |---|---:|---:|---|---|---|
 | `r_vsync` | bool | `1` | bool | Q3 `r_swapInterval 0` | GPU: mailbox/vsync när på, immediate när av om plattformen stöder det. Projektet har alltså motsatt standard mot Q3. |
 | `r_frustum_cull` | bool | `1` | bool | Ingen direkt | CPU-side konservativ frustum-culling av remote player-kroppar, vapen, geometri-outline och flytande healthbars i 3D. |
-| `r_perf` | bool | `0` | bool | Ingen direkt | Visa klientprestanda och renderer-diagnostik pa HUD. Aktiverar aven lokal `traceWorld`-instrumentering for experiment. |
-| `r_perf_detail` | bool | `0` | bool | Ingen direkt | Visa detaljerad renderer-, remote frustum-culling-, geometri- och `traceWorld`-diagnostik. |
+| `r_perf` | bool | `0` | bool | Ingen direkt | Visa renderer-diagnostik pa HUD. |
+| `r_perf_detail` | bool | `0` | bool | Ingen direkt | Visa detaljerad renderer-diagnostik for remote frustum-culling och geometri. |
 | `r_beam_width` | float | `2` | `1..12` | Ingen direkt stabil cvar | Local LG beam width in first-person world units. |
 | `r_beam_alpha` | float | `1` | `0..1` | Ingen direkt | Lokal beam-opacity. |
 | `r_beam_r` | int | `74` | `0..255` | Ingen direkt standard | Lokal beam, röd kanal. |
@@ -361,9 +361,6 @@ eller manuell expansion.
 | `writeconfig` | inga | Skriver arkiverade cvars och bindings till `client.cfg`. |
 | `toggleconsole` | inga | Öppnar/stänger konsolen. |
 | `actionlist` | inga | Listar bindbara gameplay-actions. |
-| `trace_record_start` | inga | Startar route-baserad `traceWorld`-inspelning med en sample per frame. Aktiverar lokal trace-instrumentering tills inspelningen stoppas. |
-| `trace_record_stop [csv_path]` | valfri filvag | Stoppar `traceWorld`-inspelningen, skriver alla per-frame-samples till CSV (`trace_world_record.csv` om inget anges), och skriver totals, per-frame-medel och p50/p95/p99/max trace-tid till konsolen. |
-| `trace_record_clear` | inga | Rensar inspelade `traceWorld`-samples och stanger av aktiv inspelning. |
 
 ### 4.4 Konsolens redigeringsinput
 
