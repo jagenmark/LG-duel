@@ -31,7 +31,7 @@ constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
 constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
-constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 60U;
+constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 

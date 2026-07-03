@@ -14,6 +14,7 @@ layout(location = 9) in vec4 instanceColor;
 layout(location = 10) in uint instanceFirstBone;
 layout(location = 11) in uint instanceBoneCount;
 layout(location = 12) in uint instanceFlags;
+layout(location = 13) in vec4 inTintMask;
 
 layout(location = 0) out vec4 vertexColor;
 
@@ -112,5 +113,11 @@ void main() {
     1.22
   );
   gl_Position = projectWorld(worldPosition);
-  vertexColor = vec4(inColor.rgb * brightness, inColor.a) * instanceColor;
+  vec3 litMaterial = inColor.rgb * brightness;
+  vec3 tintedMaterial = litMaterial * instanceColor.rgb;
+  float tintWeight = clamp(inTintMask.x, 0.0, 1.0);
+  vertexColor = vec4(
+    mix(litMaterial, tintedMaterial, tintWeight),
+    inColor.a * instanceColor.a
+  );
 }

@@ -39,6 +39,7 @@ public:
     float u = 0.0F;
     float v = 0.0F;
     RenderColor color = {};
+    std::uint8_t tintWeight = 0;
     std::array<std::uint16_t, 4> joints = {};
     std::array<float, 4> weights = {};
   };

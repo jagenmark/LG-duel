@@ -938,6 +938,7 @@ bool GltfSkinnedModel::load(std::string_view path) {
           vertex.u = uv[0];
           vertex.v = uv[1];
           vertex.color = primitive.color;
+          vertex.tintWeight = primitive.tintable ? 255U : 0U;
           std::array<float, 4> rawWeights = {};
           for (std::size_t jointIndex = 0; jointIndex < 4U; ++jointIndex) {
             const std::size_t sourceIndex = vertexIndex * 4U + jointIndex;

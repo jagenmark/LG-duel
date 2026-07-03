@@ -237,6 +237,11 @@ if (-not (Test-Path $audioSource)) {
 }
 New-Item -Path (Join-Path $outputPath "assets") -ItemType Directory | Out-Null
 Copy-Item $audioSource (Join-Path $outputPath "assets/audio") -Recurse
+$modelSource = Join-Path (Split-Path -Parent $client) "assets/models"
+if (-not (Test-Path $modelSource)) {
+  throw "The runtime model directory was not found beside lg_duel_client.exe."
+}
+Copy-Item $modelSource (Join-Path $outputPath "assets/models") -Recurse
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
@@ -275,6 +280,7 @@ $requiredFiles = @(
   "config/default_client.cfg",
   "config/sound_mixer.cfg",
   "config/README.md",
+  "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb",
   "maps/eyetoeye.map",
   "textures/License.txt",
   "Play LG Duel.bat",
@@ -323,6 +329,21 @@ foreach ($file in $requiredAudioFiles) {
   $packagedAudioFile = Join-Path $outputPath "assets/audio/$($file.Name)"
   if (-not (Test-Path $packagedAudioFile)) {
     throw "Package validation failed: assets/audio/$($file.Name) is missing."
+  }
+}
+
+$requiredModelFiles = Get-ChildItem -Path $modelSource -Recurse -File |
+  Where-Object { $_.Extension -in ".glb", ".gltf", ".bin" }
+if ($requiredModelFiles.Count -eq 0) {
+  throw "Package validation failed: no runtime glTF/GLB model files were found."
+}
+foreach ($file in $requiredModelFiles) {
+  $modelRoot = $modelSource.TrimEnd("\", "/")
+  $relativeModelPath = $file.FullName.Substring($modelRoot.Length).TrimStart("\", "/").Replace("\", "/")
+  $packagedModelFile =
+    Join-Path (Join-Path $outputPath "assets/models") $relativeModelPath
+  if (-not (Test-Path $packagedModelFile)) {
+    throw "Package validation failed: assets/models/$relativeModelPath is missing."
   }
 }
 

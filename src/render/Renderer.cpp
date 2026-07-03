@@ -239,11 +239,13 @@ struct GpuModelVertex {
   std::uint8_t green = 255;
   std::uint8_t blue = 255;
   std::uint8_t alpha = 255;
+  std::uint8_t tintWeight = 0;
+  std::uint8_t padding[3] = {};
   std::uint16_t joints[4] = {};
   float weights[4] = {};
 };
 
-static_assert(sizeof(GpuModelVertex) == 60);
+static_assert(sizeof(GpuModelVertex) == 64);
 
 struct GpuGltfPlayerInstance {
   float row0[4] = {};
@@ -1506,7 +1508,7 @@ void collectTextureMaterialFiles(
     {0, sizeof(GpuModelVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
     {1, sizeof(GpuGltfPlayerInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
   }};
-  const std::array<SDL_GPUVertexAttribute, 13> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 14> vertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuModelVertex, position)},
     {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuModelVertex, normal)},
     {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuModelVertex, texCoord)},
@@ -1520,6 +1522,7 @@ void collectTextureMaterialFiles(
     {10, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, firstBone)},
     {11, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, boneCount)},
     {12, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, flags)},
+    {13, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuModelVertex, tintWeight)},
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = outlineMask
@@ -2473,6 +2476,7 @@ void appendScene3D(
       vertex.green = source.color.green;
       vertex.blue = source.color.blue;
       vertex.alpha = source.color.alpha;
+      vertex.tintWeight = source.tintWeight;
       for (std::size_t index = 0; index < 4U; ++index) {
         vertex.joints[index] = source.joints[index];
         vertex.weights[index] = source.weights[index];
@@ -4503,7 +4507,11 @@ const PlayerState& firstVisibleRemote(
         float group[4];
       };
       for (const OutlineMaskDraw& draw : perspectiveScene.outlineMaskDraws) {
-        if (draw.vertexCount == 0U && draw.instanceCount == 0U) {
+        if (
+          draw.vertexCount == 0U &&
+          draw.instanceCount == 0U &&
+          (!draw.gltfPlayerModel || draw.gltfInstanceCount == 0U)
+        ) {
           continue;
         }
         const MaskUniform maskUniform = {{
