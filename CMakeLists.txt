@@ -82,6 +82,10 @@ add_library(lg_duel_client_app
 )
 
 target_link_libraries(lg_duel_client_app PUBLIC lg_duel_core)
+target_include_directories(lg_duel_client_app
+  PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
 target_compile_features(lg_duel_client_app PUBLIC cxx_std_20)
 lg_duel_set_warnings(lg_duel_client_app)
 lg_duel_configure_sdl3(lg_duel_client_app)
@@ -178,6 +182,9 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/models"
     "$<TARGET_FILE_DIR:lg_duel_client>/assets/models"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
+    "$<TARGET_FILE_DIR:lg_duel_client>/assets/fonts"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/textures"
     "$<TARGET_FILE_DIR:lg_duel_client>/textures"

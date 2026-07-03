@@ -10,7 +10,26 @@ struct SupplementalGlyph {
   GlyphRows rows = {};
 };
 
-constexpr std::array<SupplementalGlyph, 6> kSupplementalGlyphs = {{
+constexpr GlyphRows kInfinityGlyph = {
+  0x00,
+  0x00,
+  0x36,
+  0x49,
+  0x49,
+  0x36,
+  0x00,
+  0x00,
+};
+
+constexpr std::array<SupplementalGlyph, 8> kSupplementalGlyphs = {{
+  {
+    0x007FU, // Atlas slot for U+221E infinity
+    kInfinityGlyph,
+  },
+  {
+    0x221EU, // U+221E infinity
+    kInfinityGlyph,
+  },
   {
     0x00C5U, // U+00C5 Latin capital letter A with ring above
     {0x18, 0x24, 0x18, 0x24, 0x42, 0x7E, 0x42, 0x42},
@@ -74,6 +93,14 @@ BitmapGlyphLookup bitmapGlyphAt(std::string_view text, std::size_t offset) {
     default:
       return fallbackGlyph(1U);
     }
+  }
+
+  if (
+    first == 0xE2U && offset + 2U < text.size() &&
+    static_cast<unsigned char>(text[offset + 1U]) == 0x88U &&
+    static_cast<unsigned char>(text[offset + 2U]) == 0x9EU
+  ) {
+    return {0x221EU, 3U, true, false};
   }
 
   return fallbackGlyph(1U);

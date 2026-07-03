@@ -14,7 +14,10 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
-  console.registerCvar({"cl_health_size", "Bottom-center health text scale.", 2.0F, archivedClient, 0.5F, 6.0F});
+  console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
+  console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_speed_size", "Crosshair speed text scale.", 1.5F, archivedClient, 0.5F, 6.0F});
+  console.registerCvar({"r_ui_font", "UI TTF/OTF font file. Looks in assets/fonts, assets/font, or accepts an absolute local path.", std::string{"bahnschrift.ttf"}, archivedClient, {}, {}});
   console.registerCvar({"cl_showfps", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"r_perf", "Show client performance diagnostics on the HUD.", false, archivedClient, {}, {}});
@@ -78,6 +81,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
   console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_texture_filter", "World texture filtering: 0 nearest, 1 bilinear with mipmaps, 2 trilinear with mipmaps.", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_texture_anisotropy", "World texture anisotropic filtering level; clamped to 1, 2, 4, 8, or 16.", 8, archivedClient, 1.0F, 16.0F});
+  console.registerCvar({"r_texture_lod_bias", "World texture mip LOD bias; positive values choose blurrier, more stable mip levels.", 0.5F, archivedClient, -2.0F, 4.0F});
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_player_outlines", "Draw player outlines.", true, archivedClient, {}, {}});

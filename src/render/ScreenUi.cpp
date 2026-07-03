@@ -16,6 +16,38 @@ namespace {
 
 constexpr float kGlyphSize = 8.0F;
 
+[[nodiscard]] float snappedTextScale(float scale) {
+  constexpr std::array<float, 10> pixelHeights = {
+    8.0F,
+    12.0F,
+    16.0F,
+    24.0F,
+    32.0F,
+    48.0F,
+    64.0F,
+    96.0F,
+    128.0F,
+    160.0F,
+  };
+  const float targetHeight = kGlyphSize * std::max(0.1F, scale);
+  float nearest = pixelHeights.front();
+  float nearestDistance = std::abs(targetHeight - nearest);
+  for (const float pixelHeight : pixelHeights) {
+    const float distance = std::abs(targetHeight - pixelHeight);
+    if (distance < nearestDistance) {
+      nearest = pixelHeight;
+      nearestDistance = distance;
+    }
+  }
+  return nearest / kGlyphSize;
+}
+
+[[nodiscard]] float textWidth(std::string_view text, float scale) {
+  return static_cast<float>(utf8GlyphCount(text)) *
+    kGlyphSize *
+    snappedTextScale(scale);
+}
+
 [[nodiscard]] float countdownGlyphOffsetX(
   const std::string& text,
   float scale
@@ -62,13 +94,15 @@ void addText(
   float y,
   std::string text,
   RenderColor color,
-  float scale
+  float scale,
+  TextHorizontalAlignment horizontalAlignment = TextHorizontalAlignment::Left
 ) {
   drawList.overlayCommands.emplace_back(Text2D{
     {x, y},
     std::move(text),
     color,
     scale,
+    horizontalAlignment,
   });
 }
 
@@ -85,6 +119,34 @@ void addText(
       255.0F
     )
   );
+}
+
+[[nodiscard]] RenderColor lerpColor(
+  RenderColor a,
+  RenderColor b,
+  float amount
+) {
+  const float t = std::clamp(amount, 0.0F, 1.0F);
+  return {
+    blendChannel(a.red, b.red, t),
+    blendChannel(a.green, b.green, t),
+    blendChannel(a.blue, b.blue, t),
+    blendChannel(a.alpha, b.alpha, t),
+  };
+}
+
+[[nodiscard]] RenderColor localHealthFillColor(float healthRatio) {
+  constexpr RenderColor red = {220, 38, 38, 255};
+  constexpr RenderColor yellow = {228, 206, 42, 255};
+  constexpr RenderColor green = {64, 214, 34, 255};
+  const float ratio = std::clamp(healthRatio, 0.0F, 1.0F);
+  if (ratio >= 0.75F) {
+    return green;
+  }
+  if (ratio >= 0.5F) {
+    return lerpColor(yellow, green, (ratio - 0.5F) / 0.25F);
+  }
+  return lerpColor(red, yellow, ratio / 0.5F);
 }
 
 void addOutline(
@@ -111,6 +173,190 @@ void addOutline(
     1.0F
   );
   addLine(drawList, {x, y + height}, {x, y}, color, 1.0F);
+}
+
+void addLocalHealthBar(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PlayerState& localPlayer,
+  const HudRenderState& hud,
+  const RenderSettings& settings,
+  float bottomY
+) {
+  (void)height;
+  const float scale = std::clamp(settings.healthTextScale, 0.5F, 20.0F);
+  const float labelScale = std::max(0.75F, scale * 0.72F);
+  const std::string value =
+    std::to_string(std::max(0, localPlayer.health)) + " / " +
+    std::to_string(std::max(1, hud.healthAmount));
+  const float valueWidth = textWidth(value, labelScale);
+  const float barWidth = std::min(
+    static_cast<float>(width) - 24.0F,
+    std::max(60.0F * scale, valueWidth + 8.0F * scale)
+  );
+  const float barHeight = 13.0F * scale;
+  const float border = std::max(1.0F, std::round(1.0F * scale));
+  const float padding = std::max(2.0F, std::round(2.0F * scale));
+  const float labelHeight = kGlyphSize * labelScale;
+  const float labelGap = std::max(4.0F, 3.0F * scale);
+  const float totalHeight = labelHeight + labelGap + barHeight + border * 2.0F;
+  const float x = std::min(
+    24.0F * scale,
+    std::max(12.0F, static_cast<float>(width) - barWidth - 12.0F)
+  );
+  const float y = bottomY - totalHeight;
+  const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
+  const float healthRatio =
+    std::clamp(static_cast<float>(localPlayer.health) / maxHealth, 0.0F, 1.0F);
+  addText(drawList, x, y, "HP", {240, 246, 252, 255}, labelScale);
+  addText(
+    drawList,
+    x + barWidth - valueWidth,
+    y,
+    value,
+    {240, 246, 252, 255},
+    labelScale
+  );
+  const float barY = y + labelHeight + labelGap + border;
+  addRect(
+    drawList,
+    x - border,
+    barY - border,
+    barWidth + border * 2.0F,
+    barHeight + border * 2.0F,
+    {5, 16, 9, 210}
+  );
+  addOutline(
+    drawList,
+    x - border,
+    barY - border,
+    barWidth + border * 2.0F,
+    barHeight + border * 2.0F,
+    {69, 226, 42, 255}
+  );
+  addRect(drawList, x, barY, barWidth, barHeight, {7, 10, 8, 210});
+  addRect(
+    drawList,
+    x + padding,
+    barY + padding,
+    std::max(0.0F, (barWidth - padding * 2.0F) * healthRatio),
+    std::max(0.0F, barHeight - padding * 2.0F),
+    localHealthFillColor(healthRatio)
+  );
+}
+
+void addLocalHealthNumber(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PlayerState& localPlayer,
+  const HudRenderState& hud,
+  const RenderSettings& settings
+) {
+  const float scale = std::clamp(settings.healthTextScale, 0.5F, 20.0F);
+  const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
+  const float healthRatio =
+    std::clamp(static_cast<float>(localPlayer.health) / maxHealth, 0.0F, 1.0F);
+  const std::string text = std::to_string(std::max(0, localPlayer.health));
+  const float x = static_cast<float>(width) * 0.5F;
+  const float y =
+    static_cast<float>(height) - 24.0F - kGlyphSize * snappedTextScale(scale);
+  addText(
+    drawList,
+    x,
+    y,
+    text,
+    localHealthFillColor(healthRatio),
+    scale,
+    TextHorizontalAlignment::Center
+  );
+}
+
+[[nodiscard]] RenderColor quakeLiveWeaponColor(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun:
+    return {255, 232, 92, 255};
+  case Weapon::Shotgun:
+    return {255, 150, 64, 255};
+  case Weapon::GrenadeLauncher:
+    return {80, 224, 96, 255};
+  case Weapon::RocketLauncher:
+    return {255, 72, 54, 255};
+  case Weapon::LightningGun:
+    return {74, 166, 255, 255};
+  case Weapon::Railgun:
+    return {208, 94, 255, 255};
+  case Weapon::PlasmaGun:
+    return {92, 220, 255, 255};
+  }
+  return {230, 238, 246, 255};
+}
+
+void addCrosshairHealthAndAmmo(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PlayerState& localPlayer,
+  const HudRenderState& hud,
+  const RenderSettings& settings
+) {
+  const float scale = std::clamp(settings.healthTextScale, 0.5F, 20.0F);
+  const float maxHealth = std::max(1.0F, static_cast<float>(hud.healthAmount));
+  const float healthRatio =
+    std::clamp(static_cast<float>(localPlayer.health) / maxHealth, 0.0F, 1.0F);
+  const std::string healthText = std::to_string(std::max(0, localPlayer.health));
+  const std::string ammoText = "\xE2\x88\x9E";
+  const float centerX = static_cast<float>(width) * 0.5F;
+  const float centerY = static_cast<float>(height) * 0.5F;
+  const float y = centerY + std::max(22.0F, settings.crosshairGap + settings.crosshairSize + 10.0F);
+  const float sideOffset = 46.0F * scale;
+  const float healthWidth = textWidth(healthText, scale);
+
+  addText(
+    drawList,
+    centerX - sideOffset - healthWidth,
+    y,
+    healthText,
+    localHealthFillColor(healthRatio),
+    scale
+  );
+  addText(
+    drawList,
+    centerX + sideOffset,
+    y,
+    ammoText,
+    quakeLiveWeaponColor(hud.selectedWeapon),
+    scale
+  );
+}
+
+void addSpeedText(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const HudRenderState& hud,
+  const RenderSettings& settings
+) {
+  if (hud.speedText.empty()) {
+    return;
+  }
+
+  const float scale = std::clamp(settings.speedTextScale, 0.5F, 6.0F);
+  const float snappedScale = snappedTextScale(scale);
+  const float widthPixels = textWidth(hud.speedText, scale);
+  const float x = std::max(
+    12.0F,
+    (static_cast<float>(width) - widthPixels) * 0.5F
+  );
+  const float crosshairReach = settings.crosshairEnabled
+    ? settings.crosshairGap + settings.crosshairSize
+    : 0.0F;
+  const float y =
+    static_cast<float>(height) * 0.5F +
+    std::max(24.0F, crosshairReach + 14.0F) +
+    snappedScale * 2.0F;
+  addText(drawList, x, y, hud.speedText, {230, 238, 246, 225}, scale);
 }
 
 [[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
@@ -832,6 +1078,7 @@ void addHud(
   DrawList2D& drawList,
   int width,
   int height,
+  const PlayerState& localPlayer,
   const HudRenderState& hud,
   const RenderSettings& settings
 ) {
@@ -934,12 +1181,15 @@ void addHud(
     static_cast<float>(hud.centerLines.size()) * 11.0F +
     hud.centerOffsetY;
   for (const std::string& line : hud.centerLines) {
-    const float x = std::max(
-      12.0F,
-      (static_cast<float>(width) -
-       static_cast<float>(line.size()) * characterWidth) * 0.5F
+    addText(
+      drawList,
+      static_cast<float>(width) * 0.5F,
+      y,
+      line,
+      defaultText,
+      textScale,
+      TextHorizontalAlignment::Center
     );
-    addText(drawList, x, y, line, defaultText, textScale);
     y += 22.0F;
   }
 
@@ -983,11 +1233,48 @@ void addHud(
     );
   }
 
+  const float bottomY = static_cast<float>(height) - 24.0F;
+  if (settings.healthStyle == 2) {
+    addCrosshairHealthAndAmmo(
+      drawList,
+      width,
+      height,
+      localPlayer,
+      hud,
+      settings
+    );
+  } else if (settings.healthStyle == 1) {
+    addLocalHealthNumber(drawList, width, height, localPlayer, hud, settings);
+  } else {
+    addLocalHealthBar(
+      drawList,
+      width,
+      height,
+      localPlayer,
+      hud,
+      settings,
+      bottomY
+    );
+  }
+
+  std::vector<std::string> bottomLines;
+  for (const std::string& line : hud.bottomCenterLines) {
+    if (line.rfind("HEALTH ", 0) == 0) {
+      continue;
+    }
+    bottomLines.push_back(line);
+  }
   const float healthCharacterWidth = kGlyphSize * settings.healthTextScale;
   const float healthLineHeight = 11.0F * settings.healthTextScale;
-  y = static_cast<float>(height) - 24.0F -
-    static_cast<float>(hud.bottomCenterLines.size()) * healthLineHeight;
-  for (const std::string& line : hud.bottomCenterLines) {
+  const float healthScale = std::clamp(settings.healthTextScale, 0.5F, 20.0F);
+  y = bottomY -
+    kGlyphSize * std::max(0.75F, healthScale * 0.72F) -
+    std::max(4.0F, 3.0F * healthScale) -
+    13.0F * healthScale -
+    std::max(1.0F, std::round(1.0F * healthScale)) * 2.0F -
+    static_cast<float>(bottomLines.size()) * healthLineHeight -
+    8.0F * healthScale;
+  for (const std::string& line : bottomLines) {
     const float x = std::max(
       12.0F,
       (static_cast<float>(width) -
@@ -1749,7 +2036,7 @@ DrawList2D buildPerspectiveWeaponOverlay(
 DrawList2D buildScreenUi(
   int outputWidth,
   int outputHeight,
-  const PlayerState& opponent,
+  const PlayerState& localPlayer,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console
@@ -1761,11 +2048,11 @@ DrawList2D buildScreenUi(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
-  (void)opponent;
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addDamageNumbers(drawList, outputWidth, outputHeight, settings, hud);
-  addHud(drawList, outputWidth, outputHeight, hud, settings);
+  addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
+  addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
   addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);

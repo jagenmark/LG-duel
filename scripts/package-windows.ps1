@@ -242,6 +242,10 @@ if (-not (Test-Path $modelSource)) {
   throw "The runtime model directory was not found beside lg_duel_client.exe."
 }
 Copy-Item $modelSource (Join-Path $outputPath "assets/models") -Recurse
+$fontSource = Join-Path (Split-Path -Parent $client) "assets/fonts"
+if (Test-Path $fontSource) {
+  Copy-Item $fontSource (Join-Path $outputPath "assets/fonts") -Recurse
+}
 Copy-Item $sdl.FullName (Join-Path $outputPath "SDL3.dll")
 Copy-Item $sdlLicense.FullName (Join-Path $outputPath "SDL3-LICENSE.txt")
 Copy-Item (Join-Path $repoRoot "config") (Join-Path $outputPath "config") -Recurse
@@ -280,6 +284,7 @@ $requiredFiles = @(
   "config/default_client.cfg",
   "config/sound_mixer.cfg",
   "config/README.md",
+  "assets/fonts/bahnschrift.ttf",
   "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb",
   "maps/eyetoeye.map",
   "textures/License.txt",
@@ -292,6 +297,12 @@ foreach ($file in $requiredFiles) {
   if (-not (Test-Path (Join-Path $outputPath $file))) {
     throw "Package validation failed: $file is missing."
   }
+}
+
+$requiredFontFiles = Get-ChildItem -Path (Join-Path $outputPath "assets/fonts") -File |
+  Where-Object { $_.Extension -in ".ttf", ".otf", ".TTF", ".OTF" }
+if ($requiredFontFiles.Count -eq 0) {
+  throw "Package validation failed: no runtime UI font files were found."
 }
 
 $requiredMapFiles = Get-ChildItem -Path $mapSource -File |

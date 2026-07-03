@@ -1,4 +1,5 @@
 #include "render/Renderer.hpp"
+#include "app/TextInput.hpp"
 #include "render/BitmapFont.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/Scene3D.hpp"
@@ -8,6 +9,8 @@
 #if LG_DUEL_HAS_SDL3
 #include <SDL3/SDL.h>
 #include "render/BitmapFontData.hpp"
+#define STB_TRUETYPE_IMPLEMENTATION
+#include "stb_truetype.h"
 #endif
 
 #include <algorithm>
@@ -18,12 +21,15 @@
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace lg {
@@ -127,10 +133,59 @@ struct GpuVertex {
   float v = 0.0F;
 };
 
-constexpr Uint32 kFontAtlasWidth = 128;
-constexpr Uint32 kFontAtlasHeight = 128;
+constexpr Uint32 kFontAtlasWidth = 2048;
+constexpr Uint32 kFontAtlasHeight = 2048;
+constexpr float kBitmapGlyphSize = 8.0F;
+constexpr std::array<float, 10> kUiFontPixelHeights = {
+  8.0F,
+  12.0F,
+  16.0F,
+  24.0F,
+  32.0F,
+  48.0F,
+  64.0F,
+  96.0F,
+  128.0F,
+  160.0F,
+};
+constexpr std::size_t kDefaultUiFontPixelHeightIndex = 2U;
 constexpr float kSolidTextureU = 4.0F / static_cast<float>(kFontAtlasWidth);
 constexpr float kSolidTextureV = 4.0F / static_cast<float>(kFontAtlasHeight);
+
+struct FontGlyph {
+  float u0 = kSolidTextureU;
+  float v0 = kSolidTextureV;
+  float u1 = kSolidTextureU;
+  float v1 = kSolidTextureV;
+  float xOffset = 0.0F;
+  float yOffset = 0.0F;
+  float width = 0.0F;
+  float height = 0.0F;
+  float advance = kBitmapGlyphSize;
+  bool drawable = false;
+};
+
+struct FontAtlas {
+  SDL_GPUTexture* texture = nullptr;
+  std::unordered_map<std::uint32_t, FontGlyph> glyphs;
+  std::string requestedFont;
+  std::string loadedFont;
+  float lineHeight = kBitmapGlyphSize;
+  float baseScaleDenominator = kBitmapGlyphSize;
+  float nominalPixelHeight = kBitmapGlyphSize;
+  bool truetype = false;
+};
+
+struct FontAtlasSet {
+  std::string requestedFont;
+  std::array<FontAtlas*, kUiFontPixelHeights.size()> atlases = {};
+};
+
+struct OverlayDrawBatch {
+  FontAtlas* fontAtlas = nullptr;
+  Uint32 firstVertex = 0;
+  Uint32 vertexCount = 0;
+};
 
 struct TextureAtlasEntry {
   float u0 = kSolidTextureU;
@@ -155,10 +210,37 @@ struct TextureMaterialFile {
   std::array<std::string, 2> aliases = {};
 };
 
+[[nodiscard]] std::size_t nearestUiFontPixelHeightIndex(float scale) {
+  const float targetHeight = kBitmapGlyphSize * std::max(0.1F, scale);
+  std::size_t nearestIndex = 0U;
+  float nearestDistance = std::abs(targetHeight - kUiFontPixelHeights[0]);
+  for (std::size_t index = 1U; index < kUiFontPixelHeights.size(); ++index) {
+    const float distance = std::abs(targetHeight - kUiFontPixelHeights[index]);
+    if (distance < nearestDistance) {
+      nearestIndex = index;
+      nearestDistance = distance;
+    }
+  }
+  return nearestIndex;
+}
+
+[[nodiscard]] FontAtlas* fontAtlasForTextScale(
+  FontAtlasSet& fontAtlasSet,
+  float scale
+) {
+  FontAtlas* atlas =
+    fontAtlasSet.atlases[nearestUiFontPixelHeightIndex(scale)];
+  if (atlas != nullptr) {
+    return atlas;
+  }
+  return fontAtlasSet.atlases[kDefaultUiFontPixelHeightIndex];
+}
+
 struct WorldTexture {
   SDL_GPUTexture* texture = nullptr;
   int width = 1;
   int height = 1;
+  std::uint32_t mipLevels = 1;
   std::string material;
   bool fallback = false;
 };
@@ -177,11 +259,16 @@ struct StaticWorldMesh {
   std::vector<StaticWorldBatch> batches;
   std::uint64_t arenaFingerprint = 0;
   std::uint32_t sourceTriangles = 0;
+  std::uint32_t duplicateTrianglesCulled = 0;
   std::uint32_t vertexCount = 0;
   std::uint32_t referencedMaterials = 0;
   std::uint32_t loadedTextures = 0;
   std::uint32_t missingTextures = 0;
   std::uint32_t buildCount = 0;
+  int samplerTextureFilter = -1;
+  int samplerTextureAnisotropy = -1;
+  int samplerAppliedTextureAnisotropy = -1;
+  float samplerTextureLodBias = 999.0F;
   float buildMilliseconds = 0.0F;
 };
 
@@ -441,6 +528,56 @@ void destroyGpuGltfPlayerResources(
   return path != nullptr ? path : "";
 }
 
+[[nodiscard]] std::string_view gpuTextureFormatName(SDL_GPUTextureFormat format) {
+  switch (format) {
+  case SDL_GPU_TEXTUREFORMAT_D32_FLOAT:
+    return "D32_FLOAT";
+  case SDL_GPU_TEXTUREFORMAT_D24_UNORM:
+    return "D24_UNORM";
+  case SDL_GPU_TEXTUREFORMAT_D16_UNORM:
+    return "D16_UNORM";
+  default:
+    return "unknown";
+  }
+}
+
+[[nodiscard]] std::uint32_t gpuDepthFormatBits(SDL_GPUTextureFormat format) {
+  switch (format) {
+  case SDL_GPU_TEXTUREFORMAT_D32_FLOAT:
+    return 32U;
+  case SDL_GPU_TEXTUREFORMAT_D24_UNORM:
+    return 24U;
+  case SDL_GPU_TEXTUREFORMAT_D16_UNORM:
+    return 16U;
+  default:
+    return 0U;
+  }
+}
+
+[[nodiscard]] SDL_GPUTextureFormat chooseDepthStencilFormat(SDL_GPUDevice* device) {
+  constexpr std::array<SDL_GPUTextureFormat, 3> kCandidates = {{
+    SDL_GPU_TEXTUREFORMAT_D32_FLOAT,
+    SDL_GPU_TEXTUREFORMAT_D24_UNORM,
+    SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+  }};
+  for (SDL_GPUTextureFormat format : kCandidates) {
+    if (SDL_GPUTextureSupportsFormat(
+          device,
+          format,
+          SDL_GPU_TEXTURETYPE_2D,
+          SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET
+        )) {
+      std::cerr
+        << "SDL_GPU depth format="
+        << gpuTextureFormatName(format)
+        << '\n';
+      return format;
+    }
+  }
+  std::cerr << "SDL_GPU no queried depth format supported; falling back to D16_UNORM\n";
+  return SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+}
+
 [[nodiscard]] std::string normalizedMaterialPath(std::string material) {
   std::replace(material.begin(), material.end(), '\\', '/');
   while (!material.empty() && material.front() == '/') {
@@ -457,6 +594,184 @@ void destroyGpuGltfPlayerResources(
 [[nodiscard]] bool textureDebugCheckerEnabled() {
   const char* value = std::getenv("LG_DUEL_TEXTURE_DEBUG_UV");
   return value != nullptr && std::string_view(value) == "checker";
+}
+
+[[nodiscard]] std::uint32_t textureMipLevelCount(int width, int height) {
+  int size = std::max(width, height);
+  if (size <= 0) {
+    return 1U;
+  }
+  std::uint32_t levels = 1U;
+  while (size > 1) {
+    size /= 2;
+    ++levels;
+  }
+  return levels;
+}
+
+[[nodiscard]] int normalizedTextureFilter(int filter) {
+  return std::clamp(filter, 0, 2);
+}
+
+[[nodiscard]] int normalizedTextureAnisotropy(int anisotropy) {
+  if (anisotropy <= 1) {
+    return 1;
+  }
+  if (anisotropy <= 2) {
+    return 2;
+  }
+  if (anisotropy <= 4) {
+    return 4;
+  }
+  if (anisotropy <= 8) {
+    return 8;
+  }
+  return 16;
+}
+
+[[nodiscard]] float normalizedTextureLodBias(float lodBias) {
+  return std::clamp(lodBias, -2.0F, 4.0F);
+}
+
+[[nodiscard]] std::string_view textureFilterName(int filter) {
+  switch (normalizedTextureFilter(filter)) {
+  case 0:
+    return "nearest";
+  case 1:
+    return "bilinear+mips";
+  default:
+    return "trilinear+mips";
+  }
+}
+
+[[nodiscard]] std::int64_t quantizeStaticWorldFloat(float value) {
+  return static_cast<std::int64_t>(std::llround(value * 10000.0F));
+}
+
+struct StaticWorldVertexKey {
+  std::int64_t x = 0;
+  std::int64_t y = 0;
+  std::int64_t z = 0;
+  std::int64_t u = 0;
+  std::int64_t v = 0;
+  std::uint32_t materialId = 0;
+};
+
+[[nodiscard]] bool operator==(const StaticWorldVertexKey& lhs, const StaticWorldVertexKey& rhs) {
+  return lhs.x == rhs.x &&
+    lhs.y == rhs.y &&
+    lhs.z == rhs.z &&
+    lhs.u == rhs.u &&
+    lhs.v == rhs.v &&
+    lhs.materialId == rhs.materialId;
+}
+
+[[nodiscard]] bool operator<(const StaticWorldVertexKey& lhs, const StaticWorldVertexKey& rhs) {
+  if (lhs.x != rhs.x) {
+    return lhs.x < rhs.x;
+  }
+  if (lhs.y != rhs.y) {
+    return lhs.y < rhs.y;
+  }
+  if (lhs.z != rhs.z) {
+    return lhs.z < rhs.z;
+  }
+  if (lhs.u != rhs.u) {
+    return lhs.u < rhs.u;
+  }
+  if (lhs.v != rhs.v) {
+    return lhs.v < rhs.v;
+  }
+  return lhs.materialId < rhs.materialId;
+}
+
+struct StaticWorldTriangleKey {
+  std::array<StaticWorldVertexKey, 3> vertices = {};
+};
+
+[[nodiscard]] bool operator==(const StaticWorldTriangleKey& lhs, const StaticWorldTriangleKey& rhs) {
+  return lhs.vertices == rhs.vertices;
+}
+
+struct StaticWorldTriangleKeyHash {
+  [[nodiscard]] std::size_t operator()(const StaticWorldTriangleKey& key) const {
+    std::size_t seed = 1469598103934665603ULL;
+    const auto mix = [&seed](std::uint64_t value) {
+      seed ^= value;
+      seed *= 1099511628211ULL;
+    };
+    for (const StaticWorldVertexKey& vertex : key.vertices) {
+      mix(static_cast<std::uint64_t>(vertex.x));
+      mix(static_cast<std::uint64_t>(vertex.y));
+      mix(static_cast<std::uint64_t>(vertex.z));
+      mix(static_cast<std::uint64_t>(vertex.u));
+      mix(static_cast<std::uint64_t>(vertex.v));
+      mix(static_cast<std::uint64_t>(vertex.materialId));
+    }
+    return seed;
+  }
+};
+
+[[nodiscard]] StaticWorldVertexKey staticWorldVertexKey(const Vertex3D& vertex) {
+  return {
+    quantizeStaticWorldFloat(vertex.position.x),
+    quantizeStaticWorldFloat(vertex.position.y),
+    quantizeStaticWorldFloat(vertex.position.z),
+    quantizeStaticWorldFloat(vertex.u),
+    quantizeStaticWorldFloat(vertex.v),
+    vertex.materialId
+  };
+}
+
+[[nodiscard]] StaticWorldTriangleKey staticWorldTriangleKey(
+  const Vertex3D& a,
+  const Vertex3D& b,
+  const Vertex3D& c
+) {
+  StaticWorldTriangleKey key = {{{
+    staticWorldVertexKey(a),
+    staticWorldVertexKey(b),
+    staticWorldVertexKey(c)
+  }}};
+  std::sort(key.vertices.begin(), key.vertices.end());
+  return key;
+}
+
+[[nodiscard]] std::uint32_t cullDuplicateStaticWorldTriangles(Scene3D& scene) {
+  const std::size_t triangleVertexCount = scene.vertices.size() - (scene.vertices.size() % 3U);
+  if (triangleVertexCount < 6U) {
+    return 0;
+  }
+
+  std::unordered_set<StaticWorldTriangleKey, StaticWorldTriangleKeyHash> seen;
+  seen.reserve(triangleVertexCount / 3U);
+  std::vector<Vertex3D> deduplicated;
+  deduplicated.reserve(scene.vertices.size());
+
+  std::uint32_t duplicateTriangles = 0;
+  for (std::size_t index = 0; index + 2U < triangleVertexCount; index += 3U) {
+    const StaticWorldTriangleKey key = staticWorldTriangleKey(
+      scene.vertices[index],
+      scene.vertices[index + 1U],
+      scene.vertices[index + 2U]
+    );
+    if (!seen.insert(key).second) {
+      ++duplicateTriangles;
+      continue;
+    }
+    deduplicated.push_back(scene.vertices[index]);
+    deduplicated.push_back(scene.vertices[index + 1U]);
+    deduplicated.push_back(scene.vertices[index + 2U]);
+  }
+
+  for (std::size_t index = triangleVertexCount; index < scene.vertices.size(); ++index) {
+    deduplicated.push_back(scene.vertices[index]);
+  }
+
+  if (duplicateTriangles > 0U) {
+    scene.vertices = std::move(deduplicated);
+  }
+  return duplicateTriangles;
 }
 
 [[nodiscard]] std::uint32_t forcedTextureMaterialId() {
@@ -583,14 +898,15 @@ void collectTextureMaterialFiles(
   if (width <= 0 || height <= 0) {
     return nullptr;
   }
+  const std::uint32_t mipLevels = textureMipLevelCount(width, height);
   const SDL_GPUTextureCreateInfo textureInfo = {
     SDL_GPU_TEXTURETYPE_2D,
     SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
-    SDL_GPU_TEXTUREUSAGE_SAMPLER,
+    SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
     static_cast<Uint32>(width),
     static_cast<Uint32>(height),
     1,
-    1,
+    mipLevels,
     SDL_GPU_SAMPLECOUNT_1,
     0,
   };
@@ -653,6 +969,9 @@ void collectTextureMaterialFiles(
   };
   SDL_UploadToGPUTexture(copyPass, &source, &destination, false);
   SDL_EndGPUCopyPass(copyPass);
+  if (mipLevels > 1U) {
+    SDL_GenerateMipmapsForGPUTexture(commandBuffer, texture);
+  }
   const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
   SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
   if (!submitted) {
@@ -682,6 +1001,7 @@ void collectTextureMaterialFiles(
     uploadRgbaTexture(device, pixels.data(), kSize, kSize),
     kSize,
     kSize,
+    textureMipLevelCount(kSize, kSize),
     missingMaterial ? "__missing_world_texture" : "__white_world_texture",
     true,
   };
@@ -709,11 +1029,127 @@ void collectTextureMaterialFiles(
     ),
     converted->w,
     converted->h,
+    textureMipLevelCount(converted->w, converted->h),
     material.aliases[0],
     false,
   };
   SDL_DestroySurface(converted);
   return texture;
+}
+
+[[nodiscard]] SDL_GPUSampler* createWorldSampler(
+  SDL_GPUDevice* device,
+  int requestedFilter,
+  int requestedAnisotropy,
+  float requestedLodBias,
+  int& appliedFilter,
+  int& appliedAnisotropy
+) {
+  appliedFilter = normalizedTextureFilter(requestedFilter);
+  const int normalizedAnisotropy =
+    normalizedTextureAnisotropy(requestedAnisotropy);
+  const float normalizedLodBias = normalizedTextureLodBias(requestedLodBias);
+  const bool nearest = appliedFilter == 0;
+  const bool trilinear = appliedFilter == 2;
+  SDL_GPUSamplerCreateInfo samplerInfo = {
+    nearest ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR,
+    nearest ? SDL_GPU_FILTER_NEAREST : SDL_GPU_FILTER_LINEAR,
+    trilinear ? SDL_GPU_SAMPLERMIPMAPMODE_LINEAR : SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
+    nearest ? 0.0F : normalizedLodBias,
+    static_cast<float>(normalizedAnisotropy),
+    SDL_GPU_COMPAREOP_ALWAYS,
+    0.0F,
+    1000.0F,
+    !nearest && normalizedAnisotropy > 1,
+    false,
+    0,
+    0,
+    0,
+  };
+
+  SDL_GPUSampler* sampler = SDL_CreateGPUSampler(device, &samplerInfo);
+  appliedAnisotropy = samplerInfo.enable_anisotropy ? normalizedAnisotropy : 1;
+  if (sampler == nullptr && samplerInfo.enable_anisotropy) {
+    const std::string anisotropyError = SDL_GetError();
+    samplerInfo.enable_anisotropy = false;
+    samplerInfo.max_anisotropy = 1.0F;
+    sampler = SDL_CreateGPUSampler(device, &samplerInfo);
+    appliedAnisotropy = 1;
+    std::cerr
+      << "SDL_GPU world texture anisotropy " << normalizedAnisotropy
+      << " unsupported; disabled anisotropy"
+      << (anisotropyError.empty() ? "" : ": ")
+      << anisotropyError << '\n';
+  }
+  if (sampler != nullptr) {
+    std::cerr
+      << "SDL_GPU world texture sampler filter="
+      << textureFilterName(appliedFilter)
+      << " anisotropy=" << appliedAnisotropy
+      << " lodBias=" << (nearest ? 0.0F : normalizedLodBias)
+      << '\n';
+  }
+  return sampler;
+}
+
+[[nodiscard]] bool updateStaticWorldSampler(
+  SDL_GPUDevice* device,
+  StaticWorldMesh* mesh,
+  const RenderSettings& settings
+) {
+  if (mesh == nullptr) {
+    return false;
+  }
+  const int requestedFilter = normalizedTextureFilter(settings.textureFilter);
+  const int requestedAnisotropy =
+    normalizedTextureAnisotropy(settings.textureAnisotropy);
+  const float requestedLodBias =
+    normalizedTextureLodBias(settings.textureLodBias);
+  if (
+    mesh->sampler != nullptr &&
+    mesh->samplerTextureFilter == requestedFilter &&
+    mesh->samplerTextureAnisotropy == requestedAnisotropy &&
+    mesh->samplerTextureLodBias == requestedLodBias
+  ) {
+    return true;
+  }
+
+  int appliedFilter = requestedFilter;
+  int appliedAnisotropy = requestedAnisotropy;
+  SDL_GPUSampler* sampler = createWorldSampler(
+    device,
+    requestedFilter,
+    requestedAnisotropy,
+    requestedLodBias,
+    appliedFilter,
+    appliedAnisotropy
+  );
+  if (sampler == nullptr) {
+    std::cerr
+      << "SDL_GPU world texture sampler creation failed: "
+      << SDL_GetError()
+      << '\n';
+    return false;
+  }
+  if (mesh->sampler != nullptr) {
+    SDL_ReleaseGPUSampler(device, mesh->sampler);
+  }
+  mesh->sampler = sampler;
+  mesh->samplerTextureFilter = appliedFilter;
+  mesh->samplerTextureAnisotropy = requestedAnisotropy;
+  mesh->samplerAppliedTextureAnisotropy = appliedAnisotropy;
+  mesh->samplerTextureLodBias = requestedLodBias;
+  if (appliedAnisotropy != requestedAnisotropy) {
+    std::cerr
+      << "SDL_GPU world texture anisotropy requested="
+      << requestedAnisotropy
+      << " applied=" << appliedAnisotropy
+      << '\n';
+  }
+  return true;
 }
 
 [[nodiscard]] SDL_GPUShader* loadGpuShader(
@@ -836,6 +1272,7 @@ void collectTextureMaterialFiles(
   SDL_GPUDevice* device,
   SDL_Window* window,
   bool depthWrite,
+  SDL_GPUTextureFormat depthFormat,
   SDL_GPUCompareOp depthCompare = SDL_GPU_COMPAREOP_LESS
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
@@ -919,7 +1356,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = depthWrite;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -930,7 +1367,8 @@ void collectTextureMaterialFiles(
 }
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineMask(
-  SDL_GPUDevice* device
+  SDL_GPUDevice* device,
+  SDL_GPUTextureFormat depthFormat
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -989,7 +1427,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = false;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -1000,7 +1438,8 @@ void collectTextureMaterialFiles(
 }
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineClear(
-  SDL_GPUDevice* device
+  SDL_GPUDevice* device,
+  SDL_GPUTextureFormat depthFormat
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1037,7 +1476,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = true;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -1197,7 +1636,8 @@ void collectTextureMaterialFiles(
   std::string_view vertexShaderName,
   std::string_view fragmentShaderName,
   bool depthWrite,
-  bool additiveBlend
+  bool additiveBlend,
+  SDL_GPUTextureFormat depthFormat
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1320,7 +1760,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = depthWrite;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -1332,7 +1772,8 @@ void collectTextureMaterialFiles(
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuStaticMeshPipeline3D(
   SDL_GPUDevice* device,
-  SDL_Window* window
+  SDL_Window* window,
+  SDL_GPUTextureFormat depthFormat
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1393,7 +1834,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = true;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -1404,7 +1845,8 @@ void collectTextureMaterialFiles(
 }
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuStaticMeshOutlineMaskPipeline(
-  SDL_GPUDevice* device
+  SDL_GPUDevice* device,
+  SDL_GPUTextureFormat depthFormat
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1466,7 +1908,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = false;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -1479,7 +1921,8 @@ void collectTextureMaterialFiles(
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuGltfPlayerModelPipeline(
   SDL_GPUDevice* device,
   SDL_Window* window,
-  bool outlineMask
+  bool outlineMask,
+  SDL_GPUTextureFormat depthFormat
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1554,7 +1997,7 @@ void collectTextureMaterialFiles(
   createInfo.depth_stencil_state.enable_depth_write = !outlineMask;
   createInfo.target_info.color_target_descriptions = &colorTarget;
   createInfo.target_info.num_color_targets = 1;
-  createInfo.target_info.depth_stencil_format = SDL_GPU_TEXTUREFORMAT_D16_UNORM;
+  createInfo.target_info.depth_stencil_format = depthFormat;
   createInfo.target_info.has_depth_stencil_target = true;
 
   SDL_GPUGraphicsPipeline* pipeline =
@@ -1564,17 +2007,171 @@ void collectTextureMaterialFiles(
   return pipeline;
 }
 
-[[nodiscard]] std::array<std::uint8_t, kFontAtlasWidth * kFontAtlasHeight>
-buildFontAtlas() {
-  std::array<std::uint8_t, kFontAtlasWidth * kFontAtlasHeight> pixels = {};
+[[nodiscard]] std::vector<std::uint8_t> readBinaryFile(
+  const std::filesystem::path& path
+) {
+  std::ifstream file(path, std::ios::binary | std::ios::ate);
+  if (!file) {
+    return {};
+  }
+  const std::streamsize size = file.tellg();
+  if (size <= 0) {
+    return {};
+  }
+  file.seekg(0, std::ios::beg);
+  std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+  if (!file.read(reinterpret_cast<char*>(bytes.data()), size)) {
+    return {};
+  }
+  return bytes;
+}
+
+[[nodiscard]] std::vector<std::filesystem::path> fontPathCandidates(
+  std::string_view requestedFont
+) {
+  const std::string requested =
+    requestedFont.empty() ? "bahnschrift.ttf" : std::string(requestedFont);
+  const std::filesystem::path requestedPath{requested};
+  std::vector<std::filesystem::path> candidates;
+  candidates.push_back(requestedPath);
+  if (!requestedPath.is_absolute()) {
+    candidates.push_back(std::filesystem::path{"assets/fonts"} / requestedPath);
+    candidates.push_back(std::filesystem::path{"assets/font"} / requestedPath);
+    candidates.push_back(std::filesystem::path{"C:/Windows/Fonts"} / requestedPath);
+  }
+
+  if (!requestedPath.has_extension()) {
+    for (const char* extension : {".ttf", ".otf", ".TTF", ".OTF"}) {
+      const std::filesystem::path withExtension = requestedPath.string() + extension;
+      candidates.push_back(withExtension);
+      if (!withExtension.is_absolute()) {
+        candidates.push_back(std::filesystem::path{"assets/fonts"} / withExtension);
+        candidates.push_back(std::filesystem::path{"assets/font"} / withExtension);
+        candidates.push_back(std::filesystem::path{"C:/Windows/Fonts"} / withExtension);
+      }
+    }
+  }
+  return candidates;
+}
+
+[[nodiscard]] std::optional<std::filesystem::path> findUiFontPath(
+  std::string_view requestedFont
+) {
+  for (const std::filesystem::path& path : fontPathCandidates(requestedFont)) {
+    std::error_code error;
+    if (std::filesystem::exists(path, error)) {
+      return path;
+    }
+  }
+  return std::nullopt;
+}
+
+void fillSolidFontTexelBlock(std::vector<std::uint8_t>& pixels) {
   for (Uint32 y = 0; y < 8; ++y) {
     for (Uint32 x = 0; x < 8; ++x) {
       pixels[y * kFontAtlasWidth + x] = 255;
     }
   }
+}
+
+void addBitmapGlyph(
+  FontAtlas& atlas,
+  std::uint32_t character,
+  float u0,
+  float v0,
+  float u1,
+  float v1,
+  bool drawable
+) {
+  atlas.glyphs[character] = FontGlyph{
+    u0,
+    v0,
+    u1,
+    v1,
+    0.0F,
+    0.0F,
+    kBitmapGlyphSize,
+    kBitmapGlyphSize,
+    kBitmapGlyphSize,
+    drawable,
+  };
+}
+
+[[nodiscard]] bool placeBitmapGlyphRows(
+  FontAtlas& atlas,
+  std::vector<std::uint8_t>& pixels,
+  std::uint32_t codepoint,
+  std::array<std::uint8_t, 8> rows,
+  int& penX,
+  int& penY,
+  int& rowHeight,
+  int pixelScale,
+  float baseline
+) {
+  const int glyphWidth = 8 * pixelScale;
+  const int glyphHeight = 8 * pixelScale;
+  if (penX + glyphWidth + 2 >= static_cast<int>(kFontAtlasWidth)) {
+    penX = 8;
+    penY += rowHeight + 2;
+    rowHeight = 0;
+  }
+  if (penY + glyphHeight + 2 >= static_cast<int>(kFontAtlasHeight)) {
+    return false;
+  }
+
+  for (int sourceY = 0; sourceY < 8; ++sourceY) {
+    const std::uint8_t bits = rows[static_cast<std::size_t>(sourceY)];
+    for (int sourceX = 0; sourceX < 8; ++sourceX) {
+      const bool set = (bits & (1U << sourceX)) != 0;
+      if (!set) {
+        continue;
+      }
+      for (int y = 0; y < pixelScale; ++y) {
+        for (int x = 0; x < pixelScale; ++x) {
+          pixels[
+            (penY + sourceY * pixelScale + y) * kFontAtlasWidth +
+              penX + sourceX * pixelScale + x
+          ] = 255;
+        }
+      }
+    }
+  }
+
+  const float u0 =
+    static_cast<float>(penX) / static_cast<float>(kFontAtlasWidth);
+  const float v0 =
+    static_cast<float>(penY) / static_cast<float>(kFontAtlasHeight);
+  atlas.glyphs[codepoint] = FontGlyph{
+    u0,
+    v0,
+    static_cast<float>(penX + glyphWidth) /
+      static_cast<float>(kFontAtlasWidth),
+    static_cast<float>(penY + glyphHeight) /
+      static_cast<float>(kFontAtlasHeight),
+    0.0F,
+    baseline - static_cast<float>(glyphHeight),
+    static_cast<float>(glyphWidth),
+    static_cast<float>(glyphHeight),
+    static_cast<float>(glyphWidth),
+    true,
+  };
+  penX += glyphWidth + 2;
+  rowHeight = std::max(rowHeight, glyphHeight);
+  return true;
+}
+
+[[nodiscard]] std::vector<std::uint8_t> buildBitmapFontAtlas(
+  FontAtlas& atlas
+) {
+  std::vector<std::uint8_t> pixels(kFontAtlasWidth * kFontAtlasHeight);
+  fillSolidFontTexelBlock(pixels);
+  atlas.lineHeight = kBitmapGlyphSize;
+  atlas.baseScaleDenominator = kBitmapGlyphSize;
+  atlas.truetype = false;
 
   const std::size_t fontGlyphCount =
     sizeof(SDL_RenderDebugTextFontData) / sizeof(SDL_RenderDebugTextFontData[0]) / 8U;
+  addBitmapGlyph(atlas, ' ', 0.0F, 0.0F, 0.0F, 0.0F, false);
   for (Uint32 character = 33; character < 256; ++character) {
     const std::size_t glyphIndex = static_cast<std::size_t>(character - 33U);
     if (glyphIndex >= fontGlyphCount) {
@@ -1593,8 +2190,22 @@ buildFontAtlas() {
         ] = set ? 255 : 0;
       }
     }
+    const float u0 =
+      static_cast<float>(cellX) / static_cast<float>(kFontAtlasWidth);
+    const float v0 =
+      static_cast<float>(cellY) / static_cast<float>(kFontAtlasHeight);
+    addBitmapGlyph(
+      atlas,
+      character,
+      u0,
+      v0,
+      u0 + kBitmapGlyphSize / static_cast<float>(kFontAtlasWidth),
+      v0 + kBitmapGlyphSize / static_cast<float>(kFontAtlasHeight),
+      true
+    );
   }
   for (const std::uint32_t character : {
+         0x221EU,
          0x00C5U,
          0x00C4U,
          0x00D6U,
@@ -1606,8 +2217,9 @@ buildFontAtlas() {
     if (!glyph.has_value()) {
       continue;
     }
-    const Uint32 cellX = (character % 16U) * 8U;
-    const Uint32 cellY = (character / 16U) * 8U;
+    const std::uint32_t atlasSlot = character == 0x221EU ? 0x007FU : character;
+    const Uint32 cellX = (atlasSlot % 16U) * 8U;
+    const Uint32 cellY = (atlasSlot / 16U) * 8U;
     for (Uint32 y = 0; y < 8; ++y) {
       const std::uint8_t bits = (*glyph)[y];
       for (Uint32 x = 0; x < 8; ++x) {
@@ -1615,11 +2227,234 @@ buildFontAtlas() {
         pixels[(cellY + y) * kFontAtlasWidth + cellX + x] = set ? 255 : 0;
       }
     }
+    const float u0 =
+      static_cast<float>(cellX) / static_cast<float>(kFontAtlasWidth);
+    const float v0 =
+      static_cast<float>(cellY) / static_cast<float>(kFontAtlasHeight);
+    addBitmapGlyph(
+      atlas,
+      character,
+      u0,
+      v0,
+      u0 + kBitmapGlyphSize / static_cast<float>(kFontAtlasWidth),
+      v0 + kBitmapGlyphSize / static_cast<float>(kFontAtlasHeight),
+      true
+    );
   }
   return pixels;
 }
 
-[[nodiscard]] SDL_GPUTexture* createFontTexture(SDL_GPUDevice* device) {
+[[nodiscard]] bool tryBuildTrueTypeFontAtlas(
+  FontAtlas& atlas,
+  std::vector<std::uint8_t>& pixels,
+  std::string_view requestedFont,
+  float pixelHeight
+) {
+  const std::optional<std::filesystem::path> fontPath =
+    findUiFontPath(requestedFont);
+  if (!fontPath.has_value()) {
+    return false;
+  }
+  const std::vector<std::uint8_t> fontBytes = readBinaryFile(*fontPath);
+  if (fontBytes.empty()) {
+    return false;
+  }
+
+  stbtt_fontinfo font = {};
+  if (!stbtt_InitFont(&font, fontBytes.data(), 0)) {
+    return false;
+  }
+
+  pixels.assign(kFontAtlasWidth * kFontAtlasHeight, 0);
+  fillSolidFontTexelBlock(pixels);
+  atlas.glyphs.clear();
+  atlas.loadedFont = fontPath->string();
+  atlas.truetype = true;
+  atlas.baseScaleDenominator = pixelHeight;
+  atlas.nominalPixelHeight = pixelHeight;
+
+  const float fontScale = stbtt_ScaleForPixelHeight(&font, pixelHeight);
+  int ascent = 0;
+  int descent = 0;
+  int lineGap = 0;
+  stbtt_GetFontVMetrics(&font, &ascent, &descent, &lineGap);
+  atlas.lineHeight =
+    static_cast<float>(ascent - descent + lineGap) * fontScale;
+  const float baseline = static_cast<float>(ascent) * fontScale;
+
+  std::vector<std::uint32_t> codepoints;
+  codepoints.push_back(' ');
+  for (std::uint32_t character = 33; character < 127; ++character) {
+    codepoints.push_back(character);
+  }
+  for (std::uint32_t character : {
+         0x00C5U,
+         0x00C4U,
+         0x00D6U,
+         0x00E5U,
+         0x00E4U,
+         0x00F6U,
+         0x221EU,
+       }) {
+    codepoints.push_back(character);
+  }
+
+  int penX = 8;
+  int penY = 8;
+  int rowHeight = 0;
+  for (std::uint32_t codepoint : codepoints) {
+    if (stbtt_FindGlyphIndex(&font, static_cast<int>(codepoint)) == 0) {
+      const auto supplemental = supplementalBitmapGlyph(codepoint);
+      if (
+        supplemental.has_value() &&
+        !placeBitmapGlyphRows(
+          atlas,
+          pixels,
+          codepoint,
+          *supplemental,
+          penX,
+          penY,
+          rowHeight,
+          4,
+          baseline
+        )
+      ) {
+        return false;
+      }
+      continue;
+    }
+
+    int advance = 0;
+    int leftBearing = 0;
+    stbtt_GetCodepointHMetrics(
+      &font,
+      static_cast<int>(codepoint),
+      &advance,
+      &leftBearing
+    );
+
+    if (codepoint == ' ') {
+      atlas.glyphs[codepoint] = FontGlyph{
+        kSolidTextureU,
+        kSolidTextureV,
+        kSolidTextureU,
+        kSolidTextureV,
+        0.0F,
+        0.0F,
+        0.0F,
+        0.0F,
+        std::max(4.0F, static_cast<float>(advance) * fontScale),
+        false,
+      };
+      continue;
+    }
+
+    int x0 = 0;
+    int y0 = 0;
+    int x1 = 0;
+    int y1 = 0;
+    stbtt_GetCodepointBitmapBox(
+      &font,
+      static_cast<int>(codepoint),
+      fontScale,
+      fontScale,
+      &x0,
+      &y0,
+      &x1,
+      &y1
+    );
+    const int glyphWidth = std::max(0, x1 - x0);
+    const int glyphHeight = std::max(0, y1 - y0);
+    if (glyphWidth <= 0 || glyphHeight <= 0) {
+      continue;
+    }
+    if (penX + glyphWidth + 2 >= static_cast<int>(kFontAtlasWidth)) {
+      penX = 8;
+      penY += rowHeight + 2;
+      rowHeight = 0;
+    }
+    if (penY + glyphHeight + 2 >= static_cast<int>(kFontAtlasHeight)) {
+      return false;
+    }
+
+    stbtt_MakeCodepointBitmap(
+      &font,
+      pixels.data() + (penY * kFontAtlasWidth) + penX,
+      glyphWidth,
+      glyphHeight,
+      kFontAtlasWidth,
+      fontScale,
+      fontScale,
+      static_cast<int>(codepoint)
+    );
+
+    const float u0 =
+      static_cast<float>(penX) / static_cast<float>(kFontAtlasWidth);
+    const float v0 =
+      static_cast<float>(penY) / static_cast<float>(kFontAtlasHeight);
+    atlas.glyphs[codepoint] = FontGlyph{
+      u0,
+      v0,
+      static_cast<float>(penX + glyphWidth) /
+        static_cast<float>(kFontAtlasWidth),
+      static_cast<float>(penY + glyphHeight) /
+        static_cast<float>(kFontAtlasHeight),
+      static_cast<float>(x0),
+      baseline + static_cast<float>(y0),
+      static_cast<float>(glyphWidth),
+      static_cast<float>(glyphHeight),
+      std::max(1.0F, static_cast<float>(advance) * fontScale),
+      true,
+    };
+    penX += glyphWidth + 2;
+    rowHeight = std::max(rowHeight, glyphHeight);
+  }
+
+  return atlas.glyphs.find('?') != atlas.glyphs.end();
+}
+
+[[nodiscard]] std::uint32_t fontAtlasCodepointAt(
+  std::string_view text,
+  std::size_t offset,
+  std::size_t& byteLength
+) {
+  const BitmapGlyphLookup bitmapGlyph = bitmapGlyphAt(text, offset);
+  byteLength = std::max<std::size_t>(1U, bitmapGlyph.byteLength);
+  if (
+    offset + 2U < text.size() &&
+    static_cast<unsigned char>(text[offset]) == 0xE2U &&
+    static_cast<unsigned char>(text[offset + 1U]) == 0x88U &&
+    static_cast<unsigned char>(text[offset + 2U]) == 0x9EU
+  ) {
+    return 0x221EU;
+  }
+  return bitmapGlyph.atlasCodepoint;
+}
+
+[[nodiscard]] FontAtlas* createFontAtlas(
+  SDL_GPUDevice* device,
+  std::string_view requestedFont,
+  float pixelHeight
+) {
+  auto* atlas = new FontAtlas();
+  atlas->requestedFont =
+    requestedFont.empty() ? "bahnschrift.ttf" : std::string(requestedFont);
+  atlas->nominalPixelHeight = pixelHeight;
+  std::vector<std::uint8_t> pixels;
+  if (
+    !tryBuildTrueTypeFontAtlas(
+      *atlas,
+      pixels,
+      atlas->requestedFont,
+      pixelHeight
+    )
+  ) {
+    atlas->glyphs.clear();
+    pixels = buildBitmapFontAtlas(*atlas);
+    atlas->loadedFont = "bitmap fallback";
+    atlas->nominalPixelHeight = pixelHeight;
+  }
+
   const SDL_GPUTextureCreateInfo textureInfo = {
     SDL_GPU_TEXTURETYPE_2D,
     SDL_GPU_TEXTUREFORMAT_R8_UNORM,
@@ -1633,6 +2468,7 @@ buildFontAtlas() {
   };
   SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &textureInfo);
   if (texture == nullptr) {
+    delete atlas;
     return nullptr;
   }
 
@@ -1645,6 +2481,7 @@ buildFontAtlas() {
     SDL_CreateGPUTransferBuffer(device, &transferInfo);
   if (transfer == nullptr) {
     SDL_ReleaseGPUTexture(device, texture);
+    delete atlas;
     return nullptr;
   }
 
@@ -1652,9 +2489,9 @@ buildFontAtlas() {
   if (mapped == nullptr) {
     SDL_ReleaseGPUTransferBuffer(device, transfer);
     SDL_ReleaseGPUTexture(device, texture);
+    delete atlas;
     return nullptr;
   }
-  const auto pixels = buildFontAtlas();
   std::memcpy(mapped, pixels.data(), pixels.size());
   SDL_UnmapGPUTransferBuffer(device, transfer);
 
@@ -1669,6 +2506,7 @@ buildFontAtlas() {
     }
     SDL_ReleaseGPUTransferBuffer(device, transfer);
     SDL_ReleaseGPUTexture(device, texture);
+    delete atlas;
     return nullptr;
   }
 
@@ -1695,9 +2533,53 @@ buildFontAtlas() {
   SDL_ReleaseGPUTransferBuffer(device, transfer);
   if (!submitted) {
     SDL_ReleaseGPUTexture(device, texture);
+    delete atlas;
     return nullptr;
   }
-  return texture;
+  atlas->texture = texture;
+  return atlas;
+}
+
+void destroyFontAtlas(SDL_GPUDevice* device, FontAtlas* atlas) {
+  if (atlas == nullptr) {
+    return;
+  }
+  if (atlas->texture != nullptr) {
+    SDL_ReleaseGPUTexture(device, atlas->texture);
+  }
+  delete atlas;
+}
+
+void destroyFontAtlasSet(SDL_GPUDevice* device, FontAtlasSet* fontAtlasSet) {
+  if (fontAtlasSet == nullptr) {
+    return;
+  }
+  for (FontAtlas*& atlas : fontAtlasSet->atlases) {
+    destroyFontAtlas(device, atlas);
+    atlas = nullptr;
+  }
+  delete fontAtlasSet;
+}
+
+[[nodiscard]] FontAtlasSet* createFontAtlasSet(
+  SDL_GPUDevice* device,
+  std::string_view requestedFont
+) {
+  auto* fontAtlasSet = new FontAtlasSet();
+  fontAtlasSet->requestedFont =
+    requestedFont.empty() ? "bahnschrift.ttf" : std::string(requestedFont);
+  for (std::size_t index = 0; index < kUiFontPixelHeights.size(); ++index) {
+    fontAtlasSet->atlases[index] = createFontAtlas(
+      device,
+      fontAtlasSet->requestedFont,
+      kUiFontPixelHeights[index]
+    );
+    if (fontAtlasSet->atlases[index] == nullptr) {
+      destroyFontAtlasSet(device, fontAtlasSet);
+      return nullptr;
+    }
+  }
+  return fontAtlasSet;
 }
 
 [[nodiscard]] GpuVertex gpuVertex(
@@ -2005,14 +2887,28 @@ void appendScene3D(
 
 [[nodiscard]] StaticWorldMesh* buildStaticWorldMesh(
   SDL_GPUDevice* device,
-  const Arena& arena
+  const Arena& arena,
+  const RenderSettings& settings
 ) {
   const auto buildStart = RenderClock::now();
   Scene3D worldScene = buildStaticWorldScene(arena);
+  const std::uint32_t sourceTriangles =
+    static_cast<std::uint32_t>(worldScene.vertices.size() / 3U);
+  const std::uint32_t duplicateTrianglesCulled =
+    cullDuplicateStaticWorldTriangles(worldScene);
   auto mesh = new StaticWorldMesh();
   mesh->arenaFingerprint = arenaStaticWorldFingerprint(arena);
-  mesh->sourceTriangles = static_cast<std::uint32_t>(worldScene.vertices.size() / 3U);
+  mesh->sourceTriangles = sourceTriangles;
+  mesh->duplicateTrianglesCulled = duplicateTrianglesCulled;
   mesh->vertexCount = static_cast<std::uint32_t>(worldScene.vertices.size());
+  if (duplicateTrianglesCulled > 0U) {
+    std::cerr
+      << "SDL_GPU static world duplicate triangles culled="
+      << duplicateTrianglesCulled
+      << " sourceTriangles=" << sourceTriangles
+      << " renderedTriangles=" << (sourceTriangles - duplicateTrianglesCulled)
+      << '\n';
+  }
 
   const std::vector<std::uint32_t> referenced =
     referencedWorldMaterials(worldScene.vertices);
@@ -2053,12 +2949,12 @@ void appendScene3D(
     WorldTexture* stored = &mesh->textures.back();
     textureByMaterial[materialId] = stored;
     ++mesh->loadedTextures;
-    if (textureDebugEnabled()) {
-      std::cerr
-        << "LG_DUEL_TEXTURE_PIPELINE_V2 world texture material="
-        << stored->material
-        << " source=" << stored->width << 'x' << stored->height << '\n';
-    }
+    std::cerr
+      << "SDL_GPU world texture material="
+      << stored->material
+      << " size=" << stored->width << 'x' << stored->height
+      << " mipLevels=" << stored->mipLevels
+      << " mipmaps=generated\n";
   }
 
   std::vector<GpuVertex> gpuVertices;
@@ -2092,25 +2988,10 @@ void appendScene3D(
     appendBatch(materialId, texture);
   }
 
-  const SDL_GPUSamplerCreateInfo samplerInfo = {
-    SDL_GPU_FILTER_NEAREST,
-    SDL_GPU_FILTER_NEAREST,
-    SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
-    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
-    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
-    SDL_GPU_SAMPLERADDRESSMODE_REPEAT,
-    0.0F,
-    1.0F,
-    SDL_GPU_COMPAREOP_ALWAYS,
-    0.0F,
-    0.0F,
-    false,
-    false,
-    0,
-    0,
-    0,
-  };
-  mesh->sampler = SDL_CreateGPUSampler(device, &samplerInfo);
+  if (!updateStaticWorldSampler(device, mesh, settings)) {
+    destroyStaticWorldMesh(device, mesh);
+    return nullptr;
+  }
   const Uint32 uploadSize =
     static_cast<Uint32>(gpuVertices.size() * sizeof(GpuVertex));
   const SDL_GPUBufferCreateInfo vertexBufferInfo = {
@@ -2119,7 +3000,7 @@ void appendScene3D(
     0,
   };
   mesh->vertexBuffer = SDL_CreateGPUBuffer(device, &vertexBufferInfo);
-  if (mesh->sampler == nullptr || mesh->vertexBuffer == nullptr) {
+  if (mesh->vertexBuffer == nullptr) {
     destroyStaticWorldMesh(device, mesh);
     return nullptr;
   }
@@ -2175,11 +3056,15 @@ void appendScene3D(
       << " walls=" << arena.wallCount
       << " brushes=" << arena.brushCount
       << " sourceTriangles=" << mesh->sourceTriangles
+      << " duplicateTrianglesCulled=" << mesh->duplicateTrianglesCulled
       << " staticVertices=" << mesh->vertexCount
       << " staticBatches=" << mesh->batches.size()
       << " referencedMaterials=" << mesh->referencedMaterials
       << " loadedTextures=" << mesh->loadedTextures
       << " missingTextures=" << mesh->missingTextures
+      << " filter=" << textureFilterName(mesh->samplerTextureFilter)
+      << " anisotropy=" << mesh->samplerAppliedTextureAnisotropy
+      << " lodBias=" << mesh->samplerTextureLodBias
       << " buildMs=" << mesh->buildMilliseconds
       << '\n';
   }
@@ -2189,14 +3074,16 @@ void appendScene3D(
 [[nodiscard]] StaticWorldMesh* ensureStaticWorldMesh(
   SDL_GPUDevice* device,
   StaticWorldMesh*& mesh,
-  const Arena& arena
+  const Arena& arena,
+  const RenderSettings& settings
 ) {
   const std::uint64_t fingerprint = arenaStaticWorldFingerprint(arena);
   if (mesh != nullptr && mesh->arenaFingerprint == fingerprint) {
+    (void)updateStaticWorldSampler(device, mesh, settings);
     return mesh;
   }
   destroyStaticWorldMesh(device, mesh);
-  mesh = buildStaticWorldMesh(device, arena);
+  mesh = buildStaticWorldMesh(device, arena, settings);
   return mesh;
 }
 
@@ -3208,7 +4095,8 @@ void copyGltfPlayerModelDiagnostics(
   Uint32& textureWidth,
   Uint32& textureHeight,
   Uint32 outputWidth,
-  Uint32 outputHeight
+  Uint32 outputHeight,
+  SDL_GPUTextureFormat depthFormat
 ) {
   if (
     texture != nullptr &&
@@ -3222,7 +4110,7 @@ void copyGltfPlayerModelDiagnostics(
   }
   const SDL_GPUTextureCreateInfo createInfo = {
     SDL_GPU_TEXTURETYPE_2D,
-    SDL_GPU_TEXTUREFORMAT_D16_UNORM,
+    depthFormat,
     SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
     outputWidth,
     outputHeight,
@@ -3369,36 +4257,79 @@ void appendLine(
 void appendText(
   std::vector<GpuVertex>& vertices,
   const Text2D& text,
+  const FontAtlas& fontAtlas,
   float outputWidth,
   float outputHeight
 ) {
-  float x = text.position.x;
+  const float drawScale =
+    fontAtlas.nominalPixelHeight / fontAtlas.baseScaleDenominator;
+  const auto lineWidthAt = [&](std::size_t startIndex) {
+    float width = 0.0F;
+    for (std::size_t index = startIndex; index < text.text.size();) {
+      const auto rawCharacter = static_cast<unsigned char>(text.text[index]);
+      if (rawCharacter == '\n') {
+        break;
+      }
+      std::size_t byteLength = 1U;
+      const std::uint32_t character =
+        fontAtlasCodepointAt(text.text, index, byteLength);
+      auto glyphIt = fontAtlas.glyphs.find(character);
+      if (glyphIt == fontAtlas.glyphs.end()) {
+        glyphIt = fontAtlas.glyphs.find('?');
+      }
+      if (glyphIt != fontAtlas.glyphs.end()) {
+        width += glyphIt->second.advance * drawScale;
+      }
+      index += byteLength;
+    }
+    return width;
+  };
+  const auto alignedLineX = [&](std::size_t startIndex) {
+    if (text.horizontalAlignment != TextHorizontalAlignment::Center) {
+      return text.position.x;
+    }
+    return text.position.x - lineWidthAt(startIndex) * 0.5F;
+  };
+  std::size_t lineStart = 0U;
+  float x = alignedLineX(lineStart);
   float y = text.position.y;
-  const float glyphSize = 8.0F * text.scale;
+  const float lineHeight = fontAtlas.lineHeight * drawScale;
   for (std::size_t index = 0; index < text.text.size();) {
     const auto rawCharacter = static_cast<unsigned char>(text.text[index]);
     if (rawCharacter == '\n') {
-      x = text.position.x;
-      y += glyphSize;
+      y += lineHeight;
       ++index;
+      lineStart = index;
+      x = alignedLineX(lineStart);
       continue;
     }
-    const BitmapGlyphLookup glyph = bitmapGlyphAt(text.text, index);
-    const Uint32 character = glyph.atlasCodepoint;
-    if (glyph.drawable) {
-      const float u0 =
-        static_cast<float>((character % 16U) * 8U) /
-        static_cast<float>(kFontAtlasWidth);
-      const float v0 =
-        static_cast<float>((character / 16U) * 8U) /
-        static_cast<float>(kFontAtlasHeight);
-      const float u1 = u0 + 8.0F / static_cast<float>(kFontAtlasWidth);
-      const float v1 = v0 + 8.0F / static_cast<float>(kFontAtlasHeight);
+    std::size_t byteLength = 1U;
+    std::uint32_t character = fontAtlasCodepointAt(text.text, index, byteLength);
+    auto glyphIt = fontAtlas.glyphs.find(character);
+    if (glyphIt == fontAtlas.glyphs.end()) {
+      glyphIt = fontAtlas.glyphs.find('?');
+    }
+    if (glyphIt != fontAtlas.glyphs.end()) {
+      const FontGlyph& glyph = glyphIt->second;
+      if (!glyph.drawable) {
+        x += glyph.advance * drawScale;
+        index += byteLength;
+        continue;
+      }
       const std::array<ScreenPoint, 4> points = {{
-        {x, y},
-        {x + glyphSize, y},
-        {x + glyphSize, y + glyphSize},
-        {x, y + glyphSize},
+        {x + glyph.xOffset * drawScale, y + glyph.yOffset * drawScale},
+        {
+          x + (glyph.xOffset + glyph.width) * drawScale,
+          y + glyph.yOffset * drawScale,
+        },
+        {
+          x + (glyph.xOffset + glyph.width) * drawScale,
+          y + (glyph.yOffset + glyph.height) * drawScale,
+        },
+        {
+          x + glyph.xOffset * drawScale,
+          y + (glyph.yOffset + glyph.height) * drawScale,
+        },
       }};
       appendTriangle(
         vertices,
@@ -3408,7 +4339,7 @@ void appendText(
         text.color,
         outputWidth,
         outputHeight,
-        {{{u0, v0}, {u1, v0}, {u1, v1}}}
+        {{{glyph.u0, glyph.v0}, {glyph.u1, glyph.v0}, {glyph.u1, glyph.v1}}}
       );
       appendTriangle(
         vertices,
@@ -3418,21 +4349,67 @@ void appendText(
         text.color,
         outputWidth,
         outputHeight,
-        {{{u0, v0}, {u1, v1}, {u0, v1}}}
+        {{{glyph.u0, glyph.v0}, {glyph.u1, glyph.v1}, {glyph.u0, glyph.v1}}}
       );
+      x += glyph.advance * drawScale;
     }
-    x += glyphSize;
-    index += std::max<std::size_t>(1U, glyph.byteLength);
+    index += byteLength;
   }
 }
 
-void appendCommands(
+void closeOverlayDrawBatch(
+  std::vector<OverlayDrawBatch>& batches,
+  FontAtlas* fontAtlas,
+  Uint32 firstVertex,
+  Uint32 endVertex
+) {
+  if (fontAtlas == nullptr || endVertex <= firstVertex) {
+    return;
+  }
+  batches.push_back(OverlayDrawBatch{
+    fontAtlas,
+    firstVertex,
+    endVertex - firstVertex,
+  });
+}
+
+void appendCommandBatches(
   std::vector<GpuVertex>& vertices,
+  std::vector<OverlayDrawBatch>& batches,
   const std::vector<DrawCommand2D>& commands,
+  FontAtlasSet& fontAtlasSet,
   float outputWidth,
   float outputHeight
 ) {
+  FontAtlas* activeFontAtlas = nullptr;
+  Uint32 batchFirstVertex = static_cast<Uint32>(vertices.size());
+  const auto switchBatch = [&](FontAtlas* nextFontAtlas) {
+    const Uint32 currentEnd = static_cast<Uint32>(vertices.size());
+    if (activeFontAtlas == nextFontAtlas) {
+      return;
+    }
+    closeOverlayDrawBatch(
+      batches,
+      activeFontAtlas,
+      batchFirstVertex,
+      currentEnd
+    );
+    activeFontAtlas = nextFontAtlas;
+    batchFirstVertex = currentEnd;
+  };
+
+  FontAtlas* defaultFontAtlas =
+    fontAtlasSet.atlases[kDefaultUiFontPixelHeightIndex];
   for (const DrawCommand2D& command : commands) {
+    FontAtlas* commandFontAtlas =
+      activeFontAtlas != nullptr ? activeFontAtlas : defaultFontAtlas;
+    if (const auto* text = std::get_if<Text2D>(&command)) {
+      commandFontAtlas = fontAtlasForTextScale(fontAtlasSet, text->scale);
+    }
+    if (commandFontAtlas == nullptr) {
+      continue;
+    }
+    switchBatch(commandFontAtlas);
     std::visit(
       [&](const auto& primitive) {
         using Primitive = std::decay_t<decltype(primitive)>;
@@ -3447,23 +4424,24 @@ void appendCommands(
         } else if constexpr (std::is_same_v<Primitive, Line2D>) {
           appendLine(vertices, primitive, outputWidth, outputHeight);
         } else if constexpr (std::is_same_v<Primitive, Text2D>) {
-          appendText(vertices, primitive, outputWidth, outputHeight);
+          appendText(
+            vertices,
+            primitive,
+            *commandFontAtlas,
+            outputWidth,
+            outputHeight
+          );
         }
       },
       command
     );
   }
-}
-
-const PlayerState& firstVisibleRemote(
-  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers
-) {
-  for (const RemotePlayerView& remote : remotePlayers) {
-    if (remote.visible) {
-      return remote.player;
-    }
-  }
-  return remotePlayers.front().player;
+  closeOverlayDrawBatch(
+    batches,
+    activeFontAtlas,
+    batchFirstVertex,
+    static_cast<Uint32>(vertices.size())
+  );
 }
 
 [[nodiscard]] PerspectiveCamera playerPerspectiveCamera(
@@ -3504,7 +4482,7 @@ const PlayerState& firstVisibleRemote(
   SDL_GPUTransferBuffer* transferBuffer,
   GpuSimpleResources* simpleResources,
   GpuGltfPlayerResources* gltfPlayerResources,
-  SDL_GPUTexture* fontTexture,
+  FontAtlasSet* fontAtlasSet,
   SDL_GPUSampler* fontSampler,
   TextureAtlas* worldAtlas,
   StaticWorldMesh*& staticWorld,
@@ -3521,6 +4499,7 @@ const PlayerState& firstVisibleRemote(
   Uint32& outlineDilationHeight,
   Uint32& outlineDepthWidth,
   Uint32& outlineDepthHeight,
+  SDL_GPUTextureFormat depthFormat,
   std::vector<GpuVertex>& vertices,
   SDL_Window* window,
   const Arena& arena,
@@ -3546,10 +4525,20 @@ const PlayerState& firstVisibleRemote(
   diagnostics.submitMilliseconds = 0.0F;
   diagnostics.worldSourceTriangles = 0;
   diagnostics.worldRenderedTriangles = 0;
+  diagnostics.worldDuplicateTrianglesCulled = 0;
   diagnostics.worldVertexCount = 0;
   diagnostics.worldDrawCalls = 0;
+  diagnostics.gpuDepthBits = gpuDepthFormatBits(depthFormat);
   diagnostics.worldLoadedTextures = 0;
+  diagnostics.worldMissingTextures = 0;
   diagnostics.worldReferencedMaterials = 0;
+  diagnostics.worldMaxTextureMipLevels = 0;
+  diagnostics.worldTextureFilter = normalizedTextureFilter(settings.textureFilter);
+  diagnostics.worldRequestedTextureAnisotropy =
+    normalizedTextureAnisotropy(settings.textureAnisotropy);
+  diagnostics.worldAppliedTextureAnisotropy = 1;
+  diagnostics.worldTextureLodBias =
+    normalizedTextureLodBias(settings.textureLodBias);
   diagnostics.dynamicOpaqueVertices = 0;
   diagnostics.dynamicTranslucentVertices = 0;
   diagnostics.totalUploadedVertices = 0;
@@ -3670,6 +4659,7 @@ const PlayerState& firstVisibleRemote(
   if (swapchainTexture != nullptr && outputWidth > 0 && outputHeight > 0) {
     Scene3D perspectiveScene;
     vertices.clear();
+    std::vector<OverlayDrawBatch> overlayBatches;
     const auto sceneBuildStart = RenderClock::now();
     perspectiveScene = buildPerspectiveScene(
       static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
@@ -3823,9 +4813,11 @@ const PlayerState& firstVisibleRemote(
       settings,
       hud
     );
-    appendCommands(
+    appendCommandBatches(
       vertices,
+      overlayBatches,
       floatingHealthBars.overlayCommands,
+      *fontAtlasSet,
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
@@ -3836,9 +4828,11 @@ const PlayerState& firstVisibleRemote(
       settings,
       hud
     );
-    appendCommands(
+    appendCommandBatches(
       vertices,
+      overlayBatches,
       floatingDamageNumbers.overlayCommands,
+      *fontAtlasSet,
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
@@ -3855,9 +4849,11 @@ const PlayerState& firstVisibleRemote(
         hud.weaponSwitchProgress,
         settings
       );
-      appendCommands(
+      appendCommandBatches(
         vertices,
+        overlayBatches,
         weaponOverlay.overlayCommands,
+        *fontAtlasSet,
         static_cast<float>(outputWidth),
         static_cast<float>(outputHeight)
       );
@@ -3865,14 +4861,16 @@ const PlayerState& firstVisibleRemote(
     const DrawList2D ui = buildScreenUi(
       static_cast<int>(outputWidth),
       static_cast<int>(outputHeight),
-      firstVisibleRemote(remotePlayers),
+      player,
       settings,
       hud,
       console
     );
-    appendCommands(
+    appendCommandBatches(
       vertices,
+      overlayBatches,
       ui.overlayCommands,
+      *fontAtlasSet,
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
@@ -3984,7 +4982,8 @@ const PlayerState& firstVisibleRemote(
       depthWidth,
       depthHeight,
       outputWidth,
-      outputHeight
+      outputHeight,
+      depthFormat
     );
     if (depthTexture == nullptr) {
       (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
@@ -4009,7 +5008,8 @@ const PlayerState& firstVisibleRemote(
       (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
       return false;
     }
-      StaticWorldMesh* worldMesh = ensureStaticWorldMesh(device, staticWorld, arena);
+      StaticWorldMesh* worldMesh =
+        ensureStaticWorldMesh(device, staticWorld, arena, settings);
       const bool hasStaticWorld = worldMesh != nullptr &&
         worldMesh->vertexBuffer != nullptr &&
         worldMesh->sampler != nullptr &&
@@ -4018,11 +5018,27 @@ const PlayerState& firstVisibleRemote(
         const auto worldDrawStart = RenderClock::now();
         if (hasStaticWorld) {
           diagnostics.worldSourceTriangles = worldMesh->sourceTriangles;
-          diagnostics.worldRenderedTriangles = worldMesh->sourceTriangles;
+          diagnostics.worldRenderedTriangles =
+            worldMesh->sourceTriangles - worldMesh->duplicateTrianglesCulled;
+          diagnostics.worldDuplicateTrianglesCulled =
+            worldMesh->duplicateTrianglesCulled;
           diagnostics.worldVertexCount = worldMesh->vertexCount;
           diagnostics.worldDrawCalls = static_cast<std::uint32_t>(worldMesh->batches.size());
           diagnostics.worldLoadedTextures = worldMesh->loadedTextures;
+          diagnostics.worldMissingTextures = worldMesh->missingTextures;
           diagnostics.worldReferencedMaterials = worldMesh->referencedMaterials;
+          diagnostics.worldTextureFilter = worldMesh->samplerTextureFilter;
+          diagnostics.worldRequestedTextureAnisotropy =
+            worldMesh->samplerTextureAnisotropy;
+          diagnostics.worldAppliedTextureAnisotropy =
+            worldMesh->samplerAppliedTextureAnisotropy;
+          diagnostics.worldTextureLodBias = worldMesh->samplerTextureLodBias;
+          for (const WorldTexture& texture : worldMesh->textures) {
+            diagnostics.worldMaxTextureMipLevels = std::max(
+              diagnostics.worldMaxTextureMipLevels,
+              texture.mipLevels
+            );
+          }
         }
         struct alignas(16) CameraUniform {
           float position[4];
@@ -4172,6 +5188,8 @@ const PlayerState& firstVisibleRemote(
               << "LG_DUEL_TEXTURE_PIPELINE_V2 world frame counters"
               << " sourceTriangles=" << diagnostics.worldSourceTriangles
               << " renderedTriangles=" << diagnostics.worldRenderedTriangles
+              << " duplicateTrianglesCulled="
+              << diagnostics.worldDuplicateTrianglesCulled
               << " staticVertices=" << diagnostics.worldVertexCount
               << " drawCalls=" << diagnostics.worldDrawCalls
               << " loadedTextures=" << diagnostics.worldLoadedTextures
@@ -4252,7 +5270,8 @@ const PlayerState& firstVisibleRemote(
         outlineDepthWidth,
         outlineDepthHeight,
         workWidth,
-        workHeight
+        workHeight,
+        depthFormat
       );
       if (
         outlineMaskTexture == nullptr ||
@@ -4372,7 +5391,7 @@ const PlayerState& firstVisibleRemote(
         sizeof(maskCameraUniform)
       );
       StaticWorldMesh* outlineWorldMesh =
-        ensureStaticWorldMesh(device, staticWorld, arena);
+        ensureStaticWorldMesh(device, staticWorld, arena, settings);
       const bool outlineHasStaticWorld =
         outlineWorldMesh != nullptr &&
         outlineWorldMesh->vertexBuffer != nullptr &&
@@ -4763,16 +5782,6 @@ const PlayerState& firstVisibleRemote(
       SDL_BindGPUGraphicsPipeline(overlayPass, pipeline2D);
       const SDL_GPUBufferBinding binding = {vertexBuffer, 0};
       SDL_BindGPUVertexBuffers(overlayPass, 0, &binding, 1);
-      const SDL_GPUTextureSamplerBinding fontBinding = {
-        fontTexture,
-        fontSampler,
-      };
-      SDL_BindGPUFragmentSamplers(
-        overlayPass,
-        0,
-        &fontBinding,
-        1
-      );
 
       const Uint32 overlayVertexCount =
         static_cast<Uint32>(vertices.size()) - worldVertexCount;
@@ -4784,13 +5793,33 @@ const PlayerState& firstVisibleRemote(
           static_cast<int>(outputHeight),
         };
         SDL_SetGPUScissor(overlayPass, &fullScissor);
-        SDL_DrawGPUPrimitives(
-          overlayPass,
-          overlayVertexCount,
-          1,
-          worldVertexCount,
-          0
-        );
+        (void)worldVertexCount;
+        for (const OverlayDrawBatch& batch : overlayBatches) {
+          if (
+            batch.fontAtlas == nullptr ||
+            batch.fontAtlas->texture == nullptr ||
+            batch.vertexCount == 0U
+          ) {
+            continue;
+          }
+          const SDL_GPUTextureSamplerBinding fontBinding = {
+            batch.fontAtlas->texture,
+            fontSampler,
+          };
+          SDL_BindGPUFragmentSamplers(
+            overlayPass,
+            0,
+            &fontBinding,
+            1
+          );
+          SDL_DrawGPUPrimitives(
+            overlayPass,
+            batch.vertexCount,
+            1,
+            batch.firstVertex,
+            0
+          );
+        }
       }
     }
     SDL_EndGPURenderPass(overlayPass);
@@ -4977,11 +6006,22 @@ void drawCommands(
             primitive.width
           );
         } else if constexpr (std::is_same_v<Primitive, Text2D>) {
-          SDL_SetRenderScale(renderer, primitive.scale, primitive.scale);
+          const float snappedScale =
+            kUiFontPixelHeights[nearestUiFontPixelHeightIndex(primitive.scale)] /
+            kBitmapGlyphSize;
+          const float textWidth =
+            static_cast<float>(utf8GlyphCount(primitive.text)) *
+            kBitmapGlyphSize *
+            snappedScale;
+          const float x = primitive.horizontalAlignment ==
+              TextHorizontalAlignment::Center
+            ? primitive.position.x - textWidth * 0.5F
+            : primitive.position.x;
+          SDL_SetRenderScale(renderer, snappedScale, snappedScale);
           SDL_RenderDebugText(
             renderer,
-            primitive.position.x / primitive.scale,
-            primitive.position.y / primitive.scale,
+            x / snappedScale,
+            primitive.position.y / snappedScale,
             primitive.text.c_str()
           );
           SDL_SetRenderScale(renderer, 1.0F, 1.0F);
@@ -5563,6 +6603,8 @@ bool Renderer::initialize(void* window) {
             device,
             static_cast<SDL_Window*>(window)
           )) {
+        const SDL_GPUTextureFormat depthFormat =
+          chooseDepthStencilFormat(device);
         SDL_GPUGraphicsPipeline* pipeline = createGpuPipeline(
           device,
           static_cast<SDL_Window*>(window)
@@ -5570,12 +6612,14 @@ bool Renderer::initialize(void* window) {
         SDL_GPUGraphicsPipeline* pipeline3D = createGpuPipeline3D(
           device,
           static_cast<SDL_Window*>(window),
-          true
+          true,
+          depthFormat
         );
         SDL_GPUGraphicsPipeline* pipeline3DTranslucent = createGpuPipeline3D(
           device,
           static_cast<SDL_Window*>(window),
-          false
+          false,
+          depthFormat
         );
         SDL_GPUGraphicsPipeline* instancedMeshPipeline =
           createGpuInstancedPipeline3D(
@@ -5584,18 +6628,21 @@ bool Renderer::initialize(void* window) {
             "instanced_mesh.vert.spv",
             "instanced_color.frag.spv",
             true,
-            false
+            false,
+            depthFormat
           );
         SDL_GPUGraphicsPipeline* staticMeshPipeline =
           createGpuStaticMeshPipeline3D(
             device,
-            static_cast<SDL_Window*>(window)
+            static_cast<SDL_Window*>(window),
+            depthFormat
           );
         SDL_GPUGraphicsPipeline* gltfPlayerModelPipeline =
           createGpuGltfPlayerModelPipeline(
             device,
             static_cast<SDL_Window*>(window),
-            false
+            false,
+            depthFormat
           );
         SDL_GPUGraphicsPipeline* instancedGlowPipeline =
           createGpuInstancedPipeline3D(
@@ -5604,20 +6651,22 @@ bool Renderer::initialize(void* window) {
             "instanced_billboard.vert.spv",
             "instanced_glow.frag.spv",
             false,
-            true
+            true,
+            depthFormat
           );
         SDL_GPUGraphicsPipeline* pipelineOutlineMask =
-          createGpuPipelineOutlineMask(device);
+          createGpuPipelineOutlineMask(device, depthFormat);
         SDL_GPUGraphicsPipeline* staticMeshOutlineMaskPipeline =
-          createGpuStaticMeshOutlineMaskPipeline(device);
+          createGpuStaticMeshOutlineMaskPipeline(device, depthFormat);
         SDL_GPUGraphicsPipeline* gltfPlayerModelOutlineMaskPipeline =
           createGpuGltfPlayerModelPipeline(
             device,
             static_cast<SDL_Window*>(window),
-            true
+            true,
+            depthFormat
           );
         SDL_GPUGraphicsPipeline* pipelineOutlineClear =
-          createGpuPipelineOutlineClear(device);
+          createGpuPipelineOutlineClear(device, depthFormat);
         SDL_GPUGraphicsPipeline* pipelineOutlineColorClear =
           createGpuPipelineOutlineColorClear(device);
         SDL_GPUGraphicsPipeline* pipelineOutlineDilation =
@@ -5644,8 +6693,29 @@ bool Renderer::initialize(void* window) {
         };
         SDL_GPUTransferBuffer* transferBuffer =
           SDL_CreateGPUTransferBuffer(device, &transferBufferInfo);
-        SDL_GPUTexture* fontTexture = createFontTexture(device);
-        const SDL_GPUSamplerCreateInfo samplerInfo = {
+        FontAtlasSet* fontAtlasSet = createFontAtlasSet(
+          device,
+          "bahnschrift.ttf"
+        );
+        const SDL_GPUSamplerCreateInfo fontSamplerInfo = {
+          SDL_GPU_FILTER_LINEAR,
+          SDL_GPU_FILTER_LINEAR,
+          SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+          SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+          SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+          SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+          0.0F,
+          1.0F,
+          SDL_GPU_COMPAREOP_ALWAYS,
+          0.0F,
+          0.0F,
+          false,
+          false,
+          0,
+          0,
+          0,
+        };
+        const SDL_GPUSamplerCreateInfo nearestSamplerInfo = {
           SDL_GPU_FILTER_NEAREST,
           SDL_GPU_FILTER_NEAREST,
           SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
@@ -5664,9 +6734,9 @@ bool Renderer::initialize(void* window) {
           0,
         };
         SDL_GPUSampler* fontSampler =
-          SDL_CreateGPUSampler(device, &samplerInfo);
+          SDL_CreateGPUSampler(device, &fontSamplerInfo);
         SDL_GPUSampler* outlineMaskSampler =
-          SDL_CreateGPUSampler(device, &samplerInfo);
+          SDL_CreateGPUSampler(device, &nearestSamplerInfo);
         if (
           pipeline != nullptr &&
           pipeline3D != nullptr &&
@@ -5686,7 +6756,10 @@ bool Renderer::initialize(void* window) {
           gltfPlayerResources != nullptr &&
           vertexBuffer != nullptr &&
           transferBuffer != nullptr &&
-          fontTexture != nullptr &&
+          fontAtlasSet != nullptr &&
+          fontAtlasSet->atlases[kDefaultUiFontPixelHeightIndex] != nullptr &&
+          fontAtlasSet->atlases[kDefaultUiFontPixelHeightIndex]->texture !=
+            nullptr &&
           fontSampler != nullptr &&
           outlineMaskSampler != nullptr &&
           SDL_SetGPUAllowedFramesInFlight(device, 1)
@@ -5707,11 +6780,12 @@ bool Renderer::initialize(void* window) {
             gltfPlayerModelOutlineMaskPipeline;
           gpuPipelineOutlineDilation_ = pipelineOutlineDilation;
           gpuPipelineOutlineComposite_ = pipelineOutlineComposite;
+          gpuDepthFormat_ = static_cast<std::uint32_t>(depthFormat);
           gpuVertexBuffer_ = vertexBuffer;
           gpuTransferBuffer_ = transferBuffer;
           gpuSimpleResources_ = simpleResources;
           gpuGltfPlayerResources_ = gltfPlayerResources;
-          gpuFontTexture_ = fontTexture;
+          gpuFontAtlas_ = fontAtlasSet;
           gpuFontSampler_ = fontSampler;
           gpuOutlineMaskSampler_ = outlineMaskSampler;
           gpuWorldTextureAtlas_ = nullptr;
@@ -5737,8 +6811,8 @@ bool Renderer::initialize(void* window) {
         if (outlineMaskSampler != nullptr) {
           SDL_ReleaseGPUSampler(device, outlineMaskSampler);
         }
-        if (fontTexture != nullptr) {
-          SDL_ReleaseGPUTexture(device, fontTexture);
+        if (fontAtlasSet != nullptr) {
+          destroyFontAtlasSet(device, fontAtlasSet);
         }
         if (vertexBuffer != nullptr) {
           SDL_ReleaseGPUBuffer(device, vertexBuffer);
@@ -5839,6 +6913,33 @@ void Renderer::render(
 #if LG_DUEL_HAS_SDL3
   const auto renderStart = RenderClock::now();
   if (gpuBackend_) {
+    auto* fontAtlasSet = static_cast<FontAtlasSet*>(gpuFontAtlas_);
+    const std::string requestedFont =
+      settings.uiFont.empty() ? "bahnschrift.ttf" : settings.uiFont;
+    if (
+      fontAtlasSet == nullptr ||
+      fontAtlasSet->requestedFont != requestedFont
+    ) {
+      FontAtlasSet* replacement = createFontAtlasSet(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        requestedFont
+      );
+      if (replacement != nullptr) {
+        destroyFontAtlasSet(
+          static_cast<SDL_GPUDevice*>(gpuDevice_),
+          fontAtlasSet
+        );
+        gpuFontAtlas_ = replacement;
+        fontAtlasSet = replacement;
+      }
+    }
+    if (fontAtlasSet == nullptr) {
+      if (!gpuErrorReported_) {
+        std::cerr << "SDL_GPU font atlas set is unavailable.\n";
+        gpuErrorReported_ = true;
+      }
+      return;
+    }
     auto* depthTexture = static_cast<SDL_GPUTexture*>(gpuDepthTexture_);
     auto* outlineMaskTexture =
       static_cast<SDL_GPUTexture*>(gpuOutlineMaskTexture_);
@@ -5871,7 +6972,7 @@ void Renderer::render(
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
           static_cast<GpuSimpleResources*>(gpuSimpleResources_),
           static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_),
-          static_cast<SDL_GPUTexture*>(gpuFontTexture_),
+          fontAtlasSet,
           static_cast<SDL_GPUSampler*>(gpuFontSampler_),
           static_cast<TextureAtlas*>(gpuWorldTextureAtlas_),
           staticWorld,
@@ -5888,6 +6989,7 @@ void Renderer::render(
           gpuOutlineDilationHeight_,
           gpuOutlineDepthWidth_,
           gpuOutlineDepthHeight_,
+          static_cast<SDL_GPUTextureFormat>(gpuDepthFormat_),
           *static_cast<std::vector<GpuVertex>*>(gpuVertexScratch_),
           static_cast<SDL_Window*>(window_),
           arena,
@@ -5927,10 +7029,21 @@ void Renderer::render(
   lastFrameDiagnostics_.submitMilliseconds = 0.0F;
   lastFrameDiagnostics_.worldSourceTriangles = 0;
   lastFrameDiagnostics_.worldRenderedTriangles = 0;
+  lastFrameDiagnostics_.worldDuplicateTrianglesCulled = 0;
   lastFrameDiagnostics_.worldVertexCount = 0;
   lastFrameDiagnostics_.worldDrawCalls = 0;
+  lastFrameDiagnostics_.gpuDepthBits = 0;
   lastFrameDiagnostics_.worldLoadedTextures = 0;
+  lastFrameDiagnostics_.worldMissingTextures = 0;
   lastFrameDiagnostics_.worldReferencedMaterials = 0;
+  lastFrameDiagnostics_.worldMaxTextureMipLevels = 0;
+  lastFrameDiagnostics_.worldTextureFilter =
+    normalizedTextureFilter(settings.textureFilter);
+  lastFrameDiagnostics_.worldRequestedTextureAnisotropy =
+    normalizedTextureAnisotropy(settings.textureAnisotropy);
+  lastFrameDiagnostics_.worldAppliedTextureAnisotropy = 1;
+  lastFrameDiagnostics_.worldTextureLodBias =
+    normalizedTextureLodBias(settings.textureLodBias);
   lastFrameDiagnostics_.dynamicOpaqueVertices = 0;
   lastFrameDiagnostics_.dynamicTranslucentVertices = 0;
   lastFrameDiagnostics_.totalUploadedVertices = 0;
@@ -6246,7 +7359,7 @@ void Renderer::render(
     buildScreenUi(
       width,
       height,
-      firstVisibleRemote(remotePlayers),
+      player,
       settings,
       hud,
       console
@@ -6340,6 +7453,7 @@ void Renderer::shutdown() {
       gpuDepthWidth_ = 0;
       gpuDepthHeight_ = 0;
     }
+    gpuDepthFormat_ = 0;
     if (gpuOutlineMaskTexture_ != nullptr) {
       SDL_ReleaseGPUTexture(
         static_cast<SDL_GPUDevice*>(gpuDevice_),
@@ -6386,12 +7500,12 @@ void Renderer::shutdown() {
       );
       gpuOutlineMaskSampler_ = nullptr;
     }
-    if (gpuFontTexture_ != nullptr) {
-      SDL_ReleaseGPUTexture(
+    if (gpuFontAtlas_ != nullptr) {
+      destroyFontAtlasSet(
         static_cast<SDL_GPUDevice*>(gpuDevice_),
-        static_cast<SDL_GPUTexture*>(gpuFontTexture_)
+        static_cast<FontAtlasSet*>(gpuFontAtlas_)
       );
-      gpuFontTexture_ = nullptr;
+      gpuFontAtlas_ = nullptr;
     }
     destroyTextureAtlas(
       static_cast<SDL_GPUDevice*>(gpuDevice_),

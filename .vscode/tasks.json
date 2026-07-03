@@ -24,7 +24,7 @@
     },
     {
       "label": "start lg duel server",
-      "type": "process",
+      "type": "process",q
       "command": "${workspaceFolder}\\Start LG Duel Server.bat",
       "options": {
         "cwd": "${workspaceFolder}"

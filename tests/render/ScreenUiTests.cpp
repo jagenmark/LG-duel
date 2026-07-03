@@ -102,7 +102,8 @@ int main() {
   hud.selectedWeapon = lg::Weapon::LightningGun;
   hud.showOpponentHealthBar = true;
   hud.topLeftLines = {"FPS 240"};
-  hud.bottomCenterLines = {"SPEED 320 UPS", "HEALTH 100"};
+  hud.bottomCenterLines = {"HEALTH 100"};
+  hud.speedText = "320 ups";
   hud.scoreboardOpen = true;
   hud.scoreboardLines = {"SCOREBOARD", "PLAYER  SCORE"};
   lg::ConsoleRenderState console;
@@ -454,8 +455,14 @@ int main() {
     );
 
     bool foundHealthLabel = false;
+    bool foundLocalHpLabel = false;
+    bool foundLocalHpValue = false;
+    bool foundBottomLeftHealthFill = false;
+    bool foundLegacyHealthText = false;
     bool foundScoreboardTitle = false;
     bool foundSpeed = false;
+    bool foundLegacySpeedText = false;
+    bool foundYellowHealthFill = false;
     std::array<bool, 7> foundWeaponLabels = {};
     std::size_t rightHudShapeCount = 0;
     constexpr std::array<std::string_view, 7> weaponLabels = {
@@ -471,21 +478,50 @@ int main() {
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
         foundHealthLabel =
           foundHealthLabel || text->text == "ENEMY HP 50";
+        foundLocalHpLabel = foundLocalHpLabel || text->text == "HP";
+        foundLocalHpValue = foundLocalHpValue || text->text == "50 / 100";
+        foundLegacyHealthText =
+          foundLegacyHealthText || text->text == "HEALTH 100";
         foundScoreboardTitle =
           foundScoreboardTitle || text->text == "SCOREBOARD";
-        foundSpeed = foundSpeed || text->text == "SPEED 320 UPS";
+        foundSpeed =
+          foundSpeed ||
+          (text->text == "320 ups" && text->position.x > 560.0F &&
+           text->position.x < 660.0F && text->position.y > 380.0F &&
+           text->position.y < 400.0F);
+        foundLegacySpeedText =
+          foundLegacySpeedText || text->text == "SPEED 320 UPS";
         for (std::size_t index = 0; index < weaponLabels.size(); ++index) {
           foundWeaponLabels[index] =
             foundWeaponLabels[index] ||
             (text->text == weaponLabels[index] && text->position.x > 1180.0F);
         }
-      } else if (commandTouchesRightHud(command)) {
-        ++rightHudShapeCount;
+      } else {
+        if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+          foundYellowHealthFill =
+            foundYellowHealthFill ||
+            (quad->color.red == 228 && quad->color.green == 206 &&
+             quad->color.blue == 42);
+          foundBottomLeftHealthFill =
+            foundBottomLeftHealthFill ||
+            (quad->color.red == 228 && quad->color.green == 206 &&
+             quad->color.blue == 42 && quad->points[0].x < 80.0F &&
+             quad->points[0].y > 650.0F);
+        }
+        if (commandTouchesRightHud(command)) {
+          ++rightHudShapeCount;
+        }
       }
     }
     failures += expect(
-      !foundHealthLabel && foundScoreboardTitle && foundSpeed,
-      "enemy health should move out of the static HUD"
+      !foundHealthLabel && foundScoreboardTitle && foundSpeed &&
+        !foundLegacySpeedText,
+      "enemy health should move out of the static HUD and speed should sit under the crosshair"
+    );
+    failures += expect(
+      foundLocalHpLabel && foundLocalHpValue && !foundLegacyHealthText &&
+        foundYellowHealthFill && foundBottomLeftHealthFill,
+      "health style 0 should render as a bottom-left scaled HP bar with ratio-driven fill color"
     );
     failures += expect(
       rightHudShapeCount >= 40,
@@ -555,6 +591,68 @@ int main() {
   }
 
   {
+    lg::RenderSettings numberSettings = settings;
+    numberSettings.healthStyle = 1;
+    const lg::DrawList2D numberUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      numberSettings,
+      hud,
+      console
+    );
+    const lg::Text2D* healthNumber = findText(numberUi, "50");
+    failures += expect(
+      healthNumber != nullptr &&
+        healthNumber->position.x == 640.0F &&
+        healthNumber->horizontalAlignment ==
+          lg::TextHorizontalAlignment::Center &&
+        healthNumber->position.y > 670.0F &&
+        healthNumber->color.red == 228 &&
+        healthNumber->color.green == 206 &&
+        healthNumber->color.blue == 42 &&
+        findText(numberUi, "50 / 100") == nullptr,
+      "health style 1 should render only the centered HP number with dynamic color"
+    );
+  }
+
+  {
+    lg::RenderSettings crosshairHealthSettings = settings;
+    crosshairHealthSettings.healthStyle = 2;
+    lg::HudRenderState crosshairHealthHud = hud;
+    crosshairHealthHud.selectedWeapon = lg::Weapon::RocketLauncher;
+    const lg::DrawList2D crosshairHealthUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      crosshairHealthSettings,
+      crosshairHealthHud,
+      console
+    );
+    const lg::Text2D* healthNumber = findText(crosshairHealthUi, "50");
+    const lg::Text2D* ammo = findText(crosshairHealthUi, "\xE2\x88\x9E");
+    failures += expect(
+      healthNumber != nullptr &&
+        healthNumber->position.x > 500.0F &&
+        healthNumber->position.x < 620.0F &&
+        healthNumber->position.y > 380.0F &&
+        healthNumber->position.y < 410.0F &&
+        healthNumber->color.red == 228 &&
+        healthNumber->color.green == 206 &&
+        healthNumber->color.blue == 42 &&
+        ammo != nullptr &&
+        ammo->position.x > 680.0F &&
+        ammo->position.x < 760.0F &&
+        ammo->position.y > 380.0F &&
+        ammo->position.y < 410.0F &&
+        ammo->color.red == 255 &&
+        ammo->color.green == 72 &&
+        ammo->color.blue == 54,
+      "health style 2 should place HP left of the crosshair and infinite ammo in weapon color on the right"
+    );
+  }
+
+  {
     lg::HudRenderState layoutHud;
     layoutHud.scoreboardOpen = true;
     layoutHud.scoreboardLines = {"SCOREBOARD", "NAME SCORE ACC DAMAGE", "> PLAYER 1"};
@@ -586,8 +684,11 @@ int main() {
       scoreboardTitle != nullptr &&
         scoreboardStatus != nullptr &&
         regularStatus != nullptr &&
+        regularStatus->position.x == 640.0F &&
+        regularStatus->horizontalAlignment ==
+          lg::TextHorizontalAlignment::Center &&
         scoreboardStatus->position.y == regularStatus->position.y,
-      "opening the scoreboard should not move the waiting status"
+      "waiting status should stay centered and not move when the scoreboard opens"
     );
 
     layoutHud.scoreboardOpen = true;
@@ -843,6 +944,18 @@ int main() {
         asciiGlyphs[3].drawable &&
         !asciiGlyphs[3].fallback,
       "ASCII bitmap glyph lookup should remain unchanged"
+    );
+
+    const lg::BitmapGlyphLookup infinityGlyph =
+      lg::bitmapGlyphAt("\xE2\x88\x9E", 0U);
+    const auto infinityRows = lg::supplementalBitmapGlyph(0x221EU);
+    failures += expect(
+      infinityGlyph.atlasCodepoint == 0x221EU &&
+        infinityGlyph.byteLength == 3U &&
+        infinityGlyph.drawable &&
+        !infinityGlyph.fallback &&
+        infinityRows.has_value(),
+      "Infinity glyph lookup should resolve to U+221E instead of a missing-glyph box"
     );
   }
 

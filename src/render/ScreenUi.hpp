@@ -11,7 +11,7 @@ namespace lg {
 [[nodiscard]] DrawList2D buildScreenUi(
   int outputWidth,
   int outputHeight,
-  const PlayerState& opponent,
+  const PlayerState& localPlayer,
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console

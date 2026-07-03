@@ -1411,7 +1411,7 @@ int main() {
   machineGunFires[0].hit = true;
   machineGunFires[0].weapon = lg::Weapon::MachineGun;
   machineGunFires[0].start = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
-  machineGunFires[0].end = machineGunFires[0].start + lg::Vec3{9.0F, 0.0F, 0.0F};
+  machineGunFires[0].end = machineGunFires[0].start + lg::Vec3{9.0F, 0.0F, 3.0F};
   machineGunFires[0].visualSeed = 1;
   const lg::Scene3D machineGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -1457,11 +1457,21 @@ int main() {
   failures += expect(
     machineGunTracerScene.transientVfxStats.tracerInstancesSubmitted == 1 &&
       machineGunTracerScene.transientVfxStats.activeMachineGunTracers == 1 &&
-      machineGunTracerScene.simpleInstances.size() == 1U &&
-      machineGunTracerScene.simpleInstances[0].mesh == lg::MeshHandle::MachineGunTracer &&
-      machineGunTracerScene.simpleInstances[0].pass == lg::RenderPass::TranslucentWorld,
-    "one active MG transient tracer should emit one instanced tracer mesh"
+      machineGunTracerScene.translucentVertices.size() == 12U,
+    "one active MG transient tracer should emit one transparent beam"
   );
+  if (!machineGunTracerScene.translucentVertices.empty()) {
+    float minTracerZ = machineGunTracerScene.translucentVertices.front().position.z;
+    float maxTracerZ = minTracerZ;
+    for (const lg::Vertex3D& vertex : machineGunTracerScene.translucentVertices) {
+      minTracerZ = std::min(minTracerZ, vertex.position.z);
+      maxTracerZ = std::max(maxTracerZ, vertex.position.z);
+    }
+    failures += expect(
+      maxTracerZ - minTracerZ > 2.5F,
+      "MG tracer beam geometry should preserve upward pitch"
+    );
+  }
 
   for (std::size_t index = 0; index < 6U; ++index) {
     tracerInstances[index] = {
@@ -1492,8 +1502,9 @@ int main() {
     shotgunTracerScene.transientVfxStats.tracerInstancesSubmitted == 6 &&
       shotgunTracerScene.transientVfxStats.activeShotgunTracers == 6 &&
       shotgunTracerScene.transientVfxStats.tracerBatches == 1 &&
-      shotgunTracerScene.transientVfxStats.tracerDrawCalls == 1,
-    "SG representative tracers should batch into one instanced tracer draw"
+      shotgunTracerScene.transientVfxStats.tracerDrawCalls == 1 &&
+      shotgunTracerScene.translucentVertices.size() == 72U,
+    "SG representative tracers should batch into one transparent draw"
   );
   const lg::Vec3 sharedPelletDirection = lg::shotgunPelletDirection(
     {1.0F, 0.0F, 0.0F},
@@ -1527,8 +1538,8 @@ int main() {
   failures += expect(
     culledTracerScene.transientVfxStats.tracerCandidates == 1 &&
       culledTracerScene.transientVfxStats.tracerFrustumCulled == 1 &&
-      culledTracerScene.simpleInstances.empty(),
-    "offscreen transient tracers should be frustum culled before instancing"
+      culledTracerScene.translucentVertices.empty(),
+    "offscreen transient tracers should be frustum culled before geometry emission"
   );
 
   lg::RenderSettings localMachineGunSettings = settings;

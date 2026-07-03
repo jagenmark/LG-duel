@@ -713,7 +713,7 @@ struct LocalTracerAimHistory {
   WeaponFireResult visualFire = fire;
   const Vec3 direction = cameraForward(yawRadians, pitchRadians);
   const WorldTrace trace =
-    traceWorld(arena, visualStart, direction, localTracerVisualRange(fire));
+    traceWorld(arena, fire.start, direction, localTracerVisualRange(fire));
   visualFire.start = visualStart;
   visualFire.end = trace.end;
   return visualFire;
@@ -1027,6 +1027,23 @@ struct FrameTimeHistory {
     renderDiagnostics.dynamicTranslucentVertices;
   sample.totalUploadedVertices = renderDiagnostics.totalUploadedVertices;
   sample.dynamicTriangles = renderDiagnostics.dynamicTriangles;
+  sample.worldSourceTriangles = renderDiagnostics.worldSourceTriangles;
+  sample.worldRenderedTriangles = renderDiagnostics.worldRenderedTriangles;
+  sample.worldDuplicateTrianglesCulled =
+    renderDiagnostics.worldDuplicateTrianglesCulled;
+  sample.worldVertexCount = renderDiagnostics.worldVertexCount;
+  sample.worldDrawCalls = renderDiagnostics.worldDrawCalls;
+  sample.gpuDepthBits = renderDiagnostics.gpuDepthBits;
+  sample.worldLoadedTextures = renderDiagnostics.worldLoadedTextures;
+  sample.worldMissingTextures = renderDiagnostics.worldMissingTextures;
+  sample.worldReferencedMaterials = renderDiagnostics.worldReferencedMaterials;
+  sample.worldMaxTextureMipLevels = renderDiagnostics.worldMaxTextureMipLevels;
+  sample.worldTextureFilter = renderDiagnostics.worldTextureFilter;
+  sample.worldRequestedTextureAnisotropy =
+    renderDiagnostics.worldRequestedTextureAnisotropy;
+  sample.worldAppliedTextureAnisotropy =
+    renderDiagnostics.worldAppliedTextureAnisotropy;
+  sample.worldTextureLodBias = renderDiagnostics.worldTextureLodBias;
   sample.visibleRemotePlayers = renderDiagnostics.visibleRemotePlayers;
   sample.remoteBodyModelsBuilt = renderDiagnostics.remoteBodyModelsBuilt;
   sample.remoteWeaponModelsBuilt = renderDiagnostics.remoteWeaponModelsBuilt;
@@ -1141,6 +1158,17 @@ struct FrameTimeHistory {
   return sample;
 }
 
+[[nodiscard]] const char* textureFilterLabel(int filter) {
+  switch (filter) {
+  case 0:
+    return "nearest";
+  case 1:
+    return "bilinear";
+  default:
+    return "trilinear";
+  }
+}
+
 void appendPerfHudLines(
   HudRenderState& hud,
   const PerfWindowSummary& summary,
@@ -1200,6 +1228,32 @@ void appendPerfHudLines(
     "dynamic: %u vertices | %u triangles",
     latest.dynamicOpaqueVertices + latest.dynamicTranslucentVertices,
     latest.dynamicTriangles
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "world: tris %u->%u | vertices %u | draws %u | depth %u-bit | dup culled %u",
+    latest.worldSourceTriangles,
+    latest.worldRenderedTriangles,
+    latest.worldVertexCount,
+    latest.worldDrawCalls,
+    latest.gpuDepthBits,
+    latest.worldDuplicateTrianglesCulled
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "textures: loaded %u/%u | missing %u | max mip %u | filter %s | aniso %d/%d | lod %+0.2f",
+    latest.worldLoadedTextures,
+    latest.worldReferencedMaterials,
+    latest.worldMissingTextures,
+    latest.worldMaxTextureMipLevels,
+    textureFilterLabel(latest.worldTextureFilter),
+    latest.worldAppliedTextureAnisotropy,
+    latest.worldRequestedTextureAnisotropy,
+    latest.worldTextureLodBias
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -2199,7 +2253,13 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   RenderSettings settings;
   settings.fieldOfView = console.getFloat("cl_fov");
   settings.healthTextScale = console.getFloat("cl_health_size");
+  settings.healthStyle = console.getInt("cl_health_style");
+  settings.speedTextScale = console.getFloat("cl_speed_size");
+  settings.uiFont = console.getString("r_ui_font");
   settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
+  settings.textureFilter = console.getInt("r_texture_filter");
+  settings.textureAnisotropy = console.getInt("r_texture_anisotropy");
+  settings.textureLodBias = console.getFloat("r_texture_lod_bias");
   settings.showRendererPerf = console.getBool("r_perf");
   settings.showRendererPerfDetail = console.getBool("r_perf_detail");
   settings.crosshairEnabled = console.getBool("crosshair_enable");
@@ -5338,12 +5398,10 @@ int GameApp::run() const {
         renderPlayer.velocity.x,
         renderPlayer.velocity.y
       );
-      hud.bottomCenterLines.insert(
-        hud.bottomCenterLines.begin(),
-        "SPEED " + std::to_string(static_cast<int>(std::lround(
+      hud.speedText =
+        std::to_string(static_cast<int>(std::lround(
           horizontalSpeed * kQuakeUnitsPerProjectUnit
-        ))) + " UPS"
-      );
+        ))) + " ups";
     }
     if (currentRenderSettings.showRendererPerf) {
       const RendererFrameDiagnostics& diagnostics =

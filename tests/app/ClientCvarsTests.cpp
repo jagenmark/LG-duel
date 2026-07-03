@@ -74,6 +74,28 @@ int main() {
     "damage numbers should default to disabled"
   );
   failures += expect(
+    console.execute("cl_health_size 20") == "cl_health_size = 20" &&
+      console.execute("cl_health_size 20.5") ==
+        "value out of range for cl_health_size",
+    "health HUD size cvar should allow large values up to twenty"
+  );
+  failures += expect(
+    console.execute("cl_speed_size") ==
+        "cl_speed_size = 1.5 (default 1.5)" &&
+      console.execute("cl_speed_size 0.25") ==
+        "value out of range for cl_speed_size" &&
+      console.execute("cl_speed_size 2") == "cl_speed_size = 2",
+    "speed HUD size cvar should be separate from health size and bounded"
+  );
+  failures += expect(
+    console.execute("cl_health_style") ==
+        "cl_health_style = 0 (default 0)" &&
+      console.execute("cl_health_style 3") ==
+        "value out of range for cl_health_style" &&
+      console.execute("cl_health_style 2") == "cl_health_style = 2",
+    "health HUD style cvar should expose the three supported layouts"
+  );
+  failures += expect(
     console.execute("r_sg_weapon_model_start 1") ==
         "r_sg_weapon_model_start = 1" &&
       console.getBool("r_sg_weapon_model_start"),
@@ -157,6 +179,32 @@ int main() {
       console.execute("r_frustum_cull 0") == "r_frustum_cull = 0" &&
       !console.getBool("r_frustum_cull"),
     "remote frustum culling should default on and be toggleable"
+  );
+  failures += expect(
+    console.execute("r_texture_filter") ==
+        "r_texture_filter = 2 (default 2)" &&
+      console.execute("r_texture_filter 0") == "r_texture_filter = 0" &&
+      console.execute("r_texture_filter 3") ==
+        "value out of range for r_texture_filter",
+    "world texture filter cvar should expose nearest, bilinear, and trilinear modes"
+  );
+  failures += expect(
+    console.execute("r_texture_anisotropy") ==
+        "r_texture_anisotropy = 8 (default 8)" &&
+      console.execute("r_texture_anisotropy 16") ==
+        "r_texture_anisotropy = 16" &&
+      console.execute("r_texture_anisotropy 0") ==
+        "value out of range for r_texture_anisotropy",
+    "world texture anisotropy cvar should default to eight and allow sixteen"
+  );
+  failures += expect(
+    console.execute("r_texture_lod_bias") ==
+        "r_texture_lod_bias = 0.5 (default 0.5)" &&
+      console.execute("r_texture_lod_bias 1") ==
+        "r_texture_lod_bias = 1" &&
+      console.execute("r_texture_lod_bias 5") ==
+        "value out of range for r_texture_lod_bias",
+    "world texture LOD bias cvar should expose conservative mip bias tuning"
   );
   failures += expect(
     console.execute("r_perf 1") == "r_perf = 1" &&
