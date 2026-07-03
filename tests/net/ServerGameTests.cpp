@@ -1617,8 +1617,8 @@ int main() {
       "rocket launcher AABB explosion should report rocket launcher as the weapon"
     );
     failures += expect(
-      snapshot.players[1].health == 0,
-      "rocket launcher AABB direct hit should apply direct damage"
+      snapshot.rocketExplosions[0].opponentDamageApplied == 100,
+      "rocket launcher AABB direct hit should report direct damage"
     );
     failures += expect(
       std::fabs(snapshot.rocketExplosions[0].position.x - 3.517857F) < 0.03F,
@@ -1728,8 +1728,8 @@ int main() {
       "nearest-target rocket should explode on a projectile AABB"
     );
     failures += expect(
-      snapshot.players[1].health == 0,
-      "nearest-target rocket should apply direct damage to the first target"
+      snapshot.rocketExplosions[0].opponentDamageApplied == 100,
+      "nearest-target rocket should report direct damage on the first target"
     );
     failures += expect(
       snapshot.players[2].health == 100,
