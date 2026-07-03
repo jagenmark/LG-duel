@@ -170,6 +170,29 @@ void resolveBrushCollision(
   constexpr float kCollisionEpsilon = 0.0001F;
   constexpr float kStepHeight = 0.45F;
   constexpr float kWalkableNormalZ = 0.35F;
+  const float sweptMinX = std::min(previousPosition.x, result.position.x) -
+    player.bounds.radius;
+  const float sweptMaxX = std::max(previousPosition.x, result.position.x) +
+    player.bounds.radius;
+  const float sweptMinY = std::min(previousPosition.y, result.position.y) -
+    player.bounds.radius;
+  const float sweptMaxY = std::max(previousPosition.y, result.position.y) +
+    player.bounds.radius;
+  const float sweptMinZ = std::min(previousPosition.z, result.position.z) -
+    player.bounds.halfHeight;
+  const float sweptMaxZ = std::max(previousPosition.z, result.position.z) +
+    player.bounds.halfHeight;
+  if (
+    sweptMaxX < brush.min.x - kCollisionEpsilon ||
+    sweptMinX > brush.max.x + kCollisionEpsilon ||
+    sweptMaxY < brush.min.y - kCollisionEpsilon ||
+    sweptMinY > brush.max.y + kCollisionEpsilon ||
+    sweptMaxZ < brush.min.z - kCollisionEpsilon ||
+    sweptMinZ > brush.max.z + kCollisionEpsilon
+  ) {
+    return;
+  }
+
   const float previousBottom = previousPosition.z - player.bounds.halfHeight;
   const float currentBottom = result.position.z - player.bounds.halfHeight;
 

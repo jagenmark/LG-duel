@@ -58,6 +58,43 @@ namespace {
   const PlayerState& player,
   Vec3 direction
 ) {
+  const float playerMinZ = player.position.z - player.bounds.halfHeight;
+  const float playerMaxZ = player.position.z + player.bounds.halfHeight;
+  if (playerMaxZ <= brush.min.z || playerMinZ >= brush.max.z) {
+    return std::numeric_limits<float>::max();
+  }
+
+  const float minX = brush.min.x - player.bounds.radius;
+  const float maxX = brush.max.x + player.bounds.radius;
+  const float minY = brush.min.y - player.bounds.radius;
+  const float maxY = brush.max.y + player.bounds.radius;
+  float boundsEntry = 0.0F;
+  float boundsExit = std::numeric_limits<float>::max();
+
+  const auto clipBoundsAxis = [&boundsEntry, &boundsExit](
+    float origin,
+    float axisDirection,
+    float minValue,
+    float maxValue
+  ) {
+    if (std::fabs(axisDirection) <= 0.00001F) {
+      return origin >= minValue && origin <= maxValue;
+    }
+    const float first = (minValue - origin) / axisDirection;
+    const float second = (maxValue - origin) / axisDirection;
+    boundsEntry = std::max(boundsEntry, std::min(first, second));
+    boundsExit = std::min(boundsExit, std::max(first, second));
+    return boundsEntry <= boundsExit;
+  };
+
+  if (
+    !clipBoundsAxis(player.position.x, direction.x, minX, maxX) ||
+    !clipBoundsAxis(player.position.y, direction.y, minY, maxY) ||
+    boundsExit < 0.0F
+  ) {
+    return std::numeric_limits<float>::max();
+  }
+
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
   for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
