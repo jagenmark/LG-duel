@@ -3,10 +3,22 @@
   "tasks": [
     {
       "label": "open lg duel bats",
-      "dependsOrder": "parallel",
+      "dependsOrder": "sequence",
       "dependsOn": [
-        "start lg duel server",
-        "start lg duel client"
+        "start lg duel client",
+        "wait 3 seconds",
+        "start lg duel server"
+      ],
+      "problemMatcher": []
+    },
+    {
+      "label": "wait 3 seconds",
+      "type": "process",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Start-Sleep -Seconds 3"
       ],
       "problemMatcher": []
     },
@@ -26,7 +38,12 @@
     {
       "label": "start lg duel client",
       "type": "process",
-      "command": "${workspaceFolder}\\Start LG Duel Client GPU.bat",
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-Command",
+        "Start-Process -FilePath '${workspaceFolder}\\Start LG Duel Client GPU.bat' -WorkingDirectory '${workspaceFolder}'"
+      ],
       "options": {
         "cwd": "${workspaceFolder}"
       },
