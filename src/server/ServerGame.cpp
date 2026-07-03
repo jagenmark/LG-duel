@@ -155,6 +155,25 @@ constexpr float kProjectileCollisionEpsilon = 0.0001F;
     consider(std::fabs(point.z - wall.max.z), {0.0F, 0.0F, 1.0F});
   }
 
+  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
+    const ArenaBrush& brush = arena.brushes[brushIndex];
+    if (
+      point.x < brush.min.x - kProjectileCollisionEpsilon ||
+      point.x > brush.max.x + kProjectileCollisionEpsilon ||
+      point.y < brush.min.y - kProjectileCollisionEpsilon ||
+      point.y > brush.max.y + kProjectileCollisionEpsilon ||
+      point.z < brush.min.z - kProjectileCollisionEpsilon ||
+      point.z > brush.max.z + kProjectileCollisionEpsilon
+    ) {
+      continue;
+    }
+
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      const ArenaBrushFace& face = brush.faces[faceIndex];
+      consider(std::fabs(dot(face.normal, point) - face.distance), face.normal);
+    }
+  }
+
   return bestNormal;
 }
 
@@ -1601,7 +1620,10 @@ void ServerGame::simulateRockets(float fixedDt) {
         if (worldTrace.distance < segmentLength - 0.0001F) {
           explosionPosition = worldTrace.end;
           if (grenade) {
-            const Vec3 normal = bounceNormalForPoint(arena_, explosionPosition);
+            Vec3 normal = bounceNormalForPoint(arena_, explosionPosition);
+            if (dot(rocket.velocity, normal) > 0.0F) {
+              normal *= -1.0F;
+            }
             const float normalVelocity = dot(rocket.velocity, normal);
             const float impactSpeed = std::fabs(normalVelocity);
             if (normalVelocity < 0.0F) {
