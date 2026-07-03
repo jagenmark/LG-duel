@@ -263,6 +263,8 @@ int main() {
     duelistModel.jointCount() > 0U;
   std::uint32_t primitiveVertexCount = 0;
   std::uint32_t primitiveIndexCount = 0;
+  bool foundTintedClothPrimitive = false;
+  bool foundUntintedNonClothPrimitive = false;
   for (const lg::GltfSkinnedModel::Primitive& primitive : duelistModel.primitives()) {
     primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
       !primitive.vertices.empty() &&
@@ -274,7 +276,11 @@ int main() {
       primitive.localBounds.min.z <= primitive.localBounds.max.z;
     primitiveVertexCount += static_cast<std::uint32_t>(primitive.vertices.size());
     primitiveIndexCount += static_cast<std::uint32_t>(primitive.indices.size());
+    bool primitiveHasTintedVertex = false;
+    bool primitiveHasUntintedVertex = false;
     for (const lg::GltfSkinnedModel::GpuVertex& vertex : primitive.vertices) {
+      primitiveHasTintedVertex = primitiveHasTintedVertex || vertex.tintWeight > 0U;
+      primitiveHasUntintedVertex = primitiveHasUntintedVertex || vertex.tintWeight == 0U;
       float weightSum = 0.0F;
       for (std::size_t influence = 0; influence < vertex.weights.size(); ++influence) {
         const float weight = vertex.weights[influence];
@@ -293,15 +299,21 @@ int main() {
         std::isfinite(vertex.normal.z) &&
         (weightSum == 0.0F || nearlyEqual(weightSum, 1.0F, 0.001F));
     }
+    foundTintedClothPrimitive =
+      foundTintedClothPrimitive || (primitive.tintable && primitiveHasTintedVertex);
+    foundUntintedNonClothPrimitive =
+      foundUntintedNonClothPrimitive || (!primitive.tintable && primitiveHasUntintedVertex);
   }
   failures += expect(
     primitivesFiniteAndSafe &&
       primitiveVertexCount > 0U &&
-      primitiveIndexCount > 0U,
-    "GLB duelist asset should load persistent finite primitives with normalized safe skin weights"
+      primitiveIndexCount > 0U &&
+      foundTintedClothPrimitive &&
+      foundUntintedNonClothPrimitive,
+    "GLB duelist asset should load finite primitives with normalized weights and material tint masks"
   );
   failures += expect(
-    baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 60U &&
+    baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
       baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
       baseScene.gltfPlayerModelStats.poseUploadBytes ==
         duelistModel.jointCount() * 64U,
