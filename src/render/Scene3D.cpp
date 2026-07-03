@@ -337,8 +337,8 @@ constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   BillboardHandle::PlasmaGlow,
   {132, 255, 154, 255},
   {96, 255, 132, 150},
-  0.115F,
-  0.34F,
+  0.125F,
+  0.37F,
   true,
 };
 
@@ -348,8 +348,8 @@ constexpr ProjectileVisualDescriptor kRocketProjectileVisual = {
   BillboardHandle::RocketFlame,
   {255, 255, 255, 255},
   {255, 126, 48, 132},
-  0.18F,
-  0.22F,
+  0.40F,
+  0.50F,
   true,
 };
 
@@ -359,7 +359,7 @@ constexpr ProjectileVisualDescriptor kGrenadeProjectileVisual = {
   BillboardHandle::Invalid,
   {255, 255, 255, 255},
   {},
-  0.18F,
+  0.30F,
   0.0F,
   false,
 };
@@ -2179,10 +2179,31 @@ void countProjectileCoreInstance(
   }
 }
 
-[[nodiscard]] MeshHandle tracerMeshHandle(TracerStyle style) {
-  return style == TracerStyle::Shotgun
-    ? MeshHandle::ShotgunTracer
-    : MeshHandle::MachineGunTracer;
+void addTransientTracerGeometry(
+  Scene3D& scene,
+  const TransientTracer& tracer,
+  Vec3 direction,
+  float tracerLength,
+  RenderColor color
+) {
+  Vec3 right = normalize(cross(direction, {0.0F, 0.0F, 1.0F}));
+  if (length(right) <= 0.0001F) {
+    right = {1.0F, 0.0F, 0.0F};
+  }
+  const Vec3 up = normalize(cross(right, direction));
+  const float width = std::max(0.002F, tracer.width);
+  for (const Vertex3D& local : kTracerBeamMeshVertices) {
+    scene.translucentVertices.push_back({
+      tracer.start +
+        direction * (local.position.x * tracerLength) +
+        right * (local.position.y * width) +
+        up * (local.position.z * width),
+      color,
+      local.u,
+      local.v,
+      local.materialId,
+    });
+  }
 }
 
 void addTransientTracerInstances(
@@ -2204,6 +2225,7 @@ void addTransientTracerInstances(
     if (tracerLength <= 0.001F || !std::isfinite(tracerLength)) {
       continue;
     }
+    const Vec3 direction = delta * (1.0F / tracerLength);
     const Vec3 center = (tracer.start + tracer.end) * 0.5F;
     const float radius = tracerLength * 0.5F + std::max(0.01F, tracer.width);
     if (
@@ -2224,21 +2246,12 @@ void addTransientTracerInstances(
       0.0F,
       255.0F
     ));
-    appendSimpleInstance(
-      scene,
-      {
-        tracerMeshHandle(tracer.style),
-        BillboardHandle::Invalid,
-        RenderPass::TranslucentWorld,
-        tracer.start,
-        {tracerLength, std::max(0.002F, tracer.width), std::max(0.002F, tracer.width)},
-        projectileVelocityYaw(delta),
-        color,
-        static_cast<float>(tracer.seed & 0xffffU),
-        {center, radius},
-      }
-    );
+    addTransientTracerGeometry(scene, tracer, direction, tracerLength, color);
     ++scene.transientVfxStats.tracerInstancesSubmitted;
+    scene.transientVfxStats.tracerInstanceUploadBytes +=
+      static_cast<std::uint32_t>(
+        kTracerBeamMeshVertices.size() * kStaticMeshVertexUploadBytes
+      );
   }
 }
 
@@ -2389,7 +2402,10 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       kPlayerBoxCubeMeshVertices.size() * kStaticMeshVertexUploadBytes
     );
   for (const StaticMeshBatch& batch : scene.staticMeshBatches) {
-    if (batch.instanceCount == 0U || batch.pass != RenderPass::OpaqueWorld) {
+    if (batch.instanceCount == 0U) {
+      continue;
+    }
+    if (batch.pass != RenderPass::OpaqueWorld) {
       continue;
     }
     if (batch.mesh == MeshHandle::PlayerBoxCube) {
@@ -2695,8 +2711,16 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
       scene.projectileStats.projectileGlowInstances
     ) * kSimpleInstanceUploadBytes;
   scene.transientVfxStats.tracerInstanceUploadBytes =
-    scene.transientVfxStats.tracerInstancesSubmitted *
-    kSimpleInstanceUploadBytes;
+    scene.transientVfxStats.tracerInstanceUploadBytes == 0U
+      ? scene.transientVfxStats.tracerInstancesSubmitted *
+        static_cast<std::uint32_t>(
+          kTracerBeamMeshVertices.size() * kStaticMeshVertexUploadBytes
+        )
+      : scene.transientVfxStats.tracerInstanceUploadBytes;
+  if (scene.transientVfxStats.tracerInstancesSubmitted > 0U) {
+    scene.transientVfxStats.tracerBatches = 1U;
+    scene.transientVfxStats.tracerDrawCalls = 1U;
+  }
   scene.transientVfxStats.explosionInstanceUploadBytes =
     scene.transientVfxStats.explosionInstancesSubmitted *
     kSimpleInstanceUploadBytes;
@@ -2709,8 +2733,10 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
         batch.mesh == MeshHandle::MachineGunTracer ||
         batch.mesh == MeshHandle::ShotgunTracer
       ) {
-        ++scene.transientVfxStats.tracerBatches;
-        ++scene.transientVfxStats.tracerDrawCalls;
+        if (scene.transientVfxStats.tracerBatches == 0U) {
+          ++scene.transientVfxStats.tracerBatches;
+          ++scene.transientVfxStats.tracerDrawCalls;
+        }
       } else if (batch.mesh == MeshHandle::ExplosionCore) {
         ++scene.transientVfxStats.explosionOpaqueBatches;
         ++scene.transientVfxStats.explosionDrawCalls;

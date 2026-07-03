@@ -54,6 +54,9 @@ struct RenderSettings {
   bool teammateLeanEnabled = true;
   float teammateLeanScale = 1.0F;
   float healthTextScale = 2.0F;
+  int healthStyle = 0;
+  float speedTextScale = 1.5F;
+  std::string uiFont = "bahnschrift.ttf";
   float playerSizePixels = 14.0F;
   bool crosshairEnabled = true;
   int crosshairStyle = 0;
@@ -184,6 +187,9 @@ struct RenderSettings {
   bool drawRemoteWeapons = true;
   bool drawPlayerOutlines = true;
   bool frustumCullRemotePlayers = true;
+  int textureFilter = 2;
+  int textureAnisotropy = 8;
+  float textureLodBias = 0.5F;
   bool showRendererPerf = false;
   bool showRendererPerfDetail = false;
   std::uint8_t localPlayerIndex = 0;
@@ -214,6 +220,7 @@ struct HudRenderState {
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;
+  std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
   Weapon previousWeapon = Weapon::LightningGun;
   float weaponSwitchProgress = 1.0F;
@@ -302,10 +309,18 @@ struct RendererFrameDiagnostics {
   float totalRenderMilliseconds = 0.0F;
   std::uint32_t worldSourceTriangles = 0;
   std::uint32_t worldRenderedTriangles = 0;
+  std::uint32_t worldDuplicateTrianglesCulled = 0;
   std::uint32_t worldVertexCount = 0;
   std::uint32_t worldDrawCalls = 0;
+  std::uint32_t gpuDepthBits = 0;
   std::uint32_t worldLoadedTextures = 0;
+  std::uint32_t worldMissingTextures = 0;
   std::uint32_t worldReferencedMaterials = 0;
+  std::uint32_t worldMaxTextureMipLevels = 0;
+  int worldTextureFilter = 2;
+  int worldRequestedTextureAnisotropy = 8;
+  int worldAppliedTextureAnisotropy = 8;
+  float worldTextureLodBias = 0.0F;
   std::uint32_t dynamicOpaqueVertices = 0;
   std::uint32_t dynamicTranslucentVertices = 0;
   std::uint32_t totalUploadedVertices = 0;
@@ -466,7 +481,7 @@ private:
   void* gpuTransferBuffer_ = nullptr;
   void* gpuSimpleResources_ = nullptr;
   void* gpuGltfPlayerResources_ = nullptr;
-  void* gpuFontTexture_ = nullptr;
+  void* gpuFontAtlas_ = nullptr;
   void* gpuFontSampler_ = nullptr;
   void* gpuWorldTextureAtlas_ = nullptr;
   void* gpuStaticWorld_ = nullptr;
@@ -476,6 +491,7 @@ private:
   void* gpuOutlineDilationTexture_ = nullptr;
   void* gpuOutlineDepthTexture_ = nullptr;
   void* gpuOutlineMaskSampler_ = nullptr;
+  std::uint32_t gpuDepthFormat_ = 0;
   std::uint32_t gpuDepthWidth_ = 0;
   std::uint32_t gpuDepthHeight_ = 0;
   std::uint32_t gpuOutlineMaskWidth_ = 0;

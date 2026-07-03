@@ -99,9 +99,11 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
-| `cl_health_size` | float | `2` | `0.5..6` | Ingen | Arkiv | Textskala för speed/health längst ned i mitten. |
+| `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
+| `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
+| `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
 | `cl_showfps` | bool | `0` | bool | Ingen | Arkiv | Visar FPS, genomsnittlig frame time och renderer-backend i fönstertiteln. |
-| `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed. Intern hastighet multipliceras med `40`, så `8 = 320 UPS`. |
+| `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed under crosshair som `<värde> ups`. Intern hastighet multipliceras med `40`, så `8 = 320 ups`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
 | `net_sim_latency_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: extra one-way latency i ms efter connect. `60` pa bade outgoing och incoming ger ungefar +120 ms RTT. |
 | `net_sim_jitter_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: slumpad one-way variation runt `net_sim_latency_ms` per datagram. Delay clampas till minst `0`. |
@@ -180,6 +182,9 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 |---|---:|---:|---|---|---|
 | `r_vsync` | bool | `1` | bool | Q3 `r_swapInterval 0` | GPU: mailbox/vsync när på, immediate när av om plattformen stöder det. Projektet har alltså motsatt standard mot Q3. |
 | `r_frustum_cull` | bool | `1` | bool | Ingen direkt | CPU-side konservativ frustum-culling av remote player-kroppar, vapen, geometri-outline och flytande healthbars i 3D. |
+| `r_texture_filter` | int | `2` | `0..2` | Q3 `r_textureMode` närmast | World/material texture filtering. `0`: nearest. `1`: bilinear with mipmaps. `2`: trilinear with mipmaps. |
+| `r_texture_anisotropy` | int | `8` | `1..16`, renderer snappar till `1/2/4/8/16` | Q3/driver aniso settings närmast | World/material anisotropic filtering level. Unsupported anisotropy disables safely with a renderer log. |
+| `r_texture_lod_bias` | float | `0.5` | `-2..4` | Q3/driver LOD-bias närmast | World/material mip LOD bias. Positive values choose blurrier, more stable mip levels; changes recreate the sampler without reloading textures. |
 | `r_perf` | bool | `0` | bool | Ingen direkt | Visa renderer-diagnostik pa HUD. |
 | `r_perf_detail` | bool | `0` | bool | Ingen direkt | Visa detaljerad renderer-diagnostik for remote frustum-culling och geometri. |
 | `r_beam_width` | float | `2` | `1..12` | Ingen direkt stabil cvar | Local LG beam width in first-person world units. |

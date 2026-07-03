@@ -39,11 +39,17 @@ struct Line2D {
   float width = 1.0F;
 };
 
+enum class TextHorizontalAlignment : std::uint8_t {
+  Left,
+  Center,
+};
+
 struct Text2D {
   ScreenPoint position = {};
   std::string text;
   RenderColor color = {};
   float scale = 1.0F;
+  TextHorizontalAlignment horizontalAlignment = TextHorizontalAlignment::Left;
 };
 
 using DrawCommand2D = std::variant<FilledQuad2D, Line2D, Text2D>;
