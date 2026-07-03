@@ -486,9 +486,10 @@ int main() {
           foundScoreboardTitle || text->text == "SCOREBOARD";
         foundSpeed =
           foundSpeed ||
-          (text->text == "320 ups" && text->position.x > 560.0F &&
-           text->position.x < 660.0F && text->position.y > 380.0F &&
-           text->position.y < 400.0F);
+          (text->text == "320 ups" && text->position.x == 640.0F &&
+           text->horizontalAlignment ==
+             lg::TextHorizontalAlignment::Center &&
+           text->position.y > 380.0F && text->position.y < 400.0F);
         foundLegacySpeedText =
           foundLegacySpeedText || text->text == "SPEED 320 UPS";
         for (std::size_t index = 0; index < weaponLabels.size(); ++index) {
@@ -631,6 +632,19 @@ int main() {
     );
     const lg::Text2D* healthNumber = findText(crosshairHealthUi, "50");
     const lg::Text2D* ammo = findText(crosshairHealthUi, "\xE2\x88\x9E");
+    crosshairHealthSettings.healthTextScale = 6.0F;
+    const lg::DrawList2D largeCrosshairHealthUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      crosshairHealthSettings,
+      crosshairHealthHud,
+      console
+    );
+    const lg::Text2D* largeHealthNumber =
+      findText(largeCrosshairHealthUi, "50");
+    const lg::Text2D* largeAmmo =
+      findText(largeCrosshairHealthUi, "\xE2\x88\x9E");
     failures += expect(
       healthNumber != nullptr &&
         healthNumber->position.x > 500.0F &&
@@ -647,8 +661,14 @@ int main() {
         ammo->position.y < 410.0F &&
         ammo->color.red == 255 &&
         ammo->color.green == 72 &&
-        ammo->color.blue == 54,
-      "health style 2 should place HP left of the crosshair and infinite ammo in weapon color on the right"
+        ammo->color.blue == 54 &&
+        largeHealthNumber != nullptr &&
+        largeAmmo != nullptr &&
+        largeHealthNumber->position.x +
+            2.0F * 8.0F * 6.0F ==
+          healthNumber->position.x + 2.0F * 8.0F * 2.0F &&
+        largeAmmo->position.x == ammo->position.x,
+      "health style 2 should anchor HP and ammo near the crosshair without scaling their spacing apart"
     );
   }
 

@@ -310,7 +310,7 @@ void addCrosshairHealthAndAmmo(
   const float centerX = static_cast<float>(width) * 0.5F;
   const float centerY = static_cast<float>(height) * 0.5F;
   const float y = centerY + std::max(22.0F, settings.crosshairGap + settings.crosshairSize + 10.0F);
-  const float sideOffset = 46.0F * scale;
+  constexpr float sideOffset = 56.0F;
   const float healthWidth = textWidth(healthText, scale);
 
   addText(
@@ -344,11 +344,6 @@ void addSpeedText(
 
   const float scale = std::clamp(settings.speedTextScale, 0.5F, 6.0F);
   const float snappedScale = snappedTextScale(scale);
-  const float widthPixels = textWidth(hud.speedText, scale);
-  const float x = std::max(
-    12.0F,
-    (static_cast<float>(width) - widthPixels) * 0.5F
-  );
   const float crosshairReach = settings.crosshairEnabled
     ? settings.crosshairGap + settings.crosshairSize
     : 0.0F;
@@ -356,7 +351,15 @@ void addSpeedText(
     static_cast<float>(height) * 0.5F +
     std::max(24.0F, crosshairReach + 14.0F) +
     snappedScale * 2.0F;
-  addText(drawList, x, y, hud.speedText, {230, 238, 246, 225}, scale);
+  addText(
+    drawList,
+    static_cast<float>(width) * 0.5F,
+    y,
+    hud.speedText,
+    {230, 238, 246, 225},
+    scale,
+    TextHorizontalAlignment::Center
+  );
 }
 
 [[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
