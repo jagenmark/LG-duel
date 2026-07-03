@@ -102,5 +102,38 @@ int main() {
     );
   }
 
+  {
+    lg::Arena brushArena;
+    brushArena.min = {-200.0F, -200.0F, -200.0F};
+    brushArena.max = {200.0F, 200.0F, 200.0F};
+    brushArena.brushCount = 1;
+    lg::ArenaBrush& brush = brushArena.brushes[0];
+    brush.min = {-1.0F, -1.0F, 0.0F};
+    brush.max = {1.0F, 1.0F, 2.0F};
+    brush.faceCount = 1;
+    brush.faces[0].normal = {1.0F, 0.0F, 0.0F};
+    brush.faces[0].distance = 100.0F;
+
+    lg::PlayerState player;
+    player.position = {10.0F, 0.0F, 1.0F};
+    const lg::CollisionResult result = lg::resolvePlayerArenaCollision(
+      brushArena,
+      player,
+      {10.0F, 0.0F, 1.0F},
+      {-1.0F, 0.0F, 0.0F}
+    );
+
+    failures += expect(
+      nearlyEqual(result.position.x, 10.0F) &&
+        nearlyEqual(result.position.y, 0.0F) &&
+        nearlyEqual(result.position.z, 1.0F),
+      "brush planes should not collide when swept player bounds miss brush bounds"
+    );
+    failures += expect(
+      nearlyEqual(result.velocity.x, -1.0F),
+      "out-of-bounds brush plane rejection should preserve velocity"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }
