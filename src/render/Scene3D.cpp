@@ -337,8 +337,8 @@ constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   BillboardHandle::PlasmaGlow,
   {132, 255, 154, 255},
   {96, 255, 132, 150},
-  0.115F,
-  0.34F,
+  0.125F,
+  0.37F,
   true,
 };
 
@@ -348,8 +348,8 @@ constexpr ProjectileVisualDescriptor kRocketProjectileVisual = {
   BillboardHandle::RocketFlame,
   {255, 255, 255, 255},
   {255, 126, 48, 132},
-  0.18F,
-  0.22F,
+  0.40F,
+  0.50F,
   true,
 };
 
@@ -359,7 +359,7 @@ constexpr ProjectileVisualDescriptor kGrenadeProjectileVisual = {
   BillboardHandle::Invalid,
   {255, 255, 255, 255},
   {},
-  0.18F,
+  0.30F,
   0.0F,
   false,
 };
