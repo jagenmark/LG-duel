@@ -422,6 +422,60 @@
 ( 960 12 -444 ) ( 961 12 -444 ) ( 960 12 -443 ) Tiny2/Stone/Stone_02-128x128 0 0 0 1 1
 ( 960 12 -444 ) ( 960 12 -443 ) ( 960 13 -444 ) Tiny2/Stone/Stone_02-128x128 0 0 0 1 1
 }
+// brush 44
+{
+( 832 128 -576 ) ( 832 129 -576 ) ( 832 128 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 832 64 -576 ) ( 831 64 -576 ) ( 832 64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 960 0 -640 ) ( 960 1 -640 ) ( 959 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 832 128 -576 ) ( 831 128 -576 ) ( 832 129 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 832 128 -576 ) ( 832 128 -575 ) ( 831 128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 896 0 -640 ) ( 896 0 -639 ) ( 896 1 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+}
+// brush 45
+{
+( 768 64 -576 ) ( 768 0 -640 ) ( 768 64 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 768 64 -640 ) ( 832 128 -576 ) ( 768 64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 832 0 -576 ) ( 768 0 -640 ) ( 768 0 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 832 128 -640 ) ( 768 0 -640 ) ( 832 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 832 128 -576 ) ( 768 0 -576 ) ( 768 64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 832 128 -576 ) ( 832 0 -640 ) ( 832 0 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+}
+// brush 46
+{
+( 832 128 -576 ) ( 832 129 -576 ) ( 832 128 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 960 0 -640 ) ( 959 0 -640 ) ( 960 0 -639 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 960 0 -640 ) ( 960 1 -640 ) ( 959 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 832 128 -576 ) ( 831 128 -576 ) ( 832 129 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 832 64 -576 ) ( 832 64 -575 ) ( 831 64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 960 0 -640 ) ( 960 0 -639 ) ( 960 1 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+}
+// brush 47
+{
+( 768 -64 -576 ) ( 768 -64 -575 ) ( 768 -65 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 768 -64 -576 ) ( 767 -64 -576 ) ( 768 -64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 896 64 -640 ) ( 895 64 -640 ) ( 896 63 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 768 -64 -576 ) ( 768 -65 -576 ) ( 767 -64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 896 0 -640 ) ( 896 0 -639 ) ( 895 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 832 -64 -576 ) ( 832 -65 -576 ) ( 832 -64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+}
+// brush 48
+{
+( 832 -128 -640 ) ( 768 -64 -576 ) ( 832 -128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 832 -128 -576 ) ( 896 -128 -640 ) ( 832 -128 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 768 -64 -640 ) ( 896 -128 -640 ) ( 896 -64 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 768 -64 -576 ) ( 896 -128 -576 ) ( 832 -128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 768 -64 -576 ) ( 896 -64 -640 ) ( 896 -64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 928 -64 -576 ) ( 928 -128 -640 ) ( 928 -128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+}
+// brush 49
+{
+( 832 -64 -576 ) ( 832 -64 -575 ) ( 832 -65 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 768 -64 -576 ) ( 767 -64 -576 ) ( 768 -64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 896 64 -640 ) ( 895 64 -640 ) ( 896 63 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 768 -64 -576 ) ( 768 -65 -576 ) ( 767 -64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
+( 896 0 -640 ) ( 896 0 -639 ) ( 895 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+( 960 64 -640 ) ( 960 63 -640 ) ( 960 64 -639 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
+}
 }
 // entity 1
 {
@@ -457,84 +511,11 @@
 "classname" "func_group"
 "_tb_type" "_tb_group"
 "_tb_name" "Unnamed"
-"_tb_id" "214"
-"_tb_linked_group_id" "e0ef99c9-4bc9-4fb7-a029-9c8b466a97c3"
-"_tb_transformation" "-1 -1.2246467991473532e-16 0 0 1.2246467991473532e-16 -1 0 0 0 0 1 0 0 0 0 1"
-}
-// entity 5
-{
-"classname" "func_group"
-"_tb_type" "_tb_group"
-"_tb_name" "Unnamed"
-"_tb_id" "227"
-"_tb_linked_group_id" "f8e92ddb-2dba-416e-a366-18846f26cb54"
-"_tb_transformation" "3.0616169978683836e-16 -1 0 896.0000000000002 1 3.0616169978683836e-16 0 895.9999999999998 0 0 1 0 0 0 0 1"
-"_tb_group" "214"
-// brush 0
-{
-( 832 128 -576 ) ( 832 129 -576 ) ( 832 128 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 832 64 -576 ) ( 831 64 -576 ) ( 832 64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 960 0 -640 ) ( 960 1 -640 ) ( 959 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 832 128 -576 ) ( 831 128 -576 ) ( 832 129 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 832 128 -576 ) ( 832 128 -575 ) ( 831 128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 896 0 -640 ) ( 896 0 -639 ) ( 896 1 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-}
-// brush 1
-{
-( 768 64 -576 ) ( 768 0 -640 ) ( 768 64 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 768 64 -640 ) ( 832 128 -576 ) ( 768 64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 832 0 -576 ) ( 768 0 -640 ) ( 768 0 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 832 128 -640 ) ( 768 0 -640 ) ( 832 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 832 128 -576 ) ( 768 0 -576 ) ( 768 64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 832 128 -576 ) ( 832 0 -640 ) ( 832 0 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-}
-// brush 2
-{
-( 832 128 -576 ) ( 832 129 -576 ) ( 832 128 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 960 0 -640 ) ( 959 0 -640 ) ( 960 0 -639 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 960 0 -640 ) ( 960 1 -640 ) ( 959 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 832 128 -576 ) ( 831 128 -576 ) ( 832 129 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 832 64 -576 ) ( 832 64 -575 ) ( 831 64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 960 0 -640 ) ( 960 0 -639 ) ( 960 1 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-}
-// brush 3
-{
-( 768 -64 -576 ) ( 768 -64 -575 ) ( 768 -65 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 768 -64 -576 ) ( 767 -64 -576 ) ( 768 -64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 896 64 -640 ) ( 895 64 -640 ) ( 896 63 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 768 -64 -576 ) ( 768 -65 -576 ) ( 767 -64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 896 0 -640 ) ( 896 0 -639 ) ( 895 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 832 -64 -576 ) ( 832 -65 -576 ) ( 832 -64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-}
-// brush 4
-{
-( 832 -128 -640 ) ( 768 -64 -576 ) ( 832 -128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 832 -128 -576 ) ( 896 -128 -640 ) ( 832 -128 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 768 -64 -640 ) ( 896 -128 -640 ) ( 896 -64 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 768 -64 -576 ) ( 896 -128 -576 ) ( 832 -128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 768 -64 -576 ) ( 896 -64 -640 ) ( 896 -64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 928 -64 -576 ) ( 928 -128 -640 ) ( 928 -128 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-}
-// brush 5
-{
-( 832 -64 -576 ) ( 832 -64 -575 ) ( 832 -65 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 768 -64 -576 ) ( 767 -64 -576 ) ( 768 -64 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 896 64 -640 ) ( 895 64 -640 ) ( 896 63 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 768 -64 -576 ) ( 768 -65 -576 ) ( 767 -64 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 1
-( 896 0 -640 ) ( 896 0 -639 ) ( 895 0 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-( 960 64 -640 ) ( 960 63 -640 ) ( 960 64 -639 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
-}
-}
-// entity 6
-{
-"classname" "func_group"
-"_tb_type" "_tb_group"
-"_tb_name" "Unnamed"
 "_tb_id" "217"
 "_tb_linked_group_id" "e0ef99c9-4bc9-4fb7-a029-9c8b466a97c3"
 "_tb_transformation" "6.123233995736766e-17 -1 0 0 1 6.123233995736766e-17 0 -5.684341886080802e-14 0 0 1 0 0 0 0 1"
 }
-// entity 7
+// entity 5
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -598,7 +579,7 @@
 ( 0 -896 -640 ) ( 0 -896 -639 ) ( 0 -895 -640 ) Tiny/Bricks/Bricks_16-128x128 0 0 0 1 1
 }
 }
-// entity 8
+// entity 6
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -607,7 +588,7 @@
 "_tb_linked_group_id" "e0ef99c9-4bc9-4fb7-a029-9c8b466a97c3"
 "_tb_transformation" "-1.8369701987210297e-16 1 0 -2.2737367544323206e-13 -1 -1.8369701987210297e-16 0 0 0 0 1 0 0 0 0 1"
 }
-// entity 9
+// entity 7
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -671,7 +652,7 @@
 ( 64 768 -576 ) ( 64 767 -576 ) ( 64 768 -575 ) Tiny/Bricks/Bricks_16-128x128 0 0 180 1 -1
 }
 }
-// entity 10
+// entity 8
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -679,7 +660,7 @@
 "_tb_id" "223"
 "_tb_linked_group_id" "e0ef99c9-4bc9-4fb7-a029-9c8b466a97c3"
 }
-// entity 11
+// entity 9
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -743,33 +724,33 @@
 ( -832 64 -576 ) ( -832 64 -575 ) ( -832 65 -576 ) Tiny/Bricks/Bricks_16-128x128 0 0 0 1 1
 }
 }
-// entity 12
+// entity 10
 {
 "classname" "lg_spawn"
 "origin" "896 0 -576"
 "angle" "180"
 }
-// entity 13
+// entity 11
 {
 "classname" "lg_spawn"
 "origin" "0 -880 -576"
 "yaw" "270"
 "angle" "90"
 }
-// entity 14
+// entity 12
 {
 "classname" "light_sun"
 "origin" "-20 60 540.322"
 "intensity" "1"
 }
-// entity 15
+// entity 13
 {
 "classname" "light_point"
 "origin" "944 0 -464"
 "light" "2000"
 "radius" "500"
 }
-// entity 16
+// entity 14
 {
 "classname" "light_point"
 "origin" "376 -464 -624.35"
@@ -777,7 +758,7 @@
 "light" "1000"
 "radius" "800"
 }
-// entity 17
+// entity 15
 {
 "classname" "light_point"
 "origin" "424 432 -624.35"
@@ -785,7 +766,7 @@
 "light" "1000"
 "radius" "800"
 }
-// entity 18
+// entity 16
 {
 "classname" "light_point"
 "origin" "-480 368 -624.35"
@@ -793,7 +774,7 @@
 "light" "1000"
 "radius" "800"
 }
-// entity 19
+// entity 17
 {
 "classname" "light_point"
 "origin" "-392 -448 -624.35"
@@ -801,7 +782,7 @@
 "light" "1000"
 "radius" "800"
 }
-// entity 20
+// entity 18
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -854,7 +835,7 @@
 ( 4 -960 -444 ) ( 4 -961 -444 ) ( 4 -960 -443 ) Tiny2/Stone/Stone_02-128x128 0 0 0 1 1
 }
 }
-// entity 21
+// entity 19
 {
 "classname" "light_point"
 "origin" "-4 -944 -464"
@@ -862,7 +843,7 @@
 "radius" "500"
 "_tb_group" "228"
 }
-// entity 22
+// entity 20
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -916,7 +897,7 @@
 ( -952 -12 -480 ) ( -952 -11 -480 ) ( -952 -12 -481 ) Tiny2/Stone/Stone_02-128x128 0 0 0 1 1
 }
 }
-// entity 23
+// entity 21
 {
 "classname" "light_point"
 "origin" "-944 0 -464"
@@ -924,7 +905,7 @@
 "radius" "500"
 "_tb_group" "229"
 }
-// entity 24
+// entity 22
 {
 "classname" "func_group"
 "_tb_type" "_tb_group"
@@ -978,7 +959,7 @@
 ( 8 960 -484 ) ( 8 961 -484 ) ( 8 960 -485 ) Tiny2/Stone/Stone_02-128x128 0 0 0 1 1
 }
 }
-// entity 25
+// entity 23
 {
 "classname" "light_point"
 "origin" "0 944 -464"

@@ -814,5 +814,76 @@ int main() {
     );
   }
 
+  {
+    lg::Arena squareArena;
+    lg::PlayerState squarePlayer = groundedPlayer();
+    squarePlayer.velocity.z = 2.2F;
+    squarePlayer.knockbackTicksRemaining = 2;
+    lg::UserCommand command;
+    lg::simulateMovement(
+      squarePlayer,
+      command,
+      squareArena,
+      lg::MovementTuning{},
+      lg::kFixedTickSeconds
+    );
+
+    const std::string triangularRampBrush =
+      "{\n"
+      "( -80 -80 0 ) ( -80 -80 32 ) ( -80 80 32 ) stone 0 0 0 1 1\n"
+      "( -80 -80 0 ) ( 80 -80 0 ) ( -80 -80 32 ) stone 0 0 0 1 1\n"
+      "( 80 -80 0 ) ( 80 80 0 ) ( 80 80 48 ) stone 0 0 0 1 1\n"
+      "( -80 80 0 ) ( -80 80 32 ) ( 80 80 48 ) stone 0 0 0 1 1\n"
+      "( -80 -80 0 ) ( -80 80 0 ) ( 80 80 0 ) stone 0 0 0 1 1\n"
+      "( -80 -80 32 ) ( 80 -80 0 ) ( 80 80 48 ) stone 0 0 0 1 1\n"
+      "}\n";
+    const lg::ArenaLoadResult loaded =
+      lg::loadArenaFromMapText(basicMapWithBrush(triangularRampBrush));
+    failures += expect(loaded.ok, "triangular sloped brush map should load");
+    failures += expect(
+      loaded.arena.brushCount == 1,
+      "triangular sloped brush should import as brush geometry"
+    );
+
+    lg::PlayerState brushPlayer = groundedPlayer();
+    brushPlayer.position = {-0.1F, 0.0F, brushPlayer.bounds.halfHeight + 0.45F};
+    brushPlayer.onGround = false;
+    brushPlayer.movementMode = lg::MovementMode::Airborne;
+    for (int tick = 0; tick < 80 && !brushPlayer.onGround; ++tick) {
+      lg::simulateMovement(
+        brushPlayer,
+        command,
+        loaded.arena,
+        lg::MovementTuning{},
+        lg::kFixedTickSeconds
+      );
+    }
+    failures += expect(brushPlayer.onGround, "test player should settle onto triangular sloped brush");
+
+    const float brushStartZ = brushPlayer.position.z;
+    brushPlayer.velocity.z = 2.2F;
+    brushPlayer.knockbackTicksRemaining = 2;
+    lg::simulateMovement(
+      brushPlayer,
+      command,
+      loaded.arena,
+      lg::MovementTuning{},
+      lg::kFixedTickSeconds
+    );
+
+    failures += expect(
+      squarePlayer.position.z > squarePlayer.bounds.halfHeight &&
+        squarePlayer.velocity.z > 2.0F &&
+        !squarePlayer.onGround,
+      "upward knockback should immediately lift off a square floor"
+    );
+    failures += expect(
+      brushPlayer.position.z > brushStartZ + 0.01F &&
+        brushPlayer.velocity.z > 2.0F &&
+        !brushPlayer.onGround,
+      "upward knockback should immediately lift off a triangular sloped brush"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }

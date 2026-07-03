@@ -67,6 +67,18 @@ lg_duel_set_warnings(lg_duel_server_tests)
 
 add_test(NAME lg_duel_server_tests COMMAND lg_duel_server_tests)
 
+add_executable(lg_duel_projectile_self_knockback_tests
+  net/ProjectileSelfKnockbackTests.cpp
+)
+
+target_link_libraries(lg_duel_projectile_self_knockback_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_projectile_self_knockback_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_projectile_self_knockback_tests)
+
+add_test(
+  NAME lg_duel_projectile_self_knockback_tests
+  COMMAND lg_duel_projectile_self_knockback_tests
+)
 add_executable(lg_duel_bot_server_tests
   net/BotServerTests.cpp
 )

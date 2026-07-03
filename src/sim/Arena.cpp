@@ -98,6 +98,7 @@ void resolveWallCollision(
   const float stepHeight = wall.max.z - previousPlayerMinZ;
   if (
     player.onGround &&
+    result.velocity.z <= 0.0F &&
     stepHeight > 0.0F &&
     stepHeight <= kStepHeight
   ) {
@@ -198,30 +199,41 @@ void resolveBrushCollision(
     if (face.normal.z <= kWalkableNormalZ) {
       continue;
     }
+    const float previousSurfaceZ =
+      (face.distance - (face.normal.x * previousPosition.x) - (face.normal.y * previousPosition.y)) /
+      face.normal.z;
     const float surfaceZ =
       (face.distance - (face.normal.x * result.position.x) - (face.normal.y * result.position.y)) /
       face.normal.z;
-    if (!std::isfinite(surfaceZ)) {
-      continue;
-    }
-    const bool landingOnFace =
-      previousBottom >= surfaceZ - kCollisionEpsilon &&
-      currentBottom <= surfaceZ + kCollisionEpsilon &&
-      result.velocity.z <= 0.0F;
-    const bool steppingOntoFace =
-      player.onGround &&
-      surfaceZ >= previousBottom - kCollisionEpsilon &&
-      surfaceZ - previousBottom <= kStepHeight;
-    if (!landingOnFace && !steppingOntoFace) {
+    if (!std::isfinite(previousSurfaceZ) || !std::isfinite(surfaceZ)) {
       continue;
     }
     if (!pointInsideBrushPlanarExpansion({result.position.x, result.position.y, surfaceZ}, index)) {
       continue;
     }
-    result.position.z = surfaceZ + player.bounds.halfHeight;
-    result.velocity.z = std::max(0.0F, result.velocity.z);
-    result.onGround = true;
-    return;
+    const bool landingOnFace =
+      previousBottom >= previousSurfaceZ - kCollisionEpsilon &&
+      currentBottom <= surfaceZ + kCollisionEpsilon &&
+      result.velocity.z <= 0.0F;
+    const bool steppingOntoFace =
+      player.onGround &&
+      result.velocity.z <= 0.0F &&
+      surfaceZ >= previousBottom - kCollisionEpsilon &&
+      surfaceZ - previousBottom <= kStepHeight;
+    if (landingOnFace || steppingOntoFace) {
+      result.position.z = surfaceZ + player.bounds.halfHeight;
+      result.velocity.z = std::max(0.0F, result.velocity.z);
+      result.onGround = true;
+      return;
+    }
+
+    const bool movingAwayFromFace =
+      previousBottom >= previousSurfaceZ - kCollisionEpsilon &&
+      currentBottom >= surfaceZ - kCollisionEpsilon &&
+      result.velocity.z > 0.0F;
+    if (movingAwayFromFace) {
+      return;
+    }
   }
 
   float minimumPenetration = std::numeric_limits<float>::max();
