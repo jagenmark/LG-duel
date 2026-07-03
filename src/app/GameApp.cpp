@@ -70,6 +70,7 @@ constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
 constexpr std::size_t kMaxConsumedTracerEvents = 64;
 constexpr std::size_t kMaxConsumedExplosionEvents = 64;
+constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
 
 [[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
@@ -634,6 +635,43 @@ struct TransientTracerStore {
 
 };
 
+struct LocalTracerAim {
+  std::uint32_t sequence = 0;
+  float yawRadians = 0.0F;
+  float pitchRadians = 0.0F;
+  bool active = false;
+};
+
+struct LocalTracerAimHistory {
+  std::array<LocalTracerAim, kLocalTracerAimHistorySize> entries = {};
+  std::size_t next = 0;
+
+  void remember(const UserCommand& command) {
+    entries[next] = {
+      command.sequence,
+      command.viewYawRadians,
+      command.viewPitchRadians,
+      true,
+    };
+    next = (next + 1U) % entries.size();
+  }
+
+  [[nodiscard]] bool find(
+    std::uint32_t sequence,
+    float& yawRadians,
+    float& pitchRadians
+  ) const {
+    for (const LocalTracerAim& entry : entries) {
+      if (entry.active && entry.sequence == sequence) {
+        yawRadians = entry.yawRadians;
+        pitchRadians = entry.pitchRadians;
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
 [[nodiscard]] RenderColor tracerColor(Weapon weapon, std::uint32_t seed) {
   const std::uint8_t variation =
     static_cast<std::uint8_t>((seed * 17U + 31U) & 23U);
@@ -651,6 +689,34 @@ struct TransientTracerStore {
     118,
     185,
   };
+}
+
+[[nodiscard]] float localTracerVisualRange(const WeaponFireResult& fire) {
+  const float fireDistance = length(fire.end - fire.start);
+  if (std::isfinite(fireDistance) && fireDistance > 0.001F) {
+    return fireDistance;
+  }
+  return fire.weapon == Weapon::Shotgun ? 18.0F : 100.0F;
+}
+
+[[nodiscard]] WeaponFireResult localPerspectiveTracerFire(
+  const Arena& arena,
+  const WeaponFireResult& fire,
+  Vec3 visualStart,
+  const PlayerState& localPlayer,
+  const LocalTracerAimHistory& localAimHistory
+) {
+  float yawRadians = localPlayer.viewYawRadians;
+  float pitchRadians = localPlayer.viewPitchRadians;
+  (void)localAimHistory.find(fire.visualSeed, yawRadians, pitchRadians);
+
+  WeaponFireResult visualFire = fire;
+  const Vec3 direction = cameraForward(yawRadians, pitchRadians);
+  const WorldTrace trace =
+    traceWorld(arena, visualStart, direction, localTracerVisualRange(fire));
+  visualFire.start = visualStart;
+  visualFire.end = trace.end;
+  return visualFire;
 }
 
 void spawnMachineGunTracer(
@@ -738,6 +804,7 @@ void consumeTracerWeaponFires(
   const PlayerState& localPlayer,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const LocalTracerAimHistory& localAimHistory,
   const RenderSettings& settings
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
@@ -755,30 +822,50 @@ void consumeTracerWeaponFires(
     const bool localEvent =
       playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
     if (fire.weapon == Weapon::MachineGun) {
+      const Vec3 visualStart = machineGunTracerSource(
+        fire,
+        localPlayer,
+        remotePlayers,
+        playerIndex,
+        settings
+      );
+      const WeaponFireResult visualFire = localEvent
+        ? localPerspectiveTracerFire(
+            arena,
+            fire,
+            visualStart,
+            localPlayer,
+            localAimHistory
+          )
+        : fire;
       spawnMachineGunTracer(
         store,
-        fire,
-        machineGunTracerSource(
-          fire,
-          localPlayer,
-          remotePlayers,
-          playerIndex,
-          settings
-        ),
+        visualFire,
+        visualStart,
         localEvent
       );
     } else {
+      const Vec3 visualStart = shotgunTracerSource(
+        fire,
+        localPlayer,
+        remotePlayers,
+        playerIndex,
+        settings
+      );
+      const WeaponFireResult visualFire = localEvent
+        ? localPerspectiveTracerFire(
+            arena,
+            fire,
+            visualStart,
+            localPlayer,
+            localAimHistory
+          )
+        : fire;
       spawnShotgunTracers(
         store,
         arena,
-        fire,
-        shotgunTracerSource(
-          fire,
-          localPlayer,
-          remotePlayers,
-          playerIndex,
-          settings
-        ),
+        visualFire,
+        visualStart,
         localEvent
       );
     }
@@ -3592,6 +3679,7 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
   TransientTracerStore transientTracerStore;
+  LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
   std::vector<TransientEffect> activeTransientEffects;
   activeTransientTracers.reserve(kMaxTransientTracers);
@@ -4229,6 +4317,7 @@ int GameApp::run() const {
               effectiveSensitivity,
               selectedWeapon
             );
+      localTracerAimHistory.remember(command);
       std::string playerNameForCommand = std::move(pendingPlayerName);
       const std::string configuredPlayerName = console.getString("cl_player_name");
       if (
@@ -5534,6 +5623,7 @@ int GameApp::run() const {
       renderPlayer,
       renderRemotePlayers,
       renderWeaponFires,
+      localTracerAimHistory,
       currentRenderSettings
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
