@@ -70,6 +70,7 @@ constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
 constexpr std::size_t kMaxConsumedTracerEvents = 64;
 constexpr std::size_t kMaxConsumedExplosionEvents = 64;
+constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
 
 [[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
@@ -634,6 +635,43 @@ struct TransientTracerStore {
 
 };
 
+struct LocalTracerAim {
+  std::uint32_t sequence = 0;
+  float yawRadians = 0.0F;
+  float pitchRadians = 0.0F;
+  bool active = false;
+};
+
+struct LocalTracerAimHistory {
+  std::array<LocalTracerAim, kLocalTracerAimHistorySize> entries = {};
+  std::size_t next = 0;
+
+  void remember(const UserCommand& command) {
+    entries[next] = {
+      command.sequence,
+      command.viewYawRadians,
+      command.viewPitchRadians,
+      true,
+    };
+    next = (next + 1U) % entries.size();
+  }
+
+  [[nodiscard]] bool find(
+    std::uint32_t sequence,
+    float& yawRadians,
+    float& pitchRadians
+  ) const {
+    for (const LocalTracerAim& entry : entries) {
+      if (entry.active && entry.sequence == sequence) {
+        yawRadians = entry.yawRadians;
+        pitchRadians = entry.pitchRadians;
+        return true;
+      }
+    }
+    return false;
+  }
+};
+
 [[nodiscard]] RenderColor tracerColor(Weapon weapon, std::uint32_t seed) {
   const std::uint8_t variation =
     static_cast<std::uint8_t>((seed * 17U + 31U) & 23U);
@@ -651,6 +689,34 @@ struct TransientTracerStore {
     118,
     185,
   };
+}
+
+[[nodiscard]] float localTracerVisualRange(const WeaponFireResult& fire) {
+  const float fireDistance = length(fire.end - fire.start);
+  if (std::isfinite(fireDistance) && fireDistance > 0.001F) {
+    return fireDistance;
+  }
+  return fire.weapon == Weapon::Shotgun ? 18.0F : 100.0F;
+}
+
+[[nodiscard]] WeaponFireResult localPerspectiveTracerFire(
+  const Arena& arena,
+  const WeaponFireResult& fire,
+  Vec3 visualStart,
+  const PlayerState& localPlayer,
+  const LocalTracerAimHistory& localAimHistory
+) {
+  float yawRadians = localPlayer.viewYawRadians;
+  float pitchRadians = localPlayer.viewPitchRadians;
+  (void)localAimHistory.find(fire.visualSeed, yawRadians, pitchRadians);
+
+  WeaponFireResult visualFire = fire;
+  const Vec3 direction = cameraForward(yawRadians, pitchRadians);
+  const WorldTrace trace =
+    traceWorld(arena, visualStart, direction, localTracerVisualRange(fire));
+  visualFire.start = visualStart;
+  visualFire.end = trace.end;
+  return visualFire;
 }
 
 void spawnMachineGunTracer(
@@ -738,6 +804,7 @@ void consumeTracerWeaponFires(
   const PlayerState& localPlayer,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const LocalTracerAimHistory& localAimHistory,
   const RenderSettings& settings
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
@@ -755,30 +822,50 @@ void consumeTracerWeaponFires(
     const bool localEvent =
       playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
     if (fire.weapon == Weapon::MachineGun) {
+      const Vec3 visualStart = machineGunTracerSource(
+        fire,
+        localPlayer,
+        remotePlayers,
+        playerIndex,
+        settings
+      );
+      const WeaponFireResult visualFire = localEvent
+        ? localPerspectiveTracerFire(
+            arena,
+            fire,
+            visualStart,
+            localPlayer,
+            localAimHistory
+          )
+        : fire;
       spawnMachineGunTracer(
         store,
-        fire,
-        machineGunTracerSource(
-          fire,
-          localPlayer,
-          remotePlayers,
-          playerIndex,
-          settings
-        ),
+        visualFire,
+        visualStart,
         localEvent
       );
     } else {
+      const Vec3 visualStart = shotgunTracerSource(
+        fire,
+        localPlayer,
+        remotePlayers,
+        playerIndex,
+        settings
+      );
+      const WeaponFireResult visualFire = localEvent
+        ? localPerspectiveTracerFire(
+            arena,
+            fire,
+            visualStart,
+            localPlayer,
+            localAimHistory
+          )
+        : fire;
       spawnShotgunTracers(
         store,
         arena,
-        fire,
-        shotgunTracerSource(
-          fire,
-          localPlayer,
-          remotePlayers,
-          playerIndex,
-          settings
-        ),
+        visualFire,
+        visualStart,
         localEvent
       );
     }
@@ -949,8 +1036,26 @@ struct FrameTimeHistory {
   sample.geometryOutlineDynamicVertices =
     renderDiagnostics.geometryOutlineDynamicVertices;
   sample.outlinedPlayers = renderDiagnostics.outlinedPlayers;
+  sample.outlineStyle = renderDiagnostics.outlineStyle;
   sample.outlineMaskWidth = renderDiagnostics.outlineMaskWidth;
   sample.outlineMaskHeight = renderDiagnostics.outlineMaskHeight;
+  sample.outlineWorkWidth = renderDiagnostics.outlineWorkWidth;
+  sample.outlineWorkHeight = renderDiagnostics.outlineWorkHeight;
+  sample.outlineWorkScale = renderDiagnostics.outlineWorkScale;
+  sample.outlineWorkRectX = renderDiagnostics.outlineWorkRectX;
+  sample.outlineWorkRectY = renderDiagnostics.outlineWorkRectY;
+  sample.outlineWorkRectWidth = renderDiagnostics.outlineWorkRectWidth;
+  sample.outlineWorkRectHeight = renderDiagnostics.outlineWorkRectHeight;
+  sample.outlineWorkAreaPercent = renderDiagnostics.outlineWorkAreaPercent;
+  sample.outlineMaskDrawCalls = renderDiagnostics.outlineMaskDrawCalls;
+  sample.outlineDilationDrawCalls =
+    renderDiagnostics.outlineDilationDrawCalls;
+  sample.outlineCompositeDrawCalls =
+    renderDiagnostics.outlineCompositeDrawCalls;
+  sample.outlineUploadBytes = renderDiagnostics.outlineUploadBytes;
+  sample.outlineGpuTimingAvailable =
+    renderDiagnostics.outlineGpuTimingAvailable;
+  sample.outlineGpuMilliseconds = renderDiagnostics.outlineGpuMilliseconds;
   sample.outlinePasses = renderDiagnostics.outlinePasses;
   sample.outlineCompositeEnabled = renderDiagnostics.outlineCompositeEnabled;
   sample.geometryOutlineFallbackUsed =
@@ -965,6 +1070,30 @@ struct FrameTimeHistory {
   sample.remoteWeaponDrawCalls = renderDiagnostics.remoteWeaponDrawCalls;
   sample.legacyRemoteWeaponDynamicVertices =
     renderDiagnostics.legacyRemoteWeaponDynamicVertices;
+  sample.gltfPlayerModelInstances =
+    renderDiagnostics.gltfPlayerModelInstances;
+  sample.gltfPlayerModelFrustumCulled =
+    renderDiagnostics.gltfPlayerModelFrustumCulled;
+  sample.gltfStaticMeshGpuBytes =
+    renderDiagnostics.gltfStaticMeshGpuBytes;
+  sample.gltfStaticIndexGpuBytes =
+    renderDiagnostics.gltfStaticIndexGpuBytes;
+  sample.gltfPoseUploadBytes =
+    renderDiagnostics.gltfPoseUploadBytes;
+  sample.gltfBonePaletteEntriesUploaded =
+    renderDiagnostics.gltfBonePaletteEntriesUploaded;
+  sample.gltfRigidFallbackInstances =
+    renderDiagnostics.gltfRigidFallbackInstances;
+  sample.gltfGpuSkinnedInstances =
+    renderDiagnostics.gltfGpuSkinnedInstances;
+  sample.gltfBodyBatches = renderDiagnostics.gltfBodyBatches;
+  sample.gltfBodyDrawCalls = renderDiagnostics.gltfBodyDrawCalls;
+  sample.gltfOutlineMaskBatches =
+    renderDiagnostics.gltfOutlineMaskBatches;
+  sample.gltfOutlineMaskDrawCalls =
+    renderDiagnostics.gltfOutlineMaskDrawCalls;
+  sample.legacyCpuSkinnedGltfVertexUploadBytes =
+    renderDiagnostics.legacyCpuSkinnedGltfVertexUploadBytes;
   sample.firstPersonViewModelDrawCalls =
     renderDiagnostics.firstPersonViewModelDrawCalls;
   sample.firstPersonViewModelDynamicVertices =
@@ -1171,12 +1300,29 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "outline: players %u | mask %ux%u | passes %u | composite %d",
+    "outline: players %u | style %d | work %ux%u scale %.2f | mask %ux%u",
     latest.outlinedPlayers,
+    latest.outlineStyle,
+    latest.outlineWorkWidth,
+    latest.outlineWorkHeight,
+    latest.outlineWorkScale,
     latest.outlineMaskWidth,
-    latest.outlineMaskHeight,
-    latest.outlinePasses,
-    latest.outlineCompositeEnabled ? 1 : 0
+    latest.outlineMaskHeight
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "outline rect: %d,%d %dx%d | %.1f%% fb | draws m/d/c %u/%u/%u | gpu timing %s",
+    latest.outlineWorkRectX,
+    latest.outlineWorkRectY,
+    latest.outlineWorkRectWidth,
+    latest.outlineWorkRectHeight,
+    latest.outlineWorkAreaPercent,
+    latest.outlineMaskDrawCalls,
+    latest.outlineDilationDrawCalls,
+    latest.outlineCompositeDrawCalls,
+    latest.outlineGpuTimingAvailable ? "available" : "unavailable"
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -2539,7 +2685,10 @@ std::string aliveCountLine(const ServerSnapshot& snapshot) {
   std::uint32_t redAlive = 0;
   std::uint32_t blueAlive = 0;
   for (std::size_t index = 0; index < snapshot.players.size(); ++index) {
-    if (!snapshot.connectedPlayers[index] || snapshot.players[index].health <= 0) {
+    if (
+      (!snapshot.connectedPlayers[index] && !snapshot.botPlayers[index]) ||
+      snapshot.players[index].health <= 0
+    ) {
       continue;
     }
     if (snapshot.teams[index] == Team::Red) {
@@ -2581,11 +2730,12 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   const std::size_t localPlayerIndex = session.playerIndex();
   const std::size_t remotePlayerIndex =
     opponentPlayerIndex(snapshot, localPlayerIndex);
-  const std::size_t connectedCount = static_cast<std::size_t>(std::count(
-    snapshot.connectedPlayers.begin(),
-    snapshot.connectedPlayers.end(),
-    true
-  ));
+  std::size_t occupiedCount = 0;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (snapshot.connectedPlayers[index] || snapshot.botPlayers[index]) {
+      ++occupiedCount;
+    }
+  }
 
   hud.healthAmount = snapshot.healthAmount;
   hud.centerLines.clear();
@@ -2593,7 +2743,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
   );
   hud.topLeftLines.push_back(
-    "PLAYERS " + std::to_string(connectedCount) + '/' +
+    "PLAYERS " + std::to_string(occupiedCount) + '/' +
     std::to_string(kDuelPlayerCount)
   );
   if (snapshot.matchPhase != MatchPhase::Live) {
@@ -2631,8 +2781,8 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   switch (snapshot.matchPhase) {
   case MatchPhase::WaitingForPlayers:
     hud.centerLines.push_back(
-      std::to_string(connectedCount) + '/' +
-      std::to_string(kDuelPlayerCount) + " PLAYERS CONNECTED"
+      std::to_string(occupiedCount) + '/' +
+      std::to_string(kDuelPlayerCount) + " PLAYER SLOTS OCCUPIED"
     );
     break;
   case MatchPhase::WaitingForReady:
@@ -3529,6 +3679,7 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
   TransientTracerStore transientTracerStore;
+  LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
   std::vector<TransientEffect> activeTransientEffects;
   activeTransientTracers.reserve(kMaxTransientTracers);
@@ -4166,6 +4317,7 @@ int GameApp::run() const {
               effectiveSensitivity,
               selectedWeapon
             );
+      localTracerAimHistory.remember(command);
       std::string playerNameForCommand = std::move(pendingPlayerName);
       const std::string configuredPlayerName = console.getString("cl_player_name");
       if (
@@ -4458,7 +4610,10 @@ int GameApp::run() const {
           }
           const PlayerState& player = audioSnapshot.players[playerIndex];
           if (
-            !audioSnapshot.connectedPlayers[playerIndex] ||
+            (
+              !audioSnapshot.connectedPlayers[playerIndex] &&
+              !audioSnapshot.botPlayers[playerIndex]
+            ) ||
             player.health >= lastAudioPlayerHealth[playerIndex] ||
             lastAudioPlayerHealth[playerIndex] <= 0
           ) {
@@ -5215,6 +5370,70 @@ int GameApp::run() const {
           std::to_string(diagnostics.playerOutlinesBuilt)
         );
         hud.topLeftLines.emplace_back(
+          "procedural box players: visible " +
+          std::to_string(diagnostics.visibleProceduralBoxPlayers) +
+          " | culled " +
+          std::to_string(diagnostics.culledProceduralBoxPlayers) +
+          " | instances " +
+          std::to_string(diagnostics.playerBoxInstancesSubmitted)
+        );
+        hud.topLeftLines.emplace_back(
+          "procedural box batches: opaque " +
+          std::to_string(diagnostics.proceduralPlayerOpaqueBatches) +
+          " | draws " +
+          std::to_string(diagnostics.proceduralPlayerOpaqueDrawCalls) +
+          " | outline batches " +
+          std::to_string(diagnostics.proceduralPlayerOutlineMaskBatches) +
+          " | outline draws " +
+          std::to_string(diagnostics.proceduralPlayerOutlineMaskDrawCalls)
+        );
+        hud.topLeftLines.emplace_back(
+          "procedural box upload: instances " +
+          std::to_string(diagnostics.playerBoxInstanceUploadBytes) +
+          " B | shared cube " +
+          std::to_string(diagnostics.sharedCubeStaticGpuBytes) +
+          " B | legacy player vertices " +
+          std::to_string(diagnostics.legacyCpuGeneratedPlayerVertices) +
+          " | legacy upload " +
+          std::to_string(diagnostics.legacyDynamicPlayerVertexUploadBytes) +
+          " B"
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf players: active " +
+          std::to_string(diagnostics.gltfPlayerModelInstances) +
+          " | culled " +
+          std::to_string(diagnostics.gltfPlayerModelFrustumCulled) +
+          " | skinned " +
+          std::to_string(diagnostics.gltfGpuSkinnedInstances) +
+          " | rigid " +
+          std::to_string(diagnostics.gltfRigidFallbackInstances)
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf resident: vertex " +
+          std::to_string(diagnostics.gltfStaticMeshGpuBytes) +
+          " B | index " +
+          std::to_string(diagnostics.gltfStaticIndexGpuBytes) +
+          " B | pose " +
+          std::to_string(diagnostics.gltfPoseUploadBytes) +
+          " B | bones " +
+          std::to_string(diagnostics.gltfBonePaletteEntriesUploaded)
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf batches: body " +
+          std::to_string(diagnostics.gltfBodyBatches) +
+          " | body draws " +
+          std::to_string(diagnostics.gltfBodyDrawCalls) +
+          " | outline batches " +
+          std::to_string(diagnostics.gltfOutlineMaskBatches) +
+          " | outline draws " +
+          std::to_string(diagnostics.gltfOutlineMaskDrawCalls)
+        );
+        hud.topLeftLines.emplace_back(
+          "gltf legacy cpu-skinned upload " +
+          std::to_string(diagnostics.legacyCpuSkinnedGltfVertexUploadBytes) +
+          " B"
+        );
+        hud.topLeftLines.emplace_back(
           "remote weapon instances: candidates " +
           std::to_string(diagnostics.remoteWeaponCandidates) +
           " | submitted " +
@@ -5404,6 +5623,7 @@ int GameApp::run() const {
       renderPlayer,
       renderRemotePlayers,
       renderWeaponFires,
+      localTracerAimHistory,
       currentRenderSettings
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);

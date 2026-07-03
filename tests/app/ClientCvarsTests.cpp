@@ -81,7 +81,7 @@ int main() {
   );
   failures += expect(
     console.execute("r_player_model") ==
-      "r_player_model = 1 (default 1)" &&
+      "r_player_model = 0 (default 0)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&
       console.execute("r_player_model 2") == "value out of range for r_player_model",
     "remote player model cvar should select legacy or animated models"
@@ -162,6 +162,16 @@ int main() {
     console.execute("r_perf 1") == "r_perf = 1" &&
       console.execute("r_perf_detail 1") == "r_perf_detail = 1",
     "renderer performance diagnostics cvars should be toggleable"
+  );
+  failures += expect(
+    console.execute("r_enemy_outline_width 6") == "r_enemy_outline_width = 6" &&
+      console.execute("r_enemy_outline_width 7") ==
+        "value out of range for r_enemy_outline_width" &&
+      console.execute("r_teammate_outline_width 6") ==
+        "r_teammate_outline_width = 6" &&
+      console.execute("r_teammate_outline_width 7") ==
+        "value out of range for r_teammate_outline_width",
+    "screen-space outline width cvars should be capped at six final display pixels"
   );
   failures += expect(
     console.execute("s_lg_fire_volume 0.25") == "s_lg_fire_volume = 0.25" &&

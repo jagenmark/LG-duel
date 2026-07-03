@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <limits>
 #include <map>
 #include <optional>
 #include <stdexcept>
@@ -459,6 +460,62 @@ struct AccessorView {
   return {values[offset], values[offset + 1U], values[offset + 2U]};
 }
 
+[[nodiscard]] Vec3 vec3FromFloatsOr(
+  const std::vector<float>& values,
+  std::size_t index,
+  Vec3 fallback
+) {
+  const std::size_t offset = index * 3U;
+  return offset + 2U < values.size()
+    ? Vec3{values[offset], values[offset + 1U], values[offset + 2U]}
+    : fallback;
+}
+
+[[nodiscard]] std::array<float, 2> vec2FromFloatsOr(
+  const std::vector<float>& values,
+  std::size_t index,
+  std::array<float, 2> fallback
+) {
+  const std::size_t offset = index * 2U;
+  return offset + 1U < values.size()
+    ? std::array<float, 2>{values[offset], values[offset + 1U]}
+    : fallback;
+}
+
+void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
+  if (!initialized) {
+    bounds.min = point;
+    bounds.max = point;
+    initialized = true;
+    return;
+  }
+  bounds.min.x = std::min(bounds.min.x, point.x);
+  bounds.min.y = std::min(bounds.min.y, point.y);
+  bounds.min.z = std::min(bounds.min.z, point.z);
+  bounds.max.x = std::max(bounds.max.x, point.x);
+  bounds.max.y = std::max(bounds.max.y, point.y);
+  bounds.max.z = std::max(bounds.max.z, point.z);
+}
+
+[[nodiscard]] std::array<float, 4> normalizedWeights(
+  std::array<float, 4> weights
+) {
+  float total = 0.0F;
+  for (float& weight : weights) {
+    if (!std::isfinite(weight) || weight < 0.0F) {
+      weight = 0.0F;
+    }
+    total += weight;
+  }
+  if (total <= 0.000001F) {
+    return {};
+  }
+  for (float& weight : weights) {
+    weight /= total;
+  }
+  return weights;
+}
+
 [[nodiscard]] RenderColor materialColor(const JsonValue& material) {
   const JsonValue& pbr = member(material, "pbrMetallicRoughness");
   const JsonValue& factor = member(pbr, "baseColorFactor");
@@ -618,12 +675,6 @@ struct AccessorView {
   return matrix;
 }
 
-struct SampledNode {
-  Vec3 translation = {};
-  std::array<float, 4> rotation = {0.0F, 0.0F, 0.0F, 1.0F};
-  Vec3 scale = {1.0F, 1.0F, 1.0F};
-};
-
 template <typename Value>
 [[nodiscard]] Value sampleChannelValue(
   const std::vector<float>& times,
@@ -774,6 +825,8 @@ bool GltfSkinnedModel::load(std::string_view path) {
     for (const JsonValue& nodeJson : nodesJson.array) {
       Node node;
       node.name = stringMember(nodeJson, "name");
+      node.mesh = intMember(nodeJson, "mesh");
+      node.skin = intMember(nodeJson, "skin");
       const JsonValue& translation = member(nodeJson, "translation");
       node.translation = {
         floatAt(translation, 0, 0.0F),
@@ -816,8 +869,11 @@ bool GltfSkinnedModel::load(std::string_view path) {
     joints_.clear();
     const JsonValue& jointsJson = member(skin, "joints");
     for (const JsonValue& joint : jointsJson.array) {
-      joints_.push_back(static_cast<int>(joint.number));
+      if (joint.type == JsonValue::Type::Number) {
+        joints_.push_back(static_cast<int>(joint.number));
+      }
     }
+    hasSkin_ = !joints_.empty();
     const int inverseBindAccessor = intMember(skin, "inverseBindMatrices");
     const std::vector<float> inverseBindFloats =
       readAccessorFloats(root, binaryChunk, inverseBindAccessor);
@@ -829,50 +885,118 @@ bool GltfSkinnedModel::load(std::string_view path) {
     }
 
     sourceTriangles_.clear();
-    const JsonValue& mesh = at(member(root, "meshes"), 0);
-    const JsonValue& primitives = member(mesh, "primitives");
+    primitives_.clear();
+    hasSkinnedPrimitives_ = false;
+    localBounds_ = {};
+    bool localBoundsInitialized = false;
+    const JsonValue& meshes = member(root, "meshes");
     const JsonValue& materials = member(root, "materials");
-    for (const JsonValue& primitive : primitives.array) {
-      const JsonValue& attributes = member(primitive, "attributes");
-      const int positionAccessor = intMember(attributes, "POSITION");
-      const int jointsAccessor = intMember(attributes, "JOINTS_0");
-      const int weightsAccessor = intMember(attributes, "WEIGHTS_0");
-      const int indicesAccessor = intMember(primitive, "indices");
-      const int materialIndex = intMember(primitive, "material");
-      const JsonValue& material = at(materials, materialIndex);
-      const RenderColor color = materialColor(material);
-      const bool tintable = materialTintable(material);
+    for (const JsonValue& mesh : meshes.array) {
+      const JsonValue& primitives = member(mesh, "primitives");
+      for (const JsonValue& primitiveJson : primitives.array) {
+        if (intMember(primitiveJson, "mode", 4) != 4) {
+          continue;
+        }
+        const JsonValue& attributes = member(primitiveJson, "attributes");
+        const int positionAccessor = intMember(attributes, "POSITION");
+        const int normalAccessor = intMember(attributes, "NORMAL");
+        const int texCoordAccessor = intMember(attributes, "TEXCOORD_0");
+        const int jointsAccessor = intMember(attributes, "JOINTS_0");
+        const int weightsAccessor = intMember(attributes, "WEIGHTS_0");
+        const int indicesAccessor = intMember(primitiveJson, "indices");
+        const int materialIndex = intMember(primitiveJson, "material");
+        const JsonValue& material = at(materials, materialIndex);
 
-      const std::vector<float> positions =
-        readAccessorFloats(root, binaryChunk, positionAccessor);
-      const std::vector<std::uint32_t> joints =
-        readAccessorU32(root, binaryChunk, jointsAccessor);
-      const std::vector<float> weights =
-        readAccessorFloats(root, binaryChunk, weightsAccessor);
-      const std::vector<std::uint32_t> indices =
-        readAccessorU32(root, binaryChunk, indicesAccessor);
-      std::vector<JointVertex> vertices(positions.size() / 3U);
-      for (std::size_t vertexIndex = 0; vertexIndex < vertices.size(); ++vertexIndex) {
-        JointVertex vertex;
-        vertex.position = vec3FromFloats(positions, vertexIndex);
-        for (std::size_t jointIndex = 0; jointIndex < 4U; ++jointIndex) {
-          vertex.joints[jointIndex] = static_cast<std::uint16_t>(
-            joints[vertexIndex * 4U + jointIndex]
-          );
-          vertex.weights[jointIndex] = weights[vertexIndex * 4U + jointIndex];
+        const std::vector<float> positions =
+          readAccessorFloats(root, binaryChunk, positionAccessor);
+        if (positions.size() < 3U) {
+          continue;
         }
-        vertices[vertexIndex] = vertex;
-      }
-      for (std::size_t index = 0; index + 2U < indices.size(); index += 3U) {
-        SourceTriangle triangle;
-        triangle.color = color;
-        triangle.tintable = tintable;
-        for (std::size_t corner = 0; corner < 3U; ++corner) {
-          triangle.vertices[corner] =
-            vertices[static_cast<std::size_t>(indices[index + corner])];
+        const std::vector<float> normals =
+          readAccessorFloats(root, binaryChunk, normalAccessor);
+        const std::vector<float> texCoords =
+          readAccessorFloats(root, binaryChunk, texCoordAccessor);
+        const std::vector<std::uint32_t> joints =
+          readAccessorU32(root, binaryChunk, jointsAccessor);
+        const std::vector<float> weights =
+          readAccessorFloats(root, binaryChunk, weightsAccessor);
+        std::vector<std::uint32_t> indices =
+          readAccessorU32(root, binaryChunk, indicesAccessor);
+
+        Primitive primitive;
+        primitive.color = materialColor(material);
+        primitive.tintable = materialTintable(material);
+        primitive.materialIndex = materialIndex;
+        const std::size_t vertexCount = positions.size() / 3U;
+        primitive.vertices.reserve(vertexCount);
+        bool primitiveBoundsInitialized = false;
+        for (std::size_t vertexIndex = 0; vertexIndex < vertexCount; ++vertexIndex) {
+          GpuVertex vertex;
+          vertex.position = vec3FromFloats(positions, vertexIndex);
+          vertex.normal = normalize(vec3FromFloatsOr(normals, vertexIndex, {0.0F, 0.0F, 1.0F}));
+          const auto uv = vec2FromFloatsOr(texCoords, vertexIndex, {0.0F, 0.0F});
+          vertex.u = uv[0];
+          vertex.v = uv[1];
+          vertex.color = primitive.color;
+          vertex.tintWeight = primitive.tintable ? 255U : 0U;
+          std::array<float, 4> rawWeights = {};
+          for (std::size_t jointIndex = 0; jointIndex < 4U; ++jointIndex) {
+            const std::size_t sourceIndex = vertexIndex * 4U + jointIndex;
+            if (sourceIndex < joints.size()) {
+              vertex.joints[jointIndex] = static_cast<std::uint16_t>(
+                std::min<std::uint32_t>(joints[sourceIndex], 0xFFFFU)
+              );
+            }
+            if (sourceIndex < weights.size()) {
+              rawWeights[jointIndex] = weights[sourceIndex];
+            }
+          }
+          vertex.weights = normalizedWeights(rawWeights);
+          for (float weight : vertex.weights) {
+            primitive.skinned = primitive.skinned || weight > 0.0F;
+          }
+          primitive.vertices.push_back(vertex);
+          expandBounds(primitive.localBounds, vertex.position, primitiveBoundsInitialized);
+          expandBounds(localBounds_, vertex.position, localBoundsInitialized);
         }
-        sourceTriangles_.push_back(triangle);
+        primitive.skinned = primitive.skinned && hasSkin_;
+        hasSkinnedPrimitives_ = hasSkinnedPrimitives_ || primitive.skinned;
+
+        if (indices.empty()) {
+          indices.reserve(vertexCount);
+          for (std::uint32_t index = 0; index < vertexCount; ++index) {
+            indices.push_back(index);
+          }
+        }
+        for (std::uint32_t index : indices) {
+          if (index < primitive.vertices.size()) {
+            primitive.indices.push_back(index);
+          }
+        }
+        if (primitive.indices.size() < 3U || primitive.vertices.empty()) {
+          continue;
+        }
+
+        for (std::size_t index = 0; index + 2U < primitive.indices.size(); index += 3U) {
+          SourceTriangle triangle;
+          triangle.color = primitive.color;
+          triangle.tintable = primitive.tintable;
+          for (std::size_t corner = 0; corner < 3U; ++corner) {
+            const GpuVertex& source =
+              primitive.vertices[primitive.indices[index + corner]];
+            triangle.vertices[corner] = {
+              source.position,
+              source.joints,
+              source.weights,
+            };
+          }
+          sourceTriangles_.push_back(triangle);
+        }
+        primitives_.push_back(std::move(primitive));
       }
+    }
+    if (!localBoundsInitialized) {
+      localBounds_ = {};
     }
 
     animations_.clear();
@@ -948,8 +1072,152 @@ bool GltfSkinnedModel::loaded() const {
   return loaded_;
 }
 
+std::string_view GltfSkinnedModel::sourcePath() const {
+  return sourcePath_;
+}
+
 const std::vector<std::string>& GltfSkinnedModel::animationNames() const {
   return animationNames_;
+}
+
+const std::vector<GltfSkinnedModel::Primitive>& GltfSkinnedModel::primitives() const {
+  return primitives_;
+}
+
+GltfModelBounds GltfSkinnedModel::localBounds() const {
+  return localBounds_;
+}
+
+std::uint32_t GltfSkinnedModel::jointCount() const {
+  return static_cast<std::uint32_t>(joints_.size());
+}
+
+bool GltfSkinnedModel::hasSkin() const {
+  return hasSkin_;
+}
+
+bool GltfSkinnedModel::hasSkinnedPrimitives() const {
+  return hasSkinnedPrimitives_;
+}
+
+bool GltfSkinnedModel::appendBonePalette(
+  const std::vector<SkinnedModelPoseRequest>& poses,
+  std::vector<std::array<float, 16>>& out,
+  PoseScratch& scratch
+) const {
+  if (!loaded_) {
+    return false;
+  }
+  if (joints_.empty()) {
+    out.push_back(identityMatrix().values);
+    return true;
+  }
+
+  scratch.sampledNodes.clear();
+  scratch.sampledNodes.reserve(nodes_.size());
+  for (const Node& node : nodes_) {
+    scratch.sampledNodes.push_back({node.translation, node.rotation, node.scale});
+  }
+
+  for (const SkinnedModelPoseRequest& pose : poses) {
+    const std::optional<std::size_t> found =
+      animationIndex(animations_, pose.animationName);
+    if (!found) {
+      continue;
+    }
+    const Animation& animation = animations_[*found];
+    const float duration = std::max(0.0001F, animation.duration);
+    const float time = std::clamp(pose.timeSeconds, 0.0F, duration);
+    const float weight = std::clamp(pose.weight, 0.0F, 1.0F);
+    if (weight <= 0.0001F) {
+      continue;
+    }
+    for (const AnimationChannel& channel : animation.channels) {
+      if (
+        channel.node < 0 ||
+        static_cast<std::size_t>(channel.node) >= scratch.sampledNodes.size()
+      ) {
+        continue;
+      }
+      NodePose& node = scratch.sampledNodes[static_cast<std::size_t>(channel.node)];
+      if (channel.path == ChannelPath::Rotation) {
+        node.rotation = slerp(
+          node.rotation,
+          sampleChannelValue(
+            channel.inputTimes,
+            channel.rotationOutputs,
+            time,
+            channel.interpolation,
+            node.rotation
+          ),
+          weight
+        );
+      } else if (channel.path == ChannelPath::Scale) {
+        node.scale = lerp(
+          node.scale,
+          sampleChannelValue(
+            channel.inputTimes,
+            channel.vec3Outputs,
+            time,
+            channel.interpolation,
+            node.scale
+          ),
+          weight
+        );
+      } else {
+        node.translation = lerp(
+          node.translation,
+          sampleChannelValue(
+            channel.inputTimes,
+            channel.vec3Outputs,
+            time,
+            channel.interpolation,
+            node.translation
+          ),
+          weight
+        );
+      }
+    }
+  }
+
+  scratch.localMatrices.clear();
+  scratch.localMatrices.reserve(scratch.sampledNodes.size());
+  for (const NodePose& node : scratch.sampledNodes) {
+    scratch.localMatrices.push_back(trsMatrix(node.translation, node.rotation, node.scale));
+  }
+  scratch.globalMatrices.assign(scratch.localMatrices.size(), identityMatrix());
+  scratch.resolved.assign(scratch.localMatrices.size(), false);
+  for (std::size_t index = 0; index < scratch.localMatrices.size(); ++index) {
+    resolveGlobalMatrix(
+      index,
+      nodes_,
+      scratch.localMatrices,
+      scratch.globalMatrices,
+      scratch.resolved
+    );
+  }
+
+  const std::size_t firstOut = out.size();
+  out.reserve(out.size() + joints_.size());
+  for (std::size_t index = 0; index < joints_.size(); ++index) {
+    const int jointNode = joints_[index];
+    const Matrix4 inverseBind = index < inverseBindMatrices_.size()
+      ? inverseBindMatrices_[index]
+      : identityMatrix();
+    Matrix4 jointMatrix = identityMatrix();
+    if (jointNode >= 0 && static_cast<std::size_t>(jointNode) < scratch.globalMatrices.size()) {
+      jointMatrix = multiply(
+        scratch.globalMatrices[static_cast<std::size_t>(jointNode)],
+        inverseBind
+      );
+    }
+    bool finite = true;
+    for (float value : jointMatrix.values) {
+      finite = finite && std::isfinite(value);
+    }
+    out.push_back(finite ? jointMatrix.values : identityMatrix().values);
+  }
+  return out.size() > firstOut;
 }
 
 std::vector<SkinnedModelTriangle> GltfSkinnedModel::triangles(
@@ -959,7 +1227,7 @@ std::vector<SkinnedModelTriangle> GltfSkinnedModel::triangles(
     return {};
   }
 
-  std::vector<SampledNode> sampledNodes;
+  std::vector<NodePose> sampledNodes;
   sampledNodes.reserve(nodes_.size());
   for (const Node& node : nodes_) {
     sampledNodes.push_back({node.translation, node.rotation, node.scale});
@@ -982,7 +1250,7 @@ std::vector<SkinnedModelTriangle> GltfSkinnedModel::triangles(
       if (channel.node < 0 || static_cast<std::size_t>(channel.node) >= sampledNodes.size()) {
         continue;
       }
-      SampledNode& node = sampledNodes[static_cast<std::size_t>(channel.node)];
+      NodePose& node = sampledNodes[static_cast<std::size_t>(channel.node)];
       if (channel.path == ChannelPath::Rotation) {
         node.rotation = slerp(
           node.rotation,
@@ -1025,7 +1293,7 @@ std::vector<SkinnedModelTriangle> GltfSkinnedModel::triangles(
 
   std::vector<Matrix4> localMatrices;
   localMatrices.reserve(sampledNodes.size());
-  for (const SampledNode& node : sampledNodes) {
+  for (const NodePose& node : sampledNodes) {
     localMatrices.push_back(trsMatrix(node.translation, node.rotation, node.scale));
   }
   std::vector<Matrix4> globalMatrices(localMatrices.size(), identityMatrix());
@@ -1041,10 +1309,11 @@ std::vector<SkinnedModelTriangle> GltfSkinnedModel::triangles(
     const Matrix4 inverseBind = index < inverseBindMatrices_.size()
       ? inverseBindMatrices_[index]
       : identityMatrix();
-    jointMatrices.push_back(multiply(
-      globalMatrices[static_cast<std::size_t>(jointNode)],
-      inverseBind
-    ));
+    jointMatrices.push_back(
+      jointNode >= 0 && static_cast<std::size_t>(jointNode) < globalMatrices.size()
+        ? multiply(globalMatrices[static_cast<std::size_t>(jointNode)], inverseBind)
+        : identityMatrix()
+    );
   }
 
   std::vector<SkinnedModelTriangle> result;
@@ -1067,7 +1336,7 @@ GltfSkinnedModel& duelistMaleModel() {
   if (!attemptedLoad) {
     attemptedLoad = true;
     constexpr std::string_view modelPath =
-      "assets/models/lg_duelist_male_animations/art/exports/lg_duelist_male.glb";
+      "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb";
     const std::array<std::string, 4> candidates = {{
       std::string(modelPath),
       "../" + std::string(modelPath),

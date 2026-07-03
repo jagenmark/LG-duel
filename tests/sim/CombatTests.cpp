@@ -85,6 +85,25 @@ int main() {
   {
     const lg::BalanceConfigLoadResult loaded =
       lg::loadBalanceConfigFromText(R"(version 1
+weapon.rl.direct_hitbox_half_extent_xy 0.4821429
+weapon.rl.direct_hitbox_half_extent_z 0.9
+weapon.pg.direct_hitbox_half_extent_xy 0.5
+weapon.pg.direct_hitbox_half_extent_z 1.1
+)");
+
+    failures += expect(loaded.ok, "balance config should parse projectile direct-hit AABB tuning");
+    failures += expect(
+      nearlyEqual(loaded.config.rocketLauncher.directHitboxHalfExtentXY, 0.4821429F) &&
+        nearlyEqual(loaded.config.rocketLauncher.directHitboxHalfExtentZ, 0.9F) &&
+        nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentXY, 0.5F) &&
+        nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentZ, 1.1F),
+      "balance config should apply projectile direct-hit AABB tuning"
+    );
+  }
+
+  {
+    const lg::BalanceConfigLoadResult loaded =
+      lg::loadBalanceConfigFromText(R"(version 1
 weapon.gl.speed 20.5
 weapon.gl.vertical_boost 6.25
 weapon.gl.gravity 12.0
@@ -123,6 +142,102 @@ jumppad.retrigger_cooldown_ms 200
 weapon.gl.gravity -1
 )");
     failures += expect(!loaded.ok, "balance config should reject out-of-range grenade values");
+  }
+
+  {
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    float hitDistance = 0.0F;
+    const bool hit = lg::tracePlayerProjectileDirectAabb(
+      {0.0F, 0.0F, target.position.z},
+      {1.0F, 0.0F, 0.0F},
+      target,
+      10.0F,
+      {0.4821429F, 0.4821429F, 0.9F},
+      hitDistance
+    );
+
+    failures += expect(hit, "projectile AABB trace should hit a segment through the box");
+    failures += expect(
+      nearlyEqual(hitDistance, 5.517857F),
+      "projectile AABB trace should report the near box intersection"
+    );
+  }
+
+  {
+    lg::PlayerState target = playerAt(6.0F, 0.5F);
+    float hitDistance = 0.0F;
+    const bool hit = lg::tracePlayerProjectileDirectAabb(
+      {0.0F, 0.0F, target.position.z},
+      {1.0F, 0.0F, 0.0F},
+      target,
+      10.0F,
+      {0.4821429F, 0.4821429F, 0.9F},
+      hitDistance
+    );
+
+    failures += expect(!hit, "projectile AABB trace should miss outside the box");
+  }
+
+  {
+    lg::PlayerState target = playerAt(6.0F, 0.45F);
+    const lg::Vec3 origin = {0.0F, 0.0F, target.position.z + 0.85F};
+    float cylinderHitDistance = 0.0F;
+    float aabbHitDistance = 0.0F;
+    const bool cylinderHit = lg::tracePlayerCylinder(
+      origin,
+      {1.0F, 0.0F, 0.0F},
+      target,
+      10.0F,
+      cylinderHitDistance
+    );
+    const bool aabbHit = lg::tracePlayerProjectileDirectAabb(
+      origin,
+      {1.0F, 0.0F, 0.0F},
+      target,
+      10.0F,
+      {0.4821429F, 0.4821429F, 0.9F},
+      aabbHitDistance
+    );
+
+    failures += expect(
+      !cylinderHit && aabbHit,
+      "projectile AABB trace should hit a near-corner path that the player cylinder misses"
+    );
+    failures += expect(
+      nearlyEqual(aabbHitDistance, 5.517857F),
+      "near-corner projectile AABB hit should still report the near face"
+    );
+  }
+
+  {
+    lg::PlayerState targets[2] = {
+      playerAt(4.0F, 0.0F),
+      playerAt(7.0F, 0.0F),
+    };
+    std::size_t targetIndex = 2;
+    float bestHitDistance = 10.0F;
+    for (std::size_t index = 0; index < 2; ++index) {
+      float hitDistance = 0.0F;
+      if (
+        lg::tracePlayerProjectileDirectAabb(
+          {0.0F, 0.0F, targets[index].position.z},
+          {1.0F, 0.0F, 0.0F},
+          targets[index],
+          bestHitDistance,
+          {0.4821429F, 0.4821429F, 0.9F},
+          hitDistance
+        )
+      ) {
+        targetIndex = index;
+        bestHitDistance = hitDistance;
+      }
+    }
+
+    failures += expect(targetIndex == 0, "nearest projectile AABB target should win on the trace line");
+    failures += expect(
+      nearlyEqual(bestHitDistance, 3.517857F),
+      "nearest projectile AABB target should keep its hit distance"
+    );
   }
 
   {
