@@ -85,6 +85,8 @@ struct ShotgunTuning {
 struct RocketLauncherTuning {
   float speed = 22.5F;
   float radius = 3.0F;
+  float directHitboxHalfExtentXY = 0.4821429F;
+  float directHitboxHalfExtentZ = 0.9F;
   int directDamage = 100;
   int splashDamage = 100;
   float knockback = 22.0F;
@@ -113,6 +115,8 @@ struct GrenadeLauncherTuning {
 struct PlasmaGunTuning {
   float speed = 50.0F;
   float radius = 0.45F;
+  float directHitboxHalfExtentXY = 0.4821429F;
+  float directHitboxHalfExtentZ = 0.9F;
   int damage = 20;
   float knockback = 2.2F;
   float eyeHeight = 0.65F;
@@ -193,6 +197,15 @@ struct WorldTrace {
   Vec3 direction,
   const PlayerState& target,
   float maxDistance,
+  float& hitDistance
+);
+
+[[nodiscard]] bool tracePlayerProjectileDirectAabb(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  Vec3 halfExtents,
   float& hitDistance
 );
 

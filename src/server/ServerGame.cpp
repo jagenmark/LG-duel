@@ -335,6 +335,10 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   shotgunCooldownDurationTicks_ = config.shotgunCooldownTicks;
   rocketLauncherTuning_.speed = config.rocketLauncher.speed;
   rocketLauncherTuning_.radius = config.rocketLauncher.radius;
+  rocketLauncherTuning_.directHitboxHalfExtentXY =
+    config.rocketLauncher.directHitboxHalfExtentXY;
+  rocketLauncherTuning_.directHitboxHalfExtentZ =
+    config.rocketLauncher.directHitboxHalfExtentZ;
   rocketLauncherTuning_.eyeHeight = config.rocketLauncher.eyeHeight;
   rocketLauncherTuning_.maxLifetimeTicks = config.rocketLauncher.maxLifetimeTicks;
   rocketLauncherCooldownDurationTicks_ = config.rocketLauncherCooldownTicks;
@@ -355,6 +359,10 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   grenadeLauncherTuning_.cooldownTicks = config.grenadeLauncher.cooldownTicks;
   plasmaGunTuning_.speed = config.plasmaGun.speed;
   plasmaGunTuning_.radius = config.plasmaGun.radius;
+  plasmaGunTuning_.directHitboxHalfExtentXY =
+    config.plasmaGun.directHitboxHalfExtentXY;
+  plasmaGunTuning_.directHitboxHalfExtentZ =
+    config.plasmaGun.directHitboxHalfExtentZ;
   plasmaGunTuning_.knockback = config.plasmaGun.knockback;
   plasmaGunTuning_.eyeHeight = config.plasmaGun.eyeHeight;
   plasmaGunTuning_.maxLifetimeTicks = config.plasmaGun.maxLifetimeTicks;
@@ -1914,6 +1922,35 @@ void ServerGame::simulateRockets(float fixedDt) {
       std::max(0.0F, std::fabs(point.z - player.position.z) - player.bounds.halfHeight);
     return std::hypot(radial, vertical);
   };
+  const auto projectileDirectAabbHalfExtents = [](
+    Weapon weapon,
+    const PlayerState& target,
+    const RocketLauncherTuning& rocketLauncherTuning,
+    const PlasmaGunTuning& plasmaGunTuning
+  ) {
+    const float scaleXY =
+      target.bounds.radius / std::max(0.0001F, kDefaultPlayerBounds.radius);
+    const float scaleZ =
+      target.bounds.halfHeight / std::max(0.0001F, kDefaultPlayerBounds.halfHeight);
+    const float baseXY = weapon == Weapon::PlasmaGun
+      ? plasmaGunTuning.directHitboxHalfExtentXY
+      : rocketLauncherTuning.directHitboxHalfExtentXY;
+    const float baseZ = weapon == Weapon::PlasmaGun
+      ? plasmaGunTuning.directHitboxHalfExtentZ
+      : rocketLauncherTuning.directHitboxHalfExtentZ;
+    return Vec3{baseXY * scaleXY, baseXY * scaleXY, baseZ * scaleZ};
+  };
+  const auto pointInsidePlayerRelativeAabb = [](
+    Vec3 point,
+    const PlayerState& player,
+    Vec3 halfExtents
+  ) {
+    const Vec3 relative = point - player.position;
+    return
+      std::fabs(relative.x) <= halfExtents.x + kProjectileCollisionEpsilon &&
+      std::fabs(relative.y) <= halfExtents.y + kProjectileCollisionEpsilon &&
+      std::fabs(relative.z) <= halfExtents.z + kProjectileCollisionEpsilon;
+  };
 
   for (std::size_t projectileIndex = 0; projectileIndex < rockets_.size(); ++projectileIndex) {
     RocketProjectile& rocket = rockets_[projectileIndex];
@@ -1926,6 +1963,8 @@ void ServerGame::simulateRockets(float fixedDt) {
     std::size_t directTarget = kDuelPlayerCount;
     const bool grenade = rocket.weapon == Weapon::GrenadeLauncher;
     const bool plasma = rocket.weapon == Weapon::PlasmaGun;
+    const bool projectileDirectAabb =
+      rocket.weapon == Weapon::RocketLauncher || plasma;
 
     rocket.previousPosition = rocket.position;
     if (grenade && rocket.resting) {
@@ -1946,12 +1985,23 @@ void ServerGame::simulateRockets(float fixedDt) {
         ? segment / segmentLength
         : normalize(rocket.velocity);
 
-      if (
-        !rocket.ownerCollisionArmed &&
-        cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) >
-          rocket.projectileHitboxRadius + 0.0001F
-      ) {
-        rocket.ownerCollisionArmed = true;
+      if (!rocket.ownerCollisionArmed) {
+        if (projectileDirectAabb) {
+          const PlayerState& owner = snapshot_.players[rocket.owner];
+          const Vec3 ownerHalfExtents = projectileDirectAabbHalfExtents(
+            rocket.weapon,
+            owner,
+            rocketLauncherTuning_,
+            plasmaGunTuning_
+          );
+          rocket.ownerCollisionArmed =
+            !pointInsidePlayerRelativeAabb(rocket.position, owner, ownerHalfExtents);
+        } else if (
+          cylinderDistance(rocket.position, snapshot_.players[rocket.owner]) >
+            rocket.projectileHitboxRadius + 0.0001F
+        ) {
+          rocket.ownerCollisionArmed = true;
+        }
       }
 
       explosionPosition = nextPosition;
@@ -1999,7 +2049,7 @@ void ServerGame::simulateRockets(float fixedDt) {
 
         float bestHitDistance = segmentLength;
         const bool directHitEnabled =
-          !grenade || rocket.projectileHitboxRadius > 0.0F;
+          projectileDirectAabb || rocket.projectileHitboxRadius > 0.0F;
         if (!explode && directHitEnabled) {
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
             if (
@@ -2010,18 +2060,35 @@ void ServerGame::simulateRockets(float fixedDt) {
               continue;
             }
             float hitDistance = 0.0F;
-            PlayerState projectileTarget = snapshot_.players[playerIndex];
-            projectileTarget.bounds.radius += rocket.projectileHitboxRadius;
-            projectileTarget.bounds.halfHeight += rocket.projectileHitboxRadius;
-            if (
-              tracePlayerCylinder(
+            const PlayerState& target = snapshot_.players[playerIndex];
+            bool hit = false;
+            if (projectileDirectAabb) {
+              hit = tracePlayerProjectileDirectAabb(
+                rocket.position,
+                direction,
+                target,
+                bestHitDistance,
+                projectileDirectAabbHalfExtents(
+                  rocket.weapon,
+                  target,
+                  rocketLauncherTuning_,
+                  plasmaGunTuning_
+                ),
+                hitDistance
+              );
+            } else {
+              PlayerState projectileTarget = target;
+              projectileTarget.bounds.radius += rocket.projectileHitboxRadius;
+              projectileTarget.bounds.halfHeight += rocket.projectileHitboxRadius;
+              hit = tracePlayerCylinder(
                 rocket.position,
                 direction,
                 projectileTarget,
                 bestHitDistance,
                 hitDistance
-              )
-            ) {
+              );
+            }
+            if (hit) {
               explode = true;
               bestHitDistance = hitDistance;
               directTarget = playerIndex;

@@ -78,6 +78,10 @@ namespace {
     config.rocketLauncher.speed = value;
   } else if (key == "weapon.rl.radius" && inRange(value, 0.1F, 100.0F)) {
     config.rocketLauncher.radius = value;
+  } else if (key == "weapon.rl.direct_hitbox_half_extent_xy" && inRange(value, 0.01F, 10.0F)) {
+    config.rocketLauncher.directHitboxHalfExtentXY = value;
+  } else if (key == "weapon.rl.direct_hitbox_half_extent_z" && inRange(value, 0.01F, 10.0F)) {
+    config.rocketLauncher.directHitboxHalfExtentZ = value;
   } else if (key == "weapon.rl.eye_height" && inRange(value, 0.0F, 10.0F)) {
     config.rocketLauncher.eyeHeight = value;
   } else if (key == "weapon.gl.speed" && inRange(value, 0.1F, 500.0F)) {
@@ -107,6 +111,10 @@ namespace {
     config.plasmaGun.speed = value;
   } else if (key == "weapon.pg.radius" && inRange(value, 0.01F, 50.0F)) {
     config.plasmaGun.radius = value;
+  } else if (key == "weapon.pg.direct_hitbox_half_extent_xy" && inRange(value, 0.01F, 10.0F)) {
+    config.plasmaGun.directHitboxHalfExtentXY = value;
+  } else if (key == "weapon.pg.direct_hitbox_half_extent_z" && inRange(value, 0.01F, 10.0F)) {
+    config.plasmaGun.directHitboxHalfExtentZ = value;
   } else if (key == "weapon.pg.knockback" && inRange(value, 0.0F, 1000.0F)) {
     config.plasmaGun.knockback = value;
   } else if (key == "weapon.pg.eye_height" && inRange(value, 0.0F, 10.0F)) {

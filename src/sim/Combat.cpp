@@ -228,6 +228,57 @@ constexpr float kTwoPi = 6.28318530718F;
   return true;
 }
 
+[[nodiscard]] bool intersectPlayerRelativeAabb(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  Vec3 halfExtents,
+  float& hitDistance
+) {
+  if (
+    halfExtents.x <= 0.0F ||
+    halfExtents.y <= 0.0F ||
+    halfExtents.z <= 0.0F
+  ) {
+    return false;
+  }
+
+  const Vec3 relativeOrigin = origin - target.position;
+  float entry = 0.0F;
+  float exit = maxDistance;
+  const auto clipAxis = [&entry, &exit](
+    float axisOrigin,
+    float axisDirection,
+    float minValue,
+    float maxValue
+  ) {
+    if (std::fabs(axisDirection) <= kTraceEpsilon) {
+      return axisOrigin >= minValue && axisOrigin <= maxValue;
+    }
+    const float first = (minValue - axisOrigin) / axisDirection;
+    const float second = (maxValue - axisOrigin) / axisDirection;
+    entry = std::max(entry, std::min(first, second));
+    exit = std::min(exit, std::max(first, second));
+    return entry <= exit;
+  };
+
+  if (
+    !clipAxis(relativeOrigin.x, direction.x, -halfExtents.x, halfExtents.x) ||
+    !clipAxis(relativeOrigin.y, direction.y, -halfExtents.y, halfExtents.y) ||
+    !clipAxis(relativeOrigin.z, direction.z, -halfExtents.z, halfExtents.z)
+  ) {
+    return false;
+  }
+
+  if (entry > maxDistance || exit < 0.0F) {
+    return false;
+  }
+
+  hitDistance = std::max(0.0F, entry);
+  return true;
+}
+
 } // namespace
 
 Vec3 weaponMuzzlePosition(const PlayerState& attacker, float eyeHeight) {
@@ -285,6 +336,24 @@ bool tracePlayerCylinder(
   float& hitDistance
 ) {
   return intersectPlayerCylinder(origin, direction, target, maxDistance, hitDistance);
+}
+
+bool tracePlayerProjectileDirectAabb(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  Vec3 halfExtents,
+  float& hitDistance
+) {
+  return intersectPlayerRelativeAabb(
+    origin,
+    direction,
+    target,
+    maxDistance,
+    halfExtents,
+    hitDistance
+  );
 }
 
 LightningGunResult simulateLightningGun(

@@ -1583,6 +1583,161 @@ int main() {
   }
 
   {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {40.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {4.0F, 0.45F, 0.0F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    rocket.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 60; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+
+    failures += expect(
+      snapshot.rocketExplosions[0].active,
+      "rocket launcher should explode on the Q3-proportional projectile AABB"
+    );
+    failures += expect(
+      snapshot.rocketExplosions[0].weapon == lg::Weapon::RocketLauncher,
+      "rocket launcher AABB explosion should report rocket launcher as the weapon"
+    );
+    failures += expect(
+      snapshot.players[1].health == 0,
+      "rocket launcher AABB direct hit should apply direct damage"
+    );
+    failures += expect(
+      std::fabs(snapshot.rocketExplosions[0].position.x - 3.517857F) < 0.03F,
+      "rocket launcher direct-hit explosion should occur at the AABB intersection"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {80.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {4.0F, 0.5F, 0.0F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    rocket.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    lg::ServerSnapshot snapshot;
+    bool exploded = false;
+    for (int tick = 0; tick < 60; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      exploded = exploded || snapshot.rocketExplosions[0].active;
+    }
+
+    failures += expect(
+      !exploded && snapshot.players[1].health == 100,
+      "rocket launcher should miss when the segment passes outside the projectile AABB"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {40.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {4.0F, 0.45F, 0.0F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand plasma;
+    plasma.sequence = 1;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    plasma.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 30; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+
+    failures += expect(
+      snapshot.rocketExplosions[0].active &&
+        snapshot.rocketExplosions[0].weapon == lg::Weapon::PlasmaGun &&
+        snapshot.players[1].health == 80,
+      "plasma gun should use the same projectile AABB direct-hit logic"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-20.0F, -20.0F, 0.0F};
+    arena.max = {40.0F, 20.0F, 20.0F};
+    arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {2.0F, 0.0F, 0.0F};
+    arena.spawnPositions[2] = {12.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+    std::array<bool, lg::kDuelPlayerCount> connected = {};
+    connected[0] = true;
+    connected[1] = true;
+    connected[2] = true;
+    server.setConnectedPlayers(connected);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    rocket.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 60; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+
+    failures += expect(
+      snapshot.rocketExplosions[0].active,
+      "nearest-target rocket should explode on a projectile AABB"
+    );
+    failures += expect(
+      snapshot.players[1].health == 0,
+      "nearest-target rocket should apply direct damage to the first target"
+    );
+    failures += expect(
+      snapshot.players[2].health == 100,
+      "nearest-target rocket should leave the farther target outside splash untouched"
+    );
+  }
+
+  {
     ScopedBalanceConfigDirectory configDirectory(grenadeConfig(0.2F));
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
