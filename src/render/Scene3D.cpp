@@ -424,6 +424,8 @@ struct PlayerModelBasis {
 
 struct PlayerVisualPose {
   bool airborne = false;
+  bool crouched = false;
+  bool sneaking = false;
 };
 
 struct WeaponModelFrame {
@@ -1047,6 +1049,8 @@ void addOrientedWireBox(
 [[nodiscard]] PlayerVisualPose makePlayerVisualPose(const PlayerState& player) {
   PlayerVisualPose pose;
   pose.airborne = !player.onGround && player.movementMode == MovementMode::Airborne;
+  pose.crouched = player.crouched;
+  pose.sneaking = player.sneaking;
   return pose;
 }
 
@@ -1116,6 +1120,17 @@ void forEachPlayerModelPart(
     return;
   }
 
+  if (pose.crouched) {
+    part(PlayerBodyPartType::Torso, 0.05F, 0.0F, 0.39F, 0.73F, 0.36F, 0.58F, -8.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::Hips, -0.04F, 0.0F, 0.30F, 0.47F, 0.33F, 0.50F);
+    part(PlayerBodyPartType::Head, 0.08F, 0.0F, 0.73F, 1.0F, 0.34F, 0.36F, -6.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::LeftArm, 0.04F, -0.74F, 0.34F, 0.69F, 0.20F, 0.20F, -5.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::RightArm, 0.04F, 0.74F, 0.34F, 0.69F, 0.20F, 0.20F, -5.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::LeftLeg, -0.18F, -0.25F, 0.0F, 0.33F, 0.28F, 0.20F, -35.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::RightLeg, 0.02F, 0.25F, 0.0F, 0.33F, 0.28F, 0.20F, -18.0F * kDegreesToRadians);
+    return;
+  }
+
   part(PlayerBodyPartType::Torso, 0.0F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F);
   part(PlayerBodyPartType::Hips, 0.0F, 0.0F, 0.34F, 0.48F, 0.31F, 0.48F);
   part(PlayerBodyPartType::Head, 0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);
@@ -1140,6 +1155,10 @@ void forEachPlayerModelPart(
     const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 16.0F, 0.0F, 1.0F);
     const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
     poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+  } else if (pose.crouched) {
+    poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
+  } else if (pose.sneaking) {
+    poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
   } else if (leanAmount > 0.02F) {
     poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
   } else if (leanAmount < -0.02F) {

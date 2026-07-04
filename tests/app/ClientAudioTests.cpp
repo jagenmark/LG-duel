@@ -56,5 +56,40 @@ int main() {
     );
   }
 
+  const auto emitsLocalFootstep = [](bool crouched, bool sneaking) {
+    lg::ClientAudio audio;
+    lg::FootstepAudioState state;
+    lg::PlayerState player;
+    player.health = 100;
+    player.onGround = true;
+    player.position = {0.0F, 0.0F, player.bounds.halfHeight};
+    player.velocity = {6.0F, 0.0F, 0.0F};
+    player.crouched = crouched;
+    player.sneaking = sneaking;
+
+    lg::updateFootstepAudio(state, player, player, true, 1.0F, audio);
+    for (int tick = 0; tick < 30; ++tick) {
+      player.position.x += 0.2F;
+      lg::updateFootstepAudio(state, player, player, true, 1.0F, audio);
+      if (state.stepIndex > 0) {
+        return true;
+      }
+    }
+    return false;
+  };
+
+  expect(
+    emitsLocalFootstep(false, false),
+    "normal local movement should emit footstep audio"
+  );
+  expect(
+    !emitsLocalFootstep(true, false),
+    "local crouched movement should be silent"
+  );
+  expect(
+    !emitsLocalFootstep(false, true),
+    "local sneaking movement should be silent"
+  );
+
   return 0;
 }

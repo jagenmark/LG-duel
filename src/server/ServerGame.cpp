@@ -565,6 +565,8 @@ void ServerGame::tick(float fixedDt) {
     if (player.health <= 0) {
       player.velocity = {};
       player.jumpHeld = false;
+      player.crouched = false;
+      player.sneaking = false;
       player.viewYawRadians = command.viewYawRadians;
       player.viewPitchRadians = command.viewPitchRadians;
       continue;
@@ -2511,7 +2513,7 @@ void ServerGame::updateFootstepAudioEvents() {
     } else if (player.onGround && !state.wasOnGround) {
       emitMovementSound(false, true);
       state.distanceSinceStep = 0.0F;
-    } else if (movingOnGround) {
+    } else if (movingOnGround && !player.crouched && !player.sneaking) {
       state.distanceSinceStep += horizontalDistance;
       const float strideDistance = std::max(
         kMinimumStrideDistance,
@@ -2521,6 +2523,8 @@ void ServerGame::updateFootstepAudioEvents() {
         emitMovementSound(false, false);
         state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
       }
+    } else if (player.crouched || player.sneaking) {
+      state.distanceSinceStep = 0.0F;
     } else if (!player.onGround || horizontalSpeed < 0.25F) {
       state.distanceSinceStep = 0.0F;
     }
@@ -2552,6 +2556,16 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.serverTick - recentFootstepAudioEventTicks_[playerIndex] <=
         kTransientCombatEventTicks
     ) {
+      const FootstepAudioEvent& recentEvent =
+        recentFootstepAudioEvents_[playerIndex];
+      const PlayerState& player = snapshot_.players[playerIndex];
+      if (
+        (player.crouched || player.sneaking) &&
+        !recentEvent.jumping &&
+        !recentEvent.landing
+      ) {
+        continue;
+      }
       snapshot_.footstepAudioEvents[playerIndex] =
         recentFootstepAudioEvents_[playerIndex];
     }

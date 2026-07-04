@@ -8,6 +8,10 @@
 namespace lg {
 namespace {
 
+constexpr float kCrouchHeightScale = 0.62F;
+constexpr float kCrouchGroundSpeedScale = 0.35F;
+constexpr float kSneakGroundSpeedScale = 0.52F;
+
 [[nodiscard]] Vec3 horizontal(Vec3 value) {
   return {value.x, value.y, 0.0F};
 }
@@ -297,6 +301,44 @@ void applyJumpPads(
   }
 }
 
+[[nodiscard]] float standingHalfHeight(const PlayerState& player) {
+  return player.crouched
+    ? player.bounds.halfHeight / kCrouchHeightScale
+    : player.bounds.halfHeight;
+}
+
+void applyCrouchState(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena
+) {
+  const float targetStandingHalfHeight = standingHalfHeight(player);
+  const float targetHalfHeight = command.crouch
+    ? targetStandingHalfHeight * kCrouchHeightScale
+    : targetStandingHalfHeight;
+  if (std::fabs(player.bounds.halfHeight - targetHalfHeight) <= 0.0001F) {
+    player.crouched = command.crouch;
+    player.sneaking = command.sneak;
+    return;
+  }
+
+  const float feetZ = player.position.z - player.bounds.halfHeight;
+  PlayerState resizedPlayer = player;
+  resizedPlayer.bounds.halfHeight = targetHalfHeight;
+  resizedPlayer.position.z = feetZ + targetHalfHeight;
+  resizedPlayer.crouched = command.crouch;
+  resizedPlayer.sneaking = command.sneak;
+  if (!command.crouch && playerPositionSolid(arena, resizedPlayer, resizedPlayer.position)) {
+    player.crouched = true;
+    player.sneaking = command.sneak;
+    return;
+  }
+  player.bounds.halfHeight = resizedPlayer.bounds.halfHeight;
+  player.position.z = resizedPlayer.position.z;
+  player.crouched = resizedPlayer.crouched;
+  player.sneaking = resizedPlayer.sneaking;
+}
+
 void accelerate(Vec3& velocity, Vec3 wishDirection, float wishSpeed, float acceleration, float fixedDt) {
   const float currentSpeed = dot(velocity, wishDirection);
   const float addSpeed = wishSpeed - currentSpeed;
@@ -425,6 +467,7 @@ void simulateGroundedOrAirborne(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  applyCrouchState(player, command, arena);
   if (!command.jump) {
     player.jumpHeld = false;
   }
@@ -460,10 +503,16 @@ void simulateGroundedOrAirborne(
     ? movementWishDirection(command)
     : movementWishDirectionGrounded(command, groundContact.normal);
   if (length(wishDirection) > 0.0F) {
+    float maxGroundSpeed = tuning.maxGroundSpeed;
+    if (player.crouched) {
+      maxGroundSpeed *= kCrouchGroundSpeedScale;
+    } else if (player.sneaking) {
+      maxGroundSpeed *= kSneakGroundSpeedScale;
+    }
     accelerate(
       player.velocity,
       wishDirection,
-      useAirMovement ? tuning.maxAirSpeed : tuning.maxGroundSpeed,
+      useAirMovement ? tuning.maxAirSpeed : maxGroundSpeed,
       useAirMovement ? tuning.airAcceleration : tuning.groundAcceleration,
       fixedDt
     );
@@ -587,6 +636,8 @@ void simulateFlying(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  player.crouched = false;
+  player.sneaking = false;
   player.jumpHeld = command.jump;
   player.onGround = false;
 

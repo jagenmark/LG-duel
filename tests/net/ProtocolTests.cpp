@@ -75,6 +75,8 @@ int main() {
     source.command.upMove = 0.75F;
     source.command.attack = true;
     source.command.jump = true;
+    source.command.crouch = true;
+    source.command.sneak = true;
     source.command.planarAim = false;
     source.command.weapon = lg::Weapon::PlasmaGun;
     source.requestReset = true;
@@ -143,7 +145,13 @@ int main() {
       nearlyEqual(decoded.command.viewPitchRadians, -0.25F),
       "command pitch should round trip"
     );
-    failures += expect(decoded.command.attack && decoded.command.jump, "command bits should round trip");
+    failures += expect(
+      decoded.command.attack &&
+        decoded.command.jump &&
+        decoded.command.crouch &&
+        decoded.command.sneak,
+      "command bits should round trip"
+    );
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
     failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "åäöÅÄÖ", "Swedish chat message should round trip");
@@ -318,6 +326,8 @@ int main() {
     source.players[0].movementMode = lg::MovementMode::Flying;
     source.players[0].onGround = false;
     source.players[0].jumpHeld = true;
+    source.players[0].crouched = true;
+    source.players[0].sneaking = true;
     source.players[0].knockbackTicksRemaining = 9;
     source.players[1].health = 0;
     source.selectedWeapons[0] = lg::Weapon::LightningGun;
@@ -510,8 +520,10 @@ int main() {
     failures += expect(
       decoded.players[0].movementMode == lg::MovementMode::Flying &&
         decoded.players[0].jumpHeld &&
+        decoded.players[0].crouched &&
+        decoded.players[0].sneaking &&
         decoded.players[0].knockbackTicksRemaining == 9,
-      "movement mode, jump latch, and knockback timer should round trip"
+      "movement mode, jump latch, crouch state, and knockback timer should round trip"
     );
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");

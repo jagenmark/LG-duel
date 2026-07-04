@@ -3,9 +3,11 @@
 namespace lg {
 namespace {
 
-ServerSnapshot snapshotWithDefaultMapDescriptor(ServerSnapshot snapshot) {
+ServerSnapshot snapshotWithDefaultMapDescriptor(const ServerSnapshot& snapshot) {
   if (snapshot.map.contentHash == 0 && snapshot.map.mapName == "thunderstruck") {
-    snapshot.map = describeMap("thunderstruck", thunderstruckArena());
+    ServerSnapshot normalized = snapshot;
+    normalized.map = describeMap("thunderstruck", thunderstruckArena());
+    return normalized;
   }
   return snapshot;
 }

@@ -285,6 +285,8 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(command.upMove) &&
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
+    writer.writeBool(command.crouch) &&
+    writer.writeBool(command.sneak) &&
     writer.writeBool(command.planarAim) &&
     writer.writeU8(static_cast<std::uint8_t>(command.weapon)) &&
     writer.writeBool(packet.requestReset) &&
@@ -360,6 +362,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.command.upMove) ||
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
+    !reader.readBool(packet.command.crouch) ||
+    !reader.readBool(packet.command.sneak) ||
     !reader.readBool(packet.command.planarAim) ||
     !reader.readU8(weapon) ||
     !reader.readBool(packet.requestReset) ||
@@ -525,7 +529,9 @@ bool writePlayer(Writer& writer, const PlayerState& player) {
     writer.writeU8(static_cast<std::uint8_t>(player.movementMode)) &&
     writer.writeU16(player.knockbackTicksRemaining) &&
     writer.writeBool(player.onGround) &&
-    writer.writeBool(player.jumpHeld);
+    writer.writeBool(player.jumpHeld) &&
+    writer.writeBool(player.crouched) &&
+    writer.writeBool(player.sneaking);
 }
 
 bool readPlayer(Reader& reader, PlayerState& player) {
@@ -542,7 +548,9 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     !reader.readU8(movementMode) ||
     !reader.readU16(player.knockbackTicksRemaining) ||
     !reader.readBool(player.onGround) ||
-    !reader.readBool(player.jumpHeld)
+    !reader.readBool(player.jumpHeld) ||
+    !reader.readBool(player.crouched) ||
+    !reader.readBool(player.sneaking)
   ) {
     return false;
   }

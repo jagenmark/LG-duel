@@ -99,6 +99,8 @@ Default controls are intentionally simple:
 - Mouse: aim
 - Left mouse: fire
 - `Space`: jump
+- `Ctrl`: crouch/duck when flight is off, move down when flight is on
+- `Shift`: sneak / quiet walk
 - `1`..`7`: select weapons
 - `Q` / `E` / `R`: quick weapon binds
 - `F3`: ready
