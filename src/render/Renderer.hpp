@@ -66,6 +66,10 @@ struct RenderSettings {
   float crosshairSize = 8.0F;
   float crosshairThickness = 2.0F;
   float crosshairGap = 3.0F;
+  bool crosshairDotEnabled = false;
+  float crosshairDotThickness = 2.0F;
+  bool crosshairOutlineEnabled = false;
+  float crosshairOutlineWidth = 1.0F;
   float crosshairAlpha = 1.0F;
   std::uint8_t crosshairRed = 255;
   std::uint8_t crosshairGreen = 255;
@@ -221,6 +225,7 @@ struct HudRenderState {
   };
 
   std::vector<std::string> topLeftLines;
+  std::vector<std::string> topCenterLines;
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;

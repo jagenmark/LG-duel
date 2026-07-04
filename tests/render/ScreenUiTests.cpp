@@ -4,6 +4,7 @@
 #include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
@@ -59,6 +60,41 @@ bool commandTouchesWeaponHud(const lg::DrawCommand2D& command) {
   return false;
 }
 
+bool quadContainsPoint(
+  const lg::FilledQuad2D& quad,
+  float x,
+  float y
+) {
+  float minX = quad.points[0].x;
+  float maxX = quad.points[0].x;
+  float minY = quad.points[0].y;
+  float maxY = quad.points[0].y;
+  for (const lg::ScreenPoint& point : quad.points) {
+    minX = std::min(minX, point.x);
+    maxX = std::max(maxX, point.x);
+    minY = std::min(minY, point.y);
+    maxY = std::max(maxY, point.y);
+  }
+  return x >= minX && x <= maxX && y >= minY && y <= maxY;
+}
+
+std::size_t centerLineCount(const lg::DrawList2D& drawList) {
+  std::size_t count = 0;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+      const bool nearCenter =
+        std::fabs(line->start.x - 640.0F) < 64.0F &&
+        std::fabs(line->start.y - 360.0F) < 64.0F &&
+        std::fabs(line->end.x - 640.0F) < 64.0F &&
+        std::fabs(line->end.y - 360.0F) < 64.0F;
+      if (nearCenter) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
 } // namespace
 
 int main() {
@@ -71,6 +107,7 @@ int main() {
   hud.selectedWeapon = lg::Weapon::LightningGun;
   hud.showOpponentHealthBar = true;
   hud.topLeftLines = {"FPS 240"};
+  hud.topCenterLines = {"SCORE 0 / 10"};
   hud.bottomCenterLines = {"HEALTH 100"};
   hud.fpsText = "111fps";
   hud.speedText = "320 ups";
@@ -308,6 +345,113 @@ int main() {
   }
 
   {
+    lg::RenderSettings noGapCrosshairSettings;
+    noGapCrosshairSettings.crosshairStyle = 1;
+    noGapCrosshairSettings.crosshairSize = 10.0F;
+    noGapCrosshairSettings.crosshairThickness = 4.0F;
+    const lg::DrawList2D noGapUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      noGapCrosshairSettings,
+      {},
+      {}
+    );
+    bool foundHorizontalCenter = false;
+    bool foundVerticalCenter = false;
+    for (const lg::DrawCommand2D& command : noGapUi.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        const bool crosshairColor =
+          quad->color.red == 255 && quad->color.green == 255 &&
+          quad->color.blue == 255;
+        const float quadWidth = quad->points[1].x - quad->points[0].x;
+        const float quadHeight = quad->points[2].y - quad->points[1].y;
+        foundHorizontalCenter =
+          foundHorizontalCenter ||
+          (
+            crosshairColor &&
+            quadContainsPoint(*quad, 640.0F, 360.0F) &&
+            quadWidth > quadHeight
+          );
+        foundVerticalCenter =
+          foundVerticalCenter ||
+          (
+            crosshairColor &&
+            quadContainsPoint(*quad, 640.0F, 360.0F) &&
+            quadHeight > quadWidth
+          );
+      }
+    }
+    failures += expect(
+      foundHorizontalCenter && foundVerticalCenter,
+      "crosshair_style 1 should draw a no-gap cross through the center"
+    );
+  }
+
+  {
+    lg::RenderSettings ringCrosshairSettings;
+    ringCrosshairSettings.crosshairStyle = 3;
+    ringCrosshairSettings.crosshairSize = 9.0F;
+    ringCrosshairSettings.crosshairThickness = 2.0F;
+    const lg::DrawList2D ringUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      ringCrosshairSettings,
+      {},
+      {}
+    );
+    failures += expect(
+      centerLineCount(ringUi) >= 30U,
+      "crosshair_style 3 should draw a ring using center line segments"
+    );
+  }
+
+  {
+    lg::RenderSettings dotOutlineSettings;
+    dotOutlineSettings.crosshairStyle = 2;
+    dotOutlineSettings.crosshairDotEnabled = true;
+    dotOutlineSettings.crosshairDotThickness = 4.0F;
+    dotOutlineSettings.crosshairOutlineEnabled = true;
+    dotOutlineSettings.crosshairOutlineWidth = 2.0F;
+    const lg::DrawList2D dotOutlineUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      dotOutlineSettings,
+      {},
+      {}
+    );
+    const lg::FilledQuad2D* outlineDot = nullptr;
+    const lg::FilledQuad2D* colorDot = nullptr;
+    for (const lg::DrawCommand2D& command : dotOutlineUi.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        if (!quadContainsPoint(*quad, 640.0F, 360.0F)) {
+          continue;
+        }
+        if (
+          quad->color.red == 0 && quad->color.green == 0 &&
+          quad->color.blue == 0
+        ) {
+          outlineDot = quad;
+        } else if (
+          quad->color.red == 255 && quad->color.green == 255 &&
+          quad->color.blue == 255
+        ) {
+          colorDot = quad;
+        }
+      }
+    }
+    failures += expect(
+      outlineDot != nullptr &&
+        colorDot != nullptr &&
+        (outlineDot->points[1].x - outlineDot->points[0].x) >
+          (colorDot->points[1].x - colorDot->points[0].x),
+      "crosshair dot and outline should render independently of the main style"
+    );
+  }
+
+  {
     lg::HudRenderState damageHud;
     damageHud.damageNumbers.entries = {
       {11, 1, 0.0F, 0},
@@ -455,6 +599,7 @@ int main() {
     bool foundSpeed = false;
     bool foundLegacySpeedText = false;
     bool foundYellowHealthFill = false;
+    const lg::Text2D* topCenterScore = nullptr;
     std::array<bool, 7> foundWeaponValues = {};
     std::size_t weaponHudShapeCount = 0;
     const lg::Text2D* fpsText = nullptr;
@@ -477,6 +622,8 @@ int main() {
           foundLegacyHealthText || text->text == "HEALTH 100";
         foundScoreboardTitle =
           foundScoreboardTitle || text->text == "SCOREBOARD";
+        topCenterScore =
+          text->text == "SCORE 0 / 10" ? text : topCenterScore;
         foundSpeed =
           foundSpeed ||
           (text->text == "320 ups" && text->position.x == 640.0F &&
@@ -520,10 +667,17 @@ int main() {
     );
     failures += expect(
       fpsText != nullptr &&
-        fpsText->position.x > 1180.0F &&
-        fpsText->position.y > 6.0F &&
-        fpsText->position.y < 7.0F,
-      "cl_showfps HUD text should draw as a readable top-right FPS counter"
+        fpsText->position.x == 1272.0F &&
+        fpsText->position.y == 4.0F &&
+        fpsText->horizontalAlignment == lg::TextHorizontalAlignment::Right,
+      "cl_showfps HUD text should stay anchored to a fixed top-right offset"
+    );
+    failures += expect(
+      topCenterScore != nullptr &&
+        topCenterScore->position.x == 640.0F &&
+        topCenterScore->position.y == 12.0F &&
+        topCenterScore->horizontalAlignment == lg::TextHorizontalAlignment::Center,
+      "score should render centered at the top of the HUD"
     );
     failures += expect(
       weaponHudShapeCount >= 20,
@@ -575,6 +729,40 @@ int main() {
         "selected weapon indicator should mark every weapon slot"
       );
     }
+  }
+
+  {
+    lg::RenderSettings smallFpsSettings = settings;
+    smallFpsSettings.fpsTextScale = 0.75F;
+    lg::RenderSettings largeFpsSettings = settings;
+    largeFpsSettings.fpsTextScale = 4.0F;
+    const lg::DrawList2D smallFpsUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      smallFpsSettings,
+      hud,
+      console
+    );
+    const lg::DrawList2D largeFpsUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      largeFpsSettings,
+      hud,
+      console
+    );
+    const lg::Text2D* smallFpsText = findText(smallFpsUi, "111fps");
+    const lg::Text2D* largeFpsText = findText(largeFpsUi, "111fps");
+    failures += expect(
+      smallFpsText != nullptr &&
+        largeFpsText != nullptr &&
+        smallFpsText->position.x == largeFpsText->position.x &&
+        smallFpsText->position.y == largeFpsText->position.y &&
+        smallFpsText->horizontalAlignment == lg::TextHorizontalAlignment::Right &&
+        largeFpsText->horizontalAlignment == lg::TextHorizontalAlignment::Right,
+      "cl_showfps size changes should not move the top-right FPS anchor"
+    );
   }
 
   {

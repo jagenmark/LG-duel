@@ -15,6 +15,8 @@ namespace lg {
 namespace {
 
 constexpr float kGlyphSize = 8.0F;
+constexpr float kTwoPi = 6.28318530718F;
+constexpr float kHalfPi = 1.57079632679F;
 
 [[nodiscard]] float snappedTextScale(float scale) {
   constexpr std::array<float, 10> pixelHeights = {
@@ -284,11 +286,11 @@ void addLocalHealthNumber(
   case Weapon::RocketLauncher:
     return {255, 72, 54, 255};
   case Weapon::LightningGun:
-    return {74, 166, 255, 255};
+    return {245, 244, 168, 255};
   case Weapon::Railgun:
-    return {208, 94, 255, 255};
+    return {72, 232, 112, 255};
   case Weapon::PlasmaGun:
-    return {92, 220, 255, 255};
+    return {190, 82, 255, 255};
   }
   return {230, 238, 246, 255};
 }
@@ -400,6 +402,13 @@ void addWeaponIcon(
       color
     );
   };
+  const auto quad = [&](std::array<ScreenPoint, 4> points) {
+    for (ScreenPoint& point : points) {
+      point.x = centerX + point.x * scale;
+      point.y = centerY + point.y * scale;
+    }
+    drawList.overlayCommands.emplace_back(FilledQuad2D{points, color});
+  };
   const auto line =
     [&](float x1, float y1, float x2, float y2, float width) {
       addLine(
@@ -410,79 +419,176 @@ void addWeaponIcon(
         width * scale
       );
     };
+  const auto lineColor = [&](
+    float x1,
+    float y1,
+    float x2,
+    float y2,
+    float width,
+    RenderColor lineRenderColor
+  ) {
+    addLine(
+      drawList,
+      {centerX + x1 * scale, centerY + y1 * scale},
+      {centerX + x2 * scale, centerY + y2 * scale},
+      lineRenderColor,
+      width * scale
+    );
+  };
+  const auto ringAt = [&](
+    float x,
+    float y,
+    float radius,
+    float width,
+    int segments,
+    RenderColor ringColor
+  ) {
+    for (int segment = 0; segment < segments; ++segment) {
+      const float a0 =
+        (static_cast<float>(segment) / static_cast<float>(segments)) *
+        kTwoPi;
+      const float a1 =
+        (static_cast<float>(segment + 1) / static_cast<float>(segments)) *
+        kTwoPi;
+      lineColor(
+        x + std::cos(a0) * radius,
+        y + std::sin(a0) * radius,
+        x + std::cos(a1) * radius,
+        y + std::sin(a1) * radius,
+        width,
+        ringColor
+      );
+    }
+  };
+  const auto ring = [&](float radius, float width, int segments) {
+    ringAt(0.0F, 0.0F, radius, width, segments, color);
+  };
 
   if (weapon == Weapon::MachineGun) {
-    rect(-15.0F, -14.0F, 30.0F, 20.0F);
-    rect(-5.0F, -22.0F, 10.0F, 26.0F);
-    rect(-20.0F, 8.0F, 40.0F, 5.0F);
-    line(-2.0F, -22.0F, -2.0F, -30.0F, 2.0F);
-    line(2.0F, -22.0F, 2.0F, -30.0F, 2.0F);
+    rect(-17.0F, -15.0F, 8.0F, 30.0F);
+    rect(-9.0F, -12.0F, 8.0F, 24.0F);
+    rect(-2.0F, -11.0F, 19.0F, 5.0F);
+    rect(-2.0F, -2.5F, 22.0F, 5.0F);
+    rect(-2.0F, 6.0F, 19.0F, 5.0F);
+    rect(17.0F, -10.0F, 4.0F, 3.0F);
+    rect(20.0F, -1.5F, 4.0F, 3.0F);
+    rect(17.0F, 7.0F, 4.0F, 3.0F);
     return;
   }
 
   if (weapon == Weapon::Shotgun) {
-    rect(-21.0F, -15.0F, 42.0F, 6.0F);
-    rect(-21.0F, -5.0F, 42.0F, 6.0F);
-    rect(-17.0F, 8.0F, 34.0F, 8.0F);
-    line(-23.0F, 15.0F, 23.0F, 15.0F, 3.0F);
+    for (float x : {-13.0F, -1.0F, 11.0F}) {
+      line(x, -18.0F, x, 12.0F, 4.0F);
+      line(x + 6.0F, -18.0F, x + 6.0F, 12.0F, 4.0F);
+      line(x, -18.0F, x + 6.0F, -18.0F, 4.0F);
+      line(x, 12.0F, x + 6.0F, 12.0F, 4.0F);
+      rect(x - 1.0F, 14.0F, 8.0F, 4.0F);
+    }
     return;
   }
 
   if (weapon == Weapon::GrenadeLauncher) {
-    rect(-21.0F, -11.0F, 42.0F, 20.0F);
-    rect(-14.0F, -18.0F, 28.0F, 32.0F);
-    rect(-8.0F, -12.0F, 16.0F, 22.0F);
-    line(-20.0F, 13.0F, 20.0F, 13.0F, 3.0F);
+    rect(-8.0F, -14.0F, 16.0F, 4.0F);
+    rect(-13.0F, -10.0F, 26.0F, 8.0F);
+    rect(-15.0F, -2.0F, 30.0F, 12.0F);
+    rect(-11.0F, 10.0F, 22.0F, 6.0F);
+    rect(-5.0F, 16.0F, 10.0F, 3.0F);
+    rect(1.0F, -20.0F, 8.0F, 5.0F);
+    line(8.0F, -19.0F, 16.0F, -17.0F, 4.0F);
+    line(16.0F, -17.0F, 20.0F, -10.0F, 4.0F);
     return;
   }
 
   if (weapon == Weapon::RocketLauncher) {
-    rect(-23.0F, -10.0F, 46.0F, 20.0F);
-    rect(-15.0F, -20.0F, 30.0F, 8.0F);
-    line(-17.0F, -1.0F, 17.0F, -1.0F, 4.0F);
-    line(-11.0F, 11.0F, 11.0F, 11.0F, 3.0F);
+    quad({{
+      {-18.0F, -13.0F},
+      {-10.0F, -21.0F},
+      {17.0F, 6.0F},
+      {9.0F, 14.0F},
+    }});
+    quad({{
+      {17.0F, 6.0F},
+      {9.0F, 14.0F},
+      {24.0F, 20.0F},
+      {26.0F, 18.0F},
+    }});
+    quad({{
+      {-23.0F, -18.0F},
+      {-18.0F, -24.0F},
+      {-10.0F, -21.0F},
+      {-18.0F, -13.0F},
+    }});
+    quad({{
+      {-16.0F, -12.0F},
+      {-29.0F, -8.0F},
+      {-23.0F, -1.0F},
+      {-9.0F, -5.0F},
+    }});
+    quad({{
+      {-11.0F, -18.0F},
+      {-13.0F, -31.0F},
+      {-5.0F, -27.0F},
+      {-3.0F, -14.0F},
+    }});
+    line(-19.0F, -20.0F, -28.0F, -27.0F, 4.0F);
+    line(-22.0F, -15.0F, -33.0F, -16.0F, 4.0F);
     return;
   }
 
   if (weapon == Weapon::LightningGun) {
-    addLine(
-      drawList,
-      {centerX - 18.0F * scale, centerY + 12.0F * scale},
-      {centerX + 16.0F * scale, centerY - 13.0F * scale},
-      color,
-      4.0F * scale
-    );
-    addLine(
-      drawList,
-      {centerX + 16.0F * scale, centerY - 13.0F * scale},
-      {centerX + 5.0F * scale, centerY + 2.0F * scale},
-      color,
-      2.0F * scale
-    );
-    addLine(
-      drawList,
-      {centerX + 5.0F * scale, centerY + 2.0F * scale},
-      {centerX + 19.0F * scale, centerY + 1.0F * scale},
-      color,
-      2.0F * scale
-    );
+    for (int branch = 0; branch < 6; ++branch) {
+      const float angle =
+        (static_cast<float>(branch) / 6.0F) * kTwoPi - kHalfPi;
+      const float dx = std::cos(angle);
+      const float dy = std::sin(angle);
+      const float px = -dy;
+      const float py = dx;
+      line(0.0F, 0.0F, dx * 21.0F, dy * 21.0F, 5.0F);
+      line(
+        dx * 12.0F,
+        dy * 12.0F,
+        dx * 18.0F + px * 7.0F,
+        dy * 18.0F + py * 7.0F,
+        4.0F
+      );
+      line(
+        dx * 12.0F,
+        dy * 12.0F,
+        dx * 18.0F - px * 7.0F,
+        dy * 18.0F - py * 7.0F,
+        4.0F
+      );
+    }
     return;
   }
 
   if (weapon == Weapon::Railgun) {
-    rect(-20.0F, -3.0F, 40.0F, 6.0F);
-    rect(-4.0F, -19.0F, 8.0F, 34.0F);
-    rect(10.0F, -9.0F, 8.0F, 18.0F);
-    line(-17.0F, -9.0F, 17.0F, -9.0F, 2.0F);
+    const RenderColor holeColor = {6, 8, 10, 230};
+    rect(-8.0F, -17.0F, 16.0F, 34.0F);
+    rect(-14.0F, -12.0F, 28.0F, 24.0F);
+    rect(-17.0F, -7.0F, 34.0F, 14.0F);
+    ring(16.0F, 3.0F, 24);
+    ringAt(0.0F, 0.0F, 1.4F, 5.8F, 10, holeColor);
+    for (int hole = 0; hole < 6; ++hole) {
+      const float angle = static_cast<float>(hole) / 6.0F * kTwoPi;
+      ringAt(
+        std::cos(angle) * 8.5F,
+        std::sin(angle) * 8.5F,
+        1.4F,
+        5.8F,
+        10,
+        holeColor
+      );
+    }
     return;
   }
 
   if (weapon == Weapon::PlasmaGun) {
-    rect(-12.0F, -20.0F, 24.0F, 30.0F);
-    rect(-25.0F, -1.0F, 10.0F, 24.0F);
-    rect(15.0F, -1.0F, 10.0F, 24.0F);
-    rect(-7.0F, -14.0F, 14.0F, 20.0F);
-    line(-18.0F, 12.0F, 18.0F, 12.0F, 3.0F);
+    rect(-4.0F, -20.0F, 8.0F, 40.0F);
+    rect(-20.0F, -4.0F, 40.0F, 8.0F);
+    rect(-12.0F, -12.0F, 24.0F, 24.0F);
+    line(-16.0F, -16.0F, 16.0F, 16.0F, 3.0F);
+    line(-16.0F, 16.0F, 16.0F, -16.0F, 3.0F);
   }
 }
 
@@ -833,6 +939,10 @@ void addCrosshair(
   const float size = settings.crosshairSize;
   const float gap = settings.crosshairGap;
   const float thickness = settings.crosshairThickness;
+  const float dotThickness = settings.crosshairDotThickness;
+  const float outlineWidth = settings.crosshairOutlineEnabled
+    ? std::max(0.0F, settings.crosshairOutlineWidth)
+    : 0.0F;
   const float hitAmount = std::clamp(settings.crosshairHitAmount, 0.0F, 1.0F);
   const RenderColor color = {
     blendChannel(settings.crosshairRed, settings.crosshairHitRed, hitAmount),
@@ -842,60 +952,125 @@ void addCrosshair(
       std::clamp(settings.crosshairAlpha, 0.0F, 1.0F) * 255.0F
     ),
   };
-
-  if (settings.crosshairStyle == 2) {
-    addRect(
-      drawList,
-      centerX - thickness * 0.5F,
-      centerY - thickness * 0.5F,
-      thickness,
-      thickness,
-      color
+  const RenderColor outlineColor = {0, 0, 0, color.alpha};
+  const auto rect = [&](float x, float y, float w, float h, RenderColor rectColor) {
+    addRect(drawList, x, y, w, h, rectColor);
+  };
+  const auto cross = [&](float crossGap, float extra, RenderColor crossColor) {
+    const float crossThickness = thickness + extra * 2.0F;
+    const float halfThickness = crossThickness * 0.5F;
+    const float crossSize = size + extra;
+    if (crossGap <= 0.0F) {
+      rect(
+        centerX - crossSize,
+        centerY - halfThickness,
+        crossSize * 2.0F,
+        crossThickness,
+        crossColor
+      );
+      rect(
+        centerX - halfThickness,
+        centerY - crossSize,
+        crossThickness,
+        crossSize * 2.0F,
+        crossColor
+      );
+      return;
+    }
+    const float armGap = std::max(0.0F, crossGap - extra);
+    rect(
+      centerX - armGap - crossSize,
+      centerY - halfThickness,
+      crossSize,
+      crossThickness,
+      crossColor
     );
-    return;
+    rect(
+      centerX + armGap,
+      centerY - halfThickness,
+      crossSize,
+      crossThickness,
+      crossColor
+    );
+    rect(
+      centerX - halfThickness,
+      centerY - armGap - crossSize,
+      crossThickness,
+      crossSize,
+      crossColor
+    );
+    rect(
+      centerX - halfThickness,
+      centerY + armGap,
+      crossThickness,
+      crossSize,
+      crossColor
+    );
+  };
+  const auto ring = [&](float extra, RenderColor ringColor) {
+    const float ringRadius = std::max(1.0F, size + extra);
+    const float ringThickness = thickness + extra * 2.0F;
+    constexpr int segmentCount = 36;
+    for (int segment = 0; segment < segmentCount; ++segment) {
+      const float a0 =
+        (static_cast<float>(segment) / static_cast<float>(segmentCount)) *
+        kTwoPi;
+      const float a1 =
+        (static_cast<float>(segment + 1) / static_cast<float>(segmentCount)) *
+        kTwoPi;
+      addLine(
+        drawList,
+        {
+          centerX + std::cos(a0) * ringRadius,
+          centerY + std::sin(a0) * ringRadius,
+        },
+        {
+          centerX + std::cos(a1) * ringRadius,
+          centerY + std::sin(a1) * ringRadius,
+        },
+        ringColor,
+        ringThickness
+      );
+    }
+  };
+  const auto dot = [&](float extra, RenderColor dotColor) {
+    const float dotSize = dotThickness + extra * 2.0F;
+    rect(
+      centerX - dotSize * 0.5F,
+      centerY - dotSize * 0.5F,
+      dotSize,
+      dotSize,
+      dotColor
+    );
+  };
+
+  const auto drawMainShape = [&](float extra, RenderColor shapeColor) {
+    switch (settings.crosshairStyle) {
+    case 1:
+      cross(0.0F, extra, shapeColor);
+      break;
+    case 3:
+      ring(extra, shapeColor);
+      break;
+    case 2:
+      break;
+    case 0:
+    default:
+      cross(gap, extra, shapeColor);
+      break;
+    }
+  };
+
+  if (outlineWidth > 0.0F) {
+    drawMainShape(outlineWidth, outlineColor);
+    if (settings.crosshairDotEnabled) {
+      dot(outlineWidth, outlineColor);
+    }
   }
 
-  addRect(
-    drawList,
-    centerX - gap - size,
-    centerY - thickness * 0.5F,
-    size,
-    thickness,
-    color
-  );
-  addRect(
-    drawList,
-    centerX + gap,
-    centerY - thickness * 0.5F,
-    size,
-    thickness,
-    color
-  );
-  addRect(
-    drawList,
-    centerX - thickness * 0.5F,
-    centerY - gap - size,
-    thickness,
-    size,
-    color
-  );
-  addRect(
-    drawList,
-    centerX - thickness * 0.5F,
-    centerY + gap,
-    thickness,
-    size,
-    color
-  );
-  if (settings.crosshairStyle == 1) {
-    addRect(
-      drawList,
-      centerX - 1.0F,
-      centerY - 1.0F,
-      2.0F,
-      2.0F,
-      color
-    );
+  drawMainShape(0.0F, color);
+  if (settings.crosshairDotEnabled) {
+    dot(0.0F, color);
   }
 }
 
@@ -1076,17 +1251,19 @@ void addHud(
   constexpr float textScale = 2.0F;
   constexpr float characterWidth = kGlyphSize * textScale;
   constexpr RenderColor defaultText = {235, 242, 250, 255};
+  constexpr float fpsRightOffset = 8.0F;
+  constexpr float fpsTopOffset = 4.0F;
 
   if (!hud.fpsText.empty()) {
     const float fpsScale = std::clamp(settings.fpsTextScale, 0.5F, 6.0F);
-    const float inset = 8.0F * fpsScale;
     addText(
       drawList,
-      static_cast<float>(width) - inset - textWidth(hud.fpsText, fpsScale),
-      4.0F * fpsScale,
+      static_cast<float>(width) - fpsRightOffset,
+      fpsTopOffset,
       hud.fpsText,
       {245, 248, 252, 245},
-      fpsScale
+      fpsScale,
+      TextHorizontalAlignment::Right
     );
   }
 
@@ -1170,7 +1347,24 @@ void addHud(
     y += 20.0F;
   }
 
-  y = hud.fpsText.empty() ? 12.0F : 24.0F;
+  y = 12.0F;
+  for (const std::string& line : hud.topCenterLines) {
+    addText(
+      drawList,
+      static_cast<float>(width) * 0.5F,
+      y,
+      line,
+      defaultText,
+      textScale,
+      TextHorizontalAlignment::Center
+    );
+    y += 20.0F;
+  }
+
+  y = hud.fpsText.empty()
+    ? 12.0F
+    : std::max(24.0F, fpsTopOffset + kGlyphSize *
+        std::clamp(settings.fpsTextScale, 0.5F, 6.0F) + 6.0F);
   for (const std::string& line : hud.topRightLines) {
     const float x = std::max(
       12.0F,

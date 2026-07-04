@@ -2293,6 +2293,10 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.crosshairSize = console.getFloat("crosshair_size");
   settings.crosshairThickness = console.getFloat("crosshair_thickness");
   settings.crosshairGap = console.getFloat("crosshair_gap");
+  settings.crosshairDotEnabled = console.getBool("crosshair_dot_enable");
+  settings.crosshairDotThickness = console.getFloat("crosshair_dot_thickness");
+  settings.crosshairOutlineEnabled = console.getBool("crosshair_outline_enable");
+  settings.crosshairOutlineWidth = console.getFloat("crosshair_outline_width");
   settings.crosshairAlpha = console.getFloat("crosshair_alpha");
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
   settings.crosshairGreen = static_cast<std::uint8_t>(console.getInt("crosshair_g"));
@@ -2859,7 +2863,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
-  hud.topRightLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
   if (snapshot.matchRules.timeLimitMinutes > 0) {
     const std::uint32_t limitTicks =
       static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;

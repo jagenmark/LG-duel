@@ -4287,10 +4287,15 @@ void appendText(
     return width;
   };
   const auto alignedLineX = [&](std::size_t startIndex) {
-    if (text.horizontalAlignment != TextHorizontalAlignment::Center) {
-      return text.position.x;
+    switch (text.horizontalAlignment) {
+    case TextHorizontalAlignment::Center:
+      return text.position.x - lineWidthAt(startIndex) * 0.5F;
+    case TextHorizontalAlignment::Right:
+      return text.position.x - lineWidthAt(startIndex);
+    case TextHorizontalAlignment::Left:
+      break;
     }
-    return text.position.x - lineWidthAt(startIndex) * 0.5F;
+    return text.position.x;
   };
   std::size_t lineStart = 0U;
   float x = alignedLineX(lineStart);
@@ -6015,10 +6020,12 @@ void drawCommands(
             static_cast<float>(utf8GlyphCount(primitive.text)) *
             kBitmapGlyphSize *
             snappedScale;
-          const float x = primitive.horizontalAlignment ==
-              TextHorizontalAlignment::Center
-            ? primitive.position.x - textWidth * 0.5F
-            : primitive.position.x;
+          float x = primitive.position.x;
+          if (primitive.horizontalAlignment == TextHorizontalAlignment::Center) {
+            x -= textWidth * 0.5F;
+          } else if (primitive.horizontalAlignment == TextHorizontalAlignment::Right) {
+            x -= textWidth;
+          }
           SDL_SetRenderScale(renderer, snappedScale, snappedScale);
           SDL_RenderDebugText(
             renderer,

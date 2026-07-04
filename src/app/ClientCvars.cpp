@@ -61,10 +61,14 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_countdown_volume", "Round countdown sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   registerGameplayCvars(console, CvarFlag::Client);
   console.registerCvar({"crosshair_enable", "Draw the crosshair.", true, archivedClient, {}, {}});
-  console.registerCvar({"crosshair_style", "Crosshair style: 0 cross, 1 cross and dot, 2 dot.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"crosshair_style", "Crosshair style: 0 gapped cross, 1 cross, 2 no main shape, 3 ring.", 0, archivedClient, 0.0F, 3.0F});
   console.registerCvar({"crosshair_size", "Crosshair arm length in pixels.", 8.0F, archivedClient, 1.0F, 40.0F});
   console.registerCvar({"crosshair_thickness", "Crosshair thickness in pixels.", 2.0F, archivedClient, 1.0F, 10.0F});
   console.registerCvar({"crosshair_gap", "Crosshair center gap in pixels.", 3.0F, archivedClient, 0.0F, 30.0F});
+  console.registerCvar({"crosshair_dot_enable", "Draw a center dot over any crosshair style.", false, archivedClient, {}, {}});
+  console.registerCvar({"crosshair_dot_thickness", "Crosshair center dot size in pixels.", 2.0F, archivedClient, 1.0F, 20.0F});
+  console.registerCvar({"crosshair_outline_enable", "Draw a black outline behind the crosshair and dot.", false, archivedClient, {}, {}});
+  console.registerCvar({"crosshair_outline_width", "Crosshair outline width in pixels.", 1.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"crosshair_alpha", "Crosshair opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"crosshair_r", "Crosshair red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"crosshair_g", "Crosshair green channel.", 255, archivedClient, 0.0F, 255.0F});
