@@ -2,6 +2,7 @@
 #include "net/LoopbackTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
+#include "sim/BalanceConfig.hpp"
 #include "sim/MovementModes.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -200,6 +201,7 @@ int main() {
     failures += expect(
       snapshot.fragEvents[0].active &&
         snapshot.fragEvents[0].targetPlayerIndex == 1 &&
+        snapshot.fragEvents[0].weapon == lg::Weapon::Railgun &&
         snapshot.players[1].health == 100 &&
         snapshot.scores[0] == 0 &&
         snapshot.scores[1] == 0,
@@ -763,6 +765,61 @@ int main() {
         snapshot.lightningGuns[0].knockbackImpulse.x > 0.924F &&
         snapshot.lightningGuns[0].knockbackImpulse.x < 0.926F,
       "g_lg_knockback 500 should map to the old 841 impulse"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::BalanceConfig ammoConfig;
+    ammoConfig.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 1;
+    server.applyBalanceConfig(ammoConfig);
+
+    lg::CommandPacket finiteAmmo;
+    finiteAmmo.command.sequence = 1;
+    finiteAmmo.requestMovementTuning = true;
+    finiteAmmo.weaponAmmo.infiniteAmmo = false;
+    transport.sendCommand(finiteAmmo);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      !snapshot.weaponAmmo.infiniteAmmo &&
+        snapshot.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] == 1,
+      "g_infiniteammo 0 should replicate and keep configured spawn ammo"
+    );
+
+    lg::UserCommand firstRail;
+    firstRail.sequence = 2;
+    firstRail.attack = true;
+    firstRail.planarAim = true;
+    firstRail.viewYawRadians = 0.0F;
+    firstRail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, firstRail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].fired &&
+        snapshot.weaponFires[0].weapon == lg::Weapon::Railgun &&
+        snapshot.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] == 0,
+      "finite rail ammo should be consumed when the shot fires"
+    );
+
+    for (int tick = 0; tick < 200; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+    }
+
+    lg::UserCommand secondRail = firstRail;
+    secondRail.sequence = 3;
+    transport.sendCommand(lg::CommandPacket{0, secondRail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      !snapshot.weaponFires[0].fired &&
+        snapshot.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] == 0,
+      "empty finite rail ammo should prevent the next shot"
     );
   }
 
@@ -2195,23 +2252,27 @@ int main() {
     );
     failures += expect(
       snapshot.fragEvents[0].active &&
-        snapshot.fragEvents[0].targetPlayerIndex == 1,
+        snapshot.fragEvents[0].targetPlayerIndex == 1 &&
+        snapshot.fragEvents[0].weapon == lg::Weapon::LightningGun,
       "authoritative duel kill should emit a frag event for the killer"
     );
+    const lg::WeaponCombatStats& firstRoundLgStats =
+      snapshot.roundCombatStats[0].weapons[lg::weaponIndex(lg::Weapon::LightningGun)];
     failures += expect(
-      snapshot.roundCombatStats[0].lightningActiveTicks > 0 &&
-        snapshot.roundCombatStats[0].lightningHitTicks > 0 &&
-        snapshot.roundCombatStats[0].lightningHitTicks <=
-          snapshot.roundCombatStats[0].lightningActiveTicks &&
-        snapshot.roundCombatStats[0].damageDealt == 100,
+      firstRoundLgStats.attempts > 0 &&
+        firstRoundLgStats.hits > 0 &&
+        firstRoundLgStats.hits <= firstRoundLgStats.attempts &&
+        firstRoundLgStats.damageDealt == 100,
       "round stats should record authoritative LG contact and damage"
     );
     const lg::RoundCombatStats firstRoundAggregate =
       snapshot.matchCombatStats[0];
+    const lg::WeaponCombatStats& firstRoundAggregateLgStats =
+      firstRoundAggregate.weapons[lg::weaponIndex(lg::Weapon::LightningGun)];
     failures += expect(
-      firstRoundAggregate.lightningActiveTicks > 0 &&
-        firstRoundAggregate.lightningHitTicks > 0 &&
-        firstRoundAggregate.damageDealt == 100,
+      firstRoundAggregateLgStats.attempts > 0 &&
+        firstRoundAggregateLgStats.hits > 0 &&
+        firstRoundAggregateLgStats.damageDealt == 100,
       "match scoreboard stats should aggregate authoritative combat"
     );
 
@@ -2232,18 +2293,27 @@ int main() {
         snapshot.scores[1] == 0 &&
         snapshot.players[0].health == 100 &&
         snapshot.players[1].health == 100 &&
-        snapshot.roundCombatStats[0].lightningActiveTicks == 0 &&
-        snapshot.roundCombatStats[0].lightningHitTicks == 0 &&
-        snapshot.roundCombatStats[0].damageDealt == 0,
+        snapshot.roundCombatStats[0]
+            .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+            .attempts == 0 &&
+        snapshot.roundCombatStats[0]
+            .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+            .hits == 0 &&
+        snapshot.roundCombatStats[0]
+            .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+            .damageDealt == 0,
       "round-end expiry should respawn both players into a new countdown"
     );
     failures += expect(
-      snapshot.matchCombatStats[0].lightningActiveTicks ==
-          firstRoundAggregate.lightningActiveTicks &&
-        snapshot.matchCombatStats[0].lightningHitTicks ==
-          firstRoundAggregate.lightningHitTicks &&
-        snapshot.matchCombatStats[0].damageDealt ==
-          firstRoundAggregate.damageDealt,
+      snapshot.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .attempts == firstRoundAggregateLgStats.attempts &&
+        snapshot.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .hits == firstRoundAggregateLgStats.hits &&
+        snapshot.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == firstRoundAggregateLgStats.damageDealt,
       "scoreboard aggregate stats should survive round transitions"
     );
 

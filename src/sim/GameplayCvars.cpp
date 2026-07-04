@@ -29,6 +29,7 @@ void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, flags, 0.0F, 2.0F});
   console.registerCvar({"g_selfdamage", "Percent of self splash damage you take.", 100.0F, flags, 0.0F, 100.0F});
   console.registerCvar({"g_healthamount", "Authoritative player health amount on spawn and round start.", 100, flags, 1.0F, 100000.0F});
+  console.registerCvar({"g_infiniteammo", "Use infinite weapon ammo; 0 consumes per-weapon spawn ammo from balance.cfg.", true, flags, {}, {}});
   console.registerCvar({"g_weaponswitching", "Authoritative weapon switching rules: ql, cpma, or crazy.", std::string("crazy"), flags});
   console.registerCvar({"g_flight", "Enable unrestricted flight symmetrically for both players.", false, flags, {}, {}});
   console.registerCvar({"g_flightaccel", "Authoritative flight thrust acceleration.", 32.0F, flags, 0.0F, 1000.0F});
@@ -78,6 +79,10 @@ std::int32_t healthAmountFromCvars(const ConsoleSystem& console) {
 
 std::int32_t knockbackTimeMsFromCvars(const ConsoleSystem& console) {
   return std::clamp(console.getInt("g_knockback_time_ms"), 0, 250);
+}
+
+bool infiniteAmmoFromCvars(const ConsoleSystem& console) {
+  return console.getBool("g_infiniteammo");
 }
 
 std::uint16_t knockbackTimeMsToTicks(std::int32_t milliseconds) {

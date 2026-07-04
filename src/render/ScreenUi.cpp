@@ -15,6 +15,8 @@ namespace lg {
 namespace {
 
 constexpr float kGlyphSize = 8.0F;
+constexpr float kTwoPi = 6.28318530718F;
+constexpr float kHalfPi = 1.57079632679F;
 
 [[nodiscard]] float snappedTextScale(float scale) {
   constexpr std::array<float, 10> pixelHeights = {
@@ -46,6 +48,16 @@ constexpr float kGlyphSize = 8.0F;
   return static_cast<float>(utf8GlyphCount(text)) *
     kGlyphSize *
     snappedTextScale(scale);
+}
+
+[[nodiscard]] std::string trimCell(std::string_view value) {
+  while (!value.empty() && value.front() == ' ') {
+    value.remove_prefix(1U);
+  }
+  while (!value.empty() && value.back() == ' ') {
+    value.remove_suffix(1U);
+  }
+  return std::string(value);
 }
 
 [[nodiscard]] float countdownGlyphOffsetX(
@@ -284,13 +296,33 @@ void addLocalHealthNumber(
   case Weapon::RocketLauncher:
     return {255, 72, 54, 255};
   case Weapon::LightningGun:
-    return {74, 166, 255, 255};
+    return {245, 244, 168, 255};
   case Weapon::Railgun:
-    return {208, 94, 255, 255};
+    return {72, 232, 112, 255};
   case Weapon::PlasmaGun:
-    return {92, 220, 255, 255};
+    return {190, 82, 255, 255};
   }
   return {230, 238, 246, 255};
+}
+
+[[nodiscard]] std::size_t weaponHudSlotIndex(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun:
+    return 0;
+  case Weapon::Shotgun:
+    return 1;
+  case Weapon::GrenadeLauncher:
+    return 2;
+  case Weapon::RocketLauncher:
+    return 3;
+  case Weapon::LightningGun:
+    return 4;
+  case Weapon::Railgun:
+    return 5;
+  case Weapon::PlasmaGun:
+    return 6;
+  }
+  return 4;
 }
 
 void addCrosshairHealthAndAmmo(
@@ -306,11 +338,11 @@ void addCrosshairHealthAndAmmo(
   const float healthRatio =
     std::clamp(static_cast<float>(localPlayer.health) / maxHealth, 0.0F, 1.0F);
   const std::string healthText = std::to_string(std::max(0, localPlayer.health));
-  const std::string ammoText = "\xE2\x88\x9E";
+  const std::string ammoText = hud.weaponValues[weaponHudSlotIndex(hud.selectedWeapon)];
   const float centerX = static_cast<float>(width) * 0.5F;
   const float centerY = static_cast<float>(height) * 0.5F;
   const float y = centerY + std::max(22.0F, settings.crosshairGap + settings.crosshairSize + 10.0F);
-  const float sideOffset = 46.0F * scale;
+  constexpr float sideOffset = 56.0F;
   const float healthWidth = textWidth(healthText, scale);
 
   addText(
@@ -344,11 +376,6 @@ void addSpeedText(
 
   const float scale = std::clamp(settings.speedTextScale, 0.5F, 6.0F);
   const float snappedScale = snappedTextScale(scale);
-  const float widthPixels = textWidth(hud.speedText, scale);
-  const float x = std::max(
-    12.0F,
-    (static_cast<float>(width) - widthPixels) * 0.5F
-  );
   const float crosshairReach = settings.crosshairEnabled
     ? settings.crosshairGap + settings.crosshairSize
     : 0.0F;
@@ -356,27 +383,15 @@ void addSpeedText(
     static_cast<float>(height) * 0.5F +
     std::max(24.0F, crosshairReach + 14.0F) +
     snappedScale * 2.0F;
-  addText(drawList, x, y, hud.speedText, {230, 238, 246, 225}, scale);
-}
-
-[[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
-  switch (weapon) {
-  case Weapon::MachineGun:
-    return "MG";
-  case Weapon::Shotgun:
-    return "SG";
-  case Weapon::GrenadeLauncher:
-    return "GL";
-  case Weapon::LightningGun:
-    return "LG";
-  case Weapon::Railgun:
-    return "RG";
-  case Weapon::RocketLauncher:
-    return "RL";
-  case Weapon::PlasmaGun:
-    return "PG";
-  }
-  return "??";
+  addText(
+    drawList,
+    static_cast<float>(width) * 0.5F,
+    y,
+    hud.speedText,
+    {230, 238, 246, 225},
+    scale,
+    TextHorizontalAlignment::Center
+  );
 }
 
 void addWeaponIcon(
@@ -397,6 +412,13 @@ void addWeaponIcon(
       color
     );
   };
+  const auto quad = [&](std::array<ScreenPoint, 4> points) {
+    for (ScreenPoint& point : points) {
+      point.x = centerX + point.x * scale;
+      point.y = centerY + point.y * scale;
+    }
+    drawList.overlayCommands.emplace_back(FilledQuad2D{points, color});
+  };
   const auto line =
     [&](float x1, float y1, float x2, float y2, float width) {
       addLine(
@@ -407,79 +429,176 @@ void addWeaponIcon(
         width * scale
       );
     };
+  const auto lineColor = [&](
+    float x1,
+    float y1,
+    float x2,
+    float y2,
+    float width,
+    RenderColor lineRenderColor
+  ) {
+    addLine(
+      drawList,
+      {centerX + x1 * scale, centerY + y1 * scale},
+      {centerX + x2 * scale, centerY + y2 * scale},
+      lineRenderColor,
+      width * scale
+    );
+  };
+  const auto ringAt = [&](
+    float x,
+    float y,
+    float radius,
+    float width,
+    int segments,
+    RenderColor ringColor
+  ) {
+    for (int segment = 0; segment < segments; ++segment) {
+      const float a0 =
+        (static_cast<float>(segment) / static_cast<float>(segments)) *
+        kTwoPi;
+      const float a1 =
+        (static_cast<float>(segment + 1) / static_cast<float>(segments)) *
+        kTwoPi;
+      lineColor(
+        x + std::cos(a0) * radius,
+        y + std::sin(a0) * radius,
+        x + std::cos(a1) * radius,
+        y + std::sin(a1) * radius,
+        width,
+        ringColor
+      );
+    }
+  };
+  const auto ring = [&](float radius, float width, int segments) {
+    ringAt(0.0F, 0.0F, radius, width, segments, color);
+  };
 
   if (weapon == Weapon::MachineGun) {
-    rect(-15.0F, -14.0F, 30.0F, 20.0F);
-    rect(-5.0F, -22.0F, 10.0F, 26.0F);
-    rect(-20.0F, 8.0F, 40.0F, 5.0F);
-    line(-2.0F, -22.0F, -2.0F, -30.0F, 2.0F);
-    line(2.0F, -22.0F, 2.0F, -30.0F, 2.0F);
+    rect(-17.0F, -15.0F, 8.0F, 30.0F);
+    rect(-9.0F, -12.0F, 8.0F, 24.0F);
+    rect(-2.0F, -11.0F, 19.0F, 5.0F);
+    rect(-2.0F, -2.5F, 22.0F, 5.0F);
+    rect(-2.0F, 6.0F, 19.0F, 5.0F);
+    rect(17.0F, -10.0F, 4.0F, 3.0F);
+    rect(20.0F, -1.5F, 4.0F, 3.0F);
+    rect(17.0F, 7.0F, 4.0F, 3.0F);
     return;
   }
 
   if (weapon == Weapon::Shotgun) {
-    rect(-21.0F, -15.0F, 42.0F, 6.0F);
-    rect(-21.0F, -5.0F, 42.0F, 6.0F);
-    rect(-17.0F, 8.0F, 34.0F, 8.0F);
-    line(-23.0F, 15.0F, 23.0F, 15.0F, 3.0F);
+    for (float x : {-13.0F, -1.0F, 11.0F}) {
+      line(x, -18.0F, x, 12.0F, 4.0F);
+      line(x + 6.0F, -18.0F, x + 6.0F, 12.0F, 4.0F);
+      line(x, -18.0F, x + 6.0F, -18.0F, 4.0F);
+      line(x, 12.0F, x + 6.0F, 12.0F, 4.0F);
+      rect(x - 1.0F, 14.0F, 8.0F, 4.0F);
+    }
     return;
   }
 
   if (weapon == Weapon::GrenadeLauncher) {
-    rect(-21.0F, -11.0F, 42.0F, 20.0F);
-    rect(-14.0F, -18.0F, 28.0F, 32.0F);
-    rect(-8.0F, -12.0F, 16.0F, 22.0F);
-    line(-20.0F, 13.0F, 20.0F, 13.0F, 3.0F);
+    rect(-8.0F, -14.0F, 16.0F, 4.0F);
+    rect(-13.0F, -10.0F, 26.0F, 8.0F);
+    rect(-15.0F, -2.0F, 30.0F, 12.0F);
+    rect(-11.0F, 10.0F, 22.0F, 6.0F);
+    rect(-5.0F, 16.0F, 10.0F, 3.0F);
+    rect(1.0F, -20.0F, 8.0F, 5.0F);
+    line(8.0F, -19.0F, 16.0F, -17.0F, 4.0F);
+    line(16.0F, -17.0F, 20.0F, -10.0F, 4.0F);
     return;
   }
 
   if (weapon == Weapon::RocketLauncher) {
-    rect(-23.0F, -10.0F, 46.0F, 20.0F);
-    rect(-15.0F, -20.0F, 30.0F, 8.0F);
-    line(-17.0F, -1.0F, 17.0F, -1.0F, 4.0F);
-    line(-11.0F, 11.0F, 11.0F, 11.0F, 3.0F);
+    quad({{
+      {-18.0F, -13.0F},
+      {-10.0F, -21.0F},
+      {17.0F, 6.0F},
+      {9.0F, 14.0F},
+    }});
+    quad({{
+      {17.0F, 6.0F},
+      {9.0F, 14.0F},
+      {24.0F, 20.0F},
+      {26.0F, 18.0F},
+    }});
+    quad({{
+      {-23.0F, -18.0F},
+      {-18.0F, -24.0F},
+      {-10.0F, -21.0F},
+      {-18.0F, -13.0F},
+    }});
+    quad({{
+      {-16.0F, -12.0F},
+      {-29.0F, -8.0F},
+      {-23.0F, -1.0F},
+      {-9.0F, -5.0F},
+    }});
+    quad({{
+      {-11.0F, -18.0F},
+      {-13.0F, -31.0F},
+      {-5.0F, -27.0F},
+      {-3.0F, -14.0F},
+    }});
+    line(-19.0F, -20.0F, -28.0F, -27.0F, 4.0F);
+    line(-22.0F, -15.0F, -33.0F, -16.0F, 4.0F);
     return;
   }
 
   if (weapon == Weapon::LightningGun) {
-    addLine(
-      drawList,
-      {centerX - 18.0F * scale, centerY + 12.0F * scale},
-      {centerX + 16.0F * scale, centerY - 13.0F * scale},
-      color,
-      4.0F * scale
-    );
-    addLine(
-      drawList,
-      {centerX + 16.0F * scale, centerY - 13.0F * scale},
-      {centerX + 5.0F * scale, centerY + 2.0F * scale},
-      color,
-      2.0F * scale
-    );
-    addLine(
-      drawList,
-      {centerX + 5.0F * scale, centerY + 2.0F * scale},
-      {centerX + 19.0F * scale, centerY + 1.0F * scale},
-      color,
-      2.0F * scale
-    );
+    for (int branch = 0; branch < 6; ++branch) {
+      const float angle =
+        (static_cast<float>(branch) / 6.0F) * kTwoPi - kHalfPi;
+      const float dx = std::cos(angle);
+      const float dy = std::sin(angle);
+      const float px = -dy;
+      const float py = dx;
+      line(0.0F, 0.0F, dx * 21.0F, dy * 21.0F, 5.0F);
+      line(
+        dx * 12.0F,
+        dy * 12.0F,
+        dx * 18.0F + px * 7.0F,
+        dy * 18.0F + py * 7.0F,
+        4.0F
+      );
+      line(
+        dx * 12.0F,
+        dy * 12.0F,
+        dx * 18.0F - px * 7.0F,
+        dy * 18.0F - py * 7.0F,
+        4.0F
+      );
+    }
     return;
   }
 
   if (weapon == Weapon::Railgun) {
-    rect(-20.0F, -3.0F, 40.0F, 6.0F);
-    rect(-4.0F, -19.0F, 8.0F, 34.0F);
-    rect(10.0F, -9.0F, 8.0F, 18.0F);
-    line(-17.0F, -9.0F, 17.0F, -9.0F, 2.0F);
+    const RenderColor holeColor = {6, 8, 10, 230};
+    rect(-8.0F, -17.0F, 16.0F, 34.0F);
+    rect(-14.0F, -12.0F, 28.0F, 24.0F);
+    rect(-17.0F, -7.0F, 34.0F, 14.0F);
+    ring(16.0F, 3.0F, 24);
+    ringAt(0.0F, 0.0F, 1.4F, 5.8F, 10, holeColor);
+    for (int hole = 0; hole < 6; ++hole) {
+      const float angle = static_cast<float>(hole) / 6.0F * kTwoPi;
+      ringAt(
+        std::cos(angle) * 8.5F,
+        std::sin(angle) * 8.5F,
+        1.4F,
+        5.8F,
+        10,
+        holeColor
+      );
+    }
     return;
   }
 
   if (weapon == Weapon::PlasmaGun) {
-    rect(-12.0F, -20.0F, 24.0F, 30.0F);
-    rect(-25.0F, -1.0F, 10.0F, 24.0F);
-    rect(15.0F, -1.0F, 10.0F, 24.0F);
-    rect(-7.0F, -14.0F, 14.0F, 20.0F);
-    line(-18.0F, 12.0F, 18.0F, 12.0F, 3.0F);
+    rect(-4.0F, -20.0F, 8.0F, 40.0F);
+    rect(-20.0F, -4.0F, 40.0F, 8.0F);
+    rect(-12.0F, -12.0F, 24.0F, 24.0F);
+    line(-16.0F, -16.0F, 16.0F, 16.0F, 3.0F);
+    line(-16.0F, 16.0F, 16.0F, -16.0F, 3.0F);
   }
 }
 
@@ -487,8 +606,10 @@ void addSelectedWeaponIndicator(
   DrawList2D& drawList,
   int width,
   int height,
-  const HudRenderState& hud
+  const HudRenderState& hud,
+  const RenderSettings& settings
 ) {
+  (void)width;
   constexpr std::array<Weapon, 7> weapons = {{
     Weapon::MachineGun,
     Weapon::Shotgun,
@@ -498,78 +619,64 @@ void addSelectedWeaponIndicator(
     Weapon::Railgun,
     Weapon::PlasmaGun,
   }};
-  const float scale = std::clamp(
+  const float viewportScale = std::clamp(
     static_cast<float>(height) / 720.0F,
     0.75F,
     1.25F
   );
-  const float slotSize = 58.0F * scale;
-  const float gap = 8.0F * scale;
-  const float panelWidth = slotSize + 10.0F * scale;
+  const float scale =
+    viewportScale * std::clamp(settings.weaponBarScale, 0.5F, 4.0F);
+  const float rowHeight = 24.0F * scale;
+  const float gap = 4.0F * scale;
+  const float iconScale = 0.38F * scale;
+  const float textScale = 1.45F * scale;
   const float panelHeight =
-    slotSize * static_cast<float>(weapons.size()) +
-    gap * static_cast<float>(weapons.size() - 1U) +
-    10.0F * scale;
-  const float x = static_cast<float>(width) - panelWidth - 22.0F * scale;
-  const float y = (static_cast<float>(height) - panelHeight) * 0.5F;
+    rowHeight * static_cast<float>(weapons.size()) +
+    gap * static_cast<float>(weapons.size() - 1U);
+  const float x = 4.0F * viewportScale;
+  const float y = static_cast<float>(height) * 0.18F;
 
-  addRect(
-    drawList,
-    x,
+  float rowY = std::min(
     y,
-    panelWidth,
-    panelHeight,
-    {6, 9, 13, 150}
+    static_cast<float>(height) - panelHeight - 96.0F * viewportScale
   );
-
-  float slotY = y + 5.0F * scale;
-  for (Weapon weapon : weapons) {
+  rowY = std::max(48.0F * viewportScale, rowY);
+  for (std::size_t index = 0; index < weapons.size(); ++index) {
+    const Weapon weapon = weapons[index];
     const bool selected = weapon == hud.selectedWeapon;
-    const RenderColor frame = selected
-      ? RenderColor{255, 224, 92, 255}
-      : RenderColor{70, 82, 96, 210};
-    const RenderColor fill = selected
-      ? RenderColor{28, 34, 42, 230}
-      : RenderColor{14, 18, 24, 175};
-    const RenderColor icon = selected
-      ? RenderColor{255, 242, 174, 255}
-      : RenderColor{156, 170, 184, 220};
-    const float slotX = x + 5.0F * scale;
-
-    addRect(drawList, slotX, slotY, slotSize, slotSize, fill);
-    addOutline(drawList, slotX, slotY, slotSize, slotSize, frame);
+    const RenderColor weaponColor = quakeLiveWeaponColor(weapon);
+    const RenderColor textColor = selected
+      ? RenderColor{245, 250, 255, 255}
+      : RenderColor{220, 226, 232, 235};
     if (selected) {
       addRect(
         drawList,
-        slotX - 5.0F * scale,
-        slotY + 8.0F * scale,
-        3.0F * scale,
-        slotSize - 16.0F * scale,
-        {255, 224, 92, 255}
+        x - 3.0F * scale,
+        rowY - 1.0F * scale,
+        45.0F * scale,
+        rowHeight + 2.0F * scale,
+        {10, 13, 18, 155}
       );
     }
 
     addWeaponIcon(
       drawList,
-      slotX + slotSize * 0.5F,
-      slotY + slotSize * 0.36F,
+      x + 9.0F * scale,
+      rowY + rowHeight * 0.5F,
       weapon,
-      icon,
-      scale
+      weaponColor,
+      iconScale
     );
-    const char* label = hudWeaponShortName(weapon);
-    const float textScale = selected ? 1.45F * scale : 1.2F * scale;
-    const float textWidth = 2.0F * kGlyphSize * textScale;
     addText(
       drawList,
-      slotX + (slotSize - textWidth) * 0.5F,
-      slotY + slotSize - 17.0F * scale,
-      label,
-      icon,
+      x + 20.0F * scale,
+      rowY + 4.0F * scale,
+      hud.weaponValues[index],
+      textColor,
       textScale
     );
 
-    slotY += slotSize + gap;
+    rowY += rowHeight + gap;
   }
 }
 
@@ -582,6 +689,64 @@ void addSelectedWeaponIndicator(
     )
   );
   return color;
+}
+
+void addKillFeed(
+  DrawList2D& drawList,
+  int width,
+  float startY,
+  const HudRenderState& hud
+) {
+  if (hud.killFeedLines.empty()) {
+    return;
+  }
+
+  constexpr float textScale = 2.25F;
+  constexpr float rowHeight = 31.5F;
+  constexpr float rightPadding = 10.0F;
+  constexpr float textIconGap = 12.0F;
+  constexpr float iconWidth = 30.0F;
+  constexpr float iconScale = 0.51F;
+  constexpr RenderColor baseText = {235, 242, 250, 245};
+
+  float y = startY;
+  for (const HudRenderState::KillFeedLine& line : hud.killFeedLines) {
+    const float alpha = std::clamp(line.alpha, 0.0F, 1.0F);
+    if (alpha <= 0.0F) {
+      y += rowHeight;
+      continue;
+    }
+
+    const float killerWidth = textWidth(line.killerName, textScale);
+    const float killedWidth = textWidth(line.killedName, textScale);
+    const bool selfKill = line.killedName.empty();
+    const float rowWidth =
+      killerWidth + iconWidth + textIconGap +
+      (selfKill ? 0.0F : killedWidth + textIconGap);
+    float x = static_cast<float>(width) - rightPadding - rowWidth;
+    x = std::max(12.0F, x);
+    const float textY = y + 3.0F;
+    const RenderColor textColor = withAlpha(baseText, alpha);
+    const RenderColor weaponColor =
+      withAlpha(quakeLiveWeaponColor(line.weapon), alpha);
+
+    addText(drawList, x, textY, line.killerName, textColor, textScale);
+    x += killerWidth + textIconGap;
+    addWeaponIcon(
+      drawList,
+      x + iconWidth * 0.5F,
+      y + rowHeight * 0.5F,
+      line.weapon,
+      weaponColor,
+      iconScale
+    );
+    if (!selfKill) {
+      x += iconWidth + textIconGap;
+      addText(drawList, x, textY, line.killedName, textColor, textScale);
+    }
+
+    y += rowHeight;
+  }
 }
 
 [[nodiscard]] ScreenPoint screenPointFromProjection(
@@ -842,6 +1007,10 @@ void addCrosshair(
   const float size = settings.crosshairSize;
   const float gap = settings.crosshairGap;
   const float thickness = settings.crosshairThickness;
+  const float dotThickness = settings.crosshairDotThickness;
+  const float outlineWidth = settings.crosshairOutlineEnabled
+    ? std::max(0.0F, settings.crosshairOutlineWidth)
+    : 0.0F;
   const float hitAmount = std::clamp(settings.crosshairHitAmount, 0.0F, 1.0F);
   const RenderColor color = {
     blendChannel(settings.crosshairRed, settings.crosshairHitRed, hitAmount),
@@ -851,60 +1020,125 @@ void addCrosshair(
       std::clamp(settings.crosshairAlpha, 0.0F, 1.0F) * 255.0F
     ),
   };
-
-  if (settings.crosshairStyle == 2) {
-    addRect(
-      drawList,
-      centerX - thickness * 0.5F,
-      centerY - thickness * 0.5F,
-      thickness,
-      thickness,
-      color
+  const RenderColor outlineColor = {0, 0, 0, color.alpha};
+  const auto rect = [&](float x, float y, float w, float h, RenderColor rectColor) {
+    addRect(drawList, x, y, w, h, rectColor);
+  };
+  const auto cross = [&](float crossGap, float extra, RenderColor crossColor) {
+    const float crossThickness = thickness + extra * 2.0F;
+    const float halfThickness = crossThickness * 0.5F;
+    const float crossSize = size + extra;
+    if (crossGap <= 0.0F) {
+      rect(
+        centerX - crossSize,
+        centerY - halfThickness,
+        crossSize * 2.0F,
+        crossThickness,
+        crossColor
+      );
+      rect(
+        centerX - halfThickness,
+        centerY - crossSize,
+        crossThickness,
+        crossSize * 2.0F,
+        crossColor
+      );
+      return;
+    }
+    const float armGap = std::max(0.0F, crossGap - extra);
+    rect(
+      centerX - armGap - crossSize,
+      centerY - halfThickness,
+      crossSize,
+      crossThickness,
+      crossColor
     );
-    return;
+    rect(
+      centerX + armGap,
+      centerY - halfThickness,
+      crossSize,
+      crossThickness,
+      crossColor
+    );
+    rect(
+      centerX - halfThickness,
+      centerY - armGap - crossSize,
+      crossThickness,
+      crossSize,
+      crossColor
+    );
+    rect(
+      centerX - halfThickness,
+      centerY + armGap,
+      crossThickness,
+      crossSize,
+      crossColor
+    );
+  };
+  const auto ring = [&](float extra, RenderColor ringColor) {
+    const float ringRadius = std::max(1.0F, size + extra);
+    const float ringThickness = thickness + extra * 2.0F;
+    constexpr int segmentCount = 36;
+    for (int segment = 0; segment < segmentCount; ++segment) {
+      const float a0 =
+        (static_cast<float>(segment) / static_cast<float>(segmentCount)) *
+        kTwoPi;
+      const float a1 =
+        (static_cast<float>(segment + 1) / static_cast<float>(segmentCount)) *
+        kTwoPi;
+      addLine(
+        drawList,
+        {
+          centerX + std::cos(a0) * ringRadius,
+          centerY + std::sin(a0) * ringRadius,
+        },
+        {
+          centerX + std::cos(a1) * ringRadius,
+          centerY + std::sin(a1) * ringRadius,
+        },
+        ringColor,
+        ringThickness
+      );
+    }
+  };
+  const auto dot = [&](float extra, RenderColor dotColor) {
+    const float dotSize = dotThickness + extra * 2.0F;
+    rect(
+      centerX - dotSize * 0.5F,
+      centerY - dotSize * 0.5F,
+      dotSize,
+      dotSize,
+      dotColor
+    );
+  };
+
+  const auto drawMainShape = [&](float extra, RenderColor shapeColor) {
+    switch (settings.crosshairStyle) {
+    case 1:
+      cross(0.0F, extra, shapeColor);
+      break;
+    case 3:
+      ring(extra, shapeColor);
+      break;
+    case 2:
+      break;
+    case 0:
+    default:
+      cross(gap, extra, shapeColor);
+      break;
+    }
+  };
+
+  if (outlineWidth > 0.0F) {
+    drawMainShape(outlineWidth, outlineColor);
+    if (settings.crosshairDotEnabled) {
+      dot(outlineWidth, outlineColor);
+    }
   }
 
-  addRect(
-    drawList,
-    centerX - gap - size,
-    centerY - thickness * 0.5F,
-    size,
-    thickness,
-    color
-  );
-  addRect(
-    drawList,
-    centerX + gap,
-    centerY - thickness * 0.5F,
-    size,
-    thickness,
-    color
-  );
-  addRect(
-    drawList,
-    centerX - thickness * 0.5F,
-    centerY - gap - size,
-    thickness,
-    size,
-    color
-  );
-  addRect(
-    drawList,
-    centerX - thickness * 0.5F,
-    centerY + gap,
-    thickness,
-    size,
-    color
-  );
-  if (settings.crosshairStyle == 1) {
-    addRect(
-      drawList,
-      centerX - 1.0F,
-      centerY - 1.0F,
-      2.0F,
-      2.0F,
-      color
-    );
+  drawMainShape(0.0F, color);
+  if (settings.crosshairDotEnabled) {
+    dot(0.0F, color);
   }
 }
 
@@ -1085,6 +1319,21 @@ void addHud(
   constexpr float textScale = 2.0F;
   constexpr float characterWidth = kGlyphSize * textScale;
   constexpr RenderColor defaultText = {235, 242, 250, 255};
+  constexpr float fpsRightOffset = 8.0F;
+  constexpr float fpsTopOffset = 4.0F;
+
+  if (!hud.fpsText.empty()) {
+    const float fpsScale = std::clamp(settings.fpsTextScale, 0.5F, 6.0F);
+    addText(
+      drawList,
+      static_cast<float>(width) - fpsRightOffset,
+      fpsTopOffset,
+      hud.fpsText,
+      {245, 248, 252, 245},
+      fpsScale,
+      TextHorizontalAlignment::Right
+    );
+  }
 
   if (hud.scoreboardOpen) {
     const float panelWidth =
@@ -1112,49 +1361,116 @@ void addHud(
       {78, 168, 235, 255}
     );
 
+    const float scoreboardX =
+      panelX + std::max(16.0F, (panelWidth - 660.0F) * 0.5F);
+    const float nameX = scoreboardX;
+    const float scoreX = scoreboardX + 280.0F;
+    const float accuracyX = scoreboardX + 360.0F;
+    const float percentX = accuracyX + textWidth("LG ", textScale);
+    const float damageX = scoreboardX + 470.0F;
+
+    constexpr std::size_t kScoreboardNameColumnChars = 16U;
+    constexpr std::size_t kScoreboardScoreColumnChars =
+      kScoreboardNameColumnChars + 4U;
+    constexpr std::size_t kScoreboardAccuracyColumnChars =
+      kScoreboardScoreColumnChars + 6U;
+    constexpr std::size_t kScoreboardDamageColumnChars =
+      kScoreboardAccuracyColumnChars + 8U;
+
     float scoreboardY = panelY + 20.0F;
     for (std::size_t index = 0; index < hud.scoreboardLines.size(); ++index) {
       const std::string& line = hud.scoreboardLines[index];
-      const float lineWidth =
-        static_cast<float>(line.size()) * characterWidth;
-      const float x =
-        panelX + std::max(16.0F, (panelWidth - lineWidth) * 0.5F);
       const Team team = index < hud.scoreboardLineTeams.size()
         ? hud.scoreboardLineTeams[index]
         : Team::None;
-      if (team == Team::None) {
+      const std::size_t weaponColumn =
+        index < hud.scoreboardLineAccuracyWeaponColumns.size()
+          ? hud.scoreboardLineAccuracyWeaponColumns[index]
+          : std::string::npos;
+      const bool hasWeaponColumn =
+        weaponColumn != std::string::npos &&
+        weaponColumn + 2U <= line.size() &&
+        index < hud.scoreboardLineAccuracyWeapons.size();
+      if (index == 0) {
         addText(
           drawList,
-          x,
+          scoreboardX,
           scoreboardY,
           line,
-          index == 0
-            ? RenderColor{255, 220, 120, 255}
-            : RenderColor{225, 235, 245, 255},
+          {255, 220, 120, 255},
           textScale
         );
       } else {
-        constexpr std::size_t nameColumnWidth = 22U;
-        const std::size_t split = std::min(nameColumnWidth, line.size());
+        const RenderColor baseColor = {225, 235, 245, 255};
         const RenderColor teamColor = team == Team::Red
           ? RenderColor{224, 82, 92, 255}
           : RenderColor{82, 190, 224, 255};
-        addText(
-          drawList,
-          x,
-          scoreboardY,
-          line.substr(0, split),
-          teamColor,
-          textScale
+        const RenderColor nameColor =
+          team == Team::None ? baseColor : teamColor;
+        const auto cell = [&line](std::size_t start, std::size_t end) {
+          if (start >= line.size()) {
+            return std::string();
+          }
+          return trimCell(line.substr(start, std::min(end, line.size()) - start));
+        };
+        const std::string name = cell(0U, kScoreboardNameColumnChars);
+        const std::string score = cell(
+          kScoreboardScoreColumnChars,
+          kScoreboardAccuracyColumnChars - 1U
         );
-        addText(
-          drawList,
-          x + static_cast<float>(split) * characterWidth,
-          scoreboardY,
-          line.substr(split),
-          RenderColor{225, 235, 245, 255},
-          textScale
+        const std::string accuracy = cell(
+          kScoreboardAccuracyColumnChars,
+          kScoreboardDamageColumnChars - 1U
         );
+        const std::string damage =
+          cell(kScoreboardDamageColumnChars, line.size());
+
+        if (!name.empty()) {
+          addText(
+            drawList,
+            nameX,
+            scoreboardY,
+            name,
+            nameColor,
+            textScale
+          );
+        }
+        if (!score.empty()) {
+          addText(drawList, scoreX, scoreboardY, score, baseColor, textScale);
+        }
+        if (hasWeaponColumn && accuracy.size() >= 2U) {
+          addText(
+            drawList,
+            accuracyX,
+            scoreboardY,
+            accuracy.substr(0U, 2U),
+            quakeLiveWeaponColor(hud.scoreboardLineAccuracyWeapons[index]),
+            textScale
+          );
+          const std::string percent = trimCell(accuracy.substr(2U));
+          if (!percent.empty()) {
+            addText(
+              drawList,
+              percentX,
+              scoreboardY,
+              percent,
+              baseColor,
+              textScale
+            );
+          }
+        } else if (!accuracy.empty()) {
+          addText(
+            drawList,
+            accuracyX,
+            scoreboardY,
+            accuracy,
+            baseColor,
+            textScale
+          );
+        }
+        if (!damage.empty()) {
+          addText(drawList, damageX, scoreboardY, damage, baseColor, textScale);
+        }
       }
       scoreboardY += 28.0F;
     }
@@ -1167,6 +1483,25 @@ void addHud(
   }
 
   y = 12.0F;
+  for (const std::string& line : hud.topCenterLines) {
+    addText(
+      drawList,
+      static_cast<float>(width) * 0.5F,
+      y,
+      line,
+      defaultText,
+      textScale,
+      TextHorizontalAlignment::Center
+    );
+    y += 20.0F;
+  }
+
+  y = hud.fpsText.empty()
+    ? 12.0F
+    : std::max(24.0F, fpsTopOffset + kGlyphSize *
+        std::clamp(settings.fpsTextScale, 0.5F, 6.0F) + 6.0F);
+  addKillFeed(drawList, width, y, hud);
+  y += static_cast<float>(hud.killFeedLines.size()) * 31.5F;
   for (const std::string& line : hud.topRightLines) {
     const float x = std::max(
       12.0F,
@@ -1625,6 +1960,9 @@ DrawList2D buildPerspectiveWeaponOverlay(
       settings.beamWidth * (1.0F + pulse * 0.04F)
     );
   }
+  if (!settings.showOwnWeapons) {
+    return drawList;
+  }
 
   const auto quad =
     [&](std::array<ScreenPoint, 4> points, RenderColor quadColor) {
@@ -2053,7 +2391,7 @@ DrawList2D buildScreenUi(
   addDamageNumbers(drawList, outputWidth, outputHeight, settings, hud);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
-  addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
+  addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
   addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
   return drawList;

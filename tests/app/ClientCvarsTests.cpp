@@ -55,6 +55,12 @@ int main() {
     "LG damage should default to 120 DPS"
   );
   failures += expect(
+    console.execute("g_infiniteammo") == "g_infiniteammo = 1 (default 1)" &&
+      console.execute("g_infiniteammo 0") == "g_infiniteammo = 0" &&
+      !console.getBool("g_infiniteammo"),
+    "infinite ammo should default on and remain toggleable"
+  );
+  failures += expect(
     console.execute("g_lg_fire_hz") == "g_lg_fire_hz = 20 (default 20)",
     "LG fire rate should default to 20 Hz"
   );
@@ -88,6 +94,22 @@ int main() {
     "speed HUD size cvar should be separate from health size and bounded"
   );
   failures += expect(
+    console.execute("cl_weapon_bar_size") ==
+        "cl_weapon_bar_size = 1.75 (default 1.75)" &&
+      console.execute("cl_weapon_bar_size 0.25") ==
+        "value out of range for cl_weapon_bar_size" &&
+      console.execute("cl_weapon_bar_size 2.5") == "cl_weapon_bar_size = 2.5",
+    "weapon bar size cvar should scale the left weapon HUD"
+  );
+  failures += expect(
+    console.execute("cl_showfps_size") ==
+        "cl_showfps_size = 1.6 (default 1.6)" &&
+      console.execute("cl_showfps_size 0.25") ==
+        "value out of range for cl_showfps_size" &&
+      console.execute("cl_showfps_size 2") == "cl_showfps_size = 2",
+    "HUD FPS counter size cvar should be configurable"
+  );
+  failures += expect(
     console.execute("cl_health_style") ==
         "cl_health_style = 0 (default 0)" &&
       console.execute("cl_health_style 3") ==
@@ -96,10 +118,58 @@ int main() {
     "health HUD style cvar should expose the three supported layouts"
   );
   failures += expect(
+    console.execute("crosshair_style") ==
+        "crosshair_style = 0 (default 0)" &&
+      console.execute("crosshair_style 4") ==
+        "value out of range for crosshair_style" &&
+      console.execute("crosshair_style 3") == "crosshair_style = 3",
+    "crosshair style cvar should include the ring style"
+  );
+  failures += expect(
+    console.execute("crosshair_dot_enable") ==
+        "crosshair_dot_enable = 0 (default 0)" &&
+      console.execute("crosshair_dot_enable 1") ==
+        "crosshair_dot_enable = 1" &&
+      console.getBool("crosshair_dot_enable"),
+    "crosshair dot should be independently toggleable"
+  );
+  failures += expect(
+    console.execute("crosshair_dot_thickness") ==
+        "crosshair_dot_thickness = 2 (default 2)" &&
+      console.execute("crosshair_dot_thickness 0.5") ==
+        "value out of range for crosshair_dot_thickness" &&
+      console.execute("crosshair_dot_thickness 5") ==
+        "crosshair_dot_thickness = 5",
+    "crosshair dot thickness should be configurable"
+  );
+  failures += expect(
+    console.execute("crosshair_outline_enable") ==
+        "crosshair_outline_enable = 0 (default 0)" &&
+      console.execute("crosshair_outline_enable 1") ==
+        "crosshair_outline_enable = 1" &&
+      console.getBool("crosshair_outline_enable"),
+    "crosshair outline should be independently toggleable"
+  );
+  failures += expect(
+    console.execute("crosshair_outline_width") ==
+        "crosshair_outline_width = 1 (default 1)" &&
+      console.execute("crosshair_outline_width -1") ==
+        "value out of range for crosshair_outline_width" &&
+      console.execute("crosshair_outline_width 3") ==
+        "crosshair_outline_width = 3",
+    "crosshair outline width should be configurable"
+  );
+  failures += expect(
     console.execute("r_sg_weapon_model_start 1") ==
         "r_sg_weapon_model_start = 1" &&
       console.getBool("r_sg_weapon_model_start"),
     "shotgun weapon model start should be toggleable"
+  );
+  failures += expect(
+    console.execute("r_show_weapons") == "r_show_weapons = 1 (default 1)" &&
+      console.execute("r_show_weapons 0") == "r_show_weapons = 0" &&
+      !console.getBool("r_show_weapons"),
+    "local first-person weapon rendering should be toggleable"
   );
   failures += expect(
     console.execute("r_player_model") ==

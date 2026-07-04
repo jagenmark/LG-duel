@@ -95,7 +95,7 @@ int main() {
     "live Clan Arena player presentation should distinguish teammates from enemies"
   );
   failures += expect(
-    lg::playerRoundStatsLine(snapshot, 2) == "ENEMY LG 0%  DMG 0",
+    lg::playerRoundStatsLine(snapshot, 2) == "ENEMY lg 0%  DMG 0",
     "post-round stats should display the enemy player name"
   );
 
@@ -506,8 +506,8 @@ int main() {
   snapshot.roundWinner = 0;
   snapshot.matchWinner = 1;
   failures += expect(
-    lg::hudScoreLine(snapshot, 0) == "SCORE 3  LEAD 5 / 10",
-    "duel HUD score behavior should remain unchanged"
+    lg::hudScoreLine(snapshot, 0) == "SCORE 3 / 10",
+    "duel HUD score should omit the lead readout"
   );
   failures += expect(
     lg::localPlayerWonResult(snapshot, 0, false) &&

@@ -149,6 +149,10 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute("set g_selfdamage " + std::to_string(snapshot.selfDamagePercent));
   (void)console.execute("set g_healthamount " + std::to_string(snapshot.healthAmount));
   (void)console.execute(
+    std::string("set g_infiniteammo ") +
+    (snapshot.weaponAmmo.infiniteAmmo ? "1" : "0")
+  );
+  (void)console.execute(
     std::string("set g_weaponswitching ") +
     weaponSwitchingModeCvarValue(snapshot.weaponSwitchingMode)
   );
@@ -235,6 +239,17 @@ void copyTextToClipboard(std::string_view text) {
   return eyePosition +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+}
+
+[[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
+  constexpr CollisionBounds defaultBounds = {};
+  const float eyeHeight =
+    0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
+  const Vec3 eyePosition =
+    player.position + Vec3{0.0F, 0.0F, eyeHeight};
+  return eyePosition +
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.24F -
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.54F;
 }
 
 struct WeaponPresentationFrame {
@@ -368,6 +383,9 @@ struct WeaponPresentationFrame {
   const RenderSettings& settings
 ) {
   if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    if (!settings.showOwnWeapons) {
+      return hiddenWeaponVisualOrigin(localPlayer);
+    }
     const float angle =
       static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
     return weaponPresentationPoint(
@@ -399,6 +417,9 @@ struct WeaponPresentationFrame {
   const RenderSettings& settings
 ) {
   if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    if (!settings.showOwnWeapons) {
+      return hiddenWeaponVisualOrigin(localPlayer);
+    }
     return weaponPresentationPoint(
       firstPersonWeaponPresentationFrame(localPlayer),
       0.46F,
@@ -590,7 +611,8 @@ struct TransientTracerStore {
 
   void fillActive(
     std::vector<TransientTracer>& result,
-    const PlayerState& localPlayer
+    const PlayerState& localPlayer,
+    const RenderSettings& settings
   ) const {
     result.clear();
     result.reserve(tracers.size());
@@ -599,7 +621,9 @@ struct TransientTracerStore {
         TransientTracer tracer = tracers[index];
         if (followLocalMuzzle[index]) {
           const Vec3 oldStart = tracer.start;
-          if (followWeapon[index] == Weapon::MachineGun) {
+          if (!settings.showOwnWeapons) {
+            tracer.start = hiddenWeaponVisualOrigin(localPlayer);
+          } else if (followWeapon[index] == Weapon::MachineGun) {
             const float angle =
               static_cast<float>(followSeed[index] % 6U) * (kTwoPi / 6.0F);
             tracer.start = weaponPresentationPoint(
@@ -1491,6 +1515,139 @@ struct LingeringWeaponFire {
   std::chrono::steady_clock::time_point expiresAt = {};
 };
 
+struct KillFeedState {
+  struct Entry {
+    std::string killerName;
+    std::string killedName;
+    Weapon weapon = Weapon::LightningGun;
+    float ageSeconds = 0.0F;
+  };
+
+  std::vector<Entry> entries;
+  std::array<FragEvent, kDuelPlayerCount> previousFragEvents = {};
+  std::array<bool, kDuelPlayerCount> previousFragActive = {};
+  std::array<std::uint32_t, kDuelPlayerCount> previousSelfExplosionSequences = {};
+};
+
+void resetKillFeedState(KillFeedState& state) {
+  state.entries.clear();
+  state.previousFragEvents = {};
+  state.previousFragActive = {};
+  state.previousSelfExplosionSequences = {};
+}
+
+void updateKillFeedState(KillFeedState& state, float deltaSeconds) {
+  constexpr float kKillFeedHoldSeconds = 4.5F;
+  constexpr float kKillFeedFadeSeconds = 0.5F;
+  const float maxAge = kKillFeedHoldSeconds + kKillFeedFadeSeconds;
+  const float clampedDelta = std::max(0.0F, deltaSeconds);
+  for (KillFeedState::Entry& entry : state.entries) {
+    entry.ageSeconds += clampedDelta;
+  }
+  state.entries.erase(
+    std::remove_if(
+      state.entries.begin(),
+      state.entries.end(),
+      [maxAge](const KillFeedState::Entry& entry) {
+        return entry.ageSeconds >= maxAge;
+      }
+    ),
+    state.entries.end()
+  );
+}
+
+void consumeKillFeedEvents(
+  KillFeedState& state,
+  const ServerSnapshot& snapshot
+) {
+  constexpr std::size_t kMaxKillFeedEntries = 8;
+  for (
+    std::size_t attackerIndex = 0;
+    attackerIndex < kDuelPlayerCount;
+    ++attackerIndex
+  ) {
+    const FragEvent& frag = snapshot.fragEvents[attackerIndex];
+    if (!frag.active) {
+      state.previousFragActive[attackerIndex] = false;
+      state.previousFragEvents[attackerIndex] = {};
+      continue;
+    }
+
+    const bool freshEvent =
+      !state.previousFragActive[attackerIndex] ||
+      !sameFragEvent(frag, state.previousFragEvents[attackerIndex]);
+    state.previousFragActive[attackerIndex] = true;
+    state.previousFragEvents[attackerIndex] = frag;
+
+    if (!freshEvent || frag.targetPlayerIndex >= kDuelPlayerCount) {
+      continue;
+    }
+
+    state.entries.push_back({
+      snapshot.playerNames[attackerIndex],
+      frag.targetPlayerIndex == attackerIndex
+        ? std::string{}
+        : snapshot.playerNames[frag.targetPlayerIndex],
+      frag.weapon,
+      0.0F,
+    });
+    if (state.entries.size() > kMaxKillFeedEntries) {
+      state.entries.erase(state.entries.begin());
+    }
+  }
+
+  for (
+    std::size_t ownerIndex = 0;
+    ownerIndex < kDuelPlayerCount;
+    ++ownerIndex
+  ) {
+    const RocketExplosionResult& explosion = snapshot.rocketExplosions[ownerIndex];
+    const FragEvent& frag = snapshot.fragEvents[ownerIndex];
+    if (
+      !explosion.active ||
+      explosion.ownerDamageApplied <= 0 ||
+      snapshot.players[ownerIndex].health > 0 ||
+      explosion.sequence == state.previousSelfExplosionSequences[ownerIndex] ||
+      (frag.active && frag.targetPlayerIndex == ownerIndex)
+    ) {
+      continue;
+    }
+
+    state.previousSelfExplosionSequences[ownerIndex] = explosion.sequence;
+    state.entries.push_back({
+      snapshot.playerNames[ownerIndex],
+      std::string{},
+      explosion.weapon,
+      0.0F,
+    });
+    if (state.entries.size() > kMaxKillFeedEntries) {
+      state.entries.erase(state.entries.begin());
+    }
+  }
+}
+
+std::vector<HudRenderState::KillFeedLine> killFeedPresentation(
+  const KillFeedState& state
+) {
+  constexpr float kKillFeedHoldSeconds = 4.5F;
+  constexpr float kKillFeedFadeSeconds = 0.5F;
+  std::vector<HudRenderState::KillFeedLine> lines;
+  lines.reserve(state.entries.size());
+  for (const KillFeedState::Entry& entry : state.entries) {
+    const float fadeAge = entry.ageSeconds - kKillFeedHoldSeconds;
+    const float alpha = fadeAge <= 0.0F
+      ? 1.0F
+      : 1.0F - std::clamp(fadeAge / kKillFeedFadeSeconds, 0.0F, 1.0F);
+    lines.push_back({
+      entry.killerName,
+      entry.killedName,
+      entry.weapon,
+      alpha,
+    });
+  }
+  return lines;
+}
+
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
   std::istringstream stream{std::string(text)};
   std::string line;
@@ -2255,6 +2412,8 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.healthTextScale = console.getFloat("cl_health_size");
   settings.healthStyle = console.getInt("cl_health_style");
   settings.speedTextScale = console.getFloat("cl_speed_size");
+  settings.weaponBarScale = console.getFloat("cl_weapon_bar_size");
+  settings.fpsTextScale = console.getFloat("cl_showfps_size");
   settings.uiFont = console.getString("r_ui_font");
   settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
   settings.textureFilter = console.getInt("r_texture_filter");
@@ -2267,6 +2426,10 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.crosshairSize = console.getFloat("crosshair_size");
   settings.crosshairThickness = console.getFloat("crosshair_thickness");
   settings.crosshairGap = console.getFloat("crosshair_gap");
+  settings.crosshairDotEnabled = console.getBool("crosshair_dot_enable");
+  settings.crosshairDotThickness = console.getFloat("crosshair_dot_thickness");
+  settings.crosshairOutlineEnabled = console.getBool("crosshair_outline_enable");
+  settings.crosshairOutlineWidth = console.getFloat("crosshair_outline_width");
   settings.crosshairAlpha = console.getFloat("crosshair_alpha");
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
   settings.crosshairGreen = static_cast<std::uint8_t>(console.getInt("crosshair_g"));
@@ -2304,6 +2467,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_b"));
   settings.shotgunWeaponModelStart =
     console.getBool("r_sg_weapon_model_start");
+  settings.showOwnWeapons = console.getBool("r_show_weapons");
   settings.drawRemotePlayers = console.getBool("r_draw_remote_players");
   settings.drawRemoteWeapons = console.getBool("r_draw_remote_weapons");
   settings.drawPlayerOutlines = console.getBool("r_draw_player_outlines");
@@ -2798,6 +2962,21 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   }
 
   hud.healthAmount = snapshot.healthAmount;
+  const WeaponAmmoArray& localAmmo = snapshot.playerAmmo[localPlayerIndex];
+  const auto ammoText = [&snapshot, &localAmmo](Weapon weapon) {
+    return snapshot.weaponAmmo.infiniteAmmo
+      ? std::string("\xE2\x88\x9E")
+      : std::to_string(localAmmo[weaponIndex(weapon)]);
+  };
+  hud.weaponValues = {{
+    ammoText(Weapon::MachineGun),
+    ammoText(Weapon::Shotgun),
+    ammoText(Weapon::GrenadeLauncher),
+    ammoText(Weapon::RocketLauncher),
+    ammoText(Weapon::LightningGun),
+    ammoText(Weapon::Railgun),
+    ammoText(Weapon::PlasmaGun),
+  }};
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
@@ -2817,7 +2996,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
-  hud.topRightLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
   if (snapshot.matchRules.timeLimitMinutes > 0) {
     const std::uint32_t limitTicks =
       static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
@@ -3689,6 +3868,8 @@ int GameApp::run() const {
     selfDamagePercent(console);
   std::int32_t lastRequestedHealthAmount =
     healthAmountFromCvars(console);
+  WeaponAmmoConfig lastRequestedWeaponAmmo;
+  lastRequestedWeaponAmmo.infiniteAmmo = infiniteAmmoFromCvars(console);
   WeaponSwitchingMode lastRequestedWeaponSwitchingMode =
     weaponSwitchingModeFromCvars(console);
   bool lastRequestedBotDodgeEnabled = botDodgeEnabled;
@@ -3738,6 +3919,7 @@ int GameApp::run() const {
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
+  KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
@@ -4257,6 +4439,8 @@ int GameApp::run() const {
       selfDamagePercent(console);
     const std::int32_t currentHealthAmount =
       healthAmountFromCvars(console);
+    WeaponAmmoConfig currentWeaponAmmo = lastRequestedWeaponAmmo;
+    currentWeaponAmmo.infiniteAmmo = infiniteAmmoFromCvars(console);
     const WeaponSwitchingMode currentWeaponSwitchingMode =
       weaponSwitchingModeFromCvars(console);
     if (!sameRuntimeMovementTuning(
@@ -4284,6 +4468,7 @@ int GameApp::run() const {
           lastRequestedWeaponDamage.plasmaGunDamage ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
+        currentWeaponAmmo.infiniteAmmo != lastRequestedWeaponAmmo.infiniteAmmo ||
         currentWeaponSwitchingMode != lastRequestedWeaponSwitchingMode ||
         botDodgeEnabled != lastRequestedBotDodgeEnabled ||
         botDodgeMinIntervalMs != lastRequestedBotDodgeMinIntervalMs ||
@@ -4299,6 +4484,7 @@ int GameApp::run() const {
       lastRequestedWeaponDamage = currentWeaponDamage;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
+      lastRequestedWeaponAmmo = currentWeaponAmmo;
       lastRequestedWeaponSwitchingMode = currentWeaponSwitchingMode;
       lastRequestedBotDodgeEnabled = botDodgeEnabled;
       lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
@@ -4403,6 +4589,7 @@ int GameApp::run() const {
         lastRequestedSelfDamagePercent,
         lastRequestedHealthAmount,
         lastRequestedWeaponDamage,
+        lastRequestedWeaponAmmo,
         lastRequestedLightningFireHz,
         lastRequestedBotDodgeEnabled,
         lastRequestedBotDodgeMinIntervalMs,
@@ -4471,6 +4658,8 @@ int GameApp::run() const {
           ) ||
           selfDamagePercent(console) != updatedSnapshot.selfDamagePercent ||
           healthAmountFromCvars(console) != updatedSnapshot.healthAmount ||
+          infiniteAmmoFromCvars(console) !=
+            updatedSnapshot.weaponAmmo.infiniteAmmo ||
           weaponSwitchingModeFromCvars(console) != updatedSnapshot.weaponSwitchingMode ||
           consoleWeaponDamage.shotgunDamagePerPellet !=
             updatedSnapshot.weaponDamage.shotgunDamagePerPellet ||
@@ -4496,6 +4685,7 @@ int GameApp::run() const {
           lastRequestedRocketKnockback = updatedSnapshot.rocketKnockback;
           lastRequestedKnockbackTimeMs = updatedSnapshot.knockbackTimeMs;
           lastRequestedWeaponDamage = updatedSnapshot.weaponDamage;
+          lastRequestedWeaponAmmo = updatedSnapshot.weaponAmmo;
           lastRequestedVampirism = updatedSnapshot.vampirism;
           lastRequestedSelfDamagePercent = updatedSnapshot.selfDamagePercent;
           lastRequestedHealthAmount = updatedSnapshot.healthAmount;
@@ -4541,6 +4731,7 @@ int GameApp::run() const {
       wasLocalPlayerAlive = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
+      resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
       activeTransientEffects.clear();
@@ -4772,6 +4963,7 @@ int GameApp::run() const {
           const FragEvent& localFrag = audioSnapshot.fragEvents[localPlayerIndex];
           if (
             localFrag.active &&
+            localFrag.targetPlayerIndex != localPlayerIndex &&
             shouldPlaySnapshotAudioEvent(
               hasLastPlayedFragEvent[localPlayerIndex],
               sameFragEvent(localFrag, lastPlayedFragEvents[localPlayerIndex]),
@@ -4998,7 +5190,7 @@ int GameApp::run() const {
       renderedFrameCount = 0;
       char title[512];
       char fpsText[256] = {};
-      if (console.getBool("cl_showfps")) {
+      if (console.getBool("cl_showfps_titlebar")) {
         const float frameMilliseconds = displayedFramesPerSecond > 0.0F
           ? 1000.0F / displayedFramesPerSecond
           : 0.0F;
@@ -5241,7 +5433,9 @@ int GameApp::run() const {
           !sameWeaponFireEvent(sourceFire, lingeringRailBeam.sourceFire);
         if (newRailEvent) {
           if (localPerspectiveRail) {
-            currentFire.start = viewmodelMuzzlePosition(renderPlayer);
+            currentFire.start = currentRenderSettings.showOwnWeapons
+              ? viewmodelMuzzlePosition(renderPlayer)
+              : hiddenWeaponVisualOrigin(renderPlayer);
           }
           lingeringRailBeam.sourceFire = sourceFire;
           lingeringRailBeam.fire = currentFire;
@@ -5348,6 +5542,10 @@ int GameApp::run() const {
       outerFrameElapsed.count(),
       damageNumbersConfig(console)
     );
+    updateKillFeedState(killFeedState, outerFrameElapsed.count());
+    if (session.game() != nullptr && session.game()->hasSnapshot()) {
+      consumeKillFeedEvents(killFeedState, session.game()->snapshot());
+    }
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       RemotePlayerView& remote = renderRemotePlayers[playerIndex];
       if (!remote.visible) {
@@ -5385,6 +5583,12 @@ int GameApp::run() const {
     hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
+    hud.killFeedLines = killFeedPresentation(killFeedState);
+    if (console.getBool("cl_showfps")) {
+      hud.fpsText = std::to_string(static_cast<int>(
+        std::lround(displayedFramesPerSecond)
+      )) + "fps";
+    }
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F
       ? weaponSwitchSeconds / kWeaponSwitchDurationSeconds
       : 1.0F;
@@ -5685,7 +5889,11 @@ int GameApp::run() const {
       currentRenderSettings
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
-    transientTracerStore.fillActive(activeTransientTracers, renderPlayer);
+    transientTracerStore.fillActive(
+      activeTransientTracers,
+      renderPlayer,
+      currentRenderSettings
+    );
     transientTracerStore.fillActiveEffects(activeTransientEffects);
     renderer.render(
       renderArena,

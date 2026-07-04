@@ -1742,22 +1742,38 @@ void addWireBox(
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
 }
 
+[[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
+  return playerEyePosition(player) +
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.24F -
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.54F;
+}
+
 [[nodiscard]] Vec3 projectileVisualPosition(
   const RocketProjectileSnapshot& projectile,
   const PlayerState& localPlayer,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const RenderSettings& settings
 ) {
+  const std::size_t owner = static_cast<std::size_t>(projectile.owner);
+  if (owner == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    if (!settings.showOwnWeapons) {
+      return projectile.position +
+        (hiddenWeaponVisualOrigin(localPlayer) - playerEyePosition(localPlayer));
+    }
+    if (
+      projectile.weapon == Weapon::PlasmaGun ||
+      projectile.weapon == Weapon::RocketLauncher
+    ) {
+      return projectile.position +
+        (firstPersonWeaponMuzzlePosition(localPlayer) - playerEyePosition(localPlayer));
+    }
+    return projectile.position;
+  }
   if (
     projectile.weapon != Weapon::PlasmaGun &&
     projectile.weapon != Weapon::RocketLauncher
   ) {
     return projectile.position;
-  }
-  const std::size_t owner = static_cast<std::size_t>(projectile.owner);
-  if (owner == static_cast<std::size_t>(settings.localPlayerIndex)) {
-    return projectile.position +
-      (firstPersonWeaponMuzzlePosition(localPlayer) - playerEyePosition(localPlayer));
   }
   if (owner >= remotePlayers.size() || !remotePlayers[owner].visible) {
     return projectile.position;
@@ -2810,9 +2826,11 @@ Scene3D buildPerspectiveScene(
     );
   }
 
-  PlayerState viewModelPlayer = player;
-  viewModelPlayer.position.z += cameraVerticalOffset;
-  addFirstPersonWeaponModel(scene, viewModelPlayer, settings.localSelectedWeapon);
+  if (settings.showOwnWeapons) {
+    PlayerState viewModelPlayer = player;
+    viewModelPlayer.position.z += cameraVerticalOffset;
+    addFirstPersonWeaponModel(scene, viewModelPlayer, settings.localSelectedWeapon);
+  }
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
     const RemotePlayerView& remote = remotePlayers[remoteIndex];

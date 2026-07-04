@@ -108,6 +108,14 @@ int main() {
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 125;
     source.weaponDamage.plasmaGunDamage = 20;
+    source.weaponAmmo.infiniteAmmo = false;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 151;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 11;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::RocketLauncher)] = 12;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::MachineGun)] = 101;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 13;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 14;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 51;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -179,6 +187,8 @@ int main() {
         decoded.weaponDamage.railgunDamage == 50 &&
         decoded.weaponDamage.rocketLauncherDamage == 125 &&
         decoded.weaponDamage.plasmaGunDamage == 20 &&
+        !decoded.weaponAmmo.infiniteAmmo &&
+        decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
         nearlyEqual(decoded.vampirism, 0.1F) &&
         decoded.selfDamagePercent == 37 &&
         decoded.healthAmount == 175 &&
@@ -305,6 +315,20 @@ int main() {
     source.players[1].health = 0;
     source.selectedWeapons[0] = lg::Weapon::LightningGun;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::LightningGun)] = 149;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] = 9;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 8;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::MachineGun)] = 99;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Shotgun)] = 7;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 6;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 49;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::LightningGun)] = 120;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Railgun)] = 5;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 4;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::MachineGun)] = 88;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Shotgun)] = 3;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 2;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 48;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
     source.lightningGuns[0].targetPlayerIndex = 1;
@@ -354,7 +378,9 @@ int main() {
     source.rocketExplosions[0].opponentDamageApplied = 80;
     source.rocketExplosions[0].sequence = 42;
     source.fragEvents[0].active = true;
+    source.fragEvents[0].sequence = 55;
     source.fragEvents[0].targetPlayerIndex = 1;
+    source.fragEvents[0].weapon = lg::Weapon::Railgun;
     source.localHitFeedbackEvents[0][0].active = true;
     source.localHitFeedbackEvents[0][0].sequence = 17;
     source.localHitFeedbackEvents[0][0].targetPlayerIndex = 1;
@@ -397,10 +423,14 @@ int main() {
     source.botPlayers = {false, false, true, false};
     source.participatingPlayers = {true, true, true};
     source.readyPlayers = {true, false};
-    source.roundCombatStats[0] = {250, 125, 80};
-    source.roundCombatStats[1] = {200, 40, 24};
-    source.matchCombatStats[0] = {500, 275, 180};
-    source.matchCombatStats[1] = {450, 90, 74};
+    source.roundCombatStats[0].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {80, 250, 125};
+    source.roundCombatStats[1].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {24, 200, 40};
+    source.matchCombatStats[0].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {180, 500, 275};
+    source.matchCombatStats[1].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {74, 450, 90};
     source.playerNames = {"yg", "opponent"};
     source.matchPhase = lg::MatchPhase::Countdown;
     source.matchRules.roundLimit = 10;
@@ -433,6 +463,14 @@ int main() {
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 140;
     source.weaponDamage.plasmaGunDamage = 25;
+    source.weaponAmmo.infiniteAmmo = false;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 150;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 10;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::RocketLauncher)] = 11;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::MachineGun)] = 100;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 12;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 13;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 50;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -475,6 +513,10 @@ int main() {
       decoded.selectedWeapons[0] == lg::Weapon::LightningGun &&
         decoded.selectedWeapons[1] == lg::Weapon::Railgun,
       "selected weapons should round trip"
+    );
+    failures += expect(
+      decoded.playerAmmo == source.playerAmmo,
+      "per-player ammo should round trip"
     );
     failures += expect(
       decoded.lightningGuns[0].hit &&
@@ -555,7 +597,9 @@ int main() {
         decoded.grenadeBounceAudioEvents[0].sequence == 9 &&
         nearlyEqual(decoded.grenadeBounceAudioEvents[0].position.z, 0.75F) &&
         decoded.fragEvents[0].active &&
+        decoded.fragEvents[0].sequence == 55 &&
         decoded.fragEvents[0].targetPlayerIndex == 1 &&
+        decoded.fragEvents[0].weapon == lg::Weapon::Railgun &&
         decoded.rockets[0].active &&
         decoded.rockets[0].owner == 1 &&
         decoded.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
@@ -581,9 +625,15 @@ int main() {
       "relayed Swedish chat should round trip"
     );
     failures += expect(
-      decoded.matchCombatStats[0].lightningActiveTicks == 500 &&
-        decoded.matchCombatStats[0].lightningHitTicks == 275 &&
-        decoded.matchCombatStats[0].damageDealt == 180 &&
+      decoded.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .attempts == 500 &&
+        decoded.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .hits == 275 &&
+        decoded.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == 180 &&
         decoded.playerNames[0] == "yg" &&
         decoded.playerNames[1] == "opponent",
       "scoreboard names and aggregate stats should round trip"
@@ -596,10 +646,18 @@ int main() {
       "lobby, bot, and participating-player state should round trip"
     );
     failures += expect(
-      decoded.roundCombatStats[0].lightningActiveTicks == 250 &&
-        decoded.roundCombatStats[0].lightningHitTicks == 125 &&
-        decoded.roundCombatStats[0].damageDealt == 80 &&
-        decoded.roundCombatStats[1].damageDealt == 24,
+      decoded.roundCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .attempts == 250 &&
+        decoded.roundCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .hits == 125 &&
+        decoded.roundCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == 80 &&
+        decoded.roundCombatStats[1]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == 24,
       "round combat stats should round trip"
     );
     failures += expect(
@@ -632,6 +690,8 @@ int main() {
       decoded.weaponDamage.railgunDamage == 50 &&
       decoded.weaponDamage.rocketLauncherDamage == 140 &&
       decoded.weaponDamage.plasmaGunDamage == 25 &&
+      !decoded.weaponAmmo.infiniteAmmo &&
+      decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
       nearlyEqual(decoded.vampirism, 2.0F) &&
       decoded.selfDamagePercent == 25 &&
       decoded.healthAmount == 150 &&
@@ -741,6 +801,13 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "invalid frag target should not encode"
+    );
+
+    invalid = source;
+    invalid.fragEvents[0].weapon = static_cast<lg::Weapon>(255);
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "invalid frag weapon should not encode"
     );
   }
 

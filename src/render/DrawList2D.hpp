@@ -42,6 +42,7 @@ struct Line2D {
 enum class TextHorizontalAlignment : std::uint8_t {
   Left,
   Center,
+  Right,
 };
 
 struct Text2D {

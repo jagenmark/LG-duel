@@ -103,6 +103,116 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   return kDuelPlayerCount;
 }
 
+[[nodiscard]] bool combatStatsPhase(MatchPhase phase) {
+  return phase == MatchPhase::Live ||
+    phase == MatchPhase::WaitingForPlayers ||
+    phase == MatchPhase::WaitingForReady;
+}
+
+void addWeaponAccuracy(
+  RoundCombatStats& stats,
+  Weapon weapon,
+  std::uint32_t attempts,
+  std::uint32_t hits
+) {
+  WeaponCombatStats& weaponStats = stats.weapons[weaponIndex(weapon)];
+  const std::uint32_t maxValue = std::numeric_limits<std::uint16_t>::max();
+  weaponStats.attempts = static_cast<std::uint16_t>(std::min(
+    maxValue,
+    static_cast<std::uint32_t>(weaponStats.attempts) + attempts
+  ));
+  weaponStats.hits = static_cast<std::uint16_t>(std::min(
+    static_cast<std::uint32_t>(weaponStats.attempts),
+    static_cast<std::uint32_t>(weaponStats.hits) + hits
+  ));
+}
+
+void addWeaponDamage(
+  RoundCombatStats& stats,
+  Weapon weapon,
+  std::uint32_t damage
+) {
+  stats.weapons[weaponIndex(weapon)].damageDealt += damage;
+}
+
+void recordWeaponAccuracy(
+  ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  Weapon weapon,
+  std::uint32_t attempts,
+  std::uint32_t hits
+) {
+  if (
+    attackerIndex >= kDuelPlayerCount ||
+    attempts == 0 ||
+    !combatStatsPhase(snapshot.matchPhase)
+  ) {
+    return;
+  }
+
+  if (snapshot.matchPhase == MatchPhase::Live) {
+    addWeaponAccuracy(
+      snapshot.roundCombatStats[attackerIndex],
+      weapon,
+      attempts,
+      hits
+    );
+  }
+  addWeaponAccuracy(
+    snapshot.matchCombatStats[attackerIndex],
+    weapon,
+    attempts,
+    hits
+  );
+}
+
+void recordInstantWeaponAccuracy(
+  ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  const WeaponFireResult& fire
+) {
+  if (!fire.fired) {
+    return;
+  }
+
+  if (fire.weapon == Weapon::Shotgun) {
+    recordWeaponAccuracy(
+      snapshot,
+      attackerIndex,
+      fire.weapon,
+      fire.pelletCount,
+      fire.pelletHitCount
+    );
+    return;
+  }
+
+  recordWeaponAccuracy(
+    snapshot,
+    attackerIndex,
+    fire.weapon,
+    1U,
+    fire.hit ? 1U : 0U
+  );
+}
+
+void recordProjectileHit(
+  ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  Weapon weapon
+) {
+  if (
+    attackerIndex >= kDuelPlayerCount ||
+    !combatStatsPhase(snapshot.matchPhase)
+  ) {
+    return;
+  }
+
+  if (snapshot.matchPhase == MatchPhase::Live) {
+    addWeaponAccuracy(snapshot.roundCombatStats[attackerIndex], weapon, 0U, 1U);
+  }
+  addWeaponAccuracy(snapshot.matchCombatStats[attackerIndex], weapon, 0U, 1U);
+}
+
 [[nodiscard]] float wrapRadians(float angle) {
   while (angle <= -kPi) {
     angle += kTwoPi;
@@ -387,6 +497,11 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   plasmaGunTuning_.eyeHeight = config.plasmaGun.eyeHeight;
   plasmaGunTuning_.maxLifetimeTicks = config.plasmaGun.maxLifetimeTicks;
   plasmaGunTuning_.cooldownTicks = config.plasmaGun.cooldownTicks;
+  weaponAmmoConfig_.spawnAmmo = config.weaponAmmo.spawnAmmo;
+  snapshot_.weaponAmmo.spawnAmmo = weaponAmmoConfig_.spawnAmmo;
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    refillAmmo(playerIndex);
+  }
   weaponPulloutDurationTicks_ = config.weaponPulloutTicks;
   jumpPadRetriggerCooldownTicks_ = config.jumpPadRetriggerCooldownTicks;
 }
@@ -641,6 +756,9 @@ void ServerGame::tick(float fixedDt) {
         snapshot_.lightningGuns[attackerIndex].active =
           command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      if (snapshot_.lightningGuns[attackerIndex].active) {
+        consumeLightningGunAmmo(attackerIndex, fixedDt);
+      }
     } else if (
       command.weapon == Weapon::Railgun &&
       command.attack &&
@@ -663,7 +781,13 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
       railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::Railgun);
     } else if (
       command.weapon == Weapon::MachineGun &&
       command.attack &&
@@ -686,7 +810,13 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
       machineGunCooldownTicks_[attackerIndex] = machineGunCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::MachineGun);
     } else if (
       command.weapon == Weapon::Shotgun &&
       command.attack &&
@@ -710,7 +840,13 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
       shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
     } else if (
       command.weapon == Weapon::RocketLauncher &&
       command.attack &&
@@ -725,6 +861,7 @@ void ServerGame::tick(float fixedDt) {
         )
       ) {
         rocketCooldownTicks_[attackerIndex] = rocketLauncherCooldownDurationTicks_;
+        (void)consumeAmmo(attackerIndex, Weapon::RocketLauncher);
       }
     } else if (
       command.weapon == Weapon::GrenadeLauncher &&
@@ -741,6 +878,7 @@ void ServerGame::tick(float fixedDt) {
       ) {
         grenadeCooldownTicks_[attackerIndex] =
           grenadeLauncherTuning_.cooldownTicks;
+        (void)consumeAmmo(attackerIndex, Weapon::GrenadeLauncher);
       }
     } else if (
       command.weapon == Weapon::PlasmaGun &&
@@ -757,6 +895,7 @@ void ServerGame::tick(float fixedDt) {
       ) {
         plasmaGunCooldownTicks_[attackerIndex] =
           plasmaGunTuning_.cooldownTicks;
+        (void)consumeAmmo(attackerIndex, Weapon::PlasmaGun);
       }
     }
     LightningGunResult& result = snapshot_.lightningGuns[attackerIndex];
@@ -778,17 +917,13 @@ void ServerGame::tick(float fixedDt) {
       result.currentTargetBounds = combatPlayers[debugTargetIndex].bounds;
       result.rewoundTargetBounds = debugTarget.bounds;
     }
-    if (snapshot_.matchPhase == MatchPhase::Live) {
-      RoundCombatStats& stats = snapshot_.roundCombatStats[attackerIndex];
-      if (result.active) {
-        ++stats.lightningActiveTicks;
-        ++snapshot_.matchCombatStats[attackerIndex].lightningActiveTicks;
-      }
-      if (result.hit) {
-        ++stats.lightningHitTicks;
-        ++snapshot_.matchCombatStats[attackerIndex].lightningHitTicks;
-      }
-    }
+    recordWeaponAccuracy(
+      snapshot_,
+      attackerIndex,
+      Weapon::LightningGun,
+      result.active ? 1U : 0U,
+      result.hit ? 1U : 0U
+    );
   }
 
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
@@ -883,6 +1018,7 @@ void ServerGame::resetMatch() {
   snapshot_.rocketKnockback = rocketKnockback_;
   snapshot_.knockbackTimeMs = knockbackTimeMs_;
   snapshot_.weaponDamage = weaponDamage_;
+  snapshot_.weaponAmmo = weaponAmmoConfig_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
   snapshot_.healthAmount = healthAmount_;
@@ -899,6 +1035,7 @@ void ServerGame::resetMatch() {
     ? MatchPhase::WaitingForReady
     : MatchPhase::WaitingForPlayers;
   lightningGunStates_ = {};
+  lightningAmmoCredit_.fill(1.0);
   railgunCooldownTicks_ = {};
   machineGunCooldownTicks_ = {};
   shotgunCooldownTicks_ = {};
@@ -909,6 +1046,9 @@ void ServerGame::resetMatch() {
   selectedWeapons_.fill(Weapon::LightningGun);
   weaponPulloutTicks_ = {};
   snapshot_.selectedWeapons = selectedWeapons_;
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    refillAmmo(playerIndex);
+  }
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
@@ -976,7 +1116,9 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   plasmaGunCooldownTicks_[playerIndex] = 0;
   selectedWeapons_[playerIndex] = Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
+  lightningAmmoCredit_[playerIndex] = 1.0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
+  refillAmmo(playerIndex);
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
   recentFragEvents_[playerIndex] = {};
@@ -992,6 +1134,8 @@ void ServerGame::respawnRound() {
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
   botCombatStates_ = {};
+  rockets_ = {};
+  snapshot_.rockets = {};
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     respawnPlayer(playerIndex);
   }
@@ -1101,9 +1245,11 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   snapshot_.acknowledgedCommand[playerIndex] = 0;
   snapshot_.hasAcknowledgedCommand[playerIndex] = false;
   lightningGunStates_[playerIndex] = {};
+  lightningAmmoCredit_[playerIndex] = 1.0;
   selectedWeapons_[playerIndex] = Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
+  refillAmmo(playerIndex);
   botCombatStates_[playerIndex] = {};
 }
 
@@ -1130,6 +1276,7 @@ void ServerGame::setRuntimeGameplayTuning(
   float vampirism,
   std::uint8_t selfDamagePercent,
   std::int32_t healthAmount,
+  bool infiniteAmmo,
   bool botDodgeEnabled,
   int botDodgeMinIntervalMs,
   int botDodgeMaxIntervalMs,
@@ -1179,6 +1326,15 @@ void ServerGame::setRuntimeGameplayTuning(
   const bool healthAmountChanged = healthAmount_ != healthAmount;
   healthAmount_ = healthAmount;
   snapshot_.healthAmount = healthAmount_;
+  const bool infiniteAmmoChanged =
+    weaponAmmoConfig_.infiniteAmmo != infiniteAmmo;
+  weaponAmmoConfig_.infiniteAmmo = infiniteAmmo;
+  snapshot_.weaponAmmo.infiniteAmmo = weaponAmmoConfig_.infiniteAmmo;
+  if (infiniteAmmoChanged) {
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      refillAmmo(playerIndex);
+    }
+  }
   if (
     botDodgeEnabled_ != botDodgeEnabled ||
     botDodgeMinIntervalMs_ != botDodgeMinIntervalMs ||
@@ -1466,6 +1622,9 @@ void ServerGame::updateMatchState() {
 }
 
 void ServerGame::beginCountdown() {
+  if (warmupPhase()) {
+    snapshot_.matchCombatStats = {};
+  }
   snapshot_.matchPhase = MatchPhase::Countdown;
   snapshot_.phaseTicksRemaining = matchRules_.countdownTicks;
   snapshot_.roundWinner = 255;
@@ -1688,8 +1847,60 @@ bool ServerGame::canSwitchWeapon(std::size_t playerIndex) const {
 }
 
 bool ServerGame::canFireSelectedWeapon(std::size_t playerIndex) const {
-  return weaponSwitchingMode_ != WeaponSwitchingMode::Ql ||
-    weaponPulloutTicks_[playerIndex] == 0;
+  return (
+    weaponSwitchingMode_ != WeaponSwitchingMode::Ql ||
+    weaponPulloutTicks_[playerIndex] == 0
+  ) && hasAmmoForWeapon(playerIndex, selectedWeapons_[playerIndex]);
+}
+
+bool ServerGame::hasAmmoForWeapon(std::size_t playerIndex, Weapon weapon) const {
+  return weaponAmmoConfig_.infiniteAmmo ||
+    playerAmmo_[playerIndex][weaponIndex(weapon)] > 0;
+}
+
+void ServerGame::refillAmmo(std::size_t playerIndex) {
+  if (playerIndex >= kDuelPlayerCount) {
+    return;
+  }
+  playerAmmo_[playerIndex] = weaponAmmoConfig_.spawnAmmo;
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+}
+
+bool ServerGame::consumeAmmo(std::size_t playerIndex, Weapon weapon) {
+  if (weaponAmmoConfig_.infiniteAmmo) {
+    return true;
+  }
+  std::int32_t& ammo = playerAmmo_[playerIndex][weaponIndex(weapon)];
+  if (ammo <= 0) {
+    return false;
+  }
+  --ammo;
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+  return true;
+}
+
+void ServerGame::consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt) {
+  if (weaponAmmoConfig_.infiniteAmmo) {
+    return;
+  }
+  std::int32_t& ammo =
+    playerAmmo_[playerIndex][weaponIndex(Weapon::LightningGun)];
+  if (ammo <= 0) {
+    snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+    return;
+  }
+  const double fireHz =
+    static_cast<double>(std::max(1.0F, lightningGunTuning_.fireHz));
+  double& credit = lightningAmmoCredit_[playerIndex];
+  credit = std::min(credit, fireHz);
+  const int shots = static_cast<int>(std::floor(credit));
+  if (shots > 0) {
+    const int consumed = std::min(shots, ammo);
+    ammo -= consumed;
+    credit -= static_cast<double>(consumed);
+  }
+  credit += fireHz * static_cast<double>(fixedDt);
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
 }
 
 void ServerGame::updateSelectedWeapon(
@@ -1806,22 +2017,34 @@ void ServerGame::applyDamageAndKnockback(
   }
 
   if (snapshot_.matchPhase == MatchPhase::Live) {
-    snapshot_.roundCombatStats[attackerIndex].damageDealt +=
-      static_cast<std::uint32_t>(damageApplied);
-    snapshot_.matchCombatStats[attackerIndex].damageDealt +=
-      static_cast<std::uint32_t>(damageApplied);
+    addWeaponDamage(
+      snapshot_.roundCombatStats[attackerIndex],
+      weapon,
+      static_cast<std::uint32_t>(damageApplied)
+    );
+  }
+  if (combatStatsPhase(snapshot_.matchPhase)) {
+    addWeaponDamage(
+      snapshot_.matchCombatStats[attackerIndex],
+      weapon,
+      static_cast<std::uint32_t>(damageApplied)
+    );
   }
 
   if (
     wasAlive &&
     target.health == 0 &&
-    attackerIndex != targetIndex &&
     damageApplied > 0 &&
-    damageAllowed(attackerIndex, targetIndex)
+    (
+      attackerIndex == targetIndex ||
+      damageAllowed(attackerIndex, targetIndex)
+    )
   ) {
     FragEvent& frag = snapshot_.fragEvents[attackerIndex];
     frag.active = true;
+    frag.sequence = ++fragEventSequences_[attackerIndex];
     frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
+    frag.weapon = weapon;
   }
 
   if (
@@ -1881,7 +2104,11 @@ void ServerGame::applyDamageAndKnockback(
       snapshot_.matchPhase == MatchPhase::WaitingForReady
     )
   ) {
+    const FragEvent fragEvent = snapshot_.fragEvents[attackerIndex];
     respawnPlayer(targetIndex);
+    if (fragEvent.active) {
+      snapshot_.fragEvents[attackerIndex] = fragEvent;
+    }
   }
 }
 
@@ -1931,6 +2158,7 @@ bool ServerGame::spawnProjectile(
     fire.weapon = weapon;
     fire.start = rocket.position;
     fire.end = rocket.position + (direction * 1.2F);
+    recordWeaponAccuracy(snapshot_, attackerIndex, weapon, 1U, 0U);
     return true;
   }
 
@@ -2172,6 +2400,7 @@ void ServerGame::simulateRockets(float fixedDt) {
         ? plasmaGunTuning_.knockback
         : rocketLauncherTuning_.knockback;
     explosion.radius = radius;
+    bool hitOpponent = false;
 
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       PlayerState& player = snapshot_.players[playerIndex];
@@ -2201,6 +2430,10 @@ void ServerGame::simulateRockets(float fixedDt) {
         explosion.ownerDamageApplied = std::min(appliedDamage, player.health);
       } else {
         explosion.opponentDamageApplied = std::min(appliedDamage, player.health);
+        if (!hitOpponent && appliedDamage > 0) {
+          recordProjectileHit(snapshot_, rocket.owner, rocket.weapon);
+          hitOpponent = true;
+        }
       }
       Vec3 knockbackDirection = normalize(player.position - explosionPosition);
       if (length(knockbackDirection) <= 0.0001F) {
@@ -2825,6 +3058,11 @@ void ServerGame::receiveCommands() {
         packet.selfDamagePercent
       );
       logFloat("g_vampirism", vampirism_, packet.vampirism);
+      logBool(
+        "g_infiniteammo",
+        weaponAmmoConfig_.infiniteAmmo,
+        packet.weaponAmmo.infiniteAmmo
+      );
       if (weaponSwitchingMode_ != packet.weaponSwitchingMode) {
         logClientGameplayCommand(
           playerName,
@@ -2844,6 +3082,7 @@ void ServerGame::receiveCommands() {
         packet.vampirism,
         packet.selfDamagePercent,
         packet.healthAmount,
+        packet.weaponAmmo.infiniteAmmo,
         botDodgeEnabled_,
         botDodgeMinIntervalMs_,
         botDodgeMaxIntervalMs_,

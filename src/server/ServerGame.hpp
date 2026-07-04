@@ -59,6 +59,7 @@ public:
     float vampirism,
     std::uint8_t selfDamagePercent,
     std::int32_t healthAmount,
+    bool infiniteAmmo,
     bool botDodgeEnabled,
     int botDodgeMinIntervalMs,
     int botDodgeMaxIntervalMs,
@@ -156,6 +157,10 @@ private:
   ) const;
   [[nodiscard]] bool canSwitchWeapon(std::size_t playerIndex) const;
   [[nodiscard]] bool canFireSelectedWeapon(std::size_t playerIndex) const;
+  [[nodiscard]] bool hasAmmoForWeapon(std::size_t playerIndex, Weapon weapon) const;
+  void refillAmmo(std::size_t playerIndex);
+  bool consumeAmmo(std::size_t playerIndex, Weapon weapon);
+  void consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt);
   void updateSelectedWeapon(std::size_t playerIndex, Weapon requestedWeapon);
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
@@ -209,6 +214,9 @@ private:
   float vampirism_ = 0.0F;
   std::uint8_t selfDamagePercent_ = 100;
   std::int32_t healthAmount_ = 100;
+  WeaponAmmoConfig weaponAmmoConfig_ = {};
+  std::array<WeaponAmmoArray, kDuelPlayerCount> playerAmmo_ = {};
+  std::array<double, kDuelPlayerCount> lightningAmmoCredit_ = {};
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::uint32_t railgunCooldownDurationTicks_ = 188;
   std::uint32_t machineGunCooldownDurationTicks_ = 13;
@@ -234,6 +242,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
   std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> recentGrenadeBounceAudioEvents_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> recentGrenadeBounceAudioEventTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences_ = {};
   std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
   std::array<
