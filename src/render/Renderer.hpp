@@ -7,6 +7,7 @@
 #include "net/NetProtocol.hpp"
 #include "sim/PlayerState.hpp"
 
+#include <chrono>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -523,8 +524,12 @@ private:
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
   RendererFrameDiagnostics lastFrameDiagnostics_ = {};
+  std::chrono::steady_clock::time_point previousCameraStepUpdate_ = {};
+  float previousCameraPlayerZ_ = 0.0F;
+  float cameraStepOffset_ = 0.0F;
   bool gpuBackend_ = false;
   bool gpuErrorReported_ = false;
+  bool hasPreviousCameraPlayerZ_ = false;
 };
 
 } // namespace lg
