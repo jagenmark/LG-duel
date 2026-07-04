@@ -23,13 +23,23 @@ namespace {
     return {};
   }
 
-  const Vec3 clipped = projectAlongPlane(velocity, groundNormal);
-  const float clippedSpeed = length(clipped);
-  if (clippedSpeed <= kMinimumSpeed) {
+  Vec3 planeDirection = horizontal(velocity);
+  if (length(planeDirection) <= kMinimumSpeed) {
     return {};
   }
+  if (std::fabs(groundNormal.z) <= kMinimumSpeed) {
+    const Vec3 clipped = projectAlongPlane(velocity, groundNormal);
+    const float clippedSpeed = length(clipped);
+    if (clippedSpeed <= kMinimumSpeed) {
+      return {};
+    }
+    return normalize(clipped) * speed;
+  }
 
-  return normalize(clipped) * speed;
+  planeDirection.z =
+    -((planeDirection.x * groundNormal.x) + (planeDirection.y * groundNormal.y)) /
+    groundNormal.z;
+  return normalize(planeDirection) * speed;
 }
 
 struct GroundContact {
@@ -332,9 +342,10 @@ void applyAirControl(
 }
 
 void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fixedDt) {
-  const float speed = length(velocity);
+  const float speed = length(horizontal(velocity));
   if (speed <= 0.0001F) {
-    velocity = {};
+    velocity.x = 0.0F;
+    velocity.y = 0.0F;
     return;
   }
 
@@ -355,31 +366,23 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   const UserCommand& command,
   Vec3 groundNormal
 ) {
-  constexpr float kInputEpsilon = 0.0001F;
-  Vec3 forward = yawForward(command.viewYawRadians);
-  Vec3 right = yawRight(command.viewYawRadians);
-  forward.z = 0.0F;
-  right.z = 0.0F;
-
-  if (
-    std::fabs(command.forwardMove) <= kInputEpsilon &&
-    std::fabs(command.rightMove) > kInputEpsilon
-  ) {
-    Vec3 slopeAxis = horizontal(groundNormal);
-    if (length(slopeAxis) > kInputEpsilon) {
-      slopeAxis = normalize(slopeAxis);
-      Vec3 contourWish = right * command.rightMove;
-      contourWish -= slopeAxis * dot(contourWish, slopeAxis);
-      if (length(contourWish) > kInputEpsilon) {
-        return normalize(contourWish);
-      }
-      return {};
-    }
+  constexpr float kPlaneEpsilon = 0.0001F;
+  const Vec3 forward = yawForward(command.viewYawRadians);
+  const Vec3 right = yawRight(command.viewYawRadians);
+  Vec3 wishDirection =
+    (forward * command.forwardMove) + (right * command.rightMove);
+  wishDirection.z = 0.0F;
+  if (length(wishDirection) <= kPlaneEpsilon) {
+    return {};
+  }
+  if (std::fabs(groundNormal.z) <= kPlaneEpsilon) {
+    return normalize(wishDirection);
   }
 
-  forward = normalize(projectAlongPlane(forward, groundNormal));
-  right = normalize(projectAlongPlane(right, groundNormal));
-  return normalize((forward * command.forwardMove) + (right * command.rightMove));
+  wishDirection.z =
+    -((wishDirection.x * groundNormal.x) + (wishDirection.y * groundNormal.y)) /
+    groundNormal.z;
+  return normalize(wishDirection);
 }
 
 [[nodiscard]] GroundContact traceGround(

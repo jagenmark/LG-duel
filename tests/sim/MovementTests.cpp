@@ -1628,15 +1628,21 @@ int main() {
     lg::UserCommand command;
     command.viewYawRadians = 0.78539816339F;
 
-    const float startZ = player.position.z;
+    const lg::Vec3 startPosition = player.position;
     for (int tick = 0; tick < 60; ++tick) {
       command.rightMove = tick % 2 == 0 ? 1.0F : -1.0F;
       lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
     }
 
+    const lg::Vec3 horizontalDelta = {
+      player.position.x - startPosition.x,
+      player.position.y - startPosition.y,
+      0.0F,
+    };
+    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
     failures += expect(
-      std::fabs(player.position.z - startZ) < 0.1F,
-      "alternating AD on an angled slope should not drift down the ramp"
+      std::fabs(forwardDistance) < 0.05F,
+      "alternating AD on an angled slope should not turn into forward/back movement"
     );
   }
 
@@ -1653,16 +1659,21 @@ int main() {
     command.viewYawRadians = 1.57079632679F;
     command.rightMove = 1.0F;
 
-    const float startX = player.position.x;
-    const float startZ = player.position.z;
+    const lg::Vec3 startPosition = player.position;
     for (int tick = 0; tick < 30; ++tick) {
       lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
     }
 
+    const lg::Vec3 horizontalDelta = {
+      player.position.x - startPosition.x,
+      player.position.y - startPosition.y,
+      0.0F,
+    };
+    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
+    const float strafeDistance = lg::dot(horizontalDelta, lg::yawRight(command.viewYawRadians));
     failures += expect(
-      std::fabs(player.position.x - startX) < 0.05F &&
-        std::fabs(player.position.z - startZ) < 0.05F,
-      "pure AD across a slope should not turn into uphill or downhill movement"
+      std::fabs(forwardDistance) < 0.05F && strafeDistance > 0.1F,
+      "pure AD across a slope should stay camera-sideways instead of forward/back"
     );
   }
 
