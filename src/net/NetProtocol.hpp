@@ -115,10 +115,14 @@ struct DisconnectPacket {
   std::uint32_t clientNonce = 0;
 };
 
-struct RoundCombatStats {
-  std::uint32_t lightningActiveTicks = 0;
-  std::uint32_t lightningHitTicks = 0;
+struct WeaponCombatStats {
   std::uint32_t damageDealt = 0;
+  std::uint16_t attempts = 0;
+  std::uint16_t hits = 0;
+};
+
+struct RoundCombatStats {
+  std::array<WeaponCombatStats, kWeaponCount> weapons = {};
 };
 
 struct FootstepAudioEvent {
@@ -137,7 +141,9 @@ struct GrenadeBounceAudioEvent {
 
 struct FragEvent {
   bool active = false;
+  std::uint32_t sequence = 0;
   std::uint8_t targetPlayerIndex = 255;
+  Weapon weapon = Weapon::LightningGun;
 };
 
 struct LocalHitFeedbackEvent {

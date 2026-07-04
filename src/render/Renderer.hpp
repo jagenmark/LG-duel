@@ -233,6 +233,13 @@ struct HudRenderState {
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
   std::array<std::string, 7> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
+  struct KillFeedLine {
+    std::string killerName;
+    std::string killedName;
+    Weapon weapon = Weapon::LightningGun;
+    float alpha = 1.0F;
+  };
+  std::vector<KillFeedLine> killFeedLines;
   Weapon previousWeapon = Weapon::LightningGun;
   float weaponSwitchProgress = 1.0F;
   float centerOffsetY = 0.0F;
@@ -253,6 +260,8 @@ struct HudRenderState {
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
   std::vector<Team> scoreboardLineTeams;
+  std::vector<Weapon> scoreboardLineAccuracyWeapons;
+  std::vector<std::size_t> scoreboardLineAccuracyWeaponColumns;
   bool settingsOpen = false;
   std::vector<SettingsMenuItem> settingsItems;
   std::string settingsFooter;

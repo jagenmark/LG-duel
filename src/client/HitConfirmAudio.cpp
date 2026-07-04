@@ -40,7 +40,9 @@ bool sameRocketExplosionEvent(
 
 bool sameFragEvent(const FragEvent& lhs, const FragEvent& rhs) {
   return lhs.active == rhs.active &&
-    lhs.targetPlayerIndex == rhs.targetPlayerIndex;
+    lhs.sequence == rhs.sequence &&
+    lhs.targetPlayerIndex == rhs.targetPlayerIndex &&
+    lhs.weapon == rhs.weapon;
 }
 
 int localWeaponFireHitConfirmDamage(const WeaponFireResult& fire) {

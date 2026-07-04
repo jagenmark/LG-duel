@@ -25,6 +25,7 @@ source material for later weapon, impact, or ambience work.
 - `hit_confirm_medium.wav`: medium-damage hit confirmation ping.
 - `hit_confirm_heavy.wav`: high-damage hit confirmation ping.
 - `pain_grunt.wav`: played when a player takes damage; a new grunt is skipped while the previous one is still playing.
+- `frag.wav`: local killer frag cue, played only for the player who earns the frag.
 
 The client selects one hit-confirm file from the reported damage amount. Pain
 grunts are driven by health decreases in authoritative snapshots.

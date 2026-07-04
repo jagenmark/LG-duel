@@ -50,6 +50,16 @@ constexpr float kHalfPi = 1.57079632679F;
     snappedTextScale(scale);
 }
 
+[[nodiscard]] std::string trimCell(std::string_view value) {
+  while (!value.empty() && value.front() == ' ') {
+    value.remove_prefix(1U);
+  }
+  while (!value.empty() && value.back() == ' ') {
+    value.remove_suffix(1U);
+  }
+  return std::string(value);
+}
+
 [[nodiscard]] float countdownGlyphOffsetX(
   const std::string& text,
   float scale
@@ -681,6 +691,64 @@ void addSelectedWeaponIndicator(
   return color;
 }
 
+void addKillFeed(
+  DrawList2D& drawList,
+  int width,
+  float startY,
+  const HudRenderState& hud
+) {
+  if (hud.killFeedLines.empty()) {
+    return;
+  }
+
+  constexpr float textScale = 2.25F;
+  constexpr float rowHeight = 31.5F;
+  constexpr float rightPadding = 10.0F;
+  constexpr float textIconGap = 12.0F;
+  constexpr float iconWidth = 30.0F;
+  constexpr float iconScale = 0.51F;
+  constexpr RenderColor baseText = {235, 242, 250, 245};
+
+  float y = startY;
+  for (const HudRenderState::KillFeedLine& line : hud.killFeedLines) {
+    const float alpha = std::clamp(line.alpha, 0.0F, 1.0F);
+    if (alpha <= 0.0F) {
+      y += rowHeight;
+      continue;
+    }
+
+    const float killerWidth = textWidth(line.killerName, textScale);
+    const float killedWidth = textWidth(line.killedName, textScale);
+    const bool selfKill = line.killedName.empty();
+    const float rowWidth =
+      killerWidth + iconWidth + textIconGap +
+      (selfKill ? 0.0F : killedWidth + textIconGap);
+    float x = static_cast<float>(width) - rightPadding - rowWidth;
+    x = std::max(12.0F, x);
+    const float textY = y + 3.0F;
+    const RenderColor textColor = withAlpha(baseText, alpha);
+    const RenderColor weaponColor =
+      withAlpha(quakeLiveWeaponColor(line.weapon), alpha);
+
+    addText(drawList, x, textY, line.killerName, textColor, textScale);
+    x += killerWidth + textIconGap;
+    addWeaponIcon(
+      drawList,
+      x + iconWidth * 0.5F,
+      y + rowHeight * 0.5F,
+      line.weapon,
+      weaponColor,
+      iconScale
+    );
+    if (!selfKill) {
+      x += iconWidth + textIconGap;
+      addText(drawList, x, textY, line.killedName, textColor, textScale);
+    }
+
+    y += rowHeight;
+  }
+}
+
 [[nodiscard]] ScreenPoint screenPointFromProjection(
   ProjectedPoint projected,
   int width,
@@ -1293,49 +1361,116 @@ void addHud(
       {78, 168, 235, 255}
     );
 
+    const float scoreboardX =
+      panelX + std::max(16.0F, (panelWidth - 660.0F) * 0.5F);
+    const float nameX = scoreboardX;
+    const float scoreX = scoreboardX + 280.0F;
+    const float accuracyX = scoreboardX + 360.0F;
+    const float percentX = accuracyX + textWidth("LG ", textScale);
+    const float damageX = scoreboardX + 470.0F;
+
+    constexpr std::size_t kScoreboardNameColumnChars = 16U;
+    constexpr std::size_t kScoreboardScoreColumnChars =
+      kScoreboardNameColumnChars + 4U;
+    constexpr std::size_t kScoreboardAccuracyColumnChars =
+      kScoreboardScoreColumnChars + 6U;
+    constexpr std::size_t kScoreboardDamageColumnChars =
+      kScoreboardAccuracyColumnChars + 8U;
+
     float scoreboardY = panelY + 20.0F;
     for (std::size_t index = 0; index < hud.scoreboardLines.size(); ++index) {
       const std::string& line = hud.scoreboardLines[index];
-      const float lineWidth =
-        static_cast<float>(line.size()) * characterWidth;
-      const float x =
-        panelX + std::max(16.0F, (panelWidth - lineWidth) * 0.5F);
       const Team team = index < hud.scoreboardLineTeams.size()
         ? hud.scoreboardLineTeams[index]
         : Team::None;
-      if (team == Team::None) {
+      const std::size_t weaponColumn =
+        index < hud.scoreboardLineAccuracyWeaponColumns.size()
+          ? hud.scoreboardLineAccuracyWeaponColumns[index]
+          : std::string::npos;
+      const bool hasWeaponColumn =
+        weaponColumn != std::string::npos &&
+        weaponColumn + 2U <= line.size() &&
+        index < hud.scoreboardLineAccuracyWeapons.size();
+      if (index == 0) {
         addText(
           drawList,
-          x,
+          scoreboardX,
           scoreboardY,
           line,
-          index == 0
-            ? RenderColor{255, 220, 120, 255}
-            : RenderColor{225, 235, 245, 255},
+          {255, 220, 120, 255},
           textScale
         );
       } else {
-        constexpr std::size_t nameColumnWidth = 22U;
-        const std::size_t split = std::min(nameColumnWidth, line.size());
+        const RenderColor baseColor = {225, 235, 245, 255};
         const RenderColor teamColor = team == Team::Red
           ? RenderColor{224, 82, 92, 255}
           : RenderColor{82, 190, 224, 255};
-        addText(
-          drawList,
-          x,
-          scoreboardY,
-          line.substr(0, split),
-          teamColor,
-          textScale
+        const RenderColor nameColor =
+          team == Team::None ? baseColor : teamColor;
+        const auto cell = [&line](std::size_t start, std::size_t end) {
+          if (start >= line.size()) {
+            return std::string();
+          }
+          return trimCell(line.substr(start, std::min(end, line.size()) - start));
+        };
+        const std::string name = cell(0U, kScoreboardNameColumnChars);
+        const std::string score = cell(
+          kScoreboardScoreColumnChars,
+          kScoreboardAccuracyColumnChars - 1U
         );
-        addText(
-          drawList,
-          x + static_cast<float>(split) * characterWidth,
-          scoreboardY,
-          line.substr(split),
-          RenderColor{225, 235, 245, 255},
-          textScale
+        const std::string accuracy = cell(
+          kScoreboardAccuracyColumnChars,
+          kScoreboardDamageColumnChars - 1U
         );
+        const std::string damage =
+          cell(kScoreboardDamageColumnChars, line.size());
+
+        if (!name.empty()) {
+          addText(
+            drawList,
+            nameX,
+            scoreboardY,
+            name,
+            nameColor,
+            textScale
+          );
+        }
+        if (!score.empty()) {
+          addText(drawList, scoreX, scoreboardY, score, baseColor, textScale);
+        }
+        if (hasWeaponColumn && accuracy.size() >= 2U) {
+          addText(
+            drawList,
+            accuracyX,
+            scoreboardY,
+            accuracy.substr(0U, 2U),
+            quakeLiveWeaponColor(hud.scoreboardLineAccuracyWeapons[index]),
+            textScale
+          );
+          const std::string percent = trimCell(accuracy.substr(2U));
+          if (!percent.empty()) {
+            addText(
+              drawList,
+              percentX,
+              scoreboardY,
+              percent,
+              baseColor,
+              textScale
+            );
+          }
+        } else if (!accuracy.empty()) {
+          addText(
+            drawList,
+            accuracyX,
+            scoreboardY,
+            accuracy,
+            baseColor,
+            textScale
+          );
+        }
+        if (!damage.empty()) {
+          addText(drawList, damageX, scoreboardY, damage, baseColor, textScale);
+        }
       }
       scoreboardY += 28.0F;
     }
@@ -1365,6 +1500,8 @@ void addHud(
     ? 12.0F
     : std::max(24.0F, fpsTopOffset + kGlyphSize *
         std::clamp(settings.fpsTextScale, 0.5F, 6.0F) + 6.0F);
+  addKillFeed(drawList, width, y, hud);
+  y += static_cast<float>(hud.killFeedLines.size()) * 31.5F;
   for (const std::string& line : hud.topRightLines) {
     const float x = std::max(
       12.0F,

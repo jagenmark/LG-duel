@@ -436,7 +436,8 @@ int main() {
     );
     failures += expect(
       snapshot.fragEvents[0].active &&
-        snapshot.fragEvents[0].targetPlayerIndex == 1,
+        snapshot.fragEvents[0].targetPlayerIndex == 1 &&
+        snapshot.fragEvents[0].weapon == lg::Weapon::LightningGun,
       "authoritative Clan Arena elimination should emit a frag event for the killer"
     );
 

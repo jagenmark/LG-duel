@@ -3,6 +3,7 @@
 #include "net/NetProtocol.hpp"
 #include "render/Renderer.hpp"
 
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -18,7 +19,7 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
-bool centersAlign(
+bool startsAlign(
   const std::string& header,
   std::string_view heading,
   const std::string& row,
@@ -26,18 +27,17 @@ bool centersAlign(
 ) {
   const std::size_t headingStart = header.find(heading);
   const std::size_t valueStart = row.find(value, headingStart);
-  if (headingStart == std::string::npos || valueStart == std::string::npos) {
-    return false;
-  }
-
-  const std::size_t headingCenterTwice = headingStart * 2U + heading.size();
-  const std::size_t valueCenterTwice = valueStart * 2U + value.size();
-  return headingCenterTwice <= valueCenterTwice + 1U &&
-    valueCenterTwice <= headingCenterTwice + 1U;
+  return headingStart != std::string::npos && valueStart == headingStart;
 }
 
-std::size_t centerTwice(const std::string& line, std::string_view value) {
-  return line.find(value) * 2U + value.size();
+void setWeaponStats(
+  lg::RoundCombatStats& stats,
+  lg::Weapon weapon,
+  std::uint32_t damage,
+  std::uint16_t attempts,
+  std::uint16_t hits
+) {
+  stats.weapons[lg::weaponIndex(weapon)] = {damage, attempts, hits};
 }
 
 } // namespace
@@ -47,7 +47,8 @@ int main() {
   snapshot.connectedPlayers = {true, true};
   snapshot.participatingPlayers = {true, true};
   snapshot.playerNames = {"LOCAL", "REMOTE", "BOT", "BOT", "BOT", "BOT"};
-  snapshot.matchCombatStats[0] = {100, 100, 24};
+  setWeaponStats(snapshot.matchCombatStats[0], lg::Weapon::LightningGun, 24, 100, 100);
+  setWeaponStats(snapshot.matchCombatStats[0], lg::Weapon::Railgun, 60, 4, 3);
 
   lg::HudRenderState hud;
   lg::populateScoreboard(hud, snapshot, 0);
@@ -65,14 +66,17 @@ int main() {
   const std::string& header = hud.scoreboardLines[1];
   const std::string& localRow = hud.scoreboardLines[2];
   const std::string& remoteRow = hud.scoreboardLines[3];
-  const std::size_t scoreToAccuracy =
-    centerTwice(header, "ACC") - centerTwice(header, "SCORE");
-  const std::size_t accuracyToDamage =
-    centerTwice(header, "DAMAGE") - centerTwice(header, "ACC");
   failures += expect(
-    scoreToAccuracy <= accuracyToDamage + 1U &&
-      accuracyToDamage <= scoreToAccuracy + 1U,
-    "stat columns should have equal center spacing within half a glyph"
+    startsAlign(header, "SCORE", localRow, "0") &&
+      startsAlign(header, "ACC", localRow, "RG") &&
+      startsAlign(header, "DAMAGE", localRow, "84"),
+    "local stat columns should align by their left edge"
+  );
+  failures += expect(
+    startsAlign(header, "SCORE", remoteRow, "0") &&
+      startsAlign(header, "ACC", remoteRow, "LG") &&
+      startsAlign(header, "DAMAGE", remoteRow, "0"),
+    "remote stat columns should align by their left edge"
   );
   failures += expect(
     header.find("NAME") == 2U &&
@@ -87,16 +91,11 @@ int main() {
     "scoreboard rows should fit inside the panel at the HUD text scale"
   );
   failures += expect(
-    centersAlign(header, "SCORE", localRow, "0") &&
-      centersAlign(header, "ACC", localRow, "100%") &&
-      centersAlign(header, "DAMAGE", localRow, "24"),
-    "local stats should be centered under their headings"
-  );
-  failures += expect(
-    centersAlign(header, "SCORE", remoteRow, "0") &&
-      centersAlign(header, "ACC", remoteRow, "0%") &&
-      centersAlign(header, "DAMAGE", remoteRow, "0"),
-    "remote stats should be centered under their headings"
+    hud.scoreboardLineAccuracyWeapons.size() == hud.scoreboardLines.size() &&
+      hud.scoreboardLineAccuracyWeaponColumns.size() == hud.scoreboardLines.size() &&
+      hud.scoreboardLineAccuracyWeapons[2] == lg::Weapon::Railgun &&
+      hud.scoreboardLineAccuracyWeaponColumns[2] == header.find("ACC"),
+    "scoreboard should expose the highest-damage weapon abbreviation for colored rendering"
   );
 
   snapshot.gameMode = lg::GameMode::ClanArena;
@@ -112,8 +111,8 @@ int main() {
   failures += expect(
     hud.scoreboardLines[1].find("KILLS") != std::string::npos &&
       hud.scoreboardLines[1].find("SCORE") == std::string::npos &&
-      centersAlign(hud.scoreboardLines[1], "KILLS", hud.scoreboardLines[2], "7") &&
-      centersAlign(hud.scoreboardLines[1], "KILLS", hud.scoreboardLines[3], "5"),
+      startsAlign(hud.scoreboardLines[1], "KILLS", hud.scoreboardLines[2], "7") &&
+      startsAlign(hud.scoreboardLines[1], "KILLS", hud.scoreboardLines[3], "5"),
     "Clan Arena scoreboard should label and display individual kills"
   );
   snapshot.gameMode = lg::GameMode::Duel;
@@ -126,6 +125,12 @@ int main() {
     hud.scoreboardLines[1].size() <= 43U &&
       hud.scoreboardLines[2].size() == hud.scoreboardLines[1].size(),
     "maximum-length player names should still fit inside the panel"
+  );
+  failures += expect(
+      hud.scoreboardLines[2].find(std::string(14U, 'X')) == 2U &&
+      hud.scoreboardLines[2].find(std::string(15U, 'X')) == std::string::npos &&
+      startsAlign(hud.scoreboardLines[1], "SCORE", hud.scoreboardLines[2], "7"),
+    "maximum-length player names should be clipped before the score column"
   );
 
   snapshot.participatingPlayers = {true, true, true, true, true, true};

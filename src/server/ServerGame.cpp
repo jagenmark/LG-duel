@@ -103,6 +103,116 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   return kDuelPlayerCount;
 }
 
+[[nodiscard]] bool combatStatsPhase(MatchPhase phase) {
+  return phase == MatchPhase::Live ||
+    phase == MatchPhase::WaitingForPlayers ||
+    phase == MatchPhase::WaitingForReady;
+}
+
+void addWeaponAccuracy(
+  RoundCombatStats& stats,
+  Weapon weapon,
+  std::uint32_t attempts,
+  std::uint32_t hits
+) {
+  WeaponCombatStats& weaponStats = stats.weapons[weaponIndex(weapon)];
+  const std::uint32_t maxValue = std::numeric_limits<std::uint16_t>::max();
+  weaponStats.attempts = static_cast<std::uint16_t>(std::min(
+    maxValue,
+    static_cast<std::uint32_t>(weaponStats.attempts) + attempts
+  ));
+  weaponStats.hits = static_cast<std::uint16_t>(std::min(
+    static_cast<std::uint32_t>(weaponStats.attempts),
+    static_cast<std::uint32_t>(weaponStats.hits) + hits
+  ));
+}
+
+void addWeaponDamage(
+  RoundCombatStats& stats,
+  Weapon weapon,
+  std::uint32_t damage
+) {
+  stats.weapons[weaponIndex(weapon)].damageDealt += damage;
+}
+
+void recordWeaponAccuracy(
+  ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  Weapon weapon,
+  std::uint32_t attempts,
+  std::uint32_t hits
+) {
+  if (
+    attackerIndex >= kDuelPlayerCount ||
+    attempts == 0 ||
+    !combatStatsPhase(snapshot.matchPhase)
+  ) {
+    return;
+  }
+
+  if (snapshot.matchPhase == MatchPhase::Live) {
+    addWeaponAccuracy(
+      snapshot.roundCombatStats[attackerIndex],
+      weapon,
+      attempts,
+      hits
+    );
+  }
+  addWeaponAccuracy(
+    snapshot.matchCombatStats[attackerIndex],
+    weapon,
+    attempts,
+    hits
+  );
+}
+
+void recordInstantWeaponAccuracy(
+  ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  const WeaponFireResult& fire
+) {
+  if (!fire.fired) {
+    return;
+  }
+
+  if (fire.weapon == Weapon::Shotgun) {
+    recordWeaponAccuracy(
+      snapshot,
+      attackerIndex,
+      fire.weapon,
+      fire.pelletCount,
+      fire.pelletHitCount
+    );
+    return;
+  }
+
+  recordWeaponAccuracy(
+    snapshot,
+    attackerIndex,
+    fire.weapon,
+    1U,
+    fire.hit ? 1U : 0U
+  );
+}
+
+void recordProjectileHit(
+  ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  Weapon weapon
+) {
+  if (
+    attackerIndex >= kDuelPlayerCount ||
+    !combatStatsPhase(snapshot.matchPhase)
+  ) {
+    return;
+  }
+
+  if (snapshot.matchPhase == MatchPhase::Live) {
+    addWeaponAccuracy(snapshot.roundCombatStats[attackerIndex], weapon, 0U, 1U);
+  }
+  addWeaponAccuracy(snapshot.matchCombatStats[attackerIndex], weapon, 0U, 1U);
+}
+
 [[nodiscard]] float wrapRadians(float angle) {
   while (angle <= -kPi) {
     angle += kTwoPi;
@@ -671,6 +781,11 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
       railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
       (void)consumeAmmo(attackerIndex, Weapon::Railgun);
     } else if (
@@ -695,6 +810,11 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
       machineGunCooldownTicks_[attackerIndex] = machineGunCooldownDurationTicks_;
       (void)consumeAmmo(attackerIndex, Weapon::MachineGun);
     } else if (
@@ -720,6 +840,11 @@ void ServerGame::tick(float fixedDt) {
         fire.end = worldTrace.end;
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
       shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
       (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
     } else if (
@@ -792,17 +917,13 @@ void ServerGame::tick(float fixedDt) {
       result.currentTargetBounds = combatPlayers[debugTargetIndex].bounds;
       result.rewoundTargetBounds = debugTarget.bounds;
     }
-    if (snapshot_.matchPhase == MatchPhase::Live) {
-      RoundCombatStats& stats = snapshot_.roundCombatStats[attackerIndex];
-      if (result.active) {
-        ++stats.lightningActiveTicks;
-        ++snapshot_.matchCombatStats[attackerIndex].lightningActiveTicks;
-      }
-      if (result.hit) {
-        ++stats.lightningHitTicks;
-        ++snapshot_.matchCombatStats[attackerIndex].lightningHitTicks;
-      }
-    }
+    recordWeaponAccuracy(
+      snapshot_,
+      attackerIndex,
+      Weapon::LightningGun,
+      result.active ? 1U : 0U,
+      result.hit ? 1U : 0U
+    );
   }
 
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
@@ -1013,6 +1134,8 @@ void ServerGame::respawnRound() {
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
   botCombatStates_ = {};
+  rockets_ = {};
+  snapshot_.rockets = {};
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     respawnPlayer(playerIndex);
   }
@@ -1499,6 +1622,9 @@ void ServerGame::updateMatchState() {
 }
 
 void ServerGame::beginCountdown() {
+  if (warmupPhase()) {
+    snapshot_.matchCombatStats = {};
+  }
   snapshot_.matchPhase = MatchPhase::Countdown;
   snapshot_.phaseTicksRemaining = matchRules_.countdownTicks;
   snapshot_.roundWinner = 255;
@@ -1891,22 +2017,34 @@ void ServerGame::applyDamageAndKnockback(
   }
 
   if (snapshot_.matchPhase == MatchPhase::Live) {
-    snapshot_.roundCombatStats[attackerIndex].damageDealt +=
-      static_cast<std::uint32_t>(damageApplied);
-    snapshot_.matchCombatStats[attackerIndex].damageDealt +=
-      static_cast<std::uint32_t>(damageApplied);
+    addWeaponDamage(
+      snapshot_.roundCombatStats[attackerIndex],
+      weapon,
+      static_cast<std::uint32_t>(damageApplied)
+    );
+  }
+  if (combatStatsPhase(snapshot_.matchPhase)) {
+    addWeaponDamage(
+      snapshot_.matchCombatStats[attackerIndex],
+      weapon,
+      static_cast<std::uint32_t>(damageApplied)
+    );
   }
 
   if (
     wasAlive &&
     target.health == 0 &&
-    attackerIndex != targetIndex &&
     damageApplied > 0 &&
-    damageAllowed(attackerIndex, targetIndex)
+    (
+      attackerIndex == targetIndex ||
+      damageAllowed(attackerIndex, targetIndex)
+    )
   ) {
     FragEvent& frag = snapshot_.fragEvents[attackerIndex];
     frag.active = true;
+    frag.sequence = ++fragEventSequences_[attackerIndex];
     frag.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
+    frag.weapon = weapon;
   }
 
   if (
@@ -1966,7 +2104,11 @@ void ServerGame::applyDamageAndKnockback(
       snapshot_.matchPhase == MatchPhase::WaitingForReady
     )
   ) {
+    const FragEvent fragEvent = snapshot_.fragEvents[attackerIndex];
     respawnPlayer(targetIndex);
+    if (fragEvent.active) {
+      snapshot_.fragEvents[attackerIndex] = fragEvent;
+    }
   }
 }
 
@@ -2016,6 +2158,7 @@ bool ServerGame::spawnProjectile(
     fire.weapon = weapon;
     fire.start = rocket.position;
     fire.end = rocket.position + (direction * 1.2F);
+    recordWeaponAccuracy(snapshot_, attackerIndex, weapon, 1U, 0U);
     return true;
   }
 
@@ -2257,6 +2400,7 @@ void ServerGame::simulateRockets(float fixedDt) {
         ? plasmaGunTuning_.knockback
         : rocketLauncherTuning_.knockback;
     explosion.radius = radius;
+    bool hitOpponent = false;
 
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       PlayerState& player = snapshot_.players[playerIndex];
@@ -2286,6 +2430,10 @@ void ServerGame::simulateRockets(float fixedDt) {
         explosion.ownerDamageApplied = std::min(appliedDamage, player.health);
       } else {
         explosion.opponentDamageApplied = std::min(appliedDamage, player.health);
+        if (!hitOpponent && appliedDamage > 0) {
+          recordProjectileHit(snapshot_, rocket.owner, rocket.weapon);
+          hitOpponent = true;
+        }
       }
       Vec3 knockbackDirection = normalize(player.position - explosionPosition);
       if (length(knockbackDirection) <= 0.0001F) {

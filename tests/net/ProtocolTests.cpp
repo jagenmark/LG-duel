@@ -378,7 +378,9 @@ int main() {
     source.rocketExplosions[0].opponentDamageApplied = 80;
     source.rocketExplosions[0].sequence = 42;
     source.fragEvents[0].active = true;
+    source.fragEvents[0].sequence = 55;
     source.fragEvents[0].targetPlayerIndex = 1;
+    source.fragEvents[0].weapon = lg::Weapon::Railgun;
     source.localHitFeedbackEvents[0][0].active = true;
     source.localHitFeedbackEvents[0][0].sequence = 17;
     source.localHitFeedbackEvents[0][0].targetPlayerIndex = 1;
@@ -421,10 +423,14 @@ int main() {
     source.botPlayers = {false, false, true, false};
     source.participatingPlayers = {true, true, true};
     source.readyPlayers = {true, false};
-    source.roundCombatStats[0] = {250, 125, 80};
-    source.roundCombatStats[1] = {200, 40, 24};
-    source.matchCombatStats[0] = {500, 275, 180};
-    source.matchCombatStats[1] = {450, 90, 74};
+    source.roundCombatStats[0].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {80, 250, 125};
+    source.roundCombatStats[1].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {24, 200, 40};
+    source.matchCombatStats[0].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {180, 500, 275};
+    source.matchCombatStats[1].weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {74, 450, 90};
     source.playerNames = {"yg", "opponent"};
     source.matchPhase = lg::MatchPhase::Countdown;
     source.matchRules.roundLimit = 10;
@@ -591,7 +597,9 @@ int main() {
         decoded.grenadeBounceAudioEvents[0].sequence == 9 &&
         nearlyEqual(decoded.grenadeBounceAudioEvents[0].position.z, 0.75F) &&
         decoded.fragEvents[0].active &&
+        decoded.fragEvents[0].sequence == 55 &&
         decoded.fragEvents[0].targetPlayerIndex == 1 &&
+        decoded.fragEvents[0].weapon == lg::Weapon::Railgun &&
         decoded.rockets[0].active &&
         decoded.rockets[0].owner == 1 &&
         decoded.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
@@ -617,9 +625,15 @@ int main() {
       "relayed Swedish chat should round trip"
     );
     failures += expect(
-      decoded.matchCombatStats[0].lightningActiveTicks == 500 &&
-        decoded.matchCombatStats[0].lightningHitTicks == 275 &&
-        decoded.matchCombatStats[0].damageDealt == 180 &&
+      decoded.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .attempts == 500 &&
+        decoded.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .hits == 275 &&
+        decoded.matchCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == 180 &&
         decoded.playerNames[0] == "yg" &&
         decoded.playerNames[1] == "opponent",
       "scoreboard names and aggregate stats should round trip"
@@ -632,10 +646,18 @@ int main() {
       "lobby, bot, and participating-player state should round trip"
     );
     failures += expect(
-      decoded.roundCombatStats[0].lightningActiveTicks == 250 &&
-        decoded.roundCombatStats[0].lightningHitTicks == 125 &&
-        decoded.roundCombatStats[0].damageDealt == 80 &&
-        decoded.roundCombatStats[1].damageDealt == 24,
+      decoded.roundCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .attempts == 250 &&
+        decoded.roundCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .hits == 125 &&
+        decoded.roundCombatStats[0]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == 80 &&
+        decoded.roundCombatStats[1]
+          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
+          .damageDealt == 24,
       "round combat stats should round trip"
     );
     failures += expect(
@@ -779,6 +801,13 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "invalid frag target should not encode"
+    );
+
+    invalid = source;
+    invalid.fragEvents[0].weapon = static_cast<lg::Weapon>(255);
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "invalid frag weapon should not encode"
     );
   }
 

@@ -1,5 +1,7 @@
 #include "app/HudPresentation.hpp"
 
+#include "sim/WeaponCatalog.hpp"
+
 #include <algorithm>
 #include <string_view>
 
@@ -230,16 +232,29 @@ std::string roundStatsLine(
   std::string_view label,
   const RoundCombatStats& stats
 ) {
-  const std::uint32_t accuracyPercent =
-    stats.lightningActiveTicks == 0
+  Weapon bestWeapon = Weapon::LightningGun;
+  std::uint32_t bestDamage = 0;
+  std::uint32_t totalDamage = 0;
+  for (Weapon weapon : kWeaponSlotOrder) {
+    const WeaponCombatStats& weaponStats = stats.weapons[weaponIndex(weapon)];
+    totalDamage += weaponStats.damageDealt;
+    if (weaponStats.damageDealt > bestDamage) {
+      bestWeapon = weapon;
+      bestDamage = weaponStats.damageDealt;
+    }
+  }
+
+  const WeaponCombatStats& bestStats = stats.weapons[weaponIndex(bestWeapon)];
+  const std::uint32_t accuracyPercent = bestStats.attempts == 0
     ? 0
     : (
-        stats.lightningHitTicks * 100U +
-        (stats.lightningActiveTicks / 2U)
-      ) / stats.lightningActiveTicks;
+        static_cast<std::uint32_t>(bestStats.hits) * 100U +
+        (static_cast<std::uint32_t>(bestStats.attempts) / 2U)
+      ) / static_cast<std::uint32_t>(bestStats.attempts);
   return std::string(label) +
-    " LG " + std::to_string(accuracyPercent) +
-    "%  DMG " + std::to_string(stats.damageDealt);
+    " " + std::string(weaponShortName(bestWeapon)) + " " +
+    std::to_string(accuracyPercent) +
+    "%  DMG " + std::to_string(totalDamage);
 }
 
 std::string playerRoundStatsLine(

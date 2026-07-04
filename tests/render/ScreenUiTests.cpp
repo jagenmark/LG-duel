@@ -899,6 +899,61 @@ int main() {
       "waiting status should stay centered and not move when the scoreboard opens"
     );
 
+    const std::string coloredScoreboardHeader =
+      "  NAME" + std::string(14U, ' ') +
+      "SCORE ACC     DAMAGE";
+    const std::string coloredScoreboardRow =
+      "> P" + std::string(17U, ' ') +
+      "0" + std::string(5U, ' ') +
+      "RG 75%" + std::string(2U, ' ') +
+      "84" + std::string(4U, ' ');
+    layoutHud.scoreboardOpen = true;
+    layoutHud.scoreboardLines = {
+      "SCOREBOARD",
+      coloredScoreboardHeader,
+      coloredScoreboardRow,
+    };
+    layoutHud.scoreboardLineAccuracyWeapons = {
+      lg::Weapon::LightningGun,
+      lg::Weapon::LightningGun,
+      lg::Weapon::Railgun,
+    };
+    layoutHud.scoreboardLineAccuracyWeaponColumns = {
+      std::string::npos,
+      std::string::npos,
+      coloredScoreboardRow.find("RG"),
+    };
+    const lg::DrawList2D coloredScoreboardUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      layoutHud,
+      console
+    );
+    const lg::Text2D* coloredWeapon = findText(coloredScoreboardUi, "RG");
+    const lg::Text2D* coloredHeaderDamage =
+      findText(coloredScoreboardUi, "DAMAGE");
+    const lg::Text2D* coloredDamage = findText(coloredScoreboardUi, "84");
+    const lg::Text2D* coloredHeaderAccuracy =
+      findText(coloredScoreboardUi, "ACC");
+    failures += expect(
+      coloredWeapon != nullptr &&
+        coloredWeapon->color.red == 72 &&
+        coloredWeapon->color.green == 232 &&
+        coloredWeapon->color.blue == 112,
+      "scoreboard weapon abbreviation should use the weapon color"
+    );
+    failures += expect(
+      coloredHeaderDamage != nullptr &&
+        coloredDamage != nullptr &&
+        coloredHeaderDamage->position.x == coloredDamage->position.x &&
+        coloredHeaderAccuracy != nullptr &&
+        coloredWeapon != nullptr &&
+        coloredHeaderAccuracy->position.x == coloredWeapon->position.x,
+      "scoreboard header columns should share fixed row column origins"
+    );
+
     layoutHud.scoreboardOpen = true;
     layoutHud.centerOffsetY = -220.0F;
     const lg::DrawList2D raisedUi = lg::buildScreenUi(
