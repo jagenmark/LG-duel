@@ -830,6 +830,27 @@ int main() {
 
   {
     lg::Arena arena;
+    arena.brushes[0] = cutUndersideBrushStep(0.5F, 1.2F, 0.3F, 0.15F);
+    arena.brushCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight + 0.25F};
+    player.velocity = {8.0F, 0.0F, -2.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      player.position.x > 0.16F &&
+        player.velocity.x > 7.5F,
+      "falling bhop into a low brush stair should keep horizontal speed"
+    );
+  }
+
+  {
+    lg::Arena arena;
     arena.walls[0] = {{0.5F, -10.0F, 0.0F}, {1.2F, 10.0F, 0.3F}};
     arena.walls[1] = {{1.2F, -10.0F, 0.0F}, {1.9F, 10.0F, 0.6F}};
     arena.walls[2] = {{1.9F, -10.0F, 0.0F}, {2.6F, 10.0F, 0.9F}};
@@ -919,6 +940,67 @@ int main() {
         player.position.z > 0.9F + player.bounds.halfHeight &&
         minimumHorizontalSpeed > 6.5F,
       "bhopping into low stairs should step over risers without getting stuck"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
+    arena.walls[1] = {{1.2F, -1.0F, 0.0F}, {1.9F, 1.0F, 0.6F}};
+    arena.walls[2] = {{1.9F, -1.0F, 0.0F}, {2.6F, 1.0F, 0.9F}};
+    arena.walls[3] = {{2.6F, -1.0F, 0.0F}, {4.0F, 1.0F, 1.2F}};
+    arena.wallCount = 4;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 10);
+    int acceptedJumps = 0;
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 90; ++tick) {
+      command.jump = player.onGround;
+      command.upMove = command.jump ? 1.0F : 0.0F;
+      const bool wasOnGround = player.onGround;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (command.jump && wasOnGround && !player.onGround) {
+        ++acceptedJumps;
+      }
+      if (!command.jump) {
+        player.jumpHeld = false;
+      }
+      minimumHorizontalSpeed =
+        std::min(minimumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+    }
+
+    failures += expect(
+      acceptedJumps >= 2 &&
+        player.position.x > 3.0F &&
+        minimumHorizontalSpeed > 6.0F,
+      "repeated bhops should climb low stairs without losing horizontal speed"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
+    arena.wallCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.45F, 0.0F, player.bounds.halfHeight + 0.04F};
+    player.velocity = {8.0F, 0.0F, 0.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      player.position.x > 0.5F &&
+        player.velocity.x > 7.5F,
+      "airborne bhop already touching a low stair riser should still step over it"
     );
   }
 

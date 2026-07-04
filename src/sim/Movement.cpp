@@ -51,38 +51,40 @@ struct StepMoveResult {
   const CollisionResult&
 ) {
   constexpr float kCollisionEpsilon = 0.0001F;
+  PlayerState stepPlayer = player;
+  stepPlayer.onGround = true;
 
   const CollisionResult upMove = slidePlayerArenaMove(
     arena,
-    player,
+    stepPlayer,
     player.position,
     {0.0F, 0.0F, kPlayerStepHeight},
     1.0F
   );
   const float stepSize = upMove.position.z - player.position.z;
-  if (stepSize <= kCollisionEpsilon || playerPositionSolid(arena, player, upMove.position)) {
+  if (stepSize <= kCollisionEpsilon || playerPositionSolid(arena, stepPlayer, upMove.position)) {
     return {};
   }
 
   const CollisionResult stepSlide = slidePlayerArenaMove(
     arena,
-    player,
+    stepPlayer,
     upMove.position,
     startVelocity,
     fixedDt
   );
-  if (playerPositionSolid(arena, player, stepSlide.position)) {
+  if (playerPositionSolid(arena, stepPlayer, stepSlide.position)) {
     return {};
   }
 
   const CollisionResult droppedMove = slidePlayerArenaMove(
     arena,
-    player,
+    stepPlayer,
     stepSlide.position,
     {0.0F, 0.0F, -stepSize},
     1.0F
   );
-  if (playerPositionSolid(arena, player, droppedMove.position)) {
+  if (playerPositionSolid(arena, stepPlayer, droppedMove.position)) {
     return {};
   }
 
