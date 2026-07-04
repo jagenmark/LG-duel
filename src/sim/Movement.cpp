@@ -373,6 +373,7 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
       if (length(contourWish) > kInputEpsilon) {
         return normalize(contourWish);
       }
+      return {};
     }
   }
 
