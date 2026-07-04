@@ -12,6 +12,152 @@ namespace {
   return {value.x, value.y, 0.0F};
 }
 
+struct StepMoveResult {
+  CollisionResult collision = {};
+  bool valid = false;
+};
+
+[[nodiscard]] StepMoveResult attemptStepMove(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3 startVelocity,
+  float fixedDt,
+  const CollisionResult&
+) {
+  constexpr float kCollisionEpsilon = 0.0001F;
+
+  const CollisionResult upMove = slidePlayerArenaMove(
+    arena,
+    player,
+    player.position,
+    {0.0F, 0.0F, kPlayerStepHeight},
+    1.0F
+  );
+  const float stepSize = upMove.position.z - player.position.z;
+  if (stepSize <= kCollisionEpsilon || playerPositionSolid(arena, player, upMove.position)) {
+    return {};
+  }
+
+  const CollisionResult stepSlide = slidePlayerArenaMove(
+    arena,
+    player,
+    upMove.position,
+    startVelocity,
+    fixedDt
+  );
+  if (playerPositionSolid(arena, player, stepSlide.position)) {
+    return {};
+  }
+
+  const CollisionResult droppedMove = slidePlayerArenaMove(
+    arena,
+    player,
+    stepSlide.position,
+    {0.0F, 0.0F, -stepSize},
+    1.0F
+  );
+  if (playerPositionSolid(arena, player, droppedMove.position)) {
+    return {};
+  }
+
+  CollisionResult result = droppedMove;
+  result.velocity = stepSlide.velocity;
+  if (droppedMove.onGround && result.velocity.z < 0.0F) {
+    result.velocity.z = 0.0F;
+  }
+  result.onGround = startVelocity.z <= 0.0F && droppedMove.onGround;
+  result.blocked = true;
+  return {result, true};
+}
+
+[[nodiscard]] CollisionResult categorizeGroundAfterMove(
+  const Arena& arena,
+  const PlayerState& player,
+  CollisionResult collision
+) {
+  constexpr float kGroundTraceDistance = 0.25F / 40.0F;
+  constexpr float kGroundFollowDistance = 0.08F;
+  constexpr float kCollisionEpsilon = 0.0001F;
+  if (collision.onGround || collision.velocity.z > 0.0F) {
+    return collision;
+  }
+
+  const float groundTraceDistance =
+    player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
+  PlayerState probePlayer = player;
+  probePlayer.position = collision.position;
+  const CollisionResult groundProbe = slidePlayerArenaMove(
+    arena,
+    probePlayer,
+    collision.position,
+    {0.0F, 0.0F, -groundTraceDistance},
+    1.0F
+  );
+  if (!groundProbe.onGround || playerPositionSolid(arena, probePlayer, groundProbe.position)) {
+    const float feetZ = collision.position.z - player.bounds.halfHeight;
+    bool standingOnLowStep = false;
+    for (std::size_t index = 0; index < arena.wallCount; ++index) {
+      const ArenaWall& wall = arena.walls[index];
+      if (
+        collision.position.x < wall.min.x - player.bounds.radius ||
+        collision.position.x > wall.max.x + player.bounds.radius ||
+        collision.position.y < wall.min.y - player.bounds.radius ||
+        collision.position.y > wall.max.y + player.bounds.radius
+      ) {
+        continue;
+      }
+      if (
+        std::fabs(wall.max.z - feetZ) <= groundTraceDistance + kCollisionEpsilon
+      ) {
+        standingOnLowStep = true;
+        break;
+      }
+    }
+    if (!standingOnLowStep) {
+      return collision;
+    }
+
+    collision.velocity.z = 0.0F;
+    collision.onGround = true;
+    return collision;
+  }
+
+  collision.position = groundProbe.position;
+  collision.velocity.z = 0.0F;
+  collision.onGround = true;
+  return collision;
+}
+
+[[nodiscard]] CollisionResult resolveMovementWithStep(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3,
+  Vec3 requestedVelocity,
+  float fixedDt,
+  bool allowStepMove
+) {
+  CollisionResult normalMove =
+    slidePlayerArenaMove(arena, player, player.position, requestedVelocity, fixedDt);
+  if (allowStepMove) {
+    normalMove = categorizeGroundAfterMove(arena, player, normalMove);
+  }
+  if (!allowStepMove || !normalMove.blocked) {
+    return normalMove;
+  }
+
+  const StepMoveResult steppedMove = attemptStepMove(
+    arena,
+    player,
+    requestedVelocity,
+    fixedDt,
+    normalMove
+  );
+  if (!steppedMove.valid) {
+    return normalMove;
+  }
+  return categorizeGroundAfterMove(arena, player, steppedMove.collision);
+}
+
 [[nodiscard]] bool playerOverlapsJumpPad(
   const PlayerState& player,
   const ArenaJumpPad& jumpPad
@@ -205,11 +351,13 @@ void simulateGroundedOrAirborne(
     player.velocity.z -= tuning.gravity * fixedDt;
   }
 
-  const CollisionResult collision = resolvePlayerArenaCollision(
+  const CollisionResult collision = resolveMovementWithStep(
     arena,
     player,
     player.position + (player.velocity * fixedDt),
-    player.velocity
+    player.velocity,
+    fixedDt,
+    true
   );
 
   player.position = collision.position;
@@ -266,11 +414,12 @@ void simulateFlying(
     std::max(0.0F, 1.0F - tuning.flightGravityCancel) *
     fixedDt;
 
-  const CollisionResult collision = resolvePlayerArenaCollision(
+  const CollisionResult collision = slidePlayerArenaMove(
     arena,
     player,
-    player.position + (player.velocity * fixedDt),
-    player.velocity
+    player.position,
+    player.velocity,
+    fixedDt
   );
 
   player.position = collision.position;

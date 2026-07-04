@@ -13,6 +13,7 @@
 namespace lg {
 
 inline constexpr float kDefaultJumpPadSpeed = 20.0F;
+inline constexpr float kPlayerStepHeight = 0.45F;
 
 struct TextureProjection {
   Vec3 uAxis = {};
@@ -128,13 +129,36 @@ struct CollisionResult {
   Vec3 position = {};
   Vec3 velocity = {};
   bool onGround = false;
+  bool blocked = false;
 };
+
+[[nodiscard]] CollisionResult slidePlayerArenaMove(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3 start,
+  Vec3 velocity,
+  float fixedDt
+);
 
 [[nodiscard]] CollisionResult resolvePlayerArenaCollision(
   const Arena& arena,
   const PlayerState& player,
   Vec3 requestedPosition,
   Vec3 requestedVelocity
+);
+
+[[nodiscard]] CollisionResult resolvePlayerArenaCollisionFrom(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3 previousPosition,
+  Vec3 requestedPosition,
+  Vec3 requestedVelocity
+);
+
+[[nodiscard]] bool playerPositionSolid(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3 position
 );
 
 } // namespace lg

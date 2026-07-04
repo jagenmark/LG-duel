@@ -74,6 +74,8 @@ namespace {
 
 constexpr std::size_t kMaxGpuVertices = 131072;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
+constexpr float kMaxVisualStepSmoothHeight = 1.0F;
+constexpr float kVisualStepSmoothSpeed = 6.0F;
 
 using RenderClock = std::chrono::steady_clock;
 
@@ -82,6 +84,13 @@ using RenderClock = std::chrono::steady_clock;
   RenderClock::time_point end
 ) {
   return std::chrono::duration<float, std::milli>(end - start).count();
+}
+
+[[nodiscard]] float secondsBetween(
+  RenderClock::time_point start,
+  RenderClock::time_point end
+) {
+  return std::chrono::duration<float>(end - start).count();
 }
 
 [[nodiscard]] std::string_view presentModeName(SDL_GPUPresentMode mode) {
@@ -4598,6 +4607,7 @@ void appendCommandBatches(
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console,
+  float cameraVerticalOffset,
   RendererFrameDiagnostics& diagnostics
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
@@ -4755,7 +4765,8 @@ void appendCommandBatches(
       rockets,
       transientTracers,
       transientEffects,
-      settings
+      settings,
+      cameraVerticalOffset
     );
     diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
     diagnostics.remoteFrustumVisible = perspectiveScene.remoteFrustumVisible;
@@ -7001,6 +7012,49 @@ void Renderer::render(
 ) {
 #if LG_DUEL_HAS_SDL3
   const auto renderStart = RenderClock::now();
+  float stepSmoothingDt = 0.0F;
+  if (previousCameraStepUpdate_ != RenderClock::time_point{}) {
+    stepSmoothingDt = std::clamp(
+      secondsBetween(previousCameraStepUpdate_, renderStart),
+      0.0F,
+      0.1F
+    );
+  }
+  previousCameraStepUpdate_ = renderStart;
+  if (hasPreviousCameraPlayerZ_) {
+    const float playerZDelta = player.position.z - previousCameraPlayerZ_;
+    if (
+      player.onGround &&
+      playerZDelta > 0.01F &&
+      playerZDelta <= kMaxVisualStepSmoothHeight
+    ) {
+      cameraStepOffset_ =
+        std::max(cameraStepOffset_ - playerZDelta, -kMaxVisualStepSmoothHeight);
+    } else if (
+      player.onGround &&
+      playerZDelta < -0.01F &&
+      -playerZDelta <= kMaxVisualStepSmoothHeight
+    ) {
+      cameraStepOffset_ =
+        std::min(cameraStepOffset_ - playerZDelta, kMaxVisualStepSmoothHeight);
+    } else if (std::fabs(playerZDelta) > kMaxVisualStepSmoothHeight) {
+      cameraStepOffset_ = 0.0F;
+    }
+  }
+  previousCameraPlayerZ_ = player.position.z;
+  hasPreviousCameraPlayerZ_ = true;
+  if (cameraStepOffset_ < 0.0F) {
+    cameraStepOffset_ = std::min(
+      0.0F,
+      cameraStepOffset_ + (kVisualStepSmoothSpeed * stepSmoothingDt)
+    );
+  } else {
+    cameraStepOffset_ = std::max(
+      0.0F,
+      cameraStepOffset_ - (kVisualStepSmoothSpeed * stepSmoothingDt)
+    );
+  }
+
   if (gpuBackend_) {
     auto* fontAtlasSet = static_cast<FontAtlasSet*>(gpuFontAtlas_);
     const std::string requestedFont =
@@ -7094,6 +7148,7 @@ void Renderer::render(
           settings,
           hud,
           console,
+          cameraStepOffset_,
           lastFrameDiagnostics_
         ) &&
         !gpuErrorReported_) {
@@ -7259,7 +7314,8 @@ void Renderer::render(
     rockets,
     transientTracers,
     transientEffects,
-    settings
+    settings,
+    cameraStepOffset_
   );
   lastFrameDiagnostics_.totalUploadedVertices =
     static_cast<std::uint32_t>(
