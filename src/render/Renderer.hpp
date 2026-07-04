@@ -7,6 +7,7 @@
 #include "net/NetProtocol.hpp"
 #include "sim/PlayerState.hpp"
 
+#include <array>
 #include <cstdint>
 #include <span>
 #include <string>
@@ -56,6 +57,8 @@ struct RenderSettings {
   float healthTextScale = 2.0F;
   int healthStyle = 0;
   float speedTextScale = 1.5F;
+  float weaponBarScale = 1.75F;
+  float fpsTextScale = 1.6F;
   std::string uiFont = "bahnschrift.ttf";
   float playerSizePixels = 14.0F;
   bool crosshairEnabled = true;
@@ -182,6 +185,7 @@ struct RenderSettings {
   std::uint8_t teammateNameTagGreen = 245;
   std::uint8_t teammateNameTagBlue = 255;
   Weapon localSelectedWeapon = Weapon::LightningGun;
+  bool showOwnWeapons = true;
   bool shotgunWeaponModelStart = false;
   bool drawRemotePlayers = true;
   bool drawRemoteWeapons = true;
@@ -220,8 +224,10 @@ struct HudRenderState {
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;
+  std::string fpsText;
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
+  std::array<std::string, 7> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
   Weapon previousWeapon = Weapon::LightningGun;
   float weaponSwitchProgress = 1.0F;
   float centerOffsetY = 0.0F;

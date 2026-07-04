@@ -156,6 +156,20 @@ namespace {
     config.plasmaGun.maxLifetimeTicks = static_cast<std::uint32_t>(value);
   } else if (key == "weapon.pg.cooldown_ticks" && value >= 1 && value <= 5000) {
     config.plasmaGun.cooldownTicks = static_cast<std::uint32_t>(value);
+  } else if (key == "weapon.lg.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)] = value;
+  } else if (key == "weapon.rg.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)] = value;
+  } else if (key == "weapon.rl.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)] = value;
+  } else if (key == "weapon.mg.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::MachineGun)] = value;
+  } else if (key == "weapon.sg.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)] = value;
+  } else if (key == "weapon.gl.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)] = value;
+  } else if (key == "weapon.pg.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)] = value;
   } else if (key == "weapon.switch_pullout_ticks" && value >= 0 && value <= 5000) {
     config.weaponPulloutTicks = static_cast<std::uint32_t>(value);
   } else {

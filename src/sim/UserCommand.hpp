@@ -1,5 +1,7 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 
 namespace lg {
@@ -15,6 +17,13 @@ enum class Weapon : std::uint8_t {
 };
 
 constexpr Weapon kLastWeapon = Weapon::PlasmaGun;
+inline constexpr std::size_t kWeaponCount = 7;
+
+[[nodiscard]] constexpr std::size_t weaponIndex(Weapon weapon) {
+  return static_cast<std::size_t>(weapon);
+}
+
+using WeaponAmmoArray = std::array<std::int32_t, kWeaponCount>;
 
 struct UserCommand {
   std::uint32_t sequence = 0;

@@ -506,8 +506,8 @@ int main() {
   snapshot.roundWinner = 0;
   snapshot.matchWinner = 1;
   failures += expect(
-    lg::hudScoreLine(snapshot, 0) == "SCORE 3  LEAD 5 / 10",
-    "duel HUD score behavior should remain unchanged"
+    lg::hudScoreLine(snapshot, 0) == "SCORE 3 / 10",
+    "duel HUD score should omit the lead readout"
   );
   failures += expect(
     lg::localPlayerWonResult(snapshot, 0, false) &&

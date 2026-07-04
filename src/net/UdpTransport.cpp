@@ -37,7 +37,7 @@ namespace {
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
 constexpr auto kPingInterval = std::chrono::seconds(1);
-constexpr auto kConnectionTimeout = std::chrono::seconds(1);
+constexpr auto kConnectionTimeout = std::chrono::seconds(15);
 
 #if defined(_WIN32)
 using SocketHandle = SOCKET;
@@ -741,6 +741,13 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
 
   CommandPacket stampedPacket = packet;
   stampedPacket.clientNonce = impl_->nonce;
+
+  WirePacket singleCommandWire;
+  if (!encodeCommandPacket(stampedPacket, singleCommandWire)) {
+    impl_->commandHistory.clear();
+    return;
+  }
+
   impl_->commandHistory.push_back(stampedPacket);
   while (impl_->commandHistory.size() > kMaxBundledCommands) {
     impl_->commandHistory.pop_front();
@@ -756,7 +763,12 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   WirePacket wire;
   if (encodeCommandBundle(bundle, wire)) {
     impl_->sendConnectedWire(wire, Clock::now());
+    return;
   }
+
+  impl_->commandHistory.clear();
+  impl_->commandHistory.push_back(stampedPacket);
+  impl_->sendConnectedWire(singleCommandWire, Clock::now());
 }
 
 bool UdpClientTransport::receiveCommand(CommandPacket&) {

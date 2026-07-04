@@ -387,6 +387,11 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   plasmaGunTuning_.eyeHeight = config.plasmaGun.eyeHeight;
   plasmaGunTuning_.maxLifetimeTicks = config.plasmaGun.maxLifetimeTicks;
   plasmaGunTuning_.cooldownTicks = config.plasmaGun.cooldownTicks;
+  weaponAmmoConfig_.spawnAmmo = config.weaponAmmo.spawnAmmo;
+  snapshot_.weaponAmmo.spawnAmmo = weaponAmmoConfig_.spawnAmmo;
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    refillAmmo(playerIndex);
+  }
   weaponPulloutDurationTicks_ = config.weaponPulloutTicks;
   jumpPadRetriggerCooldownTicks_ = config.jumpPadRetriggerCooldownTicks;
 }
@@ -641,6 +646,9 @@ void ServerGame::tick(float fixedDt) {
         snapshot_.lightningGuns[attackerIndex].active =
           command.attack && combatPlayers[attackerIndex].health > 0;
       }
+      if (snapshot_.lightningGuns[attackerIndex].active) {
+        consumeLightningGunAmmo(attackerIndex, fixedDt);
+      }
     } else if (
       command.weapon == Weapon::Railgun &&
       command.attack &&
@@ -664,6 +672,7 @@ void ServerGame::tick(float fixedDt) {
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
       railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::Railgun);
     } else if (
       command.weapon == Weapon::MachineGun &&
       command.attack &&
@@ -687,6 +696,7 @@ void ServerGame::tick(float fixedDt) {
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
       machineGunCooldownTicks_[attackerIndex] = machineGunCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::MachineGun);
     } else if (
       command.weapon == Weapon::Shotgun &&
       command.attack &&
@@ -711,6 +721,7 @@ void ServerGame::tick(float fixedDt) {
         fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
       }
       shotgunCooldownTicks_[attackerIndex] = shotgunCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::Shotgun);
     } else if (
       command.weapon == Weapon::RocketLauncher &&
       command.attack &&
@@ -725,6 +736,7 @@ void ServerGame::tick(float fixedDt) {
         )
       ) {
         rocketCooldownTicks_[attackerIndex] = rocketLauncherCooldownDurationTicks_;
+        (void)consumeAmmo(attackerIndex, Weapon::RocketLauncher);
       }
     } else if (
       command.weapon == Weapon::GrenadeLauncher &&
@@ -741,6 +753,7 @@ void ServerGame::tick(float fixedDt) {
       ) {
         grenadeCooldownTicks_[attackerIndex] =
           grenadeLauncherTuning_.cooldownTicks;
+        (void)consumeAmmo(attackerIndex, Weapon::GrenadeLauncher);
       }
     } else if (
       command.weapon == Weapon::PlasmaGun &&
@@ -757,6 +770,7 @@ void ServerGame::tick(float fixedDt) {
       ) {
         plasmaGunCooldownTicks_[attackerIndex] =
           plasmaGunTuning_.cooldownTicks;
+        (void)consumeAmmo(attackerIndex, Weapon::PlasmaGun);
       }
     }
     LightningGunResult& result = snapshot_.lightningGuns[attackerIndex];
@@ -883,6 +897,7 @@ void ServerGame::resetMatch() {
   snapshot_.rocketKnockback = rocketKnockback_;
   snapshot_.knockbackTimeMs = knockbackTimeMs_;
   snapshot_.weaponDamage = weaponDamage_;
+  snapshot_.weaponAmmo = weaponAmmoConfig_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
   snapshot_.healthAmount = healthAmount_;
@@ -899,6 +914,7 @@ void ServerGame::resetMatch() {
     ? MatchPhase::WaitingForReady
     : MatchPhase::WaitingForPlayers;
   lightningGunStates_ = {};
+  lightningAmmoCredit_.fill(1.0);
   railgunCooldownTicks_ = {};
   machineGunCooldownTicks_ = {};
   shotgunCooldownTicks_ = {};
@@ -909,6 +925,9 @@ void ServerGame::resetMatch() {
   selectedWeapons_.fill(Weapon::LightningGun);
   weaponPulloutTicks_ = {};
   snapshot_.selectedWeapons = selectedWeapons_;
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    refillAmmo(playerIndex);
+  }
   recentWeaponFires_ = {};
   recentWeaponFireTicks_ = {};
   recentRocketExplosions_ = {};
@@ -976,7 +995,9 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   plasmaGunCooldownTicks_[playerIndex] = 0;
   selectedWeapons_[playerIndex] = Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
+  lightningAmmoCredit_[playerIndex] = 1.0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
+  refillAmmo(playerIndex);
   recentFootstepAudioEvents_[playerIndex] = {};
   recentFootstepAudioEventTicks_[playerIndex] = 0;
   recentFragEvents_[playerIndex] = {};
@@ -1101,9 +1122,11 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   snapshot_.acknowledgedCommand[playerIndex] = 0;
   snapshot_.hasAcknowledgedCommand[playerIndex] = false;
   lightningGunStates_[playerIndex] = {};
+  lightningAmmoCredit_[playerIndex] = 1.0;
   selectedWeapons_[playerIndex] = Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
+  refillAmmo(playerIndex);
   botCombatStates_[playerIndex] = {};
 }
 
@@ -1130,6 +1153,7 @@ void ServerGame::setRuntimeGameplayTuning(
   float vampirism,
   std::uint8_t selfDamagePercent,
   std::int32_t healthAmount,
+  bool infiniteAmmo,
   bool botDodgeEnabled,
   int botDodgeMinIntervalMs,
   int botDodgeMaxIntervalMs,
@@ -1179,6 +1203,15 @@ void ServerGame::setRuntimeGameplayTuning(
   const bool healthAmountChanged = healthAmount_ != healthAmount;
   healthAmount_ = healthAmount;
   snapshot_.healthAmount = healthAmount_;
+  const bool infiniteAmmoChanged =
+    weaponAmmoConfig_.infiniteAmmo != infiniteAmmo;
+  weaponAmmoConfig_.infiniteAmmo = infiniteAmmo;
+  snapshot_.weaponAmmo.infiniteAmmo = weaponAmmoConfig_.infiniteAmmo;
+  if (infiniteAmmoChanged) {
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      refillAmmo(playerIndex);
+    }
+  }
   if (
     botDodgeEnabled_ != botDodgeEnabled ||
     botDodgeMinIntervalMs_ != botDodgeMinIntervalMs ||
@@ -1688,8 +1721,60 @@ bool ServerGame::canSwitchWeapon(std::size_t playerIndex) const {
 }
 
 bool ServerGame::canFireSelectedWeapon(std::size_t playerIndex) const {
-  return weaponSwitchingMode_ != WeaponSwitchingMode::Ql ||
-    weaponPulloutTicks_[playerIndex] == 0;
+  return (
+    weaponSwitchingMode_ != WeaponSwitchingMode::Ql ||
+    weaponPulloutTicks_[playerIndex] == 0
+  ) && hasAmmoForWeapon(playerIndex, selectedWeapons_[playerIndex]);
+}
+
+bool ServerGame::hasAmmoForWeapon(std::size_t playerIndex, Weapon weapon) const {
+  return weaponAmmoConfig_.infiniteAmmo ||
+    playerAmmo_[playerIndex][weaponIndex(weapon)] > 0;
+}
+
+void ServerGame::refillAmmo(std::size_t playerIndex) {
+  if (playerIndex >= kDuelPlayerCount) {
+    return;
+  }
+  playerAmmo_[playerIndex] = weaponAmmoConfig_.spawnAmmo;
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+}
+
+bool ServerGame::consumeAmmo(std::size_t playerIndex, Weapon weapon) {
+  if (weaponAmmoConfig_.infiniteAmmo) {
+    return true;
+  }
+  std::int32_t& ammo = playerAmmo_[playerIndex][weaponIndex(weapon)];
+  if (ammo <= 0) {
+    return false;
+  }
+  --ammo;
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+  return true;
+}
+
+void ServerGame::consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt) {
+  if (weaponAmmoConfig_.infiniteAmmo) {
+    return;
+  }
+  std::int32_t& ammo =
+    playerAmmo_[playerIndex][weaponIndex(Weapon::LightningGun)];
+  if (ammo <= 0) {
+    snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+    return;
+  }
+  const double fireHz =
+    static_cast<double>(std::max(1.0F, lightningGunTuning_.fireHz));
+  double& credit = lightningAmmoCredit_[playerIndex];
+  credit = std::min(credit, fireHz);
+  const int shots = static_cast<int>(std::floor(credit));
+  if (shots > 0) {
+    const int consumed = std::min(shots, ammo);
+    ammo -= consumed;
+    credit -= static_cast<double>(consumed);
+  }
+  credit += fireHz * static_cast<double>(fixedDt);
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
 }
 
 void ServerGame::updateSelectedWeapon(
@@ -2825,6 +2910,11 @@ void ServerGame::receiveCommands() {
         packet.selfDamagePercent
       );
       logFloat("g_vampirism", vampirism_, packet.vampirism);
+      logBool(
+        "g_infiniteammo",
+        weaponAmmoConfig_.infiniteAmmo,
+        packet.weaponAmmo.infiniteAmmo
+      );
       if (weaponSwitchingMode_ != packet.weaponSwitchingMode) {
         logClientGameplayCommand(
           playerName,
@@ -2844,6 +2934,7 @@ void ServerGame::receiveCommands() {
         packet.vampirism,
         packet.selfDamagePercent,
         packet.healthAmount,
+        packet.weaponAmmo.infiniteAmmo,
         botDodgeEnabled_,
         botDodgeMinIntervalMs_,
         botDodgeMaxIntervalMs_,

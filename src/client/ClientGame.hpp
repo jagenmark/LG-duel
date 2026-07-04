@@ -32,6 +32,7 @@ public:
     std::uint8_t selfDamagePercent = 100,
     std::int32_t healthAmount = 100,
     const WeaponDamageTuning& weaponDamage = {},
+    const WeaponAmmoConfig& weaponAmmo = {},
     float lightningFireHz = 20.0F,
     bool botDodgeEnabled = false,
     std::int32_t botDodgeMinIntervalMs = 250,

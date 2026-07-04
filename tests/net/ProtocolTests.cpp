@@ -108,6 +108,14 @@ int main() {
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 125;
     source.weaponDamage.plasmaGunDamage = 20;
+    source.weaponAmmo.infiniteAmmo = false;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 151;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 11;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::RocketLauncher)] = 12;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::MachineGun)] = 101;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 13;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 14;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 51;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -179,6 +187,8 @@ int main() {
         decoded.weaponDamage.railgunDamage == 50 &&
         decoded.weaponDamage.rocketLauncherDamage == 125 &&
         decoded.weaponDamage.plasmaGunDamage == 20 &&
+        !decoded.weaponAmmo.infiniteAmmo &&
+        decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
         nearlyEqual(decoded.vampirism, 0.1F) &&
         decoded.selfDamagePercent == 37 &&
         decoded.healthAmount == 175 &&
@@ -305,6 +315,20 @@ int main() {
     source.players[1].health = 0;
     source.selectedWeapons[0] = lg::Weapon::LightningGun;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::LightningGun)] = 149;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] = 9;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 8;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::MachineGun)] = 99;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Shotgun)] = 7;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 6;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 49;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::LightningGun)] = 120;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Railgun)] = 5;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 4;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::MachineGun)] = 88;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Shotgun)] = 3;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 2;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 48;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
     source.lightningGuns[0].targetPlayerIndex = 1;
@@ -433,6 +457,14 @@ int main() {
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 140;
     source.weaponDamage.plasmaGunDamage = 25;
+    source.weaponAmmo.infiniteAmmo = false;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 150;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 10;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::RocketLauncher)] = 11;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::MachineGun)] = 100;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 12;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 13;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 50;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -475,6 +507,10 @@ int main() {
       decoded.selectedWeapons[0] == lg::Weapon::LightningGun &&
         decoded.selectedWeapons[1] == lg::Weapon::Railgun,
       "selected weapons should round trip"
+    );
+    failures += expect(
+      decoded.playerAmmo == source.playerAmmo,
+      "per-player ammo should round trip"
     );
     failures += expect(
       decoded.lightningGuns[0].hit &&
@@ -632,6 +668,8 @@ int main() {
       decoded.weaponDamage.railgunDamage == 50 &&
       decoded.weaponDamage.rocketLauncherDamage == 140 &&
       decoded.weaponDamage.plasmaGunDamage == 25 &&
+      !decoded.weaponAmmo.infiniteAmmo &&
+      decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
       nearlyEqual(decoded.vampirism, 2.0F) &&
       decoded.selfDamagePercent == 25 &&
       decoded.healthAmount == 150 &&

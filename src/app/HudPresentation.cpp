@@ -205,15 +205,8 @@ std::string hudScoreLine(
       std::to_string(snapshot.matchRules.roundLimit);
   }
 
-  std::size_t leaderIndex = 0;
-  for (std::size_t index = 1; index < kDuelPlayerCount; ++index) {
-    if (snapshot.scores[index] > snapshot.scores[leaderIndex]) {
-      leaderIndex = index;
-    }
-  }
   return "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
-    "  LEAD " + std::to_string(snapshot.scores[leaderIndex]) + " / " +
-    std::to_string(snapshot.matchRules.roundLimit);
+    " / " + std::to_string(snapshot.matchRules.roundLimit);
 }
 
 bool localPlayerWonResult(

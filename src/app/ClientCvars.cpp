@@ -17,8 +17,11 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
   console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_speed_size", "Crosshair speed text scale.", 1.5F, archivedClient, 0.5F, 6.0F});
+  console.registerCvar({"cl_weapon_bar_size", "Left weapon/ammo HUD scale.", 1.75F, archivedClient, 0.5F, 4.0F});
   console.registerCvar({"r_ui_font", "UI TTF/OTF font file. Looks in assets/fonts, assets/font, or accepts an absolute local path.", std::string{"bahnschrift.ttf"}, archivedClient, {}, {}});
-  console.registerCvar({"cl_showfps", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_showfps", "Show an FPS counter on the HUD.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_showfps_size", "HUD FPS counter scale.", 1.6F, archivedClient, 0.5F, 6.0F});
+  console.registerCvar({"cl_showfps_titlebar", "Show FPS, frame time, and renderer backend in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_frame_stats", "Show detailed CPU-side frame pacing diagnostics in the window title.", false, archivedClient, {}, {}});
   console.registerCvar({"r_perf", "Show client performance diagnostics on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"r_perf_detail", "Show expanded client performance diagnostic breakdown.", false, archivedClient, {}, {}});
@@ -86,6 +89,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_texture_lod_bias", "World texture mip LOD bias; positive values choose blurrier, more stable mip levels.", 0.5F, archivedClient, -2.0F, 4.0F});
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_show_weapons", "Draw local first-person weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_player_outlines", "Draw player outlines.", true, archivedClient, {}, {}});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
   console.registerCvar({"r_beam_alpha", "Lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});

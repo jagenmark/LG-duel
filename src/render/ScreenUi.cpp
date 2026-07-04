@@ -293,6 +293,26 @@ void addLocalHealthNumber(
   return {230, 238, 246, 255};
 }
 
+[[nodiscard]] std::size_t weaponHudSlotIndex(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun:
+    return 0;
+  case Weapon::Shotgun:
+    return 1;
+  case Weapon::GrenadeLauncher:
+    return 2;
+  case Weapon::RocketLauncher:
+    return 3;
+  case Weapon::LightningGun:
+    return 4;
+  case Weapon::Railgun:
+    return 5;
+  case Weapon::PlasmaGun:
+    return 6;
+  }
+  return 4;
+}
+
 void addCrosshairHealthAndAmmo(
   DrawList2D& drawList,
   int width,
@@ -306,11 +326,11 @@ void addCrosshairHealthAndAmmo(
   const float healthRatio =
     std::clamp(static_cast<float>(localPlayer.health) / maxHealth, 0.0F, 1.0F);
   const std::string healthText = std::to_string(std::max(0, localPlayer.health));
-  const std::string ammoText = "\xE2\x88\x9E";
+  const std::string ammoText = hud.weaponValues[weaponHudSlotIndex(hud.selectedWeapon)];
   const float centerX = static_cast<float>(width) * 0.5F;
   const float centerY = static_cast<float>(height) * 0.5F;
   const float y = centerY + std::max(22.0F, settings.crosshairGap + settings.crosshairSize + 10.0F);
-  const float sideOffset = 46.0F * scale;
+  constexpr float sideOffset = 56.0F;
   const float healthWidth = textWidth(healthText, scale);
 
   addText(
@@ -344,11 +364,6 @@ void addSpeedText(
 
   const float scale = std::clamp(settings.speedTextScale, 0.5F, 6.0F);
   const float snappedScale = snappedTextScale(scale);
-  const float widthPixels = textWidth(hud.speedText, scale);
-  const float x = std::max(
-    12.0F,
-    (static_cast<float>(width) - widthPixels) * 0.5F
-  );
   const float crosshairReach = settings.crosshairEnabled
     ? settings.crosshairGap + settings.crosshairSize
     : 0.0F;
@@ -356,27 +371,15 @@ void addSpeedText(
     static_cast<float>(height) * 0.5F +
     std::max(24.0F, crosshairReach + 14.0F) +
     snappedScale * 2.0F;
-  addText(drawList, x, y, hud.speedText, {230, 238, 246, 225}, scale);
-}
-
-[[nodiscard]] const char* hudWeaponShortName(Weapon weapon) {
-  switch (weapon) {
-  case Weapon::MachineGun:
-    return "MG";
-  case Weapon::Shotgun:
-    return "SG";
-  case Weapon::GrenadeLauncher:
-    return "GL";
-  case Weapon::LightningGun:
-    return "LG";
-  case Weapon::Railgun:
-    return "RG";
-  case Weapon::RocketLauncher:
-    return "RL";
-  case Weapon::PlasmaGun:
-    return "PG";
-  }
-  return "??";
+  addText(
+    drawList,
+    static_cast<float>(width) * 0.5F,
+    y,
+    hud.speedText,
+    {230, 238, 246, 225},
+    scale,
+    TextHorizontalAlignment::Center
+  );
 }
 
 void addWeaponIcon(
@@ -487,8 +490,10 @@ void addSelectedWeaponIndicator(
   DrawList2D& drawList,
   int width,
   int height,
-  const HudRenderState& hud
+  const HudRenderState& hud,
+  const RenderSettings& settings
 ) {
+  (void)width;
   constexpr std::array<Weapon, 7> weapons = {{
     Weapon::MachineGun,
     Weapon::Shotgun,
@@ -498,78 +503,64 @@ void addSelectedWeaponIndicator(
     Weapon::Railgun,
     Weapon::PlasmaGun,
   }};
-  const float scale = std::clamp(
+  const float viewportScale = std::clamp(
     static_cast<float>(height) / 720.0F,
     0.75F,
     1.25F
   );
-  const float slotSize = 58.0F * scale;
-  const float gap = 8.0F * scale;
-  const float panelWidth = slotSize + 10.0F * scale;
+  const float scale =
+    viewportScale * std::clamp(settings.weaponBarScale, 0.5F, 4.0F);
+  const float rowHeight = 24.0F * scale;
+  const float gap = 4.0F * scale;
+  const float iconScale = 0.38F * scale;
+  const float textScale = 1.45F * scale;
   const float panelHeight =
-    slotSize * static_cast<float>(weapons.size()) +
-    gap * static_cast<float>(weapons.size() - 1U) +
-    10.0F * scale;
-  const float x = static_cast<float>(width) - panelWidth - 22.0F * scale;
-  const float y = (static_cast<float>(height) - panelHeight) * 0.5F;
+    rowHeight * static_cast<float>(weapons.size()) +
+    gap * static_cast<float>(weapons.size() - 1U);
+  const float x = 4.0F * viewportScale;
+  const float y = static_cast<float>(height) * 0.18F;
 
-  addRect(
-    drawList,
-    x,
+  float rowY = std::min(
     y,
-    panelWidth,
-    panelHeight,
-    {6, 9, 13, 150}
+    static_cast<float>(height) - panelHeight - 96.0F * viewportScale
   );
-
-  float slotY = y + 5.0F * scale;
-  for (Weapon weapon : weapons) {
+  rowY = std::max(48.0F * viewportScale, rowY);
+  for (std::size_t index = 0; index < weapons.size(); ++index) {
+    const Weapon weapon = weapons[index];
     const bool selected = weapon == hud.selectedWeapon;
-    const RenderColor frame = selected
-      ? RenderColor{255, 224, 92, 255}
-      : RenderColor{70, 82, 96, 210};
-    const RenderColor fill = selected
-      ? RenderColor{28, 34, 42, 230}
-      : RenderColor{14, 18, 24, 175};
-    const RenderColor icon = selected
-      ? RenderColor{255, 242, 174, 255}
-      : RenderColor{156, 170, 184, 220};
-    const float slotX = x + 5.0F * scale;
-
-    addRect(drawList, slotX, slotY, slotSize, slotSize, fill);
-    addOutline(drawList, slotX, slotY, slotSize, slotSize, frame);
+    const RenderColor weaponColor = quakeLiveWeaponColor(weapon);
+    const RenderColor textColor = selected
+      ? RenderColor{245, 250, 255, 255}
+      : RenderColor{220, 226, 232, 235};
     if (selected) {
       addRect(
         drawList,
-        slotX - 5.0F * scale,
-        slotY + 8.0F * scale,
-        3.0F * scale,
-        slotSize - 16.0F * scale,
-        {255, 224, 92, 255}
+        x - 3.0F * scale,
+        rowY - 1.0F * scale,
+        45.0F * scale,
+        rowHeight + 2.0F * scale,
+        {10, 13, 18, 155}
       );
     }
 
     addWeaponIcon(
       drawList,
-      slotX + slotSize * 0.5F,
-      slotY + slotSize * 0.36F,
+      x + 9.0F * scale,
+      rowY + rowHeight * 0.5F,
       weapon,
-      icon,
-      scale
+      weaponColor,
+      iconScale
     );
-    const char* label = hudWeaponShortName(weapon);
-    const float textScale = selected ? 1.45F * scale : 1.2F * scale;
-    const float textWidth = 2.0F * kGlyphSize * textScale;
     addText(
       drawList,
-      slotX + (slotSize - textWidth) * 0.5F,
-      slotY + slotSize - 17.0F * scale,
-      label,
-      icon,
+      x + 20.0F * scale,
+      rowY + 4.0F * scale,
+      hud.weaponValues[index],
+      textColor,
       textScale
     );
 
-    slotY += slotSize + gap;
+    rowY += rowHeight + gap;
   }
 }
 
@@ -1086,6 +1077,19 @@ void addHud(
   constexpr float characterWidth = kGlyphSize * textScale;
   constexpr RenderColor defaultText = {235, 242, 250, 255};
 
+  if (!hud.fpsText.empty()) {
+    const float fpsScale = std::clamp(settings.fpsTextScale, 0.5F, 6.0F);
+    const float inset = 8.0F * fpsScale;
+    addText(
+      drawList,
+      static_cast<float>(width) - inset - textWidth(hud.fpsText, fpsScale),
+      4.0F * fpsScale,
+      hud.fpsText,
+      {245, 248, 252, 245},
+      fpsScale
+    );
+  }
+
   if (hud.scoreboardOpen) {
     const float panelWidth =
       std::min(720.0F, static_cast<float>(width) - 80.0F);
@@ -1166,7 +1170,7 @@ void addHud(
     y += 20.0F;
   }
 
-  y = 12.0F;
+  y = hud.fpsText.empty() ? 12.0F : 24.0F;
   for (const std::string& line : hud.topRightLines) {
     const float x = std::max(
       12.0F,
@@ -1625,6 +1629,9 @@ DrawList2D buildPerspectiveWeaponOverlay(
       settings.beamWidth * (1.0F + pulse * 0.04F)
     );
   }
+  if (!settings.showOwnWeapons) {
+    return drawList;
+  }
 
   const auto quad =
     [&](std::array<ScreenPoint, 4> points, RenderColor quadColor) {
@@ -2053,7 +2060,7 @@ DrawList2D buildScreenUi(
   addDamageNumbers(drawList, outputWidth, outputHeight, settings, hud);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
-  addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud);
+  addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
   addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
   return drawList;

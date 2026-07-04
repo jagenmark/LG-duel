@@ -1593,6 +1593,37 @@ int main() {
     "first-person machine gun should use a static viewmodel mesh without dynamic vertices"
   );
 
+  lg::RenderSettings hiddenLocalWeaponSettings = localMachineGunSettings;
+  hiddenLocalWeaponSettings.showOwnWeapons = false;
+  const lg::Scene3D hiddenLocalWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    hiddenLocalWeaponSettings
+  );
+  bool hasHiddenMachineGunViewModel = false;
+  for (const lg::StaticMeshInstance& instance :
+       hiddenLocalWeaponScene.staticMeshInstances) {
+    hasHiddenMachineGunViewModel =
+      hasHiddenMachineGunViewModel ||
+      (
+        instance.mesh == lg::MeshHandle::RemoteMachineGun &&
+        instance.pass == lg::RenderPass::ViewModel
+      );
+  }
+  failures += expect(
+    !hasHiddenMachineGunViewModel &&
+      hiddenLocalWeaponScene.viewModelStats.drawCalls == 0 &&
+      hiddenLocalWeaponScene.viewModelStats.dynamicVertices == 0,
+    "r_show_weapons 0 should suppress local first-person weapon models"
+  );
+
   lg::RenderSettings localShotgunSettings = settings;
   localShotgunSettings.localSelectedWeapon = lg::Weapon::Shotgun;
   const lg::Scene3D localShotgunScene = lg::buildPerspectiveScene(
@@ -1956,6 +1987,25 @@ int main() {
       localRocketProjectileScene.simpleInstances[0].position.z <
         rocketProjectiles[0].position.z - 0.15F,
     "local rocket projectile instances should render from the first-person weapon barrel"
+  );
+  lg::RenderSettings hiddenLocalProjectileSettings = localShotgunWeaponStartSettings;
+  hiddenLocalProjectileSettings.showOwnWeapons = false;
+  const lg::Scene3D hiddenLocalRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    hiddenLocalProjectileSettings
+  );
+  failures += expect(
+    hiddenLocalRocketProjectileScene.simpleInstances.size() == 2U &&
+      hiddenLocalRocketProjectileScene.simpleInstances[0].position.z <
+        localRocketProjectileScene.simpleInstances[0].position.z - 0.15F,
+    "r_show_weapons 0 should render local rocket projectiles from the bottom-center hidden weapon origin"
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> grenadeProjectiles = {};

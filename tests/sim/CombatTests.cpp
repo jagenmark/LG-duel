@@ -89,6 +89,8 @@ weapon.rl.direct_hitbox_half_extent_xy 0.4821429
 weapon.rl.direct_hitbox_half_extent_z 0.9
 weapon.pg.direct_hitbox_half_extent_xy 0.5
 weapon.pg.direct_hitbox_half_extent_z 1.1
+weapon.rg.spawn_ammo 9
+weapon.lg.spawn_ammo 123
 )");
 
     failures += expect(loaded.ok, "balance config should parse projectile direct-hit AABB tuning");
@@ -96,8 +98,10 @@ weapon.pg.direct_hitbox_half_extent_z 1.1
       nearlyEqual(loaded.config.rocketLauncher.directHitboxHalfExtentXY, 0.4821429F) &&
         nearlyEqual(loaded.config.rocketLauncher.directHitboxHalfExtentZ, 0.9F) &&
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentXY, 0.5F) &&
-        nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentZ, 1.1F),
-      "balance config should apply projectile direct-hit AABB tuning"
+        nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentZ, 1.1F) &&
+        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] == 9 &&
+        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] == 123,
+      "balance config should apply projectile and spawn ammo tuning"
     );
   }
 
