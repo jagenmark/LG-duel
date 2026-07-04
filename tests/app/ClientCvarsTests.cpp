@@ -118,6 +118,48 @@ int main() {
     "health HUD style cvar should expose the three supported layouts"
   );
   failures += expect(
+    console.execute("crosshair_style") ==
+        "crosshair_style = 0 (default 0)" &&
+      console.execute("crosshair_style 4") ==
+        "value out of range for crosshair_style" &&
+      console.execute("crosshair_style 3") == "crosshair_style = 3",
+    "crosshair style cvar should include the ring style"
+  );
+  failures += expect(
+    console.execute("crosshair_dot_enable") ==
+        "crosshair_dot_enable = 0 (default 0)" &&
+      console.execute("crosshair_dot_enable 1") ==
+        "crosshair_dot_enable = 1" &&
+      console.getBool("crosshair_dot_enable"),
+    "crosshair dot should be independently toggleable"
+  );
+  failures += expect(
+    console.execute("crosshair_dot_thickness") ==
+        "crosshair_dot_thickness = 2 (default 2)" &&
+      console.execute("crosshair_dot_thickness 0.5") ==
+        "value out of range for crosshair_dot_thickness" &&
+      console.execute("crosshair_dot_thickness 5") ==
+        "crosshair_dot_thickness = 5",
+    "crosshair dot thickness should be configurable"
+  );
+  failures += expect(
+    console.execute("crosshair_outline_enable") ==
+        "crosshair_outline_enable = 0 (default 0)" &&
+      console.execute("crosshair_outline_enable 1") ==
+        "crosshair_outline_enable = 1" &&
+      console.getBool("crosshair_outline_enable"),
+    "crosshair outline should be independently toggleable"
+  );
+  failures += expect(
+    console.execute("crosshair_outline_width") ==
+        "crosshair_outline_width = 1 (default 1)" &&
+      console.execute("crosshair_outline_width -1") ==
+        "value out of range for crosshair_outline_width" &&
+      console.execute("crosshair_outline_width 3") ==
+        "crosshair_outline_width = 3",
+    "crosshair outline width should be configurable"
+  );
+  failures += expect(
     console.execute("r_sg_weapon_model_start 1") ==
         "r_sg_weapon_model_start = 1" &&
       console.getBool("r_sg_weapon_model_start"),

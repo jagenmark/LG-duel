@@ -242,6 +242,7 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
   std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> recentGrenadeBounceAudioEvents_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> recentGrenadeBounceAudioEventTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences_ = {};
   std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
   std::array<

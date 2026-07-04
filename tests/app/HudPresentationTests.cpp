@@ -95,7 +95,7 @@ int main() {
     "live Clan Arena player presentation should distinguish teammates from enemies"
   );
   failures += expect(
-    lg::playerRoundStatsLine(snapshot, 2) == "ENEMY LG 0%  DMG 0",
+    lg::playerRoundStatsLine(snapshot, 2) == "ENEMY lg 0%  DMG 0",
     "post-round stats should display the enemy player name"
   );
 

@@ -2076,6 +2076,75 @@ void fillSolidFontTexelBlock(std::vector<std::uint8_t>& pixels) {
   }
 }
 
+void strengthenTrueTypeGlyphCoverage(
+  std::vector<std::uint8_t>& pixels,
+  int originX,
+  int originY,
+  int glyphWidth,
+  int glyphHeight
+) {
+  if (glyphWidth <= 0 || glyphHeight <= 0) {
+    return;
+  }
+
+  std::vector<std::uint8_t> source(
+    static_cast<std::size_t>(glyphWidth * glyphHeight)
+  );
+  for (int y = 0; y < glyphHeight; ++y) {
+    const std::uint8_t* row =
+      pixels.data() + (originY + y) * kFontAtlasWidth + originX;
+    std::copy(row, row + glyphWidth, source.begin() + y * glyphWidth);
+  }
+
+  constexpr float kCoverageBoost = 0.12F;
+  constexpr float kNeighborSpread = 0.38F;
+  for (int y = 0; y < glyphHeight; ++y) {
+    for (int x = 0; x < glyphWidth; ++x) {
+      const int index = y * glyphWidth + x;
+      const std::uint8_t center = source[static_cast<std::size_t>(index)];
+      std::uint8_t neighbor = 0;
+      if (x > 0) {
+        neighbor = std::max(
+          neighbor,
+          source[static_cast<std::size_t>(index - 1)]
+        );
+      }
+      if (x + 1 < glyphWidth) {
+        neighbor = std::max(
+          neighbor,
+          source[static_cast<std::size_t>(index + 1)]
+        );
+      }
+      if (y > 0) {
+        neighbor = std::max(
+          neighbor,
+          source[static_cast<std::size_t>(index - glyphWidth)]
+        );
+      }
+      if (y + 1 < glyphHeight) {
+        neighbor = std::max(
+          neighbor,
+          source[static_cast<std::size_t>(index + glyphWidth)]
+        );
+      }
+
+      float coverage = static_cast<float>(center);
+      if (center > 0) {
+        coverage += (255.0F - coverage) * kCoverageBoost;
+      }
+      coverage = std::max(
+        coverage,
+        static_cast<float>(neighbor) * kNeighborSpread
+      );
+      pixels[static_cast<std::size_t>(
+        (originY + y) * kFontAtlasWidth + originX + x
+      )] = static_cast<std::uint8_t>(
+        std::clamp(std::lround(coverage), 0L, 255L)
+      );
+    }
+  }
+}
+
 void addBitmapGlyph(
   FontAtlas& atlas,
   std::uint32_t character,
@@ -2388,6 +2457,13 @@ void addBitmapGlyph(
       fontScale,
       fontScale,
       static_cast<int>(codepoint)
+    );
+    strengthenTrueTypeGlyphCoverage(
+      pixels,
+      penX,
+      penY,
+      glyphWidth,
+      glyphHeight
     );
 
     const float u0 =
@@ -4287,10 +4363,15 @@ void appendText(
     return width;
   };
   const auto alignedLineX = [&](std::size_t startIndex) {
-    if (text.horizontalAlignment != TextHorizontalAlignment::Center) {
-      return text.position.x;
+    switch (text.horizontalAlignment) {
+    case TextHorizontalAlignment::Center:
+      return text.position.x - lineWidthAt(startIndex) * 0.5F;
+    case TextHorizontalAlignment::Right:
+      return text.position.x - lineWidthAt(startIndex);
+    case TextHorizontalAlignment::Left:
+      break;
     }
-    return text.position.x - lineWidthAt(startIndex) * 0.5F;
+    return text.position.x;
   };
   std::size_t lineStart = 0U;
   float x = alignedLineX(lineStart);
@@ -6015,10 +6096,12 @@ void drawCommands(
             static_cast<float>(utf8GlyphCount(primitive.text)) *
             kBitmapGlyphSize *
             snappedScale;
-          const float x = primitive.horizontalAlignment ==
-              TextHorizontalAlignment::Center
-            ? primitive.position.x - textWidth * 0.5F
-            : primitive.position.x;
+          float x = primitive.position.x;
+          if (primitive.horizontalAlignment == TextHorizontalAlignment::Center) {
+            x -= textWidth * 0.5F;
+          } else if (primitive.horizontalAlignment == TextHorizontalAlignment::Right) {
+            x -= textWidth;
+          }
           SDL_SetRenderScale(renderer, snappedScale, snappedScale);
           SDL_RenderDebugText(
             renderer,

@@ -1515,6 +1515,139 @@ struct LingeringWeaponFire {
   std::chrono::steady_clock::time_point expiresAt = {};
 };
 
+struct KillFeedState {
+  struct Entry {
+    std::string killerName;
+    std::string killedName;
+    Weapon weapon = Weapon::LightningGun;
+    float ageSeconds = 0.0F;
+  };
+
+  std::vector<Entry> entries;
+  std::array<FragEvent, kDuelPlayerCount> previousFragEvents = {};
+  std::array<bool, kDuelPlayerCount> previousFragActive = {};
+  std::array<std::uint32_t, kDuelPlayerCount> previousSelfExplosionSequences = {};
+};
+
+void resetKillFeedState(KillFeedState& state) {
+  state.entries.clear();
+  state.previousFragEvents = {};
+  state.previousFragActive = {};
+  state.previousSelfExplosionSequences = {};
+}
+
+void updateKillFeedState(KillFeedState& state, float deltaSeconds) {
+  constexpr float kKillFeedHoldSeconds = 4.5F;
+  constexpr float kKillFeedFadeSeconds = 0.5F;
+  const float maxAge = kKillFeedHoldSeconds + kKillFeedFadeSeconds;
+  const float clampedDelta = std::max(0.0F, deltaSeconds);
+  for (KillFeedState::Entry& entry : state.entries) {
+    entry.ageSeconds += clampedDelta;
+  }
+  state.entries.erase(
+    std::remove_if(
+      state.entries.begin(),
+      state.entries.end(),
+      [maxAge](const KillFeedState::Entry& entry) {
+        return entry.ageSeconds >= maxAge;
+      }
+    ),
+    state.entries.end()
+  );
+}
+
+void consumeKillFeedEvents(
+  KillFeedState& state,
+  const ServerSnapshot& snapshot
+) {
+  constexpr std::size_t kMaxKillFeedEntries = 8;
+  for (
+    std::size_t attackerIndex = 0;
+    attackerIndex < kDuelPlayerCount;
+    ++attackerIndex
+  ) {
+    const FragEvent& frag = snapshot.fragEvents[attackerIndex];
+    if (!frag.active) {
+      state.previousFragActive[attackerIndex] = false;
+      state.previousFragEvents[attackerIndex] = {};
+      continue;
+    }
+
+    const bool freshEvent =
+      !state.previousFragActive[attackerIndex] ||
+      !sameFragEvent(frag, state.previousFragEvents[attackerIndex]);
+    state.previousFragActive[attackerIndex] = true;
+    state.previousFragEvents[attackerIndex] = frag;
+
+    if (!freshEvent || frag.targetPlayerIndex >= kDuelPlayerCount) {
+      continue;
+    }
+
+    state.entries.push_back({
+      snapshot.playerNames[attackerIndex],
+      frag.targetPlayerIndex == attackerIndex
+        ? std::string{}
+        : snapshot.playerNames[frag.targetPlayerIndex],
+      frag.weapon,
+      0.0F,
+    });
+    if (state.entries.size() > kMaxKillFeedEntries) {
+      state.entries.erase(state.entries.begin());
+    }
+  }
+
+  for (
+    std::size_t ownerIndex = 0;
+    ownerIndex < kDuelPlayerCount;
+    ++ownerIndex
+  ) {
+    const RocketExplosionResult& explosion = snapshot.rocketExplosions[ownerIndex];
+    const FragEvent& frag = snapshot.fragEvents[ownerIndex];
+    if (
+      !explosion.active ||
+      explosion.ownerDamageApplied <= 0 ||
+      snapshot.players[ownerIndex].health > 0 ||
+      explosion.sequence == state.previousSelfExplosionSequences[ownerIndex] ||
+      (frag.active && frag.targetPlayerIndex == ownerIndex)
+    ) {
+      continue;
+    }
+
+    state.previousSelfExplosionSequences[ownerIndex] = explosion.sequence;
+    state.entries.push_back({
+      snapshot.playerNames[ownerIndex],
+      std::string{},
+      explosion.weapon,
+      0.0F,
+    });
+    if (state.entries.size() > kMaxKillFeedEntries) {
+      state.entries.erase(state.entries.begin());
+    }
+  }
+}
+
+std::vector<HudRenderState::KillFeedLine> killFeedPresentation(
+  const KillFeedState& state
+) {
+  constexpr float kKillFeedHoldSeconds = 4.5F;
+  constexpr float kKillFeedFadeSeconds = 0.5F;
+  std::vector<HudRenderState::KillFeedLine> lines;
+  lines.reserve(state.entries.size());
+  for (const KillFeedState::Entry& entry : state.entries) {
+    const float fadeAge = entry.ageSeconds - kKillFeedHoldSeconds;
+    const float alpha = fadeAge <= 0.0F
+      ? 1.0F
+      : 1.0F - std::clamp(fadeAge / kKillFeedFadeSeconds, 0.0F, 1.0F);
+    lines.push_back({
+      entry.killerName,
+      entry.killedName,
+      entry.weapon,
+      alpha,
+    });
+  }
+  return lines;
+}
+
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
   std::istringstream stream{std::string(text)};
   std::string line;
@@ -2293,6 +2426,10 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.crosshairSize = console.getFloat("crosshair_size");
   settings.crosshairThickness = console.getFloat("crosshair_thickness");
   settings.crosshairGap = console.getFloat("crosshair_gap");
+  settings.crosshairDotEnabled = console.getBool("crosshair_dot_enable");
+  settings.crosshairDotThickness = console.getFloat("crosshair_dot_thickness");
+  settings.crosshairOutlineEnabled = console.getBool("crosshair_outline_enable");
+  settings.crosshairOutlineWidth = console.getFloat("crosshair_outline_width");
   settings.crosshairAlpha = console.getFloat("crosshair_alpha");
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
   settings.crosshairGreen = static_cast<std::uint8_t>(console.getInt("crosshair_g"));
@@ -2859,7 +2996,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
-  hud.topRightLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
+  hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
   if (snapshot.matchRules.timeLimitMinutes > 0) {
     const std::uint32_t limitTicks =
       static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
@@ -3782,6 +3919,7 @@ int GameApp::run() const {
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
+  KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
@@ -4593,6 +4731,7 @@ int GameApp::run() const {
       wasLocalPlayerAlive = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
+      resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
       activeTransientEffects.clear();
@@ -4824,6 +4963,7 @@ int GameApp::run() const {
           const FragEvent& localFrag = audioSnapshot.fragEvents[localPlayerIndex];
           if (
             localFrag.active &&
+            localFrag.targetPlayerIndex != localPlayerIndex &&
             shouldPlaySnapshotAudioEvent(
               hasLastPlayedFragEvent[localPlayerIndex],
               sameFragEvent(localFrag, lastPlayedFragEvents[localPlayerIndex]),
@@ -5402,6 +5542,10 @@ int GameApp::run() const {
       outerFrameElapsed.count(),
       damageNumbersConfig(console)
     );
+    updateKillFeedState(killFeedState, outerFrameElapsed.count());
+    if (session.game() != nullptr && session.game()->hasSnapshot()) {
+      consumeKillFeedEvents(killFeedState, session.game()->snapshot());
+    }
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       RemotePlayerView& remote = renderRemotePlayers[playerIndex];
       if (!remote.visible) {
@@ -5439,6 +5583,7 @@ int GameApp::run() const {
     hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
+    hud.killFeedLines = killFeedPresentation(killFeedState);
     if (console.getBool("cl_showfps")) {
       hud.fpsText = std::to_string(static_cast<int>(
         std::lround(displayedFramesPerSecond)

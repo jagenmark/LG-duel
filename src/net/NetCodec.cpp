@@ -697,20 +697,32 @@ bool readGrenadeBounceAudioEvent(
 }
 
 bool writeFragEvent(Writer& writer, const FragEvent& event) {
-  if (event.active && event.targetPlayerIndex >= kDuelPlayerCount) {
-    return false;
-  }
-  return writer.writeBool(event.active) &&
-    writer.writeU8(event.targetPlayerIndex);
-}
-
-bool readFragEvent(Reader& reader, FragEvent& event) {
   if (
-    !reader.readBool(event.active) ||
-    !reader.readU8(event.targetPlayerIndex)
+    (event.active && event.targetPlayerIndex >= kDuelPlayerCount) ||
+    event.weapon > kLastWeapon
   ) {
     return false;
   }
+  return writer.writeBool(event.active) &&
+    writer.writeU32(event.sequence) &&
+    writer.writeU8(event.targetPlayerIndex) &&
+    writer.writeU8(static_cast<std::uint8_t>(event.weapon));
+}
+
+bool readFragEvent(Reader& reader, FragEvent& event) {
+  std::uint8_t weapon = 0;
+  if (
+    !reader.readBool(event.active) ||
+    !reader.readU32(event.sequence) ||
+    !reader.readU8(event.targetPlayerIndex) ||
+    !reader.readU8(weapon)
+  ) {
+    return false;
+  }
+  if (weapon > static_cast<std::uint8_t>(kLastWeapon)) {
+    return false;
+  }
+  event.weapon = static_cast<Weapon>(weapon);
   return !event.active || event.targetPlayerIndex < kDuelPlayerCount;
 }
 
@@ -808,19 +820,33 @@ bool writeRoundCombatStats(
   Writer& writer,
   const RoundCombatStats& stats
 ) {
-  return writer.writeU32(stats.lightningActiveTicks) &&
-    writer.writeU32(stats.lightningHitTicks) &&
-    writer.writeU32(stats.damageDealt);
+  for (const WeaponCombatStats& weaponStats : stats.weapons) {
+    if (
+      !writer.writeU32(weaponStats.damageDealt) ||
+      !writer.writeU16(weaponStats.attempts) ||
+      !writer.writeU16(weaponStats.hits)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 bool readRoundCombatStats(
   Reader& reader,
   RoundCombatStats& stats
 ) {
-  return reader.readU32(stats.lightningActiveTicks) &&
-    reader.readU32(stats.lightningHitTicks) &&
-    reader.readU32(stats.damageDealt) &&
-    stats.lightningHitTicks <= stats.lightningActiveTicks;
+  for (WeaponCombatStats& weaponStats : stats.weapons) {
+    if (
+      !reader.readU32(weaponStats.damageDealt) ||
+      !reader.readU16(weaponStats.attempts) ||
+      !reader.readU16(weaponStats.hits) ||
+      weaponStats.hits > weaponStats.attempts
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 } // namespace

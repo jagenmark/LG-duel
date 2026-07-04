@@ -66,6 +66,10 @@ struct RenderSettings {
   float crosshairSize = 8.0F;
   float crosshairThickness = 2.0F;
   float crosshairGap = 3.0F;
+  bool crosshairDotEnabled = false;
+  float crosshairDotThickness = 2.0F;
+  bool crosshairOutlineEnabled = false;
+  float crosshairOutlineWidth = 1.0F;
   float crosshairAlpha = 1.0F;
   std::uint8_t crosshairRed = 255;
   std::uint8_t crosshairGreen = 255;
@@ -221,6 +225,7 @@ struct HudRenderState {
   };
 
   std::vector<std::string> topLeftLines;
+  std::vector<std::string> topCenterLines;
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;
@@ -228,6 +233,13 @@ struct HudRenderState {
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
   std::array<std::string, 7> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
+  struct KillFeedLine {
+    std::string killerName;
+    std::string killedName;
+    Weapon weapon = Weapon::LightningGun;
+    float alpha = 1.0F;
+  };
+  std::vector<KillFeedLine> killFeedLines;
   Weapon previousWeapon = Weapon::LightningGun;
   float weaponSwitchProgress = 1.0F;
   float centerOffsetY = 0.0F;
@@ -248,6 +260,8 @@ struct HudRenderState {
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
   std::vector<Team> scoreboardLineTeams;
+  std::vector<Weapon> scoreboardLineAccuracyWeapons;
+  std::vector<std::size_t> scoreboardLineAccuracyWeaponColumns;
   bool settingsOpen = false;
   std::vector<SettingsMenuItem> settingsItems;
   std::string settingsFooter;
