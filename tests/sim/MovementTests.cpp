@@ -1707,6 +1707,36 @@ int main() {
   }
 
   {
+    const lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for ramp entry regression");
+
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {3.75F, 8.4F, -25.2F + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    int airborneTicks = 0;
+    float minimumX = player.position.x;
+    for (int tick = 0; tick < 50; ++tick) {
+      lg::simulateMovement(player, command, loaded.arena, tuning, lg::kFixedTickSeconds);
+      minimumX = std::min(minimumX, player.position.x);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 &&
+        minimumX >= 3.74F &&
+        player.position.x > 5.5F &&
+        player.position.z > -23.6F,
+      "entering a stairs map ramp from flat ground should stay grounded and climb"
+    );
+  }
+
+  {
     const float run = 4.0F;
     const lg::ArenaBrush ramp =
       slopedTopBrush(-2.0F, 2.0F, 4.2F, 4.2F - riseForAngle(44.0F, run));

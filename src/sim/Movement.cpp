@@ -391,9 +391,7 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
 ) {
   constexpr float kGroundTraceDistance = 0.25F / 40.0F;
   constexpr float kGroundFollowDistance = 0.08F;
-  if (!player.onGround && player.velocity.z > 0.0F) {
-    return {};
-  }
+  constexpr float kGroundKickoffSpeed = 10.0F / 40.0F;
 
   const float traceDistance = player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
   const CollisionResult trace = slidePlayerArenaMove(
@@ -405,6 +403,12 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   );
 
   if (!trace.groundPlane) {
+    return {};
+  }
+  if (
+    player.velocity.z > 0.0F &&
+    dot(player.velocity, trace.groundNormal) > kGroundKickoffSpeed
+  ) {
     return {};
   }
 
@@ -487,6 +491,24 @@ void simulateGroundedOrAirborne(
     fixedDt,
     true
   );
+  if (
+    !useAirMovement &&
+    !jumpStarted &&
+    !collision.onGround &&
+    groundContact.groundPlane &&
+    groundContact.onGround &&
+    collision.velocity.z > 0.0F &&
+    length(horizontal(groundContact.normal)) > 0.0001F &&
+    dot(collision.velocity, groundContact.normal) <= (10.0F / 40.0F)
+  ) {
+    collision.groundPlane = true;
+    collision.onGround = true;
+    collision.groundNormal = groundContact.normal;
+    collision.velocity = clipToGroundPlanePreserveSpeed(
+      collision.velocity,
+      groundContact.normal
+    );
+  }
   if (
     !useAirMovement &&
     !jumpStarted &&
