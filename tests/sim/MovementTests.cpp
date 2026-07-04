@@ -808,6 +808,28 @@ int main() {
 
   {
     lg::Arena arena;
+    arena.brushes[0] = cutUndersideBrushStep(0.5F, 1.2F, 0.3F, 0.15F);
+    arena.brushCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight + 0.04F};
+    player.velocity = {8.0F, 0.0F, 1.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      player.position.x > 0.16F &&
+        player.velocity.x > 7.5F &&
+        !player.onGround,
+      "rising bhop into a low brush stair should keep horizontal speed"
+    );
+  }
+
+  {
+    lg::Arena arena;
     arena.walls[0] = {{0.5F, -10.0F, 0.0F}, {1.2F, 10.0F, 0.3F}};
     arena.walls[1] = {{1.2F, -10.0F, 0.0F}, {1.9F, 10.0F, 0.6F}};
     arena.walls[2] = {{1.9F, -10.0F, 0.0F}, {2.6F, 10.0F, 0.9F}};
@@ -865,6 +887,42 @@ int main() {
   }
 
   {
+    lg::Arena arena;
+    arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
+    arena.walls[1] = {{1.2F, -1.0F, 0.0F}, {1.9F, 1.0F, 0.6F}};
+    arena.walls[2] = {{1.9F, -1.0F, 0.0F}, {2.6F, 1.0F, 0.9F}};
+    arena.walls[3] = {{2.6F, -1.0F, 0.0F}, {4.0F, 1.0F, 1.2F}};
+    arena.wallCount = 4;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 10);
+    command.jump = true;
+    command.upMove = 1.0F;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    command.jump = false;
+    command.upMove = 0.0F;
+
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 40; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumHorizontalSpeed =
+        std::min(minimumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+    }
+
+    failures += expect(
+      player.position.x > 2.6F &&
+        player.position.z > 0.9F + player.bounds.halfHeight &&
+        minimumHorizontalSpeed > 6.5F,
+      "bhopping into low stairs should step over risers without getting stuck"
+    );
+  }
+
+  {
     const lg::Arena arena = lg::thunderstruckArena();
     lg::MovementTuning tuning;
     tuning.groundAcceleration = 80.0F;
@@ -881,6 +939,38 @@ int main() {
         player.onGround &&
         player.position.z > 2.0F + player.bounds.halfHeight - 0.01F,
       "players should climb the embedded Thunderstruck box stairs"
+    );
+  }
+
+  {
+    const lg::Arena arena = lg::thunderstruckArena();
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-5.5F, -3.5F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.viewYawRadians = 3.14159265F;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 18);
+    command.jump = true;
+    command.upMove = 1.0F;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    command.jump = false;
+    command.upMove = 0.0F;
+
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 60; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumHorizontalSpeed =
+        std::min(minimumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+    }
+
+    failures += expect(
+      player.position.x < -9.0F &&
+        player.position.z > 1.5F + player.bounds.halfHeight &&
+        minimumHorizontalSpeed > 6.5F,
+      "bhopping up Thunderstruck stairs should not snag on stair risers"
     );
   }
 

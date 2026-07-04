@@ -456,7 +456,7 @@ void simulateGroundedOrAirborne(
     player.position + (player.velocity * fixedDt),
     player.velocity,
     fixedDt,
-    !useAirMovement || jumpStarted || player.velocity.z <= 0.0F
+    true
   );
 
   player.position = collision.position;
