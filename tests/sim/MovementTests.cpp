@@ -1492,6 +1492,30 @@ int main() {
   {
     const float run = 4.0F;
     const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 3.0F, 3.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-0.25F, 0.0F, slopedTopZ(ramp, -0.25F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.viewYawRadians = 0.78539816339F;
+
+    const float startZ = player.position.z;
+    for (int tick = 0; tick < 60; ++tick) {
+      command.rightMove = tick % 2 == 0 ? 1.0F : -1.0F;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    }
+
+    failures += expect(
+      std::fabs(player.position.z - startZ) < 0.1F,
+      "alternating AD on an angled slope should not drift down the ramp"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
       slopedTopBrush(-2.0F, 2.0F, 4.2F, 4.2F - riseForAngle(44.0F, run));
     const lg::Arena arena = arenaWithBrush(ramp);
     lg::MovementTuning tuning;
