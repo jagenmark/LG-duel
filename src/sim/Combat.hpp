@@ -5,6 +5,7 @@
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -131,6 +132,19 @@ struct WeaponDamageTuning {
   int railgunDamage = 80;
   int rocketLauncherDamage = 100;
   int plasmaGunDamage = 20;
+};
+
+struct WeaponAmmoConfig {
+  bool infiniteAmmo = true;
+  WeaponAmmoArray spawnAmmo = {{
+    150,
+    10,
+    10,
+    100,
+    10,
+    10,
+    50,
+  }};
 };
 
 struct RocketProjectile {

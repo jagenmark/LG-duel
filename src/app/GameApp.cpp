@@ -149,6 +149,10 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute("set g_selfdamage " + std::to_string(snapshot.selfDamagePercent));
   (void)console.execute("set g_healthamount " + std::to_string(snapshot.healthAmount));
   (void)console.execute(
+    std::string("set g_infiniteammo ") +
+    (snapshot.weaponAmmo.infiniteAmmo ? "1" : "0")
+  );
+  (void)console.execute(
     std::string("set g_weaponswitching ") +
     weaponSwitchingModeCvarValue(snapshot.weaponSwitchingMode)
   );
@@ -235,6 +239,17 @@ void copyTextToClipboard(std::string_view text) {
   return eyePosition +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+}
+
+[[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
+  constexpr CollisionBounds defaultBounds = {};
+  const float eyeHeight =
+    0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
+  const Vec3 eyePosition =
+    player.position + Vec3{0.0F, 0.0F, eyeHeight};
+  return eyePosition +
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.24F -
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.54F;
 }
 
 struct WeaponPresentationFrame {
@@ -368,6 +383,9 @@ struct WeaponPresentationFrame {
   const RenderSettings& settings
 ) {
   if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    if (!settings.showOwnWeapons) {
+      return hiddenWeaponVisualOrigin(localPlayer);
+    }
     const float angle =
       static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
     return weaponPresentationPoint(
@@ -399,6 +417,9 @@ struct WeaponPresentationFrame {
   const RenderSettings& settings
 ) {
   if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    if (!settings.showOwnWeapons) {
+      return hiddenWeaponVisualOrigin(localPlayer);
+    }
     return weaponPresentationPoint(
       firstPersonWeaponPresentationFrame(localPlayer),
       0.46F,
@@ -590,7 +611,8 @@ struct TransientTracerStore {
 
   void fillActive(
     std::vector<TransientTracer>& result,
-    const PlayerState& localPlayer
+    const PlayerState& localPlayer,
+    const RenderSettings& settings
   ) const {
     result.clear();
     result.reserve(tracers.size());
@@ -599,7 +621,9 @@ struct TransientTracerStore {
         TransientTracer tracer = tracers[index];
         if (followLocalMuzzle[index]) {
           const Vec3 oldStart = tracer.start;
-          if (followWeapon[index] == Weapon::MachineGun) {
+          if (!settings.showOwnWeapons) {
+            tracer.start = hiddenWeaponVisualOrigin(localPlayer);
+          } else if (followWeapon[index] == Weapon::MachineGun) {
             const float angle =
               static_cast<float>(followSeed[index] % 6U) * (kTwoPi / 6.0F);
             tracer.start = weaponPresentationPoint(
@@ -2255,6 +2279,8 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.healthTextScale = console.getFloat("cl_health_size");
   settings.healthStyle = console.getInt("cl_health_style");
   settings.speedTextScale = console.getFloat("cl_speed_size");
+  settings.weaponBarScale = console.getFloat("cl_weapon_bar_size");
+  settings.fpsTextScale = console.getFloat("cl_showfps_size");
   settings.uiFont = console.getString("r_ui_font");
   settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
   settings.textureFilter = console.getInt("r_texture_filter");
@@ -2304,6 +2330,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_b"));
   settings.shotgunWeaponModelStart =
     console.getBool("r_sg_weapon_model_start");
+  settings.showOwnWeapons = console.getBool("r_show_weapons");
   settings.drawRemotePlayers = console.getBool("r_draw_remote_players");
   settings.drawRemoteWeapons = console.getBool("r_draw_remote_weapons");
   settings.drawPlayerOutlines = console.getBool("r_draw_player_outlines");
@@ -2798,6 +2825,21 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   }
 
   hud.healthAmount = snapshot.healthAmount;
+  const WeaponAmmoArray& localAmmo = snapshot.playerAmmo[localPlayerIndex];
+  const auto ammoText = [&snapshot, &localAmmo](Weapon weapon) {
+    return snapshot.weaponAmmo.infiniteAmmo
+      ? std::string("\xE2\x88\x9E")
+      : std::to_string(localAmmo[weaponIndex(weapon)]);
+  };
+  hud.weaponValues = {{
+    ammoText(Weapon::MachineGun),
+    ammoText(Weapon::Shotgun),
+    ammoText(Weapon::GrenadeLauncher),
+    ammoText(Weapon::RocketLauncher),
+    ammoText(Weapon::LightningGun),
+    ammoText(Weapon::Railgun),
+    ammoText(Weapon::PlasmaGun),
+  }};
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
@@ -3689,6 +3731,8 @@ int GameApp::run() const {
     selfDamagePercent(console);
   std::int32_t lastRequestedHealthAmount =
     healthAmountFromCvars(console);
+  WeaponAmmoConfig lastRequestedWeaponAmmo;
+  lastRequestedWeaponAmmo.infiniteAmmo = infiniteAmmoFromCvars(console);
   WeaponSwitchingMode lastRequestedWeaponSwitchingMode =
     weaponSwitchingModeFromCvars(console);
   bool lastRequestedBotDodgeEnabled = botDodgeEnabled;
@@ -4257,6 +4301,8 @@ int GameApp::run() const {
       selfDamagePercent(console);
     const std::int32_t currentHealthAmount =
       healthAmountFromCvars(console);
+    WeaponAmmoConfig currentWeaponAmmo = lastRequestedWeaponAmmo;
+    currentWeaponAmmo.infiniteAmmo = infiniteAmmoFromCvars(console);
     const WeaponSwitchingMode currentWeaponSwitchingMode =
       weaponSwitchingModeFromCvars(console);
     if (!sameRuntimeMovementTuning(
@@ -4284,6 +4330,7 @@ int GameApp::run() const {
           lastRequestedWeaponDamage.plasmaGunDamage ||
         currentSelfDamagePercent != lastRequestedSelfDamagePercent ||
         currentHealthAmount != lastRequestedHealthAmount ||
+        currentWeaponAmmo.infiniteAmmo != lastRequestedWeaponAmmo.infiniteAmmo ||
         currentWeaponSwitchingMode != lastRequestedWeaponSwitchingMode ||
         botDodgeEnabled != lastRequestedBotDodgeEnabled ||
         botDodgeMinIntervalMs != lastRequestedBotDodgeMinIntervalMs ||
@@ -4299,6 +4346,7 @@ int GameApp::run() const {
       lastRequestedWeaponDamage = currentWeaponDamage;
       lastRequestedSelfDamagePercent = currentSelfDamagePercent;
       lastRequestedHealthAmount = currentHealthAmount;
+      lastRequestedWeaponAmmo = currentWeaponAmmo;
       lastRequestedWeaponSwitchingMode = currentWeaponSwitchingMode;
       lastRequestedBotDodgeEnabled = botDodgeEnabled;
       lastRequestedBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
@@ -4403,6 +4451,7 @@ int GameApp::run() const {
         lastRequestedSelfDamagePercent,
         lastRequestedHealthAmount,
         lastRequestedWeaponDamage,
+        lastRequestedWeaponAmmo,
         lastRequestedLightningFireHz,
         lastRequestedBotDodgeEnabled,
         lastRequestedBotDodgeMinIntervalMs,
@@ -4471,6 +4520,8 @@ int GameApp::run() const {
           ) ||
           selfDamagePercent(console) != updatedSnapshot.selfDamagePercent ||
           healthAmountFromCvars(console) != updatedSnapshot.healthAmount ||
+          infiniteAmmoFromCvars(console) !=
+            updatedSnapshot.weaponAmmo.infiniteAmmo ||
           weaponSwitchingModeFromCvars(console) != updatedSnapshot.weaponSwitchingMode ||
           consoleWeaponDamage.shotgunDamagePerPellet !=
             updatedSnapshot.weaponDamage.shotgunDamagePerPellet ||
@@ -4496,6 +4547,7 @@ int GameApp::run() const {
           lastRequestedRocketKnockback = updatedSnapshot.rocketKnockback;
           lastRequestedKnockbackTimeMs = updatedSnapshot.knockbackTimeMs;
           lastRequestedWeaponDamage = updatedSnapshot.weaponDamage;
+          lastRequestedWeaponAmmo = updatedSnapshot.weaponAmmo;
           lastRequestedVampirism = updatedSnapshot.vampirism;
           lastRequestedSelfDamagePercent = updatedSnapshot.selfDamagePercent;
           lastRequestedHealthAmount = updatedSnapshot.healthAmount;
@@ -4998,7 +5050,7 @@ int GameApp::run() const {
       renderedFrameCount = 0;
       char title[512];
       char fpsText[256] = {};
-      if (console.getBool("cl_showfps")) {
+      if (console.getBool("cl_showfps_titlebar")) {
         const float frameMilliseconds = displayedFramesPerSecond > 0.0F
           ? 1000.0F / displayedFramesPerSecond
           : 0.0F;
@@ -5241,7 +5293,9 @@ int GameApp::run() const {
           !sameWeaponFireEvent(sourceFire, lingeringRailBeam.sourceFire);
         if (newRailEvent) {
           if (localPerspectiveRail) {
-            currentFire.start = viewmodelMuzzlePosition(renderPlayer);
+            currentFire.start = currentRenderSettings.showOwnWeapons
+              ? viewmodelMuzzlePosition(renderPlayer)
+              : hiddenWeaponVisualOrigin(renderPlayer);
           }
           lingeringRailBeam.sourceFire = sourceFire;
           lingeringRailBeam.fire = currentFire;
@@ -5385,6 +5439,11 @@ int GameApp::run() const {
     hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
+    if (console.getBool("cl_showfps")) {
+      hud.fpsText = std::to_string(static_cast<int>(
+        std::lround(displayedFramesPerSecond)
+      )) + "fps";
+    }
     hud.weaponSwitchProgress = kWeaponSwitchDurationSeconds > 0.0F
       ? weaponSwitchSeconds / kWeaponSwitchDurationSeconds
       : 1.0F;
@@ -5685,7 +5744,11 @@ int GameApp::run() const {
       currentRenderSettings
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
-    transientTracerStore.fillActive(activeTransientTracers, renderPlayer);
+    transientTracerStore.fillActive(
+      activeTransientTracers,
+      renderPlayer,
+      currentRenderSettings
+    );
     transientTracerStore.fillActiveEffects(activeTransientEffects);
     renderer.render(
       renderArena,

@@ -20,6 +20,7 @@ struct BalanceConfig {
   std::uint32_t rocketLauncherCooldownTicks = 100;
   GrenadeLauncherTuning grenadeLauncher = {};
   PlasmaGunTuning plasmaGun = {};
+  WeaponAmmoConfig weaponAmmo = {};
   std::uint32_t weaponPulloutTicks = 20;
   std::uint32_t jumpPadRetriggerCooldownTicks = 25;
 };

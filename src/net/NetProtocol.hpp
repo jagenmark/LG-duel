@@ -83,6 +83,7 @@ struct CommandPacket {
     100,
     20,
   };
+  WeaponAmmoConfig weaponAmmo = {};
   float vampirism = 0.0F;
   std::string chatMessage;
   std::string playerName;
@@ -194,6 +195,8 @@ struct ServerSnapshot {
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
   WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
+  WeaponAmmoConfig weaponAmmo = {};
+  std::array<WeaponAmmoArray, kDuelPlayerCount> playerAmmo = {};
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
   std::array<std::string, kDuelPlayerCount> playerNames = {

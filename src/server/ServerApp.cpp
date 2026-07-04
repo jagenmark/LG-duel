@@ -200,6 +200,7 @@ bool sameWeaponDamage(
     nearlyEqualGameplayFloat(console.getFloat("g_vampirism"), snapshot.vampirism) &&
     selfDamagePercentFromCvars(console) == snapshot.selfDamagePercent &&
     healthAmountFromCvars(console) == snapshot.healthAmount &&
+    infiniteAmmoFromCvars(console) == snapshot.weaponAmmo.infiniteAmmo &&
     weaponSwitchingModeFromCvars(console) == snapshot.weaponSwitchingMode &&
     sameWeaponDamage(weaponDamage, snapshot.weaponDamage);
 }
@@ -239,6 +240,10 @@ void syncGameplayConsoleFromSnapshot(
   (void)console.execute("set g_vampirism " + std::to_string(snapshot.vampirism));
   (void)console.execute("set g_selfdamage " + std::to_string(snapshot.selfDamagePercent));
   (void)console.execute("set g_healthamount " + std::to_string(snapshot.healthAmount));
+  (void)console.execute(
+    std::string("set g_infiniteammo ") +
+    (snapshot.weaponAmmo.infiniteAmmo ? "1" : "0")
+  );
   (void)console.execute(
     std::string("set g_weaponswitching ") +
     weaponSwitchingModeCvarValue(snapshot.weaponSwitchingMode)
@@ -447,6 +452,7 @@ int ServerApp::run() const {
   float lastAppliedVampirism = 0.0F;
   std::uint8_t lastAppliedSelfDamagePercent = 100;
   std::int32_t lastAppliedHealthAmount = 100;
+  bool lastAppliedInfiniteAmmo = true;
   WeaponSwitchingMode lastAppliedWeaponSwitchingMode = WeaponSwitchingMode::Crazy;
   bool lastAppliedBotStareEnabled = true;
   bool lastAppliedBotStandstillEnabled = false;
@@ -483,6 +489,7 @@ int ServerApp::run() const {
     const float vampirism = console.getFloat("g_vampirism");
     const std::uint8_t selfDamagePercent = selfDamagePercentFromCvars(console);
     const std::int32_t healthAmount = healthAmountFromCvars(console);
+    const bool infiniteAmmo = infiniteAmmoFromCvars(console);
     const WeaponSwitchingMode weaponSwitchingMode =
       weaponSwitchingModeFromCvars(console);
     const bool botStareEnabled = console.getBool("bot_stare");
@@ -504,6 +511,7 @@ int ServerApp::run() const {
       vampirism != lastAppliedVampirism ||
       selfDamagePercent != lastAppliedSelfDamagePercent ||
       healthAmount != lastAppliedHealthAmount ||
+      infiniteAmmo != lastAppliedInfiniteAmmo ||
       weaponSwitchingMode != lastAppliedWeaponSwitchingMode;
     const bool botBehaviorChanged =
       firstRuntimeCvarApply ||
@@ -543,6 +551,7 @@ int ServerApp::run() const {
       vampirism,
       selfDamagePercent,
       healthAmount,
+      infiniteAmmo,
       botDodgeEnabled,
       botDodgeMinIntervalMs,
       botDodgeMaxIntervalMs,
@@ -559,6 +568,7 @@ int ServerApp::run() const {
     lastAppliedVampirism = vampirism;
     lastAppliedSelfDamagePercent = selfDamagePercent;
     lastAppliedHealthAmount = healthAmount;
+    lastAppliedInfiniteAmmo = infiniteAmmo;
     lastAppliedWeaponSwitchingMode = weaponSwitchingMode;
     firstRuntimeCvarApply = false;
   };

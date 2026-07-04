@@ -2,6 +2,7 @@
 #include "net/LoopbackTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
+#include "sim/BalanceConfig.hpp"
 #include "sim/MovementModes.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -763,6 +764,61 @@ int main() {
         snapshot.lightningGuns[0].knockbackImpulse.x > 0.924F &&
         snapshot.lightningGuns[0].knockbackImpulse.x < 0.926F,
       "g_lg_knockback 500 should map to the old 841 impulse"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::BalanceConfig ammoConfig;
+    ammoConfig.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 1;
+    server.applyBalanceConfig(ammoConfig);
+
+    lg::CommandPacket finiteAmmo;
+    finiteAmmo.command.sequence = 1;
+    finiteAmmo.requestMovementTuning = true;
+    finiteAmmo.weaponAmmo.infiniteAmmo = false;
+    transport.sendCommand(finiteAmmo);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      !snapshot.weaponAmmo.infiniteAmmo &&
+        snapshot.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] == 1,
+      "g_infiniteammo 0 should replicate and keep configured spawn ammo"
+    );
+
+    lg::UserCommand firstRail;
+    firstRail.sequence = 2;
+    firstRail.attack = true;
+    firstRail.planarAim = true;
+    firstRail.viewYawRadians = 0.0F;
+    firstRail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{0, firstRail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].fired &&
+        snapshot.weaponFires[0].weapon == lg::Weapon::Railgun &&
+        snapshot.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] == 0,
+      "finite rail ammo should be consumed when the shot fires"
+    );
+
+    for (int tick = 0; tick < 200; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+    }
+
+    lg::UserCommand secondRail = firstRail;
+    secondRail.sequence = 3;
+    transport.sendCommand(lg::CommandPacket{0, secondRail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      !snapshot.weaponFires[0].fired &&
+        snapshot.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] == 0,
+      "empty finite rail ammo should prevent the next shot"
     );
   }
 
