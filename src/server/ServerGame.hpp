@@ -16,13 +16,6 @@
 
 namespace lg {
 
-enum class BotAttackMode {
-  Off,
-  Easy,
-  Medium,
-  Hard,
-};
-
 struct BotRosterChange {
   bool ok = false;
   std::size_t changed = 0;
@@ -176,6 +169,7 @@ private:
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
   void updateBotCommands(float fixedDt);
+  void handleBotCommandRequest(const CommandPacket& packet);
   void updateClanArenaBotTeams();
   void refreshWarmupRosterState();
   void addBotAtPlayerIndex(std::size_t playerIndex);

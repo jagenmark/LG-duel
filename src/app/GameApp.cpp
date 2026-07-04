@@ -113,6 +113,39 @@ constexpr std::uint8_t kShotgunVisualPelletCount = 6;
   return "crazy";
 }
 
+[[nodiscard]] std::optional<BotAttackMode> parseBotAttackMode(std::string value) {
+  std::transform(value.begin(), value.end(), value.begin(), [](unsigned char character) {
+    return static_cast<char>(std::tolower(character));
+  });
+  if (value == "0" || value == "off" || value == "false") {
+    return BotAttackMode::Off;
+  }
+  if (value == "easy") {
+    return BotAttackMode::Easy;
+  }
+  if (value == "medium") {
+    return BotAttackMode::Medium;
+  }
+  if (value == "hard") {
+    return BotAttackMode::Hard;
+  }
+  return std::nullopt;
+}
+
+[[nodiscard]] const char* botAttackModeCvarValue(BotAttackMode mode) {
+  switch (mode) {
+    case BotAttackMode::Off:
+      return "0";
+    case BotAttackMode::Easy:
+      return "easy";
+    case BotAttackMode::Medium:
+      return "medium";
+    case BotAttackMode::Hard:
+      return "hard";
+  }
+  return "0";
+}
+
 void syncGameplayCvarsFromSnapshot(
   ConsoleSystem& console,
   const ServerSnapshot& snapshot
@@ -3204,9 +3237,19 @@ int GameApp::run() const {
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
+  bool botStareEnabled = true;
+  bool botStandstillEnabled = false;
+  BotAttackMode botAttackMode = BotAttackMode::Off;
+  struct PendingBotCommand {
+    BotCommandType type = BotCommandType::None;
+    std::int32_t value = 0;
+    std::int32_t minIntervalMs = 250;
+    std::int32_t maxIntervalMs = 750;
+  };
   std::string pendingPlayerName;
   std::string lastSentPlayerName;
   std::string pendingMapName;
+  std::deque<PendingBotCommand> pendingBotCommands;
   ClientChatState chatState;
   ClientSession session;
 
@@ -3257,7 +3300,11 @@ int GameApp::run() const {
   console.registerCommand(
     "bot_dodge",
     "Toggle BOT random left/right movement: bot_dodge [0|1] [min_ms max_ms].",
-    [&botDodgeEnabled, &botDodgeMinIntervalMs, &botDodgeMaxIntervalMs](
+    [&botDodgeEnabled,
+     &botDodgeMinIntervalMs,
+     &botDodgeMaxIntervalMs,
+     &pendingBotCommands,
+     &session](
       const std::vector<std::string>& arguments
     ) {
       auto parseInt = [](const std::string& text, int& value) {
@@ -3305,12 +3352,196 @@ int GameApp::run() const {
       if (minMs > maxMs) {
         std::swap(minMs, maxMs);
       }
-      botDodgeEnabled = enabled;
-      botDodgeMinIntervalMs = minMs;
-      botDodgeMaxIntervalMs = maxMs;
-      return std::string("bot_dodge = ") + (botDodgeEnabled ? "1" : "0") +
-        " (" + std::to_string(botDodgeMinIntervalMs) + "-" +
-        std::to_string(botDodgeMaxIntervalMs) + " ms)";
+      if (!session.connected()) {
+        return std::string("not connected");
+      }
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Dodge,
+        enabled ? 1 : 0,
+        minMs,
+        maxMs,
+      });
+      return std::string("bot_dodge requested");
+    }
+  );
+  console.registerCommand(
+    "bot_dodge_min_ms",
+    "Set minimum bot dodge interval: bot_dodge_min_ms <milliseconds>.",
+    [&botDodgeEnabled,
+     &botDodgeMinIntervalMs,
+     &botDodgeMaxIntervalMs,
+     &pendingBotCommands,
+     &session](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return "bot_dodge_min_ms = " + std::to_string(botDodgeMinIntervalMs);
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_dodge_min_ms <milliseconds>");
+      }
+      int minMs = 0;
+      const auto result =
+        std::from_chars(arguments[1].data(), arguments[1].data() + arguments[1].size(), minMs);
+      if (result.ec != std::errc{} || result.ptr != arguments[1].data() + arguments[1].size()) {
+        return std::string("usage: bot_dodge_min_ms <milliseconds>");
+      }
+      minMs = std::clamp(minMs, 1, 10000);
+      int maxMs = std::max(botDodgeMaxIntervalMs, minMs);
+      if (!session.connected()) {
+        return std::string("not connected");
+      }
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Dodge,
+        botDodgeEnabled ? 1 : 0,
+        minMs,
+        maxMs,
+      });
+      return std::string("bot_dodge_min_ms requested");
+    }
+  );
+  console.registerCommand(
+    "bot_dodge_max_ms",
+    "Set maximum bot dodge interval: bot_dodge_max_ms <milliseconds>.",
+    [&botDodgeEnabled,
+     &botDodgeMinIntervalMs,
+     &botDodgeMaxIntervalMs,
+     &pendingBotCommands,
+     &session](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return "bot_dodge_max_ms = " + std::to_string(botDodgeMaxIntervalMs);
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_dodge_max_ms <milliseconds>");
+      }
+      int maxMs = 0;
+      const auto result =
+        std::from_chars(arguments[1].data(), arguments[1].data() + arguments[1].size(), maxMs);
+      if (result.ec != std::errc{} || result.ptr != arguments[1].data() + arguments[1].size()) {
+        return std::string("usage: bot_dodge_max_ms <milliseconds>");
+      }
+      maxMs = std::clamp(maxMs, 1, 10000);
+      int minMs = std::min(botDodgeMinIntervalMs, maxMs);
+      if (!session.connected()) {
+        return std::string("not connected");
+      }
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Dodge,
+        botDodgeEnabled ? 1 : 0,
+        minMs,
+        maxMs,
+      });
+      return std::string("bot_dodge_max_ms requested");
+    }
+  );
+  const auto parseBotBool = [](const std::string& text, bool& value) {
+    if (text == "1" || text == "on" || text == "true") {
+      value = true;
+      return true;
+    }
+    if (text == "0" || text == "off" || text == "false") {
+      value = false;
+      return true;
+    }
+    return false;
+  };
+  const auto parseBotInt = [](const std::string& text, int& value) {
+    const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    return result.ec == std::errc{} && result.ptr == text.data() + text.size();
+  };
+  const auto queueBotCommand =
+    [&pendingBotCommands, &session](PendingBotCommand command) {
+      if (!session.connected()) {
+        return std::string("not connected");
+      }
+      pendingBotCommands.push_back(command);
+      return std::string("bot command requested");
+    };
+  console.registerCommand(
+    "bot_add",
+    "Request server training bots: bot_add [count].",
+    [&queueBotCommand, &parseBotInt](const std::vector<std::string>& arguments) {
+      if (arguments.size() > 2) {
+        return std::string("usage: bot_add [count]");
+      }
+      int count = -1;
+      if (arguments.size() == 2 && (!parseBotInt(arguments[1], count) || count < 0)) {
+        return std::string("usage: bot_add [count]");
+      }
+      return queueBotCommand(PendingBotCommand{BotCommandType::Add, count});
+    }
+  );
+  console.registerCommand(
+    "bot_kick",
+    "Request removal of server training bots: bot_kick all|<slot>.",
+    [&queueBotCommand, &parseBotInt](const std::vector<std::string>& arguments) {
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_kick all|<slot>");
+      }
+      if (arguments[1] == "all") {
+        return queueBotCommand(PendingBotCommand{BotCommandType::KickAll, 0});
+      }
+      int slot = 0;
+      if (!parseBotInt(arguments[1], slot) || slot < 1 || slot > static_cast<int>(kDuelPlayerCount)) {
+        return std::string("usage: bot_kick all|<slot>");
+      }
+      return queueBotCommand(PendingBotCommand{BotCommandType::KickSlot, slot});
+    }
+  );
+  console.registerCommand(
+    "bot_attack",
+    "Request server training bot combat mode: bot_attack [0|off|easy|medium|hard].",
+    [&botAttackMode, &queueBotCommand](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return std::string("bot_attack = ") + botAttackModeCvarValue(botAttackMode);
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_attack 0|off|easy|medium|hard");
+      }
+      const std::optional<BotAttackMode> mode = parseBotAttackMode(arguments[1]);
+      if (!mode.has_value()) {
+        return std::string("usage: bot_attack 0|off|easy|medium|hard");
+      }
+      return queueBotCommand(PendingBotCommand{
+        BotCommandType::AttackMode,
+        static_cast<std::int32_t>(*mode),
+      });
+    }
+  );
+  console.registerCommand(
+    "bot_stare",
+    "Request passive server bot staring: bot_stare [0|1].",
+    [&botStareEnabled, &queueBotCommand, &parseBotBool](
+      const std::vector<std::string>& arguments
+    ) {
+      bool enabled = !botStareEnabled;
+      if (arguments.size() > 2) {
+        return std::string("usage: bot_stare [0|1]");
+      }
+      if (arguments.size() == 2 && !parseBotBool(arguments[1], enabled)) {
+        return std::string("usage: bot_stare [0|1]");
+      }
+      return queueBotCommand(PendingBotCommand{
+        BotCommandType::Stare,
+        enabled ? 1 : 0,
+      });
+    }
+  );
+  console.registerCommand(
+    "bot_standstill",
+    "Request server bot standstill mode: bot_standstill [0|1].",
+    [&botStandstillEnabled, &queueBotCommand, &parseBotBool](
+      const std::vector<std::string>& arguments
+    ) {
+      bool enabled = !botStandstillEnabled;
+      if (arguments.size() > 2) {
+        return std::string("usage: bot_standstill [0|1]");
+      }
+      if (arguments.size() == 2 && !parseBotBool(arguments[1], enabled)) {
+        return std::string("usage: bot_standstill [0|1]");
+      }
+      return queueBotCommand(PendingBotCommand{
+        BotCommandType::Standstill,
+        enabled ? 1 : 0,
+      });
     }
   );
   console.registerCommand(
@@ -3628,6 +3859,14 @@ int GameApp::run() const {
         "ready\n"
         "gamemode\n"
         "team\n"
+        "bot_add\n"
+        "bot_kick\n"
+        "bot_attack\n"
+        "bot_dodge\n"
+        "bot_dodge_min_ms\n"
+        "bot_dodge_max_ms\n"
+        "bot_stare\n"
+        "bot_standstill\n"
 
         "settings\n"
         "messagemode\n"
@@ -4564,6 +4803,11 @@ int GameApp::run() const {
               selectedWeapon
             );
       localTracerAimHistory.remember(command);
+      PendingBotCommand botCommandForPacket;
+      if (!pendingBotCommands.empty()) {
+        botCommandForPacket = pendingBotCommands.front();
+        pendingBotCommands.pop_front();
+      }
       std::string playerNameForCommand = std::move(pendingPlayerName);
       const std::string configuredPlayerName = console.getString("cl_player_name");
       if (
@@ -4602,7 +4846,11 @@ int GameApp::run() const {
         requestedGameMode,
         requestTeamPending,
         requestedTeam,
-        lastRequestedWeaponSwitchingMode
+        lastRequestedWeaponSwitchingMode,
+        botCommandForPacket.type,
+        botCommandForPacket.value,
+        botCommandForPacket.minIntervalMs,
+        botCommandForPacket.maxIntervalMs
       );
       if (!sentPlayerName.empty()) {
         lastSentPlayerName = sentPlayerName;
@@ -4621,6 +4869,9 @@ int GameApp::run() const {
           updatedGame->hasSnapshot() &&
           !updatedGame->hasPendingMovementTuning()) {
         const ServerSnapshot& updatedSnapshot = updatedGame->snapshot();
+        botStareEnabled = updatedSnapshot.botStareEnabled;
+        botStandstillEnabled = updatedSnapshot.botStandstillEnabled;
+        botAttackMode = updatedSnapshot.botAttackMode;
         const MovementTuning consoleMovementTuning =
           movementTuningFromCvars(console);
         const WeaponDamageTuning consoleWeaponDamage =
@@ -4660,6 +4911,9 @@ int GameApp::run() const {
           healthAmountFromCvars(console) != updatedSnapshot.healthAmount ||
           infiniteAmmoFromCvars(console) !=
             updatedSnapshot.weaponAmmo.infiniteAmmo ||
+          botDodgeEnabled != updatedSnapshot.botDodgeEnabled ||
+          botDodgeMinIntervalMs != updatedSnapshot.botDodgeMinIntervalMs ||
+          botDodgeMaxIntervalMs != updatedSnapshot.botDodgeMaxIntervalMs ||
           weaponSwitchingModeFromCvars(console) != updatedSnapshot.weaponSwitchingMode ||
           consoleWeaponDamage.shotgunDamagePerPellet !=
             updatedSnapshot.weaponDamage.shotgunDamagePerPellet ||
@@ -4690,6 +4944,9 @@ int GameApp::run() const {
           lastRequestedSelfDamagePercent = updatedSnapshot.selfDamagePercent;
           lastRequestedHealthAmount = updatedSnapshot.healthAmount;
           lastRequestedWeaponSwitchingMode = updatedSnapshot.weaponSwitchingMode;
+          botDodgeEnabled = updatedSnapshot.botDodgeEnabled;
+          botDodgeMinIntervalMs = updatedSnapshot.botDodgeMinIntervalMs;
+          botDodgeMaxIntervalMs = updatedSnapshot.botDodgeMaxIntervalMs;
           lastRequestedBotDodgeEnabled = updatedSnapshot.botDodgeEnabled;
           lastRequestedBotDodgeMinIntervalMs =
             updatedSnapshot.botDodgeMinIntervalMs;

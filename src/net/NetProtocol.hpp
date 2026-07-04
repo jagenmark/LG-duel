@@ -42,6 +42,24 @@ enum class WeaponSwitchingMode : std::uint8_t {
   Crazy = 2,
 };
 
+enum class BotAttackMode : std::uint8_t {
+  Off = 0,
+  Easy = 1,
+  Medium = 2,
+  Hard = 3,
+};
+
+enum class BotCommandType : std::uint8_t {
+  None = 0,
+  Add = 1,
+  KickSlot = 2,
+  KickAll = 3,
+  AttackMode = 4,
+  Stare = 5,
+  Standstill = 6,
+  Dodge = 7,
+};
+
 struct MatchRules {
   std::uint16_t roundLimit = 10;
   std::uint16_t timeLimitMinutes = 0;
@@ -100,6 +118,10 @@ struct CommandPacket {
   WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
   std::uint32_t clientNonce = 0;
   std::int32_t knockbackTimeMs = 100;
+  BotCommandType botCommand = BotCommandType::None;
+  std::int32_t botCommandValue = 0;
+  std::int32_t botCommandMinIntervalMs = 250;
+  std::int32_t botCommandMaxIntervalMs = 750;
 };
 
 struct CommandBundle {
@@ -200,6 +222,9 @@ struct ServerSnapshot {
   bool botDodgeEnabled = false;
   std::int32_t botDodgeMinIntervalMs = 250;
   std::int32_t botDodgeMaxIntervalMs = 750;
+  bool botStareEnabled = true;
+  bool botStandstillEnabled = false;
+  BotAttackMode botAttackMode = BotAttackMode::Off;
   WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
   WeaponAmmoConfig weaponAmmo = {};
   std::array<WeaponAmmoArray, kDuelPlayerCount> playerAmmo = {};

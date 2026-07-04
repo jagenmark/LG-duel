@@ -1402,6 +1402,8 @@ void ServerGame::setBotBehavior(
 ) {
   botStareEnabled_ = stareEnabled;
   botStandstillEnabled_ = standstillEnabled;
+  snapshot_.botStareEnabled = botStareEnabled_;
+  snapshot_.botStandstillEnabled = botStandstillEnabled_;
   setBotDodge(dodgeEnabled, dodgeMinIntervalMs, dodgeMaxIntervalMs);
   setBotAttackMode(attackMode);
 }
@@ -1411,6 +1413,7 @@ void ServerGame::setBotAttackMode(BotAttackMode mode) {
     botCombatStates_ = {};
   }
   botAttackMode_ = mode;
+  snapshot_.botAttackMode = botAttackMode_;
   if (botAttackMode_ == BotAttackMode::Off) {
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
       if (botPlayers_[index]) {
@@ -2790,6 +2793,46 @@ void ServerGame::updateBotCommands(float fixedDt) {
   }
 }
 
+void ServerGame::handleBotCommandRequest(const CommandPacket& packet) {
+  switch (packet.botCommand) {
+    case BotCommandType::None:
+      break;
+    case BotCommandType::Add:
+      if (packet.botCommandValue < 0) {
+        (void)addBots();
+      } else {
+        (void)addBots(static_cast<std::size_t>(packet.botCommandValue));
+      }
+      break;
+    case BotCommandType::KickSlot:
+      if (packet.botCommandValue >= 1) {
+        (void)kickBotAtPlayerIndex(static_cast<std::size_t>(packet.botCommandValue - 1));
+      }
+      break;
+    case BotCommandType::KickAll:
+      (void)kickAllBots();
+      break;
+    case BotCommandType::AttackMode:
+      setBotAttackMode(static_cast<BotAttackMode>(packet.botCommandValue));
+      break;
+    case BotCommandType::Stare:
+      botStareEnabled_ = packet.botCommandValue != 0;
+      snapshot_.botStareEnabled = botStareEnabled_;
+      break;
+    case BotCommandType::Standstill:
+      botStandstillEnabled_ = packet.botCommandValue != 0;
+      snapshot_.botStandstillEnabled = botStandstillEnabled_;
+      break;
+    case BotCommandType::Dodge:
+      setBotDodge(
+        packet.botCommandValue != 0,
+        packet.botCommandMinIntervalMs,
+        packet.botCommandMaxIntervalMs
+      );
+      break;
+  }
+}
+
 void ServerGame::updateClanArenaBotTeams() {
   if (snapshot_.gameMode != GameMode::ClanArena) {
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -3144,6 +3187,9 @@ void ServerGame::receiveCommands() {
     if (!packet.mapName.empty()) {
       (void)loadRequestedMap(packet.mapName);
     }
+    if (packet.botCommand != BotCommandType::None) {
+      handleBotCommandRequest(packet);
+    }
 
     commands_[playerIndex] = packet.command;
     viewedServerTicks_[playerIndex] = packet.viewedServerTick;
@@ -3156,6 +3202,12 @@ void ServerGame::receiveCommands() {
 
 void ServerGame::publishSnapshot() {
   updateParticipatingPlayers();
+  snapshot_.botStareEnabled = botStareEnabled_;
+  snapshot_.botStandstillEnabled = botStandstillEnabled_;
+  snapshot_.botDodgeEnabled = botDodgeEnabled_;
+  snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
+  snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+  snapshot_.botAttackMode = botAttackMode_;
   transport_.sendSnapshot(snapshot_);
 }
 

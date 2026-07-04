@@ -1027,8 +1027,9 @@ int main() {
         nameTag->color.green == 34 &&
         nameTag->color.blue == 56 &&
         nameTag->color.alpha == 127 &&
-        nameTag->scale == 2.0F,
-      "floating enemy name tag should use configured text style"
+        nameTag->scale == 2.0F &&
+        nameTag->horizontalAlignment == lg::TextHorizontalAlignment::Center,
+      "floating enemy name tag should use configured centered text style"
     );
     const auto* fill =
       std::get_if<lg::FilledQuad2D>(&bars.overlayCommands.back());

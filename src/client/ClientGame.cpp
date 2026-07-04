@@ -44,7 +44,11 @@ void ClientGame::sendCommand(
     GameMode requestedGameMode,
     bool requestTeam,
     Team requestedTeam,
-    WeaponSwitchingMode weaponSwitchingMode
+    WeaponSwitchingMode weaponSwitchingMode,
+    BotCommandType botCommand,
+    std::int32_t botCommandValue,
+    std::int32_t botCommandMinIntervalMs,
+    std::int32_t botCommandMaxIntervalMs
   ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
@@ -84,6 +88,10 @@ void ClientGame::sendCommand(
       weaponSwitchingMode,
       0,
       knockbackTimeMs,
+      botCommand,
+      botCommandValue,
+      botCommandMinIntervalMs,
+      botCommandMaxIntervalMs,
     }
   );
   if (!requestReset) {

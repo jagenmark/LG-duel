@@ -125,6 +125,8 @@ int main() {
     source.chatMessage = "åäöÅÄÖ";
     source.playerName = "yg";
     source.mapName = "thunderstruck";
+    source.botCommand = lg::BotCommandType::Add;
+    source.botCommandValue = 1;
     source.viewedServerTick = 88;
 
     lg::WirePacket wire;
@@ -147,6 +149,11 @@ int main() {
     failures += expect(decoded.chatMessage == "åäöÅÄÖ", "Swedish chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.mapName == "thunderstruck", "map name should round trip");
+    failures += expect(
+      decoded.botCommand == lg::BotCommandType::Add &&
+        decoded.botCommandValue == 1,
+      "bot command request should round trip"
+    );
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
     failures += expect(
@@ -214,7 +221,7 @@ int main() {
     failures += expect(!lg::decodeCommandPacket(wrongType, decoded), "wrong packet type should be rejected");
 
     lg::WirePacket invalidModeWire = wire;
-    invalidModeWire[invalidModeWire.size() - 3U] = 255;
+    invalidModeWire[invalidModeWire.size() - 17U] = 255;
     failures += expect(
       !lg::decodeCommandPacket(invalidModeWire, decoded),
       "invalid requested gamemode should be rejected while decoding"

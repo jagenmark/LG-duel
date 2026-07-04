@@ -54,7 +54,11 @@ public:
     GameMode requestedGameMode = GameMode::Duel,
     bool requestTeam = false,
     Team requestedTeam = Team::None,
-    WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy
+    WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy,
+    BotCommandType botCommand = BotCommandType::None,
+    std::int32_t botCommandValue = 0,
+    std::int32_t botCommandMinIntervalMs = 250,
+    std::int32_t botCommandMaxIntervalMs = 750
   );
 
   [[nodiscard]] ClientConnectionState state() const;

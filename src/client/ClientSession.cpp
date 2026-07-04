@@ -111,7 +111,11 @@ void ClientSession::sendCommand(
     GameMode requestedGameMode,
     bool requestTeam,
     Team requestedTeam,
-    WeaponSwitchingMode weaponSwitchingMode
+    WeaponSwitchingMode weaponSwitchingMode,
+    BotCommandType botCommand,
+    std::int32_t botCommandValue,
+    std::int32_t botCommandMinIntervalMs,
+    std::int32_t botCommandMaxIntervalMs
   ) {
   if (game_) {
     game_->sendCommand(
@@ -142,7 +146,11 @@ void ClientSession::sendCommand(
         requestedGameMode,
         requestTeam,
         requestedTeam,
-        weaponSwitchingMode
+        weaponSwitchingMode,
+        botCommand,
+        botCommandValue,
+        botCommandMinIntervalMs,
+        botCommandMaxIntervalMs
       );
   }
 }
