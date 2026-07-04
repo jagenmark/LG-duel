@@ -14,6 +14,7 @@ namespace lg {
 
 inline constexpr float kDefaultJumpPadSpeed = 20.0F;
 inline constexpr float kPlayerStepHeight = 0.45F;
+inline constexpr float kMinWalkNormal = 0.7F;
 
 struct TextureProjection {
   Vec3 uAxis = {};
@@ -128,7 +129,9 @@ struct ArenaLoadResult {
 struct CollisionResult {
   Vec3 position = {};
   Vec3 velocity = {};
+  Vec3 groundNormal = {0.0F, 0.0F, 1.0F};
   bool onGround = false;
+  bool groundPlane = false;
   bool blocked = false;
 };
 
