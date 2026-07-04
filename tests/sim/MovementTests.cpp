@@ -1678,6 +1678,35 @@ int main() {
   }
 
   {
+    const lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for slope strafe regression");
+
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {6.16667F, 8.4F, -23.05F};
+    lg::UserCommand command;
+    command.rightMove = 1.0F;
+
+    const lg::Vec3 startPosition = player.position;
+    for (int tick = 0; tick < 30; ++tick) {
+      lg::simulateMovement(player, command, loaded.arena, tuning, lg::kFixedTickSeconds);
+    }
+
+    const lg::Vec3 horizontalDelta = {
+      player.position.x - startPosition.x,
+      player.position.y - startPosition.y,
+      0.0F,
+    };
+    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
+    const float strafeDistance = lg::dot(horizontalDelta, lg::yawRight(command.viewYawRadians));
+    failures += expect(
+      std::fabs(forwardDistance) < 0.05F && strafeDistance > 0.5F,
+      "pure AD on stairs map ramp should not be converted into forward/back movement"
+    );
+  }
+
+  {
     const float run = 4.0F;
     const lg::ArenaBrush ramp =
       slopedTopBrush(-2.0F, 2.0F, 4.2F, 4.2F - riseForAngle(44.0F, run));
