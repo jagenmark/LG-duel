@@ -355,10 +355,26 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   const UserCommand& command,
   Vec3 groundNormal
 ) {
+  constexpr float kInputEpsilon = 0.0001F;
   Vec3 forward = yawForward(command.viewYawRadians);
   Vec3 right = yawRight(command.viewYawRadians);
   forward.z = 0.0F;
   right.z = 0.0F;
+
+  if (
+    std::fabs(command.forwardMove) <= kInputEpsilon &&
+    std::fabs(command.rightMove) > kInputEpsilon
+  ) {
+    Vec3 slopeAxis = horizontal(groundNormal);
+    if (length(slopeAxis) > kInputEpsilon) {
+      slopeAxis = normalize(slopeAxis);
+      Vec3 contourWish = right * command.rightMove;
+      contourWish -= slopeAxis * dot(contourWish, slopeAxis);
+      if (length(contourWish) > kInputEpsilon) {
+        return normalize(contourWish);
+      }
+    }
+  }
 
   forward = normalize(projectAlongPlane(forward, groundNormal));
   right = normalize(projectAlongPlane(right, groundNormal));
