@@ -12,6 +12,32 @@ namespace {
   return {value.x, value.y, 0.0F};
 }
 
+[[nodiscard]] Vec3 projectAlongPlane(Vec3 value, Vec3 normal) {
+  return value - (normal * dot(value, normal));
+}
+
+[[nodiscard]] Vec3 clipToGroundPlanePreserveSpeed(Vec3 velocity, Vec3 groundNormal) {
+  constexpr float kMinimumSpeed = 0.0001F;
+  const float speed = length(velocity);
+  if (speed <= kMinimumSpeed) {
+    return {};
+  }
+
+  const Vec3 clipped = projectAlongPlane(velocity, groundNormal);
+  const float clippedSpeed = length(clipped);
+  if (clippedSpeed <= kMinimumSpeed) {
+    return {};
+  }
+
+  return normalize(clipped) * speed;
+}
+
+struct GroundContact {
+  Vec3 normal = {0.0F, 0.0F, 1.0F};
+  bool onGround = false;
+  bool groundPlane = false;
+};
+
 struct StepMoveResult {
   CollisionResult collision = {};
   bool valid = false;
@@ -62,8 +88,10 @@ struct StepMoveResult {
 
   CollisionResult result = droppedMove;
   result.velocity = stepSlide.velocity;
-  if (droppedMove.onGround && result.velocity.z < 0.0F) {
-    result.velocity.z = 0.0F;
+  result.groundNormal = droppedMove.groundNormal;
+  result.groundPlane = droppedMove.groundPlane;
+  if (startVelocity.z <= 0.0F && droppedMove.onGround) {
+    result.velocity = clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal);
   }
   result.onGround = startVelocity.z <= 0.0F && droppedMove.onGround;
   result.blocked = true;
@@ -78,7 +106,13 @@ struct StepMoveResult {
   constexpr float kGroundTraceDistance = 0.25F / 40.0F;
   constexpr float kGroundFollowDistance = 0.08F;
   constexpr float kCollisionEpsilon = 0.0001F;
-  if (collision.onGround || collision.velocity.z > 0.0F) {
+  if (collision.onGround || collision.groundPlane) {
+    return collision;
+  }
+  if (
+    collision.velocity.z > 0.0F &&
+    (!player.onGround || player.knockbackTicksRemaining > 0)
+  ) {
     return collision;
   }
 
@@ -93,7 +127,7 @@ struct StepMoveResult {
     {0.0F, 0.0F, -groundTraceDistance},
     1.0F
   );
-  if (!groundProbe.onGround || playerPositionSolid(arena, probePlayer, groundProbe.position)) {
+  if (!groundProbe.groundPlane) {
     const float feetZ = collision.position.z - player.bounds.halfHeight;
     bool standingOnLowStep = false;
     for (std::size_t index = 0; index < arena.wallCount; ++index) {
@@ -119,12 +153,21 @@ struct StepMoveResult {
 
     collision.velocity.z = 0.0F;
     collision.onGround = true;
+    collision.groundPlane = true;
+    collision.groundNormal = {0.0F, 0.0F, 1.0F};
     return collision;
   }
 
   collision.position = groundProbe.position;
-  collision.velocity.z = 0.0F;
-  collision.onGround = true;
+  collision.groundPlane = true;
+  collision.groundNormal = groundProbe.groundNormal;
+  collision.onGround = groundProbe.onGround;
+  if (collision.onGround) {
+    collision.velocity = clipToGroundPlanePreserveSpeed(
+      collision.velocity,
+      collision.groundNormal
+    );
+  }
   return collision;
 }
 
@@ -280,11 +323,9 @@ void applyAirControl(
 }
 
 void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fixedDt) {
-  const Vec3 planarVelocity = horizontal(velocity);
-  const float speed = length(planarVelocity);
+  const float speed = length(velocity);
   if (speed <= 0.0001F) {
-    velocity.x = 0.0F;
-    velocity.y = 0.0F;
+    velocity = {};
     return;
   }
 
@@ -292,14 +333,53 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   const float drop = control * tuning.groundFriction * fixedDt;
   const float newSpeed = std::max(0.0F, speed - drop);
   const float scale = newSpeed / speed;
-  velocity.x *= scale;
-  velocity.y *= scale;
+  velocity *= scale;
 }
 
 [[nodiscard]] Vec3 movementWishDirection(const UserCommand& command) {
   const Vec3 forward = yawForward(command.viewYawRadians);
   const Vec3 right = yawRight(command.viewYawRadians);
   return normalize((forward * command.forwardMove) + (right * command.rightMove));
+}
+
+[[nodiscard]] Vec3 movementWishDirectionGrounded(
+  const UserCommand& command,
+  Vec3 groundNormal
+) {
+  Vec3 forward = yawForward(command.viewYawRadians);
+  Vec3 right = yawRight(command.viewYawRadians);
+  forward.z = 0.0F;
+  right.z = 0.0F;
+
+  forward = normalize(projectAlongPlane(forward, groundNormal));
+  right = normalize(projectAlongPlane(right, groundNormal));
+  return normalize((forward * command.forwardMove) + (right * command.rightMove));
+}
+
+[[nodiscard]] GroundContact traceGround(
+  const Arena& arena,
+  const PlayerState& player
+) {
+  constexpr float kGroundTraceDistance = 0.25F / 40.0F;
+  constexpr float kGroundFollowDistance = 0.08F;
+  if (!player.onGround && player.velocity.z > 0.0F) {
+    return {};
+  }
+
+  const float traceDistance = player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
+  const CollisionResult trace = slidePlayerArenaMove(
+    arena,
+    player,
+    player.position,
+    {0.0F, 0.0F, -traceDistance},
+    1.0F
+  );
+
+  if (!trace.groundPlane) {
+    return {};
+  }
+
+  return {trace.groundNormal, trace.onGround, true};
 }
 
 void simulateGroundedOrAirborne(
@@ -316,9 +396,15 @@ void simulateGroundedOrAirborne(
     player.jumpHeld = false;
   }
 
+  const bool wasOnGround = player.onGround;
+  const GroundContact groundContact = traceGround(arena, player);
+  player.onGround = groundContact.onGround;
+  player.movementMode = player.onGround ? MovementMode::Grounded : MovementMode::Airborne;
+
   const bool knockbackActive = player.knockbackTicksRemaining > 0;
   const bool useAirMovement = !player.onGround || knockbackActive;
-  const bool jumpStarted = player.onGround && command.jump && !player.jumpHeld;
+  const bool jumpStarted =
+    (player.onGround || wasOnGround) && command.jump && !player.jumpHeld;
   if (jumpStarted) {
     player.velocity.z = tuning.jumpImpulse;
     player.jumpHeld = true;
@@ -327,13 +413,19 @@ void simulateGroundedOrAirborne(
   } else if (player.onGround) {
     player.movementMode = MovementMode::Grounded;
     if (!knockbackActive) {
+      player.velocity = clipToGroundPlanePreserveSpeed(
+        player.velocity,
+        groundContact.normal
+      );
       applyGroundFriction(player.velocity, tuning, fixedDt);
     }
   } else {
     player.movementMode = MovementMode::Airborne;
   }
 
-  const Vec3 wishDirection = movementWishDirection(command);
+  const Vec3 wishDirection = useAirMovement
+    ? movementWishDirection(command)
+    : movementWishDirectionGrounded(command, groundContact.normal);
   if (length(wishDirection) > 0.0F) {
     accelerate(
       player.velocity,
@@ -347,7 +439,14 @@ void simulateGroundedOrAirborne(
     }
   }
 
-  if (player.movementMode != MovementMode::Flying) {
+  if (!useAirMovement && !jumpStarted) {
+    player.velocity = clipToGroundPlanePreserveSpeed(
+      player.velocity,
+      groundContact.normal
+    );
+  }
+
+  if (useAirMovement || jumpStarted) {
     player.velocity.z -= tuning.gravity * fixedDt;
   }
 
@@ -357,7 +456,7 @@ void simulateGroundedOrAirborne(
     player.position + (player.velocity * fixedDt),
     player.velocity,
     fixedDt,
-    true
+    !useAirMovement || jumpStarted || player.velocity.z <= 0.0F
   );
 
   player.position = collision.position;
