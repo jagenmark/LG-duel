@@ -985,6 +985,51 @@ int main() {
 
   {
     lg::Arena arena;
+    for (std::size_t index = 0; index < 8; ++index) {
+      const float x0 = 0.5F + (static_cast<float>(index) * 0.34F);
+      arena.walls[index] = {
+        {x0, -1.0F, 0.0F},
+        {x0 + 0.34F, 1.0F, 0.42F * static_cast<float>(index + 1)},
+      };
+    }
+    arena.walls[8] = {{3.22F, -1.0F, 0.0F}, {9.0F, 1.0F, 3.36F}};
+    arena.wallCount = 9;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 10);
+    int acceptedJumps = 0;
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 90; ++tick) {
+      command.jump = player.onGround;
+      command.upMove = command.jump ? 1.0F : 0.0F;
+      const bool wasOnGround = player.onGround;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (command.jump && wasOnGround && !player.onGround) {
+        ++acceptedJumps;
+      }
+      if (!command.jump) {
+        player.jumpHeld = false;
+      }
+      const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+      minimumHorizontalSpeed = std::min(minimumHorizontalSpeed, horizontalSpeed);
+    }
+
+    failures += expect(
+      acceptedJumps >= 2 &&
+        player.position.x > 2.5F &&
+        player.position.z > 2.0F + player.bounds.halfHeight &&
+        minimumHorizontalSpeed > 5.5F,
+      "repeated bhops should climb steep stairs near max stepheight"
+    );
+  }
+
+  {
+    lg::Arena arena;
     arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
     arena.wallCount = 1;
     const lg::MovementTuning tuning;

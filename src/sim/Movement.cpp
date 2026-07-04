@@ -66,9 +66,11 @@ struct StepMoveResult {
     return {};
   }
 
+  PlayerState raisedStepPlayer = stepPlayer;
+  raisedStepPlayer.position = upMove.position;
   const CollisionResult stepSlide = slidePlayerArenaMove(
     arena,
-    stepPlayer,
+    raisedStepPlayer,
     upMove.position,
     startVelocity,
     fixedDt
@@ -77,9 +79,10 @@ struct StepMoveResult {
     return {};
   }
 
+  raisedStepPlayer.position = stepSlide.position;
   const CollisionResult droppedMove = slidePlayerArenaMove(
     arena,
-    stepPlayer,
+    raisedStepPlayer,
     stepSlide.position,
     {0.0F, 0.0F, -stepSize},
     1.0F
@@ -90,6 +93,10 @@ struct StepMoveResult {
 
   CollisionResult result = droppedMove;
   result.velocity = stepSlide.velocity;
+  if (!player.onGround && startVelocity.z > 0.0F) {
+    result.velocity.x = startVelocity.x;
+    result.velocity.y = startVelocity.y;
+  }
   result.groundNormal = droppedMove.groundNormal;
   result.groundPlane = droppedMove.groundPlane;
   if (startVelocity.z <= 0.0F && droppedMove.onGround) {

@@ -583,15 +583,6 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
       return {end, {}, 1.0F, false, false};
     }
   }
-  if (
-    trace.hit &&
-    !player.onGround &&
-    delta.z > 0.0F &&
-    stepHeight > 0.0F &&
-    stepHeight <= kPlayerStepHeight
-  ) {
-    return {end, {}, 1.0F, false, false};
-  }
   return trace;
 }
 
