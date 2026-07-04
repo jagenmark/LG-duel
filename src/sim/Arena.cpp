@@ -8,6 +8,12 @@
 namespace lg {
 namespace {
 
+void setGroundContact(CollisionResult& result, Vec3 normal) {
+  result.groundPlane = true;
+  result.groundNormal = normal;
+  result.onGround = normal.z >= kMinWalkNormal;
+}
+
 constexpr std::string_view kThunderstruckMapText = R"(version 1
 bounds min=-15,-11,0 max=15,11,10
 
@@ -80,7 +86,7 @@ void resolveWallCollision(
   ) {
     result.position.z = wall.max.z + player.bounds.halfHeight;
     result.velocity.z = 0.0F;
-    result.onGround = true;
+    setGroundContact(result, {0.0F, 0.0F, 1.0F});
     return;
   }
 
@@ -154,6 +160,7 @@ void resolveBrushCollision(
   CollisionResult& result
 ) {
   constexpr float kCollisionEpsilon = 0.0001F;
+  constexpr float kGroundFollowDistance = 0.08F;
   constexpr float kWalkableNormalZ = 0.35F;
   const float sweptMinX = std::min(previousPosition.x, result.position.x) -
     player.bounds.radius;
@@ -238,7 +245,18 @@ void resolveBrushCollision(
     if (landingOnFace) {
       result.position.z = surfaceZ + player.bounds.halfHeight;
       result.velocity.z = std::max(0.0F, result.velocity.z);
-      result.onGround = true;
+      setGroundContact(result, face.normal);
+      return;
+    }
+
+    const bool groundedOnFace =
+      player.onGround &&
+      player.knockbackTicksRemaining == 0 &&
+      currentBottom >= surfaceZ - kGroundFollowDistance &&
+      currentBottom <= surfaceZ + kCollisionEpsilon;
+    if (groundedOnFace) {
+      result.position.z = surfaceZ + player.bounds.halfHeight;
+      setGroundContact(result, face.normal);
       return;
     }
 
@@ -248,7 +266,7 @@ void resolveBrushCollision(
       result.velocity.z > 0.0F;
     if (movingAwayFromFace) {
       if (player.onGround && player.knockbackTicksRemaining == 0) {
-        result.onGround = true;
+        setGroundContact(result, face.normal);
       }
       return;
     }
@@ -282,8 +300,8 @@ void resolveBrushCollision(
     result.velocity -= separatingFace->normal * velocityIntoBrush;
   }
   result.blocked = true;
-  if (separatingFace->normal.z > 0.5F) {
-    result.onGround = true;
+  if (separatingFace->normal.z > 0.0F) {
+    setGroundContact(result, separatingFace->normal);
   }
 }
 
@@ -597,7 +615,7 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
     const float expandedDistance = face.distance + planarRadius + verticalRadius;
     const float startDistance = expandedDistance - dot(face.normal, start);
     const float directionDistance = dot(face.normal, delta);
-    if (directionDistance >= -kCollisionEpsilon || startDistance >= 0.0F) {
+    if (directionDistance >= -kCollisionEpsilon || startDistance > kCollisionEpsilon) {
       continue;
     }
 
@@ -941,9 +959,14 @@ CollisionResult slidePlayerArenaMove(
   constexpr float kCollisionEpsilon = 0.0001F;
   constexpr float kMinimumSpeed = 0.0001F;
 
-  CollisionResult result{start, velocity, false};
+  CollisionResult result;
+  result.position = start;
+  result.velocity = velocity;
   if (fixedDt <= 0.0F || length(velocity) <= kMinimumSpeed) {
     result.onGround = player.onGround;
+    if (player.onGround) {
+      result.groundPlane = true;
+    }
     return result;
   }
 
@@ -973,8 +996,8 @@ CollisionResult slidePlayerArenaMove(
       break;
     }
     result.blocked = true;
-    if (trace.normal.z > 0.7F) {
-      result.onGround = true;
+    if (trace.normal.z > 0.0F) {
+      setGroundContact(result, trace.normal);
     }
 
     const std::size_t previousPlaneCount = planeCount;
@@ -1008,7 +1031,7 @@ CollisionResult slidePlayerArenaMove(
       result.blocked = true;
       return result;
     }
-    if (trace.normal.z > 0.7F && result.velocity.z > 0.0F) {
+    if (trace.normal.z > 0.999F && result.velocity.z > 0.0F) {
       result.velocity.z = 0.0F;
     } else if (trace.normal.z < -0.7F && result.velocity.z < 0.0F) {
       result.velocity.z = 0.0F;
@@ -1056,7 +1079,9 @@ CollisionResult resolvePlayerArenaCollisionFrom(
   Vec3 requestedPosition,
   Vec3 requestedVelocity
 ) {
-  CollisionResult result{requestedPosition, requestedVelocity, false};
+  CollisionResult result;
+  result.position = requestedPosition;
+  result.velocity = requestedVelocity;
 
   const float minX = arena.min.x + player.bounds.radius;
   const float maxX = arena.max.x - player.bounds.radius;
@@ -1084,7 +1109,7 @@ CollisionResult resolvePlayerArenaCollisionFrom(
   if (result.position.z < minZ) {
     result.position.z = minZ;
     result.velocity.z = 0.0F;
-    result.onGround = true;
+    setGroundContact(result, {0.0F, 0.0F, 1.0F});
   } else if (result.position.z > maxZ) {
     result.position.z = maxZ;
     result.velocity.z = 0.0F;

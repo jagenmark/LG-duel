@@ -523,6 +523,7 @@ void updateFootstepAudio(
   const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
   const Vec3 delta = player.position - state.previousPosition;
   const float horizontalDistance = std::hypot(delta.x, delta.y);
+  const bool quietMovement = player.crouched || player.sneaking;
   const bool movingOnGround =
     player.health > 0 && player.onGround && horizontalSpeed >= kMinimumStepSpeed;
 
@@ -558,7 +559,7 @@ void updateFootstepAudio(
   } else if (player.onGround && !state.wasOnGround && player.health > 0) {
     playLand();
     state.distanceSinceStep = 0.0F;
-  } else if (movingOnGround) {
+  } else if (movingOnGround && !quietMovement) {
     state.distanceSinceStep += horizontalDistance;
     const float strideDistance = std::max(
       kMinimumStrideDistance,
@@ -568,6 +569,8 @@ void updateFootstepAudio(
       playStep();
       state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
     }
+  } else if (quietMovement) {
+    state.distanceSinceStep = 0.0F;
   } else if (!player.onGround || horizontalSpeed < 0.25F) {
     state.distanceSinceStep = 0.0F;
   }

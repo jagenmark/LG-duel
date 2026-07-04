@@ -962,8 +962,6 @@ void addFloatingNameTag(
     0.1F,
     remote.teammate ? settings.teammateNameTagScale : settings.enemyNameTagScale
   );
-  const float textWidth =
-    static_cast<float>(remote.name.size()) * kGlyphSize * scale;
   const float offsetX = remote.teammate
     ? settings.teammateNameTagScreenOffsetX
     : settings.enemyNameTagScreenOffsetX;
@@ -984,11 +982,12 @@ void addFloatingNameTag(
 
   addText(
     drawList,
-    anchorScreen.x + offsetX - textWidth * 0.5F,
+    anchorScreen.x + offsetX,
     anchorScreen.y + offsetY,
     remote.name,
     color,
-    scale
+    scale,
+    TextHorizontalAlignment::Center
   );
 }
 

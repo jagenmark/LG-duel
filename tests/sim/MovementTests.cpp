@@ -58,6 +58,52 @@ lg::ArenaBrush cutUndersideBrushStep(float minX, float maxX, float topZ, float b
   return brush;
 }
 
+lg::ArenaBrush slopedTopBrush(
+  float minX,
+  float maxX,
+  float zAtMinX,
+  float zAtMaxX
+) {
+  lg::ArenaBrush brush;
+  const float maxZ = std::max(zAtMinX, zAtMaxX);
+  brush.min = {minX, -1.0F, 0.0F};
+  brush.max = {maxX, 1.0F, maxZ};
+  brush.faceCount = 6;
+  brush.faces[0].normal = {-1.0F, 0.0F, 0.0F};
+  brush.faces[0].distance = -minX;
+  brush.faces[1].normal = {1.0F, 0.0F, 0.0F};
+  brush.faces[1].distance = maxX;
+  brush.faces[2].normal = {0.0F, -1.0F, 0.0F};
+  brush.faces[2].distance = 1.0F;
+  brush.faces[3].normal = {0.0F, 1.0F, 0.0F};
+  brush.faces[3].distance = 1.0F;
+  brush.faces[4].normal = {0.0F, 0.0F, -1.0F};
+  brush.faces[4].distance = 0.0F;
+
+  const float slope = (zAtMaxX - zAtMinX) / (maxX - minX);
+  const lg::Vec3 topNormal = lg::normalize({-slope, 0.0F, 1.0F});
+  brush.faces[5].normal = topNormal;
+  brush.faces[5].distance = (topNormal.x * minX) + (topNormal.z * zAtMinX);
+  return brush;
+}
+
+float slopedTopZ(const lg::ArenaBrush& brush, float x) {
+  const lg::ArenaBrushFace& face = brush.faces[5];
+  return (face.distance - (face.normal.x * x)) / face.normal.z;
+}
+
+lg::Arena arenaWithBrush(const lg::ArenaBrush& brush) {
+  lg::Arena arena;
+  arena.brushes[0] = brush;
+  arena.brushCount = 1;
+  return arena;
+}
+
+float riseForAngle(float angleDegrees, float run) {
+  constexpr float kPi = 3.14159265358979323846F;
+  return std::tan(angleDegrees * kPi / 180.0F) * run;
+}
+
 void runCommand(lg::PlayerState& player, const lg::UserCommand& command, int ticks) {
   const lg::Arena arena;
   const lg::MovementTuning tuning;
@@ -335,6 +381,56 @@ int main() {
   }
 
   {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    command.crouch = true;
+    command.upMove = -1.0F;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 100.0F;
+    lg::PlayerState player = groundedPlayer();
+    const float standingHalfHeight = player.bounds.halfHeight;
+
+    runCommand(player, command, tuning, 20);
+
+    failures += expect(
+      player.crouched &&
+        player.bounds.halfHeight < standingHalfHeight &&
+        nearlyEqual(player.position.z, player.bounds.halfHeight) &&
+        player.velocity.x < tuning.maxGroundSpeed * 0.5F,
+      "movedown should crouch, lower the grounded hitbox, and reduce ground speed when flight is off"
+    );
+
+    command.crouch = false;
+    command.upMove = 0.0F;
+    command.forwardMove = 0.0F;
+    runCommand(player, command, tuning, 2);
+    failures += expect(
+      !player.crouched && nearlyEqual(player.bounds.halfHeight, standingHalfHeight),
+      "releasing crouch should restore standing height when there is room"
+    );
+  }
+
+  {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    command.sneak = true;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 100.0F;
+    lg::PlayerState player = groundedPlayer();
+    const float standingHalfHeight = player.bounds.halfHeight;
+
+    runCommand(player, command, tuning, 20);
+
+    failures += expect(
+      player.sneaking &&
+        !player.crouched &&
+        nearlyEqual(player.bounds.halfHeight, standingHalfHeight) &&
+        player.velocity.x < tuning.maxGroundSpeed * 0.7F,
+      "sneak should reduce grounded speed without changing crouch height"
+    );
+  }
+
+  {
     lg::PlayerState player = groundedPlayer();
     lg::UserCommand command;
     command.jump = true;
@@ -437,6 +533,26 @@ int main() {
     failures += expect(
       ascending.velocity.z > 0.0F && descending.velocity.z < 0.0F,
       "flight up/down input should thrust vertically in both directions"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.position.z = 4.0F;
+    lg::MovementTuning tuning;
+    tuning.flightEnabled = true;
+    tuning.flightDamping = 0.0F;
+    lg::UserCommand command;
+    command.crouch = true;
+    command.upMove = -1.0F;
+
+    runCommand(player, command, tuning, 5);
+
+    failures += expect(
+      player.movementMode == lg::MovementMode::Flying &&
+        !player.crouched &&
+        player.velocity.z < 0.0F,
+      "movedown should stay flight descent instead of crouching when flight is enabled"
     );
   }
 
@@ -762,6 +878,49 @@ int main() {
 
   {
     lg::Arena arena;
+    arena.brushes[0] = cutUndersideBrushStep(0.5F, 1.2F, 0.3F, 0.15F);
+    arena.brushCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight + 0.04F};
+    player.velocity = {8.0F, 0.0F, 1.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      player.position.x > 0.16F &&
+        player.velocity.x > 7.5F &&
+        !player.onGround,
+      "rising bhop into a low brush stair should keep horizontal speed"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.brushes[0] = cutUndersideBrushStep(0.5F, 1.2F, 0.3F, 0.15F);
+    arena.brushCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight + 0.25F};
+    player.velocity = {8.0F, 0.0F, -2.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      player.position.x > 0.16F &&
+        player.velocity.x > 7.5F,
+      "falling bhop into a low brush stair should keep horizontal speed"
+    );
+  }
+
+  {
+    lg::Arena arena;
     arena.walls[0] = {{0.5F, -10.0F, 0.0F}, {1.2F, 10.0F, 0.3F}};
     arena.walls[1] = {{1.2F, -10.0F, 0.0F}, {1.9F, 10.0F, 0.6F}};
     arena.walls[2] = {{1.9F, -10.0F, 0.0F}, {2.6F, 10.0F, 0.9F}};
@@ -819,6 +978,148 @@ int main() {
   }
 
   {
+    lg::Arena arena;
+    arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
+    arena.walls[1] = {{1.2F, -1.0F, 0.0F}, {1.9F, 1.0F, 0.6F}};
+    arena.walls[2] = {{1.9F, -1.0F, 0.0F}, {2.6F, 1.0F, 0.9F}};
+    arena.walls[3] = {{2.6F, -1.0F, 0.0F}, {4.0F, 1.0F, 1.2F}};
+    arena.wallCount = 4;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 10);
+    command.jump = true;
+    command.upMove = 1.0F;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    command.jump = false;
+    command.upMove = 0.0F;
+
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 40; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumHorizontalSpeed =
+        std::min(minimumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+    }
+
+    failures += expect(
+      player.position.x > 2.6F &&
+        player.position.z > 0.9F + player.bounds.halfHeight &&
+        minimumHorizontalSpeed > 6.5F,
+      "bhopping into low stairs should step over risers without getting stuck"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
+    arena.walls[1] = {{1.2F, -1.0F, 0.0F}, {1.9F, 1.0F, 0.6F}};
+    arena.walls[2] = {{1.9F, -1.0F, 0.0F}, {2.6F, 1.0F, 0.9F}};
+    arena.walls[3] = {{2.6F, -1.0F, 0.0F}, {4.0F, 1.0F, 1.2F}};
+    arena.wallCount = 4;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 10);
+    int acceptedJumps = 0;
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 90; ++tick) {
+      command.jump = player.onGround;
+      command.upMove = command.jump ? 1.0F : 0.0F;
+      const bool wasOnGround = player.onGround;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (command.jump && wasOnGround && !player.onGround) {
+        ++acceptedJumps;
+      }
+      if (!command.jump) {
+        player.jumpHeld = false;
+      }
+      minimumHorizontalSpeed =
+        std::min(minimumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+    }
+
+    failures += expect(
+      acceptedJumps >= 2 &&
+        player.position.x > 3.0F &&
+        minimumHorizontalSpeed > 6.0F,
+      "repeated bhops should climb low stairs without losing horizontal speed"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    for (std::size_t index = 0; index < 8; ++index) {
+      const float x0 = 0.5F + (static_cast<float>(index) * 0.34F);
+      arena.walls[index] = {
+        {x0, -1.0F, 0.0F},
+        {x0 + 0.34F, 1.0F, 0.42F * static_cast<float>(index + 1)},
+      };
+    }
+    arena.walls[8] = {{3.22F, -1.0F, 0.0F}, {9.0F, 1.0F, 3.36F}};
+    arena.wallCount = 9;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.1F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 10);
+    int acceptedJumps = 0;
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 90; ++tick) {
+      command.jump = player.onGround;
+      command.upMove = command.jump ? 1.0F : 0.0F;
+      const bool wasOnGround = player.onGround;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (command.jump && wasOnGround && !player.onGround) {
+        ++acceptedJumps;
+      }
+      if (!command.jump) {
+        player.jumpHeld = false;
+      }
+      const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+      minimumHorizontalSpeed = std::min(minimumHorizontalSpeed, horizontalSpeed);
+    }
+
+    failures += expect(
+      acceptedJumps >= 2 &&
+        player.position.x > 2.5F &&
+        player.position.z > 2.0F + player.bounds.halfHeight &&
+        minimumHorizontalSpeed > 5.5F,
+      "repeated bhops should climb steep stairs near max stepheight"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.2F, 1.0F, 0.3F}};
+    arena.wallCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.45F, 0.0F, player.bounds.halfHeight + 0.04F};
+    player.velocity = {8.0F, 0.0F, 0.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      player.position.x > 0.5F &&
+        player.velocity.x > 7.5F,
+      "airborne bhop already touching a low stair riser should still step over it"
+    );
+  }
+
+  {
     const lg::Arena arena = lg::thunderstruckArena();
     lg::MovementTuning tuning;
     tuning.groundAcceleration = 80.0F;
@@ -835,6 +1136,38 @@ int main() {
         player.onGround &&
         player.position.z > 2.0F + player.bounds.halfHeight - 0.01F,
       "players should climb the embedded Thunderstruck box stairs"
+    );
+  }
+
+  {
+    const lg::Arena arena = lg::thunderstruckArena();
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-5.5F, -3.5F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.viewYawRadians = 3.14159265F;
+    command.forwardMove = 1.0F;
+
+    runCommand(player, command, arena, tuning, 18);
+    command.jump = true;
+    command.upMove = 1.0F;
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    command.jump = false;
+    command.upMove = 0.0F;
+
+    float minimumHorizontalSpeed = 1000.0F;
+    for (int tick = 0; tick < 60; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumHorizontalSpeed =
+        std::min(minimumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+    }
+
+    failures += expect(
+      player.position.x < -9.0F &&
+        player.position.z > 1.5F + player.bounds.halfHeight &&
+        minimumHorizontalSpeed > 6.5F,
+      "bhopping up Thunderstruck stairs should not snag on stair risers"
     );
   }
 
@@ -1300,6 +1633,250 @@ int main() {
     failures += expect(nearlyEqual(first.velocity.x, second.velocity.x), "replayed command sequence should match velocity x");
     failures += expect(nearlyEqual(first.velocity.y, second.velocity.y), "replayed command sequence should match velocity y");
     failures += expect(nearlyEqual(first.velocity.z, second.velocity.z), "replayed command sequence should match velocity z");
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 1.8F, 1.8F - riseForAngle(15.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.5F, 0.0F, slopedTopZ(ramp, -1.5F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    const float startZ = player.position.z;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 30; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(airborneTicks == 0, "15 degree downhill ramp should not flicker airborne");
+    failures += expect(player.onGround, "15 degree downhill ramp should remain walkable ground");
+    failures += expect(player.position.z < startZ - 0.1F, "15 degree downhill ramp should move player downward along the plane");
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 3.0F, 3.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.5F, 0.0F, slopedTopZ(ramp, -1.5F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    const float startZ = player.position.z;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 24; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(airborneTicks == 0, "30 degree downhill ramp should stay grounded");
+    failures += expect(player.position.z < startZ - 0.25F, "30 degree downhill ramp should follow z downward");
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 3.0F, 3.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-0.25F, 0.0F, slopedTopZ(ramp, -0.25F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.viewYawRadians = 0.78539816339F;
+
+    const lg::Vec3 startPosition = player.position;
+    for (int tick = 0; tick < 60; ++tick) {
+      command.rightMove = tick % 2 == 0 ? 1.0F : -1.0F;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    }
+
+    const lg::Vec3 horizontalDelta = {
+      player.position.x - startPosition.x,
+      player.position.y - startPosition.y,
+      0.0F,
+    };
+    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
+    failures += expect(
+      std::fabs(forwardDistance) < 0.05F,
+      "alternating AD on an angled slope should not turn into forward/back movement"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 3.0F, 3.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-0.25F, 0.0F, slopedTopZ(ramp, -0.25F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.viewYawRadians = 1.57079632679F;
+    command.rightMove = 1.0F;
+
+    const lg::Vec3 startPosition = player.position;
+    for (int tick = 0; tick < 30; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+    }
+
+    const lg::Vec3 horizontalDelta = {
+      player.position.x - startPosition.x,
+      player.position.y - startPosition.y,
+      0.0F,
+    };
+    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
+    const float strafeDistance = lg::dot(horizontalDelta, lg::yawRight(command.viewYawRadians));
+    failures += expect(
+      std::fabs(forwardDistance) < 0.05F && strafeDistance > 0.1F,
+      "pure AD across a slope should stay camera-sideways instead of forward/back"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for slope strafe regression");
+
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {6.16667F, 8.4F, -23.05F};
+    lg::UserCommand command;
+    command.rightMove = 1.0F;
+
+    const lg::Vec3 startPosition = player.position;
+    for (int tick = 0; tick < 30; ++tick) {
+      lg::simulateMovement(player, command, loaded.arena, tuning, lg::kFixedTickSeconds);
+    }
+
+    const lg::Vec3 horizontalDelta = {
+      player.position.x - startPosition.x,
+      player.position.y - startPosition.y,
+      0.0F,
+    };
+    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
+    const float strafeDistance = lg::dot(horizontalDelta, lg::yawRight(command.viewYawRadians));
+    failures += expect(
+      std::fabs(forwardDistance) < 0.05F && strafeDistance > 0.5F,
+      "pure AD on stairs map ramp should not be converted into forward/back movement"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for ramp entry regression");
+
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {3.75F, 8.4F, -25.2F + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    int airborneTicks = 0;
+    float minimumX = player.position.x;
+    for (int tick = 0; tick < 50; ++tick) {
+      lg::simulateMovement(player, command, loaded.arena, tuning, lg::kFixedTickSeconds);
+      minimumX = std::min(minimumX, player.position.x);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 &&
+        minimumX >= 3.74F &&
+        player.position.x > 5.5F &&
+        player.position.z > -23.6F,
+      "entering a stairs map ramp from flat ground should stay grounded and climb"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 4.2F, 4.2F - riseForAngle(44.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.7F, 0.0F, slopedTopZ(ramp, -1.7F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 12; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(airborneTicks == 0, "44 degree ramp should still be walkable");
+    failures += expect(player.position.x > -1.2F, "44 degree walkable ramp should allow forward movement");
+  }
+
+  {
+    const float run = 2.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-1.0F, 1.0F, 3.0F, 3.0F - riseForAngle(50.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-0.5F, 0.0F, slopedTopZ(ramp, -0.5F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    lg::simulateMovement(player, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+
+    failures += expect(!player.onGround, "50 degree ramp should not count as walking ground");
+    failures += expect(
+      player.movementMode == lg::MovementMode::Airborne,
+      "50 degree ramp should be treated as steep slope rather than grounded walk"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const float highZ = 3.0F;
+    const float lowZ = highZ - riseForAngle(30.0F, run);
+    const lg::ArenaBrush ramp = slopedTopBrush(-2.0F, 2.0F, highZ, lowZ);
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.7F, 0.0F, slopedTopZ(ramp, -1.7F) + player.bounds.halfHeight};
+    const float slope = (lowZ - highZ) / run;
+    player.velocity = lg::normalize(lg::Vec3{1.0F, 0.0F, slope}) * 8.0F;
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      lg::simulateMovement(player, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    const float expectedZ = slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight;
+    const float startZ = slopedTopZ(ramp, -1.7F) + player.bounds.halfHeight;
+    failures += expect(airborneTicks == 0, "fast g_maxspeed downhill ramp movement should not get short air ticks");
+    failures += expect(
+      player.position.z < startZ - 0.25F && std::fabs(player.position.z - expectedZ) < 0.05F,
+      "fast downhill ramp movement should follow the plane downward"
+    );
   }
 
   {

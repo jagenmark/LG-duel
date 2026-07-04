@@ -565,6 +565,8 @@ void ServerGame::tick(float fixedDt) {
     if (player.health <= 0) {
       player.velocity = {};
       player.jumpHeld = false;
+      player.crouched = false;
+      player.sneaking = false;
       player.viewYawRadians = command.viewYawRadians;
       player.viewPitchRadians = command.viewPitchRadians;
       continue;
@@ -1402,6 +1404,8 @@ void ServerGame::setBotBehavior(
 ) {
   botStareEnabled_ = stareEnabled;
   botStandstillEnabled_ = standstillEnabled;
+  snapshot_.botStareEnabled = botStareEnabled_;
+  snapshot_.botStandstillEnabled = botStandstillEnabled_;
   setBotDodge(dodgeEnabled, dodgeMinIntervalMs, dodgeMaxIntervalMs);
   setBotAttackMode(attackMode);
 }
@@ -1411,6 +1415,7 @@ void ServerGame::setBotAttackMode(BotAttackMode mode) {
     botCombatStates_ = {};
   }
   botAttackMode_ = mode;
+  snapshot_.botAttackMode = botAttackMode_;
   if (botAttackMode_ == BotAttackMode::Off) {
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
       if (botPlayers_[index]) {
@@ -2508,7 +2513,7 @@ void ServerGame::updateFootstepAudioEvents() {
     } else if (player.onGround && !state.wasOnGround) {
       emitMovementSound(false, true);
       state.distanceSinceStep = 0.0F;
-    } else if (movingOnGround) {
+    } else if (movingOnGround && !player.crouched && !player.sneaking) {
       state.distanceSinceStep += horizontalDistance;
       const float strideDistance = std::max(
         kMinimumStrideDistance,
@@ -2518,6 +2523,8 @@ void ServerGame::updateFootstepAudioEvents() {
         emitMovementSound(false, false);
         state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
       }
+    } else if (player.crouched || player.sneaking) {
+      state.distanceSinceStep = 0.0F;
     } else if (!player.onGround || horizontalSpeed < 0.25F) {
       state.distanceSinceStep = 0.0F;
     }
@@ -2549,6 +2556,16 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.serverTick - recentFootstepAudioEventTicks_[playerIndex] <=
         kTransientCombatEventTicks
     ) {
+      const FootstepAudioEvent& recentEvent =
+        recentFootstepAudioEvents_[playerIndex];
+      const PlayerState& player = snapshot_.players[playerIndex];
+      if (
+        (player.crouched || player.sneaking) &&
+        !recentEvent.jumping &&
+        !recentEvent.landing
+      ) {
+        continue;
+      }
       snapshot_.footstepAudioEvents[playerIndex] =
         recentFootstepAudioEvents_[playerIndex];
     }
@@ -2787,6 +2804,46 @@ void ServerGame::updateBotCommands(float fixedDt) {
 
     commands_[playerIndex] = command;
     hasCommand_[playerIndex] = true;
+  }
+}
+
+void ServerGame::handleBotCommandRequest(const CommandPacket& packet) {
+  switch (packet.botCommand) {
+    case BotCommandType::None:
+      break;
+    case BotCommandType::Add:
+      if (packet.botCommandValue < 0) {
+        (void)addBots();
+      } else {
+        (void)addBots(static_cast<std::size_t>(packet.botCommandValue));
+      }
+      break;
+    case BotCommandType::KickSlot:
+      if (packet.botCommandValue >= 1) {
+        (void)kickBotAtPlayerIndex(static_cast<std::size_t>(packet.botCommandValue - 1));
+      }
+      break;
+    case BotCommandType::KickAll:
+      (void)kickAllBots();
+      break;
+    case BotCommandType::AttackMode:
+      setBotAttackMode(static_cast<BotAttackMode>(packet.botCommandValue));
+      break;
+    case BotCommandType::Stare:
+      botStareEnabled_ = packet.botCommandValue != 0;
+      snapshot_.botStareEnabled = botStareEnabled_;
+      break;
+    case BotCommandType::Standstill:
+      botStandstillEnabled_ = packet.botCommandValue != 0;
+      snapshot_.botStandstillEnabled = botStandstillEnabled_;
+      break;
+    case BotCommandType::Dodge:
+      setBotDodge(
+        packet.botCommandValue != 0,
+        packet.botCommandMinIntervalMs,
+        packet.botCommandMaxIntervalMs
+      );
+      break;
   }
 }
 
@@ -3144,6 +3201,9 @@ void ServerGame::receiveCommands() {
     if (!packet.mapName.empty()) {
       (void)loadRequestedMap(packet.mapName);
     }
+    if (packet.botCommand != BotCommandType::None) {
+      handleBotCommandRequest(packet);
+    }
 
     commands_[playerIndex] = packet.command;
     viewedServerTicks_[playerIndex] = packet.viewedServerTick;
@@ -3156,6 +3216,12 @@ void ServerGame::receiveCommands() {
 
 void ServerGame::publishSnapshot() {
   updateParticipatingPlayers();
+  snapshot_.botStareEnabled = botStareEnabled_;
+  snapshot_.botStandstillEnabled = botStandstillEnabled_;
+  snapshot_.botDodgeEnabled = botDodgeEnabled_;
+  snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
+  snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+  snapshot_.botAttackMode = botAttackMode_;
   transport_.sendSnapshot(snapshot_);
 }
 
