@@ -2777,14 +2777,15 @@ Scene3D buildPerspectiveScene(
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  float cameraVerticalOffset
 ) {
   (void)arena;
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
   const Vec3 cameraPosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight};
+    player.position + Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
 
   Scene3D scene;
   scene.camera = makePerspectiveCamera(
@@ -2809,7 +2810,9 @@ Scene3D buildPerspectiveScene(
     );
   }
 
-  addFirstPersonWeaponModel(scene, player, settings.localSelectedWeapon);
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position.z += cameraVerticalOffset;
+  addFirstPersonWeaponModel(scene, viewModelPlayer, settings.localSelectedWeapon);
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
     const RemotePlayerView& remote = remotePlayers[remoteIndex];

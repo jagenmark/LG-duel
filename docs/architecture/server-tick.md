@@ -27,6 +27,7 @@
 
 - Commands must be received before match state, bot commands, movement, and combat so authoritative state reflects the latest accepted input.
 - Movement and collision run before combat; hit traces use post-movement positions, while `combatPlayers` freezes positions for consistent per-attacker combat resolution during the tick.
+- Player-vs-arena wall movement uses a bounded pmove-style slide over arena bounds and box walls with fixed bump and plane limits. Grounded stair traversal layers a step-up, horizontal slide, then drop-down retry over that move only when the normal move loses horizontal progress; sidestep probing is intentionally not part of this model.
 - Arena collision runs after player/player collision to clamp final positions back into valid space.
 - Jumppad launch is server-authoritative movement state. Trigger cooldown comes from `balance.cfg`, runs as a fixed tick countdown on player state, and is not added to per-tick network packets.
 - `recordHistory()` happens after `serverTick` increments so lag compensation can find a frame by authoritative tick number.

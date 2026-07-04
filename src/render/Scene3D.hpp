@@ -726,7 +726,8 @@ struct Scene3D {
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  float cameraVerticalOffset = 0.0F
 );
 
 [[nodiscard]] Scene3D buildPerspectiveScene(
