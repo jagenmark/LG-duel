@@ -174,7 +174,6 @@ int main() {
   failures += expect(
     baseScene.visibleRemotePlayers == 1 &&
       baseScene.remoteBodyModelsBuilt == 1 &&
-      baseScene.remoteWeaponModelsBuilt == 1 &&
       baseScene.playerOutlinesBuilt == 1 &&
       baseScene.outlinedPlayers == 1 &&
       baseScene.outlineMaskDraws.size() == 1U &&
@@ -185,9 +184,31 @@ int main() {
       baseScene.gltfPlayerModelStats.legacyCpuSkinnedVertexUploadBytes == 0 &&
       baseScene.geometryOutlineDynamicVertices == 0 &&
       !baseScene.geometryOutlineFallbackUsed &&
-      baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
+      baseScene.remoteWeaponModelsBuilt == 0 &&
+      baseScene.remoteWeaponStats.instancesSubmitted == 0 &&
       baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
-    "GLB render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
+    "GLB render settings should build visible remote body and screen-space outline mask input without a detached remote weapon"
+  );
+
+  lg::RenderSettings boxWeaponSettings = settings;
+  boxWeaponSettings.playerModel = 0;
+  const lg::Scene3D boxWeaponScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    boxWeaponSettings
+  );
+  failures += expect(
+    boxWeaponScene.remoteBodyModelsBuilt == 1 &&
+      boxWeaponScene.remoteWeaponModelsBuilt == 1 &&
+      boxWeaponScene.remoteWeaponStats.instancesSubmitted == 1,
+    "box player render settings should still submit the separate remote weapon model"
   );
 
   lg::RenderSettings noWeaponSettings = settings;
@@ -1122,7 +1143,7 @@ int main() {
   failures += expect(
     isolationOutlineDisabledScene.visibleRemotePlayers == 1 &&
       isolationOutlineDisabledScene.remoteBodyModelsBuilt == 1 &&
-      isolationOutlineDisabledScene.remoteWeaponModelsBuilt == 1 &&
+      isolationOutlineDisabledScene.remoteWeaponModelsBuilt == 0 &&
       isolationOutlineDisabledScene.playerOutlinesBuilt == 0 &&
       isolationOutlineDisabledScene.outlineMaskDraws.empty(),
     "disabled player outlines should prevent only outline mask construction"
@@ -1179,10 +1200,10 @@ int main() {
     "perspective scene should batch multiple GLB remote players by primitive"
   );
   failures += expect(
-    multiOpponentScene.remoteWeaponStats.instancesSubmitted == 2 &&
-      multiOpponentScene.remoteWeaponStats.batches == 1 &&
-      multiOpponentScene.remoteWeaponStats.drawCalls == 1,
-    "multiple remotes holding the same weapon should form one remote weapon batch"
+    multiOpponentScene.remoteWeaponStats.instancesSubmitted == 0 &&
+      multiOpponentScene.remoteWeaponStats.batches == 0 &&
+      multiOpponentScene.remoteWeaponStats.drawCalls == 0,
+    "GLB remote players should not submit detached remote weapon batches"
   );
   const lg::Scene3D multiBoxOpponentScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -1204,6 +1225,12 @@ int main() {
       multiBoxOpponentScene.normalPlayerBodyDynamicVertices == 0,
     "two visible procedural box players should combine into one compatible cube body batch"
   );
+  failures += expect(
+    multiBoxOpponentScene.remoteWeaponStats.instancesSubmitted == 2 &&
+      multiBoxOpponentScene.remoteWeaponStats.batches == 1 &&
+      multiBoxOpponentScene.remoteWeaponStats.drawCalls == 1,
+    "multiple box remotes holding the same weapon should form one remote weapon batch"
+  );
 
   remotePlayers[2].selectedWeapon = lg::Weapon::RocketLauncher;
   const lg::Scene3D mixedWeaponScene = lg::buildPerspectiveScene(
@@ -1215,7 +1242,7 @@ int main() {
     weaponFires,
     rocketExplosions,
     rockets,
-    settings
+    legacyModelSettings
   );
   failures += expect(
     mixedWeaponScene.remoteWeaponStats.instancesSubmitted == 2 &&
@@ -1309,13 +1336,15 @@ int main() {
       uncullableBehindScene.remoteFrustumVisible == 1 &&
       uncullableBehindScene.remoteFrustumCulled == 0 &&
       uncullableBehindScene.remoteBodyModelsBuilt == 1 &&
-      uncullableBehindScene.remoteWeaponModelsBuilt == 1 &&
-      uncullableBehindScene.remoteWeaponStats.instancesSubmitted == 1 &&
+      uncullableBehindScene.remoteWeaponModelsBuilt == 0 &&
+      uncullableBehindScene.remoteWeaponStats.instancesSubmitted == 0 &&
       uncullableBehindScene.playerOutlinesBuilt == 1 &&
       uncullableBehindScene.gltfPlayerModelInstances.size() == 1U,
-    "r_frustum_cull 0 should preserve remote body, weapon, and outline construction"
+    "r_frustum_cull 0 should preserve GLB remote body and outline construction without a detached remote weapon"
   );
 
+  lg::RenderSettings weaponMeshSettings = settings;
+  weaponMeshSettings.playerModel = 0;
   for (lg::Weapon weapon : lg::kWeaponSlotOrder) {
     std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> weaponRemotePlayers = {};
     weaponRemotePlayers[1] =
@@ -1338,7 +1367,7 @@ int main() {
       weaponFires,
       rocketExplosions,
       rockets,
-      settings
+      weaponMeshSettings
     );
     const lg::MeshHandle mesh = lg::remoteWeaponMeshHandle(weapon);
     const lg::StaticMeshAsset* asset = lg::staticMeshAsset(mesh);

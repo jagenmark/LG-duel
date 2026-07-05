@@ -2998,7 +2998,9 @@ Scene3D buildPerspectiveScene(
         );
       }
     }
-    if (settings.drawRemoteWeapons) {
+    const bool drawAttachedRemoteWeapon =
+      settings.drawRemoteWeapons && !useGltfPlayerModel;
+    if (drawAttachedRemoteWeapon) {
       ++scene.remoteWeaponModelsBuilt;
       addRemoteWeaponInstance(
         scene,
