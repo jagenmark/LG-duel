@@ -170,6 +170,8 @@ target_link_libraries(lg_duel_server PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_server)
 
 add_custom_target(lg_duel_runtime_assets ALL
+  COMMAND ${CMAKE_COMMAND} -E remove_directory
+    "$<TARGET_FILE_DIR:lg_duel_client>/maps"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_client>/maps"
@@ -238,6 +240,8 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_glow.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_glow.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E remove_directory
+    "$<TARGET_FILE_DIR:lg_duel_server>/maps"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
     "${CMAKE_CURRENT_SOURCE_DIR}/maps"
     "$<TARGET_FILE_DIR:lg_duel_server>/maps"

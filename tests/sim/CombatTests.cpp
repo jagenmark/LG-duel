@@ -54,6 +54,13 @@ lg::ArenaBrush convexBox(lg::Vec3 min, lg::Vec3 max) {
   return brush;
 }
 
+lg::Arena coverArena() {
+  lg::Arena arena;
+  arena.walls[0] = {{-0.5F, -1.0F, 0.0F}, {0.5F, 1.0F, 2.0F}};
+  arena.wallCount = 1;
+  return arena;
+}
+
 } // namespace
 
 int main() {
@@ -362,7 +369,7 @@ weapon.gl.gravity -1
   }
 
   {
-    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::Arena walledArena = coverArena();
     const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
     lg::PlayerState target = playerAt(2.0F, 0.0F);
     lg::LightningGunState state;
@@ -379,9 +386,9 @@ weapon.gl.gravity -1
       lg::kFixedTickSeconds
     );
 
-    failures += expect(!result.hit, "Thunderstruck central cover should block LG traces");
+    failures += expect(!result.hit, "central cover should block LG traces");
     failures += expect(
-      result.end.x < -1.1F,
+      result.end.x < -0.4F,
       "blocked beam should end at the cover surface"
     );
     failures += expect(target.health == 100, "wall-blocked LG should not damage target");
@@ -465,7 +472,7 @@ weapon.gl.gravity -1
   }
 
   {
-    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::Arena walledArena = coverArena();
     const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
     lg::PlayerState target = playerAt(2.0F, 0.0F);
     lg::UserCommand command;
@@ -500,7 +507,7 @@ weapon.gl.gravity -1
   }
 
   {
-    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::Arena walledArena = coverArena();
     const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
     lg::PlayerState target = playerAt(2.0F, 0.0F);
     lg::UserCommand command;
@@ -583,7 +590,7 @@ weapon.gl.gravity -1
   }
 
   {
-    const lg::Arena walledArena = lg::thunderstruckArena();
+    const lg::Arena walledArena = coverArena();
     const lg::PlayerState attacker = playerAt(-2.0F, 0.0F);
     lg::PlayerState target = playerAt(2.0F, 0.0F);
     lg::UserCommand command;

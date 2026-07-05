@@ -4085,7 +4085,7 @@ int GameApp::run() const {
       }
     };
 
-  const Arena fallbackArena = thunderstruckArena();
+  const Arena fallbackArena;
   std::uint32_t commandSequence = 0;
   std::uint32_t clientTick = 0;
 

@@ -1,19 +1,6 @@
 #include "net/LoopbackTransport.hpp"
 
 namespace lg {
-namespace {
-
-ServerSnapshot snapshotWithDefaultMapDescriptor(const ServerSnapshot& snapshot) {
-  if (snapshot.map.contentHash == 0 && snapshot.map.mapName == "thunderstruck") {
-    ServerSnapshot normalized = snapshot;
-    normalized.map = describeMap("thunderstruck", thunderstruckArena());
-    return normalized;
-  }
-  return snapshot;
-}
-
-} // namespace
-
 void LoopbackTransport::sendCommand(const CommandPacket& packet) {
   WirePacket wire;
   if (encodeCommandPacket(packet, wire)) {
@@ -33,8 +20,7 @@ bool LoopbackTransport::receiveCommand(CommandPacket& packet) {
 
 void LoopbackTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   WirePacket wire;
-  ServerSnapshot normalized = snapshotWithDefaultMapDescriptor(snapshot);
-  if (encodeServerSnapshot(normalized, wire)) {
+  if (encodeServerSnapshot(snapshot, wire)) {
     snapshots_.push_back(wire);
   }
 }

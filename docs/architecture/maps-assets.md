@@ -4,7 +4,7 @@ Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, fixed-size cuboid 
 
 ## Loading Pipeline
 
-Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaFromMapText()` in `src/map/MapParser.cpp` and converted by `src/map/MapToArena.cpp` via `loadArenaFromFile()`. The embedded fallback arena is `thunderstruckArena()` in `src/sim/Arena.cpp`, unless `LG_DUEL_MAP` points to a loadable map.
+Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaFromMapText()` in `src/map/MapParser.cpp` and converted by `src/map/MapToArena.cpp` via `loadArenaFromFile()`. Gameplay map loading is file-backed through the configured map directory; the dedicated server starts by requesting the packaged `eyetoeye` map.
 
 `.map` support is a conversion layer:
 

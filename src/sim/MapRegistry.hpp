@@ -9,7 +9,7 @@
 namespace lg {
 
 struct MapDescriptor {
-  std::string mapName = "thunderstruck";
+  std::string mapName;
   std::uint32_t contentHash = 0;
 };
 

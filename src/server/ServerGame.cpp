@@ -47,6 +47,25 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   return player;
 }
 
+[[nodiscard]] Arena defaultServerArena() {
+  Arena arena;
+  arena.min = {-15.0F, -11.0F, 0.0F};
+  arena.max = {15.0F, 11.0F, 10.0F};
+  arena.spawnPositions = {{
+    {-8.0F, -9.0F, 2.0F},
+    {8.0F, -9.0F, 2.0F},
+    {-12.0F, 8.0F, 2.0F},
+    {12.0F, 8.0F, 2.0F},
+    {-3.0F, -9.0F, 0.0F},
+    {3.0F, -9.0F, 0.0F},
+  }};
+  arena.walls[0] = {{-15.0F, -11.0F, 0.0F}, {-3.0F, -7.0F, 2.0F}};
+  arena.walls[1] = {{3.0F, -11.0F, 0.0F}, {15.0F, -7.0F, 2.0F}};
+  arena.walls[2] = {{-15.0F, 6.5F, 0.0F}, {15.0F, 11.0F, 2.0F}};
+  arena.wallCount = 3;
+  return arena;
+}
+
 [[nodiscard]] UserCommand commandForPlayer(
   const ServerSnapshot& snapshot,
   const std::array<UserCommand, kDuelPlayerCount>& commands,
@@ -415,7 +434,8 @@ void logClientGameplayCommand(
 
 ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
   : transport_(transport) {
-  mapDescriptor_ = describeMap("thunderstruck", arena_);
+  arena_ = defaultServerArena();
+  mapDescriptor_ = describeMap("custom", arena_);
   rocketLauncherTuning_.knockback = q3KnockbackToInternal(rocketKnockback_);
   if (!balanceConfigPath.empty()) {
     const BalanceConfigLoadResult loaded =
