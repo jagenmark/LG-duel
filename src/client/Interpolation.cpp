@@ -71,6 +71,14 @@ PlayerState interpolatePlayerState(
   result.velocity = previous.velocity + ((current.velocity - previous.velocity) * t);
   result.viewYawRadians = interpolateAngle(previous.viewYawRadians, current.viewYawRadians, t);
   result.viewPitchRadians = interpolateAngle(previous.viewPitchRadians, current.viewPitchRadians, t);
+  result.bounds.radius =
+    previous.bounds.radius + ((current.bounds.radius - previous.bounds.radius) * t);
+  result.bounds.halfHeight =
+    previous.bounds.halfHeight + ((current.bounds.halfHeight - previous.bounds.halfHeight) * t);
+  if (t >= 0.5F) {
+    result.crouched = current.crouched;
+    result.sneaking = current.sneaking;
+  }
   return result;
 }
 

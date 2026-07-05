@@ -420,7 +420,9 @@ knappen släpps.
 | `+moveleft` / `-moveleft` | Strafe vänster. |
 | `+moveright` / `-moveright` | Strafe höger. |
 | `+moveup` / `-moveup` | Jump; positiv Z-thrust i flight. |
-| `+movedown` / `-movedown` | Negativ Z-thrust i flight. |
+| `+movedown` / `-movedown` | Duck/crouch nar `g_flight 0`; negativ Z-thrust i flight. |
+| `+duck` / `-duck`, `+crouch` / `-crouch` | Alias for `+movedown`: duck/crouch nar `g_flight 0`, movedown i flight. |
+| `+speed` / `-speed`, `+sneak` / `-sneak` | Sneak/quiet walk med sankt mark-speed och utan vanliga fotsteg. |
 | `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
@@ -437,7 +439,7 @@ knappen släpps.
 | `D` | `+moveright` |
 | `Space` | `+moveup` |
 | `Left/Right Ctrl` | `+movedown` |
-| `Left/Right Shift` | `+movedown` |
+| `Left/Right Shift` | `+speed` |
 | `Mouse1` | `+attack` |
 | `Mouse2` | `+zoom` |
 | `1` | `weapon mg` |

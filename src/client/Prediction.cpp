@@ -9,6 +9,8 @@ namespace {
 void applyDeadCommand(PlayerState& player, const UserCommand& command) {
   player.velocity = {};
   player.jumpHeld = false;
+  player.crouched = false;
+  player.sneaking = false;
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
 }

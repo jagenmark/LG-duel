@@ -27,6 +27,8 @@ struct PlayerState {
   std::uint16_t jumpPadCooldownTicksRemaining = 0;
   bool onGround = false;
   bool jumpHeld = false;
+  bool crouched = false;
+  bool sneaking = false;
 };
 
 } // namespace lg

@@ -482,6 +482,9 @@ int main() {
     current.viewYawRadians = -kPi + 0.1F;
     current.health = 75;
     current.movementMode = lg::MovementMode::Airborne;
+    current.bounds.halfHeight = previous.bounds.halfHeight * 0.5F;
+    current.crouched = true;
+    current.sneaking = true;
 
     const lg::PlayerState midpoint = lg::interpolatePlayerState(previous, current, 0.5F);
     failures += expect(nearlyEqual(midpoint.position.x, 5.0F), "interpolation should blend position x");
@@ -491,6 +494,17 @@ int main() {
     failures += expect(
       std::fabs(std::fabs(midpoint.viewYawRadians) - kPi) < 0.001F,
       "yaw interpolation should take shortest path across pi"
+    );
+    failures += expect(
+      nearlyEqual(
+        midpoint.bounds.halfHeight,
+        previous.bounds.halfHeight * 0.75F
+      ),
+      "interpolation should blend player height for crouch transitions"
+    );
+    failures += expect(
+      midpoint.crouched && midpoint.sneaking,
+      "crouch and sneak state should switch during interpolation"
     );
     failures += expect(midpoint.health == 100, "discrete state should remain on previous snapshot");
 
