@@ -1739,6 +1739,39 @@ int main() {
   {
     const float run = 4.0F;
     const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 0.0F, riseForAngle(15.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 10.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-2.35F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    float minimumX = player.position.x;
+    float highestZ = player.position.z;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 40; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumX = std::min(minimumX, player.position.x);
+      highestZ = std::max(highestZ, player.position.z);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 &&
+        minimumX >= -2.36F &&
+        player.position.x > -1.7F &&
+        highestZ > player.bounds.halfHeight + 0.08F,
+      "entering a flush ramp from flat ground at low speed should climb without sliding back"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
       slopedTopBrush(-2.0F, 2.0F, 4.2F, 4.2F - riseForAngle(44.0F, run));
     const lg::Arena arena = arenaWithBrush(ramp);
     lg::MovementTuning tuning;

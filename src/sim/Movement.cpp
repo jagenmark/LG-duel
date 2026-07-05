@@ -406,6 +406,7 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     return {};
   }
   if (
+    (!player.onGround || player.knockbackTicksRemaining > 0) &&
     player.velocity.z > 0.0F &&
     dot(player.velocity, trace.groundNormal) > kGroundKickoffSpeed
   ) {
