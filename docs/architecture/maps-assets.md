@@ -12,6 +12,7 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
 - `src/map/MapToArena.*` converts `worldspawn` and `func_group` brushes to cuboid `ArenaWall`s when possible, otherwise convex `ArenaBrush` hulls.
 - `lg_spawn` entities become spawn positions.
 - `trigger_jumppad` brush entities become non-solid, non-rendered `ArenaJumpPad` trigger AABBs. Visible pad surfaces should be ordinary `worldspawn` or `func_group` geometry; the trigger brush can use `common/trigger` or `textures/common/trigger` for editor visibility only.
+- `item_health_small` and `item_health_large` point entities become static `ArenaHealthPickup` entries. Server snapshots replicate only their fixed availability bits.
 - `worldspawn`/`func_group` brushes using `common/playerclip` or `textures/common/playerclip` on every face become collision-only solids. They stay in `ArenaWall`/`ArenaBrush` for collision and traces, but `renderable=false` keeps them out of static world rendering and lighting. Mixed playerclip/non-playerclip brushes are rejected; apply playerclip to the whole brush.
 - `target_position` point entities provide optional jumppad landing targets by `targetname`.
 - `light`/`light_point` and `light_sun` become static lighting data.
@@ -40,7 +41,7 @@ Materials are hashed/stable ids from material paths. Renderer texture loading ex
 
 - Valve 220 texture axes are explicitly rejected by `MapParser`.
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
-- Arena counts are fixed: 255 walls, 128 brushes, 32 jumppads, 64 static lights.
+- Arena counts are fixed: 255 walls, 128 brushes, 32 jumppads, 32 health pickups, 64 static lights.
 - Multiple `light_sun` entities are not supported.
 - Spawn yaw is parsed only for validity; spawn orientation is not stored in `Arena`, so actual orientation intent is unclear.
 - Jumppads do not use brush/entity rotation as launch authority. Launch priority is target-based ballistic, explicit direction and speed, angle/pitch and speed, then straight up.

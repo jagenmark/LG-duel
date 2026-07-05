@@ -4610,6 +4610,7 @@ void appendCommandBatches(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
   std::uint32_t newExplosionEventsConsumed,
@@ -4769,11 +4770,12 @@ void appendCommandBatches(
       player,
       remotePlayers,
       localLightningGun,
-      weaponFires,
-      rocketExplosions,
-      rockets,
-      transientTracers,
-      transientEffects,
+        weaponFires,
+        rocketExplosions,
+        rockets,
+        healthPickupAvailable,
+        transientTracers,
+        transientEffects,
       settings,
       cameraVerticalOffset
     );
@@ -6364,6 +6366,7 @@ void drawPerspectiveWorld(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
   const RenderSettings& settings
 ) {
   const float aspectRatio =
@@ -6545,6 +6548,48 @@ void drawPerspectiveWorld(
         remotePlayer.position.z + remotePlayer.bounds.halfHeight,
       },
       remoteModelColor(settings, remote.enemyHitAmount, remote.teammate)
+    );
+  }
+
+  for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
+    if (!healthPickupAvailable[index]) {
+      continue;
+    }
+    const ArenaHealthPickup& pickup = arena.healthPickups[index];
+    const bool large = pickup.type == HealthPickupType::Large;
+    const Vec3 halfExtents = large
+      ? Vec3{0.34F, 0.34F, 0.18F}
+      : Vec3{0.24F, 0.24F, 0.14F};
+    const Vec3 center = pickup.position + Vec3{0.0F, 0.0F, halfExtents.z};
+    drawSolidBox(
+      renderer,
+      camera,
+      width,
+      height,
+      center - halfExtents,
+      center + halfExtents,
+      SDL_FColor{0.96F, 0.97F, 0.98F, 1.0F}
+    );
+    const float z = center.z + halfExtents.z + 0.02F;
+    const float longExtent = halfExtents.x * 0.6F;
+    const float shortExtent = halfExtents.x * 0.16F;
+    drawSolidBox(
+      renderer,
+      camera,
+      width,
+      height,
+      {center.x - longExtent, center.y - shortExtent, z},
+      {center.x + longExtent, center.y + shortExtent, z + 0.04F},
+      SDL_FColor{0.85F, 0.13F, 0.19F, 1.0F}
+    );
+    drawSolidBox(
+      renderer,
+      camera,
+      width,
+      height,
+      {center.x - shortExtent, center.y - longExtent, z + 0.01F},
+      {center.x + shortExtent, center.y + longExtent, z + 0.05F},
+      SDL_FColor{0.85F, 0.13F, 0.19F, 1.0F}
     );
   }
 
@@ -7012,6 +7057,7 @@ void Renderer::render(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
   std::uint32_t newExplosionEventsConsumed,
@@ -7148,9 +7194,10 @@ void Renderer::render(
           player,
           remotePlayers,
           localLightningGun,
-      weaponFires,
+          weaponFires,
           rocketExplosions,
           rockets,
+          healthPickupAvailable,
           transientTracers,
           transientEffects,
           newExplosionEventsConsumed,
@@ -7321,6 +7368,7 @@ void Renderer::render(
     weaponFires,
     rocketExplosions,
     rockets,
+    healthPickupAvailable,
     transientTracers,
     transientEffects,
     settings,
@@ -7484,6 +7532,7 @@ void Renderer::render(
     weaponFires,
     rocketExplosions,
     rockets,
+    healthPickupAvailable,
     settings
   );
   const PerspectiveCamera camera = playerPerspectiveCamera(

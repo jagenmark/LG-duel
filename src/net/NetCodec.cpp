@@ -1183,6 +1183,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (bool available : snapshot.healthPickupAvailable) {
+    if (!writer.writeBool(available)) {
+      return false;
+    }
+  }
   for (std::uint32_t ticks : snapshot.respawnTicksRemaining) {
     if (!writer.writeU32(ticks)) {
       return false;
@@ -1392,6 +1397,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (RocketProjectileSnapshot& projectile : decoded.rockets) {
     if (!readRocketProjectile(reader, projectile)) {
+      return false;
+    }
+  }
+  for (bool& available : decoded.healthPickupAvailable) {
+    if (!reader.readBool(available)) {
       return false;
     }
   }

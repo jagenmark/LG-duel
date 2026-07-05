@@ -6157,6 +6157,12 @@ int GameApp::run() const {
       session.game() != nullptr && session.game()->hasSnapshot()
         ? session.game()->arena()
         : fallbackArena;
+    std::array<bool, Arena::kHealthPickupCount> renderHealthPickupAvailable = {};
+    renderHealthPickupAvailable.fill(true);
+    if (session.game() != nullptr && session.game()->hasSnapshot()) {
+      renderHealthPickupAvailable =
+        session.game()->snapshot().healthPickupAvailable;
+    }
     transientTracerStore.update(outerFrameElapsed.count());
     consumeTracerWeaponFires(
       transientTracerStore,
@@ -6182,6 +6188,7 @@ int GameApp::run() const {
       renderWeaponFires,
       renderRocketExplosions,
       renderRockets,
+      renderHealthPickupAvailable,
       activeTransientTracers,
       activeTransientEffects,
       transientTracerStore.explosionEventsConsumedThisFrame,

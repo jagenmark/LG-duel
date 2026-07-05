@@ -13,6 +13,7 @@ Examples:
 - weapon cooldown ticks
 - QL weapon pullout ticks
 - jumppad retrigger cooldown
+- health pickup heal amounts and respawn cooldowns
 
 Do not put `sv_*`, `g_*`, `r_*`, `cl_*`, `s_*`, `vid_*`, or binds here. If a
 value can be changed through the console, it belongs in a cvar config instead.

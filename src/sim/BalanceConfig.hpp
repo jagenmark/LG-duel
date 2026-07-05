@@ -23,6 +23,10 @@ struct BalanceConfig {
   WeaponAmmoConfig weaponAmmo = {};
   std::uint32_t weaponPulloutTicks = 20;
   std::uint32_t jumpPadRetriggerCooldownTicks = 25;
+  std::int32_t smallHealthPickupAmount = 25;
+  std::int32_t largeHealthPickupAmount = 50;
+  std::uint32_t smallHealthPickupCooldownTicks = 1250;
+  std::uint32_t largeHealthPickupCooldownTicks = 4375;
 };
 
 struct BalanceConfigLoadResult {
