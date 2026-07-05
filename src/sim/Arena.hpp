@@ -87,11 +87,22 @@ struct ArenaJumpPad {
   bool hasTargetSpeed = false;
 };
 
+enum class HealthPickupType : std::uint8_t {
+  Small = 0,
+  Large = 1,
+};
+
+struct ArenaHealthPickup {
+  Vec3 position = {};
+  HealthPickupType type = HealthPickupType::Small;
+};
+
 struct Arena {
   static constexpr std::size_t kWallCount = 255;
   static constexpr std::size_t kBrushCount = 128;
   static constexpr std::size_t kStaticLightCount = 64;
   static constexpr std::size_t kJumpPadCount = 32;
+  static constexpr std::size_t kHealthPickupCount = 32;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
@@ -104,6 +115,8 @@ struct Arena {
   ArenaSunLight sunLight = {};
   std::array<ArenaJumpPad, kJumpPadCount> jumpPads = {};
   std::size_t jumpPadCount = 0;
+  std::array<ArenaHealthPickup, kHealthPickupCount> healthPickups = {};
+  std::size_t healthPickupCount = 0;
   std::array<Vec3, kMaxPlayers> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},

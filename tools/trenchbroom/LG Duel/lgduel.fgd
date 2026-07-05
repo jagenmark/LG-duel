@@ -22,6 +22,16 @@
   yaw(integer) : "Yaw override" : 0 : "Optional spawn yaw in degrees. The importer also accepts angle from the Angles base class."
 ]
 
+@PointClass size(-10 -10 -10, 10 10 10) color(255 255 255) = item_health_small : "Small health pickup"
+[
+  origin(string) : "Origin" : "" : "x y z position in TrenchBroom units."
+]
+
+@PointClass size(-14 -14 -12, 14 14 12) color(255 255 255) = item_health_large : "Large health pickup"
+[
+  origin(string) : "Origin" : "" : "x y z position in TrenchBroom units."
+]
+
 @PointClass size(-8 -8 -8, 8 8 8) color(80 180 255) = target_position : "Jumppad landing target"
 [
   targetname(target_source) : "Target name" : ""

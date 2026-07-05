@@ -127,6 +127,22 @@ namespace {
           std::lround((value / 1000.0F) / kFixedTickSeconds)
         )
       );
+  } else if (key == "pickup.health.small_cooldown_ms" && inRange(value, 0.0F, 120000.0F)) {
+    config.smallHealthPickupCooldownTicks =
+      std::max<std::uint32_t>(
+        1U,
+        static_cast<std::uint32_t>(
+          std::lround((value / 1000.0F) / kFixedTickSeconds)
+        )
+      );
+  } else if (key == "pickup.health.large_cooldown_ms" && inRange(value, 0.0F, 120000.0F)) {
+    config.largeHealthPickupCooldownTicks =
+      std::max<std::uint32_t>(
+        1U,
+        static_cast<std::uint32_t>(
+          std::lround((value / 1000.0F) / kFixedTickSeconds)
+        )
+      );
   } else {
     return false;
   }
@@ -172,6 +188,10 @@ namespace {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)] = value;
   } else if (key == "weapon.switch_pullout_ticks" && value >= 0 && value <= 5000) {
     config.weaponPulloutTicks = static_cast<std::uint32_t>(value);
+  } else if (key == "pickup.health.small_amount" && value >= 1 && value <= 100000) {
+    config.smallHealthPickupAmount = value;
+  } else if (key == "pickup.health.large_amount" && value >= 1 && value <= 100000) {
+    config.largeHealthPickupAmount = value;
   } else {
     return false;
   }

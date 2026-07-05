@@ -740,6 +740,22 @@ struct Scene3D {
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  const RenderSettings& settings,
+  float cameraVerticalOffset = 0.0F
+);
+
+[[nodiscard]] Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
   const RenderSettings& settings
 );
