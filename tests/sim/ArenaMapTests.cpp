@@ -43,8 +43,8 @@ int main() {
   }
 
   {
-    const lg::LocalMapLoadResult missing = lg::loadLocalMap("thunderstruck");
-    failures += expect(!missing.ok, "missing thunderstruck should fail like any other local map");
+    const lg::LocalMapLoadResult missing = lg::loadLocalMap("missing_map");
+    failures += expect(!missing.ok, "missing local map should fail like any other local map");
   }
 
   {

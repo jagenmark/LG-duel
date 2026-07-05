@@ -61,6 +61,7 @@ constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
 constexpr float kDegreesToRadians = 0.01745329252F;
+constexpr float kRadiansToDegrees = 57.2957795131F;
 constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
@@ -1475,6 +1476,96 @@ void appendPerfHudLines(
     console.getBool("r_draw_remote_players") ? 1 : 0,
     console.getBool("r_draw_remote_weapons") ? 1 : 0,
     console.getBool("r_draw_player_outlines") ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+}
+
+[[nodiscard]] const char* movementModeLabel(MovementMode mode) {
+  switch (mode) {
+  case MovementMode::Grounded:
+    return "ground";
+  case MovementMode::Airborne:
+    return "air";
+  case MovementMode::Flying:
+    return "fly";
+  }
+  return "unknown";
+}
+
+void appendGroundDebugHudLines(
+  HudRenderState& hud,
+  const Arena& arena,
+  const PlayerState& player,
+  int detailLevel
+) {
+  if (detailLevel <= 0) {
+    return;
+  }
+
+  constexpr float kGroundDebugProbeDistance = 0.08F;
+  const CollisionResult groundProbe = slidePlayerArenaMove(
+    arena,
+    player,
+    player.position,
+    {0.0F, 0.0F, -kGroundDebugProbeDistance},
+    1.0F
+  );
+  const Vec3 groundNormal =
+    groundProbe.groundPlane ? groundProbe.groundNormal : Vec3{0.0F, 0.0F, 1.0F};
+  const float slopeDegrees =
+    std::acos(clamp(groundNormal.z, -1.0F, 1.0F)) * kRadiansToDegrees;
+  const float horizontalSpeed =
+    std::hypot(player.velocity.x, player.velocity.y) * kQuakeUnitsPerProjectUnit;
+
+  char text[192];
+  std::snprintf(
+    text,
+    sizeof(text),
+    "GROUND state %s probe %s/%s slope %.1f spd %.0f",
+    movementModeLabel(player.movementMode),
+    groundProbe.onGround ? "walk" : "no-walk",
+    groundProbe.groundPlane ? "plane" : "no-plane",
+    slopeDegrees,
+    horizontalSpeed
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  std::snprintf(
+    text,
+    sizeof(text),
+    "GROUND pos %.3f %.3f %.3f view %.1f %.1f",
+    player.position.x,
+    player.position.y,
+    player.position.z,
+    player.viewYawRadians * kRadiansToDegrees,
+    player.viewPitchRadians * kRadiansToDegrees
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  std::snprintf(
+    text,
+    sizeof(text),
+    "GROUND normal %.3f %.3f %.3f",
+    groundNormal.x,
+    groundNormal.y,
+    groundNormal.z
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  if (detailLevel < 2) {
+    return;
+  }
+
+  const float normalVelocity = dot(player.velocity, groundNormal);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "GROUND vel %.3f %.3f %.3f dotN %.3f onGround %d",
+    player.velocity.x,
+    player.velocity.y,
+    player.velocity.z,
+    normalVelocity,
+    player.onGround ? 1 : 0
   );
   hud.topLeftLines.emplace_back(text);
 }
@@ -5858,6 +5949,10 @@ int GameApp::run() const {
     currentRenderSettings.playerSizePixels =
       14.0F * (renderPlayer.bounds.radius / 0.35F);
 
+    const Arena& renderArena =
+      session.game() != nullptr && session.game()->hasSnapshot()
+        ? session.game()->arena()
+        : fallbackArena;
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
     hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
@@ -5885,6 +5980,17 @@ int GameApp::run() const {
         std::to_string(static_cast<int>(std::lround(
           horizontalSpeed * kQuakeUnitsPerProjectUnit
         ))) + " ups";
+    }
+    if (
+      session.game() != nullptr &&
+      session.game()->hasSnapshot()
+    ) {
+      appendGroundDebugHudLines(
+        hud,
+        renderArena,
+        renderPlayer,
+        console.getInt("cg_ground_debug")
+      );
     }
     if (currentRenderSettings.showRendererPerf) {
       const RendererFrameDiagnostics& diagnostics =
@@ -6153,10 +6259,6 @@ int GameApp::run() const {
         console
       );
     }
-    const Arena& renderArena =
-      session.game() != nullptr && session.game()->hasSnapshot()
-        ? session.game()->arena()
-        : fallbackArena;
     transientTracerStore.update(outerFrameElapsed.count());
     consumeTracerWeaponFires(
       transientTracerStore,

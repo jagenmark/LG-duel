@@ -110,6 +110,15 @@ int main() {
     "HUD FPS counter size cvar should be configurable"
   );
   failures += expect(
+    console.execute("cg_ground_debug") ==
+        "cg_ground_debug = 0 (default 0)" &&
+      console.execute("cg_ground_debug 3") ==
+        "value out of range for cg_ground_debug" &&
+      console.execute("cg_ground_debug 2") == "cg_ground_debug = 2" &&
+      console.getInt("cg_ground_debug") == 2,
+    "ground debug HUD cvar should expose off, summary, and detailed modes"
+  );
+  failures += expect(
     console.execute("cl_health_style") ==
         "cl_health_style = 0 (default 0)" &&
       console.execute("cl_health_style 3") ==
