@@ -27,6 +27,8 @@ namespace {
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
 
+  // Ray clip in x/y against the wall expanded by player radius. Z is checked as
+  // overlap only because player-player separation is planar.
   const auto clipAxis = [&entry, &exit](
     float origin,
     float axisDirection,
@@ -71,6 +73,7 @@ namespace {
   float boundsEntry = 0.0F;
   float boundsExit = std::numeric_limits<float>::max();
 
+  // AABB broad phase before testing every convex brush plane.
   const auto clipBoundsAxis = [&boundsEntry, &boundsExit](
     float origin,
     float axisDirection,
@@ -97,6 +100,8 @@ namespace {
 
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
+  // Treat the player as a cylinder/vertical extent by expanding each brush
+  // plane by the radius projected onto that plane plus vertical half-height.
   for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
     const ArenaBrushFace& face = brush.faces[index];
     const float planarRadius =
@@ -134,6 +139,8 @@ namespace {
 ) {
   float available = std::numeric_limits<float>::max();
 
+  // Limit separation by the closest world edge or solid in the requested
+  // direction so resolving one player cannot push them through level geometry.
   const auto constrainAxis = [&available](
     float position,
     float axisDirection,
@@ -197,6 +204,8 @@ bool resolvePlayerCollision(const Arena& arena, PlayerState& first, PlayerState&
   const float penetration = minimumDistance - distance;
   const float firstAvailable = availablePlanarTravel(arena, first, normal * -1.0F);
   const float secondAvailable = availablePlanarTravel(arena, second, normal);
+  // Split correction evenly when possible, then give any blocked remainder to
+  // the other player if that side has room.
   float firstCorrection = std::min(penetration * 0.5F, firstAvailable);
   float secondCorrection = std::min(penetration - firstCorrection, secondAvailable);
   firstCorrection = std::min(penetration - secondCorrection, firstAvailable);
@@ -206,6 +215,8 @@ bool resolvePlayerCollision(const Arena& arena, PlayerState& first, PlayerState&
 
   const float inwardRelativeSpeed = dot(second.velocity - first.velocity, normal);
   if (inwardRelativeSpeed < 0.0F) {
+    // Remove only closing velocity along the separation normal. Tangential
+    // movement is left intact so shoulder bumps do not eat strafe speed.
     const Vec3 velocityCorrection = normal * (inwardRelativeSpeed * 0.5F);
     first.velocity += velocityCorrection;
     second.velocity -= velocityCorrection;
