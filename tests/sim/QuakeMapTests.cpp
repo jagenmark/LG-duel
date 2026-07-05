@@ -73,6 +73,26 @@ std::string basicMap(std::string brush) {
     "}\n";
 }
 
+std::string inwardWoundDodecagonalPrismBrush() {
+  return
+    "{\n"
+    "( -136 -40 -416 ) ( -136 40 -432 ) ( -136 40 -416 ) stone 0 0 0 1 1\n"
+    "( -100 -100 -416 ) ( -136 -40 -432 ) ( -136 -40 -416 ) stone 0 0 0 1 1\n"
+    "( -100 100 -416 ) ( -136 40 -432 ) ( -100 100 -432 ) stone 0 0 0 1 1\n"
+    "( -40 -136 -416 ) ( -100 -100 -432 ) ( -100 -100 -416 ) stone 0 0 0 1 1\n"
+    "( -40 136 -416 ) ( -100 100 -432 ) ( -40 136 -432 ) stone 0 0 0 1 1\n"
+    "( 40 -136 -416 ) ( -40 -136 -432 ) ( -40 -136 -416 ) stone 0 0 0 1 1\n"
+    "( 136 40 -432 ) ( 100 -100 -432 ) ( 136 -40 -432 ) stone 0 0 0 1 1\n"
+    "( 136 40 -416 ) ( 40 136 -416 ) ( 100 100 -416 ) stone 0 0 0 1 1\n"
+    "( 40 136 -416 ) ( -40 136 -432 ) ( 40 136 -432 ) stone 0 0 0 1 1\n"
+    "( 100 -100 -416 ) ( 40 -136 -432 ) ( 40 -136 -416 ) stone 0 0 0 1 1\n"
+    "( 100 100 -416 ) ( 40 136 -432 ) ( 100 100 -432 ) stone 0 0 0 1 1\n"
+    "( 136 -40 -416 ) ( 100 -100 -432 ) ( 100 -100 -416 ) stone 0 0 0 1 1\n"
+    "( 136 40 -416 ) ( 100 100 -432 ) ( 136 40 -432 ) stone 0 0 0 1 1\n"
+    "( 136 40 -416 ) ( 136 -40 -432 ) ( 136 -40 -416 ) stone 0 0 0 1 1\n"
+    "}\n";
+}
+
 } // namespace
 
 int main() {
@@ -527,6 +547,25 @@ int main() {
     const lg::ArenaLoadResult result =
       lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 0)));
     failures += expect(!result.ok, "degenerate cuboid should be rejected");
+  }
+
+  {
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(inwardWoundDodecagonalPrismBrush()));
+    if (!result.ok) {
+      std::cerr << "inward-wound prism error: " << result.error << '\n';
+    }
+    failures += expect(result.ok, "inward-wound 14-face convex prism should convert");
+    failures += expect(
+      result.ok && result.arena.brushCount == 1,
+      "inward-wound 14-face prism should produce one convex brush"
+    );
+    failures += expect(
+      result.ok &&
+        result.arena.brushes[0].faceCount == 14 &&
+        result.arena.brushes[0].vertexCount == 24,
+      "inward-wound 14-face prism should keep all faces and vertices"
+    );
   }
 
   {

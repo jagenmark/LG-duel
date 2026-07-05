@@ -750,6 +750,15 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   if (buildBrushHull(arenaBrush, context, error)) {
     return true;
   }
+
+  for (std::uint8_t faceIndex = 0; faceIndex < arenaBrush.faceCount; ++faceIndex) {
+    arenaBrush.faces[faceIndex].normal = rawNormals[faceIndex] * -1.0F;
+    arenaBrush.faces[faceIndex].distance = rawDistances[faceIndex] * -1.0F;
+  }
+  if (buildBrushHull(arenaBrush, context, error)) {
+    return true;
+  }
+
   if (arenaBrush.faceCount > 12) {
     return false;
   }
