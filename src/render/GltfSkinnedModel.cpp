@@ -891,7 +891,21 @@ bool GltfSkinnedModel::load(std::string_view path) {
     bool localBoundsInitialized = false;
     const JsonValue& meshes = member(root, "meshes");
     const JsonValue& materials = member(root, "materials");
-    for (const JsonValue& mesh : meshes.array) {
+    std::vector<bool> meshHasSkinNode(meshes.array.size(), false);
+    for (const Node& node : nodes_) {
+      if (
+        node.mesh >= 0 &&
+        node.skin >= 0 &&
+        static_cast<std::size_t>(node.mesh) < meshHasSkinNode.size()
+      ) {
+        meshHasSkinNode[static_cast<std::size_t>(node.mesh)] = true;
+      }
+    }
+    for (std::size_t meshIndex = 0; meshIndex < meshes.array.size(); ++meshIndex) {
+      if (!meshHasSkinNode.empty() && !meshHasSkinNode[meshIndex]) {
+        continue;
+      }
+      const JsonValue& mesh = meshes.array[meshIndex];
       const JsonValue& primitives = member(mesh, "primitives");
       for (const JsonValue& primitiveJson : primitives.array) {
         if (intMember(primitiveJson, "mode", 4) != 4) {
@@ -1335,17 +1349,21 @@ GltfSkinnedModel& duelistMaleModel() {
   static bool attemptedLoad = false;
   if (!attemptedLoad) {
     attemptedLoad = true;
-    constexpr std::string_view modelPath =
-      "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb";
-    const std::array<std::string, 4> candidates = {{
-      std::string(modelPath),
-      "../" + std::string(modelPath),
-      "../../" + std::string(modelPath),
-      "../../../" + std::string(modelPath),
+    constexpr std::array<std::string_view, 2> modelPaths = {{
+      "assets/models/lg_duelist_male_v3/art/exports/lg_duelist_male.glb",
+      "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb",
     }};
-    for (const std::string& candidate : candidates) {
-      if (model.load(candidate)) {
-        break;
+    constexpr std::array<std::string_view, 4> prefixes = {{
+      "",
+      "../",
+      "../../",
+      "../../../",
+    }};
+    for (std::string_view modelPath : modelPaths) {
+      for (std::string_view prefix : prefixes) {
+        if (model.load(std::string(prefix) + std::string(modelPath))) {
+          return model;
+        }
       }
     }
   }
