@@ -1532,6 +1532,18 @@ void appendGroundDebugHudLines(
   std::snprintf(
     text,
     sizeof(text),
+    "GROUND pos %.3f %.3f %.3f view %.1f %.1f",
+    player.position.x,
+    player.position.y,
+    player.position.z,
+    player.viewYawRadians * kRadiansToDegrees,
+    player.viewPitchRadians * kRadiansToDegrees
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  std::snprintf(
+    text,
+    sizeof(text),
     "GROUND normal %.3f %.3f %.3f",
     groundNormal.x,
     groundNormal.y,
