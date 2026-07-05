@@ -96,6 +96,7 @@ struct SimpleRenderInstance {
   Vec3 position = {};
   Vec3 scale = {1.0F, 1.0F, 1.0F};
   float rotationRadians = 0.0F;
+  float pitchRadians = 0.0F;
   RenderColor color = {};
   float visualPhase = 0.0F;
   BoundingSphere worldBounds = {};

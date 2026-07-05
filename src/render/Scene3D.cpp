@@ -28,7 +28,7 @@ constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
-constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
+constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
 constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
 constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
@@ -2178,6 +2178,23 @@ void addPlayerBoxInstances(
   return std::isfinite(yaw) ? yaw : 0.0F;
 }
 
+[[nodiscard]] float projectileVelocityPitch(Vec3 velocity) {
+  const float horizontalSpeed = std::hypot(velocity.x, velocity.y);
+  if (horizontalSpeed <= 0.0001F && std::fabs(velocity.z) <= 0.0001F) {
+    return 0.0F;
+  }
+  const float pitch = std::atan2(velocity.z, horizontalSpeed);
+  return std::isfinite(pitch) ? pitch : 0.0F;
+}
+
+[[nodiscard]] Vec3 projectileVelocityForward(Vec3 velocity) {
+  const float speed = length(velocity);
+  if (speed <= 0.0001F || !std::isfinite(speed)) {
+    return yawForward(projectileVelocityYaw(velocity));
+  }
+  return velocity * (1.0F / speed);
+}
+
 [[nodiscard]] float projectileRotationRadians(
   const RocketProjectileSnapshot& projectile,
   std::size_t projectileIndex
@@ -2387,6 +2404,7 @@ void addTransientEffectInstances(
         {scale, scale, scale},
         static_cast<float>((effect.seed * 2654435761U) & 1023U) *
           (kTwoPi / 1024.0F),
+        0.0F,
         color,
         t,
         {effect.position, scale},
@@ -2677,6 +2695,9 @@ void addProjectileInstances(
         position,
         {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
         rotation,
+        descriptor->type == ProjectileVisualType::Rocket
+          ? projectileVelocityPitch(projectile.velocity)
+          : 0.0F,
         descriptor->coreColor,
         pulseSeed,
         {position, descriptor->coreScale},
@@ -2685,8 +2706,11 @@ void addProjectileInstances(
     countProjectileCoreInstance(scene.projectileStats, descriptor->type);
   }
   if (descriptor->glowBillboard != BillboardHandle::Invalid) {
+    const Vec3 projectileForward = descriptor->type == ProjectileVisualType::Rocket
+      ? projectileVelocityForward(projectile.velocity)
+      : yawForward(rotation);
     const Vec3 glowPosition = descriptor->type == ProjectileVisualType::Rocket
-      ? position - yawForward(rotation) * (descriptor->coreScale * 0.9F)
+      ? position - projectileForward * (descriptor->coreScale * 0.9F)
       : position;
     appendSimpleInstance(
       scene,
@@ -2696,6 +2720,7 @@ void addProjectileInstances(
         descriptor->usesAdditiveGlow ? RenderPass::AdditiveGlow : RenderPass::TranslucentWorld,
         glowPosition,
         {descriptor->glowScale, descriptor->glowScale, descriptor->glowScale},
+        0.0F,
         0.0F,
         descriptor->glowColor,
         pulseSeed,

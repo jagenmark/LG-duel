@@ -1969,8 +1969,51 @@ int main() {
     "rocket projectile should use the rocket mesh opaque pass and flame additive pass"
   );
 
+  rocketProjectiles[0].velocity = {0.0F, 0.0F, 30.0F};
+  const lg::Scene3D upwardRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    settings
+  );
+  failures += expect(
+    upwardRocketProjectileScene.simpleInstances.size() == 2U &&
+      std::fabs(upwardRocketProjectileScene.simpleInstances[0].pitchRadians -
+        (3.14159265359F * 0.5F)) < 0.001F &&
+      upwardRocketProjectileScene.simpleInstances[1].position.z <
+        upwardRocketProjectileScene.simpleInstances[0].position.z - 0.25F,
+    "upward rocket projectile should pitch the mesh and place flame behind it in 3D"
+  );
+
+  rocketProjectiles[0].velocity = {0.0F, 0.0F, -30.0F};
+  const lg::Scene3D downwardRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    settings
+  );
+  failures += expect(
+    downwardRocketProjectileScene.simpleInstances.size() == 2U &&
+      std::fabs(downwardRocketProjectileScene.simpleInstances[0].pitchRadians +
+        (3.14159265359F * 0.5F)) < 0.001F &&
+      downwardRocketProjectileScene.simpleInstances[1].position.z >
+        downwardRocketProjectileScene.simpleInstances[0].position.z + 0.25F,
+    "downward rocket projectile should pitch the mesh and place flame behind it in 3D"
+  );
+
   rocketProjectiles[0].owner = 0;
   rocketProjectiles[0].position = player.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  rocketProjectiles[0].velocity = {30.0F, 0.0F, 0.0F};
   const lg::Scene3D localRocketProjectileScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
