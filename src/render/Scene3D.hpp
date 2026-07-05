@@ -727,7 +727,8 @@ struct Scene3D {
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings,
-  float cameraVerticalOffset = 0.0F
+  float cameraVerticalOffset = 0.0F,
+  float animationTimeSeconds = 0.0F
 );
 
 [[nodiscard]] Scene3D buildPerspectiveScene(

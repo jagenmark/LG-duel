@@ -524,6 +524,7 @@ private:
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
   RendererFrameDiagnostics lastFrameDiagnostics_ = {};
+  std::chrono::steady_clock::time_point animationStart_ = {};
   std::chrono::steady_clock::time_point previousCameraStepUpdate_ = {};
   float previousCameraPlayerZ_ = 0.0F;
   float cameraStepOffset_ = 0.0F;

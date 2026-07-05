@@ -24,6 +24,10 @@ constexpr float kQuarterTurnRadians = 1.57079632679F;
 constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
+constexpr float kDuelistIdleDurationSeconds = 1.6666667F;
+constexpr float kDuelistRunDurationSeconds = 1.0F;
+constexpr float kDuelistCrouchWalkDurationSeconds = 1.0F;
+constexpr float kDuelistDeathDurationSeconds = 1.6666667F;
 constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
@@ -34,6 +38,14 @@ constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
 constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
+
+[[nodiscard]] float loopAnimationTime(float timeSeconds, float durationSeconds) {
+  if (!std::isfinite(timeSeconds) || durationSeconds <= 0.0001F) {
+    return 0.0F;
+  }
+  const float wrapped = std::fmod(timeSeconds, durationSeconds);
+  return wrapped >= 0.0F ? wrapped : wrapped + durationSeconds;
+}
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -1143,7 +1155,8 @@ void forEachPlayerModelPart(
 [[nodiscard]] std::vector<SkinnedModelPoseRequest> duelistPoseRequests(
   const PlayerState& player,
   bool leanEnabled,
-  float leanScale
+  float leanScale,
+  float animationTimeSeconds
 ) {
   const PlayerVisualPose pose = makePlayerVisualPose(player);
   const float lateralVelocity = dot(player.velocity, yawRight(player.viewYawRadians));
@@ -1153,7 +1166,10 @@ void forEachPlayerModelPart(
     ? std::clamp(lateralVelocity / 8.0F * leanScale, -1.0F, 1.0F)
     : 0.0F;
   std::vector<SkinnedModelPoseRequest> poseRequests;
-  if (pose.airborne) {
+  bool allowLean = false;
+  if (player.health <= 0) {
+    poseRequests.push_back({"DEATH", kDuelistDeathDurationSeconds, 1.0F});
+  } else if (pose.airborne) {
     if (player.velocity.z < -0.1F) {
       poseRequests.push_back({"FALL", 0.4166667F, 1.0F});
     } else {
@@ -1166,10 +1182,28 @@ void forEachPlayerModelPart(
     const bool crouchWalking =
       horizontalSpeedSq > crouchWalkSpeedThreshold * crouchWalkSpeedThreshold;
     const char* crouchAction = crouchWalking ? "CROUCH_WALK" : "DUCKING";
-    poseRequests.push_back({crouchAction, 0.5833333F, 1.0F});
+    const float crouchTime = crouchWalking
+      ? loopAnimationTime(animationTimeSeconds, kDuelistCrouchWalkDurationSeconds)
+      : 0.5833333F;
+    poseRequests.push_back({crouchAction, crouchTime, 1.0F});
   } else if (pose.sneaking) {
     poseRequests.push_back({"SNEAK", 0.5833333F, 1.0F});
-  } else if (leanAmount > 0.02F) {
+  } else {
+    constexpr float runSpeedThreshold = 0.5F;
+    const bool running = horizontalSpeedSq > runSpeedThreshold * runSpeedThreshold;
+    const char* locomotionAction = running ? "RUN" : "IDLE";
+    const float locomotionTime = loopAnimationTime(
+      animationTimeSeconds,
+      running ? kDuelistRunDurationSeconds : kDuelistIdleDurationSeconds
+    );
+    poseRequests.push_back({locomotionAction, locomotionTime, 1.0F});
+    allowLean = true;
+  }
+
+  if (!allowLean) {
+    return poseRequests;
+  }
+  if (leanAmount > 0.02F) {
     poseRequests.push_back({"LEAN_LEFT", 0.5833333F, std::fabs(leanAmount)});
   } else if (leanAmount < -0.02F) {
     poseRequests.push_back({"LEAN_RIGHT", 0.5833333F, std::fabs(leanAmount)});
@@ -1187,7 +1221,8 @@ void addGltfPlayerModelInstance(
   std::uint8_t playerIndex,
   OutlineState outlineState,
   bool outlined,
-  GltfSkinnedModel::PoseScratch& poseScratch
+  GltfSkinnedModel::PoseScratch& poseScratch,
+  float animationTimeSeconds
 ) {
   if (!model.loaded() || model.primitives().empty()) {
     return;
@@ -1203,7 +1238,7 @@ void addGltfPlayerModelInstance(
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
   const std::vector<SkinnedModelPoseRequest> poseRequests =
-    duelistPoseRequests(player, leanEnabled, leanScale);
+    duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
   if (!model.appendBonePalette(poseRequests, scene.gltfBonePalette, poseScratch)) {
     return;
   }
@@ -2823,7 +2858,8 @@ Scene3D buildPerspectiveScene(
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
   const RenderSettings& settings,
-  float cameraVerticalOffset
+  float cameraVerticalOffset,
+  float animationTimeSeconds
 ) {
   (void)arena;
   constexpr CollisionBounds defaultBounds = {};
@@ -3023,7 +3059,8 @@ Scene3D buildPerspectiveScene(
           outlineState,
           wantsOutline &&
             settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace,
-          gltfPoseScratch
+          gltfPoseScratch,
+          animationTimeSeconds
         );
       }
     }

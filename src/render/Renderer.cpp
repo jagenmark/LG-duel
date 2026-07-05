@@ -4608,6 +4608,7 @@ void appendCommandBatches(
   const HudRenderState& hud,
   const ConsoleRenderState& console,
   float cameraVerticalOffset,
+  float animationTimeSeconds,
   RendererFrameDiagnostics& diagnostics
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
@@ -4766,7 +4767,8 @@ void appendCommandBatches(
       transientTracers,
       transientEffects,
       settings,
-      cameraVerticalOffset
+      cameraVerticalOffset,
+      animationTimeSeconds
     );
     diagnostics.remoteCandidates = perspectiveScene.remoteCandidates;
     diagnostics.remoteFrustumVisible = perspectiveScene.remoteFrustumVisible;
@@ -7012,6 +7014,11 @@ void Renderer::render(
 ) {
 #if LG_DUEL_HAS_SDL3
   const auto renderStart = RenderClock::now();
+  if (animationStart_ == RenderClock::time_point{}) {
+    animationStart_ = renderStart;
+  }
+  const float animationTimeSeconds =
+    std::fmod(secondsBetween(animationStart_, renderStart), 1024.0F);
   float stepSmoothingDt = 0.0F;
   if (previousCameraStepUpdate_ != RenderClock::time_point{}) {
     stepSmoothingDt = std::clamp(
@@ -7149,6 +7156,7 @@ void Renderer::render(
           hud,
           console,
           cameraStepOffset_,
+          animationTimeSeconds,
           lastFrameDiagnostics_
         ) &&
         !gpuErrorReported_) {
@@ -7315,7 +7323,8 @@ void Renderer::render(
     transientTracers,
     transientEffects,
     settings,
-    cameraStepOffset_
+    cameraStepOffset_,
+    animationTimeSeconds
   );
   lastFrameDiagnostics_.totalUploadedVertices =
     static_cast<std::uint32_t>(
