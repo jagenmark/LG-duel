@@ -7,8 +7,9 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 3) in vec3 instancePosition;
 layout(location = 4) in vec3 instanceScale;
 layout(location = 5) in float instanceRotationRadians;
-layout(location = 6) in vec4 instanceColor;
-layout(location = 7) in float instancePhase;
+layout(location = 6) in float instancePitchRadians;
+layout(location = 7) in vec4 instanceColor;
+layout(location = 8) in float instancePhase;
 
 layout(location = 0) out vec4 vertexColor;
 
@@ -40,14 +41,15 @@ vec4 projectWorld(vec3 worldPosition) {
 }
 
 void main() {
-  float c = cos(instanceRotationRadians);
-  float s = sin(instanceRotationRadians);
+  float yawC = cos(instanceRotationRadians);
+  float yawS = sin(instanceRotationRadians);
+  float pitchC = cos(instancePitchRadians);
+  float pitchS = sin(instancePitchRadians);
   vec3 scaled = inPosition * instanceScale;
-  vec3 rotated = vec3(
-    scaled.x * c - scaled.y * s,
-    scaled.x * s + scaled.y * c,
-    scaled.z
-  );
+  vec3 forward = vec3(yawC * pitchC, yawS * pitchC, pitchS);
+  vec3 side = vec3(-yawS, yawC, 0.0);
+  vec3 up = vec3(-yawC * pitchS, -yawS * pitchS, pitchC);
+  vec3 rotated = forward * scaled.x + side * scaled.y + up * scaled.z;
   gl_Position = projectWorld(instancePosition + rotated);
   vertexColor = inColor * instanceColor;
 }

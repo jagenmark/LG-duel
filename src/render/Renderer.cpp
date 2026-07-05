@@ -297,12 +297,14 @@ struct GpuBillboardMesh {
 // location 3: instancePosition float3, offset 0
 // location 4: instanceScale float3, offset 12
 // location 5: instanceRotation float, offset 24
-// location 6: instanceColor ubyte4 normalized, offset 28
-// location 7: instancePhase float, offset 32
+// location 6: instancePitch float, offset 28
+// location 7: instanceColor ubyte4 normalized, offset 32
+// location 8: instancePhase float, offset 36
 struct GpuSimpleInstance {
   float position[3] = {};
   float scale[3] = {1.0F, 1.0F, 1.0F};
   float rotationRadians = 0.0F;
+  float pitchRadians = 0.0F;
   std::uint8_t red = 255;
   std::uint8_t green = 255;
   std::uint8_t blue = 255;
@@ -310,7 +312,7 @@ struct GpuSimpleInstance {
   float visualPhase = 0.0F;
 };
 
-static_assert(sizeof(GpuSimpleInstance) == 36);
+static_assert(sizeof(GpuSimpleInstance) == 40);
 
 // Vertex stream 1 for static mesh instancing:
 // locations 3-5: float4 model matrix rows (xyz basis plus translation)
@@ -1684,7 +1686,7 @@ void collectTextureMaterialFiles(
       0,
     },
   }};
-  const std::array<SDL_GPUVertexAttribute, 8> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 9> vertexAttributes = {{
     {
       0,
       0,
@@ -1724,11 +1726,17 @@ void collectTextureMaterialFiles(
     {
       6,
       1,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
+      offsetof(GpuSimpleInstance, pitchRadians),
+    },
+    {
+      7,
+      1,
       SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM,
       offsetof(GpuSimpleInstance, red),
     },
     {
-      7,
+      8,
       1,
       SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
       offsetof(GpuSimpleInstance, visualPhase),
@@ -3542,6 +3550,7 @@ void appendScene3D(
       {instance.position.x, instance.position.y, instance.position.z},
       {instance.scale.x, instance.scale.y, instance.scale.z},
       instance.rotationRadians,
+      instance.pitchRadians,
       instance.color.red,
       instance.color.green,
       instance.color.blue,

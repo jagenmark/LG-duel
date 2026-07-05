@@ -40,6 +40,8 @@ constexpr float kSneakGroundSpeedScale = 0.52F;
     return normalize(clipped) * speed;
   }
 
+  // Build the direction that has the same x/y intent but lies exactly on the
+  // ground plane. This keeps ramp movement from bleeding speed into the normal.
   planeDirection.z =
     -((planeDirection.x * groundNormal.x) + (planeDirection.y * groundNormal.y)) /
     groundNormal.z;
@@ -68,6 +70,9 @@ struct StepMoveResult {
   PlayerState stepPlayer = player;
   stepPlayer.onGround = true;
 
+  // Classic step move: lift by max step height, slide horizontally from that
+  // raised position, then drop back down. The result is accepted only if each
+  // intermediate position is non-solid.
   const CollisionResult upMove = slidePlayerArenaMove(
     arena,
     stepPlayer,
@@ -114,6 +119,8 @@ struct StepMoveResult {
   result.groundNormal = droppedMove.groundNormal;
   result.groundPlane = droppedMove.groundPlane;
   if (startVelocity.z <= 0.0F && droppedMove.onGround) {
+    // Walking down onto the landing should follow the landing plane instead of
+    // keeping a small vertical component from the drop probe.
     result.velocity = clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal);
   }
   result.onGround = startVelocity.z <= 0.0F && droppedMove.onGround;
@@ -143,6 +150,8 @@ struct StepMoveResult {
     player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
   PlayerState probePlayer = player;
   probePlayer.position = collision.position;
+  // After a horizontal move, do a short downward probe so slopes and tiny drops
+  // keep a grounded player attached without requiring a full falling tick.
   const CollisionResult groundProbe = slidePlayerArenaMove(
     arena,
     probePlayer,
@@ -153,6 +162,8 @@ struct StepMoveResult {
   if (!groundProbe.groundPlane) {
     const float feetZ = collision.position.z - player.bounds.halfHeight;
     bool standingOnLowStep = false;
+    // Cuboid stair tops can be missed by the trace when the player is already
+    // almost exactly on the top face; keep those contacts grounded.
     for (std::size_t index = 0; index < arena.wallCount; ++index) {
       const ArenaWall& wall = arena.walls[index];
       if (
@@ -421,6 +432,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     return normalize(wishDirection);
   }
 
+  // Project input onto the current ground plane. On ramps this turns pure
+  // forward/right input into movement along the ramp surface instead of into it.
   wishDirection.z =
     -((wishDirection.x * groundNormal.x) + (wishDirection.y * groundNormal.y)) /
     groundNormal.z;
@@ -436,6 +449,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   constexpr float kGroundKickoffSpeed = 10.0F / 40.0F;
 
   const float traceDistance = player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
+  // Ground tracing is deliberately short: long traces would snap players down
+  // ledges, while this only preserves contact with ramps, stairs, and tiny gaps.
   const CollisionResult trace = slidePlayerArenaMove(
     arena,
     player,
@@ -451,6 +466,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     player.velocity.z > 0.0F &&
     dot(player.velocity, trace.groundNormal) > kGroundKickoffSpeed
   ) {
+    // A jump or knockback moving away from the plane should not be re-grounded
+    // by the same short trace that keeps walking players attached to ramps.
     return {};
   }
 
@@ -550,6 +567,9 @@ void simulateGroundedOrAirborne(
     length(horizontal(groundContact.normal)) > 0.0001F &&
     dot(collision.velocity, groundContact.normal) <= (10.0F / 40.0F)
   ) {
+    // Ramp seams can produce a tiny upward component even when the player is
+    // still moving along the same ground plane. Preserve the previous ground
+    // contact instead of briefly popping airborne.
     collision.groundPlane = true;
     collision.onGround = true;
     collision.groundNormal = groundContact.normal;
@@ -567,6 +587,9 @@ void simulateGroundedOrAirborne(
     collision.groundPlane &&
     length(horizontal(collision.groundNormal)) > 0.0001F
   ) {
+    // Pure strafe input on a ramp should not acquire forward/back displacement
+    // just because the collision solver followed the slope axis. Remove that
+    // forward component, then re-solve z on the same ground plane.
     const Vec3 forward = yawForward(command.viewYawRadians);
     const Vec3 horizontalDelta = horizontal(collision.position - player.position);
     const float forwardDelta = dot(horizontalDelta, forward);

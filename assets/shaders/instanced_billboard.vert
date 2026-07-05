@@ -7,8 +7,9 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 3) in vec3 instancePosition;
 layout(location = 4) in vec3 instanceScale;
 layout(location = 5) in float instanceRotationRadians;
-layout(location = 6) in vec4 instanceColor;
-layout(location = 7) in float instancePhase;
+layout(location = 6) in float instancePitchRadians;
+layout(location = 7) in vec4 instanceColor;
+layout(location = 8) in float instancePhase;
 
 layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out vec2 quadUv;
