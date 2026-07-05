@@ -1259,11 +1259,14 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    failures += expect(server.loadRequestedMap("dev_cuboids"), "client-facing server test should load dev_cuboids");
+    server.tick(lg::kFixedTickSeconds);
     lg::ClientGame client(transport, 0);
     client.receiveSnapshots();
 
-    failures += expect(client.hasSnapshot(), "server should publish an initial snapshot");
-    failures += expect(client.snapshot().serverTick == 0, "initial snapshot should start at server tick zero");
+    failures += expect(client.hasSnapshot(), "server should publish an initial file-backed map snapshot");
+    failures += expect(client.snapshot().serverTick == 1, "file-backed startup snapshot should advance one setup tick");
     failures += expect(!client.hasAcknowledgedCommand(), "initial snapshot should not acknowledge a command");
     failures += expect(
       client.snapshot().players[0].movementMode == lg::MovementMode::Grounded,
@@ -1283,7 +1286,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     client.receiveSnapshots();
 
-    failures += expect(client.snapshot().serverTick == 1, "server tick should advance once per simulation step");
+    failures += expect(client.snapshot().serverTick == 2, "server tick should advance once per simulation step");
     failures += expect(client.hasAcknowledgedCommand(), "accepted command should set ack validity");
     failures += expect(client.lastAcknowledgedCommand() == 10, "snapshot should acknowledge accepted command");
     failures += expect(client.snapshot().players[0].position.x > -8.0F, "server should simulate accepted movement");

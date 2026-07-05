@@ -23,7 +23,7 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
 }
 
 lg::MapDescriptor testMapDescriptor() {
-  return lg::describeMap("thunderstruck", lg::thunderstruckArena());
+  return {"testmap", 0x12345678U};
 }
 
 } // namespace
@@ -124,7 +124,7 @@ int main() {
     source.botDodgeMaxIntervalMs = 750;
     source.chatMessage = "åäöÅÄÖ";
     source.playerName = "yg";
-    source.mapName = "thunderstruck";
+    source.mapName = "testmap";
     source.botCommand = lg::BotCommandType::Add;
     source.botCommandValue = 1;
     source.viewedServerTick = 88;
@@ -148,7 +148,7 @@ int main() {
     failures += expect(decoded.command.weapon == lg::Weapon::PlasmaGun, "weapon selection should round trip");
     failures += expect(decoded.chatMessage == "åäöÅÄÖ", "Swedish chat message should round trip");
     failures += expect(decoded.playerName == "yg", "player name should round trip");
-    failures += expect(decoded.mapName == "thunderstruck", "map name should round trip");
+    failures += expect(decoded.mapName == "testmap", "map name should round trip");
     failures += expect(
       decoded.botCommand == lg::BotCommandType::Add &&
         decoded.botCommandValue == 1,
@@ -710,7 +710,7 @@ int main() {
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 
-    lg::Arena smallArena = lg::thunderstruckArena();
+    lg::Arena smallArena;
     lg::Arena largeArena = smallArena;
     largeArena.wallCount = 160;
     for (std::size_t wallIndex = 0; wallIndex < largeArena.wallCount; ++wallIndex) {

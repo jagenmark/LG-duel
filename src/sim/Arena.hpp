@@ -124,7 +124,6 @@ struct ArenaLoadResult {
 [[nodiscard]] ArenaLoadResult loadArenaFromMapText(std::string_view text);
 [[nodiscard]] ArenaLoadResult loadArenaFromFile(const std::string& path);
 [[nodiscard]] std::uint32_t arenaMaterialId(std::string_view material);
-[[nodiscard]] Arena thunderstruckArena();
 
 struct CollisionResult {
   Vec3 position = {};

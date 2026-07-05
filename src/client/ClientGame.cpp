@@ -12,9 +12,7 @@
 namespace lg {
 
 ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
-  : transport_(transport), localPlayerIndex_(localPlayerIndex) {
-  map_ = describeMap("thunderstruck", arena_);
-}
+  : transport_(transport), localPlayerIndex_(localPlayerIndex) {}
 
 void ClientGame::sendCommand(
   const UserCommand& command,
@@ -106,9 +104,6 @@ void ClientGame::receiveSnapshots() {
   diagnostics.snapshotsApplied = 0;
   diagnostics.snapshotApplyMilliseconds = 0.0F;
   while (connectionError_.empty() && transport_.receiveSnapshot(received)) {
-    if (received.map.contentHash == 0 && received.map.mapName == map_.mapName) {
-      received.map = map_;
-    }
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
       const auto applyStart = std::chrono::steady_clock::now();
       const bool mapChanged =

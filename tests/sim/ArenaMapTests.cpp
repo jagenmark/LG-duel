@@ -1,4 +1,5 @@
 #include "sim/Arena.hpp"
+#include "sim/MapRegistry.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -26,15 +27,24 @@ int main() {
   int failures = 0;
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
-    failures += expect(arena.wallCount == 19, "default Thunderstruck map should load all boxes");
-    failures += expect(nearlyEqual(arena.min.x, -15.0F), "default map min x should match file");
-    failures += expect(nearlyEqual(arena.max.z, 10.0F), "default map max z should match file");
+    const lg::LocalMapLoadResult loaded = lg::loadLocalMap("eyetoeye");
+    failures += expect(loaded.ok, "eyetoeye should load from the local map registry");
+    const lg::Arena& arena = loaded.arena;
+    failures += expect(arena.wallCount > 0, "eyetoeye should load static geometry");
+    failures += expect(loaded.descriptor.mapName == "eyetoeye", "eyetoeye descriptor should use the map stem");
     failures += expect(
-      nearlyEqual(arena.spawnPositions[0].x, -8.0F) &&
-        nearlyEqual(arena.spawnPositions[1].x, 8.0F),
-      "default map spawns should match file"
+      loaded.descriptor.contentHash == lg::hashArena(arena),
+      "eyetoeye descriptor hash should match loaded arena"
     );
+    lg::MapDescriptor mismatched = loaded.descriptor;
+    mismatched.contentHash ^= 0x1U;
+    const lg::LocalMapLoadResult verified = lg::loadAndVerifyLocalMap(mismatched);
+    failures += expect(!verified.ok, "local map verification should reject mismatched hashes");
+  }
+
+  {
+    const lg::LocalMapLoadResult missing = lg::loadLocalMap("thunderstruck");
+    failures += expect(!missing.ok, "missing thunderstruck should fail like any other local map");
   }
 
   {
