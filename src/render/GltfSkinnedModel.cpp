@@ -1336,7 +1336,7 @@ GltfSkinnedModel& duelistMaleModel() {
   if (!attemptedLoad) {
     attemptedLoad = true;
     constexpr std::string_view modelPath =
-      "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb";
+      "assets/models/lg_duelist_male_v3/art/exports/lg_duelist_male.glb";
     const std::array<std::string, 4> candidates = {{
       std::string(modelPath),
       "../" + std::string(modelPath),

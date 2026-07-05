@@ -1147,22 +1147,32 @@ void forEachPlayerModelPart(
 ) {
   const PlayerVisualPose pose = makePlayerVisualPose(player);
   const float lateralVelocity = dot(player.velocity, yawRight(player.viewYawRadians));
+  const float horizontalSpeedSq =
+    player.velocity.x * player.velocity.x + player.velocity.y * player.velocity.y;
   const float leanAmount = leanEnabled
     ? std::clamp(lateralVelocity / 8.0F * leanScale, -1.0F, 1.0F)
     : 0.0F;
   std::vector<SkinnedModelPoseRequest> poseRequests;
   if (pose.airborne) {
-    const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 16.0F, 0.0F, 1.0F);
-    const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
-    poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+    if (player.velocity.z < -0.1F) {
+      poseRequests.push_back({"FALL", 0.4166667F, 1.0F});
+    } else {
+      const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 16.0F, 0.0F, 1.0F);
+      const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
+      poseRequests.push_back({"JUMP", jumpTime, 1.0F});
+    }
   } else if (pose.crouched) {
-    poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
+    constexpr float crouchWalkSpeedThreshold = 0.5F;
+    const bool crouchWalking =
+      horizontalSpeedSq > crouchWalkSpeedThreshold * crouchWalkSpeedThreshold;
+    const char* crouchAction = crouchWalking ? "CROUCH_WALK" : "DUCKING";
+    poseRequests.push_back({crouchAction, 0.5833333F, 1.0F});
   } else if (pose.sneaking) {
-    poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
+    poseRequests.push_back({"SNEAK", 0.5833333F, 1.0F});
   } else if (leanAmount > 0.02F) {
-    poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
+    poseRequests.push_back({"LEAN_LEFT", 0.5833333F, std::fabs(leanAmount)});
   } else if (leanAmount < -0.02F) {
-    poseRequests.push_back({"lg_duelist_lean_right", 0.5833333F, std::fabs(leanAmount)});
+    poseRequests.push_back({"LEAN_RIGHT", 0.5833333F, std::fabs(leanAmount)});
   }
   return poseRequests;
 }
