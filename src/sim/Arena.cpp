@@ -979,6 +979,10 @@ CollisionResult slidePlayerArenaMove(
   float timeLeft = fixedDt;
   Vec3 position = start;
   const Vec3 originalVelocity = velocity;
+  const bool verticalDownTrace =
+    std::fabs(velocity.x) <= kCollisionEpsilon &&
+    std::fabs(velocity.y) <= kCollisionEpsilon &&
+    velocity.z < -kCollisionEpsilon;
 
   for (int bump = 0; bump < kMaxBumps; ++bump) {
     const Vec3 target = position + (result.velocity * timeLeft);
@@ -1002,6 +1006,11 @@ CollisionResult slidePlayerArenaMove(
     result.blocked = true;
     if (trace.normal.z > 0.0F) {
       setGroundContact(result, trace.normal);
+    }
+    if (verticalDownTrace && trace.normal.z > 0.0F) {
+      result.position = position;
+      result.velocity = {};
+      return result;
     }
 
     const std::size_t previousPlaneCount = planeCount;

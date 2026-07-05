@@ -1762,6 +1762,44 @@ int main() {
 
   {
     const lg::ArenaLoadResult loaded = loadArenaFixture("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for uphill release ramp regression");
+
+    lg::PlayerState player = groundedPlayer();
+    player.position = {18.071F, 8.132F, -22.257F};
+    player.velocity = {-3.633F, -0.539F, -0.925F};
+    lg::UserCommand command;
+    command.viewYawRadians = 8.4F * 3.14159265358979323846F / 180.0F;
+    command.viewPitchRadians = -16.2F * 3.14159265358979323846F / 180.0F;
+
+    float previousDownRampStep = 1000.0F;
+    float maxStepIncrease = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      const lg::Vec3 before = player.position;
+      lg::simulateMovement(
+        player,
+        command,
+        loaded.arena,
+        lg::MovementTuning{},
+        lg::kFixedTickSeconds
+      );
+      const float downRampStep = before.x - player.position.x;
+      maxStepIncrease =
+        std::max(maxStepIncrease, downRampStep - previousDownRampStep);
+      previousDownRampStep = downRampStep;
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 && maxStepIncrease < 0.002F,
+      "releasing uphill input on a ramp should coast down smoothly without snap-down jitter"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult loaded = loadArenaFixture("maps/stairs.map");
     failures += expect(loaded.ok, "stairs map should load for ramp entry regression");
 
     lg::MovementTuning tuning;
