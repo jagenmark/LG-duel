@@ -1767,6 +1767,31 @@ void addWireBox(
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.54F;
 }
 
+// Visual-only offset: authoritative hitscan traces still use the server start/end.
+[[nodiscard]] Vec3 remoteHitscanMuzzlePosition(
+  const RemotePlayerView& remote,
+  Weapon weapon,
+  const RenderSettings& settings
+) {
+  const bool leanEnabled = remote.teammate
+    ? settings.teammateLeanEnabled
+    : settings.enemyLeanEnabled;
+  const float leanScale = remote.teammate
+    ? settings.teammateLeanScale
+    : settings.enemyLeanScale;
+  WeaponModelFrame frame =
+    weaponModelFrame(remote.player, leanEnabled, leanScale);
+  frame.scale *= thirdPersonWeaponVisualScale(weapon);
+  switch (weapon) {
+  case Weapon::LightningGun:
+    return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
+  case Weapon::Railgun:
+    return weaponLocalPoint(frame, 0.78F, 0.0F, 0.09F);
+  default:
+    return playerEyePosition(remote.player);
+  }
+}
+
 [[nodiscard]] Vec3 projectileVisualPosition(
   const RocketProjectileSnapshot& projectile,
   const PlayerState& localPlayer,
@@ -3101,7 +3126,7 @@ Scene3D buildPerspectiveScene(
       : settings.enemyBeamAlpha;
     addSegment(
       scene,
-      remote.lightningGun.start,
+      remoteHitscanMuzzlePosition(remote, Weapon::LightningGun, settings),
       remote.lightningGun.end,
       std::max(0.015F, beamWidth * (1.0F + pulse * 0.04F) * 0.012F),
       scaleColor({
@@ -3120,9 +3145,17 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun) {
+      const Vec3 visualStart =
+        fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
+          ? remoteHitscanMuzzlePosition(
+              remotePlayers[fireIndex],
+              Weapon::Railgun,
+              settings
+            )
+          : fire.start;
       addSegment(
         scene,
-        fire.start,
+        visualStart,
         fire.end,
         fire.hit ? 0.045F : 0.03F,
         fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}
