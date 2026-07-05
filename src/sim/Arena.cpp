@@ -185,13 +185,19 @@ void resolveBrushCollision(
     return;
   }
 
-  const float previousBottom = previousPosition.z - player.bounds.halfHeight;
-  const float currentBottom = result.position.z - player.bounds.halfHeight;
-
   const auto planarRadiusForFace =
     [&](const ArenaBrushFace& face) {
       return player.bounds.radius *
         std::sqrt((face.normal.x * face.normal.x) + (face.normal.y * face.normal.y));
+    };
+  const auto supportCenterZForFace =
+    [&](const ArenaBrushFace& face, float x, float y) {
+      const float expandedDistance =
+        face.distance +
+        planarRadiusForFace(face) +
+        (player.bounds.halfHeight * face.normal.z);
+      return (expandedDistance - (face.normal.x * x) - (face.normal.y * y)) /
+        face.normal.z;
     };
 
   const auto pointInsideBrushPlanarExpansion =
@@ -214,55 +220,53 @@ void resolveBrushCollision(
     if (face.normal.z <= kWalkableNormalZ) {
       continue;
     }
-    const float previousSurfaceZ =
-      (face.distance - (face.normal.x * previousPosition.x) - (face.normal.y * previousPosition.y)) /
-      face.normal.z;
-    const float surfaceZ =
-      (face.distance - (face.normal.x * result.position.x) - (face.normal.y * result.position.y)) /
-      face.normal.z;
-    if (!std::isfinite(previousSurfaceZ) || !std::isfinite(surfaceZ)) {
+    const float previousSupportZ =
+      supportCenterZForFace(face, previousPosition.x, previousPosition.y);
+    const float supportZ =
+      supportCenterZForFace(face, result.position.x, result.position.y);
+    if (!std::isfinite(previousSupportZ) || !std::isfinite(supportZ)) {
       continue;
     }
     const bool liftingOffFace =
       result.velocity.z > kCollisionEpsilon &&
       (!player.onGround || player.knockbackTicksRemaining > 0) &&
       pointInsideBrushPlanarExpansion(
-        {previousPosition.x, previousPosition.y, previousSurfaceZ},
+        {previousPosition.x, previousPosition.y, previousSupportZ},
         index
       ) &&
-      previousBottom >= previousSurfaceZ - kCollisionEpsilon &&
-      previousBottom <= previousSurfaceZ + 0.05F;
+      previousPosition.z >= previousSupportZ - kCollisionEpsilon &&
+      previousPosition.z <= previousSupportZ + 0.05F;
     if (liftingOffFace) {
       return;
     }
-    if (!pointInsideBrushPlanarExpansion({result.position.x, result.position.y, surfaceZ}, index)) {
+    if (!pointInsideBrushPlanarExpansion({result.position.x, result.position.y, supportZ}, index)) {
       continue;
     }
+    const bool groundedOnFace =
+      player.onGround &&
+      player.knockbackTicksRemaining == 0 &&
+      result.position.z >= supportZ - kGroundFollowDistance &&
+      result.position.z <= supportZ + kCollisionEpsilon;
+    if (groundedOnFace) {
+      result.position.z = supportZ;
+      setGroundContact(result, face.normal);
+      return;
+    }
+
     const bool landingOnFace =
-      previousBottom >= previousSurfaceZ - kCollisionEpsilon &&
-      currentBottom <= surfaceZ + kCollisionEpsilon &&
+      previousPosition.z >= previousSupportZ - kCollisionEpsilon &&
+      result.position.z <= supportZ + kCollisionEpsilon &&
       result.velocity.z <= 0.0F;
     if (landingOnFace) {
-      result.position.z = surfaceZ + player.bounds.halfHeight;
+      result.position.z = supportZ;
       result.velocity.z = std::max(0.0F, result.velocity.z);
       setGroundContact(result, face.normal);
       return;
     }
 
-    const bool groundedOnFace =
-      player.onGround &&
-      player.knockbackTicksRemaining == 0 &&
-      currentBottom >= surfaceZ - kGroundFollowDistance &&
-      currentBottom <= surfaceZ + kCollisionEpsilon;
-    if (groundedOnFace) {
-      result.position.z = surfaceZ + player.bounds.halfHeight;
-      setGroundContact(result, face.normal);
-      return;
-    }
-
     const bool movingAwayFromFace =
-      previousBottom >= previousSurfaceZ - kCollisionEpsilon &&
-      currentBottom >= surfaceZ - kCollisionEpsilon &&
+      previousPosition.z >= previousSupportZ - kCollisionEpsilon &&
+      result.position.z >= supportZ - kCollisionEpsilon &&
       result.velocity.z > 0.0F;
     if (movingAwayFromFace) {
       if (player.onGround && player.knockbackTicksRemaining == 0) {
