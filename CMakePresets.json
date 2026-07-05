@@ -19,6 +19,19 @@
       }
     },
     {
+      "name": "sdl3",
+      "displayName": "SDL3 Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/sdl3",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "ON",
+        "LG_DUEL_REQUIRE_SDL3": "ON",
+        "CMAKE_PREFIX_PATH": "$env{USERPROFILE}/Documents/SDL3-devel-3.4.12-mingw/SDL3-3.4.12/x86_64-w64-mingw32"
+      }
+    },
+    {
       "name": "msvc",
       "displayName": "MSVC Debug",
       "generator": "Visual Studio 17 2022",
@@ -35,6 +48,10 @@
       "configurePreset": "default"
     },
     {
+      "name": "sdl3",
+      "configurePreset": "sdl3"
+    },
+    {
       "name": "msvc",
       "configurePreset": "msvc",
       "configuration": "Debug"
@@ -44,6 +61,13 @@
     {
       "name": "default",
       "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "sdl3",
+      "configurePreset": "sdl3",
       "output": {
         "outputOnFailure": true
       }
