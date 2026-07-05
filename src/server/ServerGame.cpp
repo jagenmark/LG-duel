@@ -47,6 +47,25 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   return player;
 }
 
+[[nodiscard]] Arena defaultServerArena() {
+  Arena arena;
+  arena.min = {-15.0F, -11.0F, 0.0F};
+  arena.max = {15.0F, 11.0F, 10.0F};
+  arena.spawnPositions = {{
+    {-8.0F, -9.0F, 2.0F},
+    {8.0F, -9.0F, 2.0F},
+    {-12.0F, 8.0F, 2.0F},
+    {12.0F, 8.0F, 2.0F},
+    {-3.0F, -9.0F, 0.0F},
+    {3.0F, -9.0F, 0.0F},
+  }};
+  arena.walls[0] = {{-15.0F, -11.0F, 0.0F}, {-3.0F, -7.0F, 2.0F}};
+  arena.walls[1] = {{3.0F, -11.0F, 0.0F}, {15.0F, -7.0F, 2.0F}};
+  arena.walls[2] = {{-15.0F, 6.5F, 0.0F}, {15.0F, 11.0F, 2.0F}};
+  arena.wallCount = 3;
+  return arena;
+}
+
 [[nodiscard]] UserCommand commandForPlayer(
   const ServerSnapshot& snapshot,
   const std::array<UserCommand, kDuelPlayerCount>& commands,
@@ -415,7 +434,8 @@ void logClientGameplayCommand(
 
 ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
   : transport_(transport) {
-  mapDescriptor_ = describeMap("thunderstruck", arena_);
+  arena_ = defaultServerArena();
+  mapDescriptor_ = describeMap("custom", arena_);
   rocketLauncherTuning_.knockback = q3KnockbackToInternal(rocketKnockback_);
   if (!balanceConfigPath.empty()) {
     const BalanceConfigLoadResult loaded =
@@ -565,6 +585,8 @@ void ServerGame::tick(float fixedDt) {
     if (player.health <= 0) {
       player.velocity = {};
       player.jumpHeld = false;
+      player.crouched = false;
+      player.sneaking = false;
       player.viewYawRadians = command.viewYawRadians;
       player.viewPitchRadians = command.viewPitchRadians;
       continue;
@@ -2511,7 +2533,7 @@ void ServerGame::updateFootstepAudioEvents() {
     } else if (player.onGround && !state.wasOnGround) {
       emitMovementSound(false, true);
       state.distanceSinceStep = 0.0F;
-    } else if (movingOnGround) {
+    } else if (movingOnGround && !player.crouched && !player.sneaking) {
       state.distanceSinceStep += horizontalDistance;
       const float strideDistance = std::max(
         kMinimumStrideDistance,
@@ -2521,6 +2543,8 @@ void ServerGame::updateFootstepAudioEvents() {
         emitMovementSound(false, false);
         state.distanceSinceStep = std::fmod(state.distanceSinceStep, strideDistance);
       }
+    } else if (player.crouched || player.sneaking) {
+      state.distanceSinceStep = 0.0F;
     } else if (!player.onGround || horizontalSpeed < 0.25F) {
       state.distanceSinceStep = 0.0F;
     }
@@ -2552,6 +2576,16 @@ void ServerGame::restoreTransientCombatEvents() {
       snapshot_.serverTick - recentFootstepAudioEventTicks_[playerIndex] <=
         kTransientCombatEventTicks
     ) {
+      const FootstepAudioEvent& recentEvent =
+        recentFootstepAudioEvents_[playerIndex];
+      const PlayerState& player = snapshot_.players[playerIndex];
+      if (
+        (player.crouched || player.sneaking) &&
+        !recentEvent.jumping &&
+        !recentEvent.landing
+      ) {
+        continue;
+      }
       snapshot_.footstepAudioEvents[playerIndex] =
         recentFootstepAudioEvents_[playerIndex];
     }

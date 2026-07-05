@@ -259,7 +259,7 @@ int main() {
 
   {
     lg::ServerSnapshot source;
-    source.map = lg::describeMap("thunderstruck", lg::thunderstruckArena());
+    source.map = {"testmap", 0x12345678U};
     source.botPlayers = {false, true, false, true, false, false};
     lg::WirePacket wire;
     lg::ServerSnapshot decoded;

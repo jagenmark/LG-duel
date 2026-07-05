@@ -996,6 +996,7 @@ struct LocalInputState {
   int right = 0;
   int up = 0;
   int down = 0;
+  int sneak = 0;
   int attack = 0;
 
   float mouseDeltaX = 0.0F;
@@ -2984,8 +2985,8 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("space", "+moveup");
   (void)bindings.bind("leftctrl", "+movedown");
   (void)bindings.bind("rightctrl", "+movedown");
-  (void)bindings.bind("leftshift", "+movedown");
-  (void)bindings.bind("rightshift", "+movedown");
+  (void)bindings.bind("leftshift", "+speed");
+  (void)bindings.bind("rightshift", "+speed");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
   (void)bindings.bind("2", "weapon mg");
@@ -3232,6 +3233,8 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.crouch = input.down > 0;
+  command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
   command.weapon = weapon;
   return command;
@@ -3255,6 +3258,8 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.crouch = input.down > 0;
+  command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
   command.weapon = weapon;
   return command;
@@ -3369,6 +3374,10 @@ int GameApp::run() const {
   registerButtonCommand("moveright", input.right);
   registerButtonCommand("moveup", input.up);
   registerButtonCommand("movedown", input.down);
+  registerButtonCommand("duck", input.down);
+  registerButtonCommand("crouch", input.down);
+  registerButtonCommand("speed", input.sneak);
+  registerButtonCommand("sneak", input.sneak);
   registerButtonCommand("attack", input.attack);
   registerButtonCommand("scores", scoreboardPressCount);
   registerButtonCommand("zoom", zoomPressCount);
@@ -3940,6 +3949,10 @@ int GameApp::run() const {
         "+moveright\n"
         "+moveup\n"
         "+movedown\n"
+        "+duck\n"
+        "+crouch\n"
+        "+speed\n"
+        "+sneak\n"
         "+attack\n"
         "+scores\n"
         "+zoom\n"
@@ -4049,6 +4062,15 @@ int GameApp::run() const {
   if (console.getInt("cl_config_version") < 10) {
     (void)console.execute("set cl_config_version 10");
   }
+  if (console.getInt("cl_config_version") < 11) {
+    if (bindings.binding("leftshift") == "+movedown") {
+      (void)bindings.bind("leftshift", "+speed");
+    }
+    if (bindings.binding("rightshift") == "+movedown") {
+      (void)bindings.bind("rightshift", "+speed");
+    }
+    (void)console.execute("set cl_config_version 11");
+  }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
   SettingsMenuState settingsMenu;
@@ -4154,7 +4176,7 @@ int GameApp::run() const {
       }
     };
 
-  const Arena fallbackArena = thunderstruckArena();
+  const Arena fallbackArena;
   std::uint32_t commandSequence = 0;
   std::uint32_t clientTick = 0;
 

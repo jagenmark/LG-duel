@@ -72,7 +72,7 @@ public:
 private:
   NetTransport& transport_;
   std::size_t localPlayerIndex_ = 0;
-  Arena arena_ = thunderstruckArena();
+  Arena arena_ = {};
   std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};
   Prediction prediction_ = {};

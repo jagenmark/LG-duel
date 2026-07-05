@@ -46,8 +46,10 @@ int main() {
     config.commands.lossRate = 1.0F;
     config.snapshots.duplicationRate = 1.0F;
     lg::SimulatedTransport transport(config);
+    lg::ServerSnapshot sentSnapshot;
+    sentSnapshot.map = {"testmap", 0x12345678U};
     transport.sendCommand({});
-    transport.sendSnapshot({});
+    transport.sendSnapshot(sentSnapshot);
 
     lg::CommandPacket command;
     failures += expect(!transport.receiveCommand(command), "full loss should drop command");
@@ -99,6 +101,13 @@ int main() {
 
     lg::SimulatedTransport transport(config);
     lg::ServerGame server(transport);
+    failures += expect(server.loadRequestedMap("eyetoeye"), "simulated server should load eyetoeye");
+    lg::ServerSnapshot discarded;
+    for (int tick = 0; tick < 8; ++tick) {
+      transport.advanceTicks();
+      while (transport.receiveSnapshot(discarded)) {
+      }
+    }
     lg::ClientGame client(transport, 0);
 
     for (int tick = 0; tick < 8 && !client.hasSnapshot(); ++tick) {

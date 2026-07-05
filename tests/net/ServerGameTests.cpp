@@ -401,6 +401,101 @@ int main() {
   }
 
   {
+    const auto emitsRegularFootstepWhileQuietMoving = [](bool crouch, bool sneak) {
+      lg::LoopbackTransport transport;
+      lg::ServerGame server(transport);
+      latestSnapshot(transport);
+
+      for (std::uint32_t tick = 0; tick < 140; ++tick) {
+        lg::CommandPacket command;
+        command.playerIndex = 1;
+        command.command.sequence = tick + 1;
+        command.command.forwardMove = 1.0F;
+        command.command.crouch = crouch;
+        command.command.sneak = sneak;
+        command.command.upMove = crouch ? -1.0F : 0.0F;
+        transport.sendCommand(command);
+        server.tick(lg::kFixedTickSeconds);
+        const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+        if (
+          snapshot.footstepAudioEvents[1].active &&
+          !snapshot.footstepAudioEvents[1].jumping &&
+          !snapshot.footstepAudioEvents[1].landing
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    failures += expect(
+      !emitsRegularFootstepWhileQuietMoving(true, false),
+      "crouched movement should not emit regular footstep audio"
+    );
+    failures += expect(
+      !emitsRegularFootstepWhileQuietMoving(false, true),
+      "sneaking movement should not emit regular footstep audio"
+    );
+  }
+
+  {
+    const auto replaysRegularFootstepAfterQuietState = [](bool crouch, bool sneak) {
+      lg::LoopbackTransport transport;
+      lg::ServerGame server(transport);
+      latestSnapshot(transport);
+
+      bool emittedFootstep = false;
+      std::uint32_t sequence = 1;
+      for (std::uint32_t tick = 0; tick < 120 && !emittedFootstep; ++tick) {
+        lg::CommandPacket command;
+        command.playerIndex = 1;
+        command.command.sequence = sequence++;
+        command.command.forwardMove = 1.0F;
+        transport.sendCommand(command);
+        server.tick(lg::kFixedTickSeconds);
+        const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+        emittedFootstep =
+          snapshot.footstepAudioEvents[1].active &&
+          !snapshot.footstepAudioEvents[1].jumping &&
+          !snapshot.footstepAudioEvents[1].landing;
+      }
+      if (!emittedFootstep) {
+        return true;
+      }
+
+      for (std::uint32_t tick = 0; tick < 8; ++tick) {
+        lg::CommandPacket command;
+        command.playerIndex = 1;
+        command.command.sequence = sequence++;
+        command.command.forwardMove = 1.0F;
+        command.command.crouch = crouch;
+        command.command.sneak = sneak;
+        command.command.upMove = crouch ? -1.0F : 0.0F;
+        transport.sendCommand(command);
+        server.tick(lg::kFixedTickSeconds);
+        const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+        if (
+          snapshot.footstepAudioEvents[1].active &&
+          !snapshot.footstepAudioEvents[1].jumping &&
+          !snapshot.footstepAudioEvents[1].landing
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    failures += expect(
+      !replaysRegularFootstepAfterQuietState(true, false),
+      "crouch should suppress recent regular footstep audio replays"
+    );
+    failures += expect(
+      !replaysRegularFootstepAfterQuietState(false, true),
+      "sneak should suppress recent regular footstep audio replays"
+    );
+  }
+
+  {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     latestSnapshot(transport);
@@ -440,6 +535,51 @@ int main() {
     failures += expect(
       emittedJump && emittedLanding,
       "server should mark jump and landing audio events separately from footsteps"
+    );
+  }
+
+  {
+    const auto emitsLandingWhileQuietMoving = [](bool crouch, bool sneak) {
+      lg::LoopbackTransport transport;
+      lg::ServerGame server(transport);
+      latestSnapshot(transport);
+
+      lg::CommandPacket warmup;
+      warmup.playerIndex = 1;
+      warmup.command.sequence = 1;
+      transport.sendCommand(warmup);
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+
+      for (std::uint32_t tick = 0; tick < 180; ++tick) {
+        lg::CommandPacket command;
+        command.playerIndex = 1;
+        command.command.sequence = tick + 2;
+        command.command.jump = tick == 0;
+        command.command.forwardMove = 1.0F;
+        command.command.crouch = crouch;
+        command.command.sneak = sneak;
+        command.command.upMove = command.command.jump ? 1.0F : (crouch ? -1.0F : 0.0F);
+        transport.sendCommand(command);
+        server.tick(lg::kFixedTickSeconds);
+        const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+        if (
+          snapshot.footstepAudioEvents[1].active &&
+          snapshot.footstepAudioEvents[1].landing
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+
+    failures += expect(
+      emitsLandingWhileQuietMoving(true, false),
+      "crouch should not suppress landing audio"
+    );
+    failures += expect(
+      emitsLandingWhileQuietMoving(false, true),
+      "sneak should not suppress landing audio"
     );
   }
 
@@ -1259,11 +1399,14 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    failures += expect(server.loadRequestedMap("dev_cuboids"), "client-facing server test should load dev_cuboids");
+    server.tick(lg::kFixedTickSeconds);
     lg::ClientGame client(transport, 0);
     client.receiveSnapshots();
 
-    failures += expect(client.hasSnapshot(), "server should publish an initial snapshot");
-    failures += expect(client.snapshot().serverTick == 0, "initial snapshot should start at server tick zero");
+    failures += expect(client.hasSnapshot(), "server should publish an initial file-backed map snapshot");
+    failures += expect(client.snapshot().serverTick == 1, "file-backed startup snapshot should advance one setup tick");
     failures += expect(!client.hasAcknowledgedCommand(), "initial snapshot should not acknowledge a command");
     failures += expect(
       client.snapshot().players[0].movementMode == lg::MovementMode::Grounded,
@@ -1283,7 +1426,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     client.receiveSnapshots();
 
-    failures += expect(client.snapshot().serverTick == 1, "server tick should advance once per simulation step");
+    failures += expect(client.snapshot().serverTick == 2, "server tick should advance once per simulation step");
     failures += expect(client.hasAcknowledgedCommand(), "accepted command should set ack validity");
     failures += expect(client.lastAcknowledgedCommand() == 10, "snapshot should acknowledge accepted command");
     failures += expect(client.snapshot().players[0].position.x > -8.0F, "server should simulate accepted movement");

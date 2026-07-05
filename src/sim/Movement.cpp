@@ -8,6 +8,10 @@
 namespace lg {
 namespace {
 
+constexpr float kCrouchHeightScale = 0.62F;
+constexpr float kCrouchGroundSpeedScale = 0.35F;
+constexpr float kSneakGroundSpeedScale = 0.52F;
+
 [[nodiscard]] Vec3 horizontal(Vec3 value) {
   return {value.x, value.y, 0.0F};
 }
@@ -36,6 +40,8 @@ namespace {
     return normalize(clipped) * speed;
   }
 
+  // Build the direction that has the same x/y intent but lies exactly on the
+  // ground plane. This keeps ramp movement from bleeding speed into the normal.
   planeDirection.z =
     -((planeDirection.x * groundNormal.x) + (planeDirection.y * groundNormal.y)) /
     groundNormal.z;
@@ -64,6 +70,9 @@ struct StepMoveResult {
   PlayerState stepPlayer = player;
   stepPlayer.onGround = true;
 
+  // Classic step move: lift by max step height, slide horizontally from that
+  // raised position, then drop back down. The result is accepted only if each
+  // intermediate position is non-solid.
   const CollisionResult upMove = slidePlayerArenaMove(
     arena,
     stepPlayer,
@@ -110,6 +119,8 @@ struct StepMoveResult {
   result.groundNormal = droppedMove.groundNormal;
   result.groundPlane = droppedMove.groundPlane;
   if (startVelocity.z <= 0.0F && droppedMove.onGround) {
+    // Walking down onto the landing should follow the landing plane instead of
+    // keeping a small vertical component from the drop probe.
     result.velocity = clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal);
   }
   result.onGround = startVelocity.z <= 0.0F && droppedMove.onGround;
@@ -139,6 +150,8 @@ struct StepMoveResult {
     player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
   PlayerState probePlayer = player;
   probePlayer.position = collision.position;
+  // After a horizontal move, do a short downward probe so slopes and tiny drops
+  // keep a grounded player attached without requiring a full falling tick.
   const CollisionResult groundProbe = slidePlayerArenaMove(
     arena,
     probePlayer,
@@ -149,6 +162,8 @@ struct StepMoveResult {
   if (!groundProbe.groundPlane) {
     const float feetZ = collision.position.z - player.bounds.halfHeight;
     bool standingOnLowStep = false;
+    // Cuboid stair tops can be missed by the trace when the player is already
+    // almost exactly on the top face; keep those contacts grounded.
     for (std::size_t index = 0; index < arena.wallCount; ++index) {
       const ArenaWall& wall = arena.walls[index];
       if (
@@ -297,6 +312,44 @@ void applyJumpPads(
   }
 }
 
+[[nodiscard]] float standingHalfHeight(const PlayerState& player) {
+  return player.crouched
+    ? player.bounds.halfHeight / kCrouchHeightScale
+    : player.bounds.halfHeight;
+}
+
+void applyCrouchState(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena
+) {
+  const float targetStandingHalfHeight = standingHalfHeight(player);
+  const float targetHalfHeight = command.crouch
+    ? targetStandingHalfHeight * kCrouchHeightScale
+    : targetStandingHalfHeight;
+  if (std::fabs(player.bounds.halfHeight - targetHalfHeight) <= 0.0001F) {
+    player.crouched = command.crouch;
+    player.sneaking = command.sneak;
+    return;
+  }
+
+  const float feetZ = player.position.z - player.bounds.halfHeight;
+  PlayerState resizedPlayer = player;
+  resizedPlayer.bounds.halfHeight = targetHalfHeight;
+  resizedPlayer.position.z = feetZ + targetHalfHeight;
+  resizedPlayer.crouched = command.crouch;
+  resizedPlayer.sneaking = command.sneak;
+  if (!command.crouch && playerPositionSolid(arena, resizedPlayer, resizedPlayer.position)) {
+    player.crouched = true;
+    player.sneaking = command.sneak;
+    return;
+  }
+  player.bounds.halfHeight = resizedPlayer.bounds.halfHeight;
+  player.position.z = resizedPlayer.position.z;
+  player.crouched = resizedPlayer.crouched;
+  player.sneaking = resizedPlayer.sneaking;
+}
+
 void accelerate(Vec3& velocity, Vec3 wishDirection, float wishSpeed, float acceleration, float fixedDt) {
   const float currentSpeed = dot(velocity, wishDirection);
   const float addSpeed = wishSpeed - currentSpeed;
@@ -379,6 +432,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     return normalize(wishDirection);
   }
 
+  // Project input onto the current ground plane. On ramps this turns pure
+  // forward/right input into movement along the ramp surface instead of into it.
   wishDirection.z =
     -((wishDirection.x * groundNormal.x) + (wishDirection.y * groundNormal.y)) /
     groundNormal.z;
@@ -394,6 +449,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   constexpr float kGroundKickoffSpeed = 10.0F / 40.0F;
 
   const float traceDistance = player.onGround ? kGroundFollowDistance : kGroundTraceDistance;
+  // Ground tracing is deliberately short: long traces would snap players down
+  // ledges, while this only preserves contact with ramps, stairs, and tiny gaps.
   const CollisionResult trace = slidePlayerArenaMove(
     arena,
     player,
@@ -410,6 +467,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     player.velocity.z > 0.0F &&
     dot(player.velocity, trace.groundNormal) > kGroundKickoffSpeed
   ) {
+    // A jump or knockback moving away from the plane should not be re-grounded
+    // by the same short trace that keeps walking players attached to ramps.
     return {};
   }
 
@@ -426,6 +485,7 @@ void simulateGroundedOrAirborne(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  applyCrouchState(player, command, arena);
   if (!command.jump) {
     player.jumpHeld = false;
   }
@@ -461,10 +521,16 @@ void simulateGroundedOrAirborne(
     ? movementWishDirection(command)
     : movementWishDirectionGrounded(command, groundContact.normal);
   if (length(wishDirection) > 0.0F) {
+    float maxGroundSpeed = tuning.maxGroundSpeed;
+    if (player.crouched) {
+      maxGroundSpeed *= kCrouchGroundSpeedScale;
+    } else if (player.sneaking) {
+      maxGroundSpeed *= kSneakGroundSpeedScale;
+    }
     accelerate(
       player.velocity,
       wishDirection,
-      useAirMovement ? tuning.maxAirSpeed : tuning.maxGroundSpeed,
+      useAirMovement ? tuning.maxAirSpeed : maxGroundSpeed,
       useAirMovement ? tuning.airAcceleration : tuning.groundAcceleration,
       fixedDt
     );
@@ -502,6 +568,9 @@ void simulateGroundedOrAirborne(
     length(horizontal(groundContact.normal)) > 0.0001F &&
     dot(collision.velocity, groundContact.normal) <= (10.0F / 40.0F)
   ) {
+    // Ramp seams can produce a tiny upward component even when the player is
+    // still moving along the same ground plane. Preserve the previous ground
+    // contact instead of briefly popping airborne.
     collision.groundPlane = true;
     collision.onGround = true;
     collision.groundNormal = groundContact.normal;
@@ -540,6 +609,8 @@ void simulateFlying(
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
+  player.crouched = false;
+  player.sneaking = false;
   player.jumpHeld = command.jump;
   player.onGround = false;
 

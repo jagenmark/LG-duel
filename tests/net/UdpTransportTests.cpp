@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -43,6 +44,7 @@ int main() {
   }
 
   lg::ServerGame server(serverTransport);
+  failures += expect(server.loadRequestedMap("dev_cuboids"), "UDP test server should load dev_cuboids");
   server.setConnectedPlayers({false, false});
   lg::MatchRules rules;
   rules.countdownTicks = 2;
@@ -111,7 +113,7 @@ int main() {
   failures += expect(
     firstTransport.connected() &&
       secondTransport.connected() &&
-      firstClient.snapshot().map.mapName == "thunderstruck" &&
+      firstClient.snapshot().map.mapName == "dev_cuboids" &&
       firstClient.snapshot().map.contentHash != 0 &&
       secondClient.snapshot().map.mapName == firstClient.snapshot().map.mapName &&
       secondClient.snapshot().map.contentHash == firstClient.snapshot().map.contentHash,
@@ -122,11 +124,16 @@ int main() {
   const std::size_t firstTargetIndex = 1U - firstPlayerIndex;
   const lg::Vec3 warmupTargetStart =
     firstClient.snapshot().players[firstTargetIndex].position;
+  const lg::Vec3 warmupAttackerStart =
+    firstClient.snapshot().players[firstPlayerIndex].position;
   lg::UserCommand warmupAttack;
   warmupAttack.sequence = 0;
   warmupAttack.attack = true;
   warmupAttack.viewYawRadians =
-    firstPlayerIndex == 0U ? 0.0F : 3.14159265359F;
+    std::atan2(
+      warmupTargetStart.y - warmupAttackerStart.y,
+      warmupTargetStart.x - warmupAttackerStart.x
+    );
   firstClient.sendCommand(warmupAttack, false);
   for (int iteration = 0; iteration < 4; ++iteration) {
     serverTransport.update();

@@ -186,7 +186,7 @@ private:
   void publishSnapshot();
 
   NetTransport& transport_;
-  Arena arena_ = thunderstruckArena();
+  Arena arena_ = {};
   MapDescriptor mapDescriptor_ = {};
   std::string mapDirectory_ = "maps";
   std::uint32_t mapRevision_ = 1;

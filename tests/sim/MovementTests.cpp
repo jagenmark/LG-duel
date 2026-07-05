@@ -99,6 +99,32 @@ lg::Arena arenaWithBrush(const lg::ArenaBrush& brush) {
   return arena;
 }
 
+lg::Arena arenaWithCentralCover() {
+  lg::Arena arena;
+  arena.walls[0] = {{-5.0F, -0.9F, 0.0F}, {-3.0F, 0.9F, 1.2F}};
+  arena.wallCount = 1;
+  return arena;
+}
+
+lg::Arena arenaWithWestStairs() {
+  lg::Arena arena;
+  arena.walls[0] = {{-6.8F, -5.0F, 0.0F}, {-6.0F, -2.0F, 0.4F}};
+  arena.walls[1] = {{-7.6F, -5.0F, 0.0F}, {-6.8F, -2.0F, 0.8F}};
+  arena.walls[2] = {{-8.4F, -5.0F, 0.0F}, {-7.6F, -2.0F, 1.2F}};
+  arena.walls[3] = {{-9.2F, -5.0F, 0.0F}, {-8.4F, -2.0F, 1.6F}};
+  arena.walls[4] = {{-10.0F, -5.0F, 0.0F}, {-9.2F, -2.0F, 2.0F}};
+  arena.walls[5] = {{-15.0F, -7.0F, 0.0F}, {-10.0F, 6.5F, 2.0F}};
+  arena.wallCount = 6;
+  return arena;
+}
+
+lg::Arena arenaWithRaisedDeck() {
+  lg::Arena arena;
+  arena.walls[0] = {{-10.0F, -10.0F, 0.0F}, {-6.0F, -8.0F, 2.0F}};
+  arena.wallCount = 1;
+  return arena;
+}
+
 float riseForAngle(float angleDegrees, float run) {
   constexpr float kPi = 3.14159265358979323846F;
   return std::tan(angleDegrees * kPi / 180.0F) * run;
@@ -164,7 +190,11 @@ lg::ArenaLoadResult loadArenaFixture(const std::string& path) {
   if (loaded.ok) {
     return loaded;
   }
-  return lg::loadArenaFromFile("../../" + path);
+  loaded = lg::loadArenaFromFile("../../" + path);
+  if (loaded.ok) {
+    return loaded;
+  }
+  return lg::loadArenaFromFile("../../../" + path);
 }
 
 } // namespace
@@ -393,6 +423,56 @@ int main() {
   }
 
   {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    command.crouch = true;
+    command.upMove = -1.0F;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 100.0F;
+    lg::PlayerState player = groundedPlayer();
+    const float standingHalfHeight = player.bounds.halfHeight;
+
+    runCommand(player, command, tuning, 20);
+
+    failures += expect(
+      player.crouched &&
+        player.bounds.halfHeight < standingHalfHeight &&
+        nearlyEqual(player.position.z, player.bounds.halfHeight) &&
+        player.velocity.x < tuning.maxGroundSpeed * 0.5F,
+      "movedown should crouch, lower the grounded hitbox, and reduce ground speed when flight is off"
+    );
+
+    command.crouch = false;
+    command.upMove = 0.0F;
+    command.forwardMove = 0.0F;
+    runCommand(player, command, tuning, 2);
+    failures += expect(
+      !player.crouched && nearlyEqual(player.bounds.halfHeight, standingHalfHeight),
+      "releasing crouch should restore standing height when there is room"
+    );
+  }
+
+  {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    command.sneak = true;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 100.0F;
+    lg::PlayerState player = groundedPlayer();
+    const float standingHalfHeight = player.bounds.halfHeight;
+
+    runCommand(player, command, tuning, 20);
+
+    failures += expect(
+      player.sneaking &&
+        !player.crouched &&
+        nearlyEqual(player.bounds.halfHeight, standingHalfHeight) &&
+        player.velocity.x < tuning.maxGroundSpeed * 0.7F,
+      "sneak should reduce grounded speed without changing crouch height"
+    );
+  }
+
+  {
     lg::PlayerState player = groundedPlayer();
     lg::UserCommand command;
     command.jump = true;
@@ -495,6 +575,26 @@ int main() {
     failures += expect(
       ascending.velocity.z > 0.0F && descending.velocity.z < 0.0F,
       "flight up/down input should thrust vertically in both directions"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.position.z = 4.0F;
+    lg::MovementTuning tuning;
+    tuning.flightEnabled = true;
+    tuning.flightDamping = 0.0F;
+    lg::UserCommand command;
+    command.crouch = true;
+    command.upMove = -1.0F;
+
+    runCommand(player, command, tuning, 5);
+
+    failures += expect(
+      player.movementMode == lg::MovementMode::Flying &&
+        !player.crouched &&
+        player.velocity.z < 0.0F,
+      "movedown should stay flight descent instead of crouching when flight is enabled"
     );
   }
 
@@ -629,7 +729,7 @@ int main() {
   }
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::Arena arena = arenaWithCentralCover();
     const lg::MovementTuning tuning;
     lg::PlayerState player = groundedPlayer();
     player.position = {-5.4F, 0.0F, player.bounds.halfHeight};
@@ -646,7 +746,7 @@ int main() {
 
     failures += expect(
       player.position.x <= -5.34F,
-      "Thunderstruck central cover should block player movement"
+      "central cover should block player movement"
     );
     failures += expect(
       player.velocity.y > 0.0F,
@@ -1062,7 +1162,7 @@ int main() {
   }
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::Arena arena = arenaWithWestStairs();
     lg::MovementTuning tuning;
     tuning.groundAcceleration = 80.0F;
     lg::PlayerState player = groundedPlayer();
@@ -1077,12 +1177,12 @@ int main() {
       player.position.x < -9.0F &&
         player.onGround &&
         player.position.z > 2.0F + player.bounds.halfHeight - 0.01F,
-      "players should climb the embedded Thunderstruck box stairs"
+      "players should climb explicit box stairs"
     );
   }
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::Arena arena = arenaWithWestStairs();
     lg::MovementTuning tuning;
     tuning.groundAcceleration = 80.0F;
     lg::PlayerState player = groundedPlayer();
@@ -1109,19 +1209,13 @@ int main() {
       player.position.x < -9.0F &&
         player.position.z > 1.5F + player.bounds.halfHeight &&
         minimumHorizontalSpeed > 6.5F,
-      "bhopping up Thunderstruck stairs should not snag on stair risers"
+      "bhopping up explicit stairs should not snag on stair risers"
     );
   }
 
   {
-    lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/box.map");
-    if (!loaded.ok) {
-      loaded = lg::loadArenaFromFile("../maps/box.map");
-    }
-    if (!loaded.ok) {
-      loaded = lg::loadArenaFromFile("../../maps/box.map");
-    }
-    failures += expect(loaded.ok, "box.map should load for file-backed movement regressions");
+    lg::ArenaLoadResult loaded = loadArenaFixture("maps/thunderstruck.map");
+    failures += expect(loaded.ok, "thunderstruck.map should load for file-backed movement regressions");
     if (loaded.ok) {
       const lg::Arena& arena = loaded.arena;
       const lg::MovementTuning tuning;
@@ -1141,7 +1235,7 @@ int main() {
         !player.onGround &&
           player.position.z > arena.spawnPositions[0].z + player.bounds.halfHeight + 0.2F &&
           player.velocity.z > 0.0F,
-        "jumping from box.map spawn geometry should stay airborne after takeoff"
+        "jumping from thunderstruck.map spawn geometry should stay airborne after takeoff"
       );
     }
   }
@@ -1273,7 +1367,7 @@ int main() {
   }
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::Arena arena = arenaWithRaisedDeck();
     const lg::MovementTuning tuning;
     lg::PlayerState player = groundedPlayer();
     player.position = {-8.0F, -9.0F, 2.0F + player.bounds.halfHeight};
@@ -1290,7 +1384,7 @@ int main() {
       !player.onGround &&
         player.position.z > 2.0F + player.bounds.halfHeight + 0.2F &&
         player.velocity.z > 0.0F,
-      "jumping from an embedded raised deck should stay airborne after takeoff"
+      "jumping from a raised deck should stay airborne after takeoff"
     );
   }
 
@@ -1316,7 +1410,7 @@ int main() {
   }
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::Arena arena = arenaWithRaisedDeck();
     const lg::MovementTuning tuning;
     lg::PlayerState player = groundedPlayer();
     player.position = {-8.0F, -9.0F, 2.0F + player.bounds.halfHeight};
@@ -1331,7 +1425,7 @@ int main() {
       !player.onGround &&
         player.position.z > 2.0F + player.bounds.halfHeight + 0.2F &&
         player.velocity.z > 0.0F,
-      "upward knockback from an embedded raised deck should stay airborne after takeoff"
+      "upward knockback from a raised deck should stay airborne after takeoff"
     );
   }
 
@@ -1527,7 +1621,7 @@ int main() {
   }
 
   {
-    const lg::Arena arena = lg::thunderstruckArena();
+    const lg::Arena arena = arenaWithWestStairs();
     const lg::MovementTuning tuning;
     lg::PlayerState player = groundedPlayer();
     player.position = {-5.5F, -3.5F, player.bounds.halfHeight};
@@ -1548,7 +1642,7 @@ int main() {
     failures += expect(
       player.position.x < -10.0F &&
         nearlyEqual(player.position.z, 2.0F + player.bounds.halfHeight),
-      "Thunderstruck stairs should lead from the lower court to the raised lane"
+      "explicit stairs should lead from the lower court to the raised lane"
     );
   }
 

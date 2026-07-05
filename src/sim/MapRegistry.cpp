@@ -169,11 +169,6 @@ LocalMapLoadResult loadLocalMap(
     ? mapName
     : requested.stem().string();
 
-  if (canonicalName == "thunderstruck") {
-    const Arena arena = thunderstruckArena();
-    return {arena, describeMap(canonicalName, arena), true, {}};
-  }
-
   const std::filesystem::path directory = resolveMapDirectory(mapDirectory);
   std::vector<std::filesystem::path> candidates;
   if (extension.empty()) {

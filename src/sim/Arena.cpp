@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdlib>
 #include <limits>
 
 namespace lg {
@@ -13,44 +12,6 @@ void setGroundContact(CollisionResult& result, Vec3 normal) {
   result.groundNormal = normal;
   result.onGround = normal.z >= kMinWalkNormal;
 }
-
-constexpr std::string_view kThunderstruckMapText = R"(version 1
-bounds min=-15,-11,0 max=15,11,10
-
-# Thunderstruck's lower central court is ringed by raised fighting lanes.
-box lane_north -15,6.5,0 15,11,2
-box lane_west -15,-7,0 -10,6.5,2
-box lane_east 10,-7,0 15,6.5,2
-box spawn_deck_west -15,-11,0 -3,-7,2
-box spawn_deck_east 3,-11,0 15,-7,2
-
-# A raised cross-lane overlooks the court while leaving an underpass.
-box bridge -10,3,2 10,4.5,2.4
-
-# Opposing five-step stairways connect the lower court to the side lanes.
-box stair_west_1 -6.8,-5,0 -6,-2,0.4
-box stair_west_2 -7.6,-5,0 -6.8,-2,0.8
-box stair_west_3 -8.4,-5,0 -7.6,-2,1.2
-box stair_west_4 -9.2,-5,0 -8.4,-2,1.6
-box stair_west_5 -10,-5,0 -9.2,-2,2
-box stair_east_1 6,-5,0 6.8,-2,0.4
-box stair_east_2 6.8,-5,0 7.6,-2,0.8
-box stair_east_3 7.6,-5,0 8.4,-2,1.2
-box stair_east_4 8.4,-5,0 9.2,-2,1.6
-box stair_east_5 9.2,-5,0 10,-2,2
-
-# Low central cover preserves Thunderstruck's exposed tracking lanes.
-box cover_left -5,-0.9,0 -3,0.9,1.2
-box cover_right 3,-0.9,0 5,0.9,1.2
-box center_pillar -1.2,-1.2,0 1.2,1.2,2.6
-
-spawn player_1 -8,-9,2 yaw=0
-spawn player_2 8,-9,2 yaw=180
-spawn player_3 -12,8,2 yaw=0
-spawn player_4 12,8,2 yaw=180
-spawn player_5 -3,-9,0 yaw=0
-spawn player_6 3,-9,0 yaw=180
-)";
 
 void resolveWallCollision(
   const ArenaWall& wall,
@@ -79,6 +40,8 @@ void resolveWallCollision(
   const float playerMinZ = result.position.z - player.bounds.halfHeight;
   const float playerMaxZ = result.position.z + player.bounds.halfHeight;
 
+  // Resolve top/bottom hits before side hits so landing on a box becomes
+  // ground contact instead of lateral penetration.
   if (
     previousPlayerMinZ >= wall.max.z - kCollisionEpsilon &&
     playerMinZ < wall.max.z &&
@@ -162,6 +125,8 @@ void resolveBrushCollision(
   constexpr float kCollisionEpsilon = 0.0001F;
   constexpr float kGroundFollowDistance = 0.08F;
   constexpr float kWalkableNormalZ = 0.35F;
+  // Use the swept player AABB as a cheap broad phase. Brush face tests below
+  // are more expensive and only matter when the move overlaps this range.
   const float sweptMinX = std::min(previousPosition.x, result.position.x) -
     player.bounds.radius;
   const float sweptMaxX = std::max(previousPosition.x, result.position.x) +
@@ -215,6 +180,8 @@ void resolveBrushCollision(
       return true;
     };
 
+  // First handle walkable faces specially. Ramps and sloped stair clips need
+  // vertical placement on the face, not generic "push out by smallest plane".
   for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
     const ArenaBrushFace& face = brush.faces[index];
     if (face.normal.z <= kWalkableNormalZ) {
@@ -237,6 +204,8 @@ void resolveBrushCollision(
       previousPosition.z >= previousSupportZ - kCollisionEpsilon &&
       previousPosition.z <= previousSupportZ + 0.05F;
     if (liftingOffFace) {
+      // Let jumps/knockback leave a slope cleanly; otherwise the ground follow
+      // logic would immediately pin the player back to the same face.
       return;
     }
     if (!pointInsideBrushPlanarExpansion({result.position.x, result.position.y, supportZ}, index)) {
@@ -279,6 +248,8 @@ void resolveBrushCollision(
   float minimumPenetration = std::numeric_limits<float>::max();
   const ArenaBrushFace* separatingFace = nullptr;
 
+  // Generic convex resolution: expand each plane by the capsule-like player
+  // extents and push out along the least-penetrated face.
   for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
     const ArenaBrushFace& face = brush.faces[index];
     const float planarRadius = planarRadiusForFace(face);
@@ -424,6 +395,8 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
     return {end, {}, 1.0F, false, false};
   }
 
+  // Slab ray/AABB test against a solid already expanded by the player bounds.
+  // The earliest entered slab supplies the collision normal.
   float entry = 0.0F;
   float exit = 1.0F;
   Vec3 normal = {};
@@ -567,6 +540,8 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
       start.y > wall.max.y + 0.0001F
     )
   ) {
+    // A vertical ground probe beside a wall can start inside the wall's expanded
+    // radius even though the real cylinder is beside it. Ignore that false hit.
     return {end, {}, 1.0F, false, false};
   }
   if (
@@ -581,6 +556,8 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
       if (startFeetZ >= wall.max.z - 0.0001F) {
         return {start, {0.0F, 0.0F, 1.0F}, 0.0F, true, false};
       }
+      // During the raised part of a step move, the horizontal pass is allowed
+      // to start inside a low stair's expanded AABB.
       return {end, {}, 1.0F, false, false};
     }
     if (raisedStepMove) {
@@ -607,6 +584,8 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
     return {end, {}, 1.0F, false, false};
   }
 
+  // Downward probes against sloped brush tops need plane hits; expanded AABB
+  // traces alone are too coarse for ramps.
   PlayerArenaTrace trace{end, {}, 1.0F, false, false};
   for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
     const ArenaBrushFace& face = brush.faces[faceIndex];
@@ -939,18 +918,6 @@ bool addTouchingArenaPlanes(
 
 } // namespace
 
-Arena thunderstruckArena() {
-  if (const char* path = std::getenv("LG_DUEL_MAP"); path != nullptr && path[0] != '\0') {
-    const ArenaLoadResult fileResult = loadArenaFromFile(path);
-    if (fileResult.ok) {
-      return fileResult.arena;
-    }
-  }
-
-  const ArenaLoadResult embeddedResult = loadArenaFromText(kThunderstruckMapText);
-  return embeddedResult.ok ? embeddedResult.arena : Arena{};
-}
-
 CollisionResult slidePlayerArenaMove(
   const Arena& arena,
   const PlayerState& player,
@@ -1003,6 +970,8 @@ CollisionResult slidePlayerArenaMove(
       result.position = position;
       break;
     }
+    // Accumulate every plane touched by this move. Clipping against the full
+    // plane set lets the player slide along corners and stop in acute wedges.
     result.blocked = true;
     if (trace.normal.z > 0.0F) {
       setGroundContact(result, trace.normal);
@@ -1062,6 +1031,8 @@ CollisionResult slidePlayerArenaMove(
     }
   }
 
+  // Brush depenetration can expose a second brush contact after the first
+  // push-out, so run a cheap second pass for stable ramp/edge placement.
   for (int pass = 0; pass < 2; ++pass) {
     for (std::size_t index = 0; index < arena.brushCount; ++index) {
       resolveBrushCollision(arena.brushes[index], player, start, result);

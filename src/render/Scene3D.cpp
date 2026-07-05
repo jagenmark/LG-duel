@@ -28,7 +28,7 @@ constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
-constexpr std::uint32_t kSimpleInstanceUploadBytes = 36U;
+constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
 constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
 constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
@@ -424,6 +424,8 @@ struct PlayerModelBasis {
 
 struct PlayerVisualPose {
   bool airborne = false;
+  bool crouched = false;
+  bool sneaking = false;
 };
 
 struct WeaponModelFrame {
@@ -1047,6 +1049,8 @@ void addOrientedWireBox(
 [[nodiscard]] PlayerVisualPose makePlayerVisualPose(const PlayerState& player) {
   PlayerVisualPose pose;
   pose.airborne = !player.onGround && player.movementMode == MovementMode::Airborne;
+  pose.crouched = player.crouched;
+  pose.sneaking = player.sneaking;
   return pose;
 }
 
@@ -1116,6 +1120,17 @@ void forEachPlayerModelPart(
     return;
   }
 
+  if (pose.crouched) {
+    part(PlayerBodyPartType::Torso, 0.05F, 0.0F, 0.39F, 0.73F, 0.36F, 0.58F, -8.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::Hips, -0.04F, 0.0F, 0.30F, 0.47F, 0.33F, 0.50F);
+    part(PlayerBodyPartType::Head, 0.08F, 0.0F, 0.73F, 1.0F, 0.34F, 0.36F, -6.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::LeftArm, 0.04F, -0.74F, 0.34F, 0.69F, 0.20F, 0.20F, -5.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::RightArm, 0.04F, 0.74F, 0.34F, 0.69F, 0.20F, 0.20F, -5.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::LeftLeg, -0.18F, -0.25F, 0.0F, 0.33F, 0.28F, 0.20F, -35.0F * kDegreesToRadians);
+    part(PlayerBodyPartType::RightLeg, 0.02F, 0.25F, 0.0F, 0.33F, 0.28F, 0.20F, -18.0F * kDegreesToRadians);
+    return;
+  }
+
   part(PlayerBodyPartType::Torso, 0.0F, 0.0F, 0.43F, 0.76F, 0.34F, 0.58F);
   part(PlayerBodyPartType::Hips, 0.0F, 0.0F, 0.34F, 0.48F, 0.31F, 0.48F);
   part(PlayerBodyPartType::Head, 0.0F, 0.0F, 0.78F, 1.0F, 0.34F, 0.36F);
@@ -1140,6 +1155,10 @@ void forEachPlayerModelPart(
     const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 16.0F, 0.0F, 1.0F);
     const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
     poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+  } else if (pose.crouched) {
+    poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
+  } else if (pose.sneaking) {
+    poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
   } else if (leanAmount > 0.02F) {
     poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
   } else if (leanAmount < -0.02F) {
@@ -2159,6 +2178,23 @@ void addPlayerBoxInstances(
   return std::isfinite(yaw) ? yaw : 0.0F;
 }
 
+[[nodiscard]] float projectileVelocityPitch(Vec3 velocity) {
+  const float horizontalSpeed = std::hypot(velocity.x, velocity.y);
+  if (horizontalSpeed <= 0.0001F && std::fabs(velocity.z) <= 0.0001F) {
+    return 0.0F;
+  }
+  const float pitch = std::atan2(velocity.z, horizontalSpeed);
+  return std::isfinite(pitch) ? pitch : 0.0F;
+}
+
+[[nodiscard]] Vec3 projectileVelocityForward(Vec3 velocity) {
+  const float speed = length(velocity);
+  if (speed <= 0.0001F || !std::isfinite(speed)) {
+    return yawForward(projectileVelocityYaw(velocity));
+  }
+  return velocity * (1.0F / speed);
+}
+
 [[nodiscard]] float projectileRotationRadians(
   const RocketProjectileSnapshot& projectile,
   std::size_t projectileIndex
@@ -2368,6 +2404,7 @@ void addTransientEffectInstances(
         {scale, scale, scale},
         static_cast<float>((effect.seed * 2654435761U) & 1023U) *
           (kTwoPi / 1024.0F),
+        0.0F,
         color,
         t,
         {effect.position, scale},
@@ -2658,6 +2695,9 @@ void addProjectileInstances(
         position,
         {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
         rotation,
+        descriptor->type == ProjectileVisualType::Rocket
+          ? projectileVelocityPitch(projectile.velocity)
+          : 0.0F,
         descriptor->coreColor,
         pulseSeed,
         {position, descriptor->coreScale},
@@ -2666,8 +2706,11 @@ void addProjectileInstances(
     countProjectileCoreInstance(scene.projectileStats, descriptor->type);
   }
   if (descriptor->glowBillboard != BillboardHandle::Invalid) {
+    const Vec3 projectileForward = descriptor->type == ProjectileVisualType::Rocket
+      ? projectileVelocityForward(projectile.velocity)
+      : yawForward(rotation);
     const Vec3 glowPosition = descriptor->type == ProjectileVisualType::Rocket
-      ? position - yawForward(rotation) * (descriptor->coreScale * 0.9F)
+      ? position - projectileForward * (descriptor->coreScale * 0.9F)
       : position;
     appendSimpleInstance(
       scene,
@@ -2677,6 +2720,7 @@ void addProjectileInstances(
         descriptor->usesAdditiveGlow ? RenderPass::AdditiveGlow : RenderPass::TranslucentWorld,
         glowPosition,
         {descriptor->glowScale, descriptor->glowScale, descriptor->glowScale},
+        0.0F,
         0.0F,
         descriptor->glowColor,
         pulseSeed,

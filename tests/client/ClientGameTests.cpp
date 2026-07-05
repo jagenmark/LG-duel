@@ -41,6 +41,18 @@ lg::PlayerState groundedPlayer() {
   return player;
 }
 
+const lg::LocalMapLoadResult& testMap() {
+  static const lg::LocalMapLoadResult loaded = lg::loadLocalMap("eyetoeye");
+  return loaded;
+}
+
+void queueSnapshot(lg::LoopbackTransport& transport, lg::ServerSnapshot snapshot) {
+  if (snapshot.map.mapName.empty() || snapshot.map.contentHash == 0) {
+    snapshot.map = testMap().descriptor;
+  }
+  transport.sendSnapshot(snapshot);
+}
+
 } // namespace
 
 int main() {
@@ -52,9 +64,8 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
-    initialSnapshot.map = lg::describeMap("thunderstruck", lg::thunderstruckArena());
     initialSnapshot.players[0] = groundedPlayer();
-    transport.sendSnapshot(initialSnapshot);
+    queueSnapshot(transport, initialSnapshot);
     client.receiveSnapshots();
 
     lg::UserCommand command;
@@ -69,7 +80,7 @@ int main() {
 
     lg::ServerSnapshot delayedSnapshot = initialSnapshot;
     delayedSnapshot.serverTick = 1;
-    transport.sendSnapshot(delayedSnapshot);
+    queueSnapshot(transport, delayedSnapshot);
     client.receiveSnapshots();
     failures += expect(
       nearlyEqual(client.predictedPlayer().position.x, immediatePrediction.position.x),
@@ -91,7 +102,7 @@ int main() {
       tuning,
       lg::kFixedTickSeconds
     );
-    transport.sendSnapshot(acknowledgedSnapshot);
+    queueSnapshot(transport, acknowledgedSnapshot);
     client.receiveSnapshots();
 
     failures += expect(
@@ -112,7 +123,7 @@ int main() {
     lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
     initialSnapshot.players[0] = groundedPlayer();
-    transport.sendSnapshot(initialSnapshot);
+    queueSnapshot(transport, initialSnapshot);
     client.receiveSnapshots();
 
     lg::MovementTuning requestedTuning;
@@ -134,7 +145,7 @@ int main() {
 
     lg::ServerSnapshot delayedSnapshot = initialSnapshot;
     delayedSnapshot.serverTick = 1;
-    transport.sendSnapshot(delayedSnapshot);
+    queueSnapshot(transport, delayedSnapshot);
     client.receiveSnapshots();
     failures += expect(
       nearlyEqual(client.movementTuning().groundAcceleration, 140.0F),
@@ -151,7 +162,7 @@ int main() {
     acknowledgedSnapshot.hasAcknowledgedCommand[0] = true;
     acknowledgedSnapshot.acknowledgedCommand[0] = request.sequence;
     acknowledgedSnapshot.movementTuning = requestedTuning;
-    transport.sendSnapshot(acknowledgedSnapshot);
+    queueSnapshot(transport, acknowledgedSnapshot);
     client.receiveSnapshots();
     failures += expect(
       nearlyEqual(client.movementTuning().maxGroundSpeed, 11.0F) &&
@@ -166,7 +177,7 @@ int main() {
     lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
     initialSnapshot.players[0] = groundedPlayer();
-    transport.sendSnapshot(initialSnapshot);
+    queueSnapshot(transport, initialSnapshot);
     client.receiveSnapshots();
 
     const lg::LocalMapLoadResult reloadedMap = lg::loadLocalMap("eyetoeye");
@@ -182,7 +193,7 @@ int main() {
       0.0F,
       reloadedSnapshot.players[0].bounds.halfHeight,
     };
-    transport.sendSnapshot(reloadedSnapshot);
+    queueSnapshot(transport, reloadedSnapshot);
     client.receiveSnapshots();
 
     failures += expect(
@@ -203,7 +214,7 @@ int main() {
     lg::ServerSnapshot arenaLessSnapshot = reloadedSnapshot;
     arenaLessSnapshot.serverTick = 2;
     arenaLessSnapshot.players[0].position.x = 0.0F;
-    transport.sendSnapshot(arenaLessSnapshot);
+    queueSnapshot(transport, arenaLessSnapshot);
     client.receiveSnapshots();
     failures += expect(
       client.snapshot().serverTick == 2 &&
@@ -216,7 +227,7 @@ int main() {
     descriptorOnlyReload.serverTick = 3;
     descriptorOnlyReload.mapRevision = reloadedSnapshot.mapRevision + 1;
     descriptorOnlyReload.map = {"missing_map", 12345};
-    transport.sendSnapshot(descriptorOnlyReload);
+    queueSnapshot(transport, descriptorOnlyReload);
     client.receiveSnapshots();
     failures += expect(
       client.snapshot().serverTick == 2 &&
@@ -227,8 +238,8 @@ int main() {
   }
 
   {
-    const lg::LocalMapLoadResult localMap = lg::loadLocalMap("thunderstruck");
-    failures += expect(localMap.ok, "thunderstruck should load from the local map registry");
+    const lg::LocalMapLoadResult localMap = lg::loadLocalMap("eyetoeye");
+    failures += expect(localMap.ok, "eyetoeye should load from the local map registry");
     failures += expect(
       lg::hashArena(localMap.arena) == localMap.descriptor.contentHash &&
         lg::hashArena(localMap.arena) == lg::hashArena(localMap.arena),
@@ -242,7 +253,7 @@ int main() {
     mismatchSnapshot.mapRevision = 2;
     mismatchSnapshot.map = localMap.descriptor;
     mismatchSnapshot.map.contentHash ^= 0x1U;
-    transport.sendSnapshot(mismatchSnapshot);
+    queueSnapshot(transport, mismatchSnapshot);
     client.receiveSnapshots();
     failures += expect(
       client.hasConnectionError() &&
@@ -256,7 +267,7 @@ int main() {
     lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
     initialSnapshot.players[0] = groundedPlayer();
-    transport.sendSnapshot(initialSnapshot);
+    queueSnapshot(transport, initialSnapshot);
     client.receiveSnapshots();
 
     lg::UserCommand movement;
@@ -271,7 +282,7 @@ int main() {
     resetSnapshot.serverTick = 1;
     resetSnapshot.hasAcknowledgedCommand[0] = true;
     resetSnapshot.acknowledgedCommand[0] = reset.sequence;
-    transport.sendSnapshot(resetSnapshot);
+    queueSnapshot(transport, resetSnapshot);
     client.receiveSnapshots();
 
     failures += expect(
@@ -289,7 +300,7 @@ int main() {
     lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
     initialSnapshot.players[0] = groundedPlayer();
-    transport.sendSnapshot(initialSnapshot);
+    queueSnapshot(transport, initialSnapshot);
     client.receiveSnapshots();
 
     lg::UserCommand acknowledged;
@@ -306,7 +317,7 @@ int main() {
     deathSnapshot.acknowledgedCommand[0] = acknowledged.sequence;
     deathSnapshot.players[0].health = 0;
     deathSnapshot.respawnTicksRemaining[0] = 250;
-    transport.sendSnapshot(deathSnapshot);
+    queueSnapshot(transport, deathSnapshot);
     client.receiveSnapshots();
 
     failures += expect(client.predictedPlayer().health == 0, "death snapshot should update prediction health");
@@ -471,6 +482,9 @@ int main() {
     current.viewYawRadians = -kPi + 0.1F;
     current.health = 75;
     current.movementMode = lg::MovementMode::Airborne;
+    current.bounds.halfHeight = previous.bounds.halfHeight * 0.5F;
+    current.crouched = true;
+    current.sneaking = true;
 
     const lg::PlayerState midpoint = lg::interpolatePlayerState(previous, current, 0.5F);
     failures += expect(nearlyEqual(midpoint.position.x, 5.0F), "interpolation should blend position x");
@@ -480,6 +494,17 @@ int main() {
     failures += expect(
       std::fabs(std::fabs(midpoint.viewYawRadians) - kPi) < 0.001F,
       "yaw interpolation should take shortest path across pi"
+    );
+    failures += expect(
+      nearlyEqual(
+        midpoint.bounds.halfHeight,
+        previous.bounds.halfHeight * 0.75F
+      ),
+      "interpolation should blend player height for crouch transitions"
+    );
+    failures += expect(
+      midpoint.crouched && midpoint.sneaking,
+      "crouch and sneak state should switch during interpolation"
     );
     failures += expect(midpoint.health == 100, "discrete state should remain on previous snapshot");
 
@@ -609,7 +634,7 @@ int main() {
       snapshot.players[0] = groundedPlayer();
       snapshot.players[1] = groundedPlayer();
       snapshot.players[1].position.x = static_cast<float>(tick);
-      transport.sendSnapshot(snapshot);
+      queueSnapshot(transport, snapshot);
     }
     client.receiveSnapshots();
     client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
@@ -657,7 +682,7 @@ int main() {
       snapshot.players[0] = groundedPlayer();
       snapshot.players[1] = groundedPlayer();
       snapshot.players[1].position.x = static_cast<float>(offset);
-      transport.sendSnapshot(snapshot);
+      queueSnapshot(transport, snapshot);
     }
     client.receiveSnapshots();
     client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
