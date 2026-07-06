@@ -1371,6 +1371,9 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   }
   ArenaLoadResult result = loadArenaFromText(arenaText.str());
   if (result.ok) {
+    if (brushes.size() > Arena::kBrushCount) {
+      return {{}, false, "map has too many convex brushes"};
+    }
     result.arena.wallCount = walls.size();
     for (std::size_t index = 0; index < result.arena.wallCount && index < walls.size(); ++index) {
       result.arena.walls[index].materialId = walls[index].materialId;
@@ -1379,7 +1382,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         walls[index].faceTextureProjections;
       result.arena.walls[index].renderable = walls[index].renderable;
     }
-    result.arena.brushCount = std::min(brushes.size(), Arena::kBrushCount);
+    result.arena.brushCount = brushes.size();
     for (std::size_t index = 0; index < result.arena.brushCount; ++index) {
       result.arena.brushes[index] = brushes[index];
     }

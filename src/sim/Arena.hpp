@@ -98,10 +98,10 @@ struct ArenaHealthPickup {
 };
 
 struct Arena {
-  static constexpr std::size_t kWallCount = 255;
-  static constexpr std::size_t kBrushCount = 128;
-  static constexpr std::size_t kStaticLightCount = 64;
-  static constexpr std::size_t kJumpPadCount = 32;
+  static constexpr std::size_t kWallCount = 256;
+  static constexpr std::size_t kBrushCount = 256;
+  static constexpr std::size_t kStaticLightCount = 96;
+  static constexpr std::size_t kJumpPadCount = 48;
   static constexpr std::size_t kHealthPickupCount = 32;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
@@ -135,6 +135,7 @@ struct ArenaLoadResult {
 
 [[nodiscard]] ArenaLoadResult loadArenaFromText(std::string_view text);
 [[nodiscard]] ArenaLoadResult loadArenaFromMapText(std::string_view text);
+bool loadArenaFromFile(const std::string& path, ArenaLoadResult& result);
 [[nodiscard]] ArenaLoadResult loadArenaFromFile(const std::string& path);
 [[nodiscard]] std::uint32_t arenaMaterialId(std::string_view material);
 

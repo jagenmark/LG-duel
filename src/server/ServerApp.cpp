@@ -331,7 +331,8 @@ int ServerApp::run() const {
       const std::string path = arguments.size() >= 2
         ? arguments[1]
         : console.getString("map_path");
-      const ArenaLoadResult result = loadArenaFromFile(path);
+      ArenaLoadResult result;
+      loadArenaFromFile(path, result);
       if (!result.ok) {
         return "map invalid: " + result.error;
       }
@@ -352,7 +353,8 @@ int ServerApp::run() const {
       const std::string path = arguments.size() >= 2
         ? arguments[1]
         : console.getString("map_path");
-      const ArenaLoadResult result = loadArenaFromFile(path);
+      ArenaLoadResult result;
+      loadArenaFromFile(path, result);
       if (!result.ok) {
         return "map reload failed: " + result.error;
       }

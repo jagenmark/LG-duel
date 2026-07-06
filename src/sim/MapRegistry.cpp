@@ -184,7 +184,8 @@ LocalMapLoadResult loadLocalMap(
   }
 
   for (const std::filesystem::path& path : candidates) {
-    const ArenaLoadResult result = loadArenaFromFile(path.string());
+    ArenaLoadResult result;
+    loadArenaFromFile(path.string(), result);
     if (result.ok) {
       return {
         result.arena,

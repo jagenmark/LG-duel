@@ -41,7 +41,7 @@ Materials are hashed/stable ids from material paths. Renderer texture loading ex
 
 - Valve 220 texture axes are explicitly rejected by `MapParser`.
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
-- Arena counts are fixed: 255 walls, 128 brushes, 32 jumppads, 32 health pickups, 64 static lights.
+- Arena counts are fixed: 256 walls, 256 brushes, 48 jumppads, 32 health pickups, 96 static lights.
 - Multiple `light_sun` entities are not supported.
 - Spawn yaw is parsed only for validity; spawn orientation is not stored in `Arena`, so actual orientation intent is unclear.
 - Jumppads do not use brush/entity rotation as launch authority. Launch priority is target-based ballistic, explicit direction and speed, angle/pitch and speed, then straight up.

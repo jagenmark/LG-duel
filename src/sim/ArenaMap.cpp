@@ -295,10 +295,11 @@ ArenaLoadResult loadArenaFromText(std::string_view text) {
   return validateArena(parsed);
 }
 
-ArenaLoadResult loadArenaFromFile(const std::string& path) {
+bool loadArenaFromFile(const std::string& path, ArenaLoadResult& result) {
   std::ifstream file(path);
   if (!file) {
-    return {{}, false, "could not open map file '" + path + "'"};
+    result = {{}, false, "could not open map file '" + path + "'"};
+    return false;
   }
 
   std::ostringstream text;
@@ -306,12 +307,19 @@ ArenaLoadResult loadArenaFromFile(const std::string& path) {
   const std::filesystem::path mapPath(path);
   const std::string extension = mapPath.extension().string();
   if (extension != ".map") {
-    return {{}, false, path + ": unsupported map extension '" + extension + "'"};
+    result = {{}, false, path + ": unsupported map extension '" + extension + "'"};
+    return false;
   }
-  ArenaLoadResult result = loadArenaFromMapText(text.str());
+  result = loadArenaFromMapText(text.str());
   if (!result.ok) {
     result.error = path + ": " + result.error;
   }
+  return result.ok;
+}
+
+ArenaLoadResult loadArenaFromFile(const std::string& path) {
+  ArenaLoadResult result;
+  loadArenaFromFile(path, result);
   return result;
 }
 
