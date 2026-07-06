@@ -73,6 +73,7 @@ void DamageNumberState::addLocalDamageEvent(
     event.sourcePlayerIndex,
     event.targetPlayerIndex,
     event.damageApplied,
+    event.headshot,
   };
   if (hasSeen(key)) {
     return;
@@ -85,6 +86,7 @@ void DamageNumberState::addLocalDamageEvent(
   ) {
     entries_.push_back({
       event.damageApplied,
+      event.headshot,
       event.targetPlayerIndex,
       0.0F,
       nextSequence_++,
@@ -103,9 +105,11 @@ void DamageNumberState::addLocalDamageEvent(
   const float burstWindow = std::max(0.0F, config.burstWindowSeconds);
   if (tally.active && tally.secondsSinceLastHit <= burstWindow) {
     tally.damage += event.damageApplied;
+    tally.headshot = tally.headshot || event.headshot;
   } else {
     tally.active = true;
     tally.damage = event.damageApplied;
+    tally.headshot = event.headshot;
     tally.targetPlayerIndex = event.targetPlayerIndex;
   }
   tally.secondsSinceLastHit = 0.0F;
@@ -129,7 +133,8 @@ bool DamageNumberState::hasSeen(const EventKey& key) const {
         seen.serverTick == key.serverTick &&
         seen.sourcePlayerIndex == key.sourcePlayerIndex &&
         seen.targetPlayerIndex == key.targetPlayerIndex &&
-        seen.damageApplied == key.damageApplied;
+        seen.damageApplied == key.damageApplied &&
+        seen.headshot == key.headshot;
     }
   );
 }

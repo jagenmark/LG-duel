@@ -587,6 +587,7 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
     writeVec3(writer, result.end) &&
     writer.writeBool(result.active) &&
     writer.writeBool(result.hit) &&
+    writer.writeBool(result.headshot) &&
     writer.writeU8(result.targetPlayerIndex) &&
     writer.writeI32(result.damageApplied) &&
     writeVec3(writer, result.knockbackImpulse) &&
@@ -612,6 +613,7 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
     !readVec3(reader, result.end) ||
     !reader.readBool(result.active) ||
     !reader.readBool(result.hit) ||
+    !reader.readBool(result.headshot) ||
     !reader.readU8(targetPlayerIndex) ||
     !reader.readI32(damageApplied) ||
     !readVec3(reader, result.knockbackImpulse) ||
@@ -633,6 +635,7 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
 
   if (
     damageApplied < 0 ||
+    (result.headshot && !result.hit) ||
     result.freezeApplied < 0.0F ||
     result.freezeApplied > 1000.0F ||
     (targetPlayerIndex != 255 && targetPlayerIndex >= kDuelPlayerCount) ||
@@ -657,11 +660,13 @@ bool writeWeaponFire(Writer& writer, const WeaponFireResult& result) {
     writeVec3(writer, result.end) &&
     writer.writeBool(result.fired) &&
     writer.writeBool(result.hit) &&
+    writer.writeBool(result.headshot) &&
     writer.writeU8(static_cast<std::uint8_t>(result.weapon)) &&
     writer.writeI32(result.damageApplied) &&
     writeVec3(writer, result.knockbackImpulse) &&
     writer.writeU8(result.pelletCount) &&
     writer.writeU8(result.pelletHitCount) &&
+    writer.writeU8(result.pelletHeadshotCount) &&
     writer.writeU32(result.visualSeed);
 }
 
@@ -670,17 +675,20 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   std::int32_t damageApplied = 0;
   std::uint8_t pelletCount = 0;
   std::uint8_t pelletHitCount = 0;
+  std::uint8_t pelletHeadshotCount = 0;
   std::uint32_t visualSeed = 0;
   if (
     !readVec3(reader, result.start) ||
     !readVec3(reader, result.end) ||
     !reader.readBool(result.fired) ||
     !reader.readBool(result.hit) ||
+    !reader.readBool(result.headshot) ||
     !reader.readU8(weapon) ||
     !reader.readI32(damageApplied) ||
     !readVec3(reader, result.knockbackImpulse) ||
     !reader.readU8(pelletCount) ||
     !reader.readU8(pelletHitCount) ||
+    !reader.readU8(pelletHeadshotCount) ||
     !reader.readU32(visualSeed)
   ) {
     return false;
@@ -688,7 +696,9 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   if (
     weapon > static_cast<std::uint8_t>(kLastWeapon) ||
     damageApplied < 0 ||
+    (result.headshot && !result.hit) ||
     pelletHitCount > pelletCount ||
+    pelletHeadshotCount > pelletHitCount ||
     pelletCount > kShotgunPelletCount
   ) {
     return false;
@@ -697,6 +707,7 @@ bool readWeaponFire(Reader& reader, WeaponFireResult& result) {
   result.damageApplied = damageApplied;
   result.pelletCount = pelletCount;
   result.pelletHitCount = pelletHitCount;
+  result.pelletHeadshotCount = pelletHeadshotCount;
   result.visualSeed = visualSeed;
   return true;
 }
@@ -823,6 +834,7 @@ bool writeLocalHitFeedbackEvent(
     writer.writeU32(event.sequence) &&
     writer.writeU8(event.targetPlayerIndex) &&
     writer.writeI32(event.damageApplied) &&
+    writer.writeBool(event.headshot) &&
     writer.writeU8(static_cast<std::uint8_t>(event.weapon));
 }
 
@@ -837,6 +849,7 @@ bool readLocalHitFeedbackEvent(
     !reader.readU32(event.sequence) ||
     !reader.readU8(event.targetPlayerIndex) ||
     !reader.readI32(damageApplied) ||
+    !reader.readBool(event.headshot) ||
     !reader.readU8(weapon)
   ) {
     return false;

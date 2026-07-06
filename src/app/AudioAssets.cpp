@@ -266,6 +266,8 @@ const char* audioCueFileName(AudioCue cue) {
     return "hit_confirm_medium.wav";
   case AudioCue::HitConfirmHeavy:
     return "hit_confirm_heavy.wav";
+  case AudioCue::HeadshotConfirm:
+    return "headshot_confirm.wav";
   case AudioCue::PainGrunt:
     return "pain_grunt.wav";
   case AudioCue::Frag:

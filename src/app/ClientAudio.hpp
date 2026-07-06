@@ -31,7 +31,7 @@ class ClientAudio {
 public:
   bool initialize(const std::filesystem::path& assetBasePath);
 
-  void playHit(float volume, int damageApplied);
+  void playHit(float volume, int damageApplied, bool headshot = false);
   void playFrag(float volume);
   void playPainGrunt(float volume, float pan = 0.0F);
   void playRailFire(float volume, float pan = 0.0F);
@@ -100,6 +100,7 @@ private:
   LoadedClip hitConfirmLightClip_;
   LoadedClip hitConfirmMediumClip_;
   LoadedClip hitConfirmHeavyClip_;
+  LoadedClip headshotConfirmClip_;
   LoadedClip fragClip_;
   LoadedClip painGruntClip_;
   LoadedClip railgunFireClip_;

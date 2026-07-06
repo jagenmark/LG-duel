@@ -1266,6 +1266,11 @@ void addDamageNumbers(
     255,
   };
 
+  const auto damageText = [](int damage, bool headshot) {
+    const std::string value = std::to_string(damage);
+    return headshot ? std::string("HEADSHOT ") + value : value;
+  };
+
   for (const DamageNumberEntry& entry : hud.damageNumbers.entries) {
     const float life = std::clamp(entry.ageSeconds / duration, 0.0F, 1.0F);
     const float fade = 1.0F - life;
@@ -1274,7 +1279,7 @@ void addDamageNumbers(
     const float wobble = (entry.sequence % 2U == 0U ? -1.0F : 1.0F) *
       2.0F * scale;
     const float textScale = scale;
-    const std::string text = std::to_string(entry.damage);
+    const std::string text = damageText(entry.damage, entry.headshot);
     const float textWidth =
       static_cast<float>(text.size()) * kGlyphSize * textScale;
     const float x =
@@ -1300,7 +1305,7 @@ void addDamageNumbers(
       std::clamp(tally.secondsSinceLastHit / duration, 0.0F, 1.0F);
     const float fade = 1.0F - life * 0.55F;
     const float textScale = scale * 1.35F;
-    const std::string text = std::to_string(tally.damage);
+    const std::string text = damageText(tally.damage, tally.headshot);
     const float textWidth =
       static_cast<float>(text.size()) * kGlyphSize * textScale;
     addText(
@@ -1331,6 +1336,10 @@ void addFloatingDamageNumbers(
     settings.damageNumbersBlue,
     255,
   };
+  const auto damageText = [](int damage, bool headshot) {
+    const std::string value = std::to_string(damage);
+    return headshot ? std::string("HEADSHOT ") + value : value;
+  };
   for (const DamageNumberTally& tally : hud.damageNumbers.tallies) {
     if (!tally.active || !tally.hasWorldPosition) {
       continue;
@@ -1347,7 +1356,7 @@ void addFloatingDamageNumbers(
       std::clamp(tally.secondsSinceLastHit / duration, 0.0F, 1.0F);
     const float fade = 1.0F - life * 0.55F;
     const float textScale = scale * 1.35F;
-    const std::string text = std::to_string(tally.damage);
+    const std::string text = damageText(tally.damage, tally.headshot);
     const float textWidth =
       static_cast<float>(text.size()) * kGlyphSize * textScale;
     addText(

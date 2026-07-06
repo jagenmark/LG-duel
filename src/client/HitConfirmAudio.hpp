@@ -20,6 +20,7 @@ struct WeaponFireAudioEvent {
   WeaponFireAudioCue cue = WeaponFireAudioCue::None;
   bool startsLocalRailCooldown = false;
   int localHitConfirmDamage = 0;
+  bool localHitConfirmHeadshot = false;
 };
 
 [[nodiscard]] bool sameWeaponFireEvent(

@@ -175,6 +175,7 @@ struct LocalHitFeedbackEvent {
   std::uint32_t sequence = 0;
   std::uint8_t targetPlayerIndex = 255;
   int damageApplied = 0;
+  bool headshot = false;
   Weapon weapon = Weapon::LightningGun;
 };
 

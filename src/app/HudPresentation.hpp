@@ -33,6 +33,7 @@ struct LocalDamageEvent {
   int damageApplied = 0;
   bool confirmedLocal = true;
   Weapon weapon = Weapon::LightningGun;
+  bool headshot = false;
   bool hasTargetPosition = false;
   Vec3 targetPosition = {};
 };
@@ -45,6 +46,7 @@ struct DamageNumbersConfig {
 
 struct DamageNumberEntry {
   int damage = 0;
+  bool headshot = false;
   std::uint8_t targetPlayerIndex = 255;
   float ageSeconds = 0.0F;
   std::uint32_t sequence = 0;
@@ -53,6 +55,7 @@ struct DamageNumberEntry {
 struct DamageNumberTally {
   bool active = false;
   int damage = 0;
+  bool headshot = false;
   std::uint8_t targetPlayerIndex = 255;
   float secondsSinceLastHit = 0.0F;
   bool hasWorldPosition = false;
@@ -81,6 +84,7 @@ private:
     std::uint8_t sourcePlayerIndex = 255;
     std::uint8_t targetPlayerIndex = 255;
     int damageApplied = 0;
+    bool headshot = false;
   };
 
   [[nodiscard]] bool hasSeen(const EventKey& key) const;

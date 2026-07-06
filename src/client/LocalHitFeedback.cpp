@@ -25,8 +25,11 @@ LocalHitFeedbackBatch consumeLocalHitFeedbackEvents(
     batch.active = true;
     batch.lightningGunHit =
       batch.lightningGunHit || event.weapon == Weapon::LightningGun;
+    batch.headshotHit = batch.headshotHit || event.headshot;
     if (event.targetPlayerIndex < kDuelPlayerCount) {
       batch.hitTargets[event.targetPlayerIndex] = true;
+      batch.headshotTargets[event.targetPlayerIndex] =
+        batch.headshotTargets[event.targetPlayerIndex] || event.headshot;
       batch.damageByTarget[event.targetPlayerIndex] += event.damageApplied;
     }
     if (!state.hasLastSequence || isSequenceNewer(event.sequence, newestSequence)) {

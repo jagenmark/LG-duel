@@ -9,6 +9,10 @@ namespace {
 
 constexpr float kTraceEpsilon = 0.00001F;
 constexpr float kTwoPi = 6.28318530718F;
+constexpr float kHeadHitboxBottomRatio = 0.76F;
+constexpr float kHeadHitboxTopRatio = 1.0F;
+constexpr float kHeadHitboxRadiusScale = 0.96F;
+constexpr int kHeadshotDamageMultiplier = 2;
 
 [[nodiscard]] constexpr Vec3 cross(Vec3 lhs, Vec3 rhs) {
   return {
@@ -83,6 +87,11 @@ struct TraceHit {
   float distance = std::numeric_limits<float>::max();
   Vec3 normal = {};
   bool hit = false;
+};
+
+struct HeadHitbox {
+  Vec3 center = {};
+  Vec3 halfExtents = {};
 };
 
 [[nodiscard]] TraceHit arenaExitHit(const Arena& arena, Vec3 origin, Vec3 direction) {
@@ -204,6 +213,22 @@ struct TraceHit {
   return wallHit(ArenaWall{brush.min, brush.max}, origin, direction).distance;
 }
 
+[[nodiscard]] HeadHitbox playerHeadHitbox(const PlayerState& target) {
+  const float halfHeight = std::max(kTraceEpsilon, target.bounds.halfHeight);
+  const float radius = std::max(kTraceEpsilon, target.bounds.radius);
+  const float centerRatio =
+    (kHeadHitboxBottomRatio + kHeadHitboxTopRatio) * 0.5F;
+  const float centerOffsetZ = -halfHeight + (2.0F * halfHeight * centerRatio);
+  return {
+    target.position + Vec3{0.0F, 0.0F, centerOffsetZ},
+    {
+      radius * kHeadHitboxRadiusScale,
+      radius * kHeadHitboxRadiusScale,
+      halfHeight * (kHeadHitboxTopRatio - kHeadHitboxBottomRatio),
+    },
+  };
+}
+
 [[nodiscard]] bool intersectPlayerCylinder(
   Vec3 origin,
   Vec3 direction,
@@ -312,6 +337,30 @@ struct TraceHit {
   return true;
 }
 
+[[nodiscard]] bool intersectPlayerHeadHitbox(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  float& hitDistance
+) {
+  const HeadHitbox head = playerHeadHitbox(target);
+  PlayerState headTarget = target;
+  headTarget.position = head.center;
+  return intersectPlayerRelativeAabb(
+    origin,
+    direction,
+    headTarget,
+    maxDistance,
+    head.halfExtents,
+    hitDistance
+  );
+}
+
+[[nodiscard]] int applyHeadshotDamage(int damage, bool headshot) {
+  return headshot ? damage * kHeadshotDamageMultiplier : damage;
+}
+
 } // namespace
 
 Vec3 weaponMuzzlePosition(const PlayerState& attacker, float eyeHeight) {
@@ -381,6 +430,22 @@ bool tracePlayerCylinder(
   return intersectPlayerCylinder(origin, direction, target, maxDistance, hitDistance);
 }
 
+bool tracePlayerHeadHitbox(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  float& hitDistance
+) {
+  return intersectPlayerHeadHitbox(
+    origin,
+    direction,
+    target,
+    maxDistance,
+    hitDistance
+  );
+}
+
 bool tracePlayerProjectileDirectAabb(
   Vec3 origin,
   Vec3 direction,
@@ -435,6 +500,14 @@ LightningGunResult simulateLightningGun(
 
   result.hit = true;
   result.end = result.start + (direction * hitDistance);
+  float headHitDistance = 0.0F;
+  result.headshot = intersectPlayerHeadHitbox(
+    result.start,
+    direction,
+    target,
+    traceDistance,
+    headHitDistance
+  );
 
   const float fireHz = std::max(1.0F, tuning.fireHz);
   state.shotCredit = std::min(
@@ -457,6 +530,8 @@ LightningGunResult simulateLightningGun(
   result.damageApplied = static_cast<int>(std::floor(state.fractionalDamage));
   state.fractionalDamage -= static_cast<double>(result.damageApplied);
 
+  result.damageApplied =
+    applyHeadshotDamage(result.damageApplied, result.headshot);
   result.damageApplied = std::min(result.damageApplied, target.health);
   target.health -= result.damageApplied;
   result.knockbackImpulse =
@@ -504,6 +579,14 @@ LightningGunResult simulateFreezeGun(
 
   result.hit = true;
   result.end = result.start + (direction * hitDistance);
+  float headHitDistance = 0.0F;
+  result.headshot = intersectPlayerHeadHitbox(
+    result.start,
+    direction,
+    target,
+    traceDistance,
+    headHitDistance
+  );
 
   const float fireHz = std::max(1.0F, tuning.fireHz);
   state.shotCredit = std::min(
@@ -526,6 +609,8 @@ LightningGunResult simulateFreezeGun(
     static_cast<double>(fireHz);
   result.damageApplied = static_cast<int>(std::floor(state.fractionalDamage));
   state.fractionalDamage -= static_cast<double>(result.damageApplied);
+  result.damageApplied =
+    applyHeadshotDamage(result.damageApplied, result.headshot);
   result.damageApplied = std::min(result.damageApplied, target.health);
   target.health -= result.damageApplied;
 
@@ -591,7 +676,16 @@ WeaponFireResult simulateRailgun(
 
   result.hit = true;
   result.end = result.start + (direction * hitDistance);
-  result.damageApplied = std::min(tuning.damage, target.health);
+  float headHitDistance = 0.0F;
+  result.headshot = intersectPlayerHeadHitbox(
+    result.start,
+    direction,
+    target,
+    worldTrace.distance,
+    headHitDistance
+  );
+  result.damageApplied =
+    std::min(applyHeadshotDamage(tuning.damage, result.headshot), target.health);
   target.health -= result.damageApplied;
   result.knockbackImpulse = direction * tuning.knockback;
   return result;
@@ -624,7 +718,16 @@ WeaponFireResult simulateMachineGun(
 
   result.hit = true;
   result.end = result.start + (direction * hitDistance);
-  result.damageApplied = std::min(tuning.damage, target.health);
+  float headHitDistance = 0.0F;
+  result.headshot = intersectPlayerHeadHitbox(
+    result.start,
+    direction,
+    target,
+    worldTrace.distance,
+    headHitDistance
+  );
+  result.damageApplied =
+    std::min(applyHeadshotDamage(tuning.damage, result.headshot), target.health);
   target.health -= result.damageApplied;
   result.knockbackImpulse = direction * tuning.knockback;
   return result;
@@ -658,6 +761,15 @@ WeaponFireResult simulateShotgun(
 
   Vec3 accumulatedKnockbackDirection = {};
   float nearestHitDistance = centerTrace.distance;
+  int totalDamage = 0;
+  float centerHeadHitDistance = 0.0F;
+  const bool centerHeadshot = intersectPlayerHeadHitbox(
+    result.start,
+    forward,
+    target,
+    centerTrace.distance,
+    centerHeadHitDistance
+  );
   for (std::uint8_t pelletIndex = 0; pelletIndex < tuning.pelletCount; ++pelletIndex) {
     const Vec3 direction = pelletDirection(
       forward,
@@ -679,6 +791,23 @@ WeaponFireResult simulateShotgun(
     }
 
     ++result.pelletHitCount;
+    float headHitDistance = 0.0F;
+    const bool pelletHeadshot =
+      centerHeadshot &&
+      intersectPlayerHeadHitbox(
+        result.start,
+        direction,
+        target,
+        pelletTrace.distance,
+        headHitDistance
+      );
+    if (pelletHeadshot) {
+      ++result.pelletHeadshotCount;
+    }
+    totalDamage += applyHeadshotDamage(
+      tuning.damagePerPellet,
+      pelletHeadshot
+    );
     nearestHitDistance = std::min(nearestHitDistance, hitDistance);
     accumulatedKnockbackDirection += direction;
   }
@@ -688,9 +817,9 @@ WeaponFireResult simulateShotgun(
   }
 
   result.hit = true;
+  result.headshot = result.pelletHeadshotCount > 0;
   result.end = result.start + (forward * nearestHitDistance);
-  result.damageApplied =
-    std::min(static_cast<int>(result.pelletHitCount) * tuning.damagePerPellet, target.health);
+  result.damageApplied = std::min(totalDamage, target.health);
   target.health -= result.damageApplied;
   const float hitFraction =
     static_cast<float>(result.pelletHitCount) /

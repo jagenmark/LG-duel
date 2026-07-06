@@ -186,7 +186,8 @@ private:
     std::size_t targetIndex,
     int damageApplied,
     Vec3 knockbackImpulse,
-    Weapon weapon
+    Weapon weapon,
+    bool headshot
   );
   void publishSnapshot();
 

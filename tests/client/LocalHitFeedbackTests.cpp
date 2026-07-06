@@ -24,6 +24,7 @@ int main() {
   events[0].sequence = 1;
   events[0].targetPlayerIndex = 1;
   events[0].damageApplied = 80;
+  events[0].headshot = true;
   events[0].weapon = lg::Weapon::Railgun;
   events[1].active = true;
   events[1].sequence = 2;
@@ -42,6 +43,12 @@ int main() {
   failures += expect(
     first.damageByTarget[1] == 80 && first.damageByTarget[2] == 6,
     "feedback batch should preserve authoritative damage by target"
+  );
+  failures += expect(
+    first.headshotHit &&
+      first.headshotTargets[1] &&
+      !first.headshotTargets[2],
+    "feedback batch should preserve authoritative headshot targets"
   );
   failures += expect(
     first.lightningGunHit,
