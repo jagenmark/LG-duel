@@ -159,14 +159,16 @@ int main() {
     railHit.hit = true;
     railHit.weapon = lg::Weapon::Railgun;
     railHit.damageApplied = 80;
+    railHit.headshot = true;
     const lg::WeaponFireAudioEvent event =
       lg::routeWeaponFireAudioEvent(railHit, true);
 
     failures += expect(
       event.cue == lg::WeaponFireAudioCue::Railgun &&
         event.startsLocalRailCooldown &&
-        event.localHitConfirmDamage == 80,
-      "local rail hits should keep rail fire, cooldown, and hit-confirm routing"
+        event.localHitConfirmDamage == 80 &&
+        event.localHitConfirmHeadshot,
+      "local rail headshots should keep rail fire, cooldown, and headshot hit-confirm routing"
     );
   }
 

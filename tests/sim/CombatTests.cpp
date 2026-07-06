@@ -34,6 +34,36 @@ lg::PlayerState playerAt(float x, float y) {
   return player;
 }
 
+float pitchToTargetZ(
+  const lg::PlayerState& attacker,
+  const lg::PlayerState& target,
+  float eyeHeight,
+  float targetZ
+) {
+  const lg::Vec3 start = lg::weaponMuzzlePosition(attacker, eyeHeight);
+  const float dx = target.position.x - start.x;
+  const float dy = target.position.y - start.y;
+  const float horizontalDistance = std::sqrt((dx * dx) + (dy * dy));
+  return std::atan2(targetZ - start.z, horizontalDistance);
+}
+
+float headAimZ(const lg::PlayerState& target) {
+  return target.position.z + target.bounds.halfHeight * 0.76F;
+}
+
+float bodyAimZ(const lg::PlayerState& target) {
+  return target.position.z;
+}
+
+lg::Vec3 directionToTargetPoint(
+  const lg::PlayerState& attacker,
+  float eyeHeight,
+  lg::Vec3 targetPoint
+) {
+  const lg::Vec3 start = lg::weaponMuzzlePosition(attacker, eyeHeight);
+  return lg::normalize(targetPoint - start);
+}
+
 lg::ArenaBrush convexBox(lg::Vec3 min, lg::Vec3 max) {
   lg::ArenaBrush brush;
   brush.min = min;
@@ -284,6 +314,111 @@ weapon.gl.gravity -1
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    const lg::PlayerState target = playerAt(6.0F, 0.0F);
+    const lg::Vec3 origin =
+      lg::weaponMuzzlePosition(attacker, tuning.eyeHeight);
+    float bodyHitDistance = 0.0F;
+    float horizontalHeadHitDistance = 0.0F;
+    float bodyHeadHitDistance = 0.0F;
+    float aimedHeadHitDistance = 0.0F;
+    float leftEdgeHeadHitDistance = 0.0F;
+    float rightEdgeHeadHitDistance = 0.0F;
+    float topLeftHeadHitDistance = 0.0F;
+    float topRightHeadHitDistance = 0.0F;
+    const bool bodyHit = lg::tracePlayerCylinder(
+      origin,
+      {1.0F, 0.0F, 0.0F},
+      target,
+      10.0F,
+      bodyHitDistance
+    );
+    const bool horizontalHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      {1.0F, 0.0F, 0.0F},
+      target,
+      10.0F,
+      horizontalHeadHitDistance
+    );
+    const float bodyPitch =
+      pitchToTargetZ(attacker, target, tuning.eyeHeight, bodyAimZ(target));
+    const bool bodyHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      lg::cameraForward(0.0F, bodyPitch),
+      target,
+      10.0F,
+      bodyHeadHitDistance
+    );
+    const float headPitch =
+      pitchToTargetZ(attacker, target, tuning.eyeHeight, headAimZ(target));
+    const bool aimedHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      lg::cameraForward(0.0F, headPitch),
+      target,
+      10.0F,
+      aimedHeadHitDistance
+    );
+    const float sideEdgeOffset = target.bounds.radius * 0.90F;
+    const float topCornerZ =
+      target.position.z + target.bounds.halfHeight * 0.96F;
+    const bool leftEdgeHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      directionToTargetPoint(
+        attacker,
+        tuning.eyeHeight,
+        target.position + lg::Vec3{0.0F, sideEdgeOffset, target.bounds.halfHeight * 0.76F}
+      ),
+      target,
+      10.0F,
+      leftEdgeHeadHitDistance
+    );
+    const bool rightEdgeHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      directionToTargetPoint(
+        attacker,
+        tuning.eyeHeight,
+        target.position + lg::Vec3{0.0F, -sideEdgeOffset, target.bounds.halfHeight * 0.76F}
+      ),
+      target,
+      10.0F,
+      rightEdgeHeadHitDistance
+    );
+    const bool topLeftHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      directionToTargetPoint(
+        attacker,
+        tuning.eyeHeight,
+        {target.position.x, target.position.y + sideEdgeOffset, topCornerZ}
+      ),
+      target,
+      10.0F,
+      topLeftHeadHitDistance
+    );
+    const bool topRightHeadHit = lg::tracePlayerHeadHitbox(
+      origin,
+      directionToTargetPoint(
+        attacker,
+        tuning.eyeHeight,
+        {target.position.x, target.position.y - sideEdgeOffset, topCornerZ}
+      ),
+      target,
+      10.0F,
+      topRightHeadHitDistance
+    );
+
+    failures += expect(bodyHit, "body cylinder trace should still hit the target");
+    failures += expect(
+      !bodyHeadHit && horizontalHeadHit && aimedHeadHit,
+      "authoritative head hitbox should cover the visible head without covering torso aim"
+    );
+    failures += expect(
+      leftEdgeHeadHit && rightEdgeHeadHit &&
+        topLeftHeadHit && topRightHeadHit,
+      "authoritative head hitbox should include the visible side and top-corner head areas"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(6.0F, 0.0F);
     target.health = 200;
     lg::LightningGunState state;
@@ -433,6 +568,8 @@ weapon.gl.gravity -1
     lg::LightningGunState state;
     lg::UserCommand command;
     command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, tuning.eyeHeight, bodyAimZ(target));
 
     for (int tick = 0; tick < 125; ++tick) {
       const lg::LightningGunResult result = lg::simulateLightningGun(
@@ -495,6 +632,8 @@ weapon.gl.gravity -1
     lg::LightningGunState state;
     lg::UserCommand command;
     command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, freezeTuning.eyeHeight, bodyAimZ(target));
 
     for (int tick = 0; tick < 125; ++tick) {
       const lg::LightningGunResult result = lg::simulateFreezeGun(
@@ -507,6 +646,7 @@ weapon.gl.gravity -1
         lg::kFixedTickSeconds
       );
       failures += expect(result.hit, "sustained freeze beam should keep hitting");
+      failures += expect(!result.headshot, "freeze beam aimed at the body should not headshot");
     }
 
     failures += expect(
@@ -535,17 +675,82 @@ weapon.gl.gravity -1
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState lightningTarget = playerAt(6.0F, 0.0F);
+    lg::PlayerState freezeTarget = playerAt(6.0F, 0.0F);
+    lightningTarget.health = 1000;
+    freezeTarget.health = 1000;
+    lg::LightningGunState lightningState;
+    lg::LightningGunState freezeState;
+    lg::UserCommand command;
+    command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, lightningTarget, tuning.eyeHeight, headAimZ(lightningTarget));
+
+    for (int tick = 0; tick < 125; ++tick) {
+      const lg::LightningGunResult lightningResult = lg::simulateLightningGun(
+        attacker,
+        lightningTarget,
+        command,
+        arena,
+        tuning,
+        lightningState,
+        lg::kFixedTickSeconds
+      );
+      const lg::LightningGunResult freezeResult = lg::simulateFreezeGun(
+        attacker,
+        freezeTarget,
+        command,
+        arena,
+        freezeTuning,
+        freezeState,
+        lg::kFixedTickSeconds
+      );
+      failures += expect(
+        lightningResult.headshot && freezeResult.headshot,
+        "LG and FG beams aimed at the head should report headshots"
+      );
+    }
+
+    failures += expect(
+      lightningTarget.health == 760 &&
+        freezeTarget.health == 760 &&
+        nearlyEqual(freezeTarget.freezeLevel, 50.0F),
+      "LG and FG headshots should double beam damage without changing freeze buildup"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(6.0F, 0.0F);
     lg::UserCommand command;
     command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, railTuning.eyeHeight, bodyAimZ(target));
     const lg::WeaponFireResult result =
       lg::simulateRailgun(attacker, target, command, arena, railTuning);
 
     failures += expect(result.fired, "railgun attack should fire");
     failures += expect(result.hit, "railgun aimed at target should hit");
+    failures += expect(!result.headshot, "railgun shot aimed at the body should not headshot");
     failures += expect(result.weapon == lg::Weapon::Railgun, "railgun result should identify weapon");
     failures += expect(result.damageApplied == 80, "railgun should apply QL-style 80 damage");
     failures += expect(target.health == 20, "railgun damage should reduce target health");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    target.health = 200;
+    lg::UserCommand command;
+    command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, railTuning.eyeHeight, headAimZ(target));
+    const lg::WeaponFireResult result =
+      lg::simulateRailgun(attacker, target, command, arena, railTuning);
+
+    failures += expect(result.hit && result.headshot, "railgun should report headshots");
+    failures += expect(result.damageApplied == 160, "railgun headshot should double damage");
+    failures += expect(target.health == 40, "railgun headshot should reduce target health");
   }
 
   {
@@ -566,6 +771,8 @@ weapon.gl.gravity -1
     lg::PlayerState target = playerAt(6.0F, 0.0F);
     lg::UserCommand command;
     command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, machineGunTuning.eyeHeight, bodyAimZ(target));
     const lg::WeaponFireResult result =
       lg::simulateMachineGun(attacker, target, command, arena, machineGunTuning);
 
@@ -575,12 +782,31 @@ weapon.gl.gravity -1
       result.weapon == lg::Weapon::MachineGun,
       "machine gun result should identify weapon"
     );
+    failures += expect(!result.headshot, "machine gun shot aimed at the body should not headshot");
     failures += expect(result.damageApplied == 5, "machine gun should apply 5 damage");
     failures += expect(target.health == 95, "machine gun damage should reduce target health");
     failures += expect(
       result.knockbackImpulse.x > 0.0F,
       "machine gun hit should produce forward knockback"
     );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, machineGunTuning.eyeHeight, headAimZ(target));
+    const lg::WeaponFireResult result =
+      lg::simulateMachineGun(attacker, target, command, arena, machineGunTuning);
+
+    failures += expect(
+      result.hit && result.headshot,
+      "machine gun should report headshots"
+    );
+    failures += expect(result.damageApplied == 10, "machine gun headshot should double damage");
+    failures += expect(target.health == 90, "machine gun headshot should reduce target health");
   }
 
   {
@@ -602,6 +828,8 @@ weapon.gl.gravity -1
     lg::PlayerState secondTarget = playerAt(6.0F, 0.0F);
     lg::UserCommand command;
     command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, firstTarget, shotgunTuning.eyeHeight, bodyAimZ(firstTarget));
 
     const lg::WeaponFireResult firstResult =
       lg::simulateShotgun(attacker, firstTarget, command, arena, shotgunTuning);
@@ -610,6 +838,7 @@ weapon.gl.gravity -1
 
     failures += expect(firstResult.fired, "shotgun attack should fire");
     failures += expect(firstResult.hit, "shotgun aimed at target should hit");
+    failures += expect(!firstResult.headshot, "shotgun blast aimed at the body should not headshot");
     failures += expect(firstResult.weapon == lg::Weapon::Shotgun, "shotgun result should identify weapon");
     failures += expect(
       firstResult.pelletCount == lg::kShotgunPelletCount,
@@ -635,9 +864,37 @@ weapon.gl.gravity -1
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    target.health = 300;
+    lg::ShotgunTuning headshotShotgun = shotgunTuning;
+    headshotShotgun.spreadRadians = 0.0F;
+    lg::UserCommand command;
+    command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, headshotShotgun.eyeHeight, headAimZ(target));
+
+    const lg::WeaponFireResult result =
+      lg::simulateShotgun(attacker, target, command, arena, headshotShotgun);
+
+    failures += expect(
+      result.hit &&
+        result.headshot &&
+        result.pelletHeadshotCount == result.pelletCount,
+      "zero-spread shotgun aimed at the head should headshot every pellet"
+    );
+    failures += expect(
+      result.damageApplied == 200 && target.health == 100,
+      "shotgun headshot pellets should double per-pellet damage"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(2.0F, 0.0F);
     lg::UserCommand command;
     command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, shotgunTuning.eyeHeight, bodyAimZ(target));
 
     const lg::WeaponFireResult result =
       lg::simulateShotgun(attacker, target, command, arena, shotgunTuning);

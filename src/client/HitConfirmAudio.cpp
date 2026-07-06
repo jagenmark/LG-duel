@@ -15,10 +15,12 @@ bool sameWeaponFireEvent(
 ) {
   return lhs.fired == rhs.fired &&
     lhs.hit == rhs.hit &&
+    lhs.headshot == rhs.headshot &&
     lhs.weapon == rhs.weapon &&
     lhs.damageApplied == rhs.damageApplied &&
     lhs.pelletCount == rhs.pelletCount &&
     lhs.pelletHitCount == rhs.pelletHitCount &&
+    lhs.pelletHeadshotCount == rhs.pelletHeadshotCount &&
     lhs.visualSeed == rhs.visualSeed &&
     sameVec3(lhs.start, rhs.start) &&
     sameVec3(lhs.end, rhs.end) &&
@@ -87,6 +89,8 @@ WeaponFireAudioEvent routeWeaponFireAudioEvent(
     localWeaponEvent && fire.weapon == Weapon::Railgun;
   event.localHitConfirmDamage =
     localWeaponEvent ? localWeaponFireHitConfirmDamage(fire) : 0;
+  event.localHitConfirmHeadshot =
+    event.localHitConfirmDamage > 0 && fire.headshot;
   return event;
 }
 

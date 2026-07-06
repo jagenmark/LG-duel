@@ -354,6 +354,7 @@ int main() {
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::FreezeGun)] = 147;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
+    source.lightningGuns[0].headshot = true;
     source.lightningGuns[0].targetPlayerIndex = 1;
     source.lightningGuns[0].damageApplied = 2;
     source.lightningGuns[0].start = {1.0F, 2.0F, 3.0F};
@@ -371,6 +372,7 @@ int main() {
     source.lightningGuns[0].rewoundTargetBounds = {0.4F, 0.9F};
     source.weaponFires[0].fired = true;
     source.weaponFires[0].hit = true;
+    source.weaponFires[0].headshot = true;
     source.weaponFires[0].weapon = lg::Weapon::Railgun;
     source.weaponFires[0].damageApplied = 80;
     source.weaponFires[0].start = {1.0F, 1.5F, 2.0F};
@@ -378,6 +380,7 @@ int main() {
     source.weaponFires[0].knockbackImpulse = {2.0F, 0.0F, 0.0F};
     source.weaponFires[1].fired = true;
     source.weaponFires[1].hit = true;
+    source.weaponFires[1].headshot = true;
     source.weaponFires[1].weapon = lg::Weapon::Shotgun;
     source.weaponFires[1].damageApplied = 45;
     source.weaponFires[1].start = {1.0F, -1.5F, 2.0F};
@@ -385,6 +388,7 @@ int main() {
     source.weaponFires[1].knockbackImpulse = {1.0F, 0.0F, 0.0F};
     source.weaponFires[1].pelletCount = lg::kShotgunPelletCount;
     source.weaponFires[1].pelletHitCount = 9;
+    source.weaponFires[1].pelletHeadshotCount = 3;
     source.weaponFires[1].visualSeed = 12;
     source.weaponFires[2].fired = true;
     source.weaponFires[2].hit = true;
@@ -409,6 +413,7 @@ int main() {
     source.localHitFeedbackEvents[0][0].sequence = 17;
     source.localHitFeedbackEvents[0][0].targetPlayerIndex = 1;
     source.localHitFeedbackEvents[0][0].damageApplied = 45;
+    source.localHitFeedbackEvents[0][0].headshot = true;
     source.localHitFeedbackEvents[0][0].weapon = lg::Weapon::Shotgun;
     source.localHitFeedbackEvents[0][1].active = true;
     source.localHitFeedbackEvents[0][1].sequence = 18;
@@ -563,6 +568,7 @@ int main() {
     );
     failures += expect(
       decoded.lightningGuns[0].hit &&
+        decoded.lightningGuns[0].headshot &&
         decoded.lightningGuns[0].targetPlayerIndex == 1,
       "beam hit target should round trip"
     );
@@ -589,6 +595,7 @@ int main() {
     failures += expect(
       decoded.weaponFires[0].fired &&
         decoded.weaponFires[0].hit &&
+        decoded.weaponFires[0].headshot &&
         decoded.weaponFires[0].weapon == lg::Weapon::Railgun &&
         decoded.weaponFires[0].damageApplied == 80 &&
         nearlyEqual(decoded.weaponFires[0].end.x, 9.0F) &&
@@ -598,10 +605,12 @@ int main() {
     failures += expect(
       decoded.weaponFires[1].fired &&
         decoded.weaponFires[1].hit &&
+        decoded.weaponFires[1].headshot &&
         decoded.weaponFires[1].weapon == lg::Weapon::Shotgun &&
         decoded.weaponFires[1].damageApplied == 45 &&
         decoded.weaponFires[1].pelletCount == lg::kShotgunPelletCount &&
         decoded.weaponFires[1].pelletHitCount == 9 &&
+        decoded.weaponFires[1].pelletHeadshotCount == 3 &&
         decoded.weaponFires[1].visualSeed == 12 &&
         decoded.weaponFires[2].visualSeed == 77,
       "shotgun pellet event data should round trip"
@@ -611,6 +620,7 @@ int main() {
         decoded.localHitFeedbackEvents[0][0].sequence == 17 &&
         decoded.localHitFeedbackEvents[0][0].targetPlayerIndex == 1 &&
         decoded.localHitFeedbackEvents[0][0].damageApplied == 45 &&
+        decoded.localHitFeedbackEvents[0][0].headshot &&
         decoded.localHitFeedbackEvents[0][0].weapon == lg::Weapon::Shotgun &&
         decoded.localHitFeedbackEvents[0][1].active &&
         decoded.localHitFeedbackEvents[0][1].sequence == 18 &&

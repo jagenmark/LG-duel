@@ -454,9 +454,9 @@ int main() {
   {
     lg::HudRenderState damageHud;
     damageHud.damageNumbers.entries = {
-      {11, 1, 0.0F, 0},
-      {22, 1, 0.0F, 1},
-      {33, 1, 0.0F, 2},
+      {11, true, 1, 0.0F, 0},
+      {22, false, 1, 0.0F, 1},
+      {33, false, 1, 0.0F, 2},
     };
     lg::RenderSettings damageSettings;
     damageSettings.crosshairEnabled = false;
@@ -474,14 +474,13 @@ int main() {
       damageHud,
       {}
     );
-    const lg::Text2D* first = findText(damageUi, "11");
+    const lg::Text2D* first = findText(damageUi, "HEADSHOT 11");
     const lg::Text2D* second = findText(damageUi, "22");
     const lg::Text2D* third = findText(damageUi, "33");
     failures += expect(
       first != nullptr &&
         second != nullptr &&
         third != nullptr &&
-        std::abs(first->position.x - second->position.x) <= 4.0F &&
         std::abs(second->position.x - third->position.x) <= 4.0F &&
         first->position.y < second->position.y &&
         second->position.y < third->position.y &&
@@ -497,6 +496,7 @@ int main() {
     tallyHud.damageNumbers.tallies[1] = {
       true,
       45,
+      false,
       1,
       0.0F,
     };
@@ -528,6 +528,7 @@ int main() {
     worldDamageHud.damageNumbers.tallies[1] = {
       true,
       45,
+      true,
       1,
       0.0F,
       true,
@@ -559,11 +560,11 @@ int main() {
       worldDamageHud
     );
     const lg::Text2D* screenText = findText(screenUi, "45");
-    const lg::Text2D* floatingText = findText(floatingUi, "45");
+    const lg::Text2D* floatingText = findText(floatingUi, "HEADSHOT 45");
     failures += expect(
       screenText == nullptr &&
         floatingText != nullptr &&
-        std::abs(floatingText->position.x - 629.2F) < 0.1F &&
+        std::abs(floatingText->position.x - 580.6F) < 0.1F &&
         std::abs(floatingText->position.y - 326.0F) < 0.1F &&
         floatingText->color.red == 32 &&
         floatingText->color.green == 96 &&

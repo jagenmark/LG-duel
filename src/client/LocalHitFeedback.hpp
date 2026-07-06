@@ -15,7 +15,9 @@ struct LocalHitFeedbackDedupeState {
 struct LocalHitFeedbackBatch {
   bool active = false;
   bool lightningGunHit = false;
+  bool headshotHit = false;
   std::array<bool, kDuelPlayerCount> hitTargets = {};
+  std::array<bool, kDuelPlayerCount> headshotTargets = {};
   std::array<int, kDuelPlayerCount> damageByTarget = {};
 };
 

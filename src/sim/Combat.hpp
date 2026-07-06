@@ -43,6 +43,7 @@ struct LightningGunResult {
   Vec3 end = {};
   bool active = false;
   bool hit = false;
+  bool headshot = false;
   std::uint8_t targetPlayerIndex = 255;
   int damageApplied = 0;
   Vec3 knockbackImpulse = {};
@@ -78,11 +79,13 @@ struct WeaponFireResult {
   Vec3 end = {};
   bool fired = false;
   bool hit = false;
+  bool headshot = false;
   Weapon weapon = Weapon::LightningGun;
   int damageApplied = 0;
   Vec3 knockbackImpulse = {};
   std::uint8_t pelletCount = 0;
   std::uint8_t pelletHitCount = 0;
+  std::uint8_t pelletHeadshotCount = 0;
   std::uint32_t visualSeed = 0;
 };
 
@@ -223,6 +226,14 @@ struct WorldTrace {
 );
 
 [[nodiscard]] bool tracePlayerCylinder(
+  Vec3 origin,
+  Vec3 direction,
+  const PlayerState& target,
+  float maxDistance,
+  float& hitDistance
+);
+
+[[nodiscard]] bool tracePlayerHeadHitbox(
   Vec3 origin,
   Vec3 direction,
   const PlayerState& target,

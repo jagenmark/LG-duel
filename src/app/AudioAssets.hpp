@@ -12,6 +12,7 @@ enum class AudioCue {
   HitConfirmLight,
   HitConfirmMedium,
   HitConfirmHeavy,
+  HeadshotConfirm,
   PainGrunt,
   Frag,
   RailgunFire,

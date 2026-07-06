@@ -5179,6 +5179,7 @@ int GameApp::run() const {
                 true,
                 feedback.weapon,
               };
+              event.headshot = feedback.headshot;
               event.hasTargetPosition = true;
               event.targetPosition =
                 audioSnapshot.players[feedback.targetPlayerIndex].position;
@@ -5273,7 +5274,8 @@ int GameApp::run() const {
         ) {
           audio.playHit(
             hitVolume,
-            audioSnapshot.lightningGuns[localPlayerIndex].damageApplied
+            audioSnapshot.lightningGuns[localPlayerIndex].damageApplied,
+            audioSnapshot.lightningGuns[localPlayerIndex].headshot
           );
           lastHitSoundServerTick = audioSnapshot.serverTick;
         }
@@ -5416,7 +5418,11 @@ int GameApp::run() const {
                 audio.playPlasmaGunFire(weaponFireAudio.volume, weaponFireAudio.pan);
               }
               if (fireAudio.localHitConfirmDamage > 0) {
-                audio.playHit(hitVolume, fireAudio.localHitConfirmDamage);
+                audio.playHit(
+                  hitVolume,
+                  fireAudio.localHitConfirmDamage,
+                  fireAudio.localHitConfirmHeadshot
+                );
                 lastHitSoundServerTick = audioSnapshot.serverTick;
               }
               lastPlayedWeaponFires[playerIndex] = fire;

@@ -1055,21 +1055,24 @@ void ServerGame::tick(float fixedDt) {
       lightningTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
       snapshot_.lightningGuns[attackerIndex].knockbackImpulse,
-      Weapon::LightningGun
+      Weapon::LightningGun,
+      snapshot_.lightningGuns[attackerIndex].headshot
     );
     applyDamageAndKnockback(
       attackerIndex,
       weaponTargets[attackerIndex],
       snapshot_.weaponFires[attackerIndex].damageApplied,
       snapshot_.weaponFires[attackerIndex].knockbackImpulse,
-      snapshot_.weaponFires[attackerIndex].weapon
+      snapshot_.weaponFires[attackerIndex].weapon,
+      snapshot_.weaponFires[attackerIndex].headshot
     );
     applyDamageAndKnockback(
       attackerIndex,
       freezeTargets[attackerIndex],
       snapshot_.lightningGuns[attackerIndex].damageApplied,
       {},
-      Weapon::FreezeGun
+      Weapon::FreezeGun,
+      snapshot_.lightningGuns[attackerIndex].headshot
     );
   }
 
@@ -2180,7 +2183,8 @@ void ServerGame::applyDamageAndKnockback(
   std::size_t targetIndex,
   int damageApplied,
   Vec3 knockbackImpulse,
-  Weapon weapon
+  Weapon weapon,
+  bool headshot
 ) {
   if (targetIndex >= kDuelPlayerCount) {
     return;
@@ -2230,6 +2234,7 @@ void ServerGame::applyDamageAndKnockback(
     event.sequence = sequence;
     event.targetPlayerIndex = static_cast<std::uint8_t>(targetIndex);
     event.damageApplied = damageApplied;
+    event.headshot = headshot;
     event.weapon = weapon;
   }
 
@@ -2682,7 +2687,8 @@ void ServerGame::simulateRockets(float fixedDt) {
         playerIndex,
         appliedDamage,
         knockbackDirection * knockback * knockbackScale,
-        rocket.weapon
+        rocket.weapon,
+        false
       );
     }
   }

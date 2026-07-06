@@ -100,7 +100,10 @@ bool ClientAudio::initialize(const std::filesystem::path& assetBasePath) {
 #endif
 }
 
-void ClientAudio::playHit(float volume, int damageApplied) {
+void ClientAudio::playHit(float volume, int damageApplied, bool headshot) {
+  if (headshot && queueClip(headshotConfirmClip_, volume, 0.0F)) {
+    return;
+  }
   if (damageApplied >= 80) {
     queueClip(hitConfirmHeavyClip_, volume, 0.0F);
   } else if (damageApplied >= 40) {
@@ -252,6 +255,7 @@ void ClientAudio::loadCueAssets(const std::filesystem::path& assetBasePath) {
   hitConfirmLightClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmLight);
   hitConfirmMediumClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmMedium);
   hitConfirmHeavyClip_ = loadCueClip(assetBasePath, AudioCue::HitConfirmHeavy);
+  headshotConfirmClip_ = loadCueClip(assetBasePath, AudioCue::HeadshotConfirm);
   fragClip_ = loadCueClip(assetBasePath, AudioCue::Frag);
   painGruntClip_ = loadCueClip(assetBasePath, AudioCue::PainGrunt);
   railgunFireClip_ = loadCueClip(assetBasePath, AudioCue::RailgunFire);
