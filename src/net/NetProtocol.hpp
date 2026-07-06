@@ -198,6 +198,7 @@ struct ServerSnapshot {
   > localHitFeedbackEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   IcePoolArray icePools = {};
+  std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
   GameMode gameMode = GameMode::Duel;
@@ -253,10 +254,11 @@ struct ServerSnapshot {
 };
 
 // Snapshots are decoded, queued, copied, assigned, and interpolated constantly.
-// The current dynamic-state snapshot is under 5 KiB with replicated ice pools;
-// keep static map geometry owned by map/server/client state, not snapshots.
+// Keep static map geometry owned by map/server/client state, not snapshots.
+// MSVC's STL/layout is bulkier than Clang's here, so this budget is intentionally
+// about the native in-memory snapshot, not the encoded packet size.
 static_assert(
-  sizeof(ServerSnapshot) < 6144,
+  sizeof(ServerSnapshot) < 8192,
   "ServerSnapshot must remain compact; static Arena data belongs outside snapshots."
 );
 

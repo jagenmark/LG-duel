@@ -179,6 +179,73 @@ int main() {
     lg::ServerGame server(transport);
     latestSnapshot(transport);
 
+    lg::Arena arena;
+    arena.min = {-8.0F, -8.0F, 0.0F};
+    arena.max = {8.0F, 8.0F, 8.0F};
+    arena.spawnPositions[0] = {0.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {4.0F, 0.0F, 0.0F};
+    arena.healthPickupCount = 1;
+    arena.healthPickups[0].position = {0.0F, 0.0F, 0.5F};
+    arena.healthPickups[0].type = lg::HealthPickupType::Small;
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::BalanceConfig pickupBalance;
+    pickupBalance.smallHealthPickupAmount = 15;
+    pickupBalance.smallHealthPickupCooldownTicks = 3;
+    server.applyBalanceConfig(pickupBalance);
+    server.setConnectedPlayers({true, true});
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.healthPickupAvailable[0],
+      "health pickup should start available in warmup"
+    );
+
+    lg::UserCommand rail;
+    rail.sequence = 1;
+    rail.attack = true;
+    rail.planarAim = true;
+    rail.viewYawRadians = kPi;
+    rail.weapon = lg::Weapon::Railgun;
+    transport.sendCommand(lg::CommandPacket{1, rail, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 20,
+      "setup rail shot should damage player before pickup healing"
+    );
+
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.players[0].health == 35 &&
+        !snapshot.healthPickupAvailable[0],
+      "available health pickup should heal and enter cooldown during warmup"
+    );
+
+    lg::UserCommand moveAway;
+    moveAway.sequence = 2;
+    moveAway.forwardMove = 1.0F;
+    moveAway.viewYawRadians = kPi * 0.5F;
+    moveAway.weapon = lg::Weapon::LightningGun;
+    for (int tick = 0; tick < 10; ++tick) {
+      moveAway.sequence++;
+      transport.sendCommand(lg::CommandPacket{0, moveAway, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.healthPickupAvailable[0],
+      "health pickup should respawn after configured cooldown when not touched"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
     server.setConnectedPlayers({true, false});
     server.tick(lg::kFixedTickSeconds);
     latestSnapshot(transport);

@@ -434,6 +434,8 @@ int main() {
     source.icePools[0].normal = {0.0F, 0.0F, 1.0F};
     source.icePools[0].radius = 1.25F;
     source.icePools[0].lifetimeSeconds = 2.5F;
+    source.healthPickupAvailable[0] = true;
+    source.healthPickupAvailable[3] = true;
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.gameMode = lg::GameMode::ClanArena;
@@ -661,6 +663,10 @@ int main() {
         nearlyEqual(decoded.icePools[0].radius, 1.25F) &&
         nearlyEqual(decoded.icePools[0].lifetimeSeconds, 2.5F),
       "ice pool snapshot should round trip"
+    );
+    failures += expect(
+      decoded.healthPickupAvailable == source.healthPickupAvailable,
+      "health pickup availability bits should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");

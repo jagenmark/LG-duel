@@ -750,6 +750,15 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   if (buildBrushHull(arenaBrush, context, error)) {
     return true;
   }
+
+  for (std::uint8_t faceIndex = 0; faceIndex < arenaBrush.faceCount; ++faceIndex) {
+    arenaBrush.faces[faceIndex].normal = rawNormals[faceIndex] * -1.0F;
+    arenaBrush.faces[faceIndex].distance = rawDistances[faceIndex] * -1.0F;
+  }
+  if (buildBrushHull(arenaBrush, context, error)) {
+    return true;
+  }
+
   if (arenaBrush.faceCount > 12) {
     return false;
   }
@@ -816,6 +825,21 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
 
 [[nodiscard]] bool isSunLightClass(std::string_view classname) {
   return classname == "light_sun";
+}
+
+[[nodiscard]] bool healthPickupTypeForClass(
+  std::string_view classname,
+  HealthPickupType& type
+) {
+  if (classname == "item_health_small") {
+    type = HealthPickupType::Small;
+    return true;
+  }
+  if (classname == "item_health_large") {
+    type = HealthPickupType::Large;
+    return true;
+  }
+  return false;
 }
 
 [[nodiscard]] bool normalizeColor(Vec3& color, std::string& error, const MapEntity& entity) {
@@ -1067,6 +1091,29 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   return true;
 }
 
+[[nodiscard]] bool convertHealthPickupEntity(
+  const MapEntity& entity,
+  HealthPickupType type,
+  ArenaHealthPickup& pickup,
+  std::string& error
+) {
+  const MapProperty* origin = findProperty(entity, "origin");
+  if (origin == nullptr) {
+    error = "line " + std::to_string(entity.line) +
+      ": health pickup is missing origin";
+    return false;
+  }
+  Vec3 position = {};
+  if (!parseSpaceVec3(origin->value, position)) {
+    error = "line " + std::to_string(origin->line) +
+      ": health pickup origin must be 'x y z'";
+    return false;
+  }
+  pickup.position = scaleQuakeUnits(position);
+  pickup.type = type;
+  return true;
+}
+
 [[nodiscard]] const TargetPosition* findTargetPosition(
   const std::vector<TargetPosition>& targets,
   std::string_view targetname
@@ -1158,6 +1205,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaBrush> brushes;
   std::vector<ArenaStaticLight> staticLights;
   std::vector<ArenaJumpPad> jumpPads;
+  std::vector<ArenaHealthPickup> healthPickups;
   std::vector<TargetPosition> targetPositions;
   ArenaSunLight sunLight;
   bool hasSunLight = false;
@@ -1189,6 +1237,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     if (classname == nullptr) {
       continue;
     }
+    HealthPickupType healthPickupType = HealthPickupType::Small;
 
     if (*classname == "worldspawn") {
       if (const std::string* value = entity.property("lg_bounds_min")) {
@@ -1253,6 +1302,16 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       if (!convertJumpPadEntity(entity, targetPositions, jumpPads, error)) {
         return {{}, false, error};
       }
+    } else if (healthPickupTypeForClass(*classname, healthPickupType)) {
+      if (healthPickups.size() >= Arena::kHealthPickupCount) {
+        return {{}, false, "line " + std::to_string(entity.line) + ": too many health pickups"};
+      }
+      ArenaHealthPickup pickup;
+      std::string error;
+      if (!convertHealthPickupEntity(entity, healthPickupType, pickup, error)) {
+        return {{}, false, error};
+      }
+      healthPickups.push_back(pickup);
     } else if (*classname == "target_position") {
       continue;
     } else if (*classname == "trigger_teleport") {
@@ -1279,6 +1338,9 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       if (jumpPad.hasTarget) {
         expandBounds(jumpPad.targetPosition, boundsMin, boundsMax, initialized);
       }
+    }
+    for (const ArenaHealthPickup& pickup : healthPickups) {
+      expandBounds(pickup.position, boundsMin, boundsMax, initialized);
     }
     for (Vec3 spawn : spawns) {
       expandBounds(spawn, boundsMin, boundsMax, initialized);
@@ -1309,6 +1371,9 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   }
   ArenaLoadResult result = loadArenaFromText(arenaText.str());
   if (result.ok) {
+    if (brushes.size() > Arena::kBrushCount) {
+      return {{}, false, "map has too many convex brushes"};
+    }
     result.arena.wallCount = walls.size();
     for (std::size_t index = 0; index < result.arena.wallCount && index < walls.size(); ++index) {
       result.arena.walls[index].materialId = walls[index].materialId;
@@ -1317,7 +1382,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         walls[index].faceTextureProjections;
       result.arena.walls[index].renderable = walls[index].renderable;
     }
-    result.arena.brushCount = std::min(brushes.size(), Arena::kBrushCount);
+    result.arena.brushCount = brushes.size();
     for (std::size_t index = 0; index < result.arena.brushCount; ++index) {
       result.arena.brushes[index] = brushes[index];
     }
@@ -1329,6 +1394,10 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     result.arena.jumpPadCount = jumpPads.size();
     for (std::size_t index = 0; index < result.arena.jumpPadCount; ++index) {
       result.arena.jumpPads[index] = jumpPads[index];
+    }
+    result.arena.healthPickupCount = healthPickups.size();
+    for (std::size_t index = 0; index < result.arena.healthPickupCount; ++index) {
+      result.arena.healthPickups[index] = healthPickups[index];
     }
   }
   return result;
