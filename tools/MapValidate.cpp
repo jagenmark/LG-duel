@@ -83,7 +83,8 @@ namespace {
     if (!isMapFile(path)) {
       return 0;
     }
-    const lg::ArenaLoadResult result = lg::loadArenaFromFile(path.string());
+    lg::ArenaLoadResult result;
+    lg::loadArenaFromFile(path.string(), result);
     if (result.ok) {
       std::cout << "map ok: " << path.string() << " boxes="
                 << result.arena.wallCount << " brushes="

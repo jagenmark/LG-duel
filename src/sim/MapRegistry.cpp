@@ -148,6 +148,12 @@ std::uint32_t hashArena(const Arena& arena) {
     hashU32(hash, jumpPad.hasTarget ? 1U : 0U);
     hashU32(hash, jumpPad.hasTargetSpeed ? 1U : 0U);
   }
+  hashU32(hash, static_cast<std::uint32_t>(arena.healthPickupCount));
+  for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
+    const ArenaHealthPickup& pickup = arena.healthPickups[index];
+    hashVec3(hash, pickup.position);
+    hashU32(hash, static_cast<std::uint32_t>(pickup.type));
+  }
   return hash == 0U ? 1U : hash;
 }
 
@@ -178,7 +184,8 @@ LocalMapLoadResult loadLocalMap(
   }
 
   for (const std::filesystem::path& path : candidates) {
-    const ArenaLoadResult result = loadArenaFromFile(path.string());
+    ArenaLoadResult result;
+    loadArenaFromFile(path.string(), result);
     if (result.ok) {
       return {
         result.arena,

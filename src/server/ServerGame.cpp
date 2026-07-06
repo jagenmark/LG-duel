@@ -27,6 +27,8 @@ constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
 constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
 constexpr float kProjectileCollisionEpsilon = 0.0001F;
+constexpr float kHealthPickupTouchRadius = 0.7F;
+constexpr float kHealthPickupTouchHalfHeight = 0.8F;
 constexpr float kPi = 3.14159265359F;
 constexpr float kHalfPi = kPi * 0.5F;
 constexpr float kTwoPi = kPi * 2.0F;
@@ -524,6 +526,10 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   }
   weaponPulloutDurationTicks_ = config.weaponPulloutTicks;
   jumpPadRetriggerCooldownTicks_ = config.jumpPadRetriggerCooldownTicks;
+  smallHealthPickupAmount_ = config.smallHealthPickupAmount;
+  largeHealthPickupAmount_ = config.largeHealthPickupAmount;
+  smallHealthPickupCooldownTicks_ = config.smallHealthPickupCooldownTicks;
+  largeHealthPickupCooldownTicks_ = config.largeHealthPickupCooldownTicks;
 }
 
 void ServerGame::tick(float fixedDt) {
@@ -571,6 +577,15 @@ void ServerGame::tick(float fixedDt) {
   for (std::uint32_t& pullout : weaponPulloutTicks_) {
     if (pullout > 0) {
       --pullout;
+    }
+  }
+  for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
+    std::uint32_t& cooldown = healthPickupCooldownTicks_[index];
+    if (cooldown > 0) {
+      --cooldown;
+      if (cooldown == 0) {
+        snapshot_.healthPickupAvailable[index] = true;
+      }
     }
   }
 
@@ -648,6 +663,7 @@ void ServerGame::tick(float fixedDt) {
     player.position = collision.position;
     player.velocity = collision.velocity;
   }
+  updateHealthPickups();
   updateFootstepAudioEvents();
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
@@ -1048,6 +1064,7 @@ void ServerGame::resetMatch() {
   snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   snapshot_.weaponSwitchingMode = weaponSwitchingMode_;
+  resetHealthPickups();
   snapshot_.roundWinner = 255;
   snapshot_.matchWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
@@ -1064,6 +1081,7 @@ void ServerGame::resetMatch() {
   rocketCooldownTicks_ = {};
   grenadeCooldownTicks_ = {};
   plasmaGunCooldownTicks_ = {};
+  healthPickupCooldownTicks_ = {};
   selectedWeapons_ = {};
   selectedWeapons_.fill(Weapon::LightningGun);
   weaponPulloutTicks_ = {};
@@ -1161,6 +1179,7 @@ void ServerGame::respawnRound() {
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     respawnPlayer(playerIndex);
   }
+  resetHealthPickups();
   snapshot_.playersColliding = false;
   snapshot_.respawnTicksRemaining = {};
   snapshot_.roundCombatStats = {};
@@ -2551,6 +2570,55 @@ void ServerGame::updateFootstepAudioEvents() {
 
     state.previousPosition = player.position;
     state.wasOnGround = player.onGround;
+  }
+}
+
+void ServerGame::resetHealthPickups() {
+  healthPickupCooldownTicks_ = {};
+  snapshot_.healthPickupAvailable = {};
+  for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
+    snapshot_.healthPickupAvailable[index] = true;
+  }
+}
+
+void ServerGame::updateHealthPickups() {
+  for (std::size_t pickupIndex = 0; pickupIndex < arena_.healthPickupCount; ++pickupIndex) {
+    if (!snapshot_.healthPickupAvailable[pickupIndex]) {
+      continue;
+    }
+    const ArenaHealthPickup& pickup = arena_.healthPickups[pickupIndex];
+    const std::int32_t healAmount = pickup.type == HealthPickupType::Large
+      ? largeHealthPickupAmount_
+      : smallHealthPickupAmount_;
+    if (healAmount <= 0) {
+      continue;
+    }
+
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      if (!isCombatant(snapshot_, playerIndex)) {
+        continue;
+      }
+      PlayerState& player = snapshot_.players[playerIndex];
+      if (player.health >= healthAmount_) {
+        continue;
+      }
+      const Vec3 delta = player.position - pickup.position;
+      const float touchRadius = player.bounds.radius + kHealthPickupTouchRadius;
+      if (
+        (delta.x * delta.x) + (delta.y * delta.y) > touchRadius * touchRadius ||
+        std::fabs(delta.z) > player.bounds.halfHeight + kHealthPickupTouchHalfHeight
+      ) {
+        continue;
+      }
+
+      player.health = std::min(healthAmount_, player.health + healAmount);
+      snapshot_.healthPickupAvailable[pickupIndex] = false;
+      healthPickupCooldownTicks_[pickupIndex] =
+        pickup.type == HealthPickupType::Large
+          ? largeHealthPickupCooldownTicks_
+          : smallHealthPickupCooldownTicks_;
+      break;
+    }
   }
 }
 
