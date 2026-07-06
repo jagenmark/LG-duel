@@ -95,7 +95,11 @@ SDL_Renderer om GPU-initiering misslyckas.
 | Cvar | Typ | Default | Giltigt intervall/värden | Q3/QL-referens | Lagring | Funktion |
 |---|---:|---:|---|---|---|---|
 | `cl_config_version` | int | `0` | `0..100` | Ingen | Arkiv | Intern migrationsversion för klientkonfiguration. Bör normalt inte ändras manuellt. |
-| `sensitivity` | float | `1` | `0.1..10` | Q3 `sensitivity 5` | Arkiv | Multiplikator för rå relativ musinput. Skalningen är projektspecifik och värdena är därför inte direkt likvärdiga. |
+| `sensitivity` | float | `5` | `0..100` | Q3/QL `sensitivity 5`, `m_yaw 0.022` | Arkiv | Musens grundkänslighet på Q3/QL-skalan: `1` motsvarar `0.022` grader per rå muscount före zoom/accel. |
+| `cl_mouseAccel` | float | `0` | `0..1000` | QL `cl_mouseAccel 0` | Arkiv | QL-style musacceleration. `0` stänger av acceleration. |
+| `cl_mouseAccelPower` | float | `2` | `1..10` | QL `cl_mouseAccelPower 2` | Arkiv | Exponenten i QL-formeln. `2` ger klassisk linjär ökning av effektiv känslighet med mushastighet. |
+| `cl_mouseAccelOffset` | float | `0` | `0..1000` | QL `cl_mouseAccelOffset 0` | Arkiv | Mushastighet i counts/ms innan acceleration börjar. Hastigheter under offset behåller baskänsligheten. |
+| `cl_mouseSensCap` | float | `0` | `0..100` | QL `cl_mouseSensCap 0` | Arkiv | Tak för accelererad känslighet. `0` betyder inget tak. |
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
