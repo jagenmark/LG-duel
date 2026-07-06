@@ -73,6 +73,26 @@ std::string basicMap(std::string brush) {
     "}\n";
 }
 
+std::string inwardWoundDodecagonalPrismBrush() {
+  return
+    "{\n"
+    "( -136 -40 -416 ) ( -136 40 -432 ) ( -136 40 -416 ) stone 0 0 0 1 1\n"
+    "( -100 -100 -416 ) ( -136 -40 -432 ) ( -136 -40 -416 ) stone 0 0 0 1 1\n"
+    "( -100 100 -416 ) ( -136 40 -432 ) ( -100 100 -432 ) stone 0 0 0 1 1\n"
+    "( -40 -136 -416 ) ( -100 -100 -432 ) ( -100 -100 -416 ) stone 0 0 0 1 1\n"
+    "( -40 136 -416 ) ( -100 100 -432 ) ( -40 136 -432 ) stone 0 0 0 1 1\n"
+    "( 40 -136 -416 ) ( -40 -136 -432 ) ( -40 -136 -416 ) stone 0 0 0 1 1\n"
+    "( 136 40 -432 ) ( 100 -100 -432 ) ( 136 -40 -432 ) stone 0 0 0 1 1\n"
+    "( 136 40 -416 ) ( 40 136 -416 ) ( 100 100 -416 ) stone 0 0 0 1 1\n"
+    "( 40 136 -416 ) ( -40 136 -432 ) ( 40 136 -432 ) stone 0 0 0 1 1\n"
+    "( 100 -100 -416 ) ( 40 -136 -432 ) ( 40 -136 -416 ) stone 0 0 0 1 1\n"
+    "( 100 100 -416 ) ( 40 136 -432 ) ( 100 100 -432 ) stone 0 0 0 1 1\n"
+    "( 136 -40 -416 ) ( 100 -100 -432 ) ( 100 -100 -416 ) stone 0 0 0 1 1\n"
+    "( 136 40 -416 ) ( 100 100 -432 ) ( 136 40 -432 ) stone 0 0 0 1 1\n"
+    "( 136 40 -416 ) ( 136 -40 -432 ) ( 136 -40 -416 ) stone 0 0 0 1 1\n"
+    "}\n";
+}
+
 } // namespace
 
 int main() {
@@ -391,6 +411,47 @@ int main() {
     const std::string text =
       basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
       "{\n"
+      "\"classname\" \"item_health_small\"\n"
+      "\"origin\" \"40 0 40\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"item_health_large\"\n"
+      "\"origin\" \"80 0 40\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "health pickup map should convert");
+    failures += expect(result.arena.healthPickupCount == 2, "health pickups should be stored in arena data");
+    failures += expect(
+      result.arena.healthPickups[0].type == lg::HealthPickupType::Small &&
+        result.arena.healthPickups[1].type == lg::HealthPickupType::Large,
+      "health pickup classnames should choose small and large types"
+    );
+    failures += expect(
+      nearlyEqual(result.arena.healthPickups[0].position.x, 1.0F) &&
+        nearlyEqual(result.arena.healthPickups[1].position.x, 2.0F),
+      "health pickup origins should use Quake-to-LG scale"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"item_health_small\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(!result.ok, "health pickup without origin should be rejected");
+    failures += expect(
+      result.error.find("line ") != std::string::npos &&
+        result.error.find("origin") != std::string::npos,
+      "invalid health pickup error should be line-numbered"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
       "\"classname\" \"target_position\"\n"
       "\"targetname\" \"jp_land\"\n"
       "\"origin\" \"80 0 120\"\n"
@@ -527,6 +588,25 @@ int main() {
     const lg::ArenaLoadResult result =
       lg::loadArenaFromMapText(basicMap(cuboidBrush(-1, -1, 0, 1, 1, 0)));
     failures += expect(!result.ok, "degenerate cuboid should be rejected");
+  }
+
+  {
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(inwardWoundDodecagonalPrismBrush()));
+    if (!result.ok) {
+      std::cerr << "inward-wound prism error: " << result.error << '\n';
+    }
+    failures += expect(result.ok, "inward-wound 14-face convex prism should convert");
+    failures += expect(
+      result.ok && result.arena.brushCount == 1,
+      "inward-wound 14-face prism should produce one convex brush"
+    );
+    failures += expect(
+      result.ok &&
+        result.arena.brushes[0].faceCount == 14 &&
+        result.arena.brushes[0].vertexCount == 24,
+      "inward-wound 14-face prism should keep all faces and vertices"
+    );
   }
 
   {

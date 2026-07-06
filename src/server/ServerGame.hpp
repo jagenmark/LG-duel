@@ -166,6 +166,8 @@ private:
     Weapon weapon
   );
   void updateFootstepAudioEvents();
+  void resetHealthPickups();
+  void updateHealthPickups();
   void restoreTransientCombatEvents();
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
@@ -221,6 +223,11 @@ private:
   std::uint32_t rocketLauncherCooldownDurationTicks_ = 100;
   std::uint32_t weaponPulloutDurationTicks_ = 20;
   std::uint32_t jumpPadRetriggerCooldownTicks_ = kDefaultJumpPadCooldownTicks;
+  std::int32_t smallHealthPickupAmount_ = 25;
+  std::int32_t largeHealthPickupAmount_ = 50;
+  std::uint32_t smallHealthPickupCooldownTicks_ = 1250;
+  std::uint32_t largeHealthPickupCooldownTicks_ = 4375;
+  std::array<std::uint32_t, Arena::kHealthPickupCount> healthPickupCooldownTicks_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
   std::array<LightningGunState, kDuelPlayerCount> freezeGunStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};

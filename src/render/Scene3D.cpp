@@ -987,6 +987,40 @@ void addOrientedBox(
   }
 }
 
+void addHealthPickup(Scene3D& scene, const ArenaHealthPickup& pickup) {
+  const bool large = pickup.type == HealthPickupType::Large;
+  const Vec3 bodyHalfExtents = large
+    ? Vec3{0.34F, 0.34F, 0.18F}
+    : Vec3{0.24F, 0.24F, 0.14F};
+  const Vec3 center = pickup.position + Vec3{0.0F, 0.0F, bodyHalfExtents.z};
+  constexpr Vec3 forward = {1.0F, 0.0F, 0.0F};
+  constexpr Vec3 right = {0.0F, 1.0F, 0.0F};
+  constexpr Vec3 up = {0.0F, 0.0F, 1.0F};
+  addOrientedBox(scene, center, bodyHalfExtents, forward, right, up, {245, 247, 248, 255});
+
+  const float crossZ = bodyHalfExtents.z + 0.012F;
+  const float stripLong = bodyHalfExtents.x * 0.58F;
+  const float stripShort = bodyHalfExtents.x * 0.16F;
+  addOrientedBox(
+    scene,
+    center + Vec3{0.0F, 0.0F, crossZ},
+    {stripLong, stripShort, 0.018F},
+    forward,
+    right,
+    up,
+    {218, 34, 48, 255}
+  );
+  addOrientedBox(
+    scene,
+    center + Vec3{0.0F, 0.0F, crossZ + 0.004F},
+    {stripShort, stripLong, 0.018F},
+    forward,
+    right,
+    up,
+    {218, 34, 48, 255}
+  );
+}
+
 void addOrientedWireBox(
   Scene3D& scene,
   Vec3 center,
@@ -2946,6 +2980,12 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
 
 } // namespace
 
+[[nodiscard]] std::array<bool, Arena::kHealthPickupCount> allHealthPickupsAvailable() {
+  std::array<bool, Arena::kHealthPickupCount> available = {};
+  available.fill(true);
+  return available;
+}
+
 Scene3D buildPerspectiveScene(
   float aspectRatio,
   const Arena& arena,
@@ -2960,7 +3000,38 @@ Scene3D buildPerspectiveScene(
   const RenderSettings& settings,
   float cameraVerticalOffset
 ) {
-  (void)arena;
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    allHealthPickupsAvailable(),
+    transientTracers,
+    transientEffects,
+    settings,
+    cameraVerticalOffset
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  const RenderSettings& settings,
+  float cameraVerticalOffset
+) {
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
@@ -2994,6 +3065,21 @@ Scene3D buildPerspectiveScene(
     PlayerState viewModelPlayer = player;
     viewModelPlayer.position.z += cameraVerticalOffset;
     addFirstPersonWeaponModel(scene, viewModelPlayer, settings.localSelectedWeapon);
+  }
+
+  for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
+    if (!healthPickupAvailable[index]) {
+      continue;
+    }
+    if (
+      sphereIntersectsPerspectiveFrustum(
+        scene.camera,
+        arena.healthPickups[index].position + Vec3{0.0F, 0.0F, 0.2F},
+        arena.healthPickups[index].type == HealthPickupType::Large ? 0.55F : 0.42F
+      )
+    ) {
+      addHealthPickup(scene, arena.healthPickups[index]);
+    }
   }
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
@@ -3381,6 +3467,7 @@ Scene3D buildPerspectiveScene(
     weaponFires,
     rocketExplosions,
     rockets,
+    allHealthPickupsAvailable(),
     transientTracers,
     transientEffects,
     settings
@@ -3465,6 +3552,7 @@ Scene3D buildPerspectiveScene(
     weaponFires,
     rocketExplosions,
     rockets,
+    allHealthPickupsAvailable(),
     transientTracers,
     std::span<const TransientEffect>{},
     settings
@@ -3491,6 +3579,7 @@ Scene3D buildPerspectiveScene(
     weaponFires,
     rocketExplosions,
     rockets,
+    allHealthPickupsAvailable(),
     std::span<const TransientTracer>{},
     std::span<const TransientEffect>{},
     settings

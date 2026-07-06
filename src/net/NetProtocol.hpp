@@ -196,6 +196,7 @@ struct ServerSnapshot {
     kDuelPlayerCount
   > localHitFeedbackEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
+  std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
   GameMode gameMode = GameMode::Duel;

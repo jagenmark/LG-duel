@@ -136,6 +136,10 @@ weapon.gl.fuse_seconds 1.0
 weapon.gl.radius 4.0
 weapon.gl.cooldown_ticks 75
 jumppad.retrigger_cooldown_ms 200
+pickup.health.small_amount 15
+pickup.health.small_cooldown_ms 1000
+pickup.health.large_amount 75
+pickup.health.large_cooldown_ms 2000
 )");
 
     failures += expect(loaded.ok, "balance config should parse grenade launcher tuning");
@@ -151,8 +155,12 @@ jumppad.retrigger_cooldown_ms 200
         loaded.config.grenadeLauncher.fuseTicks == 125 &&
         nearlyEqual(loaded.config.grenadeLauncher.radius, 4.0F) &&
         loaded.config.grenadeLauncher.cooldownTicks == 75 &&
-        loaded.config.jumpPadRetriggerCooldownTicks == 25,
-      "balance config should apply non-cvar grenade launcher and jumppad values"
+        loaded.config.jumpPadRetriggerCooldownTicks == 25 &&
+        loaded.config.smallHealthPickupAmount == 15 &&
+        loaded.config.smallHealthPickupCooldownTicks == 125 &&
+        loaded.config.largeHealthPickupAmount == 75 &&
+        loaded.config.largeHealthPickupCooldownTicks == 250,
+      "balance config should apply non-cvar grenade launcher, jumppad, and health pickup values"
     );
   }
 

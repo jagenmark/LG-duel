@@ -429,6 +429,8 @@ int main() {
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.rockets[0].velocity = {7.0F, 8.0F, 9.0F};
     source.rockets[0].radius = 0.25F;
+    source.healthPickupAvailable[0] = true;
+    source.healthPickupAvailable[3] = true;
     source.respawnTicksRemaining = {0, 88};
     source.scores = {7, 4};
     source.gameMode = lg::GameMode::ClanArena;
@@ -640,6 +642,10 @@ int main() {
         nearlyEqual(decoded.rockets[0].velocity.z, 9.0F) &&
         nearlyEqual(decoded.rockets[0].radius, 0.25F),
       "rocket, explosion, footstep audio, and frag event state should round trip"
+    );
+    failures += expect(
+      decoded.healthPickupAvailable == source.healthPickupAvailable,
+      "health pickup availability bits should round trip"
     );
     failures += expect(decoded.respawnTicksRemaining[1] == 88, "respawn timer should round trip");
     failures += expect(decoded.scores == source.scores, "scores should round trip");
