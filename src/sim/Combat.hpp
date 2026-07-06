@@ -27,6 +27,17 @@ struct LightningGunState {
   double shotCredit = 1.0;
 };
 
+struct FreezeGunTuning {
+  float range = 18.0F;
+  float fireHz = 20.0F;
+  float eyeHeight = 0.65F;
+  float damagePerSecond = 120.0F;
+  float freezePerSecond = 50.0F;
+  float decayPerSecond = 20.0F;
+  float maxLevel = 100.0F;
+  float maxSlowFraction = 0.40F;
+};
+
 struct LightningGunResult {
   Vec3 start = {};
   Vec3 end = {};
@@ -35,6 +46,7 @@ struct LightningGunResult {
   std::uint8_t targetPlayerIndex = 255;
   int damageApplied = 0;
   Vec3 knockbackImpulse = {};
+  float freezeApplied = 0.0F;
   std::uint32_t requestedRewindTicks = 0;
   std::uint32_t appliedRewindTicks = 0;
   bool rewindClamped = false;
@@ -132,6 +144,7 @@ struct WeaponDamageTuning {
   int railgunDamage = 80;
   int rocketLauncherDamage = 100;
   int plasmaGunDamage = 20;
+  int freezeGunDamage = 120;
 };
 
 struct WeaponAmmoConfig {
@@ -144,6 +157,7 @@ struct WeaponAmmoConfig {
     10,
     10,
     50,
+    150,
   }};
 };
 
@@ -183,7 +197,9 @@ struct RocketExplosionResult {
 struct WorldTrace {
   Vec3 start = {};
   Vec3 end = {};
+  Vec3 normal = {};
   float distance = 0.0F;
+  bool hit = false;
 };
 
 [[nodiscard]] Vec3 weaponMuzzlePosition(
@@ -231,6 +247,27 @@ struct WorldTrace {
   const LightningGunTuning& tuning,
   LightningGunState& state,
   float fixedDt
+);
+
+[[nodiscard]] LightningGunResult simulateFreezeGun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const FreezeGunTuning& tuning,
+  LightningGunState& state,
+  float fixedDt
+);
+
+void decayPlayerFreezeLevel(
+  PlayerState& player,
+  const FreezeGunTuning& tuning,
+  float fixedDt
+);
+
+[[nodiscard]] float freezeMovementScale(
+  const PlayerState& player,
+  const FreezeGunTuning& tuning = {}
 );
 
 [[nodiscard]] WeaponFireResult simulateRailgun(

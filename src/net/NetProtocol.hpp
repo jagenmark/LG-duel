@@ -4,6 +4,7 @@
 #include "sim/Combat.hpp"
 #include "sim/Arena.hpp"
 #include "sim/GameMode.hpp"
+#include "sim/IcePool.hpp"
 #include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
@@ -100,6 +101,7 @@ struct CommandPacket {
     80,
     100,
     20,
+    120,
   };
   WeaponAmmoConfig weaponAmmo = {};
   float vampirism = 0.0F;
@@ -195,6 +197,7 @@ struct ServerSnapshot {
     kDuelPlayerCount
   > localHitFeedbackEvents = {};
   std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
+  IcePoolArray icePools = {};
   std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
   std::array<std::uint16_t, kDuelPlayerCount> scores = {};
@@ -217,6 +220,7 @@ struct ServerSnapshot {
   float rocketKnockback = 1000.0F;
   std::int32_t knockbackTimeMs = 100;
   WeaponDamageTuning weaponDamage = {};
+  IcePoolTuning icePoolTuning = {};
   float vampirism = 0.0F;
   std::uint8_t selfDamagePercent = 100;
   std::int32_t healthAmount = 100;
@@ -250,10 +254,11 @@ struct ServerSnapshot {
 };
 
 // Snapshots are decoded, queued, copied, assigned, and interpolated constantly.
-// The current dynamic-state snapshot is about 3 KiB; keep static map geometry
-// owned by map/server/client state, not snapshots.
+// Keep static map geometry owned by map/server/client state, not snapshots.
+// MSVC's STL/layout is bulkier than Clang's here, so this budget is intentionally
+// about the native in-memory snapshot, not the encoded packet size.
 static_assert(
-  sizeof(ServerSnapshot) < 4096,
+  sizeof(ServerSnapshot) < 8192,
   "ServerSnapshot must remain compact; static Arena data belongs outside snapshots."
 );
 

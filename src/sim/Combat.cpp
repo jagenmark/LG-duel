@@ -79,88 +79,121 @@ constexpr float kTwoPi = 6.28318530718F;
   );
 }
 
-[[nodiscard]] float arenaExitDistance(const Arena& arena, Vec3 origin, Vec3 direction) {
-  float exitDistance = std::numeric_limits<float>::max();
+struct TraceHit {
+  float distance = std::numeric_limits<float>::max();
+  Vec3 normal = {};
+  bool hit = false;
+};
 
-  const auto clipAxis = [&exitDistance](float axisOrigin, float axisDirection, float minValue, float maxValue) {
+[[nodiscard]] TraceHit arenaExitHit(const Arena& arena, Vec3 origin, Vec3 direction) {
+  float exitDistance = std::numeric_limits<float>::max();
+  Vec3 exitNormal = {};
+
+  const auto clipAxis = [&exitDistance, &exitNormal](
+    float axisOrigin,
+    float axisDirection,
+    float minValue,
+    float maxValue,
+    Vec3 minNormal,
+    Vec3 maxNormal
+  ) {
     if (axisDirection > kTraceEpsilon) {
-      exitDistance = std::min(exitDistance, (maxValue - axisOrigin) / axisDirection);
+      const float distance = (maxValue - axisOrigin) / axisDirection;
+      if (distance < exitDistance) {
+        exitDistance = distance;
+        exitNormal = maxNormal;
+      }
     } else if (axisDirection < -kTraceEpsilon) {
-      exitDistance = std::min(exitDistance, (minValue - axisOrigin) / axisDirection);
+      const float distance = (minValue - axisOrigin) / axisDirection;
+      if (distance < exitDistance) {
+        exitDistance = distance;
+        exitNormal = minNormal;
+      }
     }
   };
 
-  clipAxis(origin.x, direction.x, arena.min.x, arena.max.x);
-  clipAxis(origin.y, direction.y, arena.min.y, arena.max.y);
-  clipAxis(origin.z, direction.z, arena.min.z, arena.max.z);
-  return std::max(0.0F, exitDistance);
+  clipAxis(origin.x, direction.x, arena.min.x, arena.max.x, {1.0F, 0.0F, 0.0F}, {-1.0F, 0.0F, 0.0F});
+  clipAxis(origin.y, direction.y, arena.min.y, arena.max.y, {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F});
+  clipAxis(origin.z, direction.z, arena.min.z, arena.max.z, {0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, -1.0F});
+  return {std::max(0.0F, exitDistance), exitNormal, exitDistance < std::numeric_limits<float>::max()};
 }
 
-[[nodiscard]] float wallHitDistance(
+[[nodiscard]] TraceHit wallHit(
   const ArenaWall& wall,
   Vec3 origin,
   Vec3 direction
 ) {
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
-  const auto clipAxis = [&entry, &exit](
+  Vec3 normal = {};
+  const auto clipAxis = [&entry, &exit, &normal](
     float axisOrigin,
     float axisDirection,
     float minValue,
-    float maxValue
+    float maxValue,
+    Vec3 minNormal,
+    Vec3 maxNormal
   ) {
     if (std::fabs(axisDirection) <= kTraceEpsilon) {
       return axisOrigin >= minValue && axisOrigin <= maxValue;
     }
     const float first = (minValue - axisOrigin) / axisDirection;
     const float second = (maxValue - axisOrigin) / axisDirection;
-    entry = std::max(entry, std::min(first, second));
+    const float candidateEntry = std::min(first, second);
+    if (candidateEntry > entry) {
+      entry = candidateEntry;
+      normal = first < second ? minNormal : maxNormal;
+    }
     exit = std::min(exit, std::max(first, second));
     return entry <= exit;
   };
 
   if (
-    !clipAxis(origin.x, direction.x, wall.min.x, wall.max.x) ||
-    !clipAxis(origin.y, direction.y, wall.min.y, wall.max.y) ||
-    !clipAxis(origin.z, direction.z, wall.min.z, wall.max.z) ||
+    !clipAxis(origin.x, direction.x, wall.min.x, wall.max.x, {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}) ||
+    !clipAxis(origin.y, direction.y, wall.min.y, wall.max.y, {0.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F}) ||
+    !clipAxis(origin.z, direction.z, wall.min.z, wall.max.z, {0.0F, 0.0F, -1.0F}, {0.0F, 0.0F, 1.0F}) ||
     exit < 0.0F
   ) {
-    return std::numeric_limits<float>::max();
+    return {};
   }
-  return std::max(0.0F, entry);
+  return {std::max(0.0F, entry), normal, true};
 }
 
-[[nodiscard]] float brushHitDistance(
+[[nodiscard]] TraceHit brushHit(
   const ArenaBrush& brush,
   Vec3 origin,
   Vec3 direction
 ) {
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
+  Vec3 normal = {};
   for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
     const ArenaBrushFace& face = brush.faces[index];
     const float numerator = face.distance - dot(face.normal, origin);
     const float denominator = dot(face.normal, direction);
     if (std::fabs(denominator) <= kTraceEpsilon) {
       if (numerator < 0.0F) {
-        return std::numeric_limits<float>::max();
+        return {};
       }
       continue;
     }
     const float planeDistance = numerator / denominator;
     if (denominator < 0.0F) {
-      entry = std::max(entry, planeDistance);
+      if (planeDistance > entry) {
+        entry = planeDistance;
+        normal = face.normal;
+      }
     } else {
       exit = std::min(exit, planeDistance);
     }
     if (entry > exit) {
-      return std::numeric_limits<float>::max();
+      return {};
     }
   }
   if (exit < 0.0F) {
-    return std::numeric_limits<float>::max();
+    return {};
   }
-  return std::max(0.0F, entry);
+  return {std::max(0.0F, entry), normal, true};
 }
 
 [[nodiscard]] float brushBoundsHitDistance(
@@ -168,7 +201,7 @@ constexpr float kTwoPi = 6.28318530718F;
   Vec3 origin,
   Vec3 direction
 ) {
-  return wallHitDistance(ArenaWall{brush.min, brush.max}, origin, direction);
+  return wallHit(ArenaWall{brush.min, brush.max}, origin, direction).distance;
 }
 
 [[nodiscard]] bool intersectPlayerCylinder(
@@ -296,12 +329,20 @@ WorldTrace traceWorld(
 ) {
   WorldTrace trace;
   trace.start = origin;
-  trace.distance = std::min(maxDistance, arenaExitDistance(arena, origin, direction));
+  trace.distance = maxDistance;
+  const TraceHit arenaExit = arenaExitHit(arena, origin, direction);
+  if (arenaExit.hit && arenaExit.distance <= trace.distance) {
+    trace.distance = arenaExit.distance;
+    trace.normal = arenaExit.normal;
+    trace.hit = true;
+  }
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
-    trace.distance = std::min(
-      trace.distance,
-      wallHitDistance(arena.walls[index], origin, direction)
-    );
+    const TraceHit hit = wallHit(arena.walls[index], origin, direction);
+    if (hit.hit && hit.distance <= trace.distance) {
+      trace.distance = hit.distance;
+      trace.normal = hit.normal;
+      trace.hit = true;
+    }
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     const float boundsDistance =
@@ -309,10 +350,12 @@ WorldTrace traceWorld(
     if (boundsDistance > trace.distance + kTraceEpsilon) {
       continue;
     }
-    trace.distance = std::min(
-      trace.distance,
-      brushHitDistance(arena.brushes[index], origin, direction)
-    );
+    const TraceHit hit = brushHit(arena.brushes[index], origin, direction);
+    if (hit.hit && hit.distance <= trace.distance) {
+      trace.distance = hit.distance;
+      trace.normal = hit.normal;
+      trace.hit = true;
+    }
   }
   trace.end = origin + (direction * trace.distance);
   return trace;
@@ -423,6 +466,103 @@ LightningGunResult simulateLightningGun(
       (static_cast<float>(shotsApplied) / fireHz)
     );
   return result;
+}
+
+LightningGunResult simulateFreezeGun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const FreezeGunTuning& tuning,
+  LightningGunState& state,
+  float fixedDt
+) {
+  LightningGunResult result;
+  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
+
+  const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);
+  const WorldTrace worldTrace = traceWorld(arena, result.start, direction, tuning.range);
+  const float traceDistance = worldTrace.distance;
+  result.end = worldTrace.end;
+  result.active = command.attack && attacker.health > 0;
+
+  if (!result.active || target.health <= 0) {
+    state.shotCredit = 1.0;
+    return result;
+  }
+
+  float hitDistance = 0.0F;
+  if (!intersectPlayerCylinder(result.start, direction, target, traceDistance, hitDistance)) {
+    state.shotCredit = std::min(
+      1.0,
+      state.shotCredit +
+        static_cast<double>(std::max(0.0F, tuning.fireHz)) *
+          static_cast<double>(fixedDt)
+    );
+    return result;
+  }
+
+  result.hit = true;
+  result.end = result.start + (direction * hitDistance);
+
+  const float fireHz = std::max(1.0F, tuning.fireHz);
+  state.shotCredit = std::min(
+    state.shotCredit,
+    static_cast<double>(fireHz)
+  );
+  const int shotsApplied = static_cast<int>(std::floor(state.shotCredit));
+  if (shotsApplied <= 0) {
+    state.shotCredit +=
+      static_cast<double>(fireHz) * static_cast<double>(fixedDt);
+    return result;
+  }
+  state.shotCredit -= static_cast<double>(shotsApplied);
+  state.shotCredit +=
+    static_cast<double>(fireHz) * static_cast<double>(fixedDt);
+
+  state.fractionalDamage +=
+    static_cast<double>(shotsApplied) *
+    static_cast<double>(tuning.damagePerSecond) /
+    static_cast<double>(fireHz);
+  result.damageApplied = static_cast<int>(std::floor(state.fractionalDamage));
+  state.fractionalDamage -= static_cast<double>(result.damageApplied);
+  result.damageApplied = std::min(result.damageApplied, target.health);
+  target.health -= result.damageApplied;
+
+  result.freezeApplied =
+    tuning.freezePerSecond * (static_cast<float>(shotsApplied) / fireHz);
+  // Freeze is owned by the target. Separate beams call this independently, so
+  // stacked attackers build the same target meter faster without shared state.
+  target.freezeLevel = std::clamp(
+    target.freezeLevel + result.freezeApplied,
+    0.0F,
+    std::max(0.0F, tuning.maxLevel)
+  );
+  return result;
+}
+
+void decayPlayerFreezeLevel(
+  PlayerState& player,
+  const FreezeGunTuning& tuning,
+  float fixedDt
+) {
+  if (player.health <= 0) {
+    player.freezeLevel = 0.0F;
+    return;
+  }
+  player.freezeLevel = std::max(
+    0.0F,
+    player.freezeLevel - std::max(0.0F, tuning.decayPerSecond) * fixedDt
+  );
+}
+
+float freezeMovementScale(const PlayerState& player, const FreezeGunTuning& tuning) {
+  const float maxLevel = std::max(0.0001F, tuning.maxLevel);
+  const float freezeFraction =
+    std::clamp(player.freezeLevel / maxLevel, 0.0F, 1.0F);
+  const float slowFraction =
+    freezeFraction * std::clamp(tuning.maxSlowFraction, 0.0F, 0.95F);
+  return std::clamp(1.0F - slowFraction, 0.05F, 1.0F);
 }
 
 WeaponFireResult simulateRailgun(

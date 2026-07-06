@@ -1,6 +1,7 @@
 #include "sim/Movement.hpp"
 
 #include "shared/Math.hpp"
+#include "sim/Combat.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -52,6 +53,10 @@ struct GroundContact {
   Vec3 normal = {0.0F, 0.0F, 1.0F};
   bool onGround = false;
   bool groundPlane = false;
+};
+
+struct IceContact {
+  bool active = false;
 };
 
 struct StepMoveResult {
@@ -409,6 +414,37 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   velocity *= scale;
 }
 
+[[nodiscard]] IceContact findIceContact(
+  const PlayerState& player,
+  const GroundContact& groundContact,
+  const IcePoolArray& icePools
+) {
+  if (!groundContact.onGround) {
+    return {};
+  }
+
+  const Vec3 footPoint =
+    player.position - Vec3{0.0F, 0.0F, player.bounds.halfHeight};
+  for (const IcePool& pool : icePools) {
+    if (!pool.active || pool.radius <= 0.0F || pool.lifetimeSeconds <= 0.0F) {
+      continue;
+    }
+    if (dot(pool.normal, groundContact.normal) < 0.95F) {
+      continue;
+    }
+    const Vec3 delta = footPoint - pool.center;
+    const float planeDistance = dot(delta, pool.normal);
+    if (std::fabs(planeDistance) > 0.5F) {
+      continue;
+    }
+    const Vec3 tangentDelta = delta - (pool.normal * planeDistance);
+    if (length(tangentDelta) <= pool.radius + player.bounds.radius) {
+      return {true};
+    }
+  }
+  return {};
+}
+
 [[nodiscard]] Vec3 movementWishDirection(const UserCommand& command) {
   const Vec3 forward = yawForward(command.viewYawRadians);
   const Vec3 right = yawRight(command.viewYawRadians);
@@ -480,6 +516,8 @@ void simulateGroundedOrAirborne(
   const UserCommand& command,
   const Arena& arena,
   const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
   float fixedDt,
   std::uint16_t jumpPadCooldownDurationTicks
 ) {
@@ -494,6 +532,12 @@ void simulateGroundedOrAirborne(
   const GroundContact groundContact = traceGround(arena, player);
   player.onGround = groundContact.onGround;
   player.movementMode = player.onGround ? MovementMode::Grounded : MovementMode::Airborne;
+  const IceContact iceContact = findIceContact(player, groundContact, icePools);
+  MovementTuning localTuning = tuning;
+  if (iceContact.active) {
+    localTuning.groundFriction = icePoolTuning.friction;
+    localTuning.groundAcceleration *= std::clamp(icePoolTuning.controlScale, 0.0F, 1.0F);
+  }
 
   const bool knockbackActive = player.knockbackTicksRemaining > 0;
   const bool useAirMovement = !player.onGround || knockbackActive;
@@ -511,7 +555,15 @@ void simulateGroundedOrAirborne(
         player.velocity,
         groundContact.normal
       );
-      applyGroundFriction(player.velocity, tuning, fixedDt);
+      applyGroundFriction(player.velocity, localTuning, fixedDt);
+      if (iceContact.active && groundContact.normal.z < 0.999F) {
+        // Ice on ramps uses grounded gravity along the floor plane. This makes
+        // icy ramps a terrain hazard while preserving normal non-icy ramp feel.
+        const Vec3 gravity = {0.0F, 0.0F, -localTuning.gravity};
+        const Vec3 slopeGravity = projectAlongPlane(gravity, groundContact.normal);
+        player.velocity +=
+          slopeGravity * std::max(0.0F, icePoolTuning.slopeGravityScale) * fixedDt;
+      }
     }
   } else {
     player.movementMode = MovementMode::Airborne;
@@ -531,7 +583,7 @@ void simulateGroundedOrAirborne(
       player.velocity,
       wishDirection,
       useAirMovement ? tuning.maxAirSpeed : maxGroundSpeed,
-      useAirMovement ? tuning.airAcceleration : tuning.groundAcceleration,
+      useAirMovement ? tuning.airAcceleration : localTuning.groundAcceleration,
       fixedDt
     );
     if (useAirMovement && tuning.airControlEnabled) {
@@ -664,6 +716,8 @@ void simulateMovement(
     command,
     arena,
     tuning,
+    IcePoolArray{},
+    IcePoolTuning{},
     fixedDt,
     kDefaultJumpPadCooldownTicks
   );
@@ -674,6 +728,49 @@ void simulateMovement(
   const UserCommand& command,
   const Arena& arena,
   const MovementTuning& tuning,
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks
+) {
+  simulateMovement(
+    player,
+    command,
+    arena,
+    tuning,
+    IcePoolArray{},
+    IcePoolTuning{},
+    fixedDt,
+    jumpPadCooldownDurationTicks
+  );
+}
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
+  float fixedDt
+) {
+  simulateMovement(
+    player,
+    command,
+    arena,
+    tuning,
+    icePools,
+    icePoolTuning,
+    fixedDt,
+    kDefaultJumpPadCooldownTicks
+  );
+}
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
   float fixedDt,
   std::uint16_t jumpPadCooldownDurationTicks
 ) {
@@ -692,7 +789,9 @@ void simulateMovement(
       command,
       arena,
       tuning,
-      fixedDt,
+      icePools,
+      icePoolTuning,
+      fixedDt * freezeMovementScale(player),
       jumpPadCooldownDurationTicks
     );
     break;
@@ -702,7 +801,7 @@ void simulateMovement(
       command,
       arena,
       tuning,
-      fixedDt,
+      fixedDt * freezeMovementScale(player),
       jumpPadCooldownDurationTicks
     );
     break;

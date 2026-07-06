@@ -20,6 +20,7 @@ struct PlayerState {
   float viewPitchRadians = 0.0F;
 
   int health = 100;
+  float freezeLevel = 0.0F;
   CollisionBounds bounds = {};
   MovementMode movementMode = MovementMode::Airborne;
   std::uint16_t knockbackTicksRemaining = 0;

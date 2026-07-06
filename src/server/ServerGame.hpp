@@ -154,6 +154,9 @@ private:
   void refillAmmo(std::size_t playerIndex);
   bool consumeAmmo(std::size_t playerIndex, Weapon weapon);
   void consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt);
+  void consumeFreezeGunAmmo(std::size_t playerIndex, float fixedDt);
+  void decayIcePools(float fixedDt);
+  void growIcePool(Vec3 center, Vec3 normal, float fixedDt);
   void updateSelectedWeapon(std::size_t playerIndex, Weapon requestedWeapon);
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
@@ -201,6 +204,8 @@ private:
   std::int32_t knockbackTimeMs_ = 100;
   WeaponDamageTuning weaponDamage_ = {};
   LightningGunTuning lightningGunTuning_ = {};
+  FreezeGunTuning freezeGunTuning_ = {};
+  IcePoolTuning icePoolTuning_ = {};
   HitscanTuning railgunTuning_ = {};
   MachineGunTuning machineGunTuning_ = {};
   ShotgunTuning shotgunTuning_ = {};
@@ -213,6 +218,7 @@ private:
   WeaponAmmoConfig weaponAmmoConfig_ = {};
   std::array<WeaponAmmoArray, kDuelPlayerCount> playerAmmo_ = {};
   std::array<double, kDuelPlayerCount> lightningAmmoCredit_ = {};
+  std::array<double, kDuelPlayerCount> freezeAmmoCredit_ = {};
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::uint32_t railgunCooldownDurationTicks_ = 188;
   std::uint32_t machineGunCooldownDurationTicks_ = 13;
@@ -226,6 +232,7 @@ private:
   std::uint32_t largeHealthPickupCooldownTicks_ = 4375;
   std::array<std::uint32_t, Arena::kHealthPickupCount> healthPickupCooldownTicks_ = {};
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
+  std::array<LightningGunState, kDuelPlayerCount> freezeGunStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> machineGunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> shotgunCooldownTicks_ = {};

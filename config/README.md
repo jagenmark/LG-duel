@@ -10,6 +10,7 @@ gameplay values that are not console cvars.
 
 Examples:
 - weapon ranges, spread, projectile speed, projectile radius, projectile fuse
+- freeze gun freeze buildup, decay, max slow, ice pool tuning, and spawn ammo
 - weapon cooldown ticks
 - QL weapon pullout ticks
 - jumppad retrigger cooldown
@@ -31,7 +32,7 @@ console variables.
 Examples:
 - `sv_roundlimit`, `sv_countdown`, `sv_showopponenthealth`
 - temporary development `g_*` gameplay cvars such as `g_accel`,
-  `g_lg_damage`, `g_healthamount`, and `g_weaponswitching`
+  `g_lg_damage`, `g_fg_damage`, `g_healthamount`, and `g_weaponswitching`
 
 The server console can still change these values at runtime. For now, clients
 can also push `g_*` tuning requests for development; those accepted requests can

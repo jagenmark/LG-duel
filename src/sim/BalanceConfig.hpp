@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sim/Combat.hpp"
+#include "sim/IcePool.hpp"
 
 #include <cstdint>
 #include <string>
@@ -10,6 +11,8 @@ namespace lg {
 
 struct BalanceConfig {
   LightningGunTuning lightningGun = {};
+  FreezeGunTuning freezeGun = {};
+  IcePoolTuning icePool = {};
   HitscanTuning railgun = {};
   std::uint32_t railgunCooldownTicks = 188;
   MachineGunTuning machineGun = {};

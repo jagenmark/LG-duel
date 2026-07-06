@@ -4610,6 +4610,7 @@ void appendCommandBatches(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const IcePoolArray& icePools,
   const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
@@ -4770,12 +4771,13 @@ void appendCommandBatches(
       player,
       remotePlayers,
       localLightningGun,
-        weaponFires,
-        rocketExplosions,
-        rockets,
-        healthPickupAvailable,
-        transientTracers,
-        transientEffects,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      healthPickupAvailable,
+      transientTracers,
+      transientEffects,
+      icePools,
       settings,
       cameraVerticalOffset
     );
@@ -6009,15 +6011,28 @@ void appendCommandBatches(
 
 [[nodiscard]] SDL_FColor localBeamColor(const RenderSettings& settings) {
   const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
+  const bool freezeBeam = settings.localSelectedWeapon == Weapon::FreezeGun;
   return {
     static_cast<float>(
-      blendChannel(settings.beamRed, settings.beamHitRed, hitAmount)
+      blendChannel(
+        freezeBeam ? 154U : settings.beamRed,
+        freezeBeam ? 230U : settings.beamHitRed,
+        hitAmount
+      )
     ) / 255.0F,
     static_cast<float>(
-      blendChannel(settings.beamGreen, settings.beamHitGreen, hitAmount)
+      blendChannel(
+        freezeBeam ? 232U : settings.beamGreen,
+        freezeBeam ? 255U : settings.beamHitGreen,
+        hitAmount
+      )
     ) / 255.0F,
     static_cast<float>(
-      blendChannel(settings.beamBlue, settings.beamHitBlue, hitAmount)
+      blendChannel(
+        freezeBeam ? 255U : settings.beamBlue,
+        freezeBeam ? 255U : settings.beamHitBlue,
+        hitAmount
+      )
     ) / 255.0F,
     std::clamp(settings.beamAlpha, 0.0F, 1.0F),
   };
@@ -7057,6 +7072,7 @@ void Renderer::render(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const IcePoolArray& icePools,
   const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
@@ -7197,6 +7213,7 @@ void Renderer::render(
           weaponFires,
           rocketExplosions,
           rockets,
+          icePools,
           healthPickupAvailable,
           transientTracers,
           transientEffects,
@@ -7371,6 +7388,7 @@ void Renderer::render(
     healthPickupAvailable,
     transientTracers,
     transientEffects,
+    icePools,
     settings,
     cameraStepOffset_
   );

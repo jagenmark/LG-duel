@@ -470,6 +470,13 @@ ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
 void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   lightningGunTuning_.range = config.lightningGun.range;
   lightningGunTuning_.eyeHeight = config.lightningGun.eyeHeight;
+  freezeGunTuning_.range = config.freezeGun.range;
+  freezeGunTuning_.eyeHeight = config.freezeGun.eyeHeight;
+  freezeGunTuning_.freezePerSecond = config.freezeGun.freezePerSecond;
+  freezeGunTuning_.decayPerSecond = config.freezeGun.decayPerSecond;
+  freezeGunTuning_.maxSlowFraction = config.freezeGun.maxSlowFraction;
+  icePoolTuning_ = config.icePool;
+  snapshot_.icePoolTuning = icePoolTuning_;
   railgunTuning_.range = config.railgun.range;
   railgunTuning_.eyeHeight = config.railgun.eyeHeight;
   railgunTuning_.knockback = config.railgun.knockback;
@@ -579,6 +586,7 @@ void ServerGame::tick(float fixedDt) {
       --pullout;
     }
   }
+  decayIcePools(fixedDt);
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
     std::uint32_t& cooldown = healthPickupCooldownTicks_[index];
     if (cooldown > 0) {
@@ -591,6 +599,7 @@ void ServerGame::tick(float fixedDt) {
 
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     PlayerState& player = snapshot_.players[playerIndex];
+    decayPlayerFreezeLevel(player, freezeGunTuning_, fixedDt);
     UserCommand command =
       commandForPlayer(snapshot_, commands_, hasCommand_, playerIndex);
     if (!hasCommand_[playerIndex]) {
@@ -612,6 +621,8 @@ void ServerGame::tick(float fixedDt) {
       command,
       arena_,
       movementTuning_,
+      snapshot_.icePools,
+      icePoolTuning_,
       fixedDt,
       static_cast<std::uint16_t>(
         std::min<std::uint32_t>(
@@ -668,8 +679,10 @@ void ServerGame::tick(float fixedDt) {
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
+  std::array<std::size_t, kDuelPlayerCount> freezeTargets = {};
   std::array<std::size_t, kDuelPlayerCount> weaponTargets = {};
   lightningTargets.fill(kDuelPlayerCount);
+  freezeTargets.fill(kDuelPlayerCount);
   weaponTargets.fill(kDuelPlayerCount);
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
     UserCommand command =
@@ -696,6 +709,14 @@ void ServerGame::tick(float fixedDt) {
     }
     if (command.weapon != Weapon::LightningGun) {
       lightningGunStates_[attackerIndex] = {};
+    }
+    if (command.weapon != Weapon::FreezeGun) {
+      freezeGunStates_[attackerIndex] = {};
+    }
+    if (
+      command.weapon != Weapon::LightningGun &&
+      command.weapon != Weapon::FreezeGun
+    ) {
       snapshot_.lightningGuns[attackerIndex] = {};
     }
     const bool requestsLagCompensation =
@@ -714,6 +735,8 @@ void ServerGame::tick(float fixedDt) {
       combatPlayers[attackerIndex],
       command.weapon == Weapon::LightningGun
         ? lightningGunTuning_.eyeHeight
+        : command.weapon == Weapon::FreezeGun
+          ? freezeGunTuning_.eyeHeight
         : command.weapon == Weapon::MachineGun
           ? machineGunTuning_.eyeHeight
         : command.weapon == Weapon::Shotgun
@@ -724,6 +747,8 @@ void ServerGame::tick(float fixedDt) {
       cameraForward(command.viewYawRadians, command.viewPitchRadians);
     const float attackRange = command.weapon == Weapon::LightningGun
       ? lightningGunTuning_.range
+      : command.weapon == Weapon::FreezeGun
+        ? freezeGunTuning_.range
       : command.weapon == Weapon::MachineGun
         ? machineGunTuning_.range
       : command.weapon == Weapon::Shotgun
@@ -771,18 +796,34 @@ void ServerGame::tick(float fixedDt) {
         : historyFrame.players[targetIndex];
       target.health = combatPlayers[targetIndex].health;
     }
-    if (command.weapon == Weapon::LightningGun) {
+    if (
+      command.weapon == Weapon::LightningGun ||
+      command.weapon == Weapon::FreezeGun
+    ) {
       if (targetIndex < kDuelPlayerCount) {
-        lightningTargets[attackerIndex] = targetIndex;
-        snapshot_.lightningGuns[attackerIndex] = simulateLightningGun(
-          combatPlayers[attackerIndex],
-          target,
-          command,
-          arena_,
-          lightningGunTuning_,
-          lightningGunStates_[attackerIndex],
-          fixedDt
-        );
+        if (command.weapon == Weapon::LightningGun) {
+          lightningTargets[attackerIndex] = targetIndex;
+          snapshot_.lightningGuns[attackerIndex] = simulateLightningGun(
+            combatPlayers[attackerIndex],
+            target,
+            command,
+            arena_,
+            lightningGunTuning_,
+            lightningGunStates_[attackerIndex],
+            fixedDt
+          );
+        } else {
+          freezeTargets[attackerIndex] = targetIndex;
+          snapshot_.lightningGuns[attackerIndex] = simulateFreezeGun(
+            combatPlayers[attackerIndex],
+            target,
+            command,
+            arena_,
+            freezeGunTuning_,
+            freezeGunStates_[attackerIndex],
+            fixedDt
+          );
+        }
         if (snapshot_.lightningGuns[attackerIndex].hit) {
           snapshot_.lightningGuns[attackerIndex].targetPlayerIndex =
             static_cast<std::uint8_t>(targetIndex);
@@ -793,9 +834,21 @@ void ServerGame::tick(float fixedDt) {
         snapshot_.lightningGuns[attackerIndex].end = worldTrace.end;
         snapshot_.lightningGuns[attackerIndex].active =
           command.attack && combatPlayers[attackerIndex].health > 0;
+        if (
+          command.weapon == Weapon::FreezeGun &&
+          snapshot_.lightningGuns[attackerIndex].active &&
+          worldTrace.hit &&
+          worldTrace.normal.z >= kMinWalkNormal
+        ) {
+          growIcePool(worldTrace.end, normalize(worldTrace.normal), fixedDt);
+        }
       }
       if (snapshot_.lightningGuns[attackerIndex].active) {
-        consumeLightningGunAmmo(attackerIndex, fixedDt);
+        if (command.weapon == Weapon::LightningGun) {
+          consumeLightningGunAmmo(attackerIndex, fixedDt);
+        } else {
+          consumeFreezeGunAmmo(attackerIndex, fixedDt);
+        }
       }
     } else if (
       command.weapon == Weapon::Railgun &&
@@ -955,13 +1008,18 @@ void ServerGame::tick(float fixedDt) {
       result.currentTargetBounds = combatPlayers[debugTargetIndex].bounds;
       result.rewoundTargetBounds = debugTarget.bounds;
     }
-    recordWeaponAccuracy(
-      snapshot_,
-      attackerIndex,
-      Weapon::LightningGun,
-      result.active ? 1U : 0U,
-      result.hit ? 1U : 0U
-    );
+    if (
+      command.weapon == Weapon::LightningGun ||
+      command.weapon == Weapon::FreezeGun
+    ) {
+      recordWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        command.weapon,
+        result.active ? 1U : 0U,
+        result.hit ? 1U : 0U
+      );
+    }
   }
 
   for (std::size_t attackerIndex = 0; attackerIndex < kDuelPlayerCount; ++attackerIndex) {
@@ -977,6 +1035,21 @@ void ServerGame::tick(float fixedDt) {
     ) {
       snapshot_.weaponFires[attackerIndex].damageApplied = 0;
     }
+    if (freezeTargets[attackerIndex] < kDuelPlayerCount) {
+      LightningGunResult& freezeResult = snapshot_.lightningGuns[attackerIndex];
+      if (damageAllowed(attackerIndex, freezeTargets[attackerIndex])) {
+        PlayerState& frozenTarget =
+          snapshot_.players[freezeTargets[attackerIndex]];
+        frozenTarget.freezeLevel = std::clamp(
+          frozenTarget.freezeLevel + freezeResult.freezeApplied,
+          0.0F,
+          std::max(0.0F, freezeGunTuning_.maxLevel)
+        );
+      } else {
+        freezeResult.freezeApplied = 0.0F;
+        freezeResult.damageApplied = 0;
+      }
+    }
     applyDamageAndKnockback(
       attackerIndex,
       lightningTargets[attackerIndex],
@@ -990,6 +1063,13 @@ void ServerGame::tick(float fixedDt) {
       snapshot_.weaponFires[attackerIndex].damageApplied,
       snapshot_.weaponFires[attackerIndex].knockbackImpulse,
       snapshot_.weaponFires[attackerIndex].weapon
+    );
+    applyDamageAndKnockback(
+      attackerIndex,
+      freezeTargets[attackerIndex],
+      snapshot_.lightningGuns[attackerIndex].damageApplied,
+      {},
+      Weapon::FreezeGun
     );
   }
 
@@ -1056,6 +1136,7 @@ void ServerGame::resetMatch() {
   snapshot_.rocketKnockback = rocketKnockback_;
   snapshot_.knockbackTimeMs = knockbackTimeMs_;
   snapshot_.weaponDamage = weaponDamage_;
+  snapshot_.icePoolTuning = icePoolTuning_;
   snapshot_.weaponAmmo = weaponAmmoConfig_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
@@ -1074,7 +1155,10 @@ void ServerGame::resetMatch() {
     ? MatchPhase::WaitingForReady
     : MatchPhase::WaitingForPlayers;
   lightningGunStates_ = {};
+  freezeGunStates_ = {};
+  snapshot_.icePools = {};
   lightningAmmoCredit_.fill(1.0);
+  freezeAmmoCredit_.fill(1.0);
   railgunCooldownTicks_ = {};
   machineGunCooldownTicks_ = {};
   shotgunCooldownTicks_ = {};
@@ -1102,6 +1186,7 @@ void ServerGame::resetMatch() {
   footstepStates_ = {};
   footstepSequences_ = {};
   rockets_ = {};
+  snapshot_.icePools = {};
   grenadeBounceSequences_ = {};
   fractionalVampirismHealing_ = {};
   commands_ = {};
@@ -1148,6 +1233,7 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.fragEvents[playerIndex] = {};
   snapshot_.footstepAudioEvents[playerIndex] = {};
   lightningGunStates_[playerIndex] = {};
+  freezeGunStates_[playerIndex] = {};
   railgunCooldownTicks_[playerIndex] = 0;
   machineGunCooldownTicks_[playerIndex] = 0;
   shotgunCooldownTicks_[playerIndex] = 0;
@@ -1157,6 +1243,7 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   selectedWeapons_[playerIndex] = Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
   lightningAmmoCredit_[playerIndex] = 1.0;
+  freezeAmmoCredit_[playerIndex] = 1.0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
   refillAmmo(playerIndex);
   recentFootstepAudioEvents_[playerIndex] = {};
@@ -1286,7 +1373,9 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   snapshot_.acknowledgedCommand[playerIndex] = 0;
   snapshot_.hasAcknowledgedCommand[playerIndex] = false;
   lightningGunStates_[playerIndex] = {};
+  freezeGunStates_[playerIndex] = {};
   lightningAmmoCredit_[playerIndex] = 1.0;
+  freezeAmmoCredit_[playerIndex] = 1.0;
   selectedWeapons_[playerIndex] = Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
@@ -1336,6 +1425,7 @@ void ServerGame::setRuntimeGameplayTuning(
   snapshot_.lightningKnockback = lightningKnockback_;
   lightningFireHz_ = lightningFireHz;
   lightningGunTuning_.fireHz = lightningFireHz_;
+  freezeGunTuning_.fireHz = lightningFireHz_;
   snapshot_.lightningFireHz = lightningFireHz_;
   rocketKnockback_ = rocketKnockback;
   rocketLauncherTuning_.knockback =
@@ -1350,6 +1440,8 @@ void ServerGame::setRuntimeGameplayTuning(
   machineGunTuning_.damage = weaponDamage_.machineGunDamage;
   lightningGunTuning_.damagePerSecond =
     static_cast<float>(weaponDamage_.lightningGunDamage);
+  freezeGunTuning_.damagePerSecond =
+    static_cast<float>(weaponDamage_.freezeGunDamage);
   railgunTuning_.damage = weaponDamage_.railgunDamage;
   rocketLauncherTuning_.directDamage = weaponDamage_.rocketLauncherDamage;
   rocketLauncherTuning_.splashDamage = weaponDamage_.rocketLauncherDamage;
@@ -1879,6 +1971,7 @@ std::uint32_t ServerGame::weaponCooldownTicks(
   case Weapon::GrenadeLauncher:
     return grenadeCooldownTicks_[playerIndex];
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
   case Weapon::PlasmaGun:
     return 0;
   }
@@ -1945,6 +2038,102 @@ void ServerGame::consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt)
   }
   credit += fireHz * static_cast<double>(fixedDt);
   snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+}
+
+void ServerGame::consumeFreezeGunAmmo(std::size_t playerIndex, float fixedDt) {
+  if (weaponAmmoConfig_.infiniteAmmo) {
+    return;
+  }
+  std::int32_t& ammo =
+    playerAmmo_[playerIndex][weaponIndex(Weapon::FreezeGun)];
+  if (ammo <= 0) {
+    snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+    return;
+  }
+  const double fireHz =
+    static_cast<double>(std::max(1.0F, freezeGunTuning_.fireHz));
+  double& credit = freezeAmmoCredit_[playerIndex];
+  credit = std::min(credit, fireHz);
+  const int shots = static_cast<int>(std::floor(credit));
+  if (shots > 0) {
+    const int consumed = std::min(shots, ammo);
+    ammo -= consumed;
+    credit -= static_cast<double>(consumed);
+  }
+  credit += fireHz * static_cast<double>(fixedDt);
+  snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+}
+
+void ServerGame::decayIcePools(float fixedDt) {
+  for (IcePool& pool : snapshot_.icePools) {
+    if (!pool.active) {
+      continue;
+    }
+    pool.lifetimeSeconds -= fixedDt;
+    if (pool.lifetimeSeconds <= 0.0F || pool.radius <= 0.0F) {
+      pool = {};
+    }
+  }
+}
+
+void ServerGame::growIcePool(Vec3 center, Vec3 normal, float fixedDt) {
+  if (
+    icePoolTuning_.maxRadius <= 0.0F ||
+    icePoolTuning_.growthPerSecond <= 0.0F ||
+    icePoolTuning_.lifetimeSeconds <= 0.0F
+  ) {
+    return;
+  }
+
+  IcePool* chosen = nullptr;
+  IcePool* reusable = nullptr;
+  for (IcePool& pool : snapshot_.icePools) {
+    if (!pool.active) {
+      if (reusable == nullptr) {
+        reusable = &pool;
+      }
+      continue;
+    }
+    const Vec3 delta = center - pool.center;
+    const float planeDistance = dot(delta, pool.normal);
+    const Vec3 tangentDelta = delta - pool.normal * planeDistance;
+    if (
+      std::fabs(planeDistance) <= 0.5F &&
+      length(tangentDelta) <= pool.radius + icePoolTuning_.mergeDistance
+    ) {
+      chosen = &pool;
+      break;
+    }
+  }
+
+  if (chosen == nullptr) {
+    if (reusable == nullptr) {
+      reusable = &snapshot_.icePools.front();
+      for (IcePool& pool : snapshot_.icePools) {
+        if (pool.lifetimeSeconds < reusable->lifetimeSeconds) {
+          reusable = &pool;
+        }
+      }
+    }
+    *reusable = IcePool{
+      true,
+      center,
+      normal,
+      0.0F,
+      icePoolTuning_.lifetimeSeconds,
+    };
+    chosen = reusable;
+  }
+
+  chosen->normal = normalize(chosen->normal + normal);
+  chosen->lifetimeSeconds = icePoolTuning_.lifetimeSeconds;
+  chosen->radius = std::min(
+    icePoolTuning_.maxRadius,
+    chosen->radius +
+      (icePoolTuning_.maxRadius - chosen->radius) *
+        icePoolTuning_.growthPerSecond *
+        fixedDt
+  );
 }
 
 void ServerGame::updateSelectedWeapon(
@@ -2103,8 +2292,10 @@ void ServerGame::applyDamageAndKnockback(
       ++snapshot_.scores[attackerIndex];
     }
     target.knockbackTicksRemaining = 0;
+    target.freezeLevel = 0.0F;
     target.velocity = {};
     lightningGunStates_[targetIndex] = {};
+    freezeGunStates_[targetIndex] = {};
     snapshot_.lightningGuns[targetIndex] = {};
     snapshot_.weaponFires[targetIndex] = {};
     if (snapshot_.gameMode == GameMode::Duel) {
@@ -3177,6 +3368,11 @@ void ServerGame::receiveCommands() {
         "g_lg_damage",
         weaponDamage_.lightningGunDamage,
         packet.weaponDamage.lightningGunDamage
+      );
+      logInt(
+        "g_fg_damage",
+        weaponDamage_.freezeGunDamage,
+        packet.weaponDamage.freezeGunDamage
       );
       logFloat("g_lg_fire_hz", lightningFireHz_, packet.lightningFireHz);
       logFloat("g_lg_knockback", lightningKnockback_, packet.lightningKnockback);

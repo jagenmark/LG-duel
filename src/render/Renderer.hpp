@@ -233,7 +233,7 @@ struct HudRenderState {
   std::string fpsText;
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
-  std::array<std::string, 7> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
+  std::array<std::string, kWeaponCount> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
   struct KillFeedLine {
     std::string killerName;
     std::string killedName;
@@ -468,6 +468,7 @@ public:
     const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
     const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
     const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+    const IcePoolArray& icePools,
     const std::array<bool, Arena::kHealthPickupCount>& healthPickupAvailable,
     std::span<const TransientTracer> transientTracers,
     std::span<const TransientEffect> transientEffects,

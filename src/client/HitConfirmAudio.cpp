@@ -67,6 +67,7 @@ WeaponFireAudioCue weaponFireAudioCue(Weapon weapon) {
   case Weapon::PlasmaGun:
     return WeaponFireAudioCue::PlasmaGun;
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
     return WeaponFireAudioCue::None;
   }
   return WeaponFireAudioCue::None;

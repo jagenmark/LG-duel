@@ -110,6 +110,7 @@ int main() {
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 125;
     source.weaponDamage.plasmaGunDamage = 20;
+    source.weaponDamage.freezeGunDamage = 112;
     source.weaponAmmo.infiniteAmmo = false;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 151;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 11;
@@ -118,6 +119,7 @@ int main() {
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 13;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 14;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 51;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] = 152;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -202,6 +204,7 @@ int main() {
         decoded.weaponDamage.railgunDamage == 50 &&
         decoded.weaponDamage.rocketLauncherDamage == 125 &&
         decoded.weaponDamage.plasmaGunDamage == 20 &&
+        decoded.weaponDamage.freezeGunDamage == 112 &&
         !decoded.weaponAmmo.infiniteAmmo &&
         decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
         nearlyEqual(decoded.vampirism, 0.1F) &&
@@ -323,6 +326,7 @@ int main() {
     source.players[0].viewYawRadians = 0.75F;
     source.players[0].viewPitchRadians = -0.1F;
     source.players[0].health = 81;
+    source.players[0].freezeLevel = 37.5F;
     source.players[0].movementMode = lg::MovementMode::Flying;
     source.players[0].onGround = false;
     source.players[0].jumpHeld = true;
@@ -339,6 +343,7 @@ int main() {
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Shotgun)] = 7;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 6;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 49;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::FreezeGun)] = 148;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::LightningGun)] = 120;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Railgun)] = 5;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 4;
@@ -346,6 +351,7 @@ int main() {
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Shotgun)] = 3;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 2;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 48;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::FreezeGun)] = 147;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
     source.lightningGuns[0].targetPlayerIndex = 1;
@@ -353,6 +359,7 @@ int main() {
     source.lightningGuns[0].start = {1.0F, 2.0F, 3.0F};
     source.lightningGuns[0].end = {5.0F, 6.0F, 7.0F};
     source.lightningGuns[0].knockbackImpulse = {0.1F, 0.2F, 0.3F};
+    source.lightningGuns[0].freezeApplied = 2.5F;
     source.lightningGuns[0].requestedRewindTicks = 20;
     source.lightningGuns[0].appliedRewindTicks = 18;
     source.lightningGuns[0].rewindClamped = true;
@@ -422,6 +429,11 @@ int main() {
     source.rockets[0].position = {5.0F, 6.0F, 1.2F};
     source.rockets[0].velocity = {7.0F, 8.0F, 9.0F};
     source.rockets[0].radius = 0.25F;
+    source.icePools[0].active = true;
+    source.icePools[0].center = {1.0F, 2.0F, 0.0F};
+    source.icePools[0].normal = {0.0F, 0.0F, 1.0F};
+    source.icePools[0].radius = 1.25F;
+    source.icePools[0].lifetimeSeconds = 2.5F;
     source.healthPickupAvailable[0] = true;
     source.healthPickupAvailable[3] = true;
     source.respawnTicksRemaining = {0, 88};
@@ -482,6 +494,14 @@ int main() {
     source.weaponDamage.railgunDamage = 50;
     source.weaponDamage.rocketLauncherDamage = 140;
     source.weaponDamage.plasmaGunDamage = 25;
+    source.weaponDamage.freezeGunDamage = 95;
+    source.icePoolTuning.maxRadius = 3.0F;
+    source.icePoolTuning.growthPerSecond = 11.0F;
+    source.icePoolTuning.lifetimeSeconds = 4.0F;
+    source.icePoolTuning.friction = 0.75F;
+    source.icePoolTuning.slopeGravityScale = 1.25F;
+    source.icePoolTuning.controlScale = 0.25F;
+    source.icePoolTuning.mergeDistance = 1.4F;
     source.weaponAmmo.infiniteAmmo = false;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 150;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 10;
@@ -490,6 +510,7 @@ int main() {
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Shotgun)] = 12;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 13;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 50;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] = 149;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -520,12 +541,13 @@ int main() {
     );
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
     failures += expect(
-      decoded.players[0].movementMode == lg::MovementMode::Flying &&
+        decoded.players[0].movementMode == lg::MovementMode::Flying &&
         decoded.players[0].jumpHeld &&
         decoded.players[0].crouched &&
         decoded.players[0].sneaking &&
-        decoded.players[0].knockbackTicksRemaining == 9,
-      "movement mode, jump latch, crouch state, and knockback timer should round trip"
+        decoded.players[0].knockbackTicksRemaining == 9 &&
+        nearlyEqual(decoded.players[0].freezeLevel, 37.5F),
+      "movement mode, jump latch, crouch state, knockback timer, and freeze level should round trip"
     );
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
@@ -559,6 +581,10 @@ int main() {
     failures += expect(
       nearlyEqual(decoded.lightningGuns[0].knockbackImpulse.z, 0.3F),
       "3D knockback should round trip"
+    );
+    failures += expect(
+      nearlyEqual(decoded.lightningGuns[0].freezeApplied, 2.5F),
+      "beam freeze amount should round trip"
     );
     failures += expect(
       decoded.weaponFires[0].fired &&
@@ -628,6 +654,15 @@ int main() {
         nearlyEqual(decoded.rockets[0].velocity.z, 9.0F) &&
         nearlyEqual(decoded.rockets[0].radius, 0.25F),
       "rocket, explosion, footstep audio, and frag event state should round trip"
+    );
+    failures += expect(
+      decoded.icePools[0].active &&
+        nearlyEqual(decoded.icePools[0].center.x, 1.0F) &&
+        nearlyEqual(decoded.icePools[0].center.y, 2.0F) &&
+        nearlyEqual(decoded.icePools[0].normal.z, 1.0F) &&
+        nearlyEqual(decoded.icePools[0].radius, 1.25F) &&
+        nearlyEqual(decoded.icePools[0].lifetimeSeconds, 2.5F),
+      "ice pool snapshot should round trip"
     );
     failures += expect(
       decoded.healthPickupAvailable == source.healthPickupAvailable,
@@ -715,6 +750,14 @@ int main() {
       decoded.weaponDamage.railgunDamage == 50 &&
       decoded.weaponDamage.rocketLauncherDamage == 140 &&
       decoded.weaponDamage.plasmaGunDamage == 25 &&
+      decoded.weaponDamage.freezeGunDamage == 95 &&
+      nearlyEqual(decoded.icePoolTuning.maxRadius, 3.0F) &&
+      nearlyEqual(decoded.icePoolTuning.growthPerSecond, 11.0F) &&
+      nearlyEqual(decoded.icePoolTuning.lifetimeSeconds, 4.0F) &&
+      nearlyEqual(decoded.icePoolTuning.friction, 0.75F) &&
+      nearlyEqual(decoded.icePoolTuning.slopeGravityScale, 1.25F) &&
+      nearlyEqual(decoded.icePoolTuning.controlScale, 0.25F) &&
+      nearlyEqual(decoded.icePoolTuning.mergeDistance, 1.4F) &&
       !decoded.weaponAmmo.infiniteAmmo &&
       decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
       nearlyEqual(decoded.vampirism, 2.0F) &&

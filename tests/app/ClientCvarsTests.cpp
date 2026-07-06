@@ -55,6 +55,10 @@ int main() {
     "LG damage should default to 120 DPS"
   );
   failures += expect(
+    console.execute("g_fg_damage") == "g_fg_damage = 120 (default 120)",
+    "FG damage should default to 120 DPS"
+  );
+  failures += expect(
     console.execute("g_infiniteammo") == "g_infiniteammo = 1 (default 1)" &&
       console.execute("g_infiniteammo 0") == "g_infiniteammo = 0" &&
       !console.getBool("g_infiniteammo"),

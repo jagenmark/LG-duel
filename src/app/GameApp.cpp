@@ -176,6 +176,7 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute("set g_sg_damage " + std::to_string(snapshot.weaponDamage.shotgunDamagePerPellet));
   (void)console.execute("set g_mg_damage " + std::to_string(snapshot.weaponDamage.machineGunDamage));
   (void)console.execute("set g_lg_damage " + std::to_string(snapshot.weaponDamage.lightningGunDamage));
+  (void)console.execute("set g_fg_damage " + std::to_string(snapshot.weaponDamage.freezeGunDamage));
   (void)console.execute("set g_rg_damage " + std::to_string(snapshot.weaponDamage.railgunDamage));
   (void)console.execute("set g_rl_damage " + std::to_string(snapshot.weaponDamage.rocketLauncherDamage));
   (void)console.execute("set g_pg_damage " + std::to_string(snapshot.weaponDamage.plasmaGunDamage));
@@ -297,6 +298,7 @@ struct WeaponPresentationFrame {
 [[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
   switch (weapon) {
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
     return 0.55F;
   case Weapon::RocketLauncher:
   case Weapon::GrenadeLauncher:
@@ -2996,6 +2998,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
   (void)bindings.bind("4", "weapon pg");
+  (void)bindings.bind("8", "weapon fg");
   (void)bindings.bind("q", "weapon rl");
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
@@ -3101,6 +3104,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
     ammoText(Weapon::LightningGun),
     ammoText(Weapon::Railgun),
     ammoText(Weapon::PlasmaGun),
+    ammoText(Weapon::FreezeGun),
   }};
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
@@ -3384,17 +3388,17 @@ int GameApp::run() const {
 
   console.registerCommand(
     "weapon",
-    "Select weapon: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>.",
+    "Select weapon: weapon <mg|sg|gl|rl|lg|rg|pg|fg|1..8>.",
     [&selectedWeapon](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
+        return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|fg|1..8>");
       }
       const std::optional<Weapon> parsed = parseWeaponToken(arguments[1]);
       if (parsed.has_value()) {
         selectedWeapon = *parsed;
         return std::string("weapon = ") + std::string(weaponShortName(*parsed));
       }
-      return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|1..7>");
+      return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|fg|1..8>");
     }
   );
   console.registerCommand(
@@ -4036,6 +4040,7 @@ int GameApp::run() const {
     (void)bindings.bind("5", "weapon lg");
     (void)bindings.bind("6", "weapon rg");
     (void)bindings.bind("7", "weapon pg");
+    (void)bindings.bind("8", "weapon fg");
     (void)bindings.bind("q", "weapon rl");
     (void)bindings.bind("e", "weapon lg");
     (void)bindings.bind("r", "weapon rg");
@@ -4812,6 +4817,8 @@ int GameApp::run() const {
           lastRequestedWeaponDamage.machineGunDamage ||
         currentWeaponDamage.lightningGunDamage !=
           lastRequestedWeaponDamage.lightningGunDamage ||
+        currentWeaponDamage.freezeGunDamage !=
+          lastRequestedWeaponDamage.freezeGunDamage ||
         currentWeaponDamage.railgunDamage !=
           lastRequestedWeaponDamage.railgunDamage ||
         currentWeaponDamage.rocketLauncherDamage !=
@@ -5034,6 +5041,8 @@ int GameApp::run() const {
             updatedSnapshot.weaponDamage.machineGunDamage ||
           consoleWeaponDamage.lightningGunDamage !=
             updatedSnapshot.weaponDamage.lightningGunDamage ||
+          consoleWeaponDamage.freezeGunDamage !=
+            updatedSnapshot.weaponDamage.freezeGunDamage ||
           consoleWeaponDamage.railgunDamage !=
             updatedSnapshot.weaponDamage.railgunDamage ||
           consoleWeaponDamage.rocketLauncherDamage !=
@@ -5663,12 +5672,14 @@ int GameApp::run() const {
     std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
     std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
     std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
+    IcePoolArray renderIcePools = {};
     std::size_t renderLocalPlayerIndex = 0;
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
       renderLocalPlayerIndex = localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
+      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       if (
         localRenderPredictionSeconds > 0.0F &&
         renderPlayer.health > 0
@@ -5706,11 +5717,12 @@ int GameApp::run() const {
           visualCommand,
           renderClient->arena(),
           renderClient->movementTuning(),
+          renderSnapshot.icePools,
+          renderSnapshot.icePoolTuning,
           localRenderPredictionSeconds
         );
         renderPlayer = visualPlayer;
       }
-      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (playerIndex == localPlayerIndex) {
           continue;
@@ -5758,6 +5770,7 @@ int GameApp::run() const {
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
+      renderIcePools = renderSnapshot.icePools;
       const LocalHitFeedbackBatch hitFeedback =
         consumeLocalHitFeedbackEvents(
           renderSnapshot.localHitFeedbackEvents[localPlayerIndex],
@@ -6224,7 +6237,8 @@ int GameApp::run() const {
         const Weapon selectedWeapon =
           lagSnapshot.selectedWeapons[localPlayerIndex];
         hud.topLeftLines.emplace_back(
-          selectedWeapon == Weapon::LightningGun
+          selectedWeapon == Weapon::LightningGun ||
+            selectedWeapon == Weapon::FreezeGun
             ? "LAG COMPENSATION: NOT USED"
             : "LAG COMPENSATION: NOT USED BY THIS WEAPON"
         );
@@ -6290,6 +6304,7 @@ int GameApp::run() const {
       renderWeaponFires,
       renderRocketExplosions,
       renderRockets,
+      renderIcePools,
       renderHealthPickupAvailable,
       activeTransientTracers,
       activeTransientEffects,

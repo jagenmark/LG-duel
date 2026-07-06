@@ -74,6 +74,16 @@ bool hasAnyLocalHitFeedback(
   return false;
 }
 
+std::size_t activeIcePoolCount(const lg::ServerSnapshot& snapshot) {
+  std::size_t count = 0;
+  for (const lg::IcePool& pool : snapshot.icePools) {
+    if (pool.active) {
+      ++count;
+    }
+  }
+  return count;
+}
+
 struct ScopedBalanceConfigDirectory {
   std::filesystem::path previousPath;
   std::filesystem::path directory;
@@ -1060,6 +1070,141 @@ int main() {
     failures += expect(
       snapshot.players[1].health == 0,
       "g_lg_damage should control authoritative LG damage per second across 20 Hz instances"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
+    tuning.weaponDamage.freezeGunDamage = 80;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.freezeGunDamage == 80,
+      "g_fg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand freeze;
+    freeze.sequence = 2;
+    freeze.attack = true;
+    freeze.weapon = lg::Weapon::FreezeGun;
+    transport.sendCommand(lg::CommandPacket{0, freeze, false});
+    for (int tick = 0; tick < 125; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.selectedWeapons[0] == lg::Weapon::FreezeGun &&
+        snapshot.lightningGuns[0].active &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.players[1].freezeLevel > 29.0F,
+      "freeze gun should use the continuous beam hit path"
+    );
+    failures += expect(
+      snapshot.players[1].health == 20 &&
+        lg::length(snapshot.lightningGuns[0].knockbackImpulse) == 0.0F &&
+        snapshot.players[1].freezeLevel > 29.0F &&
+        snapshot.players[1].freezeLevel < 31.0F,
+      "freeze gun should apply g_fg_damage DPS and build target-owned freeze without knockback"
+    );
+
+    freeze.attack = false;
+    freeze.sequence = 3;
+    transport.sendCommand(lg::CommandPacket{0, freeze, false});
+    for (int tick = 0; tick < 63; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].freezeLevel < 21.0F,
+      "target-owned freeze should decay at the configured constant rate"
+    );
+
+    const float frozenX = snapshot.players[1].position.x;
+    lg::UserCommand moveTarget;
+    moveTarget.sequence = 4;
+    moveTarget.forwardMove = 1.0F;
+    transport.sendCommand(lg::CommandPacket{1, moveTarget, false});
+    for (int tick = 0; tick < 20; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].position.x > frozenX &&
+        snapshot.players[1].freezeLevel > 0.0F,
+      "frozen target should still move authoritatively while slowed by its own freeze level"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-8.0F, -8.0F, 0.0F};
+    arena.max = {8.0F, 8.0F, 6.0F};
+    arena.spawnPositions[0] = {0.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {6.0F, 6.0F, 0.0F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand freezeFloor;
+    freezeFloor.sequence = 1;
+    freezeFloor.attack = true;
+    freezeFloor.weapon = lg::Weapon::FreezeGun;
+    freezeFloor.planarAim = false;
+    freezeFloor.viewPitchRadians = -kPi * 0.5F;
+    transport.sendCommand(lg::CommandPacket{0, freezeFloor, false});
+
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 32; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      activeIcePoolCount(snapshot) == 1 &&
+        snapshot.icePools[0].radius > 2.0F &&
+        snapshot.icePools[0].normal.z > 0.99F,
+      "freeze gun should grow one merged ice pool on walkable floor hits"
+    );
+
+    freezeFloor.attack = false;
+    freezeFloor.sequence = 2;
+    transport.sendCommand(lg::CommandPacket{0, freezeFloor, false});
+    for (int tick = 0; tick < 390; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      activeIcePoolCount(snapshot) == 0,
+      "ice pools should expire after their configured lifetime"
+    );
+
+    arena.walls[0] = {{2.0F, -1.0F, 0.0F}, {2.2F, 1.0F, 2.0F}};
+    arena.wallCount = 1;
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand freezeWall;
+    freezeWall.sequence = 3;
+    freezeWall.attack = true;
+    freezeWall.weapon = lg::Weapon::FreezeGun;
+    freezeWall.planarAim = false;
+    freezeWall.viewYawRadians = 0.0F;
+    freezeWall.viewPitchRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, freezeWall, false});
+    for (int tick = 0; tick < 8; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      activeIcePoolCount(snapshot) == 0,
+      "freeze gun wall hits should not create authoritative ice pools"
     );
   }
 
