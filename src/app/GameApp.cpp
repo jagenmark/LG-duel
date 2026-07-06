@@ -2677,6 +2677,26 @@ float zoomSensitivityMultiplier(
   return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
 }
 
+MouseAimSettings mouseAimSettingsFromConsole(
+  const ConsoleSystem& console,
+  bool zoomHeld
+) {
+  return {
+    console.getFloat("sensitivity"),
+    zoomHeld
+      ? zoomSensitivityMultiplier(
+          console.getFloat("cl_fov"),
+          console.getFloat("cl_zoom_fov"),
+          console.getFloat("cl_zoom_sensitivity")
+        )
+      : 1.0F,
+    console.getFloat("cl_mouseAccel"),
+    console.getFloat("cl_mouseAccelPower"),
+    console.getFloat("cl_mouseAccelOffset"),
+    console.getFloat("cl_mouseSensCap"),
+  };
+}
+
 bool sameRuntimeMovementTuning(
   const MovementTuning& lhs,
   const MovementTuning& rhs
@@ -3119,20 +3139,22 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   const PlayerState& player,
   std::uint32_t sequence,
   std::uint32_t clientTick,
-  float sensitivity,
+  const MouseAimSettings& mouseAimSettings,
+  float mouseFrameSeconds,
   Weapon weapon
 ) {
   UserCommand command;
   command.sequence = sequence;
   command.clientTick = clientTick;
-  command.viewYawRadians = relativeMouseYaw(
-    player.viewYawRadians,
+  const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
     input.mouseDeltaX,
-    sensitivity
+    input.mouseDeltaY,
+    mouseFrameSeconds,
+    mouseAimSettings
   );
+  command.viewYawRadians = player.viewYawRadians - mouseAimDelta.yawRadians;
   command.viewPitchRadians = clamp(
-    player.viewPitchRadians -
-      (input.mouseDeltaY * kBaseMouseSensitivityRadians * sensitivity),
+    player.viewPitchRadians - mouseAimDelta.pitchRadians,
     -kMaxPitchRadians,
     kMaxPitchRadians
   );
@@ -3980,6 +4002,12 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 11");
   }
+  if (console.getInt("cl_config_version") < 12) {
+    const float migratedSensitivity =
+      console.getFloat("sensitivity") * kLegacyToQuakeLiveSensitivityScale;
+    (void)console.execute("set sensitivity " + std::to_string(migratedSensitivity));
+    (void)console.execute("set cl_config_version 12");
+  }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
   SettingsMenuState settingsMenu;
@@ -4642,36 +4670,17 @@ int GameApp::run() const {
       input.mouseDeltaY = 0.0F;
     }
     if (gameInputControlsView && presentationView.initialized) {
-      presentationView.yawRadians = relativeMouseYaw(
-        presentationView.yawRadians,
+      const MouseAimSettings mouseAimSettings =
+        mouseAimSettingsFromConsole(console, zoomPressCount > 0);
+      const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
         input.mouseDeltaX,
-        console.getFloat("sensitivity") *
-          (
-            zoomPressCount > 0
-              ? zoomSensitivityMultiplier(
-                  console.getFloat("cl_fov"),
-                  console.getFloat("cl_zoom_fov"),
-                  console.getFloat("cl_zoom_sensitivity")
-                )
-              : 1.0F
-          )
+        input.mouseDeltaY,
+        outerFrameElapsed.count(),
+        mouseAimSettings
       );
+      presentationView.yawRadians -= mouseAimDelta.yawRadians;
       presentationView.pitchRadians = clamp(
-        presentationView.pitchRadians -
-          (
-            input.mouseDeltaY *
-            kBaseMouseSensitivityRadians *
-            console.getFloat("sensitivity") *
-            (
-              zoomPressCount > 0
-                ? zoomSensitivityMultiplier(
-                    console.getFloat("cl_fov"),
-                    console.getFloat("cl_zoom_fov"),
-                    console.getFloat("cl_zoom_sensitivity")
-                  )
-                : 1.0F
-            )
-          ),
+        presentationView.pitchRadians - mouseAimDelta.pitchRadians,
         -kMaxPitchRadians,
         kMaxPitchRadians
       );
@@ -4797,14 +4806,8 @@ int GameApp::run() const {
       }
       const PlayerState& predictedPlayer = client->predictedPlayer();
 
-      const bool zoomHeld = zoomPressCount > 0;
-      const float zoomSensitivity = zoomSensitivityMultiplier(
-        console.getFloat("cl_fov"),
-        console.getFloat("cl_zoom_fov"),
-        console.getFloat("cl_zoom_sensitivity")
-      );
-      const float effectiveSensitivity = console.getFloat("sensitivity") *
-        (zoomHeld ? zoomSensitivity : 1.0F);
+      const MouseAimSettings mouseAimSettings =
+        mouseAimSettingsFromConsole(console, zoomPressCount > 0);
 
       const UserCommand command =
         usePresentationView && presentationView.initialized
@@ -4821,7 +4824,8 @@ int GameApp::run() const {
               predictedPlayer,
               commandSequence++,
               clientTick++,
-              effectiveSensitivity,
+              mouseAimSettings,
+              elapsed.count(),
               selectedWeapon
             );
       localTracerAimHistory.remember(command);
@@ -5582,14 +5586,8 @@ int GameApp::run() const {
         localRenderPredictionSeconds > 0.0F &&
         renderPlayer.health > 0
       ) {
-        const bool zoomHeld = zoomPressCount > 0;
-        const float zoomSensitivity = zoomSensitivityMultiplier(
-          console.getFloat("cl_fov"),
-          console.getFloat("cl_zoom_fov"),
-          console.getFloat("cl_zoom_sensitivity")
-        );
-        const float effectiveSensitivity = console.getFloat("sensitivity") *
-          (zoomHeld ? zoomSensitivity : 1.0F);
+        const MouseAimSettings mouseAimSettings =
+          mouseAimSettingsFromConsole(console, zoomPressCount > 0);
         const UserCommand visualCommand =
           usePresentationView && presentationView.initialized
             ? buildCommandWithViewAngles(
@@ -5605,7 +5603,8 @@ int GameApp::run() const {
                 renderPlayer,
                 commandSequence,
                 clientTick,
-                effectiveSensitivity,
+                mouseAimSettings,
+                elapsed.count(),
                 selectedWeapon
               );
 
