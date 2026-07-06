@@ -425,6 +425,103 @@ LightningGunResult simulateLightningGun(
   return result;
 }
 
+LightningGunResult simulateFreezeGun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const FreezeGunTuning& tuning,
+  LightningGunState& state,
+  float fixedDt
+) {
+  LightningGunResult result;
+  result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
+
+  const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);
+  const WorldTrace worldTrace = traceWorld(arena, result.start, direction, tuning.range);
+  const float traceDistance = worldTrace.distance;
+  result.end = worldTrace.end;
+  result.active = command.attack && attacker.health > 0;
+
+  if (!result.active || target.health <= 0) {
+    state.shotCredit = 1.0;
+    return result;
+  }
+
+  float hitDistance = 0.0F;
+  if (!intersectPlayerCylinder(result.start, direction, target, traceDistance, hitDistance)) {
+    state.shotCredit = std::min(
+      1.0,
+      state.shotCredit +
+        static_cast<double>(std::max(0.0F, tuning.fireHz)) *
+          static_cast<double>(fixedDt)
+    );
+    return result;
+  }
+
+  result.hit = true;
+  result.end = result.start + (direction * hitDistance);
+
+  const float fireHz = std::max(1.0F, tuning.fireHz);
+  state.shotCredit = std::min(
+    state.shotCredit,
+    static_cast<double>(fireHz)
+  );
+  const int shotsApplied = static_cast<int>(std::floor(state.shotCredit));
+  if (shotsApplied <= 0) {
+    state.shotCredit +=
+      static_cast<double>(fireHz) * static_cast<double>(fixedDt);
+    return result;
+  }
+  state.shotCredit -= static_cast<double>(shotsApplied);
+  state.shotCredit +=
+    static_cast<double>(fireHz) * static_cast<double>(fixedDt);
+
+  state.fractionalDamage +=
+    static_cast<double>(shotsApplied) *
+    static_cast<double>(tuning.damagePerSecond) /
+    static_cast<double>(fireHz);
+  result.damageApplied = static_cast<int>(std::floor(state.fractionalDamage));
+  state.fractionalDamage -= static_cast<double>(result.damageApplied);
+  result.damageApplied = std::min(result.damageApplied, target.health);
+  target.health -= result.damageApplied;
+
+  result.freezeApplied =
+    tuning.freezePerSecond * (static_cast<float>(shotsApplied) / fireHz);
+  // Freeze is owned by the target. Separate beams call this independently, so
+  // stacked attackers build the same target meter faster without shared state.
+  target.freezeLevel = std::clamp(
+    target.freezeLevel + result.freezeApplied,
+    0.0F,
+    std::max(0.0F, tuning.maxLevel)
+  );
+  return result;
+}
+
+void decayPlayerFreezeLevel(
+  PlayerState& player,
+  const FreezeGunTuning& tuning,
+  float fixedDt
+) {
+  if (player.health <= 0) {
+    player.freezeLevel = 0.0F;
+    return;
+  }
+  player.freezeLevel = std::max(
+    0.0F,
+    player.freezeLevel - std::max(0.0F, tuning.decayPerSecond) * fixedDt
+  );
+}
+
+float freezeMovementScale(const PlayerState& player, const FreezeGunTuning& tuning) {
+  const float maxLevel = std::max(0.0001F, tuning.maxLevel);
+  const float freezeFraction =
+    std::clamp(player.freezeLevel / maxLevel, 0.0F, 1.0F);
+  const float slowFraction =
+    freezeFraction * std::clamp(tuning.maxSlowFraction, 0.0F, 0.95F);
+  return std::clamp(1.0F - slowFraction, 0.05F, 1.0F);
+}
+
 WeaponFireResult simulateRailgun(
   const PlayerState& attacker,
   PlayerState& target,

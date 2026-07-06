@@ -1630,6 +1630,7 @@ void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
 [[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
   switch (weapon) {
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
     return 0.55F;
   case Weapon::RocketLauncher:
   case Weapon::GrenadeLauncher:
@@ -1740,6 +1741,57 @@ void addSegment(
   );
 }
 
+void addFreezeBeamParticles(
+  Scene3D& scene,
+  Vec3 start,
+  Vec3 end,
+  float pulse
+) {
+  const Vec3 beam = end - start;
+  const float beamLength = length(beam);
+  if (beamLength <= 0.0001F) {
+    return;
+  }
+  const Vec3 direction = beam / beamLength;
+  Vec3 side = normalize(cross(direction, {0.0F, 0.0F, 1.0F}));
+  if (length(side) <= 0.0001F) {
+    side = {1.0F, 0.0F, 0.0F};
+  }
+  const Vec3 up = normalize(cross(side, direction));
+  constexpr int kParticleCount = 18;
+  const float pulse01 = (std::clamp(pulse, -1.0F, 1.0F) + 1.0F) * 0.5F;
+  for (int index = 0; index < kParticleCount; ++index) {
+    const float t = (static_cast<float>(index) + 0.45F) /
+      static_cast<float>(kParticleCount);
+    const float phase = static_cast<float>(index) * 2.171F + pulse * 1.9F;
+    const float swirl = 0.055F + 0.03F * std::sin(phase * 0.73F);
+    const Vec3 center =
+      start + beam * t +
+      side * (std::cos(phase) * swirl) +
+      up * (std::sin(phase) * swirl);
+    const float radius =
+      0.025F + 0.009F * static_cast<float>((index * 5) % 4) +
+      pulse01 * 0.015F;
+    const std::uint8_t alpha = static_cast<std::uint8_t>(
+      std::clamp(38.0F + pulse01 * 38.0F + std::sin(phase) * 20.0F, 20.0F, 96.0F)
+    );
+    const RenderColor color = {
+      static_cast<std::uint8_t>(218),
+      static_cast<std::uint8_t>(248),
+      static_cast<std::uint8_t>(255),
+      alpha,
+    };
+    addQuad(
+      scene,
+      center + up * radius,
+      center + side * radius,
+      center - up * radius,
+      center - side * radius,
+      color
+    );
+  }
+}
+
 void addWireBox(
   Scene3D& scene,
   Vec3 minimum,
@@ -1819,6 +1871,7 @@ void addWireBox(
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   switch (weapon) {
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
     return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
   case Weapon::Railgun:
     return weaponLocalPoint(frame, 0.78F, 0.0F, 0.09F);
@@ -2006,6 +2059,7 @@ MeshHandle remoteWeaponMeshHandle(Weapon weapon) {
   case Weapon::RocketLauncher:
     return MeshHandle::RemoteRocketLauncher;
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
     return MeshHandle::RemoteLightningGun;
   case Weapon::Railgun:
     return MeshHandle::RemoteRailgun;
@@ -2052,6 +2106,11 @@ ProjectileVisualType projectileVisualTypeForWeapon(Weapon weapon) {
   case Weapon::GrenadeLauncher:
     return ProjectileVisualType::Grenade;
   case Weapon::RocketLauncher:
+  case Weapon::LightningGun:
+  case Weapon::Railgun:
+  case Weapon::MachineGun:
+  case Weapon::Shotgun:
+  case Weapon::FreezeGun:
   default:
     return ProjectileVisualType::Rocket;
   }
@@ -2087,6 +2146,7 @@ void addRemoteWeaponInstance(
   frame.scale = 1.0F;
   switch (weapon) {
   case Weapon::LightningGun:
+  case Weapon::FreezeGun:
     addLightningGunModel(meshScene, frame);
     break;
   case Weapon::GrenadeLauncher:
@@ -3159,20 +3219,37 @@ Scene3D buildPerspectiveScene(
     const float beamAlpha = remote.teammate
       ? settings.teammateBeamAlpha
       : settings.enemyBeamAlpha;
+    const bool freezeBeam = remote.selectedWeapon == Weapon::FreezeGun;
+    const std::uint8_t beamRed = freezeBeam
+      ? static_cast<std::uint8_t>(154)
+      : (remote.teammate ? settings.teammateBeamRed : settings.enemyBeamRed);
+    const std::uint8_t beamGreen = freezeBeam
+      ? static_cast<std::uint8_t>(232)
+      : (remote.teammate
+        ? settings.teammateBeamGreen
+        : settings.enemyBeamGreen);
+    const std::uint8_t beamBlue = freezeBeam
+      ? static_cast<std::uint8_t>(255)
+      : (remote.teammate ? settings.teammateBeamBlue : settings.enemyBeamBlue);
+    const Vec3 visualStart =
+      remoteHitscanMuzzlePosition(remote, remote.selectedWeapon, settings);
     addSegment(
       scene,
-      remoteHitscanMuzzlePosition(remote, Weapon::LightningGun, settings),
+      visualStart,
       remote.lightningGun.end,
       std::max(0.015F, beamWidth * (1.0F + pulse * 0.04F) * 0.012F),
       scaleColor({
-        remote.teammate ? settings.teammateBeamRed : settings.enemyBeamRed,
-        remote.teammate ? settings.teammateBeamGreen : settings.enemyBeamGreen,
-        remote.teammate ? settings.teammateBeamBlue : settings.enemyBeamBlue,
+        beamRed,
+        beamGreen,
+        beamBlue,
         static_cast<std::uint8_t>(
           std::clamp(beamAlpha, 0.0F, 1.0F) * 255.0F
         ),
       }, brightness)
     );
+    if (freezeBeam) {
+      addFreezeBeamParticles(scene, visualStart, remote.lightningGun.end, pulse);
+    }
   }
   for (std::size_t fireIndex = 0; fireIndex < weaponFires.size(); ++fireIndex) {
     const WeaponFireResult& fire = weaponFires[fireIndex];

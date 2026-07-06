@@ -10,6 +10,7 @@ namespace lg {
 
 struct BalanceConfig {
   LightningGunTuning lightningGun = {};
+  FreezeGunTuning freezeGun = {};
   HitscanTuning railgun = {};
   std::uint32_t railgunCooldownTicks = 188;
   MachineGunTuning machineGun = {};

@@ -47,18 +47,24 @@ int main() {
     "slot 7 should select plasma gun"
   );
   failures += expect(
+    lg::parseWeaponToken("8") == lg::Weapon::FreezeGun,
+    "slot 8 should select freeze gun"
+  );
+  failures += expect(
     lg::parseWeaponToken("LG") == lg::Weapon::LightningGun &&
       lg::parseWeaponToken("railgun") == lg::Weapon::Railgun &&
-      lg::parseWeaponToken("pg") == lg::Weapon::PlasmaGun,
+      lg::parseWeaponToken("pg") == lg::Weapon::PlasmaGun &&
+      lg::parseWeaponToken("freezegun") == lg::Weapon::FreezeGun,
     "short and long weapon aliases should parse case-insensitively"
   );
   failures += expect(
-    !lg::parseWeaponToken("8").has_value() &&
+    !lg::parseWeaponToken("9").has_value() &&
       !lg::parseWeaponToken("gauntlet").has_value(),
     "unsupported weapon tokens should be rejected"
   );
   failures += expect(
-    lg::weaponShortName(lg::Weapon::GrenadeLauncher) == "gl",
+    lg::weaponShortName(lg::Weapon::GrenadeLauncher) == "gl" &&
+      lg::weaponShortName(lg::Weapon::FreezeGun) == "fg",
     "weapon short names should be stable console output"
   );
 

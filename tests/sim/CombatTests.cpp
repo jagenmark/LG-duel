@@ -67,6 +67,7 @@ int main() {
   int failures = 0;
   const lg::Arena arena;
   const lg::LightningGunTuning tuning;
+  const lg::FreezeGunTuning freezeTuning;
   const lg::HitscanTuning railTuning;
   const lg::MachineGunTuning machineGunTuning;
   const lg::ShotgunTuning shotgunTuning;
@@ -98,6 +99,10 @@ weapon.pg.direct_hitbox_half_extent_xy 0.5
 weapon.pg.direct_hitbox_half_extent_z 1.1
 weapon.rg.spawn_ammo 9
 weapon.lg.spawn_ammo 123
+weapon.fg.freeze_per_second 60
+weapon.fg.decay_per_second 25
+weapon.fg.max_slow_fraction 0.4
+weapon.fg.spawn_ammo 124
 )");
 
     failures += expect(loaded.ok, "balance config should parse projectile direct-hit AABB tuning");
@@ -107,7 +112,11 @@ weapon.lg.spawn_ammo 123
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentXY, 0.5F) &&
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentZ, 1.1F) &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] == 9 &&
-        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] == 123,
+        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] == 123 &&
+        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] == 124 &&
+        nearlyEqual(loaded.config.freezeGun.freezePerSecond, 60.0F) &&
+        nearlyEqual(loaded.config.freezeGun.decayPerSecond, 25.0F) &&
+        nearlyEqual(loaded.config.freezeGun.maxSlowFraction, 0.4F),
       "balance config should apply projectile and spawn ammo tuning"
     );
   }
@@ -254,6 +263,7 @@ weapon.gl.gravity -1
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(6.0F, 0.0F);
+    target.health = 200;
     lg::LightningGunState state;
     lg::UserCommand command;
     command.attack = true;
@@ -453,6 +463,51 @@ weapon.gl.gravity -1
     failures += expect(
       firstState.fractionalDamage == secondState.fractionalDamage,
       "replayed combat should match fractional damage"
+    );
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    target.health = 1000;
+    lg::LightningGunState state;
+    lg::UserCommand command;
+    command.attack = true;
+
+    for (int tick = 0; tick < 125; ++tick) {
+      const lg::LightningGunResult result = lg::simulateFreezeGun(
+        attacker,
+        target,
+        command,
+        arena,
+        freezeTuning,
+        state,
+        lg::kFixedTickSeconds
+      );
+      failures += expect(result.hit, "sustained freeze beam should keep hitting");
+    }
+
+    failures += expect(
+      target.health == 880,
+      "one second of default freeze gun contact should apply 120 DPS"
+    );
+    failures += expect(
+      nearlyEqual(target.freezeLevel, 50.0F),
+      "one second of freeze gun contact should add configured freeze at LG fire cadence"
+    );
+  }
+
+  {
+    lg::PlayerState player = playerAt(0.0F, 0.0F);
+    player.freezeLevel = 50.0F;
+    lg::decayPlayerFreezeLevel(player, freezeTuning, 0.5F);
+    failures += expect(
+      nearlyEqual(player.freezeLevel, 40.0F),
+      "freeze level should decay at a constant configured rate"
+    );
+    failures += expect(
+      nearlyEqual(lg::freezeMovementScale(player, freezeTuning), 0.84F),
+      "freeze movement scale should be linear up to max slow fraction"
     );
   }
 

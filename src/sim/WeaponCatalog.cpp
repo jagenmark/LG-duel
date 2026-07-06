@@ -12,7 +12,7 @@ std::optional<Weapon> parseWeaponToken(std::string_view token) {
     return static_cast<char>(std::tolower(c));
   });
 
-  if (value.size() == 1 && value[0] >= '1' && value[0] <= '7') {
+  if (value.size() == 1 && value[0] >= '1' && value[0] <= '8') {
     return kWeaponSlotOrder[static_cast<std::size_t>(value[0] - '1')];
   }
   if (value == "mg" || value == "machine" || value == "machinegun") {
@@ -36,6 +36,9 @@ std::optional<Weapon> parseWeaponToken(std::string_view token) {
   if (value == "pg" || value == "plasma" || value == "plasmagun") {
     return Weapon::PlasmaGun;
   }
+  if (value == "fg" || value == "freeze" || value == "freezegun") {
+    return Weapon::FreezeGun;
+  }
   return std::nullopt;
 }
 
@@ -55,6 +58,8 @@ std::string_view weaponShortName(Weapon weapon) {
     return "rg";
   case Weapon::PlasmaGun:
     return "pg";
+  case Weapon::FreezeGun:
+    return "fg";
   }
   return "??";
 }

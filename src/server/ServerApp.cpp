@@ -111,7 +111,8 @@ bool sameWeaponDamage(
     lhs.lightningGunDamage == rhs.lightningGunDamage &&
     lhs.railgunDamage == rhs.railgunDamage &&
     lhs.rocketLauncherDamage == rhs.rocketLauncherDamage &&
-    lhs.plasmaGunDamage == rhs.plasmaGunDamage;
+    lhs.plasmaGunDamage == rhs.plasmaGunDamage &&
+    lhs.freezeGunDamage == rhs.freezeGunDamage;
 }
 
 [[nodiscard]] bool nearlyEqualGameplayFloat(float lhs, float rhs) {
@@ -234,6 +235,7 @@ void syncGameplayConsoleFromSnapshot(
   (void)console.execute("set g_sg_damage " + std::to_string(snapshot.weaponDamage.shotgunDamagePerPellet));
   (void)console.execute("set g_mg_damage " + std::to_string(snapshot.weaponDamage.machineGunDamage));
   (void)console.execute("set g_lg_damage " + std::to_string(snapshot.weaponDamage.lightningGunDamage));
+  (void)console.execute("set g_fg_damage " + std::to_string(snapshot.weaponDamage.freezeGunDamage));
   (void)console.execute("set g_rg_damage " + std::to_string(snapshot.weaponDamage.railgunDamage));
   (void)console.execute("set g_rl_damage " + std::to_string(snapshot.weaponDamage.rocketLauncherDamage));
   (void)console.execute("set g_pg_damage " + std::to_string(snapshot.weaponDamage.plasmaGunDamage));

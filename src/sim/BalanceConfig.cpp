@@ -52,6 +52,16 @@ namespace {
     config.lightningGun.range = value;
   } else if (key == "weapon.lg.eye_height" && inRange(value, 0.0F, 10.0F)) {
     config.lightningGun.eyeHeight = value;
+  } else if (key == "weapon.fg.range" && inRange(value, 0.1F, 1000.0F)) {
+    config.freezeGun.range = value;
+  } else if (key == "weapon.fg.eye_height" && inRange(value, 0.0F, 10.0F)) {
+    config.freezeGun.eyeHeight = value;
+  } else if (key == "weapon.fg.freeze_per_second" && inRange(value, 0.0F, 1000.0F)) {
+    config.freezeGun.freezePerSecond = value;
+  } else if (key == "weapon.fg.decay_per_second" && inRange(value, 0.0F, 1000.0F)) {
+    config.freezeGun.decayPerSecond = value;
+  } else if (key == "weapon.fg.max_slow_fraction" && inRange(value, 0.0F, 0.95F)) {
+    config.freezeGun.maxSlowFraction = value;
   } else if (key == "weapon.rg.range" && inRange(value, 0.1F, 5000.0F)) {
     config.railgun.range = value;
   } else if (key == "weapon.rg.eye_height" && inRange(value, 0.0F, 10.0F)) {
@@ -158,6 +168,8 @@ namespace {
     config.plasmaGun.cooldownTicks = static_cast<std::uint32_t>(value);
   } else if (key == "weapon.lg.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)] = value;
+  } else if (key == "weapon.fg.spawn_ammo" && value >= 0 && value <= 999) {
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)] = value;
   } else if (key == "weapon.rg.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)] = value;
   } else if (key == "weapon.rl.spawn_ammo" && value >= 0 && value <= 999) {

@@ -1,6 +1,7 @@
 #include "sim/Movement.hpp"
 
 #include "shared/Math.hpp"
+#include "sim/Combat.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -692,7 +693,7 @@ void simulateMovement(
       command,
       arena,
       tuning,
-      fixedDt,
+      fixedDt * freezeMovementScale(player),
       jumpPadCooldownDurationTicks
     );
     break;
@@ -702,7 +703,7 @@ void simulateMovement(
       command,
       arena,
       tuning,
-      fixedDt,
+      fixedDt * freezeMovementScale(player),
       jumpPadCooldownDurationTicks
     );
     break;

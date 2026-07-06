@@ -100,6 +100,55 @@ void addLine(
   });
 }
 
+void addDiamond(
+  DrawList2D& drawList,
+  ScreenPoint center,
+  float radius,
+  RenderColor color
+) {
+  const std::array<ScreenPoint, 4> points = {{
+    {center.x, center.y - radius},
+    {center.x + radius, center.y},
+    {center.x, center.y + radius},
+    {center.x - radius, center.y},
+  }};
+  drawList.overlayCommands.emplace_back(FilledQuad2D{points, color});
+}
+
+void addFreezeBeamPuffs(
+  DrawList2D& drawList,
+  float centerX,
+  float startY,
+  float endY,
+  float scale,
+  float pulse
+) {
+  constexpr int kPuffCount = 24;
+  const float beamLength = startY - endY;
+  const float pulse01 = (pulse + 1.0F) * 0.5F;
+  for (int index = 0; index < kPuffCount; ++index) {
+    const float t = (static_cast<float>(index) + 0.35F) /
+      static_cast<float>(kPuffCount);
+    const float phase = static_cast<float>(index) * 1.713F + pulse * 1.8F;
+    const float side =
+      std::sin(phase) * (18.0F + 16.0F * std::sin(phase * 0.47F));
+    const float drift = std::cos(phase * 0.71F) * 8.0F;
+    const float y = startY - beamLength * t + drift * scale;
+    const float radius =
+      (3.2F + std::fmod(static_cast<float>(index * 7), 5.0F) + pulse01 * 2.4F) *
+      scale;
+    const std::uint8_t alpha = static_cast<std::uint8_t>(
+      std::clamp(42.0F + pulse01 * 34.0F + std::sin(phase) * 18.0F, 18.0F, 96.0F)
+    );
+    addDiamond(
+      drawList,
+      {centerX + side * scale, y},
+      radius,
+      {220, 248, 255, alpha}
+    );
+  }
+}
+
 void addText(
   DrawList2D& drawList,
   float x,
@@ -301,6 +350,8 @@ void addLocalHealthNumber(
     return {72, 232, 112, 255};
   case Weapon::PlasmaGun:
     return {190, 82, 255, 255};
+  case Weapon::FreezeGun:
+    return {154, 232, 255, 255};
   }
   return {230, 238, 246, 255};
 }
@@ -321,6 +372,8 @@ void addLocalHealthNumber(
     return 5;
   case Weapon::PlasmaGun:
     return 6;
+  case Weapon::FreezeGun:
+    return 7;
   }
   return 4;
 }
@@ -545,7 +598,7 @@ void addWeaponIcon(
     return;
   }
 
-  if (weapon == Weapon::LightningGun) {
+  if (weapon == Weapon::LightningGun || weapon == Weapon::FreezeGun) {
     for (int branch = 0; branch < 6; ++branch) {
       const float angle =
         (static_cast<float>(branch) / 6.0F) * kTwoPi - kHalfPi;
@@ -610,7 +663,7 @@ void addSelectedWeaponIndicator(
   const RenderSettings& settings
 ) {
   (void)width;
-  constexpr std::array<Weapon, 7> weapons = {{
+  constexpr std::array<Weapon, 8> weapons = {{
     Weapon::MachineGun,
     Weapon::Shotgun,
     Weapon::GrenadeLauncher,
@@ -618,6 +671,7 @@ void addSelectedWeaponIndicator(
     Weapon::LightningGun,
     Weapon::Railgun,
     Weapon::PlasmaGun,
+    Weapon::FreezeGun,
   }};
   const float viewportScale = std::clamp(
     static_cast<float>(height) / 720.0F,
@@ -1896,10 +1950,11 @@ DrawList2D buildPerspectiveWeaponOverlay(
 ) {
   DrawList2D drawList;
   const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
+  const bool freezeGunSelected = selectedWeapon == Weapon::FreezeGun;
   const RenderColor color = {
-    blendChannel(settings.beamRed, settings.beamHitRed, hitAmount),
-    blendChannel(settings.beamGreen, settings.beamHitGreen, hitAmount),
-    blendChannel(settings.beamBlue, settings.beamHitBlue, hitAmount),
+    blendChannel(freezeGunSelected ? 154U : settings.beamRed, freezeGunSelected ? 230U : settings.beamHitRed, hitAmount),
+    blendChannel(freezeGunSelected ? 232U : settings.beamGreen, freezeGunSelected ? 255U : settings.beamHitGreen, hitAmount),
+    blendChannel(freezeGunSelected ? 255U : settings.beamBlue, freezeGunSelected ? 255U : settings.beamHitBlue, hitAmount),
     static_cast<std::uint8_t>(
       std::clamp(settings.beamAlpha, 0.0F, 1.0F) * 255.0F
     ),
@@ -1949,6 +2004,16 @@ DrawList2D buildPerspectiveWeaponOverlay(
   const float scale = std::max(0.7F, height / 720.0F);
   const float muzzleY = height - 154.0F * scale;
   if (localLightningGun.active) {
+    if (freezeGunSelected) {
+      addFreezeBeamPuffs(
+        drawList,
+        centerX,
+        height * 1.15F,
+        height * 0.5F,
+        scale,
+        pulse
+      );
+    }
     // The covered lower section keeps the beam stable while making its
     // visible origin coincide with the viewmodel emitter.
     addLine(
@@ -1974,7 +2039,7 @@ DrawList2D buildPerspectiveWeaponOverlay(
     const float bodyTop = muzzle + 20.0F * scale;
     const float bodyBottom = height + 18.0F * scale + yOffset;
 
-    if (weapon == Weapon::LightningGun) {
+    if (weapon == Weapon::LightningGun || weapon == Weapon::FreezeGun) {
       const float bodyHalfTop = 38.0F * scale;
       const float bodyHalfBottom = 104.0F * scale;
       quad(

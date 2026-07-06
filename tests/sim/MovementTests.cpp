@@ -425,6 +425,45 @@ int main() {
   {
     lg::UserCommand command;
     command.forwardMove = 1.0F;
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 100.0F;
+    lg::PlayerState normal = groundedPlayer();
+    lg::PlayerState frozen = groundedPlayer();
+    frozen.freezeLevel = 100.0F;
+
+    runCommand(normal, command, tuning, 20);
+    runCommand(frozen, command, tuning, 20);
+
+    failures += expect(
+      frozen.position.x < normal.position.x * 0.75F,
+      "full freeze should slow grounded horizontal displacement"
+    );
+  }
+
+  {
+    lg::UserCommand idle;
+    lg::PlayerState normal = groundedPlayer();
+    lg::PlayerState frozen = groundedPlayer();
+    normal.position.z = 5.0F;
+    frozen.position.z = 5.0F;
+    normal.onGround = false;
+    frozen.onGround = false;
+    normal.movementMode = lg::MovementMode::Airborne;
+    frozen.movementMode = lg::MovementMode::Airborne;
+    frozen.freezeLevel = 100.0F;
+
+    runCommand(normal, idle, 20);
+    runCommand(frozen, idle, 20);
+
+    failures += expect(
+      frozen.position.z > normal.position.z,
+      "full freeze should slow airborne falling on the vertical axis"
+    );
+  }
+
+  {
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
     command.crouch = true;
     command.upMove = -1.0F;
     lg::MovementTuning tuning;

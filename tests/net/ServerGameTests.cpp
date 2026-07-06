@@ -1004,6 +1004,75 @@ int main() {
     lg::CommandPacket tuning;
     tuning.command.sequence = 1;
     tuning.requestMovementTuning = true;
+    tuning.weaponDamage.freezeGunDamage = 80;
+    transport.sendCommand(tuning);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponDamage.freezeGunDamage == 80,
+      "g_fg_damage should replicate to authoritative snapshots"
+    );
+
+    lg::UserCommand freeze;
+    freeze.sequence = 2;
+    freeze.attack = true;
+    freeze.weapon = lg::Weapon::FreezeGun;
+    transport.sendCommand(lg::CommandPacket{0, freeze, false});
+    for (int tick = 0; tick < 125; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.selectedWeapons[0] == lg::Weapon::FreezeGun &&
+        snapshot.lightningGuns[0].active &&
+        snapshot.lightningGuns[0].hit &&
+        snapshot.players[1].freezeLevel > 29.0F,
+      "freeze gun should use the continuous beam hit path"
+    );
+    failures += expect(
+      snapshot.players[1].health == 20 &&
+        lg::length(snapshot.lightningGuns[0].knockbackImpulse) == 0.0F &&
+        snapshot.players[1].freezeLevel > 29.0F &&
+        snapshot.players[1].freezeLevel < 31.0F,
+      "freeze gun should apply g_fg_damage DPS and build target-owned freeze without knockback"
+    );
+
+    freeze.attack = false;
+    freeze.sequence = 3;
+    transport.sendCommand(lg::CommandPacket{0, freeze, false});
+    for (int tick = 0; tick < 63; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].freezeLevel < 21.0F,
+      "target-owned freeze should decay at the configured constant rate"
+    );
+
+    const float frozenX = snapshot.players[1].position.x;
+    lg::UserCommand moveTarget;
+    moveTarget.sequence = 4;
+    moveTarget.forwardMove = 1.0F;
+    transport.sendCommand(lg::CommandPacket{1, moveTarget, false});
+    for (int tick = 0; tick < 20; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.players[1].position.x > frozenX &&
+        snapshot.players[1].freezeLevel > 0.0F,
+      "frozen target should still move authoritatively while slowed by its own freeze level"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::CommandPacket tuning;
+    tuning.command.sequence = 1;
+    tuning.requestMovementTuning = true;
     tuning.weaponDamage.railgunDamage = 50;
     transport.sendCommand(tuning);
     server.tick(lg::kFixedTickSeconds);

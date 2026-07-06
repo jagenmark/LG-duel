@@ -100,6 +100,7 @@ struct CommandPacket {
     80,
     100,
     20,
+    120,
   };
   WeaponAmmoConfig weaponAmmo = {};
   float vampirism = 0.0F;

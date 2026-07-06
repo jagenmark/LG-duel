@@ -111,7 +111,7 @@ int main() {
   hud.bottomCenterLines = {"HEALTH 100"};
   hud.fpsText = "111fps";
   hud.speedText = "320 ups";
-  hud.weaponValues = {{"11", "22", "33", "44", "55", "66", "77"}};
+  hud.weaponValues = {{"11", "22", "33", "44", "55", "66", "77", "88"}};
   hud.scoreboardOpen = true;
   hud.scoreboardLines = {"SCOREBOARD", "PLAYER  SCORE"};
   lg::ConsoleRenderState console;
@@ -600,10 +600,10 @@ int main() {
     bool foundLegacySpeedText = false;
     bool foundYellowHealthFill = false;
     const lg::Text2D* topCenterScore = nullptr;
-    std::array<bool, 7> foundWeaponValues = {};
+    std::array<bool, 8> foundWeaponValues = {};
     std::size_t weaponHudShapeCount = 0;
     const lg::Text2D* fpsText = nullptr;
-    constexpr std::array<std::string_view, 7> weaponValues = {
+    constexpr std::array<std::string_view, 8> weaponValues = {
       "11",
       "22",
       "33",
@@ -611,6 +611,7 @@ int main() {
       "55",
       "66",
       "77",
+      "88",
     };
     for (const lg::DrawCommand2D& command : ui.overlayCommands) {
       if (const auto* text = std::get_if<lg::Text2D>(&command)) {
@@ -689,10 +690,10 @@ int main() {
     }
     failures += expect(
       foundAllWeaponValues,
-      "selected weapon indicator should show all seven weapon values"
+      "selected weapon indicator should show all eight weapon values"
     );
 
-    constexpr std::array<lg::Weapon, 7> weapons = {{
+    constexpr std::array<lg::Weapon, 8> weapons = {{
       lg::Weapon::MachineGun,
       lg::Weapon::Shotgun,
       lg::Weapon::GrenadeLauncher,
@@ -700,6 +701,7 @@ int main() {
       lg::Weapon::LightningGun,
       lg::Weapon::Railgun,
       lg::Weapon::PlasmaGun,
+      lg::Weapon::FreezeGun,
     }};
 
     for (std::size_t index = 0; index < weapons.size(); ++index) {

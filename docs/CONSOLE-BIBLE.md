@@ -142,9 +142,10 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. |
 | `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. |
 | `g_lg_knockback` | float | `1000` | `0..100000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. Skalas om linjärt så `0` motsvarar gamla `682`, `500` gamla `841`, och `1000` gamla `1000`. |
-| `g_lg_fire_hz` | float | `20` | `1..125` | Ingen direkt stabil cvar | Antal auktoritativa LG damage/knockback-instanser per sekund. Default 20 Hz ger 6 damage per instans med `g_lg_damage 120`. |
+| `g_lg_fire_hz` | float | `20` | `1..125` | Ingen direkt stabil cvar | Authoritative LG damage/knockback and FG damage/freeze instances per second. Default 20 Hz gives 6 damage per instance with `g_lg_damage 120` or `g_fg_damage 120`; FG freeze amount comes from `balance.cfg`. |
 | `g_rl_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | RL-knockback per explosion, skalad med splash-damage. |
 | `g_knockback_time_ms` | int | `100` | `0..250` | Q3-style knockback movement timer | Antal millisekunder som grounded knockback anvander air movement utan ground friction. `0` stanger av speciallaget men behaller damage och direkt knockback. |
+| `g_fg_damage` | int | `120` | `1..500` | Ingen standardmekanik | Authoritative freeze gun damage per second, distributed over `g_lg_fire_hz` instances. Does not add FG knockback. |
 | `g_vampirism` | float | `0` | `0..2` | Ingen standardmekanik | Healing som multipel av utdelad skada. `0.1 = 10%`, `1 = 100%`, `2 = 200%`. Fraktioner ackumuleras och avrundas när helt HP kan delas ut. |
 | `g_selfdamage` | float | `100` | `0..100` | `100` | Procent av egen splash-damage som appliceras. Värdet rundas till närmaste heltal innan det skickas till servern. |
 | `g_healthamount` | int | `100` | `1..100000` | `100` | HP som varje spelare startar med vid spawn, rundstart och warmup-respawn. |
@@ -156,7 +157,25 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_playersize_z` | float | `1` | `0.5..3` | Ingen direkt | Skalar båda spelarnas auktoritativa höjd/hitbox i Z. |
 | `cl_player_name` | string | empty | `0..20` bytes | Ingen direkt | Archived local player name. `player <name>` writes this cvar and sends the name to the server. |
 
-### 3.4 Crosshair
+### 3.4 Freeze Gun balance keys
+
+These values live in server-authoritative `config/balance.cfg`, not in the
+console cvar registry. The Freeze Gun fires a hitscan beam at `g_lg_fire_hz`,
+applies damage from `g_fg_damage` with no knockback, and builds target-owned freeze on a `0..100`
+scale. Freeze decays every server tick. The movement slow is linear: with the
+default `weapon.fg.max_slow_fraction 0.4`, `100` freeze is a 40% all-axis slow
+and `50` freeze is a 20% all-axis slow.
+
+| Key | Default | Valid range | Function |
+|---|---:|---|---|
+| `weapon.fg.range` | `18` | `0.1..1000` | Hitscan beam range. |
+| `weapon.fg.eye_height` | `0.65` | `0..10` | Beam muzzle height relative to player height. |
+| `weapon.fg.freeze_per_second` | `50` | `0..1000` | Freeze level added per second of confirmed hits. Multiple attackers add independently to the target's level. |
+| `weapon.fg.decay_per_second` | `20` | `0..1000` | Freeze level removed per second while the player is alive. |
+| `weapon.fg.max_slow_fraction` | `0.4` | `0..0.95` | Slow fraction at full freeze. |
+| `weapon.fg.spawn_ammo` | `150` | `0..999` | Spawn ammo when `g_infiniteammo 0`. |
+
+### 3.5 Crosshair
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
@@ -176,7 +195,7 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `crosshair_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen direkt | Hur länge träfffärgen ligger kvar. |
 | `crosshair_hit_fade` | bool | `1` | bool | Ingen direkt | `1`: gradvis återgång. `0`: binär färg tills durationen löper ut. |
 
-### 3.5 Renderer och lokal LG-beam
+### 3.6 Renderer och lokal LG-beam
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
@@ -202,7 +221,7 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 `±4%` bredd och `±5%` ljusstyrka. Den påverkar inte simulation eller aim.
 
-### 3.6 Motståndarens beam
+### 3.7 Motståndarens beam
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
@@ -212,7 +231,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_beam_g` | int | `110` | `0..255` | Ingen direkt | Grön kanal. |
 | `r_enemy_beam_b` | int | `80` | `0..255` | Ingen direkt | Blå kanal. |
 
-### 3.7 Hitmarker
+### 3.8 Hitmarker
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
@@ -234,7 +253,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_damage_numbers_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horizontal screen offset from the crosshair or aim point. |
 | `r_damage_numbers_offset_y` | float | `-46` | `-400..400` | Ingen direkt | Vertical screen offset from the crosshair or aim point. |
 
-### 3.8 Motståndarmodell och träfffärg
+### 3.9 Motståndarmodell och träfffärg
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
@@ -258,7 +277,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen | Träfffärgens duration. |
 | `r_enemy_hit_fade` | bool | `1` | bool | Ingen | `1`: gradvis blend. `0`: binär färg. |
 
-### 3.9 Lagkamratens utseende
+### 3.10 Lagkamratens utseende
 
 Dessa cvars används bara för lagkamrater i Clan Arena. Lagkamrater har ingen
 separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
@@ -297,7 +316,7 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_health_g` | int | `190` | `0..255` | Ingen direkt | Health barens gröna kanal. |
 | `r_teammate_health_b` | int | `224` | `0..255` | Ingen direkt | Health barens blå kanal. |
 
-### 3.10 Nametags
+### 3.11 Nametags
 
 Enemy and teammate nametags are separate so Clan Arena can style friends and enemies independently. They render as first-person screen-space overlays anchored to 3D players.
 
@@ -426,7 +445,7 @@ knappen släpps.
 | `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
-| `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|1..7>` | Välj machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun eller plasma gun. Vapenval skickas till servern varje command-tick. |
+| `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|1..8>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun, plasma gun, or freeze gun. Weapon selection is sent to the server every command tick. |
 
 ### Standardbindings
 
@@ -449,6 +468,7 @@ knappen släpps.
 | `5` | `weapon lg` |
 | `6` | `weapon rg` |
 | `7` | `weapon pg` |
+| `8` | `weapon fg` |
 | `Q` | `weapon rl` |
 | `E` | `weapon lg` |
 | `R` | `weapon rg` |

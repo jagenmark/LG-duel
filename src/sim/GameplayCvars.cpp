@@ -17,12 +17,13 @@ void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
   console.registerCvar({"g_stopspeed", "Minimum speed used when calculating grounded friction.", 2.5F, flags, 0.0F, 100.0F, "2.5 (pm_stopspeed 100)"});
   console.registerCvar({"g_maxspeed", "Authoritative sustained ground and air speed cap.", 8.0F, flags, 0.1F, 100.0F, "8 (g_speed 320)"});
   console.registerCvar({"g_lg_knockback", "Authoritative LG knockback magnitude per second.", 1000.0F, flags, 0.0F, kMaxLightningKnockback, "1000"});
-  console.registerCvar({"g_lg_fire_hz", "Authoritative lightning gun damage instances per second.", 20.0F, flags, kMinLightningFireHz, kMaxLightningFireHz});
+  console.registerCvar({"g_lg_fire_hz", "Authoritative lightning/freeze gun beam instances per second.", 20.0F, flags, kMinLightningFireHz, kMaxLightningFireHz});
   console.registerCvar({"g_rl_knockback", "Authoritative rocket knockback on the Q3 g_knockback scale.", 1000.0F, flags, 0.0F, kMaxRocketKnockback, "1000"});
   console.registerCvar({"g_knockback_time_ms", "Authoritative Q3-style knockback movement timer in milliseconds; 0 disables the special movement state.", 100, flags, 0.0F, 250.0F, "100"});
   console.registerCvar({"g_sg_damage", "Authoritative shotgun damage per pellet.", 5, flags, 1.0F, 500.0F});
   console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, flags, 1.0F, 500.0F});
   console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, flags, 1.0F, 500.0F});
+  console.registerCvar({"g_fg_damage", "Authoritative freeze gun damage per second, distributed over g_lg_fire_hz instances.", 120, flags, 1.0F, 500.0F});
   console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, flags, 1.0F, 500.0F});
   console.registerCvar({"g_rl_damage", "Authoritative rocket/grenade direct and max splash damage.", 100, flags, 1.0F, 500.0F});
   console.registerCvar({"g_pg_damage", "Authoritative plasma gun direct hit damage.", 20, flags, 1.0F, 500.0F});
@@ -64,6 +65,7 @@ WeaponDamageTuning weaponDamageTuningFromCvars(const ConsoleSystem& console) {
     console.getInt("g_rg_damage"),
     console.getInt("g_rl_damage"),
     console.getInt("g_pg_damage"),
+    console.getInt("g_fg_damage"),
   };
 }
 

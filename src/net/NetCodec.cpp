@@ -315,6 +315,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeI32(packet.weaponDamage.railgunDamage) &&
     writer.writeI32(packet.weaponDamage.rocketLauncherDamage) &&
     writer.writeI32(packet.weaponDamage.plasmaGunDamage) &&
+    writer.writeI32(packet.weaponDamage.freezeGunDamage) &&
     writer.writeBool(packet.weaponAmmo.infiniteAmmo) &&
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
@@ -323,6 +324,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) &&
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
+    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
     writer.writeFloat(packet.vampirism) &&
     writer.writeU8(packet.selfDamagePercent) &&
     writer.writeI32(packet.healthAmount) &&
@@ -392,6 +394,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readI32(packet.weaponDamage.railgunDamage) ||
     !reader.readI32(packet.weaponDamage.rocketLauncherDamage) ||
     !reader.readI32(packet.weaponDamage.plasmaGunDamage) ||
+    !reader.readI32(packet.weaponDamage.freezeGunDamage) ||
     !reader.readBool(packet.weaponAmmo.infiniteAmmo) ||
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
@@ -400,6 +403,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) ||
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
+    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
     !reader.readFloat(packet.vampirism) ||
     !reader.readU8(packet.selfDamagePercent) ||
     !reader.readI32(packet.healthAmount) ||
@@ -474,6 +478,8 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.weaponDamage.rocketLauncherDamage <= 500 &&
     packet.weaponDamage.plasmaGunDamage >= 1 &&
     packet.weaponDamage.plasmaGunDamage <= 500 &&
+    packet.weaponDamage.freezeGunDamage >= 1 &&
+    packet.weaponDamage.freezeGunDamage <= 500 &&
     std::all_of(
       packet.weaponAmmo.spawnAmmo.begin(),
       packet.weaponAmmo.spawnAmmo.end(),
@@ -524,6 +530,7 @@ bool writePlayer(Writer& writer, const PlayerState& player) {
     writer.writeFloat(player.viewYawRadians) &&
     writer.writeFloat(player.viewPitchRadians) &&
     writer.writeI32(player.health) &&
+    writer.writeFloat(player.freezeLevel) &&
     writer.writeFloat(player.bounds.radius) &&
     writer.writeFloat(player.bounds.halfHeight) &&
     writer.writeU8(static_cast<std::uint8_t>(player.movementMode)) &&
@@ -543,6 +550,7 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     !reader.readFloat(player.viewYawRadians) ||
     !reader.readFloat(player.viewPitchRadians) ||
     !reader.readI32(health) ||
+    !reader.readFloat(player.freezeLevel) ||
     !reader.readFloat(player.bounds.radius) ||
     !reader.readFloat(player.bounds.halfHeight) ||
     !reader.readU8(movementMode) ||
@@ -558,6 +566,8 @@ bool readPlayer(Reader& reader, PlayerState& player) {
   if (
     health < 0 ||
     health > 100000 ||
+    player.freezeLevel < 0.0F ||
+    player.freezeLevel > 1000.0F ||
     movementMode > static_cast<std::uint8_t>(MovementMode::Flying) ||
     player.bounds.radius <= 0.0F ||
     player.bounds.radius > 100.0F ||
@@ -580,6 +590,7 @@ bool writeLightningGun(Writer& writer, const LightningGunResult& result) {
     writer.writeU8(result.targetPlayerIndex) &&
     writer.writeI32(result.damageApplied) &&
     writeVec3(writer, result.knockbackImpulse) &&
+    writer.writeFloat(result.freezeApplied) &&
     writer.writeU32(result.requestedRewindTicks) &&
     writer.writeU32(result.appliedRewindTicks) &&
     writer.writeBool(result.rewindClamped) &&
@@ -604,6 +615,7 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
     !reader.readU8(targetPlayerIndex) ||
     !reader.readI32(damageApplied) ||
     !readVec3(reader, result.knockbackImpulse) ||
+    !reader.readFloat(result.freezeApplied) ||
     !reader.readU32(result.requestedRewindTicks) ||
     !reader.readU32(result.appliedRewindTicks) ||
     !reader.readBool(result.rewindClamped) ||
@@ -621,6 +633,8 @@ bool readLightningGun(Reader& reader, LightningGunResult& result) {
 
   if (
     damageApplied < 0 ||
+    result.freezeApplied < 0.0F ||
+    result.freezeApplied > 1000.0F ||
     (targetPlayerIndex != 255 && targetPlayerIndex >= kDuelPlayerCount) ||
     result.currentTargetBounds.radius <= 0.0F ||
     result.currentTargetBounds.radius > 100.0F ||
@@ -1278,6 +1292,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeI32(snapshot.weaponDamage.railgunDamage) &&
     writer.writeI32(snapshot.weaponDamage.rocketLauncherDamage) &&
     writer.writeI32(snapshot.weaponDamage.plasmaGunDamage) &&
+    writer.writeI32(snapshot.weaponDamage.freezeGunDamage) &&
     writer.writeBool(snapshot.weaponAmmo.infiniteAmmo) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
@@ -1286,6 +1301,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
+    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
@@ -1515,6 +1531,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readI32(decoded.weaponDamage.railgunDamage) ||
     !reader.readI32(decoded.weaponDamage.rocketLauncherDamage) ||
     !reader.readI32(decoded.weaponDamage.plasmaGunDamage) ||
+    !reader.readI32(decoded.weaponDamage.freezeGunDamage) ||
     !reader.readBool(decoded.weaponAmmo.infiniteAmmo) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
@@ -1523,6 +1540,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Shotgun)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
+    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||
@@ -1586,6 +1604,8 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.weaponDamage.rocketLauncherDamage > 500 ||
     decoded.weaponDamage.plasmaGunDamage < 1 ||
     decoded.weaponDamage.plasmaGunDamage > 500 ||
+    decoded.weaponDamage.freezeGunDamage < 1 ||
+    decoded.weaponDamage.freezeGunDamage > 500 ||
     !std::all_of(
       decoded.weaponAmmo.spawnAmmo.begin(),
       decoded.weaponAmmo.spawnAmmo.end(),
