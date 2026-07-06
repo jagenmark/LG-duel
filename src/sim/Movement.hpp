@@ -1,6 +1,7 @@
 #pragma once
 
 #include "sim/Arena.hpp"
+#include "sim/IcePool.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -41,6 +42,27 @@ void simulateMovement(
   const UserCommand& command,
   const Arena& arena,
   const MovementTuning& tuning,
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks
+);
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
+  float fixedDt
+);
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
   float fixedDt,
   std::uint16_t jumpPadCooldownDurationTicks
 );

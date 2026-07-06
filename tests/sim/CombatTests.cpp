@@ -103,6 +103,13 @@ weapon.fg.freeze_per_second 60
 weapon.fg.decay_per_second 25
 weapon.fg.max_slow_fraction 0.4
 weapon.fg.spawn_ammo 124
+weapon.fg.ice_pool_max_radius 2.5
+weapon.fg.ice_pool_growth_per_second 12
+weapon.fg.ice_pool_lifetime_seconds 3.5
+weapon.fg.ice_pool_friction 0.8
+weapon.fg.ice_pool_slope_gravity_scale 1.25
+weapon.fg.ice_pool_control_scale 0.3
+weapon.fg.ice_pool_merge_distance 1.2
 )");
 
     failures += expect(loaded.ok, "balance config should parse projectile direct-hit AABB tuning");
@@ -116,7 +123,14 @@ weapon.fg.spawn_ammo 124
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] == 124 &&
         nearlyEqual(loaded.config.freezeGun.freezePerSecond, 60.0F) &&
         nearlyEqual(loaded.config.freezeGun.decayPerSecond, 25.0F) &&
-        nearlyEqual(loaded.config.freezeGun.maxSlowFraction, 0.4F),
+        nearlyEqual(loaded.config.freezeGun.maxSlowFraction, 0.4F) &&
+        nearlyEqual(loaded.config.icePool.maxRadius, 2.5F) &&
+        nearlyEqual(loaded.config.icePool.growthPerSecond, 12.0F) &&
+        nearlyEqual(loaded.config.icePool.lifetimeSeconds, 3.5F) &&
+        nearlyEqual(loaded.config.icePool.friction, 0.8F) &&
+        nearlyEqual(loaded.config.icePool.slopeGravityScale, 1.25F) &&
+        nearlyEqual(loaded.config.icePool.controlScale, 0.3F) &&
+        nearlyEqual(loaded.config.icePool.mergeDistance, 1.2F),
       "balance config should apply projectile and spawn ammo tuning"
     );
   }

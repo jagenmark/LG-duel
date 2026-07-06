@@ -28,6 +28,8 @@ void Prediction::predict(
   const UserCommand& command,
   const Arena& arena,
   const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
   float fixedDt
 ) {
   if (!initialized_) {
@@ -36,11 +38,20 @@ void Prediction::predict(
 
   pendingCommands_.push_back(command);
   if (player_.health > 0) {
-    simulateMovement(player_, command, arena, tuning, fixedDt);
+    simulateMovement(player_, command, arena, tuning, icePools, icePoolTuning, fixedDt);
   } else {
     applyDeadCommand(player_, command);
   }
   diagnostics_.pendingCommandCount = pendingCommands_.size();
+}
+
+void Prediction::predict(
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  float fixedDt
+) {
+  predict(command, arena, tuning, IcePoolArray{}, IcePoolTuning{}, fixedDt);
 }
 
 void Prediction::reconcile(
@@ -49,6 +60,8 @@ void Prediction::reconcile(
   std::uint32_t acknowledgedCommand,
   const Arena& arena,
   const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
   float fixedDt
 ) {
   if (!initialized_) {
@@ -69,7 +82,7 @@ void Prediction::reconcile(
   player_ = authoritativeState;
   for (const UserCommand& command : pendingCommands_) {
     if (player_.health > 0) {
-      simulateMovement(player_, command, arena, tuning, fixedDt);
+      simulateMovement(player_, command, arena, tuning, icePools, icePoolTuning, fixedDt);
     } else {
       applyDeadCommand(player_, command);
     }
@@ -80,6 +93,26 @@ void Prediction::reconcile(
     ++diagnostics_.correctionCount;
   }
   diagnostics_.pendingCommandCount = pendingCommands_.size();
+}
+
+void Prediction::reconcile(
+  const PlayerState& authoritativeState,
+  bool hasAcknowledgedCommand,
+  std::uint32_t acknowledgedCommand,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  float fixedDt
+) {
+  reconcile(
+    authoritativeState,
+    hasAcknowledgedCommand,
+    acknowledgedCommand,
+    arena,
+    tuning,
+    IcePoolArray{},
+    IcePoolTuning{},
+    fixedDt
+  );
 }
 
 bool Prediction::initialized() const {

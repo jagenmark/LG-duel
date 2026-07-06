@@ -75,6 +75,7 @@ private:
   Arena arena_ = {};
   std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};
+  IcePoolTuning icePoolTuning_ = {};
   Prediction prediction_ = {};
   SnapshotInterpolation interpolation_ = {};
   ServerSnapshot snapshot_ = {};

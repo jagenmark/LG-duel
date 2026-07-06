@@ -62,6 +62,20 @@ namespace {
     config.freezeGun.decayPerSecond = value;
   } else if (key == "weapon.fg.max_slow_fraction" && inRange(value, 0.0F, 0.95F)) {
     config.freezeGun.maxSlowFraction = value;
+  } else if (key == "weapon.fg.ice_pool_max_radius" && inRange(value, 0.0F, 100.0F)) {
+    config.icePool.maxRadius = value;
+  } else if (key == "weapon.fg.ice_pool_growth_per_second" && inRange(value, 0.0F, 1000.0F)) {
+    config.icePool.growthPerSecond = value;
+  } else if (key == "weapon.fg.ice_pool_lifetime_seconds" && inRange(value, 0.0F, 60.0F)) {
+    config.icePool.lifetimeSeconds = value;
+  } else if (key == "weapon.fg.ice_pool_friction" && inRange(value, 0.0F, 100.0F)) {
+    config.icePool.friction = value;
+  } else if (key == "weapon.fg.ice_pool_slope_gravity_scale" && inRange(value, 0.0F, 10.0F)) {
+    config.icePool.slopeGravityScale = value;
+  } else if (key == "weapon.fg.ice_pool_control_scale" && inRange(value, 0.0F, 1.0F)) {
+    config.icePool.controlScale = value;
+  } else if (key == "weapon.fg.ice_pool_merge_distance" && inRange(value, 0.0F, 100.0F)) {
+    config.icePool.mergeDistance = value;
   } else if (key == "weapon.rg.range" && inRange(value, 0.1F, 5000.0F)) {
     config.railgun.range = value;
   } else if (key == "weapon.rg.eye_height" && inRange(value, 0.0F, 10.0F)) {

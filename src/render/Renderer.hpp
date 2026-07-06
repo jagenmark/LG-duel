@@ -468,6 +468,7 @@ public:
     const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
     const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
     const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+    const IcePoolArray& icePools,
     std::span<const TransientTracer> transientTracers,
     std::span<const TransientEffect> transientEffects,
     std::uint32_t newExplosionEventsConsumed,

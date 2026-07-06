@@ -4610,6 +4610,7 @@ void appendCommandBatches(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const IcePoolArray& icePools,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
   std::uint32_t newExplosionEventsConsumed,
@@ -4774,6 +4775,7 @@ void appendCommandBatches(
       rockets,
       transientTracers,
       transientEffects,
+      icePools,
       settings,
       cameraVerticalOffset
     );
@@ -7025,6 +7027,7 @@ void Renderer::render(
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  const IcePoolArray& icePools,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
   std::uint32_t newExplosionEventsConsumed,
@@ -7164,6 +7167,7 @@ void Renderer::render(
       weaponFires,
           rocketExplosions,
           rockets,
+          icePools,
           transientTracers,
           transientEffects,
           newExplosionEventsConsumed,
@@ -7336,6 +7340,7 @@ void Renderer::render(
     rockets,
     transientTracers,
     transientEffects,
+    icePools,
     settings,
     cameraStepOffset_
   );

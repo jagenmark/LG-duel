@@ -164,7 +164,9 @@ console cvar registry. The Freeze Gun fires a hitscan beam at `g_lg_fire_hz`,
 applies damage from `g_fg_damage` with no knockback, and builds target-owned freeze on a `0..100`
 scale. Freeze decays every server tick. The movement slow is linear: with the
 default `weapon.fg.max_slow_fraction 0.4`, `100` freeze is a 40% all-axis slow
-and `50` freeze is a 20% all-axis slow.
+and `50` freeze is a 20% all-axis slow. Shooting walkable world surfaces creates
+temporary ice pools. Pools lower local ground friction for everyone, apply a
+downslope slide force on ramps, and do not add freeze level by themselves.
 
 | Key | Default | Valid range | Function |
 |---|---:|---|---|
@@ -174,6 +176,13 @@ and `50` freeze is a 20% all-axis slow.
 | `weapon.fg.decay_per_second` | `20` | `0..1000` | Freeze level removed per second while the player is alive. |
 | `weapon.fg.max_slow_fraction` | `0.4` | `0..0.95` | Slow fraction at full freeze. |
 | `weapon.fg.spawn_ammo` | `150` | `0..999` | Spawn ammo when `g_infiniteammo 0`. |
+| `weapon.fg.ice_pool_max_radius` | `2.4` | `0..100` | Maximum radius for one merged ice pool spot, in world units. |
+| `weapon.fg.ice_pool_growth_per_second` | `10` | `0..1000` | Asymptotic pool growth rate while FG keeps hitting the same spot. Higher values reach max radius faster. |
+| `weapon.fg.ice_pool_lifetime_seconds` | `3` | `0..60` | Seconds before an ice pool expires after its last meaningful FG contact. |
+| `weapon.fg.ice_pool_friction` | `1` | `0..100` | Local grounded friction while standing on an ice pool, replacing `g_friction` only for that contact. |
+| `weapon.fg.ice_pool_slope_gravity_scale` | `1` | `0..10` | Multiplier for gravity projected down icy ramps. `0` disables the extra downhill pull. |
+| `weapon.fg.ice_pool_control_scale` | `0.35` | `0..1` | Ground acceleration multiplier while standing on ice. Lower values make uphill recovery harder. |
+| `weapon.fg.ice_pool_merge_distance` | `1` | `0..100` | Extra distance used when deciding whether a new floor hit grows an existing pool instead of creating another. |
 
 ### 3.5 Crosshair
 

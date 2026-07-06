@@ -197,7 +197,9 @@ struct RocketExplosionResult {
 struct WorldTrace {
   Vec3 start = {};
   Vec3 end = {};
+  Vec3 normal = {};
   float distance = 0.0F;
+  bool hit = false;
 };
 
 [[nodiscard]] Vec3 weaponMuzzlePosition(

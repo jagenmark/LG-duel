@@ -4,7 +4,7 @@ Networking is UDP-oriented and snapshot based. Packet structures live in `src/ne
 
 ## Packets And Protocol
 
-`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`33` at this writing), `kMaxPacketBytes`, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, and trailing bytes.
+`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`42` at this writing), `kMaxPacketBytes`, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, and trailing bytes.
 
 Supported packet types are connect request/accept, command, command bundle, snapshot, ping/pong, and disconnect. `CommandBundle` can carry up to `kMaxBundledCommands` commands.
 
@@ -16,7 +16,7 @@ The optional client-carried `g_*` tuning path is a temporary development afforda
 
 ## Snapshot Ownership
 
-`ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire events, projectile/explosion events, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, chat state, map revision, and optional arena data.
+`ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire events, projectile/explosion events, freeze-gun ice pools, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, chat state, map revision, and optional arena data.
 
 Arena data is intentionally revision-gated. `ClientGame::receiveSnapshots()` ignores snapshots with a new `mapRevision` unless `hasArena` is true. When an arena is received, the client caches it locally and clears `snapshot_.arena` before storing the snapshot to avoid carrying large static data in normal client state.
 

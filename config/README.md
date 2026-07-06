@@ -10,7 +10,7 @@ gameplay values that are not console cvars.
 
 Examples:
 - weapon ranges, spread, projectile speed, projectile radius, projectile fuse
-- freeze gun freeze buildup, decay, max slow, and spawn ammo
+- freeze gun freeze buildup, decay, max slow, ice pool tuning, and spawn ammo
 - weapon cooldown ticks
 - QL weapon pullout ticks
 - jumppad retrigger cooldown

@@ -473,6 +473,8 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   freezeGunTuning_.freezePerSecond = config.freezeGun.freezePerSecond;
   freezeGunTuning_.decayPerSecond = config.freezeGun.decayPerSecond;
   freezeGunTuning_.maxSlowFraction = config.freezeGun.maxSlowFraction;
+  icePoolTuning_ = config.icePool;
+  snapshot_.icePoolTuning = icePoolTuning_;
   railgunTuning_.range = config.railgun.range;
   railgunTuning_.eyeHeight = config.railgun.eyeHeight;
   railgunTuning_.knockback = config.railgun.knockback;
@@ -578,6 +580,7 @@ void ServerGame::tick(float fixedDt) {
       --pullout;
     }
   }
+  decayIcePools(fixedDt);
 
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     PlayerState& player = snapshot_.players[playerIndex];
@@ -603,6 +606,8 @@ void ServerGame::tick(float fixedDt) {
       command,
       arena_,
       movementTuning_,
+      snapshot_.icePools,
+      icePoolTuning_,
       fixedDt,
       static_cast<std::uint16_t>(
         std::min<std::uint32_t>(
@@ -813,6 +818,14 @@ void ServerGame::tick(float fixedDt) {
         snapshot_.lightningGuns[attackerIndex].end = worldTrace.end;
         snapshot_.lightningGuns[attackerIndex].active =
           command.attack && combatPlayers[attackerIndex].health > 0;
+        if (
+          command.weapon == Weapon::FreezeGun &&
+          snapshot_.lightningGuns[attackerIndex].active &&
+          worldTrace.hit &&
+          worldTrace.normal.z >= kMinWalkNormal
+        ) {
+          growIcePool(worldTrace.end, normalize(worldTrace.normal), fixedDt);
+        }
       }
       if (snapshot_.lightningGuns[attackerIndex].active) {
         if (command.weapon == Weapon::LightningGun) {
@@ -1107,6 +1120,7 @@ void ServerGame::resetMatch() {
   snapshot_.rocketKnockback = rocketKnockback_;
   snapshot_.knockbackTimeMs = knockbackTimeMs_;
   snapshot_.weaponDamage = weaponDamage_;
+  snapshot_.icePoolTuning = icePoolTuning_;
   snapshot_.weaponAmmo = weaponAmmoConfig_;
   snapshot_.vampirism = vampirism_;
   snapshot_.selfDamagePercent = selfDamagePercent_;
@@ -1125,6 +1139,7 @@ void ServerGame::resetMatch() {
     : MatchPhase::WaitingForPlayers;
   lightningGunStates_ = {};
   freezeGunStates_ = {};
+  snapshot_.icePools = {};
   lightningAmmoCredit_.fill(1.0);
   freezeAmmoCredit_.fill(1.0);
   railgunCooldownTicks_ = {};
@@ -1153,6 +1168,7 @@ void ServerGame::resetMatch() {
   footstepStates_ = {};
   footstepSequences_ = {};
   rockets_ = {};
+  snapshot_.icePools = {};
   grenadeBounceSequences_ = {};
   fractionalVampirismHealing_ = {};
   commands_ = {};
@@ -2027,6 +2043,78 @@ void ServerGame::consumeFreezeGunAmmo(std::size_t playerIndex, float fixedDt) {
   }
   credit += fireHz * static_cast<double>(fixedDt);
   snapshot_.playerAmmo[playerIndex] = playerAmmo_[playerIndex];
+}
+
+void ServerGame::decayIcePools(float fixedDt) {
+  for (IcePool& pool : snapshot_.icePools) {
+    if (!pool.active) {
+      continue;
+    }
+    pool.lifetimeSeconds -= fixedDt;
+    if (pool.lifetimeSeconds <= 0.0F || pool.radius <= 0.0F) {
+      pool = {};
+    }
+  }
+}
+
+void ServerGame::growIcePool(Vec3 center, Vec3 normal, float fixedDt) {
+  if (
+    icePoolTuning_.maxRadius <= 0.0F ||
+    icePoolTuning_.growthPerSecond <= 0.0F ||
+    icePoolTuning_.lifetimeSeconds <= 0.0F
+  ) {
+    return;
+  }
+
+  IcePool* chosen = nullptr;
+  IcePool* reusable = nullptr;
+  for (IcePool& pool : snapshot_.icePools) {
+    if (!pool.active) {
+      if (reusable == nullptr) {
+        reusable = &pool;
+      }
+      continue;
+    }
+    const Vec3 delta = center - pool.center;
+    const float planeDistance = dot(delta, pool.normal);
+    const Vec3 tangentDelta = delta - pool.normal * planeDistance;
+    if (
+      std::fabs(planeDistance) <= 0.5F &&
+      length(tangentDelta) <= pool.radius + icePoolTuning_.mergeDistance
+    ) {
+      chosen = &pool;
+      break;
+    }
+  }
+
+  if (chosen == nullptr) {
+    if (reusable == nullptr) {
+      reusable = &snapshot_.icePools.front();
+      for (IcePool& pool : snapshot_.icePools) {
+        if (pool.lifetimeSeconds < reusable->lifetimeSeconds) {
+          reusable = &pool;
+        }
+      }
+    }
+    *reusable = IcePool{
+      true,
+      center,
+      normal,
+      0.0F,
+      icePoolTuning_.lifetimeSeconds,
+    };
+    chosen = reusable;
+  }
+
+  chosen->normal = normalize(chosen->normal + normal);
+  chosen->lifetimeSeconds = icePoolTuning_.lifetimeSeconds;
+  chosen->radius = std::min(
+    icePoolTuning_.maxRadius,
+    chosen->radius +
+      (icePoolTuning_.maxRadius - chosen->radius) *
+        icePoolTuning_.growthPerSecond *
+        fixedDt
+  );
 }
 
 void ServerGame::updateSelectedWeapon(

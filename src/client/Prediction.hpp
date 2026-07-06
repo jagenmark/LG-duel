@@ -24,6 +24,24 @@ public:
     const UserCommand& command,
     const Arena& arena,
     const MovementTuning& tuning,
+    const IcePoolArray& icePools,
+    const IcePoolTuning& icePoolTuning,
+    float fixedDt
+  );
+  void predict(
+    const UserCommand& command,
+    const Arena& arena,
+    const MovementTuning& tuning,
+    float fixedDt
+  );
+  void reconcile(
+    const PlayerState& authoritativeState,
+    bool hasAcknowledgedCommand,
+    std::uint32_t acknowledgedCommand,
+    const Arena& arena,
+    const MovementTuning& tuning,
+    const IcePoolArray& icePools,
+    const IcePoolTuning& icePoolTuning,
     float fixedDt
   );
   void reconcile(

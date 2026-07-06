@@ -462,6 +462,80 @@ int main() {
   }
 
   {
+    lg::UserCommand idle;
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 6.0F;
+    lg::IcePoolTuning iceTuning;
+    iceTuning.friction = 1.0F;
+    lg::IcePoolArray icePools = {};
+    icePools[0].active = true;
+    icePools[0].center = {0.0F, 0.0F, 0.0F};
+    icePools[0].normal = {0.0F, 0.0F, 1.0F};
+    icePools[0].radius = 3.0F;
+    icePools[0].lifetimeSeconds = 3.0F;
+    lg::PlayerState normal = groundedPlayer();
+    lg::PlayerState icy = groundedPlayer();
+    normal.velocity.x = 8.0F;
+    icy.velocity.x = 8.0F;
+
+    for (int tick = 0; tick < 20; ++tick) {
+      lg::simulateMovement(normal, idle, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+      lg::simulateMovement(
+        icy,
+        idle,
+        lg::Arena{},
+        tuning,
+        icePools,
+        iceTuning,
+        lg::kFixedTickSeconds
+      );
+    }
+
+    failures += expect(
+      icy.velocity.x > normal.velocity.x + 2.0F,
+      "flat ice pool should reduce local ground friction"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 0.0F, riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    lg::IcePoolTuning iceTuning;
+    iceTuning.friction = 1.0F;
+    iceTuning.slopeGravityScale = 1.0F;
+    iceTuning.controlScale = 0.35F;
+    lg::IcePoolArray icePools = {};
+    icePools[0].active = true;
+    icePools[0].center = {0.0F, 0.0F, slopedTopZ(ramp, 0.0F)};
+    icePools[0].normal = ramp.faces[5].normal;
+    icePools[0].radius = 4.0F;
+    icePools[0].lifetimeSeconds = 3.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.0F, 0.0F, slopedTopZ(ramp, 0.0F) + player.bounds.halfHeight};
+    lg::UserCommand idle;
+
+    for (int tick = 0; tick < 20; ++tick) {
+      lg::simulateMovement(
+        player,
+        idle,
+        arena,
+        tuning,
+        icePools,
+        iceTuning,
+        lg::kFixedTickSeconds
+      );
+    }
+
+    failures += expect(
+      player.position.x < -0.02F && player.onGround,
+      "icy walkable ramp should slide downhill from rest"
+    );
+  }
+
+  {
     lg::UserCommand command;
     command.forwardMove = 1.0F;
     command.crouch = true;

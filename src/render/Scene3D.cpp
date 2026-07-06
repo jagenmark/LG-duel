@@ -531,6 +531,38 @@ void addQuad(
   addTriangle(scene, first, third, fourth, color);
 }
 
+void addIcePoolDisk(Scene3D& scene, const IcePool& pool) {
+  if (!pool.active || pool.radius <= 0.0F || pool.lifetimeSeconds <= 0.0F) {
+    return;
+  }
+
+  Vec3 tangentA = cross(pool.normal, {0.0F, 0.0F, 1.0F});
+  if (length(tangentA) <= 0.0001F) {
+    tangentA = {1.0F, 0.0F, 0.0F};
+  } else {
+    tangentA = normalize(tangentA);
+  }
+  const Vec3 tangentB = normalize(cross(pool.normal, tangentA));
+  const Vec3 center = pool.center + pool.normal * 0.012F;
+  const RenderColor color = {154, 232, 255, 88};
+  constexpr int kSegments = 24;
+  for (int index = 0; index < kSegments; ++index) {
+    const float firstAngle =
+      (static_cast<float>(index) / static_cast<float>(kSegments)) * kTwoPi;
+    const float secondAngle =
+      (static_cast<float>(index + 1) / static_cast<float>(kSegments)) * kTwoPi;
+    const Vec3 first =
+      center +
+      tangentA * (std::cos(firstAngle) * pool.radius) +
+      tangentB * (std::sin(firstAngle) * pool.radius);
+    const Vec3 second =
+      center +
+      tangentA * (std::cos(secondAngle) * pool.radius) +
+      tangentB * (std::sin(secondAngle) * pool.radius);
+    addTriangle(scene, center, first, second, color);
+  }
+}
+
 void addTexturedQuad(
   Scene3D& scene,
   Vec3 first,
@@ -2957,6 +2989,7 @@ Scene3D buildPerspectiveScene(
   const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
   std::span<const TransientTracer> transientTracers,
   std::span<const TransientEffect> transientEffects,
+  std::span<const IcePool> icePools,
   const RenderSettings& settings,
   float cameraVerticalOffset
 ) {
@@ -2994,6 +3027,10 @@ Scene3D buildPerspectiveScene(
     PlayerState viewModelPlayer = player;
     viewModelPlayer.position.z += cameraVerticalOffset;
     addFirstPersonWeaponModel(scene, viewModelPlayer, settings.localSelectedWeapon);
+  }
+
+  for (const IcePool& pool : icePools) {
+    addIcePoolDisk(scene, pool);
   }
 
   for (std::size_t remoteIndex = 0; remoteIndex < remotePlayers.size(); ++remoteIndex) {
@@ -3383,6 +3420,36 @@ Scene3D buildPerspectiveScene(
     rockets,
     transientTracers,
     transientEffects,
+    std::span<const IcePool>{},
+    settings
+  );
+}
+
+Scene3D buildPerspectiveScene(
+  float aspectRatio,
+  const Arena& arena,
+  const PlayerState& player,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  const LightningGunResult& localLightningGun,
+  const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
+  const std::array<RocketExplosionResult, kDuelPlayerCount>& rocketExplosions,
+  const std::array<RocketProjectileSnapshot, kMaxRocketProjectiles>& rockets,
+  std::span<const TransientTracer> transientTracers,
+  std::span<const TransientEffect> transientEffects,
+  const RenderSettings& settings
+) {
+  return buildPerspectiveScene(
+    aspectRatio,
+    arena,
+    player,
+    remotePlayers,
+    localLightningGun,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    transientTracers,
+    transientEffects,
+    std::span<const IcePool>{},
     settings
   );
 }
@@ -3467,6 +3534,7 @@ Scene3D buildPerspectiveScene(
     rockets,
     transientTracers,
     std::span<const TransientEffect>{},
+    std::span<const IcePool>{},
     settings
   );
 }
@@ -3493,6 +3561,7 @@ Scene3D buildPerspectiveScene(
     rockets,
     std::span<const TransientTracer>{},
     std::span<const TransientEffect>{},
+    std::span<const IcePool>{},
     settings
   );
 }

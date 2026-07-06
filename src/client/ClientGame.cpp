@@ -93,7 +93,14 @@ void ClientGame::sendCommand(
     }
   );
   if (!requestReset) {
-    prediction_.predict(command, arena_, movementTuning_, kFixedTickSeconds);
+    prediction_.predict(
+      command,
+      arena_,
+      movementTuning_,
+      snapshot_.icePools,
+      icePoolTuning_,
+      kFixedTickSeconds
+    );
   }
 }
 
@@ -135,6 +142,7 @@ void ClientGame::receiveSnapshots() {
         movementTuning_ = received.movementTuning;
         movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
       }
+      icePoolTuning_ = received.icePoolTuning;
       hasSnapshot_ = true;
       interpolation_.push(received);
       prediction_.reconcile(
@@ -143,6 +151,8 @@ void ClientGame::receiveSnapshots() {
         received.acknowledgedCommand[localPlayerIndex_],
         arena_,
         movementTuning_,
+        received.icePools,
+        icePoolTuning_,
         kFixedTickSeconds
       );
       diagnostics.snapshotApplyMilliseconds +=

@@ -5672,12 +5672,14 @@ int GameApp::run() const {
     std::array<WeaponFireResult, kDuelPlayerCount> renderWeaponFires = {};
     std::array<RocketExplosionResult, kDuelPlayerCount> renderRocketExplosions = {};
     std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> renderRockets = {};
+    IcePoolArray renderIcePools = {};
     std::size_t renderLocalPlayerIndex = 0;
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
       renderLocalPlayerIndex = localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
+      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       if (
         localRenderPredictionSeconds > 0.0F &&
         renderPlayer.health > 0
@@ -5715,11 +5717,12 @@ int GameApp::run() const {
           visualCommand,
           renderClient->arena(),
           renderClient->movementTuning(),
+          renderSnapshot.icePools,
+          renderSnapshot.icePoolTuning,
           localRenderPredictionSeconds
         );
         renderPlayer = visualPlayer;
       }
-      const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (playerIndex == localPlayerIndex) {
           continue;
@@ -5767,6 +5770,7 @@ int GameApp::run() const {
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
+      renderIcePools = renderSnapshot.icePools;
       const LocalHitFeedbackBatch hitFeedback =
         consumeLocalHitFeedbackEvents(
           renderSnapshot.localHitFeedbackEvents[localPlayerIndex],
@@ -6294,6 +6298,7 @@ int GameApp::run() const {
       renderWeaponFires,
       renderRocketExplosions,
       renderRockets,
+      renderIcePools,
       activeTransientTracers,
       activeTransientEffects,
       transientTracerStore.explosionEventsConsumedThisFrame,

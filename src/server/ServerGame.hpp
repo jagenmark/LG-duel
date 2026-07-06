@@ -155,6 +155,8 @@ private:
   bool consumeAmmo(std::size_t playerIndex, Weapon weapon);
   void consumeLightningGunAmmo(std::size_t playerIndex, float fixedDt);
   void consumeFreezeGunAmmo(std::size_t playerIndex, float fixedDt);
+  void decayIcePools(float fixedDt);
+  void growIcePool(Vec3 center, Vec3 normal, float fixedDt);
   void updateSelectedWeapon(std::size_t playerIndex, Weapon requestedWeapon);
   void recordHistory();
   [[nodiscard]] const HistoryFrame& historyFrameForTick(std::uint32_t serverTick) const;
@@ -201,6 +203,7 @@ private:
   WeaponDamageTuning weaponDamage_ = {};
   LightningGunTuning lightningGunTuning_ = {};
   FreezeGunTuning freezeGunTuning_ = {};
+  IcePoolTuning icePoolTuning_ = {};
   HitscanTuning railgunTuning_ = {};
   MachineGunTuning machineGunTuning_ = {};
   ShotgunTuning shotgunTuning_ = {};

@@ -898,6 +898,34 @@ bool readRocketProjectile(
     (projectile.weapon = static_cast<Weapon>(weapon), true);
 }
 
+bool writeIcePool(Writer& writer, const IcePool& pool) {
+  return writer.writeBool(pool.active) &&
+    writeVec3(writer, pool.center) &&
+    writeVec3(writer, pool.normal) &&
+    writer.writeFloat(pool.radius) &&
+    writer.writeFloat(pool.lifetimeSeconds);
+}
+
+bool readIcePool(Reader& reader, IcePool& pool) {
+  if (
+    !reader.readBool(pool.active) ||
+    !readVec3(reader, pool.center) ||
+    !readVec3(reader, pool.normal) ||
+    !reader.readFloat(pool.radius) ||
+    !reader.readFloat(pool.lifetimeSeconds)
+  ) {
+    return false;
+  }
+  return
+    pool.radius >= 0.0F &&
+    pool.radius <= 100.0F &&
+    pool.lifetimeSeconds >= 0.0F &&
+    pool.lifetimeSeconds <= 60.0F &&
+    pool.normal.z >= 0.0F &&
+    length(pool.normal) > 0.5F &&
+    length(pool.normal) < 1.5F;
+}
+
 bool writeRoundCombatStats(
   Writer& writer,
   const RoundCombatStats& stats
@@ -1197,6 +1225,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (const IcePool& pool : snapshot.icePools) {
+    if (!writeIcePool(writer, pool)) {
+      return false;
+    }
+  }
   for (std::uint32_t ticks : snapshot.respawnTicksRemaining) {
     if (!writer.writeU32(ticks)) {
       return false;
@@ -1293,6 +1326,13 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeI32(snapshot.weaponDamage.rocketLauncherDamage) &&
     writer.writeI32(snapshot.weaponDamage.plasmaGunDamage) &&
     writer.writeI32(snapshot.weaponDamage.freezeGunDamage) &&
+    writer.writeFloat(snapshot.icePoolTuning.maxRadius) &&
+    writer.writeFloat(snapshot.icePoolTuning.growthPerSecond) &&
+    writer.writeFloat(snapshot.icePoolTuning.lifetimeSeconds) &&
+    writer.writeFloat(snapshot.icePoolTuning.friction) &&
+    writer.writeFloat(snapshot.icePoolTuning.slopeGravityScale) &&
+    writer.writeFloat(snapshot.icePoolTuning.controlScale) &&
+    writer.writeFloat(snapshot.icePoolTuning.mergeDistance) &&
     writer.writeBool(snapshot.weaponAmmo.infiniteAmmo) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
@@ -1408,6 +1448,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   }
   for (RocketProjectileSnapshot& projectile : decoded.rockets) {
     if (!readRocketProjectile(reader, projectile)) {
+      return false;
+    }
+  }
+  for (IcePool& pool : decoded.icePools) {
+    if (!readIcePool(reader, pool)) {
       return false;
     }
   }
@@ -1532,6 +1577,13 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readI32(decoded.weaponDamage.rocketLauncherDamage) ||
     !reader.readI32(decoded.weaponDamage.plasmaGunDamage) ||
     !reader.readI32(decoded.weaponDamage.freezeGunDamage) ||
+    !reader.readFloat(decoded.icePoolTuning.maxRadius) ||
+    !reader.readFloat(decoded.icePoolTuning.growthPerSecond) ||
+    !reader.readFloat(decoded.icePoolTuning.lifetimeSeconds) ||
+    !reader.readFloat(decoded.icePoolTuning.friction) ||
+    !reader.readFloat(decoded.icePoolTuning.slopeGravityScale) ||
+    !reader.readFloat(decoded.icePoolTuning.controlScale) ||
+    !reader.readFloat(decoded.icePoolTuning.mergeDistance) ||
     !reader.readBool(decoded.weaponAmmo.infiniteAmmo) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
@@ -1606,6 +1658,20 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.weaponDamage.plasmaGunDamage > 500 ||
     decoded.weaponDamage.freezeGunDamage < 1 ||
     decoded.weaponDamage.freezeGunDamage > 500 ||
+    decoded.icePoolTuning.maxRadius < 0.0F ||
+    decoded.icePoolTuning.maxRadius > 100.0F ||
+    decoded.icePoolTuning.growthPerSecond < 0.0F ||
+    decoded.icePoolTuning.growthPerSecond > 1000.0F ||
+    decoded.icePoolTuning.lifetimeSeconds < 0.0F ||
+    decoded.icePoolTuning.lifetimeSeconds > 60.0F ||
+    decoded.icePoolTuning.friction < 0.0F ||
+    decoded.icePoolTuning.friction > 100.0F ||
+    decoded.icePoolTuning.slopeGravityScale < 0.0F ||
+    decoded.icePoolTuning.slopeGravityScale > 10.0F ||
+    decoded.icePoolTuning.controlScale < 0.0F ||
+    decoded.icePoolTuning.controlScale > 1.0F ||
+    decoded.icePoolTuning.mergeDistance < 0.0F ||
+    decoded.icePoolTuning.mergeDistance > 100.0F ||
     !std::all_of(
       decoded.weaponAmmo.spawnAmmo.begin(),
       decoded.weaponAmmo.spawnAmmo.end(),
