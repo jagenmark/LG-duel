@@ -1181,21 +1181,56 @@ void forEachPlayerModelPart(
 ) {
   const PlayerVisualPose pose = makePlayerVisualPose(player);
   const float lateralVelocity = dot(player.velocity, yawRight(player.viewYawRadians));
+  const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
   const float leanAmount = leanEnabled
     ? std::clamp(lateralVelocity / 8.0F * leanScale, -1.0F, 1.0F)
     : 0.0F;
+  const auto locomotionCycleTime =
+    [](const PlayerState& animatedPlayer, float cycleSeconds) {
+      const Vec3 planarVelocity = {
+        animatedPlayer.velocity.x,
+        animatedPlayer.velocity.y,
+        0.0F,
+      };
+      const float speed = length(planarVelocity);
+      const Vec3 direction = speed > 0.001F
+        ? planarVelocity * (1.0F / speed)
+        : yawForward(animatedPlayer.viewYawRadians);
+      const float distance = dot(animatedPlayer.position, direction);
+      return std::fmod(std::fabs(distance) * 0.38F, cycleSeconds);
+    };
   std::vector<SkinnedModelPoseRequest> poseRequests;
   if (pose.airborne) {
-    const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 16.0F, 0.0F, 1.0F);
-    const float jumpTime = 0.3333333F + jumpProgress * 0.6666667F;
-    poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+    if (player.velocity.z >= 0.0F) {
+      const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 8.0F, 0.0F, 1.0F);
+      const float jumpTime = jumpProgress * 0.5833333F;
+      poseRequests.push_back({"JUMP", jumpTime, 1.0F});
+      poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+    } else {
+      const float fallProgress = std::clamp(-player.velocity.z / 12.0F, 0.0F, 1.0F);
+      poseRequests.push_back({"FALL", fallProgress * 0.8333333F, 1.0F});
+      poseRequests.push_back({"lg_duelist_jump", 0.9F, 1.0F});
+    }
   } else if (pose.crouched) {
+    if (horizontalSpeed > 0.25F) {
+      poseRequests.push_back({"CROUCH_WALK", locomotionCycleTime(player, 1.0F), 1.0F});
+    } else {
+      poseRequests.push_back({"DUCKING", 0.4166667F, 1.0F});
+    }
     poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
   } else if (pose.sneaking) {
+    poseRequests.push_back({"SNEAK", locomotionCycleTime(player, 1.3333333F), 1.0F});
     poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
-  } else if (leanAmount > 0.02F) {
+  } else if (horizontalSpeed > 0.25F) {
+    poseRequests.push_back({"RUN", locomotionCycleTime(player, 1.0F), 1.0F});
+  } else {
+    poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+  }
+  if (leanAmount > 0.02F) {
+    poseRequests.push_back({"LEAN_LEFT", 0.5833333F, std::fabs(leanAmount)});
     poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
   } else if (leanAmount < -0.02F) {
+    poseRequests.push_back({"LEAN_RIGHT", 0.5833333F, std::fabs(leanAmount)});
     poseRequests.push_back({"lg_duelist_lean_right", 0.5833333F, std::fabs(leanAmount)});
   }
   return poseRequests;
@@ -1799,6 +1834,31 @@ void addWireBox(
   return playerEyePosition(player) +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.24F -
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.54F;
+}
+
+// Visual-only offset: authoritative hitscan traces still use the server start/end.
+[[nodiscard]] Vec3 remoteHitscanMuzzlePosition(
+  const RemotePlayerView& remote,
+  Weapon weapon,
+  const RenderSettings& settings
+) {
+  const bool leanEnabled = remote.teammate
+    ? settings.teammateLeanEnabled
+    : settings.enemyLeanEnabled;
+  const float leanScale = remote.teammate
+    ? settings.teammateLeanScale
+    : settings.enemyLeanScale;
+  WeaponModelFrame frame =
+    weaponModelFrame(remote.player, leanEnabled, leanScale);
+  frame.scale *= thirdPersonWeaponVisualScale(weapon);
+  switch (weapon) {
+  case Weapon::LightningGun:
+    return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
+  case Weapon::Railgun:
+    return weaponLocalPoint(frame, 0.78F, 0.0F, 0.09F);
+  default:
+    return playerEyePosition(remote.player);
+  }
 }
 
 [[nodiscard]] Vec3 projectileVisualPosition(
@@ -3187,7 +3247,7 @@ Scene3D buildPerspectiveScene(
       : settings.enemyBeamAlpha;
     addSegment(
       scene,
-      remote.lightningGun.start,
+      remoteHitscanMuzzlePosition(remote, Weapon::LightningGun, settings),
       remote.lightningGun.end,
       std::max(0.015F, beamWidth * (1.0F + pulse * 0.04F) * 0.012F),
       scaleColor({
@@ -3206,9 +3266,17 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun) {
+      const Vec3 visualStart =
+        fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
+          ? remoteHitscanMuzzlePosition(
+              remotePlayers[fireIndex],
+              Weapon::Railgun,
+              settings
+            )
+          : fire.start;
       addSegment(
         scene,
-        fire.start,
+        visualStart,
         fire.end,
         fire.hit ? 0.045F : 0.03F,
         fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}

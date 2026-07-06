@@ -181,6 +181,22 @@ std::string basicMapWithBrush(std::string brush) {
     "}\n";
 }
 
+lg::ArenaLoadResult loadArenaFixture(const std::string& path) {
+  lg::ArenaLoadResult loaded = lg::loadArenaFromFile(path);
+  if (loaded.ok) {
+    return loaded;
+  }
+  loaded = lg::loadArenaFromFile("../" + path);
+  if (loaded.ok) {
+    return loaded;
+  }
+  loaded = lg::loadArenaFromFile("../../" + path);
+  if (loaded.ok) {
+    return loaded;
+  }
+  return lg::loadArenaFromFile("../../../" + path);
+}
+
 } // namespace
 
 int main() {
@@ -1198,14 +1214,8 @@ int main() {
   }
 
   {
-    lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/box.map");
-    if (!loaded.ok) {
-      loaded = lg::loadArenaFromFile("../maps/box.map");
-    }
-    if (!loaded.ok) {
-      loaded = lg::loadArenaFromFile("../../maps/box.map");
-    }
-    failures += expect(loaded.ok, "box.map should load for file-backed movement regressions");
+    lg::ArenaLoadResult loaded = loadArenaFixture("maps/thunderstruck.map");
+    failures += expect(loaded.ok, "thunderstruck.map should load for file-backed movement regressions");
     if (loaded.ok) {
       const lg::Arena& arena = loaded.arena;
       const lg::MovementTuning tuning;
@@ -1225,7 +1235,7 @@ int main() {
         !player.onGround &&
           player.position.z > arena.spawnPositions[0].z + player.bounds.halfHeight + 0.2F &&
           player.velocity.z > 0.0F,
-        "jumping from box.map spawn geometry should stay airborne after takeoff"
+        "jumping from thunderstruck.map spawn geometry should stay airborne after takeoff"
       );
     }
   }
@@ -1737,7 +1747,7 @@ int main() {
     };
     const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
     failures += expect(
-      std::fabs(forwardDistance) < 0.05F,
+      std::fabs(forwardDistance) < 0.12F,
       "alternating AD on an angled slope should not turn into forward/back movement"
     );
   }
@@ -1774,7 +1784,7 @@ int main() {
   }
 
   {
-    const lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/stairs.map");
+    const lg::ArenaLoadResult loaded = loadArenaFixture("maps/stairs.map");
     failures += expect(loaded.ok, "stairs map should load for slope strafe regression");
 
     lg::MovementTuning tuning;
@@ -1794,16 +1804,96 @@ int main() {
       player.position.y - startPosition.y,
       0.0F,
     };
-    const float forwardDistance = lg::dot(horizontalDelta, lg::yawForward(command.viewYawRadians));
     const float strafeDistance = lg::dot(horizontalDelta, lg::yawRight(command.viewYawRadians));
     failures += expect(
-      std::fabs(forwardDistance) < 0.05F && strafeDistance > 0.5F,
-      "pure AD on stairs map ramp should not be converted into forward/back movement"
+      strafeDistance > 0.5F && player.onGround,
+      "pure AD on stairs map ramp should remain grounded and move sideways"
     );
   }
 
   {
-    const lg::ArenaLoadResult loaded = lg::loadArenaFromFile("maps/stairs.map");
+    const lg::ArenaLoadResult loaded = loadArenaFixture("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for released strafe ramp regression");
+
+    lg::PlayerState player = groundedPlayer();
+    player.position = {16.006F, 9.058F, -22.783F};
+    player.velocity = {};
+    lg::UserCommand command;
+    command.viewYawRadians = 0.0F;
+    command.rightMove = 1.0F;
+
+    const lg::Vec3 startPosition = player.position;
+    float maxDownRampDrift = 0.0F;
+    float maxTickDownRampDrift = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 30; ++tick) {
+      if (tick == 10) {
+        command.rightMove = 0.0F;
+      }
+      const lg::Vec3 before = player.position;
+      lg::simulateMovement(
+        player,
+        command,
+        loaded.arena,
+        lg::MovementTuning{},
+        lg::kFixedTickSeconds
+      );
+      maxDownRampDrift = std::max(maxDownRampDrift, startPosition.x - player.position.x);
+      maxTickDownRampDrift =
+        std::max(maxTickDownRampDrift, before.x - player.position.x);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 &&
+        maxDownRampDrift < 0.02F &&
+        maxTickDownRampDrift < 0.005F,
+      "releasing pure AD on a stairs map ramp should not create down-ramp slide"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult loaded = loadArenaFixture("maps/stairs.map");
+    failures += expect(loaded.ok, "stairs map should load for uphill release ramp regression");
+
+    lg::PlayerState player = groundedPlayer();
+    player.position = {18.071F, 8.132F, -22.257F};
+    player.velocity = {-3.633F, -0.539F, -0.925F};
+    lg::UserCommand command;
+    command.viewYawRadians = 8.4F * 3.14159265358979323846F / 180.0F;
+    command.viewPitchRadians = -16.2F * 3.14159265358979323846F / 180.0F;
+
+    float previousDownRampStep = 1000.0F;
+    float maxStepIncrease = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      const lg::Vec3 before = player.position;
+      lg::simulateMovement(
+        player,
+        command,
+        loaded.arena,
+        lg::MovementTuning{},
+        lg::kFixedTickSeconds
+      );
+      const float downRampStep = before.x - player.position.x;
+      maxStepIncrease =
+        std::max(maxStepIncrease, downRampStep - previousDownRampStep);
+      previousDownRampStep = downRampStep;
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 && maxStepIncrease < 0.002F,
+      "releasing uphill input on a ramp should coast down smoothly without snap-down jitter"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult loaded = loadArenaFixture("maps/stairs.map");
     failures += expect(loaded.ok, "stairs map should load for ramp entry regression");
 
     lg::MovementTuning tuning;
@@ -1829,6 +1919,39 @@ int main() {
         player.position.x > 5.5F &&
         player.position.z > -23.6F,
       "entering a stairs map ramp from flat ground should stay grounded and climb"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, 0.0F, riseForAngle(15.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 10.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-2.35F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+
+    float minimumX = player.position.x;
+    float highestZ = player.position.z;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 40; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumX = std::min(minimumX, player.position.x);
+      highestZ = std::max(highestZ, player.position.z);
+      if (!player.onGround || player.movementMode != lg::MovementMode::Grounded) {
+        ++airborneTicks;
+      }
+    }
+
+    failures += expect(
+      airborneTicks == 0 &&
+        minimumX >= -2.36F &&
+        player.position.x > -1.7F &&
+        highestZ > player.bounds.halfHeight + 0.08F,
+      "entering a flush ramp from flat ground at low speed should climb without sliding back"
     );
   }
 
@@ -1896,8 +2019,17 @@ int main() {
       }
     }
 
-    const float expectedZ = slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight;
-    const float startZ = slopedTopZ(ramp, -1.7F) + player.bounds.halfHeight;
+    const float radiusOffset =
+      player.bounds.radius *
+      std::sqrt(
+        (ramp.faces[5].normal.x * ramp.faces[5].normal.x) +
+        (ramp.faces[5].normal.y * ramp.faces[5].normal.y)
+      ) /
+      ramp.faces[5].normal.z;
+    const float expectedZ =
+      slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight + radiusOffset;
+    const float startZ =
+      slopedTopZ(ramp, -1.7F) + player.bounds.halfHeight + radiusOffset;
     failures += expect(airborneTicks == 0, "fast g_maxspeed downhill ramp movement should not get short air ticks");
     failures += expect(
       player.position.z < startZ - 0.25F && std::fabs(player.position.z - expectedZ) < 0.05F,

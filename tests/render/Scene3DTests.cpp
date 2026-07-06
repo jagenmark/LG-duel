@@ -79,6 +79,21 @@ float maxPaletteDelta(
   return delta;
 }
 
+float maxVertexX(const lg::Scene3D& scene) {
+  float result = -std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : scene.vertices) {
+    result = std::max(result, vertex.position.x);
+  }
+  for (const lg::Vertex3D& vertex : scene.translucentVertices) {
+    result = std::max(result, vertex.position.x);
+  }
+  return result;
+}
+
+bool hasAnyVertex(const lg::Scene3D& scene) {
+  return !scene.vertices.empty() || !scene.translucentVertices.empty();
+}
+
 struct UvBounds {
   float minU = 0.0F;
   float maxU = 0.0F;
@@ -1755,6 +1770,65 @@ int main() {
     remoteShotgunEyeScene.transientVfxStats.tracerInstancesSubmitted == 0 &&
       remoteShotgunWeaponScene.transientVfxStats.tracerInstancesSubmitted == 0,
     "remote shotgun retained fires should wait for transient VFX consumption"
+  );
+
+  lg::RenderSettings effectOnlySettings = settings;
+  effectOnlySettings.showOwnWeapons = false;
+  effectOnlySettings.drawRemotePlayers = false;
+  effectOnlySettings.drawRemoteWeapons = false;
+
+  lg::LightningGunResult remoteLightningBeam;
+  remoteLightningBeam.active = true;
+  remoteLightningBeam.start =
+    shotgunOpponent.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  remoteLightningBeam.end =
+    remoteLightningBeam.start + lg::Vec3{-8.0F, 0.0F, 0.0F};
+  shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::LightningGun;
+  shotgunRemotePlayers[1].lightningGun = remoteLightningBeam;
+  const lg::Scene3D remoteLightningMuzzleScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    effectOnlySettings
+  );
+  failures += expect(
+    hasAnyVertex(remoteLightningMuzzleScene) &&
+      maxVertexX(remoteLightningMuzzleScene) <
+        remoteLightningBeam.start.x - 0.2F,
+    "remote lightning beam should start from the third-person weapon muzzle"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteRailFires = {};
+  remoteRailFires[1].fired = true;
+  remoteRailFires[1].hit = true;
+  remoteRailFires[1].weapon = lg::Weapon::Railgun;
+  remoteRailFires[1].start =
+    shotgunOpponent.position + lg::Vec3{0.0F, 0.0F, 0.65F};
+  remoteRailFires[1].end =
+    remoteRailFires[1].start + lg::Vec3{-8.0F, 0.0F, 0.0F};
+  shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::Railgun;
+  shotgunRemotePlayers[1].lightningGun = inactiveBeam;
+  const lg::Scene3D remoteRailMuzzleScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    remoteRailFires,
+    rocketExplosions,
+    rockets,
+    effectOnlySettings
+  );
+  failures += expect(
+    hasAnyVertex(remoteRailMuzzleScene) &&
+      maxVertexX(remoteRailMuzzleScene) <
+        remoteRailFires[1].start.x - 0.2F,
+    "remote railgun beam should start from the third-person weapon muzzle"
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};

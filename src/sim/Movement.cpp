@@ -463,6 +463,7 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     return {};
   }
   if (
+    (!player.onGround || player.knockbackTicksRemaining > 0) &&
     player.velocity.z > 0.0F &&
     dot(player.velocity, trace.groundNormal) > kGroundKickoffSpeed
   ) {
@@ -578,57 +579,6 @@ void simulateGroundedOrAirborne(
       groundContact.normal
     );
   }
-  if (
-    !useAirMovement &&
-    !jumpStarted &&
-    std::fabs(command.forwardMove) <= 0.0001F &&
-    std::fabs(command.rightMove) > 0.0001F &&
-    collision.onGround &&
-    collision.groundPlane &&
-    length(horizontal(collision.groundNormal)) > 0.0001F
-  ) {
-    // Pure strafe input on a ramp should not acquire forward/back displacement
-    // just because the collision solver followed the slope axis. Remove that
-    // forward component, then re-solve z on the same ground plane.
-    const Vec3 forward = yawForward(command.viewYawRadians);
-    const Vec3 horizontalDelta = horizontal(collision.position - player.position);
-    const float forwardDelta = dot(horizontalDelta, forward);
-    Vec3 correctedPosition =
-      collision.position - (forward * forwardDelta);
-    if (std::fabs(collision.groundNormal.z) > 0.0001F) {
-      const Vec3 correction = correctedPosition - collision.position;
-      correctedPosition.z +=
-        -((correction.x * collision.groundNormal.x) +
-          (correction.y * collision.groundNormal.y)) /
-        collision.groundNormal.z;
-    }
-
-    PlayerState probePlayer = player;
-    probePlayer.position = correctedPosition;
-    const CollisionResult groundProbe = slidePlayerArenaMove(
-      arena,
-      probePlayer,
-      correctedPosition,
-      {0.0F, 0.0F, -(0.25F / 40.0F)},
-      1.0F
-    );
-    if (
-      !playerPositionSolid(arena, probePlayer, correctedPosition) &&
-      groundProbe.groundPlane &&
-      groundProbe.onGround
-    ) {
-      collision.position = correctedPosition;
-      Vec3 horizontalVelocity = horizontal(collision.velocity);
-      horizontalVelocity -= forward * dot(horizontalVelocity, forward);
-      collision.velocity.x = horizontalVelocity.x;
-      collision.velocity.y = horizontalVelocity.y;
-      collision.velocity.z =
-        -((horizontalVelocity.x * collision.groundNormal.x) +
-          (horizontalVelocity.y * collision.groundNormal.y)) /
-        collision.groundNormal.z;
-    }
-  }
-
   player.position = collision.position;
   player.velocity = collision.velocity;
   player.onGround = collision.onGround;
