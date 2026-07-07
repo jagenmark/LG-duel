@@ -277,8 +277,8 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_outline_r` | int | `255` | `0..255` | Ingen direkt | Enemy outline red channel. |
 | `r_enemy_outline_g` | int | `220` | `0..255` | Ingen direkt | Enemy outline green channel. |
 | `r_enemy_outline_b` | int | `84` | `0..255` | Ingen direkt | Enemy outline blue channel. |
-| `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad model lean | Slår på/av velocity lean för motståndarmodellen i 3D. Påverkar bara renderad modell, inte lokal POV, simulation, aim, hitboxar eller nätkod. |
-| `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för motståndarmodellens velocity lean. `1` motsvarar ungefär Q3-standard, `0` ger ingen lean även om `r_enemy_lean` är på. |
+| `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspired model lean | Enables velocity lean for the enemy model in 3D. The GLB model applies lean as an upper-body layer over locomotion, so run/crouch leg motion remains intact. Presentation-only; does not affect local POV, simulation, aim, hitboxes, or networking. |
+| `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplier for enemy model velocity lean. `1` roughly matches Q3 default, `0` gives no lean even when `r_enemy_lean` is enabled. |
 | `r_enemy_hit_enable` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
 | `r_enemy_hit_r` | int | `255` | `0..255` | Ingen | Träfffärg röd. |
 | `r_enemy_hit_g` | int | `190` | `0..255` | Ingen | Träfffärg grön. |
@@ -308,8 +308,8 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_outline_r` | int | `128` | `0..255` | Ingen direkt | Teammate outline red channel. |
 | `r_teammate_outline_g` | int | `240` | `0..255` | Ingen direkt | Teammate outline green channel. |
 | `r_teammate_outline_b` | int | `255` | `0..255` | Ingen direkt | Teammate outline blue channel. |
-| `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad | Slår på/av velocity lean för lagkamratmodellen i 3D. |
-| `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för lagkamratmodellens velocity lean. |
+| `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspired | Enables velocity lean for teammate models in 3D. The GLB model applies lean as an upper-body layer over locomotion, so run/crouch leg motion remains intact. Presentation-only; does not affect simulation, aim, hitboxes, or networking. |
+| `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplier for teammate model velocity lean. |
 | `r_teammate_health_enable` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |
 | `r_teammate_health_damage_only` | bool | `0` | bool | Ingen direkt | Visar health bar endast efter nylig skada. |
 | `r_teammate_health_fade` | bool | `1` | bool | Ingen direkt | Tonar ut health bar under damage-only-perioden. |

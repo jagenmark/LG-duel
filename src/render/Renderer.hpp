@@ -280,6 +280,7 @@ struct RemotePlayerView {
   bool visible = false;
   bool teammate = false;
   std::string name;
+  float animationTimeSeconds = 0.0F;
 };
 
 enum class TracerStyle : std::uint8_t {

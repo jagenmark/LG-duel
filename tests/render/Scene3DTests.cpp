@@ -79,6 +79,23 @@ float maxPaletteDelta(
   return delta;
 }
 
+float maxPaletteDeltaAtIndices(
+  std::span<const std::array<float, 16>> lhs,
+  std::span<const std::array<float, 16>> rhs,
+  std::span<const std::size_t> indices
+) {
+  float delta = 0.0F;
+  for (std::size_t index : indices) {
+    if (index >= lhs.size() || index >= rhs.size()) {
+      continue;
+    }
+    for (std::size_t value = 0; value < 16U; ++value) {
+      delta = std::max(delta, std::fabs(lhs[index][value] - rhs[index][value]));
+    }
+  }
+  return delta;
+}
+
 float maxVertexX(const lg::Scene3D& scene) {
   float result = -std::numeric_limits<float>::infinity();
   for (const lg::Vertex3D& vertex : scene.vertices) {
@@ -371,6 +388,40 @@ int main() {
     restPoseCompact,
     "GLB duelist bind pose should resolve child nodes after their parents"
   );
+  {
+    lg::GltfSkinnedModel::PoseScratch runScratch;
+    lg::GltfSkinnedModel::PoseScratch leanScratch;
+    std::vector<std::array<float, 16>> runPalette;
+    std::vector<std::array<float, 16>> leanPalette;
+    const bool runSampled = duelistModel.appendBonePalette(
+      {{"RUN", 0.25F, 1.0F}},
+      runPalette,
+      runScratch
+    );
+    const bool leanSampled = duelistModel.appendBonePalette(
+      {{
+        {"RUN", 0.25F, 1.0F},
+        {"LEAN_LEFT", 0.5833333F, 1.0F, lg::SkinnedModelPoseMask::UpperBody},
+      }},
+      leanPalette,
+      leanScratch
+    );
+    constexpr std::array<std::size_t, 6> legJoints = {{
+      14U, 15U, 16U, 17U, 18U, 19U,
+    }};
+    constexpr std::array<std::size_t, 8> upperJoints = {{
+      2U, 3U, 4U, 5U, 6U, 7U, 9U, 10U,
+    }};
+    failures += expect(
+      runSampled &&
+        leanSampled &&
+        runPalette.size() == duelistModel.jointCount() &&
+        leanPalette.size() == duelistModel.jointCount() &&
+        maxPaletteDeltaAtIndices(runPalette, leanPalette, legJoints) <= 0.0001F &&
+        maxPaletteDeltaAtIndices(runPalette, leanPalette, upperJoints) > 0.001F,
+      "upper-body lean layer should preserve run leg joints while changing torso/arm joints"
+    );
+  }
   failures += expect(
     nearlyEqual(baseScene.camera.position.x, player.position.x) &&
       nearlyEqual(baseScene.camera.position.y, player.position.y) &&
@@ -754,6 +805,105 @@ int main() {
     "enabled enemy lean should use the skinned GLB lean animation"
   );
   opponent.velocity = {};
+
+  {
+    std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> strafeRemotes = {};
+    lg::PlayerState strafeRunner = opponent;
+    strafeRunner.velocity = lg::yawRight(strafeRunner.viewYawRadians) * 8.0F;
+    strafeRemotes[0] = {
+      strafeRunner,
+      inactiveBeam,
+      lg::Weapon::LightningGun,
+      0.0F,
+      1.0F,
+      true,
+      false,
+      {},
+      0.0F,
+    };
+    lg::RenderSettings strafeRunSettings = settings;
+    strafeRunSettings.enemyLeanEnabled = false;
+    const lg::Scene3D strafeRunStartScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      strafeRemotes,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      strafeRunSettings
+    );
+    strafeRemotes[0].animationTimeSeconds = 0.2F;
+    const lg::Scene3D strafeRunLaterScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      strafeRemotes,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      strafeRunSettings
+    );
+    strafeRemotes[0].player.velocity =
+      lg::yawRight(strafeRunner.viewYawRadians) * 0.5F;
+    strafeRemotes[0].animationTimeSeconds = 0.0F;
+    const lg::Scene3D slowStrafeStartScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      strafeRemotes,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      strafeRunSettings
+    );
+    strafeRemotes[0].animationTimeSeconds = 0.2F;
+    const lg::Scene3D slowStrafeLaterScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      strafeRemotes,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      strafeRunSettings
+    );
+    constexpr std::array<std::size_t, 6> legJoints = {{
+      14U, 15U, 16U, 17U, 18U, 19U,
+    }};
+    const float fullStrafeLegDelta = maxPaletteDeltaAtIndices(
+      strafeRunStartScene.gltfBonePalette,
+      strafeRunLaterScene.gltfBonePalette,
+      legJoints
+    );
+    const float slowStrafeLegDelta = maxPaletteDeltaAtIndices(
+      slowStrafeStartScene.gltfBonePalette,
+      slowStrafeLaterScene.gltfBonePalette,
+      legJoints
+    );
+    const float slowAndFullSamePhaseDelta = maxPaletteDeltaAtIndices(
+      slowStrafeStartScene.gltfBonePalette,
+      strafeRunStartScene.gltfBonePalette,
+      legJoints
+    );
+    failures += expect(
+      strafeRunStartScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+        strafeRunLaterScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+        fullStrafeLegDelta > 0.001F,
+      "pure strafe velocity should advance GLB run leg animation over render time"
+    );
+    failures += expect(
+      slowStrafeStartScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+        slowStrafeLaterScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+        slowAndFullSamePhaseDelta <= 0.0001F &&
+        slowStrafeLegDelta < fullStrafeLegDelta * 0.15F,
+      "slow strafe velocity should keep full stride shape but advance it more slowly"
+    );
+  }
 
   failures += expect(
     baseScene.gltfPlayerModelInstances.size() == 1U &&
