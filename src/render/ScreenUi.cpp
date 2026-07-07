@@ -1247,76 +1247,96 @@ void addHitMarker(
   );
 }
 
-void addDamageNumbers(
-  DrawList2D& drawList,
-  int width,
-  int height,
+[[nodiscard]] float damageNumberImpact(int damage) {
+  constexpr float kFullScaleDamage = 100.0F;
+  return std::clamp(
+    static_cast<float>(std::max(0, damage)) / kFullScaleDamage,
+    0.0F,
+    1.0F
+  );
+}
+
+[[nodiscard]] float damageNumberScale(
   const RenderSettings& settings,
-  const HudRenderState& hud
+  int damage,
+  float modeScale
 ) {
-  const float baseX = static_cast<float>(width) * 0.5F;
-  const float baseY = static_cast<float>(height) * 0.5F;
-  const float alphaScale = std::clamp(settings.damageNumbersAlpha, 0.0F, 1.0F);
-  const float duration = std::max(0.001F, settings.damageNumbersDuration);
-  const float scale = std::max(0.1F, settings.damageNumbersSize);
-  const RenderColor baseColor = {
+  constexpr float kMaxDamageScaleBoost = 0.25F;
+  const float baseScale = std::max(0.1F, settings.damageNumbersSize);
+  return baseScale *
+    (1.0F + damageNumberImpact(damage) * kMaxDamageScaleBoost) *
+    modeScale;
+}
+
+[[nodiscard]] RenderColor damageNumberColor(
+  const RenderSettings& settings,
+  int damage,
+  bool headshot
+) {
+  RenderColor color = {
     settings.damageNumbersRed,
     settings.damageNumbersGreen,
     settings.damageNumbersBlue,
     255,
   };
+  constexpr RenderColor highDamageColor = {255, 36, 36, 255};
+  if (settings.damageNumbersDamageColor) {
+    const float amount = damageNumberImpact(damage);
+    color.red = blendChannel(color.red, highDamageColor.red, amount);
+    color.green = blendChannel(color.green, highDamageColor.green, amount);
+    color.blue = blendChannel(color.blue, highDamageColor.blue, amount);
+  }
+  if (headshot) {
+    constexpr float kHeadshotAccent = 0.7F;
+    color.red = blendChannel(color.red, highDamageColor.red, kHeadshotAccent);
+    color.green =
+      blendChannel(color.green, highDamageColor.green, kHeadshotAccent);
+    color.blue =
+      blendChannel(color.blue, highDamageColor.blue, kHeadshotAccent);
+  }
+  return color;
+}
 
-  const auto damageText = [](int damage, bool headshot) {
-    const std::string value = std::to_string(damage);
-    return headshot ? std::string("HEADSHOT ") + value : value;
-  };
-
-  for (const DamageNumberEntry& entry : hud.damageNumbers.entries) {
-    const float life = std::clamp(entry.ageSeconds / duration, 0.0F, 1.0F);
-    const float fade = 1.0F - life;
-    const float drift = life * 28.0F * scale;
-    const float stackSlot = static_cast<float>(entry.sequence % 8U);
-    const float wobble = (entry.sequence % 2U == 0U ? -1.0F : 1.0F) *
-      2.0F * scale;
-    const float textScale = scale;
-    const std::string text = damageText(entry.damage, entry.headshot);
-    const float textWidth =
-      static_cast<float>(text.size()) * kGlyphSize * textScale;
-    const float x =
-      baseX + settings.damageNumbersOffsetX + wobble - textWidth * 0.5F;
-    const float y =
-      baseY + settings.damageNumbersOffsetY - drift +
-      stackSlot * 10.0F * scale;
+void addDamageText(
+  DrawList2D& drawList,
+  float x,
+  float y,
+  const std::string& text,
+  RenderColor color,
+  float scale,
+  bool headshot
+) {
+  if (headshot) {
+    RenderColor backing = {18, 4, 6, color.alpha};
+    backing.alpha = static_cast<std::uint8_t>(
+      std::clamp(static_cast<float>(backing.alpha) * 0.85F, 0.0F, 255.0F)
+    );
+    // Headshots get a dark backing pass instead of a word label or fake bold,
+    // keeping the read fast without widening the number shape.
     addText(
       drawList,
-      x,
-      y,
+      x + std::max(1.0F, scale * 0.8F),
+      y + std::max(1.0F, scale * 0.8F),
       text,
-      withAlpha(baseColor, alphaScale * fade),
-      textScale
+      backing,
+      scale
     );
   }
+  addText(drawList, x, y, text, color, scale);
+}
 
-  for (const DamageNumberTally& tally : hud.damageNumbers.tallies) {
-    if (!tally.active || tally.hasWorldPosition) {
-      continue;
+[[nodiscard]] std::size_t newerDamageEntriesForTarget(
+  const DamageNumberPresentation& damageNumbers,
+  const DamageNumberEntry& entry
+) {
+  return static_cast<std::size_t>(std::count_if(
+    damageNumbers.entries.begin(),
+    damageNumbers.entries.end(),
+    [&entry](const DamageNumberEntry& other) {
+      return other.targetPlayerIndex == entry.targetPlayerIndex &&
+        other.sequence > entry.sequence;
     }
-    const float life =
-      std::clamp(tally.secondsSinceLastHit / duration, 0.0F, 1.0F);
-    const float fade = 1.0F - life * 0.55F;
-    const float textScale = scale * 1.35F;
-    const std::string text = damageText(tally.damage, tally.headshot);
-    const float textWidth =
-      static_cast<float>(text.size()) * kGlyphSize * textScale;
-    addText(
-      drawList,
-      baseX + settings.damageNumbersOffsetX - textWidth * 0.5F,
-      baseY + settings.damageNumbersOffsetY - 34.0F * scale,
-      text,
-      withAlpha(baseColor, alphaScale * fade),
-      textScale
-    );
-  }
+  ));
 }
 
 void addFloatingDamageNumbers(
@@ -1329,17 +1349,50 @@ void addFloatingDamageNumbers(
 ) {
   const float alphaScale = std::clamp(settings.damageNumbersAlpha, 0.0F, 1.0F);
   const float duration = std::max(0.001F, settings.damageNumbersDuration);
-  const float scale = std::max(0.1F, settings.damageNumbersSize);
-  const RenderColor baseColor = {
-    settings.damageNumbersRed,
-    settings.damageNumbersGreen,
-    settings.damageNumbersBlue,
-    255,
-  };
-  const auto damageText = [](int damage, bool headshot) {
-    const std::string value = std::to_string(damage);
-    return headshot ? std::string("HEADSHOT ") + value : value;
-  };
+  const float baseScale = std::max(0.1F, settings.damageNumbersSize);
+  constexpr std::size_t kMaxVisibleEntriesPerTarget = 5;
+  for (const DamageNumberEntry& entry : hud.damageNumbers.entries) {
+    if (!entry.hasWorldPosition) {
+      continue;
+    }
+    const std::size_t newerEntries =
+      newerDamageEntriesForTarget(hud.damageNumbers, entry);
+    if (newerEntries >= kMaxVisibleEntriesPerTarget) {
+      continue;
+    }
+
+    ProjectedPoint projected;
+    if (!projectPerspectivePoint(camera, entry.worldPosition, projected)) {
+      continue;
+    }
+
+    const ScreenPoint anchorScreen =
+      screenPointFromProjection(projected, width, height);
+    const float life = std::clamp(entry.ageSeconds / duration, 0.0F, 1.0F);
+    const float fade = 1.0F - life;
+    const float textScale = damageNumberScale(settings, entry.damage, 1.0F);
+    const float drift = life * 28.0F * textScale;
+    const float stackSlot = static_cast<float>(newerEntries);
+    const float wobble = (entry.sequence % 2U == 0U ? -1.0F : 1.0F) *
+      2.0F * textScale;
+    const std::string text = std::to_string(entry.damage);
+    const float widthPixels = textWidth(text, textScale);
+    addDamageText(
+      drawList,
+      anchorScreen.x + settings.damageNumbersOffsetX + wobble -
+        widthPixels * 0.5F,
+      anchorScreen.y + settings.damageNumbersOffsetY - 46.0F * baseScale -
+        stackSlot * 11.0F * baseScale - drift,
+      text,
+      withAlpha(
+        damageNumberColor(settings, entry.damage, entry.headshot),
+        alphaScale * fade
+      ),
+      textScale,
+      entry.headshot
+    );
+  }
+
   for (const DamageNumberTally& tally : hud.damageNumbers.tallies) {
     if (!tally.active || !tally.hasWorldPosition) {
       continue;
@@ -1355,17 +1408,20 @@ void addFloatingDamageNumbers(
     const float life =
       std::clamp(tally.secondsSinceLastHit / duration, 0.0F, 1.0F);
     const float fade = 1.0F - life * 0.55F;
-    const float textScale = scale * 1.35F;
-    const std::string text = damageText(tally.damage, tally.headshot);
-    const float textWidth =
-      static_cast<float>(text.size()) * kGlyphSize * textScale;
-    addText(
+    const float textScale = damageNumberScale(settings, tally.damage, 1.35F);
+    const std::string text = std::to_string(tally.damage);
+    const float widthPixels = textWidth(text, textScale);
+    addDamageText(
       drawList,
-      anchorScreen.x + settings.damageNumbersOffsetX - textWidth * 0.5F,
-      anchorScreen.y + settings.damageNumbersOffsetY - 34.0F * scale,
+      anchorScreen.x + settings.damageNumbersOffsetX - widthPixels * 0.5F,
+      anchorScreen.y + settings.damageNumbersOffsetY - 34.0F * baseScale,
       text,
-      withAlpha(baseColor, alphaScale * fade),
-      textScale
+      withAlpha(
+        damageNumberColor(settings, tally.damage, tally.headshot),
+        alphaScale * fade
+      ),
+      textScale,
+      tally.headshot
     );
   }
 }
@@ -2461,7 +2517,6 @@ DrawList2D buildScreenUi(
   };
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
-  addDamageNumbers(drawList, outputWidth, outputHeight, settings, hud);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);

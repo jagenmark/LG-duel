@@ -266,7 +266,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_hitmarker_r` | int | `255` | `0..255` | Ingen | Röd kanal. |
 | `r_hitmarker_g` | int | `255` | `0..255` | Ingen | Grön kanal. |
 | `r_hitmarker_b` | int | `255` | `0..255` | Ingen | Blå kanal. |
-| `r_damage_numbers_mode` | int | `0` | `0..4` | Diabotical/arena-shooter damage feedback | Archived damage-number mode. `0`: off. `1`: one number per confirmed local damage instance. `2`: per-instance numbers plus one immediate cumulative burst tally per target. `3`: cumulative burst tally only. `4`: cumulative burst tally only, projected at the target's latest damage-event world position. |
+| `r_damage_numbers_mode` | int | `0` | `0..3` | Diabotical/arena-shooter damage feedback | Archived world-space damage-number mode. `0`: off. `1`: one number per confirmed local damage instance. `2`: per-instance numbers plus one immediate cumulative burst tally per target. `3`: cumulative burst tally only. Mode `4` was removed because tally-only damage numbers now always use the target's latest damage-event world position. |
 | `r_damage_numbers_window` | float | `0.4` | `0..2` seconds | Ingen direkt | Seconds without qualifying local damage before a target's cumulative tally expires and the next hit starts a new burst. |
 | `r_damage_numbers_duration` | float | `0.65` | `0.05..3` seconds | Ingen direkt | Visual lifetime of each individual damage number. |
 | `r_damage_numbers_size` | float | `1.6` | `0.5..6` | Ingen direkt | Damage-number font scale. |
@@ -274,8 +274,9 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_damage_numbers_r` | int | `255` | `0..255` | Ingen direkt | Damage-number red channel. |
 | `r_damage_numbers_g` | int | `236` | `0..255` | Ingen direkt | Damage-number green channel. |
 | `r_damage_numbers_b` | int | `128` | `0..255` | Ingen direkt | Damage-number blue channel. |
-| `r_damage_numbers_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horizontal screen offset from the crosshair or aim point. |
-| `r_damage_numbers_offset_y` | float | `-46` | `-400..400` | Ingen direkt | Vertical screen offset from the crosshair or aim point. |
+| `r_damage_numbers_damage_color` | bool | `0` | bool | Ingen direkt | When enabled, damage numbers blend from the configured color toward red as damage increases. Headshots are shown as bold numeric text with a red accent instead of a `HEADSHOT` label. |
+| `r_damage_numbers_offset_x` | float | `0` | `-400..400` | Ingen direkt | Horizontal screen offset from the projected world-space damage anchor. |
+| `r_damage_numbers_offset_y` | float | `-46` | `-400..400` | Ingen direkt | Vertical screen offset from the projected world-space damage anchor. |
 
 ### 3.9 Motståndarmodell och träfffärg
 
