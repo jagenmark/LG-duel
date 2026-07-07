@@ -95,7 +95,11 @@ SDL_Renderer om GPU-initiering misslyckas.
 | Cvar | Typ | Default | Giltigt intervall/värden | Q3/QL-referens | Lagring | Funktion |
 |---|---:|---:|---|---|---|---|
 | `cl_config_version` | int | `0` | `0..100` | Ingen | Arkiv | Intern migrationsversion för klientkonfiguration. Bör normalt inte ändras manuellt. |
-| `sensitivity` | float | `1` | `0.1..10` | Q3 `sensitivity 5` | Arkiv | Multiplikator för rå relativ musinput. Skalningen är projektspecifik och värdena är därför inte direkt likvärdiga. |
+| `sensitivity` | float | `5` | `0..100` | Q3/QL `sensitivity 5`, `m_yaw 0.022` | Arkiv | Musens grundkänslighet på Q3/QL-skalan: `1` motsvarar `0.022` grader per rå muscount före zoom/accel. |
+| `cl_mouseAccel` | float | `0` | `0..1000` | QL `cl_mouseAccel 0` | Arkiv | QL-style musacceleration. `0` stänger av acceleration. |
+| `cl_mouseAccelPower` | float | `2` | `1..10` | QL `cl_mouseAccelPower 2` | Arkiv | Exponenten i QL-formeln. `2` ger klassisk linjär ökning av effektiv känslighet med mushastighet. |
+| `cl_mouseAccelOffset` | float | `0` | `0..1000` | QL `cl_mouseAccelOffset 0` | Arkiv | Mushastighet i counts/ms innan acceleration börjar. Hastigheter under offset behåller baskänsligheten. |
+| `cl_mouseSensCap` | float | `0` | `0..100` | QL `cl_mouseSensCap 0` | Arkiv | Tak för accelererad känslighet. `0` betyder inget tak. |
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
@@ -141,6 +145,13 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
 | `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. |
 | `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. |
+| `g_dash_targetspeed` | float | `11.5` | `0..100` | `460 UPS`, internal `11.5` | Dash target speed along the locked input direction. |
+| `g_dash_maxspeed` | float | `12.5` | `0..100` | `500 UPS`, internal `12.5` | Cap for speed created by dash. Existing speed above this cap is preserved. |
+| `g_dash_accel` | float | `200` | `0..1000` | `8000 UPS/s`, internal `200` | Dash acceleration during the active dash window. |
+| `g_dash_duration` | float | `0.10` | `0..2` | No Q3/QL equivalent | Seconds of active dash acceleration after dash starts. |
+| `g_dash_cooldown` | float | `0.85` | `0..10` | No Q3/QL equivalent | Seconds before dash can be started again. |
+| `g_dash_groundhop` | float | `3.25` | `0..100` | `130 UPS`, internal `3.25` | Minimum vertical velocity for a grounded dash hop. Uses max, not addition. |
+| `g_dash_airhop` | float | `1.875` | `0..100` | `75 UPS`, internal `1.875` | Minimum vertical velocity for airborne dash correction. Uses max, not addition. |
 | `g_lg_knockback` | float | `1000` | `0..100000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. Skalas om linjärt så `0` motsvarar gamla `682`, `500` gamla `841`, och `1000` gamla `1000`. |
 | `g_lg_fire_hz` | float | `20` | `1..125` | Ingen direkt stabil cvar | Authoritative LG damage/knockback and FG damage/freeze instances per second. Default 20 Hz gives 6 damage per instance with `g_lg_damage 120` or `g_fg_damage 120`; FG freeze amount comes from `balance.cfg`. |
 | `g_rl_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | RL-knockback per explosion, skalad med splash-damage. |
@@ -188,16 +199,20 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
-| `crosshair_enable` | bool | `1` | bool | Q3 `cg_drawCrosshair 4`; Q3-värdet väljer även grafik | Visa crosshair. |
+| `crosshair` | bool | `1` | bool | Q3 `cg_drawCrosshair 4`; Q3-värdet väljer även grafik | Visa crosshair. |
 | `crosshair_style` | int | `0` | `0..2` | Ingen 1:1-indexering | `0`: cross. `1`: cross + dot. `2`: dot. |
 | `crosshair_size` | float | `8` | `1..40` | Q3 `cg_crosshairSize 24` | Armlängd i pixlar. Geometrin skiljer sig från Q3-grafiken. |
-| `crosshair_thickness` | float | `2` | `1..10` | Ingen direkt | Linjetjocklek i pixlar. |
+| `crosshair_width` | float | `2` | `1..10` | Ingen direkt | Crosshair line width in pixels. |
 | `crosshair_gap` | float | `3` | `0..30` | Ingen direkt | Avstånd från centrum till armar. |
+| `crosshair_dot` | bool | `0` | bool | Ingen direkt | Draw a center dot over any crosshair style. |
+| `crosshair_dot_width` | float | `2` | `1..20` | Ingen direkt | Center dot size in pixels. |
+| `crosshair_outline` | bool | `0` | bool | Ingen direkt | Draw a black outline behind the crosshair and dot. |
+| `crosshair_outline_width` | float | `1` | `0..10` | Ingen direkt | Crosshair outline width in pixels. |
 | `crosshair_alpha` | float | `1` | `0..1` | Ingen direkt standard | Opacitet. |
 | `crosshair_r` | int | `255` | `0..255` | Ingen direkt standard | Röd kanal. |
 | `crosshair_g` | int | `255` | `0..255` | Ingen direkt standard | Grön kanal. |
 | `crosshair_b` | int | `255` | `0..255` | Ingen direkt standard | Blå kanal. |
-| `crosshair_hit_enable` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på crosshair vid träff. |
+| `crosshair_hit` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på crosshair vid träff. |
 | `crosshair_hit_r` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, röd. |
 | `crosshair_hit_g` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, grön. |
 | `crosshair_hit_b` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, blå. |
@@ -220,7 +235,7 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 | `r_beam_r` | int | `74` | `0..255` | Ingen direkt standard | Lokal beam, röd kanal. |
 | `r_beam_g` | int | `166` | `0..255` | Ingen direkt standard | Lokal beam, grön kanal. |
 | `r_beam_b` | int | `255` | `0..255` | Ingen direkt standard | Lokal beam, blå kanal. |
-| `r_beam_hit_enable` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på lokal beam vid träff. |
+| `r_beam_hit` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på lokal beam vid träff. |
 | `r_beam_hit_r` | int | `255` | `0..255` | Ingen direkt | Beamens träfffärg, röd. |
 | `r_beam_hit_g` | int | `255` | `0..255` | Ingen direkt | Beamens träfffärg, grön. |
 | `r_beam_hit_b` | int | `255` | `0..255` | Ingen direkt | Beamens träfffärg, blå. |
@@ -244,10 +259,10 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
-| `r_hitmarker_enable` | bool | `1` | bool | Ingen standard-Q3-motsvarighet | Visa center-screen hitmarker. |
+| `r_hitmarker` | bool | `1` | bool | Ingen standard-Q3-motsvarighet | Visa center-screen hitmarker. |
 | `r_hitmarker_duration` | float | `0.12` | `0..2` sekunder | Ingen | Synlig tid. |
 | `r_hitmarker_size` | float | `10` | `2..40` | Ingen | Armlängd i pixlar. |
-| `r_hitmarker_thickness` | float | `2` | `1..10` | Ingen | Tjocklek i pixlar. |
+| `r_hitmarker_width` | float | `2` | `1..10` | Ingen | Hitmarker line width in pixels. |
 | `r_hitmarker_r` | int | `255` | `0..255` | Ingen | Röd kanal. |
 | `r_hitmarker_g` | int | `255` | `0..255` | Ingen | Grön kanal. |
 | `r_hitmarker_b` | int | `255` | `0..255` | Ingen | Blå kanal. |
@@ -271,20 +286,34 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
 | `r_player_outline_style` | int | `0` | `0..1` | Ingen direkt | Shared player outline implementation selector. `0`: legacy geometry-expanded fallback. `1`: SDL_GPU half-resolution screen-space mask/dilation/composite path. |
-| `r_enemy_outline_enable` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
+| `r_enemy_outline` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
 | `r_enemy_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_enemy_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy outline opacity. |
 | `r_enemy_outline_r` | int | `255` | `0..255` | Ingen direkt | Enemy outline red channel. |
 | `r_enemy_outline_g` | int | `220` | `0..255` | Ingen direkt | Enemy outline green channel. |
 | `r_enemy_outline_b` | int | `84` | `0..255` | Ingen direkt | Enemy outline blue channel. |
-| `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspired model lean | Enables velocity lean for the enemy model in 3D. The GLB model applies lean as an upper-body layer over locomotion, so run/crouch leg motion remains intact. Presentation-only; does not affect local POV, simulation, aim, hitboxes, or networking. |
-| `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplier for enemy model velocity lean. `1` roughly matches Q3 default, `0` gives no lean even when `r_enemy_lean` is enabled. |
-| `r_enemy_hit_enable` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
+| `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad model lean | Slår på/av velocity lean för motståndarmodellen i 3D. Påverkar bara renderad modell, inte lokal POV, simulation, aim, hitboxar eller nätkod. |
+| `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för motståndarmodellens velocity lean. `1` motsvarar ungefär Q3-standard, `0` ger ingen lean även om `r_enemy_lean` är på. |
+| `r_enemy_hit` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
 | `r_enemy_hit_r` | int | `255` | `0..255` | Ingen | Träfffärg röd. |
 | `r_enemy_hit_g` | int | `190` | `0..255` | Ingen | Träfffärg grön. |
 | `r_enemy_hit_b` | int | `198` | `0..255` | Ingen | Träfffärg blå. |
 | `r_enemy_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen | Träfffärgens duration. |
 | `r_enemy_hit_fade` | bool | `1` | bool | Ingen | `1`: gradvis blend. `0`: binär färg. |
+| `r_enemy_health` | bool | `1` | bool | Ingen direkt | Draw floating enemy health bars. |
+| `r_enemy_health_damage_only` | bool | `0` | bool | Ingen direkt | Only show enemy health bars after recent damage. |
+| `r_enemy_health_fade` | bool | `1` | bool | Ingen direkt | Fade enemy health bars during their damage-only duration. |
+| `r_enemy_health_duration` | float | `5` | `0..30` seconds | Ingen direkt | Visible time after damage when damage-only mode is active. |
+| `r_enemy_health_max_distance` | float | `0` | `0..1000` | Ingen direkt | Hide enemy health bars beyond this 3D distance; `0` disables the limit. |
+| `r_enemy_health_width` | float | `72` | `12..360` | Ingen direkt | Enemy health bar width in pixels. |
+| `r_enemy_health_height` | float | `7` | `2..60` | Ingen direkt | Enemy health bar height in pixels. |
+| `r_enemy_health_offset_z` | float | `0.35` | `-2..6` | Ingen direkt | Enemy health bar vertical world offset above the model. |
+| `r_enemy_health_offset_x` | float | `0` | `-400..400` | Ingen direkt | Enemy health bar horizontal screen offset. |
+| `r_enemy_health_offset_y` | float | `-18` | `-400..400` | Ingen direkt | Enemy health bar vertical screen offset. |
+| `r_enemy_health_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy health bar opacity. |
+| `r_enemy_health_r` | int | `224` | `0..255` | Ingen direkt | Enemy health bar red channel. |
+| `r_enemy_health_g` | int | `82` | `0..255` | Ingen direkt | Enemy health bar green channel. |
+| `r_enemy_health_b` | int | `92` | `0..255` | Ingen direkt | Enemy health bar blue channel. |
 
 ### 3.10 Lagkamratens utseende
 
@@ -302,15 +331,15 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_g` | int | `190` | `0..255` | Ingen direkt | Modellens gröna kanal. |
 | `r_teammate_b` | int | `224` | `0..255` | Ingen direkt | Modellens blå kanal. |
 | `r_teammate_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
-| `r_teammate_outline_enable` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
+| `r_teammate_outline` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
 | `r_teammate_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_teammate_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate outline opacity. |
 | `r_teammate_outline_r` | int | `128` | `0..255` | Ingen direkt | Teammate outline red channel. |
 | `r_teammate_outline_g` | int | `240` | `0..255` | Ingen direkt | Teammate outline green channel. |
 | `r_teammate_outline_b` | int | `255` | `0..255` | Ingen direkt | Teammate outline blue channel. |
-| `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspired | Enables velocity lean for teammate models in 3D. The GLB model applies lean as an upper-body layer over locomotion, so run/crouch leg motion remains intact. Presentation-only; does not affect simulation, aim, hitboxes, or networking. |
-| `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplier for teammate model velocity lean. |
-| `r_teammate_health_enable` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |
+| `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad | Slår på/av velocity lean för lagkamratmodellen i 3D. |
+| `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för lagkamratmodellens velocity lean. |
+| `r_teammate_health` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |
 | `r_teammate_health_damage_only` | bool | `0` | bool | Ingen direkt | Visar health bar endast efter nylig skada. |
 | `r_teammate_health_fade` | bool | `1` | bool | Ingen direkt | Tonar ut health bar under damage-only-perioden. |
 | `r_teammate_health_duration` | float | `5` | `0..30` sekunder | Ingen direkt | Synlig tid efter skada när damage-only används. |
@@ -331,7 +360,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
-| `r_enemy_name_enable` | bool | `1` | bool | Ingen direkt | Draw enemy nametags. |
+| `r_enemy_name` | bool | `1` | bool | Ingen direkt | Draw enemy nametags. |
 | `r_enemy_name_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy nametag opacity. |
 | `r_enemy_name_font_size` | float | `1.5` | `0.5..6` | Ingen direkt | Enemy nametag font scale. |
 | `r_enemy_name_offset_z` | float | `0.75` | `-2..6` | Ingen direkt | Enemy nametag world Z offset above the model. |
@@ -341,7 +370,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `r_enemy_name_r` | int | `255` | `0..255` | Ingen direkt | Enemy nametag red channel. |
 | `r_enemy_name_g` | int | `235` | `0..255` | Ingen direkt | Enemy nametag green channel. |
 | `r_enemy_name_b` | int | `235` | `0..255` | Ingen direkt | Enemy nametag blue channel. |
-| `r_teammate_name_enable` | bool | `1` | bool | Ingen direkt | Draw teammate nametags. |
+| `r_teammate_name` | bool | `1` | bool | Ingen direkt | Draw teammate nametags. |
 | `r_teammate_name_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate nametag opacity. |
 | `r_teammate_name_font_size` | float | `1.5` | `0.5..6` | Ingen direkt | Teammate nametag font scale. |
 | `r_teammate_name_offset_z` | float | `0.75` | `-2..6` | Ingen direkt | Teammate nametag world Z offset above the model. |
@@ -452,6 +481,7 @@ knappen släpps.
 | `+duck` / `-duck`, `+crouch` / `-crouch` | Alias for `+movedown`: duck/crouch nar `g_flight 0`, movedown i flight. |
 | `+speed` / `-speed`, `+sneak` / `-sneak` | Sneak/quiet walk med sankt mark-speed och utan vanliga fotsteg. |
 | `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
+| `+dash` / `-dash` | Start the universal movement dash on press. Default bind: `mouse3`. Direction is sampled from movement input and locked when dash starts. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
 | `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|1..8>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun, plasma gun, or freeze gun. Weapon selection is sent to the server every command tick. |
@@ -470,6 +500,7 @@ knappen släpps.
 | `Left/Right Shift` | `+speed` |
 | `Mouse1` | `+attack` |
 | `Mouse2` | `+zoom` |
+| `Mouse3` | `+dash` |
 | `1` | `weapon mg` |
 | `2` | `weapon sg` |
 | `3` | `weapon gl` |

@@ -96,6 +96,13 @@ bool sameMovementTuning(const MovementTuning& lhs, const MovementTuning& rhs) {
     lhs.maxAirSpeed == rhs.maxAirSpeed &&
     lhs.jumpImpulse == rhs.jumpImpulse &&
     lhs.airControlEnabled == rhs.airControlEnabled &&
+    lhs.dashTargetSpeed == rhs.dashTargetSpeed &&
+    lhs.dashMaxSpeed == rhs.dashMaxSpeed &&
+    lhs.dashAcceleration == rhs.dashAcceleration &&
+    lhs.dashDuration == rhs.dashDuration &&
+    lhs.dashCooldown == rhs.dashCooldown &&
+    lhs.dashGroundHopVelocity == rhs.dashGroundHopVelocity &&
+    lhs.dashAirHopVelocity == rhs.dashAirHopVelocity &&
     lhs.flightAcceleration == rhs.flightAcceleration &&
     lhs.maxFlightSpeed == rhs.maxFlightSpeed &&
     lhs.flightDamping == rhs.flightDamping &&
@@ -130,6 +137,13 @@ bool sameWeaponDamage(
     nearlyEqualGameplayFloat(lhs.groundFriction, rhs.groundFriction) &&
     nearlyEqualGameplayFloat(lhs.stopSpeed, rhs.stopSpeed) &&
     nearlyEqualGameplayFloat(lhs.maxGroundSpeed, rhs.maxGroundSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashTargetSpeed, rhs.dashTargetSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashMaxSpeed, rhs.dashMaxSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashAcceleration, rhs.dashAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.dashDuration, rhs.dashDuration) &&
+    nearlyEqualGameplayFloat(lhs.dashCooldown, rhs.dashCooldown) &&
+    nearlyEqualGameplayFloat(lhs.dashGroundHopVelocity, rhs.dashGroundHopVelocity) &&
+    nearlyEqualGameplayFloat(lhs.dashAirHopVelocity, rhs.dashAirHopVelocity) &&
     nearlyEqualGameplayFloat(lhs.flightAcceleration, rhs.flightAcceleration) &&
     nearlyEqualGameplayFloat(lhs.maxFlightSpeed, rhs.maxFlightSpeed) &&
     nearlyEqualGameplayFloat(lhs.flightDamping, rhs.flightDamping);
@@ -223,6 +237,13 @@ void syncGameplayConsoleFromSnapshot(
   (void)console.execute("set g_friction " + std::to_string(snapshot.movementTuning.groundFriction));
   (void)console.execute("set g_stopspeed " + std::to_string(snapshot.movementTuning.stopSpeed));
   (void)console.execute("set g_maxspeed " + std::to_string(snapshot.movementTuning.maxGroundSpeed));
+  (void)console.execute("set g_dash_targetspeed " + std::to_string(snapshot.movementTuning.dashTargetSpeed));
+  (void)console.execute("set g_dash_maxspeed " + std::to_string(snapshot.movementTuning.dashMaxSpeed));
+  (void)console.execute("set g_dash_accel " + std::to_string(snapshot.movementTuning.dashAcceleration));
+  (void)console.execute("set g_dash_duration " + std::to_string(snapshot.movementTuning.dashDuration));
+  (void)console.execute("set g_dash_cooldown " + std::to_string(snapshot.movementTuning.dashCooldown));
+  (void)console.execute("set g_dash_groundhop " + std::to_string(snapshot.movementTuning.dashGroundHopVelocity));
+  (void)console.execute("set g_dash_airhop " + std::to_string(snapshot.movementTuning.dashAirHopVelocity));
   (void)console.execute("set g_flightaccel " + std::to_string(snapshot.movementTuning.flightAcceleration));
   (void)console.execute("set g_flightmaxspeed " + std::to_string(snapshot.movementTuning.maxFlightSpeed));
   (void)console.execute("set g_flightdamping " + std::to_string(snapshot.movementTuning.flightDamping));

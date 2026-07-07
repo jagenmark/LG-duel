@@ -25,6 +25,39 @@ int main() {
   lg::registerClientCvars(console);
 
   failures += expect(
+    console.execute("sensitivity") ==
+      "sensitivity = 5 (default 5, Q3/QL default 5)" &&
+      console.execute("sensitivity 65.1") == "sensitivity = 65.1" &&
+      console.execute("sensitivity 100.5") == "value out of range for sensitivity",
+    "sensitivity should use the QL scale and allow migrated legacy values"
+  );
+  failures += expect(
+    console.execute("cl_mouseAccel") ==
+      "cl_mouseAccel = 0 (default 0, Q3/QL default 0)" &&
+      console.execute("cl_mouseAccel 0.1") == "cl_mouseAccel = 0.1" &&
+      console.getFloat("cl_mouseAccel") == 0.1F,
+    "QL mouse acceleration cvar should be registered"
+  );
+  failures += expect(
+    console.execute("cl_mouseAccelPower") ==
+      "cl_mouseAccelPower = 2 (default 2, Q3/QL default 2)" &&
+      console.execute("cl_mouseAccelPower 0.5") ==
+        "value out of range for cl_mouseAccelPower",
+    "QL mouse acceleration power should default to two and reject sub-one values"
+  );
+  failures += expect(
+    console.execute("cl_mouseAccelOffset") ==
+      "cl_mouseAccelOffset = 0 (default 0, Q3/QL default 0)" &&
+      console.execute("cl_mouseAccelOffset 5") == "cl_mouseAccelOffset = 5",
+    "QL mouse acceleration offset should be configurable"
+  );
+  failures += expect(
+    console.execute("cl_mouseSensCap") ==
+      "cl_mouseSensCap = 0 (default 0, Q3/QL default 0)" &&
+      console.execute("cl_mouseSensCap 30") == "cl_mouseSensCap = 30",
+    "QL mouse sensitivity cap should be configurable"
+  );
+  failures += expect(
     console.execute("g_lg_knockback") ==
       "g_lg_knockback = 1000 (default 1000, Q3/QL default 1000)",
     "LG knockback cvar should use the g_lg_knockback name"
@@ -77,6 +110,13 @@ int main() {
     console.execute("g_weaponswitching cpma") == "g_weaponswitching = cpma" &&
       console.getString("g_weaponswitching") == "cpma",
     "weapon switching rules should be configurable from the client console"
+  );
+  failures += expect(
+    console.execute("g_dash_targetspeed 12") == "g_dash_targetspeed = 12" &&
+      console.getFloat("g_dash_targetspeed") == 12.0F &&
+      console.execute("g_dash_cooldown 0.7") == "g_dash_cooldown = 0.7" &&
+      console.getFloat("g_dash_cooldown") == 0.7F,
+    "dash movement cvars should be configurable"
   );
   failures += expect(
     console.execute("r_damage_numbers_mode") ==
@@ -139,28 +179,37 @@ int main() {
     "crosshair style cvar should include the ring style"
   );
   failures += expect(
-    console.execute("crosshair_dot_enable") ==
-        "crosshair_dot_enable = 0 (default 0)" &&
-      console.execute("crosshair_dot_enable 1") ==
-        "crosshair_dot_enable = 1" &&
-      console.getBool("crosshair_dot_enable"),
+    console.execute("crosshair_width") ==
+        "crosshair_width = 2 (default 2)" &&
+      console.execute("crosshair_width 0.5") ==
+        "value out of range for crosshair_width" &&
+      console.execute("crosshair_width 4") ==
+        "crosshair_width = 4",
+    "crosshair width should be configurable"
+  );
+  failures += expect(
+    console.execute("crosshair_dot") ==
+        "crosshair_dot = 0 (default 0)" &&
+      console.execute("crosshair_dot 1") ==
+        "crosshair_dot = 1" &&
+      console.getBool("crosshair_dot"),
     "crosshair dot should be independently toggleable"
   );
   failures += expect(
-    console.execute("crosshair_dot_thickness") ==
-        "crosshair_dot_thickness = 2 (default 2)" &&
-      console.execute("crosshair_dot_thickness 0.5") ==
-        "value out of range for crosshair_dot_thickness" &&
-      console.execute("crosshair_dot_thickness 5") ==
-        "crosshair_dot_thickness = 5",
-    "crosshair dot thickness should be configurable"
+    console.execute("crosshair_dot_width") ==
+        "crosshair_dot_width = 2 (default 2)" &&
+      console.execute("crosshair_dot_width 0.5") ==
+        "value out of range for crosshair_dot_width" &&
+      console.execute("crosshair_dot_width 5") ==
+        "crosshair_dot_width = 5",
+    "crosshair dot width should be configurable"
   );
   failures += expect(
-    console.execute("crosshair_outline_enable") ==
-        "crosshair_outline_enable = 0 (default 0)" &&
-      console.execute("crosshair_outline_enable 1") ==
-        "crosshair_outline_enable = 1" &&
-      console.getBool("crosshair_outline_enable"),
+    console.execute("crosshair_outline") ==
+        "crosshair_outline = 0 (default 0)" &&
+      console.execute("crosshair_outline 1") ==
+        "crosshair_outline = 1" &&
+      console.getBool("crosshair_outline"),
     "crosshair outline should be independently toggleable"
   );
   failures += expect(
@@ -171,6 +220,15 @@ int main() {
       console.execute("crosshair_outline_width 3") ==
         "crosshair_outline_width = 3",
     "crosshair outline width should be configurable"
+  );
+  failures += expect(
+    console.execute("r_hitmarker_width") ==
+        "r_hitmarker_width = 2 (default 2)" &&
+      console.execute("r_hitmarker_width 0.5") ==
+        "value out of range for r_hitmarker_width" &&
+      console.execute("r_hitmarker_width 4") ==
+        "r_hitmarker_width = 4",
+    "hitmarker width should be configurable"
   );
   failures += expect(
     console.execute("r_sg_weapon_model_start 1") ==

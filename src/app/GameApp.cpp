@@ -95,6 +95,13 @@ constexpr std::uint8_t kShotgunVisualPelletCount = 6;
     nearlyEqualGameplayFloat(lhs.groundFriction, rhs.groundFriction) &&
     nearlyEqualGameplayFloat(lhs.stopSpeed, rhs.stopSpeed) &&
     nearlyEqualGameplayFloat(lhs.maxGroundSpeed, rhs.maxGroundSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashTargetSpeed, rhs.dashTargetSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashMaxSpeed, rhs.dashMaxSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashAcceleration, rhs.dashAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.dashDuration, rhs.dashDuration) &&
+    nearlyEqualGameplayFloat(lhs.dashCooldown, rhs.dashCooldown) &&
+    nearlyEqualGameplayFloat(lhs.dashGroundHopVelocity, rhs.dashGroundHopVelocity) &&
+    nearlyEqualGameplayFloat(lhs.dashAirHopVelocity, rhs.dashAirHopVelocity) &&
     nearlyEqualGameplayFloat(lhs.flightAcceleration, rhs.flightAcceleration) &&
     nearlyEqualGameplayFloat(lhs.maxFlightSpeed, rhs.maxFlightSpeed) &&
     nearlyEqualGameplayFloat(lhs.flightDamping, rhs.flightDamping);
@@ -164,6 +171,13 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute("set g_friction " + std::to_string(snapshot.movementTuning.groundFriction));
   (void)console.execute("set g_stopspeed " + std::to_string(snapshot.movementTuning.stopSpeed));
   (void)console.execute("set g_maxspeed " + std::to_string(snapshot.movementTuning.maxGroundSpeed));
+  (void)console.execute("set g_dash_targetspeed " + std::to_string(snapshot.movementTuning.dashTargetSpeed));
+  (void)console.execute("set g_dash_maxspeed " + std::to_string(snapshot.movementTuning.dashMaxSpeed));
+  (void)console.execute("set g_dash_accel " + std::to_string(snapshot.movementTuning.dashAcceleration));
+  (void)console.execute("set g_dash_duration " + std::to_string(snapshot.movementTuning.dashDuration));
+  (void)console.execute("set g_dash_cooldown " + std::to_string(snapshot.movementTuning.dashCooldown));
+  (void)console.execute("set g_dash_groundhop " + std::to_string(snapshot.movementTuning.dashGroundHopVelocity));
+  (void)console.execute("set g_dash_airhop " + std::to_string(snapshot.movementTuning.dashAirHopVelocity));
   (void)console.execute("set g_flightaccel " + std::to_string(snapshot.movementTuning.flightAcceleration));
   (void)console.execute("set g_flightmaxspeed " + std::to_string(snapshot.movementTuning.maxFlightSpeed));
   (void)console.execute("set g_flightdamping " + std::to_string(snapshot.movementTuning.flightDamping));
@@ -1000,6 +1014,7 @@ struct LocalInputState {
   int down = 0;
   int sneak = 0;
   int attack = 0;
+  int dash = 0;
 
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
@@ -1568,6 +1583,17 @@ void appendGroundDebugHudLines(
     player.velocity.z,
     normalVelocity,
     player.onGround ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  std::snprintf(
+    text,
+    sizeof(text),
+    "GROUND dash active %u cooldown %u dir %.2f %.2f",
+    static_cast<unsigned int>(player.dashActiveTicksRemaining),
+    static_cast<unsigned int>(player.dashCooldownTicksRemaining),
+    player.dashDirection.x,
+    player.dashDirection.y
   );
   hud.topLeftLines.emplace_back(text);
 }
@@ -2473,6 +2499,43 @@ std::string clientConfigPath() {
   return path + "client.cfg";
 }
 
+void replaceAll(std::string& text, std::string_view from, std::string_view to) {
+  std::size_t position = 0;
+  while ((position = text.find(from, position)) != std::string::npos) {
+    text.replace(position, from.size(), to);
+    position += to.size();
+  }
+}
+
+std::string migrateLegacyClientCvarNames(std::string text) {
+  // Preserve old user client.cfg values and binds while keeping the live cvar
+  // registry on the shorter presentation toggle names.
+  static constexpr std::array<std::pair<std::string_view, std::string_view>, 16>
+    kRenamedCvars{{
+      {"crosshair_enable", "crosshair"},
+      {"crosshair_dot_enable", "crosshair_dot"},
+      {"crosshair_outline_enable", "crosshair_outline"},
+      {"crosshair_hit_enable", "crosshair_hit"},
+      {"crosshair_thickness", "crosshair_width"},
+      {"crosshair_dot_thickness", "crosshair_dot_width"},
+      {"r_beam_hit_enable", "r_beam_hit"},
+      {"r_hitmarker_enable", "r_hitmarker"},
+      {"r_hitmarker_thickness", "r_hitmarker_width"},
+      {"r_enemy_outline_enable", "r_enemy_outline"},
+      {"r_enemy_hit_enable", "r_enemy_hit"},
+      {"r_enemy_health_enable", "r_enemy_health"},
+      {"r_enemy_name_enable", "r_enemy_name"},
+      {"r_teammate_outline_enable", "r_teammate_outline"},
+      {"r_teammate_health_enable", "r_teammate_health"},
+      {"r_teammate_name_enable", "r_teammate_name"},
+    }};
+
+  for (const auto& [oldName, newName] : kRenamedCvars) {
+    replaceAll(text, oldName, newName);
+  }
+  return text;
+}
+
 void loadClientConfig(ConsoleSystem& console, const std::string& path) {
   std::ifstream file(path);
   if (!file) {
@@ -2480,7 +2543,10 @@ void loadClientConfig(ConsoleSystem& console, const std::string& path) {
   }
   std::ostringstream text;
   text << file.rdbuf();
-  const ConsoleConfigResult result = executeConsoleConfigText(console, text.str());
+  const ConsoleConfigResult result = executeConsoleConfigText(
+    console,
+    migrateLegacyClientCvarNames(text.str())
+  );
   for (const std::string& error : result.errors) {
     std::cerr << "Config warning: " << path << ": " << error << '\n';
   }
@@ -2548,14 +2614,14 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.textureLodBias = console.getFloat("r_texture_lod_bias");
   settings.showRendererPerf = console.getBool("r_perf");
   settings.showRendererPerfDetail = console.getBool("r_perf_detail");
-  settings.crosshairEnabled = console.getBool("crosshair_enable");
+  settings.crosshairEnabled = console.getBool("crosshair");
   settings.crosshairStyle = console.getInt("crosshair_style");
   settings.crosshairSize = console.getFloat("crosshair_size");
-  settings.crosshairThickness = console.getFloat("crosshair_thickness");
+  settings.crosshairThickness = console.getFloat("crosshair_width");
   settings.crosshairGap = console.getFloat("crosshair_gap");
-  settings.crosshairDotEnabled = console.getBool("crosshair_dot_enable");
-  settings.crosshairDotThickness = console.getFloat("crosshair_dot_thickness");
-  settings.crosshairOutlineEnabled = console.getBool("crosshair_outline_enable");
+  settings.crosshairDotEnabled = console.getBool("crosshair_dot");
+  settings.crosshairDotThickness = console.getFloat("crosshair_dot_width");
+  settings.crosshairOutlineEnabled = console.getBool("crosshair_outline");
   settings.crosshairOutlineWidth = console.getFloat("crosshair_outline_width");
   settings.crosshairAlpha = console.getFloat("crosshair_alpha");
   settings.crosshairRed = static_cast<std::uint8_t>(console.getInt("crosshair_r"));
@@ -2583,9 +2649,9 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_enemy_beam_g"));
   settings.enemyBeamBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_beam_b"));
-  settings.hitMarkerEnabled = console.getBool("r_hitmarker_enable");
+  settings.hitMarkerEnabled = console.getBool("r_hitmarker");
   settings.hitMarkerSize = console.getFloat("r_hitmarker_size");
-  settings.hitMarkerThickness = console.getFloat("r_hitmarker_thickness");
+  settings.hitMarkerThickness = console.getFloat("r_hitmarker_width");
   settings.hitMarkerRed =
     static_cast<std::uint8_t>(console.getInt("r_hitmarker_r"));
   settings.hitMarkerGreen =
@@ -2616,7 +2682,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.enemyBlue = static_cast<std::uint8_t>(console.getInt("r_enemy_b"));
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
   settings.playerModel = console.getInt("r_player_model");
-  settings.enemyOutlineEnabled = console.getBool("r_enemy_outline_enable");
+  settings.enemyOutlineEnabled = console.getBool("r_enemy_outline");
   settings.playerOutlineStyle = static_cast<PlayerOutlineStyle>(
     console.getInt("r_player_outline_style")
   );
@@ -2636,7 +2702,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_g"));
   settings.enemyHitBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_hit_b"));
-  settings.enemyHealthBarEnabled = console.getBool("r_enemy_health_enable");
+  settings.enemyHealthBarEnabled = console.getBool("r_enemy_health");
   settings.enemyHealthBarDamageOnly =
     console.getBool("r_enemy_health_damage_only");
   settings.enemyHealthBarFade = console.getBool("r_enemy_health_fade");
@@ -2675,7 +2741,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_teammate_b"));
   settings.teammateAlpha = console.getFloat("r_teammate_alpha");
   settings.teammateOutlineEnabled =
-    console.getBool("r_teammate_outline_enable");
+    console.getBool("r_teammate_outline");
   settings.teammateOutlineWidth =
     console.getFloat("r_teammate_outline_width");
   settings.teammateOutlineAlpha =
@@ -2690,7 +2756,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.teammateLeanScale = console.getFloat("r_teammate_lean_scale");
 
   settings.teammateHealthBarEnabled =
-    console.getBool("r_teammate_health_enable");
+    console.getBool("r_teammate_health");
   settings.teammateHealthBarDamageOnly =
     console.getBool("r_teammate_health_damage_only");
   settings.teammateHealthBarFade =
@@ -2717,7 +2783,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_teammate_health_g"));
   settings.teammateHealthBarBlue =
     static_cast<std::uint8_t>(console.getInt("r_teammate_health_b"));
-  settings.enemyNameTagEnabled = console.getBool("r_enemy_name_enable");
+  settings.enemyNameTagEnabled = console.getBool("r_enemy_name");
   settings.enemyNameTagAlpha = console.getFloat("r_enemy_name_alpha");
   settings.enemyNameTagScale = console.getFloat("r_enemy_name_font_size");
   settings.enemyNameTagWorldOffsetZ = console.getFloat("r_enemy_name_offset_z");
@@ -2730,7 +2796,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_enemy_name_g"));
   settings.enemyNameTagBlue =
     static_cast<std::uint8_t>(console.getInt("r_enemy_name_b"));
-  settings.teammateNameTagEnabled = console.getBool("r_teammate_name_enable");
+  settings.teammateNameTagEnabled = console.getBool("r_teammate_name");
   settings.teammateNameTagAlpha = console.getFloat("r_teammate_name_alpha");
   settings.teammateNameTagScale = console.getFloat("r_teammate_name_font_size");
   settings.teammateNameTagWorldOffsetZ =
@@ -2768,6 +2834,26 @@ float zoomSensitivityMultiplier(
     return 1.0F;
   }
   return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
+}
+
+MouseAimSettings mouseAimSettingsFromConsole(
+  const ConsoleSystem& console,
+  bool zoomHeld
+) {
+  return {
+    console.getFloat("sensitivity"),
+    zoomHeld
+      ? zoomSensitivityMultiplier(
+          console.getFloat("cl_fov"),
+          console.getFloat("cl_zoom_fov"),
+          console.getFloat("cl_zoom_sensitivity")
+        )
+      : 1.0F,
+    console.getFloat("cl_mouseAccel"),
+    console.getFloat("cl_mouseAccelPower"),
+    console.getFloat("cl_mouseAccelOffset"),
+    console.getFloat("cl_mouseSensCap"),
+  };
 }
 
 bool sameRuntimeMovementTuning(
@@ -2991,6 +3077,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+speed");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("mouse3", "+dash");
   (void)bindings.bind("2", "weapon mg");
   (void)bindings.bind("3", "weapon sg");
   (void)bindings.bind("5", "weapon gl");
@@ -3214,20 +3301,22 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   const PlayerState& player,
   std::uint32_t sequence,
   std::uint32_t clientTick,
-  float sensitivity,
+  const MouseAimSettings& mouseAimSettings,
+  float mouseFrameSeconds,
   Weapon weapon
 ) {
   UserCommand command;
   command.sequence = sequence;
   command.clientTick = clientTick;
-  command.viewYawRadians = relativeMouseYaw(
-    player.viewYawRadians,
+  const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
     input.mouseDeltaX,
-    sensitivity
+    input.mouseDeltaY,
+    mouseFrameSeconds,
+    mouseAimSettings
   );
+  command.viewYawRadians = player.viewYawRadians - mouseAimDelta.yawRadians;
   command.viewPitchRadians = clamp(
-    player.viewPitchRadians -
-      (input.mouseDeltaY * kBaseMouseSensitivityRadians * sensitivity),
+    player.viewPitchRadians - mouseAimDelta.pitchRadians,
     -kMaxPitchRadians,
     kMaxPitchRadians
   );
@@ -3237,6 +3326,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.dash = input.dash > 0;
   command.crouch = input.down > 0;
   command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
@@ -3262,6 +3352,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.dash = input.dash > 0;
   command.crouch = input.down > 0;
   command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
@@ -3383,6 +3474,7 @@ int GameApp::run() const {
   registerButtonCommand("speed", input.sneak);
   registerButtonCommand("sneak", input.sneak);
   registerButtonCommand("attack", input.attack);
+  registerButtonCommand("dash", input.dash);
   registerButtonCommand("scores", scoreboardPressCount);
   registerButtonCommand("zoom", zoomPressCount);
 
@@ -3958,6 +4050,7 @@ int GameApp::run() const {
         "+speed\n"
         "+sneak\n"
         "+attack\n"
+        "+dash\n"
         "+scores\n"
         "+zoom\n"
         "weapon\n"
@@ -4033,6 +4126,9 @@ int GameApp::run() const {
     if (bindings.binding("mouse2").empty()) {
       (void)bindings.bind("mouse2", "+zoom");
     }
+    if (bindings.binding("mouse3").empty()) {
+      (void)bindings.bind("mouse3", "+dash");
+    }
     (void)bindings.bind("1", "weapon mg");
     (void)bindings.bind("2", "weapon sg");
     (void)bindings.bind("3", "weapon gl");
@@ -4075,6 +4171,12 @@ int GameApp::run() const {
       (void)bindings.bind("rightshift", "+speed");
     }
     (void)console.execute("set cl_config_version 11");
+  }
+  if (console.getInt("cl_config_version") < 13) {
+    const float migratedSensitivity =
+      console.getFloat("sensitivity") * kLegacyToQuakeLiveSensitivityScale;
+    (void)console.execute("set sensitivity " + std::to_string(migratedSensitivity));
+    (void)console.execute("set cl_config_version 13");
   }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
@@ -4739,36 +4841,17 @@ int GameApp::run() const {
       input.mouseDeltaY = 0.0F;
     }
     if (gameInputControlsView && presentationView.initialized) {
-      presentationView.yawRadians = relativeMouseYaw(
-        presentationView.yawRadians,
+      const MouseAimSettings mouseAimSettings =
+        mouseAimSettingsFromConsole(console, zoomPressCount > 0);
+      const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
         input.mouseDeltaX,
-        console.getFloat("sensitivity") *
-          (
-            zoomPressCount > 0
-              ? zoomSensitivityMultiplier(
-                  console.getFloat("cl_fov"),
-                  console.getFloat("cl_zoom_fov"),
-                  console.getFloat("cl_zoom_sensitivity")
-                )
-              : 1.0F
-          )
+        input.mouseDeltaY,
+        outerFrameElapsed.count(),
+        mouseAimSettings
       );
+      presentationView.yawRadians -= mouseAimDelta.yawRadians;
       presentationView.pitchRadians = clamp(
-        presentationView.pitchRadians -
-          (
-            input.mouseDeltaY *
-            kBaseMouseSensitivityRadians *
-            console.getFloat("sensitivity") *
-            (
-              zoomPressCount > 0
-                ? zoomSensitivityMultiplier(
-                    console.getFloat("cl_fov"),
-                    console.getFloat("cl_zoom_fov"),
-                    console.getFloat("cl_zoom_sensitivity")
-                  )
-                : 1.0F
-            )
-          ),
+        presentationView.pitchRadians - mouseAimDelta.pitchRadians,
         -kMaxPitchRadians,
         kMaxPitchRadians
       );
@@ -4898,14 +4981,8 @@ int GameApp::run() const {
       }
       const PlayerState& predictedPlayer = client->predictedPlayer();
 
-      const bool zoomHeld = zoomPressCount > 0;
-      const float zoomSensitivity = zoomSensitivityMultiplier(
-        console.getFloat("cl_fov"),
-        console.getFloat("cl_zoom_fov"),
-        console.getFloat("cl_zoom_sensitivity")
-      );
-      const float effectiveSensitivity = console.getFloat("sensitivity") *
-        (zoomHeld ? zoomSensitivity : 1.0F);
+      const MouseAimSettings mouseAimSettings =
+        mouseAimSettingsFromConsole(console, zoomPressCount > 0);
 
       const UserCommand command =
         usePresentationView && presentationView.initialized
@@ -4922,7 +4999,8 @@ int GameApp::run() const {
               predictedPlayer,
               commandSequence++,
               clientTick++,
-              effectiveSensitivity,
+              mouseAimSettings,
+              elapsed.count(),
               selectedWeapon
             );
       localTracerAimHistory.remember(command);
@@ -5693,14 +5771,8 @@ int GameApp::run() const {
         localRenderPredictionSeconds > 0.0F &&
         renderPlayer.health > 0
       ) {
-        const bool zoomHeld = zoomPressCount > 0;
-        const float zoomSensitivity = zoomSensitivityMultiplier(
-          console.getFloat("cl_fov"),
-          console.getFloat("cl_zoom_fov"),
-          console.getFloat("cl_zoom_sensitivity")
-        );
-        const float effectiveSensitivity = console.getFloat("sensitivity") *
-          (zoomHeld ? zoomSensitivity : 1.0F);
+        const MouseAimSettings mouseAimSettings =
+          mouseAimSettingsFromConsole(console, zoomPressCount > 0);
         const UserCommand visualCommand =
           usePresentationView && presentationView.initialized
             ? buildCommandWithViewAngles(
@@ -5716,7 +5788,8 @@ int GameApp::run() const {
                 renderPlayer,
                 commandSequence,
                 clientTick,
-                effectiveSensitivity,
+                mouseAimSettings,
+                elapsed.count(),
                 selectedWeapon
               );
 
@@ -5885,7 +5958,7 @@ int GameApp::run() const {
         return fade ? 1.0F - (elapsedSinceBeamHit / duration) : 1.0F;
       };
     currentRenderSettings.enemyHitAmount = 0.0F;
-    if (console.getBool("r_enemy_hit_enable")) {
+    if (console.getBool("r_enemy_hit")) {
       for (
         std::size_t playerIndex = 0;
         playerIndex < renderRemotePlayers.size();
@@ -5913,13 +5986,13 @@ int GameApp::run() const {
             : 1.0F;
       }
     }
-    if (console.getBool("r_beam_hit_enable")) {
+    if (console.getBool("r_beam_hit")) {
       currentRenderSettings.beamHitAmount = beamHitFeedbackAmount(
         console.getFloat("r_beam_hit_duration"),
         console.getBool("r_beam_hit_fade")
       );
     }
-    if (console.getBool("crosshair_hit_enable")) {
+    if (console.getBool("crosshair_hit")) {
       currentRenderSettings.crosshairHitAmount = hitFeedbackAmount(
         console.getFloat("crosshair_hit_duration"),
         console.getBool("crosshair_hit_fade")

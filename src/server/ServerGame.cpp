@@ -321,11 +321,7 @@ struct BotAttackPreset {
 }
 
 [[nodiscard]] float lightningKnockbackToInternal(float knockback) {
-  const float remappedKnockback =
-    kLightningKnockbackUsefulMinimum +
-    (std::max(0.0F, knockback) *
-      ((1000.0F - kLightningKnockbackUsefulMinimum) / 1000.0F));
-  return q3KnockbackToInternal(remappedKnockback);
+  return q3KnockbackToInternal(std::max(0.0F, knockback));
 }
 
 [[nodiscard]] bool nearlyEqualGameplayFloat(float lhs, float rhs) {
@@ -3337,6 +3333,41 @@ void ServerGame::receiveCommands() {
         "g_maxspeed",
         movementTuning_.maxGroundSpeed,
         packet.movementTuning.maxGroundSpeed
+      );
+      logFloat(
+        "g_dash_targetspeed",
+        movementTuning_.dashTargetSpeed,
+        packet.movementTuning.dashTargetSpeed
+      );
+      logFloat(
+        "g_dash_maxspeed",
+        movementTuning_.dashMaxSpeed,
+        packet.movementTuning.dashMaxSpeed
+      );
+      logFloat(
+        "g_dash_accel",
+        movementTuning_.dashAcceleration,
+        packet.movementTuning.dashAcceleration
+      );
+      logFloat(
+        "g_dash_duration",
+        movementTuning_.dashDuration,
+        packet.movementTuning.dashDuration
+      );
+      logFloat(
+        "g_dash_cooldown",
+        movementTuning_.dashCooldown,
+        packet.movementTuning.dashCooldown
+      );
+      logFloat(
+        "g_dash_groundhop",
+        movementTuning_.dashGroundHopVelocity,
+        packet.movementTuning.dashGroundHopVelocity
+      );
+      logFloat(
+        "g_dash_airhop",
+        movementTuning_.dashAirHopVelocity,
+        packet.movementTuning.dashAirHopVelocity
       );
       logFloat(
         "g_flightaccel",
