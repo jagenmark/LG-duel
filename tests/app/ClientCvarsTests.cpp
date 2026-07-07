@@ -146,28 +146,37 @@ int main() {
     "crosshair style cvar should include the ring style"
   );
   failures += expect(
-    console.execute("crosshair_dot_enable") ==
-        "crosshair_dot_enable = 0 (default 0)" &&
-      console.execute("crosshair_dot_enable 1") ==
-        "crosshair_dot_enable = 1" &&
-      console.getBool("crosshair_dot_enable"),
+    console.execute("crosshair_width") ==
+        "crosshair_width = 2 (default 2)" &&
+      console.execute("crosshair_width 0.5") ==
+        "value out of range for crosshair_width" &&
+      console.execute("crosshair_width 4") ==
+        "crosshair_width = 4",
+    "crosshair width should be configurable"
+  );
+  failures += expect(
+    console.execute("crosshair_dot") ==
+        "crosshair_dot = 0 (default 0)" &&
+      console.execute("crosshair_dot 1") ==
+        "crosshair_dot = 1" &&
+      console.getBool("crosshair_dot"),
     "crosshair dot should be independently toggleable"
   );
   failures += expect(
-    console.execute("crosshair_dot_thickness") ==
-        "crosshair_dot_thickness = 2 (default 2)" &&
-      console.execute("crosshair_dot_thickness 0.5") ==
-        "value out of range for crosshair_dot_thickness" &&
-      console.execute("crosshair_dot_thickness 5") ==
-        "crosshair_dot_thickness = 5",
-    "crosshair dot thickness should be configurable"
+    console.execute("crosshair_dot_width") ==
+        "crosshair_dot_width = 2 (default 2)" &&
+      console.execute("crosshair_dot_width 0.5") ==
+        "value out of range for crosshair_dot_width" &&
+      console.execute("crosshair_dot_width 5") ==
+        "crosshair_dot_width = 5",
+    "crosshair dot width should be configurable"
   );
   failures += expect(
-    console.execute("crosshair_outline_enable") ==
-        "crosshair_outline_enable = 0 (default 0)" &&
-      console.execute("crosshair_outline_enable 1") ==
-        "crosshair_outline_enable = 1" &&
-      console.getBool("crosshair_outline_enable"),
+    console.execute("crosshair_outline") ==
+        "crosshair_outline = 0 (default 0)" &&
+      console.execute("crosshair_outline 1") ==
+        "crosshair_outline = 1" &&
+      console.getBool("crosshair_outline"),
     "crosshair outline should be independently toggleable"
   );
   failures += expect(
@@ -178,6 +187,15 @@ int main() {
       console.execute("crosshair_outline_width 3") ==
         "crosshair_outline_width = 3",
     "crosshair outline width should be configurable"
+  );
+  failures += expect(
+    console.execute("r_hitmarker_width") ==
+        "r_hitmarker_width = 2 (default 2)" &&
+      console.execute("r_hitmarker_width 0.5") ==
+        "value out of range for r_hitmarker_width" &&
+      console.execute("r_hitmarker_width 4") ==
+        "r_hitmarker_width = 4",
+    "hitmarker width should be configurable"
   );
   failures += expect(
     console.execute("r_sg_weapon_model_start 1") ==
