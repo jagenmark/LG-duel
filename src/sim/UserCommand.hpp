@@ -39,6 +39,7 @@ struct UserCommand {
 
   bool attack = false;
   bool jump = false;
+  bool dash = false;
   bool crouch = false;
   bool sneak = false;
   bool planarAim = true;

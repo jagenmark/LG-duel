@@ -22,6 +22,13 @@ struct MovementTuning {
   float maxAirSpeed = 8.0F;
   float jumpImpulse = 8.0F;
   bool airControlEnabled = false;
+  float dashTargetSpeed = 11.5F;
+  float dashMaxSpeed = 12.5F;
+  float dashAcceleration = 200.0F;
+  float dashDuration = 0.10F;
+  float dashCooldown = 0.85F;
+  float dashGroundHopVelocity = 3.25F;
+  float dashAirHopVelocity = 1.875F;
 
   float flightAcceleration = 32.0F;
   float maxFlightSpeed = 12.0F;

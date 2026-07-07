@@ -79,6 +79,13 @@ int main() {
     "weapon switching rules should be configurable from the client console"
   );
   failures += expect(
+    console.execute("g_dash_targetspeed 12") == "g_dash_targetspeed = 12" &&
+      console.getFloat("g_dash_targetspeed") == 12.0F &&
+      console.execute("g_dash_cooldown 0.7") == "g_dash_cooldown = 0.7" &&
+      console.getFloat("g_dash_cooldown") == 0.7F,
+    "dash movement cvars should be configurable"
+  );
+  failures += expect(
     console.execute("r_damage_numbers_mode") ==
       "r_damage_numbers_mode = 0 (default 0)",
     "damage numbers should default to disabled"

@@ -423,6 +423,181 @@ int main() {
   }
 
   {
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand dash;
+    dash.forwardMove = 1.0F;
+    dash.dash = true;
+
+    runCommand(player, dash, 1);
+    dash.dash = false;
+    runCommand(player, dash, 9);
+
+    const float horizontalUps =
+      std::hypot(player.velocity.x, player.velocity.y) * 40.0F;
+    failures += expect(
+      horizontalUps >= 400.0F && horizontalUps <= 500.0F,
+      "standing W dash should quickly reach roughly 400-500 UPS"
+    );
+    failures += expect(
+      player.velocity.z > 0.0F && !player.onGround,
+      "ground dash should start a small hop arc"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand dash;
+    dash.forwardMove = -1.0F;
+    dash.dash = true;
+
+    runCommand(player, dash, 1);
+    dash.dash = false;
+    runCommand(player, dash, 9);
+
+    failures += expect(
+      player.velocity.x < -9.5F,
+      "standing S dash should dash backward relative to view yaw"
+    );
+  }
+
+  {
+    lg::UserCommand dashForward;
+    dashForward.forwardMove = 1.0F;
+    dashForward.dash = true;
+    lg::PlayerState alreadyFast = groundedPlayer();
+    alreadyFast.velocity.x = 11.5F;
+
+    runCommand(alreadyFast, dashForward, 3);
+
+    failures += expect(
+      alreadyFast.velocity.x <= 11.55F,
+      "same-direction dash near target speed should add little or no speed"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = 11.0F;
+    lg::UserCommand dashBackward;
+    dashBackward.forwardMove = -1.0F;
+    dashBackward.dash = true;
+
+    runCommand(player, dashBackward, 1);
+    dashBackward.dash = false;
+    runCommand(player, dashBackward, 12);
+
+    failures += expect(
+      player.velocity.x < -8.0F,
+      "backward dash while moving forward should create a strong redirect"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = 11.0F;
+    lg::UserCommand dashSideways;
+    dashSideways.rightMove = 1.0F;
+    dashSideways.dash = true;
+
+    runCommand(player, dashSideways, 1);
+    dashSideways.dash = false;
+    runCommand(player, dashSideways, 12);
+
+    const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+    failures += expect(
+      player.velocity.y < -8.0F && horizontalSpeed <= 12.6F,
+      "side dash should dodge sideways without creating absurd diagonal speed"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = 20.0F;
+    lg::UserCommand dashForward;
+    dashForward.forwardMove = 1.0F;
+    dashForward.dash = true;
+
+    runCommand(player, dashForward, 1);
+
+    failures += expect(
+      player.velocity.x > 19.9F,
+      "dash should not clamp existing high speed above the dash cap"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.position.z = 5.0F;
+    player.velocity.x = 8.0F;
+    player.velocity.z = -10.0F;
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    lg::UserCommand dashBackward;
+    dashBackward.forwardMove = -1.0F;
+    dashBackward.dash = true;
+
+    runCommand(player, dashBackward, 1);
+
+    failures += expect(
+      player.velocity.x < 8.0F &&
+        player.velocity.z > 0.0F &&
+        player.velocity.z < lg::MovementTuning{}.jumpImpulse,
+      "airborne backward dash should redirect and apply only a small vertical correction"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand heldDash;
+    heldDash.forwardMove = 1.0F;
+    heldDash.dash = true;
+
+    runCommand(player, heldDash, 150);
+    failures += expect(
+      player.dashActiveTicksRemaining == 0 &&
+        player.dashCooldownTicksRemaining == 0 &&
+        player.velocity.x < 13.5F,
+      "holding dash should not retrigger after cooldown expires"
+    );
+  }
+
+  {
+    lg::PlayerState player = groundedPlayer();
+    player.health = 50;
+    lg::UserCommand dash;
+    dash.forwardMove = 1.0F;
+    dash.dash = true;
+
+    runCommand(player, dash, 1);
+
+    failures += expect(
+      player.dashActiveTicksRemaining > 0 && player.velocity.x > 0.0F,
+      "taking damage should not disable dash"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.walls[0] = {{1.0F, -1.0F, 0.0F}, {1.2F, 1.0F, 3.0F}};
+    arena.wallCount = 1;
+    lg::PlayerState player = groundedPlayer();
+    lg::UserCommand dash;
+    dash.forwardMove = 1.0F;
+    dash.dash = true;
+
+    runCommand(player, dash, arena, lg::MovementTuning{}, 1);
+    dash.dash = false;
+    runCommand(player, dash, arena, lg::MovementTuning{}, 20);
+
+    failures += expect(
+      player.position.x <= 1.0F - player.bounds.radius + 0.01F &&
+        std::isfinite(player.velocity.x) &&
+        std::isfinite(player.velocity.y),
+      "dashing into a wall should use normal collision without teleporting or exploding velocity"
+    );
+  }
+
+  {
     lg::UserCommand command;
     command.forwardMove = 1.0F;
     lg::MovementTuning tuning;
