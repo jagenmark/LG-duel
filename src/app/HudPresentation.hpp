@@ -16,7 +16,6 @@ enum class DamageNumbersMode : int {
   PerInstance = 1,
   PerInstanceAndTally = 2,
   TallyOnly = 3,
-  WorldTallyOnly = 4,
 };
 
 enum class LocalDamageSource : std::uint8_t {
@@ -50,6 +49,8 @@ struct DamageNumberEntry {
   std::uint8_t targetPlayerIndex = 255;
   float ageSeconds = 0.0F;
   std::uint32_t sequence = 0;
+  bool hasWorldPosition = false;
+  Vec3 worldPosition = {};
 };
 
 struct DamageNumberTally {

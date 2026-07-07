@@ -2673,6 +2673,8 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
     static_cast<std::uint8_t>(console.getInt("r_damage_numbers_g"));
   settings.damageNumbersBlue =
     static_cast<std::uint8_t>(console.getInt("r_damage_numbers_b"));
+  settings.damageNumbersDamageColor =
+    console.getBool("r_damage_numbers_damage_color");
   settings.damageNumbersOffsetX =
     console.getFloat("r_damage_numbers_offset_x");
   settings.damageNumbersOffsetY =

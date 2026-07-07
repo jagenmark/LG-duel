@@ -166,6 +166,28 @@ int main() {
   {
     lg::DamageNumberState damageNumbers;
     lg::DamageNumbersConfig config{
+      lg::DamageNumbersMode::PerInstance,
+      0.4F,
+      0.65F,
+    };
+    damageNumbers.addLocalDamageEvent(
+      worldDamageEvent(1, 1, 6, {10.0F, 2.0F, 1.0F}),
+      config
+    );
+    const lg::DamageNumberPresentation presentation =
+      damageNumbers.presentation();
+    failures += expect(
+      presentation.entries.size() == 1U &&
+        presentation.entries[0].hasWorldPosition &&
+        presentation.entries[0].worldPosition.x == 10.0F &&
+        presentation.entries[0].worldPosition.y == 2.0F,
+      "per-instance mode should carry the authoritative world-space damage anchor"
+    );
+  }
+
+  {
+    lg::DamageNumberState damageNumbers;
+    lg::DamageNumbersConfig config{
       lg::DamageNumbersMode::PerInstanceAndTally,
       0.4F,
       0.65F,
@@ -345,7 +367,7 @@ int main() {
   {
     lg::DamageNumberState damageNumbers;
     lg::DamageNumbersConfig config{
-      lg::DamageNumbersMode::WorldTallyOnly,
+      lg::DamageNumbersMode::TallyOnly,
       0.4F,
       0.65F,
     };
@@ -366,14 +388,14 @@ int main() {
         presentation.tallies[1].hasWorldPosition &&
         presentation.tallies[1].worldPosition.x == 12.0F &&
         presentation.tallies[1].worldPosition.y == 2.0F,
-      "mode 4 should update the cumulative tally at the latest target position"
+      "tally-only mode should update the cumulative tally at the latest target position"
     );
   }
 
   {
     lg::DamageNumberState damageNumbers;
     lg::DamageNumbersConfig config{
-      lg::DamageNumbersMode::WorldTallyOnly,
+      lg::DamageNumbersMode::TallyOnly,
       0.4F,
       0.65F,
     };
@@ -395,7 +417,7 @@ int main() {
         presentation.tallies[1].worldPosition.x == 12.0F &&
         presentation.tallies[2].damage == 20 &&
         presentation.tallies[2].worldPosition.x == 30.0F,
-      "mode 4 should move only the target that was hit again"
+      "tally-only mode should move only the target that was hit again"
     );
     damageNumbers.addLocalDamageEvent(
       worldDamageEvent(4, 2, 5, {35.0F, 3.0F, 0.0F}),
@@ -407,7 +429,7 @@ int main() {
         presentation.tallies[1].worldPosition.x == 12.0F &&
         presentation.tallies[2].damage == 25 &&
         presentation.tallies[2].worldPosition.x == 35.0F,
-      "mode 4 should move P3 without moving P2"
+      "tally-only mode should move P3 without moving P2"
     );
   }
 

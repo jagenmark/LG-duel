@@ -84,19 +84,22 @@ void DamageNumberState::addLocalDamageEvent(
     config.mode == DamageNumbersMode::PerInstance ||
     config.mode == DamageNumbersMode::PerInstanceAndTally
   ) {
+    // Damage numbers are a presentation effect, but their anchor still comes
+    // from authoritative hit feedback so client prediction never invents hits.
     entries_.push_back({
       event.damageApplied,
       event.headshot,
       event.targetPlayerIndex,
       0.0F,
       nextSequence_++,
+      event.hasTargetPosition,
+      event.targetPosition,
     });
   }
 
   if (
     config.mode != DamageNumbersMode::PerInstanceAndTally &&
-    config.mode != DamageNumbersMode::TallyOnly &&
-    config.mode != DamageNumbersMode::WorldTallyOnly
+    config.mode != DamageNumbersMode::TallyOnly
   ) {
     return;
   }
@@ -113,8 +116,7 @@ void DamageNumberState::addLocalDamageEvent(
     tally.targetPlayerIndex = event.targetPlayerIndex;
   }
   tally.secondsSinceLastHit = 0.0F;
-  tally.hasWorldPosition =
-    config.mode == DamageNumbersMode::WorldTallyOnly && event.hasTargetPosition;
+  tally.hasWorldPosition = event.hasTargetPosition;
   if (tally.hasWorldPosition) {
     tally.worldPosition = event.targetPosition;
   }

@@ -124,7 +124,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_hitmarker_g", "Hitmarker green channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_hitmarker_b", "Hitmarker blue channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_sg_weapon_model_start", "Draw shotgun fire from the remote weapon model instead of the gameplay muzzle.", false, archivedClient, {}, {}});
-  console.registerCvar({"r_damage_numbers_mode", "Damage number display: 0 off, 1 per damage instance, 2 per instance plus burst tally, 3 burst tally only, 4 world-space burst tally only.", 0, archivedClient, 0.0F, 4.0F});
+  console.registerCvar({"r_damage_numbers_mode", "World-space damage number display: 0 off, 1 per damage instance, 2 per instance plus burst tally, 3 burst tally only.", 0, archivedClient, 0.0F, 3.0F});
   console.registerCvar({"r_damage_numbers_window", "Seconds without local damage before a burst tally resets.", 0.4F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_damage_numbers_duration", "Visual lifetime of each individual damage number.", 0.65F, archivedClient, 0.05F, 3.0F});
   console.registerCvar({"r_damage_numbers_size", "Damage number font scale.", 1.6F, archivedClient, 0.5F, 6.0F});
@@ -132,8 +132,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_damage_numbers_r", "Damage number red channel.", 255, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_damage_numbers_g", "Damage number green channel.", 236, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_damage_numbers_b", "Damage number blue channel.", 128, archivedClient, 0.0F, 255.0F});
-  console.registerCvar({"r_damage_numbers_offset_x", "Damage number horizontal screen offset from the crosshair.", 0.0F, archivedClient, -400.0F, 400.0F});
-  console.registerCvar({"r_damage_numbers_offset_y", "Damage number vertical screen offset from the crosshair.", -46.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_damage_numbers_damage_color", "Blend damage numbers from the configured color toward red as damage increases.", false, archivedClient, {}, {}});
+  console.registerCvar({"r_damage_numbers_offset_x", "Damage number horizontal screen offset from the projected world anchor.", 0.0F, archivedClient, -400.0F, 400.0F});
+  console.registerCvar({"r_damage_numbers_offset_y", "Damage number vertical screen offset from the projected world anchor.", -46.0F, archivedClient, -400.0F, 400.0F});
   console.registerCvar({"r_enemy_r", "Enemy model red channel.", 224, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});

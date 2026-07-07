@@ -112,6 +112,7 @@ struct RenderSettings {
   std::uint8_t damageNumbersRed = 255;
   std::uint8_t damageNumbersGreen = 236;
   std::uint8_t damageNumbersBlue = 128;
+  bool damageNumbersDamageColor = false;
   float damageNumbersOffsetX = 0.0F;
   float damageNumbersOffsetY = -46.0F;
   std::uint8_t enemyRed = 224;

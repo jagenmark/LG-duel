@@ -38,6 +38,36 @@ const lg::Text2D* findText(
   return nullptr;
 }
 
+std::size_t countText(
+  const lg::DrawList2D& drawList,
+  std::string_view value
+) {
+  std::size_t count = 0;
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+      if (text->text == value) {
+        ++count;
+      }
+    }
+  }
+  return count;
+}
+
+const lg::Text2D* findTextWithRedAtLeast(
+  const lg::DrawList2D& drawList,
+  std::string_view value,
+  std::uint8_t minimumRed
+) {
+  for (const lg::DrawCommand2D& command : drawList.overlayCommands) {
+    if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+      if (text->text == value && text->color.red >= minimumRed) {
+        return text;
+      }
+    }
+  }
+  return nullptr;
+}
+
 bool commandTouchesWeaponHud(const lg::DrawCommand2D& command) {
   if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
     for (const lg::ScreenPoint& point : quad->points) {
@@ -454,9 +484,18 @@ int main() {
   {
     lg::HudRenderState damageHud;
     damageHud.damageNumbers.entries = {
-      {11, true, 1, 0.0F, 0},
-      {22, false, 1, 0.0F, 1},
-      {33, false, 1, 0.0F, 2},
+      {11, true, 1, 0.0F, 0, true, {10.0F, 0.0F, 0.0F}},
+      {22, false, 1, 0.0F, 1, true, {10.0F, 0.0F, 0.0F}},
+      {33, false, 1, 0.0F, 2, true, {10.0F, 0.0F, 0.0F}},
+    };
+    damageHud.damageNumbers.tallies[1] = {
+      true,
+      66,
+      false,
+      1,
+      0.0F,
+      true,
+      {10.0F, 0.0F, 0.0F},
     };
     lg::RenderSettings damageSettings;
     damageSettings.crosshairEnabled = false;
@@ -466,7 +505,9 @@ int main() {
     damageSettings.damageNumbersRed = 32;
     damageSettings.damageNumbersGreen = 96;
     damageSettings.damageNumbersBlue = 224;
-    const lg::DrawList2D damageUi = lg::buildScreenUi(
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
+    const lg::DrawList2D screenUi = lg::buildScreenUi(
       1280,
       720,
       opponent,
@@ -474,52 +515,75 @@ int main() {
       damageHud,
       {}
     );
-    const lg::Text2D* first = findText(damageUi, "HEADSHOT 11");
+    const lg::DrawList2D damageUi = lg::buildFloatingDamageNumbers(
+      1280,
+      720,
+      camera,
+      damageSettings,
+      damageHud
+    );
+    const lg::Text2D* first = findText(damageUi, "11");
     const lg::Text2D* second = findText(damageUi, "22");
     const lg::Text2D* third = findText(damageUi, "33");
+    const lg::Text2D* tally = findText(damageUi, "66");
     failures += expect(
-      first != nullptr &&
+      findText(screenUi, "11") == nullptr &&
+        findText(damageUi, "HEADSHOT 11") == nullptr &&
+        countText(damageUi, "11") == 2U &&
+        first != nullptr &&
         second != nullptr &&
         third != nullptr &&
-        std::abs(second->position.x - third->position.x) <= 4.0F &&
+        tally != nullptr &&
+        std::abs(second->position.x - third->position.x) <= 5.0F &&
         first->position.y < second->position.y &&
         second->position.y < third->position.y &&
-        first->color.red == 32 &&
-        first->color.green == 96 &&
-        first->color.blue == 224,
-      "individual damage numbers should stack vertically near the aim point and use configured color"
+        third->position.y < tally->position.y &&
+        first->color.red != 32 &&
+        first->color.green != 96 &&
+        first->color.blue != 224 &&
+        second->color.red == 32 &&
+        second->color.green == 96 &&
+        second->color.blue == 224 &&
+        third->scale > second->scale,
+      "individual damage numbers should stack in world space, style headshots, and grow by damage"
     );
   }
 
   {
-    lg::HudRenderState tallyHud;
-    tallyHud.damageNumbers.tallies[1] = {
-      true,
-      45,
-      false,
-      1,
-      0.0F,
+    lg::HudRenderState damageHud;
+    damageHud.damageNumbers.entries = {
+      {1, false, 1, 0.0F, 0, true, {10.0F, 0.0F, 0.0F}},
+      {2, false, 1, 0.0F, 1, true, {10.0F, 0.0F, 0.0F}},
+      {3, false, 1, 0.0F, 2, true, {10.0F, 0.0F, 0.0F}},
+      {4, false, 1, 0.0F, 3, true, {10.0F, 0.0F, 0.0F}},
+      {5, false, 1, 0.0F, 4, true, {10.0F, 0.0F, 0.0F}},
+      {6, false, 1, 0.0F, 5, true, {10.0F, 0.0F, 0.0F}},
     };
     lg::RenderSettings damageSettings;
     damageSettings.crosshairEnabled = false;
-    damageSettings.damageNumbersRed = 32;
-    damageSettings.damageNumbersGreen = 96;
-    damageSettings.damageNumbersBlue = 224;
-    const lg::DrawList2D tallyUi = lg::buildScreenUi(
+    damageSettings.damageNumbersSize = 1.0F;
+    damageSettings.damageNumbersOffsetX = 0.0F;
+    damageSettings.damageNumbersOffsetY = -40.0F;
+    const lg::PerspectiveCamera camera =
+      lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
+    const lg::DrawList2D damageUi = lg::buildFloatingDamageNumbers(
       1280,
       720,
-      opponent,
+      camera,
       damageSettings,
-      tallyHud,
-      {}
+      damageHud
     );
-    const lg::Text2D* tallyText = findText(tallyUi, "45");
+    const lg::Text2D* second = findText(damageUi, "2");
+    const lg::Text2D* sixth = findText(damageUi, "6");
     failures += expect(
-      tallyText != nullptr &&
-        tallyText->color.red == 32 &&
-        tallyText->color.green == 96 &&
-        tallyText->color.blue == 224,
-      "screen-space damage tallies should use configured damage-number color"
+      findText(damageUi, "1") == nullptr &&
+        second != nullptr &&
+        findText(damageUi, "3") != nullptr &&
+        findText(damageUi, "4") != nullptr &&
+        findText(damageUi, "5") != nullptr &&
+        sixth != nullptr &&
+        second->position.y < sixth->position.y,
+      "per-instance damage numbers should render only the latest five hits above the anchor"
     );
   }
 
@@ -542,6 +606,7 @@ int main() {
     damageSettings.damageNumbersRed = 32;
     damageSettings.damageNumbersGreen = 96;
     damageSettings.damageNumbersBlue = 224;
+    damageSettings.damageNumbersDamageColor = true;
     const lg::PerspectiveCamera camera =
       lg::makePerspectiveCamera({}, 0.0F, 0.0F, 90.0F, 16.0F / 9.0F);
     const lg::DrawList2D screenUi = lg::buildScreenUi(
@@ -560,16 +625,27 @@ int main() {
       worldDamageHud
     );
     const lg::Text2D* screenText = findText(screenUi, "45");
-    const lg::Text2D* floatingText = findText(floatingUi, "HEADSHOT 45");
+    const lg::Text2D* backingText = findText(floatingUi, "45");
+    const lg::Text2D* floatingText =
+      findTextWithRedAtLeast(floatingUi, "45", 100);
     failures += expect(
       screenText == nullptr &&
+        findText(floatingUi, "HEADSHOT 45") == nullptr &&
+        countText(floatingUi, "45") == 2U &&
+        backingText != nullptr &&
         floatingText != nullptr &&
-        std::abs(floatingText->position.x - 580.6F) < 0.1F &&
-        std::abs(floatingText->position.y - 326.0F) < 0.1F &&
-        floatingText->color.red == 32 &&
-        floatingText->color.green == 96 &&
-        floatingText->color.blue == 224,
-      "world damage tallies should be projected from their stored world position and use configured color"
+        backingText != floatingText &&
+        backingText->color.red < floatingText->color.red &&
+        backingText->position.x > floatingText->position.x &&
+        backingText->position.y > floatingText->position.y &&
+        floatingText->position.x > 560.0F &&
+        floatingText->position.x < 700.0F &&
+        floatingText->position.y > 260.0F &&
+        floatingText->position.y < 360.0F &&
+        floatingText->color.red > floatingText->color.green &&
+        floatingText->color.green < 96 &&
+        floatingText->scale > 1.35F,
+      "world damage tallies should project stored positions and support damage-scaled color, size, and headshot backing"
     );
   }
 

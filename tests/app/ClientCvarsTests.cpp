@@ -268,9 +268,16 @@ int main() {
   );
   failures += expect(
     console.execute("r_damage_numbers_mode 4") ==
-      "r_damage_numbers_mode = 4" &&
-      console.getInt("r_damage_numbers_mode") == 4,
-    "world damage number tally-only mode should be configurable"
+      "value out of range for r_damage_numbers_mode",
+    "removed redundant damage number mode should no longer be configurable"
+  );
+  failures += expect(
+    console.execute("r_damage_numbers_damage_color") ==
+      "r_damage_numbers_damage_color = 0 (default 0)" &&
+      console.execute("r_damage_numbers_damage_color 1") ==
+        "r_damage_numbers_damage_color = 1" &&
+      console.getBool("r_damage_numbers_damage_color"),
+    "damage-scaled damage number color should be toggleable"
   );
   failures += expect(
     console.execute("vid_fullscreen") ==
