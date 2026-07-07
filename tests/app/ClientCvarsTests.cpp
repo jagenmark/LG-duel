@@ -25,6 +25,39 @@ int main() {
   lg::registerClientCvars(console);
 
   failures += expect(
+    console.execute("sensitivity") ==
+      "sensitivity = 5 (default 5, Q3/QL default 5)" &&
+      console.execute("sensitivity 65.1") == "sensitivity = 65.1" &&
+      console.execute("sensitivity 100.5") == "value out of range for sensitivity",
+    "sensitivity should use the QL scale and allow migrated legacy values"
+  );
+  failures += expect(
+    console.execute("cl_mouseAccel") ==
+      "cl_mouseAccel = 0 (default 0, Q3/QL default 0)" &&
+      console.execute("cl_mouseAccel 0.1") == "cl_mouseAccel = 0.1" &&
+      console.getFloat("cl_mouseAccel") == 0.1F,
+    "QL mouse acceleration cvar should be registered"
+  );
+  failures += expect(
+    console.execute("cl_mouseAccelPower") ==
+      "cl_mouseAccelPower = 2 (default 2, Q3/QL default 2)" &&
+      console.execute("cl_mouseAccelPower 0.5") ==
+        "value out of range for cl_mouseAccelPower",
+    "QL mouse acceleration power should default to two and reject sub-one values"
+  );
+  failures += expect(
+    console.execute("cl_mouseAccelOffset") ==
+      "cl_mouseAccelOffset = 0 (default 0, Q3/QL default 0)" &&
+      console.execute("cl_mouseAccelOffset 5") == "cl_mouseAccelOffset = 5",
+    "QL mouse acceleration offset should be configurable"
+  );
+  failures += expect(
+    console.execute("cl_mouseSensCap") ==
+      "cl_mouseSensCap = 0 (default 0, Q3/QL default 0)" &&
+      console.execute("cl_mouseSensCap 30") == "cl_mouseSensCap = 30",
+    "QL mouse sensitivity cap should be configurable"
+  );
+  failures += expect(
     console.execute("g_lg_knockback") ==
       "g_lg_knockback = 1000 (default 1000, Q3/QL default 1000)",
     "LG knockback cvar should use the g_lg_knockback name"
