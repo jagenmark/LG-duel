@@ -32,7 +32,7 @@ int main() {
   );
   failures += expect(
     console.registerCvar({
-      "crosshair_enable",
+      "crosshair",
       "Draw the crosshair.",
       true,
       lg::CvarFlag::Archive | lg::CvarFlag::Client,
@@ -131,10 +131,10 @@ int main() {
     "range validation should reject invalid values"
   );
   failures += expect(
-    console.execute("toggle crosshair_enable") == "crosshair_enable = 0",
+    console.execute("toggle crosshair") == "crosshair = 0",
     "toggle should invert bool cvars"
   );
-  failures += expect(!console.getBool("crosshair_enable"), "bool value should update");
+  failures += expect(!console.getBool("crosshair"), "bool value should update");
   failures += expect(
     console.execute("version changed") == "version is read-only",
     "read-only cvars should reject assignment"

@@ -321,11 +321,7 @@ struct BotAttackPreset {
 }
 
 [[nodiscard]] float lightningKnockbackToInternal(float knockback) {
-  const float remappedKnockback =
-    kLightningKnockbackUsefulMinimum +
-    (std::max(0.0F, knockback) *
-      ((1000.0F - kLightningKnockbackUsefulMinimum) / 1000.0F));
-  return q3KnockbackToInternal(remappedKnockback);
+  return q3KnockbackToInternal(std::max(0.0F, knockback));
 }
 
 [[nodiscard]] bool nearlyEqualGameplayFloat(float lhs, float rhs) {

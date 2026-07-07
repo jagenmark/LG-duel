@@ -199,16 +199,20 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
-| `crosshair_enable` | bool | `1` | bool | Q3 `cg_drawCrosshair 4`; Q3-värdet väljer även grafik | Visa crosshair. |
+| `crosshair` | bool | `1` | bool | Q3 `cg_drawCrosshair 4`; Q3-värdet väljer även grafik | Visa crosshair. |
 | `crosshair_style` | int | `0` | `0..2` | Ingen 1:1-indexering | `0`: cross. `1`: cross + dot. `2`: dot. |
 | `crosshair_size` | float | `8` | `1..40` | Q3 `cg_crosshairSize 24` | Armlängd i pixlar. Geometrin skiljer sig från Q3-grafiken. |
-| `crosshair_thickness` | float | `2` | `1..10` | Ingen direkt | Linjetjocklek i pixlar. |
+| `crosshair_width` | float | `2` | `1..10` | Ingen direkt | Crosshair line width in pixels. |
 | `crosshair_gap` | float | `3` | `0..30` | Ingen direkt | Avstånd från centrum till armar. |
+| `crosshair_dot` | bool | `0` | bool | Ingen direkt | Draw a center dot over any crosshair style. |
+| `crosshair_dot_width` | float | `2` | `1..20` | Ingen direkt | Center dot size in pixels. |
+| `crosshair_outline` | bool | `0` | bool | Ingen direkt | Draw a black outline behind the crosshair and dot. |
+| `crosshair_outline_width` | float | `1` | `0..10` | Ingen direkt | Crosshair outline width in pixels. |
 | `crosshair_alpha` | float | `1` | `0..1` | Ingen direkt standard | Opacitet. |
 | `crosshair_r` | int | `255` | `0..255` | Ingen direkt standard | Röd kanal. |
 | `crosshair_g` | int | `255` | `0..255` | Ingen direkt standard | Grön kanal. |
 | `crosshair_b` | int | `255` | `0..255` | Ingen direkt standard | Blå kanal. |
-| `crosshair_hit_enable` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på crosshair vid träff. |
+| `crosshair_hit` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på crosshair vid träff. |
 | `crosshair_hit_r` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, röd. |
 | `crosshair_hit_g` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, grön. |
 | `crosshair_hit_b` | int | `255` | `0..255` | Ingen direkt | Crosshairets träfffärg, blå. |
@@ -231,7 +235,7 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 | `r_beam_r` | int | `74` | `0..255` | Ingen direkt standard | Lokal beam, röd kanal. |
 | `r_beam_g` | int | `166` | `0..255` | Ingen direkt standard | Lokal beam, grön kanal. |
 | `r_beam_b` | int | `255` | `0..255` | Ingen direkt standard | Lokal beam, blå kanal. |
-| `r_beam_hit_enable` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på lokal beam vid träff. |
+| `r_beam_hit` | bool | `1` | bool | Ingen direkt | Aktivera färgrespons på lokal beam vid träff. |
 | `r_beam_hit_r` | int | `255` | `0..255` | Ingen direkt | Beamens träfffärg, röd. |
 | `r_beam_hit_g` | int | `255` | `0..255` | Ingen direkt | Beamens träfffärg, grön. |
 | `r_beam_hit_b` | int | `255` | `0..255` | Ingen direkt | Beamens träfffärg, blå. |
@@ -255,10 +259,10 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
-| `r_hitmarker_enable` | bool | `1` | bool | Ingen standard-Q3-motsvarighet | Visa center-screen hitmarker. |
+| `r_hitmarker` | bool | `1` | bool | Ingen standard-Q3-motsvarighet | Visa center-screen hitmarker. |
 | `r_hitmarker_duration` | float | `0.12` | `0..2` sekunder | Ingen | Synlig tid. |
 | `r_hitmarker_size` | float | `10` | `2..40` | Ingen | Armlängd i pixlar. |
-| `r_hitmarker_thickness` | float | `2` | `1..10` | Ingen | Tjocklek i pixlar. |
+| `r_hitmarker_width` | float | `2` | `1..10` | Ingen | Hitmarker line width in pixels. |
 | `r_hitmarker_r` | int | `255` | `0..255` | Ingen | Röd kanal. |
 | `r_hitmarker_g` | int | `255` | `0..255` | Ingen | Grön kanal. |
 | `r_hitmarker_b` | int | `255` | `0..255` | Ingen | Blå kanal. |
@@ -282,7 +286,7 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
 | `r_player_outline_style` | int | `0` | `0..1` | Ingen direkt | Shared player outline implementation selector. `0`: legacy geometry-expanded fallback. `1`: SDL_GPU half-resolution screen-space mask/dilation/composite path. |
-| `r_enemy_outline_enable` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
+| `r_enemy_outline` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
 | `r_enemy_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_enemy_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy outline opacity. |
 | `r_enemy_outline_r` | int | `255` | `0..255` | Ingen direkt | Enemy outline red channel. |
@@ -290,12 +294,26 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_outline_b` | int | `84` | `0..255` | Ingen direkt | Enemy outline blue channel. |
 | `r_enemy_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad model lean | Slår på/av velocity lean för motståndarmodellen i 3D. Påverkar bara renderad modell, inte lokal POV, simulation, aim, hitboxar eller nätkod. |
 | `r_enemy_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för motståndarmodellens velocity lean. `1` motsvarar ungefär Q3-standard, `0` ger ingen lean även om `r_enemy_lean` är på. |
-| `r_enemy_hit_enable` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
+| `r_enemy_hit` | bool | `1` | bool | Ingen direkt | Byt/blenda modellfärg vid träff. |
 | `r_enemy_hit_r` | int | `255` | `0..255` | Ingen | Träfffärg röd. |
 | `r_enemy_hit_g` | int | `190` | `0..255` | Ingen | Träfffärg grön. |
 | `r_enemy_hit_b` | int | `198` | `0..255` | Ingen | Träfffärg blå. |
 | `r_enemy_hit_duration` | float | `0.12` | `0..2` sekunder | Ingen | Träfffärgens duration. |
 | `r_enemy_hit_fade` | bool | `1` | bool | Ingen | `1`: gradvis blend. `0`: binär färg. |
+| `r_enemy_health` | bool | `1` | bool | Ingen direkt | Draw floating enemy health bars. |
+| `r_enemy_health_damage_only` | bool | `0` | bool | Ingen direkt | Only show enemy health bars after recent damage. |
+| `r_enemy_health_fade` | bool | `1` | bool | Ingen direkt | Fade enemy health bars during their damage-only duration. |
+| `r_enemy_health_duration` | float | `5` | `0..30` seconds | Ingen direkt | Visible time after damage when damage-only mode is active. |
+| `r_enemy_health_max_distance` | float | `0` | `0..1000` | Ingen direkt | Hide enemy health bars beyond this 3D distance; `0` disables the limit. |
+| `r_enemy_health_width` | float | `72` | `12..360` | Ingen direkt | Enemy health bar width in pixels. |
+| `r_enemy_health_height` | float | `7` | `2..60` | Ingen direkt | Enemy health bar height in pixels. |
+| `r_enemy_health_offset_z` | float | `0.35` | `-2..6` | Ingen direkt | Enemy health bar vertical world offset above the model. |
+| `r_enemy_health_offset_x` | float | `0` | `-400..400` | Ingen direkt | Enemy health bar horizontal screen offset. |
+| `r_enemy_health_offset_y` | float | `-18` | `-400..400` | Ingen direkt | Enemy health bar vertical screen offset. |
+| `r_enemy_health_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy health bar opacity. |
+| `r_enemy_health_r` | int | `224` | `0..255` | Ingen direkt | Enemy health bar red channel. |
+| `r_enemy_health_g` | int | `82` | `0..255` | Ingen direkt | Enemy health bar green channel. |
+| `r_enemy_health_b` | int | `92` | `0..255` | Ingen direkt | Enemy health bar blue channel. |
 
 ### 3.10 Lagkamratens utseende
 
@@ -313,7 +331,7 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_g` | int | `190` | `0..255` | Ingen direkt | Modellens gröna kanal. |
 | `r_teammate_b` | int | `224` | `0..255` | Ingen direkt | Modellens blå kanal. |
 | `r_teammate_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
-| `r_teammate_outline_enable` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
+| `r_teammate_outline` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
 | `r_teammate_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_teammate_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate outline opacity. |
 | `r_teammate_outline_r` | int | `128` | `0..255` | Ingen direkt | Teammate outline red channel. |
@@ -321,7 +339,7 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_outline_b` | int | `255` | `0..255` | Ingen direkt | Teammate outline blue channel. |
 | `r_teammate_lean` | bool | `1` | bool | Q3 `cg_runroll`-inspirerad | Slår på/av velocity lean för lagkamratmodellen i 3D. |
 | `r_teammate_lean_scale` | float | `1` | `0..3` | Q3 `cg_runroll 0.005` | Multiplikator för lagkamratmodellens velocity lean. |
-| `r_teammate_health_enable` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |
+| `r_teammate_health` | bool | `1` | bool | Ingen direkt | Visar flytande health bar över lagkamrater. |
 | `r_teammate_health_damage_only` | bool | `0` | bool | Ingen direkt | Visar health bar endast efter nylig skada. |
 | `r_teammate_health_fade` | bool | `1` | bool | Ingen direkt | Tonar ut health bar under damage-only-perioden. |
 | `r_teammate_health_duration` | float | `5` | `0..30` sekunder | Ingen direkt | Synlig tid efter skada när damage-only används. |
@@ -342,7 +360,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
-| `r_enemy_name_enable` | bool | `1` | bool | Ingen direkt | Draw enemy nametags. |
+| `r_enemy_name` | bool | `1` | bool | Ingen direkt | Draw enemy nametags. |
 | `r_enemy_name_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy nametag opacity. |
 | `r_enemy_name_font_size` | float | `1.5` | `0.5..6` | Ingen direkt | Enemy nametag font scale. |
 | `r_enemy_name_offset_z` | float | `0.75` | `-2..6` | Ingen direkt | Enemy nametag world Z offset above the model. |
@@ -352,7 +370,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `r_enemy_name_r` | int | `255` | `0..255` | Ingen direkt | Enemy nametag red channel. |
 | `r_enemy_name_g` | int | `235` | `0..255` | Ingen direkt | Enemy nametag green channel. |
 | `r_enemy_name_b` | int | `235` | `0..255` | Ingen direkt | Enemy nametag blue channel. |
-| `r_teammate_name_enable` | bool | `1` | bool | Ingen direkt | Draw teammate nametags. |
+| `r_teammate_name` | bool | `1` | bool | Ingen direkt | Draw teammate nametags. |
 | `r_teammate_name_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate nametag opacity. |
 | `r_teammate_name_font_size` | float | `1.5` | `0.5..6` | Ingen direkt | Teammate nametag font scale. |
 | `r_teammate_name_offset_z` | float | `0.75` | `-2..6` | Ingen direkt | Teammate nametag world Z offset above the model. |
