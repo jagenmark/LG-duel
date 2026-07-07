@@ -1,6 +1,7 @@
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
 
+#include <cmath>
 #include <iostream>
 #include <string_view>
 
@@ -14,11 +15,26 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+bool nearlyEqual(float lhs, float rhs, float epsilon = 0.000001F) {
+  return std::fabs(lhs - rhs) <= epsilon;
+}
+
 } // namespace
 
 int main() {
   int failures = 0;
 
+  failures += expect(
+    nearlyEqual(
+      lg::kBaseMouseSensitivityRadians,
+      lg::kQuakeLiveMouseYawDegrees * lg::kMouseDegreesToRadians
+    ),
+    "base sensitivity should use QL m_yaw 0.022 degrees per count"
+  );
+  failures += expect(
+    nearlyEqual(lg::kLegacyToQuakeLiveSensitivityScale, 6.510884F, 0.0001F),
+    "legacy sensitivity migration should preserve the old angular speed"
+  );
   failures += expect(
     lg::relativeMouseYaw(0.0F, 10.0F, 1.0F) < 0.0F,
     "moving the mouse right should turn view yaw right"
@@ -26,6 +42,41 @@ int main() {
   failures += expect(
     lg::relativeMouseYaw(0.0F, -10.0F, 1.0F) > 0.0F,
     "moving the mouse left should turn view yaw left"
+  );
+  lg::MouseAimSettings mouseAim;
+  mouseAim.sensitivity = 4.0F;
+  mouseAim.mouseAccel = 0.1F;
+  mouseAim.mouseAccelPower = 2.0F;
+  mouseAim.mouseAccelOffset = 0.0F;
+  failures += expect(
+    nearlyEqual(
+      lg::quakeLiveMouseSensitivity(4.0F, 3.0F, 0.008F, mouseAim),
+      4.0625F
+    ),
+    "QL accel should add pow(accel * speed, power - 1) to base sensitivity"
+  );
+  mouseAim.mouseAccelOffset = 1.0F;
+  failures += expect(
+    nearlyEqual(
+      lg::quakeLiveMouseSensitivity(4.0F, 3.0F, 0.008F, mouseAim),
+      4.0F
+    ),
+    "QL accel offset should leave sensitivity unchanged below the threshold"
+  );
+  mouseAim.mouseAccelOffset = 0.0F;
+  mouseAim.mouseSensitivityCap = 4.02F;
+  failures += expect(
+    nearlyEqual(
+      lg::quakeLiveMouseSensitivity(4.0F, 3.0F, 0.008F, mouseAim),
+      4.02F
+    ),
+    "QL accel sensitivity cap should clamp the accelerated sensitivity"
+  );
+  const lg::MouseAimDelta delta =
+    lg::quakeLiveMouseAimDelta(2.0F, 1.0F, 0.008F, mouseAim);
+  failures += expect(
+    nearlyEqual(delta.yawRadians, 2.0F * lg::kBaseMouseSensitivityRadians * 4.02F),
+    "accelerated yaw delta should use the QL-scale effective sensitivity"
   );
   lg::InputBindings bindings;
 

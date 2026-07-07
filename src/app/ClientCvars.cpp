@@ -10,7 +10,11 @@ namespace lg {
 void registerClientCvars(ConsoleSystem& console) {
   const CvarFlag archivedClient = CvarFlag::Archive | CvarFlag::Client;
   console.registerCvar({"cl_config_version", "Client config migration version.", 0, archivedClient, 0.0F, 100.0F});
-  console.registerCvar({"sensitivity", "Mouse sensitivity multiplier.", 1.0F, archivedClient, 0.1F, 10.0F});
+  console.registerCvar({"sensitivity", "Mouse sensitivity using the Q3/QL m_yaw 0.022 scale.", 5.0F, archivedClient, 0.0F, 100.0F, "5"});
+  console.registerCvar({"cl_mouseAccel", "Quake Live mouse acceleration amount.", 0.0F, archivedClient, 0.0F, 1000.0F, "0"});
+  console.registerCvar({"cl_mouseAccelPower", "Quake Live mouse acceleration power curve.", 2.0F, archivedClient, 1.0F, 10.0F, "2"});
+  console.registerCvar({"cl_mouseAccelOffset", "Quake Live mouse speed threshold before acceleration applies.", 0.0F, archivedClient, 0.0F, 1000.0F, "0"});
+  console.registerCvar({"cl_mouseSensCap", "Quake Live accelerated sensitivity cap; zero disables the cap.", 0.0F, archivedClient, 0.0F, 100.0F, "0"});
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
