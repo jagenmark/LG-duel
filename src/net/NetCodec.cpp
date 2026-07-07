@@ -285,6 +285,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(command.upMove) &&
     writer.writeBool(command.attack) &&
     writer.writeBool(command.jump) &&
+    writer.writeBool(command.dash) &&
     writer.writeBool(command.crouch) &&
     writer.writeBool(command.sneak) &&
     writer.writeBool(command.planarAim) &&
@@ -299,6 +300,13 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeFloat(packet.movementTuning.groundFriction) &&
     writer.writeFloat(packet.movementTuning.stopSpeed) &&
     writer.writeFloat(packet.movementTuning.maxGroundSpeed) &&
+    writer.writeFloat(packet.movementTuning.dashTargetSpeed) &&
+    writer.writeFloat(packet.movementTuning.dashMaxSpeed) &&
+    writer.writeFloat(packet.movementTuning.dashAcceleration) &&
+    writer.writeFloat(packet.movementTuning.dashDuration) &&
+    writer.writeFloat(packet.movementTuning.dashCooldown) &&
+    writer.writeFloat(packet.movementTuning.dashGroundHopVelocity) &&
+    writer.writeFloat(packet.movementTuning.dashAirHopVelocity) &&
     writer.writeFloat(packet.movementTuning.flightAcceleration) &&
     writer.writeFloat(packet.movementTuning.maxFlightSpeed) &&
     writer.writeFloat(packet.movementTuning.flightDamping) &&
@@ -364,6 +372,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.command.upMove) ||
     !reader.readBool(packet.command.attack) ||
     !reader.readBool(packet.command.jump) ||
+    !reader.readBool(packet.command.dash) ||
     !reader.readBool(packet.command.crouch) ||
     !reader.readBool(packet.command.sneak) ||
     !reader.readBool(packet.command.planarAim) ||
@@ -378,6 +387,13 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readFloat(packet.movementTuning.groundFriction) ||
     !reader.readFloat(packet.movementTuning.stopSpeed) ||
     !reader.readFloat(packet.movementTuning.maxGroundSpeed) ||
+    !reader.readFloat(packet.movementTuning.dashTargetSpeed) ||
+    !reader.readFloat(packet.movementTuning.dashMaxSpeed) ||
+    !reader.readFloat(packet.movementTuning.dashAcceleration) ||
+    !reader.readFloat(packet.movementTuning.dashDuration) ||
+    !reader.readFloat(packet.movementTuning.dashCooldown) ||
+    !reader.readFloat(packet.movementTuning.dashGroundHopVelocity) ||
+    !reader.readFloat(packet.movementTuning.dashAirHopVelocity) ||
     !reader.readFloat(packet.movementTuning.flightAcceleration) ||
     !reader.readFloat(packet.movementTuning.maxFlightSpeed) ||
     !reader.readFloat(packet.movementTuning.flightDamping) ||
@@ -446,6 +462,20 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     packet.movementTuning.stopSpeed <= 100.0F &&
     packet.movementTuning.maxGroundSpeed >= 0.1F &&
     packet.movementTuning.maxGroundSpeed <= 100.0F &&
+    packet.movementTuning.dashTargetSpeed >= 0.0F &&
+    packet.movementTuning.dashTargetSpeed <= 100.0F &&
+    packet.movementTuning.dashMaxSpeed >= 0.0F &&
+    packet.movementTuning.dashMaxSpeed <= 100.0F &&
+    packet.movementTuning.dashAcceleration >= 0.0F &&
+    packet.movementTuning.dashAcceleration <= 1000.0F &&
+    packet.movementTuning.dashDuration >= 0.0F &&
+    packet.movementTuning.dashDuration <= 2.0F &&
+    packet.movementTuning.dashCooldown >= 0.0F &&
+    packet.movementTuning.dashCooldown <= 10.0F &&
+    packet.movementTuning.dashGroundHopVelocity >= 0.0F &&
+    packet.movementTuning.dashGroundHopVelocity <= 100.0F &&
+    packet.movementTuning.dashAirHopVelocity >= 0.0F &&
+    packet.movementTuning.dashAirHopVelocity <= 100.0F &&
     packet.movementTuning.flightAcceleration >= 0.0F &&
     packet.movementTuning.flightAcceleration <= 1000.0F &&
     packet.movementTuning.maxFlightSpeed >= 0.1F &&
@@ -535,8 +565,12 @@ bool writePlayer(Writer& writer, const PlayerState& player) {
     writer.writeFloat(player.bounds.halfHeight) &&
     writer.writeU8(static_cast<std::uint8_t>(player.movementMode)) &&
     writer.writeU16(player.knockbackTicksRemaining) &&
+    writer.writeU16(player.dashCooldownTicksRemaining) &&
+    writer.writeU16(player.dashActiveTicksRemaining) &&
+    writeVec3(writer, player.dashDirection) &&
     writer.writeBool(player.onGround) &&
     writer.writeBool(player.jumpHeld) &&
+    writer.writeBool(player.dashHeld) &&
     writer.writeBool(player.crouched) &&
     writer.writeBool(player.sneaking);
 }
@@ -555,8 +589,12 @@ bool readPlayer(Reader& reader, PlayerState& player) {
     !reader.readFloat(player.bounds.halfHeight) ||
     !reader.readU8(movementMode) ||
     !reader.readU16(player.knockbackTicksRemaining) ||
+    !reader.readU16(player.dashCooldownTicksRemaining) ||
+    !reader.readU16(player.dashActiveTicksRemaining) ||
+    !readVec3(reader, player.dashDirection) ||
     !reader.readBool(player.onGround) ||
     !reader.readBool(player.jumpHeld) ||
+    !reader.readBool(player.dashHeld) ||
     !reader.readBool(player.crouched) ||
     !reader.readBool(player.sneaking)
   ) {
@@ -1327,6 +1365,13 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.movementTuning.groundFriction) &&
     writer.writeFloat(snapshot.movementTuning.stopSpeed) &&
     writer.writeFloat(snapshot.movementTuning.maxGroundSpeed) &&
+    writer.writeFloat(snapshot.movementTuning.dashTargetSpeed) &&
+    writer.writeFloat(snapshot.movementTuning.dashMaxSpeed) &&
+    writer.writeFloat(snapshot.movementTuning.dashAcceleration) &&
+    writer.writeFloat(snapshot.movementTuning.dashDuration) &&
+    writer.writeFloat(snapshot.movementTuning.dashCooldown) &&
+    writer.writeFloat(snapshot.movementTuning.dashGroundHopVelocity) &&
+    writer.writeFloat(snapshot.movementTuning.dashAirHopVelocity) &&
     writer.writeFloat(snapshot.movementTuning.flightAcceleration) &&
     writer.writeFloat(snapshot.movementTuning.maxFlightSpeed) &&
     writer.writeFloat(snapshot.movementTuning.flightDamping) &&
@@ -1583,6 +1628,13 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.movementTuning.groundFriction) ||
     !reader.readFloat(decoded.movementTuning.stopSpeed) ||
     !reader.readFloat(decoded.movementTuning.maxGroundSpeed) ||
+    !reader.readFloat(decoded.movementTuning.dashTargetSpeed) ||
+    !reader.readFloat(decoded.movementTuning.dashMaxSpeed) ||
+    !reader.readFloat(decoded.movementTuning.dashAcceleration) ||
+    !reader.readFloat(decoded.movementTuning.dashDuration) ||
+    !reader.readFloat(decoded.movementTuning.dashCooldown) ||
+    !reader.readFloat(decoded.movementTuning.dashGroundHopVelocity) ||
+    !reader.readFloat(decoded.movementTuning.dashAirHopVelocity) ||
     !reader.readFloat(decoded.movementTuning.flightAcceleration) ||
     !reader.readFloat(decoded.movementTuning.maxFlightSpeed) ||
     !reader.readFloat(decoded.movementTuning.flightDamping) ||
@@ -1647,6 +1699,20 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.movementTuning.stopSpeed > 100.0F ||
     decoded.movementTuning.maxGroundSpeed < 0.1F ||
     decoded.movementTuning.maxGroundSpeed > 100.0F ||
+    decoded.movementTuning.dashTargetSpeed < 0.0F ||
+    decoded.movementTuning.dashTargetSpeed > 100.0F ||
+    decoded.movementTuning.dashMaxSpeed < 0.0F ||
+    decoded.movementTuning.dashMaxSpeed > 100.0F ||
+    decoded.movementTuning.dashAcceleration < 0.0F ||
+    decoded.movementTuning.dashAcceleration > 1000.0F ||
+    decoded.movementTuning.dashDuration < 0.0F ||
+    decoded.movementTuning.dashDuration > 2.0F ||
+    decoded.movementTuning.dashCooldown < 0.0F ||
+    decoded.movementTuning.dashCooldown > 10.0F ||
+    decoded.movementTuning.dashGroundHopVelocity < 0.0F ||
+    decoded.movementTuning.dashGroundHopVelocity > 100.0F ||
+    decoded.movementTuning.dashAirHopVelocity < 0.0F ||
+    decoded.movementTuning.dashAirHopVelocity > 100.0F ||
     decoded.movementTuning.flightAcceleration < 0.0F ||
     decoded.movementTuning.flightAcceleration > 1000.0F ||
     decoded.movementTuning.maxFlightSpeed < 0.1F ||

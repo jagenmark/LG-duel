@@ -75,6 +75,7 @@ int main() {
     source.command.upMove = 0.75F;
     source.command.attack = true;
     source.command.jump = true;
+    source.command.dash = true;
     source.command.crouch = true;
     source.command.sneak = true;
     source.command.planarAim = false;
@@ -94,6 +95,13 @@ int main() {
     source.movementTuning.groundFriction = 6.0F;
     source.movementTuning.stopSpeed = 2.5F;
     source.movementTuning.maxGroundSpeed = 14.0F;
+    source.movementTuning.dashTargetSpeed = 13.0F;
+    source.movementTuning.dashMaxSpeed = 14.5F;
+    source.movementTuning.dashAcceleration = 240.0F;
+    source.movementTuning.dashDuration = 0.12F;
+    source.movementTuning.dashCooldown = 0.7F;
+    source.movementTuning.dashGroundHopVelocity = 3.6F;
+    source.movementTuning.dashAirHopVelocity = 2.1F;
     source.movementTuning.flightAcceleration = 48.0F;
     source.movementTuning.maxFlightSpeed = 16.0F;
     source.movementTuning.flightDamping = 1.5F;
@@ -150,6 +158,7 @@ int main() {
     failures += expect(
       decoded.command.attack &&
         decoded.command.jump &&
+        decoded.command.dash &&
         decoded.command.crouch &&
         decoded.command.sneak,
       "command bits should round trip"
@@ -188,6 +197,13 @@ int main() {
         nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
         nearlyEqual(decoded.movementTuning.stopSpeed, 2.5F) &&
         nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F) &&
+        nearlyEqual(decoded.movementTuning.dashTargetSpeed, 13.0F) &&
+        nearlyEqual(decoded.movementTuning.dashMaxSpeed, 14.5F) &&
+        nearlyEqual(decoded.movementTuning.dashAcceleration, 240.0F) &&
+        nearlyEqual(decoded.movementTuning.dashDuration, 0.12F) &&
+        nearlyEqual(decoded.movementTuning.dashCooldown, 0.7F) &&
+        nearlyEqual(decoded.movementTuning.dashGroundHopVelocity, 3.6F) &&
+        nearlyEqual(decoded.movementTuning.dashAirHopVelocity, 2.1F) &&
         nearlyEqual(decoded.movementTuning.flightAcceleration, 48.0F) &&
         nearlyEqual(decoded.movementTuning.maxFlightSpeed, 16.0F) &&
         nearlyEqual(decoded.movementTuning.flightDamping, 1.5F) &&
@@ -330,6 +346,10 @@ int main() {
     source.players[0].movementMode = lg::MovementMode::Flying;
     source.players[0].onGround = false;
     source.players[0].jumpHeld = true;
+    source.players[0].dashHeld = true;
+    source.players[0].dashCooldownTicksRemaining = 77;
+    source.players[0].dashActiveTicksRemaining = 4;
+    source.players[0].dashDirection = {0.0F, -1.0F, 0.0F};
     source.players[0].crouched = true;
     source.players[0].sneaking = true;
     source.players[0].knockbackTicksRemaining = 9;
@@ -483,6 +503,13 @@ int main() {
     source.movementTuning.groundFriction = 6.0F;
     source.movementTuning.stopSpeed = 2.5F;
     source.movementTuning.maxGroundSpeed = 14.0F;
+    source.movementTuning.dashTargetSpeed = 13.0F;
+    source.movementTuning.dashMaxSpeed = 14.5F;
+    source.movementTuning.dashAcceleration = 240.0F;
+    source.movementTuning.dashDuration = 0.12F;
+    source.movementTuning.dashCooldown = 0.7F;
+    source.movementTuning.dashGroundHopVelocity = 3.6F;
+    source.movementTuning.dashAirHopVelocity = 2.1F;
     source.movementTuning.flightAcceleration = 48.0F;
     source.movementTuning.maxFlightSpeed = 16.0F;
     source.movementTuning.flightDamping = 1.5F;
@@ -548,11 +575,15 @@ int main() {
     failures += expect(
         decoded.players[0].movementMode == lg::MovementMode::Flying &&
         decoded.players[0].jumpHeld &&
+        decoded.players[0].dashHeld &&
         decoded.players[0].crouched &&
         decoded.players[0].sneaking &&
         decoded.players[0].knockbackTicksRemaining == 9 &&
+        decoded.players[0].dashCooldownTicksRemaining == 77 &&
+        decoded.players[0].dashActiveTicksRemaining == 4 &&
+        nearlyEqual(decoded.players[0].dashDirection.y, -1.0F) &&
         nearlyEqual(decoded.players[0].freezeLevel, 37.5F),
-      "movement mode, jump latch, crouch state, knockback timer, and freeze level should round trip"
+      "movement mode, movement latches, dash state, knockback timer, and freeze level should round trip"
     );
     failures += expect(nearlyEqual(decoded.players[0].position.z, 3.0F), "3D position should round trip");
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
@@ -744,6 +775,13 @@ int main() {
       nearlyEqual(decoded.movementTuning.groundFriction, 6.0F) &&
       nearlyEqual(decoded.movementTuning.stopSpeed, 2.5F) &&
       nearlyEqual(decoded.movementTuning.maxGroundSpeed, 14.0F) &&
+      nearlyEqual(decoded.movementTuning.dashTargetSpeed, 13.0F) &&
+      nearlyEqual(decoded.movementTuning.dashMaxSpeed, 14.5F) &&
+      nearlyEqual(decoded.movementTuning.dashAcceleration, 240.0F) &&
+      nearlyEqual(decoded.movementTuning.dashDuration, 0.12F) &&
+      nearlyEqual(decoded.movementTuning.dashCooldown, 0.7F) &&
+      nearlyEqual(decoded.movementTuning.dashGroundHopVelocity, 3.6F) &&
+      nearlyEqual(decoded.movementTuning.dashAirHopVelocity, 2.1F) &&
       nearlyEqual(decoded.movementTuning.flightAcceleration, 48.0F) &&
       nearlyEqual(decoded.movementTuning.maxFlightSpeed, 16.0F) &&
       nearlyEqual(decoded.movementTuning.flightDamping, 1.5F) &&

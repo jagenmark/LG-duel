@@ -141,6 +141,13 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_friction` | float | `6` | `0..100` | `pm_friction 6` | Friktion när spelaren är grounded. |
 | `g_stopspeed` | float | `2.5` | `0..100` | `pm_stopspeed 100`, motsvarar `2.5` internt | Minsta kontrollhastighet i friktionsberäkningen. |
 | `g_maxspeed` | float | `8` | `0.1..100` | `g_speed 320`, motsvarar `8` internt | Sustained mark- och air-speed cap. |
+| `g_dash_targetspeed` | float | `11.5` | `0..100` | `460 UPS`, internal `11.5` | Dash target speed along the locked input direction. |
+| `g_dash_maxspeed` | float | `12.5` | `0..100` | `500 UPS`, internal `12.5` | Cap for speed created by dash. Existing speed above this cap is preserved. |
+| `g_dash_accel` | float | `200` | `0..1000` | `8000 UPS/s`, internal `200` | Dash acceleration during the active dash window. |
+| `g_dash_duration` | float | `0.10` | `0..2` | No Q3/QL equivalent | Seconds of active dash acceleration after dash starts. |
+| `g_dash_cooldown` | float | `0.85` | `0..10` | No Q3/QL equivalent | Seconds before dash can be started again. |
+| `g_dash_groundhop` | float | `3.25` | `0..100` | `130 UPS`, internal `3.25` | Minimum vertical velocity for a grounded dash hop. Uses max, not addition. |
+| `g_dash_airhop` | float | `1.875` | `0..100` | `75 UPS`, internal `1.875` | Minimum vertical velocity for airborne dash correction. Uses max, not addition. |
 | `g_lg_knockback` | float | `1000` | `0..100000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. Skalas om linjärt så `0` motsvarar gamla `682`, `500` gamla `841`, och `1000` gamla `1000`. |
 | `g_lg_fire_hz` | float | `20` | `1..125` | Ingen direkt stabil cvar | Authoritative LG damage/knockback and FG damage/freeze instances per second. Default 20 Hz gives 6 damage per instance with `g_lg_damage 120` or `g_fg_damage 120`; FG freeze amount comes from `balance.cfg`. |
 | `g_rl_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | RL-knockback per explosion, skalad med splash-damage. |
@@ -452,6 +459,7 @@ knappen släpps.
 | `+duck` / `-duck`, `+crouch` / `-crouch` | Alias for `+movedown`: duck/crouch nar `g_flight 0`, movedown i flight. |
 | `+speed` / `-speed`, `+sneak` / `-sneak` | Sneak/quiet walk med sankt mark-speed och utan vanliga fotsteg. |
 | `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
+| `+dash` / `-dash` | Start the universal movement dash on press. Default bind: `mouse3`. Direction is sampled from movement input and locked when dash starts. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
 | `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|1..8>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun, plasma gun, or freeze gun. Weapon selection is sent to the server every command tick. |
@@ -470,6 +478,7 @@ knappen släpps.
 | `Left/Right Shift` | `+speed` |
 | `Mouse1` | `+attack` |
 | `Mouse2` | `+zoom` |
+| `Mouse3` | `+dash` |
 | `1` | `weapon mg` |
 | `2` | `weapon sg` |
 | `3` | `weapon gl` |

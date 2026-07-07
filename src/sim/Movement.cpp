@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace lg {
 namespace {
@@ -366,6 +367,111 @@ void accelerate(Vec3& velocity, Vec3 wishDirection, float wishSpeed, float accel
   velocity += wishDirection * accelerationSpeed;
 }
 
+[[nodiscard]] std::uint16_t secondsToTicks(float seconds, float fixedDt) {
+  if (seconds <= 0.0F || fixedDt <= 0.0F) {
+    return 0;
+  }
+  return static_cast<std::uint16_t>(std::clamp(
+    static_cast<int>(std::ceil(seconds / fixedDt)),
+    0,
+    static_cast<int>(std::numeric_limits<std::uint16_t>::max())
+  ));
+}
+
+[[nodiscard]] Vec3 dashWishDirection(const UserCommand& command) {
+  Vec3 local = {
+    command.rightMove,
+    command.forwardMove,
+    0.0F,
+  };
+  if (length(local) <= 0.001F) {
+    local = {0.0F, 1.0F, 0.0F};
+  }
+  local = normalize(local);
+
+  const Vec3 world =
+    (yawForward(command.viewYawRadians) * local.y) +
+    (yawRight(command.viewYawRadians) * local.x);
+  return normalize(horizontal(world));
+}
+
+void startDash(
+  PlayerState& player,
+  const UserCommand& command,
+  const MovementTuning& tuning,
+  float fixedDt
+) {
+  player.dashDirection = dashWishDirection(command);
+  if (length(player.dashDirection) <= 0.001F) {
+    player.dashDirection = yawForward(command.viewYawRadians);
+  }
+  player.dashActiveTicksRemaining = secondsToTicks(tuning.dashDuration, fixedDt);
+  player.dashCooldownTicksRemaining = secondsToTicks(tuning.dashCooldown, fixedDt);
+
+  // Dash hop uses max instead of addition so repeated redirects cannot stack
+  // into a vertical movement exploit.
+  if (player.onGround) {
+    player.velocity.z = std::max(player.velocity.z, tuning.dashGroundHopVelocity);
+    player.onGround = false;
+    player.movementMode = MovementMode::Airborne;
+  } else {
+    player.velocity.z = std::max(player.velocity.z, tuning.dashAirHopVelocity);
+  }
+}
+
+void updateDashState(
+  PlayerState& player,
+  const UserCommand& command,
+  const MovementTuning& tuning,
+  float fixedDt
+) {
+  const bool dashPressed = command.dash && !player.dashHeld;
+  if (dashPressed && player.dashCooldownTicksRemaining == 0) {
+    startDash(player, command, tuning, fixedDt);
+  }
+  player.dashHeld = command.dash;
+}
+
+void applyDashAcceleration(PlayerState& player, const MovementTuning& tuning, float fixedDt) {
+  if (player.dashActiveTicksRemaining == 0) {
+    return;
+  }
+
+  Vec3 velocity = horizontal(player.velocity);
+  Vec3 direction = horizontal(player.dashDirection);
+  if (length(direction) <= 0.001F) {
+    --player.dashActiveTicksRemaining;
+    return;
+  }
+  direction = normalize(direction);
+
+  const float oldSpeed = length(velocity);
+  const float currentSpeedInDashDir = dot(velocity, direction);
+  const float speedToAdd = tuning.dashTargetSpeed - currentSpeedInDashDir;
+  if (speedToAdd > 0.0F) {
+    const float addSpeed = std::min(speedToAdd, tuning.dashAcceleration * fixedDt);
+    velocity += direction * addSpeed;
+  }
+
+  // Cap only speed created by dash. Skilled speed above the dash cap is kept,
+  // so using dash as a redirect never punishes existing movement.
+  const float newSpeed = length(velocity);
+  const float cap = std::max(tuning.dashMaxSpeed, oldSpeed);
+  if (newSpeed > cap && newSpeed > 0.0F) {
+    velocity *= cap / newSpeed;
+  }
+
+  player.velocity.x = velocity.x;
+  player.velocity.y = velocity.y;
+  --player.dashActiveTicksRemaining;
+}
+
+void decrementDashCooldown(PlayerState& player) {
+  if (player.dashCooldownTicksRemaining > 0) {
+    --player.dashCooldownTicksRemaining;
+  }
+}
+
 void applyAirControl(
   Vec3& velocity,
   const UserCommand& command,
@@ -532,6 +638,7 @@ void simulateGroundedOrAirborne(
   const GroundContact groundContact = traceGround(arena, player);
   player.onGround = groundContact.onGround;
   player.movementMode = player.onGround ? MovementMode::Grounded : MovementMode::Airborne;
+  updateDashState(player, command, tuning, fixedDt);
   const IceContact iceContact = findIceContact(player, groundContact, icePools);
   MovementTuning localTuning = tuning;
   if (iceContact.active) {
@@ -590,6 +697,7 @@ void simulateGroundedOrAirborne(
       applyAirControl(player.velocity, command, wishDirection, fixedDt);
     }
   }
+  applyDashAcceleration(player, tuning, fixedDt);
 
   if (!useAirMovement && !jumpStarted) {
     player.velocity = clipToGroundPlanePreserveSpeed(
@@ -638,6 +746,7 @@ void simulateGroundedOrAirborne(
   if (player.knockbackTicksRemaining > 0) {
     --player.knockbackTicksRemaining;
   }
+  decrementDashCooldown(player);
   applyJumpPads(player, arena, tuning, jumpPadCooldownDurationTicks);
 }
 
@@ -665,6 +774,7 @@ void simulateFlying(
   player.sneaking = false;
   player.jumpHeld = command.jump;
   player.onGround = false;
+  updateDashState(player, command, tuning, fixedDt);
 
   applyFlightDamping(player.velocity, tuning, fixedDt);
   const Vec3 wishVelocity =
@@ -682,6 +792,7 @@ void simulateFlying(
       fixedDt
     );
   }
+  applyDashAcceleration(player, tuning, fixedDt);
   player.velocity.z -=
     tuning.gravity *
     std::max(0.0F, 1.0F - tuning.flightGravityCancel) *
@@ -699,6 +810,7 @@ void simulateFlying(
   player.velocity = collision.velocity;
   player.onGround = collision.onGround;
   player.movementMode = MovementMode::Flying;
+  decrementDashCooldown(player);
   applyJumpPads(player, arena, tuning, jumpPadCooldownDurationTicks);
 }
 

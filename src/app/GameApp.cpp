@@ -95,6 +95,13 @@ constexpr std::uint8_t kShotgunVisualPelletCount = 6;
     nearlyEqualGameplayFloat(lhs.groundFriction, rhs.groundFriction) &&
     nearlyEqualGameplayFloat(lhs.stopSpeed, rhs.stopSpeed) &&
     nearlyEqualGameplayFloat(lhs.maxGroundSpeed, rhs.maxGroundSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashTargetSpeed, rhs.dashTargetSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashMaxSpeed, rhs.dashMaxSpeed) &&
+    nearlyEqualGameplayFloat(lhs.dashAcceleration, rhs.dashAcceleration) &&
+    nearlyEqualGameplayFloat(lhs.dashDuration, rhs.dashDuration) &&
+    nearlyEqualGameplayFloat(lhs.dashCooldown, rhs.dashCooldown) &&
+    nearlyEqualGameplayFloat(lhs.dashGroundHopVelocity, rhs.dashGroundHopVelocity) &&
+    nearlyEqualGameplayFloat(lhs.dashAirHopVelocity, rhs.dashAirHopVelocity) &&
     nearlyEqualGameplayFloat(lhs.flightAcceleration, rhs.flightAcceleration) &&
     nearlyEqualGameplayFloat(lhs.maxFlightSpeed, rhs.maxFlightSpeed) &&
     nearlyEqualGameplayFloat(lhs.flightDamping, rhs.flightDamping);
@@ -164,6 +171,13 @@ void syncGameplayCvarsFromSnapshot(
   (void)console.execute("set g_friction " + std::to_string(snapshot.movementTuning.groundFriction));
   (void)console.execute("set g_stopspeed " + std::to_string(snapshot.movementTuning.stopSpeed));
   (void)console.execute("set g_maxspeed " + std::to_string(snapshot.movementTuning.maxGroundSpeed));
+  (void)console.execute("set g_dash_targetspeed " + std::to_string(snapshot.movementTuning.dashTargetSpeed));
+  (void)console.execute("set g_dash_maxspeed " + std::to_string(snapshot.movementTuning.dashMaxSpeed));
+  (void)console.execute("set g_dash_accel " + std::to_string(snapshot.movementTuning.dashAcceleration));
+  (void)console.execute("set g_dash_duration " + std::to_string(snapshot.movementTuning.dashDuration));
+  (void)console.execute("set g_dash_cooldown " + std::to_string(snapshot.movementTuning.dashCooldown));
+  (void)console.execute("set g_dash_groundhop " + std::to_string(snapshot.movementTuning.dashGroundHopVelocity));
+  (void)console.execute("set g_dash_airhop " + std::to_string(snapshot.movementTuning.dashAirHopVelocity));
   (void)console.execute("set g_flightaccel " + std::to_string(snapshot.movementTuning.flightAcceleration));
   (void)console.execute("set g_flightmaxspeed " + std::to_string(snapshot.movementTuning.maxFlightSpeed));
   (void)console.execute("set g_flightdamping " + std::to_string(snapshot.movementTuning.flightDamping));
@@ -1000,6 +1014,7 @@ struct LocalInputState {
   int down = 0;
   int sneak = 0;
   int attack = 0;
+  int dash = 0;
 
   float mouseDeltaX = 0.0F;
   float mouseDeltaY = 0.0F;
@@ -1568,6 +1583,17 @@ void appendGroundDebugHudLines(
     player.velocity.z,
     normalVelocity,
     player.onGround ? 1 : 0
+  );
+  hud.topLeftLines.emplace_back(text);
+
+  std::snprintf(
+    text,
+    sizeof(text),
+    "GROUND dash active %u cooldown %u dir %.2f %.2f",
+    static_cast<unsigned int>(player.dashActiveTicksRemaining),
+    static_cast<unsigned int>(player.dashCooldownTicksRemaining),
+    player.dashDirection.x,
+    player.dashDirection.y
   );
   hud.topLeftLines.emplace_back(text);
 }
@@ -2991,6 +3017,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("rightshift", "+speed");
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
+  (void)bindings.bind("mouse3", "+dash");
   (void)bindings.bind("2", "weapon mg");
   (void)bindings.bind("3", "weapon sg");
   (void)bindings.bind("5", "weapon gl");
@@ -3237,6 +3264,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.dash = input.dash > 0;
   command.crouch = input.down > 0;
   command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
@@ -3262,6 +3290,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
   command.rightMove = (input.right > 0 ? 1.0F : 0.0F) - (input.left > 0 ? 1.0F : 0.0F);
   command.upMove = (input.up > 0 ? 1.0F : 0.0F) - (input.down > 0 ? 1.0F : 0.0F);
   command.jump = input.up > 0;
+  command.dash = input.dash > 0;
   command.crouch = input.down > 0;
   command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
@@ -3383,6 +3412,7 @@ int GameApp::run() const {
   registerButtonCommand("speed", input.sneak);
   registerButtonCommand("sneak", input.sneak);
   registerButtonCommand("attack", input.attack);
+  registerButtonCommand("dash", input.dash);
   registerButtonCommand("scores", scoreboardPressCount);
   registerButtonCommand("zoom", zoomPressCount);
 
@@ -3958,6 +3988,7 @@ int GameApp::run() const {
         "+speed\n"
         "+sneak\n"
         "+attack\n"
+        "+dash\n"
         "+scores\n"
         "+zoom\n"
         "weapon\n"
@@ -4032,6 +4063,9 @@ int GameApp::run() const {
     (void)bindings.bind("tab", "+scores");
     if (bindings.binding("mouse2").empty()) {
       (void)bindings.bind("mouse2", "+zoom");
+    }
+    if (bindings.binding("mouse3").empty()) {
+      (void)bindings.bind("mouse3", "+dash");
     }
     (void)bindings.bind("1", "weapon mg");
     (void)bindings.bind("2", "weapon sg");
