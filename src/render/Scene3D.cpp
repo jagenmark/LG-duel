@@ -1209,27 +1209,34 @@ void forEachPlayerModelPart(
 [[nodiscard]] std::vector<SkinnedModelPoseRequest> duelistPoseRequests(
   const PlayerState& player,
   bool leanEnabled,
-  float leanScale
+  float leanScale,
+  float animationTimeSeconds
 ) {
   const PlayerVisualPose pose = makePlayerVisualPose(player);
   const float lateralVelocity = dot(player.velocity, yawRight(player.viewYawRadians));
   const float horizontalSpeed = std::hypot(player.velocity.x, player.velocity.y);
+  constexpr float kLocomotionDeadzoneSpeed =
+    10.0F / kQuakeUnitsPerProjectUnit;
+  constexpr float kReferenceRunSpeed =
+    320.0F / kQuakeUnitsPerProjectUnit;
+  const bool locomotionActive = horizontalSpeed > kLocomotionDeadzoneSpeed;
   const float leanAmount = leanEnabled
     ? std::clamp(lateralVelocity / 8.0F * leanScale, -1.0F, 1.0F)
     : 0.0F;
   const auto locomotionCycleTime =
-    [](const PlayerState& animatedPlayer, float cycleSeconds) {
-      const Vec3 planarVelocity = {
-        animatedPlayer.velocity.x,
-        animatedPlayer.velocity.y,
+    [animationTimeSeconds, horizontalSpeed](float cycleSeconds) {
+      // Locomotion phase follows render time and speed, not input direction:
+      // below 320 Quake units/sec the stride stays readable while cadence
+      // slows down instead of shrinking into a tiny full-sprint shuffle.
+      const float cycle = std::max(0.0001F, cycleSeconds);
+      const float playbackRate = std::clamp(
+        horizontalSpeed / kReferenceRunSpeed,
         0.0F,
-      };
-      const float speed = length(planarVelocity);
-      const Vec3 direction = speed > 0.001F
-        ? planarVelocity * (1.0F / speed)
-        : yawForward(animatedPlayer.viewYawRadians);
-      const float distance = dot(animatedPlayer.position, direction);
-      return std::fmod(std::fabs(distance) * 0.38F, cycleSeconds);
+        2.0F
+      );
+      const float phase =
+        std::max(0.0F, animationTimeSeconds) * playbackRate;
+      return std::fmod(phase, cycle);
     };
   std::vector<SkinnedModelPoseRequest> poseRequests;
   if (pose.airborne) {
@@ -1244,26 +1251,48 @@ void forEachPlayerModelPart(
       poseRequests.push_back({"lg_duelist_jump", 0.9F, 1.0F});
     }
   } else if (pose.crouched) {
-    if (horizontalSpeed > 0.25F) {
-      poseRequests.push_back({"CROUCH_WALK", locomotionCycleTime(player, 1.0F), 1.0F});
-    } else {
-      poseRequests.push_back({"DUCKING", 0.4166667F, 1.0F});
+    poseRequests.push_back({"DUCKING", 0.4166667F, 1.0F});
+    if (locomotionActive) {
+      poseRequests.push_back({
+        "CROUCH_WALK",
+        locomotionCycleTime(1.0F),
+        1.0F,
+      });
     }
     poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
   } else if (pose.sneaking) {
-    poseRequests.push_back({"SNEAK", locomotionCycleTime(player, 1.3333333F), 1.0F});
+    poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+    if (locomotionActive) {
+      poseRequests.push_back({
+        "SNEAK",
+        locomotionCycleTime(1.3333333F),
+        1.0F,
+      });
+    }
     poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
-  } else if (horizontalSpeed > 0.25F) {
-    poseRequests.push_back({"RUN", locomotionCycleTime(player, 1.0F), 1.0F});
   } else {
     poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+    if (locomotionActive) {
+      poseRequests.push_back({"RUN", locomotionCycleTime(1.0F), 1.0F});
+    }
   }
+  const auto addUpperBodyLean =
+    [&poseRequests](std::string_view animationName, float weight) {
+      poseRequests.push_back({
+        animationName,
+        0.5833333F,
+        weight,
+        SkinnedModelPoseMask::UpperBody,
+      });
+    };
   if (leanAmount > 0.02F) {
-    poseRequests.push_back({"LEAN_LEFT", 0.5833333F, std::fabs(leanAmount)});
-    poseRequests.push_back({"lg_duelist_lean_left", 0.5833333F, std::fabs(leanAmount)});
+    // Lean is an additive presentation layer over locomotion: keep run/crouch
+    // owning root, pelvis, and legs so strafing does not erase foot motion.
+    addUpperBodyLean("LEAN_LEFT", std::fabs(leanAmount));
+    addUpperBodyLean("lg_duelist_lean_left", std::fabs(leanAmount));
   } else if (leanAmount < -0.02F) {
-    poseRequests.push_back({"LEAN_RIGHT", 0.5833333F, std::fabs(leanAmount)});
-    poseRequests.push_back({"lg_duelist_lean_right", 0.5833333F, std::fabs(leanAmount)});
+    addUpperBodyLean("LEAN_RIGHT", std::fabs(leanAmount));
+    addUpperBodyLean("lg_duelist_lean_right", std::fabs(leanAmount));
   }
   return poseRequests;
 }
@@ -1275,6 +1304,7 @@ void addGltfPlayerModelInstance(
   RenderColor color,
   bool leanEnabled,
   float leanScale,
+  float animationTimeSeconds,
   std::uint8_t playerIndex,
   OutlineState outlineState,
   bool outlined,
@@ -1294,7 +1324,7 @@ void addGltfPlayerModelInstance(
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
   const std::vector<SkinnedModelPoseRequest> poseRequests =
-    duelistPoseRequests(player, leanEnabled, leanScale);
+    duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
   if (!model.appendBonePalette(poseRequests, scene.gltfBonePalette, poseScratch)) {
     return;
   }
@@ -3279,6 +3309,7 @@ Scene3D buildPerspectiveScene(
             ? settings.teammateLeanEnabled
             : settings.enemyLeanEnabled,
           remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
+          remote.animationTimeSeconds,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
           wantsOutline &&
@@ -3496,6 +3527,7 @@ Scene3D buildPerspectiveScene(
     settings.hasRemotePlayer,
     false,
     {},
+    0.0F,
   };
   return buildPerspectiveScene(
     aspectRatio,

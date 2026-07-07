@@ -768,6 +768,41 @@ void resolveGlobalMatrix(
   return std::nullopt;
 }
 
+[[nodiscard]] bool upperBodyPoseIncludesNode(std::string_view name) {
+  // Upper-body animation layers start at the spine so locomotion remains
+  // authoritative for root, pelvis, and leg motion.
+  return name == "spine_01" ||
+    name == "spine_02" ||
+    name == "neck" ||
+    name == "head" ||
+    name == "upper_arm_l" ||
+    name == "lower_arm_l" ||
+    name == "hand_l" ||
+    name == "upper_arm_r" ||
+    name == "lower_arm_r" ||
+    name == "hand_r" ||
+    name == "weapon_socket_r" ||
+    name == "weapon_socket" ||
+    name == "tag_weapon";
+}
+
+[[nodiscard]] bool poseIncludesNode(
+  SkinnedModelPoseMask mask,
+  const std::vector<GltfSkinnedModel::Node>& nodes,
+  int nodeIndex
+) {
+  if (
+    nodeIndex < 0 ||
+    static_cast<std::size_t>(nodeIndex) >= nodes.size()
+  ) {
+    return false;
+  }
+  if (mask == SkinnedModelPoseMask::FullBody) {
+    return true;
+  }
+  return upperBodyPoseIncludesNode(nodes[static_cast<std::size_t>(nodeIndex)].name);
+}
+
 [[nodiscard]] std::vector<std::uint8_t> readFile(std::string_view path) {
   std::ifstream file(std::string(path), std::ios::binary);
   if (!file) {
@@ -1149,7 +1184,8 @@ bool GltfSkinnedModel::appendBonePalette(
     for (const AnimationChannel& channel : animation.channels) {
       if (
         channel.node < 0 ||
-        static_cast<std::size_t>(channel.node) >= scratch.sampledNodes.size()
+        static_cast<std::size_t>(channel.node) >= scratch.sampledNodes.size() ||
+        !poseIncludesNode(pose.mask, nodes_, channel.node)
       ) {
         continue;
       }
@@ -1261,7 +1297,11 @@ std::vector<SkinnedModelTriangle> GltfSkinnedModel::triangles(
       continue;
     }
     for (const AnimationChannel& channel : animation.channels) {
-      if (channel.node < 0 || static_cast<std::size_t>(channel.node) >= sampledNodes.size()) {
+      if (
+        channel.node < 0 ||
+        static_cast<std::size_t>(channel.node) >= sampledNodes.size() ||
+        !poseIncludesNode(pose.mask, nodes_, channel.node)
+      ) {
         continue;
       }
       NodePose& node = sampledNodes[static_cast<std::size_t>(channel.node)];

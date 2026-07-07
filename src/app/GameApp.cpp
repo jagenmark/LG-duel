@@ -4289,6 +4289,7 @@ int GameApp::run() const {
 
   using Clock = std::chrono::steady_clock;
   auto previousTime = Clock::now();
+  const auto appStartTime = previousTime;
   auto previousOuterFrameStart = previousTime;
   Clock::time_point nextFrameDeadline = previousTime;
   int appliedMaxFps = console.getInt("r_maxfps");
@@ -4937,6 +4938,8 @@ int GameApp::run() const {
     const auto now = Clock::now();
     const auto elapsed = std::chrono::duration<float>(now - previousTime);
     previousTime = now;
+    const float renderAnimationTimeSeconds =
+      std::chrono::duration<float>(now - appStartTime).count();
     titleAccumulatorSeconds += elapsed.count();
     Weapon displayedSelectedWeapon = selectedWeapon;
     if (const ClientGame* weaponGame = session.game();
@@ -5831,6 +5834,7 @@ int GameApp::run() const {
           true,
           teammate,
           renderSnapshot.playerNames[playerIndex],
+          renderAnimationTimeSeconds,
         };
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;

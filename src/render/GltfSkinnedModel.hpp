@@ -16,10 +16,16 @@ struct SkinnedModelTriangle {
   bool tintable = false;
 };
 
+enum class SkinnedModelPoseMask {
+  FullBody,
+  UpperBody,
+};
+
 struct SkinnedModelPoseRequest {
   std::string_view animationName;
   float timeSeconds = 0.0F;
   float weight = 1.0F;
+  SkinnedModelPoseMask mask = SkinnedModelPoseMask::FullBody;
 };
 
 class GltfSkinnedModel {
