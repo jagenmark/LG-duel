@@ -23,7 +23,8 @@ jobs:
     env:
       SSH_PORT: ${{ secrets.VM_SSH_PORT || '22' }}
       DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
-      REPOSITORY_URL: ${{ secrets.VM_REPOSITORY_URL || format('{0}/{1}.git', github.server_url, github.repository) }}
+      REPOSITORY_URL: ${{ secrets.VM_REPOSITORY_URL || format('git@github.com:{0}.git', github.repository) }}
+      PRIVATE_KEY: ${{ secrets.REPO_READ_PRIVATE_KEY }}
 
     steps:
       - name: Configure SSH
@@ -45,7 +46,15 @@ jobs:
           printf -v quoted_deploy_path '%q' "$DEPLOY_PATH"
           printf -v quoted_repository_url '%q' "$REPOSITORY_URL"
           ssh -i ~/.ssh/lg-duel-deploy -p "$SSH_PORT" "${{ secrets.VM_USER }}@${{ secrets.VM_HOST }}" \
-            "DEPLOY_PATH=$quoted_deploy_path REPOSITORY_URL=$quoted_repository_url bash -s" <<'REMOTE'
+          "mkdir -p ~/.ssh/
+          chmod 700 ~/.ssh/
+          printf '%s\n' '${{ secrets.REPO_READ_PRIVATE_KEY }}' > ~/.ssh/lg-duel-read-only
+          chmod 600 ~/.ssh/lg-duel-read-only
+          ssh-keyscan github.com >> ~/.ssh/known_hosts
+          
+          export GIT_SSH_COMMAND='ssh -i ~/.ssh/lg-duel-read-only'
+
+          DEPLOY_PATH=$quoted_deploy_path REPOSITORY_URL=$quoted_repository_url bash -s" <<'REMOTE'
           set -euo pipefail
 
           deploy_path="${DEPLOY_PATH:-$HOME/LG-duel}"
@@ -60,6 +69,7 @@ jobs:
           fi
 
           cd "$deploy_path"
+          git remote set-url origin "$REPOSITORY_URL"
           git fetch --prune origin main
           git checkout main
           git pull --ff-only origin main
