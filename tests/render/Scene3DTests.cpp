@@ -1508,11 +1508,13 @@ int main() {
     const lg::MeshHandle mesh = lg::remoteWeaponMeshHandle(weapon);
     const lg::StaticMeshAsset* asset = lg::staticMeshAsset(mesh);
     bool foundWeaponInstance = false;
+    lg::StaticMeshInstance foundWeapon = {};
     bool foundRevolverCylinder = weapon != lg::Weapon::Revolver;
     for (const lg::StaticMeshInstance& instance : weaponScene.staticMeshInstances) {
-      foundWeaponInstance =
-        foundWeaponInstance ||
-        (instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld);
+      if (instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld) {
+        foundWeaponInstance = true;
+        foundWeapon = instance;
+      }
       foundRevolverCylinder =
         foundRevolverCylinder ||
         (
@@ -1522,12 +1524,32 @@ int main() {
     }
     const std::uint32_t expectedInstances =
       weapon == lg::Weapon::Revolver ? 2U : 1U;
+    bool revolverGripAlignedAndSized = true;
+    if (weapon == lg::Weapon::Revolver && foundWeaponInstance) {
+      const lg::Vec3 grip = transformPoint(
+        foundWeapon,
+        {-0.23F, 0.0F, -0.24F}
+      );
+      const lg::Vec3 expectedHand = {
+        opponent.position.x + opponent.bounds.radius * 0.18F,
+        opponent.position.y - opponent.bounds.radius * 0.84F,
+        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
+      };
+      const float modelScale = lg::length(
+        transformPoint(foundWeapon, {1.0F, 0.0F, 0.0F}) -
+          foundWeapon.modelTranslation
+      );
+      revolverGripAlignedAndSized =
+        lg::length(grip - expectedHand) < 0.001F &&
+        nearlyEqual(modelScale, 0.45F);
+    }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
         asset != nullptr &&
         !asset->vertices.empty() &&
         foundWeaponInstance &&
         foundRevolverCylinder &&
+        revolverGripAlignedAndSized &&
         weaponScene.remoteWeaponStats.instancesSubmitted == expectedInstances &&
         weaponScene.remoteWeaponStats.legacyDynamicVertices == 0,
       "every playable weapon should map to its expected static mesh instances"

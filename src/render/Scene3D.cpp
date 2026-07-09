@@ -35,6 +35,7 @@ constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
 constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
+constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -1618,6 +1619,16 @@ void appendStaticMeshInstance(Scene3D& scene, const StaticMeshInstance& instance
   return cylinder;
 }
 
+[[nodiscard]] WeaponModelFrame revolverGripAlignedFrame(WeaponModelFrame frame) {
+  // WeaponModelFrame::hand is the player hand target. Move the authored grip
+  // socket onto that point instead of incorrectly placing the model origin
+  // there.
+  frame.hand -= frame.basis.forward * (kRevolverGripSocket.x * frame.scale);
+  frame.hand -= frame.basis.right * (kRevolverGripSocket.y * frame.scale);
+  frame.hand -= frame.basis.up * (kRevolverGripSocket.z * frame.scale);
+  return frame;
+}
+
 void appendRevolverInstances(
   Scene3D& scene,
   const WeaponModelFrame& frame,
@@ -1807,7 +1818,7 @@ void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
   case Weapon::GrenadeLauncher:
     return 0.68F;
   case Weapon::Revolver:
-    return 0.75F;
+    return 0.45F;
   default:
     return 0.65F;
   }
@@ -2042,6 +2053,9 @@ void addWireBox(
   WeaponModelFrame frame =
     weaponModelFrame(remote.player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
+  if (weapon == Weapon::Revolver) {
+    frame = revolverGripAlignedFrame(frame);
+  }
   switch (weapon) {
   case Weapon::LightningGun:
   case Weapon::FreezeGun:
@@ -2327,6 +2341,7 @@ void addRemoteWeaponInstance(
   WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   if (weapon == Weapon::Revolver) {
+    frame = revolverGripAlignedFrame(frame);
     appendRevolverInstances(scene, frame, RenderPass::OpaqueWorld, 0.0F);
     scene.remoteWeaponStats.instancesSubmitted += 2U;
     return;

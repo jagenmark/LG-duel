@@ -74,6 +74,7 @@ constexpr std::size_t kMaxConsumedTracerEvents = 64;
 constexpr std::size_t kMaxConsumedExplosionEvents = 64;
 constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
+constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
 
 [[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
   return static_cast<std::uint8_t>(
@@ -322,7 +323,7 @@ struct WeaponPresentationFrame {
   case Weapon::GrenadeLauncher:
     return 0.68F;
   case Weapon::Revolver:
-    return 0.75F;
+    return 0.45F;
   default:
     return 0.65F;
   }
@@ -428,6 +429,11 @@ struct WeaponPresentationFrame {
   WeaponPresentationFrame frame =
     weaponPresentationFrame(remote.player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
+  if (weapon == Weapon::Revolver) {
+    forward -= kRevolverGripSocket.x;
+    right -= kRevolverGripSocket.y;
+    up -= kRevolverGripSocket.z;
+  }
   return weaponPresentationPoint(frame, forward, right, up);
 }
 

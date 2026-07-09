@@ -4947,7 +4947,8 @@ void appendCommandBatches(
     );
     if (
       hud.selectedWeapon != Weapon::MachineGun &&
-      hud.selectedWeapon != Weapon::Shotgun
+      hud.selectedWeapon != Weapon::Shotgun &&
+      hud.selectedWeapon != Weapon::Revolver
     ) {
       const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
