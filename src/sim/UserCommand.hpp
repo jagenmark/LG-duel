@@ -15,10 +15,11 @@ enum class Weapon : std::uint8_t {
   GrenadeLauncher = 5,
   PlasmaGun = 6,
   FreezeGun = 7,
+  Revolver = 8,
 };
 
-constexpr Weapon kLastWeapon = Weapon::FreezeGun;
-inline constexpr std::size_t kWeaponCount = 8;
+constexpr Weapon kLastWeapon = Weapon::Revolver;
+inline constexpr std::size_t kWeaponCount = 9;
 
 [[nodiscard]] constexpr std::size_t weaponIndex(Weapon weapon) {
   return static_cast<std::size_t>(weapon);

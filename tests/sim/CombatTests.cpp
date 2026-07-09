@@ -149,6 +149,7 @@ weapon.fg.ice_pool_merge_distance 1.2
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentXY, 0.5F) &&
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentZ, 1.1F) &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] == 9 &&
+        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] == 9 &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] == 123 &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] == 124 &&
         nearlyEqual(loaded.config.freezeGun.freezePerSecond, 60.0F) &&
@@ -735,6 +736,31 @@ weapon.gl.gravity -1
     failures += expect(result.weapon == lg::Weapon::Railgun, "railgun result should identify weapon");
     failures += expect(result.damageApplied == 80, "railgun should apply QL-style 80 damage");
     failures += expect(target.health == 20, "railgun damage should reduce target health");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    lg::UserCommand command;
+    command.attack = true;
+    command.weapon = lg::Weapon::Revolver;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, railTuning.eyeHeight, bodyAimZ(target));
+    const lg::WeaponFireResult result = lg::simulateRailgun(
+      attacker,
+      target,
+      command,
+      arena,
+      railTuning,
+      lg::Weapon::Revolver
+    );
+
+    failures += expect(
+      result.fired && result.hit && !result.headshot &&
+        result.weapon == lg::Weapon::Revolver &&
+        result.damageApplied == 80 && target.health == 20,
+      "revolver should reuse railgun hitscan damage while retaining its weapon identity"
+    );
   }
 
   {

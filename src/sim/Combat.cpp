@@ -655,10 +655,11 @@ WeaponFireResult simulateRailgun(
   PlayerState& target,
   const UserCommand& command,
   const Arena& arena,
-  const HitscanTuning& tuning
+  const HitscanTuning& tuning,
+  Weapon weapon
 ) {
   WeaponFireResult result;
-  result.weapon = Weapon::Railgun;
+  result.weapon = weapon;
   result.visualSeed = command.sequence;
   result.start = weaponMuzzlePosition(attacker, tuning.eyeHeight);
   const Vec3 direction = cameraForward(command.viewYawRadians, command.viewPitchRadians);

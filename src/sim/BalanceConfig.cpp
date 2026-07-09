@@ -202,6 +202,7 @@ namespace {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)] = value;
   } else if (key == "weapon.rg.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)] = value;
+    config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)] = value;
   } else if (key == "weapon.rl.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)] = value;
   } else if (key == "weapon.mg.spawn_ammo" && value >= 0 && value <= 999) {

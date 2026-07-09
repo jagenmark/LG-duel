@@ -352,6 +352,8 @@ void addLocalHealthNumber(
     return {190, 82, 255, 255};
   case Weapon::FreezeGun:
     return {154, 232, 255, 255};
+  case Weapon::Revolver:
+    return {225, 190, 118, 255};
   }
   return {230, 238, 246, 255};
 }
@@ -374,6 +376,8 @@ void addLocalHealthNumber(
     return 6;
   case Weapon::FreezeGun:
     return 7;
+  case Weapon::Revolver:
+    return 8;
   }
   return 4;
 }
@@ -625,7 +629,7 @@ void addWeaponIcon(
     return;
   }
 
-  if (weapon == Weapon::Railgun) {
+  if (weapon == Weapon::Railgun || weapon == Weapon::Revolver) {
     const RenderColor holeColor = {6, 8, 10, 230};
     rect(-8.0F, -17.0F, 16.0F, 34.0F);
     rect(-14.0F, -12.0F, 28.0F, 24.0F);
@@ -663,7 +667,7 @@ void addSelectedWeaponIndicator(
   const RenderSettings& settings
 ) {
   (void)width;
-  constexpr std::array<Weapon, 8> weapons = {{
+  constexpr std::array<Weapon, 9> weapons = {{
     Weapon::MachineGun,
     Weapon::Shotgun,
     Weapon::GrenadeLauncher,
@@ -672,6 +676,7 @@ void addSelectedWeaponIndicator(
     Weapon::Railgun,
     Weapon::PlasmaGun,
     Weapon::FreezeGun,
+    Weapon::Revolver,
   }};
   const float viewportScale = std::clamp(
     static_cast<float>(height) / 720.0F,

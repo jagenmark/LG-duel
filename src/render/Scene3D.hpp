@@ -45,6 +45,8 @@ enum class MeshHandle : std::uint16_t {
   RemoteLightningGun,
   RemoteRailgun,
   RemotePlasmaGun,
+  RemoteRevolverBody,
+  RemoteRevolverCylinder,
 };
 
 enum class PlayerBodyPartType : std::uint8_t {

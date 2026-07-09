@@ -333,6 +333,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
     writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
+    writer.writeI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) &&
     writer.writeFloat(packet.vampirism) &&
     writer.writeU8(packet.selfDamagePercent) &&
     writer.writeI32(packet.healthAmount) &&
@@ -420,6 +421,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
     !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
+    !reader.readI32(packet.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) ||
     !reader.readFloat(packet.vampirism) ||
     !reader.readU8(packet.selfDamagePercent) ||
     !reader.readI32(packet.healthAmount) ||
@@ -1405,6 +1407,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) &&
+    writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) &&
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
@@ -1668,6 +1671,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::GrenadeLauncher)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::PlasmaGun)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)]) ||
+    !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)]) ||
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||

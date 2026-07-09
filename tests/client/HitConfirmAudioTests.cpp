@@ -172,5 +172,22 @@ int main() {
     );
   }
 
+  {
+    lg::WeaponFireResult revolverHit;
+    revolverHit.fired = true;
+    revolverHit.hit = true;
+    revolverHit.weapon = lg::Weapon::Revolver;
+    revolverHit.damageApplied = 80;
+    const lg::WeaponFireAudioEvent event =
+      lg::routeWeaponFireAudioEvent(revolverHit, true);
+
+    failures += expect(
+      event.cue == lg::WeaponFireAudioCue::Railgun &&
+        event.startsLocalRailCooldown &&
+        event.localHitConfirmDamage == 80,
+      "revolver should reuse railgun fire, cooldown, and hit-confirm audio routing"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }
