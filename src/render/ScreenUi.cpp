@@ -451,6 +451,61 @@ void addSpeedText(
   );
 }
 
+void addDashIndicator(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const PlayerState& localPlayer,
+  const RenderSettings& settings
+) {
+  constexpr float indicatorWidth = 48.0F;
+  constexpr float indicatorHeight = 14.0F;
+  constexpr float textScale = 1.0F;
+  const bool ready = localPlayer.dashCooldownTicksRemaining == 0;
+  const float crosshairReach = settings.crosshairEnabled
+    ? settings.crosshairGap + settings.crosshairSize
+    : 0.0F;
+  const float centerX = static_cast<float>(width) * 0.5F;
+  const float y =
+    static_cast<float>(height) * 0.5F +
+    std::max(48.0F, crosshairReach + 38.0F);
+  const RenderColor fill = ready
+    ? RenderColor{42, 112, 78, 220}
+    : RenderColor{38, 43, 50, 190};
+  const RenderColor outline = ready
+    ? RenderColor{104, 238, 166, 245}
+    : RenderColor{100, 108, 118, 205};
+  const RenderColor text = ready
+    ? RenderColor{218, 255, 232, 255}
+    : RenderColor{150, 158, 168, 225};
+
+  addRect(
+    drawList,
+    centerX - indicatorWidth * 0.5F,
+    y,
+    indicatorWidth,
+    indicatorHeight,
+    fill
+  );
+  addOutline(
+    drawList,
+    centerX - indicatorWidth * 0.5F,
+    y,
+    indicatorWidth,
+    indicatorHeight,
+    outline
+  );
+  addText(
+    drawList,
+    centerX,
+    y + 3.0F,
+    "DASH",
+    text,
+    textScale,
+    TextHorizontalAlignment::Center
+  );
+}
+
 void addWeaponIcon(
   DrawList2D& drawList,
   float centerX,
@@ -2523,6 +2578,7 @@ DrawList2D buildScreenUi(
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
+  addDashIndicator(drawList, outputWidth, outputHeight, localPlayer, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
   addSettingsMenu(drawList, outputWidth, outputHeight, hud);
