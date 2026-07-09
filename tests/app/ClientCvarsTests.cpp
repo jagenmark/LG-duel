@@ -243,6 +243,13 @@ int main() {
     "local first-person weapon rendering should be toggleable"
   );
   failures += expect(
+    console.execute("r_weapon_pos") == "r_weapon_pos = 0 (default 0)" &&
+      console.execute("r_weapon_pos 1") == "r_weapon_pos = 1" &&
+      console.getInt("r_weapon_pos") == 1 &&
+      console.execute("r_weapon_pos 3") == "value out of range for r_weapon_pos",
+    "first-person weapon position should support center, right, and left presets"
+  );
+  failures += expect(
     console.execute("r_player_model") ==
       "r_player_model = 0 (default 0)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&

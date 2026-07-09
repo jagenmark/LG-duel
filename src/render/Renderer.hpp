@@ -194,6 +194,7 @@ struct RenderSettings {
   float revolverRecoilAmount = 0.0F;
   float revolverCylinderRotationRadians = 0.0F;
   bool showOwnWeapons = true;
+  int weaponPosition = 0;
   bool shotgunWeaponModelStart = false;
   bool drawRemotePlayers = true;
   bool drawRemoteWeapons = true;

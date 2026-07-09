@@ -1904,9 +1904,11 @@ int main() {
     recoiledRevolverScene,
     lg::MeshHandle::RemoteRevolverCylinder
   );
+  const float revolverViewModelScale = lg::length(revolverBody.modelRow0);
   failures += expect(
     revolverBody.mesh == lg::MeshHandle::RemoteRevolverBody &&
       revolverCylinder.mesh == lg::MeshHandle::RemoteRevolverCylinder &&
+      nearlyEqual(revolverViewModelScale, 0.40F) &&
       localRevolverScene.viewModelStats.drawCalls == 2 &&
       lg::length(
         recoiledRevolverBody.modelTranslation - revolverBody.modelTranslation

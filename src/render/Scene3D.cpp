@@ -1487,7 +1487,8 @@ void addBakedWeaponModel(
 }
 
 [[nodiscard]] WeaponModelFrame firstPersonWeaponModelFrame(
-  const PlayerState& player
+  const PlayerState& player,
+  int weaponPosition
 ) {
   WeaponModelFrame frame;
   frame.basis.forward =
@@ -1502,6 +1503,11 @@ void addBakedWeaponModel(
     eyePosition +
     frame.basis.forward * 0.32F -
     frame.basis.up * 0.38F;
+  if (weaponPosition == 1) {
+    frame.hand += frame.basis.right * 0.20F;
+  } else if (weaponPosition == 2) {
+    frame.hand -= frame.basis.right * 0.20F;
+  }
   frame.scale = 0.50F;
   return frame;
 }
@@ -1661,37 +1667,49 @@ void addFirstPersonWeaponModel(
   Weapon weapon,
   const RenderSettings& settings
 ) {
-  const WeaponModelFrame frame = firstPersonWeaponModelFrame(player);
+  const WeaponModelFrame frame =
+    firstPersonWeaponModelFrame(player, settings.weaponPosition);
   switch (weapon) {
-  case Weapon::MachineGun:
+  case Weapon::MachineGun: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.hand -= weaponFrame.basis.forward * 0.10F;
     appendStaticMeshInstance(
       scene,
       weaponMeshInstance(
         MeshHandle::RemoteMachineGun,
         RenderPass::ViewModel,
-        frame,
+        weaponFrame,
         1.0F / 0.78F,
         {255, 255, 255, 255}
       )
     );
     ++scene.viewModelStats.drawCalls;
     break;
-  case Weapon::Shotgun:
+  }
+  case Weapon::Shotgun: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.hand -= weaponFrame.basis.forward * 0.10F;
     appendStaticMeshInstance(
       scene,
       weaponMeshInstance(
         MeshHandle::RemoteShotgun,
         RenderPass::ViewModel,
-        frame,
+        weaponFrame,
         1.0F / 0.78F,
         {255, 255, 255, 255}
       )
     );
     ++scene.viewModelStats.drawCalls;
     break;
+  }
   case Weapon::Revolver: {
+    WeaponModelFrame revolverFrame = frame;
+    // Give the long revolver more breathing room in first person: move it
+    // farther down the view axis and reduce its authored mesh scale.
+    revolverFrame.hand += revolverFrame.basis.forward * 0.16F;
+    revolverFrame.scale *= 0.80F;
     const WeaponModelFrame recoilFrame = revolverRecoilFrame(
-      frame,
+      revolverFrame,
       settings.revolverRecoilAmount
     );
     appendRevolverInstances(
@@ -2026,10 +2044,19 @@ void addWireBox(
   };
 }
 
-[[nodiscard]] Vec3 firstPersonWeaponMuzzlePosition(const PlayerState& player) {
-  return playerEyePosition(player) +
+[[nodiscard]] Vec3 firstPersonWeaponMuzzlePosition(
+  const PlayerState& player,
+  int weaponPosition
+) {
+  Vec3 position = playerEyePosition(player) +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
     cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+  if (weaponPosition == 1) {
+    position += yawRight(player.viewYawRadians) * 0.20F;
+  } else if (weaponPosition == 2) {
+    position -= yawRight(player.viewYawRadians) * 0.20F;
+  }
+  return position;
 }
 
 [[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
@@ -2086,7 +2113,8 @@ void addWireBox(
       projectile.weapon == Weapon::RocketLauncher
     ) {
       return projectile.position +
-        (firstPersonWeaponMuzzlePosition(localPlayer) - playerEyePosition(localPlayer));
+        (firstPersonWeaponMuzzlePosition(localPlayer, settings.weaponPosition) -
+          playerEyePosition(localPlayer));
     }
     return projectile.position;
   }
