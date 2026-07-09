@@ -147,6 +147,40 @@ int main() {
   lg::ConsoleRenderState console;
 
   {
+    lg::PlayerState dashPlayer;
+    const lg::DrawList2D readyUi = lg::buildScreenUi(
+      1280,
+      720,
+      dashPlayer,
+      settings,
+      {},
+      {}
+    );
+    const lg::Text2D* readyDash = findText(readyUi, "DASH");
+    failures += expect(
+      readyDash != nullptr &&
+        readyDash->color.green > readyDash->color.red,
+      "dash indicator should show a bright ready state when cooldown is clear"
+    );
+
+    dashPlayer.dashCooldownTicksRemaining = 20;
+    const lg::DrawList2D cooldownUi = lg::buildScreenUi(
+      1280,
+      720,
+      dashPlayer,
+      settings,
+      {},
+      {}
+    );
+    const lg::Text2D* cooldownDash = findText(cooldownUi, "DASH");
+    failures += expect(
+      cooldownDash != nullptr &&
+        cooldownDash->color.green == cooldownDash->color.red + 8,
+      "dash indicator should dim while dash is cooling down"
+    );
+  }
+
+  {
     lg::LightningGunResult beam;
     beam.active = true;
     settings.beamAlpha = 0.5F;

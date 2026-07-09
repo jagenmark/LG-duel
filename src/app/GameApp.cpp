@@ -66,6 +66,7 @@ constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
 constexpr float kRailgunBeamLingerSeconds = 0.5F;
+constexpr float kRevolverBeamLingerSeconds = kRailgunBeamLingerSeconds * 0.25F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
@@ -73,6 +74,7 @@ constexpr std::size_t kMaxConsumedTracerEvents = 64;
 constexpr std::size_t kMaxConsumedExplosionEvents = 64;
 constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
+constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
 
 [[nodiscard]] std::uint8_t selfDamagePercent(const ConsoleSystem& console) {
   return static_cast<std::uint8_t>(
@@ -279,15 +281,18 @@ void copyTextToClipboard(std::string_view text) {
   };
 }
 
-[[nodiscard]] Vec3 viewmodelMuzzlePosition(const PlayerState& player) {
+[[nodiscard]] Vec3 viewmodelMuzzlePosition(const PlayerState& player, Weapon weapon) {
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
   const Vec3 eyePosition =
     player.position + Vec3{0.0F, 0.0F, eyeHeight};
+  const bool revolver = weapon == Weapon::Revolver;
   return eyePosition +
-    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
-    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
+      (revolver ? 0.66F : 0.55F) -
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
+      (revolver ? 0.3025F : 0.32F);
 }
 
 [[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
@@ -317,6 +322,8 @@ struct WeaponPresentationFrame {
   case Weapon::RocketLauncher:
   case Weapon::GrenadeLauncher:
     return 0.68F;
+  case Weapon::Revolver:
+    return 0.45F;
   default:
     return 0.65F;
   }
@@ -422,6 +429,11 @@ struct WeaponPresentationFrame {
   WeaponPresentationFrame frame =
     weaponPresentationFrame(remote.player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
+  if (weapon == Weapon::Revolver) {
+    forward -= kRevolverGripSocket.x;
+    right -= kRevolverGripSocket.y;
+    up -= kRevolverGripSocket.z;
+  }
   return weaponPresentationPoint(frame, forward, right, up);
 }
 
@@ -1665,6 +1677,7 @@ struct LingeringWeaponFire {
   WeaponFireResult fire;
   WeaponFireResult sourceFire;
   bool active = false;
+  std::chrono::steady_clock::time_point startedAt = {};
   std::chrono::steady_clock::time_point expiresAt = {};
 };
 
@@ -3088,6 +3101,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("r", "weapon rg");
   (void)bindings.bind("4", "weapon pg");
   (void)bindings.bind("8", "weapon fg");
+  (void)bindings.bind("9", "weapon re");
   (void)bindings.bind("q", "weapon rl");
   (void)bindings.bind("e", "weapon lg");
   (void)bindings.bind("r", "weapon rg");
@@ -3194,6 +3208,7 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
     ammoText(Weapon::Railgun),
     ammoText(Weapon::PlasmaGun),
     ammoText(Weapon::FreezeGun),
+    ammoText(Weapon::Revolver),
   }};
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
@@ -4180,6 +4195,12 @@ int GameApp::run() const {
     (void)console.execute("set sensitivity " + std::to_string(migratedSensitivity));
     (void)console.execute("set cl_config_version 13");
   }
+  if (console.getInt("cl_config_version") < 14) {
+    if (bindings.binding("9").empty()) {
+      (void)bindings.bind("9", "weapon re");
+    }
+    (void)console.execute("set cl_config_version 14");
+  }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
   SettingsMenuState settingsMenu;
@@ -4381,6 +4402,7 @@ int GameApp::run() const {
   std::array<Clock::time_point, kDuelPlayerCount> lastRemoteDamageTime = {};
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
+  std::array<std::uint8_t, kDuelPlayerCount> revolverCylinderSteps = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
@@ -5193,6 +5215,7 @@ int GameApp::run() const {
       wasLocalPlayerAlive = false;
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
+      revolverCylinderSteps = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
@@ -5551,7 +5574,8 @@ int GameApp::run() const {
           if (
             hasLocalRailFireTick &&
             !localRailReadySoundPlayed &&
-            displayedSelectedWeapon == Weapon::Railgun &&
+            (displayedSelectedWeapon == Weapon::Railgun ||
+             displayedSelectedWeapon == Weapon::Revolver) &&
             audioSnapshot.serverTick - lastLocalRailFireTick >=
               kClientRailgunCooldownTicks
           ) {
@@ -5884,6 +5908,9 @@ int GameApp::run() const {
     currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
     currentRenderSettings.localPlayerIndex =
       static_cast<std::uint8_t>(renderLocalPlayerIndex);
+    currentRenderSettings.revolverCylinderRotationRadians =
+      static_cast<float>(revolverCylinderSteps[renderLocalPlayerIndex]) *
+      (kTwoPi / 6.0F);
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),
@@ -5892,7 +5919,10 @@ int GameApp::run() const {
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       WeaponFireResult& currentFire = renderWeaponFires[playerIndex];
       LingeringWeaponFire& lingeringRailBeam = lingeringRailBeams[playerIndex];
-      if (currentFire.fired && currentFire.weapon == Weapon::Railgun) {
+      if (
+        currentFire.fired &&
+        (currentFire.weapon == Weapon::Railgun || currentFire.weapon == Weapon::Revolver)
+      ) {
         const WeaponFireResult sourceFire = currentFire;
         const bool localPerspectiveRail =
           playerIndex == renderLocalPlayerIndex;
@@ -5902,15 +5932,36 @@ int GameApp::run() const {
         if (newRailEvent) {
           if (localPerspectiveRail) {
             currentFire.start = currentRenderSettings.showOwnWeapons
-              ? viewmodelMuzzlePosition(renderPlayer)
+              ? viewmodelMuzzlePosition(renderPlayer, currentFire.weapon)
               : hiddenWeaponVisualOrigin(renderPlayer);
+          } else {
+            const bool revolver = currentFire.weapon == Weapon::Revolver;
+            currentFire.start = remoteWeaponPresentationPoint(
+              sourceFire.start,
+              renderRemotePlayers,
+              playerIndex,
+              currentFire.weapon,
+              currentRenderSettings,
+              revolver ? 0.68F : 0.78F,
+              0.0F,
+              revolver ? 0.155F : 0.09F
+            );
+          }
+          if (sourceFire.weapon == Weapon::Revolver) {
+            revolverCylinderSteps[playerIndex] = static_cast<std::uint8_t>(
+              (revolverCylinderSteps[playerIndex] + 1U) % 6U
+            );
           }
           lingeringRailBeam.sourceFire = sourceFire;
           lingeringRailBeam.fire = currentFire;
           lingeringRailBeam.active = true;
+          lingeringRailBeam.startedAt = now;
+          const float lingerSeconds = sourceFire.weapon == Weapon::Revolver
+            ? kRevolverBeamLingerSeconds
+            : kRailgunBeamLingerSeconds;
           lingeringRailBeam.expiresAt =
             now + std::chrono::duration_cast<Clock::duration>(
-              std::chrono::duration<float>(kRailgunBeamLingerSeconds)
+              std::chrono::duration<float>(lingerSeconds)
             );
         } else {
           currentFire = lingeringRailBeam.fire;
@@ -5925,6 +5976,28 @@ int GameApp::run() const {
         if (lingeringRailBeam.active && now >= lingeringRailBeam.expiresAt) {
           lingeringRailBeam.active = false;
         }
+      }
+      if (
+        playerIndex == renderLocalPlayerIndex &&
+        lingeringRailBeam.active &&
+        lingeringRailBeam.fire.weapon == Weapon::Revolver &&
+        now < lingeringRailBeam.expiresAt
+      ) {
+        const float animationProgress = std::clamp(
+          std::chrono::duration<float>(now - lingeringRailBeam.startedAt).count() /
+            kRevolverBeamLingerSeconds,
+          0.0F,
+          1.0F
+        );
+        currentRenderSettings.revolverRecoilAmount =
+          std::sin(animationProgress * 3.14159265359F);
+        const float indexT = std::clamp(animationProgress * 4.0F, 0.0F, 1.0F);
+        const float smoothIndexT = indexT * indexT * (3.0F - 2.0F * indexT);
+        const float completedSteps = static_cast<float>(
+          (revolverCylinderSteps[playerIndex] + 5U) % 6U
+        );
+        currentRenderSettings.revolverCylinderRotationRadians =
+          (completedSteps + smoothIndexT) * (kTwoPi / 6.0F);
       }
     }
     if (zoomPressCount > 0) {

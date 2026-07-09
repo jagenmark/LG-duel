@@ -128,6 +128,7 @@ int main() {
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 14;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 51;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] = 152;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] = 15;
     source.vampirism = 0.1F;
     source.selfDamagePercent = 37;
     source.healthAmount = 175;
@@ -354,7 +355,7 @@ int main() {
     source.players[0].sneaking = true;
     source.players[0].knockbackTicksRemaining = 9;
     source.players[1].health = 0;
-    source.selectedWeapons[0] = lg::Weapon::LightningGun;
+    source.selectedWeapons[0] = lg::Weapon::Revolver;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::LightningGun)] = 149;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] = 9;
@@ -364,6 +365,7 @@ int main() {
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 6;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 49;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::FreezeGun)] = 148;
+    source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Revolver)] = 13;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::LightningGun)] = 120;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Railgun)] = 5;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 4;
@@ -372,6 +374,7 @@ int main() {
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 2;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::PlasmaGun)] = 48;
     source.playerAmmo[1][lg::weaponIndex(lg::Weapon::FreezeGun)] = 147;
+    source.playerAmmo[1][lg::weaponIndex(lg::Weapon::Revolver)] = 12;
     source.lightningGuns[0].active = true;
     source.lightningGuns[0].hit = true;
     source.lightningGuns[0].headshot = true;
@@ -393,7 +396,7 @@ int main() {
     source.weaponFires[0].fired = true;
     source.weaponFires[0].hit = true;
     source.weaponFires[0].headshot = true;
-    source.weaponFires[0].weapon = lg::Weapon::Railgun;
+    source.weaponFires[0].weapon = lg::Weapon::Revolver;
     source.weaponFires[0].damageApplied = 80;
     source.weaponFires[0].start = {1.0F, 1.5F, 2.0F};
     source.weaponFires[0].end = {9.0F, 1.5F, 2.0F};
@@ -543,6 +546,7 @@ int main() {
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::GrenadeLauncher)] = 13;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::PlasmaGun)] = 50;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] = 149;
+    source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] = 14;
     source.vampirism = 2.0F;
     source.selfDamagePercent = 25;
     source.healthAmount = 150;
@@ -589,7 +593,7 @@ int main() {
     failures += expect(nearlyEqual(decoded.players[0].velocity.z, 4.0F), "3D velocity should round trip");
     failures += expect(decoded.players[1].health == 0, "death state should round trip");
     failures += expect(
-      decoded.selectedWeapons[0] == lg::Weapon::LightningGun &&
+      decoded.selectedWeapons[0] == lg::Weapon::Revolver &&
         decoded.selectedWeapons[1] == lg::Weapon::Railgun,
       "selected weapons should round trip"
     );
@@ -627,7 +631,7 @@ int main() {
       decoded.weaponFires[0].fired &&
         decoded.weaponFires[0].hit &&
         decoded.weaponFires[0].headshot &&
-        decoded.weaponFires[0].weapon == lg::Weapon::Railgun &&
+        decoded.weaponFires[0].weapon == lg::Weapon::Revolver &&
         decoded.weaponFires[0].damageApplied == 80 &&
         nearlyEqual(decoded.weaponFires[0].end.x, 9.0F) &&
         nearlyEqual(decoded.weaponFires[0].knockbackImpulse.x, 2.0F),

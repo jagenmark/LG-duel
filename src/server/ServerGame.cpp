@@ -847,7 +847,7 @@ void ServerGame::tick(float fixedDt) {
         }
       }
     } else if (
-      command.weapon == Weapon::Railgun &&
+      (command.weapon == Weapon::Railgun || command.weapon == Weapon::Revolver) &&
       command.attack &&
       railgunCooldownTicks_[attackerIndex] == 0
     ) {
@@ -858,11 +858,12 @@ void ServerGame::tick(float fixedDt) {
           target,
           command,
           arena_,
-          railgunTuning_
+          railgunTuning_,
+          command.weapon
         );
       } else {
         WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
-        fire.weapon = Weapon::Railgun;
+        fire.weapon = command.weapon;
         fire.visualSeed = command.sequence;
         fire.start = attackStart;
         fire.end = worldTrace.end;
@@ -874,7 +875,7 @@ void ServerGame::tick(float fixedDt) {
         snapshot_.weaponFires[attackerIndex]
       );
       railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
-      (void)consumeAmmo(attackerIndex, Weapon::Railgun);
+      (void)consumeAmmo(attackerIndex, command.weapon);
     } else if (
       command.weapon == Weapon::MachineGun &&
       command.attack &&
@@ -1960,6 +1961,7 @@ std::uint32_t ServerGame::weaponCooldownTicks(
 ) const {
   switch (weapon) {
   case Weapon::Railgun:
+  case Weapon::Revolver:
     return railgunCooldownTicks_[playerIndex];
   case Weapon::MachineGun:
     return machineGunCooldownTicks_[playerIndex];

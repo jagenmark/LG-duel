@@ -1508,19 +1508,51 @@ int main() {
     const lg::MeshHandle mesh = lg::remoteWeaponMeshHandle(weapon);
     const lg::StaticMeshAsset* asset = lg::staticMeshAsset(mesh);
     bool foundWeaponInstance = false;
+    lg::StaticMeshInstance foundWeapon = {};
+    bool foundRevolverCylinder = weapon != lg::Weapon::Revolver;
     for (const lg::StaticMeshInstance& instance : weaponScene.staticMeshInstances) {
-      foundWeaponInstance =
-        foundWeaponInstance ||
-        (instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld);
+      if (instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld) {
+        foundWeaponInstance = true;
+        foundWeapon = instance;
+      }
+      foundRevolverCylinder =
+        foundRevolverCylinder ||
+        (
+          instance.mesh == lg::MeshHandle::RemoteRevolverCylinder &&
+          instance.pass == lg::RenderPass::OpaqueWorld
+        );
+    }
+    const std::uint32_t expectedInstances =
+      weapon == lg::Weapon::Revolver ? 2U : 1U;
+    bool revolverGripAlignedAndSized = true;
+    if (weapon == lg::Weapon::Revolver && foundWeaponInstance) {
+      const lg::Vec3 grip = transformPoint(
+        foundWeapon,
+        {-0.23F, 0.0F, -0.24F}
+      );
+      const lg::Vec3 expectedHand = {
+        opponent.position.x + opponent.bounds.radius * 0.18F,
+        opponent.position.y - opponent.bounds.radius * 0.84F,
+        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
+      };
+      const float modelScale = lg::length(
+        transformPoint(foundWeapon, {1.0F, 0.0F, 0.0F}) -
+          foundWeapon.modelTranslation
+      );
+      revolverGripAlignedAndSized =
+        lg::length(grip - expectedHand) < 0.001F &&
+        nearlyEqual(modelScale, 0.45F);
     }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
         asset != nullptr &&
         !asset->vertices.empty() &&
         foundWeaponInstance &&
-        weaponScene.remoteWeaponStats.instancesSubmitted == 1 &&
+        foundRevolverCylinder &&
+        revolverGripAlignedAndSized &&
+        weaponScene.remoteWeaponStats.instancesSubmitted == expectedInstances &&
         weaponScene.remoteWeaponStats.legacyDynamicVertices == 0,
-      "every playable weapon should map to a static mesh and submit one remote weapon instance"
+      "every playable weapon should map to its expected static mesh instances"
     );
   }
 
@@ -1818,6 +1850,72 @@ int main() {
       localShotgunScene.viewModelStats.dynamicVertices == 0,
     "first-person shotgun should use a static viewmodel mesh without dynamic vertices"
   );
+
+  lg::RenderSettings localRevolverSettings = settings;
+  localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
+  const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localRevolverSettings
+  );
+  localRevolverSettings.revolverRecoilAmount = 1.0F;
+  localRevolverSettings.revolverCylinderRotationRadians =
+    3.14159265359F / 3.0F;
+  const lg::Scene3D recoiledRevolverScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localRevolverSettings
+  );
+  const auto findViewModel = [](const lg::Scene3D& scene, lg::MeshHandle mesh) {
+    for (const lg::StaticMeshInstance& instance : scene.staticMeshInstances) {
+      if (instance.mesh == mesh && instance.pass == lg::RenderPass::ViewModel) {
+        return instance;
+      }
+    }
+    return lg::StaticMeshInstance{};
+  };
+  const lg::StaticMeshInstance revolverBody = findViewModel(
+    localRevolverScene,
+    lg::MeshHandle::RemoteRevolverBody
+  );
+  const lg::StaticMeshInstance recoiledRevolverBody = findViewModel(
+    recoiledRevolverScene,
+    lg::MeshHandle::RemoteRevolverBody
+  );
+  const lg::StaticMeshInstance revolverCylinder = findViewModel(
+    localRevolverScene,
+    lg::MeshHandle::RemoteRevolverCylinder
+  );
+  const lg::StaticMeshInstance indexedRevolverCylinder = findViewModel(
+    recoiledRevolverScene,
+    lg::MeshHandle::RemoteRevolverCylinder
+  );
+  failures += expect(
+    revolverBody.mesh == lg::MeshHandle::RemoteRevolverBody &&
+      revolverCylinder.mesh == lg::MeshHandle::RemoteRevolverCylinder &&
+      localRevolverScene.viewModelStats.drawCalls == 2 &&
+      lg::length(
+        recoiledRevolverBody.modelTranslation - revolverBody.modelTranslation
+      ) > 0.01F &&
+      lg::length(
+        indexedRevolverCylinder.modelRow1 - revolverCylinder.modelRow1
+      ) > 0.01F,
+    "first-person revolver should submit body and cylinder with recoil and one-step indexing transforms"
+  );
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteMachineGunFires = {};
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> machineGunRemotePlayers = {};
   machineGunRemotePlayers[1] =
@@ -1979,6 +2077,28 @@ int main() {
       maxVertexX(remoteRailMuzzleScene) <
         remoteRailFires[1].start.x - 0.2F,
     "remote railgun beam should start from the third-person weapon muzzle"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteRevolverFires = {};
+  remoteRevolverFires[1] = remoteRailFires[1];
+  remoteRevolverFires[1].weapon = lg::Weapon::Revolver;
+  shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::Revolver;
+  const lg::Scene3D remoteRevolverMuzzleScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    remoteRevolverFires,
+    rocketExplosions,
+    rockets,
+    effectOnlySettings
+  );
+  failures += expect(
+    hasAnyVertex(remoteRevolverMuzzleScene) &&
+      maxVertexX(remoteRevolverMuzzleScene) <
+        remoteRevolverFires[1].start.x - 0.2F,
+    "remote revolver beam should start from the modeled barrel socket"
   );
 
   std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles> plasmaRockets = {};

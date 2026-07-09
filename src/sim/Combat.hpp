@@ -161,6 +161,7 @@ struct WeaponAmmoConfig {
     10,
     50,
     150,
+    10,
   }};
 };
 
@@ -286,7 +287,8 @@ void decayPlayerFreezeLevel(
   PlayerState& target,
   const UserCommand& command,
   const Arena& arena,
-  const HitscanTuning& tuning
+  const HitscanTuning& tuning,
+  Weapon weapon = Weapon::Railgun
 );
 
 [[nodiscard]] WeaponFireResult simulateMachineGun(

@@ -8,7 +8,7 @@
 
 namespace lg {
 
-constexpr std::array<Weapon, 8> kWeaponSlotOrder = {{
+constexpr std::array<Weapon, 9> kWeaponSlotOrder = {{
   Weapon::MachineGun,
   Weapon::Shotgun,
   Weapon::GrenadeLauncher,
@@ -17,6 +17,7 @@ constexpr std::array<Weapon, 8> kWeaponSlotOrder = {{
   Weapon::Railgun,
   Weapon::PlasmaGun,
   Weapon::FreezeGun,
+  Weapon::Revolver,
 }};
 
 [[nodiscard]] std::optional<Weapon> parseWeaponToken(std::string_view token);

@@ -191,6 +191,8 @@ struct RenderSettings {
   std::uint8_t teammateNameTagGreen = 245;
   std::uint8_t teammateNameTagBlue = 255;
   Weapon localSelectedWeapon = Weapon::LightningGun;
+  float revolverRecoilAmount = 0.0F;
+  float revolverCylinderRotationRadians = 0.0F;
   bool showOwnWeapons = true;
   bool shotgunWeaponModelStart = false;
   bool drawRemotePlayers = true;
@@ -234,7 +236,7 @@ struct HudRenderState {
   std::string fpsText;
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
-  std::array<std::string, kWeaponCount> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
+  std::array<std::string, kWeaponCount> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
   struct KillFeedLine {
     std::string killerName;
     std::string killedName;

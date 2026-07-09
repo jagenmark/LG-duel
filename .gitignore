@@ -8,3 +8,8 @@ AGENTS.md
 .vscode/
 git 
 maps/autosave/
+
+# Local Blender handoff packages and backup/inspection saves.
+assets/models/revolver/*.blend1
+assets/models/revolver/*_Export.zip
+assets/models/revolver/lg_duel_revolver_stainless

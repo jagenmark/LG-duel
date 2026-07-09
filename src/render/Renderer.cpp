@@ -3381,7 +3381,7 @@ void appendScene3D(
     billboard.handle = handle;
     resources->projectileBillboards.push_back(billboard);
   }
-  const std::array<MeshHandle, 8> staticMeshHandles = {{
+  const std::array<MeshHandle, 10> staticMeshHandles = {{
     MeshHandle::PlayerBoxCube,
     MeshHandle::RemoteMachineGun,
     MeshHandle::RemoteShotgun,
@@ -3390,6 +3390,8 @@ void appendScene3D(
     MeshHandle::RemoteLightningGun,
     MeshHandle::RemoteRailgun,
     MeshHandle::RemotePlasmaGun,
+    MeshHandle::RemoteRevolverBody,
+    MeshHandle::RemoteRevolverCylinder,
   }};
   resources->staticMeshes.reserve(staticMeshHandles.size());
   for (MeshHandle handle : staticMeshHandles) {
@@ -4945,7 +4947,8 @@ void appendCommandBatches(
     );
     if (
       hud.selectedWeapon != Weapon::MachineGun &&
-      hud.selectedWeapon != Weapon::Shotgun
+      hud.selectedWeapon != Weapon::Shotgun &&
+      hud.selectedWeapon != Weapon::Revolver
     ) {
       const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
@@ -6705,7 +6708,7 @@ void drawPerspectiveWorld(
     if (!fire.fired) {
       continue;
     }
-    if (fire.weapon == Weapon::Railgun) {
+    if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
       SDL_SetRenderDrawColor(
         renderer,
         fire.hit ? 255 : 128,
