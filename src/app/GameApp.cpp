@@ -284,10 +284,10 @@ void copyTextToClipboard(std::string_view text) {
 
 [[nodiscard]] float firstPersonWeaponSideOffset(int weaponPosition) {
   if (weaponPosition == 1) {
-    return 0.20F;
+    return 0.30F;
   }
   if (weaponPosition == 2) {
-    return -0.20F;
+    return -0.30F;
   }
   return 0.0F;
 }
@@ -4585,6 +4585,8 @@ int GameApp::run() const {
   bool hasLastMachineGunResponseFire = false;
   std::array<RocketLauncherFiringResponseState, kDuelPlayerCount>
     rocketLauncherFiringResponse = {};
+  std::array<FreezeGunFiringResponseState, kDuelPlayerCount>
+    freezeGunFiringResponse = {};
   std::array<WeaponFireResult, kDuelPlayerCount> lastRocketLauncherResponseFire = {};
   std::array<bool, kDuelPlayerCount> hasLastRocketLauncherResponseFire = {};
   KillFeedState killFeedState;
@@ -5405,6 +5407,7 @@ int GameApp::run() const {
       lastMachineGunResponseFire = {};
       hasLastMachineGunResponseFire = false;
       rocketLauncherFiringResponse = {};
+      freezeGunFiringResponse = {};
       lastRocketLauncherResponseFire = {};
       hasLastRocketLauncherResponseFire = {};
       resetKillFeedState(killFeedState);
@@ -6150,6 +6153,29 @@ int GameApp::run() const {
       rocketLauncherFiringResponse[playerIndex].update(elapsed.count());
       renderRemotePlayers[playerIndex].rocketLauncherMechanicalAmount =
         rocketLauncherFiringResponse[playerIndex].mechanicalAmount();
+
+      const bool localPlayer = playerIndex == renderLocalPlayerIndex;
+      const bool freezeDriven = localPlayer
+        ? (
+            displayedSelectedWeapon == Weapon::FreezeGun &&
+            renderLocalLightningGun.active
+          )
+        : (
+            renderRemotePlayers[playerIndex].visible &&
+            renderRemotePlayers[playerIndex].selectedWeapon == Weapon::FreezeGun &&
+            renderRemotePlayers[playerIndex].lightningGun.active
+          );
+      freezeGunFiringResponse[playerIndex].update(freezeDriven, elapsed.count());
+      if (!localPlayer) {
+        renderRemotePlayers[playerIndex].freezeGunFiringAmount =
+          freezeGunFiringResponse[playerIndex].amount;
+        renderRemotePlayers[playerIndex].freezeGunActivationFlashAmount =
+          freezeGunFiringResponse[playerIndex].activationFlashAmount();
+        renderRemotePlayers[playerIndex].freezeGunCoolantPulse =
+          freezeGunFiringResponse[playerIndex].coolantPulse();
+        renderRemotePlayers[playerIndex].freezeGunVibrationPhaseRadians =
+          freezeGunFiringResponse[playerIndex].phaseRadians;
+      }
     }
     RenderSettings currentRenderSettings = renderSettings(console);
     currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
@@ -6172,6 +6198,14 @@ int GameApp::run() const {
       rocketLauncherFiringResponse[renderLocalPlayerIndex].mechanicalAmount();
     currentRenderSettings.rocketLauncherRecoilAmount =
       rocketLauncherFiringResponse[renderLocalPlayerIndex].wholeWeaponRecoilAmount();
+    currentRenderSettings.freezeGunFiringAmount =
+      freezeGunFiringResponse[renderLocalPlayerIndex].amount;
+    currentRenderSettings.freezeGunActivationFlashAmount =
+      freezeGunFiringResponse[renderLocalPlayerIndex].activationFlashAmount();
+    currentRenderSettings.freezeGunCoolantPulse =
+      freezeGunFiringResponse[renderLocalPlayerIndex].coolantPulse();
+    currentRenderSettings.freezeGunVibrationPhaseRadians =
+      freezeGunFiringResponse[renderLocalPlayerIndex].phaseRadians;
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),
@@ -6298,10 +6332,11 @@ int GameApp::run() const {
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
     const double presentationSeconds =
       std::chrono::duration<double>(now.time_since_epoch()).count();
-    currentRenderSettings.beamPulse = std::sin(
+    currentRenderSettings.beamPhaseRadians =
       static_cast<float>(std::fmod(presentationSeconds, 1.0)) *
-        kBeamPulseRadiansPerSecond
-    );
+      kBeamPulseRadiansPerSecond;
+    currentRenderSettings.beamPulse =
+      std::sin(currentRenderSettings.beamPhaseRadians);
     const float elapsedSinceHit = hasEnemyHitTime
       ? std::chrono::duration<float>(now - lastEnemyHitTime).count()
       : 0.0F;

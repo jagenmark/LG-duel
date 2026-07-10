@@ -3558,7 +3558,7 @@ template <typename Vertex>
     billboard.handle = handle;
     resources->projectileBillboards.push_back(billboard);
   }
-  const std::array<MeshHandle, 13> staticMeshHandles = {{
+  const std::array<MeshHandle, 16> staticMeshHandles = {{
     MeshHandle::PlayerBoxCube,
     MeshHandle::RemoteMachineGunBody,
     MeshHandle::RemoteMachineGunBarrels,
@@ -3568,6 +3568,9 @@ template <typename Vertex>
     MeshHandle::RemoteRocketLauncherRecoil,
     MeshHandle::RemoteRocketLauncherLatch,
     MeshHandle::RemoteLightningGun,
+    MeshHandle::RemoteFreezeGunBody,
+    MeshHandle::RemoteFreezeGunFocus,
+    MeshHandle::RemoteFreezeGunCoolant,
     MeshHandle::RemoteRailgun,
     MeshHandle::RemotePlasmaGun,
     MeshHandle::RemoteRevolverBody,
@@ -5175,6 +5178,29 @@ void appendCommandBatches(
       hud.selectedWeapon != Weapon::RocketLauncher &&
       hud.selectedWeapon != Weapon::Revolver
     ) {
+      ScreenPoint freezeGunMuzzle = {-1.0F, -1.0F};
+      if (
+        hud.selectedWeapon == Weapon::FreezeGun &&
+        settings.showOwnWeapons
+      ) {
+        PerspectiveCamera muzzleCamera = perspectiveScene.camera;
+        constexpr float kPi = 3.14159265359F;
+        const float viewModelFov = std::max(50.0F, settings.fieldOfView - 10.0F);
+        muzzleCamera.focalLength = 1.0F / std::tan(
+          viewModelFov * (kPi / 180.0F) * 0.5F
+        );
+        ProjectedPoint projectedMuzzle;
+        if (projectPerspectivePoint(
+              muzzleCamera,
+              firstPersonFreezeGunMuzzlePosition(player, settings),
+              projectedMuzzle
+            )) {
+          freezeGunMuzzle = {
+            (projectedMuzzle.x + 1.0F) * 0.5F * static_cast<float>(outputWidth),
+            (1.0F - projectedMuzzle.y) * 0.5F * static_cast<float>(outputHeight),
+          };
+        }
+      }
       const DrawList2D weaponOverlay = buildPerspectiveWeaponOverlay(
         static_cast<int>(outputWidth),
         static_cast<int>(outputHeight),
@@ -5182,7 +5208,8 @@ void appendCommandBatches(
         hud.selectedWeapon,
         hud.previousWeapon,
         hud.weaponSwitchProgress,
-        settings
+        settings,
+        freezeGunMuzzle
       );
       appendCommandBatches(
         vertices,
@@ -6098,6 +6125,61 @@ void appendCommandBatches(
         (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
         return false;
       }
+      struct alignas(16) ViewModelCameraUniform {
+        float position[4];
+        float right[4];
+        float up[4];
+        float forward[4];
+        float projection[4];
+      };
+      PerspectiveCamera viewModelCamera = perspectiveScene.camera;
+      if (settings.localSelectedWeapon == Weapon::FreezeGun) {
+        constexpr float kPi = 3.14159265359F;
+        const float viewModelFov = std::max(50.0F, settings.fieldOfView - 10.0F);
+        viewModelCamera.focalLength = 1.0F / std::tan(
+          viewModelFov * (kPi / 180.0F) * 0.5F
+        );
+      }
+      // Viewmodels use the same camera pose as the world. Only their
+      // projection may differ, so aim and authoritative traces stay unchanged.
+      const ViewModelCameraUniform viewModelUniform = {
+        {
+          viewModelCamera.position.x,
+          viewModelCamera.position.y,
+          viewModelCamera.position.z,
+          0.0F,
+        },
+        {
+          viewModelCamera.right.x,
+          viewModelCamera.right.y,
+          viewModelCamera.right.z,
+          0.0F,
+        },
+        {
+          viewModelCamera.up.x,
+          viewModelCamera.up.y,
+          viewModelCamera.up.z,
+          0.0F,
+        },
+        {
+          viewModelCamera.forward.x,
+          viewModelCamera.forward.y,
+          viewModelCamera.forward.z,
+          0.0F,
+        },
+        {
+          viewModelCamera.focalLength,
+          viewModelCamera.aspectRatio,
+          viewModelCamera.nearPlane,
+          512.0F,
+        },
+      };
+      SDL_PushGPUVertexUniformData(
+        commandBuffer,
+        0,
+        &viewModelUniform,
+        sizeof(viewModelUniform)
+      );
       drawStaticMeshBatches(
         viewModelPass,
         staticMeshPipeline,

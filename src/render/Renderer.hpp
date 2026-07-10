@@ -81,6 +81,11 @@ struct RenderSettings {
   float crosshairHitAmount = 0.0F;
   float beamWidth = 2.0F;
   float beamPulse = 0.0F;
+  float beamPhaseRadians = 0.0F;
+  float freezeGunFiringAmount = 0.0F;
+  float freezeGunActivationFlashAmount = 0.0F;
+  float freezeGunCoolantPulse = 0.0F;
+  float freezeGunVibrationPhaseRadians = 0.0F;
   float beamAlpha = 1.0F;
   std::uint8_t beamRed = 74;
   std::uint8_t beamGreen = 166;
@@ -298,6 +303,10 @@ struct RemotePlayerView {
   float animationTimeSeconds = 0.0F;
   float machineGunBarrelRotationRadians = 0.0F;
   float rocketLauncherMechanicalAmount = 0.0F;
+  float freezeGunFiringAmount = 0.0F;
+  float freezeGunActivationFlashAmount = 0.0F;
+  float freezeGunCoolantPulse = 0.0F;
+  float freezeGunVibrationPhaseRadians = 0.0F;
 };
 
 enum class TracerStyle : std::uint8_t {
