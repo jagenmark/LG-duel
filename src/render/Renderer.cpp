@@ -2093,75 +2093,6 @@ void fillSolidFontTexelBlock(std::vector<std::uint8_t>& pixels) {
   }
 }
 
-void strengthenTrueTypeGlyphCoverage(
-  std::vector<std::uint8_t>& pixels,
-  int originX,
-  int originY,
-  int glyphWidth,
-  int glyphHeight
-) {
-  if (glyphWidth <= 0 || glyphHeight <= 0) {
-    return;
-  }
-
-  std::vector<std::uint8_t> source(
-    static_cast<std::size_t>(glyphWidth * glyphHeight)
-  );
-  for (int y = 0; y < glyphHeight; ++y) {
-    const std::uint8_t* row =
-      pixels.data() + (originY + y) * kFontAtlasWidth + originX;
-    std::copy(row, row + glyphWidth, source.begin() + y * glyphWidth);
-  }
-
-  constexpr float kCoverageBoost = 0.12F;
-  constexpr float kNeighborSpread = 0.38F;
-  for (int y = 0; y < glyphHeight; ++y) {
-    for (int x = 0; x < glyphWidth; ++x) {
-      const int index = y * glyphWidth + x;
-      const std::uint8_t center = source[static_cast<std::size_t>(index)];
-      std::uint8_t neighbor = 0;
-      if (x > 0) {
-        neighbor = std::max(
-          neighbor,
-          source[static_cast<std::size_t>(index - 1)]
-        );
-      }
-      if (x + 1 < glyphWidth) {
-        neighbor = std::max(
-          neighbor,
-          source[static_cast<std::size_t>(index + 1)]
-        );
-      }
-      if (y > 0) {
-        neighbor = std::max(
-          neighbor,
-          source[static_cast<std::size_t>(index - glyphWidth)]
-        );
-      }
-      if (y + 1 < glyphHeight) {
-        neighbor = std::max(
-          neighbor,
-          source[static_cast<std::size_t>(index + glyphWidth)]
-        );
-      }
-
-      float coverage = static_cast<float>(center);
-      if (center > 0) {
-        coverage += (255.0F - coverage) * kCoverageBoost;
-      }
-      coverage = std::max(
-        coverage,
-        static_cast<float>(neighbor) * kNeighborSpread
-      );
-      pixels[static_cast<std::size_t>(
-        (originY + y) * kFontAtlasWidth + originX + x
-      )] = static_cast<std::uint8_t>(
-        std::clamp(std::lround(coverage), 0L, 255L)
-      );
-    }
-  }
-}
-
 void addBitmapGlyph(
   FontAtlas& atlas,
   std::uint32_t character,
@@ -2475,14 +2406,6 @@ void addBitmapGlyph(
       fontScale,
       static_cast<int>(codepoint)
     );
-    strengthenTrueTypeGlyphCoverage(
-      pixels,
-      penX,
-      penY,
-      glyphWidth,
-      glyphHeight
-    );
-
     const float u0 =
       static_cast<float>(penX) / static_cast<float>(kFontAtlasWidth);
     const float v0 =
@@ -4419,20 +4342,15 @@ void appendText(
         index += byteLength;
         continue;
       }
+      const float x0 = std::round(x + glyph.xOffset * drawScale);
+      const float y0 = std::round(y + glyph.yOffset * drawScale);
+      const float x1 = x0 + glyph.width * drawScale;
+      const float y1 = y0 + glyph.height * drawScale;
       const std::array<ScreenPoint, 4> points = {{
-        {x + glyph.xOffset * drawScale, y + glyph.yOffset * drawScale},
-        {
-          x + (glyph.xOffset + glyph.width) * drawScale,
-          y + glyph.yOffset * drawScale,
-        },
-        {
-          x + (glyph.xOffset + glyph.width) * drawScale,
-          y + (glyph.yOffset + glyph.height) * drawScale,
-        },
-        {
-          x + glyph.xOffset * drawScale,
-          y + (glyph.yOffset + glyph.height) * drawScale,
-        },
+        {x0, y0},
+        {x1, y0},
+        {x1, y1},
+        {x0, y1},
       }};
       appendTriangle(
         vertices,
