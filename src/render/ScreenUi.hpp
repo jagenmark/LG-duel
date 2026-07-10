@@ -43,7 +43,8 @@ namespace lg {
   Weapon selectedWeapon,
   Weapon previousWeapon,
   float weaponSwitchProgress,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  ScreenPoint freezeGunMuzzle = {-1.0F, -1.0F}
 );
 
 } // namespace lg

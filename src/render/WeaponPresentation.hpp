@@ -165,6 +165,55 @@ struct RocketLauncherFiringResponseState {
   }
 };
 
+struct FreezeGunFiringResponseState {
+  static constexpr float kAttackSeconds = 0.045F;
+  static constexpr float kReleaseSeconds = 0.16F;
+  static constexpr float kActivationFlashSeconds = 0.09F;
+
+  float amount = 0.0F;
+  float activationFlashRemainingSeconds = 0.0F;
+  float phaseRadians = 0.0F;
+  bool wasDriven = false;
+
+  void update(bool driven, float deltaSeconds) {
+    const float dt = std::max(deltaSeconds, 0.0F);
+    if (driven && !wasDriven) {
+      activationFlashRemainingSeconds = kActivationFlashSeconds;
+    }
+    wasDriven = driven;
+    const float response = driven ? kAttackSeconds : kReleaseSeconds;
+    const float target = driven ? 1.0F : 0.0F;
+    const float blend = response > 0.0F
+      ? 1.0F - std::exp(-dt / response)
+      : 1.0F;
+    amount += (target - amount) * std::clamp(blend, 0.0F, 1.0F);
+    if (!driven && amount < 0.0005F) {
+      amount = 0.0F;
+    }
+    activationFlashRemainingSeconds = std::max(
+      0.0F,
+      activationFlashRemainingSeconds - dt
+    );
+    phaseRadians = std::fmod(
+      phaseRadians + dt * (10.0F + amount * 7.0F) * 2.0F * std::numbers::pi_v<float>,
+      2.0F * std::numbers::pi_v<float>
+    );
+  }
+
+  [[nodiscard]] float activationFlashAmount() const {
+    const float t = std::clamp(
+      activationFlashRemainingSeconds / kActivationFlashSeconds,
+      0.0F,
+      1.0F
+    );
+    return t * t;
+  }
+
+  [[nodiscard]] float coolantPulse() const {
+    return amount * (0.5F + 0.5F * std::sin(phaseRadians * 0.45F));
+  }
+};
+
 inline constexpr float kRevolverTracerLifetimeSeconds = 0.11F;
 inline constexpr float kRevolverTracerMuzzleFollowSeconds = 0.055F;
 

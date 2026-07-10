@@ -152,5 +152,26 @@ int main() {
     "rocket launcher mechanical response should be frame-rate independent"
   );
 
+  lg::FreezeGunFiringResponseState freezeResponse;
+  freezeResponse.update(true, 0.05F);
+  failures += expect(
+    freezeResponse.amount > 0.60F &&
+      freezeResponse.activationFlashAmount() > 0.0F &&
+      freezeResponse.coolantPulse() >= 0.0F,
+    "freeze gun should rapidly focus, flash once, and begin its coolant pulse"
+  );
+  const float focusedAmount = freezeResponse.amount;
+  freezeResponse.update(false, 0.05F);
+  failures += expect(
+    freezeResponse.amount > 0.0F && freezeResponse.amount < focusedAmount,
+    "freeze gun should ease out instead of snapping to rest"
+  );
+  freezeResponse.update(false, 2.0F);
+  failures += expect(
+    nearlyEqual(freezeResponse.amount, 0.0F) &&
+      nearlyEqual(freezeResponse.activationFlashAmount(), 0.0F),
+    "freeze gun should settle exactly at rest after release"
+  );
+
   return failures == 0 ? 0 : 1;
 }

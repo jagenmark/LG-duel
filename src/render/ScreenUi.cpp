@@ -117,34 +117,106 @@ void addDiamond(
 
 void addFreezeBeamPuffs(
   DrawList2D& drawList,
-  float centerX,
-  float startY,
-  float endY,
+  ScreenPoint start,
+  ScreenPoint end,
   float scale,
-  float pulse
+  float phaseRadians
 ) {
-  constexpr int kPuffCount = 24;
-  const float beamLength = startY - endY;
-  const float pulse01 = (pulse + 1.0F) * 0.5F;
+  constexpr int kPuffCount = 14;
+  const float dx = end.x - start.x;
+  const float dy = end.y - start.y;
+  const float beamLength = std::max(1.0F, std::sqrt(dx * dx + dy * dy));
+  const float normalX = -dy / beamLength;
+  const float normalY = dx / beamLength;
   for (int index = 0; index < kPuffCount; ++index) {
     const float t = (static_cast<float>(index) + 0.35F) /
       static_cast<float>(kPuffCount);
-    const float phase = static_cast<float>(index) * 1.713F + pulse * 1.8F;
+    const float phase = static_cast<float>(index) * 1.713F + phaseRadians * 0.22F;
     const float side =
       std::sin(phase) * (18.0F + 16.0F * std::sin(phase * 0.47F));
     const float drift = std::cos(phase * 0.71F) * 8.0F;
-    const float y = startY - beamLength * t + drift * scale;
+    const float alongX = start.x + dx * t;
+    const float alongY = start.y + dy * t;
     const float radius =
-      (3.2F + std::fmod(static_cast<float>(index * 7), 5.0F) + pulse01 * 2.4F) *
+      (2.4F + std::fmod(static_cast<float>(index * 7), 4.0F)) *
       scale;
     const std::uint8_t alpha = static_cast<std::uint8_t>(
-      std::clamp(42.0F + pulse01 * 34.0F + std::sin(phase) * 18.0F, 18.0F, 96.0F)
+      std::clamp(34.0F + std::sin(phase) * 16.0F, 16.0F, 58.0F)
     );
     addDiamond(
       drawList,
-      {centerX + side * scale, y},
+      {
+        alongX + normalX * side * scale + normalX * drift * scale,
+        alongY + normalY * side * scale + normalY * drift * scale,
+      },
       radius,
       {220, 248, 255, alpha}
+    );
+  }
+}
+
+void addLayeredFreezeBeam2D(
+  DrawList2D& drawList,
+  ScreenPoint start,
+  ScreenPoint end,
+  float scale,
+  const RenderSettings& settings
+) {
+  const float dx = end.x - start.x;
+  const float dy = end.y - start.y;
+  const float beamLength = std::max(1.0F, std::sqrt(dx * dx + dy * dy));
+  const float normalX = -dy / beamLength;
+  const float normalY = dx / beamLength;
+  const float active = std::clamp(settings.freezeGunFiringAmount, 0.0F, 1.0F);
+  const float flash = std::clamp(
+    settings.freezeGunActivationFlashAmount,
+    0.0F,
+    1.0F
+  );
+
+  addLine(drawList, start, end, {82, 203, 255, 42}, settings.beamWidth * 5.2F);
+  constexpr int kSegments = 18;
+  for (int strand = 0; strand < 2; ++strand) {
+    ScreenPoint previous = start;
+    for (int index = 1; index <= kSegments; ++index) {
+      const float t = static_cast<float>(index) / static_cast<float>(kSegments);
+      const float envelope = std::sin(t * 3.14159265359F);
+      const float phase = settings.beamPhaseRadians * 0.38F +
+        static_cast<float>(index) * 1.19F +
+        static_cast<float>(strand) * 3.14159265359F;
+      const float offset = std::sin(phase) * 5.0F * scale * envelope;
+      const ScreenPoint current = {
+        start.x + dx * t + normalX * offset,
+        start.y + dy * t + normalY * offset,
+      };
+      addLine(drawList, previous, current, {132, 229, 255, 86}, 1.35F * scale);
+      previous = current;
+    }
+  }
+  // This core never receives procedural displacement: it is the aim-readable
+  // representation of the authoritative trace.
+  addLine(drawList, start, end, {238, 253, 255, 245}, std::max(1.4F, settings.beamWidth * 0.72F));
+  addFreezeBeamPuffs(drawList, start, end, scale, settings.beamPhaseRadians);
+
+  addDiamond(drawList, start, (7.0F + active * 3.0F + flash * 9.0F) * scale, {
+    220,
+    251,
+    255,
+    static_cast<std::uint8_t>(105.0F + flash * 105.0F),
+  });
+  for (int index = 0; index < 7; ++index) {
+    const float phase = settings.beamPhaseRadians * 0.16F +
+      static_cast<float>(index) * 2.07F;
+    const float backward = (13.0F + static_cast<float>(index) * 7.0F) * scale;
+    const float sideways = std::sin(phase) * (18.0F + index * 2.0F) * scale;
+    addDiamond(
+      drawList,
+      {
+        start.x - dx / beamLength * backward + normalX * sideways,
+        start.y - dy / beamLength * backward + normalY * sideways,
+      },
+      (2.5F + static_cast<float>(index % 3)) * scale,
+      {218, 248, 255, static_cast<std::uint8_t>(24 + index * 5)}
     );
   }
 }
@@ -2074,7 +2146,8 @@ DrawList2D buildPerspectiveWeaponOverlay(
   Weapon selectedWeapon,
   Weapon previousWeapon,
   float weaponSwitchProgress,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  ScreenPoint freezeGunMuzzle
 ) {
   DrawList2D drawList;
   const float hitAmount = std::clamp(settings.beamHitAmount, 0.0F, 1.0F);
@@ -2133,28 +2206,29 @@ DrawList2D buildPerspectiveWeaponOverlay(
   const float weaponSide = settings.weaponPosition == 1
     ? 1.0F
     : (settings.weaponPosition == 2 ? -1.0F : 0.0F);
-  const float weaponCenterX = centerX + weaponSide * 112.0F * scale;
+  const float weaponCenterX = centerX + weaponSide * 168.0F * scale;
   const float muzzleY = height - 154.0F * scale;
   if (localLightningGun.active) {
     if (freezeGunSelected) {
-      addFreezeBeamPuffs(
+      const ScreenPoint start = freezeGunMuzzle.x >= 0.0F
+        ? freezeGunMuzzle
+        : ScreenPoint{weaponCenterX, height * 1.15F};
+      addLayeredFreezeBeam2D(
         drawList,
-        weaponCenterX,
-        height * 1.15F,
-        height * 0.5F,
+        start,
+        {centerX, height * 0.5F},
         scale,
-        pulse
+        settings
+      );
+    } else {
+      addLine(
+        drawList,
+        {weaponCenterX, height * 1.15F},
+        {centerX, height * 0.5F},
+        animatedColor,
+        settings.beamWidth * (1.0F + pulse * 0.04F)
       );
     }
-    // The covered lower section keeps the beam stable while making its
-    // visible origin coincide with the viewmodel emitter.
-    addLine(
-      drawList,
-      {weaponCenterX, height * 1.15F},
-      {centerX, height * 0.5F},
-      animatedColor,
-      settings.beamWidth * (1.0F + pulse * 0.04F)
-    );
   }
   if (!settings.showOwnWeapons) {
     return drawList;
@@ -2165,14 +2239,20 @@ DrawList2D buildPerspectiveWeaponOverlay(
       drawList.overlayCommands.emplace_back(
         FilledQuad2D{points, quadColor}
       );
-    };
+  };
   const auto drawWeapon = [&](Weapon weapon, float yOffset) {
+    // FreezeGun has a real 3D viewmodel in the perspective pass. Keep beam
+    // effects in this overlay, but never cover that mesh with the legacy LG
+    // silhouette that used to stand in for both weapons.
+    if (weapon == Weapon::FreezeGun) {
+      return;
+    }
     const float centerX = weaponCenterX;
     const float muzzle = muzzleY + yOffset;
     const float bodyTop = muzzle + 20.0F * scale;
     const float bodyBottom = height + 18.0F * scale + yOffset;
 
-    if (weapon == Weapon::LightningGun || weapon == Weapon::FreezeGun) {
+    if (weapon == Weapon::LightningGun) {
       const float bodyHalfTop = 38.0F * scale;
       const float bodyHalfBottom = 104.0F * scale;
       quad(

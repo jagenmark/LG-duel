@@ -233,6 +233,62 @@ int main() {
   }
 
   {
+    const lg::DrawList2D freezeOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      {},
+      lg::Weapon::FreezeGun,
+      lg::Weapon::FreezeGun,
+      1.0F,
+      settings
+    );
+    failures += expect(
+      freezeOverlay.overlayCommands.empty(),
+      "freeze gun should use its 3D viewmodel without a legacy 2D body overlay"
+    );
+  }
+
+  {
+    lg::LightningGunResult freezeBeam;
+    freezeBeam.active = true;
+    lg::RenderSettings freezeSettings = settings;
+    freezeSettings.freezeGunFiringAmount = 1.0F;
+    freezeSettings.freezeGunActivationFlashAmount = 1.0F;
+    freezeSettings.beamPhaseRadians = 1.25F;
+    constexpr lg::ScreenPoint muzzle = {420.0F, 610.0F};
+    const lg::DrawList2D freezeOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      freezeBeam,
+      lg::Weapon::FreezeGun,
+      lg::Weapon::FreezeGun,
+      1.0F,
+      freezeSettings,
+      muzzle
+    );
+    bool foundStableCore = false;
+    bool foundSheath = false;
+    bool foundVapor = false;
+    for (const lg::DrawCommand2D& command : freezeOverlay.overlayCommands) {
+      if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+        foundStableCore = foundStableCore ||
+          (
+            line->start.x == muzzle.x && line->start.y == muzzle.y &&
+            line->end.x == 640.0F && line->end.y == 360.0F &&
+            line->color.red == 238 && line->color.alpha == 245
+          );
+        foundSheath = foundSheath || line->width > freezeSettings.beamWidth * 4.0F;
+      } else if (std::get_if<lg::FilledQuad2D>(&command) != nullptr) {
+        foundVapor = true;
+      }
+    }
+    failures += expect(
+      foundStableCore && foundSheath && foundVapor,
+      "freeze beam should preserve its exact core beneath sheath, distortion, and vapor layers"
+    );
+  }
+
+  {
     lg::RenderSettings hiddenWeaponSettings = settings;
     hiddenWeaponSettings.showOwnWeapons = false;
     lg::LightningGunResult beam;

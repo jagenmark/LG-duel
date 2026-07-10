@@ -1525,9 +1525,12 @@ int main() {
     }
     const std::uint32_t expectedInstances = weapon == lg::Weapon::RocketLauncher
       ? 3U
-      : (weapon == lg::Weapon::Revolver || weapon == lg::Weapon::MachineGun)
+      : (
+          weapon == lg::Weapon::Revolver ||
+          weapon == lg::Weapon::MachineGun
+        )
         ? 2U
-        : 1U;
+        : weapon == lg::Weapon::FreezeGun ? 3U : 1U;
     bool revolverGripAlignedAndSized = true;
     if (weapon == lg::Weapon::Revolver && foundWeaponInstance) {
       const lg::Vec3 grip = transformPoint(
