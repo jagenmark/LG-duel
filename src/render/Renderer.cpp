@@ -2284,6 +2284,16 @@ void addBitmapGlyph(
     return false;
   }
 
+  const std::optional<std::filesystem::path> fallbackFontPath =
+    findUiFontPath("arial.ttf");
+  const std::vector<std::uint8_t> fallbackFontBytes = fallbackFontPath.has_value()
+    ? readBinaryFile(*fallbackFontPath)
+    : std::vector<std::uint8_t>{};
+  stbtt_fontinfo fallbackFont = {};
+  const bool fallbackFontAvailable =
+    !fallbackFontBytes.empty() &&
+    stbtt_InitFont(&fallbackFont, fallbackFontBytes.data(), 0);
+
   pixels.assign(kFontAtlasWidth * kFontAtlasHeight, 0);
   fillSolidFontTexelBlock(pixels);
   atlas.glyphs.clear();
@@ -2293,6 +2303,9 @@ void addBitmapGlyph(
   atlas.nominalPixelHeight = pixelHeight;
 
   const float fontScale = stbtt_ScaleForPixelHeight(&font, pixelHeight);
+  const float fallbackFontScale = fallbackFontAvailable
+    ? stbtt_ScaleForPixelHeight(&fallbackFont, pixelHeight)
+    : 0.0F;
   int ascent = 0;
   int descent = 0;
   int lineGap = 0;
@@ -2322,7 +2335,17 @@ void addBitmapGlyph(
   int penY = 8;
   int rowHeight = 0;
   for (std::uint32_t codepoint : codepoints) {
-    if (stbtt_FindGlyphIndex(&font, static_cast<int>(codepoint)) == 0) {
+    const stbtt_fontinfo* glyphFont = &font;
+    float glyphScale = fontScale;
+    if (
+      stbtt_FindGlyphIndex(glyphFont, static_cast<int>(codepoint)) == 0 &&
+      fallbackFontAvailable &&
+      stbtt_FindGlyphIndex(&fallbackFont, static_cast<int>(codepoint)) != 0
+    ) {
+      glyphFont = &fallbackFont;
+      glyphScale = fallbackFontScale;
+    }
+    if (stbtt_FindGlyphIndex(glyphFont, static_cast<int>(codepoint)) == 0) {
       const auto supplemental = supplementalBitmapGlyph(codepoint);
       if (
         supplemental.has_value() &&
@@ -2334,7 +2357,7 @@ void addBitmapGlyph(
           penX,
           penY,
           rowHeight,
-          4,
+          std::max(1, static_cast<int>(std::lround(pixelHeight / 8.0F))),
           baseline
         )
       ) {
@@ -2346,7 +2369,7 @@ void addBitmapGlyph(
     int advance = 0;
     int leftBearing = 0;
     stbtt_GetCodepointHMetrics(
-      &font,
+      glyphFont,
       static_cast<int>(codepoint),
       &advance,
       &leftBearing
@@ -2362,7 +2385,7 @@ void addBitmapGlyph(
         0.0F,
         0.0F,
         0.0F,
-        std::max(4.0F, static_cast<float>(advance) * fontScale),
+        std::max(4.0F, static_cast<float>(advance) * glyphScale),
         false,
       };
       continue;
@@ -2373,10 +2396,10 @@ void addBitmapGlyph(
     int x1 = 0;
     int y1 = 0;
     stbtt_GetCodepointBitmapBox(
-      &font,
+      glyphFont,
       static_cast<int>(codepoint),
-      fontScale,
-      fontScale,
+      glyphScale,
+      glyphScale,
       &x0,
       &y0,
       &x1,
@@ -2397,13 +2420,13 @@ void addBitmapGlyph(
     }
 
     stbtt_MakeCodepointBitmap(
-      &font,
+      glyphFont,
       pixels.data() + (penY * kFontAtlasWidth) + penX,
       glyphWidth,
       glyphHeight,
       kFontAtlasWidth,
-      fontScale,
-      fontScale,
+      glyphScale,
+      glyphScale,
       static_cast<int>(codepoint)
     );
     const float u0 =
@@ -2421,7 +2444,7 @@ void addBitmapGlyph(
       baseline + static_cast<float>(y0),
       static_cast<float>(glyphWidth),
       static_cast<float>(glyphHeight),
-      std::max(1.0F, static_cast<float>(advance) * fontScale),
+      std::max(1.0F, static_cast<float>(advance) * glyphScale),
       true,
     };
     penX += glyphWidth + 2;

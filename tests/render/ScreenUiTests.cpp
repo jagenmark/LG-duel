@@ -948,8 +948,9 @@ int main() {
     }
     failures += expect(
       healthNumber != nullptr &&
-        healthNumber->position.x > 500.0F &&
-        healthNumber->position.x < 620.0F &&
+        healthNumber->position.x == 584.0F &&
+        healthNumber->horizontalAlignment ==
+          lg::TextHorizontalAlignment::Right &&
         healthNumber->position.y > 380.0F &&
         healthNumber->position.y < 410.0F &&
         healthNumber->color.red == 228 &&
@@ -965,11 +966,41 @@ int main() {
         ammo->color.blue == 54 &&
         largeHealthNumber != nullptr &&
         largeAmmo != nullptr &&
-        largeHealthNumber->position.x +
-            2.0F * 8.0F * 6.0F ==
-          healthNumber->position.x + 2.0F * 8.0F * 2.0F &&
+        largeHealthNumber->position.x == healthNumber->position.x &&
+        largeHealthNumber->horizontalAlignment ==
+          lg::TextHorizontalAlignment::Right &&
         largeAmmo->position.x == ammo->position.x,
       "health style 2 should anchor HP and ammo near the crosshair without scaling their spacing apart"
+    );
+
+    crosshairHealthHud.weaponValues[3] = "\xE2\x88\x9E";
+    const lg::DrawList2D infiniteAmmoUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      crosshairHealthSettings,
+      crosshairHealthHud,
+      console
+    );
+    const lg::Text2D* infiniteAmmo = nullptr;
+    for (const lg::DrawCommand2D& command : infiniteAmmoUi.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        if (
+          text->text == "\xE2\x88\x9E" &&
+          text->position.x > 600.0F &&
+          text->position.y > 360.0F &&
+          text->position.y < 380.0F
+        ) {
+          infiniteAmmo = text;
+        }
+      }
+    }
+    failures += expect(
+      infiniteAmmo != nullptr &&
+        infiniteAmmo->position.x == 696.0F &&
+        infiniteAmmo->position.y == 368.5F &&
+        std::abs(infiniteAmmo->scale - 8.4F) < 0.001F,
+      "health style 2 should optically scale the compact infinity ammo mark"
     );
   }
 
