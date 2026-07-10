@@ -60,7 +60,9 @@ enum class MeshHandle : std::uint16_t {
   RemoteFreezeGunFocus,
   RemoteFreezeGunCoolant,
   RemoteRailgun,
-  RemotePlasmaGun,
+  RemotePlasmaGunBody,
+  RemotePlasmaGunProngs,
+  RemotePlasmaGunCore,
   RemoteRevolverBody,
   RemoteRevolverCylinder,
 };
@@ -714,6 +716,12 @@ struct Scene3D {
   const RenderSettings& settings
 );
 [[nodiscard]] Vec3 firstPersonFreezeGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 plasmaGunMuzzleSocket();
+[[nodiscard]] Vec3 plasmaGunGripSocket();
+[[nodiscard]] Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 );

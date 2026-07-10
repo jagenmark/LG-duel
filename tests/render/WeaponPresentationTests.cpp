@@ -173,5 +173,30 @@ int main() {
     "freeze gun should settle exactly at rest after release"
   );
 
+  lg::PlasmaGunFiringResponseState plasmaResponse;
+  failures += expect(
+    !plasmaResponse.active() &&
+      nearlyEqual(plasmaResponse.containmentAmount(), 0.0F),
+    "plasma gun containment should begin at rest"
+  );
+  plasmaResponse.triggerShot();
+  failures += expect(
+    plasmaResponse.active() &&
+      nearlyEqual(plasmaResponse.containmentAmount(), 1.0F),
+    "a plasma shot should immediately contract the contained core"
+  );
+  plasmaResponse.update(0.08F);
+  failures += expect(
+    plasmaResponse.containmentAmount() > 0.0F &&
+      plasmaResponse.containmentAmount() < 1.0F,
+    "plasma containment should recover smoothly during its response"
+  );
+  plasmaResponse.update(0.08F);
+  failures += expect(
+    !plasmaResponse.active() &&
+      nearlyEqual(plasmaResponse.containmentAmount(), 0.0F),
+    "plasma containment should return exactly to rest"
+  );
+
   return failures == 0 ? 0 : 1;
 }

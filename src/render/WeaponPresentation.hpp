@@ -214,6 +214,38 @@ struct FreezeGunFiringResponseState {
   }
 };
 
+struct PlasmaGunFiringResponseState {
+  static constexpr float kDurationSeconds = 0.16F;
+
+  float elapsedSeconds = kDurationSeconds;
+
+  void triggerShot() {
+    elapsedSeconds = 0.0F;
+  }
+
+  void update(float deltaSeconds) {
+    elapsedSeconds = std::min(
+      kDurationSeconds,
+      elapsedSeconds + std::max(deltaSeconds, 0.0F)
+    );
+  }
+
+  [[nodiscard]] bool active() const {
+    return elapsedSeconds < kDurationSeconds;
+  }
+
+  [[nodiscard]] float containmentAmount() const {
+    const float remaining = std::clamp(
+      1.0F - elapsedSeconds / kDurationSeconds,
+      0.0F,
+      1.0F
+    );
+    // A sharp contraction followed by a smooth settle reads at plasma cadence
+    // without making the presentation state part of projectile simulation.
+    return remaining * remaining;
+  }
+};
+
 inline constexpr float kRevolverTracerLifetimeSeconds = 0.11F;
 inline constexpr float kRevolverTracerMuzzleFollowSeconds = 0.055F;
 

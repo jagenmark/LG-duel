@@ -4,6 +4,7 @@
 #include "render/BakedRevolverModel.hpp"
 #include "render/BakedRocketLauncherModel.hpp"
 #include "render/BakedFreezeGunModel.hpp"
+#include "render/BakedPlasmaGunModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
@@ -1891,6 +1892,52 @@ void appendFreezeGunInstances(
     MeshHandle::RemoteFreezeGunCoolant, pass, coolant, {255, 255, 255, 255}));
 }
 
+[[nodiscard]] WeaponModelFrame plasmaGunGripAlignedFrame(
+  WeaponModelFrame frame
+) {
+  // WeaponModelFrame::hand is the hand target, so place the authored primary
+  // grip there before applying presentation-only containment transforms.
+  frame.hand -= frame.basis.forward * (kPlasmaGunGripSocket.x * frame.scale);
+  frame.hand -= frame.basis.right * (kPlasmaGunGripSocket.y * frame.scale);
+  frame.hand -= frame.basis.up * (kPlasmaGunGripSocket.z * frame.scale);
+  return frame;
+}
+
+void appendPlasmaGunInstances(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  RenderPass pass,
+  float containmentAmount
+) {
+  appendStaticMeshInstance(scene, weaponMeshInstance(
+    MeshHandle::RemotePlasmaGunBody, pass, frame, {255, 255, 255, 255}));
+
+  const float response = std::clamp(containmentAmount, 0.0F, 1.0F);
+  WeaponModelFrame prongs = frame;
+  prongs.hand = weaponLocalPoint(
+    frame,
+    kPlasmaGunProngPivot.x,
+    kPlasmaGunProngPivot.y,
+    kPlasmaGunProngPivot.z
+  );
+  prongs.hand -= prongs.basis.forward * (0.018F * frame.scale * response);
+  appendStaticMeshInstance(scene, weaponMeshInstance(
+    MeshHandle::RemotePlasmaGunProngs, pass, prongs, {255, 255, 255, 255}));
+
+  WeaponModelFrame core = frame;
+  core.hand = weaponLocalPoint(
+    frame,
+    kPlasmaGunCorePivot.x,
+    kPlasmaGunCorePivot.y,
+    kPlasmaGunCorePivot.z
+  );
+  core.scale *= 1.0F - 0.22F * response;
+  // The modeled socket stays fixed while the energy source and cage react.
+  // This keeps the visual flourish separate from authoritative projectiles.
+  appendStaticMeshInstance(scene, weaponMeshInstance(
+    MeshHandle::RemotePlasmaGunCore, pass, core, {255, 255, 255, 255}));
+}
+
 [[nodiscard]] WeaponModelFrame freezeGunViewModelFrame(
   WeaponModelFrame frame,
   int weaponPosition
@@ -2052,6 +2099,22 @@ void addFirstPersonWeaponModel(
     scene.viewModelStats.drawCalls += 3U;
     break;
   }
+  case Weapon::PlasmaGun: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.scale *= 0.88F;
+    weaponFrame.hand -= weaponFrame.basis.forward * 0.06F;
+    // The viewmodel has no rendered hands and uses its own screen-space anchor.
+    // Applying the third-person grip correction here would lift the gun by the
+    // authored grip offset and push it unnecessarily close to the camera.
+    appendPlasmaGunInstances(
+      scene,
+      weaponFrame,
+      RenderPass::ViewModel,
+      settings.plasmaGunContainmentAmount
+    );
+    scene.viewModelStats.drawCalls += 3U;
+    break;
+  }
   default:
     break;
   }
@@ -2140,22 +2203,6 @@ void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
   addWeaponPart(scene, frame, 0.43F, 0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
   addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.04F, 0.145F}, dark);
   addWeaponStrut(scene, frame, {0.22F, -0.08F, 0.02F}, {0.66F, 0.08F, 0.02F}, 0.016F, rail);
-}
-
-void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  constexpr RenderColor dark = {26, 35, 39, 255};
-  constexpr RenderColor teal = {43, 107, 103, 255};
-  constexpr RenderColor plasma = {112, 255, 142, 255};
-  constexpr RenderColor glow = {199, 255, 214, 255};
-
-  addWeaponPart(scene, frame, 0.12F, 0.0F, 0.08F, {0.20F, 0.10F, 0.085F}, dark);
-  addWeaponPart(scene, frame, 0.35F, 0.0F, 0.09F, {0.16F, 0.135F, 0.12F}, teal);
-  addSphereApprox(scene, weaponLocalPoint(frame, 0.35F, 0.0F, 0.095F), 0.085F * frame.scale, plasma);
-  addWeaponPart(scene, frame, 0.57F, 0.0F, 0.09F, {0.16F, 0.055F, 0.055F}, dark);
-  addWeaponPart(scene, frame, 0.74F, 0.0F, 0.09F, {0.045F, 0.09F, 0.09F}, glow);
-  addWeaponPart(scene, frame, 0.13F, 0.0F, -0.09F, {0.055F, 0.045F, 0.145F}, dark);
-  addWeaponStrut(scene, frame, {0.20F, -0.11F, 0.17F}, {0.54F, -0.11F, 0.17F}, 0.018F, plasma);
-  addWeaponStrut(scene, frame, {0.20F, 0.11F, 0.17F}, {0.54F, 0.11F, 0.17F}, 0.018F, plasma);
 }
 
 [[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
@@ -2375,21 +2422,6 @@ void addWireBox(
   };
 }
 
-[[nodiscard]] Vec3 firstPersonWeaponMuzzlePosition(
-  const PlayerState& player,
-  int weaponPosition
-) {
-  Vec3 position = playerEyePosition(player) +
-    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
-    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
-  if (weaponPosition == 1) {
-    position += yawRight(player.viewYawRadians) * 0.30F;
-  } else if (weaponPosition == 2) {
-    position -= yawRight(player.viewYawRadians) * 0.30F;
-  }
-  return position;
-}
-
 [[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
   return playerEyePosition(player) +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.24F -
@@ -2451,7 +2483,7 @@ void addWireBox(
     ) {
       const Vec3 muzzle = projectile.weapon == Weapon::RocketLauncher
         ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
-        : firstPersonWeaponMuzzlePosition(localPlayer, settings.weaponPosition);
+        : firstPersonPlasmaGunMuzzlePosition(localPlayer, settings);
       // Begin at the presentation socket, then converge quickly to the
       // authoritative projectile so the visible trajectory remains centered.
       const float blend = 1.0F - std::clamp(
@@ -2498,7 +2530,13 @@ void addWireBox(
       kRocketLauncherMuzzleSocket.z
     );
   } else {
-    muzzle = weaponLocalPoint(frame, 0.74F, 0.0F, 0.09F);
+    frame = plasmaGunGripAlignedFrame(frame);
+    muzzle = weaponLocalPoint(
+      frame,
+      kPlasmaGunMuzzleSocket.x,
+      kPlasmaGunMuzzleSocket.y,
+      kPlasmaGunMuzzleSocket.z
+    );
   }
   const float blend = 1.0F - std::clamp(
     length(projectile.position - remoteEye) / 1.20F,
@@ -2612,8 +2650,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     proceduralWeaponVertices(Weapon::LightningGun);
   static const std::vector<Vertex3D> railgunVertices =
     proceduralWeaponVertices(Weapon::Railgun);
-  static const std::vector<Vertex3D> plasmaGunVertices =
-    proceduralWeaponVertices(Weapon::PlasmaGun);
   static const StaticMeshAsset shotgunAsset = {
     MeshHandle::RemoteShotgun,
     std::span<const Vertex3D>(shotgunVertices.data(), shotgunVertices.size()),
@@ -2636,12 +2672,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     MeshHandle::RemoteRailgun,
     std::span<const Vertex3D>(railgunVertices.data(), railgunVertices.size()),
     meshBounds(railgunVertices),
-    RenderPass::OpaqueWorld,
-  };
-  static const StaticMeshAsset plasmaGunAsset = {
-    MeshHandle::RemotePlasmaGun,
-    std::span<const Vertex3D>(plasmaGunVertices.data(), plasmaGunVertices.size()),
-    meshBounds(plasmaGunVertices),
     RenderPass::OpaqueWorld,
   };
   switch (handle) {
@@ -2672,13 +2702,14 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   case MeshHandle::RemoteFreezeGunBody:
   case MeshHandle::RemoteFreezeGunFocus:
   case MeshHandle::RemoteFreezeGunCoolant:
+  case MeshHandle::RemotePlasmaGunBody:
+  case MeshHandle::RemotePlasmaGunProngs:
+  case MeshHandle::RemotePlasmaGunCore:
     return nullptr;
   case MeshHandle::RemoteLightningGun:
     return &lightningGunAsset;
   case MeshHandle::RemoteRailgun:
     return &railgunAsset;
-  case MeshHandle::RemotePlasmaGun:
-    return &plasmaGunAsset;
   case MeshHandle::RemoteRevolverBody:
   case MeshHandle::RemoteRevolverCylinder:
     return nullptr;
@@ -2709,6 +2740,12 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
     bakedMaterialWeaponVertices(kFreezeGunFocusMaterialModel);
   static const std::vector<WeaponMaterialVertex3D> freezeGunCoolantVertices =
     bakedMaterialWeaponVertices(kFreezeGunCoolantMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> plasmaGunBodyVertices =
+    bakedMaterialWeaponVertices(kPlasmaGunBodyMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> plasmaGunProngVertices =
+    bakedMaterialWeaponVertices(kPlasmaGunProngMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> plasmaGunCoreVertices =
+    bakedMaterialWeaponVertices(kPlasmaGunCoreMaterialModel);
   static const MaterialMeshAsset body = {
     MeshHandle::RemoteRevolverBody,
     revolverBodyVertices,
@@ -2746,6 +2783,15 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   static const MaterialMeshAsset freezeGunCoolant = {
     MeshHandle::RemoteFreezeGunCoolant, freezeGunCoolantVertices,
   };
+  static const MaterialMeshAsset plasmaGunBody = {
+    MeshHandle::RemotePlasmaGunBody, plasmaGunBodyVertices,
+  };
+  static const MaterialMeshAsset plasmaGunProngs = {
+    MeshHandle::RemotePlasmaGunProngs, plasmaGunProngVertices,
+  };
+  static const MaterialMeshAsset plasmaGunCore = {
+    MeshHandle::RemotePlasmaGunCore, plasmaGunCoreVertices,
+  };
   if (handle == MeshHandle::RemoteMachineGunBody) {
     return &machineGunBody;
   }
@@ -2776,6 +2822,15 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   if (handle == MeshHandle::RemoteFreezeGunCoolant) {
     return &freezeGunCoolant;
   }
+  if (handle == MeshHandle::RemotePlasmaGunBody) {
+    return &plasmaGunBody;
+  }
+  if (handle == MeshHandle::RemotePlasmaGunProngs) {
+    return &plasmaGunProngs;
+  }
+  if (handle == MeshHandle::RemotePlasmaGunCore) {
+    return &plasmaGunCore;
+  }
   return nullptr;
 }
 
@@ -2796,7 +2851,7 @@ MeshHandle remoteWeaponMeshHandle(Weapon weapon) {
   case Weapon::Railgun:
     return MeshHandle::RemoteRailgun;
   case Weapon::PlasmaGun:
-    return MeshHandle::RemotePlasmaGun;
+    return MeshHandle::RemotePlasmaGunBody;
   case Weapon::Revolver:
     return MeshHandle::RemoteRevolverBody;
   }
@@ -2809,6 +2864,32 @@ Vec3 machineGunBarrelPivot() {
 
 Vec3 machineGunMuzzleSocket() {
   return kMachineGunMuzzleSocket;
+}
+
+Vec3 plasmaGunMuzzleSocket() {
+  return kPlasmaGunMuzzleSocket;
+}
+
+Vec3 plasmaGunGripSocket() {
+  return kPlasmaGunGripSocket;
+}
+
+Vec3 firstPersonPlasmaGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    player,
+    settings.weaponPosition
+  );
+  frame.scale *= 0.88F;
+  frame.hand -= frame.basis.forward * 0.06F;
+  return weaponLocalPoint(
+    frame,
+    kPlasmaGunMuzzleSocket.x,
+    kPlasmaGunMuzzleSocket.y,
+    kPlasmaGunMuzzleSocket.z
+  );
 }
 
 Vec3 firstPersonMachineGunMuzzlePosition(
@@ -2955,7 +3036,8 @@ void addRemoteWeaponInstance(
   float rocketLauncherMechanicalAmount,
   float freezeGunFiringAmount,
   float freezeGunCoolantPulse,
-  float freezeGunVibrationPhaseRadians
+  float freezeGunVibrationPhaseRadians,
+  float plasmaGunContainmentAmount
 ) {
   WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
@@ -2998,6 +3080,17 @@ void addRemoteWeaponInstance(
     scene.remoteWeaponStats.instancesSubmitted += 3U;
     return;
   }
+  if (weapon == Weapon::PlasmaGun) {
+    frame = plasmaGunGripAlignedFrame(frame);
+    appendPlasmaGunInstances(
+      scene,
+      frame,
+      RenderPass::OpaqueWorld,
+      plasmaGunContainmentAmount
+    );
+    scene.remoteWeaponStats.instancesSubmitted += 3U;
+    return;
+  }
   MeshHandle mesh = remoteWeaponMeshHandle(weapon);
   if (mesh == MeshHandle::Invalid) {
     return;
@@ -3031,11 +3124,9 @@ void addRemoteWeaponInstance(
   case Weapon::Railgun:
     addRailgunModel(meshScene, frame);
     break;
-  case Weapon::PlasmaGun:
-    addPlasmaGunModel(meshScene, frame);
-    break;
   case Weapon::MachineGun:
   case Weapon::Shotgun:
+  case Weapon::PlasmaGun:
   case Weapon::Revolver:
     break;
   }
@@ -3529,7 +3620,9 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       batch.mesh == MeshHandle::RemoteRocketLauncherLatch ||
       batch.mesh == MeshHandle::RemoteLightningGun ||
       batch.mesh == MeshHandle::RemoteRailgun ||
-      batch.mesh == MeshHandle::RemotePlasmaGun ||
+      batch.mesh == MeshHandle::RemotePlasmaGunBody ||
+      batch.mesh == MeshHandle::RemotePlasmaGunProngs ||
+      batch.mesh == MeshHandle::RemotePlasmaGunCore ||
       batch.mesh == MeshHandle::RemoteRevolverBody ||
       batch.mesh == MeshHandle::RemoteRevolverCylinder
     ) {
@@ -4181,7 +4274,8 @@ Scene3D buildPerspectiveScene(
         remote.rocketLauncherMechanicalAmount,
         remote.freezeGunFiringAmount,
         remote.freezeGunCoolantPulse,
-        remote.freezeGunVibrationPhaseRadians
+        remote.freezeGunVibrationPhaseRadians,
+        remote.plasmaGunContainmentAmount
       );
     }
   }

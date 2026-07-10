@@ -4589,6 +4589,10 @@ int GameApp::run() const {
     freezeGunFiringResponse = {};
   std::array<WeaponFireResult, kDuelPlayerCount> lastRocketLauncherResponseFire = {};
   std::array<bool, kDuelPlayerCount> hasLastRocketLauncherResponseFire = {};
+  std::array<PlasmaGunFiringResponseState, kDuelPlayerCount>
+    plasmaGunFiringResponse = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> lastPlasmaGunResponseFire = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlasmaGunResponseFire = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
@@ -5410,6 +5414,9 @@ int GameApp::run() const {
       freezeGunFiringResponse = {};
       lastRocketLauncherResponseFire = {};
       hasLastRocketLauncherResponseFire = {};
+      plasmaGunFiringResponse = {};
+      lastPlasmaGunResponseFire = {};
+      hasLastPlasmaGunResponseFire = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
@@ -6154,6 +6161,22 @@ int GameApp::run() const {
       renderRemotePlayers[playerIndex].rocketLauncherMechanicalAmount =
         rocketLauncherFiringResponse[playerIndex].mechanicalAmount();
 
+      if (
+        fire.fired &&
+        fire.weapon == Weapon::PlasmaGun &&
+        (
+          !hasLastPlasmaGunResponseFire[playerIndex] ||
+          !sameWeaponFireEvent(fire, lastPlasmaGunResponseFire[playerIndex])
+        )
+      ) {
+        plasmaGunFiringResponse[playerIndex].triggerShot();
+        lastPlasmaGunResponseFire[playerIndex] = fire;
+        hasLastPlasmaGunResponseFire[playerIndex] = true;
+      }
+      plasmaGunFiringResponse[playerIndex].update(elapsed.count());
+      renderRemotePlayers[playerIndex].plasmaGunContainmentAmount =
+        plasmaGunFiringResponse[playerIndex].containmentAmount();
+
       const bool localPlayer = playerIndex == renderLocalPlayerIndex;
       const bool freezeDriven = localPlayer
         ? (
@@ -6206,6 +6229,8 @@ int GameApp::run() const {
       freezeGunFiringResponse[renderLocalPlayerIndex].coolantPulse();
     currentRenderSettings.freezeGunVibrationPhaseRadians =
       freezeGunFiringResponse[renderLocalPlayerIndex].phaseRadians;
+    currentRenderSettings.plasmaGunContainmentAmount =
+      plasmaGunFiringResponse[renderLocalPlayerIndex].containmentAmount();
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),

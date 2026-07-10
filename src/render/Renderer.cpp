@@ -3558,7 +3558,7 @@ template <typename Vertex>
     billboard.handle = handle;
     resources->projectileBillboards.push_back(billboard);
   }
-  const std::array<MeshHandle, 16> staticMeshHandles = {{
+  const std::array<MeshHandle, 18> staticMeshHandles = {{
     MeshHandle::PlayerBoxCube,
     MeshHandle::RemoteMachineGunBody,
     MeshHandle::RemoteMachineGunBarrels,
@@ -3572,7 +3572,9 @@ template <typename Vertex>
     MeshHandle::RemoteFreezeGunFocus,
     MeshHandle::RemoteFreezeGunCoolant,
     MeshHandle::RemoteRailgun,
-    MeshHandle::RemotePlasmaGun,
+    MeshHandle::RemotePlasmaGunBody,
+    MeshHandle::RemotePlasmaGunProngs,
+    MeshHandle::RemotePlasmaGunCore,
     MeshHandle::RemoteRevolverBody,
     MeshHandle::RemoteRevolverCylinder,
   }};
