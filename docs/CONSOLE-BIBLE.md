@@ -228,6 +228,7 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 | `r_texture_filter` | int | `2` | `0..2` | Q3 `r_textureMode` närmast | World/material texture filtering. `0`: nearest. `1`: bilinear with mipmaps. `2`: trilinear with mipmaps. |
 | `r_texture_anisotropy` | int | `8` | `1..16`, renderer snappar till `1/2/4/8/16` | Q3/driver aniso settings närmast | World/material anisotropic filtering level. Unsupported anisotropy disables safely with a renderer log. |
 | `r_texture_lod_bias` | float | `0.5` | `-2..4` | Q3/driver LOD-bias närmast | World/material mip LOD bias. Positive values choose blurrier, more stable mip levels; changes recreate the sampler without reloading textures. |
+| `r_weapon_pos` | int | `0` | `0..2` | Ingen direkt | First-person weapon position: `0` center, `1` right, `2` left. Påverkar endast lokal presentation och visuella muzzle origins. |
 | `r_perf` | bool | `0` | bool | Ingen direkt | Visa renderer-diagnostik pa HUD. |
 | `r_perf_detail` | bool | `0` | bool | Ingen direkt | Visa detaljerad renderer-diagnostik for remote frustum-culling och geometri. |
 | `r_beam_width` | float | `2` | `1..12` | Ingen direkt stabil cvar | Local LG beam width in first-person world units. |

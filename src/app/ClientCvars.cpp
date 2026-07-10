@@ -99,6 +99,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_draw_remote_players", "Draw remote player body models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_show_weapons", "Draw local first-person weapon models.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_weapon_pos", "First-person weapon position: 0 center, 1 right, 2 left.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_draw_player_outlines", "Draw player outlines.", true, archivedClient, {}, {}});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
   console.registerCvar({"r_beam_alpha", "Lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});

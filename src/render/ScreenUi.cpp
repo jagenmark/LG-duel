@@ -2127,12 +2127,16 @@ DrawList2D buildPerspectiveWeaponOverlay(
   const float centerX = static_cast<float>(outputWidth) * 0.5F;
   const float height = static_cast<float>(outputHeight);
   const float scale = std::max(0.7F, height / 720.0F);
+  const float weaponSide = settings.weaponPosition == 1
+    ? 1.0F
+    : (settings.weaponPosition == 2 ? -1.0F : 0.0F);
+  const float weaponCenterX = centerX + weaponSide * 112.0F * scale;
   const float muzzleY = height - 154.0F * scale;
   if (localLightningGun.active) {
     if (freezeGunSelected) {
       addFreezeBeamPuffs(
         drawList,
-        centerX,
+        weaponCenterX,
         height * 1.15F,
         height * 0.5F,
         scale,
@@ -2143,7 +2147,7 @@ DrawList2D buildPerspectiveWeaponOverlay(
     // visible origin coincide with the viewmodel emitter.
     addLine(
       drawList,
-      {centerX, height * 1.15F},
+      {weaponCenterX, height * 1.15F},
       {centerX, height * 0.5F},
       animatedColor,
       settings.beamWidth * (1.0F + pulse * 0.04F)
@@ -2160,6 +2164,7 @@ DrawList2D buildPerspectiveWeaponOverlay(
       );
     };
   const auto drawWeapon = [&](Weapon weapon, float yOffset) {
+    const float centerX = weaponCenterX;
     const float muzzle = muzzleY + yOffset;
     const float bodyTop = muzzle + 20.0F * scale;
     const float bodyBottom = height + 18.0F * scale + yOffset;

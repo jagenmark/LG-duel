@@ -281,7 +281,21 @@ void copyTextToClipboard(std::string_view text) {
   };
 }
 
-[[nodiscard]] Vec3 viewmodelMuzzlePosition(const PlayerState& player, Weapon weapon) {
+[[nodiscard]] float firstPersonWeaponSideOffset(int weaponPosition) {
+  if (weaponPosition == 1) {
+    return 0.20F;
+  }
+  if (weaponPosition == 2) {
+    return -0.20F;
+  }
+  return 0.0F;
+}
+
+[[nodiscard]] Vec3 viewmodelMuzzlePosition(
+  const PlayerState& player,
+  Weapon weapon,
+  int weaponPosition
+) {
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
@@ -290,9 +304,10 @@ void copyTextToClipboard(std::string_view text) {
   const bool revolver = weapon == Weapon::Revolver;
   return eyePosition +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) *
-      (revolver ? 0.66F : 0.55F) -
+      (revolver ? 0.75F : 0.55F) -
     cameraUp(player.viewYawRadians, player.viewPitchRadians) *
-      (revolver ? 0.3025F : 0.32F);
+      (revolver ? 0.318F : 0.32F) +
+    yawRight(player.viewYawRadians) * firstPersonWeaponSideOffset(weaponPosition);
 }
 
 [[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
@@ -330,7 +345,9 @@ struct WeaponPresentationFrame {
 }
 
 [[nodiscard]] WeaponPresentationFrame firstPersonWeaponPresentationFrame(
-  const PlayerState& player
+  const PlayerState& player,
+  int weaponPosition,
+  Weapon weapon
 ) {
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
@@ -344,8 +361,12 @@ struct WeaponPresentationFrame {
   frame.hand =
     eyePosition +
     frame.forward * 0.32F -
-    frame.up * 0.38F;
+    frame.up * 0.38F +
+    frame.right * firstPersonWeaponSideOffset(weaponPosition);
   frame.scale = 0.50F;
+  if (weapon == Weapon::MachineGun || weapon == Weapon::Shotgun) {
+    frame.hand -= frame.forward * 0.10F;
+  }
   return frame;
 }
 
@@ -451,7 +472,11 @@ struct WeaponPresentationFrame {
     const float angle =
       static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
     return weaponPresentationPoint(
-      firstPersonWeaponPresentationFrame(localPlayer),
+      firstPersonWeaponPresentationFrame(
+        localPlayer,
+        settings.weaponPosition,
+        Weapon::MachineGun
+      ),
       0.46F,
       std::cos(angle) * 0.09F,
       0.12F + std::sin(angle) * 0.09F
@@ -483,7 +508,11 @@ struct WeaponPresentationFrame {
       return hiddenWeaponVisualOrigin(localPlayer);
     }
     return weaponPresentationPoint(
-      firstPersonWeaponPresentationFrame(localPlayer),
+      firstPersonWeaponPresentationFrame(
+        localPlayer,
+        settings.weaponPosition,
+        Weapon::Shotgun
+      ),
       0.46F,
       0.0F,
       0.12F
@@ -689,14 +718,22 @@ struct TransientTracerStore {
             const float angle =
               static_cast<float>(followSeed[index] % 6U) * (kTwoPi / 6.0F);
             tracer.start = weaponPresentationPoint(
-              firstPersonWeaponPresentationFrame(localPlayer),
+              firstPersonWeaponPresentationFrame(
+                localPlayer,
+                settings.weaponPosition,
+                Weapon::MachineGun
+              ),
               0.46F,
               std::cos(angle) * 0.09F,
               0.12F + std::sin(angle) * 0.09F
             );
           } else if (followWeapon[index] == Weapon::Shotgun) {
             tracer.start = weaponPresentationPoint(
-              firstPersonWeaponPresentationFrame(localPlayer),
+              firstPersonWeaponPresentationFrame(
+                localPlayer,
+                settings.weaponPosition,
+                Weapon::Shotgun
+              ),
               0.46F,
               0.0F,
               0.12F
@@ -2674,6 +2711,7 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.shotgunWeaponModelStart =
     console.getBool("r_sg_weapon_model_start");
   settings.showOwnWeapons = console.getBool("r_show_weapons");
+  settings.weaponPosition = console.getInt("r_weapon_pos");
   settings.drawRemotePlayers = console.getBool("r_draw_remote_players");
   settings.drawRemoteWeapons = console.getBool("r_draw_remote_weapons");
   settings.drawPlayerOutlines = console.getBool("r_draw_player_outlines");
@@ -5932,7 +5970,11 @@ int GameApp::run() const {
         if (newRailEvent) {
           if (localPerspectiveRail) {
             currentFire.start = currentRenderSettings.showOwnWeapons
-              ? viewmodelMuzzlePosition(renderPlayer, currentFire.weapon)
+              ? viewmodelMuzzlePosition(
+                  renderPlayer,
+                  currentFire.weapon,
+                  currentRenderSettings.weaponPosition
+                )
               : hiddenWeaponVisualOrigin(renderPlayer);
           } else {
             const bool revolver = currentFire.weapon == Weapon::Revolver;
