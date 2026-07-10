@@ -191,8 +191,19 @@ struct RenderSettings {
   std::uint8_t teammateNameTagGreen = 245;
   std::uint8_t teammateNameTagBlue = 255;
   Weapon localSelectedWeapon = Weapon::LightningGun;
+  float machineGunBarrelRotationRadians = 0.0F;
+  float machineGunRecoilAmount = 0.0F;
+  float machineGunVibrationAmount = 0.0F;
+  float machineGunVibrationPhaseRadians = 0.0F;
+  float rocketLauncherMechanicalAmount = 0.0F;
+  float rocketLauncherRecoilAmount = 0.0F;
   float revolverRecoilAmount = 0.0F;
   float revolverCylinderRotationRadians = 0.0F;
+  std::array<float, kDuelPlayerCount> revolverTracerAlpha = [] {
+    std::array<float, kDuelPlayerCount> values = {};
+    values.fill(1.0F);
+    return values;
+  }();
   bool showOwnWeapons = true;
   int weaponPosition = 0;
   bool shotgunWeaponModelStart = false;
@@ -285,10 +296,15 @@ struct RemotePlayerView {
   bool teammate = false;
   std::string name;
   float animationTimeSeconds = 0.0F;
+  float machineGunBarrelRotationRadians = 0.0F;
+  float rocketLauncherMechanicalAmount = 0.0F;
 };
 
 enum class TracerStyle : std::uint8_t {
   MachineGun,
+  MachineGunMuzzleFlash,
+  RevolverMuzzleFlash,
+  RocketLauncherMuzzleFlash,
   Shotgun,
 };
 
@@ -496,6 +512,7 @@ private:
   void* gpuPipeline3DTranslucent_ = nullptr;
   void* gpuPipelineInstancedMesh_ = nullptr;
   void* gpuPipelineStaticMesh_ = nullptr;
+  void* gpuPipelineMaterialMesh_ = nullptr;
   void* gpuPipelineGltfPlayerModel_ = nullptr;
   void* gpuPipelineInstancedGlow_ = nullptr;
   void* gpuPipelineOutlineClear_ = nullptr;
