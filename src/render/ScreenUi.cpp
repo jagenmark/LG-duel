@@ -400,23 +400,26 @@ void addCrosshairHealthAndAmmo(
   const float centerY = static_cast<float>(height) * 0.5F;
   const float y = centerY + std::max(22.0F, settings.crosshairGap + settings.crosshairSize + 10.0F);
   constexpr float sideOffset = 56.0F;
-  const float healthWidth = textWidth(healthText, scale);
+  const bool infiniteAmmo = ammoText == "\xE2\x88\x9E";
+  const float ammoScale = infiniteAmmo ? scale * 1.4F : scale;
+  const float ammoY = infiniteAmmo ? y - scale * 2.25F : y;
 
   addText(
     drawList,
-    centerX - sideOffset - healthWidth,
+    centerX - sideOffset,
     y,
     healthText,
     localHealthFillColor(healthRatio),
-    scale
+    scale,
+    TextHorizontalAlignment::Right
   );
   addText(
     drawList,
     centerX + sideOffset,
-    y,
+    ammoY,
     ammoText,
     quakeLiveWeaponColor(hud.selectedWeapon),
-    scale
+    ammoScale
   );
 }
 

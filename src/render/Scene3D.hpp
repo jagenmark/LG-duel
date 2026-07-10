@@ -22,6 +22,16 @@ struct Vertex3D {
   std::uint32_t materialId = 0;
 };
 
+// Material meshes retain authored normals and compact PBR parameters instead
+// of baking a fixed light direction into their vertex colors.
+struct WeaponMaterialVertex3D {
+  Vec3 position = {};
+  Vec3 normal = {};
+  RenderColor baseColor = {};
+  float metallic = 0.0F;
+  float roughness = 1.0F;
+};
+
 enum class RenderPass {
   OpaqueWorld,
   TranslucentWorld,
@@ -38,10 +48,13 @@ enum class MeshHandle : std::uint16_t {
   ExplosionCore,
   MachineGunTracer,
   ShotgunTracer,
-  RemoteMachineGun,
+  RemoteMachineGunBody,
+  RemoteMachineGunBarrels,
   RemoteShotgun,
   RemoteGrenadeLauncher,
-  RemoteRocketLauncher,
+  RemoteRocketLauncherBody,
+  RemoteRocketLauncherRecoil,
+  RemoteRocketLauncherLatch,
   RemoteLightningGun,
   RemoteRailgun,
   RemotePlasmaGun,
@@ -83,6 +96,11 @@ struct StaticMeshAsset {
   std::span<const Vertex3D> vertices;
   BoundingSphere localBounds = {};
   RenderPass pass = RenderPass::OpaqueWorld;
+};
+
+struct MaterialMeshAsset {
+  MeshHandle handle = MeshHandle::Invalid;
+  std::span<const WeaponMaterialVertex3D> vertices;
 };
 
 struct BillboardAsset {
@@ -132,12 +150,16 @@ struct SimpleRenderBatch {
 struct TransientVfxStats {
   std::uint32_t activeEffects = 0;
   std::uint32_t activeMachineGunTracers = 0;
+  std::uint32_t activeMachineGunMuzzleFlashes = 0;
+  std::uint32_t activeRevolverMuzzleFlashes = 0;
+  std::uint32_t activeRocketLauncherMuzzleFlashes = 0;
   std::uint32_t activeShotgunTracers = 0;
   std::uint32_t activeExplosionEffects = 0;
   std::uint32_t newExplosionEventsConsumed = 0;
   std::uint32_t tracerCandidates = 0;
   std::uint32_t tracerFrustumCulled = 0;
   std::uint32_t tracerInstancesSubmitted = 0;
+  std::uint32_t muzzleFlashInstancesSubmitted = 0;
   std::uint32_t tracerInstanceUploadBytes = 0;
   std::uint32_t tracerBatches = 0;
   std::uint32_t tracerDrawCalls = 0;
@@ -669,7 +691,25 @@ struct Scene3D {
 };
 
 [[nodiscard]] const StaticMeshAsset* staticMeshAsset(MeshHandle handle);
+[[nodiscard]] const MaterialMeshAsset* materialMeshAsset(MeshHandle handle);
 [[nodiscard]] MeshHandle remoteWeaponMeshHandle(Weapon weapon);
+[[nodiscard]] Vec3 machineGunBarrelPivot();
+[[nodiscard]] Vec3 machineGunMuzzleSocket();
+[[nodiscard]] Vec3 firstPersonMachineGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 revolverMuzzleSocket();
+[[nodiscard]] Vec3 firstPersonRevolverMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 rocketLauncherMuzzleSocket();
+[[nodiscard]] Vec3 rocketLauncherGripSocket();
+[[nodiscard]] Vec3 firstPersonRocketLauncherMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
 [[nodiscard]] const BillboardAsset* billboardAsset(BillboardHandle handle);
 [[nodiscard]] const ProjectileVisualDescriptor* projectileVisualDescriptor(
   ProjectileVisualType type

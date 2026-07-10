@@ -12,6 +12,18 @@ struct BakedWeaponModelTriangle {
   RenderColor color;
 };
 
+struct BakedWeaponMaterialVertex {
+  Vec3 position;
+  Vec3 normal;
+};
+
+struct BakedWeaponMaterialTriangle {
+  std::array<BakedWeaponMaterialVertex, 3> vertices;
+  RenderColor baseColor;
+  float metallic;
+  float roughness;
+};
+
 inline constexpr std::array<BakedWeaponModelTriangle, 1440> kShotgunWeaponModel = {{
   {{{{0.239599F, -0.238857F, 0.045695F}, {0.215749F, -0.103595F, 0.045695F}, {0.215749F, -0.103595F, -0.021923F}}}, {61, 29, 13, 255}},
   {{{{0.239599F, -0.238857F, 0.045695F}, {0.215749F, -0.103595F, -0.021923F}, {0.239599F, -0.238857F, -0.021923F}}}, {61, 29, 13, 255}},

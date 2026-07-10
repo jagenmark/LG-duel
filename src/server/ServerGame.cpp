@@ -2394,6 +2394,7 @@ bool ServerGame::spawnProjectile(
     WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
     fire.fired = true;
     fire.weapon = weapon;
+    fire.visualSeed = command.sequence;
     fire.start = rocket.position;
     fire.end = rocket.position + (direction * 1.2F);
     recordWeaponAccuracy(snapshot_, attackerIndex, weapon, 1U, 0U);

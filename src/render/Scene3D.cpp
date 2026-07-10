@@ -1,6 +1,8 @@
 #include "render/Scene3D.hpp"
 #include "render/BakedWeaponModels.hpp"
+#include "render/BakedMachineGunModel.hpp"
 #include "render/BakedRevolverModel.hpp"
+#include "render/BakedRocketLauncherModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
@@ -36,6 +38,9 @@ constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
+constexpr float kRocketLauncherViewModelScale = 0.66F;
+constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
+constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -287,6 +292,27 @@ template <std::size_t Count>
   return vertices;
 }
 
+template <std::size_t Count>
+[[nodiscard]] std::vector<WeaponMaterialVertex3D> bakedMaterialWeaponVertices(
+  const std::array<BakedWeaponMaterialTriangle, Count>& model,
+  float modelScale = 1.0F
+) {
+  std::vector<WeaponMaterialVertex3D> vertices;
+  vertices.reserve(model.size() * 3U);
+  for (const BakedWeaponMaterialTriangle& triangle : model) {
+    for (const BakedWeaponMaterialVertex& vertex : triangle.vertices) {
+      vertices.push_back({
+        vertex.position * modelScale,
+        normalize(vertex.normal),
+        triangle.baseColor,
+        triangle.metallic,
+        triangle.roughness,
+      });
+    }
+  }
+  return vertices;
+}
+
 [[nodiscard]] BoundingSphere meshBounds(std::span<const Vertex3D> vertices) {
   if (vertices.empty()) {
     return {};
@@ -304,6 +330,24 @@ template <std::size_t Count>
   const Vec3 center = (minimum + maximum) * 0.5F;
   float radius = 0.0F;
   for (const Vertex3D& vertex : vertices) {
+    radius = std::max(radius, length(vertex.position - center));
+  }
+  return {center, radius};
+}
+
+[[nodiscard]] BoundingSphere materialMeshBounds(
+  std::span<const WeaponMaterialVertex3D> vertices
+) {
+  if (vertices.empty()) {
+    return {};
+  }
+  Vec3 center = {};
+  for (const WeaponMaterialVertex3D& vertex : vertices) {
+    center += vertex.position;
+  }
+  center *= 1.0F / static_cast<float>(vertices.size());
+  float radius = 0.0F;
+  for (const WeaponMaterialVertex3D& vertex : vertices) {
     radius = std::max(radius, length(vertex.position - center));
   }
   return {center, radius};
@@ -1527,6 +1571,7 @@ void addFirstPersonWeaponModel(
   RenderColor color
 ) {
   const StaticMeshAsset* asset = staticMeshAsset(mesh);
+  const MaterialMeshAsset* materialAsset = materialMeshAsset(mesh);
   const float scale = frame.scale * instanceScale;
   const Vec3 row0 = {
     frame.basis.forward.x * scale,
@@ -1547,8 +1592,11 @@ void addFirstPersonWeaponModel(
     std::max(length(frame.basis.forward * scale), length(frame.basis.right * scale)),
     length(frame.basis.up * scale)
   );
-  const float radius =
-    asset != nullptr ? asset->localBounds.radius * boundsScale : 0.0F;
+  float localRadius = asset != nullptr ? asset->localBounds.radius : 0.0F;
+  if (materialAsset != nullptr) {
+    localRadius = materialMeshBounds(materialAsset->vertices).radius;
+  }
+  const float radius = localRadius * boundsScale;
   return {
     mesh,
     pass,
@@ -1661,6 +1709,182 @@ void appendRevolverInstances(
   );
 }
 
+[[nodiscard]] WeaponModelFrame machineGunBarrelFrame(
+  const WeaponModelFrame& frame,
+  float rotationRadians,
+  float instanceScale
+) {
+  WeaponModelFrame barrels = frame;
+  const Vec3 scaledPivot = kMachineGunBarrelPivot * instanceScale;
+  const Vec3 pivotWorld = weaponLocalPoint(
+    frame,
+    scaledPivot.x,
+    scaledPivot.y,
+    scaledPivot.z
+  );
+  const float rotationCos = std::cos(rotationRadians);
+  const float rotationSin = std::sin(rotationRadians);
+  const Vec3 oldRight = frame.basis.right;
+  const Vec3 oldUp = frame.basis.up;
+  barrels.basis.right = normalize(oldRight * rotationCos + oldUp * rotationSin);
+  barrels.basis.up = normalize(oldRight * -rotationSin + oldUp * rotationCos);
+  // The body and barrel exports share weapon coordinates. Re-anchor the
+  // rotated instance so the authored spin pivot stays fixed without wobble.
+  barrels.hand = pivotWorld -
+    barrels.basis.forward * (scaledPivot.x * frame.scale) -
+    barrels.basis.right * (scaledPivot.y * frame.scale) -
+    barrels.basis.up * (scaledPivot.z * frame.scale);
+  return barrels;
+}
+
+void appendMachineGunInstances(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  RenderPass pass,
+  float barrelRotationRadians,
+  float instanceScale = 1.0F
+) {
+  appendStaticMeshInstance(
+    scene,
+    weaponMeshInstance(
+      MeshHandle::RemoteMachineGunBody,
+      pass,
+      frame,
+      instanceScale,
+      {255, 255, 255, 255}
+    )
+  );
+  appendStaticMeshInstance(
+    scene,
+    weaponMeshInstance(
+      MeshHandle::RemoteMachineGunBarrels,
+      pass,
+      machineGunBarrelFrame(frame, barrelRotationRadians, instanceScale),
+      instanceScale,
+      {255, 255, 255, 255}
+    )
+  );
+}
+
+[[nodiscard]] WeaponModelFrame rocketLauncherGripAlignedFrame(
+  WeaponModelFrame frame
+) {
+  frame.hand -= frame.basis.forward * (kRocketLauncherGripSocket.x * frame.scale);
+  frame.hand -= frame.basis.right * (kRocketLauncherGripSocket.y * frame.scale);
+  frame.hand -= frame.basis.up * (kRocketLauncherGripSocket.z * frame.scale);
+  return frame;
+}
+
+[[nodiscard]] WeaponModelFrame rocketLauncherRecoilFrame(
+  WeaponModelFrame frame,
+  float recoilAmount
+) {
+  const float recoil = std::clamp(recoilAmount, 0.0F, 1.0F);
+  frame.hand -= frame.basis.forward * (0.085F * frame.scale * recoil);
+  frame.hand += frame.basis.up * (0.030F * frame.scale * recoil);
+  const float pitch = -5.5F * kDegreesToRadians * recoil;
+  const float pitchCos = std::cos(pitch);
+  const float pitchSin = std::sin(pitch);
+  const Vec3 oldForward = frame.basis.forward;
+  const Vec3 oldUp = frame.basis.up;
+  frame.basis.forward = normalize(oldForward * pitchCos - oldUp * pitchSin);
+  frame.basis.up = normalize(oldForward * pitchSin + oldUp * pitchCos);
+  return frame;
+}
+
+[[nodiscard]] WeaponModelFrame rocketLauncherPartFrame(
+  const WeaponModelFrame& frame,
+  Vec3 pivot,
+  float forwardOffset,
+  float pitchRadians
+) {
+  WeaponModelFrame part = frame;
+  part.hand = weaponLocalPoint(frame, pivot.x + forwardOffset, pivot.y, pivot.z);
+  const float pitchCos = std::cos(pitchRadians);
+  const float pitchSin = std::sin(pitchRadians);
+  const Vec3 oldForward = frame.basis.forward;
+  const Vec3 oldUp = frame.basis.up;
+  part.basis.forward = normalize(oldForward * pitchCos - oldUp * pitchSin);
+  part.basis.up = normalize(oldForward * pitchSin + oldUp * pitchCos);
+  return part;
+}
+
+void appendRocketLauncherInstances(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  RenderPass pass,
+  float mechanicalAmount
+) {
+  appendStaticMeshInstance(
+    scene,
+    weaponMeshInstance(
+      MeshHandle::RemoteRocketLauncherBody,
+      pass,
+      frame,
+      {255, 255, 255, 255}
+    )
+  );
+  appendStaticMeshInstance(
+    scene,
+    weaponMeshInstance(
+      MeshHandle::RemoteRocketLauncherRecoil,
+      pass,
+      rocketLauncherPartFrame(
+        frame,
+        kRocketLauncherRecoilPivot,
+        -0.052F * mechanicalAmount,
+        0.0F
+      ),
+      {255, 255, 255, 255}
+    )
+  );
+  appendStaticMeshInstance(
+    scene,
+    weaponMeshInstance(
+      MeshHandle::RemoteRocketLauncherLatch,
+      pass,
+      rocketLauncherPartFrame(
+        frame,
+        kRocketLauncherLatchPivot,
+        0.0F,
+        -8.0F * kDegreesToRadians * mechanicalAmount
+      ),
+      {255, 255, 255, 255}
+    )
+  );
+}
+
+[[nodiscard]] WeaponModelFrame machineGunFiringFrame(
+  WeaponModelFrame frame,
+  const RenderSettings& settings
+) {
+  const float recoil = std::clamp(settings.machineGunRecoilAmount, 0.0F, 1.0F);
+  const float vibration = std::clamp(
+    settings.machineGunVibrationAmount,
+    0.0F,
+    1.0F
+  );
+  frame.hand -= frame.basis.forward * (0.020F * frame.scale * recoil);
+  frame.hand += frame.basis.up * (0.004F * frame.scale * recoil);
+  frame.hand += frame.basis.right * (
+    std::sin(settings.machineGunVibrationPhaseRadians) *
+    0.0035F * frame.scale * vibration
+  );
+  frame.hand += frame.basis.up * (
+    std::cos(settings.machineGunVibrationPhaseRadians * 1.7F) *
+    0.0025F * frame.scale * vibration
+  );
+
+  const float pitch = -1.25F * kDegreesToRadians * recoil;
+  const float pitchCos = std::cos(pitch);
+  const float pitchSin = std::sin(pitch);
+  const Vec3 oldForward = frame.basis.forward;
+  const Vec3 oldUp = frame.basis.up;
+  frame.basis.forward = normalize(oldForward * pitchCos - oldUp * pitchSin);
+  frame.basis.up = normalize(oldForward * pitchSin + oldUp * pitchCos);
+  return frame;
+}
+
 void addFirstPersonWeaponModel(
   Scene3D& scene,
   const PlayerState& player,
@@ -1673,17 +1897,15 @@ void addFirstPersonWeaponModel(
   case Weapon::MachineGun: {
     WeaponModelFrame weaponFrame = frame;
     weaponFrame.hand -= weaponFrame.basis.forward * 0.10F;
-    appendStaticMeshInstance(
+    weaponFrame = machineGunFiringFrame(weaponFrame, settings);
+    appendMachineGunInstances(
       scene,
-      weaponMeshInstance(
-        MeshHandle::RemoteMachineGun,
-        RenderPass::ViewModel,
-        weaponFrame,
-        1.0F / 0.78F,
-        {255, 255, 255, 255}
-      )
+      weaponFrame,
+      RenderPass::ViewModel,
+      settings.machineGunBarrelRotationRadians,
+      1.0F / 0.78F
     );
-    ++scene.viewModelStats.drawCalls;
+    scene.viewModelStats.drawCalls += 2U;
     break;
   }
   case Weapon::Shotgun: {
@@ -1719,6 +1941,30 @@ void addFirstPersonWeaponModel(
       settings.revolverCylinderRotationRadians
     );
     scene.viewModelStats.drawCalls += 2U;
+    break;
+  }
+  case Weapon::RocketLauncher: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.scale *= kRocketLauncherViewModelScale;
+    // Apply camera-relative placement before grip alignment. The authored
+    // grip sits far behind and below the model origin, so the generic frame
+    // otherwise pushes this long weapon too far forward and high on screen.
+    weaponFrame.hand += weaponFrame.basis.forward *
+      kRocketLauncherViewModelForwardOffset;
+    weaponFrame.hand += weaponFrame.basis.up *
+      kRocketLauncherViewModelUpOffset;
+    weaponFrame = rocketLauncherGripAlignedFrame(weaponFrame);
+    weaponFrame = rocketLauncherRecoilFrame(
+      weaponFrame,
+      settings.rocketLauncherRecoilAmount
+    );
+    appendRocketLauncherInstances(
+      scene,
+      weaponFrame,
+      RenderPass::ViewModel,
+      settings.rocketLauncherMechanicalAmount
+    );
+    scene.viewModelStats.drawCalls += 3U;
     break;
   }
   default:
@@ -2104,17 +2350,32 @@ void addWireBox(
 ) {
   const std::size_t owner = static_cast<std::size_t>(projectile.owner);
   if (owner == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    const Vec3 localEye = playerEyePosition(localPlayer);
     if (!settings.showOwnWeapons) {
+      const float blend = 1.0F - std::clamp(
+        length(projectile.position - localEye) / 1.20F,
+        0.0F,
+        1.0F
+      );
       return projectile.position +
-        (hiddenWeaponVisualOrigin(localPlayer) - playerEyePosition(localPlayer));
+        (hiddenWeaponVisualOrigin(localPlayer) - localEye) * blend;
     }
     if (
       projectile.weapon == Weapon::PlasmaGun ||
       projectile.weapon == Weapon::RocketLauncher
     ) {
+      const Vec3 muzzle = projectile.weapon == Weapon::RocketLauncher
+        ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
+        : firstPersonWeaponMuzzlePosition(localPlayer, settings.weaponPosition);
+      // Begin at the presentation socket, then converge quickly to the
+      // authoritative projectile so the visible trajectory remains centered.
+      const float blend = 1.0F - std::clamp(
+        length(projectile.position - localEye) / 1.20F,
+        0.0F,
+        1.0F
+      );
       return projectile.position +
-        (firstPersonWeaponMuzzlePosition(localPlayer, settings.weaponPosition) -
-          playerEyePosition(localPlayer));
+        (muzzle - localEye) * blend;
     }
     return projectile.position;
   }
@@ -2139,14 +2400,27 @@ void addWireBox(
   const float leanScale = remote.teammate
     ? settings.teammateLeanScale
     : settings.enemyLeanScale;
-  const WeaponModelFrame frame =
-    weaponModelFrame(remote.player, leanEnabled, leanScale);
-  const float muzzleForward =
-    projectile.weapon == Weapon::RocketLauncher ? 0.81F : 0.74F;
-  const float muzzleUp =
-    projectile.weapon == Weapon::RocketLauncher ? 0.12F : 0.09F;
-  return projectile.position +
-    (weaponLocalPoint(frame, muzzleForward, 0.0F, muzzleUp) - remoteEye);
+  WeaponModelFrame frame = weaponModelFrame(remote.player, leanEnabled, leanScale);
+  frame.scale *= thirdPersonWeaponVisualScale(projectile.weapon);
+  Vec3 muzzle;
+  if (projectile.weapon == Weapon::RocketLauncher) {
+    frame = rocketLauncherGripAlignedFrame(frame);
+    muzzle = weaponLocalPoint(
+      frame,
+      kRocketLauncherMuzzleSocket.x -
+        0.052F * remote.rocketLauncherMechanicalAmount,
+      kRocketLauncherMuzzleSocket.y,
+      kRocketLauncherMuzzleSocket.z
+    );
+  } else {
+    muzzle = weaponLocalPoint(frame, 0.74F, 0.0F, 0.09F);
+  }
+  const float blend = 1.0F - std::clamp(
+    length(projectile.position - remoteEye) / 1.20F,
+    0.0F,
+    1.0F
+  );
+  return projectile.position + (muzzle - remoteEye) * blend;
 }
 
 constexpr float kRemotePlayerVisualCullMargin = 0.35F;
@@ -2174,30 +2448,16 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 [[nodiscard]] std::vector<Vertex3D> proceduralWeaponVertices(Weapon weapon);
 
 const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
-  static const std::vector<Vertex3D> machineGunVertices =
-    bakedWeaponVertices(kMachineGunWeaponModel, 0.78F);
   static const std::vector<Vertex3D> shotgunVertices =
     bakedWeaponVertices(kShotgunWeaponModel, 0.78F, kQuarterTurnRadians);
   static const std::vector<Vertex3D> grenadeLauncherVertices =
     proceduralWeaponVertices(Weapon::GrenadeLauncher);
-  static const std::vector<Vertex3D> rocketLauncherVertices =
-    proceduralWeaponVertices(Weapon::RocketLauncher);
   static const std::vector<Vertex3D> lightningGunVertices =
     proceduralWeaponVertices(Weapon::LightningGun);
   static const std::vector<Vertex3D> railgunVertices =
     proceduralWeaponVertices(Weapon::Railgun);
   static const std::vector<Vertex3D> plasmaGunVertices =
     proceduralWeaponVertices(Weapon::PlasmaGun);
-  static const std::vector<Vertex3D> revolverBodyVertices =
-    bakedWeaponVertices(kRevolverBodyModel, 1.0F);
-  static const std::vector<Vertex3D> revolverCylinderVertices =
-    bakedWeaponVertices(kRevolverCylinderModel, 1.0F);
-  static const StaticMeshAsset machineGunAsset = {
-    MeshHandle::RemoteMachineGun,
-    std::span<const Vertex3D>(machineGunVertices.data(), machineGunVertices.size()),
-    meshBounds(machineGunVertices),
-    RenderPass::OpaqueWorld,
-  };
   static const StaticMeshAsset shotgunAsset = {
     MeshHandle::RemoteShotgun,
     std::span<const Vertex3D>(shotgunVertices.data(), shotgunVertices.size()),
@@ -2208,12 +2468,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     MeshHandle::RemoteGrenadeLauncher,
     std::span<const Vertex3D>(grenadeLauncherVertices.data(), grenadeLauncherVertices.size()),
     meshBounds(grenadeLauncherVertices),
-    RenderPass::OpaqueWorld,
-  };
-  static const StaticMeshAsset rocketLauncherAsset = {
-    MeshHandle::RemoteRocketLauncher,
-    std::span<const Vertex3D>(rocketLauncherVertices.data(), rocketLauncherVertices.size()),
-    meshBounds(rocketLauncherVertices),
     RenderPass::OpaqueWorld,
   };
   static const StaticMeshAsset lightningGunAsset = {
@@ -2234,21 +2488,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     meshBounds(plasmaGunVertices),
     RenderPass::OpaqueWorld,
   };
-  static const StaticMeshAsset revolverBodyAsset = {
-    MeshHandle::RemoteRevolverBody,
-    std::span<const Vertex3D>(revolverBodyVertices.data(), revolverBodyVertices.size()),
-    meshBounds(revolverBodyVertices),
-    RenderPass::OpaqueWorld,
-  };
-  static const StaticMeshAsset revolverCylinderAsset = {
-    MeshHandle::RemoteRevolverCylinder,
-    std::span<const Vertex3D>(
-      revolverCylinderVertices.data(),
-      revolverCylinderVertices.size()
-    ),
-    meshBounds(revolverCylinderVertices),
-    RenderPass::OpaqueWorld,
-  };
   switch (handle) {
   case MeshHandle::PlayerBoxCube:
     return &kPlayerBoxCubeAsset;
@@ -2264,14 +2503,17 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     return &kMachineGunTracerAsset;
   case MeshHandle::ShotgunTracer:
     return &kShotgunTracerAsset;
-  case MeshHandle::RemoteMachineGun:
-    return &machineGunAsset;
+  case MeshHandle::RemoteMachineGunBody:
+  case MeshHandle::RemoteMachineGunBarrels:
+    return nullptr;
   case MeshHandle::RemoteShotgun:
     return &shotgunAsset;
   case MeshHandle::RemoteGrenadeLauncher:
     return &grenadeLauncherAsset;
-  case MeshHandle::RemoteRocketLauncher:
-    return &rocketLauncherAsset;
+  case MeshHandle::RemoteRocketLauncherBody:
+  case MeshHandle::RemoteRocketLauncherRecoil:
+  case MeshHandle::RemoteRocketLauncherLatch:
+    return nullptr;
   case MeshHandle::RemoteLightningGun:
     return &lightningGunAsset;
   case MeshHandle::RemoteRailgun:
@@ -2279,11 +2521,77 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   case MeshHandle::RemotePlasmaGun:
     return &plasmaGunAsset;
   case MeshHandle::RemoteRevolverBody:
-    return &revolverBodyAsset;
   case MeshHandle::RemoteRevolverCylinder:
-    return &revolverCylinderAsset;
+    return nullptr;
   case MeshHandle::Invalid:
     break;
+  }
+  return nullptr;
+}
+
+const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
+  static const std::vector<WeaponMaterialVertex3D> machineGunBodyVertices =
+    bakedMaterialWeaponVertices(kMachineGunBodyMaterialModel, 0.78F);
+  static const std::vector<WeaponMaterialVertex3D> machineGunBarrelVertices =
+    bakedMaterialWeaponVertices(kMachineGunBarrelMaterialModel, 0.78F);
+  static const std::vector<WeaponMaterialVertex3D> revolverBodyVertices =
+    bakedMaterialWeaponVertices(kRevolverBodyModel);
+  static const std::vector<WeaponMaterialVertex3D> revolverCylinderVertices =
+    bakedMaterialWeaponVertices(kRevolverCylinderModel);
+  static const std::vector<WeaponMaterialVertex3D> rocketLauncherBodyVertices =
+    bakedMaterialWeaponVertices(kRocketLauncherBodyMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> rocketLauncherRecoilVertices =
+    bakedMaterialWeaponVertices(kRocketLauncherRecoilMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> rocketLauncherLatchVertices =
+    bakedMaterialWeaponVertices(kRocketLauncherLatchMaterialModel);
+  static const MaterialMeshAsset body = {
+    MeshHandle::RemoteRevolverBody,
+    revolverBodyVertices,
+  };
+  static const MaterialMeshAsset cylinder = {
+    MeshHandle::RemoteRevolverCylinder,
+    revolverCylinderVertices,
+  };
+  static const MaterialMeshAsset machineGunBody = {
+    MeshHandle::RemoteMachineGunBody,
+    machineGunBodyVertices,
+  };
+  static const MaterialMeshAsset machineGunBarrels = {
+    MeshHandle::RemoteMachineGunBarrels,
+    machineGunBarrelVertices,
+  };
+  static const MaterialMeshAsset rocketLauncherBody = {
+    MeshHandle::RemoteRocketLauncherBody,
+    rocketLauncherBodyVertices,
+  };
+  static const MaterialMeshAsset rocketLauncherRecoil = {
+    MeshHandle::RemoteRocketLauncherRecoil,
+    rocketLauncherRecoilVertices,
+  };
+  static const MaterialMeshAsset rocketLauncherLatch = {
+    MeshHandle::RemoteRocketLauncherLatch,
+    rocketLauncherLatchVertices,
+  };
+  if (handle == MeshHandle::RemoteMachineGunBody) {
+    return &machineGunBody;
+  }
+  if (handle == MeshHandle::RemoteMachineGunBarrels) {
+    return &machineGunBarrels;
+  }
+  if (handle == MeshHandle::RemoteRevolverBody) {
+    return &body;
+  }
+  if (handle == MeshHandle::RemoteRevolverCylinder) {
+    return &cylinder;
+  }
+  if (handle == MeshHandle::RemoteRocketLauncherBody) {
+    return &rocketLauncherBody;
+  }
+  if (handle == MeshHandle::RemoteRocketLauncherRecoil) {
+    return &rocketLauncherRecoil;
+  }
+  if (handle == MeshHandle::RemoteRocketLauncherLatch) {
+    return &rocketLauncherLatch;
   }
   return nullptr;
 }
@@ -2291,13 +2599,13 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
 MeshHandle remoteWeaponMeshHandle(Weapon weapon) {
   switch (weapon) {
   case Weapon::MachineGun:
-    return MeshHandle::RemoteMachineGun;
+    return MeshHandle::RemoteMachineGunBody;
   case Weapon::Shotgun:
     return MeshHandle::RemoteShotgun;
   case Weapon::GrenadeLauncher:
     return MeshHandle::RemoteGrenadeLauncher;
   case Weapon::RocketLauncher:
-    return MeshHandle::RemoteRocketLauncher;
+    return MeshHandle::RemoteRocketLauncherBody;
   case Weapon::LightningGun:
   case Weapon::FreezeGun:
     return MeshHandle::RemoteLightningGun;
@@ -2309,6 +2617,81 @@ MeshHandle remoteWeaponMeshHandle(Weapon weapon) {
     return MeshHandle::RemoteRevolverBody;
   }
   return MeshHandle::Invalid;
+}
+
+Vec3 machineGunBarrelPivot() {
+  return kMachineGunBarrelPivot;
+}
+
+Vec3 machineGunMuzzleSocket() {
+  return kMachineGunMuzzleSocket;
+}
+
+Vec3 firstPersonMachineGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    player,
+    settings.weaponPosition
+  );
+  frame.hand -= frame.basis.forward * 0.10F;
+  frame = machineGunFiringFrame(frame, settings);
+  const Vec3 muzzle = kMachineGunMuzzleSocket * (1.0F / 0.78F);
+  return weaponLocalPoint(frame, muzzle.x, muzzle.y, muzzle.z);
+}
+
+Vec3 revolverMuzzleSocket() {
+  return kRevolverMuzzleSocket;
+}
+
+Vec3 firstPersonRevolverMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    player,
+    settings.weaponPosition
+  );
+  frame.hand += frame.basis.forward * 0.16F;
+  frame.scale *= 0.80F;
+  frame = revolverRecoilFrame(frame, settings.revolverRecoilAmount);
+  return weaponLocalPoint(
+    frame,
+    kRevolverMuzzleSocket.x,
+    kRevolverMuzzleSocket.y,
+    kRevolverMuzzleSocket.z
+  );
+}
+
+Vec3 rocketLauncherMuzzleSocket() {
+  return kRocketLauncherMuzzleSocket;
+}
+
+Vec3 rocketLauncherGripSocket() {
+  return kRocketLauncherGripSocket;
+}
+
+Vec3 firstPersonRocketLauncherMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    player,
+    settings.weaponPosition
+  );
+  frame.scale *= kRocketLauncherViewModelScale;
+  frame.hand += frame.basis.forward * kRocketLauncherViewModelForwardOffset;
+  frame.hand += frame.basis.up * kRocketLauncherViewModelUpOffset;
+  frame = rocketLauncherGripAlignedFrame(frame);
+  frame = rocketLauncherRecoilFrame(frame, settings.rocketLauncherRecoilAmount);
+  return weaponLocalPoint(
+    frame,
+    kRocketLauncherMuzzleSocket.x -
+      0.052F * settings.rocketLauncherMechanicalAmount,
+    kRocketLauncherMuzzleSocket.y,
+    kRocketLauncherMuzzleSocket.z
+  );
 }
 
 const BillboardAsset* billboardAsset(BillboardHandle handle) {
@@ -2364,7 +2747,9 @@ void addRemoteWeaponInstance(
   const PlayerState& player,
   Weapon weapon,
   bool leanEnabled,
-  float leanScale
+  float leanScale,
+  float machineGunBarrelRotationRadians,
+  float rocketLauncherMechanicalAmount
 ) {
   WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
@@ -2372,6 +2757,27 @@ void addRemoteWeaponInstance(
     frame = revolverGripAlignedFrame(frame);
     appendRevolverInstances(scene, frame, RenderPass::OpaqueWorld, 0.0F);
     scene.remoteWeaponStats.instancesSubmitted += 2U;
+    return;
+  }
+  if (weapon == Weapon::MachineGun) {
+    appendMachineGunInstances(
+      scene,
+      frame,
+      RenderPass::OpaqueWorld,
+      machineGunBarrelRotationRadians
+    );
+    scene.remoteWeaponStats.instancesSubmitted += 2U;
+    return;
+  }
+  if (weapon == Weapon::RocketLauncher) {
+    frame = rocketLauncherGripAlignedFrame(frame);
+    appendRocketLauncherInstances(
+      scene,
+      frame,
+      RenderPass::OpaqueWorld,
+      rocketLauncherMechanicalAmount
+    );
+    scene.remoteWeaponStats.instancesSubmitted += 3U;
     return;
   }
   MeshHandle mesh = remoteWeaponMeshHandle(weapon);
@@ -2638,6 +3044,12 @@ void addTransientTracerInstances(
   for (const TransientTracer& tracer : tracers) {
     if (tracer.style == TracerStyle::Shotgun) {
       ++scene.transientVfxStats.activeShotgunTracers;
+    } else if (tracer.style == TracerStyle::MachineGunMuzzleFlash) {
+      ++scene.transientVfxStats.activeMachineGunMuzzleFlashes;
+    } else if (tracer.style == TracerStyle::RevolverMuzzleFlash) {
+      ++scene.transientVfxStats.activeRevolverMuzzleFlashes;
+    } else if (tracer.style == TracerStyle::RocketLauncherMuzzleFlash) {
+      ++scene.transientVfxStats.activeRocketLauncherMuzzleFlashes;
     } else {
       ++scene.transientVfxStats.activeMachineGunTracers;
     }
@@ -2670,6 +3082,61 @@ void addTransientTracerInstances(
     ));
     addTransientTracerGeometry(scene, tracer, direction, tracerLength, color);
     ++scene.transientVfxStats.tracerInstancesSubmitted;
+    if (
+      tracer.style == TracerStyle::MachineGunMuzzleFlash ||
+      tracer.style == TracerStyle::RevolverMuzzleFlash ||
+      tracer.style == TracerStyle::RocketLauncherMuzzleFlash
+    ) {
+      const float styleScale = tracer.style == TracerStyle::RocketLauncherMuzzleFlash
+        ? 4.0F
+        : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 3.4F : 2.8F);
+      const float flashScale = std::max(0.002F, tracer.width) * styleScale;
+      appendSimpleInstance(
+        scene,
+        {
+          MeshHandle::Invalid,
+          BillboardHandle::ExplosionFlash,
+          RenderPass::AdditiveGlow,
+          tracer.start,
+          {flashScale, flashScale, flashScale},
+          static_cast<float>(tracer.seed & 15U) * (kTwoPi / 16.0F),
+          0.0F,
+          color,
+          fade,
+          {tracer.start, flashScale},
+        }
+      );
+      ++scene.transientVfxStats.muzzleFlashInstancesSubmitted;
+      if (
+        tracer.style == TracerStyle::RocketLauncherMuzzleFlash ||
+        tracer.style == TracerStyle::RevolverMuzzleFlash
+      ) {
+        const bool revolver = tracer.style == TracerStyle::RevolverMuzzleFlash;
+        RenderColor haloColor = revolver
+          ? RenderColor{255, 128, 42, color.alpha}
+          : RenderColor{255, 68, 18, color.alpha};
+        haloColor.alpha = static_cast<std::uint8_t>(
+          static_cast<float>(haloColor.alpha) * 0.55F
+        );
+        const float haloScale = flashScale * (revolver ? 1.55F : 1.85F);
+        appendSimpleInstance(
+          scene,
+          {
+            MeshHandle::Invalid,
+            BillboardHandle::ExplosionHalo,
+            RenderPass::AdditiveGlow,
+            tracer.start,
+            {haloScale, haloScale, haloScale},
+            static_cast<float>((tracer.seed + 5U) & 15U) * (kTwoPi / 16.0F),
+            0.0F,
+            haloColor,
+            fade,
+            {tracer.start, haloScale},
+          }
+        );
+        ++scene.transientVfxStats.muzzleFlashInstancesSubmitted;
+      }
+    }
     scene.transientVfxStats.tracerInstanceUploadBytes +=
       static_cast<std::uint32_t>(
         kTracerBeamMeshVertices.size() * kStaticMeshVertexUploadBytes
@@ -2835,10 +3302,13 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       ++scene.playerBoxStats.opaqueBatches;
       ++scene.playerBoxStats.opaqueDrawCalls;
     } else if (
-      batch.mesh == MeshHandle::RemoteMachineGun ||
+      batch.mesh == MeshHandle::RemoteMachineGunBody ||
+      batch.mesh == MeshHandle::RemoteMachineGunBarrels ||
       batch.mesh == MeshHandle::RemoteShotgun ||
       batch.mesh == MeshHandle::RemoteGrenadeLauncher ||
-      batch.mesh == MeshHandle::RemoteRocketLauncher ||
+      batch.mesh == MeshHandle::RemoteRocketLauncherBody ||
+      batch.mesh == MeshHandle::RemoteRocketLauncherRecoil ||
+      batch.mesh == MeshHandle::RemoteRocketLauncherLatch ||
       batch.mesh == MeshHandle::RemoteLightningGun ||
       batch.mesh == MeshHandle::RemoteRailgun ||
       batch.mesh == MeshHandle::RemotePlasmaGun ||
@@ -3488,7 +3958,9 @@ Scene3D buildPerspectiveScene(
         remote.teammate
           ? settings.teammateLeanEnabled
           : settings.enemyLeanEnabled,
-        remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale
+        remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
+        remote.machineGunBarrelRotationRadians,
+        remote.rocketLauncherMechanicalAmount
       );
     }
   }
@@ -3582,13 +4054,25 @@ Scene3D buildPerspectiveScene(
               settings
             )
           : fire.start;
-      addSegment(
-        scene,
-        visualStart,
-        fire.end,
-        fire.hit ? 0.045F : 0.03F,
-        fire.hit ? RenderColor{255, 248, 180, 255} : RenderColor{128, 230, 255, 235}
-      );
+      if (fire.weapon == Weapon::Revolver) {
+        const float alpha = fireIndex < settings.revolverTracerAlpha.size()
+          ? std::clamp(settings.revolverTracerAlpha[fireIndex], 0.0F, 1.0F)
+          : 1.0F;
+        RenderColor outer = {244, 182, 82, static_cast<std::uint8_t>(205.0F * alpha)};
+        RenderColor core = {255, 246, 210, static_cast<std::uint8_t>(245.0F * alpha)};
+        addSegment(scene, visualStart, fire.end, fire.hit ? 0.036F : 0.028F, outer);
+        addSegment(scene, visualStart, fire.end, fire.hit ? 0.014F : 0.010F, core);
+      } else {
+        addSegment(
+          scene,
+          visualStart,
+          fire.end,
+          fire.hit ? 0.045F : 0.03F,
+          fire.hit
+            ? RenderColor{255, 248, 180, 255}
+            : RenderColor{128, 230, 255, 235}
+        );
+      }
     }
   }
   addTransientTracerInstances(scene, transientTracers, settings);

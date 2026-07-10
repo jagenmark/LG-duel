@@ -1383,9 +1383,9 @@ int main() {
     settings
   );
   failures += expect(
-    mixedWeaponScene.remoteWeaponStats.instancesSubmitted == 2 &&
-      mixedWeaponScene.remoteWeaponStats.batches == 2 &&
-      mixedWeaponScene.remoteWeaponStats.drawCalls == 2,
+    mixedWeaponScene.remoteWeaponStats.instancesSubmitted == 4 &&
+      mixedWeaponScene.remoteWeaponStats.batches == 4 &&
+      mixedWeaponScene.remoteWeaponStats.drawCalls == 4,
     "remotes holding different weapons should form separate remote weapon batches"
   );
 
@@ -1507,6 +1507,7 @@ int main() {
     );
     const lg::MeshHandle mesh = lg::remoteWeaponMeshHandle(weapon);
     const lg::StaticMeshAsset* asset = lg::staticMeshAsset(mesh);
+    const lg::MaterialMeshAsset* materialAsset = lg::materialMeshAsset(mesh);
     bool foundWeaponInstance = false;
     lg::StaticMeshInstance foundWeapon = {};
     bool foundRevolverCylinder = weapon != lg::Weapon::Revolver;
@@ -1522,8 +1523,11 @@ int main() {
           instance.pass == lg::RenderPass::OpaqueWorld
         );
     }
-    const std::uint32_t expectedInstances =
-      weapon == lg::Weapon::Revolver ? 2U : 1U;
+    const std::uint32_t expectedInstances = weapon == lg::Weapon::RocketLauncher
+      ? 3U
+      : (weapon == lg::Weapon::Revolver || weapon == lg::Weapon::MachineGun)
+        ? 2U
+        : 1U;
     bool revolverGripAlignedAndSized = true;
     if (weapon == lg::Weapon::Revolver && foundWeaponInstance) {
       const lg::Vec3 grip = transformPoint(
@@ -1545,8 +1549,10 @@ int main() {
     }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
-        asset != nullptr &&
-        !asset->vertices.empty() &&
+        (
+          (asset != nullptr && !asset->vertices.empty()) ||
+          (materialAsset != nullptr && !materialAsset->vertices.empty())
+        ) &&
         foundWeaponInstance &&
         foundRevolverCylinder &&
         revolverGripAlignedAndSized &&
@@ -1555,6 +1561,81 @@ int main() {
       "every playable weapon should map to its expected static mesh instances"
     );
   }
+
+  const lg::MaterialMeshAsset* revolverMaterial =
+    lg::materialMeshAsset(lg::MeshHandle::RemoteRevolverBody);
+  bool hasPolishedMetal = false;
+  bool hasNonMetallicWalnut = false;
+  if (revolverMaterial != nullptr) {
+    for (const lg::WeaponMaterialVertex3D& vertex : revolverMaterial->vertices) {
+      hasPolishedMetal = hasPolishedMetal ||
+        (vertex.metallic > 0.9F && vertex.roughness < 0.3F);
+      hasNonMetallicWalnut = hasNonMetallicWalnut ||
+        (
+          vertex.metallic < 0.1F &&
+          static_cast<float>(vertex.baseColor.red) >
+            static_cast<float>(vertex.baseColor.green) * 1.5F &&
+          vertex.baseColor.green > vertex.baseColor.blue
+        );
+    }
+  }
+  failures += expect(
+    hasPolishedMetal && hasNonMetallicWalnut,
+    "revolver material mesh should preserve contrasting steel and walnut properties"
+  );
+
+  const std::array<const lg::MaterialMeshAsset*, 2> machineGunMaterials = {{
+    lg::materialMeshAsset(lg::MeshHandle::RemoteMachineGunBody),
+    lg::materialMeshAsset(lg::MeshHandle::RemoteMachineGunBarrels),
+  }};
+  bool hasMachineGunSteel = false;
+  bool hasMachineGunBrass = false;
+  bool hasMachineGunCyanAccent = false;
+  for (const lg::MaterialMeshAsset* machineGunMaterial : machineGunMaterials) {
+    if (machineGunMaterial == nullptr) continue;
+    for (const lg::WeaponMaterialVertex3D& vertex : machineGunMaterial->vertices) {
+      hasMachineGunSteel = hasMachineGunSteel ||
+        (vertex.metallic > 0.9F && vertex.roughness < 0.3F);
+      hasMachineGunBrass = hasMachineGunBrass ||
+        (
+          vertex.metallic > 0.5F &&
+          vertex.baseColor.red > vertex.baseColor.green &&
+          vertex.baseColor.green > vertex.baseColor.blue
+        );
+      hasMachineGunCyanAccent = hasMachineGunCyanAccent ||
+        (
+          vertex.metallic < 0.1F &&
+          vertex.baseColor.blue > vertex.baseColor.red * 2U
+        );
+    }
+  }
+  failures += expect(
+    hasMachineGunSteel && hasMachineGunBrass && hasMachineGunCyanAccent,
+    "machine-gun material mesh should preserve steel, brass, and cyan accents"
+  );
+
+  const std::array<const lg::MaterialMeshAsset*, 3> rocketLauncherMaterials = {{
+    lg::materialMeshAsset(lg::MeshHandle::RemoteRocketLauncherBody),
+    lg::materialMeshAsset(lg::MeshHandle::RemoteRocketLauncherRecoil),
+    lg::materialMeshAsset(lg::MeshHandle::RemoteRocketLauncherLatch),
+  }};
+  bool hasRocketLauncherMetal = false;
+  bool hasRocketLauncherRed = false;
+  for (const lg::MaterialMeshAsset* material : rocketLauncherMaterials) {
+    if (material == nullptr) continue;
+    for (const lg::WeaponMaterialVertex3D& vertex : material->vertices) {
+      hasRocketLauncherMetal = hasRocketLauncherMetal || vertex.metallic > 0.7F;
+      hasRocketLauncherRed = hasRocketLauncherRed ||
+        (
+          vertex.baseColor.red > vertex.baseColor.green * 2U &&
+          vertex.baseColor.red > vertex.baseColor.blue * 2U
+        );
+    }
+  }
+  failures += expect(
+    hasRocketLauncherMetal && hasRocketLauncherRed,
+    "rocket-launcher material meshes should preserve metal and red identification paint"
+  );
 
   lg::LightningGunResult opponentBeam;
   opponentBeam.active = true;
@@ -1690,6 +1771,44 @@ int main() {
       "MG tracer beam geometry should preserve upward pitch"
     );
   }
+  tracerInstances[0] = {
+    machineGunFires[0].start,
+    machineGunFires[0].start + lg::Vec3{0.16F, 0.0F, 0.0F},
+    0.0F,
+    0.045F,
+    0.045F,
+    {255, 188, 76, 235},
+    machineGunFires[0].visualSeed,
+    lg::TracerStyle::MachineGunMuzzleFlash,
+  };
+  const lg::Scene3D muzzleFlashScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 1U),
+    settings
+  );
+  const bool hasAdditiveMuzzleBillboard = std::any_of(
+    muzzleFlashScene.simpleInstances.begin(),
+    muzzleFlashScene.simpleInstances.end(),
+    [](const lg::SimpleRenderInstance& instance) {
+      return instance.billboard == lg::BillboardHandle::ExplosionFlash &&
+        instance.pass == lg::RenderPass::AdditiveGlow;
+    }
+  );
+  failures += expect(
+    muzzleFlashScene.transientVfxStats.activeMachineGunMuzzleFlashes == 1 &&
+      muzzleFlashScene.transientVfxStats.muzzleFlashInstancesSubmitted == 1 &&
+      hasAdditiveMuzzleBillboard &&
+      muzzleFlashScene.translucentVertices.size() == 12U,
+    "MG muzzle flash should combine a directional flame with one additive billboard"
+  );
 
   for (std::size_t index = 0; index < 6U; ++index) {
     tracerInstances[index] = {
@@ -1774,20 +1893,155 @@ int main() {
     rockets,
     localMachineGunSettings
   );
-  bool hasMachineGunViewModel = false;
+  bool hasMachineGunBodyViewModel = false;
+  bool hasMachineGunBarrelViewModel = false;
   for (const lg::StaticMeshInstance& instance : localMachineGunScene.staticMeshInstances) {
-    hasMachineGunViewModel =
-      hasMachineGunViewModel ||
-      (
-        instance.mesh == lg::MeshHandle::RemoteMachineGun &&
-        instance.pass == lg::RenderPass::ViewModel
-      );
+    hasMachineGunBodyViewModel = hasMachineGunBodyViewModel ||
+      (instance.mesh == lg::MeshHandle::RemoteMachineGunBody &&
+       instance.pass == lg::RenderPass::ViewModel);
+    hasMachineGunBarrelViewModel = hasMachineGunBarrelViewModel ||
+      (instance.mesh == lg::MeshHandle::RemoteMachineGunBarrels &&
+       instance.pass == lg::RenderPass::ViewModel);
   }
   failures += expect(
-    hasMachineGunViewModel &&
-      localMachineGunScene.viewModelStats.drawCalls == 1 &&
+    hasMachineGunBodyViewModel &&
+      hasMachineGunBarrelViewModel &&
+      localMachineGunScene.viewModelStats.drawCalls == 2 &&
       localMachineGunScene.viewModelStats.dynamicVertices == 0,
-    "first-person machine gun should use a static viewmodel mesh without dynamic vertices"
+    "first-person machine gun should use separate static body and barrel viewmodel meshes"
+  );
+
+  lg::RenderSettings spinningMachineGunSettings = localMachineGunSettings;
+  spinningMachineGunSettings.machineGunBarrelRotationRadians =
+    3.14159265359F * 0.5F;
+  const lg::Scene3D spinningMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    spinningMachineGunSettings
+  );
+  const auto findMachineGunPart = [](
+    const lg::Scene3D& scene,
+    lg::MeshHandle mesh
+  ) -> const lg::StaticMeshInstance* {
+    const auto found = std::find_if(
+      scene.staticMeshInstances.begin(),
+      scene.staticMeshInstances.end(),
+      [mesh](const lg::StaticMeshInstance& instance) {
+        return instance.mesh == mesh && instance.pass == lg::RenderPass::ViewModel;
+      }
+    );
+    return found != scene.staticMeshInstances.end() ? &*found : nullptr;
+  };
+  const lg::StaticMeshInstance* idleBody = findMachineGunPart(
+    localMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const lg::StaticMeshInstance* spinningBody = findMachineGunPart(
+    spinningMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const lg::StaticMeshInstance* idleBarrels = findMachineGunPart(
+    localMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBarrels
+  );
+  const lg::StaticMeshInstance* spinningBarrels = findMachineGunPart(
+    spinningMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBarrels
+  );
+  const bool bodyUnchanged = idleBody != nullptr && spinningBody != nullptr &&
+    nearlyEqual(idleBody->modelRow0.x, spinningBody->modelRow0.x) &&
+    nearlyEqual(idleBody->modelRow1.y, spinningBody->modelRow1.y) &&
+    nearlyEqual(idleBody->modelRow2.z, spinningBody->modelRow2.z);
+  bool barrelsRotateAroundAuthoredPivot = false;
+  if (idleBarrels != nullptr && spinningBarrels != nullptr) {
+    const lg::Vec3 viewModelPivot = lg::machineGunBarrelPivot();
+    const lg::Vec3 idlePivot = transformPoint(
+      *idleBarrels,
+      viewModelPivot
+    );
+    const lg::Vec3 spinningPivot = transformPoint(
+      *spinningBarrels,
+      viewModelPivot
+    );
+    barrelsRotateAroundAuthoredPivot =
+      lg::length(idlePivot - spinningPivot) < 0.001F &&
+      !nearlyEqual(idleBarrels->modelRow1.y, spinningBarrels->modelRow1.y);
+  }
+  failures += expect(
+    bodyUnchanged && barrelsRotateAroundAuthoredPivot,
+    "machine-gun barrel rotation should preserve its authored pivot and leave the body fixed"
+  );
+  lg::RenderSettings recoilingMachineGunSettings = localMachineGunSettings;
+  recoilingMachineGunSettings.machineGunRecoilAmount = 1.0F;
+  recoilingMachineGunSettings.machineGunVibrationAmount = 1.0F;
+  recoilingMachineGunSettings.machineGunVibrationPhaseRadians = 0.75F;
+  const lg::Scene3D recoilingMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    recoilingMachineGunSettings
+  );
+  const lg::StaticMeshInstance* recoilingBody = findMachineGunPart(
+    recoilingMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const lg::StaticMeshInstance* recoilingBarrels = findMachineGunPart(
+    recoilingMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBarrels
+  );
+  bool authoredMuzzleMatchesAllWeaponPositions = true;
+  for (int weaponPosition = 0; weaponPosition < 3; ++weaponPosition) {
+    lg::RenderSettings positionedSettings = localMachineGunSettings;
+    positionedSettings.weaponPosition = weaponPosition;
+    const lg::Scene3D positionedScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      opponent,
+      inactiveBeam,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      positionedSettings
+    );
+    const lg::StaticMeshInstance* positionedBody = findMachineGunPart(
+      positionedScene,
+      lg::MeshHandle::RemoteMachineGunBody
+    );
+    authoredMuzzleMatchesAllWeaponPositions =
+      authoredMuzzleMatchesAllWeaponPositions &&
+      positionedBody != nullptr &&
+      lg::length(
+        transformPoint(*positionedBody, lg::machineGunMuzzleSocket()) -
+        lg::firstPersonMachineGunMuzzlePosition(player, positionedSettings)
+      ) < 0.001F;
+  }
+  failures += expect(
+    authoredMuzzleMatchesAllWeaponPositions,
+    "MG tracer origin should match the authored model socket in every weapon position"
+  );
+  failures += expect(
+    idleBody != nullptr && idleBarrels != nullptr &&
+      recoilingBody != nullptr && recoilingBarrels != nullptr &&
+      lg::length(recoilingBody->modelTranslation - idleBody->modelTranslation) > 0.001F &&
+      lg::length(
+        recoilingBarrels->modelTranslation - idleBarrels->modelTranslation
+      ) > 0.001F,
+    "MG firing response should move body and barrels together without changing gameplay state"
   );
 
   lg::RenderSettings hiddenLocalWeaponSettings = localMachineGunSettings;
@@ -1810,7 +2064,8 @@ int main() {
     hasHiddenMachineGunViewModel =
       hasHiddenMachineGunViewModel ||
       (
-        instance.mesh == lg::MeshHandle::RemoteMachineGun &&
+        (instance.mesh == lg::MeshHandle::RemoteMachineGunBody ||
+         instance.mesh == lg::MeshHandle::RemoteMachineGunBarrels) &&
         instance.pass == lg::RenderPass::ViewModel
       );
   }
@@ -1865,6 +2120,7 @@ int main() {
     rockets,
     localRevolverSettings
   );
+  const lg::RenderSettings idleRevolverSettings = localRevolverSettings;
   localRevolverSettings.revolverRecoilAmount = 1.0F;
   localRevolverSettings.revolverCylinderRotationRadians =
     3.14159265359F / 3.0F;
@@ -1905,10 +2161,19 @@ int main() {
     lg::MeshHandle::RemoteRevolverCylinder
   );
   const float revolverViewModelScale = lg::length(revolverBody.modelRow0);
+  const bool revolverSocketMatchesViewModel =
+    lg::length(
+      transformPoint(revolverBody, lg::revolverMuzzleSocket()) -
+      lg::firstPersonRevolverMuzzlePosition(
+        player,
+        idleRevolverSettings
+      )
+    ) < 0.001F;
   failures += expect(
     revolverBody.mesh == lg::MeshHandle::RemoteRevolverBody &&
       revolverCylinder.mesh == lg::MeshHandle::RemoteRevolverCylinder &&
       nearlyEqual(revolverViewModelScale, 0.40F) &&
+      revolverSocketMatchesViewModel &&
       localRevolverScene.viewModelStats.drawCalls == 2 &&
       lg::length(
         recoiledRevolverBody.modelTranslation - revolverBody.modelTranslation
@@ -1917,6 +2182,114 @@ int main() {
         indexedRevolverCylinder.modelRow1 - revolverCylinder.modelRow1
       ) > 0.01F,
     "first-person revolver should submit body and cylinder with recoil and one-step indexing transforms"
+  );
+  std::array<lg::TransientTracer, 1> revolverFlash = {{
+    {
+      lg::firstPersonRevolverMuzzlePosition(player, idleRevolverSettings),
+      lg::firstPersonRevolverMuzzlePosition(player, idleRevolverSettings) +
+        lg::Vec3{0.22F, 0.0F, 0.0F},
+      0.0F,
+      0.052F,
+      0.062F,
+      {255, 212, 118, 245},
+      19U,
+      lg::TracerStyle::RevolverMuzzleFlash,
+    },
+  }};
+  const lg::Scene3D revolverFlashScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(revolverFlash),
+    idleRevolverSettings
+  );
+  const std::size_t revolverFlashBillboards = static_cast<std::size_t>(
+    std::count_if(
+      revolverFlashScene.simpleInstances.begin(),
+      revolverFlashScene.simpleInstances.end(),
+      [](const lg::SimpleRenderInstance& instance) {
+        return instance.pass == lg::RenderPass::AdditiveGlow &&
+          (
+            instance.billboard == lg::BillboardHandle::ExplosionFlash ||
+            instance.billboard == lg::BillboardHandle::ExplosionHalo
+          );
+      }
+    )
+  );
+  failures += expect(
+    revolverFlashScene.transientVfxStats.activeRevolverMuzzleFlashes == 1U &&
+      revolverFlashBillboards == 2U &&
+      revolverFlashScene.translucentVertices.size() == 12U,
+    "revolver muzzle flash should combine a warm directional flame, flash, and halo"
+  );
+
+  lg::RenderSettings localRocketLauncherSettings = settings;
+  localRocketLauncherSettings.localSelectedWeapon = lg::Weapon::RocketLauncher;
+  const lg::Scene3D idleRocketLauncherScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localRocketLauncherSettings
+  );
+  localRocketLauncherSettings.rocketLauncherMechanicalAmount = 1.0F;
+  localRocketLauncherSettings.rocketLauncherRecoilAmount = 1.0F;
+  const lg::Scene3D firingRocketLauncherScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localRocketLauncherSettings
+  );
+  const lg::StaticMeshInstance idleRocketBody = findViewModel(
+    idleRocketLauncherScene,
+    lg::MeshHandle::RemoteRocketLauncherBody
+  );
+  const lg::StaticMeshInstance idleRocketRecoil = findViewModel(
+    idleRocketLauncherScene,
+    lg::MeshHandle::RemoteRocketLauncherRecoil
+  );
+  const lg::StaticMeshInstance firingRocketBody = findViewModel(
+    firingRocketLauncherScene,
+    lg::MeshHandle::RemoteRocketLauncherBody
+  );
+  const lg::StaticMeshInstance firingRocketRecoil = findViewModel(
+    firingRocketLauncherScene,
+    lg::MeshHandle::RemoteRocketLauncherRecoil
+  );
+  failures += expect(
+    idleRocketBody.mesh == lg::MeshHandle::RemoteRocketLauncherBody &&
+      idleRocketRecoil.mesh == lg::MeshHandle::RemoteRocketLauncherRecoil &&
+      idleRocketLauncherScene.viewModelStats.drawCalls == 3U &&
+      lg::length(firingRocketBody.modelTranslation - idleRocketBody.modelTranslation) > 0.001F &&
+      lg::length(firingRocketRecoil.modelTranslation - idleRocketRecoil.modelTranslation) > 0.001F &&
+      lg::length(
+        lg::firstPersonRocketLauncherMuzzlePosition(
+          player,
+          localRocketLauncherSettings
+        ) -
+        transformPoint(
+          firingRocketRecoil,
+          lg::rocketLauncherMuzzleSocket() - lg::Vec3{0.5F, 0.0F, 0.08F}
+        )
+      ) < 0.001F,
+    "first-person rocket launcher should submit three animated material parts and preserve its muzzle socket"
   );
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteMachineGunFires = {};
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> machineGunRemotePlayers = {};
@@ -1950,6 +2323,8 @@ int main() {
     rockets,
     settings
   );
+  machineGunRemotePlayers[1].machineGunBarrelRotationRadians =
+    3.14159265359F * 0.5F;
   remoteMachineGunFires[1].visualSeed = 4;
   const lg::Scene3D rotatedMachineGunScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -1966,6 +2341,45 @@ int main() {
     remoteMachineGunScene.transientVfxStats.tracerInstancesSubmitted == 0 &&
       rotatedMachineGunScene.transientVfxStats.tracerInstancesSubmitted == 0,
     "remote machine gun retained fires should wait for transient VFX consumption"
+  );
+  const auto findRemoteMachineGunPart = [](
+    const lg::Scene3D& scene,
+    lg::MeshHandle mesh
+  ) -> const lg::StaticMeshInstance* {
+    const auto found = std::find_if(
+      scene.staticMeshInstances.begin(),
+      scene.staticMeshInstances.end(),
+      [mesh](const lg::StaticMeshInstance& instance) {
+        return instance.mesh == mesh && instance.pass == lg::RenderPass::OpaqueWorld;
+      }
+    );
+    return found != scene.staticMeshInstances.end() ? &*found : nullptr;
+  };
+  const lg::StaticMeshInstance* idleRemoteBody = findRemoteMachineGunPart(
+    remoteMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const lg::StaticMeshInstance* spinningRemoteBody = findRemoteMachineGunPart(
+    rotatedMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  const lg::StaticMeshInstance* idleRemoteBarrels = findRemoteMachineGunPart(
+    remoteMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBarrels
+  );
+  const lg::StaticMeshInstance* spinningRemoteBarrels = findRemoteMachineGunPart(
+    rotatedMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBarrels
+  );
+  failures += expect(
+    idleRemoteBody != nullptr && spinningRemoteBody != nullptr &&
+      idleRemoteBarrels != nullptr && spinningRemoteBarrels != nullptr &&
+      nearlyEqual(idleRemoteBody->modelRow1.y, spinningRemoteBody->modelRow1.y) &&
+      !nearlyEqual(
+        idleRemoteBarrels->modelRow1.y,
+        spinningRemoteBarrels->modelRow1.y
+      ),
+    "remote machine-gun presentation angle should rotate only its barrel instance"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteShotgunFires = {};
@@ -2085,6 +2499,8 @@ int main() {
   remoteRevolverFires[1] = remoteRailFires[1];
   remoteRevolverFires[1].weapon = lg::Weapon::Revolver;
   shotgunRemotePlayers[1].selectedWeapon = lg::Weapon::Revolver;
+  lg::RenderSettings revolverEffectSettings = effectOnlySettings;
+  revolverEffectSettings.revolverTracerAlpha[1] = 0.5F;
   const lg::Scene3D remoteRevolverMuzzleScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -2094,10 +2510,21 @@ int main() {
     remoteRevolverFires,
     rocketExplosions,
     rockets,
-    effectOnlySettings
+    revolverEffectSettings
   );
+  bool hasWarmRevolverTracer = false;
+  for (const lg::Vertex3D& vertex : remoteRevolverMuzzleScene.translucentVertices) {
+    hasWarmRevolverTracer = hasWarmRevolverTracer ||
+      (
+        vertex.color.red > vertex.color.green &&
+        vertex.color.green > vertex.color.blue &&
+        vertex.color.alpha > 80U &&
+        vertex.color.alpha < 205U
+      );
+  }
   failures += expect(
     hasAnyVertex(remoteRevolverMuzzleScene) &&
+      hasWarmRevolverTracer &&
       maxVertexX(remoteRevolverMuzzleScene) <
         remoteRevolverFires[1].start.x - 0.2F,
     "remote revolver beam should start from the modeled barrel socket"

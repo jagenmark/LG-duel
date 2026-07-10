@@ -18,6 +18,8 @@
 #include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/Renderer.hpp"
+#include "render/Scene3D.hpp"
+#include "render/WeaponPresentation.hpp"
 #include "shared/Constants.hpp"
 #include "shared/FixedTick.hpp"
 #include "shared/Math.hpp"
@@ -66,7 +68,6 @@ constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
 constexpr float kRailgunBeamLingerSeconds = 0.5F;
-constexpr float kRevolverBeamLingerSeconds = kRailgunBeamLingerSeconds * 0.25F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
@@ -454,6 +455,11 @@ struct WeaponPresentationFrame {
     forward -= kRevolverGripSocket.x;
     right -= kRevolverGripSocket.y;
     up -= kRevolverGripSocket.z;
+  } else if (weapon == Weapon::RocketLauncher) {
+    const Vec3 grip = rocketLauncherGripSocket();
+    forward -= grip.x;
+    right -= grip.y;
+    up -= grip.z;
   }
   return weaponPresentationPoint(frame, forward, right, up);
 }
@@ -469,30 +475,18 @@ struct WeaponPresentationFrame {
     if (!settings.showOwnWeapons) {
       return hiddenWeaponVisualOrigin(localPlayer);
     }
-    const float angle =
-      static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
-    return weaponPresentationPoint(
-      firstPersonWeaponPresentationFrame(
-        localPlayer,
-        settings.weaponPosition,
-        Weapon::MachineGun
-      ),
-      0.46F,
-      std::cos(angle) * 0.09F,
-      0.12F + std::sin(angle) * 0.09F
-    );
+    return firstPersonMachineGunMuzzlePosition(localPlayer, settings);
   }
-  const float angle =
-    static_cast<float>(fire.visualSeed % 6U) * (kTwoPi / 6.0F);
+  const Vec3 muzzle = machineGunMuzzleSocket();
   return remoteWeaponPresentationPoint(
     fire.start,
     remotePlayers,
     playerIndex,
     Weapon::MachineGun,
     settings,
-    0.64F,
-    std::cos(angle) * 0.055F,
-    0.09F + std::sin(angle) * 0.055F
+    muzzle.x,
+    muzzle.y,
+    muzzle.z
   );
 }
 
@@ -715,17 +709,9 @@ struct TransientTracerStore {
           if (!settings.showOwnWeapons) {
             tracer.start = hiddenWeaponVisualOrigin(localPlayer);
           } else if (followWeapon[index] == Weapon::MachineGun) {
-            const float angle =
-              static_cast<float>(followSeed[index] % 6U) * (kTwoPi / 6.0F);
-            tracer.start = weaponPresentationPoint(
-              firstPersonWeaponPresentationFrame(
-                localPlayer,
-                settings.weaponPosition,
-                Weapon::MachineGun
-              ),
-              0.46F,
-              std::cos(angle) * 0.09F,
-              0.12F + std::sin(angle) * 0.09F
+            tracer.start = firstPersonMachineGunMuzzlePosition(
+              localPlayer,
+              settings
             );
           } else if (followWeapon[index] == Weapon::Shotgun) {
             tracer.start = weaponPresentationPoint(
@@ -737,6 +723,16 @@ struct TransientTracerStore {
               0.46F,
               0.0F,
               0.12F
+            );
+          } else if (followWeapon[index] == Weapon::RocketLauncher) {
+            tracer.start = firstPersonRocketLauncherMuzzlePosition(
+              localPlayer,
+              settings
+            );
+          } else if (followWeapon[index] == Weapon::Revolver) {
+            tracer.start = firstPersonRevolverMuzzlePosition(
+              localPlayer,
+              settings
             );
           }
           tracer.end += tracer.start - oldStart;
@@ -863,6 +859,46 @@ void spawnMachineGunTracer(
     fire.visualSeed,
     TracerStyle::MachineGun,
   }, followLocalMuzzle, Weapon::MachineGun, fire.visualSeed);
+  // The flash shares the tracer's deduplicated fire event and muzzle-follow
+  // metadata, so it cannot repeat when the same snapshot is rendered twice.
+  store.add({
+    visualStart,
+    visualStart + direction * 0.16F,
+    0.0F,
+    0.045F,
+    0.045F,
+    {255, 188, 76, 235},
+    fire.visualSeed,
+    TracerStyle::MachineGunMuzzleFlash,
+  }, followLocalMuzzle, Weapon::MachineGun, fire.visualSeed);
+}
+
+[[nodiscard]] Vec3 rocketLauncherMuzzleSource(
+  const WeaponFireResult& fire,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+) {
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return settings.showOwnWeapons
+      ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
+      : hiddenWeaponVisualOrigin(localPlayer);
+  }
+  const Vec3 muzzle = rocketLauncherMuzzleSocket();
+  const float mechanicalAmount = playerIndex < remotePlayers.size()
+    ? remotePlayers[playerIndex].rocketLauncherMechanicalAmount
+    : 0.0F;
+  return remoteWeaponPresentationPoint(
+    fire.start,
+    remotePlayers,
+    playerIndex,
+    Weapon::RocketLauncher,
+    settings,
+    muzzle.x - 0.052F * mechanicalAmount,
+    muzzle.y,
+    muzzle.z
+  );
 }
 
 void spawnShotgunTracers(
@@ -921,6 +957,75 @@ void spawnShotgunTracers(
   }
 }
 
+void spawnRocketLauncherMuzzleFlash(
+  TransientTracerStore& store,
+  const WeaponFireResult& fire,
+  Vec3 visualStart,
+  bool followLocalMuzzle
+) {
+  const Vec3 direction = normalize(fire.end - fire.start);
+  if (length(direction) <= 0.0001F) {
+    return;
+  }
+  store.add({
+    visualStart,
+    visualStart + direction * 0.28F,
+    0.0F,
+    0.095F,
+    0.090F,
+    {255, 112, 28, 245},
+    fire.visualSeed,
+    TracerStyle::RocketLauncherMuzzleFlash,
+  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed);
+}
+
+[[nodiscard]] Vec3 revolverMuzzleSource(
+  const WeaponFireResult& fire,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+) {
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return settings.showOwnWeapons
+      ? firstPersonRevolverMuzzlePosition(localPlayer, settings)
+      : hiddenWeaponVisualOrigin(localPlayer);
+  }
+  const Vec3 muzzle = revolverMuzzleSocket();
+  return remoteWeaponPresentationPoint(
+    fire.start,
+    remotePlayers,
+    playerIndex,
+    Weapon::Revolver,
+    settings,
+    muzzle.x,
+    muzzle.y,
+    muzzle.z
+  );
+}
+
+void spawnRevolverMuzzleFlash(
+  TransientTracerStore& store,
+  const WeaponFireResult& fire,
+  Vec3 visualStart,
+  bool followLocalMuzzle
+) {
+  const Vec3 direction = normalize(fire.end - fire.start);
+  if (length(direction) <= 0.0001F) {
+    return;
+  }
+  store.add({
+    visualStart,
+    visualStart + direction * 0.22F,
+    0.0F,
+    0.052F,
+    0.062F,
+    {255, 212, 118, 245},
+    fire.visualSeed,
+    TracerStyle::RevolverMuzzleFlash,
+  }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed);
+}
+
 void consumeTracerWeaponFires(
   TransientTracerStore& store,
   const Arena& arena,
@@ -934,7 +1039,12 @@ void consumeTracerWeaponFires(
     const WeaponFireResult& fire = weaponFires[playerIndex];
     if (
       !fire.fired ||
-      (fire.weapon != Weapon::MachineGun && fire.weapon != Weapon::Shotgun)
+      (
+        fire.weapon != Weapon::MachineGun &&
+        fire.weapon != Weapon::Shotgun &&
+        fire.weapon != Weapon::Revolver &&
+        fire.weapon != Weapon::RocketLauncher
+      )
     ) {
       continue;
     }
@@ -967,7 +1077,7 @@ void consumeTracerWeaponFires(
         visualStart,
         localEvent
       );
-    } else {
+    } else if (fire.weapon == Weapon::Shotgun) {
       const Vec3 visualStart = shotgunTracerSource(
         fire,
         localPlayer,
@@ -988,6 +1098,34 @@ void consumeTracerWeaponFires(
         store,
         arena,
         visualFire,
+        visualStart,
+        localEvent
+      );
+    } else if (fire.weapon == Weapon::RocketLauncher) {
+      const Vec3 visualStart = rocketLauncherMuzzleSource(
+        fire,
+        localPlayer,
+        remotePlayers,
+        playerIndex,
+        settings
+      );
+      spawnRocketLauncherMuzzleFlash(
+        store,
+        fire,
+        visualStart,
+        localEvent
+      );
+    } else {
+      const Vec3 visualStart = revolverMuzzleSource(
+        fire,
+        localPlayer,
+        remotePlayers,
+        playerIndex,
+        settings
+      );
+      spawnRevolverMuzzleFlash(
+        store,
+        fire,
         visualStart,
         localEvent
       );
@@ -4441,6 +4579,14 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastRemoteDamageTime = {};
   std::array<LingeringWeaponFire, kDuelPlayerCount> lingeringRailBeams = {};
   std::array<std::uint8_t, kDuelPlayerCount> revolverCylinderSteps = {};
+  std::array<MachineGunBarrelSpinState, kDuelPlayerCount> machineGunBarrelSpin = {};
+  MachineGunFiringResponseState machineGunFiringResponse;
+  WeaponFireResult lastMachineGunResponseFire = {};
+  bool hasLastMachineGunResponseFire = false;
+  std::array<RocketLauncherFiringResponseState, kDuelPlayerCount>
+    rocketLauncherFiringResponse = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> lastRocketLauncherResponseFire = {};
+  std::array<bool, kDuelPlayerCount> hasLastRocketLauncherResponseFire = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
@@ -5254,6 +5400,13 @@ int GameApp::run() const {
       hasEnemyHitTime = false;
       lingeringRailBeams = {};
       revolverCylinderSteps = {};
+      machineGunBarrelSpin = {};
+      machineGunFiringResponse = {};
+      lastMachineGunResponseFire = {};
+      hasLastMachineGunResponseFire = false;
+      rocketLauncherFiringResponse = {};
+      lastRocketLauncherResponseFire = {};
+      hasLastRocketLauncherResponseFire = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
@@ -5942,6 +6095,62 @@ int GameApp::run() const {
       renderPlayer.viewYawRadians = presentationView.yawRadians;
       renderPlayer.viewPitchRadians = presentationView.pitchRadians;
     }
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      const bool localPlayer = playerIndex == renderLocalPlayerIndex;
+      const bool motorDriven = localPlayer
+        ? (
+            input.attack > 0 &&
+            displayedSelectedWeapon == Weapon::MachineGun &&
+            renderPlayer.health > 0
+          )
+        : (
+            renderRemotePlayers[playerIndex].visible &&
+            renderWeaponFires[playerIndex].fired &&
+            renderWeaponFires[playerIndex].weapon == Weapon::MachineGun
+          );
+      machineGunBarrelSpin[playerIndex].update(motorDriven, elapsed.count());
+      renderRemotePlayers[playerIndex].machineGunBarrelRotationRadians =
+        machineGunBarrelSpin[playerIndex].angleRadians;
+    }
+    const WeaponFireResult& localPresentationFire =
+      renderWeaponFires[renderLocalPlayerIndex];
+    if (
+      localPresentationFire.fired &&
+      localPresentationFire.weapon == Weapon::MachineGun &&
+      (
+        !hasLastMachineGunResponseFire ||
+        !sameWeaponFireEvent(
+          localPresentationFire,
+          lastMachineGunResponseFire
+        )
+      )
+    ) {
+      machineGunFiringResponse.triggerShot(localPresentationFire.visualSeed);
+      lastMachineGunResponseFire = localPresentationFire;
+      hasLastMachineGunResponseFire = true;
+    }
+    machineGunFiringResponse.update(
+      elapsed.count(),
+      machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed()
+    );
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      const WeaponFireResult& fire = renderWeaponFires[playerIndex];
+      if (
+        fire.fired &&
+        fire.weapon == Weapon::RocketLauncher &&
+        (
+          !hasLastRocketLauncherResponseFire[playerIndex] ||
+          !sameWeaponFireEvent(fire, lastRocketLauncherResponseFire[playerIndex])
+        )
+      ) {
+        rocketLauncherFiringResponse[playerIndex].triggerShot();
+        lastRocketLauncherResponseFire[playerIndex] = fire;
+        hasLastRocketLauncherResponseFire[playerIndex] = true;
+      }
+      rocketLauncherFiringResponse[playerIndex].update(elapsed.count());
+      renderRemotePlayers[playerIndex].rocketLauncherMechanicalAmount =
+        rocketLauncherFiringResponse[playerIndex].mechanicalAmount();
+    }
     RenderSettings currentRenderSettings = renderSettings(console);
     currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
     currentRenderSettings.localPlayerIndex =
@@ -5949,6 +6158,20 @@ int GameApp::run() const {
     currentRenderSettings.revolverCylinderRotationRadians =
       static_cast<float>(revolverCylinderSteps[renderLocalPlayerIndex]) *
       (kTwoPi / 6.0F);
+    currentRenderSettings.machineGunBarrelRotationRadians =
+      machineGunBarrelSpin[renderLocalPlayerIndex].angleRadians;
+    currentRenderSettings.machineGunRecoilAmount =
+      machineGunFiringResponse.kickAmount();
+    currentRenderSettings.machineGunVibrationAmount =
+      machineGunFiringResponse.vibrationAmount(
+        machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed()
+      );
+    currentRenderSettings.machineGunVibrationPhaseRadians =
+      machineGunFiringResponse.vibrationPhaseRadians;
+    currentRenderSettings.rocketLauncherMechanicalAmount =
+      rocketLauncherFiringResponse[renderLocalPlayerIndex].mechanicalAmount();
+    currentRenderSettings.rocketLauncherRecoilAmount =
+      rocketLauncherFiringResponse[renderLocalPlayerIndex].wholeWeaponRecoilAmount();
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),
@@ -5978,15 +6201,16 @@ int GameApp::run() const {
               : hiddenWeaponVisualOrigin(renderPlayer);
           } else {
             const bool revolver = currentFire.weapon == Weapon::Revolver;
+            const Vec3 revolverMuzzle = revolverMuzzleSocket();
             currentFire.start = remoteWeaponPresentationPoint(
               sourceFire.start,
               renderRemotePlayers,
               playerIndex,
               currentFire.weapon,
               currentRenderSettings,
-              revolver ? 0.68F : 0.78F,
-              0.0F,
-              revolver ? 0.155F : 0.09F
+              revolver ? revolverMuzzle.x : 0.78F,
+              revolver ? revolverMuzzle.y : 0.0F,
+              revolver ? revolverMuzzle.z : 0.09F
             );
           }
           if (sourceFire.weapon == Weapon::Revolver) {
@@ -5999,7 +6223,7 @@ int GameApp::run() const {
           lingeringRailBeam.active = true;
           lingeringRailBeam.startedAt = now;
           const float lingerSeconds = sourceFire.weapon == Weapon::Revolver
-            ? kRevolverBeamLingerSeconds
+            ? kRevolverTracerLifetimeSeconds
             : kRailgunBeamLingerSeconds;
           lingeringRailBeam.expiresAt =
             now + std::chrono::duration_cast<Clock::duration>(
@@ -6020,6 +6244,19 @@ int GameApp::run() const {
         }
       }
       if (
+        lingeringRailBeam.active &&
+        lingeringRailBeam.fire.weapon == Weapon::Revolver &&
+        now < lingeringRailBeam.expiresAt
+      ) {
+        const float ageSeconds = std::chrono::duration<float>(
+          now - lingeringRailBeam.startedAt
+        ).count();
+        const RevolverTracerPresentation tracerPresentation =
+          revolverTracerPresentation(ageSeconds);
+        currentRenderSettings.revolverTracerAlpha[playerIndex] =
+          tracerPresentation.alpha;
+      }
+      if (
         playerIndex == renderLocalPlayerIndex &&
         lingeringRailBeam.active &&
         lingeringRailBeam.fire.weapon == Weapon::Revolver &&
@@ -6027,7 +6264,7 @@ int GameApp::run() const {
       ) {
         const float animationProgress = std::clamp(
           std::chrono::duration<float>(now - lingeringRailBeam.startedAt).count() /
-            kRevolverBeamLingerSeconds,
+            kRevolverTracerLifetimeSeconds,
           0.0F,
           1.0F
         );
@@ -6040,6 +6277,19 @@ int GameApp::run() const {
         );
         currentRenderSettings.revolverCylinderRotationRadians =
           (completedSteps + smoothIndexT) * (kTwoPi / 6.0F);
+        const float ageSeconds = std::chrono::duration<float>(
+          now - lingeringRailBeam.startedAt
+        ).count();
+        if (revolverTracerPresentation(ageSeconds).followMuzzle) {
+          const Vec3 followedStart = currentRenderSettings.showOwnWeapons
+            ? firstPersonRevolverMuzzlePosition(
+                renderPlayer,
+                currentRenderSettings
+              )
+            : hiddenWeaponVisualOrigin(renderPlayer);
+          lingeringRailBeam.fire.start = followedStart;
+          currentFire.start = followedStart;
+        }
       }
     }
     if (zoomPressCount > 0) {
