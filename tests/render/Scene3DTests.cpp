@@ -344,6 +344,29 @@ int main() {
       foundUntintedNonClothPrimitive,
     "GLB duelist asset should load finite primitives with normalized weights and material tint masks"
   );
+  constexpr std::array<std::string_view, 7> presentationClips = {{
+    "RUN_BACK",
+    "STRAFE_LEFT",
+    "STRAFE_RIGHT",
+    "START_FORWARD",
+    "STOP_FORWARD",
+    "LAND_LIGHT",
+    "LAND_HEAVY",
+  }};
+  failures += expect(
+    std::all_of(
+      presentationClips.begin(),
+      presentationClips.end(),
+      [&duelistModel](std::string_view expected) {
+        return std::find(
+          duelistModel.animationNames().begin(),
+          duelistModel.animationNames().end(),
+          expected
+        ) != duelistModel.animationNames().end();
+      }
+    ),
+    "runtime GLB should contain every authored presentation clip"
+  );
   failures += expect(
     baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
       baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
@@ -391,8 +414,16 @@ int main() {
   {
     lg::GltfSkinnedModel::PoseScratch runScratch;
     lg::GltfSkinnedModel::PoseScratch leanScratch;
+    lg::GltfSkinnedModel::PoseScratch aimScratch;
+    lg::GltfSkinnedModel::PoseScratch backScratch;
+    lg::GltfSkinnedModel::PoseScratch leftScratch;
+    lg::GltfSkinnedModel::PoseScratch rightScratch;
     std::vector<std::array<float, 16>> runPalette;
     std::vector<std::array<float, 16>> leanPalette;
+    std::vector<std::array<float, 16>> aimPalette;
+    std::vector<std::array<float, 16>> backPalette;
+    std::vector<std::array<float, 16>> leftPalette;
+    std::vector<std::array<float, 16>> rightPalette;
     const bool runSampled = duelistModel.appendBonePalette(
       {{"RUN", 0.25F, 1.0F}},
       runPalette,
@@ -405,6 +436,21 @@ int main() {
       }},
       leanPalette,
       leanScratch
+    );
+    const bool aimSampled = duelistModel.appendBonePalette(
+      {{"RUN", 0.25F, 1.0F}},
+      aimPalette,
+      aimScratch,
+      0.78539816F
+    );
+    const bool backSampled = duelistModel.appendBonePalette(
+      {{"RUN_BACK", 0.25F, 1.0F}}, backPalette, backScratch
+    );
+    const bool leftSampled = duelistModel.appendBonePalette(
+      {{"STRAFE_LEFT", 0.25F, 1.0F}}, leftPalette, leftScratch
+    );
+    const bool rightSampled = duelistModel.appendBonePalette(
+      {{"STRAFE_RIGHT", 0.25F, 1.0F}}, rightPalette, rightScratch
     );
     constexpr std::array<std::size_t, 6> legJoints = {{
       14U, 15U, 16U, 17U, 18U, 19U,
@@ -420,6 +466,21 @@ int main() {
         maxPaletteDeltaAtIndices(runPalette, leanPalette, legJoints) <= 0.0001F &&
         maxPaletteDeltaAtIndices(runPalette, leanPalette, upperJoints) > 0.001F,
       "upper-body lean layer should preserve run leg joints while changing torso/arm joints"
+    );
+    failures += expect(
+      aimSampled &&
+        aimPalette.size() == duelistModel.jointCount() &&
+        maxPaletteDeltaAtIndices(runPalette, aimPalette, legJoints) <= 0.0001F &&
+        maxPaletteDeltaAtIndices(runPalette, aimPalette, upperJoints) > 0.001F,
+      "aim pitch should change the upper-body palette without tilting locomotion legs"
+    );
+    failures += expect(
+      backSampled && leftSampled && rightSampled &&
+        maxPaletteDelta(runPalette, backPalette) > 0.001F &&
+        maxPaletteDelta(runPalette, leftPalette) > 0.001F &&
+        maxPaletteDelta(runPalette, rightPalette) > 0.001F &&
+        maxPaletteDelta(leftPalette, rightPalette) > 0.001F,
+      "authored directional clips should produce visibly distinct bone palettes"
     );
   }
   failures += expect(
@@ -2479,6 +2540,28 @@ int main() {
         spinningRemoteBarrels->modelRow1.y
       ),
     "remote machine-gun presentation angle should rotate only its barrel instance"
+  );
+  auto pitchedMachineGunPlayers = machineGunRemotePlayers;
+  pitchedMachineGunPlayers[1].player.viewPitchRadians = 1.4F;
+  const lg::Scene3D pitchedMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    pitchedMachineGunPlayers,
+    inactiveBeam,
+    remoteMachineGunFires,
+    rocketExplosions,
+    rockets,
+    settings
+  );
+  const lg::StaticMeshInstance* pitchedRemoteBody = findRemoteMachineGunPart(
+    pitchedMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  failures += expect(
+    idleRemoteBody != nullptr && pitchedRemoteBody != nullptr &&
+      pitchedRemoteBody->modelRow2.x > idleRemoteBody->modelRow2.x + 0.1F,
+    "remote held weapon should visibly pitch toward the clamped head aim direction"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteShotgunFires = {};

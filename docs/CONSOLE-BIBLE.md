@@ -103,6 +103,13 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
+| `cl_viewmodel_motion_scale` | float | `1` | `0..2` | None | Archive | Master scale for client-only first-person weapon motion. `0` returns an exactly neutral viewmodel transform and does not affect the camera, crosshair, aim, or simulation. |
+| `cl_viewmodel_bob_scale` | float | `0.65` | `0..2` | None | Archive | Scale for stride-distance-driven first-person weapon bob. `0` disables only bob. |
+| `cl_viewmodel_sway_scale` | float | `0.55` | `0..2` | None | Archive | Scale for immediate mouse-delta weapon sway. The sway rotates only the rendered viewmodel. `0` disables only sway. |
+| `cl_viewmodel_inertia_scale` | float | `0.55` | `0..2` | None | Archive | Scale for lateral movement inertia and acceleration/braking response. `0` disables only inertia. |
+| `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
+| `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
+| `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `1` uses the animated GLB and is the code and shipped default; `0` retains the legacy box fallback. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |

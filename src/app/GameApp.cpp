@@ -17,6 +17,7 @@
 #include "input/MouseAim.hpp"
 #include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
+#include "render/GltfSkinnedModel.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
 #include "render/WeaponPresentation.hpp"
@@ -4504,6 +4505,8 @@ int GameApp::run() const {
   FrameTimeSummary displayedFrameTimes;
   PerfTelemetry perfTelemetry;
   PresentationViewState presentationView;
+  std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
+  ViewModelPresentationController viewModelPresentation;
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
   MovementTuning lastRequestedMovementTuning = movementTuningFromCvars(console);
@@ -5037,6 +5040,8 @@ int GameApp::run() const {
       // A new ClientGame represents a new connection/prediction timeline; do
       // not carry view initialization or mouse state across that authority reset.
       presentationView = {};
+      playerPresentationStates = {};
+      viewModelPresentation.reset();
       presentationViewGame = currentPresentationGame;
     }
     const bool enteredPresentationView =
@@ -5058,6 +5063,8 @@ int GameApp::run() const {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
     }
+    const float viewModelMouseDeltaX = gameInputControlsView ? input.mouseDeltaX : 0.0F;
+    const float viewModelMouseDeltaY = gameInputControlsView ? input.mouseDeltaY : 0.0F;
     if (gameInputControlsView && presentationView.initialized) {
       const MouseAimSettings mouseAimSettings =
         mouseAimSettingsFromConsole(console, zoomPressCount > 0);
@@ -6040,15 +6047,18 @@ int GameApp::run() const {
       }
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (playerIndex == localPlayerIndex) {
+          playerPresentationStates[playerIndex] = {};
           continue;
         }
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
+          playerPresentationStates[playerIndex] = {};
           continue;
         }
         if (
           renderSnapshot.gameMode == GameMode::ClanArena &&
           renderSnapshot.players[playerIndex].health <= 0
         ) {
+          playerPresentationStates[playerIndex] = {};
           continue;
         }
         const bool teammate = playerPresentedAsTeammate(
@@ -6069,6 +6079,18 @@ int GameApp::run() const {
           renderSnapshot.playerNames[playerIndex],
           renderAnimationTimeSeconds,
         };
+        PlayerPresentationConfig presentationConfig;
+        presentationConfig.leanScale = teammate
+          ? console.getFloat("r_teammate_lean_scale")
+          : console.getFloat("r_enemy_lean_scale");
+        renderRemotePlayers[playerIndex].presentation = updatePlayerPresentation(
+          playerPresentationStates[playerIndex],
+          renderRemotePlayers[playerIndex].player,
+          elapsed.count(),
+          static_cast<std::uint32_t>(playerIndex),
+          presentationConfig
+        );
+        renderRemotePlayers[playerIndex].hasPresentation = true;
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;
         if (
@@ -6207,6 +6229,28 @@ int GameApp::run() const {
       }
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    const Vec3 localViewVelocity = {
+      dot(renderPlayer.velocity, yawForward(renderPlayer.viewYawRadians)),
+      dot(renderPlayer.velocity, yawRight(renderPlayer.viewYawRadians)),
+      renderPlayer.velocity.z,
+    };
+    currentRenderSettings.viewModelPresentation = viewModelPresentation.update(
+      {
+        localViewVelocity,
+        viewModelMouseDeltaX,
+        viewModelMouseDeltaY,
+        renderPlayer.onGround || renderPlayer.movementMode == MovementMode::Grounded,
+        elapsed.count(),
+      },
+      {
+        console.getFloat("cl_viewmodel_motion_scale"),
+        console.getFloat("cl_viewmodel_bob_scale"),
+        console.getFloat("cl_viewmodel_sway_scale"),
+        console.getFloat("cl_viewmodel_inertia_scale"),
+        console.getFloat("cl_viewmodel_landing_scale"),
+        console.getFloat("cl_camera_position_response"),
+      }
+    );
     currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
     currentRenderSettings.localPlayerIndex =
       static_cast<std::uint8_t>(renderLocalPlayerIndex);
@@ -6615,6 +6659,39 @@ int GameApp::run() const {
           std::to_string(diagnostics.legacyCpuSkinnedGltfVertexUploadBytes) +
           " B"
         );
+        if (console.getInt("r_player_model") == 1) {
+          std::string loadedAnimations = "gltf clips:";
+          for (const std::string& name : duelistMaleModel().animationNames()) {
+            loadedAnimations += " " + name;
+          }
+          hud.topLeftLines.emplace_back(std::move(loadedAnimations));
+        }
+        for (std::size_t playerIndex = 0; playerIndex < renderRemotePlayers.size(); ++playerIndex) {
+          const RemotePlayerView& remote = renderRemotePlayers[playerIndex];
+          if (!remote.visible || !remote.hasPresentation) continue;
+          const PlayerPresentationDiagnostics& animation =
+            remote.presentation.diagnostics;
+          hud.topLeftLines.emplace_back(
+            "anim p" + std::to_string(playerIndex) +
+            ": state " + std::to_string(static_cast<int>(animation.currentState)) +
+            " prev " + std::to_string(static_cast<int>(animation.previousState)) +
+            " dir " + std::to_string(static_cast<int>(animation.moveDirection)) +
+            " phase " + std::to_string(animation.stridePhase) +
+            " blend " + std::to_string(animation.currentBlendWeight) +
+            " speed " + std::to_string(animation.horizontalSpeed) +
+            (animation.airborne ? " air" : (animation.landing ? " landing" : " ground"))
+          );
+          for (std::size_t layerIndex = 0;
+               layerIndex < remote.presentation.poseLayerCount;
+               ++layerIndex) {
+            const PlayerPoseLayer& layer = remote.presentation.poseLayers[layerIndex];
+            hud.topLeftLines.emplace_back(
+              "  clip " + std::string(layer.animationName) +
+              " t " + std::to_string(layer.timeSeconds) +
+              " w " + std::to_string(layer.weight)
+            );
+          }
+        }
         hud.topLeftLines.emplace_back(
           "remote weapon instances: candidates " +
           std::to_string(diagnostics.remoteWeaponCandidates) +

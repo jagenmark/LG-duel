@@ -76,9 +76,11 @@ add_library(lg_duel_client_app
   src/render/ChatLayout.cpp
   src/render/ConsoleLayout.cpp
   src/render/GltfSkinnedModel.cpp
+  src/render/PlayerPresentation.cpp
   src/render/Renderer.cpp
   src/render/Scene3D.cpp
   src/render/ScreenUi.cpp
+  src/render/ViewModelPresentation.cpp
 )
 
 target_link_libraries(lg_duel_client_app PUBLIC lg_duel_core)
