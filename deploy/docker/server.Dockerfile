@@ -23,3 +23,5 @@ RUN mkdir -p build/default
 
 RUN cmake --preset default
 RUN cmake --build --preset default --target lg_duel_server
+
+CMD ["build/default/lg_duel_server", "27960","127.0.0.1"]

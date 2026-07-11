@@ -1,0 +1,19 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lg-duel-server
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: lg-duel-server
+  template:
+    metadata:
+      labels:
+        app: lg-duel-server
+    spec:
+      containers:
+        - name: lg-duel-server
+          image: ghcr.io/jagenmark/lg-duel-server:main-578de8671830
+      imagePullSecrets:
+        - name: ghcr-secret
