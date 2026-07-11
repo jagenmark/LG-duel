@@ -5,6 +5,8 @@
 namespace lg {
 
 bool ClientSession::connect(std::string host, std::uint16_t port) {
+  // Connecting replaces the entire transport/game timeline; no prediction or
+  // delayed packet state may survive into the new endpoint.
   disconnect();
   lastHost_ = std::move(host);
   lastPort_ = port;
@@ -23,6 +25,8 @@ bool ClientSession::connect(std::string host, std::uint16_t port) {
 
 void ClientSession::disconnect() {
   if (transport_) {
+    // Send the best-effort disconnect before destroying transport state. UDP
+    // delivery is not guaranteed, so the server timeout remains the fallback.
     transport_->disconnect();
   }
   game_.reset();
@@ -45,6 +49,8 @@ void ClientSession::update() {
     state_ == ClientConnectionState::Connecting &&
     std::chrono::steady_clock::now() - connectStarted_ > std::chrono::seconds(5)
   ) {
+    // The transport retries handshakes internally; this outer deadline turns a
+    // silent/full server into a terminal UI state instead of retrying forever.
     transport_.reset();
     state_ = ClientConnectionState::Failed;
     statusMessage_ = "Connection failed or server is full";
@@ -59,6 +65,8 @@ void ClientSession::update() {
   }
 
   if (transport_->connected() && !game_) {
+    // Construct ClientGame only after slot assignment. Its prediction and
+    // acknowledgement arrays are indexed by this server-issued player index.
     game_ = std::make_unique<ClientGame>(*transport_, transport_->playerIndex());
     state_ = ClientConnectionState::Connected;
     statusMessage_ = "Connected to " + lastHost_ + ':' + std::to_string(lastPort_);
@@ -66,6 +74,8 @@ void ClientSession::update() {
   if (game_) {
     game_->receiveSnapshots();
     if (game_->hasConnectionError()) {
+      // Map verification and other snapshot-application errors invalidate the
+      // whole session; continuing would predict against different authority data.
       statusMessage_ = game_->connectionError();
       game_.reset();
       transport_.reset();

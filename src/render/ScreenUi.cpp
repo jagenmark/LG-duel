@@ -2241,10 +2241,9 @@ DrawList2D buildPerspectiveWeaponOverlay(
       );
   };
   const auto drawWeapon = [&](Weapon weapon, float yOffset) {
-    // FreezeGun has a real 3D viewmodel in the perspective pass. Keep beam
-    // effects in this overlay, but never cover that mesh with the legacy LG
-    // silhouette that used to stand in for both weapons.
-    if (weapon == Weapon::FreezeGun) {
+    // Authored 3D viewmodels render in the perspective pass. Keep weapon
+    // effects in this overlay, but never cover those meshes with legacy shapes.
+    if (weapon == Weapon::FreezeGun || weapon == Weapon::PlasmaGun) {
       return;
     }
     const float centerX = weaponCenterX;

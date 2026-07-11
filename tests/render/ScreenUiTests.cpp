@@ -364,7 +364,7 @@ int main() {
       lg::RenderColor color;
       std::string_view message;
     };
-    constexpr std::array<WeaponAccent, 4> accents = {{
+    constexpr std::array<WeaponAccent, 3> accents = {{
       {
         lg::Weapon::MachineGun,
         {218, 196, 116, 255},
@@ -379,11 +379,6 @@ int main() {
         lg::Weapon::GrenadeLauncher,
         {112, 188, 90, 255},
         "grenade launcher viewmodel should use its drum accent",
-      },
-      {
-        lg::Weapon::PlasmaGun,
-        {95, 235, 210, 255},
-        "plasma gun viewmodel should use its core accent",
       },
     }};
 
@@ -412,6 +407,22 @@ int main() {
       }
       failures += expect(foundAccent, accent.message);
     }
+  }
+
+  {
+    const lg::DrawList2D plasmaOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      {},
+      lg::Weapon::PlasmaGun,
+      lg::Weapon::LightningGun,
+      1.0F,
+      settings
+    );
+    failures += expect(
+      plasmaOverlay.overlayCommands.empty(),
+      "authored plasma gun viewmodel should not be covered by legacy overlay geometry"
+    );
   }
 
   {

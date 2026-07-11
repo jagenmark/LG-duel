@@ -1530,7 +1530,12 @@ int main() {
           weapon == lg::Weapon::MachineGun
         )
         ? 2U
-        : weapon == lg::Weapon::FreezeGun ? 3U : 1U;
+        : (
+            weapon == lg::Weapon::FreezeGun ||
+            weapon == lg::Weapon::PlasmaGun
+          )
+          ? 3U
+          : 1U;
     bool revolverGripAlignedAndSized = true;
     if (weapon == lg::Weapon::Revolver && foundWeaponInstance) {
       const lg::Vec3 grip = transformPoint(
@@ -1550,6 +1555,19 @@ int main() {
         lg::length(grip - expectedHand) < 0.001F &&
         nearlyEqual(modelScale, 0.45F);
     }
+    bool plasmaGripAligned = true;
+    if (weapon == lg::Weapon::PlasmaGun && foundWeaponInstance) {
+      const lg::Vec3 grip = transformPoint(
+        foundWeapon,
+        lg::plasmaGunGripSocket()
+      );
+      const lg::Vec3 expectedHand = {
+        opponent.position.x + opponent.bounds.radius * 0.18F,
+        opponent.position.y - opponent.bounds.radius * 0.84F,
+        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
+      };
+      plasmaGripAligned = lg::length(grip - expectedHand) < 0.001F;
+    }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
         (
@@ -1559,6 +1577,7 @@ int main() {
         foundWeaponInstance &&
         foundRevolverCylinder &&
         revolverGripAlignedAndSized &&
+        plasmaGripAligned &&
         weaponScene.remoteWeaponStats.instancesSubmitted == expectedInstances &&
         weaponScene.remoteWeaponStats.legacyDynamicVertices == 0,
       "every playable weapon should map to its expected static mesh instances"
@@ -2294,6 +2313,83 @@ int main() {
       ) < 0.001F,
     "first-person rocket launcher should submit three animated material parts and preserve its muzzle socket"
   );
+
+  lg::RenderSettings localPlasmaGunSettings = settings;
+  localPlasmaGunSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
+  const lg::Scene3D idlePlasmaGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    {},
+    {},
+    localPlasmaGunSettings
+  );
+  lg::RenderSettings firingPlasmaGunSettings = localPlasmaGunSettings;
+  firingPlasmaGunSettings.plasmaGunContainmentAmount = 1.0F;
+  const lg::Scene3D firingPlasmaGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    {},
+    {},
+    firingPlasmaGunSettings
+  );
+  const lg::StaticMeshInstance idlePlasmaBody = findViewModel(
+    idlePlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunBody
+  );
+  const lg::StaticMeshInstance idlePlasmaProngs = findViewModel(
+    idlePlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunProngs
+  );
+  const lg::StaticMeshInstance idlePlasmaCore = findViewModel(
+    idlePlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunCore
+  );
+  const lg::StaticMeshInstance firingPlasmaProngs = findViewModel(
+    firingPlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunProngs
+  );
+  const lg::StaticMeshInstance firingPlasmaCore = findViewModel(
+    firingPlasmaGunScene,
+    lg::MeshHandle::RemotePlasmaGunCore
+  );
+  failures += expect(
+    idlePlasmaBody.mesh == lg::MeshHandle::RemotePlasmaGunBody &&
+      idlePlasmaProngs.mesh == lg::MeshHandle::RemotePlasmaGunProngs &&
+      idlePlasmaCore.mesh == lg::MeshHandle::RemotePlasmaGunCore &&
+      idlePlasmaGunScene.viewModelStats.drawCalls == 3U,
+    "first-person plasma gun should submit its three material meshes"
+  );
+  failures += expect(
+    lg::length(
+      transformPoint(idlePlasmaBody, lg::plasmaGunMuzzleSocket()) -
+      lg::firstPersonPlasmaGunMuzzlePosition(player, localPlasmaGunSettings)
+    ) < 0.001F,
+    "first-person plasma projectile origin should match the authored muzzle socket"
+  );
+  failures += expect(
+    lg::length(firingPlasmaCore.modelRow0) <
+      lg::length(idlePlasmaCore.modelRow0) &&
+      lg::length(
+        firingPlasmaProngs.modelTranslation -
+        idlePlasmaProngs.modelTranslation
+      ) > 0.005F,
+    "plasma firing response should contract the core and shift the containment prongs"
+  );
+
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteMachineGunFires = {};
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> machineGunRemotePlayers = {};
   machineGunRemotePlayers[1] =

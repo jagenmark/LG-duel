@@ -74,6 +74,8 @@ public:
   }
 
   bool writeU16(std::uint16_t value) {
+    // The wire format is explicitly little-endian; never serialize host memory
+    // directly, because peers may differ in byte order, padding, or alignment.
     return writeU8(static_cast<std::uint8_t>(value)) &&
       writeU8(static_cast<std::uint8_t>(value >> 8U));
   }
@@ -88,6 +90,8 @@ public:
   }
 
   bool writeFloat(float value) {
+    // Non-finite gameplay values are rejected at the serialization boundary so
+    // NaNs cannot enter authoritative simulation or client presentation state.
     return std::isfinite(value) && writeU32(std::bit_cast<std::uint32_t>(value));
   }
 
@@ -230,6 +234,8 @@ bool finishPacket(Writer& writer) {
   if (payloadBytes > std::numeric_limits<std::uint16_t>::max()) {
     return false;
   }
+  // Payload size is patched only after the body succeeds, keeping the header
+  // layout fixed while allowing variable-length strings and command bundles.
   return writer.patchU16(8, static_cast<std::uint16_t>(payloadBytes));
 }
 
@@ -240,6 +246,8 @@ bool readHeader(Reader& reader, PacketType expectedType, std::size_t wireSize) {
   std::uint8_t flags = 0;
   std::uint16_t payloadBytes = 0;
   std::uint16_t reserved = 0;
+  // Exact version, reserved fields, and payload length make incompatible or
+  // extended layouts fail closed instead of being partially misinterpreted.
   return wireSize <= kMaxPacketBytes &&
     wireSize >= kHeaderBytes &&
     reader.readU32(magic) &&
@@ -1114,11 +1122,15 @@ bool decodeCommandPacket(const WirePacket& wire, CommandPacket& packet) {
     return false;
   }
 
+  // Decode into a temporary and commit only after full validation and exact
+  // consumption, so a malformed packet cannot partially mutate caller state.
   packet = decoded;
   return true;
 }
 
 bool encodeCommandBundle(const CommandBundle& bundle, WirePacket& wire) {
+  // Bundles intentionally contain at least one complete command; redundancy is
+  // handled by transport history rather than optional/delta fields on the wire.
   if (bundle.commandCount == 0 || bundle.commandCount > kMaxBundledCommands) {
     return false;
   }

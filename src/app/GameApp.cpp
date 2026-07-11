@@ -4589,6 +4589,10 @@ int GameApp::run() const {
     freezeGunFiringResponse = {};
   std::array<WeaponFireResult, kDuelPlayerCount> lastRocketLauncherResponseFire = {};
   std::array<bool, kDuelPlayerCount> hasLastRocketLauncherResponseFire = {};
+  std::array<PlasmaGunFiringResponseState, kDuelPlayerCount>
+    plasmaGunFiringResponse = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> lastPlasmaGunResponseFire = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlasmaGunResponseFire = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
@@ -4979,6 +4983,8 @@ int GameApp::run() const {
     session.update();
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
+    // r_vsync remains a compatibility alias. Whichever cvar changed since the
+    // last frame drives the other, avoiding a feedback loop between both names.
     if (currentCompatVSync != lastCompatVSync) {
       (void)console.execute(
         currentCompatVSync
@@ -5028,6 +5034,8 @@ int GameApp::run() const {
       presentationViewGame = nullptr;
       previousFrameUsedPresentationView = usePresentationView;
     } else if (currentPresentationGame != presentationViewGame) {
+      // A new ClientGame represents a new connection/prediction timeline; do
+      // not carry view initialization or mouse state across that authority reset.
       presentationView = {};
       presentationViewGame = currentPresentationGame;
     }
@@ -5186,6 +5194,8 @@ int GameApp::run() const {
       }
       LocalInputState tickInput = input;
       if (consumedMouseForTick) {
+        // SDL reports one mouse delta per rendered frame. Apply it to only the
+        // first catch-up command or low frame rates would multiply the turn.
         tickInput.mouseDeltaX = 0.0F;
         tickInput.mouseDeltaY = 0.0F;
       }
@@ -5410,6 +5420,9 @@ int GameApp::run() const {
       freezeGunFiringResponse = {};
       lastRocketLauncherResponseFire = {};
       hasLastRocketLauncherResponseFire = {};
+      plasmaGunFiringResponse = {};
+      lastPlasmaGunResponseFire = {};
+      hasLastPlasmaGunResponseFire = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
@@ -6154,6 +6167,22 @@ int GameApp::run() const {
       renderRemotePlayers[playerIndex].rocketLauncherMechanicalAmount =
         rocketLauncherFiringResponse[playerIndex].mechanicalAmount();
 
+      if (
+        fire.fired &&
+        fire.weapon == Weapon::PlasmaGun &&
+        (
+          !hasLastPlasmaGunResponseFire[playerIndex] ||
+          !sameWeaponFireEvent(fire, lastPlasmaGunResponseFire[playerIndex])
+        )
+      ) {
+        plasmaGunFiringResponse[playerIndex].triggerShot();
+        lastPlasmaGunResponseFire[playerIndex] = fire;
+        hasLastPlasmaGunResponseFire[playerIndex] = true;
+      }
+      plasmaGunFiringResponse[playerIndex].update(elapsed.count());
+      renderRemotePlayers[playerIndex].plasmaGunContainmentAmount =
+        plasmaGunFiringResponse[playerIndex].containmentAmount();
+
       const bool localPlayer = playerIndex == renderLocalPlayerIndex;
       const bool freezeDriven = localPlayer
         ? (
@@ -6206,6 +6235,8 @@ int GameApp::run() const {
       freezeGunFiringResponse[renderLocalPlayerIndex].coolantPulse();
     currentRenderSettings.freezeGunVibrationPhaseRadians =
       freezeGunFiringResponse[renderLocalPlayerIndex].phaseRadians;
+    currentRenderSettings.plasmaGunContainmentAmount =
+      plasmaGunFiringResponse[renderLocalPlayerIndex].containmentAmount();
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),

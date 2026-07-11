@@ -514,6 +514,8 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
   }
 
   const float control = std::max(speed, tuning.stopSpeed);
+  // Quake-style stop speed keeps braking decisive below stopSpeed instead of
+  // letting friction fade proportionally as horizontal speed approaches zero.
   const float drop = control * tuning.groundFriction * fixedDt;
   const float newSpeed = std::max(0.0F, speed - drop);
   const float scale = newSpeed / speed;
@@ -535,11 +537,15 @@ void applyGroundFriction(Vec3& velocity, const MovementTuning& tuning, float fix
     if (!pool.active || pool.radius <= 0.0F || pool.lifetimeSeconds <= 0.0F) {
       continue;
     }
+    // Require the pool and contacted floor to describe nearly the same plane;
+    // this prevents nearby ice on a wall or adjoining slope from taking effect.
     if (dot(pool.normal, groundContact.normal) < 0.95F) {
       continue;
     }
     const Vec3 delta = footPoint - pool.center;
     const float planeDistance = dot(delta, pool.normal);
+    // Allow modest map/projection error normal to the plane, then test the
+    // actual footprint in-plane and expand it by the player's cylinder radius.
     if (std::fabs(planeDistance) > 0.5F) {
       continue;
     }
@@ -647,7 +653,11 @@ void simulateGroundedOrAirborne(
   }
 
   const bool knockbackActive = player.knockbackTicksRemaining > 0;
+  // Knockback uses air acceleration and skips ground friction while retaining
+  // physical ground contact for collision, landing, and snapshot semantics.
   const bool useAirMovement = !player.onGround || knockbackActive;
+  // The previous contact also authorizes this edge-triggered jump so a tiny
+  // seam or ledge miss in the fresh ground trace does not eat a valid input.
   const bool jumpStarted =
     (player.onGround || wasOnGround) && command.jump && !player.jumpHeld;
   if (jumpStarted) {
@@ -676,6 +686,8 @@ void simulateGroundedOrAirborne(
     player.movementMode = MovementMode::Airborne;
   }
 
+  // This choice intentionally uses the pre-jump contact state: a jump that
+  // starts this tick receives its grounded acceleration before becoming airborne.
   const Vec3 wishDirection = useAirMovement
     ? movementWishDirection(command)
     : movementWishDirectionGrounded(command, groundContact.normal);
@@ -700,6 +712,8 @@ void simulateGroundedOrAirborne(
   applyDashAcceleration(player, tuning, fixedDt);
 
   if (!useAirMovement && !jumpStarted) {
+    // Acceleration can reintroduce a component into the floor normal, so clip a
+    // second time to leave the final grounded velocity exactly tangent to it.
     player.velocity = clipToGroundPlanePreserveSpeed(
       player.velocity,
       groundContact.normal
@@ -743,6 +757,8 @@ void simulateGroundedOrAirborne(
   player.velocity = collision.velocity;
   player.onGround = collision.onGround;
   player.movementMode = player.onGround ? MovementMode::Grounded : MovementMode::Airborne;
+  // Timers expire after the tick they affect; changing this order shifts
+  // authoritative and predicted movement behavior by one simulation tick.
   if (player.knockbackTicksRemaining > 0) {
     --player.knockbackTicksRemaining;
   }

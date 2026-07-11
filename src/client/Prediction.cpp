@@ -73,6 +73,8 @@ void Prediction::reconcile(
 
   const PlayerState previousPrediction = player_;
   if (hasAcknowledgedCommand) {
+    // Drop commands through the wrap-safe server acknowledgement, then rebuild
+    // prediction from authority by replaying only inputs the server has not seen.
     while (
       !pendingCommands_.empty() &&
       isSequenceAcknowledged(pendingCommands_.front().sequence, acknowledgedCommand)
