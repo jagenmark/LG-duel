@@ -7419,6 +7419,8 @@ void Renderer::render(
   }
   previousCameraStepUpdate_ = renderStart;
   if (hasPreviousCameraPlayerZ_) {
+    // Compensate only the rendered camera for step-sized vertical discontinuities.
+    // Authoritative and predicted player positions remain untouched.
     const float playerZDelta = player.position.z - previousCameraPlayerZ_;
     if (
       player.onGround &&
@@ -7435,6 +7437,8 @@ void Renderer::render(
       cameraStepOffset_ =
         std::min(cameraStepOffset_ - playerZDelta, kMaxVisualStepSmoothHeight);
     } else if (std::fabs(playerZDelta) > kMaxVisualStepSmoothHeight) {
+      // Large changes are jumps, teleports, or corrections; smoothing them would
+      // make the camera visibly lag behind authoritative movement.
       cameraStepOffset_ = 0.0F;
     }
   }
@@ -7465,6 +7469,8 @@ void Renderer::render(
         requestedFont
       );
       if (replacement != nullptr) {
+        // Keep the old atlas alive until replacement creation succeeds so an
+        // invalid runtime font request cannot destroy readable UI text.
         destroyFontAtlasSet(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           fontAtlasSet
@@ -7941,6 +7947,8 @@ bool Renderer::setPresentMode(PresentMode mode) {
       presentMode != SDL_GPU_PRESENTMODE_VSYNC &&
       !SDL_WindowSupportsGPUPresentMode(device, window, presentMode)
     ) {
+      // FIFO is the portability fallback guaranteed by the GPU path; requested
+      // low-latency modes may not exist on every backend or display surface.
       std::cerr
         << "Requested present mode " << presentModeName(mode)
         << " is not supported by this SDL_GPU backend; falling back to FIFO/VSync.\n";

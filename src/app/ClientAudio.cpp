@@ -50,6 +50,8 @@ std::size_t selectFootstepVariantIndex(
   if (variantCount == 1U) {
     return 0U;
   }
+  // Draw from N-1 choices and skip over the previous index. This preserves a
+  // uniform distribution while guaranteeing that consecutive steps differ.
   const std::size_t candidate =
     static_cast<std::size_t>(randomValue % static_cast<std::uint32_t>(variantCount - 1U));
   if (candidate >= previousVariantIndex && previousVariantIndex < variantCount) {
@@ -375,6 +377,8 @@ float ClientAudio::lightningGunSample() {
 }
 
 void ClientAudio::mixLightningGunLoop(std::vector<float>& buffer) {
+  // Smooth gain and pan per sample so network/event updates cannot introduce
+  // clicks or an abrupt stereo jump in this continuously generated voice.
   constexpr float kGainStepPerSample = 1.0F / 900.0F;
   constexpr float kPanStepPerSample = 1.0F / 900.0F;
   const std::size_t frameCount = buffer.size() / kOutputChannels;
@@ -415,6 +419,8 @@ void ClientAudio::addVoice(std::vector<float> samples) {
 
   removeFinishedVoices();
   if (voices_.size() >= kMaxActiveVoices) {
+    // Under voice pressure, discard the sound nearest completion. This limits
+    // the audible truncation while keeping newly requested feedback responsive.
     const auto quietestTail = std::min_element(
       voices_.begin(),
       voices_.end(),
@@ -437,6 +443,8 @@ void ClientAudio::pumpAudio() {
   const int queuedBytes = SDL_GetAudioStreamQueued(stream_);
   int queuedFrames = std::max(0, queuedBytes) /
     static_cast<int>(sizeof(float) * kOutputChannels);
+  // Refill only to the target horizon: enough queued audio prevents underruns,
+  // but excessive buffering makes weapon and hit feedback feel delayed.
   while ((!voices_.empty() || hasActiveLoop()) && queuedFrames < kTargetQueuedSamples) {
     const int sampleCount =
       std::min(kMixChunkSamples, kTargetQueuedSamples - queuedFrames);

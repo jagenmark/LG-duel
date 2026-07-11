@@ -14,6 +14,7 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
 
 [[nodiscard]] float interpolateAngle(float previous, float current, float alpha) {
   constexpr float kTwoPi = 6.28318530718F;
+  // remainder selects the shortest signed arc across the +/-pi wrap boundary.
   const float difference = std::remainder(current - previous, kTwoPi);
   return previous + (difference * alpha);
 }
@@ -67,6 +68,8 @@ PlayerState interpolatePlayerState(
 ) {
   const float t = clamp(alpha, 0.0F, 1.0F);
   PlayerState result = t < 1.0F ? previous : current;
+  // Interpolate continuous presentation fields only. Discrete authoritative
+  // state stays on an endpoint rather than inventing impossible intermediate values.
   result.position = previous.position + ((current.position - previous.position) * t);
   result.velocity = previous.velocity + ((current.velocity - previous.velocity) * t);
   result.viewYawRadians = interpolateAngle(previous.viewYawRadians, current.viewYawRadians, t);
@@ -76,6 +79,8 @@ PlayerState interpolatePlayerState(
   result.bounds.halfHeight =
     previous.bounds.halfHeight + ((current.bounds.halfHeight - previous.bounds.halfHeight) * t);
   if (t >= 0.5F) {
+    // Switch stance at the midpoint so its discrete flag tracks the interpolated
+    // bounds more closely without exposing a fractional gameplay state.
     result.crouched = current.crouched;
     result.sneaking = current.sneaking;
   }
@@ -95,6 +100,8 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
   }
 
   if (!snapshots_.empty() && frame.serverTick <= snapshots_.back().serverTick) {
+    // The buffer remains strictly ordered; late and duplicate snapshots are
+    // unusable once a newer authoritative presentation frame is present.
     return;
   }
 
@@ -104,6 +111,8 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
   }
 
   presentationTick_ = std::min(
+    // New arrivals may move the target forward but must never pull the running
+    // presentation clock backward and create a visible remote-player rewind.
     presentationTick_,
     latestPresentationTick(snapshots_, kDefaultSnapshotInterpolationDelaySeconds)
   );
@@ -125,6 +134,8 @@ void SnapshotInterpolation::advance(
     static_cast<double>(std::max(0.0F, elapsedSeconds)) *
     static_cast<double>(kFixedTickRate);
   if (presentationTick_ < newestPresentationTick - kMaxPresentationClockDriftTicks) {
+    // Catch up after stalls or sparse delivery rather than permanently adding
+    // extra latency beyond the configured interpolation delay.
     presentationTick_ = newestPresentationTick;
   }
   presentationTick_ = std::clamp(presentationTick_, oldestTick, newestPresentationTick);
@@ -133,6 +144,8 @@ void SnapshotInterpolation::advance(
     snapshots_.size() > 2 &&
     static_cast<double>(snapshots_[1].serverTick) < presentationTick_ - 1.0
   ) {
+    // Retain the bracketing pair around the presentation clock; older frames can
+    // no longer contribute to a sample and only increase search and memory cost.
     snapshots_.erase(snapshots_.begin());
   }
 }

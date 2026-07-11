@@ -725,6 +725,8 @@ template <typename Value>
     result += transformPoint(jointMatrices[joint], vertex.position) * weight;
     totalWeight += weight;
   }
+  // Invalid or absent influences leave the bind-pose vertex intact rather than
+  // collapsing malformed optional skin data to the model origin.
   return totalWeight > 0.0F ? result : vertex.position;
 }
 
@@ -741,6 +743,8 @@ void resolveGlobalMatrix(
 
   const int parent = nodes[index].parent;
   if (parent >= 0 && static_cast<std::size_t>(parent) < localMatrices.size()) {
+    // Resolve parents recursively, then compose parent * local. Reversing this
+    // order applies child transforms in world space and breaks the joint hierarchy.
     resolveGlobalMatrix(
       static_cast<std::size_t>(parent),
       nodes,
@@ -1169,6 +1173,8 @@ bool GltfSkinnedModel::appendBonePalette(
   }
 
   for (const SkinnedModelPoseRequest& pose : poses) {
+    // Pose requests are layered in caller order. Each weight blends from the
+    // result accumulated so far, allowing locomotion plus masked upper-body aim.
     const std::optional<std::size_t> found =
       animationIndex(animations_, pose.animationName);
     if (!found) {
@@ -1256,6 +1262,8 @@ bool GltfSkinnedModel::appendBonePalette(
       : identityMatrix();
     Matrix4 jointMatrix = identityMatrix();
     if (jointNode >= 0 && static_cast<std::size_t>(jointNode) < scratch.globalMatrices.size()) {
+      // glTF palette entries are current joint global * inverse bind. Reversing
+      // this product moves joints through the wrong coordinate space.
       jointMatrix = multiply(
         scratch.globalMatrices[static_cast<std::size_t>(jointNode)],
         inverseBind
@@ -1265,6 +1273,8 @@ bool GltfSkinnedModel::appendBonePalette(
     for (float value : jointMatrix.values) {
       finite = finite && std::isfinite(value);
     }
+    // Contain malformed asset math per joint so one NaN cannot poison the whole
+    // palette, GPU vertex output, or frame.
     out.push_back(finite ? jointMatrix.values : identityMatrix().values);
   }
   return out.size() > firstOut;

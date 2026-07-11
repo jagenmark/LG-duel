@@ -3561,6 +3561,8 @@ void addTransientEffectInstances(
 }
 
 void finalizeStaticMeshBatches(Scene3D& scene) {
+  // Stable ordering groups compatible draw state while preserving submission
+  // order inside a mesh/pass group for deterministic presentation and diagnostics.
   std::stable_sort(
     scene.staticMeshInstances.begin(),
     scene.staticMeshInstances.end(),
@@ -3658,6 +3660,8 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     index < static_cast<std::uint32_t>(scene.staticMeshInstances.size());
     ++index
   ) {
+    // Outline instances can share a mask draw only while their player identity
+    // and complete outline state form one contiguous run in the sorted buffer.
     const StaticMeshInstance& instance = scene.staticMeshInstances[index];
     if (
       !instance.playerBoxBody ||
@@ -3732,6 +3736,8 @@ void finalizeGltfPlayerModelBatches(
 
   std::uint32_t primitiveCount = 0;
   for (const GltfSkinnedModel::Primitive& primitive : model->primitives()) {
+    // Geometry is static on the GPU; each primitive is drawn across the shared
+    // instance range, with per-instance bone-palette offsets selecting poses.
     if (!primitive.vertices.empty() && !primitive.indices.empty()) {
       scene.gltfPlayerModelBatches.push_back({
         primitiveCount,
@@ -3833,6 +3839,8 @@ void addProjectileInstances(
     settings.frustumCullRemotePlayers &&
     !sphereIntersectsPerspectiveFrustum(scene.camera, position, cullRadius)
   ) {
+    // Cull core and glow together using the larger radius so presentation parts
+    // cannot pop independently at the edge of the camera frustum.
     ++scene.projectileStats.projectilesFrustumCulled;
     return;
   }

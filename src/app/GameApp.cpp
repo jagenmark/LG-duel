@@ -4983,6 +4983,8 @@ int GameApp::run() const {
     session.update();
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
+    // r_vsync remains a compatibility alias. Whichever cvar changed since the
+    // last frame drives the other, avoiding a feedback loop between both names.
     if (currentCompatVSync != lastCompatVSync) {
       (void)console.execute(
         currentCompatVSync
@@ -5032,6 +5034,8 @@ int GameApp::run() const {
       presentationViewGame = nullptr;
       previousFrameUsedPresentationView = usePresentationView;
     } else if (currentPresentationGame != presentationViewGame) {
+      // A new ClientGame represents a new connection/prediction timeline; do
+      // not carry view initialization or mouse state across that authority reset.
       presentationView = {};
       presentationViewGame = currentPresentationGame;
     }
@@ -5190,6 +5194,8 @@ int GameApp::run() const {
       }
       LocalInputState tickInput = input;
       if (consumedMouseForTick) {
+        // SDL reports one mouse delta per rendered frame. Apply it to only the
+        // first catch-up command or low frame rates would multiply the turn.
         tickInput.mouseDeltaX = 0.0F;
         tickInput.mouseDeltaY = 0.0F;
       }

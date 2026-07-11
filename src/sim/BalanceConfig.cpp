@@ -229,6 +229,8 @@ namespace {
 
 BalanceConfigLoadResult loadBalanceConfigFromText(std::string_view text) {
   BalanceConfigLoadResult result;
+  // Start from compiled defaults, then apply validated keys. A partial or failed
+  // file is never marked usable by the caller.
   result.config = {};
 
   bool hasVersion = false;
@@ -269,6 +271,8 @@ BalanceConfigLoadResult loadBalanceConfigFromText(std::string_view text) {
     }
 
     int intValue = 0;
+    // Try integer keys first because their accepted ranges and storage are exact;
+    // only then allow the same token to match a floating-point balance field.
     if (parseInt(tokens[1], intValue) && applyInt(result.config, tokens[0], intValue)) {
       continue;
     }
@@ -283,6 +287,8 @@ BalanceConfigLoadResult loadBalanceConfigFromText(std::string_view text) {
   }
 
   if (!hasVersion) {
+    // Requiring an explicit schema version prevents an old positional/key format
+    // from silently loading with plausible but unintended defaults.
     result.error = "balance config is missing version";
     return result;
   }

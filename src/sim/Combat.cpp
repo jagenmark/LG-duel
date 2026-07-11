@@ -236,6 +236,8 @@ struct HeadHitbox {
   float maxDistance,
   float& hitDistance
 ) {
+  // Intersect the infinite radial cylinder and vertical slab separately, then
+  // overlap their entry/exit intervals to obtain the finite player cylinder.
   const Vec3 relativeOrigin = origin - target.position;
   const float radius = target.bounds.radius;
   const float halfHeight = target.bounds.halfHeight;
@@ -394,6 +396,8 @@ WorldTrace traceWorld(
     }
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    // Reject brushes whose cheap AABB entry is already behind a nearer hit;
+    // exact convex-plane tracing then determines the visible impact surface.
     const float boundsDistance =
       brushBoundsHitDistance(arena.brushes[index], origin, direction);
     if (boundsDistance > trace.distance + kTraceEpsilon) {
@@ -483,6 +487,8 @@ LightningGunResult simulateLightningGun(
   result.active = command.attack && attacker.health > 0;
 
   if (!result.active || target.health <= 0) {
+    // Releasing the beam restores one immediate damage quantum for the next
+    // activation instead of imposing a fractional fire-period startup delay.
     state.shotCredit = 1.0;
     return result;
   }
@@ -524,6 +530,8 @@ LightningGunResult simulateLightningGun(
   state.shotCredit +=
     static_cast<double>(fireHz) * static_cast<double>(fixedDt);
   state.fractionalDamage +=
+    // Convert fixed-rate beam quanta back into DPS while carrying fractional
+    // damage across ticks, keeping totals stable for different fixedDt values.
     static_cast<double>(shotsApplied) *
     static_cast<double>(tuning.damagePerSecond) /
     static_cast<double>(fireHz);
@@ -647,6 +655,8 @@ float freezeMovementScale(const PlayerState& player, const FreezeGunTuning& tuni
     std::clamp(player.freezeLevel / maxLevel, 0.0F, 1.0F);
   const float slowFraction =
     freezeFraction * std::clamp(tuning.maxSlowFraction, 0.0F, 0.95F);
+  // Retain a small movement floor so full freeze slows authoritative simulation
+  // without creating a separate immobile/collision state.
   return std::clamp(1.0F - slowFraction, 0.05F, 1.0F);
 }
 
@@ -794,6 +804,8 @@ WeaponFireResult simulateShotgun(
     ++result.pelletHitCount;
     float headHitDistance = 0.0F;
     const bool pelletHeadshot =
+      // Require the center aim ray to be on the head before spread pellets may
+      // receive headshot credit, preventing random edge pellets from granting it.
       centerHeadshot &&
       intersectPlayerHeadHitbox(
         result.start,
@@ -826,6 +838,8 @@ WeaponFireResult simulateShotgun(
     static_cast<float>(result.pelletHitCount) /
     static_cast<float>(std::max<std::uint8_t>(1, tuning.pelletCount));
   result.knockbackImpulse =
+    // Scale impulse by pellet coverage and use the average hit direction so a
+    // grazing partial blast cannot deliver full centered-shot knockback.
     normalize(accumulatedKnockbackDirection) * tuning.knockback * hitFraction;
   return result;
 }

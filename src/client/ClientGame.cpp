@@ -49,6 +49,8 @@ void ClientGame::sendCommand(
     std::int32_t botCommandMaxIntervalMs
   ) {
   if (requestMovementTuning) {
+    // Predict with the requested tuning immediately, but keep it pending until
+    // the server acknowledges this command so older snapshots cannot revert it.
     movementTuning_ = movementTuning;
     movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
     pendingMovementTuningCommand_ = command.sequence;
@@ -60,6 +62,8 @@ void ClientGame::sendCommand(
       command,
       requestReset,
       toggleReady,
+      // Lag-compensated traces must rewind to what the player was shown, not
+      // necessarily the newest snapshot already buffered by the client.
       usePresentedServerTick ? interpolation_.presentationServerTick() : snapshot_.serverTick,
       requestMovementTuning,
       movementTuning_,
@@ -93,6 +97,8 @@ void ClientGame::sendCommand(
     }
   );
   if (!requestReset) {
+    // Reset replaces authoritative match state, so predicting the accompanying
+    // movement command would create state the server deliberately discards.
     prediction_.predict(
       command,
       arena_,
@@ -111,6 +117,8 @@ void ClientGame::receiveSnapshots() {
   diagnostics.snapshotsApplied = 0;
   diagnostics.snapshotApplyMilliseconds = 0.0F;
   while (connectionError_.empty() && transport_.receiveSnapshot(received)) {
+    // Snapshot ticks are authoritative and monotonic; late or duplicated UDP
+    // snapshots must not rewind prediction, interpolation, or map state.
     if (!hasSnapshot_ || received.serverTick > snapshot_.serverTick) {
       const auto applyStart = std::chrono::steady_clock::now();
       const bool mapChanged =
@@ -139,11 +147,15 @@ void ClientGame::receiveSnapshots() {
         hasPendingMovementTuning_ = false;
       }
       if (!hasPendingMovementTuning_) {
+        // Once the tuning request is acknowledged, replicated server values
+        // again become the source of truth for prediction and reconciliation.
         movementTuning_ = received.movementTuning;
         movementTuning_.maxAirSpeed = movementTuning_.maxGroundSpeed;
       }
       icePoolTuning_ = received.icePoolTuning;
       hasSnapshot_ = true;
+      // Buffer remote presentation first, then rebuild the local predicted state
+      // from the same authoritative snapshot and its unacknowledged commands.
       interpolation_.push(received);
       prediction_.reconcile(
         received.players[localPlayerIndex_],

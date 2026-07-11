@@ -17,6 +17,8 @@ struct Utf8Codepoint {
 }
 
 [[nodiscard]] Utf8Codepoint decodeOne(std::string_view text, std::size_t offset) {
+  // Validation rejects truncated, overlong, and out-of-range encodings so every
+  // cursor and byte-limit operation can stop at a complete codepoint boundary.
   if (offset >= text.size()) {
     return {};
   }
@@ -149,6 +151,8 @@ std::size_t nextUtf8Cursor(std::string_view text, std::size_t cursor) {
     return text.size();
   }
   const Utf8Codepoint codepoint = decodeOne(text, cursor);
+  // Advance one byte on malformed input to guarantee progress; callers that
+  // require valid text still reject the malformed sequence before insertion.
   return codepoint.valid ? cursor + codepoint.length : cursor + 1U;
 }
 
@@ -176,6 +180,8 @@ std::string utf8TrimToByteLimit(std::string_view text, std::size_t byteLimit) {
   }
   std::string result;
   std::size_t offset = 0;
+  // Protocol limits are bytes, but truncation must never split a multibyte
+  // character or copy a valid prefix followed by malformed input.
   while (offset < text.size()) {
     const Utf8Codepoint codepoint = decodeOne(text, offset);
     if (!codepoint.valid || result.size() + codepoint.length > byteLimit) {

@@ -866,6 +866,8 @@ bool addTouchingArenaPlanes(
   std::size_t planeCount,
   Vec3& clippedVelocity
 ) {
+  // Try sliding along each contact plane. Two conflicting planes constrain
+  // motion to their crease; a third plane blocking that crease stops movement.
   constexpr float kIntoPlaneEpsilon = 0.1F;
 
   for (std::size_t firstPlane = 0; firstPlane < planeCount; ++firstPlane) {
@@ -964,6 +966,8 @@ CollisionResult slidePlayerArenaMove(
     if (trace.fraction > kCollisionEpsilon) {
       position = trace.endPosition;
       result.position = position;
+      // Once the move makes measurable progress, old local contacts no longer
+      // constrain the next segment; keeping them can falsely pin corner exits.
       planeCount = 0;
     }
     if (!trace.hit) {
@@ -990,6 +994,8 @@ CollisionResult slidePlayerArenaMove(
       return result;
     }
     if (planeCount == previousPlaneCount && length(trace.normal) > kCollisionEpsilon) {
+      // Nudge away from a duplicate zero-fraction contact so the bump loop does
+      // not repeatedly hit the same numerically touching plane without progress.
       result.velocity += trace.normal * kCollisionEpsilon;
     }
     if (!addTouchingArenaPlanes(arena, player, position, result.velocity, planes, planeCount)) {
@@ -1008,6 +1014,8 @@ CollisionResult slidePlayerArenaMove(
     }
     result.velocity = newVelocity;
     if (planeCount > 1 && dot(result.velocity, originalVelocity) <= 0.0F) {
+      // Corner clipping may not reverse the requested move; stopping here avoids
+      // unstable rebounds and oscillation inside acute wedges.
       result.velocity = {};
       result.position = position;
       result.blocked = true;

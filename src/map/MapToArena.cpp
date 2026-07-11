@@ -513,6 +513,8 @@ void clearRenderableMaterial(ArenaBrush& brush) {
 
 [[nodiscard]] bool addUniqueVertex(ArenaBrush& brush, Vec3 point, std::uint8_t& index) {
   constexpr float kVertexEpsilon = 0.0005F;
+  // Plane triples that meet at one geometric corner produce slightly different
+  // floats; merge them so topology and fixed-capacity counts remain stable.
   for (std::uint8_t existing = 0; existing < brush.vertexCount; ++existing) {
     const Vec3 delta = brush.vertices[existing] - point;
     if (length(delta) <= kVertexEpsilon) {
@@ -575,6 +577,8 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   center = center / static_cast<float>(face.vertexCount);
 
   Vec3 tangent = normalize(cross(face.normal, Vec3{0.0F, 0.0F, 1.0F}));
+  // Build a local 2D basis on the face and sort by polar angle. Nearly horizontal
+  // faces need an explicit tangent because crossing parallel axes degenerates.
   if (length(tangent) <= kPlaneEpsilon) {
     tangent = Vec3{1.0F, 0.0F, 0.0F};
   }
@@ -605,6 +609,8 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   }
 
   for (std::size_t first = 0; first < arenaBrush.faceCount; ++first) {
+    // A convex brush vertex is the intersection of three boundary planes that
+    // lies inside every half-space; no source polygon winding is required.
     for (std::size_t second = first + 1; second < arenaBrush.faceCount; ++second) {
       for (std::size_t third = second + 1; third < arenaBrush.faceCount; ++third) {
         Vec3 point;
@@ -1215,6 +1221,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   Vec3 boundsMin = {};
   Vec3 boundsMax = {};
 
+  // Resolve named targets first so triggers may reference entities that appear
+  // later in the map file without making entity order semantically significant.
   for (const MapEntity& entity : document.entities) {
     const std::string* classname = entity.property("classname");
     if (classname == nullptr || *classname != "target_position") {
@@ -1323,6 +1331,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     return {{}, false, "worldspawn must define both lg_bounds_min and lg_bounds_max"};
   }
   if (!hasBoundsMin) {
+    // Derived bounds include gameplay entities as well as solids, then add room
+    // for player extents so edge spawns and targets are not immediately clamped.
     bool initialized = false;
     for (const ArenaWall& wall : walls) {
       expandBounds(wall.min, boundsMin, boundsMax, initialized);
@@ -1354,6 +1364,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   arenaText << "bounds min=" << boundsMin.x << ',' << boundsMin.y << ',' << boundsMin.z
         << " max=" << boundsMax.x << ',' << boundsMax.y << ',' << boundsMax.z << '\n';
   const bool needsValidationPlaceholder = walls.empty() && !brushes.empty();
+  // Reuse the arena text loader for shared bounds/spawn validation. Brush-only
+  // maps need one temporary box because that legacy validator requires a wall.
   const std::size_t emittedWallCount = needsValidationPlaceholder ? 1U : walls.size();
   for (std::size_t index = 0; index < emittedWallCount; ++index) {
     const ArenaWall placeholder = needsValidationPlaceholder
@@ -1375,6 +1387,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       return {{}, false, "map has too many convex brushes"};
     }
     result.arena.wallCount = walls.size();
+    // Remove the validation placeholder and install the exact convex geometry;
+    // collision and rendering must use brush planes, not their broad-phase AABB.
     for (std::size_t index = 0; index < result.arena.wallCount && index < walls.size(); ++index) {
       result.arena.walls[index].materialId = walls[index].materialId;
       result.arena.walls[index].faceMaterialIds = walls[index].faceMaterialIds;

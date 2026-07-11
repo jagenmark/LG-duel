@@ -143,6 +143,8 @@ bool sendWire(SocketHandle socket, const Endpoint& endpoint, const WirePacket& w
 }
 
 bool receiveWire(SocketHandle socket, Endpoint& endpoint, WirePacket& wire) {
+  // The extra byte detects oversized UDP datagrams: a full buffer means the
+  // packet exceeds the protocol maximum and must be surfaced as empty/invalid.
   std::array<std::uint8_t, kMaxPacketBytes + 1> buffer = {};
   endpoint.length = sizeof(endpoint.address);
   const int received = recvfrom(
@@ -245,6 +247,8 @@ struct UdpServerTransport::Impl {
 
         if (clients[slotIndex].session == 0 ||
             clients[slotIndex].nonce != request.clientNonce) {
+          // A changed nonce from the same endpoint starts a new logical client
+          // session and invalidates map-transfer state left by the old process.
           clients[slotIndex].nonce = request.clientNonce;
           clients[slotIndex].session = nextSession++;
           if (nextSession == 0) {
@@ -284,6 +288,8 @@ struct UdpServerTransport::Impl {
             bundle.commands[index].playerIndex == slotIndex &&
             bundle.commands[index].clientNonce == clients[slotIndex].nonce
           ) {
+            // Endpoint, assigned slot, and nonce must all agree before input can
+            // reach authoritative command processing; sequence checks happen there.
             commands.push_back(bundle.commands[index]);
           }
         }
@@ -527,6 +533,8 @@ struct UdpClientTransport::Impl {
           std::chrono::duration<float, std::milli>(
             decodeEnd - decodeStart
           ).count();
+        // Queue validated wire rather than retaining the large decoded object;
+        // ClientGame performs the state-producing decode when it consumes it.
         snapshots.push_back(wire);
         snapshotDiagnostics.snapshotQueueDepth = snapshots.size();
         lastServerPacket = now;
@@ -600,6 +608,8 @@ struct UdpClientTransport::Impl {
       if (type == PacketType::ConnectAccept) {
         ConnectAccept accept;
         if (decodeConnectAccept(wire, accept) && accept.clientNonce == nonce) {
+          // The echoed nonce prevents delayed accepts from a previous connection
+          // attempt from assigning this client to a stale server-side session.
           connected = true;
           timedOut = false;
           assignedPlayer = accept.playerIndex;
@@ -749,6 +759,8 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   }
 
   impl_->commandHistory.push_back(stampedPacket);
+  // Resend a short history in every UDP bundle. Server-side wrap-safe sequence
+  // filtering makes duplicates harmless while recovering isolated packet loss.
   while (impl_->commandHistory.size() > kMaxBundledCommands) {
     impl_->commandHistory.pop_front();
   }
@@ -766,6 +778,8 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
     return;
   }
 
+  // If accumulated redundancy no longer fits, preserve current input latency by
+  // falling back to the already validated single command and restart history.
   impl_->commandHistory.clear();
   impl_->commandHistory.push_back(stampedPacket);
   impl_->sendConnectedWire(singleCommandWire, Clock::now());
