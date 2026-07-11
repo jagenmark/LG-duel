@@ -1,0 +1,571 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A practical, source-linked tour of the code that makes LG Duel play and feel the way it does.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23171914'/%3E%3Cpath d='M13 12h12v30h17v10H13zm29 0h10v40H42z' fill='%23ccff33'/%3E%3C/svg%3E">
+  <title>Inside LG Duel — A gameplay code field guide</title>
+  <style>
+    :root {
+      --ink: #171914;
+      --muted: #656a5e;
+      --paper: #f5f2e9;
+      --paper-2: #ebe6da;
+      --panel: #fffdf7;
+      --line: #d8d1c1;
+      --acid: #ccff33;
+      --orange: #ff6b35;
+      --blue: #3366ff;
+      --violet: #7857d8;
+      --green: #287a53;
+      --code: #161813;
+      --code-ink: #eef5df;
+      --shadow: 0 16px 45px rgba(39, 36, 28, .09);
+      --radius: 18px;
+      --sidebar: 288px;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; scroll-padding-top: 28px; }
+    body {
+      margin: 0;
+      color: var(--ink);
+      background:
+        linear-gradient(rgba(27, 29, 24, .035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(27, 29, 24, .035) 1px, transparent 1px),
+        var(--paper);
+      background-size: 32px 32px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.62;
+    }
+    a { color: inherit; }
+    a:hover { text-decoration-thickness: 2px; }
+    code, pre, .eyebrow, .chip, .file, .nav-kicker, .meter-label, .recipe-tag {
+      font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+    }
+    .layout { display: grid; grid-template-columns: var(--sidebar) minmax(0, 1fr); min-height: 100vh; }
+    aside {
+      position: sticky; top: 0; height: 100vh; overflow: auto;
+      background: #1b1d18; color: #f4f1e7; padding: 26px 20px 30px;
+      border-right: 1px solid #080908;
+    }
+    .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 26px; text-decoration: none; }
+    .brand-mark { width: 38px; height: 38px; display: grid; place-items: center; background: var(--acid); color: #111; font-weight: 900; transform: rotate(-4deg); }
+    .brand strong { display: block; font-size: 15px; letter-spacing: .02em; }
+    .brand span { display: block; color: #aeb3a5; font-size: 11px; }
+    .search-wrap { position: relative; margin-bottom: 22px; }
+    .search-wrap input { width: 100%; border: 1px solid #484b42; border-radius: 9px; padding: 10px 12px 10px 34px; background: #272a23; color: white; outline: none; }
+    .search-wrap input:focus { border-color: var(--acid); box-shadow: 0 0 0 3px rgba(204,255,51,.12); }
+    .search-wrap::before { content: "⌕"; position: absolute; left: 11px; top: 5px; color: #aeb3a5; font-size: 21px; }
+    nav ul { list-style: none; padding: 0; margin: 0; }
+    .nav-kicker { color: #858b7d; font-size: 10px; text-transform: uppercase; letter-spacing: .15em; margin: 18px 10px 6px; }
+    nav a { display: flex; align-items: center; gap: 9px; padding: 8px 10px; color: #c9cebf; text-decoration: none; border-radius: 8px; font-size: 13px; }
+    nav a:hover, nav a.active { background: #30342b; color: white; }
+    nav a.active::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--acid); }
+    .aside-note { margin-top: 28px; padding: 14px; border: 1px solid #3b3f35; border-radius: 10px; color: #abb0a3; font-size: 11px; }
+    .aside-note strong { color: var(--acid); }
+    main { min-width: 0; }
+    .content { width: min(1120px, calc(100% - 72px)); margin: 0 auto; padding: 70px 0 120px; }
+    .hero { position: relative; min-height: 620px; display: grid; align-content: center; border-bottom: 2px solid var(--ink); overflow: hidden; }
+    .hero::after { content: "125"; position: absolute; right: -8px; bottom: -98px; font-size: clamp(220px, 29vw, 410px); line-height: .8; letter-spacing: -.1em; font-weight: 950; color: rgba(23,25,20,.045); z-index: -1; }
+    .eyebrow { display: inline-flex; width: fit-content; padding: 6px 10px; background: var(--ink); color: var(--acid); font-size: 11px; text-transform: uppercase; letter-spacing: .12em; transform: rotate(-1deg); }
+    h1 { max-width: 920px; margin: 20px 0 18px; font-size: clamp(58px, 9vw, 118px); line-height: .86; letter-spacing: -.07em; font-weight: 950; }
+    h1 em { color: var(--orange); font-style: normal; }
+    .lede { max-width: 720px; font-size: clamp(18px, 2vw, 23px); color: #3f433a; line-height: 1.45; }
+    .hero-meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 28px; }
+    .chip { display: inline-block; padding: 6px 10px; border: 1px solid var(--ink); border-radius: 999px; background: var(--panel); font-size: 11px; }
+    section { padding: 88px 0 12px; }
+    .section-head { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 24px; align-items: start; margin-bottom: 38px; }
+    .section-no { font-size: 13px; font-weight: 800; border-top: 3px solid var(--ink); padding-top: 9px; }
+    h2 { margin: 0; max-width: 830px; font-size: clamp(38px, 5vw, 66px); letter-spacing: -.045em; line-height: 1; }
+    h3 { margin: 0 0 10px; font-size: 24px; letter-spacing: -.025em; line-height: 1.15; }
+    h4 { margin: 0 0 7px; font-size: 15px; }
+    .section-intro { max-width: 780px; color: var(--muted); font-size: 18px; }
+    .callout { margin: 26px 0; padding: 20px 22px; border-left: 5px solid var(--blue); background: #e9edff; border-radius: 0 12px 12px 0; }
+    .callout.warn { border-color: var(--orange); background: #fff0e7; }
+    .callout.good { border-color: var(--green); background: #e6f3ea; }
+    .callout strong { display: block; margin-bottom: 4px; }
+    .grid-2, .grid-3 { display: grid; gap: 18px; }
+    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow); }
+    .card p:last-child { margin-bottom: 0; }
+    .card.accent { background: var(--acid); border-color: var(--ink); box-shadow: 7px 7px 0 var(--ink); }
+    .card.dark { background: var(--ink); color: #f1f3e9; border-color: var(--ink); }
+    .card.dark p { color: #bdc2b5; }
+    .file { font-size: 12px; color: var(--blue); overflow-wrap: anywhere; }
+    .file a { text-decoration: none; border-bottom: 1px dashed currentColor; }
+    .flow { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin: 32px 0; }
+    .flow.flow-five { grid-template-columns: repeat(5, 1fr); }
+    .flow-step { position: relative; min-height: 145px; padding: 15px; background: var(--panel); border: 1px solid var(--line); border-top: 5px solid var(--blue); }
+    .flow-step:nth-child(2n) { border-top-color: var(--orange); }
+    .flow-step::after { content: "→"; position: absolute; right: -16px; top: 48px; z-index: 2; font-size: 22px; font-weight: 900; }
+    .flow-step:last-child::after { display: none; }
+    .flow-step b { display: block; margin-bottom: 7px; font-size: 13px; }
+    .flow-step span { display: block; color: var(--muted); font-size: 11px; line-height: 1.45; }
+    .authority { display: grid; grid-template-columns: 1fr 80px 1fr; gap: 16px; align-items: stretch; }
+    .authority-side { padding: 26px; border-radius: var(--radius); }
+    .authority-side.server { background: var(--ink); color: white; }
+    .authority-side.client { background: #e7ebff; border: 2px solid var(--blue); }
+    .authority-mid { display: grid; place-items: center; font-size: 32px; }
+    .authority ul { padding-left: 18px; margin-bottom: 0; }
+    .timeline { position: relative; margin: 28px 0; }
+    .tick { display: grid; grid-template-columns: 72px 1fr; gap: 18px; padding: 14px 0; border-top: 1px solid var(--line); }
+    .tick:first-child { border-top: 3px solid var(--ink); }
+    .tick-time { color: var(--orange); font: 700 12px/1.5 "Cascadia Code", monospace; }
+    .tick-body b { display: block; }
+    .tick-body p { margin: 3px 0 0; color: var(--muted); }
+    .code-tour { margin: 26px 0; border: 1px solid #30342b; background: var(--code); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+    .code-top { display: flex; justify-content: space-between; gap: 12px; align-items: center; padding: 10px 14px; color: #aeb5a4; border-bottom: 1px solid #34382f; font-size: 11px; }
+    .code-top a { color: var(--acid); text-decoration: none; }
+    .copy { background: transparent; color: #aeb5a4; border: 1px solid #4a4e44; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+    .copy:hover { color: white; border-color: var(--acid); }
+    pre { margin: 0; padding: 20px; overflow: auto; color: var(--code-ink); font-size: 13px; line-height: 1.62; tab-size: 2; }
+    .kw { color: #c69cff; } .fn { color: #83d7ff; } .cm { color: #879080; } .num { color: #ffb86c; } .ty { color: #a8e66b; }
+    .translation { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #34382f; }
+    .translation > div { padding: 16px 18px; color: #c7ccbf; font-size: 13px; }
+    .translation > div + div { border-left: 1px solid #34382f; }
+    .translation strong { color: white; }
+    .system-tabs { margin-top: 26px; }
+    .tab-list { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 16px; }
+    .tab-button { border: 1px solid var(--ink); background: var(--panel); color: var(--ink); border-radius: 999px; padding: 9px 14px; cursor: pointer; font-weight: 700; }
+    .tab-button[aria-selected="true"] { background: var(--ink); color: var(--acid); }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+    .knob { display: grid; grid-template-columns: minmax(130px, .7fr) 1fr 1fr; gap: 14px; padding: 15px 0; border-top: 1px solid var(--line); align-items: start; }
+    .knob:first-child { border-top: 0; }
+    .knob code { color: var(--violet); font-size: 12px; overflow-wrap: anywhere; }
+    .knob span { color: var(--muted); font-size: 13px; }
+    .recipe { position: relative; min-width: 0; overflow-wrap: anywhere; counter-increment: recipe; padding: 24px 24px 24px 72px; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); }
+    .recipe::before { content: counter(recipe, decimal-leading-zero); position: absolute; left: 20px; top: 22px; color: var(--orange); font: 900 20px/1 "Cascadia Code", monospace; }
+    .recipe-tag { color: var(--green); font-size: 10px; text-transform: uppercase; letter-spacing: .1em; }
+    .recipes { display: grid; min-width: 0; gap: 14px; counter-reset: recipe; }
+    .recipe ol { margin-bottom: 0; padding-left: 20px; }
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; background: var(--panel); }
+    table { width: 100%; border-collapse: collapse; min-width: 720px; font-size: 13px; }
+    th, td { text-align: left; padding: 13px 15px; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { background: var(--paper-2); font-size: 11px; text-transform: uppercase; letter-spacing: .07em; }
+    tr:last-child td { border-bottom: 0; }
+    .risk { display: inline-block; padding: 2px 7px; border-radius: 999px; font: 700 10px/1.5 "Cascadia Code", monospace; }
+    .risk.low { background: #dff2e5; color: #165f3a; } .risk.med { background: #fff0b9; color: #6c5000; } .risk.high { background: #ffe0d6; color: #9f3115; }
+    details { border-top: 1px solid var(--line); padding: 15px 0; }
+    details:first-child { border-top: 0; }
+    summary { cursor: pointer; font-weight: 750; }
+    details p { margin: 8px 0 0; color: var(--muted); }
+    .footer { margin-top: 100px; padding-top: 28px; border-top: 3px solid var(--ink); display: flex; justify-content: space-between; gap: 30px; color: var(--muted); font-size: 12px; }
+    .search-hidden { display: none !important; }
+    .mobile-nav { display: none; position: fixed; z-index: 20; right: 14px; top: 14px; width: 45px; height: 45px; border: 0; background: var(--ink); color: white; border-radius: 50%; font-size: 21px; box-shadow: var(--shadow); }
+    @media (max-width: 1040px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: fixed; z-index: 15; width: min(86vw, 310px); transform: translateX(-105%); transition: transform .2s ease; box-shadow: 20px 0 50px rgba(0,0,0,.25); }
+      body.nav-open aside { transform: translateX(0); }
+      .mobile-nav { display: block; }
+      .flow { grid-template-columns: repeat(3, 1fr); }
+      .flow-step:nth-child(3)::after { display: none; }
+    }
+    @media (max-width: 760px) {
+      .content { width: min(100% - 34px, 1120px); padding-top: 34px; }
+      .hero { min-height: 560px; }
+      h1 { font-size: clamp(52px, 18vw, 82px); }
+      .section-head { grid-template-columns: 1fr; gap: 12px; }
+      .section-no { width: 70px; }
+      .grid-2, .grid-3, .authority, .translation { grid-template-columns: 1fr; }
+      .authority-mid { min-height: 45px; transform: rotate(90deg); }
+      .flow { grid-template-columns: 1fr 1fr; }
+      .flow.flow-five { grid-template-columns: 1fr 1fr; }
+      .flow-step::after { display: none; }
+      .translation > div + div { border-left: 0; border-top: 1px solid #34382f; }
+      .knob { grid-template-columns: 1fr; gap: 5px; }
+      .footer { flex-direction: column; }
+    }
+    @media print {
+      aside, .mobile-nav, .copy { display: none !important; }
+      .layout { display: block; }
+      .content { width: 100%; padding: 0; }
+      .hero { min-height: auto; padding: 40px 0; }
+      section { break-inside: avoid; padding-top: 45px; }
+      .card, .code-tour { box-shadow: none; }
+    }
+  </style>
+</head>
+<body>
+  <button class="mobile-nav" aria-label="Open navigation" aria-controls="guide-nav" aria-expanded="false">☰</button>
+  <div class="layout">
+    <aside id="guide-nav">
+      <a class="brand" href="#top"><span class="brand-mark">LG</span><span><strong>Code field guide</strong><span>From input to pixels</span></span></a>
+      <div class="search-wrap"><input id="search" type="search" placeholder="Filter the guide…" aria-label="Filter guide sections"></div>
+      <nav aria-label="Guide sections">
+        <div class="nav-kicker">Start here</div>
+        <ul>
+          <li><a href="#orientation">The mental model</a></li>
+          <li><a href="#frame">One moment of play</a></li>
+          <li><a href="#cpp">C++ for Python brains</a></li>
+        </ul>
+        <div class="nav-kicker">The feel layer</div>
+        <ul>
+          <li><a href="#movement">Movement & collision</a></li>
+          <li><a href="#combat">Weapons & damage</a></li>
+          <li><a href="#network">Networking & prediction</a></li>
+          <li><a href="#presentation">Camera, feedback & render</a></li>
+          <li><a href="#maps">Maps & world geometry</a></li>
+        </ul>
+        <div class="nav-kicker">Make a change</div>
+        <ul>
+          <li><a href="#tuning">Where values live</a></li>
+          <li><a href="#recipes">Safe edit recipes</a></li>
+          <li><a href="#tests">Tests as examples</a></li>
+          <li><a href="#glossary">Glossary & next steps</a></li>
+        </ul>
+      </nav>
+      <div class="aside-note"><strong>Reading tip</strong><br>Open the linked source beside this guide. Read the named function first; only follow helpers when you need the next layer.</div>
+    </aside>
+    <main id="top">
+      <div class="content">
+        <header class="hero">
+          <span class="eyebrow">LG Duel / codebase orientation / 2026</span>
+          <h1>How the game <em>feels.</em></h1>
+          <p class="lede">A practical tour of the code between your mouse and the muzzle flash. Written for someone who can read Python, is learning C++, and wants to make a real gameplay change without breaking the invisible contracts that keep an online FPS responsive.</p>
+          <div class="hero-meta">
+            <span class="chip">C++20</span><span class="chip">125 Hz simulation</span><span class="chip">authoritative server</span><span class="chip">client prediction</span><span class="chip">source-linked</span><span class="chip">offline HTML</span>
+          </div>
+        </header>
+
+        <section id="orientation" data-search="architecture mental model folders authority simulation client server rendering">
+          <div class="section-head"><div class="section-no">01 / 12</div><div><h2>First, hold this model in your head.</h2><p class="section-intro">LG Duel is not one program with one loop. It is two programs — client and server — sharing a small physics-and-combat vocabulary. The server decides what is true. The client makes that truth feel immediate and readable.</p></div></div>
+          <div class="authority">
+            <div class="authority-side client"><h3>Client: “make it feel now”</h3><ul><li>Reads keyboard and mouse</li><li>Predicts your own movement immediately</li><li>Interpolates other players smoothly</li><li>Builds camera, models, HUD, audio and effects</li><li>Sends input intent, never final damage</li></ul></div>
+            <div class="authority-mid">⇄</div>
+            <div class="authority-side server"><h3>Server: “decide what happened”</h3><ul><li>Accepts and validates commands</li><li>Runs movement and collision at 125 Hz</li><li>Traces shots and simulates projectiles</li><li>Owns health, cooldowns, scores and match state</li><li>Publishes authoritative snapshots</li></ul></div>
+          </div>
+          <div class="callout"><strong>The central rule</strong>If a value can decide who wins — position, health, damage, hit registration, cooldowns, projectile state — the server owns it. The client may predict or decorate it, but cannot silently become the authority.</div>
+          <div class="grid-3">
+            <article class="card"><h3>Shared simulation</h3><p><span class="file"><a href="../src/sim/">src/sim/</a></span></p><p>Movement, collision, combat helpers, arena state and rules. Both client and server reuse parts of this so prediction can match authority.</p></article>
+            <article class="card"><h3>Client experience</h3><p><span class="file"><a href="../src/app/GameApp.cpp">src/app/GameApp.cpp</a><br><a href="../src/client/">src/client/</a><br><a href="../src/render/">src/render/</a></span></p><p>Input, pending commands, prediction, interpolation, presentation, sound, HUD and rendering.</p></article>
+            <article class="card"><h3>Server truth</h3><p><span class="file"><a href="../src/server/ServerGame.cpp">src/server/ServerGame.cpp</a><br><a href="../src/net/">src/net/</a></span></p><p>The authoritative tick plus the packet definitions and codecs that carry intent and state.</p></article>
+          </div>
+        </section>
+
+        <section id="frame" data-search="input frame tick flow command snapshot render latency server timeline">
+          <div class="section-head"><div class="section-no">02 / 12</div><div><h2>One trigger pull, end to end.</h2><p class="section-intro">Trace this path whenever the codebase feels too large. Almost every gameplay feature is a variation on it.</p></div></div>
+          <div class="flow" aria-label="Input to pixels flow">
+            <div class="flow-step"><b>1. Sample</b><span>SDL events become held/pressed actions and mouse view angles.</span></div>
+            <div class="flow-step"><b>2. Command</b><span>A <code>UserCommand</code> records intent: move, jump, attack, view, weapon.</span></div>
+            <div class="flow-step"><b>3. Predict</b><span>The client immediately runs shared movement for the local player.</span></div>
+            <div class="flow-step"><b>4. Authorize</b><span>The server consumes commands, moves players, resolves shots and projectiles.</span></div>
+            <div class="flow-step"><b>5. Snapshot</b><span>The server sends truth plus the last command sequence it accepted.</span></div>
+            <div class="flow-step"><b>6. Present</b><span>The client reconciles, interpolates remotes and renders effects + HUD.</span></div>
+          </div>
+          <div class="timeline">
+            <div class="tick"><div class="tick-time">0 ms</div><div class="tick-body"><b>You press fire.</b><p>The app captures attack intent without waiting for a server round trip. Mouse view updates at render-frame frequency; fixed ticks sample that latest view into commands.</p></div></div>
+            <div class="tick"><div class="tick-time">same frame</div><div class="tick-body"><b>A sequenced command leaves the client.</b><p>Commands can be bundled so a dropped UDP packet does not necessarily erase one input.</p></div></div>
+            <div class="tick"><div class="tick-time">next tick</div><div class="tick-body"><b>The server runs its ordered simulation.</b><p>Input → match state → movement → collision → combat → projectiles → snapshot. Order is gameplay behavior.</p></div></div>
+            <div class="tick"><div class="tick-time">on reply</div><div class="tick-body"><b>The client merges truth with responsiveness.</b><p>It drops acknowledged commands, resets to server state, replays the still-pending inputs, then presents the result.</p></div></div>
+          </div>
+          <div class="code-tour">
+            <div class="code-top"><a href="../src/server/ServerGame.cpp">src/server/ServerGame.cpp · ServerGame::tick</a><button class="copy">Copy</button></div>
+            <pre><code><span class="kw">void</span> <span class="fn">ServerGame::tick</span>(<span class="kw">float</span> fixedDt) {
+  receivedCommandThisTick_.fill(<span class="kw">false</span>);
+  receiveCommands();
+  updateMatchState();
+  updateBotCommands(fixedDt);
+  <span class="cm">// clear one-tick events and cooldowns…</span>
+  <span class="cm">// move players, resolve collision, then combat…</span>
+  simulateRockets(fixedDt);
+  <span class="cm">// retain events, record history, publish snapshot…</span>
+}</code></pre>
+            <div class="translation"><div><strong>Python reading:</strong> this is an ordinary method mutating the server object. The trailing underscore means “private member by convention,” not special syntax.</div><div><strong>Why it matters:</strong> reordering calls changes the rules. A shot traces against positions produced earlier in this tick; snapshots describe the completed tick.</div></div>
+          </div>
+        </section>
+
+        <section id="cpp" data-search="c++ python structs headers references const arrays enum compile types beginner syntax">
+          <div class="section-head"><div class="section-no">03 / 12</div><div><h2>C++ for a Python-shaped brain.</h2><p class="section-intro">You do not need to master the whole language before reading this project. Learn the handful of shapes that repeat in gameplay code.</p></div></div>
+          <div class="grid-2">
+            <article class="card"><h3><code>struct</code> ≈ dataclass</h3><p><code>PlayerState</code> and <code>UserCommand</code> are named bundles of typed fields. Unlike Python objects, their size and layout matter to memory and performance. Network compatibility comes from the explicit codec's field order — not native struct layout.</p></article>
+            <article class="card"><h3><code>T&amp;</code> ≈ mutable object reference</h3><p><code>simulateMovement(PlayerState&amp; player, ...)</code> edits the caller’s player. <code>const T&amp;</code> borrows without copying and promises not to edit.</p></article>
+            <article class="card"><h3><code>.hpp</code> says what; <code>.cpp</code> says how</h3><p>Start at the header for types and function signatures. Jump to the same-named implementation file when you need behavior.</p></article>
+            <article class="card"><h3><code>std::array&lt;T, N&gt;</code> is bounded</h3><p>It is closer to a fixed-length typed list. Fixed capacity makes per-tick cost and packet size predictable — important in competitive code.</p></article>
+            <article class="card"><h3><code>enum class</code> is a strict choice</h3><p><code>Weapon::Railgun</code> and <code>MovementMode::Airborne</code> cannot be mixed with arbitrary integers without an explicit conversion.</p></article>
+            <article class="card"><h3>Compilation catches contract drift</h3><p>Change a function’s parameters and all callers must update. It is noisier than Python, but the errors form a to-do list across client, server and tests.</p></article>
+          </div>
+          <div class="code-tour">
+            <div class="code-top"><a href="../src/sim/PlayerState.hpp">src/sim/PlayerState.hpp · PlayerState</a><button class="copy">Copy</button></div>
+            <pre><code><span class="kw">struct</span> <span class="ty">PlayerState</span> {
+  Vec3 position = {<span class="num">0.0F</span>, <span class="num">0.0F</span>, <span class="num">0.9F</span>};
+  Vec3 velocity = {};
+  <span class="kw">float</span> viewYawRadians = <span class="num">0.0F</span>;
+  <span class="kw">int</span> health = <span class="num">100</span>;
+  <span class="ty">MovementMode</span> movementMode = MovementMode::Airborne;
+  <span class="kw">bool</span> onGround = <span class="kw">false</span>;
+  <span class="cm">// timers, bounds, weapons and gameplay state continue…</span>
+};</code></pre>
+            <div class="translation"><div><strong>Python equivalent:</strong> imagine a <code>@dataclass</code> whose fields are type-checked and usually stored inline.</div><div><strong>Brace defaults:</strong> <code>{}</code> zero/default-initializes a value. The <code>F</code> marks a 32-bit float literal.</div></div>
+          </div>
+        </section>
+
+        <section id="movement" data-search="movement collision acceleration friction air control jump dash stairs slopes playerclip simulateMovement tuning feel">
+          <div class="section-head"><div class="section-no">04 / 12</div><div><h2>Movement is the game’s handwriting.</h2><p class="section-intro">The player sends wishes; <code>simulateMovement</code> turns those wishes into velocity and a collision-safe position. Because the same function runs for prediction and authority, even a small asymmetry can become a visible correction.</p></div></div>
+          <div class="system-tabs">
+            <div class="tab-list" role="tablist" aria-label="Movement layers">
+              <button id="tab-move-input" class="tab-button" role="tab" aria-selected="true" aria-controls="move-input" tabindex="0" data-tab="move-input">Input → wish</button>
+              <button id="tab-move-velocity" class="tab-button" role="tab" aria-selected="false" aria-controls="move-velocity" tabindex="-1" data-tab="move-velocity">Wish → velocity</button>
+              <button id="tab-move-collision" class="tab-button" role="tab" aria-selected="false" aria-controls="move-collision" tabindex="-1" data-tab="move-collision">Velocity → position</button>
+              <button id="tab-move-state" class="tab-button" role="tab" aria-selected="false" aria-controls="move-state" tabindex="-1" data-tab="move-state">State & edge cases</button>
+            </div>
+            <div id="move-input" class="tab-panel active" role="tabpanel" aria-labelledby="tab-move-input" tabindex="0"><div class="card"><h3>1. Interpret intent in view space</h3><p>Forward/strafe axes are rotated by yaw, producing a desired horizontal direction. This is why “W” follows where the player looks, not world +X. Jump, crouch, sneak and dash are carried as button state or edges.</p><p class="file"><a href="../src/sim/UserCommand.hpp">UserCommand.hpp</a> → <a href="../src/sim/Movement.cpp">Movement.cpp · simulateMovement</a></p></div></div>
+            <div id="move-velocity" class="tab-panel" role="tabpanel" aria-labelledby="tab-move-velocity" tabindex="0"><div class="card"><h3>2. Accelerate under different rules</h3><p>Ground friction slows coasting. Ground acceleration chases the desired speed. In air, acceleration and optional air control alter direction without giving the same grip. Freeze effects scale movement. Dash and flight have their own bounded state.</p><p class="file"><a href="../src/sim/Movement.hpp">MovementTuning</a> · <a href="../config/server_cvars.cfg">movement cvars</a></p></div></div>
+            <div id="move-collision" class="tab-panel" role="tabpanel" aria-labelledby="tab-move-collision" tabindex="0"><div class="card"><h3>3. Slide, step, and resolve</h3><p>Movement sweeps the player bounds, clips velocity along collision planes, and retries a step-up path when grounded movement loses horizontal progress. Player/player collision is resolved on the server, followed by a final arena collision pass.</p><p class="file"><a href="../src/sim/Collision.cpp">Collision.cpp</a> · <a href="../tests/sim/MovementTests.cpp">MovementTests.cpp</a></p></div></div>
+            <div id="move-state" class="tab-panel" role="tabpanel" aria-labelledby="tab-move-state" tabindex="0"><div class="card"><h3>4. Preserve state across ticks</h3><p><code>PlayerState</code> holds grounded/airborne/flying mode, jump-held state, dash timers, knockback time and jumppad cooldown. These fields turn a stateless formula into a consistent movement machine.</p><p class="file"><a href="../src/sim/PlayerState.hpp">PlayerState.hpp</a></p></div></div>
+          </div>
+          <div class="knob"><code>g_accel</code><span>How quickly grounded velocity reaches desired speed.</span><span><b>Feel:</b> higher is snappier and more planted; lower is heavier or slippery.</span></div>
+          <div class="knob"><code>g_friction / g_stopspeed</code><span>How strongly unpowered ground movement brakes, especially near low speed.</span><span><b>Feel:</b> changes stopping precision and whether micro-corrections feel crisp.</span></div>
+          <div class="knob"><code>g_airaccel / g_aircontrol</code><span>How much authority the player keeps after leaving the floor.</span><span><b>Feel:</b> controls strafing expression and mid-air course correction.</span></div>
+          <div class="knob"><code>g_maxspeed</code><span>Sustained desired movement speed, not a universal clamp on every impulse.</span><span><b>Feel:</b> map scale, dodge windows and weapon tracking all change around it.</span></div>
+          <div class="knob"><code>step / slope logic</code><span>Geometry rules inside collision code; not a single designer cvar.</span><span><b>Feel:</b> determines whether stairs and shallow ramps flow or snag.</span></div>
+          <div class="callout warn"><strong>Prediction contract</strong>When movement behavior changes, check both the server call and client replay path use the same tuning and state. Then run movement, collision, client prediction and determinism tests. “Looks fine locally” is not enough.</div>
+        </section>
+
+        <section id="combat" data-search="combat weapons hitscan projectiles damage knockback cooldown lag compensation rockets lightning railgun shotgun plasma server authority">
+          <div class="section-head"><div class="section-no">05 / 12</div><div><h2>Weapons ask three different questions.</h2><p class="section-intro">Can it fire now? What did it touch? What consequences are allowed? The server answers all three, while shared combat helpers supply deterministic traces and weapon-specific calculations.</p></div></div>
+          <div class="grid-3">
+            <article class="card accent"><h3>Permission</h3><p>Is attack held? Is the player alive? Is the weapon selected and pulled out? Is cooldown zero? Is there ammo? Is the match live?</p></article>
+            <article class="card"><h3>Geometry</h3><p>Hitscan traces world + player cylinders immediately. Projectiles allocate a bounded slot, move each tick, and collide later.</p></article>
+            <article class="card dark"><h3>Consequences</h3><p>Apply allowed damage, impulse, self-damage scaling, vampirism, hit feedback, accuracy stats, frag and round state.</p></article>
+          </div>
+          <div class="table-wrap" style="margin-top:24px"><table><thead><tr><th>Family</th><th>Weapons</th><th>Truth is computed</th><th>Primary feel levers</th></tr></thead><tbody>
+            <tr><td>Continuous hitscan</td><td>Lightning, Freeze</td><td>Repeated shot credit at a configured rate; traces against world/player state.</td><td>Range, fire Hz, damage/freeze per second, knockback, beam presentation.</td></tr>
+            <tr><td>Instant hitscan</td><td>Railgun, Machine Gun, Shotgun</td><td>One server fire result; shotgun uses deterministic pellet directions.</td><td>Cooldown ticks, spread, pellets, damage, recoil/tracer/audio.</td></tr>
+            <tr><td>Projectile</td><td>Rocket, Grenade, Plasma</td><td>Spawned into bounded projectile storage and advanced every server tick.</td><td>Speed, radius, lifetime/fuse, bounce, direct vs splash damage, self-knockback.</td></tr>
+          </tbody></table></div>
+          <div class="code-tour">
+            <div class="code-top"><a href="../src/server/ServerGame.cpp">src/server/ServerGame.cpp · applyBalanceConfig</a><button class="copy">Copy</button></div>
+            <pre><code><span class="kw">void</span> <span class="fn">ServerGame::applyBalanceConfig</span>(<span class="kw">const</span> <span class="ty">BalanceConfig</span>&amp; config) {
+  lightningGunTuning_.range = config.lightningGun.range;
+  machineGunTuning_.spreadRadians = config.machineGun.spreadRadians;
+  rocketLauncherTuning_.speed = config.rocketLauncher.speed;
+  grenadeLauncherTuning_.fuseTicks = config.grenadeLauncher.fuseTicks;
+  plasmaGunTuning_.cooldownTicks = config.plasmaGun.cooldownTicks;
+  <span class="cm">// authoritative runtime structs receive validated config values</span>
+}</code></pre>
+            <div class="translation"><div><strong>Useful pattern:</strong> the config file is parsed once into a typed <code>BalanceConfig</code>, then copied into weapon tuning structs used by the hot tick.</div><div><strong>Practical result:</strong> many feel changes begin in <code>config/balance.cfg</code>, not in a huge weapon class.</div></div>
+          </div>
+          <div class="callout good"><strong>Lag compensation in one sentence</strong>For hitscan, the client reports the server tick it was viewing; the server clamps the rewind window and can trace against stored historical player states. The server still decides the hit.</div>
+          <p class="file">Start reading: <a href="../src/sim/Combat.hpp">Combat.hpp</a> → <a href="../src/sim/Combat.cpp">Combat.cpp</a> → <a href="../src/server/ServerGame.cpp">ServerGame::tick / applyDamageAndKnockback / simulateRockets</a></p>
+        </section>
+
+        <section id="network" data-search="network udp protocol command snapshot prediction reconciliation interpolation latency packet ack sequence lag compensation">
+          <div class="section-head"><div class="section-no">06 / 12</div><div><h2>Networking hides delay without hiding truth.</h2><p class="section-intro">There are three distinct techniques here. Mixing them up is the fastest way to make network code feel mystical.</p></div></div>
+          <div class="grid-3">
+            <article class="card"><h3>Prediction</h3><p><b>Who?</b> Your local player.<br><b>How?</b> Run movement immediately and remember the command.<br><b>Why?</b> Input should not wait for ping.</p></article>
+            <article class="card"><h3>Reconciliation</h3><p><b>Who?</b> Your local player.<br><b>How?</b> Reset to server truth, discard acknowledged commands, replay the rest.<br><b>Why?</b> Prediction must eventually agree.</p></article>
+            <article class="card"><h3>Interpolation</h3><p><b>Who?</b> Remote players.<br><b>How?</b> Render slightly behind, between buffered snapshots.<br><b>Why?</b> UDP arrivals are uneven.</p></article>
+          </div>
+          <div class="code-tour">
+            <div class="code-top"><a href="../src/client/Prediction.cpp">src/client/Prediction.cpp · Prediction::reconcile</a><button class="copy">Copy</button></div>
+            <pre><code><span class="kw">if</span> (hasAcknowledgedCommand) {
+  <span class="kw">while</span> (!pendingCommands_.empty() &amp;&amp;
+         isSequenceAcknowledged(pendingCommands_.front().sequence,
+                                acknowledgedCommand)) {
+    pendingCommands_.pop_front();
+  }
+}
+
+player_ = authoritativeState;
+<span class="kw">for</span> (<span class="kw">const</span> <span class="ty">UserCommand</span>&amp; command : pendingCommands_) {
+  <span class="kw">if</span> (player_.health &gt; <span class="num">0</span>) {
+    simulateMovement(player_, command, arena, tuning,
+                     icePools, icePoolTuning, fixedDt);
+  } <span class="kw">else</span> {
+    applyDeadCommand(player_, command);
+  }
+}</code></pre>
+            <div class="translation"><div><strong>Python-ish pseudocode:</strong> <code>player = deepcopy(server_player)</code>; remove inputs the server has processed; call the same movement function for each remaining input.</div><div><strong>Sequence helper:</strong> comparisons must handle 32-bit wraparound. Do not replace them with naïve <code>&gt;</code> checks.</div></div>
+          </div>
+          <div class="callout warn"><strong>Wire-format danger zone</strong><code>NetProtocol.hpp</code> describes packet data; <code>NetCodec.cpp</code> writes it in positional order and validates it. Add/change a field only with matching encode, decode, validation and protocol tests — and bump <code>kProtocolVersion</code> when compatibility changes.</div>
+          <div class="grid-2">
+            <article class="card"><h3>Commands carry intent</h3><p>Movement axes, view, buttons, selected weapon, requests, command sequence and the server tick the client was viewing.</p><p class="file"><a href="../src/sim/UserCommand.hpp">UserCommand.hpp</a> · <a href="../src/net/NetProtocol.hpp">NetProtocol.hpp</a></p></article>
+            <article class="card"><h3>Snapshots carry authority</h3><p>Player state, acknowledgements, match state, projectile/event arrays, accepted tuning, and a compact map descriptor/revision — not the arena geometry itself.</p><p class="file"><a href="../src/client/ClientGame.cpp">ClientGame::receiveSnapshots</a> · <a href="../src/client/Interpolation.cpp">Interpolation.cpp</a></p></article>
+          </div>
+          <p class="section-intro" style="margin-top:24px">UDP does not promise delivery or order. The client normally bundles its newest command with two recent commands; the server's wrap-safe sequence filter makes duplicates harmless. Think of each postcard repeating the last two lines in case yesterday's mail was lost.</p>
+        </section>
+
+        <section id="presentation" data-search="render camera fov viewmodel recoil feedback sound hud interpolation frame pacing visual only renderer Scene3D">
+          <div class="section-head"><div class="section-no">07 / 12</div><div><h2>“Feel” also lives after simulation.</h2><p class="section-intro">A shot can be mechanically correct and still feel mushy. Camera response, viewmodel movement, hit confirmation, sound timing, interpolation and stable frame pacing shape what the player perceives — but remain presentation-only.</p></div></div>
+          <div class="grid-2">
+            <article class="card"><h3>Frame conductor</h3><p><code>GameApp.cpp</code> owns SDL input, client cvars, audio/HUD state, render pacing, local presentation prediction and the per-frame assembly handed to the renderer.</p><p class="file"><a href="../src/app/GameApp.cpp">src/app/GameApp.cpp</a></p></article>
+            <article class="card"><h3>3D scene builder</h3><p><code>Scene3D.cpp</code> turns arena + player + event state into camera-space world, players, weapons, beams, tracers, projectiles and explosions.</p><p class="file"><a href="../src/render/Scene3D.cpp">src/render/Scene3D.cpp</a></p></article>
+            <article class="card"><h3>Immediate confirmation</h3><p>Hit markers, damage numbers, hit sounds and short-lived beams interpret authoritative events and retain them just long enough to read under packet loss.</p><p class="file"><a href="../src/client/LocalHitFeedback.cpp">LocalHitFeedback.cpp</a> · <a href="../src/client/HitConfirmAudio.cpp">HitConfirmAudio.cpp</a></p></article>
+            <article class="card"><h3>Stable delivery</h3><p>Static GPU world geometry is cached by an arena fingerprint. Dynamic effects are rebuilt within bounded budgets. Telemetry watches frame-time behavior, not just average FPS.</p><p class="file"><a href="../src/render/Renderer.cpp">Renderer.cpp</a> · <a href="../src/app/PerfTelemetry.cpp">PerfTelemetry.cpp</a></p></article>
+          </div>
+          <div class="callout"><strong>A useful dividing test</strong>Could changing this value alter who gets hit or how much health remains? Then it is gameplay authority. Does it only alter where the viewmodel sits, how long a tracer lingers, crosshair color, recoil animation or a sound cue? Then it is presentation.</div>
+          <div class="table-wrap"><table><thead><tr><th>Change</th><th>Likely home</th><th>Authority</th><th>Typical test</th></tr></thead><tbody>
+            <tr><td>Rocket speed</td><td><code>balance.cfg</code> → server tuning</td><td>Server</td><td>Combat/server projectile test</td></tr>
+            <tr><td>Rocket mesh scale</td><td><code>Scene3D.cpp</code> / presentation settings</td><td>Visual only</td><td>Scene3D test</td></tr>
+            <tr><td>First-person FOV</td><td><code>ClientCvars.cpp</code> + <code>GameApp.cpp</code></td><td>Visual only</td><td>Client cvar/perspective test</td></tr>
+            <tr><td>Player collision radius</td><td>gameplay tuning + replicated state</td><td>Server</td><td>Movement/collision/net test</td></tr>
+          </tbody></table></div>
+        </section>
+
+        <section id="maps" data-search="maps trenchbroom arena collision rendering playerclip jump pad units texture geometry spawn map revision">
+          <div class="section-head"><div class="section-no">08 / 12</div><div><h2>The map is both stage and rulebook.</h2><p class="section-intro">A restricted TrenchBroom/Quake text map is parsed and converted into a fixed-capacity <code>Arena</code> on both server and client. The server replicates a compact name/hash/revision descriptor; the client loads the same local file, verifies its content hash, then builds cached world geometry.</p></div></div>
+          <div class="flow flow-five">
+            <div class="flow-step"><b><code>.map</code> text</b><span>Entities, brushes, faces and material names.</span></div>
+            <div class="flow-step"><b>Parse</b><span><code>MapParser.cpp</code> validates the supported authoring subset.</span></div>
+            <div class="flow-step"><b>Convert</b><span><code>MapToArena.cpp</code> creates walls, brushes, spawns, triggers and lights.</span></div>
+            <div class="flow-step"><b>Simulate</b><span><code>Arena</code> drives collision, traces, pickups and jumppads.</span></div>
+            <div class="flow-step"><b>Render</b><span>Renderable geometry becomes a cached static world mesh.</span></div>
+          </div>
+          <div class="grid-3">
+            <article class="card"><h3>Scale</h3><p>40 TrenchBroom units = 1 LG Duel world unit. A 16-unit stair becomes 0.4 game units.</p></article>
+            <article class="card"><h3>Playerclip</h3><p>Collision-only brushes stay in <code>Arena</code> but set <code>renderable=false</code>. A clip ramp can make visible stairs move smoothly.</p></article>
+            <article class="card"><h3>Verified locally</h3><p>Arena geometry does not travel in snapshots. A descriptor/revision tells clients which local map to load, and the content hash prevents silently using different geometry.</p></article>
+          </div>
+          <div class="callout warn"><strong>Current limitation worth remembering</strong>Playerclip blocks players, hitscan and projectiles because collision content masks are not separated yet. A map geometry tweak can therefore change both navigation and weapon behavior.</div>
+          <p class="file"><a href="../maps/eyetoeye.map">maps/eyetoeye.map</a> → <a href="../src/map/MapParser.cpp">MapParser.cpp</a> → <a href="../src/map/MapToArena.cpp">MapToArena.cpp</a> → <a href="../src/sim/Arena.hpp">Arena.hpp</a></p>
+        </section>
+
+        <section id="tuning" data-search="config cvars balance defaults runtime values console tuning server client docs">
+          <div class="section-head"><div class="section-no">09 / 12</div><div><h2>Find the knob before writing code.</h2><p class="section-intro">The project deliberately separates authoritative balance, console-backed tuning and local presentation. Put a value in the wrong lane and you create two competing sources of truth.</p></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Editing surface</th><th>Belongs here</th><th>Examples</th><th>Do not put here</th></tr></thead><tbody>
+            <tr><td><a href="../config/balance.cfg"><code>config/balance.cfg</code></a></td><td>Authoritative, non-cvar gameplay data</td><td>Projectile speed/radius/lifetime, weapon cooldown ticks, spread, pickup timing</td><td><code>sv_*</code>, <code>g_*</code>, <code>cl_*</code>, <code>r_*</code>, binds</td></tr>
+            <tr><td><a href="../config/server_cvars.cfg"><code>config/server_cvars.cfg</code></a></td><td>Server startup cvars and temporary development gameplay cvars</td><td>Acceleration, friction, max speed, damage, knockback, self-damage</td><td>Local FOV, HUD, sound or render preferences</td></tr>
+            <tr><td><a href="../config/default_client.cfg"><code>config/default_client.cfg</code></a></td><td>Shipped client presentation defaults and binds</td><td>FOV, colors, crosshair, HUD, audio, interpolation, frame cap</td><td>Authoritative weapon or collision balance</td></tr>
+            <tr><td><a href="../src/app/ClientCvars.cpp"><code>ClientCvars.*</code></a></td><td>Registration/range/storage for client cvars</td><td><code>cl_*</code>, <code>r_*</code>, <code>s_*</code>, <code>vid_*</code></td><td>Server-only rules</td></tr>
+          </tbody></table></div>
+          <div class="callout"><strong>Documentation contract</strong>Adding, renaming or changing any cvar or console command also requires updating <a href="CONSOLE-BIBLE.md"><code>docs/CONSOLE-BIBLE.md</code></a>.</div>
+          <div class="callout warn"><strong>Temporary development path</strong>Some <code>g_*</code> requests are still carried by clients, but the server accepts and owns the resulting gameplay state. Do not add fields or expand this client-pushed tuning route without explicit approval; doing so can also require codec, protocol-version and protocol-test changes.</div>
+        </section>
+
+        <section id="recipes" data-search="recipes change tutorial first edit movement weapon feedback map cvar practical how to">
+          <div class="section-head"><div class="section-no">10 / 12</div><div><h2>Four changes you can make on purpose.</h2><p class="section-intro">Each recipe starts at the narrowest safe surface, identifies the code path that consumes it, and names the tests that protect the result.</p></div></div>
+          <div class="recipes">
+            <article class="recipe"><span class="recipe-tag">Good first change · low blast radius</span><h3>Make ground acceleration feel snappier</h3><ol><li>Edit <code>g_accel</code> in <a href="../config/server_cvars.cfg"><code>config/server_cvars.cfg</code></a>.</li><li>Run the server and compare starting and reversing acceleration at the same <code>g_maxspeed</code>. Stopping without input is chiefly <code>g_friction</code> + <code>g_stopspeed</code>.</li><li>Read the early acceleration cases in <a href="../tests/sim/MovementTests.cpp"><code>MovementTests.cpp</code></a>.</li><li>A changed shipped default, behavior, range, storage, authority or user-visible meaning also requires tests and an update to <code>CONSOLE-BIBLE.md</code>.</li></ol></article>
+            <article class="recipe"><span class="recipe-tag">Balance change · server authority</span><h3>Change how quickly rockets cross a room</h3><ol><li>Edit <code>weapon.rl.speed</code> in <a href="../config/balance.cfg"><code>balance.cfg</code></a>.</li><li>Follow it through <code>BalanceConfig</code> into <code>rocketLauncherTuning_.speed</code>. Cooldowns are ticks: at 125 Hz, 100 ticks = 0.8 seconds.</li><li>Do not compensate with a visual-only projectile offset; the server projectile position is truth.</li><li>Run combat, server and projectile self-knockback tests; playtest leading and dodge windows.</li></ol></article>
+            <article class="recipe"><span class="recipe-tag">Presentation change · client only</span><h3>Make hit confirmation more readable</h3><ol><li>Trace snapshot <code>LocalHitFeedbackEvent</code> into <a href="../src/client/LocalHitFeedback.cpp"><code>LocalHitFeedback.cpp</code></a> and <a href="../src/client/HitConfirmAudio.cpp"><code>HitConfirmAudio.cpp</code></a>.</li><li>Adjust fade, layout, color or sound presentation — not damage application.</li><li>Keep event IDs/retention in mind so packet loss or duplicates do not double-play feedback.</li><li>Run local-hit-feedback, hit-confirm-audio, HUD and screen UI tests.</li></ol></article>
+            <article class="recipe"><span class="recipe-tag">World feel · cross-domain</span><h3>Smooth a staircase without changing its look</h3><ol><li>Keep visible stair brushes in the map.</li><li>Add a ramp brush covering the tops and apply <code>common/playerclip</code> to every face.</li><li>Validate the map and test walking, jumping, hitscan and projectiles around it.</li><li>Remember: current playerclip also blocks traces/projectiles, so confirm combat sightlines.</li></ol></article>
+          </div>
+        </section>
+
+        <section id="tests" data-search="tests cmake ctest build verification regression examples movement combat protocol render workflow">
+          <div class="section-head"><div class="section-no">11 / 12</div><div><h2>Tests are executable explanations.</h2><p class="section-intro">For this codebase, the fastest route into an unfamiliar system is often: read the type, read one function, then read the nearest test. Tests show the intended behavior with small, controlled inputs.</p></div></div>
+          <div class="grid-2">
+            <article class="card accent"><h3>Default loop</h3><pre style="background:transparent;color:inherit;padding:6px 0 0"><code>cmake --preset default
+cmake --build --preset default
+ctest --preset default</code></pre></article>
+            <article class="card"><h3>How to read a test</h3><p>Find the smallest fixture, note the initial player/arena state, identify the command, count simulated ticks, then translate each assertion into a sentence about feel.</p></article>
+          </div>
+          <div class="table-wrap" style="margin-top:20px"><table><thead><tr><th>If you touched…</th><th>Read/run first</th><th>Then widen to</th><th>Risk</th></tr></thead><tbody>
+            <tr><td>Acceleration, jump, dash, stairs</td><td><code>lg_duel_movement_tests</code></td><td>collision, determinism, client tests</td><td><span class="risk med">medium</span></td></tr>
+            <tr><td>Damage, traces, weapon timing</td><td><code>lg_duel_combat_tests</code></td><td>server, weapon switching, net simulation</td><td><span class="risk med">medium</span></td></tr>
+            <tr><td>Packet fields or validation</td><td><code>lg_duel_protocol_tests</code></td><td>client/server, UDP, full suite</td><td><span class="risk high">high</span></td></tr>
+            <tr><td>Viewmodel, tracer, projectile visual</td><td><code>lg_duel_scene_3d_tests</code></td><td>weapon presentation, screen UI</td><td><span class="risk low">low</span></td></tr>
+            <tr><td>Map parser, brush or trigger</td><td><code>lg_duel_quake_map_tests</code></td><td>arena map, movement, collision, combat</td><td><span class="risk med">medium</span></td></tr>
+            <tr><td>Cvar/console behavior</td><td>client cvar or console tests</td><td>config smoke/full suite + docs check</td><td><span class="risk low">low–med</span></td></tr>
+          </tbody></table></div>
+          <div class="callout good"><strong>A strong first exercise</strong>Change one shipped tuning value, add or adjust one focused assertion that describes the expected feel, build the narrow test, playtest, then run the full preset suite. That teaches config → typed state → simulation → evidence without requiring a new system.</div>
+        </section>
+
+        <section id="glossary" data-search="glossary terms next steps tick snapshot authority prediction reconciliation interpolation hitscan projectile cvar">
+          <div class="section-head"><div class="section-no">12 / 12</div><div><h2>Words you will see everywhere.</h2><p class="section-intro">Once these terms are precise, the code becomes much easier to discuss and change.</p></div></div>
+          <div class="card">
+            <details open><summary>Tick / fixed timestep</summary><p>One simulation step with a constant duration. LG Duel uses 125 per second, so each step is 0.008 seconds. Stable simulation time improves repeatability even when render frames vary.</p></details>
+            <details><summary>Authority</summary><p>The machine whose answer becomes truth. The server is authoritative for gameplay state; the client is authoritative only over its local input intent and presentation preferences.</p></details>
+            <details><summary>Command / snapshot</summary><p>A command travels client → server and describes intent. A snapshot travels server → client and describes authoritative state plus acknowledgements/events.</p></details>
+            <details><summary>Prediction / reconciliation / interpolation</summary><p>Prediction immediately estimates local movement. Reconciliation corrects that estimate using server truth and replay. Interpolation smooths remote state between buffered snapshots.</p></details>
+            <details><summary>Hitscan / projectile</summary><p>Hitscan traces a ray/shape and resolves immediately. A projectile has position and velocity across ticks, so future collision decides its result.</p></details>
+            <details><summary>Cvar</summary><p>A console variable: named runtime configuration with registration, validation, storage and user-facing meaning. It must also be documented in the console bible when changed.</p></details>
+            <details><summary>Hot path</summary><p>Code that runs frequently: every server tick, render frame or packet. Avoid unbounded work, filesystem access, noisy logging and hidden allocation here.</p></details>
+          </div>
+          <div class="grid-2" style="margin-top:22px">
+            <article class="card dark"><h3>Your suggested reading order</h3><ol><li><a href="../src/sim/UserCommand.hpp">UserCommand.hpp</a> + <a href="../src/sim/PlayerState.hpp">PlayerState.hpp</a></li><li><a href="../src/sim/Movement.hpp">Movement.hpp</a> + one movement test</li><li><a href="../src/client/Prediction.cpp">Prediction.cpp</a></li><li><a href="../src/server/ServerGame.cpp">ServerGame::tick</a></li><li><a href="../src/sim/Combat.hpp">Combat.hpp</a> + one combat test</li><li><a href="../src/app/GameApp.cpp">GameApp.cpp</a> only after the state flow is clear</li></ol></article>
+            <article class="card"><h3>Before you open a PR</h3><ul><li>Can you state which side owns the new truth?</li><li>Did you preserve fixed-tick/prediction assumptions?</li><li>Did you choose the correct config lane?</li><li>Did protocol layout change?</li><li>Did you add/adjust the closest behavioral test?</li><li>Did a cvar/command change require docs?</li><li>Did the full preset suite pass?</li></ul></article>
+          </div>
+        </section>
+
+        <footer class="footer"><span>LG Duel gameplay code field guide · generated from the repository’s source and architecture documentation.</span><span>Use the source links; code is the final authority.</span></footer>
+      </div>
+    </main>
+  </div>
+  <script>
+    const body = document.body;
+    const menuButton = document.querySelector('.mobile-nav');
+    const sideNav = document.getElementById('guide-nav');
+    const mobileQuery = window.matchMedia('(max-width: 1040px)');
+    const setMenuState = open => {
+      body.classList.toggle('nav-open', open);
+      menuButton.setAttribute('aria-expanded', String(open));
+      menuButton.setAttribute('aria-label', open ? 'Close navigation' : 'Open navigation');
+      sideNav.inert = mobileQuery.matches && !open;
+      sideNav.setAttribute('aria-hidden', String(mobileQuery.matches && !open));
+    };
+    const syncMenuForViewport = () => setMenuState(!mobileQuery.matches);
+    syncMenuForViewport();
+    mobileQuery.addEventListener('change', syncMenuForViewport);
+    menuButton.addEventListener('click', () => {
+      setMenuState(!body.classList.contains('nav-open'));
+    });
+    document.querySelectorAll('nav a').forEach(link => link.addEventListener('click', () => {
+      if (mobileQuery.matches) setMenuState(false);
+    }));
+    document.addEventListener('keydown', event => {
+      if (event.key === 'Escape' && mobileQuery.matches && body.classList.contains('nav-open')) {
+        setMenuState(false);
+        menuButton.focus();
+      }
+    });
+
+    const activateTab = button => {
+        const list = button.closest('.system-tabs');
+        list.querySelectorAll('.tab-button').forEach(item => {
+          item.setAttribute('aria-selected', 'false');
+          item.tabIndex = -1;
+        });
+        list.querySelectorAll('.tab-panel').forEach(panel => panel.classList.remove('active'));
+        button.setAttribute('aria-selected', 'true');
+        button.tabIndex = 0;
+        document.getElementById(button.dataset.tab).classList.add('active');
+    };
+    document.querySelectorAll('.tab-button').forEach(button => {
+      button.addEventListener('click', () => activateTab(button));
+      button.addEventListener('keydown', event => {
+        const tabs = [...button.closest('[role="tablist"]').querySelectorAll('[role="tab"]')];
+        const current = tabs.indexOf(button);
+        let next = current;
+        if (event.key === 'ArrowRight') next = (current + 1) % tabs.length;
+        else if (event.key === 'ArrowLeft') next = (current - 1 + tabs.length) % tabs.length;
+        else if (event.key === 'Home') next = 0;
+        else if (event.key === 'End') next = tabs.length - 1;
+        else return;
+        event.preventDefault();
+        activateTab(tabs[next]);
+        tabs[next].focus();
+      });
+    });
+
+    document.querySelectorAll('.copy').forEach(button => button.addEventListener('click', async () => {
+      const text = button.closest('.code-tour').querySelector('pre').innerText;
+      try {
+        await navigator.clipboard.writeText(text);
+        button.textContent = 'Copied';
+        setTimeout(() => button.textContent = 'Copy', 1200);
+      } catch { button.textContent = 'Select manually'; }
+    }));
+
+    const sections = [...document.querySelectorAll('section')];
+    const navLinks = [...document.querySelectorAll('nav a')];
+    const observer = new IntersectionObserver(entries => {
+      const visible = entries.filter(entry => entry.isIntersecting).sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+      if (!visible) return;
+      navLinks.forEach(link => link.classList.toggle('active', link.hash === '#' + visible.target.id));
+    }, { rootMargin: '-20% 0px -65% 0px', threshold: [0, .1, .3] });
+    sections.forEach(section => observer.observe(section));
+
+    document.getElementById('search').addEventListener('input', event => {
+      const query = event.target.value.trim().toLowerCase();
+      sections.forEach(section => {
+        const haystack = (section.dataset.search + ' ' + section.innerText).toLowerCase();
+        section.classList.toggle('search-hidden', query && !haystack.includes(query));
+      });
+    });
+  </script>
+</body>
+</html>
