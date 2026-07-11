@@ -581,6 +581,23 @@ void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
   return {quat[0] / length, quat[1] / length, quat[2] / length, quat[3] / length};
 }
 
+[[nodiscard]] std::array<float, 4> multiplyQuat(
+  const std::array<float, 4>& lhs,
+  const std::array<float, 4>& rhs
+) {
+  return normalizeQuat({
+    lhs[3] * rhs[0] + lhs[0] * rhs[3] + lhs[1] * rhs[2] - lhs[2] * rhs[1],
+    lhs[3] * rhs[1] - lhs[0] * rhs[2] + lhs[1] * rhs[3] + lhs[2] * rhs[0],
+    lhs[3] * rhs[2] + lhs[0] * rhs[1] - lhs[1] * rhs[0] + lhs[2] * rhs[3],
+    lhs[3] * rhs[3] - lhs[0] * rhs[0] - lhs[1] * rhs[1] - lhs[2] * rhs[2],
+  });
+}
+
+[[nodiscard]] std::array<float, 4> localXAxisRotation(float radians) {
+  const float half = radians * 0.5F;
+  return {std::sin(half), 0.0F, 0.0F, std::cos(half)};
+}
+
 [[nodiscard]] std::array<float, 4> slerp(
   std::array<float, 4> lhs,
   std::array<float, 4> rhs,
@@ -1154,9 +1171,10 @@ bool GltfSkinnedModel::hasSkinnedPrimitives() const {
 }
 
 bool GltfSkinnedModel::appendBonePalette(
-  const std::vector<SkinnedModelPoseRequest>& poses,
+  std::span<const SkinnedModelPoseRequest> poses,
   std::vector<std::array<float, 16>>& out,
-  PoseScratch& scratch
+  PoseScratch& scratch,
+  float upperBodyAimPitchRadians
 ) const {
   if (!loaded_) {
     return false;
@@ -1233,6 +1251,24 @@ bool GltfSkinnedModel::appendBonePalette(
           weight
         );
       }
+    }
+  }
+
+  const float aimPitch = std::clamp(upperBodyAimPitchRadians, -0.78539816F, 0.78539816F);
+  if (std::fabs(aimPitch) > 0.0001F) {
+    for (std::size_t index = 0; index < nodes_.size(); ++index) {
+      float share = 0.0F;
+      if (nodes_[index].name == "spine_01") share = 0.35F;
+      else if (nodes_[index].name == "spine_02") share = 0.40F;
+      else if (nodes_[index].name == "neck") share = 0.15F;
+      else if (nodes_[index].name == "head") share = 0.10F;
+      if (share <= 0.0F) continue;
+      // The duelist maps local +X to model-right. Negative local-X rotation
+      // pitches its +Z forward axis upward while preserving locomotion in legs.
+      scratch.sampledNodes[index].rotation = multiplyQuat(
+        scratch.sampledNodes[index].rotation,
+        localXAxisRotation(-aimPitch * share)
+      );
     }
   }
 

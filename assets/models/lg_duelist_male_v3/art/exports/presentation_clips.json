@@ -1,0 +1,58 @@
+{
+  "revision": "presentation_directional_v1",
+  "generated_actions": [
+    {
+      "name": "RUN_BACK",
+      "frame_range": [
+        1.0,
+        24.0
+      ]
+    },
+    {
+      "name": "STRAFE_LEFT",
+      "frame_range": [
+        1.0,
+        24.0
+      ]
+    },
+    {
+      "name": "STRAFE_RIGHT",
+      "frame_range": [
+        1.0,
+        24.0
+      ]
+    },
+    {
+      "name": "START_FORWARD",
+      "frame_range": [
+        1.0,
+        12.0
+      ]
+    },
+    {
+      "name": "STOP_FORWARD",
+      "frame_range": [
+        1.0,
+        12.0
+      ]
+    },
+    {
+      "name": "LAND_LIGHT",
+      "frame_range": [
+        1.0,
+        10.0
+      ]
+    },
+    {
+      "name": "LAND_HEAVY",
+      "frame_range": [
+        1.0,
+        10.0
+      ]
+    }
+  ],
+  "deferred": [
+    "turn-in-place until lower-body yaw decoupling exists",
+    "weapon-family ready and additive fire until weapon pose/event hooks exist"
+  ]
+}

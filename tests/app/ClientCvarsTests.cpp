@@ -124,6 +124,27 @@ int main() {
     "damage numbers should default to disabled"
   );
   failures += expect(
+    console.execute("cl_viewmodel_motion_scale") ==
+        "cl_viewmodel_motion_scale = 1 (default 1)" &&
+      console.execute("cl_viewmodel_motion_scale 0") ==
+        "cl_viewmodel_motion_scale = 0" &&
+      console.execute("cl_viewmodel_motion_scale 2.1") ==
+        "value out of range for cl_viewmodel_motion_scale" &&
+      console.execute("cl_viewmodel_bob_scale") ==
+        "cl_viewmodel_bob_scale = 0.65 (default 0.65)" &&
+      console.execute("cl_viewmodel_sway_scale") ==
+        "cl_viewmodel_sway_scale = 0.55 (default 0.55)" &&
+      console.execute("cl_viewmodel_inertia_scale") ==
+        "cl_viewmodel_inertia_scale = 0.55 (default 0.55)" &&
+      console.execute("cl_viewmodel_landing_scale") ==
+        "cl_viewmodel_landing_scale = 0.65 (default 0.65)" &&
+      console.execute("cl_camera_position_response") ==
+        "cl_camera_position_response = 0 (default 0)" &&
+      console.execute("cl_camera_position_response 0.16") ==
+        "value out of range for cl_camera_position_response",
+    "viewmodel motion cvars should expose bounded competitive defaults"
+  );
+  failures += expect(
     console.execute("cl_health_size 20") == "cl_health_size = 20" &&
       console.execute("cl_health_size 20.5") ==
         "value out of range for cl_health_size",
@@ -251,10 +272,10 @@ int main() {
   );
   failures += expect(
     console.execute("r_player_model") ==
-      "r_player_model = 0 (default 0)" &&
+      "r_player_model = 1 (default 1)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&
       console.execute("r_player_model 2") == "value out of range for r_player_model",
-    "remote player model cvar should select legacy or animated models"
+    "remote player model cvar should default to animated GLB and allow legacy boxes"
   );
   failures += expect(
     console.execute("r_damage_numbers_window") ==

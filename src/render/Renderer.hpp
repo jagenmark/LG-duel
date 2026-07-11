@@ -1,5 +1,8 @@
 #pragma once
 
+#include "render/PlayerPresentation.hpp"
+#include "render/ViewModelPresentation.hpp"
+
 #include "app/HudPresentation.hpp"
 #include "render/DrawList2D.hpp"
 #include "sim/Arena.hpp"
@@ -51,6 +54,7 @@ struct OutlineState {
 
 struct RenderSettings {
   float fieldOfView = 90.0F;
+  ViewModelPresentationOutput viewModelPresentation = {};
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
   bool teammateLeanEnabled = true;
@@ -309,6 +313,8 @@ struct RemotePlayerView {
   float freezeGunCoolantPulse = 0.0F;
   float freezeGunVibrationPhaseRadians = 0.0F;
   float plasmaGunContainmentAmount = 0.0F;
+  PlayerPresentationFrame presentation = {};
+  bool hasPresentation = false;
 };
 
 enum class TracerStyle : std::uint8_t {

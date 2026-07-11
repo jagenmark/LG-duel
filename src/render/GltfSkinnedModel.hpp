@@ -4,6 +4,8 @@
 
 #include <array>
 #include <cstdint>
+#include <initializer_list>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -87,10 +89,24 @@ public:
     const std::vector<SkinnedModelPoseRequest>& poses
   ) const;
   [[nodiscard]] bool appendBonePalette(
-    const std::vector<SkinnedModelPoseRequest>& poses,
+    std::span<const SkinnedModelPoseRequest> poses,
     std::vector<std::array<float, 16>>& out,
-    PoseScratch& scratch
+    PoseScratch& scratch,
+    float upperBodyAimPitchRadians = 0.0F
   ) const;
+  [[nodiscard]] bool appendBonePalette(
+    std::initializer_list<SkinnedModelPoseRequest> poses,
+    std::vector<std::array<float, 16>>& out,
+    PoseScratch& scratch,
+    float upperBodyAimPitchRadians = 0.0F
+  ) const {
+    return appendBonePalette(
+      std::span<const SkinnedModelPoseRequest>(poses.begin(), poses.size()),
+      out,
+      scratch,
+      upperBodyAimPitchRadians
+    );
+  }
 
   struct JointVertex {
     Vec3 position = {};

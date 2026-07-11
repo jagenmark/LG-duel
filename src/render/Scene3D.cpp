@@ -1254,7 +1254,20 @@ void forEachPlayerModelPart(
   part(PlayerBodyPartType::RightLeg, 0.0F, 0.25F, 0.0F, 0.36F, 0.25F, 0.20F);
 }
 
-[[nodiscard]] std::vector<SkinnedModelPoseRequest> duelistPoseRequests(
+struct DuelistPoseRequests {
+  std::array<SkinnedModelPoseRequest, 8> values = {};
+  std::size_t count = 0;
+
+  void push(SkinnedModelPoseRequest request) {
+    if (count < values.size()) values[count++] = request;
+  }
+
+  [[nodiscard]] std::span<const SkinnedModelPoseRequest> span() const {
+    return {values.data(), count};
+  }
+};
+
+[[nodiscard]] DuelistPoseRequests duelistPoseRequests(
   const PlayerState& player,
   bool leanEnabled,
   float leanScale,
@@ -1286,47 +1299,47 @@ void forEachPlayerModelPart(
         std::max(0.0F, animationTimeSeconds) * playbackRate;
       return std::fmod(phase, cycle);
     };
-  std::vector<SkinnedModelPoseRequest> poseRequests;
+  DuelistPoseRequests poseRequests;
   if (pose.airborne) {
     if (player.velocity.z >= 0.0F) {
       const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 8.0F, 0.0F, 1.0F);
       const float jumpTime = jumpProgress * 0.5833333F;
-      poseRequests.push_back({"JUMP", jumpTime, 1.0F});
-      poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+      poseRequests.push({"JUMP", jumpTime, 1.0F});
+      poseRequests.push({"lg_duelist_jump", jumpTime, 1.0F});
     } else {
       const float fallProgress = std::clamp(-player.velocity.z / 12.0F, 0.0F, 1.0F);
-      poseRequests.push_back({"FALL", fallProgress * 0.8333333F, 1.0F});
-      poseRequests.push_back({"lg_duelist_jump", 0.9F, 1.0F});
+      poseRequests.push({"FALL", fallProgress * 0.8333333F, 1.0F});
+      poseRequests.push({"lg_duelist_jump", 0.9F, 1.0F});
     }
   } else if (pose.crouched) {
-    poseRequests.push_back({"DUCKING", 0.4166667F, 1.0F});
+    poseRequests.push({"DUCKING", 0.4166667F, 1.0F});
     if (locomotionActive) {
-      poseRequests.push_back({
+      poseRequests.push({
         "CROUCH_WALK",
         locomotionCycleTime(1.0F),
         1.0F,
       });
     }
-    poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
+    poseRequests.push({"lg_duelist_crouch", 0.5833333F, 1.0F});
   } else if (pose.sneaking) {
-    poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+    poseRequests.push({"IDLE", 0.8333333F, 1.0F});
     if (locomotionActive) {
-      poseRequests.push_back({
+      poseRequests.push({
         "SNEAK",
         locomotionCycleTime(1.3333333F),
         1.0F,
       });
     }
-    poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
+    poseRequests.push({"lg_duelist_sneak", 0.5833333F, 1.0F});
   } else {
-    poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+    poseRequests.push({"IDLE", 0.8333333F, 1.0F});
     if (locomotionActive) {
-      poseRequests.push_back({"RUN", locomotionCycleTime(1.0F), 1.0F});
+      poseRequests.push({"RUN", locomotionCycleTime(1.0F), 1.0F});
     }
   }
   const auto addUpperBodyLean =
     [&poseRequests](std::string_view animationName, float weight) {
-      poseRequests.push_back({
+      poseRequests.push({
         animationName,
         0.5833333F,
         weight,
@@ -1353,6 +1366,7 @@ void addGltfPlayerModelInstance(
   bool leanEnabled,
   float leanScale,
   float animationTimeSeconds,
+  const PlayerPresentationFrame* presentation,
   std::uint8_t playerIndex,
   OutlineState outlineState,
   bool outlined,
@@ -1371,9 +1385,40 @@ void addGltfPlayerModelInstance(
     basis.forward * (kDuelistMaleDepthCenter * horizontalScale);
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
-  const std::vector<SkinnedModelPoseRequest> poseRequests =
-    duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
-  if (!model.appendBonePalette(poseRequests, scene.gltfBonePalette, poseScratch)) {
+  DuelistPoseRequests poseRequests;
+  if (presentation != nullptr && presentation->poseLayerCount > 0U) {
+    for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
+      const PlayerPoseLayer& layer = presentation->poseLayers[index];
+      if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
+        continue;
+      }
+      float weight = layer.weight;
+      if (index == 0U && presentation->diagnostics.previousBlendWeight > 0.0F) {
+        // The sampler blends each request over the accumulated pose. Establish
+        // the previous clip fully, then blend the new clip by transition alpha.
+        weight = 1.0F;
+      }
+      poseRequests.push({
+        layer.animationName,
+        layer.timeSeconds,
+        weight,
+        layer.mask == PlayerPoseLayerMask::UpperBody
+          ? SkinnedModelPoseMask::UpperBody
+          : SkinnedModelPoseMask::FullBody,
+      });
+    }
+  } else {
+    poseRequests = duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
+  }
+  const float aimPitch = presentation != nullptr
+    ? presentation->torsoAimPitchRadians
+    : std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
+  if (!model.appendBonePalette(
+        poseRequests.span(),
+        scene.gltfBonePalette,
+        poseScratch,
+        aimPitch
+      )) {
     return;
   }
   const std::uint32_t boneCount =
@@ -1421,6 +1466,17 @@ void addGltfPlayerModelInstance(
   WeaponModelFrame frame;
   frame.basis =
     playerModelBasis(player, leanEnabled, leanScale, 0.0F);
+  const float aimPitch = std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
+  const float pitchCos = std::cos(aimPitch);
+  const float pitchSin = std::sin(aimPitch);
+  const Vec3 horizontalForward = frame.basis.forward;
+  const Vec3 horizontalUp = frame.basis.up;
+  frame.basis.forward = normalize(
+    horizontalForward * pitchCos + horizontalUp * pitchSin
+  );
+  frame.basis.up = normalize(
+    horizontalUp * pitchCos - horizontalForward * pitchSin
+  );
   frame.scale = std::clamp(
     (
       frame.basis.radius / kDefaultBounds.radius +
@@ -1534,7 +1590,8 @@ void addBakedWeaponModel(
 
 [[nodiscard]] WeaponModelFrame firstPersonWeaponModelFrame(
   const PlayerState& player,
-  int weaponPosition
+  int weaponPosition,
+  const ViewModelPresentationOutput& presentation
 ) {
   WeaponModelFrame frame;
   frame.basis.forward =
@@ -1555,6 +1612,22 @@ void addBakedWeaponModel(
     frame.hand -= frame.basis.right * 0.30F;
   }
   frame.scale = 0.50F;
+  // Apply motion in the already-current camera basis. It can move or rotate the
+  // rendered weapon, but never changes the camera, crosshair, or gameplay aim.
+  frame.hand += frame.basis.forward * presentation.translation.x;
+  frame.hand += frame.basis.right * presentation.translation.y;
+  frame.hand += frame.basis.up * presentation.translation.z;
+  const auto rotatePair = [](Vec3& first, Vec3& second, float radians) {
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const Vec3 oldFirst = first;
+    const Vec3 oldSecond = second;
+    first = normalize(oldFirst * cosine - oldSecond * sine);
+    second = normalize(oldFirst * sine + oldSecond * cosine);
+  };
+  rotatePair(frame.basis.forward, frame.basis.up, presentation.rotationRadians.x);
+  rotatePair(frame.basis.forward, frame.basis.right, presentation.rotationRadians.y);
+  rotatePair(frame.basis.right, frame.basis.up, presentation.rotationRadians.z);
   return frame;
 }
 
@@ -2005,7 +2078,11 @@ void addFirstPersonWeaponModel(
   const RenderSettings& settings
 ) {
   const WeaponModelFrame frame =
-    firstPersonWeaponModelFrame(player, settings.weaponPosition);
+    firstPersonWeaponModelFrame(
+      player,
+      settings.weaponPosition,
+      settings.viewModelPresentation
+    );
   switch (weapon) {
   case Weapon::MachineGun: {
     WeaponModelFrame weaponFrame = frame;
@@ -2212,7 +2289,10 @@ void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
     return 0.55F;
   case Weapon::RocketLauncher:
   case Weapon::GrenadeLauncher:
-    return 0.68F;
+  case Weapon::PlasmaGun:
+    // The baked RL and PG assets have a much bulkier silhouette than the
+    // established third-person weapons, so keep their world models readable.
+    return 0.50F;
   case Weapon::Revolver:
     return 0.45F;
   default:
@@ -2880,7 +2960,8 @@ Vec3 firstPersonPlasmaGunMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.scale *= 0.88F;
   frame.hand -= frame.basis.forward * 0.06F;
@@ -2898,7 +2979,8 @@ Vec3 firstPersonMachineGunMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.hand -= frame.basis.forward * 0.10F;
   frame = machineGunFiringFrame(frame, settings);
@@ -2916,7 +2998,8 @@ Vec3 firstPersonRevolverMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.hand += frame.basis.forward * 0.16F;
   frame.scale *= 0.80F;
@@ -2943,7 +3026,8 @@ Vec3 firstPersonRocketLauncherMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.scale *= kRocketLauncherViewModelScale;
   frame.hand += frame.basis.forward * kRocketLauncherViewModelForwardOffset;
@@ -2965,7 +3049,8 @@ Vec3 firstPersonFreezeGunMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.scale *= 0.82F;
   frame.hand -= frame.basis.forward * 0.08F;
@@ -4045,8 +4130,15 @@ Scene3D buildPerspectiveScene(
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
-  const Vec3 cameraPosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
+  const Vec3 cameraMotion =
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
+      settings.viewModelPresentation.cameraTranslation.x +
+    yawRight(player.viewYawRadians) *
+      settings.viewModelPresentation.cameraTranslation.y +
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
+      settings.viewModelPresentation.cameraTranslation.z;
+  const Vec3 cameraPosition = player.position + cameraMotion +
+    Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
 
   Scene3D scene;
   scene.camera = makePerspectiveCamera(
@@ -4074,6 +4166,7 @@ Scene3D buildPerspectiveScene(
   if (settings.showOwnWeapons) {
     PlayerState viewModelPlayer = player;
     viewModelPlayer.position.z += cameraVerticalOffset;
+    viewModelPlayer.position += cameraMotion;
     addFirstPersonWeaponModel(
       scene,
       viewModelPlayer,
@@ -4260,6 +4353,7 @@ Scene3D buildPerspectiveScene(
             : settings.enemyLeanEnabled,
           remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
           remote.animationTimeSeconds,
+          remote.hasPresentation ? &remote.presentation : nullptr,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
           wantsOutline &&
