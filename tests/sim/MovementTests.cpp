@@ -247,6 +247,207 @@ lg::ArenaLoadResult loadArenaFixture(const std::string& path) {
 int main() {
   int failures = 0;
 
+  const auto simulateUntilLanding = [](
+    lg::PlayerState player,
+    const lg::Arena& arena,
+    const lg::MovementTuning& tuning,
+    int maximumTicks = 240
+  ) {
+    const lg::UserCommand idle;
+    for (int tick = 0; tick < maximumTicks && !player.onGround; ++tick) {
+      lg::simulateMovement(player, idle, arena, tuning, lg::kFixedTickSeconds);
+    }
+    return player;
+  };
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    for (const float downwardSpeed : {-2.0F, -8.0F, -16.0F, -24.0F}) {
+      lg::PlayerState player = groundedPlayer();
+      player.position.z += 0.01F;
+      player.velocity = {8.0F, 0.0F, downwardSpeed};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      player = simulateUntilLanding(player, lg::Arena{}, tuning);
+      std::vector<MovementSample> landingSample;
+      recordSample(landingSample, player);
+      const std::string trajectoryName =
+        "flat_landing_vz_" + std::to_string(static_cast<int>(downwardSpeed));
+      printTrajectory(trajectoryName, landingSample);
+
+      failures += expect(player.onGround, "flat-floor landing diagnostic should reach ground");
+      failures += expect(
+        nearlyEqual(player.velocity.x, 8.0F, 0.01F) &&
+          std::fabs(player.velocity.y) < 0.001F && player.velocity.z >= -0.0001F &&
+          player.velocity.z < 0.03F,
+        "flat-floor landing should remove downward velocity instead of converting it to horizontal speed"
+      );
+      const lg::UserCommand idle;
+      lg::simulateMovement(player, idle, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+      failures += expect(
+        nearlyEqual(player.velocity.x, 8.0F, 0.01F),
+        "the grounded tick after landing should not convert residual vertical overclip into planar speed"
+      );
+    }
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    for (const float startHeight : {0.01F, 0.4F, 1.2F}) {
+      lg::PlayerState player = groundedPlayer();
+      player.position.z += startHeight;
+      player.velocity = {8.0F, 0.0F, -8.0F};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      player = simulateUntilLanding(player, lg::Arena{}, tuning);
+      failures += expect(
+        player.onGround && nearlyEqual(player.velocity.x, 8.0F, 0.01F),
+        "flat-floor landing horizontal speed should be independent of fall height"
+      );
+    }
+
+    lg::PlayerState vertical = groundedPlayer();
+    vertical.position.z += 0.1F;
+    vertical.velocity = {0.0F, 0.0F, -16.0F};
+    vertical.onGround = false;
+    vertical.movementMode = lg::MovementMode::Airborne;
+    vertical = simulateUntilLanding(vertical, lg::Arena{}, tuning);
+    failures += expect(
+      vertical.onGround && std::hypot(vertical.velocity.x, vertical.velocity.y) < 0.001F &&
+        std::fabs(vertical.velocity.z) < 0.03F,
+      "pure vertical landing should settle without producing planar movement"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::Arena wallArena;
+    wallArena.walls[0] = {{-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F}};
+    wallArena.wallCount = 1;
+    const lg::Arena brushArena = arenaWithBrush(
+      axisAlignedBrush({-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F})
+    );
+    const auto landOnPlatform = [&](const lg::Arena& arena) {
+      lg::PlayerState player = groundedPlayer();
+      player.position.z = 1.0F + player.bounds.halfHeight + 0.04F;
+      player.velocity = {8.0F, 0.0F, -8.0F};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      return simulateUntilLanding(player, arena, tuning);
+    };
+    const lg::PlayerState wallLanding = landOnPlatform(wallArena);
+    const lg::PlayerState brushLanding = landOnPlatform(brushArena);
+    failures += expect(
+      wallLanding.onGround && brushLanding.onGround &&
+        nearlyEqual(wallLanding.velocity.x, 8.0F, 0.01F) &&
+        nearlyEqual(brushLanding.velocity.x, 8.0F, 0.01F),
+      "ArenaWall and ArenaBrush flat landings should both discard impact-normal speed"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::Arena wallArena;
+    wallArena.walls[0] = {{-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F}};
+    wallArena.wallCount = 1;
+    const lg::Arena brushArena = arenaWithBrush(
+      axisAlignedBrush({-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F})
+    );
+    const auto landFromGroundTrace = [&](const lg::Arena& arena, float supportZ) {
+      lg::PlayerState player = groundedPlayer();
+      // This gap is inside the airborne ground-trace distance, so contact is
+      // acquired before the regular movement sweep or step path runs.
+      player.position.z = supportZ + player.bounds.halfHeight + 0.005F;
+      player.velocity = {8.0F, 0.0F, -8.0F};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      const lg::UserCommand idle;
+      lg::simulateMovement(player, idle, arena, tuning, lg::kFixedTickSeconds);
+      return player;
+    };
+
+    const lg::PlayerState floorLanding = landFromGroundTrace(lg::Arena{}, 0.0F);
+    const lg::PlayerState wallLanding = landFromGroundTrace(wallArena, 1.0F);
+    const lg::PlayerState brushLanding = landFromGroundTrace(brushArena, 1.0F);
+    failures += expect(
+      floorLanding.onGround && wallLanding.onGround && brushLanding.onGround &&
+        nearlyEqual(floorLanding.velocity.x, 8.0F, 0.01F) &&
+        nearlyEqual(wallLanding.velocity.x, 8.0F, 0.01F) &&
+        nearlyEqual(brushLanding.velocity.x, 8.0F, 0.01F),
+      "airborne pre-move ground traces should ordinary-clip default, ArenaWall, and ArenaBrush landings"
+    );
+
+    lg::PlayerState knocked = groundedPlayer();
+    knocked.position.z += 0.005F;
+    knocked.velocity = {8.0F, 0.0F, -8.0F};
+    knocked.onGround = false;
+    knocked.movementMode = lg::MovementMode::Airborne;
+    knocked.knockbackTicksRemaining = 2;
+    const lg::UserCommand idle;
+    lg::simulateMovement(knocked, idle, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+    failures += expect(
+      knocked.onGround && nearlyEqual(knocked.velocity.x, 8.0F, 0.01F) &&
+        knocked.knockbackTicksRemaining == 1,
+      "airborne ground-trace landing should clip impact speed without changing knockback timing"
+    );
+  }
+
+  {
+    const float run = 8.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-4.0F, 4.0F, 4.0F, 4.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::PlayerState player = groundedPlayer();
+    const float radiusOffset =
+      player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+    player.position = {
+      0.0F,
+      0.0F,
+      slopedTopZ(ramp, 0.0F) + player.bounds.halfHeight + radiusOffset + 0.04F
+    };
+    player.velocity = {8.0F, 0.0F, -8.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    const float impactSpeed = lg::length(player.velocity);
+    player = simulateUntilLanding(player, arena, tuning);
+    failures += expect(
+      player.onGround && lg::length(player.velocity) <= impactSpeed + 0.01F &&
+        std::fabs(lg::dot(player.velocity, ramp.faces[5].normal)) < 0.02F,
+      "sloped landing should ordinary-clip into-plane velocity without increasing total speed"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = 8.0F;
+    lg::UserCommand command;
+    int acceptedJumps = 0;
+    float maximumHorizontalSpeed = 0.0F;
+    std::vector<MovementSample> samples;
+    for (int tick = 0; tick < 480; ++tick) {
+      command.jump = player.onGround;
+      command.upMove = command.jump ? 1.0F : 0.0F;
+      const bool wasGrounded = player.onGround;
+      lg::simulateMovement(player, command, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+      acceptedJumps += wasGrounded && command.jump && !player.onGround ? 1 : 0;
+      maximumHorizontalSpeed =
+        std::max(maximumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+      recordSample(samples, player);
+    }
+    printTrajectory("flat_timed_bunnyhops", samples);
+    failures += expect(
+      acceptedJumps >= 3 && maximumHorizontalSpeed <= 8.02F,
+      "repeated timed bunnyhops without input should not accumulate landing speed"
+    );
+  }
+
   {
     lg::PlayerState player = groundedPlayer();
     lg::UserCommand command;

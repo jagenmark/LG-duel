@@ -7,6 +7,11 @@
 namespace lg {
 namespace {
 
+void markBlocked(CollisionResult& result, MovementHitFlags hitFlag) {
+  result.blocked = true;
+  result.hitFlags |= static_cast<std::uint8_t>(hitFlag);
+}
+
 void setGroundContact(CollisionResult& result, Vec3 normal) {
   result.groundPlane = true;
   result.groundNormal = normal;
@@ -276,7 +281,7 @@ void resolveBrushCollision(
   if (velocityIntoBrush < 0.0F) {
     result.velocity -= separatingFace->normal * velocityIntoBrush;
   }
-  result.blocked = true;
+  markBlocked(result, MovementHitFlags::Arena);
   if (separatingFace->normal.z > 0.0F) {
     setGroundContact(result, separatingFace->normal);
   }

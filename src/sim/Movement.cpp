@@ -22,6 +22,27 @@ constexpr float kSneakGroundSpeedScale = 0.52F;
   return value - (normal * dot(value, normal));
 }
 
+[[nodiscard]] Vec3 clipImpactVelocityToGroundPlane(Vec3 velocity, Vec3 groundNormal) {
+  constexpr float kOverclip = 1.001F;
+  constexpr float kStopEpsilon = 0.0001F;
+  const float backoff = dot(velocity, groundNormal) * kOverclip;
+  if (backoff >= 0.0F) {
+    return velocity;
+  }
+
+  Vec3 clipped = velocity - (groundNormal * backoff);
+  if (std::fabs(clipped.x) < kStopEpsilon) {
+    clipped.x = 0.0F;
+  }
+  if (std::fabs(clipped.y) < kStopEpsilon) {
+    clipped.y = 0.0F;
+  }
+  if (std::fabs(clipped.z) < kStopEpsilon) {
+    clipped.z = 0.0F;
+  }
+  return clipped;
+}
+
 [[nodiscard]] Vec3 clipToGroundPlanePreserveSpeed(Vec3 velocity, Vec3 groundNormal) {
   constexpr float kMinimumSpeed = 0.0001F;
   const float speed = length(velocity);
@@ -72,6 +93,7 @@ struct StepMoveResult {
   float fixedDt,
   std::span<const PlayerCollisionProxy> playerProxies,
   std::uint8_t playerIndex,
+  bool preserveGroundSpeedOnLanding,
   const CollisionResult&
 ) {
   constexpr float kCollisionEpsilon = 0.0001F;
@@ -129,19 +151,24 @@ struct StepMoveResult {
   result.groundNormal = droppedMove.groundNormal;
   result.groundPlane = droppedMove.groundPlane;
   if (startVelocity.z <= 0.0F && droppedMove.onGround) {
-    // Walking down onto the landing should follow the landing plane instead of
-    // keeping a small vertical component from the drop probe.
-    result.velocity = clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal);
+    // A grounded step follows terrain without losing speed. An airborne impact
+    // must discard velocity into the landing plane; otherwise the raised slide's
+    // restored downward component becomes horizontal speed on touchdown.
+    result.velocity = preserveGroundSpeedOnLanding
+      ? clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal)
+      : clipImpactVelocityToGroundPlane(result.velocity, droppedMove.groundNormal);
   }
   result.onGround = startVelocity.z <= 0.0F && droppedMove.onGround;
   result.blocked = true;
+  result.hitFlags |= static_cast<std::uint8_t>(MovementHitFlags::Arena);
   return {result, true};
 }
 
 [[nodiscard]] CollisionResult categorizeGroundAfterMove(
   const Arena& arena,
   const PlayerState& player,
-  CollisionResult collision
+  CollisionResult collision,
+  bool preserveGroundSpeedOnLanding
 ) {
   constexpr float kGroundTraceDistance = 0.25F / 40.0F;
   constexpr float kGroundFollowDistance = 0.08F;
@@ -207,10 +234,11 @@ struct StepMoveResult {
   collision.groundNormal = groundProbe.groundNormal;
   collision.onGround = groundProbe.onGround;
   if (collision.onGround) {
-    collision.velocity = clipToGroundPlanePreserveSpeed(
-      collision.velocity,
-      collision.groundNormal
-    );
+    // The probe also categorizes true airborne landings. Only a player that
+    // entered the move grounded may preserve 3D speed while following terrain.
+    collision.velocity = preserveGroundSpeedOnLanding
+      ? clipToGroundPlanePreserveSpeed(collision.velocity, collision.groundNormal)
+      : clipImpactVelocityToGroundPlane(collision.velocity, collision.groundNormal);
   }
   return collision;
 }
@@ -223,7 +251,8 @@ struct StepMoveResult {
   float fixedDt,
   bool allowStepMove,
   std::span<const PlayerCollisionProxy> playerProxies,
-  std::uint8_t playerIndex
+  std::uint8_t playerIndex,
+  bool preserveGroundSpeedOnLanding
 ) {
   CollisionResult normalMove =
     slidePlayerMove(
@@ -236,7 +265,12 @@ struct StepMoveResult {
       fixedDt
     );
   if (allowStepMove) {
-    normalMove = categorizeGroundAfterMove(arena, player, normalMove);
+    normalMove = categorizeGroundAfterMove(
+      arena,
+      player,
+      normalMove,
+      preserveGroundSpeedOnLanding
+    );
   }
   if (
     !allowStepMove ||
@@ -253,12 +287,18 @@ struct StepMoveResult {
     fixedDt,
     playerProxies,
     playerIndex,
+    preserveGroundSpeedOnLanding,
     normalMove
   );
   if (!steppedMove.valid) {
     return normalMove;
   }
-  return categorizeGroundAfterMove(arena, player, steppedMove.collision);
+  return categorizeGroundAfterMove(
+    arena,
+    player,
+    steppedMove.collision,
+    preserveGroundSpeedOnLanding
+  );
 }
 
 [[nodiscard]] bool playerOverlapsJumpPad(
@@ -700,11 +740,17 @@ void simulateGroundedOrAirborne(
     player.movementMode = MovementMode::Airborne;
   } else if (player.onGround) {
     player.movementMode = MovementMode::Grounded;
-    if (!knockbackActive) {
-      player.velocity = clipToGroundPlanePreserveSpeed(
+    if (!wasOnGround) {
+      // A short pre-move trace can acquire ground for an airborne player. Treat
+      // that as an impact even though player.onGround is now true for this tick.
+      player.velocity = clipImpactVelocityToGroundPlane(
         player.velocity,
         groundContact.normal
       );
+    } else if (!knockbackActive) {
+      player.velocity = clipToGroundPlanePreserveSpeed(player.velocity, groundContact.normal);
+    }
+    if (!knockbackActive) {
       applyGroundFriction(player.velocity, localTuning, fixedDt);
       if (iceContact.active && groundContact.normal.z < 0.999F) {
         // Ice on ramps uses grounded gravity along the floor plane. This makes
@@ -765,7 +811,8 @@ void simulateGroundedOrAirborne(
     fixedDt,
     true,
     playerProxies,
-    playerIndex
+    playerIndex,
+    wasOnGround
   );
   if (
     !useAirMovement &&
