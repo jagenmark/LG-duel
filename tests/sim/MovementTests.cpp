@@ -2624,6 +2624,59 @@ int main() {
   }
 
   {
+    const lg::ArenaBrush step = axisAlignedBrush(
+      {0.5F, -1.0F, 0.0F},
+      {2.0F, 1.0F, lg::kPlayerStepHeight}
+    );
+    const lg::Arena arena = arenaWithBrush(step);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position.x = 0.1F;
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    float minimumForwardSpeed = std::numeric_limits<float>::max();
+    float maximumTickAdvance = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      const float beforeX = player.position.x;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumForwardSpeed = std::min(minimumForwardSpeed, player.velocity.x);
+      maximumTickAdvance = std::max(maximumTickAdvance, player.position.x - beforeX);
+      airborneTicks += (!player.onGround || player.movementMode != lg::MovementMode::Grounded) ? 1 : 0;
+    }
+    failures += expect(
+      player.position.x > 1.0F && player.position.x < step.max.x + player.bounds.radius &&
+        nearlyEqual(player.position.z, lg::kPlayerStepHeight + player.bounds.halfHeight, 0.002F),
+      "grounded movement should step onto an axis-aligned convex brush at exactly maximum step height"
+    );
+    failures += expect(
+      airborneTicks == 0 && player.velocity.x > 7.5F && minimumForwardSpeed > 5.0F &&
+        maximumTickAdvance < 0.07F,
+      "maximum-height convex brush step should preserve grounding and bounded forward speed without tunnelling"
+    );
+
+    const float expandedSideX = step.min.x - player.bounds.radius;
+    const float supportedZ = step.max.z + player.bounds.halfHeight;
+    const lg::PlayerState boundaryPlayer = groundedPlayer();
+    const lg::CollisionResult edgeTangent = lg::slidePlayerArenaMove(
+      arena, boundaryPlayer, {expandedSideX, 0.0F, supportedZ}, {0.0F, 20.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    const lg::CollisionResult edgeAway = lg::slidePlayerArenaMove(
+      arena, boundaryPlayer, {expandedSideX, 0.0F, supportedZ}, {-20.0F, 0.0F, 20.0F}, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      !edgeTangent.blocked && edgeTangent.position.y > 0.15F &&
+        nearlyEqual(edgeTangent.position.x, expandedSideX, 0.001F),
+      "exact expanded top-edge tangent movement should progress without a false brush block"
+    );
+    failures += expect(
+      !edgeAway.blocked && edgeAway.position.x < expandedSideX - 0.15F && edgeAway.position.z > supportedZ,
+      "movement away from an exact expanded brush top vertex should progress without a false block"
+    );
+  }
+
+  {
     constexpr float kBrushMinX = 0.5F;
     constexpr float kBrushMaxX = 0.55F;
     const lg::Arena arena = arenaWithBrush(
