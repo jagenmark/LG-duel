@@ -8,9 +8,13 @@
 
 #include <cstdint>
 #include <cmath>
+#include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -90,6 +94,33 @@ lg::ArenaBrush slopedTopBrush(
 float slopedTopZ(const lg::ArenaBrush& brush, float x) {
   const lg::ArenaBrushFace& face = brush.faces[5];
   return (face.distance - (face.normal.x * x)) / face.normal.z;
+}
+
+struct MovementSample {
+  lg::Vec3 position;
+  lg::Vec3 velocity;
+  bool onGround = false;
+  lg::MovementMode mode = lg::MovementMode::Airborne;
+};
+
+void recordSample(std::vector<MovementSample>& samples, const lg::PlayerState& player) {
+  samples.push_back({player.position, player.velocity, player.onGround, player.movementMode});
+}
+
+void printTrajectory(std::string_view name, const std::vector<MovementSample>& samples) {
+  if (std::getenv("LG_DUEL_PRINT_MOVEMENT_TRAJECTORIES") == nullptr) {
+    return;
+  }
+  std::cout << "TRAJECTORY " << name << "\n";
+  std::cout << std::fixed << std::setprecision(5);
+  for (std::size_t tick = 0; tick < samples.size(); ++tick) {
+    const MovementSample& sample = samples[tick];
+    std::cout << tick << ' '
+              << sample.position.x << ' ' << sample.position.y << ' ' << sample.position.z << ' '
+              << sample.velocity.x << ' ' << sample.velocity.y << ' ' << sample.velocity.z << ' '
+              << (sample.onGround ? 1 : 0) << ' '
+              << static_cast<int>(sample.mode) << '\n';
+  }
 }
 
 lg::Arena arenaWithBrush(const lg::ArenaBrush& brush) {
@@ -2575,6 +2606,183 @@ int main() {
       jumpingBrushPlayer.position.z > brushStartZ + 0.05F &&
         !jumpingBrushPlayer.onGround,
       "jumping from a triangular sloped brush should stay airborne after takeoff"
+    );
+  }
+
+  // These short traces characterize brush contact at the fixed simulation tick. Their
+  // aggregate bounds deliberately leave float headroom while preserving the current
+  // grounding, speed, direction, and support-correction behavior.
+  {
+    const auto brushStairs = [] {
+      lg::Arena arena;
+      arena.brushes[0] = cutUndersideBrushStep(0.5F, 1.2F, 0.3F, 0.15F);
+      arena.brushes[1] = cutUndersideBrushStep(1.2F, 1.9F, 0.6F, 0.15F);
+      arena.brushes[2] = cutUndersideBrushStep(1.9F, 2.6F, 0.9F, 0.15F);
+      arena.brushes[3] = cutUndersideBrushStep(2.6F, 4.0F, 1.2F, 0.15F);
+      arena.brushCount = 4;
+      return arena;
+    };
+    const lg::Arena arena = brushStairs();
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+
+    lg::PlayerState walker = groundedPlayer();
+    walker.position.x = 0.1F;
+    lg::UserCommand forward;
+    forward.forwardMove = 1.0F;
+    std::vector<MovementSample> walkingSamples;
+    float walkingMinimumSpeed = std::numeric_limits<float>::max();
+    float walkingMaxCorrection = 0.0F;
+    int walkingAirborneTicks = 0;
+    for (int tick = 0; tick < 32; ++tick) {
+      const lg::Vec3 before = walker.position;
+      lg::simulateMovement(walker, forward, arena, tuning, lg::kFixedTickSeconds);
+      recordSample(walkingSamples, walker);
+      walkingMinimumSpeed = std::min(walkingMinimumSpeed, std::hypot(walker.velocity.x, walker.velocity.y));
+      walkingMaxCorrection = std::max(walkingMaxCorrection, walker.position.z - before.z);
+      walkingAirborneTicks += (!walker.onGround || walker.movementMode != lg::MovementMode::Grounded) ? 1 : 0;
+    }
+    printTrajectory("brush_stairs_walk", walkingSamples);
+    failures += expect(
+      walkingAirborneTicks == 0 && walker.position.x > 2.0F && walker.position.z > 1.35F &&
+        walker.velocity.x > 7.5F && walkingMaxCorrection < 0.32F,
+      "brush-stair walk trace should preserve grounded forward stepping and bounded corrections"
+    );
+
+    lg::PlayerState bhopper = groundedPlayer();
+    bhopper.position.x = 0.1F;
+    runCommand(bhopper, forward, arena, tuning, 10);
+    std::vector<MovementSample> bhopSamples;
+    float bhopMinimumSpeed = std::numeric_limits<float>::max();
+    int bhopAirborneTicks = 0;
+    int acceptedJumps = 0;
+    for (int tick = 0; tick < 40; ++tick) {
+      forward.jump = bhopper.onGround;
+      forward.upMove = forward.jump ? 1.0F : 0.0F;
+      const bool wasGrounded = bhopper.onGround;
+      lg::simulateMovement(bhopper, forward, arena, tuning, lg::kFixedTickSeconds);
+      acceptedJumps += (wasGrounded && forward.jump && !bhopper.onGround) ? 1 : 0;
+      if (!forward.jump) {
+        bhopper.jumpHeld = false;
+      }
+      bhopAirborneTicks += !bhopper.onGround ? 1 : 0;
+      bhopMinimumSpeed = std::min(bhopMinimumSpeed, std::hypot(bhopper.velocity.x, bhopper.velocity.y));
+      recordSample(bhopSamples, bhopper);
+    }
+    printTrajectory("brush_stairs_bhop", bhopSamples);
+    failures += expect(
+      acceptedJumps >= 1 && bhopAirborneTicks >= 20 && bhopper.position.x > 2.6F &&
+        bhopMinimumSpeed > 6.0F && bhopper.velocity.x > 0.0F,
+      "brush-stair bhop trace should preserve airborne time, speed, and forward direction"
+    );
+
+    lg::PlayerState sideTraveler = groundedPlayer();
+    sideTraveler.position = {0.9F, -0.65F, 0.3F + sideTraveler.bounds.halfHeight};
+    lg::UserCommand side;
+    side.rightMove = -1.0F;
+    std::vector<MovementSample> sideSamples;
+    float maxSideXCorrection = 0.0F;
+    int sideAirborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      const float beforeX = sideTraveler.position.x;
+      lg::simulateMovement(sideTraveler, side, arena, tuning, lg::kFixedTickSeconds);
+      maxSideXCorrection = std::max(maxSideXCorrection, std::fabs(sideTraveler.position.x - beforeX));
+      sideAirborneTicks += !sideTraveler.onGround ? 1 : 0;
+      recordSample(sideSamples, sideTraveler);
+    }
+    printTrajectory("brush_stair_side", sideSamples);
+    failures += expect(
+      sideAirborneTicks == 0 && sideTraveler.position.y > 0.2F && maxSideXCorrection < 0.002F &&
+        std::fabs(sideTraveler.velocity.x) < 0.01F,
+      "travel along a brush-stair side should remain grounded without lateral correction"
+    );
+  }
+
+  for (const float angle : {15.0F, 30.0F}) {
+    const float run = 4.0F;
+    const float highZ = angle == 15.0F ? 1.8F : 3.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, highZ, highZ - riseForAngle(angle, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.5F, 0.0F, slopedTopZ(ramp, -1.5F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    std::vector<MovementSample> samples;
+    float minimumSpeed = std::numeric_limits<float>::max();
+    float maxSupportError = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 24; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      const float radiusOffset = player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+      const float expectedZ = slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight + radiusOffset;
+      maxSupportError = std::max(maxSupportError, std::fabs(player.position.z - expectedZ));
+      minimumSpeed = std::min(minimumSpeed, std::hypot(player.velocity.x, player.velocity.y));
+      airborneTicks += (!player.onGround || player.movementMode != lg::MovementMode::Grounded) ? 1 : 0;
+      recordSample(samples, player);
+    }
+    printTrajectory(angle == 15.0F ? "ramp_down_15" : "ramp_down_30", samples);
+    failures += expect(
+      airborneTicks == 0 && player.position.x > -0.3F && player.velocity.x > 6.5F &&
+        minimumSpeed > 4.0F && maxSupportError < 0.04F,
+      angle == 15.0F
+        ? "15-degree downhill trace should preserve grounding, speed, direction, and plane support"
+        : "30-degree downhill trace should preserve grounding, speed, direction, and plane support"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-2.0F, 2.0F, 3.0F, 3.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-0.25F, -0.7F, slopedTopZ(ramp, -0.25F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.rightMove = -1.0F;
+    std::vector<MovementSample> samples;
+    float maxDownSlopeDrift = 0.0F;
+    int airborneTicks = 0;
+    const float startX = player.position.x;
+    for (int tick = 0; tick < 20; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      maxDownSlopeDrift = std::max(maxDownSlopeDrift, std::fabs(player.position.x - startX));
+      airborneTicks += !player.onGround ? 1 : 0;
+      recordSample(samples, player);
+    }
+    printTrajectory("ramp_strafe_across", samples);
+    failures += expect(
+      airborneTicks == 0 && player.position.y > 0.15F && maxDownSlopeDrift < 0.02F &&
+        std::fabs(player.velocity.x) < 0.02F,
+      "cross-slope strafe trace should preserve grounding and camera-sideways direction"
+    );
+
+    lg::PlayerState jumper = groundedPlayer();
+    jumper.position = {-0.25F, 0.0F, slopedTopZ(ramp, -0.25F) + jumper.bounds.halfHeight};
+    jumper.velocity = {4.0F, 0.0F, 0.0F};
+    command = {};
+    command.forwardMove = 1.0F;
+    command.jump = true;
+    command.upMove = 1.0F;
+    std::vector<MovementSample> jumpSamples;
+    float minimumJumpSpeed = std::numeric_limits<float>::max();
+    int jumpAirborneTicks = 0;
+    for (int tick = 0; tick < 16; ++tick) {
+      lg::simulateMovement(jumper, command, arena, tuning, lg::kFixedTickSeconds);
+      command.jump = false;
+      command.upMove = 0.0F;
+      minimumJumpSpeed = std::min(minimumJumpSpeed, std::hypot(jumper.velocity.x, jumper.velocity.y));
+      jumpAirborneTicks += !jumper.onGround ? 1 : 0;
+      recordSample(jumpSamples, jumper);
+    }
+    printTrajectory("ramp_jump", jumpSamples);
+    failures += expect(
+      jumpAirborneTicks == 16 && jumper.position.x > 0.55F && jumper.position.z > 2.0F &&
+        minimumJumpSpeed > 3.8F && jumper.velocity.x > 0.0F,
+      "slope-jump trace should preserve airborne time, horizontal speed, and forward direction"
     );
   }
 
