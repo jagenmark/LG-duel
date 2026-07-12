@@ -632,6 +632,78 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
   return trace;
 }
 
+[[nodiscard]] PlayerArenaTrace traceBrush(
+  const ArenaBrush& brush,
+  const PlayerState& player,
+  Vec3 start,
+  Vec3 end
+) {
+  constexpr float kCollisionEpsilon = 0.0001F;
+  const Vec3 delta = end - start;
+  float entryFraction = 0.0F;
+  float exitFraction = 1.0F;
+  Vec3 entryNormal = {};
+  bool hasEntry = false;
+  bool startsStrictlyEmbedded = brush.faceCount > 0;
+
+  for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+    const ArenaBrushFace& face = brush.faces[index];
+    const float expandedDistance =
+      face.distance +
+      planarRadiusForFace(face, player) +
+      (player.bounds.halfHeight * std::fabs(face.normal.z));
+    const float startOffset = dot(face.normal, start) - expandedDistance;
+    const float direction = dot(face.normal, delta);
+    startsStrictlyEmbedded =
+      startsStrictlyEmbedded && startOffset < -kCollisionEpsilon;
+
+    if (std::fabs(direction) <= kCollisionEpsilon) {
+      if (startOffset > kCollisionEpsilon) {
+        return {end, {}, 1.0F, false, false};
+      }
+      continue;
+    }
+
+    if (direction < 0.0F) {
+      if (startOffset >= -kCollisionEpsilon) {
+        // A tolerance contact only blocks when this move enters the brush.
+        // Clamp its slightly negative plane time to a stable zero-fraction hit.
+        const float faceEntry = std::max(0.0F, startOffset / -direction);
+        if (!hasEntry || faceEntry > entryFraction) {
+          entryFraction = faceEntry;
+          entryNormal = face.normal;
+          hasEntry = true;
+        }
+      }
+    } else {
+      if (startOffset > kCollisionEpsilon) {
+        return {end, {}, 1.0F, false, false};
+      }
+      exitFraction = std::min(exitFraction, -startOffset / direction);
+    }
+
+    if (entryFraction > exitFraction) {
+      return {end, {}, 1.0F, false, false};
+    }
+  }
+
+  if (startsStrictlyEmbedded) {
+    // Embedded starts are not a new hard-stop state. The existing brush
+    // depenetration pass remains responsible for recovering these positions.
+    return {end, {}, 1.0F, false, false};
+  }
+  if (!hasEntry || entryFraction > 1.0F || entryFraction > exitFraction) {
+    return {end, {}, 1.0F, false, false};
+  }
+  return {
+    start + (delta * entryFraction),
+    entryNormal,
+    entryFraction,
+    true,
+    false,
+  };
+}
+
 [[nodiscard]] PlayerArenaTrace traceWallsAndBounds(
   const Arena& arena,
   const PlayerState& player,
@@ -645,6 +717,11 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     keepEarliestTrace(traceBrushWalkableDrop(arena.brushes[index], player, start, end), trace);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    // Submit the specialized drop first so equal-fraction ramp landings retain
+    // their walkable result instead of the general convex sweep's face choice.
+    keepEarliestTrace(traceBrush(arena.brushes[index], player, start, end), trace);
   }
   trace.endPosition = trace.hit ? start + ((end - start) * trace.fraction) : end;
   return trace;
