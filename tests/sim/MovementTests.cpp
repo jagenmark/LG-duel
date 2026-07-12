@@ -62,6 +62,20 @@ lg::ArenaBrush cutUndersideBrushStep(float minX, float maxX, float topZ, float b
   return brush;
 }
 
+lg::ArenaBrush axisAlignedBrush(lg::Vec3 min, lg::Vec3 max) {
+  lg::ArenaBrush brush;
+  brush.min = min;
+  brush.max = max;
+  brush.faceCount = 6;
+  brush.faces[0] = {{-1.0F, 0.0F, 0.0F}, -min.x};
+  brush.faces[1] = {{1.0F, 0.0F, 0.0F}, max.x};
+  brush.faces[2] = {{0.0F, -1.0F, 0.0F}, -min.y};
+  brush.faces[3] = {{0.0F, 1.0F, 0.0F}, max.y};
+  brush.faces[4] = {{0.0F, 0.0F, -1.0F}, -min.z};
+  brush.faces[5] = {{0.0F, 0.0F, 1.0F}, max.z};
+  return brush;
+}
+
 lg::ArenaBrush slopedTopBrush(
   float minX,
   float maxX,
@@ -2607,6 +2621,39 @@ int main() {
         !jumpingBrushPlayer.onGround,
       "jumping from a triangular sloped brush should stay airborne after takeoff"
     );
+  }
+
+  {
+    constexpr float kBrushMinX = 0.5F;
+    constexpr float kBrushMaxX = 0.55F;
+    const lg::Arena arena = arenaWithBrush(
+      axisAlignedBrush({kBrushMinX, -1.0F, 0.0F}, {kBrushMaxX, 1.0F, 2.0F})
+    );
+    const lg::PlayerState player = groundedPlayer();
+    const lg::Vec3 start = {-1.0F, 0.0F, player.bounds.halfHeight};
+    const float expandedEntryX = kBrushMinX - player.bounds.radius;
+
+    const auto expectThinBrushStop = [&](float speed, std::string_view speedKind) {
+      const lg::CollisionResult collision =
+        lg::slidePlayerArenaMove(arena, player, start, {speed, 0.0F, 0.0F}, lg::kFixedTickSeconds);
+      const std::string prefix = std::string(speedKind) + " thin convex brush sweep ";
+      failures += expect(
+        collision.blocked &&
+          collision.position.x >= expandedEntryX - 0.012F &&
+          collision.position.x <= expandedEntryX + 0.002F,
+        prefix + "should stop in the overclip band at the player-radius-expanded entry face"
+      );
+      failures += expect(
+        collision.position.x <= expandedEntryX + 0.002F && collision.velocity.x <= 0.001F,
+        prefix + "should remain on the starting side instead of tunnelling through"
+      );
+    };
+
+    // Every intended endpoint is beyond the radius-expanded exit face, so endpoint-only
+    // overlap cannot detect these straight sweeps through the thin brush.
+    expectThinBrushStop(400.0F, "high-horizontal-speed");
+    expectThinBrushStop(1200.0F, "dash-like");
+    expectThinBrushStop(700.0F, "knockback-like");
   }
 
   // These short traces characterize brush contact at the fixed simulation tick. Their
