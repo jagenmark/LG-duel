@@ -265,7 +265,9 @@ void resolveBrushCollision(
     }
   }
 
-  if (separatingFace == nullptr || minimumPenetration < -kCollisionEpsilon) {
+  if (separatingFace == nullptr || minimumPenetration <= kCollisionEpsilon) {
+    // Boundary-only contact is not penetration. Tangent and outward moves must
+    // remain free instead of becoming blocked in the post-slide fallback.
     return;
   }
 
