@@ -2656,6 +2656,174 @@ int main() {
     expectThinBrushStop(700.0F, "knockback-like");
   }
 
+  {
+    const lg::Arena arena = arenaWithBrush(axisAlignedBrush({0.5F, -2.0F, 0.0F}, {0.55F, 2.0F, 2.0F}));
+    const lg::PlayerState player = groundedPlayer();
+    const lg::Vec3 velocity = {400.0F, 100.0F, 0.0F};
+    const lg::CollisionResult collision = lg::slidePlayerArenaMove(
+      arena, player, {-1.0F, -0.5F, player.bounds.halfHeight}, velocity, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      collision.blocked && collision.position.x >= 0.188F && collision.position.x <= 0.202F &&
+        collision.position.y > -0.05F,
+      "diagonal high-speed brush impact should consume remaining time sliding along the entry face"
+    );
+    failures += expect(
+      collision.velocity.y > 99.0F && collision.velocity.x <= 0.001F &&
+        lg::length(collision.velocity) <= lg::length(velocity) + 0.01F,
+      "diagonal high-speed brush impact should preserve parallel velocity without gaining speed"
+    );
+  }
+
+  {
+    const lg::Arena arena = arenaWithBrush(axisAlignedBrush({-2.0F, -2.0F, 2.5F}, {2.0F, 2.0F, 2.55F}));
+    const lg::PlayerState player = groundedPlayer();
+    const lg::CollisionResult collision = lg::slidePlayerArenaMove(
+      arena, player, {0.0F, 0.0F, player.bounds.halfHeight}, {100.0F, 0.0F, 400.0F}, lg::kFixedTickSeconds
+    );
+    const float expandedUndersideZ = 2.5F - player.bounds.halfHeight;
+    failures += expect(
+      collision.blocked && collision.position.z <= expandedUndersideZ + 0.002F && collision.velocity.z <= 0.001F,
+      "high-speed upward brush-underside impact should block upward motion below the expanded underside"
+    );
+    failures += expect(
+      collision.position.x > 0.25F && collision.velocity.x > 99.0F,
+      "high-speed brush-underside impact should retain horizontal velocity and slide along the underside"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.brushes[0] = axisAlignedBrush({0.5F, -2.0F, 0.0F}, {0.55F, 2.0F, 4.0F});
+    arena.brushes[1] = axisAlignedBrush({-2.0F, 0.5F, 0.0F}, {2.0F, 0.55F, 4.0F});
+    arena.brushCount = 2;
+    const lg::PlayerState player = groundedPlayer();
+    const lg::Vec3 velocity = {400.0F, 400.0F, 60.0F};
+    const lg::CollisionResult collision = lg::slidePlayerArenaMove(
+      arena, player, {-1.0F, -1.0F, 1.2F}, velocity, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      collision.blocked && collision.position.x <= 0.202F && collision.position.y <= 0.202F &&
+        collision.position.x >= 0.15F && collision.position.y >= 0.15F &&
+        collision.velocity.x >= -1.0F && collision.velocity.x <= 0.001F &&
+        collision.velocity.y >= -1.0F && collision.velocity.y <= 0.001F,
+      "adjacent convex brushes should stop a high-speed move at both planes of a 90-degree corner"
+    );
+    failures += expect(
+      collision.position.z > 1.5F && collision.velocity.z > 59.0F &&
+        lg::length(collision.velocity) <= lg::length(velocity) + 0.01F,
+      "90-degree brush corner should preserve valid vertical crease motion without reversal or speed gain"
+    );
+    lg::Vec3 position = collision.position;
+    lg::Vec3 creaseVelocity = collision.velocity;
+    float previousZ = position.z;
+    for (int tick = 0; tick < 4; ++tick) {
+      const lg::CollisionResult next =
+        lg::slidePlayerArenaMove(arena, player, position, creaseVelocity, lg::kFixedTickSeconds);
+      failures += expect(
+        next.position.x <= 0.202F && next.position.y <= 0.202F && next.position.z >= previousZ &&
+          lg::length(next.velocity) <= lg::length(velocity) + 0.01F,
+        "repeated corner crease movement should not tunnel, reverse, oscillate, or explode"
+      );
+      position = next.position;
+      creaseVelocity = next.velocity;
+      previousZ = position.z;
+    }
+  }
+
+  {
+    const lg::Arena arena = arenaWithBrush(axisAlignedBrush({0.5F, -2.0F, 0.0F}, {0.55F, 2.0F, 2.0F}));
+    const lg::PlayerState player = groundedPlayer();
+    const float contactX = 0.5F - player.bounds.radius;
+    const lg::CollisionResult tangent = lg::slidePlayerArenaMove(
+      arena, player, {contactX, 0.0F, player.bounds.halfHeight}, {0.0F, 20.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    const lg::CollisionResult away = lg::slidePlayerArenaMove(
+      arena, player, {contactX, 0.0F, player.bounds.halfHeight}, {-20.0F, 0.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    const lg::CollisionResult inward = lg::slidePlayerArenaMove(
+      arena, player, {contactX, 0.0F, player.bounds.halfHeight}, {20.0F, 0.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      !tangent.blocked && tangent.position.y > 0.15F && nearlyEqual(tangent.position.x, contactX, 0.001F),
+      "exact expanded-face tangent movement should make progress without blocking"
+    );
+    failures += expect(
+      !away.blocked && away.position.x < contactX - 0.15F,
+      "movement away from an exact expanded brush face should make progress without blocking"
+    );
+    failures += expect(
+      inward.blocked && inward.position.x <= contactX + 0.002F && inward.velocity.x <= 0.001F,
+      "movement inward from an exact expanded brush face should block at fraction zero"
+    );
+  }
+
+  {
+    const float run = 40.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-20.0F, 20.0F, 12.0F, 12.0F - riseForAngle(15.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    for (const float speed : {8.0F, 40.0F}) {
+      lg::PlayerState player = groundedPlayer();
+      const float radiusOffset = player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+      player.position = {-10.0F, 0.0F, slopedTopZ(ramp, -10.0F) + player.bounds.halfHeight + radiusOffset};
+      const float slope = -ramp.faces[5].normal.x / ramp.faces[5].normal.z;
+      player.velocity = lg::normalize(lg::Vec3{1.0F, 0.0F, slope}) * speed;
+      lg::UserCommand command;
+      command.forwardMove = 1.0F;
+      float minimumSpeed = std::numeric_limits<float>::max();
+      float maximumSupportError = 0.0F;
+      int blockedStalls = 0;
+      for (int tick = 0; tick < 20; ++tick) {
+        const float beforeX = player.position.x;
+        lg::simulateMovement(player, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+        minimumSpeed = std::min(minimumSpeed, std::hypot(player.velocity.x, player.velocity.y));
+        maximumSupportError = std::max(
+          maximumSupportError,
+          std::fabs(player.position.z - (slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight + radiusOffset))
+        );
+        blockedStalls += player.position.x <= beforeX + 0.001F ? 1 : 0;
+      }
+      failures += expect(
+        blockedStalls == 0 && player.onGround && maximumSupportError < 0.04F &&
+          minimumSpeed > speed * 0.8F,
+        speed < 10.0F
+          ? "normal-speed repeated tangent ramp movement should stay supported without stalls or speed dips"
+          : "high-speed repeated tangent ramp movement should stay supported without stalls or speed dips"
+      );
+    }
+  }
+
+  {
+    const float run = 8.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-4.0F, 4.0F, 5.0F, 5.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::PlayerState supported = groundedPlayer();
+    const float radiusOffset = supported.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+    supported.position = {-1.0F, 0.0F, slopedTopZ(ramp, -1.0F) + supported.bounds.halfHeight + radiusOffset};
+    supported.velocity = {8.0F, 0.0F, 0.0F};
+
+    lg::PlayerState jumper = supported;
+    lg::UserCommand command;
+    command.jump = true;
+    command.upMove = 1.0F;
+    lg::simulateMovement(jumper, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+    failures += expect(
+      !jumper.onGround && jumper.velocity.z > 5.0F && jumper.velocity.x > 7.5F,
+      "jump takeoff from exact convex-ramp support should leave cleanly with horizontal speed"
+    );
+
+    lg::PlayerState knocked = supported;
+    knocked.velocity.z = 5.0F;
+    knocked.knockbackTicksRemaining = 2;
+    command = {};
+    lg::simulateMovement(knocked, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+    failures += expect(
+      !knocked.onGround && knocked.position.z > supported.position.z &&
+        knocked.velocity.z > 4.0F && knocked.velocity.x > 7.5F,
+      "upward knockback from exact convex-ramp support should leave cleanly with horizontal speed"
+    );
+  }
+
   // These short traces characterize brush contact at the fixed simulation tick. Their
   // aggregate bounds deliberately leave float headroom while preserving the current
   // grounding, speed, direction, and support-correction behavior.
