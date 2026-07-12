@@ -96,16 +96,43 @@ void ClientGame::sendCommand(
       botCommandMaxIntervalMs,
     }
   );
+  if (requestReset && prediction_.initialized()) {
+    // Reset replaces the local movement timeline; commands sampled against the
+    // previous match state must never be replayed into the reset state.
+    prediction_.initialize(prediction_.player());
+  }
   if (!requestReset) {
     // Reset replaces authoritative match state, so predicting the accompanying
     // movement command would create state the server deliberately discards.
+    PlayerCollisionProxySet collisionProxies;
+    const SnapshotInterpolation::PlayerCollisionSample localSample =
+      interpolation_.collisionSample(localPlayerIndex_);
+    collisionProxies.presentationServerTick = localSample.discreteServerTick;
+    collisionProxies.mapRevision = localSample.mapRevision;
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      if (index == localPlayerIndex_) {
+        continue;
+      }
+      const SnapshotInterpolation::PlayerCollisionSample sample =
+        interpolation_.collisionSample(index);
+      if (!sample.eligible) {
+        continue;
+      }
+      PlayerCollisionProxy& proxy =
+        collisionProxies.proxies[collisionProxies.count++];
+      proxy.playerIndex = static_cast<std::uint8_t>(index);
+      proxy.position = sample.pose.position;
+      proxy.bounds = sample.pose.bounds;
+    }
     prediction_.predict(
       command,
       arena_,
       movementTuning_,
       snapshot_.icePools,
       icePoolTuning_,
-      kFixedTickSeconds
+      kFixedTickSeconds,
+      collisionProxies,
+      static_cast<std::uint8_t>(localPlayerIndex_)
     );
   }
 }
@@ -135,6 +162,17 @@ void ClientGame::receiveSnapshots() {
         map_ = loaded.descriptor;
         mapRevision_ = received.mapRevision;
       }
+      // Thirty-two world units in one accepted snapshot interval is beyond normal
+      // movement and knockback here, so treat it as a teleport-like replacement
+      // of the local timeline instead of replaying commands sampled before it.
+      const bool localTimelineDiscontinuity =
+        mapChanged ||
+        (hasSnapshot_ && snapshot_.players[localPlayerIndex_].health <= 0 &&
+         received.players[localPlayerIndex_].health > 0) ||
+        (hasSnapshot_ && length(
+          received.players[localPlayerIndex_].position -
+          snapshot_.players[localPlayerIndex_].position
+        ) > 32.0F);
       snapshot_ = received;
       if (
         hasPendingMovementTuning_ &&
@@ -157,6 +195,9 @@ void ClientGame::receiveSnapshots() {
       // Buffer remote presentation first, then rebuild the local predicted state
       // from the same authoritative snapshot and its unacknowledged commands.
       interpolation_.push(received);
+      if (localTimelineDiscontinuity) {
+        prediction_.initialize(received.players[localPlayerIndex_]);
+      }
       prediction_.reconcile(
         received.players[localPlayerIndex_],
         received.hasAcknowledgedCommand[localPlayerIndex_],

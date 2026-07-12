@@ -32,15 +32,20 @@ void Prediction::predict(
   const MovementTuning& tuning,
   const IcePoolArray& icePools,
   const IcePoolTuning& icePoolTuning,
-  float fixedDt
+  float fixedDt,
+  const PlayerCollisionProxySet& collisionProxies,
+  std::uint8_t localPlayerIndex
 ) {
   if (!initialized_) {
     return;
   }
 
-  pendingCommands_.push_back(command);
+  pendingCommands_.push_back({command, collisionProxies, localPlayerIndex});
   if (player_.health > 0) {
-    simulateMovement(player_, command, arena, tuning, icePools, icePoolTuning, fixedDt);
+    simulateMovement(
+      player_, command, arena, tuning, icePools, icePoolTuning, fixedDt,
+      kDefaultJumpPadCooldownTicks, collisionProxies.span(), localPlayerIndex
+    );
   } else {
     applyDeadCommand(player_, command);
   }
@@ -53,7 +58,10 @@ void Prediction::predict(
   const MovementTuning& tuning,
   float fixedDt
 ) {
-  predict(command, arena, tuning, IcePoolArray{}, IcePoolTuning{}, fixedDt);
+  predict(
+    command, arena, tuning, IcePoolArray{}, IcePoolTuning{}, fixedDt,
+    PlayerCollisionProxySet{}, 0
+  );
 }
 
 void Prediction::reconcile(
@@ -77,16 +85,23 @@ void Prediction::reconcile(
     // prediction from authority by replaying only inputs the server has not seen.
     while (
       !pendingCommands_.empty() &&
-      isSequenceAcknowledged(pendingCommands_.front().sequence, acknowledgedCommand)
+      isSequenceAcknowledged(
+        pendingCommands_.front().command.sequence, acknowledgedCommand
+      )
     ) {
       pendingCommands_.pop_front();
     }
   }
 
   player_ = authoritativeState;
-  for (const UserCommand& command : pendingCommands_) {
+  for (const PendingPrediction& pending : pendingCommands_) {
+    const UserCommand& command = pending.command;
     if (player_.health > 0) {
-      simulateMovement(player_, command, arena, tuning, icePools, icePoolTuning, fixedDt);
+      simulateMovement(
+        player_, command, arena, tuning, icePools, icePoolTuning, fixedDt,
+        kDefaultJumpPadCooldownTicks, pending.collisionProxies.span(),
+        pending.localPlayerIndex
+      );
     } else {
       applyDeadCommand(player_, command);
     }

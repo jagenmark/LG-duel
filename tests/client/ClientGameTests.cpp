@@ -332,6 +332,30 @@ int main() {
   }
 
   {
+    lg::PlayerState initial = groundedPlayer();
+    initial.position.x = 0.0F;
+    lg::Prediction prediction;
+    prediction.initialize(initial);
+    lg::PlayerCollisionProxySet proxies;
+    proxies.count = 1;
+    proxies.proxies[0].playerIndex = 1;
+    proxies.proxies[0].position = {0.72F, 0.0F, initial.position.z};
+    proxies.proxies[0].bounds = initial.bounds;
+    lg::UserCommand command;
+    command.sequence = 1;
+    command.forwardMove = 1.0F;
+    command.viewYawRadians = 0.0F;
+    prediction.predict(
+      command, arena, tuning, lg::IcePoolArray{}, lg::IcePoolTuning{},
+      lg::kFixedTickSeconds, proxies, 0
+    );
+    failures += expect(
+      prediction.player().position.x <= 0.021F,
+      "local prediction should body-block against its sampled remote proxy"
+    );
+  }
+
+  {
     const lg::PlayerState initial = groundedPlayer();
     lg::Prediction prediction;
     prediction.initialize(initial);
@@ -466,6 +490,40 @@ int main() {
     failures += expect(
       prediction.diagnostics().pendingCommandCount == 1,
       "acknowledgement should preserve command after sequence wrap"
+    );
+  }
+
+  {
+    lg::SnapshotInterpolation interpolation;
+    lg::ServerSnapshot previous;
+    previous.serverTick = 10;
+    previous.mapRevision = 4;
+    previous.players[1] = groundedPlayer();
+    previous.players[1].position.x = 2.0F;
+    previous.connectedPlayers[1] = true;
+    previous.participatingPlayers[1] = true;
+    interpolation.push(previous);
+
+    lg::ServerSnapshot current = previous;
+    current.serverTick = 20;
+    current.players[1].position.x = 6.0F;
+    current.players[1].health = 0;
+    interpolation.push(current);
+    const auto sample = interpolation.collisionSample(1);
+    failures += expect(
+      sample.mapRevision == 4 && sample.discreteServerTick == 10 && sample.eligible,
+      "collision eligibility should use the same previous discrete endpoint as health"
+    );
+
+    lg::ServerSnapshot newMap = current;
+    newMap.serverTick = 21;
+    newMap.mapRevision = 5;
+    newMap.players[1].position.x = -7.0F;
+    interpolation.push(newMap);
+    const auto mapSample = interpolation.collisionSample(1);
+    failures += expect(
+      nearlyEqual(mapSample.pose.position.x, -7.0F) && mapSample.mapRevision == 5,
+      "map revision changes should reset collision interpolation history"
     );
   }
 

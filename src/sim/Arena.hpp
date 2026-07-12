@@ -3,8 +3,10 @@
 #include "shared/Constants.hpp"
 #include "shared/Math.hpp"
 #include "sim/PlayerState.hpp"
+#include "shared/Constants.hpp"
 
 #include <array>
+#include <span>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -146,7 +148,43 @@ struct CollisionResult {
   bool onGround = false;
   bool groundPlane = false;
   bool blocked = false;
+  std::uint8_t hitFlags = 0;
 };
+
+enum class MovementHitFlags : std::uint8_t {
+  None = 0,
+  Arena = 1U << 0U,
+  Player = 1U << 1U,
+};
+
+struct PlayerCollisionProxy {
+  std::uint8_t playerIndex = 0;
+  Vec3 position = {};
+  CollisionBounds bounds = {};
+};
+
+struct PlayerCollisionProxySet {
+  std::array<PlayerCollisionProxy, kMaxPlayers - 1U> proxies = {};
+  std::uint8_t count = 0;
+  std::uint32_t presentationServerTick = 0;
+  std::uint32_t mapRevision = 0;
+
+  [[nodiscard]] std::span<const PlayerCollisionProxy> span() const {
+    return {proxies.data(), count};
+  }
+};
+
+[[nodiscard]] bool isPlayerCollisionEligible(
+  bool connected,
+  bool bot,
+  bool participating,
+  const PlayerState& player
+);
+
+[[nodiscard]] bool hasMovementHitFlag(
+  const CollisionResult& result,
+  MovementHitFlags flag
+);
 
 [[nodiscard]] CollisionResult slidePlayerArenaMove(
   const Arena& arena,
@@ -154,6 +192,22 @@ struct CollisionResult {
   Vec3 start,
   Vec3 velocity,
   float fixedDt
+);
+
+[[nodiscard]] CollisionResult slidePlayerMove(
+  const Arena& arena,
+  std::span<const PlayerCollisionProxy> proxies,
+  const PlayerState& player,
+  std::uint8_t playerIndex,
+  Vec3 start,
+  Vec3 velocity,
+  float fixedDt
+);
+
+[[nodiscard]] bool playerPositionOverlapsProxy(
+  const PlayerState& player,
+  Vec3 position,
+  const PlayerCollisionProxy& proxy
 );
 
 [[nodiscard]] CollisionResult resolvePlayerArenaCollision(

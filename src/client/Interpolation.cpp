@@ -91,7 +91,23 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
   if (snapshots_.capacity() < kMaxBufferedSnapshots) {
     snapshots_.reserve(kMaxBufferedSnapshots);
   }
-  const Frame frame{snapshot.serverTick, snapshot.players};
+  Frame frame;
+  frame.serverTick = snapshot.serverTick;
+  frame.mapRevision = snapshot.mapRevision;
+  frame.players = snapshot.players;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    frame.collisionEligible[index] = isPlayerCollisionEligible(
+      snapshot.connectedPlayers[index],
+      snapshot.botPlayers[index],
+      snapshot.participatingPlayers[index],
+      snapshot.players[index]
+    );
+  }
+  if (!snapshots_.empty() && snapshots_.back().mapRevision != frame.mapRevision) {
+    // Presentation and collision samples must never interpolate across maps.
+    snapshots_.clear();
+    initialized_ = false;
+  }
   if (!initialized_) {
     snapshots_.push_back(frame);
     presentationTick_ = static_cast<double>(frame.serverTick);
@@ -212,6 +228,53 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     playerIndex,
     presentationTick_
   );
+}
+
+SnapshotInterpolation::PlayerCollisionSample
+SnapshotInterpolation::collisionSample(std::size_t playerIndex) const {
+  if (snapshots_.empty()) {
+    return {};
+  }
+  if (snapshots_.size() == 1) {
+    const Frame& frame = snapshots_.front();
+    return {
+      frame.players[playerIndex], frame.collisionEligible[playerIndex],
+      frame.serverTick, frame.mapRevision
+    };
+  }
+
+  const auto current = std::lower_bound(
+    snapshots_.begin(), snapshots_.end(), presentationTick_,
+    [](const Frame& frame, double tick) {
+      return static_cast<double>(frame.serverTick) < tick;
+    }
+  );
+  if (current == snapshots_.begin()) {
+    const Frame& frame = snapshots_.front();
+    return {frame.players[playerIndex], frame.collisionEligible[playerIndex],
+            frame.serverTick, frame.mapRevision};
+  }
+  if (current == snapshots_.end()) {
+    const Frame& frame = snapshots_.back();
+    return {frame.players[playerIndex], frame.collisionEligible[playerIndex],
+            frame.serverTick, frame.mapRevision};
+  }
+
+  const Frame& previous = *(current - 1);
+  const double tickDelta = static_cast<double>(current->serverTick - previous.serverTick);
+  const float alpha = tickDelta > 0.0
+    ? static_cast<float>((presentationTick_ - previous.serverTick) / tickDelta)
+    : 1.0F;
+  // Eligibility follows the same endpoint policy as health and the other base
+  // discrete PlayerState fields: it changes only when presentation reaches the
+  // newer authoritative snapshot.
+  const Frame& discrete = alpha < 1.0F ? previous : *current;
+  return {
+    interpolatePlayerState(previous.players[playerIndex], current->players[playerIndex], alpha),
+    discrete.collisionEligible[playerIndex],
+    discrete.serverTick,
+    discrete.mapRevision,
+  };
 }
 
 } // namespace lg

@@ -19,9 +19,18 @@ inline constexpr float kDefaultSnapshotInterpolationDelaySeconds = 0.024F;
 
 class SnapshotInterpolation {
 public:
+  struct PlayerCollisionSample {
+    PlayerState pose = {};
+    bool eligible = false;
+    std::uint32_t discreteServerTick = 0;
+    std::uint32_t mapRevision = 0;
+  };
+
   struct Frame {
     std::uint32_t serverTick = 0;
+    std::uint32_t mapRevision = 0;
     std::array<PlayerState, kDuelPlayerCount> players = {};
+    std::array<bool, kDuelPlayerCount> collisionEligible = {};
   };
 
   void push(const ServerSnapshot& snapshot);
@@ -34,6 +43,7 @@ public:
   [[nodiscard]] std::uint32_t presentationServerTick() const;
   [[nodiscard]] PlayerState player(std::size_t playerIndex) const;
   [[nodiscard]] PlayerState player(std::size_t playerIndex, float alpha) const;
+  [[nodiscard]] PlayerCollisionSample collisionSample(std::size_t playerIndex) const;
 
 private:
   std::vector<Frame> snapshots_;

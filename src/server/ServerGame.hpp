@@ -196,6 +196,8 @@ private:
   MapDescriptor mapDescriptor_ = {};
   std::string mapDirectory_ = "maps";
   std::uint32_t mapRevision_ = 1;
+  std::uint64_t emergencyPlayerCollisionRepairCount_ = 0;
+  std::uint64_t unresolvedPlayerCollisionInvariantCount_ = 0;
   MovementTuning movementTuning_ = {};
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;

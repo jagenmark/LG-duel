@@ -22,6 +22,27 @@ constexpr float kSneakGroundSpeedScale = 0.52F;
   return value - (normal * dot(value, normal));
 }
 
+[[nodiscard]] Vec3 clipImpactVelocityToGroundPlane(Vec3 velocity, Vec3 groundNormal) {
+  constexpr float kOverclip = 1.001F;
+  constexpr float kStopEpsilon = 0.0001F;
+  const float backoff = dot(velocity, groundNormal) * kOverclip;
+  if (backoff >= 0.0F) {
+    return velocity;
+  }
+
+  Vec3 clipped = velocity - (groundNormal * backoff);
+  if (std::fabs(clipped.x) < kStopEpsilon) {
+    clipped.x = 0.0F;
+  }
+  if (std::fabs(clipped.y) < kStopEpsilon) {
+    clipped.y = 0.0F;
+  }
+  if (std::fabs(clipped.z) < kStopEpsilon) {
+    clipped.z = 0.0F;
+  }
+  return clipped;
+}
+
 [[nodiscard]] Vec3 clipToGroundPlanePreserveSpeed(Vec3 velocity, Vec3 groundNormal) {
   constexpr float kMinimumSpeed = 0.0001F;
   const float speed = length(velocity);
@@ -70,6 +91,9 @@ struct StepMoveResult {
   const PlayerState& player,
   Vec3 startVelocity,
   float fixedDt,
+  std::span<const PlayerCollisionProxy> playerProxies,
+  std::uint8_t playerIndex,
+  bool preserveGroundSpeedOnLanding,
   const CollisionResult&
 ) {
   constexpr float kCollisionEpsilon = 0.0001F;
@@ -93,9 +117,11 @@ struct StepMoveResult {
 
   PlayerState raisedStepPlayer = stepPlayer;
   raisedStepPlayer.position = upMove.position;
-  const CollisionResult stepSlide = slidePlayerArenaMove(
+  const CollisionResult stepSlide = slidePlayerMove(
     arena,
+    playerProxies,
     raisedStepPlayer,
+    playerIndex,
     upMove.position,
     startVelocity,
     fixedDt
@@ -125,19 +151,24 @@ struct StepMoveResult {
   result.groundNormal = droppedMove.groundNormal;
   result.groundPlane = droppedMove.groundPlane;
   if (startVelocity.z <= 0.0F && droppedMove.onGround) {
-    // Walking down onto the landing should follow the landing plane instead of
-    // keeping a small vertical component from the drop probe.
-    result.velocity = clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal);
+    // A grounded step follows terrain without losing speed. An airborne impact
+    // must discard velocity into the landing plane; otherwise the raised slide's
+    // restored downward component becomes horizontal speed on touchdown.
+    result.velocity = preserveGroundSpeedOnLanding
+      ? clipToGroundPlanePreserveSpeed(result.velocity, droppedMove.groundNormal)
+      : clipImpactVelocityToGroundPlane(result.velocity, droppedMove.groundNormal);
   }
   result.onGround = startVelocity.z <= 0.0F && droppedMove.onGround;
   result.blocked = true;
+  result.hitFlags |= static_cast<std::uint8_t>(MovementHitFlags::Arena);
   return {result, true};
 }
 
 [[nodiscard]] CollisionResult categorizeGroundAfterMove(
   const Arena& arena,
   const PlayerState& player,
-  CollisionResult collision
+  CollisionResult collision,
+  bool preserveGroundSpeedOnLanding
 ) {
   constexpr float kGroundTraceDistance = 0.25F / 40.0F;
   constexpr float kGroundFollowDistance = 0.08F;
@@ -203,10 +234,11 @@ struct StepMoveResult {
   collision.groundNormal = groundProbe.groundNormal;
   collision.onGround = groundProbe.onGround;
   if (collision.onGround) {
-    collision.velocity = clipToGroundPlanePreserveSpeed(
-      collision.velocity,
-      collision.groundNormal
-    );
+    // The probe also categorizes true airborne landings. Only a player that
+    // entered the move grounded may preserve 3D speed while following terrain.
+    collision.velocity = preserveGroundSpeedOnLanding
+      ? clipToGroundPlanePreserveSpeed(collision.velocity, collision.groundNormal)
+      : clipImpactVelocityToGroundPlane(collision.velocity, collision.groundNormal);
   }
   return collision;
 }
@@ -217,14 +249,34 @@ struct StepMoveResult {
   Vec3,
   Vec3 requestedVelocity,
   float fixedDt,
-  bool allowStepMove
+  bool allowStepMove,
+  std::span<const PlayerCollisionProxy> playerProxies,
+  std::uint8_t playerIndex,
+  bool preserveGroundSpeedOnLanding
 ) {
   CollisionResult normalMove =
-    slidePlayerArenaMove(arena, player, player.position, requestedVelocity, fixedDt);
+    slidePlayerMove(
+      arena,
+      playerProxies,
+      player,
+      playerIndex,
+      player.position,
+      requestedVelocity,
+      fixedDt
+    );
   if (allowStepMove) {
-    normalMove = categorizeGroundAfterMove(arena, player, normalMove);
+    normalMove = categorizeGroundAfterMove(
+      arena,
+      player,
+      normalMove,
+      preserveGroundSpeedOnLanding
+    );
   }
-  if (!allowStepMove || !normalMove.blocked) {
+  if (
+    !allowStepMove ||
+    !normalMove.blocked ||
+    !hasMovementHitFlag(normalMove, MovementHitFlags::Arena)
+  ) {
     return normalMove;
   }
 
@@ -233,12 +285,20 @@ struct StepMoveResult {
     player,
     requestedVelocity,
     fixedDt,
+    playerProxies,
+    playerIndex,
+    preserveGroundSpeedOnLanding,
     normalMove
   );
   if (!steppedMove.valid) {
     return normalMove;
   }
-  return categorizeGroundAfterMove(arena, player, steppedMove.collision);
+  return categorizeGroundAfterMove(
+    arena,
+    player,
+    steppedMove.collision,
+    preserveGroundSpeedOnLanding
+  );
 }
 
 [[nodiscard]] bool playerOverlapsJumpPad(
@@ -327,7 +387,8 @@ void applyJumpPads(
 void applyCrouchState(
   PlayerState& player,
   const UserCommand& command,
-  const Arena& arena
+  const Arena& arena,
+  std::span<const PlayerCollisionProxy> playerProxies
 ) {
   const float targetStandingHalfHeight = standingHalfHeight(player);
   const float targetHalfHeight = command.crouch
@@ -345,7 +406,17 @@ void applyCrouchState(
   resizedPlayer.position.z = feetZ + targetHalfHeight;
   resizedPlayer.crouched = command.crouch;
   resizedPlayer.sneaking = command.sneak;
-  if (!command.crouch && playerPositionSolid(arena, resizedPlayer, resizedPlayer.position)) {
+  bool blockedByPlayer = false;
+  if (!command.crouch) {
+    for (const PlayerCollisionProxy& proxy : playerProxies) {
+      blockedByPlayer = blockedByPlayer ||
+        playerPositionOverlapsProxy(resizedPlayer, resizedPlayer.position, proxy);
+    }
+  }
+  if (
+    !command.crouch &&
+    (playerPositionSolid(arena, resizedPlayer, resizedPlayer.position) || blockedByPlayer)
+  ) {
     player.crouched = true;
     player.sneaking = command.sneak;
     return;
@@ -631,11 +702,13 @@ void simulateGroundedOrAirborne(
   const IcePoolArray& icePools,
   const IcePoolTuning& icePoolTuning,
   float fixedDt,
-  std::uint16_t jumpPadCooldownDurationTicks
+  std::uint16_t jumpPadCooldownDurationTicks,
+  std::span<const PlayerCollisionProxy> playerProxies,
+  std::uint8_t playerIndex
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
-  applyCrouchState(player, command, arena);
+  applyCrouchState(player, command, arena, playerProxies);
   if (!command.jump) {
     player.jumpHeld = false;
   }
@@ -667,11 +740,17 @@ void simulateGroundedOrAirborne(
     player.movementMode = MovementMode::Airborne;
   } else if (player.onGround) {
     player.movementMode = MovementMode::Grounded;
-    if (!knockbackActive) {
-      player.velocity = clipToGroundPlanePreserveSpeed(
+    if (!wasOnGround) {
+      // A short pre-move trace can acquire ground for an airborne player. Treat
+      // that as an impact even though player.onGround is now true for this tick.
+      player.velocity = clipImpactVelocityToGroundPlane(
         player.velocity,
         groundContact.normal
       );
+    } else if (!knockbackActive) {
+      player.velocity = clipToGroundPlanePreserveSpeed(player.velocity, groundContact.normal);
+    }
+    if (!knockbackActive) {
       applyGroundFriction(player.velocity, localTuning, fixedDt);
       if (iceContact.active && groundContact.normal.z < 0.999F) {
         // Ice on ramps uses grounded gravity along the floor plane. This makes
@@ -730,7 +809,10 @@ void simulateGroundedOrAirborne(
     player.position + (player.velocity * fixedDt),
     player.velocity,
     fixedDt,
-    true
+    true,
+    playerProxies,
+    playerIndex,
+    wasOnGround
   );
   if (
     !useAirMovement &&
@@ -782,7 +864,9 @@ void simulateFlying(
   const Arena& arena,
   const MovementTuning& tuning,
   float fixedDt,
-  std::uint16_t jumpPadCooldownDurationTicks
+  std::uint16_t jumpPadCooldownDurationTicks,
+  std::span<const PlayerCollisionProxy> playerProxies,
+  std::uint8_t playerIndex
 ) {
   player.viewYawRadians = command.viewYawRadians;
   player.viewPitchRadians = command.viewPitchRadians;
@@ -814,9 +898,11 @@ void simulateFlying(
     std::max(0.0F, 1.0F - tuning.flightGravityCancel) *
     fixedDt;
 
-  const CollisionResult collision = slidePlayerArenaMove(
+  const CollisionResult collision = slidePlayerMove(
     arena,
+    playerProxies,
     player,
+    playerIndex,
     player.position,
     player.velocity,
     fixedDt
@@ -878,6 +964,44 @@ void simulateMovement(
   const MovementTuning& tuning,
   const IcePoolArray& icePools,
   const IcePoolTuning& icePoolTuning,
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks,
+  std::span<const PlayerCollisionProxy> playerProxies,
+  std::uint8_t playerIndex
+) {
+  if (tuning.flightEnabled) {
+    player.movementMode = MovementMode::Flying;
+  } else if (player.movementMode == MovementMode::Flying) {
+    player.movementMode = MovementMode::Airborne;
+    player.onGround = false;
+  }
+
+  switch (player.movementMode) {
+  case MovementMode::Grounded:
+  case MovementMode::Airborne:
+    simulateGroundedOrAirborne(
+      player, command, arena, tuning, icePools, icePoolTuning,
+      fixedDt * freezeMovementScale(player), jumpPadCooldownDurationTicks,
+      playerProxies, playerIndex
+    );
+    break;
+  case MovementMode::Flying:
+    simulateFlying(
+      player, command, arena, tuning,
+      fixedDt * freezeMovementScale(player), jumpPadCooldownDurationTicks,
+      playerProxies, playerIndex
+    );
+    break;
+  }
+}
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
   float fixedDt
 ) {
   simulateMovement(
@@ -902,38 +1026,10 @@ void simulateMovement(
   float fixedDt,
   std::uint16_t jumpPadCooldownDurationTicks
 ) {
-  if (tuning.flightEnabled) {
-    player.movementMode = MovementMode::Flying;
-  } else if (player.movementMode == MovementMode::Flying) {
-    player.movementMode = MovementMode::Airborne;
-    player.onGround = false;
-  }
-
-  switch (player.movementMode) {
-  case MovementMode::Grounded:
-  case MovementMode::Airborne:
-    simulateGroundedOrAirborne(
-      player,
-      command,
-      arena,
-      tuning,
-      icePools,
-      icePoolTuning,
-      fixedDt * freezeMovementScale(player),
-      jumpPadCooldownDurationTicks
-    );
-    break;
-  case MovementMode::Flying:
-    simulateFlying(
-      player,
-      command,
-      arena,
-      tuning,
-      fixedDt * freezeMovementScale(player),
-      jumpPadCooldownDurationTicks
-    );
-    break;
-  }
+  simulateMovement(
+    player, command, arena, tuning, icePools, icePoolTuning, fixedDt,
+    jumpPadCooldownDurationTicks, {}, 0
+  );
 }
 
 } // namespace lg

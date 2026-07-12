@@ -6,6 +6,7 @@
 #include "sim/UserCommand.hpp"
 
 #include <cstdint>
+#include <span>
 
 namespace lg {
 
@@ -51,6 +52,19 @@ void simulateMovement(
   const MovementTuning& tuning,
   float fixedDt,
   std::uint16_t jumpPadCooldownDurationTicks
+);
+
+void simulateMovement(
+  PlayerState& player,
+  const UserCommand& command,
+  const Arena& arena,
+  const MovementTuning& tuning,
+  const IcePoolArray& icePools,
+  const IcePoolTuning& icePoolTuning,
+  float fixedDt,
+  std::uint16_t jumpPadCooldownDurationTicks,
+  std::span<const PlayerCollisionProxy> playerProxies,
+  std::uint8_t playerIndex
 );
 
 void simulateMovement(
