@@ -3,6 +3,7 @@
 #include "sim/PlayerState.hpp"
 
 #include <cmath>
+#include <array>
 #include <iostream>
 #include <string_view>
 
@@ -26,6 +27,44 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
 int main() {
   int failures = 0;
   const lg::Arena arena;
+
+  {
+    lg::PlayerState mover;
+    mover.position = {0.0F, 0.0F, mover.bounds.halfHeight};
+    lg::PlayerCollisionProxy proxy;
+    proxy.playerIndex = 1;
+    proxy.position = {2.0F, 0.0F, mover.bounds.halfHeight};
+    proxy.bounds = mover.bounds;
+    const std::array proxies{proxy};
+    const lg::CollisionResult result = lg::slidePlayerMove(
+      arena, proxies, mover, 0, mover.position, {100.0F, 0.0F, 0.0F}, 0.1F
+    );
+    failures += expect(
+      result.position.x <= proxy.position.x - (mover.bounds.radius + proxy.bounds.radius) + 0.001F,
+      "swept player proxies should prevent high-speed tunnelling"
+    );
+    failures += expect(
+      lg::hasMovementHitFlag(result, lg::MovementHitFlags::Player),
+      "player sweep should report its collision source"
+    );
+  }
+
+  {
+    lg::PlayerState mover;
+    mover.position = {0.0F, 0.0F, mover.bounds.halfHeight};
+    lg::PlayerCollisionProxy proxy;
+    proxy.playerIndex = 1;
+    proxy.position = {0.7F, 0.0F, mover.bounds.halfHeight};
+    proxy.bounds = mover.bounds;
+    const std::array proxies{proxy};
+    const lg::CollisionResult result = lg::slidePlayerMove(
+      arena, proxies, mover, 0, mover.position, {1.0F, 4.0F, 0.0F}, 0.1F
+    );
+    failures += expect(
+      result.velocity.x <= 0.001F && result.velocity.y > 3.9F,
+      "player contact should clip inward speed and preserve tangential speed"
+    );
+  }
 
   {
     lg::PlayerState first;

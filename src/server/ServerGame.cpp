@@ -616,6 +616,26 @@ void ServerGame::tick(float fixedDt) {
       continue;
     }
 
+    PlayerCollisionProxySet collisionProxies;
+    for (std::size_t otherIndex = 0; otherIndex < kDuelPlayerCount; ++otherIndex) {
+      if (
+        otherIndex == playerIndex ||
+        !isPlayerCollisionEligible(
+          snapshot_.connectedPlayers[otherIndex],
+          snapshot_.botPlayers[otherIndex],
+          snapshot_.participatingPlayers[otherIndex],
+          snapshot_.players[otherIndex]
+        )
+      ) {
+        continue;
+      }
+      PlayerCollisionProxy& proxy =
+        collisionProxies.proxies[collisionProxies.count++];
+      proxy.playerIndex = static_cast<std::uint8_t>(otherIndex);
+      proxy.position = snapshot_.players[otherIndex].position;
+      proxy.bounds = snapshot_.players[otherIndex].bounds;
+    }
+
     simulateMovement(
       snapshot_.players[playerIndex],
       command,
@@ -629,37 +649,53 @@ void ServerGame::tick(float fixedDt) {
           jumpPadRetriggerCooldownTicks_,
           std::numeric_limits<std::uint16_t>::max()
         )
-      )
+      ),
+      collisionProxies.span(),
+      static_cast<std::uint8_t>(playerIndex)
     );
   }
 
+  // Swept movement handles ordinary body blocking. This bounded symmetric
+  // fallback is only an invariant repair for trapped spawn/teleport layouts.
   snapshot_.playersColliding = false;
-  for (std::size_t firstIndex = 0; firstIndex < kDuelPlayerCount; ++firstIndex) {
-    if (
-      !isCombatant(snapshot_, firstIndex) ||
-      snapshot_.players[firstIndex].health <= 0
-    ) {
-      continue;
-    }
-    for (
-      std::size_t secondIndex = firstIndex + 1U;
-      secondIndex < kDuelPlayerCount;
-      ++secondIndex
-    ) {
-      if (
-        !isCombatant(snapshot_, secondIndex) ||
-        snapshot_.players[secondIndex].health <= 0
-      ) {
+  bool repairLimitReached = false;
+  for (std::size_t pass = 0; pass < kDuelPlayerCount; ++pass) {
+    bool repaired = false;
+    for (std::size_t firstIndex = 0; firstIndex < kDuelPlayerCount; ++firstIndex) {
+      if (!isPlayerCollisionEligible(
+            snapshot_.connectedPlayers[firstIndex], snapshot_.botPlayers[firstIndex],
+            snapshot_.participatingPlayers[firstIndex], snapshot_.players[firstIndex])) {
         continue;
       }
-      snapshot_.playersColliding =
-        resolvePlayerCollision(
-          arena_,
-          snapshot_.players[firstIndex],
-          snapshot_.players[secondIndex]
-        ) ||
-        snapshot_.playersColliding;
+      for (std::size_t secondIndex = firstIndex + 1U;
+           secondIndex < kDuelPlayerCount; ++secondIndex) {
+        if (!isPlayerCollisionEligible(
+              snapshot_.connectedPlayers[secondIndex], snapshot_.botPlayers[secondIndex],
+              snapshot_.participatingPlayers[secondIndex], snapshot_.players[secondIndex])) {
+          continue;
+        }
+        const bool pairRepaired = resolvePlayerCollision(
+          arena_, snapshot_.players[firstIndex], snapshot_.players[secondIndex]
+        );
+        repaired = pairRepaired || repaired;
+        emergencyPlayerCollisionRepairCount_ += pairRepaired ? 1U : 0U;
+      }
     }
+    snapshot_.playersColliding = snapshot_.playersColliding || repaired;
+    if (!repaired) {
+      break;
+    }
+    for (PlayerState& repairedPlayer : snapshot_.players) {
+      const CollisionResult collision = resolvePlayerArenaCollision(
+        arena_, repairedPlayer, repairedPlayer.position, repairedPlayer.velocity
+      );
+      repairedPlayer.position = collision.position;
+      repairedPlayer.velocity = collision.velocity;
+    }
+    repairLimitReached = pass + 1U == kDuelPlayerCount;
+  }
+  if (repairLimitReached) {
+    ++unresolvedPlayerCollisionInvariantCount_;
   }
   for (PlayerState& player : snapshot_.players) {
     if (player.health <= 0) {
