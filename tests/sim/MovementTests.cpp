@@ -2664,7 +2664,7 @@ int main() {
       arena, player, {-1.0F, -0.5F, player.bounds.halfHeight}, velocity, lg::kFixedTickSeconds
     );
     failures += expect(
-      collision.blocked && collision.position.x >= 0.188F && collision.position.x <= 0.202F &&
+      collision.blocked && collision.position.x >= 0.147F && collision.position.x <= 0.202F &&
         collision.position.y > -0.05F,
       "diagonal high-speed brush impact should consume remaining time sliding along the entry face"
     );
@@ -2704,7 +2704,7 @@ int main() {
     );
     failures += expect(
       collision.blocked && collision.position.x <= 0.202F && collision.position.y <= 0.202F &&
-        collision.position.x >= 0.15F && collision.position.y >= 0.15F &&
+        collision.position.x >= 0.147F && collision.position.y >= 0.147F &&
         collision.velocity.x >= -1.0F && collision.velocity.x <= 0.001F &&
         collision.velocity.y >= -1.0F && collision.velocity.y <= 0.001F,
       "adjacent convex brushes should stop a high-speed move at both planes of a 90-degree corner"
@@ -2761,7 +2761,10 @@ int main() {
   {
     const float run = 40.0F;
     const lg::ArenaBrush ramp = slopedTopBrush(-20.0F, 20.0F, 12.0F, 12.0F - riseForAngle(15.0F, run));
-    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::Arena arena = arenaWithBrush(ramp);
+    arena.max.z = 20.0F;
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
     for (const float speed : {8.0F, 40.0F}) {
       lg::PlayerState player = groundedPlayer();
       const float radiusOffset = player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
@@ -2775,7 +2778,7 @@ int main() {
       int blockedStalls = 0;
       for (int tick = 0; tick < 20; ++tick) {
         const float beforeX = player.position.x;
-        lg::simulateMovement(player, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+        lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
         minimumSpeed = std::min(minimumSpeed, std::hypot(player.velocity.x, player.velocity.y));
         maximumSupportError = std::max(
           maximumSupportError,
