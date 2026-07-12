@@ -697,6 +697,24 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
   if (!hasEntry || entryFraction > 1.0F || entryFraction > exitFraction) {
     return {end, {}, 1.0F, false, false};
   }
+
+  const float startFeetZ = start.z - player.bounds.halfHeight;
+  const float unraisedFeetZ = startFeetZ - kPlayerStepHeight;
+  const float stepHeight = brush.max.z - unraisedFeetZ;
+  const bool raisedHorizontalStepPass =
+    player.onGround &&
+    std::fabs(delta.z) <= kCollisionEpsilon &&
+    std::hypot(delta.x, delta.y) > kCollisionEpsilon &&
+    startFeetZ >= brush.max.z - kCollisionEpsilon &&
+    stepHeight > 0.0F &&
+    stepHeight <= kPlayerStepHeight + kCollisionEpsilon &&
+    std::fabs(entryNormal.z) <= kCollisionEpsilon;
+  if (raisedHorizontalStepPass) {
+    // The step path intentionally sweeps sideways with its feet raised by the
+    // maximum step height. A side-plane entry at the brush top must not block
+    // that pass; the following downward trace still validates the landing.
+    return {end, {}, 1.0F, false, false};
+  }
   return {
     start + (delta * entryFraction),
     entryNormal,
