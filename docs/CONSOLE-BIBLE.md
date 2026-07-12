@@ -416,7 +416,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
 | `reconnect` | inga | Återansluter till senast begärda host/port. |
-| `net_stats` | inga | Skriver connection state, host, port, player slot och ping. |
+| `net_stats` | none | Prints connection/network-simulator state plus remote interpolation buffer lead, timeline error, playback rate, startup/underrun state, correction counts, buffered snapshots, and presentation/newest ticks. |
 | `messagemode` | inga | Öppnar chat-input. Defaultbindning `T`. |
 | `showchat` | inga | Visar chatthistorik i fem sekunder. Defaultbindning `Z`. |
 

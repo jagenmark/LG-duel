@@ -34,6 +34,8 @@
 namespace lg {
 namespace {
 
+constexpr std::uint32_t kCombatStatsRefreshTicks = 25;
+
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
 constexpr auto kPingInterval = std::chrono::seconds(1);
@@ -192,6 +194,7 @@ struct UdpServerTransport::Impl {
     Clock::time_point lastHeard = {};
     std::uint32_t lastFullArenaRevision = 0;
     std::uint32_t lastFullArenaTick = 0;
+    std::uint32_t lastCombatStatsTick = 0;
   };
 
   explicit Impl(std::uint16_t requestedPort) : port(requestedPort) {}
@@ -256,6 +259,7 @@ struct UdpServerTransport::Impl {
           }
           clients[slotIndex].lastFullArenaRevision = 0;
           clients[slotIndex].lastFullArenaTick = 0;
+          clients[slotIndex].lastCombatStatsTick = 0;
         }
         clients[slotIndex].lastHeard = Clock::now();
         WirePacket response;
@@ -444,13 +448,20 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
       continue;
     }
 
+    ServerSnapshot networkSnapshot = snapshot;
+    networkSnapshot.hasCombatStats =
+      client.lastCombatStatsTick == 0 ||
+      snapshot.serverTick - client.lastCombatStatsTick >= kCombatStatsRefreshTicks;
     WirePacket wire;
-    if (!encodeServerSnapshot(snapshot, wire)) {
+    if (!encodeServerSnapshot(networkSnapshot, wire)) {
       continue;
     }
     if (sendWire(impl_->socket, client.endpoint, wire)) {
       client.lastFullArenaRevision = snapshot.mapRevision;
       client.lastFullArenaTick = snapshot.serverTick;
+      if (networkSnapshot.hasCombatStats) {
+        client.lastCombatStatsTick = snapshot.serverTick;
+      }
     }
   }
 }
@@ -613,6 +624,7 @@ struct UdpClientTransport::Impl {
           connected = true;
           timedOut = false;
           assignedPlayer = accept.playerIndex;
+          hasCombatStats = false;
           lastServerPacket = Clock::now();
           lastPingSend = Clock::now() - kPingInterval;
         }
@@ -633,6 +645,7 @@ struct UdpClientTransport::Impl {
       connected = false;
       timedOut = true;
       commandHistory.clear();
+      hasCombatStats = false;
       networkSim.clear();
     }
   }
@@ -645,6 +658,9 @@ struct UdpClientTransport::Impl {
   std::deque<WirePacket> snapshots;
   SnapshotDiagnostics snapshotDiagnostics = {};
   std::deque<CommandPacket> commandHistory;
+  std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
+  std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
+  bool hasCombatStats = false;
   ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
   std::uint32_t pingToken = 0;
@@ -731,6 +747,7 @@ void UdpClientTransport::disconnect() {
   impl_->timedOut = false;
   impl_->commandHistory.clear();
   impl_->snapshots.clear();
+  impl_->hasCombatStats = false;
 }
 
 void UdpClientTransport::update() {
@@ -800,7 +817,20 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   const WirePacket wire = impl_->snapshots.front();
   impl_->snapshots.pop_front();
   impl_->snapshotDiagnostics.snapshotQueueDepth = impl_->snapshots.size();
-  return decodeServerSnapshot(wire, snapshot);
+  if (!decodeServerSnapshot(wire, snapshot)) {
+    return false;
+  }
+  if (snapshot.hasCombatStats) {
+    impl_->roundCombatStats = snapshot.roundCombatStats;
+    impl_->matchCombatStats = snapshot.matchCombatStats;
+    impl_->hasCombatStats = true;
+  } else if (impl_->hasCombatStats) {
+    // Scoreboard aggregates update at a lower rate but remain stable to consumers.
+    snapshot.roundCombatStats = impl_->roundCombatStats;
+    snapshot.matchCombatStats = impl_->matchCombatStats;
+    snapshot.hasCombatStats = true;
+  }
+  return true;
 }
 
 SnapshotDiagnostics UdpClientTransport::snapshotDiagnostics() const {

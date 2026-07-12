@@ -106,6 +106,10 @@ int main() {
   failures += expect(firstClient.hasSnapshot(), "first UDP client should receive snapshot");
   failures += expect(secondClient.hasSnapshot(), "second UDP client should receive snapshot");
   failures += expect(
+    firstClient.snapshot().hasCombatStats && secondClient.snapshot().hasCombatStats,
+    "first UDP snapshot should establish recoverable combat statistics"
+  );
+  failures += expect(
     firstClient.snapshot().matchPhase == lg::MatchPhase::WaitingForReady,
     "two UDP clients should enter ready-up"
   );
@@ -145,6 +149,10 @@ int main() {
     secondClient.receiveSnapshots();
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
+  failures += expect(
+    firstClient.snapshot().hasCombatStats && secondClient.snapshot().hasCombatStats,
+    "lean UDP snapshots should retain the last combat statistics refresh"
+  );
   failures += expect(
     server.snapshot().hasAcknowledgedCommand[firstPlayerIndex] &&
       server.snapshot().acknowledgedCommand[firstPlayerIndex] == 0,

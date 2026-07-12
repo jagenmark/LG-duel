@@ -11,6 +11,7 @@
 #include "sim/UserCommand.hpp"
 
 #include <cmath>
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <string>
@@ -32,6 +33,40 @@ int expect(bool condition, std::string_view message) {
 bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
   return std::fabs(lhs - rhs) <= epsilon;
 }
+
+lg::SnapshotInterpolation::Clock::time_point interpolationTime(double seconds) {
+  return lg::SnapshotInterpolation::Clock::time_point{} +
+    std::chrono::duration_cast<lg::SnapshotInterpolation::Clock::duration>(
+      std::chrono::duration<double>(seconds)
+    );
+}
+
+class TestSnapshotInterpolation : public lg::SnapshotInterpolation {
+public:
+  void push(const lg::ServerSnapshot& snapshot) {
+    pushAt(snapshot, interpolationTime(nowSeconds_));
+  }
+
+  void advance(
+    float elapsedSeconds,
+    float interpolationDelaySeconds = lg::kDefaultSnapshotInterpolationDelaySeconds
+  ) {
+    nowSeconds_ += static_cast<double>(elapsedSeconds);
+    advanceTo(interpolationTime(nowSeconds_), interpolationDelaySeconds);
+  }
+
+  void elapseWithoutAdvance(double elapsedSeconds) {
+    nowSeconds_ += elapsedSeconds;
+  }
+
+  void reset() {
+    lg::SnapshotInterpolation::reset();
+    nowSeconds_ = 0.0;
+  }
+
+private:
+  double nowSeconds_ = 0.0;
+};
 
 lg::PlayerState groundedPlayer() {
   lg::PlayerState player;
@@ -494,7 +529,7 @@ int main() {
   }
 
   {
-    lg::SnapshotInterpolation interpolation;
+    TestSnapshotInterpolation interpolation;
     lg::ServerSnapshot previous;
     previous.serverTick = 10;
     previous.mapRevision = 4;
@@ -575,7 +610,7 @@ int main() {
   }
 
   {
-    lg::SnapshotInterpolation interpolation;
+    TestSnapshotInterpolation interpolation;
     lg::ServerSnapshot first;
     first.serverTick = 4;
     first.players[1].position.x = 2.0F;
@@ -602,85 +637,192 @@ int main() {
   }
 
   {
-    lg::SnapshotInterpolation interpolation;
+    TestSnapshotInterpolation interpolation;
     for (std::uint32_t tick = 0; tick <= 5; ++tick) {
       lg::ServerSnapshot snapshot;
       snapshot.serverTick = tick;
       snapshot.players[1].position.x = static_cast<float>(tick);
       interpolation.push(snapshot);
     }
-
-    interpolation.advance(lg::kFixedTickSeconds * 20.0F);
-    failures += expect(
-      nearlyEqual(interpolation.player(1).position.x, 2.0F),
-      "presentation interpolation should stay behind the newest snapshot"
-    );
-
-    lg::ServerSnapshot duplicate;
-    duplicate.serverTick = 5;
-    duplicate.players[1].position.x = 50.0F;
-    interpolation.push(duplicate);
-    interpolation.advance(lg::kFixedTickSeconds);
-    failures += expect(
-      nearlyEqual(interpolation.player(1).position.x, 2.0F),
-      "duplicate snapshot ticks should not disturb presentation interpolation"
-    );
-
-    lg::ServerSnapshot next;
-    next.serverTick = 6;
-    next.players[1].position.x = 6.0F;
-    interpolation.push(next);
-    interpolation.advance(lg::kFixedTickSeconds);
-    failures += expect(
-      nearlyEqual(interpolation.player(1).position.x, 3.0F),
-      "presentation interpolation should advance monotonically as newer snapshots arrive"
-    );
-  }
-
-  {
-    lg::SnapshotInterpolation interpolation;
-    constexpr std::uint32_t largeServerTick = 1U << 24U;
-    for (std::uint32_t offset = 0; offset <= 5; ++offset) {
-      lg::ServerSnapshot snapshot;
-      snapshot.serverTick = largeServerTick + offset;
-      snapshot.players[1].position.x = static_cast<float>(offset);
-      interpolation.push(snapshot);
+    float previousPosition = -1.0F;
+    for (int frame = 0; frame < 6; ++frame) {
+      interpolation.advance(1.0F / 360.0F, 0.024F);
+      const float position = interpolation.player(1).position.x;
+      failures += expect(position > previousPosition, "buffered presentation should advance every 360 Hz render frame");
+      failures += expect(previousPosition < 0.0F || position - previousPosition < 1.0F, "ordinary render advancement should not jump a server tick");
+      previousPosition = position;
     }
-
-    interpolation.advance(lg::kFixedTickSeconds * 20.0F, 0.024F);
-    failures += expect(
-      interpolation.presentationServerTick() == largeServerTick + 2U,
-      "presentation tick should remain exact after long server uptime"
-    );
-    failures += expect(
-      nearlyEqual(interpolation.player(1).position.x, 2.0F),
-      "presentation interpolation should not drift after long server uptime"
-    );
   }
 
   {
-    lg::SnapshotInterpolation interpolation;
-    constexpr std::uint32_t tickCount = 1000;
-    for (std::uint32_t tick = 0; tick <= tickCount; ++tick) {
+    TestSnapshotInterpolation interpolation;
+    std::uint32_t newestTick = 3;
+    for (std::uint32_t tick = 0; tick <= newestTick; ++tick) {
       lg::ServerSnapshot snapshot;
       snapshot.serverTick = tick;
       snapshot.players[1].position.x = static_cast<float>(tick);
       interpolation.push(snapshot);
-      interpolation.advance(lg::kFixedTickSeconds * 0.98F, 0.024F);
     }
+    double arrivalSeconds = 0.0;
+    float previousPosition = -1.0F;
+    int movingFrames = 0;
+    for (int frame = 0; frame < 360; ++frame) {
+      arrivalSeconds += 1.0 / 360.0;
+      if (arrivalSeconds + 1e-9 >= lg::kFixedTickSeconds) {
+        arrivalSeconds -= lg::kFixedTickSeconds;
+        lg::ServerSnapshot snapshot;
+        snapshot.serverTick = ++newestTick;
+        snapshot.players[1].position.x = static_cast<float>(newestTick);
+        interpolation.push(snapshot);
+      }
+      interpolation.advance(1.0F / 360.0F, 0.024F);
+      const float position = interpolation.player(1).position.x;
+      movingFrames += position > previousPosition + 0.0001F ? 1 : 0;
+      failures += expect(position >= previousPosition, "stable delivery presentation should be monotonic");
+      previousPosition = position;
+    }
+    const auto diagnostics = interpolation.diagnostics();
+    failures += expect(movingFrames > 350, "stable 125 Hz delivery should move on nearly every 360 Hz frame");
+    failures += expect(diagnostics.hardCorrectionCount == 0, "ordinary snapshot arrivals should not hard-correct");
+    failures += expect(diagnostics.bufferLeadTicks > 1.25 && diagnostics.bufferLeadTicks < 4.0, "stable buffer lead should remain near the requested three ticks within render-arrival phase variation");
+    failures += expect(diagnostics.playbackRate >= 0.96F && diagnostics.playbackRate <= 1.04F, "playback correction should remain bounded");
+  }
 
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 4; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+    interpolation.advance(1.0F / 60.0F, 0.024F);
+    interpolation.elapseWithoutAdvance((1.0 / 60.0) - 0.0005);
+    lg::ServerSnapshot lateInFrame;
+    lateInFrame.serverTick = 6;
+    lateInFrame.players[1].position.x = 6.0F;
+    interpolation.push(lateInFrame);
+    interpolation.advance(0.0005F, 0.024F);
+    const auto diagnostics = interpolation.diagnostics();
+    const double desiredLeadTicks =
+      diagnostics.bufferLeadTicks - diagnostics.timelineErrorTicks;
     failures += expect(
-      interpolation.presentationServerTick() == tickCount - 3U,
-      "presentation interpolation should stay anchored to snapshot delay over time"
+      desiredLeadTicks > 2.8,
+      "a snapshot accepted near a 60 Hz frame end should only have its actual sub-millisecond arrival age"
     );
-    failures += expect(
-      nearlyEqual(
-        interpolation.player(1).position.x,
-        static_cast<float>(tickCount - 3U),
-        0.5F
-      ),
-      "remote player interpolation should not accumulate local clock drift"
-    );
+  }
+
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+    float previousPosition = -1.0F;
+    for (int frame = 0; frame < 6; ++frame) {
+      interpolation.advance(1.0F / 360.0F, 0.024F);
+      previousPosition = interpolation.player(1).position.x;
+    }
+    interpolation.advance(0.008F, 0.024F); // one missing snapshot interval
+    lg::ServerSnapshot afterLoss;
+    afterLoss.serverTick = 7;
+    afterLoss.players[1].position.x = 7.0F;
+    interpolation.push(afterLoss);
+    for (int frame = 0; frame < 6; ++frame) {
+      interpolation.advance(1.0F / 360.0F, 0.024F);
+      const float position = interpolation.player(1).position.x;
+      failures += expect(position >= previousPosition, "one lost snapshot must not rewind presentation");
+      previousPosition = position;
+    }
+    failures += expect(interpolation.diagnostics().hardCorrectionCount == 0, "one lost snapshot should interpolate across the gap without hard correction");
+  }
+
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 3; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+    for (int frame = 0; frame < 50; ++frame) {
+      interpolation.advance(1.0F / 360.0F, 0.024F);
+    }
+    const auto held = interpolation.diagnostics();
+    failures += expect(nearlyEqual(interpolation.player(1).position.x, 3.0F), "buffer underrun should hold the newest state without extrapolation");
+    failures += expect(held.bufferUnderrun && held.underrunCount == 1, "an underrun episode should be counted once");
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    failures += expect(interpolation.diagnostics().underrunCount == 1, "holding during underrun should not count every render frame");
+    lg::ServerSnapshot resumed;
+    resumed.serverTick = 20;
+    resumed.players[1].position.x = 20.0F;
+    interpolation.push(resumed);
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    failures += expect(interpolation.player(1).position.x >= 3.0F && !interpolation.diagnostics().bufferUnderrun, "presentation should resume forward when future state returns");
+  }
+
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 10; tick <= 14; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    const double before = interpolation.diagnostics().presentationTick;
+    const std::size_t bufferedBefore = interpolation.diagnostics().bufferedSnapshotCount;
+    lg::ServerSnapshot duplicate;
+    duplicate.serverTick = 14;
+    duplicate.players[1].position.x = -100.0F;
+    interpolation.push(duplicate);
+    duplicate.serverTick = 13;
+    interpolation.push(duplicate);
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    failures += expect(interpolation.diagnostics().presentationTick > before, "duplicate and reordered snapshots must not reset arrival time or rewind");
+    failures += expect(interpolation.diagnostics().bufferedSnapshotCount == bufferedBefore, "snapshot buffer should reject duplicate and reordered ticks");
+  }
+
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 8; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    double previousTick = interpolation.diagnostics().presentationTick;
+    interpolation.advance(1.0F / 360.0F, 0.048F);
+    auto diagnostics = interpolation.diagnostics();
+    failures += expect(diagnostics.presentationTick >= previousTick && diagnostics.playbackRate < 1.0F, "increasing cl_interp should build lead by slowing without rewinding");
+    previousTick = diagnostics.presentationTick;
+    interpolation.advance(1.0F / 360.0F, 0.008F);
+    diagnostics = interpolation.diagnostics();
+    failures += expect(diagnostics.presentationTick >= previousTick && diagnostics.playbackRate > 1.0F, "decreasing cl_interp should catch up at a bounded rate");
+    failures += expect(diagnostics.hardCorrectionCount == 0, "normal delay changes should not be severe corrections");
+  }
+
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 4; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      interpolation.push(snapshot);
+    }
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    interpolation.reset();
+    lg::ServerSnapshot newTimeline;
+    newTimeline.serverTick = 100;
+    newTimeline.mapRevision = 2;
+    newTimeline.players[1].position.x = 1000.0F;
+    interpolation.push(newTimeline);
+    interpolation.advance(1.0F / 360.0F, 0.024F);
+    failures += expect(nearlyEqual(interpolation.player(1).position.x, 1000.0F), "reset must discard old timeline poses");
+    failures += expect(!interpolation.diagnostics().playbackStarted && interpolation.diagnostics().bufferedSnapshotCount == 1, "reset should require startup buffering again");
   }
 
   {
@@ -695,7 +837,7 @@ int main() {
       queueSnapshot(transport, snapshot);
     }
     client.receiveSnapshots();
-    client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
+    client.advanceInterpolation(1.0F / 360.0F, 0.024F);
 
     lg::UserCommand attack;
     attack.sequence = 40;
@@ -743,7 +885,7 @@ int main() {
       queueSnapshot(transport, snapshot);
     }
     client.receiveSnapshots();
-    client.advanceInterpolation(lg::kFixedTickSeconds * 20.0F, 0.024F);
+    client.advanceInterpolation(1.0F / 360.0F, 0.024F);
 
     lg::UserCommand attack;
     attack.sequence = 41;

@@ -4277,11 +4277,15 @@ int GameApp::run() const {
     [&session](const std::vector<std::string>&) {
       const ClientNetworkSimulationConfig config = session.networkSimulationConfig();
       const ClientNetworkSimulationStats stats = session.networkSimulationStats();
-      char text[320];
+      const SnapshotInterpolation::Diagnostics interpolation =
+        session.game() != nullptr
+          ? session.game()->interpolationDiagnostics()
+          : SnapshotInterpolation::Diagnostics{};
+      char text[512];
       std::snprintf(
         text,
         sizeof(text),
-        "state=%d host=%s port=%u player=%zu ping=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu}",
+        "state=%d host=%s port=%u player=%zu ping=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu} interp={lead=%.2fms error=%.2fms rate=%.3f started=%d underrun=%d/%u hard=%u buffered=%zu tick=%.3f newest=%.0f}",
         static_cast<int>(session.state()),
         std::string(session.host()).c_str(),
         static_cast<unsigned int>(session.port()),
@@ -4297,7 +4301,17 @@ int GameApp::run() const {
         static_cast<unsigned long long>(stats.droppedOutgoingPackets),
         static_cast<unsigned long long>(stats.droppedIncomingPackets),
         static_cast<unsigned long long>(stats.reorderedOutgoingPackets),
-        static_cast<unsigned long long>(stats.reorderedIncomingPackets)
+        static_cast<unsigned long long>(stats.reorderedIncomingPackets),
+        interpolation.bufferLeadTicks * 1000.0 / static_cast<double>(kFixedTickRate),
+        interpolation.timelineErrorTicks * 1000.0 / static_cast<double>(kFixedTickRate),
+        static_cast<double>(interpolation.playbackRate),
+        interpolation.playbackStarted ? 1 : 0,
+        interpolation.bufferUnderrun ? 1 : 0,
+        interpolation.underrunCount,
+        interpolation.hardCorrectionCount,
+        interpolation.bufferedSnapshotCount,
+        interpolation.presentationTick,
+        interpolation.newestSnapshotTick
       );
       return std::string(text);
     }

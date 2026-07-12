@@ -211,6 +211,8 @@ struct ServerSnapshot {
   std::array<bool, kDuelPlayerCount> botPlayers = {};
   std::array<bool, kDuelPlayerCount> participatingPlayers = {};
   std::array<bool, kDuelPlayerCount> readyPlayers = {};
+  // UDP snapshots may omit scoreboard-only aggregates between periodic refreshes.
+  bool hasCombatStats = true;
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
   MatchRules matchRules = {};
   MovementTuning movementTuning = {};
