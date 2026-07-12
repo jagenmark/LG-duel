@@ -567,6 +567,11 @@ int main() {
     lg::ServerSnapshot decoded;
     failures += expect(lg::encodeServerSnapshot(source, wire), "snapshot should encode");
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "snapshot should respect packet limit");
+    const std::size_t activeCombatSnapshotBytes = wire.size();
+    failures += expect(
+      activeCombatSnapshotBytes < 2800,
+      "representative active-combat snapshot should remain below 2800 bytes"
+    );
     failures += expect(lg::decodeServerSnapshot(wire, decoded), "snapshot should decode");
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
     failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
@@ -823,6 +828,73 @@ int main() {
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 
+    // These budgets guard the common packet shapes independently of the more
+    // exhaustive round-trip fixture above. Keep them representative of actual
+    // lobby sizes so protocol growth is visible during review.
+    lg::ServerSnapshot duelSnapshot;
+    duelSnapshot.map = testMapDescriptor();
+    duelSnapshot.hasCombatStats = false;
+    duelSnapshot.connectedPlayers[0] = true;
+    duelSnapshot.connectedPlayers[1] = true;
+    duelSnapshot.participatingPlayers[0] = true;
+    duelSnapshot.participatingPlayers[1] = true;
+    failures += expect(
+      lg::encodeServerSnapshot(duelSnapshot, wire),
+      "typical duel snapshot should encode"
+    );
+    const std::size_t duelSnapshotBytes = wire.size();
+    failures += expect(
+      duelSnapshotBytes < 2500,
+      "typical duel snapshot should remain below 2500 bytes"
+    );
+    lg::ServerSnapshot decodedLeanSnapshot;
+    failures += expect(
+      lg::decodeServerSnapshot(wire, decodedLeanSnapshot) &&
+        !decodedLeanSnapshot.hasCombatStats,
+      "lean snapshot should explicitly report omitted combat statistics"
+    );
+
+    lg::ServerSnapshot fullDuelSnapshot = duelSnapshot;
+    fullDuelSnapshot.hasCombatStats = true;
+    failures += expect(
+      lg::encodeServerSnapshot(fullDuelSnapshot, wire),
+      "full duel statistics refresh should encode"
+    );
+    const std::size_t fullDuelSnapshotBytes = wire.size();
+    failures += expect(
+      fullDuelSnapshotBytes - duelSnapshotBytes ==
+        2U * lg::kDuelPlayerCount * lg::kWeaponCount * 8U,
+      "omitting round and match combat statistics should save 864 bytes"
+    );
+
+    lg::ServerSnapshot sixPlayerSnapshot = duelSnapshot;
+    sixPlayerSnapshot.gameMode = lg::GameMode::ClanArena;
+    sixPlayerSnapshot.matchRules.playerLimit =
+      static_cast<std::uint8_t>(lg::kDuelPlayerCount);
+    sixPlayerSnapshot.connectedPlayers.fill(true);
+    sixPlayerSnapshot.participatingPlayers.fill(true);
+    sixPlayerSnapshot.teams = {
+      lg::Team::Red,
+      lg::Team::Blue,
+      lg::Team::Red,
+      lg::Team::Blue,
+      lg::Team::Red,
+      lg::Team::Blue,
+    };
+    failures += expect(
+      lg::encodeServerSnapshot(sixPlayerSnapshot, wire),
+      "typical six-player snapshot should encode"
+    );
+    const std::size_t sixPlayerSnapshotBytes = wire.size();
+    failures += expect(
+      sixPlayerSnapshotBytes < 2500,
+      "typical six-player snapshot should remain below 2500 bytes"
+    );
+    std::cout << "snapshot bytes: duel=" << duelSnapshotBytes
+              << " duel-full=" << fullDuelSnapshotBytes
+              << " six-player=" << sixPlayerSnapshotBytes
+              << " active-combat=" << activeCombatSnapshotBytes << '\n';
+
     lg::Arena smallArena;
     lg::Arena largeArena = smallArena;
     largeArena.wallCount = 160;
@@ -900,6 +972,7 @@ int main() {
     );
 
     invalid = source;
+    invalid.footstepAudioEvents[0].active = true;
     invalid.footstepAudioEvents[0].position.x =
       std::numeric_limits<float>::infinity();
     failures += expect(
@@ -924,6 +997,7 @@ int main() {
     );
 
     invalid = source;
+    invalid.fragEvents[0].active = true;
     invalid.fragEvents[0].weapon = static_cast<lg::Weapon>(255);
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),

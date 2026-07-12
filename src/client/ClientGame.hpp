@@ -66,6 +66,7 @@ public:
   [[nodiscard]] const MovementTuning& movementTuning() const;
   [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const;
+  [[nodiscard]] SnapshotInterpolation::Diagnostics interpolationDiagnostics() const;
   [[nodiscard]] bool hasConnectionError() const;
   [[nodiscard]] const std::string& connectionError() const;
 

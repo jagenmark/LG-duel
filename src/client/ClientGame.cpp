@@ -161,6 +161,9 @@ void ClientGame::receiveSnapshots() {
         arena_ = loaded.arena;
         map_ = loaded.descriptor;
         mapRevision_ = received.mapRevision;
+        // A map revision is a new authoritative presentation timeline. Clear
+        // old remote poses before accepting any state from the new map.
+        interpolation_.reset();
       }
       // Thirty-two world units in one accepted snapshot interval is beyond normal
       // movement and knockback here, so treat it as a teleport-like replacement
@@ -279,6 +282,10 @@ const Arena& ClientGame::arena() const {
 
 SnapshotDiagnostics ClientGame::snapshotDiagnostics() const {
   return snapshotDiagnostics_;
+}
+
+SnapshotInterpolation::Diagnostics ClientGame::interpolationDiagnostics() const {
+  return interpolation_.diagnostics();
 }
 
 bool ClientGame::hasConnectionError() const {

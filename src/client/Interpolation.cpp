@@ -10,7 +10,11 @@ namespace lg {
 namespace {
 
 constexpr std::size_t kMaxBufferedSnapshots = 64;
-constexpr double kMaxPresentationClockDriftTicks = 0.5;
+constexpr double kMinimumPlaybackRate = 0.96;
+constexpr double kMaximumPlaybackRate = 1.04;
+constexpr double kPlaybackRateCorrectionPerTick = 0.02;
+constexpr double kHardCorrectionThresholdTicks = 8.0;
+constexpr double kStartupTickEpsilon = 0.0001;
 
 [[nodiscard]] float interpolateAngle(float previous, float current, float alpha) {
   constexpr float kTwoPi = 6.28318530718F;
@@ -37,26 +41,6 @@ constexpr double kMaxPresentationClockDriftTicks = 0.5;
     current.players[playerIndex],
     alpha
   );
-}
-
-[[nodiscard]] double latestPresentationTick(
-  const std::vector<SnapshotInterpolation::Frame>& snapshots,
-  float interpolationDelaySeconds
-) {
-  if (snapshots.empty()) {
-    return 0.0;
-  }
-
-  const double oldestTick = static_cast<double>(snapshots.front().serverTick);
-  const double newestTick = static_cast<double>(snapshots.back().serverTick);
-  const double delayTicks =
-    static_cast<double>(std::max(0.0F, interpolationDelaySeconds)) *
-    static_cast<double>(kFixedTickRate);
-  if (newestTick <= oldestTick + delayTicks) {
-    return oldestTick;
-  }
-
-  return newestTick - delayTicks;
 }
 
 } // namespace
@@ -88,6 +72,13 @@ PlayerState interpolatePlayerState(
 }
 
 void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
+  pushAt(snapshot, Clock::now());
+}
+
+void SnapshotInterpolation::pushAt(
+  const ServerSnapshot& snapshot,
+  Clock::time_point acceptedAt
+) {
   if (snapshots_.capacity() < kMaxBufferedSnapshots) {
     snapshots_.reserve(kMaxBufferedSnapshots);
   }
@@ -105,13 +96,13 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
   }
   if (!snapshots_.empty() && snapshots_.back().mapRevision != frame.mapRevision) {
     // Presentation and collision samples must never interpolate across maps.
-    snapshots_.clear();
-    initialized_ = false;
+    reset();
   }
   if (!initialized_) {
     snapshots_.push_back(frame);
     presentationTick_ = static_cast<double>(frame.serverTick);
     initialized_ = true;
+    newestSnapshotAcceptedAt_ = acceptedAt;
     return;
   }
 
@@ -122,39 +113,106 @@ void SnapshotInterpolation::push(const ServerSnapshot& snapshot) {
   }
 
   snapshots_.push_back(frame);
+  // This is an arrival-age clock, so only a genuinely newer accepted snapshot
+  // may restart it. Duplicate and reordered packets cannot perturb server time.
+  newestSnapshotAcceptedAt_ = acceptedAt;
   while (snapshots_.size() > kMaxBufferedSnapshots) {
     snapshots_.erase(snapshots_.begin());
   }
+}
 
-  presentationTick_ = std::min(
-    // New arrivals may move the target forward but must never pull the running
-    // presentation clock backward and create a visible remote-player rewind.
-    presentationTick_,
-    latestPresentationTick(snapshots_, kDefaultSnapshotInterpolationDelaySeconds)
-  );
+void SnapshotInterpolation::reset() {
+  snapshots_.clear();
+  presentationTick_ = 0.0;
+  newestSnapshotAcceptedAt_ = {};
+  lastAdvanceAt_ = {};
+  desiredPresentationTick_ = 0.0;
+  playbackRate_ = 0.0F;
+  underrunCount_ = 0;
+  hardCorrectionCount_ = 0;
+  initialized_ = false;
+  playbackStarted_ = false;
+  bufferUnderrun_ = false;
+  hardCorrectionActive_ = false;
 }
 
 void SnapshotInterpolation::advance(
   float elapsedSeconds,
   float interpolationDelaySeconds
 ) {
+  // Packet age must start at its actual acceptance time. Charging a snapshot
+  // the whole enclosing render frame can consume multiple ticks at low FPS.
+  (void)elapsedSeconds;
+  advanceTo(Clock::now(), interpolationDelaySeconds);
+}
+
+void SnapshotInterpolation::advanceTo(
+  Clock::time_point now,
+  float interpolationDelaySeconds
+) {
   if (!initialized_ || snapshots_.empty()) {
     return;
   }
 
-  const double newestPresentationTick =
-    latestPresentationTick(snapshots_, interpolationDelaySeconds);
   const double oldestTick = static_cast<double>(snapshots_.front().serverTick);
-
-  presentationTick_ +=
-    static_cast<double>(std::max(0.0F, elapsedSeconds)) *
+  const double newestTick = static_cast<double>(snapshots_.back().serverTick);
+  const double elapsed = lastAdvanceAt_ == Clock::time_point{}
+    ? 0.0
+    : std::max(
+        0.0,
+        std::chrono::duration<double>(now - lastAdvanceAt_).count()
+      );
+  lastAdvanceAt_ = now;
+  const double arrivalAgeSeconds = std::max(
+    0.0,
+    std::chrono::duration<double>(now - newestSnapshotAcceptedAt_).count()
+  );
+  const double delayTicks =
+    static_cast<double>(std::max(0.0F, interpolationDelaySeconds)) *
     static_cast<double>(kFixedTickRate);
-  if (presentationTick_ < newestPresentationTick - kMaxPresentationClockDriftTicks) {
-    // Catch up after stalls or sparse delivery rather than permanently adding
-    // extra latency beyond the configured interpolation delay.
-    presentationTick_ = newestPresentationTick;
+  const double estimatedServerTick =
+    newestTick + arrivalAgeSeconds * static_cast<double>(kFixedTickRate);
+  desiredPresentationTick_ = estimatedServerTick - delayTicks;
+
+  if (!playbackStarted_) {
+    // Startup waits for real future state covering the requested delay. This
+    // avoids immediately running dry while the first snapshot history arrives.
+    if (newestTick - oldestTick + kStartupTickEpsilon < delayTicks) {
+      presentationTick_ = oldestTick;
+      return;
+    }
+    presentationTick_ = std::clamp(newestTick - delayTicks, oldestTick, newestTick);
+    playbackStarted_ = true;
   }
-  presentationTick_ = std::clamp(presentationTick_, oldestTick, newestPresentationTick);
+
+  const double timelineError = desiredPresentationTick_ - presentationTick_;
+  if (timelineError > kHardCorrectionThresholdTicks && !hardCorrectionActive_) {
+    // Large forward discontinuities are exceptional (for example a long local
+    // stall). Ordinary snapshot cadence and isolated loss remain rate-corrected.
+    presentationTick_ = std::min(desiredPresentationTick_, newestTick);
+    ++hardCorrectionCount_;
+    hardCorrectionActive_ = true;
+  } else if (timelineError <= kHardCorrectionThresholdTicks) {
+    hardCorrectionActive_ = false;
+  }
+  const double correctedError = desiredPresentationTick_ - presentationTick_;
+  playbackRate_ = static_cast<float>(std::clamp(
+    1.0 + correctedError * kPlaybackRateCorrectionPerTick,
+    kMinimumPlaybackRate,
+    kMaximumPlaybackRate
+  ));
+  const double nextPresentationTick = presentationTick_ +
+    elapsed * static_cast<double>(kFixedTickRate) * playbackRate_;
+  if (nextPresentationTick >= newestTick && desiredPresentationTick_ > newestTick) {
+    presentationTick_ = newestTick;
+    if (!bufferUnderrun_) {
+      ++underrunCount_;
+    }
+    bufferUnderrun_ = true;
+  } else {
+    presentationTick_ = std::min(nextPresentationTick, newestTick);
+    bufferUnderrun_ = false;
+  }
 
   while (
     snapshots_.size() > 2 &&
@@ -228,6 +286,23 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     playerIndex,
     presentationTick_
   );
+}
+
+SnapshotInterpolation::Diagnostics SnapshotInterpolation::diagnostics() const {
+  Diagnostics result;
+  result.presentationTick = presentationTick_;
+  result.playbackRate = playbackRate_;
+  result.underrunCount = underrunCount_;
+  result.hardCorrectionCount = hardCorrectionCount_;
+  result.bufferedSnapshotCount = snapshots_.size();
+  result.playbackStarted = playbackStarted_;
+  result.bufferUnderrun = bufferUnderrun_;
+  if (!snapshots_.empty()) {
+    result.newestSnapshotTick = static_cast<double>(snapshots_.back().serverTick);
+    result.bufferLeadTicks = result.newestSnapshotTick - presentationTick_;
+    result.timelineErrorTicks = desiredPresentationTick_ - presentationTick_;
+  }
+  return result;
 }
 
 SnapshotInterpolation::PlayerCollisionSample
