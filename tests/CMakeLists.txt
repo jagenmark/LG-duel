@@ -431,11 +431,37 @@ add_executable(lg_duel_scene_3d_tests
   ${PROJECT_SOURCE_DIR}/src/render/Scene3D.cpp
 )
 
+# Scene tests load the same runtime GLB selected by the client, so a focused
+# test build must refresh assets just like the full client build does.
+add_dependencies(lg_duel_scene_3d_tests lg_duel_runtime_assets)
+
 target_link_libraries(lg_duel_scene_3d_tests PRIVATE lg_duel_core)
 target_compile_features(lg_duel_scene_3d_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_scene_3d_tests)
 
 add_test(NAME lg_duel_scene_3d_tests COMMAND lg_duel_scene_3d_tests)
+
+add_executable(lg_duel_player_presentation_tests
+  render/PlayerPresentationTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/PlayerPresentation.cpp
+)
+
+target_link_libraries(lg_duel_player_presentation_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_player_presentation_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_player_presentation_tests)
+
+add_test(NAME lg_duel_player_presentation_tests COMMAND lg_duel_player_presentation_tests)
+
+add_executable(lg_duel_viewmodel_presentation_tests
+  render/ViewModelPresentationTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/ViewModelPresentation.cpp
+)
+
+target_link_libraries(lg_duel_viewmodel_presentation_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_viewmodel_presentation_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_viewmodel_presentation_tests)
+
+add_test(NAME lg_duel_viewmodel_presentation_tests COMMAND lg_duel_viewmodel_presentation_tests)
 
 add_executable(lg_duel_weapon_presentation_tests
   render/WeaponPresentationTests.cpp

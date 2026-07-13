@@ -280,6 +280,7 @@ $requiredFiles = @(
   "config/sound_mixer.cfg",
   "config/README.md",
   "assets/fonts/bahnschrift.ttf",
+  "assets/models/lg_duelist_male_v3/art/exports/lg_duelist_male.glb",
   "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb",
   "maps/eyetoeye.map",
   "Play LG Duel.bat",

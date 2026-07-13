@@ -140,6 +140,9 @@ struct ActionEdgeState {
 };
 
 struct CommandPacket {
+  // The body slot is server-owned. UDP clients repeat their last observed value,
+  // but transport authentication uses clientIndex and the server overwrites this
+  // field before authoritative command processing.
   std::uint8_t playerIndex = 0;
   UserCommand command = {};
   bool requestReset = false;
@@ -187,6 +190,9 @@ struct CommandPacket {
   std::uint32_t acknowledgedConfigurationRevision = 0;
   bool requestSpectator = false;
   ActionEdgeState actionEdges = {};
+  // A connection identity is distinct from its optional player body. Keeping it
+  // separate lets spectator slots use the same loss-tolerant command bundles.
+  std::uint8_t clientIndex = 0;
 };
 
 struct CommandBundle {

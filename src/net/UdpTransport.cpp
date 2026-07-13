@@ -70,7 +70,6 @@ WirePacket configurationSignature(const ServerSnapshot& snapshot) {
   }
   return signature;
 }
-
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
 constexpr auto kPingInterval = std::chrono::seconds(1);
@@ -205,6 +204,8 @@ bool sendWire(SocketHandle socket, const Endpoint& endpoint, const WirePacket& w
 }
 
 bool receiveWire(SocketHandle socket, Endpoint& endpoint, WirePacket& wire) {
+  // The extra byte detects oversized UDP datagrams: a full buffer means the
+  // packet exceeds the protocol maximum and must be surfaced as empty/invalid.
   std::array<std::uint8_t, kMaxPacketBytes + 1> buffer = {};
   endpoint.length = sizeof(endpoint.address);
   const int received = recvfrom(
@@ -306,7 +307,13 @@ struct UdpServerTransport::Impl {
         assignmentOpen) {
       client.playerIndex = availablePlayerIndex();
     }
-    if (client.playerIndex == kNoAssignedPlayer) return false;
+    if (client.playerIndex == kNoAssignedPlayer) {
+      // Chat belongs to the authenticated connection, not to a collision body.
+      // Preserve the sentinel so ServerGame can publish spectator chat without
+      // granting any body-authoritative command capability.
+      packet.playerIndex = kNoAssignedPlayer;
+      return !packet.chatMessage.empty();
+    }
     packet.playerIndex = client.playerIndex;
     return true;
   }
@@ -363,6 +370,8 @@ struct UdpServerTransport::Impl {
 
         if (clients[slotIndex].session == 0 ||
             clients[slotIndex].nonce != request.clientNonce) {
+          // A changed nonce from the same endpoint starts a new logical client
+          // session and invalidates map-transfer state left by the old process.
           clients[slotIndex].nonce = request.clientNonce;
           clients[slotIndex].session = nextSession++;
           if (nextSession == 0) {
@@ -408,7 +417,7 @@ struct UdpServerTransport::Impl {
         bool acceptedBundle = false;
         for (std::size_t index = 0; index < bundle.commandCount; ++index) {
           if (
-            bundle.commands[index].playerIndex == slotIndex &&
+            bundle.commands[index].clientIndex == slotIndex &&
             bundle.commands[index].clientNonce == clients[slotIndex].nonce
           ) {
             acceptedBundle = true;
@@ -442,7 +451,7 @@ struct UdpServerTransport::Impl {
         CommandPacket packet;
         if (
           decodeCommandPacket(wire, packet) &&
-          packet.playerIndex == slotIndex &&
+          packet.clientIndex == slotIndex &&
           packet.clientNonce == clients[slotIndex].nonce
         ) {
           if (packet.acknowledgedConfigurationRevision <= configurationRevision) {
@@ -596,13 +605,26 @@ void UdpServerTransport::update() {
 void UdpServerTransport::sendCommand(const CommandPacket&) {}
 
 bool UdpServerTransport::receiveCommand(CommandPacket& packet) {
-  impl_->pump();
-  if (impl_->commands.empty()) {
-    return false;
+  // update() is the sole socket pump so roster/session mappings are published
+  // to ServerGame before commands from that same batch can be consumed.
+  while (!impl_->commands.empty()) {
+    CommandPacket candidate = std::move(impl_->commands.front());
+    impl_->commands.pop_front();
+    const std::size_t clientIndex = candidate.clientIndex;
+    if (
+      clientIndex >= impl_->clients.size() ||
+      !impl_->clients[clientIndex].active ||
+      impl_->clients[clientIndex].nonce != candidate.clientNonce ||
+      impl_->clients[clientIndex].playerIndex != candidate.playerIndex
+    ) {
+      // A queued packet belongs to an old nonce or body assignment. Dropping it
+      // prevents stale high sequences from poisoning a newly assigned body.
+      continue;
+    }
+    packet = std::move(candidate);
+    return true;
   }
-  packet = impl_->commands.front();
-  impl_->commands.pop_front();
-  return true;
+  return false;
 }
 
 void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
@@ -842,10 +864,12 @@ struct UdpClientTransport::Impl {
     const std::uint32_t tick = snapshot.serverTick;
     const bool alreadyReceived =
       hasSnapshotTick && snapshotTickTags[tick % snapshotTickTags.size()] == tick;
+    bool acceptedNewestArrival = false;
     if (!hasSnapshotTick) {
       hasSnapshotTick = true;
       firstSnapshotTick = tick;
       latestSnapshotTick = tick;
+      acceptedNewestArrival = true;
     } else if (isSequenceNewer(tick, latestSnapshotTick)) {
       const std::uint32_t tickDistance = tick - latestSnapshotTick;
       if (tickDistance > 1U) {
@@ -861,14 +885,19 @@ struct UdpClientTransport::Impl {
           (variation - snapshotJitterMilliseconds) * (1.0F / 16.0F);
       }
       latestSnapshotTick = tick;
+      acceptedNewestArrival = true;
     } else if (!alreadyReceived && tick != latestSnapshotTick) {
       ++telemetryLateSnapshots;
       ++telemetry.lateSnapshots;
       ++telemetry.reorderedSnapshots;
     }
     snapshotTickTags[tick % snapshotTickTags.size()] = tick;
-    lastSnapshotArrival = now;
-    hasSnapshotArrival = true;
+    if (acceptedNewestArrival) {
+      // Reordered/duplicate packets are diagnostics, not fresh controller
+      // samples: they must not reset age or distort inter-arrival jitter.
+      lastSnapshotArrival = now;
+      hasSnapshotArrival = true;
+    }
     telemetry.incomingLossPercent = incomingLossPercent();
   }
 
@@ -966,6 +995,8 @@ struct UdpClientTransport::Impl {
           std::chrono::duration<float, std::milli>(
             decodeEnd - decodeStart
           ).count();
+        // Queue validated wire rather than retaining the large decoded object;
+        // ClientGame performs the state-producing decode when it consumes it.
         snapshots.push_back(wire);
         recordSnapshot(*snapshot, wire.size(), now);
         snapshotDiagnostics.snapshotQueueDepth = snapshots.size();
@@ -984,9 +1015,14 @@ struct UdpClientTransport::Impl {
       }
     } else if (type == PacketType::CombatStats && connected) {
       CombatStatsPacket stats;
-      if (decodeCombatStatsPacket(wire, stats)) {
+      if (decodeCombatStatsPacket(wire, stats) &&
+          (!hasCombatStats ||
+           isSequenceNewer(stats.serverTick, combatStatsServerTick))) {
+        // Scoreboard packets may reorder independently of snapshots. Never let
+        // an older aggregate roll the retained cache backward.
         roundCombatStats = stats.round;
         matchCombatStats = stats.match;
+        combatStatsServerTick = stats.serverTick;
         hasCombatStats = true;
         lastServerPacket = now;
       }
@@ -1068,12 +1104,17 @@ struct UdpClientTransport::Impl {
       if (type == PacketType::ConnectAccept) {
         ConnectAccept accept;
         if (decodeConnectAccept(wire, accept) && accept.clientNonce == nonce) {
+          // The echoed nonce prevents delayed accepts from a previous connection
+          // attempt from assigning this client to a stale server-side session.
           connected = true;
           timedOut = false;
           assignedClient = accept.clientIndex;
           assignedPlayer = accept.playerIndex;
           configurationRevision = 0;
           hasCombatStats = false;
+          combatStatsServerTick = 0;
+          roundCombatStats = {};
+          matchCombatStats = {};
           telemetry = {};
           snapshotTickTags = {};
           telemetryHistoryNext = 0;
@@ -1110,6 +1151,9 @@ struct UdpClientTransport::Impl {
       commandHistory.clear();
       configurationRevision = 0;
       hasCombatStats = false;
+      combatStatsServerTick = 0;
+      roundCombatStats = {};
+      matchCombatStats = {};
       networkSim.clear();
     }
     sampleTelemetry(Clock::now());
@@ -1144,6 +1188,7 @@ struct UdpClientTransport::Impl {
   std::uint32_t configurationRevision = 0;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
+  std::uint32_t combatStatsServerTick = 0;
   bool hasCombatStats = false;
   ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
@@ -1235,6 +1280,9 @@ void UdpClientTransport::disconnect() {
   impl_->snapshots.clear();
   impl_->configurationRevision = 0;
   impl_->hasCombatStats = false;
+  impl_->combatStatsServerTick = 0;
+  impl_->roundCombatStats = {};
+  impl_->matchCombatStats = {};
   impl_->chatHistory.clear();
   impl_->telemetry.valid = false;
 }
@@ -1256,6 +1304,10 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   }
 
   CommandPacket stampedPacket = packet;
+  stampedPacket.clientIndex = impl_->assignedClient;
+  // The server owns the mapping and overwrites this after authentication. The
+  // repeated value only keeps compact command histories internally coherent.
+  stampedPacket.playerIndex = impl_->assignedPlayer;
   stampedPacket.clientNonce = impl_->nonce;
   stampedPacket.acknowledgedConfigurationRevision =
     impl_->configurationRevision;
@@ -1267,6 +1319,8 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   }
 
   impl_->commandHistory.push_back(stampedPacket);
+  // Resend a short history in every UDP bundle. Server-side wrap-safe sequence
+  // filtering makes duplicates harmless while recovering isolated packet loss.
   while (impl_->commandHistory.size() > kMaxBundledCommands) {
     impl_->commandHistory.pop_front();
   }
@@ -1296,6 +1350,8 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
     }
   }
 
+  // If accumulated redundancy no longer fits, preserve current input latency by
+  // falling back to the already validated single command and restart history.
   impl_->commandHistory.clear();
   impl_->commandHistory.push_back(stampedPacket);
   impl_->sendConnectedWire(singleCommandWire, Clock::now());
@@ -1316,16 +1372,33 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   const WirePacket wire = impl_->snapshots.front();
   impl_->snapshots.pop_front();
   impl_->snapshotDiagnostics.snapshotQueueDepth = impl_->snapshots.size();
-  if (!decodeServerSnapshot(wire, snapshot)) return false;
+  if (!decodeServerSnapshot(wire, snapshot)) {
+    return false;
+  }
   if (snapshot.hasLocalClientState) {
     impl_->assignedPlayer = snapshot.localSpectator
       ? kNoAssignedPlayer : snapshot.localPlayerIndex;
   }
   if (snapshot.hasConfiguration) {
-    copySnapshotConfiguration(impl_->configurationCache, snapshot);
-    impl_->configurationRevision = snapshot.configurationRevision;
+    if (impl_->configurationRevision == 0 ||
+        snapshot.configurationRevision == impl_->configurationRevision ||
+        isSequenceNewer(
+          snapshot.configurationRevision,
+          impl_->configurationRevision
+        )) {
+      copySnapshotConfiguration(impl_->configurationCache, snapshot);
+      impl_->configurationRevision = snapshot.configurationRevision;
+    } else {
+      // A reordered snapshot may carry an older full block; retain the newest
+      // acknowledged configuration while still consuming its gameplay state.
+      copySnapshotConfiguration(snapshot, impl_->configurationCache);
+    }
   } else {
-    if (snapshot.configurationRevision != impl_->configurationRevision) {
+    if (impl_->configurationRevision == 0 ||
+        isSequenceNewer(
+          snapshot.configurationRevision,
+          impl_->configurationRevision
+        )) {
       return false;
     }
     copySnapshotConfiguration(snapshot, impl_->configurationCache);
@@ -1336,6 +1409,7 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
     impl_->matchCombatStats = snapshot.matchCombatStats;
     impl_->hasCombatStats = true;
   } else if (impl_->hasCombatStats) {
+    // Scoreboard aggregates update at a lower rate but remain stable to consumers.
     snapshot.roundCombatStats = impl_->roundCombatStats;
     snapshot.matchCombatStats = impl_->matchCombatStats;
     snapshot.hasCombatStats = true;

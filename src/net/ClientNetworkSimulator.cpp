@@ -26,6 +26,8 @@ void ClientNetworkSimulator::setConfig(const ClientNetworkSimulationConfig& conf
   config_.lossPercent = clampPercent(config_.lossPercent);
   config_.reorderPercent = clampPercent(config_.reorderPercent);
   if (config_.seed != oldSeed) {
+    // Reset randomness only when the seed changes. Live latency/loss adjustments
+    // otherwise continue the same deterministic pseudo-random sequence.
     randomState_ = config_.seed == 0 ? kDefaultSeed : config_.seed;
   }
 }
@@ -75,6 +77,8 @@ ClientNetworkSimAction ClientNetworkSimulator::enqueue(
   delayMs = std::clamp(delayMs, 0, kMaxSimulatedDelayMs);
   const bool reordered = randomChance(clampedReorderPercent());
   if (reordered) {
+    // Holding a selected datagram creates an opportunity for a later packet to
+    // overtake it; the empty-queue offset ensures the first packet is held too.
     delayMs = std::clamp(
       delayMs + kReorderHoldMs + (selectedQueue.empty() ? 1 : 0),
       0,
@@ -91,6 +95,8 @@ ClientNetworkSimAction ClientNetworkSimulator::enqueue(
   }
 
   if (selectedQueue.size() >= kMaxQueuedDatagrams) {
+    // Bound memory during extreme latency or a stalled consumer. Dropping the
+    // new datagram preserves delivery times already scheduled in the queue.
     if (direction == ClientNetworkSimDirection::Outgoing) {
       ++counters_.droppedOutgoingPackets;
     } else {
@@ -129,6 +135,8 @@ bool ClientNetworkSimulator::popDue(
         iterator->insertionOrder < selected->insertionOrder
       )
     ) {
+      // Deliver by scheduled time, then insertion order. Equal-delay packets
+      // remain stable while intentionally delayed packets may be overtaken.
       selected = iterator;
     }
   }
@@ -143,6 +151,8 @@ bool ClientNetworkSimulator::popDue(
 }
 
 void ClientNetworkSimulator::clear() {
+  // Connection loss/session replacement must discard delayed datagrams so they
+  // cannot be injected into a later authoritative timeline.
   outgoing_.clear();
   incoming_.clear();
 }
@@ -176,6 +186,8 @@ int ClientNetworkSimulator::randomJitter(int jitterMs) {
 }
 
 std::uint32_t ClientNetworkSimulator::randomU32() {
+  // A small fixed xorshift generator makes simulation runs reproducible without
+  // depending on platform-specific standard-library engine behavior.
   std::uint32_t value = randomState_ == 0 ? kDefaultSeed : randomState_;
   value ^= value << 13U;
   value ^= value >> 17U;

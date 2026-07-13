@@ -106,6 +106,8 @@ std::uint16_t knockbackTimeMsToTicks(std::int32_t milliseconds) {
   if (clampedMilliseconds == 0) {
     return 0;
   }
+  // Round up so every positive duration affects at least one full fixed tick;
+  // truncation would systematically shorten the configured movement window.
   return static_cast<std::uint16_t>(
     std::ceil(
       (static_cast<float>(clampedMilliseconds) * kFixedTickRate) / 1000.0F
@@ -124,6 +126,8 @@ WeaponSwitchingMode weaponSwitchingModeFromCvars(const ConsoleSystem& console) {
   if (value == "cpma" || value == "1") {
     return WeaponSwitchingMode::Cpma;
   }
+  // Registration constrains normal values; Crazy is also the compatibility
+  // fallback for its name/numeric alias and any legacy value reaching this layer.
   return WeaponSwitchingMode::Crazy;
 }
 

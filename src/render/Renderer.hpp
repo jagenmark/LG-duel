@@ -1,5 +1,8 @@
 #pragma once
 
+#include "render/PlayerPresentation.hpp"
+#include "render/ViewModelPresentation.hpp"
+
 #include "app/HudPresentation.hpp"
 #include "render/DrawList2D.hpp"
 #include "render/ConsoleCat.hpp"
@@ -53,6 +56,7 @@ struct OutlineState {
 
 struct RenderSettings {
   float fieldOfView = 90.0F;
+  ViewModelPresentationOutput viewModelPresentation = {};
   bool enemyLeanEnabled = true;
   float enemyLeanScale = 1.0F;
   bool teammateLeanEnabled = true;
@@ -88,6 +92,7 @@ struct RenderSettings {
   float freezeGunActivationFlashAmount = 0.0F;
   float freezeGunCoolantPulse = 0.0F;
   float freezeGunVibrationPhaseRadians = 0.0F;
+  float plasmaGunContainmentAmount = 0.0F;
   float beamAlpha = 1.0F;
   std::uint8_t beamRed = 74;
   std::uint8_t beamGreen = 166;
@@ -253,10 +258,20 @@ struct HudRenderState {
     int mode = 0;
     float scale = 1.75F;
     NetworkTelemetry telemetry = {};
-    float interpolationDelayMilliseconds = 0.0F;
-    float interpolationBufferedMilliseconds = 0.0F;
-    std::uint64_t interpolationStarvations = 0;
-    bool interpolationExtrapolating = false;
+    float interpolationEffectiveDelayMilliseconds = 0.0F;
+    double interpolationBufferLeadTicks = 0.0;
+    double interpolationDesiredBufferLeadTicks = 0.0;
+    double interpolationTimelineErrorTicks = 0.0;
+    double interpolationPresentationTick = 0.0;
+    double interpolationNewestSnapshotTick = 0.0;
+    float interpolationPlaybackRate = 0.0F;
+    std::size_t interpolationBufferedSnapshotCount = 0;
+    std::uint32_t interpolationSampleTick = 0;
+    std::uint32_t interpolationUnderrunCount = 0;
+    std::uint32_t interpolationHardCorrectionCount = 0;
+    bool interpolationPlaybackStarted = false;
+    bool interpolationUnderrun = false;
+    bool interpolationSampleEligible = false;
     std::size_t pendingCommands = 0;
     std::uint32_t correctionCount = 0;
     float lastCorrectionDistance = 0.0F;
@@ -331,6 +346,9 @@ struct RemotePlayerView {
   float freezeGunActivationFlashAmount = 0.0F;
   float freezeGunCoolantPulse = 0.0F;
   float freezeGunVibrationPhaseRadians = 0.0F;
+  float plasmaGunContainmentAmount = 0.0F;
+  PlayerPresentationFrame presentation = {};
+  bool hasPresentation = false;
 };
 
 enum class TracerStyle : std::uint8_t {

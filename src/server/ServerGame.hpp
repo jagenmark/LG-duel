@@ -209,6 +209,8 @@ private:
   MapDescriptor mapDescriptor_ = {};
   std::string mapDirectory_ = "maps";
   std::uint32_t mapRevision_ = 1;
+  std::uint64_t emergencyPlayerCollisionRepairCount_ = 0;
+  std::uint64_t unresolvedPlayerCollisionInvariantCount_ = 0;
   MovementTuning movementTuning_ = {};
   float playerSizeScaleXY_ = 1.0F;
   float playerSizeScaleZ_ = 1.0F;
@@ -320,6 +322,9 @@ private:
   std::string spawnDebugString_ = "no team spawn selected yet";
   WeaponSwitchingMode weaponSwitchingMode_ = WeaponSwitchingMode::Crazy;
   ChatHistory chatHistory_ = {};
+  std::array<std::uint32_t, kMaxNetworkClients> chatClientNonces_ = {};
+  std::array<std::uint32_t, kMaxNetworkClients> acknowledgedChatCommands_ = {};
+  std::array<bool, kMaxNetworkClients> hasAcknowledgedChatCommand_ = {};
   ServerSnapshot snapshot_ = {};
 };
 

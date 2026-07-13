@@ -16,6 +16,8 @@ namespace {
   }
   const std::size_t index = std::min(
     sampleCount - 1U,
+    // Use the nearest indexed sample from the bounded window; interpolating would
+    // report frame times that never actually occurred and can hide spikes.
     static_cast<std::size_t>(
       std::round(fraction * static_cast<float>(sampleCount - 1U))
     )
@@ -26,6 +28,8 @@ namespace {
 } // namespace
 
 void PerfTelemetry::push(const PerfSample& sample) {
+  // A fixed ring keeps telemetry allocation-free in the frame loop. Summary
+  // statistics are order-independent, while nextSample_ identifies the latest.
   samples_[nextSample_] = sample;
   nextSample_ = (nextSample_ + 1U) % samples_.size();
   sampleCount_ = std::min(sampleCount_ + 1U, samples_.size());

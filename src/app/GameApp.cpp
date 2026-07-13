@@ -18,6 +18,7 @@
 #include "input/MouseAim.hpp"
 #include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
+#include "render/GltfSkinnedModel.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
 #include "render/WeaponPresentation.hpp"
@@ -1035,7 +1036,8 @@ void consumeTracerWeaponFires(
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const LocalTracerAimHistory& localAimHistory,
-  const RenderSettings& settings
+  const RenderSettings& settings,
+  bool ownsPresentedSubject
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
     const WeaponFireResult& fire = weaponFires[playerIndex];
@@ -1064,7 +1066,7 @@ void consumeTracerWeaponFires(
         playerIndex,
         settings
       );
-      const WeaponFireResult visualFire = localEvent
+      const WeaponFireResult visualFire = localEvent && ownsPresentedSubject
         ? localPerspectiveTracerFire(
             arena,
             fire,
@@ -1087,7 +1089,7 @@ void consumeTracerWeaponFires(
         playerIndex,
         settings
       );
-      const WeaponFireResult visualFire = localEvent
+      const WeaponFireResult visualFire = localEvent && ownsPresentedSubject
         ? localPerspectiveTracerFire(
             arena,
             fire,
@@ -3370,7 +3372,11 @@ std::string matchPhaseName(MatchPhase phase) {
   return "UNKNOWN";
 }
 
-HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
+HudRenderState buildHud(
+  const ClientSession& session,
+  bool showAliveCounts,
+  std::optional<std::size_t> subjectPlayerIndex
+) {
   HudRenderState hud;
   hud.centerLines.push_back(session.statusMessage());
   if (!session.readyForPlay()) {
@@ -3379,15 +3385,42 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
 
   const ClientGame& client = *session.game();
   const ServerSnapshot& snapshot = client.snapshot();
-  const std::size_t localPlayerIndex = session.playerIndex();
-  const std::size_t remotePlayerIndex =
-    opponentPlayerIndex(snapshot, localPlayerIndex);
+  if (subjectPlayerIndex.has_value() &&
+      *subjectPlayerIndex >= kDuelPlayerCount) {
+    subjectPlayerIndex.reset();
+  }
   std::size_t occupiedCount = 0;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     if (snapshot.connectedPlayers[index] || snapshot.botPlayers[index]) {
       ++occupiedCount;
     }
   }
+
+  if (!subjectPlayerIndex.has_value()) {
+    // A dedicated observer without a living target has no body whose health,
+    // ammo, team, score, or readiness can truthfully be presented as local.
+    hud.centerLines.clear();
+    hud.topLeftLines.push_back(
+      "PLAYERS " + std::to_string(occupiedCount) + '/' +
+      std::to_string(kDuelPlayerCount)
+    );
+    if (snapshot.spectatorCount > 0) {
+      hud.topLeftLines.push_back(
+        "SPECTATORS " + std::to_string(snapshot.spectatorCount)
+      );
+    }
+    hud.topLeftLines.push_back("MODE " + gameModeName(snapshot.gameMode));
+    if (showAliveCounts && snapshot.gameMode == GameMode::ClanArena) {
+      hud.topRightLines.push_back(aliveCountLine(snapshot));
+    }
+    hud.centerLines.push_back(matchPhaseName(snapshot.matchPhase));
+    hud.centerOffsetY = matchPhaseMessageOffsetY(snapshot.matchPhase);
+    return hud;
+  }
+
+  const std::size_t localPlayerIndex = *subjectPlayerIndex;
+  const std::size_t remotePlayerIndex =
+    opponentPlayerIndex(snapshot, localPlayerIndex);
 
   hud.healthAmount = snapshot.healthAmount;
   const WeaponAmmoArray& localAmmo = snapshot.playerAmmo[localPlayerIndex];
@@ -3725,9 +3758,12 @@ int GameApp::run() const {
   std::array<float, kNetworkTelemetryHistorySamples>
     netGraphCorrectionDistances = {};
   std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
-    netGraphStarvationSerials = {};
+    netGraphUnderrunSerials = {};
+  std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
+    netGraphHardCorrectionSerials = {};
   std::uint32_t lastNetGraphCorrectionCount = 0;
-  std::uint64_t lastNetGraphStarvationCount = 0;
+  std::uint32_t lastNetGraphUnderrunCount = 0;
+  std::uint32_t lastNetGraphHardCorrectionCount = 0;
 
   const auto registerButtonCommand =
     [&console](std::string name, int& pressCount) {
@@ -4405,15 +4441,20 @@ int GameApp::run() const {
       const ClientNetworkSimulationConfig config = session.networkSimulationConfig();
       const ClientNetworkSimulationStats stats = session.networkSimulationStats();
       const NetworkTelemetry telemetry = session.networkTelemetry();
-      char text[512];
+      const SnapshotInterpolation::Diagnostics interpolation =
+        session.game() != nullptr
+          ? session.game()->interpolationDiagnostics()
+          : SnapshotInterpolation::Diagnostics{};
+      char text[1024];
       std::snprintf(
         text,
         sizeof(text),
-        "state=%d host=%s port=%u player=%zu ping=%.1fms jitter=%.1fms loss={in=%.1f%% out=%.1f%%} rate=%.1f/s bw={in=%.0f out=%.0f}kbit packet={snap=%zu cmd=%zu} age=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu}",
+        "state=%d host=%s port=%u client=%zu body=%d ping=%.1fms jitter=%.1fms loss={in=%.1f%% out=%.1f%%} rate=%.1f/s bw={in=%.0f out=%.0f}kbit packet={snap=%zu cmd=%zu} age=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu} interp={lead=%.2fms target=%.2fms error=%.2fms delay=%.2fms rate=%.3f started=%d underrun=%d/%u hard=%u buffered=%zu tick=%.3f newest=%.0f}",
         static_cast<int>(session.state()),
         std::string(session.host()).c_str(),
         static_cast<unsigned int>(session.port()),
-        session.playerIndex() + 1U,
+        session.clientIndex(),
+        session.spectator() ? -1 : static_cast<int>(session.playerIndex()),
         telemetry.pingMilliseconds,
         telemetry.snapshotJitterMilliseconds,
         telemetry.incomingLossPercent,
@@ -4434,7 +4475,19 @@ int GameApp::run() const {
         static_cast<unsigned long long>(stats.droppedOutgoingPackets),
         static_cast<unsigned long long>(stats.droppedIncomingPackets),
         static_cast<unsigned long long>(stats.reorderedOutgoingPackets),
-        static_cast<unsigned long long>(stats.reorderedIncomingPackets)
+        static_cast<unsigned long long>(stats.reorderedIncomingPackets),
+        interpolation.bufferLeadTicks * 1000.0 / static_cast<double>(kFixedTickRate),
+        interpolation.desiredBufferLeadTicks * 1000.0 / static_cast<double>(kFixedTickRate),
+        interpolation.timelineErrorTicks * 1000.0 / static_cast<double>(kFixedTickRate),
+        static_cast<double>(interpolation.effectiveDelaySeconds) * 1000.0,
+        static_cast<double>(interpolation.playbackRate),
+        interpolation.playbackStarted ? 1 : 0,
+        interpolation.bufferUnderrun ? 1 : 0,
+        interpolation.underrunCount,
+        interpolation.hardCorrectionCount,
+        interpolation.bufferedSnapshotCount,
+        interpolation.presentationTick,
+        interpolation.newestSnapshotTick
       );
       return std::string(text);
     }
@@ -4663,6 +4716,8 @@ int GameApp::run() const {
   FrameTimeSummary displayedFrameTimes;
   PerfTelemetry perfTelemetry;
   PresentationViewState presentationView;
+  std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
+  ViewModelPresentationController viewModelPresentation;
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
   float localDeathElapsedSeconds = 0.0F;
@@ -4753,6 +4808,10 @@ int GameApp::run() const {
     freezeGunFiringResponse = {};
   std::array<WeaponFireResult, kDuelPlayerCount> lastRocketLauncherResponseFire = {};
   std::array<bool, kDuelPlayerCount> hasLastRocketLauncherResponseFire = {};
+  std::array<PlasmaGunFiringResponseState, kDuelPlayerCount>
+    plasmaGunFiringResponse = {};
+  std::array<WeaponFireResult, kDuelPlayerCount> lastPlasmaGunResponseFire = {};
+  std::array<bool, kDuelPlayerCount> hasLastPlasmaGunResponseFire = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
   LocalTracerAimHistory localTracerAimHistory;
@@ -5199,6 +5258,8 @@ int GameApp::run() const {
     session.update();
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
+    // r_vsync remains a compatibility alias. Whichever cvar changed since the
+    // last frame drives the other, avoiding a feedback loop between both names.
     if (currentCompatVSync != lastCompatVSync) {
       (void)console.execute(
         currentCompatVSync
@@ -5248,7 +5309,11 @@ int GameApp::run() const {
       presentationViewGame = nullptr;
       previousFrameUsedPresentationView = usePresentationView;
     } else if (currentPresentationGame != presentationViewGame) {
+      // A new ClientGame represents a new connection/prediction timeline; do
+      // not carry view initialization or mouse state across that authority reset.
       presentationView = {};
+      playerPresentationStates = {};
+      viewModelPresentation.reset();
       presentationViewGame = currentPresentationGame;
     }
     const bool enteredPresentationView =
@@ -5270,6 +5335,8 @@ int GameApp::run() const {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
     }
+    const float viewModelMouseDeltaX = gameInputControlsView ? input.mouseDeltaX : 0.0F;
+    const float viewModelMouseDeltaY = gameInputControlsView ? input.mouseDeltaY : 0.0F;
     if (gameInputControlsView && presentationView.initialized) {
       const MouseAimSettings mouseAimSettings =
         mouseAimSettingsFromConsole(console, zoomPressCount > 0);
@@ -5372,20 +5439,6 @@ int GameApp::run() const {
       std::chrono::duration<float>(now - appStartTime).count();
     titleAccumulatorSeconds += elapsed.count();
     Weapon displayedSelectedWeapon = selectedWeapon;
-    if (const ClientGame* weaponGame = session.game();
-        weaponGame != nullptr && weaponGame->hasSnapshot()) {
-      displayedSelectedWeapon =
-        weaponGame->snapshot().selectedWeapons[session.playerIndex()];
-    }
-    if (displayedSelectedWeapon != viewWeapon) {
-      previousViewWeapon = viewWeapon;
-      viewWeapon = displayedSelectedWeapon;
-      weaponSwitchSeconds = 0.0F;
-    }
-    weaponSwitchSeconds = std::min(
-      kWeaponSwitchDurationSeconds,
-      weaponSwitchSeconds + elapsed.count()
-    );
 
     const FixedTickFrame fixedTickFrame = planFixedTicks(
       accumulatorSeconds,
@@ -5406,6 +5459,8 @@ int GameApp::run() const {
       }
       LocalInputState tickInput = input;
       if (consumedMouseForTick) {
+        // SDL reports one mouse delta per rendered frame. Apply it to only the
+        // first catch-up command or low frame rates would multiply the turn.
         tickInput.mouseDeltaX = 0.0F;
         tickInput.mouseDeltaY = 0.0F;
       }
@@ -5680,9 +5735,36 @@ int GameApp::run() const {
       }
     }
 
+    if (const ClientGame* weaponGame = session.game();
+        weaponGame != nullptr && weaponGame->hasSnapshot()) {
+      displayedSelectedWeapon = presentationSubjectWeapon(
+        weaponGame->snapshot(),
+        deathCamera,
+        session.playerIndex(),
+        session.spectator(),
+        selectedWeapon
+      );
+    }
+    if (displayedSelectedWeapon != viewWeapon) {
+      previousViewWeapon = viewWeapon;
+      viewWeapon = displayedSelectedWeapon;
+      weaponSwitchSeconds = 0.0F;
+    }
+    weaponSwitchSeconds = std::min(
+      kWeaponSwitchDurationSeconds,
+      weaponSwitchSeconds + elapsed.count()
+    );
+
     const ClientGame* currentAudioGame = session.game();
     if (currentAudioGame != audioGame) {
       audioGame = currentAudioGame;
+      netGraphCorrectionSerials = {};
+      netGraphCorrectionDistances = {};
+      netGraphUnderrunSerials = {};
+      netGraphHardCorrectionSerials = {};
+      lastNetGraphCorrectionCount = 0;
+      lastNetGraphUnderrunCount = 0;
+      lastNetGraphHardCorrectionCount = 0;
       audioStateInitialized = false;
       lastAudioCountdownSecond = 0;
       lastHitSoundServerTick = 0;
@@ -5715,6 +5797,9 @@ int GameApp::run() const {
       freezeGunFiringResponse = {};
       lastRocketLauncherResponseFire = {};
       hasLastRocketLauncherResponseFire = {};
+      plasmaGunFiringResponse = {};
+      lastPlasmaGunResponseFire = {};
+      hasLastPlasmaGunResponseFire = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
       activeTransientTracers.clear();
@@ -5730,7 +5815,8 @@ int GameApp::run() const {
     if (
       audioAvailable &&
       currentAudioGame != nullptr &&
-      currentAudioGame->hasSnapshot()
+      currentAudioGame->hasSnapshot() &&
+      (!session.spectator() || deathCamera.mode == DeathCameraMode::Teammate)
     ) {
       const ServerSnapshot& audioSnapshot = currentAudioGame->snapshot();
       if (
@@ -6146,7 +6232,8 @@ int GameApp::run() const {
       if (
         console.getBool("s_enable") &&
         currentAudioGame != nullptr &&
-        currentAudioGame->hasSnapshot()
+        currentAudioGame->hasSnapshot() &&
+        (!session.spectator() || deathCamera.mode == DeathCameraMode::Teammate)
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
         const ServerSnapshot& snapshot = currentAudioGame->snapshot();
@@ -6248,12 +6335,19 @@ int GameApp::run() const {
         );
       }
       const ClientGame* titleClient = session.game();
+      const std::optional<std::size_t> titleSubjectPlayerIndex =
+        presentationSubjectIndex(
+          deathCamera,
+          session.playerIndex(),
+          session.spectator()
+        );
       if (
         console.getBool("cl_show_net") &&
         titleClient != nullptr &&
-        titleClient->hasSnapshot()
+        titleClient->hasSnapshot() &&
+        titleSubjectPlayerIndex.has_value()
       ) {
-        const std::size_t localPlayerIndex = session.playerIndex();
+        const std::size_t localPlayerIndex = *titleSubjectPlayerIndex;
         const ServerSnapshot& snapshot = titleClient->snapshot();
         const LightningGunResult& lightningGun =
           snapshot.lightningGuns[localPlayerIndex];
@@ -6316,10 +6410,17 @@ int GameApp::run() const {
     if (const ClientGame* renderClient = session.game();
         renderClient != nullptr && renderClient->hasSnapshot()) {
       const std::size_t localPlayerIndex = session.playerIndex();
-      renderLocalPlayerIndex = localPlayerIndex;
+      if (localPlayerIndex < kDuelPlayerCount) {
+        renderLocalPlayerIndex = localPlayerIndex;
+      }
       renderPlayer = renderClient->predictedPlayer();
       const ServerSnapshot& renderSnapshot = renderClient->snapshot();
       std::size_t cameraPlayerIndex = localPlayerIndex;
+      if (session.spectator() && deathCamera.mode != DeathCameraMode::Teammate) {
+        // A dedicated observer has no predicted body or corpse to borrow when
+        // no living spectate target exists.
+        renderPlayer = {};
+      }
       if (deathCamera.mode == DeathCameraMode::Teammate &&
           deathCamera.teammateIndex.has_value()) {
         cameraPlayerIndex = deathCameraSubjectIndex(
@@ -6329,7 +6430,9 @@ int GameApp::run() const {
           ? renderClient->interpolatedPlayer(cameraPlayerIndex)
           : renderClient->interpolatedPlayer(cameraPlayerIndex, interpolationAlpha);
         displayedSelectedWeapon = renderSnapshot.selectedWeapons[cameraPlayerIndex];
-        if (session.spectator()) renderLocalPlayerIndex = cameraPlayerIndex;
+        // Viewmodel animation, weapon effects and renderer subject must follow
+        // the same body as the death/spectator camera.
+        renderLocalPlayerIndex = cameraPlayerIndex;
       }
       if (
         !session.spectator() &&
@@ -6373,15 +6476,15 @@ int GameApp::run() const {
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
         if (playerIndex == cameraPlayerIndex ||
             (!session.spectator() && playerIndex == localPlayerIndex)) {
+          playerPresentationStates[playerIndex] = {};
           continue;
         }
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
+          playerPresentationStates[playerIndex] = {};
           continue;
         }
-        if (
-          renderSnapshot.gameMode != GameMode::Duel &&
-          renderSnapshot.players[playerIndex].health <= 0
-        ) {
+        if (renderSnapshot.players[playerIndex].health <= 0) {
+          playerPresentationStates[playerIndex] = {};
           continue;
         }
         const bool teammate = !session.spectator() && playerPresentedAsTeammate(
@@ -6400,6 +6503,18 @@ int GameApp::run() const {
           renderSnapshot.playerNames[playerIndex],
           renderAnimationTimeSeconds,
         };
+        PlayerPresentationConfig presentationConfig;
+        presentationConfig.leanScale = teammate
+          ? console.getFloat("r_teammate_lean_scale")
+          : console.getFloat("r_enemy_lean_scale");
+        renderRemotePlayers[playerIndex].presentation = updatePlayerPresentation(
+          playerPresentationStates[playerIndex],
+          renderRemotePlayers[playerIndex].player,
+          elapsed.count(),
+          static_cast<std::uint32_t>(playerIndex),
+          presentationConfig
+        );
+        renderRemotePlayers[playerIndex].hasPresentation = true;
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;
         if (
@@ -6444,19 +6559,23 @@ int GameApp::run() const {
       renderPlayer.viewYawRadians = presentationView.yawRadians;
       renderPlayer.viewPitchRadians = presentationView.pitchRadians;
     }
+    const bool ownsPresentedSubject =
+      !session.spectator() && renderLocalPlayerIndex == session.playerIndex();
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       const bool localPlayer = playerIndex == renderLocalPlayerIndex;
+      const bool authoritativeMachineGunFire =
+        renderWeaponFires[playerIndex].fired &&
+        renderWeaponFires[playerIndex].weapon == Weapon::MachineGun;
       const bool motorDriven = localPlayer
         ? (
-            input.attack > 0 &&
-            displayedSelectedWeapon == Weapon::MachineGun &&
-            renderPlayer.health > 0
+            ownsPresentedSubject
+              ? input.attack > 0 &&
+                displayedSelectedWeapon == Weapon::MachineGun &&
+                renderPlayer.health > 0
+              : authoritativeMachineGunFire
           )
-        : (
-            renderRemotePlayers[playerIndex].visible &&
-            renderWeaponFires[playerIndex].fired &&
-            renderWeaponFires[playerIndex].weapon == Weapon::MachineGun
-          );
+        : renderRemotePlayers[playerIndex].visible &&
+          authoritativeMachineGunFire;
       machineGunBarrelSpin[playerIndex].update(motorDriven, elapsed.count());
       renderRemotePlayers[playerIndex].machineGunBarrelRotationRadians =
         machineGunBarrelSpin[playerIndex].angleRadians;
@@ -6500,6 +6619,22 @@ int GameApp::run() const {
       renderRemotePlayers[playerIndex].rocketLauncherMechanicalAmount =
         rocketLauncherFiringResponse[playerIndex].mechanicalAmount();
 
+      if (
+        fire.fired &&
+        fire.weapon == Weapon::PlasmaGun &&
+        (
+          !hasLastPlasmaGunResponseFire[playerIndex] ||
+          !sameWeaponFireEvent(fire, lastPlasmaGunResponseFire[playerIndex])
+        )
+      ) {
+        plasmaGunFiringResponse[playerIndex].triggerShot();
+        lastPlasmaGunResponseFire[playerIndex] = fire;
+        hasLastPlasmaGunResponseFire[playerIndex] = true;
+      }
+      plasmaGunFiringResponse[playerIndex].update(elapsed.count());
+      renderRemotePlayers[playerIndex].plasmaGunContainmentAmount =
+        plasmaGunFiringResponse[playerIndex].containmentAmount();
+
       const bool localPlayer = playerIndex == renderLocalPlayerIndex;
       const bool freezeDriven = localPlayer
         ? (
@@ -6524,6 +6659,28 @@ int GameApp::run() const {
       }
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    const Vec3 localViewVelocity = {
+      dot(renderPlayer.velocity, yawForward(renderPlayer.viewYawRadians)),
+      dot(renderPlayer.velocity, yawRight(renderPlayer.viewYawRadians)),
+      renderPlayer.velocity.z,
+    };
+    currentRenderSettings.viewModelPresentation = viewModelPresentation.update(
+      {
+        localViewVelocity,
+        viewModelMouseDeltaX,
+        viewModelMouseDeltaY,
+        renderPlayer.onGround || renderPlayer.movementMode == MovementMode::Grounded,
+        elapsed.count(),
+      },
+      {
+        console.getFloat("cl_viewmodel_motion_scale"),
+        console.getFloat("cl_viewmodel_bob_scale"),
+        console.getFloat("cl_viewmodel_sway_scale"),
+        console.getFloat("cl_viewmodel_inertia_scale"),
+        console.getFloat("cl_viewmodel_landing_scale"),
+        console.getFloat("cl_camera_position_response"),
+      }
+    );
     if (deathCamera.mode != DeathCameraMode::Alive) {
       currentRenderSettings.crosshairEnabled = false;
       currentRenderSettings.showOwnWeapons =
@@ -6558,6 +6715,8 @@ int GameApp::run() const {
       freezeGunFiringResponse[renderLocalPlayerIndex].coolantPulse();
     currentRenderSettings.freezeGunVibrationPhaseRadians =
       freezeGunFiringResponse[renderLocalPlayerIndex].phaseRadians;
+    currentRenderSettings.plasmaGunContainmentAmount =
+      plasmaGunFiringResponse[renderLocalPlayerIndex].containmentAmount();
     currentRenderSettings.hasRemotePlayer = std::any_of(
       renderRemotePlayers.begin(),
       renderRemotePlayers.end(),
@@ -6809,38 +6968,67 @@ int GameApp::run() const {
       renderHealthPickupAvailable =
         session.game()->snapshot().healthPickupAvailable;
     }
-    HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
+    std::optional<std::size_t> hudSubjectPlayerIndex;
+    if (session.game() != nullptr && session.game()->hasSnapshot()) {
+      hudSubjectPlayerIndex = presentationSubjectIndex(
+        deathCamera,
+        session.playerIndex(),
+        session.spectator()
+      );
+    }
+    HudRenderState hud = buildHud(
+      session,
+      console.getBool("cl_show_alive_counts"),
+      hudSubjectPlayerIndex
+    );
     hud.netGraph.mode = console.getInt("cl_netgraph");
     hud.netGraph.scale = console.getFloat("cl_netgraph_scale");
     hud.netGraph.telemetry = session.networkTelemetry();
-    hud.netGraph.interpolationDelayMilliseconds =
+    hud.netGraph.interpolationEffectiveDelayMilliseconds =
       console.getFloat("cl_interp") * 1000.0F;
     if (const ClientGame* netGame = session.game();
         netGame != nullptr && netGame->hasSnapshot()) {
-      if (console.getBool("cl_interp_adaptive")) {
-        const InterpolationDiagnostics& interpolation =
-          netGame->interpolationDiagnostics();
-        hud.netGraph.interpolationDelayMilliseconds =
-          interpolation.effectiveDelaySeconds * 1000.0F;
-        hud.netGraph.interpolationBufferedMilliseconds =
-          interpolation.bufferedSeconds * 1000.0F;
-        hud.netGraph.interpolationStarvations = interpolation.starvationCount;
-        hud.netGraph.interpolationExtrapolating = interpolation.extrapolating;
-        if (
-          interpolation.starvationCount != lastNetGraphStarvationCount &&
-          hud.netGraph.telemetry.historyCount > 0
-        ) {
-          // Starvation is an edge event. Attach it to one history sample so a
-          // cumulative counter cannot paint every later graph column purple.
-          const std::uint64_t serial = hud.netGraph.telemetry.history[
-            hud.netGraph.telemetry.historyCount - 1U
-          ].serial;
-          netGraphStarvationSerials[
-            serial % netGraphStarvationSerials.size()
+      const SnapshotInterpolation::Diagnostics interpolation =
+        netGame->interpolationDiagnostics();
+      hud.netGraph.interpolationEffectiveDelayMilliseconds =
+        interpolation.effectiveDelaySeconds * 1000.0F;
+      hud.netGraph.interpolationBufferLeadTicks = interpolation.bufferLeadTicks;
+      hud.netGraph.interpolationDesiredBufferLeadTicks =
+        interpolation.desiredBufferLeadTicks;
+      hud.netGraph.interpolationTimelineErrorTicks =
+        interpolation.timelineErrorTicks;
+      hud.netGraph.interpolationPresentationTick = interpolation.presentationTick;
+      hud.netGraph.interpolationNewestSnapshotTick = interpolation.newestSnapshotTick;
+      hud.netGraph.interpolationPlaybackRate = interpolation.playbackRate;
+      hud.netGraph.interpolationBufferedSnapshotCount =
+        interpolation.bufferedSnapshotCount;
+      hud.netGraph.interpolationUnderrunCount = interpolation.underrunCount;
+      hud.netGraph.interpolationHardCorrectionCount =
+        interpolation.hardCorrectionCount;
+      hud.netGraph.interpolationPlaybackStarted = interpolation.playbackStarted;
+      hud.netGraph.interpolationUnderrun = interpolation.bufferUnderrun;
+      const std::size_t samplePlayerIndex = deathCameraSubjectIndex(
+        deathCamera, session.playerIndex()
+      );
+      const SnapshotInterpolation::PlayerCollisionSample collisionSample =
+        netGame->interpolationCollisionSample(samplePlayerIndex);
+      hud.netGraph.interpolationSampleTick = collisionSample.discreteServerTick;
+      hud.netGraph.interpolationSampleEligible = collisionSample.eligible;
+      if (hud.netGraph.telemetry.historyCount > 0) {
+        const std::uint64_t serial = hud.netGraph.telemetry.history[
+          hud.netGraph.telemetry.historyCount - 1U
+        ].serial;
+        if (interpolation.underrunCount > lastNetGraphUnderrunCount) {
+          netGraphUnderrunSerials[serial % netGraphUnderrunSerials.size()] = serial;
+        }
+        if (interpolation.hardCorrectionCount > lastNetGraphHardCorrectionCount) {
+          netGraphHardCorrectionSerials[
+            serial % netGraphHardCorrectionSerials.size()
           ] = serial;
         }
-        lastNetGraphStarvationCount = interpolation.starvationCount;
       }
+      lastNetGraphUnderrunCount = interpolation.underrunCount;
+      lastNetGraphHardCorrectionCount = interpolation.hardCorrectionCount;
       const PredictionDiagnostics& prediction = netGame->predictionDiagnostics();
       const SnapshotDiagnostics snapshotDiagnostics = netGame->snapshotDiagnostics();
       if (
@@ -6864,18 +7052,22 @@ int GameApp::run() const {
           sample.predictionCorrectionDistance =
             netGraphCorrectionDistances[slot];
         }
-        sample.interpolationStarved =
-          netGraphStarvationSerials[slot] == sample.serial;
+        sample.interpolationUnderrun =
+          netGraphUnderrunSerials[slot] == sample.serial;
+        sample.interpolationHardCorrection =
+          netGraphHardCorrectionSerials[slot] == sample.serial;
       }
       hud.netGraph.pendingCommands = prediction.pendingCommandCount;
       hud.netGraph.correctionCount = prediction.correctionCount;
       hud.netGraph.lastCorrectionDistance = prediction.lastCorrectionDistance;
       hud.netGraph.snapshotQueueDepth = snapshotDiagnostics.snapshotQueueDepth;
-      const LightningGunResult& lightning = netGame->snapshot().lightningGuns[
-        session.playerIndex()
-      ];
-      hud.netGraph.requestedRewindTicks = lightning.requestedRewindTicks;
-      hud.netGraph.appliedRewindTicks = lightning.appliedRewindTicks;
+      if (!session.spectator()) {
+        const LightningGunResult& lightning = netGame->snapshot().lightningGuns[
+          session.playerIndex()
+        ];
+        hud.netGraph.requestedRewindTicks = lightning.requestedRewindTicks;
+        hud.netGraph.appliedRewindTicks = lightning.appliedRewindTicks;
+      }
     }
     if (deathCamera.mode != DeathCameraMode::Alive) {
       hud.deathDesaturation = deathCamera.desaturation;
@@ -7028,6 +7220,39 @@ int GameApp::run() const {
           std::to_string(diagnostics.legacyCpuSkinnedGltfVertexUploadBytes) +
           " B"
         );
+        if (console.getInt("r_player_model") == 1) {
+          std::string loadedAnimations = "gltf clips:";
+          for (const std::string& name : duelistMaleModel().animationNames()) {
+            loadedAnimations += " " + name;
+          }
+          hud.topLeftLines.emplace_back(std::move(loadedAnimations));
+        }
+        for (std::size_t playerIndex = 0; playerIndex < renderRemotePlayers.size(); ++playerIndex) {
+          const RemotePlayerView& remote = renderRemotePlayers[playerIndex];
+          if (!remote.visible || !remote.hasPresentation) continue;
+          const PlayerPresentationDiagnostics& animation =
+            remote.presentation.diagnostics;
+          hud.topLeftLines.emplace_back(
+            "anim p" + std::to_string(playerIndex) +
+            ": state " + std::to_string(static_cast<int>(animation.currentState)) +
+            " prev " + std::to_string(static_cast<int>(animation.previousState)) +
+            " dir " + std::to_string(static_cast<int>(animation.moveDirection)) +
+            " phase " + std::to_string(animation.stridePhase) +
+            " blend " + std::to_string(animation.currentBlendWeight) +
+            " speed " + std::to_string(animation.horizontalSpeed) +
+            (animation.airborne ? " air" : (animation.landing ? " landing" : " ground"))
+          );
+          for (std::size_t layerIndex = 0;
+               layerIndex < remote.presentation.poseLayerCount;
+               ++layerIndex) {
+            const PlayerPoseLayer& layer = remote.presentation.poseLayers[layerIndex];
+            hud.topLeftLines.emplace_back(
+              "  clip " + std::string(layer.animationName) +
+              " t " + std::to_string(layer.timeSeconds) +
+              " w " + std::to_string(layer.weight)
+            );
+          }
+        }
         hud.topLeftLines.emplace_back(
           "remote weapon instances: candidates " +
           std::to_string(diagnostics.remoteWeaponCandidates) +
@@ -7132,7 +7357,8 @@ int GameApp::run() const {
     if (
       currentRenderSettings.showLagCompensation &&
       session.game() != nullptr &&
-      session.game()->hasSnapshot()
+      session.game()->hasSnapshot() &&
+      !session.spectator()
     ) {
       const std::size_t localPlayerIndex = session.playerIndex();
       const ServerSnapshot& lagSnapshot = session.game()->snapshot();
@@ -7181,7 +7407,7 @@ int GameApp::run() const {
       populateScoreboard(
         hud,
         session.game()->snapshot(),
-        session.playerIndex()
+        hudSubjectPlayerIndex.value_or(kDuelPlayerCount)
       );
     }
     if (
@@ -7222,7 +7448,8 @@ int GameApp::run() const {
       renderRemotePlayers,
       renderWeaponFires,
       localTracerAimHistory,
-      currentRenderSettings
+      currentRenderSettings,
+      ownsPresentedSubject
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
     transientTracerStore.fillActive(

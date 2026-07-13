@@ -86,6 +86,8 @@ bool ConsoleSystem::registerCvar(CvarDefinition definition) {
     return false;
   }
   cvars_.push_back(Cvar{std::move(definition), {}});
+  // Registration always starts from the shipped default; archived config is a
+  // later explicit layer and must pass through the same parser and range checks.
   cvars_.back().value = cvars_.back().definition.defaultValue;
   return true;
 }
@@ -252,6 +254,8 @@ std::vector<std::string> ConsoleSystem::complete(std::string_view prefix) const 
 
 std::vector<std::string> ConsoleSystem::archivedConfigLines() const {
   std::vector<std::string> lines;
+  // Serialize only archive-marked values; runtime/read-only state must not leak
+  // into the next launch or override authority-derived values.
   for (const Cvar& cvar : cvars_) {
     if (!hasFlag(cvar.definition.flags, CvarFlag::Archive)) {
       continue;
@@ -361,6 +365,8 @@ std::string ConsoleSystem::setValue(Cvar& cvar, std::string_view text) {
     return "invalid value for " + cvar.definition.name;
   }
 
+  // Parse completely before range checking or committing. This makes failed
+  // console/config writes atomic and leaves the prior runtime value untouched.
   const float numeric = std::visit(
     [](const auto& value) -> float {
       using T = std::decay_t<decltype(value)>;

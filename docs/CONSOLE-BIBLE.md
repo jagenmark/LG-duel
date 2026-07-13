@@ -106,13 +106,20 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_death_spectate_threshold` | float | `3` | `0..30` seconds | None | Archive | A live-respawn delay at or above this value switches the death camera to a living teammate after the hold. Shorter delays retain the local death-position view. |
 | `cl_death_camera_hold` | float | `0.5` | `0..10` seconds | None | Archive | Minimum time to retain the local death-position view before teammate spectating begins. |
 | `cl_death_desaturation` | float | `1` | `0..1` | None | Archive | Strength of the neutral grey death-view treatment. `0` disables it and `1` uses the full effect. HUD text remains readable above the treatment. |
+| `cl_viewmodel_motion_scale` | float | `1` | `0..2` | None | Archive | Master scale for client-only first-person weapon motion. `0` returns an exactly neutral viewmodel transform and does not affect the camera, crosshair, aim, or simulation. |
+| `cl_viewmodel_bob_scale` | float | `0.65` | `0..2` | None | Archive | Scale for stride-distance-driven first-person weapon bob. `0` disables only bob. |
+| `cl_viewmodel_sway_scale` | float | `0.55` | `0..2` | None | Archive | Scale for immediate mouse-delta weapon sway. The sway rotates only the rendered viewmodel. `0` disables only sway. |
+| `cl_viewmodel_inertia_scale` | float | `0.55` | `0..2` | None | Archive | Scale for lateral movement inertia and acceleration/braking response. `0` disables only inertia. |
+| `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
+| `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
+| `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `1` uses the animated GLB and is the code and shipped default; `0` retains the legacy box fallback. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
 | `cl_showfps` | bool | `0` | bool | Ingen | Arkiv | Visar FPS, genomsnittlig frame time och renderer-backend i fönstertiteln. |
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed under crosshair som `<värde> ups`. Intern hastighet multipliceras med `40`, så `8 = 320 ups`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
-| `cl_netgraph` | int | `0` | `0..2` | None | Archive | Right-side network HUD. `0` hides it, `1` shows live ping/jitter/loss/rate/interpolation, and `2` adds bandwidth, packet sizes, prediction/rewind diagnostics, and a ten-second delivery graph. |
+| `cl_netgraph` | int | `0` | `0..2` | None | Archive | Right-side network HUD. `0` hides it; `1` keeps ping, jitter, loss, snapshot rate, effective interpolation delay, and current/target buffer lead compact; `2` adds the controller's timeline error, playback rate, startup and underrun state, snapshot count, presentation/newest/collision ticks, correction counters, transport details, prediction/rewind diagnostics, and the ten-second event graph. Underruns and hard corrections are display-only edge events and never alter playback. |
 | `cl_netgraph_scale` | float | `1.75` | `0.75..3` | None | Archive | Scales the complete network HUD, including text, spacing, panel size, and the expanded history graph. It is automatically constrained to the current window. |
 | `net_sim_latency_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: extra one-way latency i ms efter connect. `60` pa bade outgoing och incoming ger ungefar +120 ms RTT. |
 | `net_sim_jitter_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: slumpad one-way variation runt `net_sim_latency_ms` per datagram. Delay clampas till minst `0`. |
@@ -126,7 +133,7 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_interp_adaptive` | bool | `1` | `0..1` | None | Archive | Adjust the remote-player interpolation reserve from measured snapshot jitter. |
 | `cl_interp_min` | float | `0.016` | `0..0.25` | 2 ticks at 125 Hz | Archive | Minimum delay used by adaptive interpolation. |
 | `cl_interp_max` | float | `0.064` | `0..0.25` | 8 ticks at 125 Hz | Archive | Maximum delay used by adaptive interpolation. |
-| `cl_interp_extrapolate` | float | `0.016` | `0..0.05` | 2 ticks at 125 Hz | Archive | Maximum visual extrapolation through a snapshot gap; gameplay authority is unchanged. |
+| `cl_interp_extrapolate` | float | `0.016` | `0..0.05` | Legacy compatibility | Archive | Retained for existing configs. The unified interpolation controller does not extrapolate during buffer underrun; it holds the newest authoritative snapshot and resumes from the same presentation timeline when data returns. |
 
 ### 3.2 Ljud
 
@@ -418,7 +425,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
 | `reconnect` | inga | Återansluter till senast begärda host/port. |
-| `net_stats` | none | Prints connection identity, ping, jitter, bidirectional loss, snapshot rate/age, bandwidth, packet sizes, and local network-simulation counters. |
+| `net_stats` | none | Prints connection identity, ping, jitter, bidirectional loss, snapshot rate/age, bandwidth, packet sizes, local network-simulation counters, and the interpolation controller's buffer lead, timeline error, playback rate, startup/underrun state, correction counts, buffered snapshots, and presentation/newest ticks. |
 | `messagemode` | inga | Öppnar chat-input. Defaultbindning `T`. |
 | `showchat` | no arguments | Shows chat history for five seconds. |
 | `+showchat` / `-showchat` | no arguments | Holds expanded chat history open. The mouse wheel scrolls it. Default binding: `Z`. |

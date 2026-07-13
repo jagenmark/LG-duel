@@ -531,6 +531,8 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
 }
 
 void ServerGame::tick(float fixedDt) {
+  // Tick order is authoritative: accept input and phase changes first, simulate
+  // movement, resolve combat, retain events, then publish the completed state.
   receivedCommandThisTick_.fill(false);
   mcguffinThrowRequestedThisTick_.fill(false);
   jumpEdgeThisTick_.fill(false);
@@ -546,6 +548,8 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.fragEvents = {};
   snapshot_.localHitFeedbackEvents = {};
   snapshot_.rockets = {};
+  // Event fields describe occurrences, not durable state. They are rebuilt for
+  // this tick and restored near publication only for packet-loss tolerance.
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
     if (cooldown > 0) {
       --cooldown;
@@ -611,6 +615,26 @@ void ServerGame::tick(float fixedDt) {
       continue;
     }
 
+    PlayerCollisionProxySet collisionProxies;
+    for (std::size_t otherIndex = 0; otherIndex < kDuelPlayerCount; ++otherIndex) {
+      if (
+        otherIndex == playerIndex ||
+        !isPlayerCollisionEligible(
+          snapshot_.connectedPlayers[otherIndex],
+          snapshot_.botPlayers[otherIndex],
+          snapshot_.participatingPlayers[otherIndex],
+          snapshot_.players[otherIndex]
+        )
+      ) {
+        continue;
+      }
+      PlayerCollisionProxy& proxy =
+        collisionProxies.proxies[collisionProxies.count++];
+      proxy.playerIndex = static_cast<std::uint8_t>(otherIndex);
+      proxy.position = snapshot_.players[otherIndex].position;
+      proxy.bounds = snapshot_.players[otherIndex].bounds;
+    }
+
     simulateMovement(
       snapshot_.players[playerIndex],
       command,
@@ -624,37 +648,64 @@ void ServerGame::tick(float fixedDt) {
           jumpPadRetriggerCooldownTicks_,
           std::numeric_limits<std::uint16_t>::max()
         )
-      )
+      ),
+      collisionProxies.span(),
+      static_cast<std::uint8_t>(playerIndex)
     );
   }
 
+  // Swept movement handles ordinary body blocking. This bounded symmetric
+  // fallback is only an invariant repair for trapped spawn/teleport layouts.
   snapshot_.playersColliding = false;
-  for (std::size_t firstIndex = 0; firstIndex < kDuelPlayerCount; ++firstIndex) {
-    if (
-      !isCombatant(snapshot_, firstIndex) ||
-      snapshot_.players[firstIndex].health <= 0
-    ) {
-      continue;
-    }
-    for (
-      std::size_t secondIndex = firstIndex + 1U;
-      secondIndex < kDuelPlayerCount;
-      ++secondIndex
-    ) {
-      if (
-        !isCombatant(snapshot_, secondIndex) ||
-        snapshot_.players[secondIndex].health <= 0
-      ) {
+  bool repairLimitReached = false;
+  for (std::size_t pass = 0; pass < kDuelPlayerCount; ++pass) {
+    bool repaired = false;
+    for (std::size_t firstIndex = 0; firstIndex < kDuelPlayerCount; ++firstIndex) {
+      if (!isPlayerCollisionEligible(
+            snapshot_.connectedPlayers[firstIndex], snapshot_.botPlayers[firstIndex],
+            snapshot_.participatingPlayers[firstIndex], snapshot_.players[firstIndex])) {
         continue;
       }
-      snapshot_.playersColliding =
-        resolvePlayerCollision(
-          arena_,
-          snapshot_.players[firstIndex],
-          snapshot_.players[secondIndex]
-        ) ||
-        snapshot_.playersColliding;
+      for (std::size_t secondIndex = firstIndex + 1U;
+           secondIndex < kDuelPlayerCount; ++secondIndex) {
+        if (!isPlayerCollisionEligible(
+              snapshot_.connectedPlayers[secondIndex], snapshot_.botPlayers[secondIndex],
+              snapshot_.participatingPlayers[secondIndex], snapshot_.players[secondIndex])) {
+          continue;
+        }
+        const bool pairRepaired = resolvePlayerCollision(
+          arena_, snapshot_.players[firstIndex], snapshot_.players[secondIndex]
+        );
+        repaired = pairRepaired || repaired;
+        emergencyPlayerCollisionRepairCount_ += pairRepaired ? 1U : 0U;
+      }
     }
+    snapshot_.playersColliding = snapshot_.playersColliding || repaired;
+    if (!repaired) {
+      break;
+    }
+    for (std::size_t repairedIndex = 0;
+         repairedIndex < kDuelPlayerCount;
+         ++repairedIndex) {
+      if (!isPlayerCollisionEligible(
+            snapshot_.connectedPlayers[repairedIndex],
+            snapshot_.botPlayers[repairedIndex],
+            snapshot_.participatingPlayers[repairedIndex],
+            snapshot_.players[repairedIndex])) {
+        // Collision repair must not wake or reposition dead/spectator bodies.
+        continue;
+      }
+      PlayerState& repairedPlayer = snapshot_.players[repairedIndex];
+      const CollisionResult collision = resolvePlayerArenaCollision(
+        arena_, repairedPlayer, repairedPlayer.position, repairedPlayer.velocity
+      );
+      repairedPlayer.position = collision.position;
+      repairedPlayer.velocity = collision.velocity;
+    }
+    repairLimitReached = pass + 1U == kDuelPlayerCount;
+  }
+  if (repairLimitReached) {
+    ++unresolvedPlayerCollisionInvariantCount_;
   }
   for (PlayerState& player : snapshot_.players) {
     if (player.health <= 0) {
@@ -673,6 +724,8 @@ void ServerGame::tick(float fixedDt) {
   updateMcGuffin();
   updateFootstepAudioEvents();
 
+  // Freeze post-movement poses for all aim traces so attacker iteration order
+  // cannot move a target or otherwise change another player's shot result.
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
   std::array<std::size_t, kDuelPlayerCount> lightningTargets = {};
   std::array<std::size_t, kDuelPlayerCount> freezeTargets = {};
@@ -1105,6 +1158,8 @@ void ServerGame::tick(float fixedDt) {
 
   rememberTransientCombatEvents();
   restoreTransientCombatEvents();
+  // History and outgoing snapshots use the incremented tick as the label for
+  // the state produced above, keeping lag-compensation frames unambiguous.
   ++snapshot_.serverTick;
   recordHistory();
   publishSnapshot();
@@ -1940,6 +1995,8 @@ const MatchRules& ServerGame::matchRules() const {
 
 void ServerGame::updateMatchState() {
   if (!enoughPlayersConnected()) {
+    // Reset only on entry. Repeating the reset every waiting tick would erase
+    // warmup state and continuously respawn the remaining connected player.
     if (snapshot_.matchPhase != MatchPhase::WaitingForPlayers) {
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         snapshot_.readyPlayers[index] = botPlayers_[index];
@@ -2416,6 +2473,8 @@ void ServerGame::updateSelectedWeapon(
 }
 
 void ServerGame::recordHistory() {
+  // Keep one extra frame so a rewind at the maximum age still has a stable
+  // boundary sample when commands reference the oldest permitted server tick.
   history_.push_back(HistoryFrame{snapshot_.serverTick, snapshot_.players});
   while (history_.size() > kMaxLagCompensationTicks + 1U) {
     history_.pop_front();
@@ -2425,6 +2484,8 @@ void ServerGame::recordHistory() {
 const ServerGame::HistoryFrame& ServerGame::historyFrameForTick(
   std::uint32_t serverTick
 ) const {
+  // Select the newest frame not newer than the requested tick. If the request
+  // predates retained history, clamp to the oldest authoritative pose available.
   for (auto frame = history_.rbegin(); frame != history_.rend(); ++frame) {
     if (frame->serverTick <= serverTick) {
       return *frame;
@@ -2462,6 +2523,8 @@ void ServerGame::applyDamageAndKnockback(
   if (!damageAllowed(attackerIndex, targetIndex)) {
     damageApplied = 0;
   }
+  // Clamp before recording feedback and statistics so every downstream system
+  // observes actual health removed rather than the weapon's nominal damage.
   damageApplied = std::min(damageApplied, target.health);
   target.health = std::max(0, target.health - damageApplied);
   target.velocity += knockbackImpulse;
@@ -2480,6 +2543,8 @@ void ServerGame::applyDamageAndKnockback(
   if (attackerIndex != targetIndex && damageApplied > 0) {
     const std::uint32_t sequence =
       ++localHitFeedbackSequences_[attackerIndex];
+    // A sequenced ring retains several rapid hits in one snapshot window while
+    // allowing clients to deduplicate events repeated for packet-loss tolerance.
     const std::size_t eventSlot =
       static_cast<std::size_t>(sequence - 1U) %
       kLocalHitFeedbackEventWindow;
@@ -2499,6 +2564,8 @@ void ServerGame::applyDamageAndKnockback(
     damageApplied > 0 &&
     vampirism_ > 0.0F
   ) {
+    // Preserve fractional healing between hits so low damage and fractional
+    // vampirism remain deterministic instead of losing value to per-hit rounding.
     fractionalVampirismHealing_[attackerIndex] +=
       static_cast<double>(damageApplied) * static_cast<double>(vampirism_);
     const int healing = static_cast<int>(
@@ -2608,6 +2675,8 @@ void ServerGame::applyDamageAndKnockback(
     )
   ) {
     const FragEvent fragEvent = snapshot_.fragEvents[attackerIndex];
+    // Warmup deaths respawn immediately, but the respawn reset must not erase
+    // the frag event before clients have had a chance to present it.
     respawnPlayer(targetIndex);
     if (fragEvent.active) {
       snapshot_.fragEvents[attackerIndex] = fragEvent;
@@ -2621,6 +2690,8 @@ bool ServerGame::spawnProjectile(
   const UserCommand& command,
   Weapon weapon
 ) {
+  // Projectile slots are authoritative fixed-capacity state. A full pool rejects
+  // the shot instead of allocating or evicting an in-flight projectile mid-match.
   for (RocketProjectile& rocket : rockets_) {
     if (rocket.active) {
       continue;
@@ -2653,6 +2724,8 @@ bool ServerGame::spawnProjectile(
       rocket.velocity.z += grenadeLauncherTuning_.verticalBoost;
     }
     rocket.ageTicks = 0;
+    // Ignore the owner only until the projectile has fully left its spawn
+    // hitbox; once armed, later self-intersection must behave like any other hit.
     rocket.ownerCollisionArmed = false;
     rocket.resting = false;
 
@@ -2671,6 +2744,8 @@ bool ServerGame::spawnProjectile(
 
 void ServerGame::simulateRockets(float fixedDt) {
   const auto cylinderDistance = [](Vec3 point, const PlayerState& player) {
+    // Splash distance is measured to the finite player cylinder surface, not its
+    // center, so player size and vertical overlap affect falloff consistently.
     const float radial =
       std::max(
         0.0F,
@@ -2687,6 +2762,8 @@ void ServerGame::simulateRockets(float fixedDt) {
     const RocketLauncherTuning& rocketLauncherTuning,
     const PlasmaGunTuning& plasmaGunTuning
   ) {
+    // Direct-hit tuning is authored for default bounds and scales with runtime
+    // player-size changes so hit registration follows the authoritative body.
     const float scaleXY =
       target.bounds.radius / std::max(0.0001F, kDefaultPlayerBounds.radius);
     const float scaleZ =
@@ -2851,6 +2928,8 @@ void ServerGame::simulateRockets(float fixedDt) {
               );
             }
             if (hit) {
+              // Tighten the remaining trace distance after every hit so the final
+              // target is the nearest along the swept segment; exact ties keep the first slot.
               explode = true;
               bestHitDistance = hitDistance;
               directTarget = playerIndex;
@@ -2917,6 +2996,8 @@ void ServerGame::simulateRockets(float fixedDt) {
       }
       const float falloff =
         1.0F - (distance / std::max(0.001F, radius));
+      // Ceil preserves one point of damage just inside the radius instead of
+      // creating a zero-damage shell through integer truncation.
       int damage = static_cast<int>(std::ceil(
         static_cast<float>(splashDamage) * falloff
       ));
@@ -2924,6 +3005,8 @@ void ServerGame::simulateRockets(float fixedDt) {
         damage = std::max(damage, directDamage);
       }
       const int knockbackDamage = damage;
+      // Self-damage percentage affects health only. Knockback retains nominal
+      // blast strength so movement techniques do not weaken with self-damage rules.
       int appliedDamage = playerIndex == rocket.owner
         ? (damage * static_cast<int>(selfDamagePercent_) + 50) / 100
         : damage;
@@ -2941,6 +3024,8 @@ void ServerGame::simulateRockets(float fixedDt) {
       }
       Vec3 knockbackDirection = normalize(player.position - explosionPosition);
       if (length(knockbackDirection) <= 0.0001F) {
+        // At the exact blast center there is no radial direction; projectile
+        // travel provides a deterministic fallback instead of a zero impulse.
         knockbackDirection = normalize(rocket.velocity);
       }
       const float knockbackScale =
@@ -2958,6 +3043,8 @@ void ServerGame::simulateRockets(float fixedDt) {
   }
 
   for (std::size_t index = 0; index < rockets_.size(); ++index) {
+    // Publish only presentation-relevant projectile state. Collision flags,
+    // lifetime, and fuse state remain private to the authoritative server.
     snapshot_.rockets[index].active = rockets_[index].active;
     snapshot_.rockets[index].owner = rockets_[index].owner;
     snapshot_.rockets[index].weapon = rockets_[index].weapon;
@@ -3464,6 +3551,8 @@ void ServerGame::updateMcGuffin() {
 }
 
 void ServerGame::restoreTransientCombatEvents() {
+  // Repeat short-lived presentation events across a small snapshot window.
+  // Sequence numbers make repetition idempotent for clients that saw them once.
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (
       recentWeaponFires_[playerIndex].fired &&
@@ -3923,9 +4012,63 @@ bool ServerGame::loadRequestedMap(const std::string& mapName) {
 }
 
 void ServerGame::receiveCommands() {
+  const auto appendChatMessage = [this](
+    std::uint8_t playerIndex,
+    std::string speakerName,
+    const std::string& message
+  ) {
+    const std::uint32_t previousSequence = chatHistory_.messageCount == 0U
+      ? 0U
+      : chatHistory_.messages[chatHistory_.messageCount - 1U].sequence;
+    if (chatHistory_.messageCount == kChatHistoryCapacity) {
+      std::move(
+        chatHistory_.messages.begin() + 1,
+        chatHistory_.messages.end(),
+        chatHistory_.messages.begin()
+      );
+      --chatHistory_.messageCount;
+    }
+    std::uint32_t nextSequence = previousSequence + 1U;
+    if (nextSequence == 0U) nextSequence = 1U;
+    chatHistory_.messages[chatHistory_.messageCount++] = ChatMessage{
+      nextSequence,
+      playerIndex,
+      std::move(speakerName),
+      message,
+    };
+  };
+
   CommandPacket packet;
   while (transport_.receiveCommand(packet)) {
     if (packet.playerIndex >= kDuelPlayerCount) {
+      if (
+        packet.playerIndex == kNoAssignedPlayer &&
+        packet.clientIndex < kMaxNetworkClients &&
+        !packet.chatMessage.empty()
+      ) {
+        const std::size_t clientIndex = packet.clientIndex;
+        if (chatClientNonces_[clientIndex] != packet.clientNonce) {
+          chatClientNonces_[clientIndex] = packet.clientNonce;
+          hasAcknowledgedChatCommand_[clientIndex] = false;
+        }
+        const bool isNewChat =
+          !hasAcknowledgedChatCommand_[clientIndex] ||
+          isSequenceNewer(
+            packet.command.sequence,
+            acknowledgedChatCommands_[clientIndex]
+          );
+        if (isNewChat) {
+          appendChatMessage(
+            kNoAssignedPlayer,
+            packet.playerName.empty()
+              ? "SPECTATOR " + std::to_string(clientIndex + 1U)
+              : packet.playerName,
+            packet.chatMessage
+          );
+          acknowledgedChatCommands_[clientIndex] = packet.command.sequence;
+          hasAcknowledgedChatCommand_[clientIndex] = true;
+        }
+      }
       continue;
     }
 
@@ -3933,6 +4076,8 @@ void ServerGame::receiveCommands() {
     const bool isNewCommand =
       !snapshot_.hasAcknowledgedCommand[playerIndex] ||
       isSequenceNewer(packet.command.sequence, snapshot_.acknowledgedCommand[playerIndex]);
+    // UDP may duplicate or reorder packets. Only a wrap-safe newer sequence may
+    // mutate authoritative input, tuning, roster, chat, or match state.
     if (!isNewCommand) {
       continue;
     }
@@ -4216,29 +4361,19 @@ void ServerGame::receiveCommands() {
       }
     }
     if (!packet.chatMessage.empty()) {
-      const std::uint32_t previousSequence = chatHistory_.messageCount == 0U
-        ? 0U
-        : chatHistory_.messages[chatHistory_.messageCount - 1U].sequence;
-      if (chatHistory_.messageCount == kChatHistoryCapacity) {
-        std::move(
-          chatHistory_.messages.begin() + 1,
-          chatHistory_.messages.end(),
-          chatHistory_.messages.begin()
-        );
-        --chatHistory_.messageCount;
-      }
       // Preserve the name used when the message was sent; a later occupant of
       // the same player slot must not appear to have authored old chat.
-      std::uint32_t nextSequence = previousSequence + 1U;
-      if (nextSequence == 0U) {
-        nextSequence = 1U;
-      }
-      chatHistory_.messages[chatHistory_.messageCount++] = ChatMessage{
-        nextSequence,
+      appendChatMessage(
         packet.playerIndex,
         snapshot_.playerNames[packet.playerIndex],
-        packet.chatMessage,
-      };
+        packet.chatMessage
+      );
+      if (packet.clientIndex < kMaxNetworkClients) {
+        const std::size_t clientIndex = packet.clientIndex;
+        chatClientNonces_[clientIndex] = packet.clientNonce;
+        acknowledgedChatCommands_[clientIndex] = packet.command.sequence;
+        hasAcknowledgedChatCommand_[clientIndex] = true;
+      }
     }
     if (!packet.playerName.empty()) {
       snapshot_.playerNames[playerIndex] = packet.playerName;
@@ -4271,6 +4406,8 @@ void ServerGame::receiveCommands() {
     hasCommand_[playerIndex] = true;
     receivedCommandThisTick_[playerIndex] = true;
     snapshot_.hasAcknowledgedCommand[playerIndex] = true;
+    // Acknowledgement is published only after every side effect in this packet
+    // has been accepted, so client prediction may safely retire the command.
     snapshot_.acknowledgedCommand[playerIndex] = packet.command.sequence;
   }
 

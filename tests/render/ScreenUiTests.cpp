@@ -386,7 +386,7 @@ int main() {
       lg::RenderColor color;
       std::string_view message;
     };
-    constexpr std::array<WeaponAccent, 4> accents = {{
+    constexpr std::array<WeaponAccent, 3> accents = {{
       {
         lg::Weapon::MachineGun,
         {218, 196, 116, 255},
@@ -401,11 +401,6 @@ int main() {
         lg::Weapon::GrenadeLauncher,
         {112, 188, 90, 255},
         "grenade launcher viewmodel should use its drum accent",
-      },
-      {
-        lg::Weapon::PlasmaGun,
-        {95, 235, 210, 255},
-        "plasma gun viewmodel should use its core accent",
       },
     }};
 
@@ -434,6 +429,22 @@ int main() {
       }
       failures += expect(foundAccent, accent.message);
     }
+  }
+
+  {
+    const lg::DrawList2D plasmaOverlay = lg::buildPerspectiveWeaponOverlay(
+      1280,
+      720,
+      {},
+      lg::Weapon::PlasmaGun,
+      lg::Weapon::LightningGun,
+      1.0F,
+      settings
+    );
+    failures += expect(
+      plasmaOverlay.overlayCommands.empty(),
+      "authored plasma gun viewmodel should not be covered by legacy overlay geometry"
+    );
   }
 
   {
@@ -1994,9 +2005,21 @@ int main() {
   {
     lg::HudRenderState netHud;
     netHud.netGraph.mode = 2;
-    netHud.netGraph.interpolationDelayMilliseconds = 24.0F;
+    netHud.netGraph.interpolationEffectiveDelayMilliseconds = 24.0F;
+    netHud.netGraph.interpolationBufferLeadTicks = 2.75;
+    netHud.netGraph.interpolationDesiredBufferLeadTicks = 3.0;
+    netHud.netGraph.interpolationTimelineErrorTicks = 0.25;
+    netHud.netGraph.interpolationPlaybackRate = 1.015F;
+    netHud.netGraph.interpolationBufferedSnapshotCount = 4;
+    netHud.netGraph.interpolationPlaybackStarted = true;
+    netHud.netGraph.interpolationUnderrun = true;
+    netHud.netGraph.interpolationUnderrunCount = 5;
+    netHud.netGraph.interpolationHardCorrectionCount = 2;
+    netHud.netGraph.interpolationPresentationTick = 102.25;
+    netHud.netGraph.interpolationNewestSnapshotTick = 105.0;
+    netHud.netGraph.interpolationSampleTick = 102;
+    netHud.netGraph.interpolationSampleEligible = true;
     netHud.netGraph.pendingCommands = 3;
-    netHud.netGraph.interpolationStarvations = 73;
     netHud.netGraph.correctionCount = 7;
     netHud.netGraph.lastCorrectionDistance = 0.125F;
     netHud.netGraph.requestedRewindTicks = 5;
@@ -2012,12 +2035,13 @@ int main() {
     netHud.netGraph.telemetry.historyCount = 3;
     netHud.netGraph.telemetry.history[0].serial = 1;
     netHud.netGraph.telemetry.history[0].snapshotJitterMilliseconds = 2.0F;
-    netHud.netGraph.telemetry.history[0].interpolationStarved = true;
+    netHud.netGraph.telemetry.history[0].interpolationUnderrun = true;
     netHud.netGraph.telemetry.history[0].predictionCorrectionDistance = 0.002F;
     netHud.netGraph.telemetry.history[1].serial = 2;
     netHud.netGraph.telemetry.history[1].snapshotGaps = 1;
     netHud.netGraph.telemetry.history[2].serial = 3;
     netHud.netGraph.telemetry.history[2].predictionCorrectionDistance = 0.125F;
+    netHud.netGraph.telemetry.history[2].interpolationHardCorrection = true;
     const lg::DrawList2D ui = lg::buildScreenUi(
       1280,
       720,
@@ -2027,17 +2051,21 @@ int main() {
       {}
     );
     bool foundLossBar = false;
-    bool foundStarvationBar = false;
     bool foundCorrectionBar = false;
+    bool foundUnderrunEvent = false;
+    bool foundHardCorrectionEvent = false;
     float shortestCorrectionBar = 10000.0F;
     float tallestCorrectionBar = 0.0F;
     for (const lg::DrawCommand2D& command : ui.overlayCommands) {
       if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
         foundLossBar = foundLossBar ||
           (quad->color.red == 244 && quad->color.green == 72);
-        foundStarvationBar = foundStarvationBar ||
-          (quad->color.red == 190 && quad->color.green == 94 &&
-           quad->color.blue == 246);
+        foundUnderrunEvent = foundUnderrunEvent ||
+          (quad->color.red == 255 && quad->color.green == 80 &&
+           quad->color.blue == 190);
+        foundHardCorrectionEvent = foundHardCorrectionEvent ||
+          (quad->color.red == 64 && quad->color.green == 220 &&
+           quad->color.blue == 255);
         if (quad->color.blue == 255 && quad->color.red >= 70 &&
             quad->color.red <= 90 && quad->color.green >= 120 &&
             quad->color.green <= 150) {
@@ -2065,30 +2093,57 @@ int main() {
         findText(ui, "NETWORK") != nullptr &&
         findText(ui, "PING") != nullptr &&
         findText(ui, "LOSS IN") != nullptr &&
-        findText(ui, "BUFFER 0.0 ms  STARVE TOTAL 73") != nullptr &&
+        findText(ui, "LEAD/TARGET") != nullptr &&
+        findText(ui, "2.75 / 3.00 tk") != nullptr &&
+        findText(ui, "ERROR +0.25 tk  RATE 1.015x") != nullptr &&
+        findText(ui, "DELAY 24.0 ms  SNAPS 4") != nullptr &&
+        findText(ui, "PLAY ON  UNDERRUN ACTIVE") != nullptr &&
+        findText(ui, "EVENTS UNDER 5  HARD 2") != nullptr &&
+        findText(ui, "TICK P/N 102.25 / 105") != nullptr &&
+        findText(ui, "COLLISION TICK 102  VALID") != nullptr &&
         findText(ui, "CORR 0.125  AVG 0.064  MAX 0.125") != nullptr,
-      "expanded netgraph should render live metrics and prediction diagnostics"
+      "expanded netgraph should render interpolation controller diagnostics"
     );
     failures += expect(
       findText(ui, "NETWORK")->scale >= 1.7F,
       "netgraph should use a legible scaled default"
     );
     failures += expect(
-      foundLossBar && foundStarvationBar && foundCorrectionBar &&
+      foundLossBar && foundCorrectionBar &&
+        foundUnderrunEvent && foundHardCorrectionEvent &&
         tallestCorrectionBar > shortestCorrectionBar * 2.0F &&
         tallestCorrectionBar < 36.0F,
       "expanded netgraph should separate event bars from compact correction magnitudes"
     );
     const lg::Text2D* lossLegend = findText(ui, "LOSS");
     const lg::Text2D* lateLegend = findText(ui, "LATE");
-    const lg::Text2D* starveLegend = findText(ui, "STARVE");
-    const lg::Text2D* correctionLegend = findText(ui, "CORR");
+    const lg::Text2D* underrunLegend = findText(ui, "UNDER");
+    const lg::Text2D* hardCorrectionLegend = findText(ui, "HARD");
+    const lg::Text2D* correctionLegend = findText(ui, "PRED");
     failures += expect(
       lossLegend != nullptr && lossLegend->color.red == 244 &&
         lateLegend != nullptr && lateLegend->color.green == 195 &&
-        starveLegend != nullptr && starveLegend->color.blue == 246 &&
+        underrunLegend != nullptr && underrunLegend->color.green == 80 &&
+        hardCorrectionLegend != nullptr &&
+        hardCorrectionLegend->color.green == 220 &&
         correctionLegend != nullptr && correctionLegend->color.blue == 255,
       "netgraph legend labels should match their graph indicator colors"
+    );
+
+    netHud.netGraph.mode = 1;
+    const lg::DrawList2D compactUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      netHud,
+      {}
+    );
+    failures += expect(
+      findText(compactUi, "LEAD/TARGET") != nullptr &&
+        findText(compactUi, "2.75 / 3.00 tk") != nullptr &&
+        findText(compactUi, "ERROR +0.25 tk  RATE 1.015x") == nullptr,
+      "compact netgraph should show controller lead without expanded detail"
     );
   }
 

@@ -4,6 +4,7 @@
 #include "render/BakedRevolverModel.hpp"
 #include "render/BakedRocketLauncherModel.hpp"
 #include "render/BakedFreezeGunModel.hpp"
+#include "render/BakedPlasmaGunModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
@@ -1253,7 +1254,20 @@ void forEachPlayerModelPart(
   part(PlayerBodyPartType::RightLeg, 0.0F, 0.25F, 0.0F, 0.36F, 0.25F, 0.20F);
 }
 
-[[nodiscard]] std::vector<SkinnedModelPoseRequest> duelistPoseRequests(
+struct DuelistPoseRequests {
+  std::array<SkinnedModelPoseRequest, 8> values = {};
+  std::size_t count = 0;
+
+  void push(SkinnedModelPoseRequest request) {
+    if (count < values.size()) values[count++] = request;
+  }
+
+  [[nodiscard]] std::span<const SkinnedModelPoseRequest> span() const {
+    return {values.data(), count};
+  }
+};
+
+[[nodiscard]] DuelistPoseRequests duelistPoseRequests(
   const PlayerState& player,
   bool leanEnabled,
   float leanScale,
@@ -1285,47 +1299,47 @@ void forEachPlayerModelPart(
         std::max(0.0F, animationTimeSeconds) * playbackRate;
       return std::fmod(phase, cycle);
     };
-  std::vector<SkinnedModelPoseRequest> poseRequests;
+  DuelistPoseRequests poseRequests;
   if (pose.airborne) {
     if (player.velocity.z >= 0.0F) {
       const float jumpProgress = std::clamp((8.0F - player.velocity.z) / 8.0F, 0.0F, 1.0F);
       const float jumpTime = jumpProgress * 0.5833333F;
-      poseRequests.push_back({"JUMP", jumpTime, 1.0F});
-      poseRequests.push_back({"lg_duelist_jump", jumpTime, 1.0F});
+      poseRequests.push({"JUMP", jumpTime, 1.0F});
+      poseRequests.push({"lg_duelist_jump", jumpTime, 1.0F});
     } else {
       const float fallProgress = std::clamp(-player.velocity.z / 12.0F, 0.0F, 1.0F);
-      poseRequests.push_back({"FALL", fallProgress * 0.8333333F, 1.0F});
-      poseRequests.push_back({"lg_duelist_jump", 0.9F, 1.0F});
+      poseRequests.push({"FALL", fallProgress * 0.8333333F, 1.0F});
+      poseRequests.push({"lg_duelist_jump", 0.9F, 1.0F});
     }
   } else if (pose.crouched) {
-    poseRequests.push_back({"DUCKING", 0.4166667F, 1.0F});
+    poseRequests.push({"DUCKING", 0.4166667F, 1.0F});
     if (locomotionActive) {
-      poseRequests.push_back({
+      poseRequests.push({
         "CROUCH_WALK",
         locomotionCycleTime(1.0F),
         1.0F,
       });
     }
-    poseRequests.push_back({"lg_duelist_crouch", 0.5833333F, 1.0F});
+    poseRequests.push({"lg_duelist_crouch", 0.5833333F, 1.0F});
   } else if (pose.sneaking) {
-    poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+    poseRequests.push({"IDLE", 0.8333333F, 1.0F});
     if (locomotionActive) {
-      poseRequests.push_back({
+      poseRequests.push({
         "SNEAK",
         locomotionCycleTime(1.3333333F),
         1.0F,
       });
     }
-    poseRequests.push_back({"lg_duelist_sneak", 0.5833333F, 1.0F});
+    poseRequests.push({"lg_duelist_sneak", 0.5833333F, 1.0F});
   } else {
-    poseRequests.push_back({"IDLE", 0.8333333F, 1.0F});
+    poseRequests.push({"IDLE", 0.8333333F, 1.0F});
     if (locomotionActive) {
-      poseRequests.push_back({"RUN", locomotionCycleTime(1.0F), 1.0F});
+      poseRequests.push({"RUN", locomotionCycleTime(1.0F), 1.0F});
     }
   }
   const auto addUpperBodyLean =
     [&poseRequests](std::string_view animationName, float weight) {
-      poseRequests.push_back({
+      poseRequests.push({
         animationName,
         0.5833333F,
         weight,
@@ -1352,6 +1366,7 @@ void addGltfPlayerModelInstance(
   bool leanEnabled,
   float leanScale,
   float animationTimeSeconds,
+  const PlayerPresentationFrame* presentation,
   std::uint8_t playerIndex,
   OutlineState outlineState,
   bool outlined,
@@ -1370,9 +1385,40 @@ void addGltfPlayerModelInstance(
     basis.forward * (kDuelistMaleDepthCenter * horizontalScale);
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
-  const std::vector<SkinnedModelPoseRequest> poseRequests =
-    duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
-  if (!model.appendBonePalette(poseRequests, scene.gltfBonePalette, poseScratch)) {
+  DuelistPoseRequests poseRequests;
+  if (presentation != nullptr && presentation->poseLayerCount > 0U) {
+    for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
+      const PlayerPoseLayer& layer = presentation->poseLayers[index];
+      if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
+        continue;
+      }
+      float weight = layer.weight;
+      if (index == 0U && presentation->diagnostics.previousBlendWeight > 0.0F) {
+        // The sampler blends each request over the accumulated pose. Establish
+        // the previous clip fully, then blend the new clip by transition alpha.
+        weight = 1.0F;
+      }
+      poseRequests.push({
+        layer.animationName,
+        layer.timeSeconds,
+        weight,
+        layer.mask == PlayerPoseLayerMask::UpperBody
+          ? SkinnedModelPoseMask::UpperBody
+          : SkinnedModelPoseMask::FullBody,
+      });
+    }
+  } else {
+    poseRequests = duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
+  }
+  const float aimPitch = presentation != nullptr
+    ? presentation->torsoAimPitchRadians
+    : std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
+  if (!model.appendBonePalette(
+        poseRequests.span(),
+        scene.gltfBonePalette,
+        poseScratch,
+        aimPitch
+      )) {
     return;
   }
   const std::uint32_t boneCount =
@@ -1420,6 +1466,17 @@ void addGltfPlayerModelInstance(
   WeaponModelFrame frame;
   frame.basis =
     playerModelBasis(player, leanEnabled, leanScale, 0.0F);
+  const float aimPitch = std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
+  const float pitchCos = std::cos(aimPitch);
+  const float pitchSin = std::sin(aimPitch);
+  const Vec3 horizontalForward = frame.basis.forward;
+  const Vec3 horizontalUp = frame.basis.up;
+  frame.basis.forward = normalize(
+    horizontalForward * pitchCos + horizontalUp * pitchSin
+  );
+  frame.basis.up = normalize(
+    horizontalUp * pitchCos - horizontalForward * pitchSin
+  );
   frame.scale = std::clamp(
     (
       frame.basis.radius / kDefaultBounds.radius +
@@ -1533,7 +1590,8 @@ void addBakedWeaponModel(
 
 [[nodiscard]] WeaponModelFrame firstPersonWeaponModelFrame(
   const PlayerState& player,
-  int weaponPosition
+  int weaponPosition,
+  const ViewModelPresentationOutput& presentation
 ) {
   WeaponModelFrame frame;
   frame.basis.forward =
@@ -1554,6 +1612,22 @@ void addBakedWeaponModel(
     frame.hand -= frame.basis.right * 0.30F;
   }
   frame.scale = 0.50F;
+  // Apply motion in the already-current camera basis. It can move or rotate the
+  // rendered weapon, but never changes the camera, crosshair, or gameplay aim.
+  frame.hand += frame.basis.forward * presentation.translation.x;
+  frame.hand += frame.basis.right * presentation.translation.y;
+  frame.hand += frame.basis.up * presentation.translation.z;
+  const auto rotatePair = [](Vec3& first, Vec3& second, float radians) {
+    const float cosine = std::cos(radians);
+    const float sine = std::sin(radians);
+    const Vec3 oldFirst = first;
+    const Vec3 oldSecond = second;
+    first = normalize(oldFirst * cosine - oldSecond * sine);
+    second = normalize(oldFirst * sine + oldSecond * cosine);
+  };
+  rotatePair(frame.basis.forward, frame.basis.up, presentation.rotationRadians.x);
+  rotatePair(frame.basis.forward, frame.basis.right, presentation.rotationRadians.y);
+  rotatePair(frame.basis.right, frame.basis.up, presentation.rotationRadians.z);
   return frame;
 }
 
@@ -1891,6 +1965,52 @@ void appendFreezeGunInstances(
     MeshHandle::RemoteFreezeGunCoolant, pass, coolant, {255, 255, 255, 255}));
 }
 
+[[nodiscard]] WeaponModelFrame plasmaGunGripAlignedFrame(
+  WeaponModelFrame frame
+) {
+  // WeaponModelFrame::hand is the hand target, so place the authored primary
+  // grip there before applying presentation-only containment transforms.
+  frame.hand -= frame.basis.forward * (kPlasmaGunGripSocket.x * frame.scale);
+  frame.hand -= frame.basis.right * (kPlasmaGunGripSocket.y * frame.scale);
+  frame.hand -= frame.basis.up * (kPlasmaGunGripSocket.z * frame.scale);
+  return frame;
+}
+
+void appendPlasmaGunInstances(
+  Scene3D& scene,
+  const WeaponModelFrame& frame,
+  RenderPass pass,
+  float containmentAmount
+) {
+  appendStaticMeshInstance(scene, weaponMeshInstance(
+    MeshHandle::RemotePlasmaGunBody, pass, frame, {255, 255, 255, 255}));
+
+  const float response = std::clamp(containmentAmount, 0.0F, 1.0F);
+  WeaponModelFrame prongs = frame;
+  prongs.hand = weaponLocalPoint(
+    frame,
+    kPlasmaGunProngPivot.x,
+    kPlasmaGunProngPivot.y,
+    kPlasmaGunProngPivot.z
+  );
+  prongs.hand -= prongs.basis.forward * (0.018F * frame.scale * response);
+  appendStaticMeshInstance(scene, weaponMeshInstance(
+    MeshHandle::RemotePlasmaGunProngs, pass, prongs, {255, 255, 255, 255}));
+
+  WeaponModelFrame core = frame;
+  core.hand = weaponLocalPoint(
+    frame,
+    kPlasmaGunCorePivot.x,
+    kPlasmaGunCorePivot.y,
+    kPlasmaGunCorePivot.z
+  );
+  core.scale *= 1.0F - 0.22F * response;
+  // The modeled socket stays fixed while the energy source and cage react.
+  // This keeps the visual flourish separate from authoritative projectiles.
+  appendStaticMeshInstance(scene, weaponMeshInstance(
+    MeshHandle::RemotePlasmaGunCore, pass, core, {255, 255, 255, 255}));
+}
+
 [[nodiscard]] WeaponModelFrame freezeGunViewModelFrame(
   WeaponModelFrame frame,
   int weaponPosition
@@ -1958,7 +2078,11 @@ void addFirstPersonWeaponModel(
   const RenderSettings& settings
 ) {
   const WeaponModelFrame frame =
-    firstPersonWeaponModelFrame(player, settings.weaponPosition);
+    firstPersonWeaponModelFrame(
+      player,
+      settings.weaponPosition,
+      settings.viewModelPresentation
+    );
   switch (weapon) {
   case Weapon::MachineGun: {
     WeaponModelFrame weaponFrame = frame;
@@ -2048,6 +2172,22 @@ void addFirstPersonWeaponModel(
       settings.freezeGunFiringAmount,
       settings.freezeGunCoolantPulse,
       settings.freezeGunVibrationPhaseRadians
+    );
+    scene.viewModelStats.drawCalls += 3U;
+    break;
+  }
+  case Weapon::PlasmaGun: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.scale *= 0.88F;
+    weaponFrame.hand -= weaponFrame.basis.forward * 0.06F;
+    // The viewmodel has no rendered hands and uses its own screen-space anchor.
+    // Applying the third-person grip correction here would lift the gun by the
+    // authored grip offset and push it unnecessarily close to the camera.
+    appendPlasmaGunInstances(
+      scene,
+      weaponFrame,
+      RenderPass::ViewModel,
+      settings.plasmaGunContainmentAmount
     );
     scene.viewModelStats.drawCalls += 3U;
     break;
@@ -2142,22 +2282,6 @@ void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
   addWeaponStrut(scene, frame, {0.22F, -0.08F, 0.02F}, {0.66F, 0.08F, 0.02F}, 0.016F, rail);
 }
 
-void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  constexpr RenderColor dark = {26, 35, 39, 255};
-  constexpr RenderColor teal = {43, 107, 103, 255};
-  constexpr RenderColor plasma = {112, 255, 142, 255};
-  constexpr RenderColor glow = {199, 255, 214, 255};
-
-  addWeaponPart(scene, frame, 0.12F, 0.0F, 0.08F, {0.20F, 0.10F, 0.085F}, dark);
-  addWeaponPart(scene, frame, 0.35F, 0.0F, 0.09F, {0.16F, 0.135F, 0.12F}, teal);
-  addSphereApprox(scene, weaponLocalPoint(frame, 0.35F, 0.0F, 0.095F), 0.085F * frame.scale, plasma);
-  addWeaponPart(scene, frame, 0.57F, 0.0F, 0.09F, {0.16F, 0.055F, 0.055F}, dark);
-  addWeaponPart(scene, frame, 0.74F, 0.0F, 0.09F, {0.045F, 0.09F, 0.09F}, glow);
-  addWeaponPart(scene, frame, 0.13F, 0.0F, -0.09F, {0.055F, 0.045F, 0.145F}, dark);
-  addWeaponStrut(scene, frame, {0.20F, -0.11F, 0.17F}, {0.54F, -0.11F, 0.17F}, 0.018F, plasma);
-  addWeaponStrut(scene, frame, {0.20F, 0.11F, 0.17F}, {0.54F, 0.11F, 0.17F}, 0.018F, plasma);
-}
-
 [[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
   switch (weapon) {
   case Weapon::LightningGun:
@@ -2165,7 +2289,10 @@ void addPlasmaGunModel(Scene3D& scene, const WeaponModelFrame& frame) {
     return 0.55F;
   case Weapon::RocketLauncher:
   case Weapon::GrenadeLauncher:
-    return 0.68F;
+  case Weapon::PlasmaGun:
+    // The baked RL and PG assets have a much bulkier silhouette than the
+    // established third-person weapons, so keep their world models readable.
+    return 0.50F;
   case Weapon::Revolver:
     return 0.45F;
   default:
@@ -2375,21 +2502,6 @@ void addWireBox(
   };
 }
 
-[[nodiscard]] Vec3 firstPersonWeaponMuzzlePosition(
-  const PlayerState& player,
-  int weaponPosition
-) {
-  Vec3 position = playerEyePosition(player) +
-    cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.55F -
-    cameraUp(player.viewYawRadians, player.viewPitchRadians) * 0.32F;
-  if (weaponPosition == 1) {
-    position += yawRight(player.viewYawRadians) * 0.30F;
-  } else if (weaponPosition == 2) {
-    position -= yawRight(player.viewYawRadians) * 0.30F;
-  }
-  return position;
-}
-
 [[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
   return playerEyePosition(player) +
     cameraForward(player.viewYawRadians, player.viewPitchRadians) * 0.24F -
@@ -2451,7 +2563,7 @@ void addWireBox(
     ) {
       const Vec3 muzzle = projectile.weapon == Weapon::RocketLauncher
         ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
-        : firstPersonWeaponMuzzlePosition(localPlayer, settings.weaponPosition);
+        : firstPersonPlasmaGunMuzzlePosition(localPlayer, settings);
       // Begin at the presentation socket, then converge quickly to the
       // authoritative projectile so the visible trajectory remains centered.
       const float blend = 1.0F - std::clamp(
@@ -2498,7 +2610,13 @@ void addWireBox(
       kRocketLauncherMuzzleSocket.z
     );
   } else {
-    muzzle = weaponLocalPoint(frame, 0.74F, 0.0F, 0.09F);
+    frame = plasmaGunGripAlignedFrame(frame);
+    muzzle = weaponLocalPoint(
+      frame,
+      kPlasmaGunMuzzleSocket.x,
+      kPlasmaGunMuzzleSocket.y,
+      kPlasmaGunMuzzleSocket.z
+    );
   }
   const float blend = 1.0F - std::clamp(
     length(projectile.position - remoteEye) / 1.20F,
@@ -2612,8 +2730,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     proceduralWeaponVertices(Weapon::LightningGun);
   static const std::vector<Vertex3D> railgunVertices =
     proceduralWeaponVertices(Weapon::Railgun);
-  static const std::vector<Vertex3D> plasmaGunVertices =
-    proceduralWeaponVertices(Weapon::PlasmaGun);
   static const StaticMeshAsset shotgunAsset = {
     MeshHandle::RemoteShotgun,
     std::span<const Vertex3D>(shotgunVertices.data(), shotgunVertices.size()),
@@ -2636,12 +2752,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     MeshHandle::RemoteRailgun,
     std::span<const Vertex3D>(railgunVertices.data(), railgunVertices.size()),
     meshBounds(railgunVertices),
-    RenderPass::OpaqueWorld,
-  };
-  static const StaticMeshAsset plasmaGunAsset = {
-    MeshHandle::RemotePlasmaGun,
-    std::span<const Vertex3D>(plasmaGunVertices.data(), plasmaGunVertices.size()),
-    meshBounds(plasmaGunVertices),
     RenderPass::OpaqueWorld,
   };
   switch (handle) {
@@ -2672,13 +2782,14 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   case MeshHandle::RemoteFreezeGunBody:
   case MeshHandle::RemoteFreezeGunFocus:
   case MeshHandle::RemoteFreezeGunCoolant:
+  case MeshHandle::RemotePlasmaGunBody:
+  case MeshHandle::RemotePlasmaGunProngs:
+  case MeshHandle::RemotePlasmaGunCore:
     return nullptr;
   case MeshHandle::RemoteLightningGun:
     return &lightningGunAsset;
   case MeshHandle::RemoteRailgun:
     return &railgunAsset;
-  case MeshHandle::RemotePlasmaGun:
-    return &plasmaGunAsset;
   case MeshHandle::RemoteRevolverBody:
   case MeshHandle::RemoteRevolverCylinder:
     return nullptr;
@@ -2709,6 +2820,12 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
     bakedMaterialWeaponVertices(kFreezeGunFocusMaterialModel);
   static const std::vector<WeaponMaterialVertex3D> freezeGunCoolantVertices =
     bakedMaterialWeaponVertices(kFreezeGunCoolantMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> plasmaGunBodyVertices =
+    bakedMaterialWeaponVertices(kPlasmaGunBodyMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> plasmaGunProngVertices =
+    bakedMaterialWeaponVertices(kPlasmaGunProngMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> plasmaGunCoreVertices =
+    bakedMaterialWeaponVertices(kPlasmaGunCoreMaterialModel);
   static const MaterialMeshAsset body = {
     MeshHandle::RemoteRevolverBody,
     revolverBodyVertices,
@@ -2746,6 +2863,15 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   static const MaterialMeshAsset freezeGunCoolant = {
     MeshHandle::RemoteFreezeGunCoolant, freezeGunCoolantVertices,
   };
+  static const MaterialMeshAsset plasmaGunBody = {
+    MeshHandle::RemotePlasmaGunBody, plasmaGunBodyVertices,
+  };
+  static const MaterialMeshAsset plasmaGunProngs = {
+    MeshHandle::RemotePlasmaGunProngs, plasmaGunProngVertices,
+  };
+  static const MaterialMeshAsset plasmaGunCore = {
+    MeshHandle::RemotePlasmaGunCore, plasmaGunCoreVertices,
+  };
   if (handle == MeshHandle::RemoteMachineGunBody) {
     return &machineGunBody;
   }
@@ -2776,6 +2902,15 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   if (handle == MeshHandle::RemoteFreezeGunCoolant) {
     return &freezeGunCoolant;
   }
+  if (handle == MeshHandle::RemotePlasmaGunBody) {
+    return &plasmaGunBody;
+  }
+  if (handle == MeshHandle::RemotePlasmaGunProngs) {
+    return &plasmaGunProngs;
+  }
+  if (handle == MeshHandle::RemotePlasmaGunCore) {
+    return &plasmaGunCore;
+  }
   return nullptr;
 }
 
@@ -2796,7 +2931,7 @@ MeshHandle remoteWeaponMeshHandle(Weapon weapon) {
   case Weapon::Railgun:
     return MeshHandle::RemoteRailgun;
   case Weapon::PlasmaGun:
-    return MeshHandle::RemotePlasmaGun;
+    return MeshHandle::RemotePlasmaGunBody;
   case Weapon::Revolver:
     return MeshHandle::RemoteRevolverBody;
   }
@@ -2811,13 +2946,41 @@ Vec3 machineGunMuzzleSocket() {
   return kMachineGunMuzzleSocket;
 }
 
+Vec3 plasmaGunMuzzleSocket() {
+  return kPlasmaGunMuzzleSocket;
+}
+
+Vec3 plasmaGunGripSocket() {
+  return kPlasmaGunGripSocket;
+}
+
+Vec3 firstPersonPlasmaGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    player,
+    settings.weaponPosition,
+    settings.viewModelPresentation
+  );
+  frame.scale *= 0.88F;
+  frame.hand -= frame.basis.forward * 0.06F;
+  return weaponLocalPoint(
+    frame,
+    kPlasmaGunMuzzleSocket.x,
+    kPlasmaGunMuzzleSocket.y,
+    kPlasmaGunMuzzleSocket.z
+  );
+}
+
 Vec3 firstPersonMachineGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.hand -= frame.basis.forward * 0.10F;
   frame = machineGunFiringFrame(frame, settings);
@@ -2835,7 +2998,8 @@ Vec3 firstPersonRevolverMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.hand += frame.basis.forward * 0.16F;
   frame.scale *= 0.80F;
@@ -2862,7 +3026,8 @@ Vec3 firstPersonRocketLauncherMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.scale *= kRocketLauncherViewModelScale;
   frame.hand += frame.basis.forward * kRocketLauncherViewModelForwardOffset;
@@ -2884,7 +3049,8 @@ Vec3 firstPersonFreezeGunMuzzlePosition(
 ) {
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
     player,
-    settings.weaponPosition
+    settings.weaponPosition,
+    settings.viewModelPresentation
   );
   frame.scale *= 0.82F;
   frame.hand -= frame.basis.forward * 0.08F;
@@ -2955,7 +3121,8 @@ void addRemoteWeaponInstance(
   float rocketLauncherMechanicalAmount,
   float freezeGunFiringAmount,
   float freezeGunCoolantPulse,
-  float freezeGunVibrationPhaseRadians
+  float freezeGunVibrationPhaseRadians,
+  float plasmaGunContainmentAmount
 ) {
   WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
@@ -2998,6 +3165,17 @@ void addRemoteWeaponInstance(
     scene.remoteWeaponStats.instancesSubmitted += 3U;
     return;
   }
+  if (weapon == Weapon::PlasmaGun) {
+    frame = plasmaGunGripAlignedFrame(frame);
+    appendPlasmaGunInstances(
+      scene,
+      frame,
+      RenderPass::OpaqueWorld,
+      plasmaGunContainmentAmount
+    );
+    scene.remoteWeaponStats.instancesSubmitted += 3U;
+    return;
+  }
   MeshHandle mesh = remoteWeaponMeshHandle(weapon);
   if (mesh == MeshHandle::Invalid) {
     return;
@@ -3031,11 +3209,9 @@ void addRemoteWeaponInstance(
   case Weapon::Railgun:
     addRailgunModel(meshScene, frame);
     break;
-  case Weapon::PlasmaGun:
-    addPlasmaGunModel(meshScene, frame);
-    break;
   case Weapon::MachineGun:
   case Weapon::Shotgun:
+  case Weapon::PlasmaGun:
   case Weapon::Revolver:
     break;
   }
@@ -3470,6 +3646,8 @@ void addTransientEffectInstances(
 }
 
 void finalizeStaticMeshBatches(Scene3D& scene) {
+  // Stable ordering groups compatible draw state while preserving submission
+  // order inside a mesh/pass group for deterministic presentation and diagnostics.
   std::stable_sort(
     scene.staticMeshInstances.begin(),
     scene.staticMeshInstances.end(),
@@ -3529,7 +3707,9 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       batch.mesh == MeshHandle::RemoteRocketLauncherLatch ||
       batch.mesh == MeshHandle::RemoteLightningGun ||
       batch.mesh == MeshHandle::RemoteRailgun ||
-      batch.mesh == MeshHandle::RemotePlasmaGun ||
+      batch.mesh == MeshHandle::RemotePlasmaGunBody ||
+      batch.mesh == MeshHandle::RemotePlasmaGunProngs ||
+      batch.mesh == MeshHandle::RemotePlasmaGunCore ||
       batch.mesh == MeshHandle::RemoteRevolverBody ||
       batch.mesh == MeshHandle::RemoteRevolverCylinder
     ) {
@@ -3565,6 +3745,8 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     index < static_cast<std::uint32_t>(scene.staticMeshInstances.size());
     ++index
   ) {
+    // Outline instances can share a mask draw only while their player identity
+    // and complete outline state form one contiguous run in the sorted buffer.
     const StaticMeshInstance& instance = scene.staticMeshInstances[index];
     if (
       !instance.playerBoxBody ||
@@ -3639,6 +3821,8 @@ void finalizeGltfPlayerModelBatches(
 
   std::uint32_t primitiveCount = 0;
   for (const GltfSkinnedModel::Primitive& primitive : model->primitives()) {
+    // Geometry is static on the GPU; each primitive is drawn across the shared
+    // instance range, with per-instance bone-palette offsets selecting poses.
     if (!primitive.vertices.empty() && !primitive.indices.empty()) {
       scene.gltfPlayerModelBatches.push_back({
         primitiveCount,
@@ -3740,6 +3924,8 @@ void addProjectileInstances(
     settings.frustumCullRemotePlayers &&
     !sphereIntersectsPerspectiveFrustum(scene.camera, position, cullRadius)
   ) {
+    // Cull core and glow together using the larger radius so presentation parts
+    // cannot pop independently at the edge of the camera frustum.
     ++scene.projectileStats.projectilesFrustumCulled;
     return;
   }
@@ -3944,8 +4130,15 @@ Scene3D buildPerspectiveScene(
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
-  const Vec3 cameraPosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
+  const Vec3 cameraMotion =
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
+      settings.viewModelPresentation.cameraTranslation.x +
+    yawRight(player.viewYawRadians) *
+      settings.viewModelPresentation.cameraTranslation.y +
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
+      settings.viewModelPresentation.cameraTranslation.z;
+  const Vec3 cameraPosition = player.position + cameraMotion +
+    Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
 
   Scene3D scene;
   scene.camera = makePerspectiveCamera(
@@ -3973,6 +4166,7 @@ Scene3D buildPerspectiveScene(
   if (settings.showOwnWeapons) {
     PlayerState viewModelPlayer = player;
     viewModelPlayer.position.z += cameraVerticalOffset;
+    viewModelPlayer.position += cameraMotion;
     addFirstPersonWeaponModel(
       scene,
       viewModelPlayer,
@@ -4159,6 +4353,7 @@ Scene3D buildPerspectiveScene(
             : settings.enemyLeanEnabled,
           remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
           remote.animationTimeSeconds,
+          remote.hasPresentation ? &remote.presentation : nullptr,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
           wantsOutline &&
@@ -4181,7 +4376,8 @@ Scene3D buildPerspectiveScene(
         remote.rocketLauncherMechanicalAmount,
         remote.freezeGunFiringAmount,
         remote.freezeGunCoolantPulse,
-        remote.freezeGunVibrationPhaseRadians
+        remote.freezeGunVibrationPhaseRadians,
+        remote.plasmaGunContainmentAmount
       );
     }
   }

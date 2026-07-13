@@ -8,9 +8,13 @@
 
 #include <cstdint>
 #include <cmath>
+#include <cstdlib>
+#include <iomanip>
 #include <iostream>
+#include <limits>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -58,6 +62,20 @@ lg::ArenaBrush cutUndersideBrushStep(float minX, float maxX, float topZ, float b
   return brush;
 }
 
+lg::ArenaBrush axisAlignedBrush(lg::Vec3 min, lg::Vec3 max) {
+  lg::ArenaBrush brush;
+  brush.min = min;
+  brush.max = max;
+  brush.faceCount = 6;
+  brush.faces[0] = {{-1.0F, 0.0F, 0.0F}, -min.x};
+  brush.faces[1] = {{1.0F, 0.0F, 0.0F}, max.x};
+  brush.faces[2] = {{0.0F, -1.0F, 0.0F}, -min.y};
+  brush.faces[3] = {{0.0F, 1.0F, 0.0F}, max.y};
+  brush.faces[4] = {{0.0F, 0.0F, -1.0F}, -min.z};
+  brush.faces[5] = {{0.0F, 0.0F, 1.0F}, max.z};
+  return brush;
+}
+
 lg::ArenaBrush slopedTopBrush(
   float minX,
   float maxX,
@@ -90,6 +108,33 @@ lg::ArenaBrush slopedTopBrush(
 float slopedTopZ(const lg::ArenaBrush& brush, float x) {
   const lg::ArenaBrushFace& face = brush.faces[5];
   return (face.distance - (face.normal.x * x)) / face.normal.z;
+}
+
+struct MovementSample {
+  lg::Vec3 position;
+  lg::Vec3 velocity;
+  bool onGround = false;
+  lg::MovementMode mode = lg::MovementMode::Airborne;
+};
+
+void recordSample(std::vector<MovementSample>& samples, const lg::PlayerState& player) {
+  samples.push_back({player.position, player.velocity, player.onGround, player.movementMode});
+}
+
+void printTrajectory(std::string_view name, const std::vector<MovementSample>& samples) {
+  if (std::getenv("LG_DUEL_PRINT_MOVEMENT_TRAJECTORIES") == nullptr) {
+    return;
+  }
+  std::cout << "TRAJECTORY " << name << "\n";
+  std::cout << std::fixed << std::setprecision(5);
+  for (std::size_t tick = 0; tick < samples.size(); ++tick) {
+    const MovementSample& sample = samples[tick];
+    std::cout << tick << ' '
+              << sample.position.x << ' ' << sample.position.y << ' ' << sample.position.z << ' '
+              << sample.velocity.x << ' ' << sample.velocity.y << ' ' << sample.velocity.z << ' '
+              << (sample.onGround ? 1 : 0) << ' '
+              << static_cast<int>(sample.mode) << '\n';
+  }
 }
 
 lg::Arena arenaWithBrush(const lg::ArenaBrush& brush) {
@@ -201,6 +246,207 @@ lg::ArenaLoadResult loadArenaFixture(const std::string& path) {
 
 int main() {
   int failures = 0;
+
+  const auto simulateUntilLanding = [](
+    lg::PlayerState player,
+    const lg::Arena& arena,
+    const lg::MovementTuning& tuning,
+    int maximumTicks = 240
+  ) {
+    const lg::UserCommand idle;
+    for (int tick = 0; tick < maximumTicks && !player.onGround; ++tick) {
+      lg::simulateMovement(player, idle, arena, tuning, lg::kFixedTickSeconds);
+    }
+    return player;
+  };
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    for (const float downwardSpeed : {-2.0F, -8.0F, -16.0F, -24.0F}) {
+      lg::PlayerState player = groundedPlayer();
+      player.position.z += 0.01F;
+      player.velocity = {8.0F, 0.0F, downwardSpeed};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      player = simulateUntilLanding(player, lg::Arena{}, tuning);
+      std::vector<MovementSample> landingSample;
+      recordSample(landingSample, player);
+      const std::string trajectoryName =
+        "flat_landing_vz_" + std::to_string(static_cast<int>(downwardSpeed));
+      printTrajectory(trajectoryName, landingSample);
+
+      failures += expect(player.onGround, "flat-floor landing diagnostic should reach ground");
+      failures += expect(
+        nearlyEqual(player.velocity.x, 8.0F, 0.01F) &&
+          std::fabs(player.velocity.y) < 0.001F && player.velocity.z >= -0.0001F &&
+          player.velocity.z < 0.03F,
+        "flat-floor landing should remove downward velocity instead of converting it to horizontal speed"
+      );
+      const lg::UserCommand idle;
+      lg::simulateMovement(player, idle, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+      failures += expect(
+        nearlyEqual(player.velocity.x, 8.0F, 0.01F),
+        "the grounded tick after landing should not convert residual vertical overclip into planar speed"
+      );
+    }
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    for (const float startHeight : {0.01F, 0.4F, 1.2F}) {
+      lg::PlayerState player = groundedPlayer();
+      player.position.z += startHeight;
+      player.velocity = {8.0F, 0.0F, -8.0F};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      player = simulateUntilLanding(player, lg::Arena{}, tuning);
+      failures += expect(
+        player.onGround && nearlyEqual(player.velocity.x, 8.0F, 0.01F),
+        "flat-floor landing horizontal speed should be independent of fall height"
+      );
+    }
+
+    lg::PlayerState vertical = groundedPlayer();
+    vertical.position.z += 0.1F;
+    vertical.velocity = {0.0F, 0.0F, -16.0F};
+    vertical.onGround = false;
+    vertical.movementMode = lg::MovementMode::Airborne;
+    vertical = simulateUntilLanding(vertical, lg::Arena{}, tuning);
+    failures += expect(
+      vertical.onGround && std::hypot(vertical.velocity.x, vertical.velocity.y) < 0.001F &&
+        std::fabs(vertical.velocity.z) < 0.03F,
+      "pure vertical landing should settle without producing planar movement"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::Arena wallArena;
+    wallArena.walls[0] = {{-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F}};
+    wallArena.wallCount = 1;
+    const lg::Arena brushArena = arenaWithBrush(
+      axisAlignedBrush({-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F})
+    );
+    const auto landOnPlatform = [&](const lg::Arena& arena) {
+      lg::PlayerState player = groundedPlayer();
+      player.position.z = 1.0F + player.bounds.halfHeight + 0.04F;
+      player.velocity = {8.0F, 0.0F, -8.0F};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      return simulateUntilLanding(player, arena, tuning);
+    };
+    const lg::PlayerState wallLanding = landOnPlatform(wallArena);
+    const lg::PlayerState brushLanding = landOnPlatform(brushArena);
+    failures += expect(
+      wallLanding.onGround && brushLanding.onGround &&
+        nearlyEqual(wallLanding.velocity.x, 8.0F, 0.01F) &&
+        nearlyEqual(brushLanding.velocity.x, 8.0F, 0.01F),
+      "ArenaWall and ArenaBrush flat landings should both discard impact-normal speed"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::Arena wallArena;
+    wallArena.walls[0] = {{-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F}};
+    wallArena.wallCount = 1;
+    const lg::Arena brushArena = arenaWithBrush(
+      axisAlignedBrush({-10.0F, -10.0F, 0.0F}, {10.0F, 10.0F, 1.0F})
+    );
+    const auto landFromGroundTrace = [&](const lg::Arena& arena, float supportZ) {
+      lg::PlayerState player = groundedPlayer();
+      // This gap is inside the airborne ground-trace distance, so contact is
+      // acquired before the regular movement sweep or step path runs.
+      player.position.z = supportZ + player.bounds.halfHeight + 0.005F;
+      player.velocity = {8.0F, 0.0F, -8.0F};
+      player.onGround = false;
+      player.movementMode = lg::MovementMode::Airborne;
+      const lg::UserCommand idle;
+      lg::simulateMovement(player, idle, arena, tuning, lg::kFixedTickSeconds);
+      return player;
+    };
+
+    const lg::PlayerState floorLanding = landFromGroundTrace(lg::Arena{}, 0.0F);
+    const lg::PlayerState wallLanding = landFromGroundTrace(wallArena, 1.0F);
+    const lg::PlayerState brushLanding = landFromGroundTrace(brushArena, 1.0F);
+    failures += expect(
+      floorLanding.onGround && wallLanding.onGround && brushLanding.onGround &&
+        nearlyEqual(floorLanding.velocity.x, 8.0F, 0.01F) &&
+        nearlyEqual(wallLanding.velocity.x, 8.0F, 0.01F) &&
+        nearlyEqual(brushLanding.velocity.x, 8.0F, 0.01F),
+      "airborne pre-move ground traces should ordinary-clip default, ArenaWall, and ArenaBrush landings"
+    );
+
+    lg::PlayerState knocked = groundedPlayer();
+    knocked.position.z += 0.005F;
+    knocked.velocity = {8.0F, 0.0F, -8.0F};
+    knocked.onGround = false;
+    knocked.movementMode = lg::MovementMode::Airborne;
+    knocked.knockbackTicksRemaining = 2;
+    const lg::UserCommand idle;
+    lg::simulateMovement(knocked, idle, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+    failures += expect(
+      knocked.onGround && nearlyEqual(knocked.velocity.x, 8.0F, 0.01F) &&
+        knocked.knockbackTicksRemaining == 1,
+      "airborne ground-trace landing should clip impact speed without changing knockback timing"
+    );
+  }
+
+  {
+    const float run = 8.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-4.0F, 4.0F, 4.0F, 4.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::PlayerState player = groundedPlayer();
+    const float radiusOffset =
+      player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+    player.position = {
+      0.0F,
+      0.0F,
+      slopedTopZ(ramp, 0.0F) + player.bounds.halfHeight + radiusOffset + 0.04F
+    };
+    player.velocity = {8.0F, 0.0F, -8.0F};
+    player.onGround = false;
+    player.movementMode = lg::MovementMode::Airborne;
+    const float impactSpeed = lg::length(player.velocity);
+    player = simulateUntilLanding(player, arena, tuning);
+    failures += expect(
+      player.onGround && lg::length(player.velocity) <= impactSpeed + 0.01F &&
+        std::fabs(lg::dot(player.velocity, ramp.faces[5].normal)) < 0.02F,
+      "sloped landing should ordinary-clip into-plane velocity without increasing total speed"
+    );
+  }
+
+  {
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.velocity.x = 8.0F;
+    lg::UserCommand command;
+    int acceptedJumps = 0;
+    float maximumHorizontalSpeed = 0.0F;
+    std::vector<MovementSample> samples;
+    for (int tick = 0; tick < 480; ++tick) {
+      command.jump = player.onGround;
+      command.upMove = command.jump ? 1.0F : 0.0F;
+      const bool wasGrounded = player.onGround;
+      lg::simulateMovement(player, command, lg::Arena{}, tuning, lg::kFixedTickSeconds);
+      acceptedJumps += wasGrounded && command.jump && !player.onGround ? 1 : 0;
+      maximumHorizontalSpeed =
+        std::max(maximumHorizontalSpeed, std::hypot(player.velocity.x, player.velocity.y));
+      recordSample(samples, player);
+    }
+    printTrajectory("flat_timed_bunnyhops", samples);
+    failures += expect(
+      acceptedJumps >= 3 && maximumHorizontalSpeed <= 8.02F,
+      "repeated timed bunnyhops without input should not accumulate landing speed"
+    );
+  }
 
   {
     lg::PlayerState player = groundedPlayer();
@@ -2575,6 +2821,440 @@ int main() {
       jumpingBrushPlayer.position.z > brushStartZ + 0.05F &&
         !jumpingBrushPlayer.onGround,
       "jumping from a triangular sloped brush should stay airborne after takeoff"
+    );
+  }
+
+  {
+    const lg::ArenaBrush step = axisAlignedBrush(
+      {0.5F, -1.0F, 0.0F},
+      {2.0F, 1.0F, lg::kPlayerStepHeight}
+    );
+    const lg::Arena arena = arenaWithBrush(step);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position.x = 0.1F;
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    float minimumForwardSpeed = std::numeric_limits<float>::max();
+    float maximumTickAdvance = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      const float beforeX = player.position.x;
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      minimumForwardSpeed = std::min(minimumForwardSpeed, player.velocity.x);
+      maximumTickAdvance = std::max(maximumTickAdvance, player.position.x - beforeX);
+      airborneTicks += (!player.onGround || player.movementMode != lg::MovementMode::Grounded) ? 1 : 0;
+    }
+    failures += expect(
+      player.position.x > 1.0F && player.position.x < step.max.x + player.bounds.radius &&
+        nearlyEqual(player.position.z, lg::kPlayerStepHeight + player.bounds.halfHeight, 0.002F),
+      "grounded movement should step onto an axis-aligned convex brush at exactly maximum step height"
+    );
+    failures += expect(
+      airborneTicks == 0 && player.velocity.x > 7.5F && minimumForwardSpeed > 5.0F &&
+        maximumTickAdvance < 0.07F,
+      "maximum-height convex brush step should preserve grounding and bounded forward speed without tunnelling"
+    );
+
+    const float expandedSideX = step.min.x - player.bounds.radius;
+    const float supportedZ = step.max.z + player.bounds.halfHeight;
+    const lg::PlayerState boundaryPlayer = groundedPlayer();
+    const lg::CollisionResult edgeTangent = lg::slidePlayerArenaMove(
+      arena, boundaryPlayer, {expandedSideX, 0.0F, supportedZ}, {0.0F, 20.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    const lg::CollisionResult edgeAway = lg::slidePlayerArenaMove(
+      arena, boundaryPlayer, {expandedSideX, 0.0F, supportedZ}, {-20.0F, 0.0F, 20.0F}, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      !edgeTangent.blocked && edgeTangent.position.y > 0.15F &&
+        nearlyEqual(edgeTangent.position.x, expandedSideX, 0.001F),
+      "exact expanded top-edge tangent movement should progress without a false brush block"
+    );
+    failures += expect(
+      !edgeAway.blocked && edgeAway.position.x < expandedSideX - 0.15F && edgeAway.position.z > supportedZ,
+      "movement away from an exact expanded brush top vertex should progress without a false block"
+    );
+  }
+
+  {
+    constexpr float kBrushMinX = 0.5F;
+    constexpr float kBrushMaxX = 0.55F;
+    const lg::Arena arena = arenaWithBrush(
+      axisAlignedBrush({kBrushMinX, -1.0F, 0.0F}, {kBrushMaxX, 1.0F, 2.0F})
+    );
+    const lg::PlayerState player = groundedPlayer();
+    const lg::Vec3 start = {-1.0F, 0.0F, player.bounds.halfHeight};
+    const float expandedEntryX = kBrushMinX - player.bounds.radius;
+
+    const auto expectThinBrushStop = [&](float speed, std::string_view speedKind) {
+      const lg::CollisionResult collision =
+        lg::slidePlayerArenaMove(arena, player, start, {speed, 0.0F, 0.0F}, lg::kFixedTickSeconds);
+      const std::string prefix = std::string(speedKind) + " thin convex brush sweep ";
+      failures += expect(
+        collision.blocked &&
+          collision.position.x >= expandedEntryX - 0.012F &&
+          collision.position.x <= expandedEntryX + 0.002F,
+        prefix + "should stop in the overclip band at the player-radius-expanded entry face"
+      );
+      failures += expect(
+        collision.position.x <= expandedEntryX + 0.002F && collision.velocity.x <= 0.001F,
+        prefix + "should remain on the starting side instead of tunnelling through"
+      );
+    };
+
+    // Every intended endpoint is beyond the radius-expanded exit face, so endpoint-only
+    // overlap cannot detect these straight sweeps through the thin brush.
+    expectThinBrushStop(400.0F, "high-horizontal-speed");
+    expectThinBrushStop(1200.0F, "dash-like");
+    expectThinBrushStop(700.0F, "knockback-like");
+  }
+
+  {
+    const lg::Arena arena = arenaWithBrush(axisAlignedBrush({0.5F, -2.0F, 0.0F}, {0.55F, 2.0F, 2.0F}));
+    const lg::PlayerState player = groundedPlayer();
+    const lg::Vec3 velocity = {400.0F, 100.0F, 0.0F};
+    const lg::CollisionResult collision = lg::slidePlayerArenaMove(
+      arena, player, {-1.0F, -0.5F, player.bounds.halfHeight}, velocity, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      collision.blocked && collision.position.x >= 0.147F && collision.position.x <= 0.202F &&
+        collision.position.y > -0.05F,
+      "diagonal high-speed brush impact should consume remaining time sliding along the entry face"
+    );
+    failures += expect(
+      collision.velocity.y > 99.0F && collision.velocity.x <= 0.001F &&
+        lg::length(collision.velocity) <= lg::length(velocity) + 0.01F,
+      "diagonal high-speed brush impact should preserve parallel velocity without gaining speed"
+    );
+  }
+
+  {
+    const lg::Arena arena = arenaWithBrush(axisAlignedBrush({-2.0F, -2.0F, 2.5F}, {2.0F, 2.0F, 2.55F}));
+    const lg::PlayerState player = groundedPlayer();
+    const lg::CollisionResult collision = lg::slidePlayerArenaMove(
+      arena, player, {0.0F, 0.0F, player.bounds.halfHeight}, {100.0F, 0.0F, 400.0F}, lg::kFixedTickSeconds
+    );
+    const float expandedUndersideZ = 2.5F - player.bounds.halfHeight;
+    failures += expect(
+      collision.blocked && collision.position.z <= expandedUndersideZ + 0.002F && collision.velocity.z <= 0.001F,
+      "high-speed upward brush-underside impact should block upward motion below the expanded underside"
+    );
+    failures += expect(
+      collision.position.x > 0.25F && collision.velocity.x > 99.0F,
+      "high-speed brush-underside impact should retain horizontal velocity and slide along the underside"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    arena.brushes[0] = axisAlignedBrush({0.5F, -2.0F, 0.0F}, {0.55F, 2.0F, 4.0F});
+    arena.brushes[1] = axisAlignedBrush({-2.0F, 0.5F, 0.0F}, {2.0F, 0.55F, 4.0F});
+    arena.brushCount = 2;
+    const lg::PlayerState player = groundedPlayer();
+    const lg::Vec3 velocity = {400.0F, 400.0F, 60.0F};
+    const lg::CollisionResult collision = lg::slidePlayerArenaMove(
+      arena, player, {-1.0F, -1.0F, 1.2F}, velocity, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      collision.blocked && collision.position.x <= 0.202F && collision.position.y <= 0.202F &&
+        collision.position.x >= 0.147F && collision.position.y >= 0.147F &&
+        collision.velocity.x >= -1.0F && collision.velocity.x <= 0.001F &&
+        collision.velocity.y >= -1.0F && collision.velocity.y <= 0.001F,
+      "adjacent convex brushes should stop a high-speed move at both planes of a 90-degree corner"
+    );
+    failures += expect(
+      collision.position.z > 1.5F && collision.velocity.z > 59.0F &&
+        lg::length(collision.velocity) <= lg::length(velocity) + 0.01F,
+      "90-degree brush corner should preserve valid vertical crease motion without reversal or speed gain"
+    );
+    lg::Vec3 position = collision.position;
+    lg::Vec3 creaseVelocity = collision.velocity;
+    float previousZ = position.z;
+    for (int tick = 0; tick < 4; ++tick) {
+      const lg::CollisionResult next =
+        lg::slidePlayerArenaMove(arena, player, position, creaseVelocity, lg::kFixedTickSeconds);
+      failures += expect(
+        next.position.x <= 0.202F && next.position.y <= 0.202F && next.position.z >= previousZ &&
+          lg::length(next.velocity) <= lg::length(velocity) + 0.01F,
+        "repeated corner crease movement should not tunnel, reverse, oscillate, or explode"
+      );
+      position = next.position;
+      creaseVelocity = next.velocity;
+      previousZ = position.z;
+    }
+  }
+
+  {
+    const lg::Arena arena = arenaWithBrush(axisAlignedBrush({0.5F, -2.0F, 0.0F}, {0.55F, 2.0F, 2.0F}));
+    const lg::PlayerState player = groundedPlayer();
+    const float contactX = 0.5F - player.bounds.radius;
+    const lg::CollisionResult tangent = lg::slidePlayerArenaMove(
+      arena, player, {contactX, 0.0F, player.bounds.halfHeight}, {0.0F, 20.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    const lg::CollisionResult away = lg::slidePlayerArenaMove(
+      arena, player, {contactX, 0.0F, player.bounds.halfHeight}, {-20.0F, 0.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    const lg::CollisionResult inward = lg::slidePlayerArenaMove(
+      arena, player, {contactX, 0.0F, player.bounds.halfHeight}, {20.0F, 0.0F, 0.0F}, lg::kFixedTickSeconds
+    );
+    failures += expect(
+      !tangent.blocked && tangent.position.y > 0.15F && nearlyEqual(tangent.position.x, contactX, 0.001F),
+      "exact expanded-face tangent movement should make progress without blocking"
+    );
+    failures += expect(
+      !away.blocked && away.position.x < contactX - 0.15F,
+      "movement away from an exact expanded brush face should make progress without blocking"
+    );
+    failures += expect(
+      inward.blocked && inward.position.x <= contactX + 0.002F && inward.velocity.x <= 0.001F,
+      "movement inward from an exact expanded brush face should block at fraction zero"
+    );
+  }
+
+  {
+    const float run = 40.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-20.0F, 20.0F, 12.0F, 12.0F - riseForAngle(15.0F, run));
+    lg::Arena arena = arenaWithBrush(ramp);
+    arena.max.z = 20.0F;
+    lg::MovementTuning tuning;
+    tuning.groundFriction = 0.0F;
+    for (const float speed : {8.0F, 40.0F}) {
+      lg::PlayerState player = groundedPlayer();
+      const float radiusOffset = player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+      player.position = {-10.0F, 0.0F, slopedTopZ(ramp, -10.0F) + player.bounds.halfHeight + radiusOffset};
+      const float slope = -ramp.faces[5].normal.x / ramp.faces[5].normal.z;
+      player.velocity = lg::normalize(lg::Vec3{1.0F, 0.0F, slope}) * speed;
+      lg::UserCommand command;
+      command.forwardMove = 1.0F;
+      float minimumSpeed = std::numeric_limits<float>::max();
+      float maximumSupportError = 0.0F;
+      int blockedStalls = 0;
+      for (int tick = 0; tick < 20; ++tick) {
+        const float beforeX = player.position.x;
+        lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+        minimumSpeed = std::min(minimumSpeed, std::hypot(player.velocity.x, player.velocity.y));
+        maximumSupportError = std::max(
+          maximumSupportError,
+          std::fabs(player.position.z - (slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight + radiusOffset))
+        );
+        blockedStalls += player.position.x <= beforeX + 0.001F ? 1 : 0;
+      }
+      failures += expect(
+        blockedStalls == 0 && player.onGround && maximumSupportError < 0.04F &&
+          minimumSpeed > speed * 0.8F,
+        speed < 10.0F
+          ? "normal-speed repeated tangent ramp movement should stay supported without stalls or speed dips"
+          : "high-speed repeated tangent ramp movement should stay supported without stalls or speed dips"
+      );
+    }
+  }
+
+  {
+    const float run = 8.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-4.0F, 4.0F, 5.0F, 5.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::PlayerState supported = groundedPlayer();
+    const float radiusOffset = supported.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+    supported.position = {-1.0F, 0.0F, slopedTopZ(ramp, -1.0F) + supported.bounds.halfHeight + radiusOffset};
+    supported.velocity = {8.0F, 0.0F, 0.0F};
+
+    lg::PlayerState jumper = supported;
+    lg::UserCommand command;
+    command.jump = true;
+    command.upMove = 1.0F;
+    lg::simulateMovement(jumper, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+    failures += expect(
+      !jumper.onGround && jumper.velocity.z > 5.0F && jumper.velocity.x > 7.5F,
+      "jump takeoff from exact convex-ramp support should leave cleanly with horizontal speed"
+    );
+
+    lg::PlayerState knocked = supported;
+    knocked.velocity.z = 5.0F;
+    knocked.knockbackTicksRemaining = 2;
+    command = {};
+    lg::simulateMovement(knocked, command, arena, lg::MovementTuning{}, lg::kFixedTickSeconds);
+    failures += expect(
+      !knocked.onGround && knocked.position.z > supported.position.z &&
+        knocked.velocity.z > 4.0F && knocked.velocity.x > 7.5F,
+      "upward knockback from exact convex-ramp support should leave cleanly with horizontal speed"
+    );
+  }
+
+  // These short traces characterize brush contact at the fixed simulation tick. Their
+  // aggregate bounds deliberately leave float headroom while preserving the current
+  // grounding, speed, direction, and support-correction behavior.
+  {
+    const auto brushStairs = [] {
+      lg::Arena arena;
+      arena.brushes[0] = cutUndersideBrushStep(0.5F, 1.2F, 0.3F, 0.15F);
+      arena.brushes[1] = cutUndersideBrushStep(1.2F, 1.9F, 0.6F, 0.15F);
+      arena.brushes[2] = cutUndersideBrushStep(1.9F, 2.6F, 0.9F, 0.15F);
+      arena.brushes[3] = cutUndersideBrushStep(2.6F, 4.0F, 1.2F, 0.15F);
+      arena.brushCount = 4;
+      return arena;
+    };
+    const lg::Arena arena = brushStairs();
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+
+    lg::PlayerState walker = groundedPlayer();
+    walker.position.x = 0.1F;
+    lg::UserCommand forward;
+    forward.forwardMove = 1.0F;
+    std::vector<MovementSample> walkingSamples;
+    float walkingMinimumSpeed = std::numeric_limits<float>::max();
+    float walkingMaxCorrection = 0.0F;
+    int walkingAirborneTicks = 0;
+    for (int tick = 0; tick < 32; ++tick) {
+      const lg::Vec3 before = walker.position;
+      lg::simulateMovement(walker, forward, arena, tuning, lg::kFixedTickSeconds);
+      recordSample(walkingSamples, walker);
+      walkingMinimumSpeed = std::min(walkingMinimumSpeed, std::hypot(walker.velocity.x, walker.velocity.y));
+      walkingMaxCorrection = std::max(walkingMaxCorrection, walker.position.z - before.z);
+      walkingAirborneTicks += (!walker.onGround || walker.movementMode != lg::MovementMode::Grounded) ? 1 : 0;
+    }
+    printTrajectory("brush_stairs_walk", walkingSamples);
+    failures += expect(
+      walkingAirborneTicks == 0 && walker.position.x > 2.0F && walker.position.z > 1.35F &&
+        walker.velocity.x > 7.5F && walkingMaxCorrection < 0.32F,
+      "brush-stair walk trace should preserve grounded forward stepping and bounded corrections"
+    );
+
+    lg::PlayerState bhopper = groundedPlayer();
+    bhopper.position.x = 0.1F;
+    runCommand(bhopper, forward, arena, tuning, 10);
+    std::vector<MovementSample> bhopSamples;
+    float bhopMinimumSpeed = std::numeric_limits<float>::max();
+    int bhopAirborneTicks = 0;
+    int acceptedJumps = 0;
+    for (int tick = 0; tick < 40; ++tick) {
+      forward.jump = bhopper.onGround;
+      forward.upMove = forward.jump ? 1.0F : 0.0F;
+      const bool wasGrounded = bhopper.onGround;
+      lg::simulateMovement(bhopper, forward, arena, tuning, lg::kFixedTickSeconds);
+      acceptedJumps += (wasGrounded && forward.jump && !bhopper.onGround) ? 1 : 0;
+      if (!forward.jump) {
+        bhopper.jumpHeld = false;
+      }
+      bhopAirborneTicks += !bhopper.onGround ? 1 : 0;
+      bhopMinimumSpeed = std::min(bhopMinimumSpeed, std::hypot(bhopper.velocity.x, bhopper.velocity.y));
+      recordSample(bhopSamples, bhopper);
+    }
+    printTrajectory("brush_stairs_bhop", bhopSamples);
+    failures += expect(
+      acceptedJumps >= 1 && bhopAirborneTicks >= 20 && bhopper.position.x > 2.6F &&
+        bhopMinimumSpeed > 6.0F && bhopper.velocity.x > 0.0F,
+      "brush-stair bhop trace should preserve airborne time, speed, and forward direction"
+    );
+
+    lg::PlayerState sideTraveler = groundedPlayer();
+    sideTraveler.position = {0.9F, -0.65F, 0.3F + sideTraveler.bounds.halfHeight};
+    lg::UserCommand side;
+    side.rightMove = -1.0F;
+    std::vector<MovementSample> sideSamples;
+    float maxSideXCorrection = 0.0F;
+    int sideAirborneTicks = 0;
+    for (int tick = 0; tick < 20; ++tick) {
+      const float beforeX = sideTraveler.position.x;
+      lg::simulateMovement(sideTraveler, side, arena, tuning, lg::kFixedTickSeconds);
+      maxSideXCorrection = std::max(maxSideXCorrection, std::fabs(sideTraveler.position.x - beforeX));
+      sideAirborneTicks += !sideTraveler.onGround ? 1 : 0;
+      recordSample(sideSamples, sideTraveler);
+    }
+    printTrajectory("brush_stair_side", sideSamples);
+    failures += expect(
+      sideAirborneTicks == 0 && sideTraveler.position.y > 0.2F && maxSideXCorrection < 0.002F &&
+        std::fabs(sideTraveler.velocity.x) < 0.01F,
+      "travel along a brush-stair side should remain grounded without lateral correction"
+    );
+  }
+
+  for (const float angle : {15.0F, 30.0F}) {
+    const float run = 4.0F;
+    const float highZ = angle == 15.0F ? 1.8F : 3.0F;
+    const lg::ArenaBrush ramp =
+      slopedTopBrush(-2.0F, 2.0F, highZ, highZ - riseForAngle(angle, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-1.5F, 0.0F, slopedTopZ(ramp, -1.5F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.forwardMove = 1.0F;
+    std::vector<MovementSample> samples;
+    float minimumSpeed = std::numeric_limits<float>::max();
+    float maxSupportError = 0.0F;
+    int airborneTicks = 0;
+    for (int tick = 0; tick < 24; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      const float radiusOffset = player.bounds.radius * std::fabs(ramp.faces[5].normal.x) / ramp.faces[5].normal.z;
+      const float expectedZ = slopedTopZ(ramp, player.position.x) + player.bounds.halfHeight + radiusOffset;
+      maxSupportError = std::max(maxSupportError, std::fabs(player.position.z - expectedZ));
+      minimumSpeed = std::min(minimumSpeed, std::hypot(player.velocity.x, player.velocity.y));
+      airborneTicks += (!player.onGround || player.movementMode != lg::MovementMode::Grounded) ? 1 : 0;
+      recordSample(samples, player);
+    }
+    printTrajectory(angle == 15.0F ? "ramp_down_15" : "ramp_down_30", samples);
+    failures += expect(
+      airborneTicks == 0 && player.position.x > -0.3F && player.velocity.x > 6.5F &&
+        minimumSpeed > 4.0F && maxSupportError < 0.04F,
+      angle == 15.0F
+        ? "15-degree downhill trace should preserve grounding, speed, direction, and plane support"
+        : "30-degree downhill trace should preserve grounding, speed, direction, and plane support"
+    );
+  }
+
+  {
+    const float run = 4.0F;
+    const lg::ArenaBrush ramp = slopedTopBrush(-2.0F, 2.0F, 3.0F, 3.0F - riseForAngle(30.0F, run));
+    const lg::Arena arena = arenaWithBrush(ramp);
+    lg::MovementTuning tuning;
+    tuning.groundAcceleration = 80.0F;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {-0.25F, -0.7F, slopedTopZ(ramp, -0.25F) + player.bounds.halfHeight};
+    lg::UserCommand command;
+    command.rightMove = -1.0F;
+    std::vector<MovementSample> samples;
+    float maxDownSlopeDrift = 0.0F;
+    int airborneTicks = 0;
+    const float startX = player.position.x;
+    for (int tick = 0; tick < 20; ++tick) {
+      lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+      maxDownSlopeDrift = std::max(maxDownSlopeDrift, std::fabs(player.position.x - startX));
+      airborneTicks += !player.onGround ? 1 : 0;
+      recordSample(samples, player);
+    }
+    printTrajectory("ramp_strafe_across", samples);
+    failures += expect(
+      airborneTicks == 0 && player.position.y > 0.15F && maxDownSlopeDrift < 0.02F &&
+        std::fabs(player.velocity.x) < 0.02F,
+      "cross-slope strafe trace should preserve grounding and camera-sideways direction"
+    );
+
+    lg::PlayerState jumper = groundedPlayer();
+    jumper.position = {-0.25F, 0.0F, slopedTopZ(ramp, -0.25F) + jumper.bounds.halfHeight};
+    jumper.velocity = {4.0F, 0.0F, 0.0F};
+    command = {};
+    command.forwardMove = 1.0F;
+    command.jump = true;
+    command.upMove = 1.0F;
+    std::vector<MovementSample> jumpSamples;
+    float minimumJumpSpeed = std::numeric_limits<float>::max();
+    int jumpAirborneTicks = 0;
+    for (int tick = 0; tick < 16; ++tick) {
+      lg::simulateMovement(jumper, command, arena, tuning, lg::kFixedTickSeconds);
+      command.jump = false;
+      command.upMove = 0.0F;
+      minimumJumpSpeed = std::min(minimumJumpSpeed, std::hypot(jumper.velocity.x, jumper.velocity.y));
+      jumpAirborneTicks += !jumper.onGround ? 1 : 0;
+      recordSample(jumpSamples, jumper);
+    }
+    printTrajectory("ramp_jump", jumpSamples);
+    failures += expect(
+      jumpAirborneTicks == 16 && jumper.position.x > 0.55F && jumper.position.z > 2.0F &&
+        minimumJumpSpeed > 3.8F && jumper.velocity.x > 0.0F,
+      "slope-jump trace should preserve airborne time, horizontal speed, and forward direction"
     );
   }
 

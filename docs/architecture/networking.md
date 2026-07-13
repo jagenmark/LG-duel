@@ -4,7 +4,7 @@ Networking is UDP-oriented and snapshot based. Packet structures live in `src/ne
 
 ## Packets And Protocol
 
-`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`51` at this writing), `kMaxPacketBytes`, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, and trailing bytes.
+`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`52` at this writing), `kMaxPacketBytes`, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, malformed sparse masks, and trailing bytes.
 
 Supported packet types are connect request/accept, command, command bundle, snapshot, combat statistics, ping/pong, disconnect, chat history, and chat-history acknowledgement. `CommandBundle` carries up to 12 compact commands (about 96 ms at 125 Hz), shares client identity and cumulative action edges once, and is trimmed from the oldest command when a rare control payload would exceed the 1,200-byte datagram budget. Attack, jump, dash, reset, ready, and McGuffin-throw edges are deduplicated server-side; attack and throw edges retain their original aim.
 
@@ -18,6 +18,8 @@ current player index. Per-recipient snapshot fields report whether the client
 currently owns a body. Consequently, releasing a body with `team spectator`
 does not disconnect the observer, and observer connections never enter the
 fixed gameplay arrays used for spawning, readiness, scoring, or objectives.
+Connection-authenticated spectator chat keeps the no-body sentinel and is
+deduplicated separately; it does not grant access to body-authoritative input.
 
 ## Command Ownership
 
@@ -39,9 +41,9 @@ Arena data is intentionally revision-gated. `ClientGame::receiveSnapshots()` ign
 
 Local prediction is in `src/client/Prediction.*`. The client pushes sent commands into a deque, simulates movement immediately with shared `simulateMovement()`, then removes acknowledged commands and replays the remaining commands when an authoritative snapshot arrives.
 
-Remote interpolation is in `src/client/Interpolation.*`. It buffers up to 64 snapshot frames and samples remote `PlayerState`s at a presentation clock behind the newest snapshot. Adaptive mode expands its target reserve from measured arrival jitter, removes excess reserve slowly, consumes buffered frames during a gap, and permits a tightly bounded visual extrapolation before freezing. Only player presentation is affected; authoritative simulation, lag-compensation tick bounds, and transient combat events remain server controlled.
+Remote interpolation is in `src/client/Interpolation.*`. It buffers up to 64 snapshot frames and samples remote `PlayerState`s at a presentation clock behind the newest snapshot. One controller owns startup reserve, presentation time, playback-rate correction, underrun holds, hard corrections, and presentation-aligned collision samples. Adaptive mode only supplies a bounded, smoothed target delay derived from accepted-newest snapshot jitter; duplicate and reordered arrivals do not affect that timing. A gap holds at the newest buffered state without extrapolation, and fresh covered history can trigger a discrete hard correction. Only player presentation is affected; authoritative simulation, lag-compensation tick bounds, and transient combat events remain server controlled.
 
-UDP client telemetry measures accepted packet bytes, snapshot rate and age, inter-arrival jitter, missing and reordered snapshot ticks, smoothed RTT variation, and the command acknowledgement window. `cl_netgraph 1` presents a compact right-side panel; `cl_netgraph 2` adds bandwidth, packet sizes, prediction and rewind diagnostics, plus a ten-second history graph. Red marks missing snapshots, yellow marks late/jittery delivery, purple marks an exhausted presentation window, orange marks outgoing loss, and blue marks prediction corrections.
+UDP client telemetry measures accepted packet bytes, snapshot rate and age, inter-arrival jitter, missing and reordered snapshot ticks, smoothed RTT variation, and the command acknowledgement window. `cl_netgraph 1` presents a compact right-side panel; `cl_netgraph 2` adds bandwidth, packet sizes, the interpolation controller state, prediction and rewind diagnostics, plus a ten-second history graph. Red marks missing snapshots, yellow marks late/jittery delivery, purple marks a discrete buffer underrun, green marks a hard correction, orange marks outgoing loss, and blue marks prediction corrections.
 
 Lag compensation is server-side. Commands include `viewedServerTick`; `ServerGame::tick()` clamps rewinds to `kMaxLagCompensationTicks` and traces hitscan/lightning against stored `HistoryFrame`s. Debug fields are included in `LightningGunResult`.
 

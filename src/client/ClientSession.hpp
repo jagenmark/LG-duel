@@ -68,6 +68,7 @@ public:
   [[nodiscard]] bool connected() const;
   [[nodiscard]] bool readyForPlay() const;
   [[nodiscard]] std::size_t playerIndex() const;
+  [[nodiscard]] std::size_t clientIndex() const;
   [[nodiscard]] bool spectator() const;
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;

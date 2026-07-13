@@ -61,7 +61,8 @@ int main() {
   failures += expect(
     spectate.mode == lg::DeathCameraMode::Teammate &&
       spectate.teammateIndex == 1 &&
-      lg::deathCameraSubjectIndex(spectate, 0) == 1,
+      lg::deathCameraSubjectIndex(spectate, 0) == 1 &&
+      lg::presentationSubjectIndex(spectate, 0, false) == 1,
     "a three-second respawn should spectate the first living teammate after the hold"
   );
   failures += expect(
@@ -76,12 +77,36 @@ int main() {
   );
   const lg::DeathCameraDecision observer =
     lg::spectatorCameraDecision(longDeath, 2);
+  longDeath.selectedWeapons[2] = lg::Weapon::Railgun;
   failures += expect(
     observer.mode == lg::DeathCameraMode::Teammate &&
       observer.teammateIndex == 2 && observer.desaturation == 0.0F &&
       lg::cycleSpectatorTarget(longDeath, 2, 1) == 3 &&
       lg::cycleSpectatorTarget(longDeath, 3, 1) == 1,
     "dedicated spectators should follow and cycle every living active player"
+  );
+  failures += expect(
+    lg::presentationSubjectWeapon(
+      longDeath,
+      observer,
+      lg::kNoAssignedPlayer,
+      true,
+      lg::Weapon::MachineGun
+    ) == lg::Weapon::Railgun,
+    "followed-player switch and ready presentation should use the target's selected weapon"
+  );
+  failures += expect(
+    lg::presentationSubjectIndex(observer, lg::kNoAssignedPlayer, true) == 2 &&
+      !lg::presentationSubjectIndex(
+        [] {
+          lg::DeathCameraDecision decision;
+          decision.mode = lg::DeathCameraMode::DeathPosition;
+          return decision;
+        }(),
+        lg::kNoAssignedPlayer,
+        true
+      ).has_value(),
+    "HUD and camera presentation should use a nonzero followed body and no body for an untargeted observer"
   );
 
   longDeath.players[1].health = 0;

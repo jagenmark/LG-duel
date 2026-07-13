@@ -581,6 +581,23 @@ void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
   return {quat[0] / length, quat[1] / length, quat[2] / length, quat[3] / length};
 }
 
+[[nodiscard]] std::array<float, 4> multiplyQuat(
+  const std::array<float, 4>& lhs,
+  const std::array<float, 4>& rhs
+) {
+  return normalizeQuat({
+    lhs[3] * rhs[0] + lhs[0] * rhs[3] + lhs[1] * rhs[2] - lhs[2] * rhs[1],
+    lhs[3] * rhs[1] - lhs[0] * rhs[2] + lhs[1] * rhs[3] + lhs[2] * rhs[0],
+    lhs[3] * rhs[2] + lhs[0] * rhs[1] - lhs[1] * rhs[0] + lhs[2] * rhs[3],
+    lhs[3] * rhs[3] - lhs[0] * rhs[0] - lhs[1] * rhs[1] - lhs[2] * rhs[2],
+  });
+}
+
+[[nodiscard]] std::array<float, 4> localXAxisRotation(float radians) {
+  const float half = radians * 0.5F;
+  return {std::sin(half), 0.0F, 0.0F, std::cos(half)};
+}
+
 [[nodiscard]] std::array<float, 4> slerp(
   std::array<float, 4> lhs,
   std::array<float, 4> rhs,
@@ -725,6 +742,8 @@ template <typename Value>
     result += transformPoint(jointMatrices[joint], vertex.position) * weight;
     totalWeight += weight;
   }
+  // Invalid or absent influences leave the bind-pose vertex intact rather than
+  // collapsing malformed optional skin data to the model origin.
   return totalWeight > 0.0F ? result : vertex.position;
 }
 
@@ -741,6 +760,8 @@ void resolveGlobalMatrix(
 
   const int parent = nodes[index].parent;
   if (parent >= 0 && static_cast<std::size_t>(parent) < localMatrices.size()) {
+    // Resolve parents recursively, then compose parent * local. Reversing this
+    // order applies child transforms in world space and breaks the joint hierarchy.
     resolveGlobalMatrix(
       static_cast<std::size_t>(parent),
       nodes,
@@ -1150,9 +1171,10 @@ bool GltfSkinnedModel::hasSkinnedPrimitives() const {
 }
 
 bool GltfSkinnedModel::appendBonePalette(
-  const std::vector<SkinnedModelPoseRequest>& poses,
+  std::span<const SkinnedModelPoseRequest> poses,
   std::vector<std::array<float, 16>>& out,
-  PoseScratch& scratch
+  PoseScratch& scratch,
+  float upperBodyAimPitchRadians
 ) const {
   if (!loaded_) {
     return false;
@@ -1169,6 +1191,8 @@ bool GltfSkinnedModel::appendBonePalette(
   }
 
   for (const SkinnedModelPoseRequest& pose : poses) {
+    // Pose requests are layered in caller order. Each weight blends from the
+    // result accumulated so far, allowing locomotion plus masked upper-body aim.
     const std::optional<std::size_t> found =
       animationIndex(animations_, pose.animationName);
     if (!found) {
@@ -1230,6 +1254,24 @@ bool GltfSkinnedModel::appendBonePalette(
     }
   }
 
+  const float aimPitch = std::clamp(upperBodyAimPitchRadians, -0.78539816F, 0.78539816F);
+  if (std::fabs(aimPitch) > 0.0001F) {
+    for (std::size_t index = 0; index < nodes_.size(); ++index) {
+      float share = 0.0F;
+      if (nodes_[index].name == "spine_01") share = 0.35F;
+      else if (nodes_[index].name == "spine_02") share = 0.40F;
+      else if (nodes_[index].name == "neck") share = 0.15F;
+      else if (nodes_[index].name == "head") share = 0.10F;
+      if (share <= 0.0F) continue;
+      // The duelist maps local +X to model-right. Negative local-X rotation
+      // pitches its +Z forward axis upward while preserving locomotion in legs.
+      scratch.sampledNodes[index].rotation = multiplyQuat(
+        scratch.sampledNodes[index].rotation,
+        localXAxisRotation(-aimPitch * share)
+      );
+    }
+  }
+
   scratch.localMatrices.clear();
   scratch.localMatrices.reserve(scratch.sampledNodes.size());
   for (const NodePose& node : scratch.sampledNodes) {
@@ -1256,6 +1298,8 @@ bool GltfSkinnedModel::appendBonePalette(
       : identityMatrix();
     Matrix4 jointMatrix = identityMatrix();
     if (jointNode >= 0 && static_cast<std::size_t>(jointNode) < scratch.globalMatrices.size()) {
+      // glTF palette entries are current joint global * inverse bind. Reversing
+      // this product moves joints through the wrong coordinate space.
       jointMatrix = multiply(
         scratch.globalMatrices[static_cast<std::size_t>(jointNode)],
         inverseBind
@@ -1265,6 +1309,8 @@ bool GltfSkinnedModel::appendBonePalette(
     for (float value : jointMatrix.values) {
       finite = finite && std::isfinite(value);
     }
+    // Contain malformed asset math per joint so one NaN cannot poison the whole
+    // palette, GPU vertex output, or frame.
     out.push_back(finite ? jointMatrix.values : identityMatrix().values);
   }
   return out.size() > firstOut;

@@ -3,6 +3,7 @@
 #include "sim/PlayerState.hpp"
 
 #include <cmath>
+#include <array>
 #include <iostream>
 #include <string_view>
 
@@ -26,6 +27,84 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
 int main() {
   int failures = 0;
   const lg::Arena arena;
+
+  {
+    lg::PlayerState mover;
+    mover.position = {0.0F, 0.0F, mover.bounds.halfHeight};
+    lg::PlayerCollisionProxy proxy;
+    proxy.playerIndex = 1;
+    proxy.position = {2.0F, 0.0F, mover.bounds.halfHeight};
+    proxy.bounds = mover.bounds;
+    const std::array proxies{proxy};
+    const lg::CollisionResult result = lg::slidePlayerMove(
+      arena, proxies, mover, 0, mover.position, {100.0F, 0.0F, 0.0F}, 0.1F
+    );
+    failures += expect(
+      result.position.x <= proxy.position.x - (mover.bounds.radius + proxy.bounds.radius) + 0.001F,
+      "swept player proxies should prevent high-speed tunnelling"
+    );
+    failures += expect(
+      lg::hasMovementHitFlag(result, lg::MovementHitFlags::Player),
+      "player sweep should report its collision source"
+    );
+    failures += expect(
+      !result.blocked || result.hitFlags != static_cast<std::uint8_t>(lg::MovementHitFlags::None),
+      "blocked player movement must identify its collision source"
+    );
+    failures += expect(
+      !lg::hasMovementHitFlag(result, lg::MovementHitFlags::Arena),
+      "player-only contact must not report an arena collision"
+    );
+  }
+
+  {
+    lg::PlayerState mover;
+    mover.position = {0.0F, 0.0F, mover.bounds.halfHeight};
+    lg::PlayerCollisionProxy proxy;
+    proxy.playerIndex = 1;
+    proxy.position = {0.7F, 0.0F, mover.bounds.halfHeight};
+    proxy.bounds = mover.bounds;
+    const std::array proxies{proxy};
+    const lg::CollisionResult result = lg::slidePlayerMove(
+      arena, proxies, mover, 0, mover.position, {1.0F, 4.0F, 0.0F}, 0.1F
+    );
+    failures += expect(
+      result.velocity.x <= 0.001F && result.velocity.y > 3.9F,
+      "player contact should clip inward speed and preserve tangential speed"
+    );
+  }
+
+  {
+    lg::Arena brushArena;
+    brushArena.min = {-20.0F, -20.0F, 0.0F};
+    brushArena.max = {20.0F, 20.0F, 20.0F};
+    brushArena.brushCount = 1;
+    lg::ArenaBrush& brush = brushArena.brushes[0];
+    brush.min = {-1.0F, -1.0F, 0.0F};
+    brush.max = {1.0F, 1.0F, 2.0F};
+    brush.faceCount = 6;
+    brush.faces[0] = {{1.0F, 0.0F, 0.0F}, 1.0F};
+    brush.faces[1] = {{-1.0F, 0.0F, 0.0F}, 1.0F};
+    brush.faces[2] = {{0.0F, 1.0F, 0.0F}, 1.0F};
+    brush.faces[3] = {{0.0F, -1.0F, 0.0F}, 1.0F};
+    brush.faces[4] = {{0.0F, 0.0F, 1.0F}, 2.0F};
+    brush.faces[5] = {{0.0F, 0.0F, -1.0F}, 0.0F};
+
+    lg::PlayerState player;
+    player.position = {1.2F, 0.0F, 1.0F};
+    const lg::CollisionResult result = lg::slidePlayerArenaMove(
+      brushArena, player, player.position, {0.0F, 1.0F, 0.0F}, 0.01F
+    );
+    failures += expect(result.blocked, "brush depenetration should report blocked movement");
+    failures += expect(
+      lg::hasMovementHitFlag(result, lg::MovementHitFlags::Arena),
+      "brush depenetration should report the arena collision source"
+    );
+    failures += expect(
+      !result.blocked || result.hitFlags != static_cast<std::uint8_t>(lg::MovementHitFlags::None),
+      "blocked brush movement must identify its collision source"
+    );
+  }
 
   {
     lg::PlayerState first;

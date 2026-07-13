@@ -21,6 +21,12 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_death_spectate_threshold", "Respawn delay in seconds at which a dead player switches to a living teammate after the camera hold.", 3.0F, archivedClient, 0.0F, 30.0F});
   console.registerCvar({"cl_death_camera_hold", "Seconds to retain the local death-position view before teammate spectating is allowed.", 0.5F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_death_desaturation", "Strength of the grey death-view treatment: 0 off, 1 full.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"cl_viewmodel_motion_scale", "Master scale for client-only first-person weapon motion; zero disables all motion.", 1.0F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_viewmodel_bob_scale", "Locomotion bob scale for the first-person weapon.", 0.65F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_viewmodel_sway_scale", "Mouse-driven sway scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_viewmodel_inertia_scale", "Movement acceleration and braking response scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_viewmodel_landing_scale", "Jump float and landing compression scale for the first-person weapon.", 0.65F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_camera_position_response", "Optional subtle translation-only camera response to viewmodel motion; zero disables it.", 0.0F, archivedClient, 0.0F, 0.15F});
   console.registerCvar({"cl_health_size", "Health HUD scale.", 2.0F, archivedClient, 0.5F, 20.0F});
   console.registerCvar({"cl_health_style", "Health HUD style: 0 bottom-left bar, 1 centered number, 2 crosshair number and ammo.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_speed_size", "Crosshair speed text scale.", 1.5F, archivedClient, 0.5F, 6.0F});
@@ -50,7 +56,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_interp_adaptive", "Adapt the interpolation buffer to measured snapshot jitter.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_min", "Minimum adaptive interpolation delay in seconds.", 0.016F, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"cl_interp_max", "Maximum adaptive interpolation delay in seconds.", 0.064F, archivedClient, 0.0F, 0.25F});
-  console.registerCvar({"cl_interp_extrapolate", "Maximum remote-player extrapolation through a snapshot gap in seconds.", 0.016F, archivedClient, 0.0F, 0.05F});
+  console.registerCvar({"cl_interp_extrapolate", "Legacy compatibility setting; buffered interpolation now holds the newest authoritative snapshot during underrun.", 0.016F, archivedClient, 0.0F, 0.05F});
   console.registerCvar({"cl_legacy_frame_delay", "Deprecated legacy SDL_Delay(1) frame yield; prefer r_maxfps for pacing.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_local_render_prediction", "Render-only local movement prediction between fixed ticks; does not affect physics or hitreg.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
@@ -149,7 +155,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 animated GLB.", 0, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 animated GLB.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
   console.registerCvar({"r_player_outline_style", "Player outline style: 0 legacy geometry fallback, 1 screen-space mask.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline_width", "Enemy outline width in final display pixels (1-6 px intended).", 3.0F, archivedClient, 0.0F, 6.0F});

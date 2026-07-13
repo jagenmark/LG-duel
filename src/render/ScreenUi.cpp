@@ -632,11 +632,12 @@ void addNetGraph(
   if (state.mode <= 0 || !state.telemetry.valid) return;
 
   const bool expanded = state.mode >= 2;
-  const float basePanelHeight = expanded ? 395.0F : 184.0F;
+  const float basePanelWidth = expanded ? 460.0F : 252.0F;
+  const float basePanelHeight = expanded ? 395.0F : 201.0F;
   const float availableWidth = std::max(1.0F, static_cast<float>(width) - 24.0F);
   const float availableHeight = std::max(1.0F, static_cast<float>(height) - 24.0F);
   const float fitScale = std::min(
-    availableWidth / 252.0F,
+    availableWidth / basePanelWidth,
     availableHeight / basePanelHeight
   );
   // The cvar controls the preferred size; tiny windows constrain it so the
@@ -645,7 +646,7 @@ void addNetGraph(
     0.5F,
     std::min(std::clamp(state.scale, 0.75F, 3.0F), fitScale)
   );
-  const float panelWidth = 252.0F * scale;
+  const float panelWidth = basePanelWidth * scale;
   const float panelHeight = basePanelHeight * scale;
   const float margin = 12.0F * scale;
   const float x = std::max(margin, static_cast<float>(width) - panelWidth - margin);
@@ -669,7 +670,7 @@ void addNetGraph(
     state.telemetry.outgoingLossPercent >= 2.0F ||
     state.telemetry.snapshotJitterMilliseconds >= 10.0F ||
     state.telemetry.snapshotAgeMilliseconds >=
-      std::max(40.0F, state.interpolationDelayMilliseconds * 2.0F);
+      std::max(40.0F, state.interpolationEffectiveDelayMilliseconds * 2.0F);
   addText(
     drawList,
     x + panelWidth - margin,
@@ -699,6 +700,20 @@ void addNetGraph(
     );
     rowY += rowHeight;
   };
+  const auto addTextMetric = [&](const char* name, const char* text,
+                                 RenderColor textColor) {
+    addText(drawList, x + margin, rowY, name, label, textScale);
+    addText(
+      drawList,
+      x + panelWidth - margin,
+      rowY,
+      text,
+      textColor,
+      textScale,
+      TextHorizontalAlignment::Right
+    );
+    rowY += rowHeight;
+  };
 
   addMetric("PING", "%.1f ms", state.telemetry.pingMilliseconds,
             networkQualityColor(state.telemetry.pingMilliseconds, 80.0F, 140.0F));
@@ -710,17 +725,35 @@ void addNetGraph(
             networkQualityColor(state.telemetry.outgoingLossPercent, 0.5F, 2.0F));
   addMetric("SNAP RATE", "%.0f /s", state.telemetry.snapshotRate,
             networkQualityColor(125.0F - state.telemetry.snapshotRate, 5.0F, 20.0F));
-  addMetric("INTERP", "%.0f ms", state.interpolationDelayMilliseconds, value);
+  addMetric(
+    "INTERP",
+    "%.0f ms",
+    state.interpolationEffectiveDelayMilliseconds,
+    value
+  );
+  char lead[48];
+  std::snprintf(
+    lead,
+    sizeof(lead),
+    "%.2f / %.2f tk",
+    state.interpolationBufferLeadTicks,
+    state.interpolationDesiredBufferLeadTicks
+  );
+  addTextMetric("LEAD/TARGET", lead, value);
   addMetric("PKT AGE", "%.1f ms", state.telemetry.snapshotAgeMilliseconds,
             networkQualityColor(
               state.telemetry.snapshotAgeMilliseconds,
-              std::max(16.0F, state.interpolationDelayMilliseconds),
-              std::max(40.0F, state.interpolationDelayMilliseconds * 2.0F)
+              std::max(16.0F, state.interpolationEffectiveDelayMilliseconds),
+              std::max(
+                40.0F,
+                state.interpolationEffectiveDelayMilliseconds * 2.0F
+              )
             ));
 
   if (!expanded) return;
 
   rowY += 3.0F * scale;
+  const float detailStartY = rowY;
   char detail[96];
   std::snprintf(
     detail,
@@ -734,13 +767,67 @@ void addNetGraph(
   std::snprintf(
     detail,
     sizeof(detail),
-    "BUFFER %.1f ms  STARVE TOTAL %llu%s",
-    state.interpolationBufferedMilliseconds,
-    static_cast<unsigned long long>(state.interpolationStarvations),
-    state.interpolationExtrapolating ? "  COAST" : ""
+    "ERROR %+.2f tk  RATE %.3fx",
+    state.interpolationTimelineErrorTicks,
+    state.interpolationPlaybackRate
   );
   addText(drawList, x + margin, rowY, detail, value, textScale);
   rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "DELAY %.1f ms  SNAPS %zu",
+    state.interpolationEffectiveDelayMilliseconds,
+    state.interpolationBufferedSnapshotCount
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "PLAY %s  UNDERRUN %s",
+    state.interpolationPlaybackStarted ? "ON" : "WAIT",
+    state.interpolationUnderrun ? "ACTIVE" : "CLEAR"
+  );
+  addText(
+    drawList,
+    x + margin,
+    rowY,
+    detail,
+    state.interpolationUnderrun
+      ? RenderColor{255, 112, 202, 255}
+      : value,
+    textScale
+  );
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "EVENTS UNDER %u  HARD %u",
+    state.interpolationUnderrunCount,
+    state.interpolationHardCorrectionCount
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "TICK P/N %.2f / %.0f",
+    state.interpolationPresentationTick,
+    state.interpolationNewestSnapshotTick
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "COLLISION TICK %u  %s",
+    state.interpolationSampleTick,
+    state.interpolationSampleEligible ? "VALID" : "NONE"
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  const float secondDetailX = x + 230.0F * scale;
+  rowY = detailStartY;
   std::snprintf(
     detail,
     sizeof(detail),
@@ -748,7 +835,7 @@ void addNetGraph(
     state.telemetry.lastSnapshotBytes,
     state.telemetry.lastCommandBytes
   );
-  addText(drawList, x + margin, rowY, detail, value, textScale);
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
   rowY += rowHeight;
   std::snprintf(
     detail,
@@ -757,7 +844,7 @@ void addNetGraph(
     state.pendingCommands,
     state.snapshotQueueDepth
   );
-  addText(drawList, x + margin, rowY, detail, value, textScale);
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
   rowY += rowHeight;
   std::snprintf(
     detail,
@@ -791,7 +878,14 @@ void addNetGraph(
       return maximum;
     }()
   );
-  addText(drawList, x + margin, rowY, detail, {112, 174, 255, 255}, textScale);
+  addText(
+    drawList,
+    secondDetailX,
+    rowY,
+    detail,
+    {112, 174, 255, 255},
+    textScale
+  );
   rowY += rowHeight;
   std::snprintf(
     detail,
@@ -800,7 +894,7 @@ void addNetGraph(
     state.requestedRewindTicks,
     state.appliedRewindTicks
   );
-  addText(drawList, x + margin, rowY, detail, value, textScale);
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
   rowY += rowHeight;
   std::snprintf(
     detail,
@@ -808,7 +902,7 @@ void addNetGraph(
     "RTT VAR %.1f ms",
     state.telemetry.pingVariationMilliseconds
   );
-  addText(drawList, x + margin, rowY, detail, value, textScale);
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
   rowY += rowHeight;
   std::snprintf(
     detail,
@@ -817,7 +911,7 @@ void addNetGraph(
     static_cast<unsigned long long>(state.telemetry.lateSnapshots),
     static_cast<unsigned long long>(state.telemetry.reorderedSnapshots)
   );
-  addText(drawList, x + margin, rowY, detail, value, textScale);
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
 
   const float graphHeight = 68.0F * scale;
   const float graphX = x + margin;
@@ -840,7 +934,6 @@ void addNetGraph(
     const NetworkTelemetrySample& sample = state.telemetry.history[index];
     const float columnX = graphX +
       static_cast<float>(firstColumn + index) * columnWidth;
-    const bool starved = sample.interpolationStarved;
     RenderColor color = {82, 213, 122, 230};
     float barHeight = std::clamp(
       (3.0F + sample.snapshotJitterMilliseconds * 2.0F) * scale,
@@ -850,8 +943,8 @@ void addNetGraph(
     if (sample.snapshotGaps > 0 || sample.incomingLossPercent >= 2.0F) {
       color = {244, 72, 72, 240};
       barHeight = graphHeight - 2.0F * scale;
-    } else if (starved) {
-      color = {190, 94, 246, 240};
+    } else if (sample.interpolationUnderrun) {
+      color = {255, 80, 190, 245};
       barHeight = std::max(barHeight, graphHeight * 0.72F);
     } else if (sample.lateSnapshots > 0 ||
                sample.snapshotJitterMilliseconds >= 4.0F) {
@@ -873,6 +966,18 @@ void addNetGraph(
         std::max(scale, columnWidth),
         3.0F * scale,
         {255, 143, 58, 255}
+      );
+    }
+    if (sample.interpolationHardCorrection) {
+      // Controller events are attached only to the sample where their counters
+      // advance, keeping a held timeline from painting every later column.
+      addRect(
+        drawList,
+        columnX,
+        graphY,
+        std::max(scale, columnWidth),
+        5.0F * scale,
+        {64, 220, 255, 255}
       );
     }
     constexpr float kVisibleCorrectionMinimum = 0.001F;
@@ -905,21 +1010,35 @@ void addNetGraph(
         correctionColor
       );
     }
+    if (sample.interpolationUnderrun) {
+      // Keep the edge visible even when loss owns the column's main severity
+      // color or a prediction-correction trace overlaps its lower portion.
+      addRect(
+        drawList,
+        columnX,
+        graphY + graphHeight * 0.46F,
+        std::max(scale, columnWidth),
+        3.0F * scale,
+        {255, 80, 190, 255}
+      );
+    }
   }
-  const float legendY = graphY + graphHeight + 5.0F * scale;
+  const float legendY = graphY + graphHeight + 3.0F * scale;
   float legendX = graphX;
-  const auto addLegendLabel = [&drawList, &legendX, legendY, scale](
+  const auto addLegendLabel = [&drawList, &legendX, scale](
+    float rowY,
     std::string_view text,
     RenderColor color
   ) {
-    addText(drawList, legendX, legendY, std::string{text}, color, scale);
+    addText(drawList, legendX, rowY, std::string{text}, color, scale);
     legendX += (static_cast<float>(text.size()) + 1.0F) * kGlyphSize * scale;
   };
-  addLegendLabel("10 SEC", {132, 148, 160, 255});
-  addLegendLabel("LOSS", {244, 72, 72, 255});
-  addLegendLabel("LATE", {246, 195, 68, 255});
-  addLegendLabel("STARVE", {190, 94, 246, 255});
-  addLegendLabel("CORR", {112, 120, 255, 255});
+  addLegendLabel(legendY, "10S", {132, 148, 160, 255});
+  addLegendLabel(legendY, "LOSS", {244, 72, 72, 255});
+  addLegendLabel(legendY, "LATE", {246, 195, 68, 255});
+  addLegendLabel(legendY, "UNDER", {255, 80, 190, 255});
+  addLegendLabel(legendY, "HARD", {64, 220, 255, 255});
+  addLegendLabel(legendY, "PRED", {112, 120, 255, 255});
 }
 
 [[nodiscard]] std::uint8_t blendChannel(
@@ -3087,10 +3206,9 @@ DrawList2D buildPerspectiveWeaponOverlay(
       );
   };
   const auto drawWeapon = [&](Weapon weapon, float yOffset) {
-    // FreezeGun has a real 3D viewmodel in the perspective pass. Keep beam
-    // effects in this overlay, but never cover that mesh with the legacy LG
-    // silhouette that used to stand in for both weapons.
-    if (weapon == Weapon::FreezeGun) {
+    // Authored 3D viewmodels render in the perspective pass. Keep weapon
+    // effects in this overlay, but never cover those meshes with legacy shapes.
+    if (weapon == Weapon::FreezeGun || weapon == Weapon::PlasmaGun) {
       return;
     }
     const float centerX = weaponCenterX;

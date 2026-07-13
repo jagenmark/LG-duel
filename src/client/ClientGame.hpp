@@ -81,11 +81,14 @@ public:
   [[nodiscard]] const MovementTuning& movementTuning() const;
   [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const;
-  [[nodiscard]] const InterpolationDiagnostics& interpolationDiagnostics() const;
+  [[nodiscard]] SnapshotInterpolation::Diagnostics interpolationDiagnostics() const;
+  [[nodiscard]] SnapshotInterpolation::PlayerCollisionSample
+    interpolationCollisionSample(std::size_t playerIndex) const;
   [[nodiscard]] bool hasConnectionError() const;
   [[nodiscard]] const std::string& connectionError() const;
   [[nodiscard]] const std::deque<ChatMessage>& chatHistory() const;
   [[nodiscard]] std::size_t localPlayerIndex() const;
+  [[nodiscard]] std::size_t localClientIndex() const;
   [[nodiscard]] bool spectator() const;
 
 private:

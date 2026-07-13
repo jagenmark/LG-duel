@@ -68,4 +68,18 @@ struct DeathCameraDecision {
   std::size_t localPlayerIndex
 );
 
+[[nodiscard]] std::optional<std::size_t> presentationSubjectIndex(
+  const DeathCameraDecision& decision,
+  std::size_t localPlayerIndex,
+  bool dedicatedSpectator
+);
+
+[[nodiscard]] Weapon presentationSubjectWeapon(
+  const ServerSnapshot& snapshot,
+  const DeathCameraDecision& decision,
+  std::size_t localPlayerIndex,
+  bool dedicatedSpectator,
+  Weapon fallback
+);
+
 } // namespace lg

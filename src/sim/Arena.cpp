@@ -68,6 +68,11 @@ bool pointInsideMcGuffinBase(Vec3 point, const ArenaMcGuffinBase& base) {
 }
 namespace {
 
+void markBlocked(CollisionResult& result, MovementHitFlags hitFlag) {
+  result.blocked = true;
+  result.hitFlags |= static_cast<std::uint8_t>(hitFlag);
+}
+
 void setGroundContact(CollisionResult& result, Vec3 normal) {
   result.groundPlane = true;
   result.groundNormal = normal;
@@ -326,7 +331,9 @@ void resolveBrushCollision(
     }
   }
 
-  if (separatingFace == nullptr || minimumPenetration < -kCollisionEpsilon) {
+  if (separatingFace == nullptr || minimumPenetration <= kCollisionEpsilon) {
+    // Boundary-only contact is not penetration. Tangent and outward moves must
+    // remain free instead of becoming blocked in the post-slide fallback.
     return;
   }
 
@@ -335,7 +342,7 @@ void resolveBrushCollision(
   if (velocityIntoBrush < 0.0F) {
     result.velocity -= separatingFace->normal * velocityIntoBrush;
   }
-  result.blocked = true;
+  markBlocked(result, MovementHitFlags::Arena);
   if (separatingFace->normal.z > 0.0F) {
     setGroundContact(result, separatingFace->normal);
   }
@@ -409,6 +416,7 @@ struct PlayerArenaTrace {
   float fraction = 1.0F;
   bool hit = false;
   bool startedSolid = false;
+  std::uint8_t hitFlags = 0;
 };
 
 [[nodiscard]] Vec3 axisNormal(int axis, float value) {
@@ -693,6 +701,96 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
   return trace;
 }
 
+[[nodiscard]] PlayerArenaTrace traceBrush(
+  const ArenaBrush& brush,
+  const PlayerState& player,
+  Vec3 start,
+  Vec3 end
+) {
+  constexpr float kCollisionEpsilon = 0.0001F;
+  const Vec3 delta = end - start;
+  float entryFraction = 0.0F;
+  float exitFraction = 1.0F;
+  Vec3 entryNormal = {};
+  bool hasEntry = false;
+  bool startsStrictlyEmbedded = brush.faceCount > 0;
+
+  for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+    const ArenaBrushFace& face = brush.faces[index];
+    const float expandedDistance =
+      face.distance +
+      planarRadiusForFace(face, player) +
+      (player.bounds.halfHeight * std::fabs(face.normal.z));
+    const float startOffset = dot(face.normal, start) - expandedDistance;
+    const float direction = dot(face.normal, delta);
+    startsStrictlyEmbedded =
+      startsStrictlyEmbedded && startOffset < -kCollisionEpsilon;
+
+    if (std::fabs(direction) <= kCollisionEpsilon) {
+      if (startOffset > kCollisionEpsilon) {
+        return {end, {}, 1.0F, false, false};
+      }
+      continue;
+    }
+
+    if (direction < 0.0F) {
+      if (startOffset >= -kCollisionEpsilon) {
+        // A tolerance contact only blocks when this move enters the brush.
+        // Clamp its slightly negative plane time to a stable zero-fraction hit.
+        const float faceEntry = std::max(0.0F, startOffset / -direction);
+        if (!hasEntry || faceEntry > entryFraction) {
+          entryFraction = faceEntry;
+          entryNormal = face.normal;
+          hasEntry = true;
+        }
+      }
+    } else {
+      if (startOffset > kCollisionEpsilon) {
+        return {end, {}, 1.0F, false, false};
+      }
+      exitFraction = std::min(exitFraction, -startOffset / direction);
+    }
+
+    if (entryFraction > exitFraction) {
+      return {end, {}, 1.0F, false, false};
+    }
+  }
+
+  if (startsStrictlyEmbedded) {
+    // Embedded starts are not a new hard-stop state. The existing brush
+    // depenetration pass remains responsible for recovering these positions.
+    return {end, {}, 1.0F, false, false};
+  }
+  if (!hasEntry || entryFraction > 1.0F || entryFraction > exitFraction) {
+    return {end, {}, 1.0F, false, false};
+  }
+
+  const float startFeetZ = start.z - player.bounds.halfHeight;
+  const float unraisedFeetZ = startFeetZ - kPlayerStepHeight;
+  const float stepHeight = brush.max.z - unraisedFeetZ;
+  const bool raisedHorizontalStepPass =
+    player.onGround &&
+    std::fabs(delta.z) <= kCollisionEpsilon &&
+    std::hypot(delta.x, delta.y) > kCollisionEpsilon &&
+    startFeetZ >= brush.max.z - kCollisionEpsilon &&
+    stepHeight > 0.0F &&
+    stepHeight <= kPlayerStepHeight + kCollisionEpsilon &&
+    std::fabs(entryNormal.z) <= kCollisionEpsilon;
+  if (raisedHorizontalStepPass) {
+    // The step path intentionally sweeps sideways with its feet raised by the
+    // maximum step height. A side-plane entry at the brush top must not block
+    // that pass; the following downward trace still validates the landing.
+    return {end, {}, 1.0F, false, false};
+  }
+  return {
+    start + (delta * entryFraction),
+    entryNormal,
+    entryFraction,
+    true,
+    false,
+  };
+}
+
 [[nodiscard]] PlayerArenaTrace traceWallsAndBounds(
   const Arena& arena,
   const PlayerState& player,
@@ -707,7 +805,144 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     keepEarliestTrace(traceBrushWalkableDrop(arena.brushes[index], player, start, end), trace);
   }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    // Submit the specialized drop first so equal-fraction ramp landings retain
+    // their walkable result instead of the general convex sweep's face choice.
+    keepEarliestTrace(traceBrush(arena.brushes[index], player, start, end), trace);
+  }
   trace.endPosition = trace.hit ? start + ((end - start) * trace.fraction) : end;
+  return trace;
+}
+
+[[nodiscard]] Vec3 playerFallbackNormal(
+  std::uint8_t moverIndex,
+  std::uint8_t proxyIndex
+) {
+  return moverIndex < proxyIndex ? Vec3{-1.0F, 0.0F, 0.0F} : Vec3{1.0F, 0.0F, 0.0F};
+}
+
+[[nodiscard]] bool overlapLinearInterval(
+  float offset,
+  float delta,
+  float extent,
+  float& entry,
+  float& exit
+) {
+  constexpr float kEpsilon = 0.000001F;
+  if (std::fabs(delta) <= kEpsilon) {
+    return std::fabs(offset) <= extent;
+  }
+  float first = (-extent - offset) / delta;
+  float second = (extent - offset) / delta;
+  if (first > second) {
+    std::swap(first, second);
+  }
+  entry = std::max(entry, first);
+  exit = std::min(exit, second);
+  return entry <= exit;
+}
+
+[[nodiscard]] PlayerArenaTrace tracePlayerProxy(
+  const PlayerState& mover,
+  std::uint8_t moverIndex,
+  const PlayerCollisionProxy& proxy,
+  Vec3 start,
+  Vec3 end
+) {
+  constexpr float kEpsilon = 0.0001F;
+  const Vec3 delta = end - start;
+  const float radius = mover.bounds.radius + proxy.bounds.radius;
+  const float height = mover.bounds.halfHeight + proxy.bounds.halfHeight;
+  const Vec3 planarStart = {start.x - proxy.position.x, start.y - proxy.position.y, 0.0F};
+  const Vec3 planarDelta = {delta.x, delta.y, 0.0F};
+
+  float planarEntry = 0.0F;
+  float planarExit = 1.0F;
+  const float a = dot(planarDelta, planarDelta);
+  const float b = 2.0F * dot(planarStart, planarDelta);
+  const float c = dot(planarStart, planarStart) - (radius * radius);
+  if (std::fabs(c) <= kEpsilon && dot(planarStart, planarDelta) >= 0.0F) {
+    // A merely touching mover that is separating must not remain constrained
+    // by a zero-fraction player contact.
+    return {end, {}, 1.0F, false, false, 0};
+  }
+  if (a <= kEpsilon * kEpsilon) {
+    if (c > 0.0F) {
+      return {end, {}, 1.0F, false, false, 0};
+    }
+  } else {
+    const float discriminant = (b * b) - (4.0F * a * c);
+    if (discriminant < 0.0F) {
+      return {end, {}, 1.0F, false, false, 0};
+    }
+    const float root = std::sqrt(std::max(0.0F, discriminant));
+    planarEntry = (-b - root) / (2.0F * a);
+    planarExit = (-b + root) / (2.0F * a);
+    if (c <= 0.0F) {
+      planarEntry = 0.0F;
+    }
+  }
+
+  float verticalEntry = 0.0F;
+  float verticalExit = 1.0F;
+  if (!overlapLinearInterval(
+        start.z - proxy.position.z,
+        delta.z,
+        height,
+        verticalEntry,
+        verticalExit
+      )) {
+    return {end, {}, 1.0F, false, false, 0};
+  }
+
+  const float entry = std::max({0.0F, planarEntry, verticalEntry});
+  const float exit = std::min({1.0F, planarExit, verticalExit});
+  if (entry > exit + kEpsilon) {
+    return {end, {}, 1.0F, false, false, 0};
+  }
+
+  Vec3 contact = start + (delta * entry);
+  Vec3 normal = {contact.x - proxy.position.x, contact.y - proxy.position.y, 0.0F};
+  const float distance = length(normal);
+  normal = distance > kEpsilon
+    ? normal / distance
+    : playerFallbackNormal(moverIndex, proxy.playerIndex);
+  const bool startedSolid =
+    c < -(kEpsilon * kEpsilon) &&
+    std::fabs(start.z - proxy.position.z) < height - kEpsilon;
+  if (startedSolid || distance < radius - kEpsilon) {
+    // Player bodies block only in the movement plane. Vertical overlap can
+    // therefore begin a deterministic sideways depenetration without making
+    // another player a floor or clipping the mover's vertical velocity.
+    contact += normal * std::max(0.0F, radius - distance + kEpsilon);
+  }
+  return {
+    contact,
+    normal,
+    entry,
+    true,
+    startedSolid,
+    static_cast<std::uint8_t>(MovementHitFlags::Player),
+  };
+}
+
+[[nodiscard]] PlayerArenaTrace traceCombinedMove(
+  const Arena& arena,
+  std::span<const PlayerCollisionProxy> proxies,
+  const PlayerState& player,
+  std::uint8_t playerIndex,
+  Vec3 start,
+  Vec3 end
+) {
+  PlayerArenaTrace trace = traceWallsAndBounds(arena, player, start, end);
+  if (trace.hit) {
+    trace.hitFlags |= static_cast<std::uint8_t>(MovementHitFlags::Arena);
+  }
+  for (const PlayerCollisionProxy& proxy : proxies) {
+    const PlayerArenaTrace candidate =
+      tracePlayerProxy(player, playerIndex, proxy, start, end);
+    keepEarliestTrace(candidate, trace);
+  }
   return trace;
 }
 
@@ -921,12 +1156,47 @@ bool addTouchingArenaPlanes(
   return true;
 }
 
+bool addTouchingPlayerPlanes(
+  std::span<const PlayerCollisionProxy> proxies,
+  const PlayerState& player,
+  std::uint8_t playerIndex,
+  Vec3 position,
+  Vec3 velocity,
+  std::array<Vec3, 5>& planes,
+  std::size_t& planeCount
+) {
+  constexpr float kContactEpsilon = 0.001F;
+  for (const PlayerCollisionProxy& proxy : proxies) {
+    if (
+      std::fabs(position.z - proxy.position.z) >
+      player.bounds.halfHeight + proxy.bounds.halfHeight + kContactEpsilon
+    ) {
+      continue;
+    }
+    Vec3 normal = {position.x - proxy.position.x, position.y - proxy.position.y, 0.0F};
+    const float distance = length(normal);
+    if (distance > player.bounds.radius + proxy.bounds.radius + kContactEpsilon) {
+      continue;
+    }
+    normal = distance > kContactEpsilon
+      ? normal / distance
+      : playerFallbackNormal(playerIndex, proxy.playerIndex);
+    if (dot(velocity, normal) < kContactEpsilon &&
+        !addCollisionPlane(normal, planes, planeCount)) {
+      return false;
+    }
+  }
+  return true;
+}
+
 [[nodiscard]] bool clipVelocityToPlanes(
   Vec3 velocity,
   const std::array<Vec3, 5>& planes,
   std::size_t planeCount,
   Vec3& clippedVelocity
 ) {
+  // Try sliding along each contact plane. Two conflicting planes constrain
+  // motion to their crease; a third plane blocking that crease stops movement.
   constexpr float kIntoPlaneEpsilon = 0.1F;
 
   for (std::size_t firstPlane = 0; firstPlane < planeCount; ++firstPlane) {
@@ -979,9 +1249,11 @@ bool addTouchingArenaPlanes(
 
 } // namespace
 
-CollisionResult slidePlayerArenaMove(
+CollisionResult slidePlayerMove(
   const Arena& arena,
+  std::span<const PlayerCollisionProxy> proxies,
   const PlayerState& player,
+  std::uint8_t playerIndex,
   Vec3 start,
   Vec3 velocity,
   float fixedDt
@@ -1014,17 +1286,25 @@ CollisionResult slidePlayerArenaMove(
 
   for (int bump = 0; bump < kMaxBumps; ++bump) {
     const Vec3 target = position + (result.velocity * timeLeft);
-    const PlayerArenaTrace trace = traceWallsAndBounds(arena, player, position, target);
+    const PlayerArenaTrace trace =
+      traceCombinedMove(arena, proxies, player, playerIndex, position, target);
     if (trace.startedSolid) {
+      if ((trace.hitFlags & static_cast<std::uint8_t>(MovementHitFlags::Arena)) != 0) {
+        result.position = position;
+        result.velocity.z = 0.0F;
+        result.onGround = false;
+        result.blocked = true;
+        result.hitFlags |= trace.hitFlags;
+        return result;
+      }
+      position = trace.endPosition;
       result.position = position;
-      result.velocity.z = 0.0F;
-      result.onGround = false;
-      result.blocked = true;
-      return result;
     }
     if (trace.fraction > kCollisionEpsilon) {
       position = trace.endPosition;
       result.position = position;
+      // Once the move makes measurable progress, old local contacts no longer
+      // constrain the next segment; keeping them can falsely pin corner exits.
       planeCount = 0;
     }
     if (!trace.hit) {
@@ -1034,6 +1314,7 @@ CollisionResult slidePlayerArenaMove(
     // Accumulate every plane touched by this move. Clipping against the full
     // plane set lets the player slide along corners and stop in acute wedges.
     result.blocked = true;
+    result.hitFlags |= trace.hitFlags;
     if (trace.normal.z > 0.0F) {
       setGroundContact(result, trace.normal);
     }
@@ -1051,12 +1332,27 @@ CollisionResult slidePlayerArenaMove(
       return result;
     }
     if (planeCount == previousPlaneCount && length(trace.normal) > kCollisionEpsilon) {
+      // Nudge away from a duplicate zero-fraction contact so the bump loop does
+      // not repeatedly hit the same numerically touching plane without progress.
       result.velocity += trace.normal * kCollisionEpsilon;
     }
     if (!addTouchingArenaPlanes(arena, player, position, result.velocity, planes, planeCount)) {
       result.velocity = {};
       result.position = position;
       result.blocked = true;
+      return result;
+    }
+    if (!addTouchingPlayerPlanes(
+          proxies,
+          player,
+          playerIndex,
+          position,
+          result.velocity,
+          planes,
+          planeCount
+        )) {
+      result.velocity = {};
+      result.position = position;
       return result;
     }
 
@@ -1069,6 +1365,8 @@ CollisionResult slidePlayerArenaMove(
     }
     result.velocity = newVelocity;
     if (planeCount > 1 && dot(result.velocity, originalVelocity) <= 0.0F) {
+      // Corner clipping may not reverse the requested move; stopping here avoids
+      // unstable rebounds and oscillation inside acute wedges.
       result.velocity = {};
       result.position = position;
       result.blocked = true;
@@ -1100,6 +1398,46 @@ CollisionResult slidePlayerArenaMove(
     }
   }
   return result;
+}
+
+CollisionResult slidePlayerArenaMove(
+  const Arena& arena,
+  const PlayerState& player,
+  Vec3 start,
+  Vec3 velocity,
+  float fixedDt
+) {
+  return slidePlayerMove(arena, {}, player, 0, start, velocity, fixedDt);
+}
+
+bool isPlayerCollisionEligible(
+  bool connected,
+  bool bot,
+  bool participating,
+  const PlayerState& player
+) {
+  return (connected || bot) && participating && player.health > 0;
+}
+
+bool hasMovementHitFlag(const CollisionResult& result, MovementHitFlags flag) {
+  return (result.hitFlags & static_cast<std::uint8_t>(flag)) != 0;
+}
+
+bool playerPositionOverlapsProxy(
+  const PlayerState& player,
+  Vec3 position,
+  const PlayerCollisionProxy& proxy
+) {
+  if (
+    std::fabs(position.z - proxy.position.z) >=
+    player.bounds.halfHeight + proxy.bounds.halfHeight
+  ) {
+    return false;
+  }
+  const float dx = position.x - proxy.position.x;
+  const float dy = position.y - proxy.position.y;
+  const float radius = player.bounds.radius + proxy.bounds.radius;
+  return (dx * dx) + (dy * dy) < radius * radius;
 }
 
 CollisionResult resolvePlayerArenaCollision(

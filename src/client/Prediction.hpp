@@ -20,13 +20,16 @@ struct PredictionDiagnostics {
 class Prediction {
 public:
   void initialize(const PlayerState& authoritativeState);
+  void reset();
   void predict(
     const UserCommand& command,
     const Arena& arena,
     const MovementTuning& tuning,
     const IcePoolArray& icePools,
     const IcePoolTuning& icePoolTuning,
-    float fixedDt
+    float fixedDt,
+    const PlayerCollisionProxySet& collisionProxies,
+    std::uint8_t localPlayerIndex
   );
   void predict(
     const UserCommand& command,
@@ -58,8 +61,14 @@ public:
   [[nodiscard]] const PredictionDiagnostics& diagnostics() const;
 
 private:
+  struct PendingPrediction {
+    UserCommand command = {};
+    PlayerCollisionProxySet collisionProxies = {};
+    std::uint8_t localPlayerIndex = 0;
+  };
+
   PlayerState player_ = {};
-  std::deque<UserCommand> pendingCommands_;
+  std::deque<PendingPrediction> pendingCommands_;
   PredictionDiagnostics diagnostics_ = {};
   bool initialized_ = false;
 };

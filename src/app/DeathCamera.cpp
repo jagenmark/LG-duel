@@ -144,4 +144,34 @@ std::size_t deathCameraSubjectIndex(
     : localPlayerIndex;
 }
 
+std::optional<std::size_t> presentationSubjectIndex(
+  const DeathCameraDecision& decision,
+  std::size_t localPlayerIndex,
+  bool dedicatedSpectator
+) {
+  if (decision.mode == DeathCameraMode::Teammate &&
+      decision.teammateIndex.has_value()) {
+    return decision.teammateIndex;
+  }
+  if (dedicatedSpectator || localPlayerIndex >= kDuelPlayerCount) {
+    return std::nullopt;
+  }
+  return localPlayerIndex;
+}
+
+Weapon presentationSubjectWeapon(
+  const ServerSnapshot& snapshot,
+  const DeathCameraDecision& decision,
+  std::size_t localPlayerIndex,
+  bool dedicatedSpectator,
+  Weapon fallback
+) {
+  const std::optional<std::size_t> subject = presentationSubjectIndex(
+    decision, localPlayerIndex, dedicatedSpectator
+  );
+  return subject.has_value() && *subject < kDuelPlayerCount
+    ? snapshot.selectedWeapons[*subject]
+    : fallback;
+}
+
 } // namespace lg
