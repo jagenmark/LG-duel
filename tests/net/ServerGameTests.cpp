@@ -1571,19 +1571,22 @@ int main() {
     transport.sendCommand(chat);
     server.tick(lg::kFixedTickSeconds);
 
-    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    latestSnapshot(transport);
+    lg::ChatHistoryChunk chatChunk;
     failures += expect(
-      snapshot.chatSequence == 1 &&
-        snapshot.chatPlayerIndex == 1 &&
-        snapshot.chatMessage == "lycka till åäöÅÄÖ",
-      "server should relay accepted Swedish player chat"
+      transport.receiveChatHistory(chatChunk) &&
+        chatChunk.messageCount == 1U &&
+        chatChunk.messages[0].sequence == 1U &&
+        chatChunk.messages[0].playerIndex == 1U &&
+        chatChunk.messages[0].message == "lycka till åäöÅÄÖ",
+      "server should publish accepted Swedish player chat history"
     );
 
     transport.sendCommand(chat);
     server.tick(lg::kFixedTickSeconds);
     failures += expect(
-      latestSnapshot(transport).chatSequence == 1,
-      "duplicate commands should not relay chat twice"
+      (latestSnapshot(transport), !transport.receiveChatHistory(chatChunk)),
+      "duplicate commands should not publish chat twice"
     );
   }
 

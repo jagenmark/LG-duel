@@ -4,6 +4,7 @@
 #include "shared/Sequence.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -11,8 +12,15 @@
 
 namespace lg {
 
-ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
-  : transport_(transport), localPlayerIndex_(localPlayerIndex) {}
+ClientGame::ClientGame(
+  NetTransport& transport,
+  std::size_t localPlayerIndex,
+  std::size_t commandClientIndex
+) : transport_(transport),
+    localPlayerIndex_(localPlayerIndex < kDuelPlayerCount ? localPlayerIndex : 0U),
+    commandClientIndex_(commandClientIndex == kNoAssignedPlayer
+      ? localPlayerIndex_ : commandClientIndex),
+    spectator_(localPlayerIndex == kNoAssignedPlayer) {}
 
 void ClientGame::sendCommand(
   const UserCommand& command,
@@ -46,7 +54,10 @@ void ClientGame::sendCommand(
     BotCommandType botCommand,
     std::int32_t botCommandValue,
     std::int32_t botCommandMinIntervalMs,
-    std::int32_t botCommandMaxIntervalMs
+    std::int32_t botCommandMaxIntervalMs,
+    bool requestMcGuffinThrow,
+    bool wantsScoreboardStats,
+    bool requestSpectator
   ) {
   if (requestMovementTuning) {
     // Predict with the requested tuning immediately, but keep it pending until
@@ -56,52 +67,92 @@ void ClientGame::sendCommand(
     pendingMovementTuningCommand_ = command.sequence;
     hasPendingMovementTuning_ = true;
   }
-  transport_.sendCommand(
-    CommandPacket{
-      static_cast<std::uint8_t>(localPlayerIndex_),
-      command,
-      requestReset,
-      toggleReady,
-      // Lag-compensated traces must rewind to what the player was shown, not
-      // necessarily the newest snapshot already buffered by the client.
-      usePresentedServerTick ? interpolation_.presentationServerTick() : snapshot_.serverTick,
-      requestMovementTuning,
-      movementTuning_,
-      playerSizeScaleXY,
-      playerSizeScaleZ,
-      lightningKnockback,
-      lightningFireHz,
-      rocketKnockback,
-      weaponDamage,
-      weaponAmmo,
-      vampirism,
-      std::move(chatMessage),
-      std::move(playerName),
-      std::move(mapName),
-      selfDamagePercent,
-      healthAmount,
-      botDodgeEnabled,
-      botDodgeMinIntervalMs,
-      botDodgeMaxIntervalMs,
-      requestGameMode,
-      requestedGameMode,
-      requestTeam,
-      requestedTeam,
-      weaponSwitchingMode,
-      0,
-      knockbackTimeMs,
-      botCommand,
-      botCommandValue,
-      botCommandMinIntervalMs,
-      botCommandMaxIntervalMs,
+  const auto advanceEdge = [](std::uint32_t& edge) {
+    ++edge;
+    if (edge == 0U) {
+      edge = 1U;
     }
-  );
-  if (requestReset && prediction_.initialized()) {
+  };
+  if (command.jump && !previousJumpHeld_) {
+    advanceEdge(actionEdges_.jump);
+  }
+  if (command.dash && !previousDashHeld_) {
+    advanceEdge(actionEdges_.dash);
+  }
+  if (command.attack && !previousAttackHeld_) {
+    advanceEdge(actionEdges_.attack);
+    actionEdges_.attackYawRadians = command.viewYawRadians;
+    actionEdges_.attackPitchRadians = command.viewPitchRadians;
+    actionEdges_.attackViewedServerTick = usePresentedServerTick
+      ? interpolation_.presentationServerTick()
+      : snapshot_.serverTick;
+    actionEdges_.attackWeapon = command.weapon;
+  }
+  previousAttackHeld_ = command.attack;
+  previousJumpHeld_ = command.jump;
+  previousDashHeld_ = command.dash;
+  if (requestReset) {
+    advanceEdge(actionEdges_.reset);
+  }
+  if (toggleReady) {
+    advanceEdge(actionEdges_.ready);
+  }
+  if (requestMcGuffinThrow) {
+    advanceEdge(actionEdges_.mcguffinThrow);
+    actionEdges_.mcguffinThrowYawRadians = command.viewYawRadians;
+    actionEdges_.mcguffinThrowPitchRadians = command.viewPitchRadians;
+  }
+  CommandPacket packet;
+  packet.playerIndex = spectator_
+    ? kNoAssignedPlayer
+    : static_cast<std::uint8_t>(localPlayerIndex_);
+  packet.command = command;
+  packet.requestReset = requestReset;
+  packet.toggleReady = toggleReady;
+  // Lag-compensated traces must rewind to what the player was shown, not
+  // necessarily the newest snapshot already buffered by the client.
+  packet.viewedServerTick = usePresentedServerTick
+    ? interpolation_.presentationServerTick()
+    : snapshot_.serverTick;
+  packet.requestMovementTuning = requestMovementTuning;
+  packet.movementTuning = movementTuning_;
+  packet.playerSizeScaleXY = playerSizeScaleXY;
+  packet.playerSizeScaleZ = playerSizeScaleZ;
+  packet.lightningKnockback = lightningKnockback;
+  packet.lightningFireHz = lightningFireHz;
+  packet.rocketKnockback = rocketKnockback;
+  packet.weaponDamage = weaponDamage;
+  packet.weaponAmmo = weaponAmmo;
+  packet.vampirism = vampirism;
+  packet.chatMessage = std::move(chatMessage);
+  packet.playerName = std::move(playerName);
+  packet.mapName = std::move(mapName);
+  packet.selfDamagePercent = selfDamagePercent;
+  packet.healthAmount = healthAmount;
+  packet.botDodgeEnabled = botDodgeEnabled;
+  packet.botDodgeMinIntervalMs = botDodgeMinIntervalMs;
+  packet.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
+  packet.requestGameMode = requestGameMode;
+  packet.requestedGameMode = requestedGameMode;
+  packet.requestTeam = requestTeam;
+  packet.requestedTeam = requestedTeam;
+  packet.weaponSwitchingMode = weaponSwitchingMode;
+  packet.knockbackTimeMs = knockbackTimeMs;
+  packet.botCommand = botCommand;
+  packet.botCommandValue = botCommandValue;
+  packet.botCommandMinIntervalMs = botCommandMinIntervalMs;
+  packet.botCommandMaxIntervalMs = botCommandMaxIntervalMs;
+  packet.requestMcGuffinThrow = requestMcGuffinThrow;
+  packet.wantsScoreboardStats = wantsScoreboardStats;
+  packet.requestSpectator = requestSpectator;
+  packet.actionEdges = actionEdges_;
+  transport_.sendCommand(packet);
+  if (!spectator_ && requestReset && prediction_.initialized()) {
     // Reset replaces the local movement timeline; commands sampled against the
     // previous match state must never be replayed into the reset state.
     prediction_.initialize(prediction_.player());
   }
-  if (!requestReset) {
+  if (!spectator_ && !requestReset) {
     // Reset replaces authoritative match state, so predicting the accompanying
     // movement command would create state the server deliberately discards.
     PlayerCollisionProxySet collisionProxies;
@@ -153,7 +204,18 @@ void ClientGame::receiveSnapshots() {
         received.map.mapName != map_.mapName ||
         received.map.contentHash != map_.contentHash;
       if (mapChanged) {
-        LocalMapLoadResult loaded = loadAndVerifyLocalMap(received.map);
+        LocalMapLoadResult loaded;
+        const Arena builtInArena = makeDefaultServerArena();
+        if (
+          received.map.mapName == "custom" &&
+          received.map.contentHash == hashArena(builtInArena)
+        ) {
+          loaded.arena = builtInArena;
+          loaded.descriptor = received.map;
+          loaded.ok = true;
+        } else {
+          loaded = loadAndVerifyLocalMap(received.map);
+        }
         if (!loaded.ok) {
           connectionError_ = loaded.error;
           continue;
@@ -165,19 +227,34 @@ void ClientGame::receiveSnapshots() {
         // old remote poses before accepting any state from the new map.
         interpolation_.reset();
       }
-      // Thirty-two world units in one accepted snapshot interval is beyond normal
-      // movement and knockback here, so treat it as a teleport-like replacement
-      // of the local timeline instead of replaying commands sampled before it.
-      const bool localTimelineDiscontinuity =
-        mapChanged ||
+      const bool wasSpectator = spectator_;
+      const std::size_t previousPlayerIndex = localPlayerIndex_;
+      if (received.hasLocalClientState) {
+        spectator_ = received.localSpectator;
+        if (spectator_ && !wasSpectator) {
+          // Releasing a body also releases its prediction history. A later
+          // assignment starts from the new authoritative respawn state.
+          prediction_.reset();
+          hasPendingMovementTuning_ = false;
+        } else if (!spectator_) {
+          localPlayerIndex_ = received.localPlayerIndex;
+        }
+      }
+      // A newly assigned body, respawn, map replacement or teleport starts a
+      // fresh prediction timeline. Never compare or replay a spectator's
+      // connection slot as though it were a player-body index.
+      const bool localTimelineDiscontinuity = !spectator_ && (
+        mapChanged || wasSpectator || previousPlayerIndex != localPlayerIndex_ ||
         (hasSnapshot_ && snapshot_.players[localPlayerIndex_].health <= 0 &&
          received.players[localPlayerIndex_].health > 0) ||
         (hasSnapshot_ && length(
           received.players[localPlayerIndex_].position -
           snapshot_.players[localPlayerIndex_].position
-        ) > 32.0F);
+        ) > 32.0F)
+      );
       snapshot_ = received;
       if (
+        !spectator_ &&
         hasPendingMovementTuning_ &&
         received.hasAcknowledgedCommand[localPlayerIndex_] &&
         isSequenceAcknowledged(
@@ -198,24 +275,58 @@ void ClientGame::receiveSnapshots() {
       // Buffer remote presentation first, then rebuild the local predicted state
       // from the same authoritative snapshot and its unacknowledged commands.
       interpolation_.push(received);
-      if (localTimelineDiscontinuity) {
-        prediction_.initialize(received.players[localPlayerIndex_]);
+      if (!spectator_) {
+        if (localTimelineDiscontinuity) {
+          prediction_.initialize(received.players[localPlayerIndex_]);
+        }
+        prediction_.reconcile(
+          received.players[localPlayerIndex_],
+          received.hasAcknowledgedCommand[localPlayerIndex_],
+          received.acknowledgedCommand[localPlayerIndex_],
+          arena_,
+          movementTuning_,
+          received.icePools,
+          icePoolTuning_,
+          kFixedTickSeconds
+        );
       }
-      prediction_.reconcile(
-        received.players[localPlayerIndex_],
-        received.hasAcknowledgedCommand[localPlayerIndex_],
-        received.acknowledgedCommand[localPlayerIndex_],
-        arena_,
-        movementTuning_,
-        received.icePools,
-        icePoolTuning_,
-        kFixedTickSeconds
-      );
       diagnostics.snapshotApplyMilliseconds +=
         std::chrono::duration<float, std::milli>(
           std::chrono::steady_clock::now() - applyStart
         ).count();
       ++diagnostics.snapshotsApplied;
+    }
+  }
+  ChatHistoryChunk chatChunk;
+  while (transport_.receiveChatHistory(chatChunk)) {
+    while (
+      !chatHistory_.empty() &&
+      isSequenceNewer(
+        chatChunk.oldestAvailableSequence,
+        chatHistory_.front().sequence
+      )
+    ) {
+      chatHistory_.pop_front();
+    }
+    for (std::size_t index = 0; index < chatChunk.messageCount; ++index) {
+      const ChatMessage& message = chatChunk.messages[index];
+      const bool alreadyPresent = std::any_of(
+        chatHistory_.begin(),
+        chatHistory_.end(),
+        [&message](const ChatMessage& existing) {
+          return existing.sequence == message.sequence;
+        }
+      );
+      if (
+        !alreadyPresent &&
+        (chatHistory_.empty() ||
+         isSequenceNewer(message.sequence, chatHistory_.back().sequence))
+      ) {
+        chatHistory_.push_back(message);
+      }
+    }
+    while (chatHistory_.size() > kChatHistoryCapacity) {
+      chatHistory_.pop_front();
     }
   }
   const SnapshotDiagnostics transportDiagnostics =
@@ -229,11 +340,30 @@ void ClientGame::receiveSnapshots() {
   snapshotDiagnostics_ = diagnostics;
 }
 
+const std::deque<ChatMessage>& ClientGame::chatHistory() const {
+  return chatHistory_;
+}
+
 void ClientGame::advanceInterpolation(
   float elapsedSeconds,
-  float interpolationDelaySeconds
+  float interpolationDelaySeconds,
+  bool adaptive,
+  float minimumDelaySeconds,
+  float maximumDelaySeconds,
+  float maximumExtrapolationSeconds
 ) {
-  interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
+  if (adaptive) {
+    interpolation_.advanceAdaptive(
+      elapsedSeconds,
+      interpolationDelaySeconds,
+      transport_.networkTelemetry().snapshotJitterMilliseconds / 1000.0F,
+      minimumDelaySeconds,
+      maximumDelaySeconds,
+      maximumExtrapolationSeconds
+    );
+  } else {
+    interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
+  }
 }
 
 bool ClientGame::hasSnapshot() const {
@@ -245,7 +375,7 @@ const ServerSnapshot& ClientGame::snapshot() const {
 }
 
 bool ClientGame::hasAcknowledgedCommand() const {
-  return snapshot_.hasAcknowledgedCommand[localPlayerIndex_];
+  return !spectator_ && snapshot_.hasAcknowledgedCommand[localPlayerIndex_];
 }
 
 bool ClientGame::hasPendingMovementTuning() const {
@@ -253,11 +383,23 @@ bool ClientGame::hasPendingMovementTuning() const {
 }
 
 std::uint32_t ClientGame::lastAcknowledgedCommand() const {
-  return snapshot_.acknowledgedCommand[localPlayerIndex_];
+  return spectator_ ? 0U : snapshot_.acknowledgedCommand[localPlayerIndex_];
 }
 
 const PlayerState& ClientGame::predictedPlayer() const {
   return prediction_.player();
+}
+
+std::size_t ClientGame::localPlayerIndex() const {
+  return localPlayerIndex_;
+}
+
+std::size_t ClientGame::localClientIndex() const {
+  return commandClientIndex_;
+}
+
+bool ClientGame::spectator() const {
+  return spectator_;
 }
 
 PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex) const {
@@ -286,6 +428,13 @@ SnapshotDiagnostics ClientGame::snapshotDiagnostics() const {
 
 SnapshotInterpolation::Diagnostics ClientGame::interpolationDiagnostics() const {
   return interpolation_.diagnostics();
+}
+
+SnapshotInterpolation::PlayerCollisionSample
+ClientGame::interpolationCollisionSample(std::size_t playerIndex) const {
+  return playerIndex < kDuelPlayerCount
+    ? interpolation_.collisionSample(playerIndex)
+    : SnapshotInterpolation::PlayerCollisionSample{};
 }
 
 bool ClientGame::hasConnectionError() const {

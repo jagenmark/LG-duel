@@ -22,6 +22,7 @@ struct ConsoleTextLayout {
   float consoleHeight = 0.0F;
   float characterWidth = 0.0F;
   float lineHeight = 0.0F;
+  std::size_t maxScrollRows = 0;
 };
 
 [[nodiscard]] ConsoleTextLayout buildConsoleTextLayout(

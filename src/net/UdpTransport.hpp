@@ -26,6 +26,8 @@ public:
   [[nodiscard]] bool receiveCommand(CommandPacket& packet) override;
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  void publishChatHistory(const ChatHistory& history) override;
+  [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
 
   [[nodiscard]] std::uint16_t localPort() const;
   [[nodiscard]] std::size_t connectedClientCount() const;
@@ -56,11 +58,16 @@ public:
   [[nodiscard]] bool receiveCommand(CommandPacket& packet) override;
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  void publishChatHistory(const ChatHistory& history) override;
+  [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
   [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const override;
+  [[nodiscard]] NetworkTelemetry networkTelemetry() const override;
 
   [[nodiscard]] bool connected() const;
   [[nodiscard]] bool timedOut() const;
+  [[nodiscard]] std::uint8_t clientIndex() const;
   [[nodiscard]] std::uint8_t playerIndex() const;
+  [[nodiscard]] bool spectator() const;
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;
   [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfig() const;

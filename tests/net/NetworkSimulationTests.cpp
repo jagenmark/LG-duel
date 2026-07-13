@@ -1,4 +1,5 @@
 #include "client/ClientGame.hpp"
+#include "net/LoopbackTransport.hpp"
 #include "net/SimulatedTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
@@ -39,6 +40,33 @@ int main() {
     transport.advanceTicks();
     failures += expect(transport.receiveCommand(received), "latency should release command at deadline");
     failures += expect(received.command.sequence == 5, "delayed command should preserve payload");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::CommandPacket recoveredEdge;
+    recoveredEdge.command.sequence = 1;
+    recoveredEdge.actionEdges.jump = 1;
+    transport.sendCommand(recoveredEdge);
+    lg::CommandPacket newerRelease = recoveredEdge;
+    newerRelease.command.sequence = 2;
+    transport.sendCommand(newerRelease);
+    server.tick(lg::kFixedTickSeconds);
+    lg::ServerSnapshot snapshot;
+    lg::ServerSnapshot received;
+    bool receivedSnapshot = false;
+    while (transport.receiveSnapshot(received)) {
+      snapshot = received;
+      receivedSnapshot = true;
+    }
+    failures += expect(
+      receivedSnapshot &&
+        snapshot.hasAcknowledgedCommand[0] &&
+        snapshot.acknowledgedCommand[0] == 2U &&
+        snapshot.players[0].velocity.z > 0.0F,
+      "a recovered jump edge should execute once even when a newer release shares its bundle"
+    );
   }
 
   {

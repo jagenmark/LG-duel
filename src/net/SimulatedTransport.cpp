@@ -47,6 +47,39 @@ bool SimulatedTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   return receiveWire(snapshots_, wire) && decodeServerSnapshot(wire, snapshot);
 }
 
+void SimulatedTransport::publishChatHistory(const ChatHistory& history) {
+  if (history.messageCount == 0U) {
+    return;
+  }
+  const std::uint32_t latest = history.messages[history.messageCount - 1U].sequence;
+  if (latest == publishedChatSequence_) {
+    return;
+  }
+  for (std::size_t first = 0; first < history.messageCount;
+       first += kChatHistoryChunkCapacity) {
+    ChatHistoryChunk chunk;
+    chunk.oldestAvailableSequence = history.messages[0].sequence;
+    chunk.latestSequence = latest;
+    chunk.messageCount = static_cast<std::uint8_t>(std::min(
+      kChatHistoryChunkCapacity,
+      static_cast<std::size_t>(history.messageCount) - first
+    ));
+    for (std::size_t index = 0; index < chunk.messageCount; ++index) {
+      chunk.messages[index] = history.messages[first + index];
+    }
+    WirePacket wire;
+    if (encodeChatHistoryChunk(chunk, wire)) {
+      schedule(wire, config_.snapshots, chatHistory_);
+    }
+  }
+  publishedChatSequence_ = latest;
+}
+
+bool SimulatedTransport::receiveChatHistory(ChatHistoryChunk& chunk) {
+  WirePacket wire;
+  return receiveWire(chatHistory_, wire) && decodeChatHistoryChunk(wire, chunk);
+}
+
 void SimulatedTransport::advanceTicks(std::uint32_t ticks) {
   currentTick_ += ticks;
 }

@@ -65,9 +65,11 @@ void ClientSession::update() {
   }
 
   if (transport_->connected() && !game_) {
-    // Construct ClientGame only after slot assignment. Its prediction and
-    // acknowledgement arrays are indexed by this server-issued player index.
-    game_ = std::make_unique<ClientGame>(*transport_, transport_->playerIndex());
+    // The connection slot remains valid for spectators; only the separately
+    // assigned player-body slot may index prediction and collision state.
+    game_ = std::make_unique<ClientGame>(
+      *transport_, transport_->playerIndex(), transport_->clientIndex()
+    );
     state_ = ClientConnectionState::Connected;
     statusMessage_ = "Connected to " + lastHost_ + ':' + std::to_string(lastPort_);
   }
@@ -125,7 +127,10 @@ void ClientSession::sendCommand(
     BotCommandType botCommand,
     std::int32_t botCommandValue,
     std::int32_t botCommandMinIntervalMs,
-    std::int32_t botCommandMaxIntervalMs
+    std::int32_t botCommandMaxIntervalMs,
+    bool requestMcGuffinThrow,
+    bool wantsScoreboardStats,
+    bool requestSpectator
   ) {
   if (game_) {
     game_->sendCommand(
@@ -160,7 +165,10 @@ void ClientSession::sendCommand(
         botCommand,
         botCommandValue,
         botCommandMinIntervalMs,
-        botCommandMaxIntervalMs
+        botCommandMaxIntervalMs,
+        requestMcGuffinThrow,
+        wantsScoreboardStats,
+        requestSpectator
       );
   }
 }
@@ -178,7 +186,17 @@ bool ClientSession::readyForPlay() const {
 }
 
 std::size_t ClientSession::playerIndex() const {
-  return transport_ ? transport_->playerIndex() : 0U;
+  return game_ ? game_->localPlayerIndex() : 0U;
+}
+
+std::size_t ClientSession::clientIndex() const {
+  return game_
+    ? game_->localClientIndex()
+    : transport_ ? transport_->clientIndex() : kNoAssignedPlayer;
+}
+
+bool ClientSession::spectator() const {
+  return game_ && game_->spectator();
 }
 
 float ClientSession::pingMilliseconds() const {
@@ -191,6 +209,10 @@ ClientNetworkSimulationStats ClientSession::networkSimulationStats() const {
 
 ClientNetworkSimulationConfig ClientSession::networkSimulationConfig() const {
   return transport_ ? transport_->networkSimulationConfig() : ClientNetworkSimulationConfig{};
+}
+
+NetworkTelemetry ClientSession::networkTelemetry() const {
+  return transport_ ? transport_->networkTelemetry() : NetworkTelemetry{};
 }
 
 std::string_view ClientSession::host() const {

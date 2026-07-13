@@ -134,6 +134,8 @@ void SnapshotInterpolation::reset() {
   playbackStarted_ = false;
   bufferUnderrun_ = false;
   hardCorrectionActive_ = false;
+  adaptiveDelayInitialized_ = false;
+  effectiveDelaySeconds_ = kDefaultSnapshotInterpolationDelaySeconds;
 }
 
 void SnapshotInterpolation::advance(
@@ -167,8 +169,9 @@ void SnapshotInterpolation::advanceTo(
     0.0,
     std::chrono::duration<double>(now - newestSnapshotAcceptedAt_).count()
   );
+  effectiveDelaySeconds_ = std::max(0.0F, interpolationDelaySeconds);
   const double delayTicks =
-    static_cast<double>(std::max(0.0F, interpolationDelaySeconds)) *
+    static_cast<double>(effectiveDelaySeconds_) *
     static_cast<double>(kFixedTickRate);
   const double estimatedServerTick =
     newestTick + arrivalAgeSeconds * static_cast<double>(kFixedTickRate);
@@ -186,9 +189,19 @@ void SnapshotInterpolation::advanceTo(
   }
 
   const double timelineError = desiredPresentationTick_ - presentationTick_;
-  if (timelineError > kHardCorrectionThresholdTicks && !hardCorrectionActive_) {
+  const bool desiredTickBuffered =
+    desiredPresentationTick_ <= newestTick + kStartupTickEpsilon;
+  if (!desiredTickBuffered) {
+    hardCorrectionActive_ = false;
+  }
+  if (
+    timelineError > kHardCorrectionThresholdTicks &&
+    desiredTickBuffered &&
+    !hardCorrectionActive_
+  ) {
     // Large forward discontinuities are exceptional (for example a long local
-    // stall). Ordinary snapshot cadence and isolated loss remain rate-corrected.
+    // stall). Never latch a correction while the target is beyond buffered
+    // state: underrun recovery must correct as soon as fresh history arrives.
     presentationTick_ = std::min(desiredPresentationTick_, newestTick);
     ++hardCorrectionCount_;
     hardCorrectionActive_ = true;
@@ -222,6 +235,59 @@ void SnapshotInterpolation::advanceTo(
     // no longer contribute to a sample and only increase search and memory cost.
     snapshots_.erase(snapshots_.begin());
   }
+}
+
+void SnapshotInterpolation::advanceAdaptive(
+  float elapsedSeconds,
+  float baseDelaySeconds,
+  float observedJitterSeconds,
+  float minimumDelaySeconds,
+  float maximumDelaySeconds,
+  float maximumExtrapolationSeconds
+) {
+  advanceAdaptiveTo(
+    Clock::now(), elapsedSeconds, baseDelaySeconds, observedJitterSeconds,
+    minimumDelaySeconds, maximumDelaySeconds, maximumExtrapolationSeconds
+  );
+}
+
+void SnapshotInterpolation::advanceAdaptiveTo(
+  Clock::time_point now,
+  float elapsedSeconds,
+  float baseDelaySeconds,
+  float observedJitterSeconds,
+  float minimumDelaySeconds,
+  float maximumDelaySeconds,
+  float maximumExtrapolationSeconds
+) {
+  const float elapsed = std::max(0.0F, elapsedSeconds);
+  const float minimumDelay = std::max(0.0F, minimumDelaySeconds);
+  const float maximumDelay = std::max(minimumDelay, maximumDelaySeconds);
+  // Two jitter deviations cover ordinary arrival variation without making the
+  // presentation clock chase every individual packet.
+  const float desiredDelay = std::clamp(
+    std::max(baseDelaySeconds, minimumDelay) +
+      (2.0F * std::max(0.0F, observedJitterSeconds)),
+    minimumDelay,
+    maximumDelay
+  );
+  if (!adaptiveDelayInitialized_) {
+    effectiveDelaySeconds_ = desiredDelay;
+    adaptiveDelayInitialized_ = true;
+  } else if (desiredDelay > effectiveDelaySeconds_) {
+    // Add safety margin promptly when conditions worsen; remove it slowly so
+    // short calm periods cannot make the buffer oscillate.
+    effectiveDelaySeconds_ = desiredDelay;
+  } else {
+    effectiveDelaySeconds_ = std::max(
+      desiredDelay,
+      effectiveDelaySeconds_ - (elapsed * 0.004F)
+    );
+  }
+  // Adaptive mode contributes only the smoothed delay target. The shared
+  // controller remains the sole owner of startup, playback and corrections.
+  (void)maximumExtrapolationSeconds;
+  advanceTo(now, effectiveDelaySeconds_);
 }
 
 bool SnapshotInterpolation::initialized() const {
@@ -276,6 +342,8 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     return snapshots_.front().players[playerIndex];
   }
   if (current == snapshots_.end()) {
+    // Buffer underrun is owned by the controller, which holds presentation at
+    // the newest authoritative pose until a future sample arrives.
     return snapshots_.back().players[playerIndex];
   }
 
@@ -292,6 +360,9 @@ SnapshotInterpolation::Diagnostics SnapshotInterpolation::diagnostics() const {
   Diagnostics result;
   result.presentationTick = presentationTick_;
   result.playbackRate = playbackRate_;
+  result.effectiveDelaySeconds = effectiveDelaySeconds_;
+  result.desiredBufferLeadTicks =
+    static_cast<double>(effectiveDelaySeconds_) * static_cast<double>(kFixedTickRate);
   result.underrunCount = underrunCount_;
   result.hardCorrectionCount = hardCorrectionCount_;
   result.bufferedSnapshotCount = snapshots_.size();
@@ -301,6 +372,8 @@ SnapshotInterpolation::Diagnostics SnapshotInterpolation::diagnostics() const {
     result.newestSnapshotTick = static_cast<double>(snapshots_.back().serverTick);
     result.bufferLeadTicks = result.newestSnapshotTick - presentationTick_;
     result.timelineErrorTicks = desiredPresentationTick_ - presentationTick_;
+    result.desiredBufferLeadTicks =
+      result.bufferLeadTicks - result.timelineErrorTicks;
   }
   return result;
 }

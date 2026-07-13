@@ -23,10 +23,12 @@ public:
   using Clock = std::chrono::steady_clock;
   struct Diagnostics {
     double bufferLeadTicks = 0.0;
+    double desiredBufferLeadTicks = 0.0;
     double timelineErrorTicks = 0.0;
     double presentationTick = 0.0;
     double newestSnapshotTick = 0.0;
     float playbackRate = 0.0F;
+    float effectiveDelaySeconds = kDefaultSnapshotInterpolationDelaySeconds;
     std::uint32_t underrunCount = 0;
     std::uint32_t hardCorrectionCount = 0;
     std::size_t bufferedSnapshotCount = 0;
@@ -55,6 +57,23 @@ public:
     float elapsedSeconds,
     float interpolationDelaySeconds = kDefaultSnapshotInterpolationDelaySeconds
   );
+  void advanceAdaptive(
+    float elapsedSeconds,
+    float baseDelaySeconds,
+    float observedJitterSeconds,
+    float minimumDelaySeconds,
+    float maximumDelaySeconds,
+    float maximumExtrapolationSeconds
+  );
+  void advanceAdaptiveTo(
+    Clock::time_point now,
+    float elapsedSeconds,
+    float baseDelaySeconds,
+    float observedJitterSeconds,
+    float minimumDelaySeconds,
+    float maximumDelaySeconds,
+    float maximumExtrapolationSeconds
+  );
   void advanceTo(
     Clock::time_point now,
     float interpolationDelaySeconds = kDefaultSnapshotInterpolationDelaySeconds
@@ -80,6 +99,8 @@ private:
   bool playbackStarted_ = false;
   bool bufferUnderrun_ = false;
   bool hardCorrectionActive_ = false;
+  bool adaptiveDelayInitialized_ = false;
+  float effectiveDelaySeconds_ = kDefaultSnapshotInterpolationDelaySeconds;
 };
 
 } // namespace lg

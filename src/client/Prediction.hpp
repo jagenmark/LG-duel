@@ -20,6 +20,7 @@ struct PredictionDiagnostics {
 class Prediction {
 public:
   void initialize(const PlayerState& authoritativeState);
+  void reset();
   void predict(
     const UserCommand& command,
     const Arena& arena,

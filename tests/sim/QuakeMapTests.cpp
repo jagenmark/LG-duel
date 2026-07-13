@@ -635,5 +635,98 @@ int main() {
     failures += expect(result.ok, "sample dev_cuboids.map should load");
   }
 
+  {
+    lg::ArenaLoadResult result = lg::loadArenaFromFile("maps/mcg.map");
+    if (!result.ok) result = lg::loadArenaFromFile("../maps/mcg.map");
+    if (!result.ok) result = lg::loadArenaFromFile("../../maps/mcg.map");
+    failures += expect(result.ok && lg::hasValidMcGuffinLayout(result.arena),
+      "mcg.map should ship with a complete playable McGuffin layout");
+    failures += expect(
+      result.ok && result.arena.teamSpawnCount >= 8,
+      "mcg.map should provide multiple physical candidates for both bases"
+    );
+    if (result.ok) {
+      for (std::size_t index = 0; index < result.arena.teamSpawnCount; ++index) {
+        const lg::ArenaTeamSpawn& spawn = result.arena.teamSpawns[index];
+        lg::PlayerState probe;
+        probe.position = spawn.position;
+        probe.position.z += probe.bounds.halfHeight;
+        failures += expect(
+          !lg::playerPositionSolid(result.arena, probe, probe.position) &&
+            !lg::pointInsideMcGuffinBase(
+              spawn.position, result.arena.mcguffin.redBase
+            ) &&
+            !lg::pointInsideMcGuffinBase(
+              spawn.position, result.arena.mcguffin.blueBase
+            ),
+          "authored McGuffin spawn candidates should be non-solid and outside base triggers"
+        );
+      }
+    }
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-64, -64, -8, 64, 64, 0)) +
+      "{\n\"classname\" \"info_mcguffin_spawn\"\n\"origin\" \"0 0 32\"\n}\n"
+      "{\n\"classname\" \"info_player_team\"\n\"spawn_group\" \"red_base\"\n\"origin\" \"-32 0 16\"\n\"angle\" \"90\"\n}\n"
+      "{\n\"classname\" \"info_player_team\"\n\"spawn_group\" \"blue_base\"\n\"origin\" \"32 0 16\"\n\"angle\" \"180\"\n}\n"
+      "{\n\"classname\" \"trigger_mcguffin_base\"\n\"team\" \"red\"\n" +
+      cuboidBrush(-64, -16, 0, -40, 16, 48, "common/trigger") + "}\n"
+      "{\n\"classname\" \"trigger_mcguffin_base\"\n\"team\" \"blue\"\n" +
+      cuboidBrush(40, -16, 0, 64, 16, 48, "common/trigger") + "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "valid McGuffin entities should convert");
+    failures += expect(
+      result.ok && lg::hasValidMcGuffinLayout(result.arena),
+      "McGuffin layout should require neutral spawn, bases, and team spawns"
+    );
+    failures += expect(
+      result.ok && result.arena.mcguffin.redBase.max.x < 0.0F &&
+        result.arena.mcguffin.blueBase.min.x > 0.0F,
+      "McGuffin base trigger bounds should use map scale"
+    );
+    failures += expect(
+      result.ok && result.arena.teamSpawnCount == 2 &&
+        result.arena.teamSpawns[0].group == lg::ArenaSpawnGroup::RedBase &&
+        nearlyEqual(result.arena.teamSpawns[0].yawRadians, 1.5707963F) &&
+        result.arena.teamSpawns[1].group == lg::ArenaSpawnGroup::BlueBase,
+      "physical spawn groups and authored facing should survive map conversion"
+    );
+  }
+
+  {
+    const std::string invalidSpawnGroup =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n\"classname\" \"info_player_team\"\n\"spawn_group\" \"middle\"\n"
+      "\"origin\" \"0 0 8\"\n}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(invalidSpawnGroup);
+    failures += expect(
+      !result.ok && result.error.find("spawn_group") != std::string::npos,
+      "invalid physical spawn groups should be rejected clearly"
+    );
+  }
+
+  {
+    const std::string duplicate =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n\"classname\" \"info_mcguffin_spawn\"\n\"origin\" \"0 0 32\"\n}\n"
+      "{\n\"classname\" \"info_mcguffin_spawn\"\n\"origin\" \"8 0 32\"\n}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(duplicate);
+    failures += expect(!result.ok, "duplicate neutral McGuffin spawns should be rejected");
+  }
+
+  {
+    const std::string invalidBase =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n\"classname\" \"trigger_mcguffin_base\"\n\"team\" \"green\"\n" +
+      cuboidBrush(-8, -8, 0, 8, 8, 16, "common/trigger") + "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(invalidBase);
+    failures += expect(
+      !result.ok && result.error.find("team") != std::string::npos,
+      "invalid McGuffin base teams should be rejected clearly"
+    );
+  }
+
   return failures == 0 ? 0 : 1;
 }

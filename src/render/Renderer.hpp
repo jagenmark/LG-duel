@@ -5,9 +5,11 @@
 
 #include "app/HudPresentation.hpp"
 #include "render/DrawList2D.hpp"
+#include "render/ConsoleCat.hpp"
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
 #include "net/NetProtocol.hpp"
+#include "net/NetTransport.hpp"
 #include "sim/PlayerState.hpp"
 
 #include <chrono>
@@ -239,6 +241,8 @@ struct ConsoleRenderState {
   bool hasSelection = false;
   std::size_t selectionAnchor = 0;
   std::size_t selectionFocus = 0;
+  std::size_t scrollRows = 0;
+  ConsoleCatPose cat;
 };
 
 struct HudRenderState {
@@ -248,6 +252,32 @@ struct HudRenderState {
     bool active = false;
     bool changed = false;
     bool command = false;
+  };
+
+  struct NetGraphState {
+    int mode = 0;
+    float scale = 1.75F;
+    NetworkTelemetry telemetry = {};
+    float interpolationEffectiveDelayMilliseconds = 0.0F;
+    double interpolationBufferLeadTicks = 0.0;
+    double interpolationDesiredBufferLeadTicks = 0.0;
+    double interpolationTimelineErrorTicks = 0.0;
+    double interpolationPresentationTick = 0.0;
+    double interpolationNewestSnapshotTick = 0.0;
+    float interpolationPlaybackRate = 0.0F;
+    std::size_t interpolationBufferedSnapshotCount = 0;
+    std::uint32_t interpolationSampleTick = 0;
+    std::uint32_t interpolationUnderrunCount = 0;
+    std::uint32_t interpolationHardCorrectionCount = 0;
+    bool interpolationPlaybackStarted = false;
+    bool interpolationUnderrun = false;
+    bool interpolationSampleEligible = false;
+    std::size_t pendingCommands = 0;
+    std::uint32_t correctionCount = 0;
+    float lastCorrectionDistance = 0.0F;
+    std::size_t snapshotQueueDepth = 0;
+    std::uint32_t requestedRewindTicks = 0;
+    std::uint32_t appliedRewindTicks = 0;
   };
 
   std::vector<std::string> topLeftLines;
@@ -271,6 +301,7 @@ struct HudRenderState {
   float centerOffsetY = 0.0F;
   std::string countdownText;
   float countdownPulse = 0.0F;
+  float deathDesaturation = 0.0F;
   struct ChatLine {
     std::uint8_t playerIndex = 0;
     std::string message;
@@ -283,6 +314,8 @@ struct HudRenderState {
   std::size_t chatSelectionAnchor = 0;
   std::size_t chatSelectionFocus = 0;
   bool chatInputOpen = false;
+  bool chatHistoryExpanded = false;
+  std::size_t chatScrollRows = 0;
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;
   std::vector<Team> scoreboardLineTeams;
@@ -294,6 +327,7 @@ struct HudRenderState {
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
   DamageNumberPresentation damageNumbers;
+  NetGraphState netGraph;
 };
 
 struct RemotePlayerView {

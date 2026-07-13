@@ -26,6 +26,14 @@ void Prediction::initialize(const PlayerState& authoritativeState) {
   initialized_ = true;
 }
 
+void Prediction::reset() {
+  player_ = {};
+  player_.health = 0;
+  pendingCommands_.clear();
+  diagnostics_ = {};
+  initialized_ = false;
+}
+
 void Prediction::predict(
   const UserCommand& command,
   const Arena& arena,
@@ -40,13 +48,16 @@ void Prediction::predict(
     return;
   }
 
-  pendingCommands_.push_back({command, collisionProxies, localPlayerIndex});
   if (player_.health > 0) {
+    pendingCommands_.push_back({command, collisionProxies, localPlayerIndex});
     simulateMovement(
       player_, command, arena, tuning, icePools, icePoolTuning, fixedDt,
       kDefaultJumpPadCooldownTicks, collisionProxies.span(), localPlayerIndex
     );
   } else {
+    // Dead input may turn the camera but must not survive to be replayed after
+    // the server assigns a new authoritative respawn body.
+    pendingCommands_.clear();
     applyDeadCommand(player_, command);
   }
   diagnostics_.pendingCommandCount = pendingCommands_.size();
@@ -80,6 +91,17 @@ void Prediction::reconcile(
   }
 
   const PlayerState previousPrediction = player_;
+  if (authoritativeState.health <= 0) {
+    player_ = authoritativeState;
+    pendingCommands_.clear();
+    diagnostics_.lastCorrectionDistance =
+      length(player_.position - previousPrediction.position);
+    if (diagnostics_.lastCorrectionDistance > 0.0001F) {
+      ++diagnostics_.correctionCount;
+    }
+    diagnostics_.pendingCommandCount = 0;
+    return;
+  }
   if (hasAcknowledgedCommand) {
     // Drop commands through the wrap-safe server acknowledgement, then rebuild
     // prediction from authority by replaying only inputs the server has not seen.

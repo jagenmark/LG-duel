@@ -31,6 +31,45 @@ constexpr std::size_t kHeaderBytes = 12;
   return type <= BotCommandType::Dodge;
 }
 
+[[nodiscard]] bool isValidMcGuffinStateValue(McGuffinState state) {
+  return state <= McGuffinState::InstalledBlue;
+}
+
+[[nodiscard]] bool isValidMcGuffinEventType(McGuffinEventType event) {
+  return event <= McGuffinEventType::Throw;
+}
+
+[[nodiscard]] bool isValidMcGuffinSnapshot(const McGuffinSnapshot& objective) {
+  if (!isValidMcGuffinStateValue(objective.state) ||
+      !isValidTeam(objective.associatedTeam) ||
+      !isValidTeam(objective.carrierTeam) ||
+      !isValidMcGuffinEventType(objective.lastEvent) ||
+      !std::isfinite(objective.position.x) ||
+      !std::isfinite(objective.position.y) ||
+      !std::isfinite(objective.position.z) ||
+      !std::isfinite(objective.velocity.x) ||
+      !std::isfinite(objective.velocity.y) ||
+      !std::isfinite(objective.velocity.z)) {
+    return false;
+  }
+  if (objective.state == McGuffinState::Carried) {
+    return objective.carrierIndex < kDuelPlayerCount &&
+      isPlayableTeam(objective.carrierTeam);
+  }
+  if (objective.carrierIndex != kNoMcGuffinCarrier ||
+      objective.carrierTeam != Team::None) {
+    return false;
+  }
+  if (objective.state == McGuffinState::InstalledRed) {
+    return objective.associatedTeam == Team::Red;
+  }
+  if (objective.state == McGuffinState::InstalledBlue) {
+    return objective.associatedTeam == Team::Blue;
+  }
+  return objective.state != McGuffinState::NeutralSpawn ||
+    objective.associatedTeam == Team::None;
+}
+
 [[nodiscard]] bool isValidBotCommandRequest(
   BotCommandType type,
   std::int32_t value,
@@ -265,9 +304,54 @@ bool readHeader(Reader& reader, PacketType expectedType, std::size_t wireSize) {
     payloadBytes == wireSize - kHeaderBytes;
 }
 
+bool writeActionEdgeState(Writer& writer, const ActionEdgeState& edges) {
+  return std::isfinite(edges.mcguffinThrowYawRadians) &&
+    std::isfinite(edges.mcguffinThrowPitchRadians) &&
+    std::isfinite(edges.attackYawRadians) &&
+    std::isfinite(edges.attackPitchRadians) &&
+    static_cast<std::uint8_t>(edges.attackWeapon) <=
+      static_cast<std::uint8_t>(kLastWeapon) &&
+    writer.writeU32(edges.jump) &&
+    writer.writeU32(edges.dash) &&
+    writer.writeU32(edges.reset) &&
+    writer.writeU32(edges.ready) &&
+    writer.writeU32(edges.mcguffinThrow) &&
+    writer.writeFloat(edges.mcguffinThrowYawRadians) &&
+    writer.writeFloat(edges.mcguffinThrowPitchRadians) &&
+    writer.writeU32(edges.attack) &&
+    writer.writeFloat(edges.attackYawRadians) &&
+    writer.writeFloat(edges.attackPitchRadians) &&
+    writer.writeU32(edges.attackViewedServerTick) &&
+    writer.writeU8(static_cast<std::uint8_t>(edges.attackWeapon));
+}
+
+bool readActionEdgeState(Reader& reader, ActionEdgeState& edges) {
+  std::uint8_t attackWeapon = 0;
+  return reader.readU32(edges.jump) &&
+    reader.readU32(edges.dash) &&
+    reader.readU32(edges.reset) &&
+    reader.readU32(edges.ready) &&
+    reader.readU32(edges.mcguffinThrow) &&
+    reader.readFloat(edges.mcguffinThrowYawRadians) &&
+    reader.readFloat(edges.mcguffinThrowPitchRadians) &&
+    reader.readU32(edges.attack) &&
+    reader.readFloat(edges.attackYawRadians) &&
+    reader.readFloat(edges.attackPitchRadians) &&
+    reader.readU32(edges.attackViewedServerTick) &&
+    reader.readU8(attackWeapon) &&
+    std::isfinite(edges.mcguffinThrowYawRadians) &&
+    std::isfinite(edges.mcguffinThrowPitchRadians) &&
+    std::isfinite(edges.attackYawRadians) &&
+    std::isfinite(edges.attackPitchRadians) &&
+    attackWeapon <= static_cast<std::uint8_t>(kLastWeapon) &&
+    ((edges.attackWeapon = static_cast<Weapon>(attackWeapon)), true);
+}
+
 bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
   const UserCommand& command = packet.command;
-  return packet.playerIndex < kDuelPlayerCount &&
+  return packet.clientIndex < kMaxNetworkClients &&
+    (packet.playerIndex < kDuelPlayerCount ||
+     packet.playerIndex == kNoAssignedPlayer) &&
     isValidGameMode(packet.requestedGameMode) &&
     isValidTeam(packet.requestedTeam) &&
     isValidWeaponSwitchingMode(packet.weaponSwitchingMode) &&
@@ -283,6 +367,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
       packet.weaponAmmo.spawnAmmo.end(),
       [](std::int32_t ammo) { return ammo >= 0 && ammo <= 999; }
     ) &&
+    writer.writeU8(packet.clientIndex) &&
     writer.writeU8(packet.playerIndex) &&
     writer.writeU32(packet.clientNonce) &&
     writer.writeU32(command.sequence) &&
@@ -357,11 +442,16 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
       writer.writeU8(static_cast<std::uint8_t>(packet.requestedGameMode)) &&
       writer.writeBool(packet.requestTeam) &&
       writer.writeU8(static_cast<std::uint8_t>(packet.requestedTeam)) &&
+      writer.writeBool(packet.requestSpectator) &&
       writer.writeU8(static_cast<std::uint8_t>(packet.weaponSwitchingMode)) &&
       writer.writeU8(static_cast<std::uint8_t>(packet.botCommand)) &&
       writer.writeI32(packet.botCommandValue) &&
       writer.writeI32(packet.botCommandMinIntervalMs) &&
-      writer.writeI32(packet.botCommandMaxIntervalMs);
+      writer.writeI32(packet.botCommandMaxIntervalMs) &&
+      writer.writeBool(packet.requestMcGuffinThrow) &&
+      writer.writeBool(packet.wantsScoreboardStats) &&
+      writer.writeU32(packet.acknowledgedConfigurationRevision) &&
+      writeActionEdgeState(writer, packet.actionEdges);
 }
 
 bool readCommandBody(Reader& reader, CommandPacket& packet) {
@@ -371,6 +461,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   std::uint8_t weaponSwitchingMode = 0;
   std::uint8_t botCommand = 0;
   if (
+    !reader.readU8(packet.clientIndex) ||
     !reader.readU8(packet.playerIndex) ||
     !reader.readU32(packet.clientNonce) ||
     !reader.readU32(packet.command.sequence) ||
@@ -445,18 +536,25 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
       !reader.readU8(requestedGameMode) ||
       !reader.readBool(packet.requestTeam) ||
       !reader.readU8(requestedTeam) ||
+      !reader.readBool(packet.requestSpectator) ||
       !reader.readU8(weaponSwitchingMode) ||
       !reader.readU8(botCommand) ||
       !reader.readI32(packet.botCommandValue) ||
       !reader.readI32(packet.botCommandMinIntervalMs) ||
-      !reader.readI32(packet.botCommandMaxIntervalMs)
+      !reader.readI32(packet.botCommandMaxIntervalMs) ||
+      !reader.readBool(packet.requestMcGuffinThrow) ||
+      !reader.readBool(packet.wantsScoreboardStats) ||
+      !reader.readU32(packet.acknowledgedConfigurationRevision) ||
+      !readActionEdgeState(reader, packet.actionEdges)
     ) {
     return false;
   }
 
-  const bool valid = packet.playerIndex < kDuelPlayerCount &&
+  const bool valid = packet.clientIndex < kMaxNetworkClients &&
+    (packet.playerIndex < kDuelPlayerCount ||
+     packet.playerIndex == kNoAssignedPlayer) &&
     weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
-    requestedGameMode <= static_cast<std::uint8_t>(GameMode::ClanArena) &&
+    requestedGameMode <= static_cast<std::uint8_t>(GameMode::McGuffin) &&
     requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     weaponSwitchingMode <= static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) &&
     botCommand <= static_cast<std::uint8_t>(BotCommandType::Dodge) &&
@@ -550,6 +648,146 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
   packet.weaponSwitchingMode =
     static_cast<WeaponSwitchingMode>(weaponSwitchingMode);
   packet.botCommand = static_cast<BotCommandType>(botCommand);
+  return true;
+}
+
+[[nodiscard]] bool commandHasControl(const CommandPacket& packet) {
+  return packet.requestReset || packet.toggleReady ||
+    packet.requestMovementTuning || !packet.chatMessage.empty() ||
+    !packet.playerName.empty() || !packet.mapName.empty() ||
+    packet.requestGameMode || packet.requestTeam ||
+    packet.botCommand != BotCommandType::None ||
+    packet.requestMcGuffinThrow || packet.requestSpectator;
+}
+
+[[nodiscard]] bool sameUserCommand(
+  const UserCommand& lhs,
+  const UserCommand& rhs
+) {
+  return lhs.sequence == rhs.sequence &&
+    lhs.clientTick == rhs.clientTick &&
+    lhs.viewYawRadians == rhs.viewYawRadians &&
+    lhs.viewPitchRadians == rhs.viewPitchRadians &&
+    lhs.forwardMove == rhs.forwardMove &&
+    lhs.rightMove == rhs.rightMove &&
+    lhs.upMove == rhs.upMove &&
+    lhs.attack == rhs.attack &&
+    lhs.jump == rhs.jump &&
+    lhs.dash == rhs.dash &&
+    lhs.crouch == rhs.crouch &&
+    lhs.sneak == rhs.sneak &&
+    lhs.planarAim == rhs.planarAim &&
+    lhs.weapon == rhs.weapon;
+}
+
+bool writeCompactCommand(Writer& writer, const CommandPacket& packet) {
+  const UserCommand& command = packet.command;
+  if (
+    packet.clientIndex >= kMaxNetworkClients ||
+    (packet.playerIndex >= kDuelPlayerCount &&
+     packet.playerIndex != kNoAssignedPlayer) ||
+    static_cast<std::uint8_t>(command.weapon) >
+      static_cast<std::uint8_t>(kLastWeapon) ||
+    std::fabs(command.forwardMove) > 1.0F ||
+    std::fabs(command.rightMove) > 1.0F ||
+    std::fabs(command.upMove) > 1.0F
+  ) {
+    return false;
+  }
+  std::uint16_t inputBits = 0;
+  inputBits |= command.attack ? 1U << 0U : 0U;
+  inputBits |= command.jump ? 1U << 1U : 0U;
+  inputBits |= command.dash ? 1U << 2U : 0U;
+  inputBits |= command.crouch ? 1U << 3U : 0U;
+  inputBits |= command.sneak ? 1U << 4U : 0U;
+  inputBits |= command.planarAim ? 1U << 5U : 0U;
+  inputBits |= packet.wantsScoreboardStats ? 1U << 6U : 0U;
+  const bool hasControl = commandHasControl(packet);
+  return writer.writeU32(command.sequence) &&
+    writer.writeU32(command.clientTick) &&
+    writer.writeFloat(command.viewYawRadians) &&
+    writer.writeFloat(command.viewPitchRadians) &&
+    writer.writeFloat(command.forwardMove) &&
+    writer.writeFloat(command.rightMove) &&
+    writer.writeFloat(command.upMove) &&
+    writer.writeU16(inputBits) &&
+    writer.writeU8(static_cast<std::uint8_t>(command.weapon)) &&
+    writer.writeU32(packet.viewedServerTick) &&
+    writer.writeU32(packet.acknowledgedConfigurationRevision) &&
+    writer.writeBool(hasControl) &&
+    (!hasControl || writeCommandBody(writer, packet));
+}
+
+bool readCompactCommand(
+  Reader& reader,
+  std::uint8_t clientIndex,
+  std::uint8_t playerIndex,
+  std::uint32_t clientNonce,
+  const ActionEdgeState& actionEdges,
+  CommandPacket& packet
+) {
+  CommandPacket compact;
+  compact.clientIndex = clientIndex;
+  compact.playerIndex = playerIndex;
+  compact.clientNonce = clientNonce;
+  compact.actionEdges = actionEdges;
+  std::uint16_t inputBits = 0;
+  std::uint8_t weapon = 0;
+  bool hasControl = false;
+  if (
+    !reader.readU32(compact.command.sequence) ||
+    !reader.readU32(compact.command.clientTick) ||
+    !reader.readFloat(compact.command.viewYawRadians) ||
+    !reader.readFloat(compact.command.viewPitchRadians) ||
+    !reader.readFloat(compact.command.forwardMove) ||
+    !reader.readFloat(compact.command.rightMove) ||
+    !reader.readFloat(compact.command.upMove) ||
+    !reader.readU16(inputBits) ||
+    !reader.readU8(weapon) ||
+    !reader.readU32(compact.viewedServerTick) ||
+    !reader.readU32(compact.acknowledgedConfigurationRevision) ||
+    !reader.readBool(hasControl)
+  ) {
+    return false;
+  }
+  if (
+    (inputBits & ~0x7FU) != 0U ||
+    weapon > static_cast<std::uint8_t>(kLastWeapon) ||
+    std::fabs(compact.command.forwardMove) > 1.0F ||
+    std::fabs(compact.command.rightMove) > 1.0F ||
+    std::fabs(compact.command.upMove) > 1.0F
+  ) {
+    return false;
+  }
+  compact.command.attack = (inputBits & (1U << 0U)) != 0U;
+  compact.command.jump = (inputBits & (1U << 1U)) != 0U;
+  compact.command.dash = (inputBits & (1U << 2U)) != 0U;
+  compact.command.crouch = (inputBits & (1U << 3U)) != 0U;
+  compact.command.sneak = (inputBits & (1U << 4U)) != 0U;
+  compact.command.planarAim = (inputBits & (1U << 5U)) != 0U;
+  compact.wantsScoreboardStats = (inputBits & (1U << 6U)) != 0U;
+  compact.command.weapon = static_cast<Weapon>(weapon);
+  if (!hasControl) {
+    packet = compact;
+    return true;
+  }
+
+  CommandPacket full;
+  if (
+    !readCommandBody(reader, full) ||
+    full.clientIndex != compact.clientIndex ||
+    full.playerIndex != compact.playerIndex ||
+    full.clientNonce != compact.clientNonce ||
+    !sameUserCommand(full.command, compact.command) ||
+    full.viewedServerTick != compact.viewedServerTick ||
+    full.wantsScoreboardStats != compact.wantsScoreboardStats ||
+    full.acknowledgedConfigurationRevision !=
+      compact.acknowledgedConfigurationRevision
+  ) {
+    return false;
+  }
+  full.actionEdges = actionEdges;
+  packet = std::move(full);
   return true;
 }
 
@@ -1073,19 +1311,24 @@ bool writeSparseArray(
   IsActive isActive,
   WriteValue writeValue
 ) {
-  static_assert(std::tuple_size_v<Array> <= 32);
+  constexpr std::size_t elementCount = std::tuple_size_v<Array>;
+  constexpr std::size_t wordCount = (elementCount + 31U) / 32U;
+  static_assert(elementCount > 0);
   // Fixed slot indices remain authoritative; the mask only omits inactive bodies.
-  std::uint32_t activeMask = 0;
+  std::array<std::uint32_t, wordCount> activeMasks = {};
   for (std::size_t index = 0; index < values.size(); ++index) {
     if (isActive(values[index])) {
-      activeMask |= std::uint32_t{1} << index;
+      activeMasks[index / 32U] |= std::uint32_t{1} << (index % 32U);
     }
   }
-  if (!writer.writeU32(activeMask)) {
-    return false;
+  for (const std::uint32_t activeMask : activeMasks) {
+    if (!writer.writeU32(activeMask)) {
+      return false;
+    }
   }
   for (std::size_t index = 0; index < values.size(); ++index) {
-    if ((activeMask & (std::uint32_t{1} << index)) != 0 &&
+    if ((activeMasks[index / 32U] &
+         (std::uint32_t{1} << (index % 32U))) != 0 &&
         !writeValue(writer, values[index])) {
       return false;
     }
@@ -1095,19 +1338,27 @@ bool writeSparseArray(
 
 template <typename Array, typename ReadValue>
 bool readSparseArray(Reader& reader, Array& values, ReadValue readValue) {
-  static_assert(std::tuple_size_v<Array> <= 32);
-  std::uint32_t activeMask = 0;
-  if (!reader.readU32(activeMask)) {
-    return false;
+  constexpr std::size_t elementCount = std::tuple_size_v<Array>;
+  constexpr std::size_t wordCount = (elementCount + 31U) / 32U;
+  static_assert(elementCount > 0);
+  std::array<std::uint32_t, wordCount> activeMasks = {};
+  for (std::uint32_t& activeMask : activeMasks) {
+    if (!reader.readU32(activeMask)) {
+      return false;
+    }
   }
-  const std::uint32_t validMask = values.size() == 32
-    ? 0xFFFFFFFFU
-    : (std::uint32_t{1} << values.size()) - 1U;
-  if ((activeMask & ~validMask) != 0) {
-    return false;
+  constexpr std::size_t lastWordBits = elementCount % 32U;
+  if constexpr (lastWordBits != 0U) {
+    constexpr std::uint32_t validLastMask =
+      (std::uint32_t{1} << lastWordBits) - 1U;
+    // Unused high bits are never aliases for future authoritative slots.
+    if ((activeMasks.back() & ~validLastMask) != 0U) {
+      return false;
+    }
   }
   for (std::size_t index = 0; index < values.size(); ++index) {
-    if ((activeMask & (std::uint32_t{1} << index)) != 0 &&
+    if ((activeMasks[index / 32U] &
+         (std::uint32_t{1} << (index % 32U))) != 0 &&
         !readValue(reader, values[index])) {
       return false;
     }
@@ -1142,7 +1393,7 @@ bool inspectPacketType(const WirePacket& wire, PacketType& type) {
     reserved != 0 ||
     payloadBytes != wire.size() - kHeaderBytes ||
     encodedType < static_cast<std::uint8_t>(PacketType::ConnectRequest) ||
-    encodedType > static_cast<std::uint8_t>(PacketType::Disconnect)
+    encodedType > static_cast<std::uint8_t>(PacketType::CombatStats)
   ) {
     return false;
   }
@@ -1174,9 +1425,12 @@ bool decodeConnectRequest(const WirePacket& wire, ConnectRequest& packet) {
 
 bool encodeConnectAccept(const ConnectAccept& packet, WirePacket& wire) {
   Writer writer(wire);
-  return packet.playerIndex < kDuelPlayerCount &&
+  return packet.clientIndex < kMaxNetworkClients &&
+    (packet.playerIndex < kDuelPlayerCount ||
+     packet.playerIndex == kNoAssignedPlayer) &&
     writeHeader(writer, PacketType::ConnectAccept) &&
     writer.writeU32(packet.clientNonce) &&
+    writer.writeU8(packet.clientIndex) &&
     writer.writeU8(packet.playerIndex) &&
     writer.writeU32(packet.serverTick) &&
     finishPacket(writer);
@@ -1188,9 +1442,12 @@ bool decodeConnectAccept(const WirePacket& wire, ConnectAccept& packet) {
   if (
     !readHeader(reader, PacketType::ConnectAccept, wire.size()) ||
     !reader.readU32(decoded.clientNonce) ||
+    !reader.readU8(decoded.clientIndex) ||
     !reader.readU8(decoded.playerIndex) ||
     !reader.readU32(decoded.serverTick) ||
-    decoded.playerIndex >= kDuelPlayerCount ||
+    decoded.clientIndex >= kMaxNetworkClients ||
+    (decoded.playerIndex >= kDuelPlayerCount &&
+     decoded.playerIndex != kNoAssignedPlayer) ||
     reader.remaining() != 0
   ) {
     return false;
@@ -1224,21 +1481,35 @@ bool decodeCommandPacket(const WirePacket& wire, CommandPacket& packet) {
 }
 
 bool encodeCommandBundle(const CommandBundle& bundle, WirePacket& wire) {
-  // Bundles intentionally contain at least one complete command; redundancy is
-  // handled by transport history rather than optional/delta fields on the wire.
-  if (bundle.commandCount == 0 || bundle.commandCount > kMaxBundledCommands) {
+  if (bundle.datagramSequence == 0 || bundle.commandCount == 0 ||
+      bundle.commandCount > kMaxBundledCommands) {
     return false;
+  }
+  const CommandPacket& newest = bundle.commands[bundle.commandCount - 1U];
+  for (std::size_t index = 0; index < bundle.commandCount; ++index) {
+    if (
+      bundle.commands[index].clientIndex != newest.clientIndex ||
+      bundle.commands[index].playerIndex != newest.playerIndex ||
+      bundle.commands[index].clientNonce != newest.clientNonce
+    ) {
+      return false;
+    }
   }
 
   Writer writer(wire);
   if (
     !writeHeader(writer, PacketType::CommandBundle) ||
+    !writer.writeU32(bundle.datagramSequence) ||
+    !writer.writeU8(newest.clientIndex) ||
+    !writer.writeU8(newest.playerIndex) ||
+    !writer.writeU32(newest.clientNonce) ||
+    !writeActionEdgeState(writer, bundle.actionEdges) ||
     !writer.writeU8(bundle.commandCount)
   ) {
     return false;
   }
   for (std::size_t index = 0; index < bundle.commandCount; ++index) {
-    if (!writeCommandBody(writer, bundle.commands[index])) {
+    if (!writeCompactCommand(writer, bundle.commands[index])) {
       return false;
     }
   }
@@ -1248,16 +1519,34 @@ bool encodeCommandBundle(const CommandBundle& bundle, WirePacket& wire) {
 bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
   Reader reader(wire);
   CommandBundle decoded;
+  std::uint8_t clientIndex = 0;
+  std::uint8_t playerIndex = 0;
+  std::uint32_t clientNonce = 0;
   if (
     !readHeader(reader, PacketType::CommandBundle, wire.size()) ||
+    !reader.readU32(decoded.datagramSequence) ||
+    !reader.readU8(clientIndex) ||
+    !reader.readU8(playerIndex) ||
+    !reader.readU32(clientNonce) ||
+    !readActionEdgeState(reader, decoded.actionEdges) ||
     !reader.readU8(decoded.commandCount) ||
+    decoded.datagramSequence == 0 ||
+    clientIndex >= kMaxNetworkClients ||
+    (playerIndex >= kDuelPlayerCount && playerIndex != kNoAssignedPlayer) ||
     decoded.commandCount == 0 ||
     decoded.commandCount > kMaxBundledCommands
   ) {
     return false;
   }
   for (std::size_t index = 0; index < decoded.commandCount; ++index) {
-    if (!readCommandBody(reader, decoded.commands[index])) {
+    if (!readCompactCommand(
+          reader,
+          clientIndex,
+          playerIndex,
+          clientNonce,
+          decoded.actionEdges,
+          decoded.commands[index]
+        )) {
       return false;
     }
   }
@@ -1277,6 +1566,10 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !isValidBotAttackMode(snapshot.botAttackMode) ||
     !isValidTeam(snapshot.roundWinningTeam) ||
     !isValidTeam(snapshot.matchWinningTeam) ||
+    !isValidMcGuffinSnapshot(snapshot.mcguffin) ||
+    !isValidTeam(snapshot.mcguffinRedBaseOwner) ||
+    !isValidTeam(snapshot.mcguffinBlueBaseOwner) ||
+    !isValidMcGuffinConfig(snapshot.mcguffinConfig) ||
     !std::all_of(
       snapshot.teams.begin(),
       snapshot.teams.end(),
@@ -1311,10 +1604,21 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   if (
     !writeHeader(writer, PacketType::Snapshot) ||
     !writer.writeU32(snapshot.serverTick) ||
+    !writer.writeBool(snapshot.hasLocalClientState) ||
+    !writer.writeU8(snapshot.localPlayerIndex) ||
+    !writer.writeBool(snapshot.localSpectator) ||
+    !writer.writeU8(snapshot.spectatorCount) ||
+    !writer.writeU32(snapshot.acknowledgedCommandDatagramSequence) ||
+    !writer.writeU32(snapshot.commandDatagramAckBits) ||
     !writer.writeU32(snapshot.mapRevision) ||
     !writer.writeString(snapshot.map.mapName, kMaxMapNameBytes) ||
     !writer.writeU32(snapshot.map.contentHash)
   ) {
+    return false;
+  }
+
+  if (snapshot.hasLocalClientState && !snapshot.localSpectator &&
+      snapshot.localPlayerIndex >= kDuelPlayerCount) {
     return false;
   }
 
@@ -1415,6 +1719,32 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (std::uint16_t score : snapshot.mcguffinScores) {
+    if (!writer.writeU16(score)) return false;
+  }
+  for (std::uint8_t rounds : snapshot.mcguffinRoundsWon) {
+    if (!writer.writeU8(rounds)) return false;
+  }
+  if (
+    !writer.writeU8(snapshot.mcguffinRound) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.mcguffinRedBaseOwner)) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.mcguffinBlueBaseOwner)) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.mcguffin.state)) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.mcguffin.associatedTeam)) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.mcguffin.carrierTeam)) ||
+    !writer.writeU8(snapshot.mcguffin.carrierIndex) ||
+    !writeVec3(writer, snapshot.mcguffin.position) ||
+    !writeVec3(writer, snapshot.mcguffin.velocity) ||
+    !writer.writeU32(snapshot.mcguffin.stateTicks) ||
+    !writer.writeU32(snapshot.mcguffin.scoreSubPoints) ||
+    !writer.writeU32(snapshot.mcguffin.carrySubPoints) ||
+    !writer.writeU16(snapshot.mcguffin.carriedPoints) ||
+    !writer.writeU32(snapshot.mcguffin.interactionTicks) ||
+    !writer.writeU32(snapshot.mcguffin.finalHoldTicks) ||
+    !writer.writeU32(snapshot.mcguffin.eventSequence) ||
+    !writer.writeU8(static_cast<std::uint8_t>(snapshot.mcguffin.lastEvent)) ||
+    !writer.writeU8(snapshot.mcguffin.eventPlayerIndex)
+  ) return false;
   if (
     !writer.writeU8(static_cast<std::uint8_t>(snapshot.roundWinningTeam)) ||
     !writer.writeU8(static_cast<std::uint8_t>(snapshot.matchWinningTeam))
@@ -1461,13 +1791,19 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
-  return writer.writeU8(static_cast<std::uint8_t>(snapshot.matchPhase)) &&
+  if (!writer.writeU8(static_cast<std::uint8_t>(snapshot.matchPhase)) ||
+      !writer.writeU32(snapshot.configurationRevision) ||
+      !writer.writeBool(snapshot.hasConfiguration)) {
+    return false;
+  }
+  if (snapshot.hasConfiguration && !(
     writer.writeU16(snapshot.matchRules.roundLimit) &&
     writer.writeU16(snapshot.matchRules.timeLimitMinutes) &&
     writer.writeU8(snapshot.matchRules.playerLimit) &&
     writer.writeU16(snapshot.matchRules.countdownTicks) &&
     writer.writeU16(snapshot.matchRules.roundEndTicks) &&
     writer.writeU16(snapshot.matchRules.matchEndTicks) &&
+    writer.writeU16(snapshot.matchRules.deathRespawnTicks) &&
     writer.writeBool(snapshot.matchRules.showOpponentHealth) &&
     writer.writeBool(snapshot.movementTuning.flightEnabled) &&
     writer.writeBool(snapshot.movementTuning.airControlEnabled) &&
@@ -1520,21 +1856,36 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.vampirism) &&
     writer.writeU8(snapshot.selfDamagePercent) &&
     writer.writeI32(snapshot.healthAmount) &&
-    writer.writeBool(snapshot.botDodgeEnabled) &&
+    writer.writeU16(snapshot.mcguffinConfig.scoreLimit) &&
+    writer.writeU16(snapshot.mcguffinConfig.pointsPerSecond) &&
+    writer.writeU16(snapshot.mcguffinConfig.carryPointsPerSecond) &&
+    writer.writeU16(snapshot.mcguffinConfig.carryPointLimit) &&
+    writer.writeU32(snapshot.mcguffinConfig.initialSpawnTicks) &&
+    writer.writeU32(snapshot.mcguffinConfig.installationDelayTicks) &&
+    writer.writeU32(snapshot.mcguffinConfig.stealTicks) &&
+    writer.writeU32(snapshot.mcguffinConfig.returnTicks) &&
+    writer.writeFloat(snapshot.mcguffinConfig.throwSpeed) &&
+    writer.writeFloat(snapshot.mcguffinConfig.throwUpSpeed) &&
+    writer.writeFloat(snapshot.mcguffinConfig.throwVelocityInheritance) &&
+    writer.writeFloat(snapshot.mcguffinConfig.throwGravity) &&
+    writer.writeFloat(snapshot.mcguffinConfig.throwBounceDamping) &&
+    writer.writeU32(snapshot.mcguffinConfig.throwPickupLockoutTicks) &&
+    writer.writeU32(snapshot.mcguffinConfig.finalHoldTicks) &&
+    writer.writeFloat(snapshot.mcguffinConfig.pickupRadius) &&
+    writer.writeU8(static_cast<std::uint8_t>(snapshot.weaponSwitchingMode)))) {
+    return false;
+  }
+  return writer.writeBool(snapshot.botDodgeEnabled) &&
     writer.writeI32(snapshot.botDodgeMinIntervalMs) &&
     writer.writeI32(snapshot.botDodgeMaxIntervalMs) &&
     writer.writeBool(snapshot.botStareEnabled) &&
     writer.writeBool(snapshot.botStandstillEnabled) &&
     writer.writeU8(static_cast<std::uint8_t>(snapshot.botAttackMode)) &&
-    writer.writeU8(static_cast<std::uint8_t>(snapshot.weaponSwitchingMode)) &&
     writer.writeU32(snapshot.phaseTicksRemaining) &&
     writer.writeU32(snapshot.liveTicksElapsed) &&
     writer.writeU8(snapshot.roundWinner) &&
     writer.writeU8(snapshot.matchWinner) &&
     writer.writeBool(snapshot.playersColliding) &&
-    writer.writeU32(snapshot.chatSequence) &&
-    writer.writeU8(snapshot.chatPlayerIndex) &&
-    writer.writeString(snapshot.chatMessage, kMaxChatMessageBytes) &&
     finishPacket(writer);
 }
 
@@ -1545,11 +1896,20 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   if (
     !readHeader(reader, PacketType::Snapshot, wire.size()) ||
     !reader.readU32(decoded.serverTick) ||
+    !reader.readBool(decoded.hasLocalClientState) ||
+    !reader.readU8(decoded.localPlayerIndex) ||
+    !reader.readBool(decoded.localSpectator) ||
+    !reader.readU8(decoded.spectatorCount) ||
+    !reader.readU32(decoded.acknowledgedCommandDatagramSequence) ||
+    !reader.readU32(decoded.commandDatagramAckBits) ||
     !reader.readU32(decoded.mapRevision) ||
     !reader.readString(decoded.map.mapName, kMaxMapNameBytes) ||
     !reader.readU32(decoded.map.contentHash) ||
     !isValidMapName(decoded.map.mapName) ||
-    decoded.map.contentHash == 0
+    decoded.map.contentHash == 0 ||
+    (decoded.hasLocalClientState && !decoded.localSpectator &&
+     decoded.localPlayerIndex >= kDuelPlayerCount) ||
+    decoded.spectatorCount > kMaxSpectatorClients
   ) {
     return false;
   }
@@ -1649,6 +2009,44 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       return false;
     }
   }
+  for (std::uint16_t& score : decoded.mcguffinScores) {
+    if (!reader.readU16(score)) return false;
+  }
+  for (std::uint8_t& rounds : decoded.mcguffinRoundsWon) {
+    if (!reader.readU8(rounds)) return false;
+  }
+  std::uint8_t redBaseOwner = 0;
+  std::uint8_t blueBaseOwner = 0;
+  std::uint8_t mcguffinState = 0;
+  std::uint8_t associatedTeam = 0;
+  std::uint8_t carrierTeam = 0;
+  std::uint8_t mcguffinEvent = 0;
+  if (
+    !reader.readU8(decoded.mcguffinRound) ||
+    !reader.readU8(redBaseOwner) ||
+    !reader.readU8(blueBaseOwner) ||
+    !reader.readU8(mcguffinState) ||
+    !reader.readU8(associatedTeam) ||
+    !reader.readU8(carrierTeam) ||
+    !reader.readU8(decoded.mcguffin.carrierIndex) ||
+    !readVec3(reader, decoded.mcguffin.position) ||
+    !readVec3(reader, decoded.mcguffin.velocity) ||
+    !reader.readU32(decoded.mcguffin.stateTicks) ||
+    !reader.readU32(decoded.mcguffin.scoreSubPoints) ||
+    !reader.readU32(decoded.mcguffin.carrySubPoints) ||
+    !reader.readU16(decoded.mcguffin.carriedPoints) ||
+    !reader.readU32(decoded.mcguffin.interactionTicks) ||
+    !reader.readU32(decoded.mcguffin.finalHoldTicks) ||
+    !reader.readU32(decoded.mcguffin.eventSequence) ||
+    !reader.readU8(mcguffinEvent) ||
+    !reader.readU8(decoded.mcguffin.eventPlayerIndex)
+  ) return false;
+  decoded.mcguffinRedBaseOwner = static_cast<Team>(redBaseOwner);
+  decoded.mcguffinBlueBaseOwner = static_cast<Team>(blueBaseOwner);
+  decoded.mcguffin.state = static_cast<McGuffinState>(mcguffinState);
+  decoded.mcguffin.associatedTeam = static_cast<Team>(associatedTeam);
+  decoded.mcguffin.carrierTeam = static_cast<Team>(carrierTeam);
+  decoded.mcguffin.lastEvent = static_cast<McGuffinEventType>(mcguffinEvent);
   std::uint8_t roundWinningTeam = 0;
   std::uint8_t matchWinningTeam = 0;
   if (
@@ -1663,6 +2061,10 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !isValidGameMode(decoded.gameMode) ||
     !isValidTeam(decoded.roundWinningTeam) ||
     !isValidTeam(decoded.matchWinningTeam) ||
+    !isValidTeam(decoded.mcguffinRedBaseOwner) ||
+    !isValidTeam(decoded.mcguffinBlueBaseOwner) ||
+    !isValidMcGuffinSnapshot(decoded.mcguffin) ||
+    !isValidMcGuffinConfig(decoded.mcguffinConfig) ||
     !std::all_of(
       decoded.teams.begin(),
       decoded.teams.end(),
@@ -1717,12 +2119,17 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   if (
     !reader.readU8(matchPhase) ||
     matchPhase > static_cast<std::uint8_t>(MatchPhase::MatchEnd) ||
+    !reader.readU32(decoded.configurationRevision) ||
+    decoded.configurationRevision == 0 ||
+    !reader.readBool(decoded.hasConfiguration) ||
+    (decoded.hasConfiguration && (
     !reader.readU16(decoded.matchRules.roundLimit) ||
     !reader.readU16(decoded.matchRules.timeLimitMinutes) ||
     !reader.readU8(decoded.matchRules.playerLimit) ||
     !reader.readU16(decoded.matchRules.countdownTicks) ||
     !reader.readU16(decoded.matchRules.roundEndTicks) ||
     !reader.readU16(decoded.matchRules.matchEndTicks) ||
+    !reader.readU16(decoded.matchRules.deathRespawnTicks) ||
     !reader.readBool(decoded.matchRules.showOpponentHealth) ||
     !reader.readBool(decoded.movementTuning.flightEnabled) ||
     !reader.readBool(decoded.movementTuning.airControlEnabled) ||
@@ -1775,21 +2182,34 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.vampirism) ||
     !reader.readU8(decoded.selfDamagePercent) ||
     !reader.readI32(decoded.healthAmount) ||
+    !reader.readU16(decoded.mcguffinConfig.scoreLimit) ||
+    !reader.readU16(decoded.mcguffinConfig.pointsPerSecond) ||
+    !reader.readU16(decoded.mcguffinConfig.carryPointsPerSecond) ||
+    !reader.readU16(decoded.mcguffinConfig.carryPointLimit) ||
+    !reader.readU32(decoded.mcguffinConfig.initialSpawnTicks) ||
+    !reader.readU32(decoded.mcguffinConfig.installationDelayTicks) ||
+    !reader.readU32(decoded.mcguffinConfig.stealTicks) ||
+    !reader.readU32(decoded.mcguffinConfig.returnTicks) ||
+    !reader.readFloat(decoded.mcguffinConfig.throwSpeed) ||
+    !reader.readFloat(decoded.mcguffinConfig.throwUpSpeed) ||
+    !reader.readFloat(decoded.mcguffinConfig.throwVelocityInheritance) ||
+    !reader.readFloat(decoded.mcguffinConfig.throwGravity) ||
+    !reader.readFloat(decoded.mcguffinConfig.throwBounceDamping) ||
+    !reader.readU32(decoded.mcguffinConfig.throwPickupLockoutTicks) ||
+    !reader.readU32(decoded.mcguffinConfig.finalHoldTicks) ||
+    !reader.readFloat(decoded.mcguffinConfig.pickupRadius) ||
+    !reader.readU8(weaponSwitchingMode))) ||
     !reader.readBool(decoded.botDodgeEnabled) ||
     !reader.readI32(decoded.botDodgeMinIntervalMs) ||
     !reader.readI32(decoded.botDodgeMaxIntervalMs) ||
     !reader.readBool(decoded.botStareEnabled) ||
     !reader.readBool(decoded.botStandstillEnabled) ||
     !reader.readU8(botAttackMode) ||
-    !reader.readU8(weaponSwitchingMode) ||
     !reader.readU32(decoded.phaseTicksRemaining) ||
     !reader.readU32(decoded.liveTicksElapsed) ||
     !reader.readU8(decoded.roundWinner) ||
     !reader.readU8(decoded.matchWinner) ||
     !reader.readBool(decoded.playersColliding) ||
-    !reader.readU32(decoded.chatSequence) ||
-    !reader.readU8(decoded.chatPlayerIndex) ||
-    !reader.readString(decoded.chatMessage, kMaxChatMessageBytes) ||
     decoded.matchRules.roundLimit == 0 ||
     decoded.matchRules.playerLimit == 0 ||
     decoded.matchRules.playerLimit > kDuelPlayerCount ||
@@ -1875,6 +2295,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.selfDamagePercent > 100 ||
     decoded.healthAmount < 1 ||
     decoded.healthAmount > 100000 ||
+    !isValidMcGuffinConfig(decoded.mcguffinConfig) ||
     decoded.botDodgeMinIntervalMs < 1 ||
     decoded.botDodgeMinIntervalMs > 10000 ||
     decoded.botDodgeMaxIntervalMs < 1 ||
@@ -1883,7 +2304,6 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     weaponSwitchingMode > static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) ||
     (decoded.roundWinner != 255 && decoded.roundWinner >= kDuelPlayerCount) ||
     (decoded.matchWinner != 255 && decoded.matchWinner >= kDuelPlayerCount) ||
-    decoded.chatPlayerIndex >= kDuelPlayerCount ||
     reader.remaining() != 0
   ) {
     return false;
@@ -1948,6 +2368,149 @@ bool decodeDisconnectPacket(
   ) {
     return false;
   }
+  packet = decoded;
+  return true;
+}
+
+bool encodeChatHistoryChunk(
+  const ChatHistoryChunk& packet,
+  WirePacket& wire
+) {
+  if (
+    packet.messageCount == 0U ||
+    packet.messageCount > kChatHistoryChunkCapacity ||
+    packet.oldestAvailableSequence == 0U ||
+    packet.latestSequence == 0U
+  ) {
+    return false;
+  }
+  Writer writer(wire);
+  if (
+    !writeHeader(writer, PacketType::ChatHistory) ||
+    !writer.writeU32(packet.oldestAvailableSequence) ||
+    !writer.writeU32(packet.latestSequence) ||
+    !writer.writeU8(packet.messageCount)
+  ) {
+    return false;
+  }
+  for (std::size_t index = 0; index < packet.messageCount; ++index) {
+    const ChatMessage& message = packet.messages[index];
+    if (
+      message.sequence == 0U ||
+      (message.playerIndex >= kDuelPlayerCount &&
+       message.playerIndex != kNoAssignedPlayer) ||
+      !writer.writeU32(message.sequence) ||
+      !writer.writeU8(message.playerIndex) ||
+      !writer.writeString(message.speakerName, kMaxPlayerNameBytes) ||
+      !writer.writeString(message.message, kMaxChatMessageBytes)
+    ) {
+      return false;
+    }
+  }
+  return finishPacket(writer);
+}
+
+bool decodeChatHistoryChunk(
+  const WirePacket& wire,
+  ChatHistoryChunk& packet
+) {
+  Reader reader(wire);
+  ChatHistoryChunk decoded;
+  if (
+    !readHeader(reader, PacketType::ChatHistory, wire.size()) ||
+    !reader.readU32(decoded.oldestAvailableSequence) ||
+    !reader.readU32(decoded.latestSequence) ||
+    !reader.readU8(decoded.messageCount) ||
+    decoded.oldestAvailableSequence == 0U ||
+    decoded.latestSequence == 0U ||
+    decoded.messageCount == 0U ||
+    decoded.messageCount > kChatHistoryChunkCapacity
+  ) {
+    return false;
+  }
+  for (std::size_t index = 0; index < decoded.messageCount; ++index) {
+    ChatMessage& message = decoded.messages[index];
+    if (
+      !reader.readU32(message.sequence) ||
+      !reader.readU8(message.playerIndex) ||
+      !reader.readString(message.speakerName, kMaxPlayerNameBytes) ||
+      !reader.readString(message.message, kMaxChatMessageBytes) ||
+      message.sequence == 0U ||
+      (message.playerIndex >= kDuelPlayerCount &&
+       message.playerIndex != kNoAssignedPlayer)
+    ) {
+      return false;
+    }
+  }
+  if (reader.remaining() != 0U) {
+    return false;
+  }
+  packet = std::move(decoded);
+  return true;
+}
+
+bool encodeChatHistoryAck(
+  const ChatHistoryAck& packet,
+  WirePacket& wire
+) {
+  if (packet.sequence == 0U) {
+    return false;
+  }
+  Writer writer(wire);
+  return writeHeader(writer, PacketType::ChatHistoryAck) &&
+    writer.writeU32(packet.sequence) &&
+    finishPacket(writer);
+}
+
+bool decodeChatHistoryAck(
+  const WirePacket& wire,
+  ChatHistoryAck& packet
+) {
+  Reader reader(wire);
+  ChatHistoryAck decoded;
+  if (
+    !readHeader(reader, PacketType::ChatHistoryAck, wire.size()) ||
+    !reader.readU32(decoded.sequence) ||
+    decoded.sequence == 0U ||
+    reader.remaining() != 0U
+  ) {
+    return false;
+  }
+  packet = decoded;
+  return true;
+}
+
+bool encodeCombatStatsPacket(
+  const CombatStatsPacket& packet,
+  WirePacket& wire
+) {
+  Writer writer(wire);
+  if (!writeHeader(writer, PacketType::CombatStats) ||
+      !writer.writeU32(packet.serverTick)) return false;
+  for (const RoundCombatStats& stats : packet.round) {
+    if (!writeRoundCombatStats(writer, stats)) return false;
+  }
+  for (const RoundCombatStats& stats : packet.match) {
+    if (!writeRoundCombatStats(writer, stats)) return false;
+  }
+  return finishPacket(writer);
+}
+
+bool decodeCombatStatsPacket(
+  const WirePacket& wire,
+  CombatStatsPacket& packet
+) {
+  Reader reader(wire);
+  CombatStatsPacket decoded;
+  if (!readHeader(reader, PacketType::CombatStats, wire.size()) ||
+      !reader.readU32(decoded.serverTick)) return false;
+  for (RoundCombatStats& stats : decoded.round) {
+    if (!readRoundCombatStats(reader, stats)) return false;
+  }
+  for (RoundCombatStats& stats : decoded.match) {
+    if (!readRoundCombatStats(reader, stats)) return false;
+  }
+  if (reader.remaining() != 0) return false;
   packet = decoded;
   return true;
 }

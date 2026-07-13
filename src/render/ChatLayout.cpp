@@ -204,12 +204,33 @@ ChatTextLayout buildChatTextLayout(
     ? layout.input.y - 7.0F
     : static_cast<float>(outputHeight) - kChatBottomOffset;
   const int visibleRows = std::max(0, static_cast<int>(144.0F / layout.lineHeight));
-  const std::size_t firstRow = rows.size() > static_cast<std::size_t>(visibleRows)
-    ? rows.size() - static_cast<std::size_t>(visibleRows)
+  const std::size_t visibleRowCount = static_cast<std::size_t>(visibleRows);
+  const std::size_t maxScroll = rows.size() > visibleRowCount
+    ? rows.size() - visibleRowCount
     : 0U;
-  const std::size_t visibleCount = rows.size() - firstRow;
+  const std::size_t scrollRows = std::min(hud.chatScrollRows, maxScroll);
+  const std::size_t endRow = rows.size() - scrollRows;
+  const std::size_t firstRow = endRow > visibleRowCount
+    ? endRow - visibleRowCount
+    : 0U;
+  const std::size_t visibleCount = endRow - firstRow;
+  layout.historyTop =
+    historyBottom - static_cast<float>(visibleRowCount) * layout.lineHeight;
+  layout.historyBottom = historyBottom;
+  layout.historyRight = kChatX;
+  for (const ChatLayoutRow& row : rows) {
+    layout.historyRight = std::max(
+      layout.historyRight,
+      row.x + static_cast<float>(utf8GlyphCount(row.text)) *
+        layout.characterWidth
+    );
+  }
+  layout.totalHistoryRows = rows.size();
+  layout.firstVisibleHistoryRow = firstRow;
+  layout.visibleHistoryRows = visibleCount;
+  layout.maxScrollRows = maxScroll;
   float y = historyBottom - static_cast<float>(visibleCount) * layout.lineHeight;
-  for (std::size_t index = firstRow; index < rows.size(); ++index) {
+  for (std::size_t index = firstRow; index < endRow; ++index) {
     rows[index].y = y;
     layout.rows.push_back(std::move(rows[index]));
     y += layout.lineHeight;

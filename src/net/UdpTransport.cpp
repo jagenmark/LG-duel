@@ -1,9 +1,11 @@
 #include "net/UdpTransport.hpp"
 
 #include "net/NetCodec.hpp"
+#include "shared/Sequence.hpp"
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <chrono>
 #include <cstring>
 #include <deque>
@@ -34,12 +36,69 @@
 namespace lg {
 namespace {
 
+// The simulation runs at 125 Hz, so 25 ticks keeps scoreboard data at 5 Hz.
 constexpr std::uint32_t kCombatStatsRefreshTicks = 25;
 
+void copySnapshotConfiguration(ServerSnapshot& destination,
+                               const ServerSnapshot& source) {
+  destination.matchRules = source.matchRules;
+  destination.movementTuning = source.movementTuning;
+  destination.playerSizeScaleXY = source.playerSizeScaleXY;
+  destination.playerSizeScaleZ = source.playerSizeScaleZ;
+  destination.lightningKnockback = source.lightningKnockback;
+  destination.lightningFireHz = source.lightningFireHz;
+  destination.rocketKnockback = source.rocketKnockback;
+  destination.knockbackTimeMs = source.knockbackTimeMs;
+  destination.weaponDamage = source.weaponDamage;
+  destination.icePoolTuning = source.icePoolTuning;
+  destination.weaponAmmo = source.weaponAmmo;
+  destination.vampirism = source.vampirism;
+  destination.selfDamagePercent = source.selfDamagePercent;
+  destination.healthAmount = source.healthAmount;
+  destination.weaponSwitchingMode = source.weaponSwitchingMode;
+  destination.mcguffinConfig = source.mcguffinConfig;
+}
+
+WirePacket configurationSignature(const ServerSnapshot& snapshot) {
+  ServerSnapshot canonical;
+  canonical.map = {"config", 1U};
+  canonical.hasCombatStats = false;
+  copySnapshotConfiguration(canonical, snapshot);
+  WirePacket signature;
+  if (!encodeServerSnapshot(canonical, signature)) {
+    signature.clear();
+  }
+  return signature;
+}
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
 constexpr auto kPingInterval = std::chrono::seconds(1);
 constexpr auto kConnectionTimeout = std::chrono::seconds(15);
+constexpr auto kChatRetransmitInterval = std::chrono::milliseconds(100);
+
+void recordReceivedSequence(
+  std::uint32_t sequence,
+  std::uint32_t& latest,
+  std::uint32_t& previousBits
+) {
+  if (sequence == 0 || sequence == latest) return;
+  if (latest == 0) {
+    latest = sequence;
+    previousBits = 0;
+    return;
+  }
+  if (isSequenceNewer(sequence, latest)) {
+    const std::uint32_t distance = sequence - latest;
+    previousBits = distance >= 32U ? 0U : previousBits << distance;
+    if (distance <= 32U) previousBits |= 1U << (distance - 1U);
+    latest = sequence;
+    return;
+  }
+  const std::uint32_t distance = latest - sequence;
+  if (distance >= 1U && distance <= 32U) {
+    previousBits |= 1U << (distance - 1U);
+  }
+}
 
 #if defined(_WIN32)
 using SocketHandle = SOCKET;
@@ -194,10 +253,70 @@ struct UdpServerTransport::Impl {
     Clock::time_point lastHeard = {};
     std::uint32_t lastFullArenaRevision = 0;
     std::uint32_t lastFullArenaTick = 0;
+    std::uint32_t chatAckSequence = 0;
+    std::uint32_t acknowledgedConfigurationRevision = 0;
+    std::uint32_t latestCommandDatagramSequence = 0;
+    std::uint32_t commandDatagramAckBits = 0;
     std::uint32_t lastCombatStatsTick = 0;
+    bool wantsScoreboardStats = false;
+    std::uint8_t playerIndex = kNoAssignedPlayer;
+    Clock::time_point lastChatSend = Clock::time_point::min();
   };
 
   explicit Impl(std::uint16_t requestedPort) : port(requestedPort) {}
+
+  std::uint8_t availablePlayerIndex() const {
+    for (std::size_t player = 0; player < kDuelPlayerCount; ++player) {
+      const bool assigned = std::any_of(
+        clients.begin(), clients.end(),
+        [player](const ClientSlot& client) {
+          return client.active && client.playerIndex == player;
+        }
+      );
+      if (!assigned) return static_cast<std::uint8_t>(player);
+    }
+    return kNoAssignedPlayer;
+  }
+
+  std::uint8_t spectatorCount() const {
+    return static_cast<std::uint8_t>(std::count_if(
+      clients.begin(), clients.end(),
+      [](const ClientSlot& client) {
+        return client.active && client.playerIndex == kNoAssignedPlayer;
+      }
+    ));
+  }
+
+  bool translateCommand(std::size_t clientIndex, CommandPacket& packet) {
+    ClientSlot& client = clients[clientIndex];
+    if (packet.requestSpectator) {
+      if (client.playerIndex != kNoAssignedPlayer &&
+          spectatorCount() >= kMaxSpectatorClients) {
+        packet.playerIndex = client.playerIndex;
+        return true;
+      }
+      // Releasing the mapping removes the authoritative body on the next
+      // server tick; the connection itself remains available for snapshots.
+      client.playerIndex = kNoAssignedPlayer;
+      return false;
+    }
+    const bool assignmentOpen =
+      lastMatchPhase == MatchPhase::WaitingForPlayers ||
+      lastMatchPhase == MatchPhase::WaitingForReady;
+    if (client.playerIndex == kNoAssignedPlayer && packet.requestTeam &&
+        assignmentOpen) {
+      client.playerIndex = availablePlayerIndex();
+    }
+    if (client.playerIndex == kNoAssignedPlayer) {
+      // Chat belongs to the authenticated connection, not to a collision body.
+      // Preserve the sentinel so ServerGame can publish spectator chat without
+      // granting any body-authoritative command capability.
+      packet.playerIndex = kNoAssignedPlayer;
+      return !packet.chatMessage.empty();
+    }
+    packet.playerIndex = client.playerIndex;
+    return true;
+  }
 
   void pump() {
     if (socket == kInvalidSocket) {
@@ -227,24 +346,25 @@ struct UdpServerTransport::Impl {
           continue;
         }
 
-        std::size_t slotIndex = kDuelPlayerCount;
+        std::size_t slotIndex = clients.size();
         for (std::size_t index = 0; index < clients.size(); ++index) {
           if (clients[index].active && sameEndpoint(clients[index].endpoint, sender)) {
             slotIndex = index;
             break;
           }
         }
-        if (slotIndex == kDuelPlayerCount) {
+        if (slotIndex == clients.size()) {
           for (std::size_t index = 0; index < clients.size(); ++index) {
             if (!clients[index].active) {
               slotIndex = index;
               clients[index].active = true;
               clients[index].endpoint = sender;
+              clients[index].playerIndex = availablePlayerIndex();
               break;
             }
           }
         }
-        if (slotIndex == kDuelPlayerCount) {
+        if (slotIndex == clients.size()) {
           continue;
         }
 
@@ -259,7 +379,13 @@ struct UdpServerTransport::Impl {
           }
           clients[slotIndex].lastFullArenaRevision = 0;
           clients[slotIndex].lastFullArenaTick = 0;
+          clients[slotIndex].chatAckSequence = 0;
+          clients[slotIndex].acknowledgedConfigurationRevision = 0;
+          clients[slotIndex].latestCommandDatagramSequence = 0;
+          clients[slotIndex].commandDatagramAckBits = 0;
           clients[slotIndex].lastCombatStatsTick = 0;
+          clients[slotIndex].wantsScoreboardStats = false;
+          clients[slotIndex].lastChatSend = Clock::time_point::min();
         }
         clients[slotIndex].lastHeard = Clock::now();
         WirePacket response;
@@ -267,6 +393,7 @@ struct UdpServerTransport::Impl {
           ConnectAccept{
             request.clientNonce,
             static_cast<std::uint8_t>(slotIndex),
+            clients[slotIndex].playerIndex,
             lastServerTick,
           },
           response
@@ -277,7 +404,7 @@ struct UdpServerTransport::Impl {
       }
 
       const std::size_t slotIndex = findClient(sender);
-      if (slotIndex == kDuelPlayerCount) {
+      if (slotIndex == clients.size()) {
         continue;
       }
       clients[slotIndex].lastHeard = Clock::now();
@@ -287,24 +414,58 @@ struct UdpServerTransport::Impl {
         if (!decodeCommandBundle(wire, bundle)) {
           continue;
         }
+        bool acceptedBundle = false;
         for (std::size_t index = 0; index < bundle.commandCount; ++index) {
           if (
-            bundle.commands[index].playerIndex == slotIndex &&
+            bundle.commands[index].clientIndex == slotIndex &&
             bundle.commands[index].clientNonce == clients[slotIndex].nonce
           ) {
-            // Endpoint, assigned slot, and nonce must all agree before input can
-            // reach authoritative command processing; sequence checks happen there.
-            commands.push_back(bundle.commands[index]);
+            acceptedBundle = true;
+            if (bundle.commands[index].acknowledgedConfigurationRevision <=
+                configurationRevision) {
+              clients[slotIndex].acknowledgedConfigurationRevision =
+                bundle.commands[index].acknowledgedConfigurationRevision;
+            }
+            if (bundle.commands[index].wantsScoreboardStats &&
+                !clients[slotIndex].wantsScoreboardStats) {
+              // Interest is repeated for loss tolerance; only the opening edge
+              // resets the timer so the first statistics packet is immediate.
+              clients[slotIndex].lastCombatStatsTick = 0;
+            }
+            clients[slotIndex].wantsScoreboardStats =
+              bundle.commands[index].wantsScoreboardStats;
+            CommandPacket translated = bundle.commands[index];
+            if (translateCommand(slotIndex, translated)) {
+              commands.push_back(std::move(translated));
+            }
           }
+        }
+        if (acceptedBundle) {
+          recordReceivedSequence(
+            bundle.datagramSequence,
+            clients[slotIndex].latestCommandDatagramSequence,
+            clients[slotIndex].commandDatagramAckBits
+          );
         }
       } else if (type == PacketType::Command) {
         CommandPacket packet;
         if (
           decodeCommandPacket(wire, packet) &&
-          packet.playerIndex == slotIndex &&
+          packet.clientIndex == slotIndex &&
           packet.clientNonce == clients[slotIndex].nonce
         ) {
-          commands.push_back(packet);
+          if (packet.acknowledgedConfigurationRevision <= configurationRevision) {
+            clients[slotIndex].acknowledgedConfigurationRevision =
+              packet.acknowledgedConfigurationRevision;
+          }
+          if (packet.wantsScoreboardStats &&
+              !clients[slotIndex].wantsScoreboardStats) {
+            clients[slotIndex].lastCombatStatsTick = 0;
+          }
+          clients[slotIndex].wantsScoreboardStats = packet.wantsScoreboardStats;
+          if (translateCommand(slotIndex, packet)) {
+            commands.push_back(std::move(packet));
+          }
         }
       } else if (type == PacketType::Ping) {
         PingPacket ping;
@@ -323,6 +484,14 @@ struct UdpServerTransport::Impl {
         ) {
           clients[slotIndex] = {};
         }
+      } else if (type == PacketType::ChatHistoryAck) {
+        ChatHistoryAck ack;
+        if (decodeChatHistoryAck(wire, ack)) {
+          clients[slotIndex].chatAckSequence = ack.sequence;
+          // An acknowledgement opens the next chunk immediately; the interval
+          // only throttles retransmission when an acknowledgement is lost.
+          clients[slotIndex].lastChatSend = Clock::time_point::min();
+        }
       }
     }
 
@@ -340,16 +509,20 @@ struct UdpServerTransport::Impl {
         return index;
       }
     }
-    return kDuelPlayerCount;
+    return clients.size();
   }
 
   SocketRuntime runtime;
   std::uint16_t port = 0;
   SocketHandle socket = kInvalidSocket;
-  std::array<ClientSlot, kDuelPlayerCount> clients = {};
+  std::array<ClientSlot, kMaxNetworkClients> clients = {};
   std::deque<CommandPacket> commands;
   std::uint32_t lastServerTick = 0;
+  MatchPhase lastMatchPhase = MatchPhase::WaitingForPlayers;
   std::uint32_t nextSession = 1;
+  ChatHistory chatHistory = {};
+  WirePacket configurationBytes;
+  std::uint32_t configurationRevision = 0;
   std::string error;
 };
 
@@ -432,26 +605,58 @@ void UdpServerTransport::update() {
 void UdpServerTransport::sendCommand(const CommandPacket&) {}
 
 bool UdpServerTransport::receiveCommand(CommandPacket& packet) {
-  impl_->pump();
-  if (impl_->commands.empty()) {
-    return false;
+  // update() is the sole socket pump so roster/session mappings are published
+  // to ServerGame before commands from that same batch can be consumed.
+  while (!impl_->commands.empty()) {
+    CommandPacket candidate = std::move(impl_->commands.front());
+    impl_->commands.pop_front();
+    const std::size_t clientIndex = candidate.clientIndex;
+    if (
+      clientIndex >= impl_->clients.size() ||
+      !impl_->clients[clientIndex].active ||
+      impl_->clients[clientIndex].nonce != candidate.clientNonce ||
+      impl_->clients[clientIndex].playerIndex != candidate.playerIndex
+    ) {
+      // A queued packet belongs to an old nonce or body assignment. Dropping it
+      // prevents stale high sequences from poisoning a newly assigned body.
+      continue;
+    }
+    packet = std::move(candidate);
+    return true;
   }
-  packet = impl_->commands.front();
-  impl_->commands.pop_front();
-  return true;
+  return false;
 }
 
 void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   impl_->lastServerTick = snapshot.serverTick;
+  impl_->lastMatchPhase = snapshot.matchPhase;
+  const WirePacket currentConfiguration = configurationSignature(snapshot);
+  if (currentConfiguration != impl_->configurationBytes) {
+    impl_->configurationBytes = currentConfiguration;
+    ++impl_->configurationRevision;
+    if (impl_->configurationRevision == 0) impl_->configurationRevision = 1;
+  }
+  const std::uint8_t spectatorCount = impl_->spectatorCount();
   for (Impl::ClientSlot& client : impl_->clients) {
     if (!client.active) {
       continue;
     }
 
     ServerSnapshot networkSnapshot = snapshot;
-    networkSnapshot.hasCombatStats =
-      client.lastCombatStatsTick == 0 ||
-      snapshot.serverTick - client.lastCombatStatsTick >= kCombatStatsRefreshTicks;
+    networkSnapshot.hasLocalClientState = true;
+    networkSnapshot.localPlayerIndex = client.playerIndex;
+    networkSnapshot.localSpectator =
+      client.playerIndex == kNoAssignedPlayer;
+    networkSnapshot.spectatorCount = spectatorCount;
+    networkSnapshot.acknowledgedCommandDatagramSequence =
+      client.latestCommandDatagramSequence;
+    networkSnapshot.commandDatagramAckBits = client.commandDatagramAckBits;
+    networkSnapshot.configurationRevision = impl_->configurationRevision;
+    networkSnapshot.hasConfiguration =
+      client.acknowledgedConfigurationRevision != impl_->configurationRevision;
+    // Presentation-only aggregates stay out of the latency-sensitive gameplay
+    // datagram and are sent independently to interested clients below.
+    networkSnapshot.hasCombatStats = false;
     WirePacket wire;
     if (!encodeServerSnapshot(networkSnapshot, wire)) {
       continue;
@@ -459,11 +664,83 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
     if (sendWire(impl_->socket, client.endpoint, wire)) {
       client.lastFullArenaRevision = snapshot.mapRevision;
       client.lastFullArenaTick = snapshot.serverTick;
-      if (networkSnapshot.hasCombatStats) {
+    }
+
+    if (client.wantsScoreboardStats &&
+        (client.lastCombatStatsTick == 0 ||
+         snapshot.serverTick - client.lastCombatStatsTick >=
+           kCombatStatsRefreshTicks)) {
+      CombatStatsPacket stats;
+      stats.serverTick = snapshot.serverTick;
+      stats.round = snapshot.roundCombatStats;
+      stats.match = snapshot.matchCombatStats;
+      WirePacket statsWire;
+      if (encodeCombatStatsPacket(stats, statsWire) &&
+          sendWire(impl_->socket, client.endpoint, statsWire)) {
         client.lastCombatStatsTick = snapshot.serverTick;
       }
     }
+
+    if (impl_->chatHistory.messageCount == 0U) {
+      continue;
+    }
+    const std::uint32_t latestSequence = impl_->chatHistory.messages[
+      impl_->chatHistory.messageCount - 1U
+    ].sequence;
+    const auto now = Clock::now();
+    const bool chatRetransmitThrottled =
+      client.lastChatSend != Clock::time_point::min() &&
+      now - client.lastChatSend < kChatRetransmitInterval;
+    if (
+      client.chatAckSequence == latestSequence ||
+      chatRetransmitThrottled
+    ) {
+      continue;
+    }
+
+    std::size_t first = 0U;
+    if (client.chatAckSequence != 0U) {
+      while (
+        first < impl_->chatHistory.messageCount &&
+        impl_->chatHistory.messages[first].sequence != client.chatAckSequence
+      ) {
+        ++first;
+      }
+      if (first < impl_->chatHistory.messageCount) {
+        ++first;
+      } else {
+        first = 0U;
+      }
+    }
+    if (first >= impl_->chatHistory.messageCount) {
+      continue;
+    }
+    ChatHistoryChunk chunk;
+    chunk.oldestAvailableSequence = impl_->chatHistory.messages[0].sequence;
+    chunk.latestSequence = latestSequence;
+    chunk.messageCount = static_cast<std::uint8_t>(std::min(
+      kChatHistoryChunkCapacity,
+      static_cast<std::size_t>(impl_->chatHistory.messageCount) - first
+    ));
+    for (std::size_t index = 0; index < chunk.messageCount; ++index) {
+      chunk.messages[index] = impl_->chatHistory.messages[first + index];
+    }
+    WirePacket chatWire;
+    if (
+      encodeChatHistoryChunk(chunk, chatWire) &&
+      sendWire(impl_->socket, client.endpoint, chatWire)
+    ) {
+      client.lastChatSend = now;
+    }
   }
+}
+
+void UdpServerTransport::publishChatHistory(const ChatHistory& history) {
+  impl_->chatHistory = history;
+}
+
+bool UdpServerTransport::receiveChatHistory(ChatHistoryChunk&) {
+  return false;
 }
 
 bool UdpServerTransport::receiveSnapshot(ServerSnapshot&) {
@@ -484,8 +761,10 @@ std::size_t UdpServerTransport::connectedClientCount() const {
 
 std::array<bool, kDuelPlayerCount> UdpServerTransport::connectedPlayers() const {
   std::array<bool, kDuelPlayerCount> connected = {};
-  for (std::size_t index = 0; index < impl_->clients.size(); ++index) {
-    connected[index] = impl_->clients[index].active;
+  for (const Impl::ClientSlot& client : impl_->clients) {
+    if (client.active && client.playerIndex < kDuelPlayerCount) {
+      connected[client.playerIndex] = true;
+    }
   }
   return connected;
 }
@@ -493,9 +772,9 @@ std::array<bool, kDuelPlayerCount> UdpServerTransport::connectedPlayers() const 
 std::array<std::uint32_t, kDuelPlayerCount>
 UdpServerTransport::connectedPlayerSessions() const {
   std::array<std::uint32_t, kDuelPlayerCount> sessions = {};
-  for (std::size_t index = 0; index < impl_->clients.size(); ++index) {
-    if (impl_->clients[index].active) {
-      sessions[index] = impl_->clients[index].session;
+  for (const Impl::ClientSlot& client : impl_->clients) {
+    if (client.active && client.playerIndex < kDuelPlayerCount) {
+      sessions[client.playerIndex] = client.session;
     }
   }
   return sessions;
@@ -509,23 +788,194 @@ struct UdpClientTransport::Impl {
   Impl(std::string serverHost, std::uint16_t serverPort)
     : host(std::move(serverHost)), port(serverPort) {}
 
+  void recordOutgoing(const WirePacket& wire) {
+    telemetryOutgoingBytes += wire.size();
+    PacketType type;
+    if (inspectPacketType(wire, type) && type == PacketType::CommandBundle) {
+      telemetry.lastCommandBytes = wire.size();
+    }
+  }
+
+  void recordIncoming(const WirePacket& wire) {
+    telemetryIncomingBytes += wire.size();
+  }
+
+  float incomingLossPercent() const {
+    if (!hasSnapshotTick) return 0.0F;
+    const std::uint32_t available = latestSnapshotTick - firstSnapshotTick + 1U;
+    const std::size_t window = std::min<std::size_t>(
+      snapshotTickTags.size(),
+      static_cast<std::size_t>(available)
+    );
+    std::size_t received = 0;
+    for (std::size_t offset = 0; offset < window; ++offset) {
+      const std::uint32_t tick =
+        latestSnapshotTick - static_cast<std::uint32_t>(offset);
+      received += snapshotTickTags[tick % snapshotTickTags.size()] == tick ? 1U : 0U;
+    }
+    return window == 0 ? 0.0F :
+      100.0F * static_cast<float>(window - received) /
+        static_cast<float>(window);
+  }
+
+  void updateOutgoingLoss(const ServerSnapshot& snapshot) {
+    const std::uint32_t latest = snapshot.acknowledgedCommandDatagramSequence;
+    if (
+      latest != 0 &&
+      telemetry.acknowledgedCommandDatagramSequence != 0 &&
+      latest != telemetry.acknowledgedCommandDatagramSequence &&
+      !isSequenceNewer(
+        latest,
+        telemetry.acknowledgedCommandDatagramSequence
+      )
+    ) {
+      // Reordered snapshots must not roll the transport acknowledgement window
+      // backward and manufacture loss that the server already recovered.
+      return;
+    }
+    telemetry.acknowledgedCommandDatagramSequence = latest;
+    if (latest == 0) {
+      telemetry.outgoingLossPercent = 0.0F;
+      return;
+    }
+    const std::uint32_t previousCount = std::min(latest - 1U, 32U);
+    const std::uint32_t validMask = previousCount == 32U
+      ? 0xFFFFFFFFU
+      : previousCount == 0U
+        ? 0U
+        : (1U << previousCount) - 1U;
+    const std::uint32_t received =
+      1U + std::popcount(snapshot.commandDatagramAckBits & validMask);
+    const std::uint32_t expected = previousCount + 1U;
+    telemetry.outgoingLossPercent =
+      100.0F * static_cast<float>(expected - received) /
+        static_cast<float>(expected);
+  }
+
+  void recordSnapshot(
+    const ServerSnapshot& snapshot,
+    std::size_t wireBytes,
+    Clock::time_point now
+  ) {
+    telemetry.lastSnapshotBytes = wireBytes;
+    ++telemetrySnapshotsReceived;
+    updateOutgoingLoss(snapshot);
+
+    const std::uint32_t tick = snapshot.serverTick;
+    const bool alreadyReceived =
+      hasSnapshotTick && snapshotTickTags[tick % snapshotTickTags.size()] == tick;
+    bool acceptedNewestArrival = false;
+    if (!hasSnapshotTick) {
+      hasSnapshotTick = true;
+      firstSnapshotTick = tick;
+      latestSnapshotTick = tick;
+      acceptedNewestArrival = true;
+    } else if (isSequenceNewer(tick, latestSnapshotTick)) {
+      const std::uint32_t tickDistance = tick - latestSnapshotTick;
+      if (tickDistance > 1U) {
+        telemetrySnapshotGaps += tickDistance - 1U;
+      }
+      if (hasSnapshotArrival) {
+        const float actualMilliseconds =
+          std::chrono::duration<float, std::milli>(now - lastSnapshotArrival).count();
+        const float expectedMilliseconds =
+          static_cast<float>(tickDistance) * kFixedTickSeconds * 1000.0F;
+        const float variation = std::fabs(actualMilliseconds - expectedMilliseconds);
+        snapshotJitterMilliseconds +=
+          (variation - snapshotJitterMilliseconds) * (1.0F / 16.0F);
+      }
+      latestSnapshotTick = tick;
+      acceptedNewestArrival = true;
+    } else if (!alreadyReceived && tick != latestSnapshotTick) {
+      ++telemetryLateSnapshots;
+      ++telemetry.lateSnapshots;
+      ++telemetry.reorderedSnapshots;
+    }
+    snapshotTickTags[tick % snapshotTickTags.size()] = tick;
+    if (acceptedNewestArrival) {
+      // Reordered/duplicate packets are diagnostics, not fresh controller
+      // samples: they must not reset age or distort inter-arrival jitter.
+      lastSnapshotArrival = now;
+      hasSnapshotArrival = true;
+    }
+    telemetry.incomingLossPercent = incomingLossPercent();
+  }
+
+  void sampleTelemetry(Clock::time_point now) {
+    if (lastTelemetrySample == Clock::time_point{}) {
+      lastTelemetrySample = now;
+      return;
+    }
+    const float elapsedSeconds =
+      std::chrono::duration<float>(now - lastTelemetrySample).count();
+    if (elapsedSeconds < 0.1F) return;
+
+    NetworkTelemetrySample sample;
+    sample.serial = ++telemetrySampleSerial;
+    sample.pingMilliseconds = telemetry.pingMilliseconds;
+    sample.snapshotJitterMilliseconds = snapshotJitterMilliseconds;
+    sample.incomingLossPercent = incomingLossPercent();
+    sample.outgoingLossPercent = telemetry.outgoingLossPercent;
+    sample.incomingKilobitsPerSecond =
+      static_cast<float>(telemetryIncomingBytes) * 8.0F /
+      (elapsedSeconds * 1000.0F);
+    sample.outgoingKilobitsPerSecond =
+      static_cast<float>(telemetryOutgoingBytes) * 8.0F /
+      (elapsedSeconds * 1000.0F);
+    sample.snapshotAgeMilliseconds = hasSnapshotArrival
+      ? std::chrono::duration<float, std::milli>(now - lastSnapshotArrival).count()
+      : 0.0F;
+    sample.snapshotsReceived = static_cast<std::uint16_t>(
+      std::min<std::uint64_t>(telemetrySnapshotsReceived, 65535U)
+    );
+    sample.snapshotGaps = static_cast<std::uint16_t>(
+      std::min<std::uint64_t>(telemetrySnapshotGaps, 65535U)
+    );
+    sample.lateSnapshots = static_cast<std::uint16_t>(
+      std::min<std::uint64_t>(telemetryLateSnapshots, 65535U)
+    );
+
+    telemetry.valid = connected;
+    telemetry.snapshotJitterMilliseconds = snapshotJitterMilliseconds;
+    telemetry.incomingLossPercent = sample.incomingLossPercent;
+    telemetry.incomingKilobitsPerSecond = sample.incomingKilobitsPerSecond;
+    telemetry.outgoingKilobitsPerSecond = sample.outgoingKilobitsPerSecond;
+    telemetry.snapshotRate =
+      static_cast<float>(telemetrySnapshotsReceived) / elapsedSeconds;
+    telemetry.snapshotAgeMilliseconds = sample.snapshotAgeMilliseconds;
+    telemetry.history[telemetryHistoryNext] = sample;
+    telemetryHistoryNext =
+      (telemetryHistoryNext + 1U) % telemetry.history.size();
+    telemetry.historyCount = std::min(
+      telemetry.historyCount + 1U,
+      telemetry.history.size()
+    );
+
+    telemetryIncomingBytes = 0;
+    telemetryOutgoingBytes = 0;
+    telemetrySnapshotsReceived = 0;
+    telemetrySnapshotGaps = 0;
+    telemetryLateSnapshots = 0;
+    lastTelemetrySample = now;
+  }
+
   void sendConnectedWire(const WirePacket& wire, Clock::time_point now) {
     if (!connected || !networkSim.active()) {
-      sendWire(socket, server, wire);
+      if (sendWire(socket, server, wire)) recordOutgoing(wire);
       return;
     }
     if (
       networkSim.enqueue(ClientNetworkSimDirection::Outgoing, wire, now) ==
       ClientNetworkSimAction::Immediate
     ) {
-      sendWire(socket, server, wire);
+      if (sendWire(socket, server, wire)) recordOutgoing(wire);
     }
   }
 
   void flushOutgoing(Clock::time_point now) {
     WirePacket wire;
     while (networkSim.popDue(ClientNetworkSimDirection::Outgoing, now, wire)) {
-      sendWire(socket, server, wire);
+      if (sendWire(socket, server, wire)) recordOutgoing(wire);
     }
   }
 
@@ -534,6 +984,7 @@ struct UdpClientTransport::Impl {
     if (!inspectPacketType(wire, type)) {
       return;
     }
+    recordIncoming(wire);
     if (type == PacketType::Snapshot && connected) {
       auto snapshot = std::make_unique<ServerSnapshot>();
       const auto decodeStart = Clock::now();
@@ -547,7 +998,32 @@ struct UdpClientTransport::Impl {
         // Queue validated wire rather than retaining the large decoded object;
         // ClientGame performs the state-producing decode when it consumes it.
         snapshots.push_back(wire);
+        recordSnapshot(*snapshot, wire.size(), now);
         snapshotDiagnostics.snapshotQueueDepth = snapshots.size();
+        lastServerPacket = now;
+      }
+    } else if (type == PacketType::ChatHistory && connected) {
+      ChatHistoryChunk chunk;
+      if (decodeChatHistoryChunk(wire, chunk)) {
+        chatHistory.push_back(wire);
+        const ChatMessage& last = chunk.messages[chunk.messageCount - 1U];
+        WirePacket ackWire;
+        if (encodeChatHistoryAck(ChatHistoryAck{last.sequence}, ackWire)) {
+          sendConnectedWire(ackWire, now);
+        }
+        lastServerPacket = now;
+      }
+    } else if (type == PacketType::CombatStats && connected) {
+      CombatStatsPacket stats;
+      if (decodeCombatStatsPacket(wire, stats) &&
+          (!hasCombatStats ||
+           isSequenceNewer(stats.serverTick, combatStatsServerTick))) {
+        // Scoreboard packets may reorder independently of snapshots. Never let
+        // an older aggregate roll the retained cache backward.
+        roundCombatStats = stats.round;
+        matchCombatStats = stats.match;
+        combatStatsServerTick = stats.serverTick;
+        hasCombatStats = true;
         lastServerPacket = now;
       }
     } else if (type == PacketType::Pong && connected) {
@@ -559,6 +1035,15 @@ struct UdpClientTransport::Impl {
         pingMs = std::chrono::duration<float, std::milli>(
           now - pingSentAt
         ).count();
+        if (telemetry.pingMilliseconds == 0.0F) {
+          telemetry.pingMilliseconds = pingMs;
+        } else {
+          const float difference = std::fabs(pingMs - telemetry.pingMilliseconds);
+          telemetry.pingVariationMilliseconds +=
+            (difference - telemetry.pingVariationMilliseconds) * 0.25F;
+          telemetry.pingMilliseconds +=
+            (pingMs - telemetry.pingMilliseconds) * 0.125F;
+        }
         lastServerPacket = now;
       }
     }
@@ -623,8 +1108,27 @@ struct UdpClientTransport::Impl {
           // attempt from assigning this client to a stale server-side session.
           connected = true;
           timedOut = false;
+          assignedClient = accept.clientIndex;
           assignedPlayer = accept.playerIndex;
+          configurationRevision = 0;
           hasCombatStats = false;
+          combatStatsServerTick = 0;
+          roundCombatStats = {};
+          matchCombatStats = {};
+          telemetry = {};
+          snapshotTickTags = {};
+          telemetryHistoryNext = 0;
+          telemetrySampleSerial = 0;
+          telemetryIncomingBytes = 0;
+          telemetryOutgoingBytes = 0;
+          telemetrySnapshotsReceived = 0;
+          telemetrySnapshotGaps = 0;
+          telemetryLateSnapshots = 0;
+          hasSnapshotTick = false;
+          hasSnapshotArrival = false;
+          snapshotJitterMilliseconds = 0.0F;
+          lastTelemetrySample = Clock::time_point{};
+          nextCommandDatagramSequence = 1;
           lastServerPacket = Clock::now();
           lastPingSend = Clock::now() - kPingInterval;
         }
@@ -645,9 +1149,14 @@ struct UdpClientTransport::Impl {
       connected = false;
       timedOut = true;
       commandHistory.clear();
+      configurationRevision = 0;
       hasCombatStats = false;
+      combatStatsServerTick = 0;
+      roundCombatStats = {};
+      matchCombatStats = {};
       networkSim.clear();
     }
+    sampleTelemetry(Clock::now());
   }
 
   SocketRuntime runtime;
@@ -656,15 +1165,37 @@ struct UdpClientTransport::Impl {
   SocketHandle socket = kInvalidSocket;
   Endpoint server = {};
   std::deque<WirePacket> snapshots;
+  std::deque<WirePacket> chatHistory;
   SnapshotDiagnostics snapshotDiagnostics = {};
+  NetworkTelemetry telemetry = {};
+  std::array<std::uint32_t, 256> snapshotTickTags = {};
+  std::size_t telemetryHistoryNext = 0;
+  std::uint64_t telemetrySampleSerial = 0;
+  std::uint64_t telemetryIncomingBytes = 0;
+  std::uint64_t telemetryOutgoingBytes = 0;
+  std::uint64_t telemetrySnapshotsReceived = 0;
+  std::uint64_t telemetrySnapshotGaps = 0;
+  std::uint64_t telemetryLateSnapshots = 0;
+  std::uint32_t firstSnapshotTick = 0;
+  std::uint32_t latestSnapshotTick = 0;
+  bool hasSnapshotTick = false;
+  bool hasSnapshotArrival = false;
+  float snapshotJitterMilliseconds = 0.0F;
+  Clock::time_point lastSnapshotArrival = {};
+  Clock::time_point lastTelemetrySample = {};
   std::deque<CommandPacket> commandHistory;
+  ServerSnapshot configurationCache = {};
+  std::uint32_t configurationRevision = 0;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
+  std::uint32_t combatStatsServerTick = 0;
   bool hasCombatStats = false;
   ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
   std::uint32_t pingToken = 0;
+  std::uint32_t nextCommandDatagramSequence = 1;
   std::uint8_t assignedPlayer = 0;
+  std::uint8_t assignedClient = 0;
   bool connected = false;
   bool timedOut = false;
   float pingMs = 0.0F;
@@ -747,7 +1278,13 @@ void UdpClientTransport::disconnect() {
   impl_->timedOut = false;
   impl_->commandHistory.clear();
   impl_->snapshots.clear();
+  impl_->configurationRevision = 0;
   impl_->hasCombatStats = false;
+  impl_->combatStatsServerTick = 0;
+  impl_->roundCombatStats = {};
+  impl_->matchCombatStats = {};
+  impl_->chatHistory.clear();
+  impl_->telemetry.valid = false;
 }
 
 void UdpClientTransport::update() {
@@ -767,7 +1304,13 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   }
 
   CommandPacket stampedPacket = packet;
+  stampedPacket.clientIndex = impl_->assignedClient;
+  // The server owns the mapping and overwrites this after authentication. The
+  // repeated value only keeps compact command histories internally coherent.
+  stampedPacket.playerIndex = impl_->assignedPlayer;
   stampedPacket.clientNonce = impl_->nonce;
+  stampedPacket.acknowledgedConfigurationRevision =
+    impl_->configurationRevision;
 
   WirePacket singleCommandWire;
   if (!encodeCommandPacket(stampedPacket, singleCommandWire)) {
@@ -783,16 +1326,28 @@ void UdpClientTransport::sendCommand(const CommandPacket& packet) {
   }
 
   CommandBundle bundle;
-  bundle.commandCount = static_cast<std::uint8_t>(impl_->commandHistory.size());
-  std::size_t index = 0;
-  for (const CommandPacket& command : impl_->commandHistory) {
-    bundle.commands[index++] = command;
+  bundle.datagramSequence = impl_->nextCommandDatagramSequence++;
+  if (impl_->nextCommandDatagramSequence == 0) {
+    impl_->nextCommandDatagramSequence = 1;
   }
-
+  bundle.actionEdges = stampedPacket.actionEdges;
   WirePacket wire;
-  if (encodeCommandBundle(bundle, wire)) {
-    impl_->sendConnectedWire(wire, Clock::now());
-    return;
+  // Prefer the newest inputs if an unusual control payload makes the complete
+  // history exceed the conservative no-fragmentation datagram budget.
+  for (std::size_t first = 0; first < impl_->commandHistory.size(); ++first) {
+    bundle.commandCount = static_cast<std::uint8_t>(
+      impl_->commandHistory.size() - first
+    );
+    for (std::size_t index = 0; index < bundle.commandCount; ++index) {
+      bundle.commands[index] = impl_->commandHistory[first + index];
+    }
+    if (
+      encodeCommandBundle(bundle, wire) &&
+      wire.size() <= kMaxCommandDatagramBytes
+    ) {
+      impl_->sendConnectedWire(wire, Clock::now());
+      return;
+    }
   }
 
   // If accumulated redundancy no longer fits, preserve current input latency by
@@ -820,6 +1375,35 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   if (!decodeServerSnapshot(wire, snapshot)) {
     return false;
   }
+  if (snapshot.hasLocalClientState) {
+    impl_->assignedPlayer = snapshot.localSpectator
+      ? kNoAssignedPlayer : snapshot.localPlayerIndex;
+  }
+  if (snapshot.hasConfiguration) {
+    if (impl_->configurationRevision == 0 ||
+        snapshot.configurationRevision == impl_->configurationRevision ||
+        isSequenceNewer(
+          snapshot.configurationRevision,
+          impl_->configurationRevision
+        )) {
+      copySnapshotConfiguration(impl_->configurationCache, snapshot);
+      impl_->configurationRevision = snapshot.configurationRevision;
+    } else {
+      // A reordered snapshot may carry an older full block; retain the newest
+      // acknowledged configuration while still consuming its gameplay state.
+      copySnapshotConfiguration(snapshot, impl_->configurationCache);
+    }
+  } else {
+    if (impl_->configurationRevision == 0 ||
+        isSequenceNewer(
+          snapshot.configurationRevision,
+          impl_->configurationRevision
+        )) {
+      return false;
+    }
+    copySnapshotConfiguration(snapshot, impl_->configurationCache);
+    snapshot.hasConfiguration = true;
+  }
   if (snapshot.hasCombatStats) {
     impl_->roundCombatStats = snapshot.roundCombatStats;
     impl_->matchCombatStats = snapshot.matchCombatStats;
@@ -833,10 +1417,41 @@ bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   return true;
 }
 
+void UdpClientTransport::publishChatHistory(const ChatHistory&) {}
+
+bool UdpClientTransport::receiveChatHistory(ChatHistoryChunk& chunk) {
+  impl_->pump();
+  if (impl_->chatHistory.empty()) {
+    return false;
+  }
+  const WirePacket wire = std::move(impl_->chatHistory.front());
+  impl_->chatHistory.pop_front();
+  return decodeChatHistoryChunk(wire, chunk);
+}
+
 SnapshotDiagnostics UdpClientTransport::snapshotDiagnostics() const {
   SnapshotDiagnostics diagnostics = impl_->snapshotDiagnostics;
   diagnostics.snapshotQueueDepth = impl_->snapshots.size();
   return diagnostics;
+}
+
+NetworkTelemetry UdpClientTransport::networkTelemetry() const {
+  NetworkTelemetry result = impl_->telemetry;
+  result.valid = impl_->connected;
+  if (impl_->hasSnapshotArrival) {
+    result.snapshotAgeMilliseconds = std::chrono::duration<float, std::milli>(
+      Clock::now() - impl_->lastSnapshotArrival
+    ).count();
+  }
+  const std::size_t count = impl_->telemetry.historyCount;
+  for (std::size_t index = 0; index < count; ++index) {
+    const std::size_t source =
+      (impl_->telemetryHistoryNext + impl_->telemetry.history.size() - count + index) %
+      impl_->telemetry.history.size();
+    result.history[index] = impl_->telemetry.history[source];
+  }
+  result.historyCount = count;
+  return result;
 }
 
 bool UdpClientTransport::connected() const {
@@ -847,8 +1462,16 @@ bool UdpClientTransport::timedOut() const {
   return impl_->timedOut;
 }
 
+std::uint8_t UdpClientTransport::clientIndex() const {
+  return impl_->assignedClient;
+}
+
 std::uint8_t UdpClientTransport::playerIndex() const {
   return impl_->assignedPlayer;
+}
+
+bool UdpClientTransport::spectator() const {
+  return impl_->assignedPlayer == kNoAssignedPlayer;
 }
 
 float UdpClientTransport::pingMilliseconds() const {

@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,379 @@ namespace {
 constexpr float kGlyphSize = 8.0F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr float kHalfPi = 1.57079632679F;
+
+using CatSprite = std::array<std::string_view, 30>;
+constexpr std::size_t kCatSpriteWidth = 35U;
+
+// Visually authored and previewed as a palette-indexed 35x30 calico set.
+// Shared markings and compact facial features identify one cat across every pose.
+constexpr CatSprite kCatIdle = {{
+  "",
+  "       c                    c",
+  "       cc                  cc",
+  "       ccpc              ccpc",
+  "       ccppc            ccppc",
+  "      cccdppccccccccccccdpppc",
+  "      cccdddpcqqqqqqqqcdddddcc",
+  "      ccddddddqqqqqqqqddddddcc",
+  "      ccdddddqqqqqqqqqqdddddcc",
+  "     ccggggddqqqqqqqqqddddddcc",
+  "     ccggggggdddqqqqqggdddddgcc",
+  "    ccggggggggdggqggggggdgggggcc",
+  "    ccgggggcccgggqggggcccgggggcc",
+  "    ccgggggcccggggggggcccgggggcc",
+  "     ccggggcccggggggggcccggggcc",
+  "     ccgggggggggccccgggggggggcc",
+  "     ccgbbbgggggccccgggggbbbgcc",
+  "     cccbbbggggggccggggggbbbccc",
+  "      cccgggggccccccccgggggccccc",
+  "       ccccgggggggggggggggcccccc",
+  "        cccccggggggggggcccccdddcc",
+  "         cccccccccccccccccccdddcc",
+  "        ccddccccccccccccggcc ddcc",
+  "        ccddddddgccgggggggccdddc",
+  "        ccddddddgccgggggggccddcc",
+  "        ccdcgggcgccgcgggcgccdccc",
+  "        ccdcgggcgccgcgggcgcccc",
+  "        ccdcgggcgccgcgggcgccc",
+  "        cccccccccccccccccccc",
+  "           ccccc    ccccc",
+}};
+
+constexpr CatSprite kCatIdleBlink = {{
+  "",
+  "       c                    c",
+  "       cc                  cc",
+  "       ccpc              ccpc",
+  "       ccppc            ccppc",
+  "      cccdppccccccccccccdpppc",
+  "      cccdddpcqqqqqqqqcdddddcc",
+  "      ccddddddqqqqqqqqddddddcc",
+  "      ccdddddqqqqqqqqqqdddddcc",
+  "     ccggggddqqqqqqqqqddddddcc",
+  "     ccggggggdddqqqqqggdddddgcc",
+  "    ccggggggggdggqggggggdgggggcc",
+  "    ccgggggggggggqggggggggggggcc",
+  "    ccggggccccggggggggccccggggcc",
+  "     ccggggggggggggggggggggggcc",
+  "     ccgggggggggccccgggggggggcc",
+  "     ccgbbbgggggccccgggggbbbgcc",
+  "     cccbbbggggggccggggggbbbccc",
+  "      cccgggggccccccccgggggccccc",
+  "       ccccgggggggggggggggcccccc",
+  "        cccccggggggggggcccccdddcc",
+  "         cccccccccccccccccccdddcc",
+  "        ccddccccccccccccggcc ddcc",
+  "        ccddddddgccgggggggccdddc",
+  "        ccddddddgccgggggggccddcc",
+  "        ccdcgggcgccgcgggcgccdccc",
+  "        ccdcgggcgccgcgggcgcccc",
+  "        ccdcgggcgccgcgggcgccc",
+  "        cccccccccccccccccccc",
+  "           ccccc    ccccc",
+}};
+
+constexpr CatSprite kCatCrouch = {{
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "       c                    c",
+  "       cc                  cc",
+  "       ccpc              ccpc",
+  "       ccppc            ccppc",
+  "      cccdppccccccccccccdpppc",
+  "      cccdddpcqqqqqqqqcdddddcc",
+  "      ccddddddqqqqqqqqddddddcc",
+  "      ccdddddqqqqqqqqqqdddddcc",
+  "     ccggggddqqqqqqqqqddddddcc",
+  "     ccggggggdddqqqqqggdddddgcc",
+  "    ccggggggggdggqggggggdgggggcc",
+  "    ccgggggcccgggqggggcccgggggcc",
+  "    ccgggggcccggggggggcccgggggcc",
+  "     ccggggcccggggggggcccggggcc",
+  "     ccgggggggggccccgggggggggcc",
+  "     ccgbbbgggggccccgggggbbbgcc",
+  "     cccbbbggggggccggggggbbbccc",
+  "      cccgggggccccccccgggggccccc",
+  "       ccccgggggggggggggggcccccc",
+  "        cccccggggggggggcccccdddcc",
+  "         cccccccccccccccccccdddcc",
+  "        ccddccccccccccccggcc ddcc",
+  "        ccddddddgccgggggggccdddc",
+  "        ccddddddgccgggggggccddcc",
+}};
+
+constexpr CatSprite kCatLeap = {{
+  "",
+  "       c                    c",
+  "       cc                  cc",
+  "       ccpc              ccpc",
+  "       ccppc            ccppc",
+  "      cccdppccccccccccccdpppc",
+  "      cccdddpcqqqqqqqqcdddddcc",
+  "      ccddddddqqqqqqqqddddddcc",
+  "      ccdddddqqqqqqqqqqdddddcc",
+  "     ccggggddqqqqqqqqqddddddcc",
+  "     ccggggggdddqqqqqggdddddgcc",
+  "    ccggggggggdggqggggggdgggggcc",
+  "    ccgggggcccgggqggggcccgggggcc",
+  "    ccgggggcccggggggggcccgggggcc",
+  "     ccggggcccggggggggcccggggcc",
+  "     ccgggggggggccccgggggggggcc",
+  "     ccgbbbgggggccccgggggbbbgcc",
+  "     cccbbbggggggccggggggbbbccc",
+  "      cccgggggccccccccgggggccccc",
+  "       ccccgggggggggggggggcccccc",
+  "        cccccggggggggggcccccdddcc",
+  "         cccgccccccccccgccccdddcc",
+  "          ccggcccccc    ggcc ddcc",
+  "          cggc dgccg    cggcdddc",
+  "          cggc dgccg     ggccdcc",
+  "         cggcc cgccg     cggcccc",
+  "         cccc  cgccg      cccc",
+  "            c  cgccg      c c",
+  "               ccccc",
+  "               c",
+}};
+
+constexpr CatSprite kCatLieHalf = {{
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "                         c",
+  "                         cc",
+  "                         cpc   c",
+  "                        ccppccccc",
+  "                        cpppccqcc",
+  "                       ccdpqqqqdcc",
+  "                       cdddqqqqddc",
+  "                      cgddddqqqddc",
+  "                      cdddddqqqddcc",
+  "          cccccccccccccgdddggdgggcc",
+  "     c   ccddddhhhhhhccggdgggcgggcc",
+  "    ccccccdddddhhhhhhhcggggggcgggc",
+  "  cccdccdddddddhhhhhhhcggggggggggc",
+  "  cdddccdddddddhhhhhhhccgggggggbbc",
+  "  cdddccdddddddhhhhhhhcccgggggccc",
+  " ccdddccddddddddhhhhhhcgcccccccc",
+  " ccddccdddddddddhhhhhcgggcccccc",
+  " cccdccdddddddddhhhhhcgggggcc",
+  "  cccccddccccccccccccccccggc",
+  "  ccccccccggggggggggggggcccc",
+  "   c  cccggggggggggggggggcc",
+  "       cggggggggggggggggggc",
+  "      cccggggggggggggggggccc",
+  "       cccccccccccccccccccc",
+}};
+
+constexpr CatSprite kCatSleep = {{
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "                      c",
+  "                      cc",
+  "                     ccgc    c",
+  "          ccccccccc  ccpgcccccc",
+  "       cccccccccccccccgdpcccgqccc",
+  "      ccccdhhhhhhhhhccpddpqqqqdgc",
+  "    cccddddhhhhhhhhccgddddqqqqddcc",
+  "   cccddddddhhhhhhhcggdddddqqqddgc",
+  "   ccdddddddhhhhhhccgggdddgqqqddgcc",
+  "  ccddddddddhhhhhhccggggdggggggggcc",
+  "  ccdccddddddhhhhhccgccccgggccccccc",
+  "  cdccdddddddhhhhhhcggggggggggggcc",
+  " ccdcddddddddhhhhhhcgggggcccggggcc",
+  " cddcdddddddddhhhhhcccggggcggggccc",
+  " cdddcddddddddhhhhhhcccgccccccccc",
+  "  cddcccddddddddhhhhggggccggggcc",
+  "  cddddcccddddddddhcggggccggggc",
+  "  ccccddddddddddddccggggccggggc",
+  "     cccdddddddddddccccc  cccc",
+  "        ccccccccccc  cc    cc",
+}};
+
+constexpr CatSprite kCatProfileWalkA = {{
+  "",
+  "",
+  "",
+  "",
+  "                         c",
+  "                         cc",
+  "                         cpc   c",
+  "                        ccppccccc",
+  "                        cpppccqcc",
+  "                       ccdpqqqqdcc",
+  "                       cdddqqqqddc",
+  "                      cgddddqqqddc",
+  "          cccccccccccccdddddqqqddcc",
+  "     c   ccddddhhhhhhccgdddggdgggcc",
+  "    ccccccdddddhhhhhhccggdgggcgggcc",
+  "  cccdccdddddddhhhhhhhcggggggcgggc",
+  "  cdddccdddddddhhhhhhhcggggggggggc",
+  "  cdddccdddddddhhhhhhhccgggggggbbc",
+  " ccdddccddddddddhhhhhhcccgggggccc",
+  " ccddccdddddddddhhhhhcggcccccccc",
+  " cccdccdddddddddhhhhhcgggcccccc",
+  "  cccccdddddddddhhhhhcgggggc",
+  "  cccccccdcccccdhhhhhccccccc",
+  "   c  cccccgggcdddddhcgggcc",
+  "        cccgggccccccccgggc",
+  "         ccgggccccccccgggc",
+  "          cgggc      cgggc",
+  "          ccccc      ccccc",
+  "          ccccc      ccccc",
+  "",
+}};
+
+constexpr CatSprite kCatProfileWalkB = {{
+  "",
+  "",
+  "",
+  "",
+  "",
+  "                         c",
+  "                         cc",
+  "                         cpc   c",
+  "                        ccppccccc",
+  "                        cpppccqcc",
+  "                       ccdpqqqqdcc",
+  "                       cdddqqqqddc",
+  "                      cgddddqqqddc",
+  "          cccccccccccccdddddqqqddcc",
+  "     c   ccddddhhhhhhccgdddggdgggcc",
+  "    ccccccdddddhhhhhhccggdgggcgggcc",
+  "  cccdccdddddddhhhhhhhcggggggcgggc",
+  "  cdddccdddddddhhhhhhhcggggggggggc",
+  "  cdddccdddddddhhhhhhhccgggggggbbc",
+  " ccdddccddddddddhhhhhhcccgggggccc",
+  " ccddccdddddddddhhhhhcggcccccccc",
+  " cccdccdddddddddhhhhhcgggcccccc",
+  "  cccccdddddddddhhhhhcgggggc",
+  "  cccccccdcccccdhhhhhccccccc",
+  "   c  cccccgggcdddddhcgggcc",
+  "        ccccgggcccccccgggc",
+  "         cccgggcccccccgggc",
+  "           ccccc     cgggc",
+  "           ccccc     ccccc",
+  "                     ccccc",
+}};
+
+constexpr CatSprite kCatProfileLeap = {{
+  "",
+  "",
+  "                         c",
+  "                         cc",
+  "                         cpc   c",
+  "                        ccppccccc",
+  "                        cpppccqcc",
+  "                       ccdpqqqqdcc",
+  "                       cdddqqqqddc",
+  "                      cgddddqqqddc",
+  "                      cdddddqqqddcc",
+  "                     ccgdddggdgggcc",
+  "          cccccccccccccggdgggcgggcc",
+  "     c   ccddddhhhhhhhcggggggcgggc",
+  "    ccccccdddddhhhhhhhcggggggggggc",
+  "  cccdccdddddddhhhhhhhccgggggggbbc",
+  "  cdddccdddddddhhhhhhhcccgggggccc",
+  "  cdddccdddddddhhhhhhhcgcccccccc",
+  " ccdddccddddddddhhhhhhcggcccccc",
+  " ccddccdddddddddhhhhhcggggggcc",
+  " cccdccdddddddddhhhhhcgggggcc",
+  "  cccccdddddddddhhhhhcgggggc",
+  "  cccccccdcccccdhhhhhccccgcc",
+  "   c  cccccgggcdddddhdgggcc",
+  "        ccgggcccccccccccggc",
+  "         cgggccccccccccccggcc",
+  "         gggcc           ccggc",
+  "        ccccc             ccg",
+  "        ccccc               c",
+  "",
+}};
+
+constexpr CatSprite kCatProfileCrouch = {{
+  "",
+  "",
+  "",
+  "",
+  "",
+  "",
+  "                         c",
+  "                         cc",
+  "                         cpc   c",
+  "                        ccppccccc",
+  "                        cpppccqcc",
+  "                       ccdpqqqqdcc",
+  "                       cdddqqqqddc",
+  "                      cgddddqqqddc",
+  "                      cdddddqqqddcc",
+  "          cccccccccccccgdddggdgggcc",
+  "     c   ccddddhhhhhhccggdgggcgggcc",
+  "    ccccccdddddhhhhhhhcggggggcgggc",
+  "  cccdccdddddddhhhhhhhcggggggggggc",
+  "  cdddccdddddddhhhhhhhccgggggggbbc",
+  "  cdddccdddddddhhhhhhhcccgggggccc",
+  " ccdddccddddddddhhhhhhcgcccccccc",
+  " ccddccdddddddddhhhhhcgggcccccc",
+  " cccdccdddddddddhhhhhcgggggcc",
+  "  cccccddccccccccccccccccggc",
+  "  ccccccccggggggggggggggcccc",
+  "   c  cccggggggggggggggggcc",
+  "       cggggggggggggggggggc",
+  "      cccggggggggggggggggccc",
+  "       cccccccccccccccccccc",
+}};
+
+[[nodiscard]] const CatSprite& catSprite(
+  ConsoleCatAction action,
+  std::uint8_t frame,
+  bool profile
+) {
+  if (profile) {
+    if (action == ConsoleCatAction::Leap) {
+      return kCatProfileLeap;
+    }
+    if (
+      action == ConsoleCatAction::Crouch ||
+      action == ConsoleCatAction::Land
+    ) {
+      return kCatProfileCrouch;
+    }
+    return frame == 0U ? kCatProfileWalkA : kCatProfileWalkB;
+  }
+  switch (action) {
+  case ConsoleCatAction::Stalk:
+    return kCatIdle;
+  case ConsoleCatAction::Crouch:
+  case ConsoleCatAction::Land:
+    return kCatCrouch;
+  case ConsoleCatAction::LieDown:
+    if (frame == 0U) {
+      return kCatCrouch;
+    }
+    return frame == 1U ? kCatLieHalf : kCatSleep;
+  case ConsoleCatAction::Sleep:
+    return kCatSleep;
+  case ConsoleCatAction::Leap:
+    return kCatLeap;
+  case ConsoleCatAction::Idle:
+    return frame == 0U ? kCatIdle : kCatIdleBlink;
+  }
+  return kCatIdle;
+}
 
 [[nodiscard]] float snappedTextScale(float scale) {
   constexpr std::array<float, 10> pixelHeights = {
@@ -237,6 +611,434 @@ void addText(
     scale,
     horizontalAlignment,
   });
+}
+
+[[nodiscard]] RenderColor networkQualityColor(
+  float value,
+  float warning,
+  float critical
+) {
+  if (value >= critical) return {255, 92, 92, 255};
+  if (value >= warning) return {255, 210, 78, 255};
+  return {112, 232, 142, 255};
+}
+
+void addNetGraph(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const HudRenderState::NetGraphState& state
+) {
+  if (state.mode <= 0 || !state.telemetry.valid) return;
+
+  const bool expanded = state.mode >= 2;
+  const float basePanelWidth = expanded ? 460.0F : 252.0F;
+  const float basePanelHeight = expanded ? 395.0F : 201.0F;
+  const float availableWidth = std::max(1.0F, static_cast<float>(width) - 24.0F);
+  const float availableHeight = std::max(1.0F, static_cast<float>(height) - 24.0F);
+  const float fitScale = std::min(
+    availableWidth / basePanelWidth,
+    availableHeight / basePanelHeight
+  );
+  // The cvar controls the preferred size; tiny windows constrain it so the
+  // diagnostics remain fully visible instead of spilling off-screen.
+  const float scale = std::max(
+    0.5F,
+    std::min(std::clamp(state.scale, 0.75F, 3.0F), fitScale)
+  );
+  const float panelWidth = basePanelWidth * scale;
+  const float panelHeight = basePanelHeight * scale;
+  const float margin = 12.0F * scale;
+  const float x = std::max(margin, static_cast<float>(width) - panelWidth - margin);
+  const float maximumY = std::max(margin, static_cast<float>(height) - panelHeight - margin);
+  const float y = std::clamp(
+    static_cast<float>(height) * 0.18F,
+    margin,
+    maximumY
+  );
+  const float textScale = scale;
+  const float rowHeight = 17.0F * scale;
+  const RenderColor label = {190, 203, 214, 255};
+  const RenderColor value = {238, 244, 248, 255};
+
+  addRect(drawList, x, y, panelWidth, panelHeight, {7, 12, 17, 206});
+  addRect(drawList, x, y, 3.0F * scale, panelHeight, {64, 180, 224, 230});
+  addText(drawList, x + margin, y + 9.0F * scale, "NETWORK", {128, 220, 255, 255}, textScale);
+  const bool interrupted = state.telemetry.snapshotAgeMilliseconds >= 1000.0F;
+  const bool unstable =
+    state.telemetry.incomingLossPercent >= 2.0F ||
+    state.telemetry.outgoingLossPercent >= 2.0F ||
+    state.telemetry.snapshotJitterMilliseconds >= 10.0F ||
+    state.telemetry.snapshotAgeMilliseconds >=
+      std::max(40.0F, state.interpolationEffectiveDelayMilliseconds * 2.0F);
+  addText(
+    drawList,
+    x + panelWidth - margin,
+    y + 9.0F * scale,
+    interrupted ? "INTERRUPTED" : unstable ? "UNSTABLE" : "HEALTHY",
+    interrupted || unstable
+      ? RenderColor{255, 92, 92, 255}
+      : RenderColor{112, 232, 142, 255},
+    textScale,
+    TextHorizontalAlignment::Right
+  );
+
+  float rowY = y + 31.0F * scale;
+  const auto addMetric = [&](const char* name, const char* format,
+                             float number, RenderColor numberColor) {
+    char text[64];
+    std::snprintf(text, sizeof(text), format, number);
+    addText(drawList, x + margin, rowY, name, label, textScale);
+    addText(
+      drawList,
+      x + panelWidth - margin,
+      rowY,
+      text,
+      numberColor,
+      textScale,
+      TextHorizontalAlignment::Right
+    );
+    rowY += rowHeight;
+  };
+  const auto addTextMetric = [&](const char* name, const char* text,
+                                 RenderColor textColor) {
+    addText(drawList, x + margin, rowY, name, label, textScale);
+    addText(
+      drawList,
+      x + panelWidth - margin,
+      rowY,
+      text,
+      textColor,
+      textScale,
+      TextHorizontalAlignment::Right
+    );
+    rowY += rowHeight;
+  };
+
+  addMetric("PING", "%.1f ms", state.telemetry.pingMilliseconds,
+            networkQualityColor(state.telemetry.pingMilliseconds, 80.0F, 140.0F));
+  addMetric("JITTER", "%.1f ms", state.telemetry.snapshotJitterMilliseconds,
+            networkQualityColor(state.telemetry.snapshotJitterMilliseconds, 4.0F, 10.0F));
+  addMetric("LOSS IN", "%.1f%%", state.telemetry.incomingLossPercent,
+            networkQualityColor(state.telemetry.incomingLossPercent, 0.5F, 2.0F));
+  addMetric("LOSS OUT", "%.1f%%", state.telemetry.outgoingLossPercent,
+            networkQualityColor(state.telemetry.outgoingLossPercent, 0.5F, 2.0F));
+  addMetric("SNAP RATE", "%.0f /s", state.telemetry.snapshotRate,
+            networkQualityColor(125.0F - state.telemetry.snapshotRate, 5.0F, 20.0F));
+  addMetric(
+    "INTERP",
+    "%.0f ms",
+    state.interpolationEffectiveDelayMilliseconds,
+    value
+  );
+  char lead[48];
+  std::snprintf(
+    lead,
+    sizeof(lead),
+    "%.2f / %.2f tk",
+    state.interpolationBufferLeadTicks,
+    state.interpolationDesiredBufferLeadTicks
+  );
+  addTextMetric("LEAD/TARGET", lead, value);
+  addMetric("PKT AGE", "%.1f ms", state.telemetry.snapshotAgeMilliseconds,
+            networkQualityColor(
+              state.telemetry.snapshotAgeMilliseconds,
+              std::max(16.0F, state.interpolationEffectiveDelayMilliseconds),
+              std::max(
+                40.0F,
+                state.interpolationEffectiveDelayMilliseconds * 2.0F
+              )
+            ));
+
+  if (!expanded) return;
+
+  rowY += 3.0F * scale;
+  const float detailStartY = rowY;
+  char detail[96];
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "BW IN/OUT  %.0f / %.0f kbit",
+    state.telemetry.incomingKilobitsPerSecond,
+    state.telemetry.outgoingKilobitsPerSecond
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "ERROR %+.2f tk  RATE %.3fx",
+    state.interpolationTimelineErrorTicks,
+    state.interpolationPlaybackRate
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "DELAY %.1f ms  SNAPS %zu",
+    state.interpolationEffectiveDelayMilliseconds,
+    state.interpolationBufferedSnapshotCount
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "PLAY %s  UNDERRUN %s",
+    state.interpolationPlaybackStarted ? "ON" : "WAIT",
+    state.interpolationUnderrun ? "ACTIVE" : "CLEAR"
+  );
+  addText(
+    drawList,
+    x + margin,
+    rowY,
+    detail,
+    state.interpolationUnderrun
+      ? RenderColor{255, 112, 202, 255}
+      : value,
+    textScale
+  );
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "EVENTS UNDER %u  HARD %u",
+    state.interpolationUnderrunCount,
+    state.interpolationHardCorrectionCount
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "TICK P/N %.2f / %.0f",
+    state.interpolationPresentationTick,
+    state.interpolationNewestSnapshotTick
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "COLLISION TICK %u  %s",
+    state.interpolationSampleTick,
+    state.interpolationSampleEligible ? "VALID" : "NONE"
+  );
+  addText(drawList, x + margin, rowY, detail, value, textScale);
+  const float secondDetailX = x + 230.0F * scale;
+  rowY = detailStartY;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "BYTES SNAP/CMD  %zu / %zu",
+    state.telemetry.lastSnapshotBytes,
+    state.telemetry.lastCommandBytes
+  );
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "PENDING %zu  QUEUE %zu",
+    state.pendingCommands,
+    state.snapshotQueueDepth
+  );
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "CORR %.3f  AVG %.3f  MAX %.3f",
+    state.lastCorrectionDistance,
+    [&state]() {
+      constexpr float kVisibleCorrectionMinimum = 0.001F;
+      float total = 0.0F;
+      std::size_t correctionSamples = 0;
+      for (std::size_t index = 0; index < state.telemetry.historyCount; ++index) {
+        const float distance =
+          state.telemetry.history[index].predictionCorrectionDistance;
+        if (distance >= kVisibleCorrectionMinimum) {
+          total += distance;
+          ++correctionSamples;
+        }
+      }
+      return correctionSamples > 0
+        ? total / static_cast<float>(correctionSamples)
+        : 0.0F;
+    }(),
+    [&state]() {
+      float maximum = 0.0F;
+      for (std::size_t index = 0; index < state.telemetry.historyCount; ++index) {
+        maximum = std::max(
+          maximum,
+          state.telemetry.history[index].predictionCorrectionDistance
+        );
+      }
+      return maximum;
+    }()
+  );
+  addText(
+    drawList,
+    secondDetailX,
+    rowY,
+    detail,
+    {112, 174, 255, 255},
+    textScale
+  );
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "REWIND %u / %u ticks",
+    state.requestedRewindTicks,
+    state.appliedRewindTicks
+  );
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "RTT VAR %.1f ms",
+    state.telemetry.pingVariationMilliseconds
+  );
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "LATE %llu  REORDER %llu",
+    static_cast<unsigned long long>(state.telemetry.lateSnapshots),
+    static_cast<unsigned long long>(state.telemetry.reorderedSnapshots)
+  );
+  addText(drawList, secondDetailX, rowY, detail, value, textScale);
+
+  const float graphHeight = 68.0F * scale;
+  const float graphX = x + margin;
+  const float graphY = y + panelHeight - graphHeight - 25.0F * scale;
+  const float graphWidth = panelWidth - 2.0F * margin;
+  addRect(drawList, graphX, graphY, graphWidth, graphHeight, {2, 5, 8, 220});
+  addLine(
+    drawList,
+    {graphX, graphY + graphHeight - 1.0F},
+    {graphX + graphWidth, graphY + graphHeight - 1.0F},
+    {75, 91, 102, 210},
+    scale
+  );
+
+  const std::size_t count = state.telemetry.historyCount;
+  const float columnWidth = graphWidth /
+    static_cast<float>(kNetworkTelemetryHistorySamples);
+  const std::size_t firstColumn = kNetworkTelemetryHistorySamples - count;
+  for (std::size_t index = 0; index < count; ++index) {
+    const NetworkTelemetrySample& sample = state.telemetry.history[index];
+    const float columnX = graphX +
+      static_cast<float>(firstColumn + index) * columnWidth;
+    RenderColor color = {82, 213, 122, 230};
+    float barHeight = std::clamp(
+      (3.0F + sample.snapshotJitterMilliseconds * 2.0F) * scale,
+      3.0F * scale,
+      graphHeight - 2.0F * scale
+    );
+    if (sample.snapshotGaps > 0 || sample.incomingLossPercent >= 2.0F) {
+      color = {244, 72, 72, 240};
+      barHeight = graphHeight - 2.0F * scale;
+    } else if (sample.interpolationUnderrun) {
+      color = {255, 80, 190, 245};
+      barHeight = std::max(barHeight, graphHeight * 0.72F);
+    } else if (sample.lateSnapshots > 0 ||
+               sample.snapshotJitterMilliseconds >= 4.0F) {
+      color = {246, 195, 68, 235};
+    }
+    addRect(
+      drawList,
+      columnX,
+      graphY + graphHeight - barHeight,
+      std::max(scale, columnWidth),
+      barHeight,
+      color
+    );
+    if (sample.outgoingLossPercent >= 0.5F) {
+      addRect(
+        drawList,
+        columnX,
+        graphY,
+        std::max(scale, columnWidth),
+        3.0F * scale,
+        {255, 143, 58, 255}
+      );
+    }
+    if (sample.interpolationHardCorrection) {
+      // Controller events are attached only to the sample where their counters
+      // advance, keeping a held timeline from painting every later column.
+      addRect(
+        drawList,
+        columnX,
+        graphY,
+        std::max(scale, columnWidth),
+        5.0F * scale,
+        {64, 220, 255, 255}
+      );
+    }
+    constexpr float kVisibleCorrectionMinimum = 0.001F;
+    if (sample.predictionCorrectionDistance >= kVisibleCorrectionMinimum) {
+      // A logarithmic scale preserves distinction among small corrections
+      // without letting one large reconciliation cover the complete graph.
+      const float magnitude = std::clamp(
+        std::log1p(
+          sample.predictionCorrectionDistance / kVisibleCorrectionMinimum
+        ) / std::log1p(0.25F / kVisibleCorrectionMinimum),
+        0.0F,
+        1.0F
+      );
+      // Corrections are frequent during normal movement. Keep them legible as
+      // a magnitude trace without letting them dominate loss/starvation events.
+      const float correctionHeight =
+        (1.5F + magnitude * 18.0F) * scale;
+      const RenderColor correctionColor = {
+        static_cast<std::uint8_t>(70.0F + 20.0F * magnitude),
+        static_cast<std::uint8_t>(150.0F - 30.0F * magnitude),
+        255,
+        static_cast<std::uint8_t>(150.0F + 105.0F * magnitude),
+      };
+      addRect(
+        drawList,
+        columnX,
+        graphY + graphHeight - correctionHeight,
+        std::max(scale, columnWidth),
+        correctionHeight,
+        correctionColor
+      );
+    }
+    if (sample.interpolationUnderrun) {
+      // Keep the edge visible even when loss owns the column's main severity
+      // color or a prediction-correction trace overlaps its lower portion.
+      addRect(
+        drawList,
+        columnX,
+        graphY + graphHeight * 0.46F,
+        std::max(scale, columnWidth),
+        3.0F * scale,
+        {255, 80, 190, 255}
+      );
+    }
+  }
+  const float legendY = graphY + graphHeight + 3.0F * scale;
+  float legendX = graphX;
+  const auto addLegendLabel = [&drawList, &legendX, scale](
+    float rowY,
+    std::string_view text,
+    RenderColor color
+  ) {
+    addText(drawList, legendX, rowY, std::string{text}, color, scale);
+    legendX += (static_cast<float>(text.size()) + 1.0F) * kGlyphSize * scale;
+  };
+  addLegendLabel(legendY, "10S", {132, 148, 160, 255});
+  addLegendLabel(legendY, "LOSS", {244, 72, 72, 255});
+  addLegendLabel(legendY, "LATE", {246, 195, 68, 255});
+  addLegendLabel(legendY, "UNDER", {255, 80, 190, 255});
+  addLegendLabel(legendY, "HARD", {64, 220, 255, 255});
+  addLegendLabel(legendY, "PRED", {112, 120, 255, 255});
 }
 
 [[nodiscard]] std::uint8_t blendChannel(
@@ -1883,6 +2685,69 @@ void addHud(
   for (const ChatLayoutRow& row : chatLayout.rows) {
     addText(drawList, row.x, row.y, row.text, {225, 235, 245, 255}, 2.0F);
   }
+  if (
+    hud.chatHistoryExpanded &&
+    chatLayout.totalHistoryRows > 0U &&
+    chatLayout.visibleHistoryRows > 0U
+  ) {
+    constexpr float trackWidth = 8.0F;
+    constexpr float trackGap = 12.0F;
+    constexpr float screenMargin = 12.0F;
+    constexpr float minimumThumbHeight = 18.0F;
+    // Keep the indicator attached to the chat block; at the screen edge it
+    // looks like an unrelated HUD element and is easy to miss.
+    const float trackX = std::min(
+      chatLayout.historyRight + trackGap,
+      static_cast<float>(width) - screenMargin - trackWidth
+    );
+    const float trackY = chatLayout.historyTop;
+    const float trackHeight = chatLayout.historyBottom - chatLayout.historyTop;
+    const float visibleRatio =
+      static_cast<float>(chatLayout.visibleHistoryRows) /
+      static_cast<float>(chatLayout.totalHistoryRows);
+    const float thumbHeight = std::clamp(
+      trackHeight * visibleRatio,
+      minimumThumbHeight,
+      trackHeight
+    );
+    const std::size_t maximumFirstRow =
+      chatLayout.totalHistoryRows - chatLayout.visibleHistoryRows;
+    const float historyPosition = maximumFirstRow > 0U
+      ? static_cast<float>(chatLayout.firstVisibleHistoryRow) /
+        static_cast<float>(maximumFirstRow)
+      : 1.0F;
+    const float thumbY =
+      trackY + (trackHeight - thumbHeight) * historyPosition;
+    addRect(
+      drawList,
+      trackX,
+      trackY,
+      trackWidth,
+      trackHeight,
+      {12, 18, 24, 185}
+    );
+    addRect(
+      drawList,
+      trackX,
+      thumbY,
+      trackWidth,
+      thumbHeight,
+      {112, 190, 224, 245}
+    );
+    const std::string positionText =
+      "ROWS " + std::to_string(chatLayout.firstVisibleHistoryRow + 1U) +
+      '-' + std::to_string(
+        chatLayout.firstVisibleHistoryRow + chatLayout.visibleHistoryRows
+      ) + " / " + std::to_string(chatLayout.totalHistoryRows);
+    addText(
+      drawList,
+      trackX,
+      trackY - 16.0F,
+      positionText,
+      {168, 205, 222, 255},
+      1.25F
+    );
+  }
   if (hud.chatInputOpen) {
     if (!chatLayout.inputRows.empty()) {
       addRect(
@@ -2071,6 +2936,105 @@ void addConsole(
     {92, 170, 230, 255}
   );
 
+  constexpr float catPixel = 3.0F;
+  const CatSprite& sprite = catSprite(
+    console.cat.action,
+    console.cat.frame,
+    console.cat.profile
+  );
+  const float spriteWidth = static_cast<float>(kCatSpriteWidth) * catPixel;
+  const float spriteHeight = static_cast<float>(sprite.size()) * catPixel;
+  const float spriteLeft = console.cat.position.x - spriteWidth * 0.5F;
+  const float spriteTop = console.cat.position.y - spriteHeight;
+  if (console.cat.action != ConsoleCatAction::Leap) {
+    addRect(
+      drawList,
+      console.cat.position.x - 36.0F,
+      console.cat.position.y - 2.0F,
+      72.0F,
+      4.0F,
+      {0, 0, 0, 105}
+    );
+  }
+  for (std::size_t row = 0; row < sprite.size(); ++row) {
+    for (std::size_t column = 0; column < kCatSpriteWidth; ++column) {
+      const std::size_t sourceColumn = console.cat.facingRight
+        ? column
+        : kCatSpriteWidth - column - 1U;
+      const char pixel = sourceColumn < sprite[row].size()
+        ? sprite[row][sourceColumn]
+        : ' ';
+      RenderColor color;
+      switch (pixel) {
+      case 'X': color = {24, 22, 20, 255}; break;
+      case 'q': color = {78, 45, 27, 255}; break;
+      case 'd': color = {190, 132, 73, 255}; break;
+      case 'g': color = {247, 244, 235, 255}; break;
+      case 'h': color = {218, 207, 185, 255}; break;
+      case 'w': color = {255, 252, 247, 255}; break;
+      case 'c': color = {24, 22, 20, 255}; break;
+      case 'p': color = {247, 203, 218, 255}; break;
+      case 'b': color = {247, 154, 181, 255}; break;
+      default: continue;
+      }
+      addRect(
+        drawList,
+        spriteLeft + static_cast<float>(column) * catPixel,
+        spriteTop + static_cast<float>(row) * catPixel,
+        catPixel,
+        catPixel,
+        color
+      );
+    }
+  }
+
+  if (console.cat.action == ConsoleCatAction::Sleep) {
+    const float direction = console.cat.facingRight ? 1.0F : -1.0F;
+    const float phase = static_cast<float>(console.cat.frame);
+    const float faceX = console.cat.position.x + direction * 20.0F;
+    addText(
+      drawList,
+      faceX,
+      console.cat.position.y - 52.0F - phase * 1.5F,
+      "Z",
+      {220, 232, 245, 225},
+      1.0F
+    );
+    if (console.cat.frame >= 2U) {
+      addText(
+        drawList,
+        faceX + direction * 10.0F,
+        console.cat.position.y - 68.0F - (phase - 2.0F) * 1.5F,
+        "Z",
+        {190, 208, 228, 180},
+        1.25F
+      );
+    }
+    if (console.cat.frame >= 4U) {
+      addText(
+        drawList,
+        faceX + direction * 23.0F,
+        console.cat.position.y - 88.0F - (phase - 4.0F) * 1.5F,
+        "Z",
+        {160, 184, 212, 135},
+        1.5F
+      );
+    }
+  }
+
+  // A broad, irregular bloom reads like a laser pointer on a surface and is
+  // easier to reacquire than a precise cursor-sized square.
+  const float laserX = console.cat.laser.x;
+  const float laserY = console.cat.laser.y;
+  addRect(drawList, laserX - 14.0F, laserY - 5.0F, 28.0F, 10.0F, {255, 24, 40, 38});
+  addRect(drawList, laserX - 5.0F, laserY - 14.0F, 10.0F, 28.0F, {255, 24, 40, 38});
+  addRect(drawList, laserX - 9.0F, laserY - 7.0F, 18.0F, 14.0F, {255, 34, 48, 76});
+  addRect(drawList, laserX - 7.0F, laserY - 9.0F, 14.0F, 18.0F, {255, 34, 48, 76});
+  addRect(drawList, laserX - 5.0F, laserY - 5.0F, 10.0F, 10.0F, {255, 58, 72, 190});
+  addRect(drawList, laserX - 3.0F, laserY - 3.0F, 6.0F, 6.0F, {255, 112, 118, 245});
+  addRect(drawList, laserX + 11.0F, laserY - 9.0F, 4.0F, 4.0F, {255, 42, 58, 78});
+  addRect(drawList, laserX - 13.0F, laserY + 9.0F, 3.0F, 3.0F, {255, 42, 58, 62});
+
   constexpr float textScale = 2.0F;
   const ConsoleTextLayout layout = buildConsoleTextLayout(width, height, console);
   if (console.hasSelection && console.selectionAnchor != console.selectionFocus) {
@@ -2135,6 +3099,7 @@ void addConsole(
       textScale
     );
   }
+
 }
 
 } // namespace
@@ -2662,11 +3627,27 @@ DrawList2D buildScreenUi(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
+  if (hud.deathDesaturation > 0.0F) {
+    const float strength = std::clamp(hud.deathDesaturation, 0.0F, 1.0F);
+    const std::array<ScreenPoint, 4> points = {{
+      {0.0F, 0.0F},
+      {static_cast<float>(outputWidth), 0.0F},
+      {static_cast<float>(outputWidth), static_cast<float>(outputHeight)},
+      {0.0F, static_cast<float>(outputHeight)},
+    }};
+    // The neutral wash is applied below the HUD so critical countdown text
+    // stays crisp while the world loses color and brightness during death.
+    drawList.commands.emplace_back(FilledQuad2D{
+      points,
+      {96, 96, 96, static_cast<std::uint8_t>(190.0F * strength)},
+    });
+  }
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addDashIndicator(drawList, outputWidth, outputHeight, localPlayer, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
+  addNetGraph(drawList, outputWidth, outputHeight, hud.netGraph);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
   addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);

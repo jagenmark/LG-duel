@@ -106,8 +106,9 @@ int main() {
   failures += expect(firstClient.hasSnapshot(), "first UDP client should receive snapshot");
   failures += expect(secondClient.hasSnapshot(), "second UDP client should receive snapshot");
   failures += expect(
-    firstClient.snapshot().hasCombatStats && secondClient.snapshot().hasCombatStats,
-    "first UDP snapshot should establish recoverable combat statistics"
+    firstClient.snapshot().hasConfiguration &&
+      !firstClient.snapshot().hasCombatStats,
+    "first UDP snapshot should omit unrequested combat statistics"
   );
   failures += expect(
     firstClient.snapshot().matchPhase == lg::MatchPhase::WaitingForReady,
@@ -150,8 +151,9 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   failures += expect(
-    firstClient.snapshot().hasCombatStats && secondClient.snapshot().hasCombatStats,
-    "lean UDP snapshots should retain the last combat statistics refresh"
+    firstClient.snapshot().hasConfiguration &&
+      !firstClient.snapshot().hasCombatStats,
+    "gameplay snapshots should remain lean while the scoreboard is closed"
   );
   failures += expect(
     server.snapshot().hasAcknowledgedCommand[firstPlayerIndex] &&
@@ -284,6 +286,133 @@ int main() {
   failures += expect(firstTransport.pingMilliseconds() > 0.0F, "first UDP client should measure ping");
   failures += expect(secondTransport.pingMilliseconds() > 0.0F, "second UDP client should measure ping");
 
+  lg::CommandPacket scoreboardCommand;
+  scoreboardCommand.playerIndex = static_cast<std::uint8_t>(firstTransport.playerIndex());
+  scoreboardCommand.command.sequence = 43;
+  scoreboardCommand.wantsScoreboardStats = true;
+  firstTransport.sendCommand(scoreboardCommand);
+  for (int iteration = 0; iteration < 4; ++iteration) {
+    serverTransport.update();
+    syncConnectedPlayers(server, serverTransport);
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  failures += expect(
+    firstClient.snapshot().hasCombatStats,
+    "a client with the scoreboard open should receive combat statistics"
+  );
+  failures += expect(
+    !secondClient.snapshot().hasCombatStats,
+    "one client's scoreboard should not enable combat statistics for other clients"
+  );
+  failures += expect(
+    firstClient.snapshot().matchCombatStats[firstPlayerIndex]
+      .weapons[lg::weaponIndex(lg::Weapon::LightningGun)].damageDealt ==
+      server.snapshot().matchCombatStats[firstPlayerIndex]
+        .weapons[lg::weaponIndex(lg::Weapon::LightningGun)].damageDealt,
+    "scoreboard statistics should match the authoritative server totals"
+  );
+
+  lg::NetworkTelemetry telemetry = firstTransport.networkTelemetry();
+  failures += expect(
+    telemetry.valid && telemetry.historyCount > 0 &&
+      telemetry.lastSnapshotBytes > 0 && telemetry.lastSnapshotBytes < 1200 &&
+      telemetry.lastCommandBytes > 0 && telemetry.lastCommandBytes < 1200 &&
+      telemetry.acknowledgedCommandDatagramSequence > 0,
+    "UDP telemetry should measure packet sizes and command datagram acknowledgements"
+  );
+  failures += expect(
+    telemetry.incomingLossPercent == 0.0F &&
+      telemetry.outgoingLossPercent == 0.0F,
+    "clean local UDP traffic should report no packet loss"
+  );
+  std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  lg::ServerSnapshot duplicateSnapshot = server.snapshot();
+  serverTransport.sendSnapshot(duplicateSnapshot);
+  firstTransport.update();
+  failures += expect(
+    firstTransport.networkTelemetry().snapshotAgeMilliseconds >= 15.0F,
+    "duplicate snapshots must not refresh newest-snapshot age or adaptive timing"
+  );
+
+  lg::ClientNetworkSimulationConfig adverseNetwork;
+  adverseNetwork.lossPercent = 30;
+  adverseNetwork.seed = 12345;
+  firstTransport.setNetworkSimulationConfig(adverseNetwork);
+  for (std::uint32_t sequence = 44; sequence < 164; ++sequence) {
+    lg::CommandPacket command;
+    command.playerIndex = static_cast<std::uint8_t>(firstPlayerIndex);
+    command.command.sequence = sequence;
+    command.command.forwardMove = 1.0F;
+    firstTransport.sendCommand(command);
+    serverTransport.update();
+    syncConnectedPlayers(server, serverTransport);
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  firstTransport.setNetworkSimulationConfig({});
+  lg::CommandPacket recoveryCommand;
+  recoveryCommand.playerIndex = static_cast<std::uint8_t>(firstPlayerIndex);
+  recoveryCommand.command.sequence = 164;
+  firstTransport.sendCommand(recoveryCommand);
+  for (int iteration = 0; iteration < 30; ++iteration) {
+    serverTransport.update();
+    syncConnectedPlayers(server, serverTransport);
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  telemetry = firstTransport.networkTelemetry();
+  failures += expect(
+    telemetry.incomingLossPercent > 0.0F &&
+      telemetry.outgoingLossPercent > 0.0F,
+    "UDP telemetry should expose simulated incoming and outgoing packet loss"
+  );
+
+  lg::CommandPacket chatCommand;
+  chatCommand.playerIndex = firstTransport.clientIndex();
+  chatCommand.command.sequence = 165;
+  chatCommand.chatMessage = "udp chat history";
+  firstTransport.sendCommand(chatCommand);
+  for (int iteration = 0; iteration < 30; ++iteration) {
+    serverTransport.update();
+    syncConnectedPlayers(server, serverTransport);
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    if (
+      !firstClient.chatHistory().empty() &&
+      !secondClient.chatHistory().empty()
+    ) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  failures += expect(
+    !firstClient.chatHistory().empty() &&
+      firstClient.chatHistory().back().message == "udp chat history",
+    "UDP chat history should return a sent message to its author"
+  );
+  failures += expect(
+    !secondClient.chatHistory().empty() &&
+      secondClient.chatHistory().back().message == "udp chat history",
+    "UDP chat history should deliver a sent message to other clients"
+  );
+
   firstTransport.disconnect();
   serverTransport.update();
   syncConnectedPlayers(server, serverTransport);
@@ -306,7 +435,10 @@ int main() {
 
     lg::ServerGame multiServer(multiServerTransport);
     multiServer.setConnectedPlayers({});
-    std::array<std::unique_ptr<lg::UdpClientTransport>, lg::kDuelPlayerCount>
+    std::array<
+      std::unique_ptr<lg::UdpClientTransport>,
+      lg::kDuelPlayerCount + 1U
+    >
       clients = {};
     for (std::size_t index = 0; index < clients.size(); ++index) {
       clients[index] = std::make_unique<lg::UdpClientTransport>(
@@ -345,19 +477,129 @@ int main() {
 
     std::array<bool, lg::kDuelPlayerCount> seenSlots = {};
     for (const auto& client : clients) {
-      failures += expect(client->connected(), "all six UDP clients should connect");
+      failures += expect(client->connected(), "all UDP clients should connect");
       if (client->connected() && client->playerIndex() < lg::kDuelPlayerCount) {
         seenSlots[client->playerIndex()] = true;
       }
     }
     failures += expect(
       std::all_of(seenSlots.begin(), seenSlots.end(), [](bool seen) { return seen; }),
-      "six UDP clients should receive unique player slots"
+      "the first six UDP clients should fill unique player slots"
     );
     failures += expect(
-      multiServerTransport.connectedClientCount() == lg::kDuelPlayerCount,
-      "server should track six UDP clients"
+      clients.back()->spectator() &&
+        clients.back()->clientIndex() >= lg::kDuelPlayerCount &&
+        clients.back()->playerIndex() == lg::kNoAssignedPlayer,
+      "an overflow client slot should become a spectator without a body"
     );
+    const auto fullPlayableRoster = multiServerTransport.connectedPlayers();
+    failures += expect(
+      multiServerTransport.connectedClientCount() == lg::kDuelPlayerCount + 1U &&
+        std::count(
+          fullPlayableRoster.begin(), fullPlayableRoster.end(),
+          true
+        ) == lg::kDuelPlayerCount,
+      "spectator capacity should be separate from playable bodies"
+    );
+
+    lg::CommandPacket spectatorChat;
+    spectatorChat.command.sequence = 7;
+    spectatorChat.playerName = "OBSERVER";
+    spectatorChat.chatMessage = "spectator chat";
+    clients.back()->sendCommand(spectatorChat);
+    bool receivedSpectatorChat = false;
+    for (int iteration = 0; iteration < 12; ++iteration) {
+      for (const auto& client : clients) client->update();
+      multiServerTransport.update();
+      syncConnectedPlayers(multiServer, multiServerTransport);
+      multiServer.tick(lg::kFixedTickSeconds);
+      for (const auto& client : clients) client->update();
+      lg::ChatHistoryChunk chunk;
+      while (clients[1]->receiveChatHistory(chunk)) {
+        for (std::size_t messageIndex = 0;
+             messageIndex < chunk.messageCount;
+             ++messageIndex) {
+          const lg::ChatMessage& message = chunk.messages[messageIndex];
+          receivedSpectatorChat = receivedSpectatorChat ||
+            (
+              message.playerIndex == lg::kNoAssignedPlayer &&
+              message.speakerName == "OBSERVER" &&
+              message.message == "spectator chat"
+            );
+        }
+      }
+    }
+    failures += expect(
+      receivedSpectatorChat,
+      "an overflow spectator should send connection-authenticated chat without a body"
+    );
+
+    lg::CommandPacket selectClanArena;
+    selectClanArena.command.sequence = 40;
+    selectClanArena.requestGameMode = true;
+    selectClanArena.requestedGameMode = lg::GameMode::ClanArena;
+    clients[1]->sendCommand(selectClanArena);
+    for (int iteration = 0; iteration < 8; ++iteration) {
+      for (const auto& client : clients) client->update();
+      multiServerTransport.update();
+      syncConnectedPlayers(multiServer, multiServerTransport);
+      multiServer.tick(lg::kFixedTickSeconds);
+      for (const auto& client : clients) client->update();
+    }
+    failures += expect(
+      multiServer.snapshot().gameMode == lg::GameMode::ClanArena,
+      "multi-client UDP test should enter a team mode before testing team assignment"
+    );
+
+    lg::CommandPacket staleOldBodyCommand;
+    staleOldBodyCommand.command.sequence = 100000;
+    staleOldBodyCommand.command.forwardMove = 1.0F;
+    clients[0]->sendCommand(staleOldBodyCommand);
+    lg::CommandPacket becomeSpectator;
+    becomeSpectator.command.sequence = 100001;
+    becomeSpectator.requestSpectator = true;
+    clients[0]->sendCommand(becomeSpectator);
+
+    lg::CommandPacket joinRed;
+    // The caller's body value is deliberately wrong. UDP transport stamps the
+    // observed sentinel, authenticates with clientIndex, and the server assigns
+    // the released body rather than trusting either client-provided body value.
+    joinRed.command.sequence = 1;
+    joinRed.playerIndex = 0;
+    joinRed.requestTeam = true;
+    joinRed.requestedTeam = lg::Team::Red;
+    clients.back()->sendCommand(joinRed);
+    for (int iteration = 0; iteration < 8; ++iteration) {
+      for (const auto& client : clients) client->update();
+      multiServerTransport.update();
+      syncConnectedPlayers(multiServer, multiServerTransport);
+      multiServer.tick(lg::kFixedTickSeconds);
+      for (const auto& client : clients) client->update();
+      lg::ServerSnapshot ignored;
+      while (clients[0]->receiveSnapshot(ignored)) {}
+      while (clients.back()->receiveSnapshot(ignored)) {}
+    }
+    failures += expect(
+      clients[0]->spectator(),
+      "a simultaneous spectator request should release the prior body"
+    );
+    failures += expect(
+      !clients.back()->spectator() &&
+        clients.back()->playerIndex() < lg::kDuelPlayerCount,
+      "a simultaneous team request should claim the released body"
+    );
+    if (clients.back()->playerIndex() < lg::kDuelPlayerCount) {
+      const std::size_t reassignedPlayer = clients.back()->playerIndex();
+      failures += expect(
+        multiServer.snapshot().teams[reassignedPlayer] == lg::Team::Red,
+        "the reassigned body should use the requested team"
+      );
+      failures += expect(
+        multiServer.snapshot().acknowledgedCommand[reassignedPlayer] ==
+          joinRed.command.sequence,
+        "stale commands from the prior body session must not reject the new occupant's low sequence"
+      );
+    }
   }
 
   return failures == 0 ? 0 : 1;

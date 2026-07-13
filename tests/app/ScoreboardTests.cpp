@@ -150,5 +150,17 @@ int main() {
     "bot settings should not determine scoreboard membership"
   );
 
+  snapshot.gameMode = lg::GameMode::McGuffin;
+  snapshot.teams[0] = lg::Team::Red;
+  snapshot.mcguffinScores = {73, 40};
+  hud = {};
+  lg::populateScoreboard(hud, snapshot, 0);
+  failures += expect(
+    hud.scoreboardLines[1].find("TEAM") != std::string::npos &&
+      hud.scoreboardLines[2].find("73") != std::string::npos &&
+      hud.scoreboardLineTeams[2] == lg::Team::Red,
+    "McGuffin scoreboard should show team score and team styling"
+  );
+
   return failures == 0 ? 0 : 1;
 }

@@ -59,6 +59,22 @@ public:
     nowSeconds_ += elapsedSeconds;
   }
 
+  void advanceAdaptive(
+    float elapsedSeconds,
+    float baseDelaySeconds,
+    float observedJitterSeconds,
+    float minimumDelaySeconds,
+    float maximumDelaySeconds,
+    float maximumExtrapolationSeconds
+  ) {
+    nowSeconds_ += static_cast<double>(elapsedSeconds);
+    advanceAdaptiveTo(
+      interpolationTime(nowSeconds_), elapsedSeconds, baseDelaySeconds,
+      observedJitterSeconds, minimumDelaySeconds, maximumDelaySeconds,
+      maximumExtrapolationSeconds
+    );
+  }
+
   void reset() {
     lg::SnapshotInterpolation::reset();
     nowSeconds_ = 0.0;
@@ -85,6 +101,9 @@ void queueSnapshot(lg::LoopbackTransport& transport, lg::ServerSnapshot snapshot
   if (snapshot.map.mapName.empty() || snapshot.map.contentHash == 0) {
     snapshot.map = testMap().descriptor;
   }
+  if (!snapshot.hasLocalClientState) {
+    snapshot.localPlayerIndex = 0;
+  }
   transport.sendSnapshot(snapshot);
 }
 
@@ -94,6 +113,48 @@ int main() {
   int failures = 0;
   const lg::Arena arena;
   const lg::MovementTuning tuning;
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::UserCommand command;
+    command.sequence = 1;
+    command.attack = true;
+    command.viewYawRadians = 0.75F;
+    command.viewPitchRadians = -0.25F;
+    command.weapon = lg::Weapon::Railgun;
+    client.sendCommand(command, false);
+    lg::CommandPacket firstPress;
+    failures += expect(
+      transport.receiveCommand(firstPress) &&
+        firstPress.actionEdges.attack == 1U &&
+        nearlyEqual(firstPress.actionEdges.attackYawRadians, 0.75F) &&
+        firstPress.actionEdges.attackWeapon == lg::Weapon::Railgun,
+      "attack presses should carry a cumulative edge with original aim"
+    );
+
+    command.sequence = 2;
+    client.sendCommand(command, false);
+    lg::CommandPacket held;
+    failures += expect(
+      transport.receiveCommand(held) && held.actionEdges.attack == 1U,
+      "holding attack should not create duplicate action edges"
+    );
+    command.sequence = 3;
+    command.attack = false;
+    client.sendCommand(command, false);
+    lg::CommandPacket release;
+    (void)transport.receiveCommand(release);
+    command.sequence = 4;
+    command.attack = true;
+    client.sendCommand(command, false);
+    lg::CommandPacket secondPress;
+    failures += expect(
+      transport.receiveCommand(secondPress) &&
+        secondPress.actionEdges.attack == 2U,
+      "a later attack press should advance the cumulative edge"
+    );
+  }
 
   {
     lg::LoopbackTransport transport;
@@ -361,8 +422,60 @@ int main() {
       "pending movement should not replay while authoritative player is dead"
     );
     failures += expect(
+      client.predictionDiagnostics().pendingCommandCount == 0,
+      "death snapshot should discard movement that must not replay after respawn"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0, 7);
+    lg::ServerSnapshot playing;
+    playing.hasLocalClientState = true;
+    playing.localPlayerIndex = 0;
+    playing.players[0] = groundedPlayer();
+    queueSnapshot(transport, playing);
+    client.receiveSnapshots();
+
+    lg::UserCommand movement;
+    movement.sequence = 50;
+    movement.forwardMove = 1.0F;
+    client.sendCommand(movement, false);
+    failures += expect(
       client.predictionDiagnostics().pendingCommandCount == 1,
-      "death snapshot should retain newer pending command until acknowledged"
+      "participating client should predict movement before becoming a spectator"
+    );
+
+    lg::ServerSnapshot observing = playing;
+    observing.serverTick = 1;
+    observing.localPlayerIndex = lg::kNoAssignedPlayer;
+    observing.localSpectator = true;
+    queueSnapshot(transport, observing);
+    client.receiveSnapshots();
+    failures += expect(
+      client.spectator() && client.predictedPlayer().health == 0 &&
+        client.predictionDiagnostics().pendingCommandCount == 0,
+      "dedicated spectator should release the predicted body and pending movement"
+    );
+    movement.sequence = 51;
+    client.sendCommand(movement, false);
+    failures += expect(
+      client.predictionDiagnostics().pendingCommandCount == 0,
+      "dedicated spectator input should not create predicted movement"
+    );
+
+    lg::ServerSnapshot rejoined = observing;
+    rejoined.serverTick = 2;
+    rejoined.localPlayerIndex = 2;
+    rejoined.localSpectator = false;
+    rejoined.players[2] = groundedPlayer();
+    rejoined.players[2].position.x = 9.0F;
+    queueSnapshot(transport, rejoined);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.spectator() && client.localPlayerIndex() == 2 &&
+        nearlyEqual(client.predictedPlayer().position.x, 9.0F),
+      "body reassignment should initialize prediction from the new authoritative player index"
     );
   }
 
@@ -500,6 +613,10 @@ int main() {
         nearlyEqual(prediction.player().viewPitchRadians, -0.4F) &&
         !prediction.player().jumpHeld,
       "dead local prediction should update look without latching jump"
+    );
+    failures += expect(
+      prediction.diagnostics().pendingCommandCount == 0,
+      "dead input should not remain pending for replay after respawn"
     );
   }
 
@@ -755,12 +872,23 @@ int main() {
     failures += expect(held.bufferUnderrun && held.underrunCount == 1, "an underrun episode should be counted once");
     interpolation.advance(1.0F / 360.0F, 0.024F);
     failures += expect(interpolation.diagnostics().underrunCount == 1, "holding during underrun should not count every render frame");
+    failures += expect(
+      held.hardCorrectionCount == 0,
+      "an uncovered underrun target must not latch a hard correction"
+    );
+    interpolation.elapseWithoutAdvance(0.5);
     lg::ServerSnapshot resumed;
-    resumed.serverTick = 20;
-    resumed.players[1].position.x = 20.0F;
+    resumed.serverTick = 68;
+    resumed.players[1].position.x = 68.0F;
     interpolation.push(resumed);
     interpolation.advance(1.0F / 360.0F, 0.024F);
-    failures += expect(interpolation.player(1).position.x >= 3.0F && !interpolation.diagnostics().bufferUnderrun, "presentation should resume forward when future state returns");
+    const auto recovered = interpolation.diagnostics();
+    failures += expect(
+      recovered.presentationTick >= 64.0 &&
+        recovered.hardCorrectionCount == 1 &&
+        !recovered.bufferUnderrun,
+      "fresh history after a long underrun should hard-correct promptly to the buffered target"
+    );
   }
 
   {
@@ -900,6 +1028,94 @@ int main() {
     failures += expect(
       sent.viewedServerTick == largeServerTick + 2U,
       "ClientGame should send an exact presented server tick after long uptime"
+    );
+  }
+
+  {
+    TestSnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      snapshot.players[1].velocity.x = 125.0F;
+      interpolation.push(snapshot);
+    }
+    interpolation.advanceAdaptive(0.0F, 0.024F, 0.0F, 0.016F, 0.064F, 0.016F);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "adaptive interpolation should establish its configured reserve"
+    );
+    interpolation.advanceAdaptive(
+      lg::kFixedTickSeconds,
+      0.024F,
+      0.012F,
+      0.016F,
+      0.064F,
+      0.016F
+    );
+    const auto jittered = interpolation.diagnostics();
+    failures += expect(
+      jittered.effectiveDelaySeconds > 0.024F &&
+        jittered.playbackRate >= 0.96F && jittered.playbackRate <= 1.04F &&
+        jittered.hardCorrectionCount == 0,
+      "adaptive jitter should change only the bounded delay target used by the shared controller"
+    );
+    interpolation.advanceAdaptive(0.1F, 0.024F, 0.0F, 0.016F, 0.064F, 0.016F);
+    failures += expect(
+      interpolation.diagnostics().bufferUnderrun &&
+        interpolation.diagnostics().underrunCount == 1U &&
+        nearlyEqual(interpolation.player(1).position.x, 5.0F),
+      "adaptive mode should use the controller's one-shot underrun hold without extrapolation"
+    );
+  }
+
+  {
+    TestSnapshotInterpolation networkController;
+    TestSnapshotInterpolation zeroJitterAdaptive;
+    for (std::uint32_t tick = 0; tick <= 6; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      networkController.push(snapshot);
+      zeroJitterAdaptive.push(snapshot);
+    }
+    for (int frame = 0; frame < 20; ++frame) {
+      networkController.advance(1.0F / 360.0F, 0.024F);
+      zeroJitterAdaptive.advanceAdaptive(
+        1.0F / 360.0F, 0.024F, 0.0F, 0.016F, 0.064F, 0.05F
+      );
+    }
+    const auto network = networkController.diagnostics();
+    const auto adaptive = zeroJitterAdaptive.diagnostics();
+    failures += expect(
+      std::fabs(network.presentationTick - adaptive.presentationTick) < 0.000001 &&
+        nearlyEqual(network.playbackRate, adaptive.playbackRate) &&
+        network.underrunCount == adaptive.underrunCount &&
+        network.hardCorrectionCount == adaptive.hardCorrectionCount,
+      "zero-jitter adaptive mode should exactly delegate playback to the network controller"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ChatHistory history;
+    history.messageCount = 5U;
+    for (std::size_t index = 0; index < history.messageCount; ++index) {
+      history.messages[index] = lg::ChatMessage{
+        static_cast<std::uint32_t>(index + 10U),
+        static_cast<std::uint8_t>(index % 2U),
+        index % 2U == 0U ? "yg" : "Zap Witch",
+        "message " + std::to_string(index + 1U),
+      };
+    }
+    transport.publishChatHistory(history);
+    client.receiveSnapshots();
+    failures += expect(
+      client.chatHistory().size() == 5U &&
+        client.chatHistory().front().sequence == 10U &&
+        client.chatHistory().back().message == "message 5",
+      "ClientGame should assemble ordered chat history across chunks"
     );
   }
 

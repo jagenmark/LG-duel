@@ -41,6 +41,13 @@ struct ChatTextLayout {
   ChatInputLayout input;
   float characterWidth = 0.0F;
   float lineHeight = 0.0F;
+  float historyTop = 0.0F;
+  float historyBottom = 0.0F;
+  float historyRight = 0.0F;
+  std::size_t totalHistoryRows = 0U;
+  std::size_t firstVisibleHistoryRow = 0U;
+  std::size_t visibleHistoryRows = 0U;
+  std::size_t maxScrollRows = 0U;
 };
 
 [[nodiscard]] ChatTextLayout buildChatTextLayout(

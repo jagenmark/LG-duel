@@ -302,7 +302,24 @@ int ServerApp::run() const {
   console.registerCvar({"sv_countdown", "Round countdown in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
   console.registerCvar({"sv_roundend", "Round-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 30.0F});
   console.registerCvar({"sv_matchend", "Match-end delay in seconds.", 5.0F, CvarFlag::None, 0.0F, 60.0F});
+  console.registerCvar({"sv_respawn_delay", "Death respawn delay for respawning modes in seconds.", 2.0F, CvarFlag::None, 0.0F, 30.0F});
   console.registerCvar({"sv_showopponenthealth", "Show opponent health to both players.", true, CvarFlag::None, {}, {}});
+  console.registerCvar({"sv_mcg_scorelimit", "McGuffin points required to win a round.", 100, CvarFlag::None, 1.0F, 1000.0F});
+  console.registerCvar({"sv_mcg_points_per_second", "McGuffin installed scoring rate.", 1, CvarFlag::None, 1.0F, 20.0F});
+  console.registerCvar({"sv_mcg_carry_points_per_second", "McGuffin unbanked carry-credit rate.", 1, CvarFlag::None, 1.0F, 20.0F});
+  console.registerCvar({"sv_mcg_carry_limit", "Maximum unbanked McGuffin carry credit.", 10, CvarFlag::None, 1.0F, 100.0F});
+  console.registerCvar({"sv_mcg_spawn_delay", "McGuffin initial spawn delay in seconds.", 30.0F, CvarFlag::None, 0.0F, 120.0F});
+  console.registerCvar({"sv_mcg_install_delay", "McGuffin installation hold in seconds.", 0.0F, CvarFlag::None, 0.0F, 10.0F});
+  console.registerCvar({"sv_mcg_steal_time", "McGuffin steal hold in seconds.", 1.0F, CvarFlag::None, 0.0F, 10.0F});
+  console.registerCvar({"sv_mcg_return_time", "Safety return time for an uncollected ground McGuffin; zero disables.", 30.0F, CvarFlag::None, 0.0F, 120.0F});
+  console.registerCvar({"sv_mcg_throw_speed", "Forward speed of a thrown McGuffin.", 12.0F, CvarFlag::None, 0.0F, 50.0F});
+  console.registerCvar({"sv_mcg_throw_up_speed", "Upward arc speed added to a thrown McGuffin.", 4.0F, CvarFlag::None, 0.0F, 30.0F});
+  console.registerCvar({"sv_mcg_throw_velocity_inherit", "Fraction of carrier velocity inherited by a throw.", 1.0F, CvarFlag::None, 0.0F, 2.0F});
+  console.registerCvar({"sv_mcg_throw_gravity", "Gravity applied to a thrown McGuffin.", 20.0F, CvarFlag::None, 0.0F, 100.0F});
+  console.registerCvar({"sv_mcg_throw_bounce", "Velocity retained when a thrown McGuffin bounces.", 0.4F, CvarFlag::None, 0.0F, 1.5F});
+  console.registerCvar({"sv_mcg_throw_pickup_delay", "Pickup lockout after throwing in seconds.", 0.2F, CvarFlag::None, 0.0F, 3.0F});
+  console.registerCvar({"sv_mcg_final_hold", "Uncontested hold at 99 points in seconds.", 3.0F, CvarFlag::None, 0.0F, 30.0F});
+  console.registerCvar({"sv_mcg_pickup_radius", "McGuffin ground pickup radius in world units.", 0.9F, CvarFlag::None, 0.1F, 5.0F});
   console.registerCvar({
     "map_path",
     "Map file used by map_validate and map_reload.",
@@ -345,6 +362,31 @@ int ServerApp::run() const {
       return "players=" + std::to_string(occupied) +
         " phase=" + std::to_string(static_cast<int>(snapshot.matchPhase)) +
         " score=" + scoreText;
+    }
+  );
+  console.registerCommand(
+    "mcguffin_debug",
+    "Show authoritative McGuffin state and timers.",
+    [&server](const std::vector<std::string>&) {
+      const ServerSnapshot& snapshot = server.snapshot();
+      const McGuffinSnapshot& objective = snapshot.mcguffin;
+      return "state=" + std::to_string(static_cast<int>(objective.state)) +
+        " carrier=" + std::to_string(objective.carrierIndex) +
+        " team=" + std::to_string(static_cast<int>(objective.associatedTeam)) +
+        " pos=" + std::to_string(objective.position.x) + "," +
+          std::to_string(objective.position.y) + "," +
+          std::to_string(objective.position.z) +
+        " state_ticks=" + std::to_string(objective.stateTicks) +
+        " score_credit=" + std::to_string(objective.scoreSubPoints) +
+        " steal_ticks=" + std::to_string(objective.interactionTicks) +
+        " final_hold_ticks=" + std::to_string(objective.finalHoldTicks);
+    }
+  );
+  console.registerCommand(
+    "spawn_debug",
+    "Show the most recent authoritative team-spawn candidate scores.",
+    [&server](const std::vector<std::string>&) {
+      return server.spawnDebugString();
     }
   );
   console.registerCommand(
@@ -500,8 +542,31 @@ int ServerApp::run() const {
     rules.matchEndTicks = static_cast<std::uint16_t>(
       console.getFloat("sv_matchend") * kFixedTickRate
     );
+    rules.deathRespawnTicks = static_cast<std::uint16_t>(
+      console.getFloat("sv_respawn_delay") * kFixedTickRate
+    );
     rules.showOpponentHealth = console.getBool("sv_showopponenthealth");
     server.setMatchRules(rules);
+    McGuffinConfig mcguffin;
+    mcguffin.scoreLimit = static_cast<std::uint16_t>(console.getInt("sv_mcg_scorelimit"));
+    mcguffin.pointsPerSecond = static_cast<std::uint16_t>(console.getInt("sv_mcg_points_per_second"));
+    mcguffin.carryPointsPerSecond = static_cast<std::uint16_t>(console.getInt("sv_mcg_carry_points_per_second"));
+    mcguffin.carryPointLimit = static_cast<std::uint16_t>(console.getInt("sv_mcg_carry_limit"));
+    mcguffin.initialSpawnTicks = static_cast<std::uint32_t>(console.getFloat("sv_mcg_spawn_delay") * kFixedTickRate);
+    mcguffin.installationDelayTicks = static_cast<std::uint32_t>(console.getFloat("sv_mcg_install_delay") * kFixedTickRate);
+    mcguffin.stealTicks = static_cast<std::uint32_t>(console.getFloat("sv_mcg_steal_time") * kFixedTickRate);
+    mcguffin.returnTicks = static_cast<std::uint32_t>(console.getFloat("sv_mcg_return_time") * kFixedTickRate);
+    mcguffin.throwSpeed = console.getFloat("sv_mcg_throw_speed");
+    mcguffin.throwUpSpeed = console.getFloat("sv_mcg_throw_up_speed");
+    mcguffin.throwVelocityInheritance = console.getFloat("sv_mcg_throw_velocity_inherit");
+    mcguffin.throwGravity = console.getFloat("sv_mcg_throw_gravity");
+    mcguffin.throwBounceDamping = console.getFloat("sv_mcg_throw_bounce");
+    mcguffin.throwPickupLockoutTicks = static_cast<std::uint32_t>(
+      console.getFloat("sv_mcg_throw_pickup_delay") * kFixedTickRate
+    );
+    mcguffin.finalHoldTicks = static_cast<std::uint32_t>(console.getFloat("sv_mcg_final_hold") * kFixedTickRate);
+    mcguffin.pickupRadius = console.getFloat("sv_mcg_pickup_radius");
+    server.setMcGuffinConfig(mcguffin);
 
     const MovementTuning movementTuning = movementTuningFromCvars(console);
     const float playerSizeScaleXY = console.getFloat("g_playersize_xy");

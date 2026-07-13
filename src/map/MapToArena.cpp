@@ -241,7 +241,12 @@ void clearRenderableMaterial(ArenaBrush& brush) {
   return projection;
 }
 
-[[nodiscard]] bool parseOptionalYaw(const MapEntity& entity, std::string& error) {
+[[nodiscard]] bool parseOptionalYaw(
+  const MapEntity& entity,
+  float& yawRadians,
+  std::string& error
+) {
+  yawRadians = 0.0F;
   const std::string* yaw = entity.property("angle");
   if (yaw == nullptr) {
     yaw = entity.property("yaw");
@@ -254,6 +259,8 @@ void clearRenderableMaterial(ArenaBrush& brush) {
     error = "line " + std::to_string(entity.line) + ": spawn yaw must be a finite float";
     return false;
   }
+  constexpr float kDegreesToRadians = 0.01745329252F;
+  yawRadians = value * kDegreesToRadians;
   return true;
 }
 
@@ -822,7 +829,86 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
 }
 
 [[nodiscard]] bool isSpawnClass(std::string_view classname) {
-  return classname == "lg_spawn";
+  return classname == "lg_spawn" || classname == "info_player_team";
+}
+
+[[nodiscard]] bool parseTeamProperty(
+  const MapEntity& entity,
+  bool required,
+  Team& team,
+  std::string& error
+) {
+  const std::string* value = entity.property("team");
+  if (value == nullptr) {
+    if (!required) {
+      team = Team::None;
+      return true;
+    }
+    error = "line " + std::to_string(entity.line) + ": entity is missing team 'red' or 'blue'";
+    return false;
+  }
+  if (*value == "red") {
+    team = Team::Red;
+    return true;
+  }
+  if (*value == "blue") {
+    team = Team::Blue;
+    return true;
+  }
+  error = "line " + std::to_string(entity.line) + ": team must be 'red' or 'blue'";
+  return false;
+}
+
+[[nodiscard]] bool parseSpawnGroupProperty(
+  const MapEntity& entity,
+  Team legacyTeam,
+  ArenaSpawnGroup& group,
+  std::string& error
+) {
+  const std::string* value = entity.property("spawn_group");
+  if (value == nullptr) {
+    group = legacyTeam == Team::Red
+      ? ArenaSpawnGroup::RedBase
+      : legacyTeam == Team::Blue
+        ? ArenaSpawnGroup::BlueBase
+        : ArenaSpawnGroup::None;
+    return true;
+  }
+  if (*value == "red_base") {
+    group = ArenaSpawnGroup::RedBase;
+    return true;
+  }
+  if (*value == "blue_base") {
+    group = ArenaSpawnGroup::BlueBase;
+    return true;
+  }
+  error = "line " + std::to_string(entity.line) +
+    ": spawn_group must be 'red_base' or 'blue_base'";
+  return false;
+}
+
+[[nodiscard]] bool convertMcGuffinBaseEntity(
+  const MapEntity& entity,
+  ArenaMcGuffinBase& base,
+  std::string& error
+) {
+  if (!parseTeamProperty(entity, true, base.team, error)) {
+    return false;
+  }
+  if (entity.brushes.size() != 1U) {
+    error = "line " + std::to_string(entity.line) +
+      ": trigger_mcguffin_base must contain exactly one cuboid brush";
+    return false;
+  }
+  ArenaWall volume;
+  if (!convertCuboidBrush(entity.brushes[0], volume, error)) {
+    error = "line " + std::to_string(entity.line) +
+      ": trigger_mcguffin_base requires a non-degenerate cuboid brush";
+    return false;
+  }
+  base.min = volume.min;
+  base.max = volume.max;
+  return true;
 }
 
 [[nodiscard]] bool isLightClass(std::string_view classname) {
@@ -1214,8 +1300,11 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaHealthPickup> healthPickups;
   std::vector<TargetPosition> targetPositions;
   ArenaSunLight sunLight;
+  ArenaMcGuffinLayout mcguffin;
   bool hasSunLight = false;
   std::vector<Vec3> spawns;
+  std::vector<Team> spawnTeams;
+  std::vector<ArenaTeamSpawn> teamSpawns;
   bool hasBoundsMin = false;
   bool hasBoundsMax = false;
   Vec3 boundsMin = {};
@@ -1281,11 +1370,64 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         return {{}, false, "line " + std::to_string(entity.line) + ": spawn origin must be 'x y z'"};
       }
       position = scaleQuakeUnits(position);
+      float yawRadians = 0.0F;
       std::string error;
-      if (!parseOptionalYaw(entity, error)) {
+      if (!parseOptionalYaw(entity, yawRadians, error)) {
         return {{}, false, error};
       }
       spawns.push_back(position);
+      Team team = Team::None;
+      std::string teamError;
+      const bool hasSpawnGroup = entity.property("spawn_group") != nullptr;
+      const bool teamRequired = *classname == "info_player_team" && !hasSpawnGroup;
+      if (!parseTeamProperty(entity, teamRequired, team, teamError)) {
+        return {{}, false, teamError};
+      }
+      spawnTeams.push_back(team);
+      ArenaSpawnGroup group = ArenaSpawnGroup::None;
+      if (!parseSpawnGroupProperty(entity, team, group, teamError)) {
+        return {{}, false, teamError};
+      }
+      if (group != ArenaSpawnGroup::None) {
+        if (teamSpawns.size() >= Arena::kTeamSpawnCount) {
+          return {{}, false, "line " + std::to_string(entity.line) +
+            ": too many team spawn points"};
+        }
+        teamSpawns.push_back({position, yawRadians, group});
+      }
+    } else if (*classname == "info_mcguffin_spawn") {
+      if (mcguffin.hasNeutralSpawn) {
+        return {{}, false, "line " + std::to_string(entity.line) +
+          ": duplicate info_mcguffin_spawn"};
+      }
+      const std::string* origin = entity.property("origin");
+      if (origin == nullptr || !parseSpaceVec3(*origin, mcguffin.neutralSpawn)) {
+        return {{}, false, "line " + std::to_string(entity.line) +
+          ": info_mcguffin_spawn requires origin 'x y z'"};
+      }
+      mcguffin.neutralSpawn = scaleQuakeUnits(mcguffin.neutralSpawn);
+      mcguffin.hasNeutralSpawn = true;
+    } else if (*classname == "trigger_mcguffin_base") {
+      ArenaMcGuffinBase base;
+      std::string error;
+      if (!convertMcGuffinBaseEntity(entity, base, error)) {
+        return {{}, false, error};
+      }
+      if (base.team == Team::Red) {
+        if (mcguffin.hasRedBase) {
+          return {{}, false, "line " + std::to_string(entity.line) +
+            ": duplicate Red McGuffin base"};
+        }
+        mcguffin.redBase = base;
+        mcguffin.hasRedBase = true;
+      } else {
+        if (mcguffin.hasBlueBase) {
+          return {{}, false, "line " + std::to_string(entity.line) +
+            ": duplicate Blue McGuffin base"};
+        }
+        mcguffin.blueBase = base;
+        mcguffin.hasBlueBase = true;
+      }
     } else if (isLightClass(*classname)) {
       if (staticLights.size() >= Arena::kStaticLightCount) {
         return {{}, false, "line " + std::to_string(entity.line) + ": too many light entities"};
@@ -1355,6 +1497,17 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     for (Vec3 spawn : spawns) {
       expandBounds(spawn, boundsMin, boundsMax, initialized);
     }
+    if (mcguffin.hasNeutralSpawn) {
+      expandBounds(mcguffin.neutralSpawn, boundsMin, boundsMax, initialized);
+    }
+    if (mcguffin.hasRedBase) {
+      expandBounds(mcguffin.redBase.min, boundsMin, boundsMax, initialized);
+      expandBounds(mcguffin.redBase.max, boundsMin, boundsMax, initialized);
+    }
+    if (mcguffin.hasBlueBase) {
+      expandBounds(mcguffin.blueBase.min, boundsMin, boundsMax, initialized);
+      expandBounds(mcguffin.blueBase.max, boundsMin, boundsMax, initialized);
+    }
     boundsMin = {boundsMin.x - kBoundsPadding, boundsMin.y - kBoundsPadding, boundsMin.z - kBoundsPadding};
     boundsMax = {boundsMax.x + kBoundsPadding, boundsMax.y + kBoundsPadding, boundsMax.z + kBoundsPadding};
   }
@@ -1376,7 +1529,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
           << wall.min.x << ',' << wall.min.y << ',' << wall.min.z << ' '
           << wall.max.x << ',' << wall.max.y << ',' << wall.max.z << '\n';
   }
-  for (std::size_t index = 0; index < spawns.size(); ++index) {
+  const std::size_t legacySpawnCount = std::min(spawns.size(), kMaxPlayers);
+  for (std::size_t index = 0; index < legacySpawnCount; ++index) {
     const Vec3 spawn = spawns[index];
     arenaText << "spawn spawn_" << index << ' '
           << spawn.x << ',' << spawn.y << ',' << spawn.z << " yaw=0\n";
@@ -1412,6 +1566,16 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     result.arena.healthPickupCount = healthPickups.size();
     for (std::size_t index = 0; index < result.arena.healthPickupCount; ++index) {
       result.arena.healthPickups[index] = healthPickups[index];
+    }
+    result.arena.mcguffin = mcguffin;
+    for (std::size_t index = 0;
+         index < spawnTeams.size() && index < result.arena.spawnTeams.size();
+         ++index) {
+      result.arena.spawnTeams[index] = spawnTeams[index];
+    }
+    result.arena.teamSpawnCount = teamSpawns.size();
+    for (std::size_t index = 0; index < teamSpawns.size(); ++index) {
+      result.arena.teamSpawns[index] = teamSpawns[index];
     }
   }
   return result;

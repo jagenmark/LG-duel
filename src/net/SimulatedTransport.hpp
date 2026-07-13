@@ -40,6 +40,8 @@ public:
 
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  void publishChatHistory(const ChatHistory& history) override;
+  [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
 
   void advanceTicks(std::uint32_t ticks = 1);
 
@@ -67,6 +69,8 @@ private:
   NetworkSimulationStats stats_ = {};
   std::vector<ScheduledPacket> commands_;
   std::vector<ScheduledPacket> snapshots_;
+  std::vector<ScheduledPacket> chatHistory_;
+  std::uint32_t publishedChatSequence_ = 0;
   std::uint64_t currentTick_ = 0;
   std::uint64_t insertionOrder_ = 0;
   std::uint32_t randomState_ = 0;

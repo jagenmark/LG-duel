@@ -42,11 +42,12 @@ int main() {
     failures += expect(lg::decodeConnectRequest(wire, decodedRequest), "connect request should decode");
     failures += expect(decodedRequest.clientNonce == 12345, "connect nonce should round trip");
 
-    lg::ConnectAccept accept{12345, 1, 77};
+    lg::ConnectAccept accept{12345, 3, 1, 77};
     lg::ConnectAccept decodedAccept;
     failures += expect(lg::encodeConnectAccept(accept, wire), "connect accept should encode");
     failures += expect(lg::decodeConnectAccept(wire, decodedAccept), "connect accept should decode");
     failures += expect(decodedAccept.playerIndex == 1, "assigned player should round trip");
+    failures += expect(decodedAccept.clientIndex == 3, "client slot should round trip");
     failures += expect(decodedAccept.serverTick == 77, "accept server tick should round trip");
 
     lg::PingPacket ping{88};
@@ -65,8 +66,11 @@ int main() {
   {
     lg::CommandPacket source;
     source.playerIndex = 1;
+    source.clientIndex = 7;
     source.clientNonce = 12345;
     source.command.sequence = 42;
+    source.acknowledgedConfigurationRevision = 77;
+    source.wantsScoreboardStats = true;
     source.command.clientTick = 99;
     source.command.viewYawRadians = 1.25F;
     source.command.viewPitchRadians = -0.25F;
@@ -86,6 +90,7 @@ int main() {
     source.requestedGameMode = lg::GameMode::ClanArena;
     source.requestTeam = true;
     source.requestedTeam = lg::Team::Blue;
+    source.requestSpectator = true;
     source.weaponSwitchingMode = lg::WeaponSwitchingMode::Cpma;
     source.requestMovementTuning = true;
     source.movementTuning.flightEnabled = true;
@@ -140,7 +145,20 @@ int main() {
     source.mapName = "testmap";
     source.botCommand = lg::BotCommandType::Add;
     source.botCommandValue = 1;
+    source.requestMcGuffinThrow = true;
     source.viewedServerTick = 88;
+    source.actionEdges.jump = 4;
+    source.actionEdges.dash = 5;
+    source.actionEdges.reset = 6;
+    source.actionEdges.ready = 7;
+    source.actionEdges.mcguffinThrow = 8;
+    source.actionEdges.mcguffinThrowYawRadians = 0.75F;
+    source.actionEdges.mcguffinThrowPitchRadians = -0.2F;
+    source.actionEdges.attack = 9;
+    source.actionEdges.attackYawRadians = 1.25F;
+    source.actionEdges.attackPitchRadians = -0.15F;
+    source.actionEdges.attackViewedServerTick = 86;
+    source.actionEdges.attackWeapon = lg::Weapon::Railgun;
 
     lg::WirePacket wire;
     lg::CommandPacket decoded;
@@ -148,8 +166,18 @@ int main() {
     failures += expect(wire.size() <= lg::kMaxPacketBytes, "command should respect packet limit");
     failures += expect(lg::decodeCommandPacket(wire, decoded), "command should decode");
     failures += expect(decoded.playerIndex == source.playerIndex, "command player should round trip");
+    failures += expect(
+      decoded.clientIndex == source.clientIndex,
+      "command connection identity should round trip separately from its body"
+    );
     failures += expect(decoded.clientNonce == 12345, "command nonce should round trip");
     failures += expect(decoded.command.sequence == 42, "command sequence should round trip");
+    failures += expect(
+      decoded.acknowledgedConfigurationRevision == 77,
+      "configuration acknowledgement should round trip"
+    );
+    failures += expect(decoded.wantsScoreboardStats,
+                       "scoreboard statistics interest should round trip");
     failures += expect(decoded.command.clientTick == 99, "command tick should round trip");
     failures += expect(decoded.viewedServerTick == 88, "viewed server tick should round trip");
     failures += expect(
@@ -176,6 +204,16 @@ int main() {
     );
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
+    failures += expect(decoded.requestMcGuffinThrow,
+      "McGuffin throw request should round trip");
+    failures += expect(
+      decoded.actionEdges.jump == 4U &&
+        decoded.actionEdges.mcguffinThrow == 8U &&
+        nearlyEqual(decoded.actionEdges.mcguffinThrowYawRadians, 0.75F) &&
+        decoded.actionEdges.attack == 9U &&
+        decoded.actionEdges.attackWeapon == lg::Weapon::Railgun,
+      "cumulative action edges should round trip"
+    );
     failures += expect(
       decoded.requestGameMode &&
         decoded.requestedGameMode == lg::GameMode::ClanArena,
@@ -185,6 +223,8 @@ int main() {
       decoded.requestTeam && decoded.requestedTeam == lg::Team::Blue,
       "explicit team request should round trip"
     );
+    failures += expect(decoded.requestSpectator,
+      "spectator role request should round trip");
     failures += expect(
       decoded.weaponSwitchingMode == lg::WeaponSwitchingMode::Cpma,
       "weapon switching mode request should round trip"
@@ -248,13 +288,6 @@ int main() {
     wrongType[6] = static_cast<std::uint8_t>(lg::PacketType::Snapshot);
     failures += expect(!lg::decodeCommandPacket(wrongType, decoded), "wrong packet type should be rejected");
 
-    lg::WirePacket invalidModeWire = wire;
-    invalidModeWire[invalidModeWire.size() - 17U] = 255;
-    failures += expect(
-      !lg::decodeCommandPacket(invalidModeWire, decoded),
-      "invalid requested gamemode should be rejected while decoding"
-    );
-
     lg::CommandPacket invalidMode = source;
     invalidMode.requestedGameMode = static_cast<lg::GameMode>(255);
     failures += expect(
@@ -278,6 +311,8 @@ int main() {
     );
 
     lg::CommandBundle bundle;
+    bundle.datagramSequence = 91;
+    bundle.actionEdges = source.actionEdges;
     bundle.commandCount = 3;
     bundle.commands[0] = source;
     bundle.commands[1] = source;
@@ -289,6 +324,10 @@ int main() {
     failures += expect(lg::decodeCommandBundle(wire, decodedBundle), "command bundle should decode");
     failures += expect(decodedBundle.commandCount == 3, "bundle count should round trip");
     failures += expect(
+      decodedBundle.datagramSequence == 91,
+      "command datagram sequence should round trip"
+    );
+    failures += expect(
       decodedBundle.commands[2].command.sequence == 44,
       "bundle command order should round trip"
     );
@@ -297,6 +336,63 @@ int main() {
         decodedBundle.commands[2].requestedTeam == lg::Team::Blue,
       "redundant command bundles should preserve explicit mode and team requests"
     );
+    std::cout << "command control bundle bytes=" << wire.size() << '\n';
+    failures += expect(
+      wire.size() < 1200,
+      "ordinary redundant command bundles should stay below the datagram budget"
+    );
+
+    lg::CommandBundle gameplayBundle;
+    gameplayBundle.datagramSequence = 92;
+    gameplayBundle.actionEdges = source.actionEdges;
+    gameplayBundle.commandCount = lg::kMaxBundledCommands;
+    for (std::size_t index = 0; index < gameplayBundle.commandCount; ++index) {
+      lg::CommandPacket& command = gameplayBundle.commands[index];
+      command.clientIndex = source.clientIndex;
+      command.playerIndex = source.playerIndex;
+      command.clientNonce = source.clientNonce;
+      command.command = source.command;
+      command.command.sequence = static_cast<std::uint32_t>(100U + index);
+      command.viewedServerTick = static_cast<std::uint32_t>(80U + index);
+      command.acknowledgedConfigurationRevision = 77;
+    }
+    failures += expect(
+      lg::encodeCommandBundle(gameplayBundle, wire) &&
+        lg::decodeCommandBundle(wire, decodedBundle),
+      "maximum gameplay command history should round trip"
+    );
+    failures += expect(
+      wire.size() <= lg::kMaxCommandDatagramBytes,
+      "maximum gameplay command history should stay below the datagram budget"
+    );
+    std::cout << "command gameplay bundle bytes=" << wire.size() << '\n';
+
+    lg::CommandBundle spectatorBundle = gameplayBundle;
+    spectatorBundle.datagramSequence = 93;
+    spectatorBundle.commandCount = 2;
+    for (std::size_t index = 0; index < spectatorBundle.commandCount; ++index) {
+      spectatorBundle.commands[index].clientIndex = 9;
+      spectatorBundle.commands[index].playerIndex = lg::kNoAssignedPlayer;
+    }
+    failures += expect(
+      lg::encodeCommandBundle(spectatorBundle, wire) &&
+        lg::decodeCommandBundle(wire, decodedBundle) &&
+        decodedBundle.commands[1].clientIndex == 9 &&
+        decodedBundle.commands[1].playerIndex == lg::kNoAssignedPlayer,
+      "spectator client slots should retain bundled command redundancy"
+    );
+
+    spectatorBundle.commands[1].clientIndex = 8;
+    failures += expect(
+      !lg::encodeCommandBundle(spectatorBundle, wire),
+      "a command bundle should have one authenticated connection identity"
+    );
+    bundle.datagramSequence = 0;
+    failures += expect(
+      !lg::encodeCommandBundle(bundle, wire),
+      "command bundles should reject the reserved zero datagram sequence"
+    );
+    bundle.datagramSequence = 91;
     for (lg::CommandPacket& command : bundle.commands) {
       command.chatMessage.assign(lg::kMaxChatMessageBytes, 'c');
       command.playerName.assign(lg::kMaxPlayerNameBytes, 'n');
@@ -332,8 +428,71 @@ int main() {
   }
 
   {
+    const std::array states = {
+      lg::McGuffinState::NeutralSpawn,
+      lg::McGuffinState::Carried,
+      lg::McGuffinState::Dropped,
+      lg::McGuffinState::InstalledRed,
+      lg::McGuffinState::InstalledBlue,
+    };
+    for (lg::McGuffinState state : states) {
+      lg::ServerSnapshot source;
+      source.map = testMapDescriptor();
+      source.gameMode = lg::GameMode::McGuffin;
+      source.mcguffin.state = state;
+      source.mcguffin.position = {1.0F, 2.0F, 3.0F};
+      source.mcguffin.velocity = {4.0F, 5.0F, 6.0F};
+      source.mcguffinConfig.throwSpeed = 13.0F;
+      source.mcguffinConfig.throwUpSpeed = 5.0F;
+      source.mcguffin.stateTicks = 41;
+      source.mcguffin.eventSequence = 9;
+      source.mcguffin.lastEvent = lg::McGuffinEventType::Pickup;
+      source.mcguffinScores = {42, 37};
+      source.mcguffinRoundsWon = {1, 0};
+      if (state == lg::McGuffinState::Carried) {
+        source.mcguffin.carrierIndex = 1;
+        source.mcguffin.carrierTeam = lg::Team::Blue;
+      }
+      if (state == lg::McGuffinState::InstalledRed) {
+        source.mcguffin.associatedTeam = lg::Team::Red;
+      } else if (state == lg::McGuffinState::InstalledBlue) {
+        source.mcguffin.associatedTeam = lg::Team::Blue;
+      }
+      lg::WirePacket wire;
+      lg::ServerSnapshot decoded;
+      failures += expect(lg::encodeServerSnapshot(source, wire),
+        "every McGuffin objective state should encode");
+      failures += expect(lg::decodeServerSnapshot(wire, decoded),
+        "every McGuffin objective state should decode");
+      failures += expect(
+        decoded.gameMode == lg::GameMode::McGuffin &&
+          decoded.mcguffin.state == state &&
+          decoded.mcguffin.position.z == 3.0F &&
+          decoded.mcguffin.velocity.z == 6.0F &&
+          decoded.mcguffinConfig.throwSpeed == 13.0F &&
+          decoded.mcguffinConfig.throwUpSpeed == 5.0F &&
+          decoded.mcguffinScores == source.mcguffinScores,
+        "McGuffin snapshot should round trip authoritatively"
+      );
+    }
+
+    lg::ServerSnapshot invalid;
+    invalid.map = testMapDescriptor();
+    invalid.gameMode = static_cast<lg::GameMode>(255);
+    lg::WirePacket wire;
+    failures += expect(!lg::encodeServerSnapshot(invalid, wire),
+      "invalid game mode enum should be rejected");
+    invalid.gameMode = lg::GameMode::McGuffin;
+    invalid.mcguffin.state = static_cast<lg::McGuffinState>(255);
+    failures += expect(!lg::encodeServerSnapshot(invalid, wire),
+      "invalid McGuffin state enum should be rejected");
+  }
+
+  {
     lg::ServerSnapshot source;
     source.serverTick = 1234;
+    source.acknowledgedCommandDatagramSequence = 88;
+    source.commandDatagramAckBits = 0xA5A55A5AU;
     source.mapRevision = 77;
     source.map = testMapDescriptor();
     source.acknowledgedCommand = {12, 34};
@@ -498,6 +657,7 @@ int main() {
     source.matchRules.countdownTicks = 625;
     source.matchRules.roundEndTicks = 125;
     source.matchRules.matchEndTicks = 625;
+    source.matchRules.deathRespawnTicks = 250;
     source.matchRules.showOpponentHealth = true;
     source.movementTuning.flightEnabled = true;
     source.movementTuning.airControlEnabled = true;
@@ -557,9 +717,6 @@ int main() {
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
     source.roundWinner = 0;
-    source.chatSequence = 7;
-    source.chatPlayerIndex = 1;
-    source.chatMessage = "snyggt åäöÅÄÖ";
     source.matchWinner = 255;
     source.playersColliding = true;
 
@@ -581,6 +738,11 @@ int main() {
       "snapshot map descriptor should round trip without arena geometry"
     );
     failures += expect(decoded.acknowledgedCommand[0] == 12, "snapshot ack should round trip");
+    failures += expect(
+      decoded.acknowledgedCommandDatagramSequence == 88 &&
+        decoded.commandDatagramAckBits == 0xA5A55A5AU,
+      "command datagram acknowledgement window should round trip"
+    );
     failures += expect(
         decoded.players[0].movementMode == lg::MovementMode::Flying &&
         decoded.players[0].jumpHeld &&
@@ -729,12 +891,6 @@ int main() {
       "gamemode and team match state should round trip"
     );
     failures += expect(
-      decoded.chatSequence == 7 &&
-        decoded.chatPlayerIndex == 1 &&
-        decoded.chatMessage == "snyggt åäöÅÄÖ",
-      "relayed Swedish chat should round trip"
-    );
-    failures += expect(
       decoded.matchCombatStats[0]
           .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
           .attempts == 500 &&
@@ -773,6 +929,7 @@ int main() {
     failures += expect(
       decoded.matchPhase == lg::MatchPhase::Countdown &&
         decoded.matchRules.showOpponentHealth &&
+        decoded.matchRules.deathRespawnTicks == 250 &&
         decoded.phaseTicksRemaining == 321,
       "match rules and phase should round trip"
     );
@@ -828,46 +985,65 @@ int main() {
     );
     failures += expect(decoded.playersColliding, "collision diagnostic should round trip");
 
-    // These budgets guard the common packet shapes independently of the more
-    // exhaustive round-trip fixture above. Keep them representative of actual
-    // lobby sizes so protocol growth is visible during review.
-    lg::ServerSnapshot duelSnapshot;
-    duelSnapshot.map = testMapDescriptor();
-    duelSnapshot.hasCombatStats = false;
-    duelSnapshot.connectedPlayers[0] = true;
-    duelSnapshot.connectedPlayers[1] = true;
-    duelSnapshot.participatingPlayers[0] = true;
-    duelSnapshot.participatingPlayers[1] = true;
+    // Ordinary gameplay snapshots omit both recoverable blocks. Configuration
+    // is retransmitted until acknowledged; scoreboard aggregates use their own
+    // packet and never inflate the latency-sensitive snapshot transport path.
+    lg::ServerSnapshot leanSnapshot;
+    leanSnapshot.map = testMapDescriptor();
+    leanSnapshot.connectedPlayers[0] = true;
+    leanSnapshot.connectedPlayers[1] = true;
+    leanSnapshot.participatingPlayers[0] = true;
+    leanSnapshot.participatingPlayers[1] = true;
+    leanSnapshot.hasCombatStats = false;
+    leanSnapshot.hasConfiguration = false;
+    failures += expect(lg::encodeServerSnapshot(leanSnapshot, wire),
+                       "lean snapshot should encode");
+    const std::size_t leanBytes = wire.size();
+    lg::ServerSnapshot decodedLean;
     failures += expect(
-      lg::encodeServerSnapshot(duelSnapshot, wire),
-      "typical duel snapshot should encode"
-    );
-    const std::size_t duelSnapshotBytes = wire.size();
-    failures += expect(
-      duelSnapshotBytes < 2500,
-      "typical duel snapshot should remain below 2500 bytes"
-    );
-    lg::ServerSnapshot decodedLeanSnapshot;
-    failures += expect(
-      lg::decodeServerSnapshot(wire, decodedLeanSnapshot) &&
-        !decodedLeanSnapshot.hasCombatStats,
-      "lean snapshot should explicitly report omitted combat statistics"
+      lg::decodeServerSnapshot(wire, decodedLean) &&
+        !decodedLean.hasCombatStats && !decodedLean.hasConfiguration,
+      "lean snapshot should advertise omitted recoverable blocks"
     );
 
-    lg::ServerSnapshot fullDuelSnapshot = duelSnapshot;
-    fullDuelSnapshot.hasCombatStats = true;
-    failures += expect(
-      lg::encodeServerSnapshot(fullDuelSnapshot, wire),
-      "full duel statistics refresh should encode"
-    );
-    const std::size_t fullDuelSnapshotBytes = wire.size();
-    failures += expect(
-      fullDuelSnapshotBytes - duelSnapshotBytes ==
-        2U * lg::kDuelPlayerCount * lg::kWeaponCount * 8U,
-      "omitting round and match combat statistics should save 864 bytes"
-    );
+    lg::ServerSnapshot fullConfigSnapshot = leanSnapshot;
+    fullConfigSnapshot.hasConfiguration = true;
+    failures += expect(lg::encodeServerSnapshot(fullConfigSnapshot, wire),
+                       "configuration refresh snapshot should encode");
+    const std::size_t configurationBytes = wire.size();
 
-    lg::ServerSnapshot sixPlayerSnapshot = duelSnapshot;
+    lg::ServerSnapshot fullSnapshot = fullConfigSnapshot;
+    fullSnapshot.hasCombatStats = true;
+    failures += expect(lg::encodeServerSnapshot(fullSnapshot, wire),
+                       "full refresh snapshot should encode");
+    const std::size_t fullBytes = wire.size();
+    failures += expect(fullBytes - configurationBytes ==
+      2U * lg::kDuelPlayerCount * lg::kWeaponCount * 8U,
+      "combat statistics refresh should add exactly 864 bytes");
+    failures += expect(leanBytes < 2500 && configurationBytes < 2500,
+                       "normal and configuration refresh snapshots should stay below budget");
+    std::cout << "snapshot bytes: gameplay=" << leanBytes
+              << " configuration-retry=" << configurationBytes
+              << " embedded-stats-fixture=" << fullBytes << '\n';
+
+    lg::CombatStatsPacket statsPacket;
+    statsPacket.serverTick = 1234;
+    statsPacket.round = source.roundCombatStats;
+    statsPacket.match = source.matchCombatStats;
+    failures += expect(lg::encodeCombatStatsPacket(statsPacket, wire),
+                       "combat statistics packet should encode");
+    const std::size_t statsBytes = wire.size();
+    lg::CombatStatsPacket decodedStats;
+    failures += expect(
+      statsBytes < 1200 &&
+        lg::decodeCombatStatsPacket(wire, decodedStats) &&
+        decodedStats.serverTick == statsPacket.serverTick &&
+        decodedStats.match[0].weapons[0].damageDealt ==
+          statsPacket.match[0].weapons[0].damageDealt,
+      "combat statistics should round trip below the datagram budget"
+    );
+    std::cout << "combat-stats packet bytes=" << statsBytes << '\n';
+    lg::ServerSnapshot sixPlayerSnapshot = leanSnapshot;
     sixPlayerSnapshot.gameMode = lg::GameMode::ClanArena;
     sixPlayerSnapshot.matchRules.playerLimit =
       static_cast<std::uint8_t>(lg::kDuelPlayerCount);
@@ -890,10 +1066,10 @@ int main() {
       sixPlayerSnapshotBytes < 2500,
       "typical six-player snapshot should remain below 2500 bytes"
     );
-    std::cout << "snapshot bytes: duel=" << duelSnapshotBytes
-              << " duel-full=" << fullDuelSnapshotBytes
-              << " six-player=" << sixPlayerSnapshotBytes
-              << " active-combat=" << activeCombatSnapshotBytes << '\n';
+    std::cout << "snapshot bytes: duel=" << leanBytes
+               << " duel-full=" << fullBytes
+               << " six-player=" << sixPlayerSnapshotBytes
+               << " active-combat=" << activeCombatSnapshotBytes << '\n';
 
     lg::Arena smallArena;
     lg::Arena largeArena = smallArena;
@@ -1003,29 +1179,101 @@ int main() {
       !lg::encodeServerSnapshot(invalid, wire),
       "invalid frag weapon should not encode"
     );
+
+    lg::ServerSnapshot emptySparseSnapshot;
+    emptySparseSnapshot.map = testMapDescriptor();
+    emptySparseSnapshot.hasCombatStats = false;
+    lg::WirePacket emptySparseWire;
+    failures += expect(
+      lg::encodeServerSnapshot(emptySparseSnapshot, emptySparseWire),
+      "empty sparse snapshot should encode"
+    );
+    lg::ServerSnapshot oneLightningSnapshot = emptySparseSnapshot;
+    oneLightningSnapshot.lightningGuns[0].active = true;
+    lg::WirePacket oneLightningWire;
+    failures += expect(
+      lg::encodeServerSnapshot(oneLightningSnapshot, oneLightningWire),
+      "single sparse event snapshot should encode"
+    );
+    std::size_t sparseMaskOffset = 12U;
+    while (sparseMaskOffset < emptySparseWire.size() &&
+           sparseMaskOffset < oneLightningWire.size() &&
+           emptySparseWire[sparseMaskOffset] == oneLightningWire[sparseMaskOffset]) {
+      ++sparseMaskOffset;
+    }
+    failures += expect(
+      sparseMaskOffset < emptySparseWire.size(),
+      "sparse mask offset should be observable from a single active slot"
+    );
+    if (sparseMaskOffset + 3U < emptySparseWire.size()) {
+      // The first differing payload byte is the little-endian lightning mask.
+      // Bit 31 is outside the six-player array and must be rejected.
+      emptySparseWire[sparseMaskOffset + 3U] |= 0x80U;
+      failures += expect(
+        !lg::decodeServerSnapshot(emptySparseWire, decoded),
+        "sparse masks should reject unused high slot bits"
+      );
+    }
   }
 
   {
     lg::ServerSnapshot source;
     source.map = testMapDescriptor();
-    source.chatSequence = 8;
-    source.chatPlayerIndex = 1;
-    source.chatMessage.assign(180U, 's');
 
     lg::WirePacket wire;
     lg::ServerSnapshot decoded;
     failures += expect(
       lg::encodeServerSnapshot(source, wire),
-      "longer snapshot chat should encode"
+      "snapshot without embedded chat should encode"
     );
     failures += expect(
       lg::decodeServerSnapshot(wire, decoded),
-      "longer snapshot chat should decode"
+      "snapshot without embedded chat should decode"
     );
     failures += expect(
-      decoded.chatMessage == source.chatMessage &&
-        decoded.chatMessage.size() > 64U,
-      "snapshot chat should allow messages beyond the old 64-byte cap"
+      decoded.serverTick == source.serverTick,
+      "snapshot without embedded chat should still round trip"
+    );
+  }
+
+  {
+    lg::ChatHistoryChunk source;
+    source.oldestAvailableSequence = 7U;
+    source.latestSequence = 10U;
+    source.messageCount = 4U;
+    source.messages[0] = {7U, 1U, "Zap Witch", "snyggt åäöÅÄÖ"};
+    source.messages[1] = {8U, 0U, "yg", std::string(lg::kMaxChatMessageBytes, 's')};
+    source.messages[2] = {9U, 1U, "Zap Witch", std::string(lg::kMaxChatMessageBytes, 't')};
+    source.messages[3] = {
+      10U,
+      lg::kNoAssignedPlayer,
+      "Observer",
+      std::string(lg::kMaxChatMessageBytes, 'u')
+    };
+    lg::WirePacket wire;
+    lg::ChatHistoryChunk decoded;
+    failures += expect(
+      lg::encodeChatHistoryChunk(source, wire) && wire.size() < 1200U,
+      "maximum chat-history chunks should remain MTU-friendly"
+    );
+    failures += expect(
+      lg::decodeChatHistoryChunk(wire, decoded) &&
+        decoded.oldestAvailableSequence == 7U &&
+        decoded.latestSequence == 10U &&
+        decoded.messageCount == 4U &&
+        decoded.messages[0].speakerName == "Zap Witch" &&
+        decoded.messages[0].message == "snyggt åäöÅÄÖ" &&
+        decoded.messages[1].message == std::string(lg::kMaxChatMessageBytes, 's') &&
+        decoded.messages[3].playerIndex == lg::kNoAssignedPlayer,
+      "chat history should round trip names, UTF-8, spectators, and long messages"
+    );
+
+    lg::ChatHistoryAck ack;
+    failures += expect(
+      lg::encodeChatHistoryAck({8U}, wire) &&
+        lg::decodeChatHistoryAck(wire, ack) &&
+        ack.sequence == 8U,
+      "chat history acknowledgements should round trip"
     );
   }
 

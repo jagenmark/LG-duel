@@ -18,6 +18,9 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
+  console.registerCvar({"cl_death_spectate_threshold", "Respawn delay in seconds at which a dead player switches to a living teammate after the camera hold.", 3.0F, archivedClient, 0.0F, 30.0F});
+  console.registerCvar({"cl_death_camera_hold", "Seconds to retain the local death-position view before teammate spectating is allowed.", 0.5F, archivedClient, 0.0F, 10.0F});
+  console.registerCvar({"cl_death_desaturation", "Strength of the grey death-view treatment: 0 off, 1 full.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_viewmodel_motion_scale", "Master scale for client-only first-person weapon motion; zero disables all motion.", 1.0F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_viewmodel_bob_scale", "Locomotion bob scale for the first-person weapon.", 0.65F, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_viewmodel_sway_scale", "Mouse-driven sway scale for the first-person weapon.", 0.55F, archivedClient, 0.0F, 2.0F});
@@ -39,6 +42,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_showspeed", "Show current horizontal speed in Quake units per second.", true, archivedClient, {}, {}});
   console.registerCvar({"cg_ground_debug", "Show ground/slope movement diagnostics on the HUD: 0 off, 1 position/angles/ground, 2 detailed velocity state.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
+  console.registerCvar({"cl_netgraph", "Network HUD: 0 off, 1 compact, 2 expanded history graph.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_netgraph_scale", "Scale of the network HUD panel and text.", 1.75F, archivedClient, 0.75F, 3.0F});
   console.registerCvar({"net_sim_latency_ms", "Client UDP simulator extra one-way latency in ms; 60 adds about 120 ms RTT when applied to outgoing and incoming traffic.", 0, CvarFlag::Client, 0.0F, 5000.0F});
   console.registerCvar({"net_sim_jitter_ms", "Client UDP simulator per-datagram one-way jitter in ms around net_sim_latency_ms; delay is clamped at zero.", 0, CvarFlag::Client, 0.0F, 5000.0F});
   console.registerCvar({"net_sim_loss_percent", "Client UDP simulator independent datagram loss percent.", 0, CvarFlag::Client, 0.0F, 100.0F});
@@ -48,6 +53,10 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
+  console.registerCvar({"cl_interp_adaptive", "Adapt the interpolation buffer to measured snapshot jitter.", true, archivedClient, {}, {}});
+  console.registerCvar({"cl_interp_min", "Minimum adaptive interpolation delay in seconds.", 0.016F, archivedClient, 0.0F, 0.25F});
+  console.registerCvar({"cl_interp_max", "Maximum adaptive interpolation delay in seconds.", 0.064F, archivedClient, 0.0F, 0.25F});
+  console.registerCvar({"cl_interp_extrapolate", "Legacy compatibility setting; buffered interpolation now holds the newest authoritative snapshot during underrun.", 0.016F, archivedClient, 0.0F, 0.05F});
   console.registerCvar({"cl_legacy_frame_delay", "Deprecated legacy SDL_Delay(1) frame yield; prefer r_maxfps for pacing.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_local_render_prediction", "Render-only local movement prediction between fixed ticks; does not affect physics or hitreg.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_player_name", "Local player name sent to the server.", std::string{}, archivedClient, {}, {}});
