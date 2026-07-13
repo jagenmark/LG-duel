@@ -1799,6 +1799,7 @@ struct ClientConsoleState {
   bool selecting = false;
   std::size_t selectionAnchor = 0;
   std::size_t selectionFocus = 0;
+  std::size_t scrollRows = 0;
   ConsoleCatController cat;
 };
 
@@ -1995,6 +1996,7 @@ std::vector<HudRenderState::KillFeedLine> killFeedPresentation(
 }
 
 void appendConsoleOutput(ClientConsoleState& state, std::string_view text) {
+  state.scrollRows = 0U;
   std::istringstream stream{std::string(text)};
   std::string line;
   while (std::getline(stream, line)) {
@@ -3078,6 +3080,7 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   renderState.hasSelection = state.hasSelection;
   renderState.selectionAnchor = state.selectionAnchor;
   renderState.selectionFocus = state.selectionFocus;
+  renderState.scrollRows = state.scrollRows;
   renderState.cat = state.cat.pose();
   return renderState;
 }
@@ -3119,6 +3122,14 @@ std::string consoleClipboardTextForWindow(
 
 HudRenderState chatHudRenderState(const ClientChatState& state) {
   HudRenderState hud;
+  hud.chatLines.reserve(state.history.size());
+  for (const ClientChatState::Message& message : state.history) {
+    hud.chatLines.push_back(HudRenderState::ChatLine{
+      message.playerIndex,
+      message.text,
+      message.speakerName,
+    });
+  }
   hud.chatInputOpen = state.inputOpen;
   hud.chatInput = state.input;
   hud.chatCursorIndex = state.cursorIndex;
@@ -3713,7 +3724,10 @@ int GameApp::run() const {
     netGraphCorrectionSerials = {};
   std::array<float, kNetworkTelemetryHistorySamples>
     netGraphCorrectionDistances = {};
+  std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
+    netGraphStarvationSerials = {};
   std::uint32_t lastNetGraphCorrectionCount = 0;
+  std::uint64_t lastNetGraphStarvationCount = 0;
 
   const auto registerButtonCommand =
     [&console](std::string name, int& pressCount) {
@@ -4555,6 +4569,7 @@ int GameApp::run() const {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
       if (open) {
+        consoleState.scrollRows = 0U;
         int width = 0;
         int height = 0;
         SDL_GetWindowSize(window, &width, &height);
@@ -4964,6 +4979,7 @@ int GameApp::run() const {
           suppressNextTextInput = false;
         } else if (consoleState.open) {
           suppressNextTextInput = false;
+          consoleState.scrollRows = 0U;
           clearConsoleSelection(consoleState);
           insertConsoleText(
             consoleState.input,
@@ -5065,15 +5081,35 @@ int GameApp::run() const {
         }
         break;
       case SDL_EVENT_MOUSE_WHEEL:
-        if (chatState.inputOpen || chatHistoryPressCount > 0) {
+        if (consoleState.open) {
+          constexpr std::size_t consoleWheelRows = 3U;
           if (event.wheel.y > 0.0F) {
-            chatState.scrollRows = std::min<std::size_t>(
-              chatState.scrollRows + 3U,
-              kChatHistoryCapacity * 16U
+            const ConsoleTextLayout layout =
+              consoleLayoutForWindow(window, consoleState);
+            consoleState.scrollRows = std::min(
+              consoleState.scrollRows + consoleWheelRows,
+              layout.maxScrollRows
             );
           } else if (event.wheel.y < 0.0F) {
-            chatState.scrollRows = chatState.scrollRows > 3U
-              ? chatState.scrollRows - 3U
+            consoleState.scrollRows =
+              consoleState.scrollRows > consoleWheelRows
+                ? consoleState.scrollRows - consoleWheelRows
+                : 0U;
+          }
+          clearConsoleSelection(consoleState);
+        } else if (chatState.inputOpen || chatHistoryPressCount > 0) {
+          constexpr std::size_t chatWheelRows = 3U;
+          // Clamp against wrapped rows, not the protocol message capacity. This
+          // keeps one wheel step reversible even when messages span many rows.
+          const ChatTextLayout layout = chatLayoutForWindow(window, chatState);
+          if (event.wheel.y > 0.0F) {
+            chatState.scrollRows = std::min(
+              chatState.scrollRows + chatWheelRows,
+              layout.maxScrollRows
+            );
+          } else if (event.wheel.y < 0.0F) {
+            chatState.scrollRows = chatState.scrollRows > chatWheelRows
+              ? chatState.scrollRows - chatWheelRows
               : 0U;
           }
         }
@@ -6775,6 +6811,7 @@ int GameApp::run() const {
     }
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
     hud.netGraph.mode = console.getInt("cl_netgraph");
+    hud.netGraph.scale = console.getFloat("cl_netgraph_scale");
     hud.netGraph.telemetry = session.networkTelemetry();
     hud.netGraph.interpolationDelayMilliseconds =
       console.getFloat("cl_interp") * 1000.0F;
@@ -6789,6 +6826,20 @@ int GameApp::run() const {
           interpolation.bufferedSeconds * 1000.0F;
         hud.netGraph.interpolationStarvations = interpolation.starvationCount;
         hud.netGraph.interpolationExtrapolating = interpolation.extrapolating;
+        if (
+          interpolation.starvationCount != lastNetGraphStarvationCount &&
+          hud.netGraph.telemetry.historyCount > 0
+        ) {
+          // Starvation is an edge event. Attach it to one history sample so a
+          // cumulative counter cannot paint every later graph column purple.
+          const std::uint64_t serial = hud.netGraph.telemetry.history[
+            hud.netGraph.telemetry.historyCount - 1U
+          ].serial;
+          netGraphStarvationSerials[
+            serial % netGraphStarvationSerials.size()
+          ] = serial;
+        }
+        lastNetGraphStarvationCount = interpolation.starvationCount;
       }
       const PredictionDiagnostics& prediction = netGame->predictionDiagnostics();
       const SnapshotDiagnostics snapshotDiagnostics = netGame->snapshotDiagnostics();
@@ -6813,6 +6864,8 @@ int GameApp::run() const {
           sample.predictionCorrectionDistance =
             netGraphCorrectionDistances[slot];
         }
+        sample.interpolationStarved =
+          netGraphStarvationSerials[slot] == sample.serial;
       }
       hud.netGraph.pendingCommands = prediction.pendingCommandCount;
       hud.netGraph.correctionCount = prediction.correctionCount;
@@ -7145,6 +7198,8 @@ int GameApp::run() const {
       }
     }
     hud.chatInputOpen = chatState.inputOpen;
+    hud.chatHistoryExpanded =
+      chatState.inputOpen || chatHistoryPressCount > 0;
     hud.chatInput = chatState.input;
     hud.chatCursorIndex = chatState.cursorIndex;
     hud.chatHasSelection = hasSelection(chatState.selection);

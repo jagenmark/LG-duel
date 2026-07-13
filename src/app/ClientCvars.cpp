@@ -37,6 +37,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cg_ground_debug", "Show ground/slope movement diagnostics on the HUD: 0 off, 1 position/angles/ground, 2 detailed velocity state.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"cl_show_net", "Show network diagnostics in the window title.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_netgraph", "Network HUD: 0 off, 1 compact, 2 expanded history graph.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"cl_netgraph_scale", "Scale of the network HUD panel and text.", 1.75F, archivedClient, 0.75F, 3.0F});
   console.registerCvar({"net_sim_latency_ms", "Client UDP simulator extra one-way latency in ms; 60 adds about 120 ms RTT when applied to outgoing and incoming traffic.", 0, CvarFlag::Client, 0.0F, 5000.0F});
   console.registerCvar({"net_sim_jitter_ms", "Client UDP simulator per-datagram one-way jitter in ms around net_sim_latency_ms; delay is clamped at zero.", 0, CvarFlag::Client, 0.0F, 5000.0F});
   console.registerCvar({"net_sim_loss_percent", "Client UDP simulator independent datagram loss percent.", 0, CvarFlag::Client, 0.0F, 100.0F});

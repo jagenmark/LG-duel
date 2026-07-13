@@ -164,6 +164,9 @@ struct Arena {
   ArenaMcGuffinLayout mcguffin = {};
 };
 
+// Used before a server selects a packaged map and by clients that receive that
+// built-in arena descriptor during connection setup.
+[[nodiscard]] Arena makeDefaultServerArena();
 [[nodiscard]] bool hasValidMcGuffinLayout(const Arena& arena);
 [[nodiscard]] bool pointInsideMcGuffinBase(Vec3 point, const ArenaMcGuffinBase& base);
 

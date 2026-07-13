@@ -6,6 +6,25 @@
 
 namespace lg {
 
+Arena makeDefaultServerArena() {
+  Arena arena;
+  arena.min = {-15.0F, -11.0F, 0.0F};
+  arena.max = {15.0F, 11.0F, 10.0F};
+  arena.spawnPositions = {{
+    {-8.0F, -9.0F, 2.0F},
+    {8.0F, -9.0F, 2.0F},
+    {-12.0F, 8.0F, 2.0F},
+    {12.0F, 8.0F, 2.0F},
+    {-3.0F, -9.0F, 0.0F},
+    {3.0F, -9.0F, 0.0F},
+  }};
+  arena.walls[0] = {{-15.0F, -11.0F, 0.0F}, {-3.0F, -7.0F, 2.0F}};
+  arena.walls[1] = {{3.0F, -11.0F, 0.0F}, {15.0F, -7.0F, 2.0F}};
+  arena.walls[2] = {{-15.0F, 6.5F, 0.0F}, {15.0F, 11.0F, 2.0F}};
+  arena.wallCount = 3;
+  return arena;
+}
+
 bool hasValidMcGuffinLayout(const Arena& arena) {
   const auto validBase = [](const ArenaMcGuffinBase& base, Team expectedTeam) {
     return base.team == expectedTeam &&

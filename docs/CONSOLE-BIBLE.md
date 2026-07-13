@@ -113,6 +113,7 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed under crosshair som `<värde> ups`. Intern hastighet multipliceras med `40`, så `8 = 320 ups`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
 | `cl_netgraph` | int | `0` | `0..2` | None | Archive | Right-side network HUD. `0` hides it, `1` shows live ping/jitter/loss/rate/interpolation, and `2` adds bandwidth, packet sizes, prediction/rewind diagnostics, and a ten-second delivery graph. |
+| `cl_netgraph_scale` | float | `1.75` | `0.75..3` | None | Archive | Scales the complete network HUD, including text, spacing, panel size, and the expanded history graph. It is automatically constrained to the current window. |
 | `net_sim_latency_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: extra one-way latency i ms efter connect. `60` pa bade outgoing och incoming ger ungefar +120 ms RTT. |
 | `net_sim_jitter_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: slumpad one-way variation runt `net_sim_latency_ms` per datagram. Delay clampas till minst `0`. |
 | `net_sim_loss_percent` | int | `0` | `0..100` | Ingen | Nej | Lokal klient-UDP-simulator: oberoende sannolikhet per datagram att droppas. |

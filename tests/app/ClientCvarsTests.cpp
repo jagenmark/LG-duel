@@ -445,7 +445,11 @@ int main() {
   failures += expect(
     console.execute("cl_netgraph") == "cl_netgraph = 0 (default 0)" &&
       console.execute("cl_netgraph 2") == "cl_netgraph = 2" &&
-      console.execute("cl_netgraph 3") == "value out of range for cl_netgraph",
+      console.execute("cl_netgraph 3") == "value out of range for cl_netgraph" &&
+      console.execute("cl_netgraph_scale") ==
+        "cl_netgraph_scale = 1.75 (default 1.75)" &&
+      console.execute("cl_netgraph_scale 3.1") ==
+        "value out of range for cl_netgraph_scale",
     "netgraph cvar should expose off, compact, and expanded modes"
   );
 

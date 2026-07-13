@@ -8,7 +8,8 @@ namespace {
 
 constexpr float kConsoleHeightRatio = 0.55F;
 constexpr float kFloorPadding = 7.0F;
-constexpr float kCatHalfWidth = 25.0F;
+constexpr float kCatHalfWidth = 55.0F;
+constexpr float kSleepInactivitySeconds = 2.0F;
 
 [[nodiscard]] float catFloor(float viewportHeight) {
   return viewportHeight * kConsoleHeightRatio - kFloorPadding;
@@ -28,6 +29,8 @@ void ConsoleCatController::reset(float viewportWidth, float viewportHeight) {
   actionSeconds_ = 0.0F;
   velocityX_ = 0.0F;
   velocityY_ = 0.0F;
+  inactiveSeconds_ = 0.0F;
+  hasPreviousCursor_ = false;
   initialized_ = true;
 }
 
@@ -47,8 +50,26 @@ void ConsoleCatController::update(
   const float floor = catFloor(viewportHeight);
   pose_.laser = {
     std::clamp(cursorX, 0.0F, viewportWidth),
-    std::clamp(cursorY, 0.0F, viewportHeight * kConsoleHeightRatio),
+    std::clamp(cursorY, 0.0F, viewportHeight),
   };
+  const float cursorMotionX = pose_.laser.x - previousCursor_.x;
+  const float cursorMotionY = pose_.laser.y - previousCursor_.y;
+  const bool cursorMoved = !hasPreviousCursor_ ||
+    cursorMotionX * cursorMotionX + cursorMotionY * cursorMotionY > 2.25F;
+  previousCursor_ = pose_.laser;
+  hasPreviousCursor_ = true;
+  if (cursorMoved) {
+    inactiveSeconds_ = 0.0F;
+    if (
+      pose_.action == ConsoleCatAction::LieDown ||
+      pose_.action == ConsoleCatAction::Sleep
+    ) {
+      pose_.action = ConsoleCatAction::Idle;
+      actionSeconds_ = 0.0F;
+    }
+  } else {
+    inactiveSeconds_ += dt;
+  }
   const float offsetX = pose_.laser.x - pose_.position.x;
   const float offsetY = pose_.laser.y - pose_.position.y;
   pose_.facingRight = std::abs(offsetX) < 1.0F ? pose_.facingRight : offsetX > 0.0F;
@@ -57,7 +78,10 @@ void ConsoleCatController::update(
   switch (pose_.action) {
   case ConsoleCatAction::Idle:
     velocityX_ = 0.0F;
-    if (offsetY < -24.0F && std::abs(offsetX) <= 48.0F) {
+    if (inactiveSeconds_ >= kSleepInactivitySeconds) {
+      pose_.action = ConsoleCatAction::LieDown;
+      actionSeconds_ = 0.0F;
+    } else if (offsetY < -24.0F && std::abs(offsetX) <= 48.0F) {
       pose_.action = ConsoleCatAction::Crouch;
       actionSeconds_ = 0.0F;
     } else if (std::abs(offsetX) > 48.0F) {
@@ -70,8 +94,12 @@ void ConsoleCatController::update(
     velocityX_ = direction * std::clamp(std::abs(offsetX) * 2.0F, 55.0F, 175.0F);
     pose_.position.x += velocityX_ * dt;
     const bool laserIsTempting = offsetY < -24.0F && std::abs(offsetX) < 190.0F;
-    if (laserIsTempting || actionSeconds_ > 1.15F) {
+    if (laserIsTempting) {
       pose_.action = ConsoleCatAction::Crouch;
+      actionSeconds_ = 0.0F;
+      velocityX_ = 0.0F;
+    } else if (actionSeconds_ > 1.15F) {
+      pose_.action = ConsoleCatAction::Idle;
       actionSeconds_ = 0.0F;
       velocityX_ = 0.0F;
     } else if (std::abs(offsetX) <= 34.0F) {
@@ -108,6 +136,16 @@ void ConsoleCatController::update(
       actionSeconds_ = 0.0F;
     }
     break;
+  case ConsoleCatAction::LieDown:
+    velocityX_ = 0.0F;
+    if (actionSeconds_ >= 0.72F) {
+      pose_.action = ConsoleCatAction::Sleep;
+      actionSeconds_ = 0.0F;
+    }
+    break;
+  case ConsoleCatAction::Sleep:
+    velocityX_ = 0.0F;
+    break;
   }
 
   pose_.position.x = std::clamp(
@@ -116,9 +154,28 @@ void ConsoleCatController::update(
     std::max(kCatHalfWidth, viewportWidth - kCatHalfWidth)
   );
   pose_.position.y = std::min(pose_.position.y, floor);
-  pose_.frame = static_cast<std::uint8_t>(
-    std::floor(actionSeconds_ * 8.0F)
-  ) & 1U;
+  // A mirrored front view is still front-facing; use true profile art while
+  // traversing sideways, then face the player again at the pointer.
+  pose_.profile = pose_.action == ConsoleCatAction::Stalk ||
+    (pose_.action == ConsoleCatAction::Crouch && std::abs(offsetX) > 48.0F) ||
+    (pose_.action == ConsoleCatAction::Leap && std::abs(velocityX_) > 70.0F) ||
+    (pose_.action == ConsoleCatAction::Land && pose_.profile);
+  if (pose_.action == ConsoleCatAction::LieDown) {
+    pose_.frame = static_cast<std::uint8_t>(
+      std::min(2.0F, std::floor(actionSeconds_ * 4.5F))
+    );
+  } else if (pose_.action == ConsoleCatAction::Sleep) {
+    pose_.frame = static_cast<std::uint8_t>(
+      std::floor(actionSeconds_ * 2.0F)
+    ) % 6U;
+  } else if (pose_.action == ConsoleCatAction::Idle) {
+    // A brief infrequent blink feels alive without producing a distracting flicker.
+    pose_.frame = std::fmod(actionSeconds_, 3.2F) > 3.02F ? 1U : 0U;
+  } else {
+    pose_.frame = static_cast<std::uint8_t>(
+      std::floor(actionSeconds_ * 8.0F)
+    ) & 1U;
+  }
 }
 
 } // namespace lg

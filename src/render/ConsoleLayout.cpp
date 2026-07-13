@@ -123,13 +123,20 @@ ConsoleTextLayout buildConsoleTextLayout(
   const float outputHeightAvailable = std::max(0.0F, promptY - 10.0F);
   const int visibleLines =
     std::max(0, static_cast<int>(outputHeightAvailable / layout.lineHeight));
-  const std::size_t firstLine =
-    wrappedOutput.size() > static_cast<std::size_t>(visibleLines)
-      ? wrappedOutput.size() - static_cast<std::size_t>(visibleLines)
-      : 0U;
+  const std::size_t visibleLineCount = static_cast<std::size_t>(visibleLines);
+  const std::size_t maxScrollRows = wrappedOutput.size() > visibleLineCount
+    ? wrappedOutput.size() - visibleLineCount
+    : 0U;
+  layout.maxScrollRows = maxScrollRows;
+  const std::size_t scrollRows = std::min(console.scrollRows, maxScrollRows);
+  const std::size_t firstLine = maxScrollRows - scrollRows;
+  const std::size_t lastLine = std::min(
+    wrappedOutput.size(),
+    firstLine + visibleLineCount
+  );
 
   float y = 10.0F;
-  for (std::size_t index = firstLine; index < wrappedOutput.size(); ++index) {
+  for (std::size_t index = firstLine; index < lastLine; ++index) {
     appendLayoutLine(layout, wrappedOutput[index], kConsoleMarginX, y, false);
     y += layout.lineHeight;
   }

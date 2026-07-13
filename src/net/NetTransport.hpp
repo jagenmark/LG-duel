@@ -22,6 +22,7 @@ struct NetworkTelemetrySample {
   std::uint16_t snapshotsReceived = 0;
   std::uint16_t snapshotGaps = 0;
   std::uint16_t lateSnapshots = 0;
+  bool interpolationStarved = false;
   float predictionCorrectionDistance = 0.0F;
 };
 

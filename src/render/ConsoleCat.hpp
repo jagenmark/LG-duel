@@ -12,6 +12,8 @@ enum class ConsoleCatAction : std::uint8_t {
   Crouch,
   Leap,
   Land,
+  LieDown,
+  Sleep,
 };
 
 struct ConsoleCatPose {
@@ -20,6 +22,7 @@ struct ConsoleCatPose {
   ConsoleCatAction action = ConsoleCatAction::Idle;
   std::uint8_t frame = 0;
   bool facingRight = true;
+  bool profile = false;
 };
 
 class ConsoleCatController {
@@ -40,6 +43,9 @@ private:
   float actionSeconds_ = 0.0F;
   float velocityX_ = 0.0F;
   float velocityY_ = 0.0F;
+  ScreenPoint previousCursor_ = {};
+  float inactiveSeconds_ = 0.0F;
+  bool hasPreviousCursor_ = false;
   bool initialized_ = false;
 };
 

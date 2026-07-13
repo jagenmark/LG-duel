@@ -666,9 +666,12 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
       impl_->chatHistory.messageCount - 1U
     ].sequence;
     const auto now = Clock::now();
+    const bool chatRetransmitThrottled =
+      client.lastChatSend != Clock::time_point::min() &&
+      now - client.lastChatSend < kChatRetransmitInterval;
     if (
       client.chatAckSequence == latestSequence ||
-      now - client.lastChatSend < kChatRetransmitInterval
+      chatRetransmitThrottled
     ) {
       continue;
     }

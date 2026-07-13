@@ -373,6 +373,38 @@ int main() {
     "UDP telemetry should expose simulated incoming and outgoing packet loss"
   );
 
+  lg::CommandPacket chatCommand;
+  chatCommand.playerIndex = firstTransport.clientIndex();
+  chatCommand.command.sequence = 165;
+  chatCommand.chatMessage = "udp chat history";
+  firstTransport.sendCommand(chatCommand);
+  for (int iteration = 0; iteration < 30; ++iteration) {
+    serverTransport.update();
+    syncConnectedPlayers(server, serverTransport);
+    server.tick(lg::kFixedTickSeconds);
+    firstTransport.update();
+    secondTransport.update();
+    firstClient.receiveSnapshots();
+    secondClient.receiveSnapshots();
+    if (
+      !firstClient.chatHistory().empty() &&
+      !secondClient.chatHistory().empty()
+    ) {
+      break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  failures += expect(
+    !firstClient.chatHistory().empty() &&
+      firstClient.chatHistory().back().message == "udp chat history",
+    "UDP chat history should return a sent message to its author"
+  );
+  failures += expect(
+    !secondClient.chatHistory().empty() &&
+      secondClient.chatHistory().back().message == "udp chat history",
+    "UDP chat history should deliver a sent message to other clients"
+  );
+
   firstTransport.disconnect();
   serverTransport.update();
   syncConnectedPlayers(server, serverTransport);

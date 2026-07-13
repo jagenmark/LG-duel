@@ -236,6 +236,7 @@ struct ConsoleRenderState {
   bool hasSelection = false;
   std::size_t selectionAnchor = 0;
   std::size_t selectionFocus = 0;
+  std::size_t scrollRows = 0;
   ConsoleCatPose cat;
 };
 
@@ -250,6 +251,7 @@ struct HudRenderState {
 
   struct NetGraphState {
     int mode = 0;
+    float scale = 1.75F;
     NetworkTelemetry telemetry = {};
     float interpolationDelayMilliseconds = 0.0F;
     float interpolationBufferedMilliseconds = 0.0F;
@@ -297,6 +299,7 @@ struct HudRenderState {
   std::size_t chatSelectionAnchor = 0;
   std::size_t chatSelectionFocus = 0;
   bool chatInputOpen = false;
+  bool chatHistoryExpanded = false;
   std::size_t chatScrollRows = 0;
   bool scoreboardOpen = false;
   std::vector<std::string> scoreboardLines;

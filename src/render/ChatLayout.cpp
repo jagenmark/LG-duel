@@ -214,6 +214,21 @@ ChatTextLayout buildChatTextLayout(
     ? endRow - visibleRowCount
     : 0U;
   const std::size_t visibleCount = endRow - firstRow;
+  layout.historyTop =
+    historyBottom - static_cast<float>(visibleRowCount) * layout.lineHeight;
+  layout.historyBottom = historyBottom;
+  layout.historyRight = kChatX;
+  for (const ChatLayoutRow& row : rows) {
+    layout.historyRight = std::max(
+      layout.historyRight,
+      row.x + static_cast<float>(utf8GlyphCount(row.text)) *
+        layout.characterWidth
+    );
+  }
+  layout.totalHistoryRows = rows.size();
+  layout.firstVisibleHistoryRow = firstRow;
+  layout.visibleHistoryRows = visibleCount;
+  layout.maxScrollRows = maxScroll;
   float y = historyBottom - static_cast<float>(visibleCount) * layout.lineHeight;
   for (std::size_t index = firstRow; index < endRow; ++index) {
     rows[index].y = y;

@@ -169,7 +169,18 @@ void ClientGame::receiveSnapshots() {
         received.map.mapName != map_.mapName ||
         received.map.contentHash != map_.contentHash;
       if (mapChanged) {
-        LocalMapLoadResult loaded = loadAndVerifyLocalMap(received.map);
+        LocalMapLoadResult loaded;
+        const Arena builtInArena = makeDefaultServerArena();
+        if (
+          received.map.mapName == "custom" &&
+          received.map.contentHash == hashArena(builtInArena)
+        ) {
+          loaded.arena = builtInArena;
+          loaded.descriptor = received.map;
+          loaded.ok = true;
+        } else {
+          loaded = loadAndVerifyLocalMap(received.map);
+        }
         if (!loaded.ok) {
           connectionError_ = loaded.error;
           continue;

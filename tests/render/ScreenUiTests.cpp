@@ -1480,12 +1480,64 @@ int main() {
       chatHud.chatLines.push_back({0, "message " + std::to_string(index), "yg"});
     }
     chatHud.chatScrollRows = 3U;
+    chatHud.chatHistoryExpanded = true;
     const lg::ChatTextLayout scrolledLayout =
       lg::buildChatTextLayout(800, 720, chatHud);
     failures += expect(
       scrolledLayout.rows.size() == 8U &&
-        scrolledLayout.rows.back().text == "yg: message 9",
+        scrolledLayout.rows.back().text == "yg: message 9" &&
+        scrolledLayout.totalHistoryRows == 12U &&
+        scrolledLayout.firstVisibleHistoryRow == 1U &&
+        scrolledLayout.visibleHistoryRows == 8U &&
+        scrolledLayout.maxScrollRows == 4U,
       "chat scroll offset should move the visible row window away from newest"
+    );
+
+    const lg::DrawList2D scrolledUi = lg::buildScreenUi(
+      800,
+      720,
+      lg::PlayerState{},
+      lg::RenderSettings{},
+      chatHud,
+      {}
+    );
+    const lg::Text2D* chatPosition = findText(scrolledUi, "ROWS 2-9 / 12");
+    bool foundChatTrack = false;
+    bool foundChatThumb = false;
+    for (const lg::DrawCommand2D& command : scrolledUi.overlayCommands) {
+      const auto* quad = std::get_if<lg::FilledQuad2D>(&command);
+      if (quad == nullptr) {
+        continue;
+      }
+      const float quadWidth = quad->points[1].x - quad->points[0].x;
+      const float quadHeight = quad->points[2].y - quad->points[1].y;
+      if (std::fabs(
+            quad->points[0].x - (scrolledLayout.historyRight + 12.0F)
+          ) < 0.01F && std::fabs(quadWidth - 8.0F) < 0.01F) {
+        foundChatTrack = foundChatTrack || std::fabs(quadHeight - 144.0F) < 0.01F;
+        foundChatThumb = foundChatThumb || std::fabs(quadHeight - 96.0F) < 0.01F;
+      }
+    }
+    failures += expect(
+      chatPosition != nullptr &&
+        chatPosition->horizontalAlignment == lg::TextHorizontalAlignment::Left &&
+        foundChatTrack && foundChatThumb,
+      "scrollable chat should show its visible rows, total rows, track, and proportional thumb"
+    );
+
+    chatHud.chatLines.resize(2U);
+    chatHud.chatScrollRows = 0U;
+    const lg::DrawList2D shortChatUi = lg::buildScreenUi(
+      800,
+      720,
+      lg::PlayerState{},
+      lg::RenderSettings{},
+      chatHud,
+      {}
+    );
+    failures += expect(
+      findText(shortChatUi, "ROWS 1-2 / 2") != nullptr,
+      "held expanded chat should show its position indicator even when all history fits"
     );
 
     chatHud.chatLines = {{
@@ -1763,6 +1815,36 @@ int main() {
   }
 
   {
+    lg::ConsoleRenderState scrollConsole;
+    scrollConsole.open = true;
+    for (int line = 0; line < 30; ++line) {
+      scrollConsole.lines.push_back("line " + std::to_string(line));
+    }
+    const lg::ConsoleTextLayout latest =
+      lg::buildConsoleTextLayout(640, 360, scrollConsole);
+    scrollConsole.scrollRows = 5U;
+    const lg::ConsoleTextLayout scrolled =
+      lg::buildConsoleTextLayout(640, 360, scrollConsole);
+    failures += expect(
+      !latest.lines.empty() && !scrolled.lines.empty() &&
+        latest.lines.front().text != scrolled.lines.front().text,
+      "console scrollback should move away from the newest output rows"
+    );
+    failures += expect(
+      scrolled.lines.front().text == "line 17",
+      "console scrollback should offset by the requested wrapped rows"
+    );
+    failures += expect(
+      latest.maxScrollRows == 22U,
+      "console scrollback should report its wrapped-row limit"
+    );
+    failures += expect(
+      scrolled.lines.back().prompt,
+      "console prompt should remain visible while output is scrolled"
+    );
+  }
+
+  {
     lg::ConsoleCatController cat;
     cat.reset(1280.0F, 720.0F);
     bool sawCrouch = false;
@@ -1782,6 +1864,39 @@ int main() {
       "console cat pounce should visibly leave the console floor"
     );
 
+    lg::ConsoleCatController lateralCat;
+    lateralCat.reset(1280.0F, 720.0F);
+    lateralCat.update(0.05F, 900.0F, 350.0F, 1280.0F, 720.0F);
+    failures += expect(
+      lateralCat.pose().profile,
+      "console cat should show its profile during lateral movement"
+    );
+    bool keptProfileWhileCrouching = false;
+    for (int step = 0; step < 28; ++step) {
+      lateralCat.update(0.05F, 500.0F, 80.0F, 1280.0F, 720.0F);
+      if (lateralCat.pose().action == lg::ConsoleCatAction::Crouch) {
+        keptProfileWhileCrouching = lateralCat.pose().profile;
+        break;
+      }
+    }
+    failures += expect(
+      keptProfileWhileCrouching,
+      "console cat should remain side-on while preparing a lateral jump"
+    );
+    for (int step = 0; step < 80; ++step) {
+      lateralCat.update(
+        0.05F,
+        lateralCat.pose().position.x,
+        650.0F,
+        1280.0F,
+        720.0F
+      );
+    }
+    failures += expect(
+      !lateralCat.pose().profile,
+      "console cat should face forward at the pointer or when it is below"
+    );
+
     lg::ConsoleRenderState catConsole;
     catConsole.open = true;
     catConsole.cat = cat.pose();
@@ -1793,18 +1908,27 @@ int main() {
       {},
       catConsole
     );
-    bool foundCatEye = false;
+    bool foundCalicoPatch = false;
     bool foundLaser = false;
     for (const lg::DrawCommand2D& command : ui.overlayCommands) {
       if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
-        foundCatEye = foundCatEye ||
-          (quad->color.red == 74 && quad->color.green == 215 && quad->color.blue == 244);
+        foundCalicoPatch = foundCalicoPatch ||
+          (quad->color.red == 190 && quad->color.green == 132 && quad->color.blue == 73);
         foundLaser = foundLaser ||
-          (quad->color.red == 255 && quad->color.green == 58 && quad->color.blue == 72);
+          (quad->color.red == 255 && quad->color.green == 112 && quad->color.blue == 118);
       }
     }
-    failures += expect(foundCatEye, "console should render the cat's cyan eye pixels");
+    failures += expect(
+      foundCalicoPatch,
+      "console should render the cat's caramel calico markings"
+    );
     failures += expect(foundLaser, "console should render the red laser-pointer target");
+
+    cat.update(0.05F, 600.0F, 650.0F, 1280.0F, 720.0F);
+    failures += expect(
+      cat.pose().laser.y == 650.0F,
+      "console laser target should follow the mouse below the console panel"
+    );
 
     lg::ConsoleCatController overheadCat;
     overheadCat.reset(1280.0F, 720.0F);
@@ -1819,6 +1943,52 @@ int main() {
       overheadCat.pose().action == lg::ConsoleCatAction::Crouch,
       "console cat should prepare a vertical pounce when the pointer is overhead"
     );
+
+    lg::ConsoleCatController sleepyCat;
+    sleepyCat.reset(1280.0F, 720.0F);
+    const lg::ScreenPoint restingPointer = sleepyCat.pose().position;
+    for (int step = 0; step < 60; ++step) {
+      sleepyCat.update(
+        0.05F,
+        restingPointer.x,
+        restingPointer.y,
+        1280.0F,
+        720.0F
+      );
+    }
+    failures += expect(
+      sleepyCat.pose().action == lg::ConsoleCatAction::Sleep,
+      "console cat should fall asleep after two seconds without pointer movement"
+    );
+    lg::ConsoleRenderState sleepConsole;
+    sleepConsole.open = true;
+    sleepConsole.cat = sleepyCat.pose();
+    const lg::DrawList2D sleepUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      sleepConsole
+    );
+    bool foundSleepZ = false;
+    for (const lg::DrawCommand2D& command : sleepUi.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        foundSleepZ = foundSleepZ || text->text == "Z";
+      }
+    }
+    failures += expect(foundSleepZ, "sleeping console cat should emit animated Zs");
+    sleepyCat.update(
+      0.05F,
+      restingPointer.x + 20.0F,
+      restingPointer.y,
+      1280.0F,
+      720.0F
+    );
+    failures += expect(
+      sleepyCat.pose().action != lg::ConsoleCatAction::Sleep,
+      "pointer movement should wake the sleeping console cat"
+    );
   }
 
   {
@@ -1826,6 +1996,7 @@ int main() {
     netHud.netGraph.mode = 2;
     netHud.netGraph.interpolationDelayMilliseconds = 24.0F;
     netHud.netGraph.pendingCommands = 3;
+    netHud.netGraph.interpolationStarvations = 73;
     netHud.netGraph.correctionCount = 7;
     netHud.netGraph.lastCorrectionDistance = 0.125F;
     netHud.netGraph.requestedRewindTicks = 5;
@@ -1841,6 +2012,8 @@ int main() {
     netHud.netGraph.telemetry.historyCount = 3;
     netHud.netGraph.telemetry.history[0].serial = 1;
     netHud.netGraph.telemetry.history[0].snapshotJitterMilliseconds = 2.0F;
+    netHud.netGraph.telemetry.history[0].interpolationStarved = true;
+    netHud.netGraph.telemetry.history[0].predictionCorrectionDistance = 0.002F;
     netHud.netGraph.telemetry.history[1].serial = 2;
     netHud.netGraph.telemetry.history[1].snapshotGaps = 1;
     netHud.netGraph.telemetry.history[2].serial = 3;
@@ -1854,25 +2027,68 @@ int main() {
       {}
     );
     bool foundLossBar = false;
+    bool foundStarvationBar = false;
     bool foundCorrectionBar = false;
+    float shortestCorrectionBar = 10000.0F;
+    float tallestCorrectionBar = 0.0F;
     for (const lg::DrawCommand2D& command : ui.overlayCommands) {
       if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
         foundLossBar = foundLossBar ||
           (quad->color.red == 244 && quad->color.green == 72);
-        foundCorrectionBar = foundCorrectionBar ||
-          (quad->color.red == 74 && quad->color.blue == 255);
+        foundStarvationBar = foundStarvationBar ||
+          (quad->color.red == 190 && quad->color.green == 94 &&
+           quad->color.blue == 246);
+        if (quad->color.blue == 255 && quad->color.red >= 70 &&
+            quad->color.red <= 90 && quad->color.green >= 120 &&
+            quad->color.green <= 150) {
+          foundCorrectionBar = true;
+          const auto [minimumY, maximumY] = std::minmax_element(
+            quad->points.begin(),
+            quad->points.end(),
+            [](lg::ScreenPoint lhs, lg::ScreenPoint rhs) {
+              return lhs.y < rhs.y;
+            }
+          );
+          const float correctionBarHeight = maximumY->y - minimumY->y;
+          shortestCorrectionBar = std::min(
+            shortestCorrectionBar,
+            correctionBarHeight
+          );
+          tallestCorrectionBar = std::max(
+            tallestCorrectionBar,
+            correctionBarHeight
+          );
+        }
       }
     }
     failures += expect(
-      findText(ui, "NETWORK") != nullptr &&
+        findText(ui, "NETWORK") != nullptr &&
         findText(ui, "PING") != nullptr &&
         findText(ui, "LOSS IN") != nullptr &&
-        findText(ui, "CORR 0.125  TOTAL 7") != nullptr,
+        findText(ui, "BUFFER 0.0 ms  STARVE TOTAL 73") != nullptr &&
+        findText(ui, "CORR 0.125  AVG 0.064  MAX 0.125") != nullptr,
       "expanded netgraph should render live metrics and prediction diagnostics"
     );
     failures += expect(
-      foundLossBar && foundCorrectionBar,
-      "expanded netgraph history should mark loss and prediction corrections"
+      findText(ui, "NETWORK")->scale >= 1.7F,
+      "netgraph should use a legible scaled default"
+    );
+    failures += expect(
+      foundLossBar && foundStarvationBar && foundCorrectionBar &&
+        tallestCorrectionBar > shortestCorrectionBar * 2.0F &&
+        tallestCorrectionBar < 36.0F,
+      "expanded netgraph should separate event bars from compact correction magnitudes"
+    );
+    const lg::Text2D* lossLegend = findText(ui, "LOSS");
+    const lg::Text2D* lateLegend = findText(ui, "LATE");
+    const lg::Text2D* starveLegend = findText(ui, "STARVE");
+    const lg::Text2D* correctionLegend = findText(ui, "CORR");
+    failures += expect(
+      lossLegend != nullptr && lossLegend->color.red == 244 &&
+        lateLegend != nullptr && lateLegend->color.green == 195 &&
+        starveLegend != nullptr && starveLegend->color.blue == 246 &&
+        correctionLegend != nullptr && correctionLegend->color.blue == 255,
+      "netgraph legend labels should match their graph indicator colors"
     );
   }
 
