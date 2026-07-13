@@ -147,6 +147,28 @@ int main() {
   lg::ConsoleRenderState console;
 
   {
+    lg::HudRenderState deathHud;
+    deathHud.deathDesaturation = 1.0F;
+    deathHud.topCenterLines = {"SPECTATING TEAMMATE"};
+    const lg::DrawList2D deathUi = lg::buildScreenUi(
+      1280, 720, {}, settings, deathHud, {}
+    );
+    const auto* wash = deathUi.commands.empty()
+      ? nullptr
+      : std::get_if<lg::FilledQuad2D>(&deathUi.commands.front());
+    failures += expect(
+      wash != nullptr && wash->color.red == wash->color.green &&
+        wash->color.green == wash->color.blue && wash->color.alpha > 0,
+      "death presentation should place a neutral desaturation wash below the HUD"
+    );
+    const lg::Text2D* spectatorName = findText(deathUi, "SPECTATING TEAMMATE");
+    failures += expect(
+      spectatorName != nullptr && spectatorName->position.y < 180.0F,
+      "the spectated player name should remain visible in the top-center HUD"
+    );
+  }
+
+  {
     lg::PlayerState dashPlayer;
     const lg::DrawList2D readyUi = lg::buildScreenUi(
       1280,
@@ -1453,6 +1475,19 @@ int main() {
       "chat layout should wrap with continuation indentation"
     );
 
+    chatHud.chatLines.clear();
+    for (int index = 1; index <= 12; ++index) {
+      chatHud.chatLines.push_back({0, "message " + std::to_string(index), "yg"});
+    }
+    chatHud.chatScrollRows = 3U;
+    const lg::ChatTextLayout scrolledLayout =
+      lg::buildChatTextLayout(800, 720, chatHud);
+    failures += expect(
+      scrolledLayout.rows.size() == 8U &&
+        scrolledLayout.rows.back().text == "yg: message 9",
+      "chat scroll offset should move the visible row window away from newest"
+    );
+
     chatHud.chatLines = {{
       {1, "supercalifragilisticexpialidocious", ""}
     }};
@@ -1724,6 +1759,120 @@ int main() {
     failures += expect(
       prompt != nullptr && prompt->text == "] r__vsync 0",
       "console prompt cursor should render at the tracked input position"
+    );
+  }
+
+  {
+    lg::ConsoleCatController cat;
+    cat.reset(1280.0F, 720.0F);
+    bool sawCrouch = false;
+    bool sawLeap = false;
+    float highestY = cat.pose().position.y;
+    for (int step = 0; step < 70; ++step) {
+      cat.update(0.05F, 500.0F, 80.0F, 1280.0F, 720.0F);
+      sawCrouch = sawCrouch ||
+        cat.pose().action == lg::ConsoleCatAction::Crouch;
+      sawLeap = sawLeap || cat.pose().action == lg::ConsoleCatAction::Leap;
+      highestY = std::min(highestY, cat.pose().position.y);
+    }
+    failures += expect(sawCrouch, "console cat should crouch before pouncing");
+    failures += expect(sawLeap, "console cat should pounce toward the pointer");
+    failures += expect(
+      highestY < 330.0F,
+      "console cat pounce should visibly leave the console floor"
+    );
+
+    lg::ConsoleRenderState catConsole;
+    catConsole.open = true;
+    catConsole.cat = cat.pose();
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      catConsole
+    );
+    bool foundCatEye = false;
+    bool foundLaser = false;
+    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundCatEye = foundCatEye ||
+          (quad->color.red == 74 && quad->color.green == 215 && quad->color.blue == 244);
+        foundLaser = foundLaser ||
+          (quad->color.red == 255 && quad->color.green == 58 && quad->color.blue == 72);
+      }
+    }
+    failures += expect(foundCatEye, "console should render the cat's cyan eye pixels");
+    failures += expect(foundLaser, "console should render the red laser-pointer target");
+
+    lg::ConsoleCatController overheadCat;
+    overheadCat.reset(1280.0F, 720.0F);
+    overheadCat.update(
+      0.05F,
+      overheadCat.pose().position.x,
+      80.0F,
+      1280.0F,
+      720.0F
+    );
+    failures += expect(
+      overheadCat.pose().action == lg::ConsoleCatAction::Crouch,
+      "console cat should prepare a vertical pounce when the pointer is overhead"
+    );
+  }
+
+  {
+    lg::HudRenderState netHud;
+    netHud.netGraph.mode = 2;
+    netHud.netGraph.interpolationDelayMilliseconds = 24.0F;
+    netHud.netGraph.pendingCommands = 3;
+    netHud.netGraph.correctionCount = 7;
+    netHud.netGraph.lastCorrectionDistance = 0.125F;
+    netHud.netGraph.requestedRewindTicks = 5;
+    netHud.netGraph.appliedRewindTicks = 4;
+    netHud.netGraph.telemetry.valid = true;
+    netHud.netGraph.telemetry.pingMilliseconds = 34.0F;
+    netHud.netGraph.telemetry.snapshotJitterMilliseconds = 3.0F;
+    netHud.netGraph.telemetry.incomingLossPercent = 0.4F;
+    netHud.netGraph.telemetry.outgoingLossPercent = 0.2F;
+    netHud.netGraph.telemetry.snapshotRate = 124.0F;
+    netHud.netGraph.telemetry.lastSnapshotBytes = 1014;
+    netHud.netGraph.telemetry.lastCommandBytes = 640;
+    netHud.netGraph.telemetry.historyCount = 3;
+    netHud.netGraph.telemetry.history[0].serial = 1;
+    netHud.netGraph.telemetry.history[0].snapshotJitterMilliseconds = 2.0F;
+    netHud.netGraph.telemetry.history[1].serial = 2;
+    netHud.netGraph.telemetry.history[1].snapshotGaps = 1;
+    netHud.netGraph.telemetry.history[2].serial = 3;
+    netHud.netGraph.telemetry.history[2].predictionCorrectionDistance = 0.125F;
+    const lg::DrawList2D ui = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      netHud,
+      {}
+    );
+    bool foundLossBar = false;
+    bool foundCorrectionBar = false;
+    for (const lg::DrawCommand2D& command : ui.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundLossBar = foundLossBar ||
+          (quad->color.red == 244 && quad->color.green == 72);
+        foundCorrectionBar = foundCorrectionBar ||
+          (quad->color.red == 74 && quad->color.blue == 255);
+      }
+    }
+    failures += expect(
+      findText(ui, "NETWORK") != nullptr &&
+        findText(ui, "PING") != nullptr &&
+        findText(ui, "LOSS IN") != nullptr &&
+        findText(ui, "CORR 0.125  TOTAL 7") != nullptr,
+      "expanded netgraph should render live metrics and prediction diagnostics"
+    );
+    failures += expect(
+      foundLossBar && foundCorrectionBar,
+      "expanded netgraph history should mark loss and prediction corrections"
     );
   }
 

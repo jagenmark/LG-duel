@@ -8,6 +8,7 @@
 #include <array>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <string>
 #include <vector>
 
@@ -17,6 +18,87 @@ namespace {
 constexpr float kGlyphSize = 8.0F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr float kHalfPi = 1.57079632679F;
+
+using CatSprite = std::array<std::string_view, 13>;
+
+constexpr CatSprite kCatIdle = {{
+  "    X     X    ",
+  "   XpX   XpX   ",
+  "   XgXXXXXgX    ",
+  "  XgggggggggX   ",
+  "  XgcgggggcgX   ",
+  "  XggggXggggX   ",
+  "   XggwwwggX    ",
+  "   XgggggggX    ",
+  "  XXgggggggXX   ",
+  " XgggggggggggX  ",
+  " XgggggggggggXX ",
+  "  XXggXXXggXXgX ",
+  "    XX   XX  XX ",
+}};
+
+constexpr CatSprite kCatWalk = {{
+  "    X     X    ",
+  "   XpX   XpX   ",
+  "   XgXXXXXgX    ",
+  "  XgggggggggX   ",
+  "  XgcgggggcgX   ",
+  "  XggggXggggX   ",
+  "   XggwwwggX    ",
+  "   XgggggggX    ",
+  " XXXgggggggXXX  ",
+  "XgggggggggggggX ",
+  " XXXgggggggXXXgX",
+  "   XggX XggX  XX",
+  "  XX X   X XX   ",
+}};
+
+constexpr CatSprite kCatCrouch = {{
+  "                ",
+  "                ",
+  "   XpX     XpX  ",
+  "   XgXXXXXXXgX   ",
+  "  XgggggggggggX  ",
+  "  XgcgggggggcgX  ",
+  "  XgggggXgggggX  ",
+  "   XgggwwwgggX   ",
+  " XXXXgggggggXXXX ",
+  "XggggggggggggggX ",
+  "XgggggggggggggggX",
+  " XXXggXXXXggXXXXX",
+  "   XXX    XXX    ",
+}};
+
+constexpr CatSprite kCatLeap = {{
+  " XpX       XpX  ",
+  " XgXXXXXXXXXgX  ",
+  "XgggggggggggggX ",
+  "XgcgggggggggcgX ",
+  "XggggggXggggggX ",
+  " XggggwwwggggX  ",
+  "  XXgggggggXX   ",
+  "    XgggggX     ",
+  " XXXgggggggXXXX ",
+  "XggggggggggggggX",
+  " XXXggggggggXXXX ",
+  "    XXXXXXX      ",
+  "                ",
+}};
+
+[[nodiscard]] const CatSprite& catSprite(ConsoleCatAction action, std::uint8_t frame) {
+  switch (action) {
+  case ConsoleCatAction::Stalk:
+    return frame == 0U ? kCatIdle : kCatWalk;
+  case ConsoleCatAction::Crouch:
+  case ConsoleCatAction::Land:
+    return kCatCrouch;
+  case ConsoleCatAction::Leap:
+    return kCatLeap;
+  case ConsoleCatAction::Idle:
+    return kCatIdle;
+  }
+  return kCatIdle;
+}
 
 [[nodiscard]] float snappedTextScale(float scale) {
   constexpr std::array<float, 10> pixelHeights = {
@@ -237,6 +319,250 @@ void addText(
     scale,
     horizontalAlignment,
   });
+}
+
+[[nodiscard]] RenderColor networkQualityColor(
+  float value,
+  float warning,
+  float critical
+) {
+  if (value >= critical) return {255, 92, 92, 255};
+  if (value >= warning) return {255, 210, 78, 255};
+  return {112, 232, 142, 255};
+}
+
+void addNetGraph(
+  DrawList2D& drawList,
+  int width,
+  int height,
+  const HudRenderState::NetGraphState& state
+) {
+  if (state.mode <= 0 || !state.telemetry.valid) return;
+
+  const bool expanded = state.mode >= 2;
+  constexpr float panelWidth = 252.0F;
+  const float panelHeight = expanded ? 395.0F : 184.0F;
+  const float x = std::max(8.0F, static_cast<float>(width) - panelWidth - 12.0F);
+  const float y = std::clamp(
+    static_cast<float>(height) * 0.18F,
+    82.0F,
+    std::max(82.0F, static_cast<float>(height) - panelHeight - 12.0F)
+  );
+  constexpr float textScale = 1.0F;
+  constexpr float rowHeight = 17.0F;
+  const RenderColor label = {190, 203, 214, 255};
+  const RenderColor value = {238, 244, 248, 255};
+
+  addRect(drawList, x, y, panelWidth, panelHeight, {7, 12, 17, 206});
+  addRect(drawList, x, y, 3.0F, panelHeight, {64, 180, 224, 230});
+  addText(drawList, x + 12.0F, y + 9.0F, "NETWORK", {128, 220, 255, 255}, 1.0F);
+  const bool interrupted = state.telemetry.snapshotAgeMilliseconds >= 1000.0F;
+  const bool unstable =
+    state.telemetry.incomingLossPercent >= 2.0F ||
+    state.telemetry.outgoingLossPercent >= 2.0F ||
+    state.telemetry.snapshotJitterMilliseconds >= 10.0F ||
+    state.telemetry.snapshotAgeMilliseconds >=
+      std::max(40.0F, state.interpolationDelayMilliseconds * 2.0F);
+  addText(
+    drawList,
+    x + panelWidth - 12.0F,
+    y + 9.0F,
+    interrupted ? "INTERRUPTED" : unstable ? "UNSTABLE" : "HEALTHY",
+    interrupted || unstable
+      ? RenderColor{255, 92, 92, 255}
+      : RenderColor{112, 232, 142, 255},
+    1.0F,
+    TextHorizontalAlignment::Right
+  );
+
+  float rowY = y + 31.0F;
+  const auto addMetric = [&](const char* name, const char* format,
+                             float number, RenderColor numberColor) {
+    char text[64];
+    std::snprintf(text, sizeof(text), format, number);
+    addText(drawList, x + 12.0F, rowY, name, label, textScale);
+    addText(
+      drawList,
+      x + panelWidth - 12.0F,
+      rowY,
+      text,
+      numberColor,
+      textScale,
+      TextHorizontalAlignment::Right
+    );
+    rowY += rowHeight;
+  };
+
+  addMetric("PING", "%.1f ms", state.telemetry.pingMilliseconds,
+            networkQualityColor(state.telemetry.pingMilliseconds, 80.0F, 140.0F));
+  addMetric("JITTER", "%.1f ms", state.telemetry.snapshotJitterMilliseconds,
+            networkQualityColor(state.telemetry.snapshotJitterMilliseconds, 4.0F, 10.0F));
+  addMetric("LOSS IN", "%.1f%%", state.telemetry.incomingLossPercent,
+            networkQualityColor(state.telemetry.incomingLossPercent, 0.5F, 2.0F));
+  addMetric("LOSS OUT", "%.1f%%", state.telemetry.outgoingLossPercent,
+            networkQualityColor(state.telemetry.outgoingLossPercent, 0.5F, 2.0F));
+  addMetric("SNAP RATE", "%.0f /s", state.telemetry.snapshotRate,
+            networkQualityColor(125.0F - state.telemetry.snapshotRate, 5.0F, 20.0F));
+  addMetric("INTERP", "%.0f ms", state.interpolationDelayMilliseconds, value);
+  addMetric("PKT AGE", "%.1f ms", state.telemetry.snapshotAgeMilliseconds,
+            networkQualityColor(
+              state.telemetry.snapshotAgeMilliseconds,
+              std::max(16.0F, state.interpolationDelayMilliseconds),
+              std::max(40.0F, state.interpolationDelayMilliseconds * 2.0F)
+            ));
+
+  if (!expanded) return;
+
+  rowY += 3.0F;
+  char detail[96];
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "BW IN/OUT  %.0f / %.0f kbit",
+    state.telemetry.incomingKilobitsPerSecond,
+    state.telemetry.outgoingKilobitsPerSecond
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "BUFFER %.1f ms  STARVE %llu%s",
+    state.interpolationBufferedMilliseconds,
+    static_cast<unsigned long long>(state.interpolationStarvations),
+    state.interpolationExtrapolating ? "  COAST" : ""
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "BYTES SNAP/CMD  %zu / %zu",
+    state.telemetry.lastSnapshotBytes,
+    state.telemetry.lastCommandBytes
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "PENDING %zu  QUEUE %zu",
+    state.pendingCommands,
+    state.snapshotQueueDepth
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "CORR %.3f  TOTAL %u",
+    state.lastCorrectionDistance,
+    state.correctionCount
+  );
+  addText(drawList, x + 12.0F, rowY, detail, {112, 174, 255, 255}, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "REWIND %u / %u ticks",
+    state.requestedRewindTicks,
+    state.appliedRewindTicks
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "RTT VAR %.1f ms",
+    state.telemetry.pingVariationMilliseconds
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+  rowY += rowHeight;
+  std::snprintf(
+    detail,
+    sizeof(detail),
+    "LATE %llu  REORDER %llu",
+    static_cast<unsigned long long>(state.telemetry.lateSnapshots),
+    static_cast<unsigned long long>(state.telemetry.reorderedSnapshots)
+  );
+  addText(drawList, x + 12.0F, rowY, detail, value, textScale);
+
+  constexpr float graphHeight = 68.0F;
+  const float graphX = x + 12.0F;
+  const float graphY = y + panelHeight - graphHeight - 25.0F;
+  const float graphWidth = panelWidth - 24.0F;
+  addRect(drawList, graphX, graphY, graphWidth, graphHeight, {2, 5, 8, 220});
+  addLine(
+    drawList,
+    {graphX, graphY + graphHeight - 1.0F},
+    {graphX + graphWidth, graphY + graphHeight - 1.0F},
+    {75, 91, 102, 210},
+    1.0F
+  );
+
+  const std::size_t count = state.telemetry.historyCount;
+  const float columnWidth = graphWidth /
+    static_cast<float>(kNetworkTelemetryHistorySamples);
+  const std::size_t firstColumn = kNetworkTelemetryHistorySamples - count;
+  for (std::size_t index = 0; index < count; ++index) {
+    const NetworkTelemetrySample& sample = state.telemetry.history[index];
+    const float columnX = graphX +
+      static_cast<float>(firstColumn + index) * columnWidth;
+    const bool starved = sample.snapshotAgeMilliseconds >
+      std::max(16.0F, state.interpolationDelayMilliseconds);
+    RenderColor color = {82, 213, 122, 230};
+    float barHeight = std::clamp(
+      3.0F + sample.snapshotJitterMilliseconds * 2.0F,
+      3.0F,
+      graphHeight - 2.0F
+    );
+    if (sample.snapshotGaps > 0 || sample.incomingLossPercent >= 2.0F) {
+      color = {244, 72, 72, 240};
+      barHeight = graphHeight - 2.0F;
+    } else if (starved) {
+      color = {190, 94, 246, 240};
+      barHeight = std::max(barHeight, graphHeight * 0.72F);
+    } else if (sample.lateSnapshots > 0 ||
+               sample.snapshotJitterMilliseconds >= 4.0F) {
+      color = {246, 195, 68, 235};
+    }
+    addRect(
+      drawList,
+      columnX,
+      graphY + graphHeight - barHeight,
+      std::max(1.0F, columnWidth),
+      barHeight,
+      color
+    );
+    if (sample.outgoingLossPercent >= 0.5F) {
+      addRect(
+        drawList,
+        columnX,
+        graphY,
+        std::max(1.0F, columnWidth),
+        3.0F,
+        {255, 143, 58, 255}
+      );
+    }
+    if (sample.predictionCorrectionDistance > 0.0001F) {
+      addRect(
+        drawList,
+        columnX,
+        graphY + graphHeight - 7.0F,
+        std::max(1.0F, columnWidth),
+        7.0F,
+        {74, 142, 255, 255}
+      );
+    }
+  }
+  addText(
+    drawList,
+    graphX,
+    graphY + graphHeight + 5.0F,
+    "10 SEC  LOSS  LATE  STARVE  CORR",
+    {132, 148, 160, 255},
+    1.0F
+  );
 }
 
 [[nodiscard]] std::uint8_t blendChannel(
@@ -2071,6 +2397,42 @@ void addConsole(
     {92, 170, 230, 255}
   );
 
+  constexpr float catPixel = 3.0F;
+  const CatSprite& sprite = catSprite(console.cat.action, console.cat.frame);
+  const float spriteWidth = static_cast<float>(sprite.front().size()) * catPixel;
+  const float spriteHeight = static_cast<float>(sprite.size()) * catPixel;
+  const float spriteLeft = console.cat.position.x - spriteWidth * 0.5F;
+  const float spriteTop = console.cat.position.y - spriteHeight;
+  for (std::size_t row = 0; row < sprite.size(); ++row) {
+    for (std::size_t column = 0; column < sprite[row].size(); ++column) {
+      const std::size_t sourceColumn = console.cat.facingRight
+        ? column
+        : sprite[row].size() - column - 1U;
+      const char pixel = sprite[row][sourceColumn];
+      RenderColor color;
+      switch (pixel) {
+      case 'X': color = {16, 21, 29, 255}; break;
+      case 'g': color = {112, 124, 145, 255}; break;
+      case 'w': color = {213, 220, 228, 255}; break;
+      case 'c': color = {74, 215, 244, 255}; break;
+      case 'p': color = {226, 145, 156, 255}; break;
+      default: continue;
+      }
+      addRect(
+        drawList,
+        spriteLeft + static_cast<float>(column) * catPixel,
+        spriteTop + static_cast<float>(row) * catPixel,
+        catPixel,
+        catPixel,
+        color
+      );
+    }
+  }
+
+  // The software dot augments the OS pointer and gives the cat a precise target.
+  addRect(drawList, console.cat.laser.x - 3.0F, console.cat.laser.y - 3.0F, 6.0F, 6.0F, {64, 8, 12, 210});
+  addRect(drawList, console.cat.laser.x - 1.5F, console.cat.laser.y - 1.5F, 3.0F, 3.0F, {255, 58, 72, 255});
+
   constexpr float textScale = 2.0F;
   const ConsoleTextLayout layout = buildConsoleTextLayout(width, height, console);
   if (console.hasSelection && console.selectionAnchor != console.selectionFocus) {
@@ -2663,11 +3025,27 @@ DrawList2D buildScreenUi(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
+  if (hud.deathDesaturation > 0.0F) {
+    const float strength = std::clamp(hud.deathDesaturation, 0.0F, 1.0F);
+    const std::array<ScreenPoint, 4> points = {{
+      {0.0F, 0.0F},
+      {static_cast<float>(outputWidth), 0.0F},
+      {static_cast<float>(outputWidth), static_cast<float>(outputHeight)},
+      {0.0F, static_cast<float>(outputHeight)},
+    }};
+    // The neutral wash is applied below the HUD so critical countdown text
+    // stays crisp while the world loses color and brightness during death.
+    drawList.commands.emplace_back(FilledQuad2D{
+      points,
+      {96, 96, 96, static_cast<std::uint8_t>(190.0F * strength)},
+    });
+  }
   addCrosshair(drawList, outputWidth, outputHeight, settings);
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addDashIndicator(drawList, outputWidth, outputHeight, localPlayer, settings);
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
+  addNetGraph(drawList, outputWidth, outputHeight, hud.netGraph);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
   addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);

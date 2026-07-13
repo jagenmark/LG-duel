@@ -125,6 +125,24 @@ std::uint32_t hashArena(const Arena& arena) {
   for (const Vec3& spawn : arena.spawnPositions) {
     hashVec3(hash, spawn);
   }
+  for (Team team : arena.spawnTeams) {
+    hashU32(hash, static_cast<std::uint32_t>(team));
+  }
+  hashU32(hash, static_cast<std::uint32_t>(arena.teamSpawnCount));
+  for (std::size_t index = 0; index < arena.teamSpawnCount; ++index) {
+    const ArenaTeamSpawn& spawn = arena.teamSpawns[index];
+    hashVec3(hash, spawn.position);
+    hashFloat(hash, spawn.yawRadians);
+    hashU32(hash, static_cast<std::uint32_t>(spawn.group));
+  }
+  hashU32(hash, arena.mcguffin.hasNeutralSpawn ? 1U : 0U);
+  hashVec3(hash, arena.mcguffin.neutralSpawn);
+  hashU32(hash, arena.mcguffin.hasRedBase ? 1U : 0U);
+  hashVec3(hash, arena.mcguffin.redBase.min);
+  hashVec3(hash, arena.mcguffin.redBase.max);
+  hashU32(hash, arena.mcguffin.hasBlueBase ? 1U : 0U);
+  hashVec3(hash, arena.mcguffin.blueBase.min);
+  hashVec3(hash, arena.mcguffin.blueBase.max);
   hashU32(hash, static_cast<std::uint32_t>(arena.staticLightCount));
   for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
     const ArenaStaticLight& light = arena.staticLights[index];

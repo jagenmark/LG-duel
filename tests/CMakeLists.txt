@@ -57,6 +57,16 @@ lg_duel_set_warnings(lg_duel_clan_arena_rules_tests)
 
 add_test(NAME lg_duel_clan_arena_rules_tests COMMAND lg_duel_clan_arena_rules_tests)
 
+add_executable(lg_duel_mcguffin_rules_tests
+  sim/McGuffinRulesTests.cpp
+)
+
+target_link_libraries(lg_duel_mcguffin_rules_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_mcguffin_rules_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_mcguffin_rules_tests)
+
+add_test(NAME lg_duel_mcguffin_rules_tests COMMAND lg_duel_mcguffin_rules_tests)
+
 add_executable(lg_duel_server_tests
   net/ServerGameTests.cpp
 )
@@ -108,6 +118,16 @@ target_compile_features(lg_duel_clan_arena_server_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_clan_arena_server_tests)
 
 add_test(NAME lg_duel_clan_arena_server_tests COMMAND lg_duel_clan_arena_server_tests)
+
+add_executable(lg_duel_mcguffin_server_tests
+  net/McGuffinServerTests.cpp
+)
+
+target_link_libraries(lg_duel_mcguffin_server_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_mcguffin_server_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_mcguffin_server_tests)
+
+add_test(NAME lg_duel_mcguffin_server_tests COMMAND lg_duel_mcguffin_server_tests)
 
 add_executable(lg_duel_client_tests
   client/ClientGameTests.cpp
@@ -285,6 +305,17 @@ lg_duel_set_warnings(lg_duel_client_cvars_tests)
 
 add_test(NAME lg_duel_client_cvars_tests COMMAND lg_duel_client_cvars_tests)
 
+add_executable(lg_duel_death_camera_tests
+  app/DeathCameraTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/app/DeathCamera.cpp
+)
+
+target_link_libraries(lg_duel_death_camera_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_death_camera_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_death_camera_tests)
+
+add_test(NAME lg_duel_death_camera_tests COMMAND lg_duel_death_camera_tests)
+
 add_executable(lg_duel_perf_telemetry_tests
   app/PerfTelemetryTests.cpp
   ${PROJECT_SOURCE_DIR}/src/app/PerfTelemetry.cpp
@@ -384,6 +415,7 @@ add_executable(lg_duel_screen_ui_tests
   ${PROJECT_SOURCE_DIR}/src/render/BitmapFont.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ChatLayout.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ConsoleLayout.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/ConsoleCat.cpp
   ${PROJECT_SOURCE_DIR}/src/render/ScreenUi.cpp
 )
 

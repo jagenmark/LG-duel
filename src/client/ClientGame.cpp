@@ -4,6 +4,7 @@
 #include "shared/Sequence.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 #include <string>
@@ -11,8 +12,15 @@
 
 namespace lg {
 
-ClientGame::ClientGame(NetTransport& transport, std::size_t localPlayerIndex)
-  : transport_(transport), localPlayerIndex_(localPlayerIndex) {}
+ClientGame::ClientGame(
+  NetTransport& transport,
+  std::size_t localPlayerIndex,
+  std::size_t commandClientIndex
+) : transport_(transport),
+    localPlayerIndex_(localPlayerIndex < kDuelPlayerCount ? localPlayerIndex : 0U),
+    commandClientIndex_(commandClientIndex == kNoAssignedPlayer
+      ? localPlayerIndex_ : commandClientIndex),
+    spectator_(localPlayerIndex == kNoAssignedPlayer) {}
 
 void ClientGame::sendCommand(
   const UserCommand& command,
@@ -46,7 +54,10 @@ void ClientGame::sendCommand(
     BotCommandType botCommand,
     std::int32_t botCommandValue,
     std::int32_t botCommandMinIntervalMs,
-    std::int32_t botCommandMaxIntervalMs
+    std::int32_t botCommandMaxIntervalMs,
+    bool requestMcGuffinThrow,
+    bool wantsScoreboardStats,
+    bool requestSpectator
   ) {
   if (requestMovementTuning) {
     movementTuning_ = movementTuning;
@@ -54,9 +65,44 @@ void ClientGame::sendCommand(
     pendingMovementTuningCommand_ = command.sequence;
     hasPendingMovementTuning_ = true;
   }
+  const auto advanceEdge = [](std::uint32_t& edge) {
+    ++edge;
+    if (edge == 0U) {
+      edge = 1U;
+    }
+  };
+  if (command.jump && !previousJumpHeld_) {
+    advanceEdge(actionEdges_.jump);
+  }
+  if (command.dash && !previousDashHeld_) {
+    advanceEdge(actionEdges_.dash);
+  }
+  if (command.attack && !previousAttackHeld_) {
+    advanceEdge(actionEdges_.attack);
+    actionEdges_.attackYawRadians = command.viewYawRadians;
+    actionEdges_.attackPitchRadians = command.viewPitchRadians;
+    actionEdges_.attackViewedServerTick = usePresentedServerTick
+      ? interpolation_.presentationServerTick()
+      : snapshot_.serverTick;
+    actionEdges_.attackWeapon = command.weapon;
+  }
+  previousAttackHeld_ = command.attack;
+  previousJumpHeld_ = command.jump;
+  previousDashHeld_ = command.dash;
+  if (requestReset) {
+    advanceEdge(actionEdges_.reset);
+  }
+  if (toggleReady) {
+    advanceEdge(actionEdges_.ready);
+  }
+  if (requestMcGuffinThrow) {
+    advanceEdge(actionEdges_.mcguffinThrow);
+    actionEdges_.mcguffinThrowYawRadians = command.viewYawRadians;
+    actionEdges_.mcguffinThrowPitchRadians = command.viewPitchRadians;
+  }
   transport_.sendCommand(
     CommandPacket{
-      static_cast<std::uint8_t>(localPlayerIndex_),
+      static_cast<std::uint8_t>(commandClientIndex_),
       command,
       requestReset,
       toggleReady,
@@ -90,9 +136,14 @@ void ClientGame::sendCommand(
       botCommandValue,
       botCommandMinIntervalMs,
       botCommandMaxIntervalMs,
+      requestMcGuffinThrow,
+      wantsScoreboardStats,
+      0,
+      requestSpectator,
+      actionEdges_,
     }
   );
-  if (!requestReset) {
+  if (!requestReset && !spectator_) {
     prediction_.predict(
       command,
       arena_,
@@ -128,7 +179,12 @@ void ClientGame::receiveSnapshots() {
         mapRevision_ = received.mapRevision;
       }
       snapshot_ = received;
+      if (received.hasLocalClientState) {
+        spectator_ = received.localSpectator;
+        if (!spectator_) localPlayerIndex_ = received.localPlayerIndex;
+      }
       if (
+        !spectator_ &&
         hasPendingMovementTuning_ &&
         received.hasAcknowledgedCommand[localPlayerIndex_] &&
         isSequenceAcknowledged(
@@ -145,21 +201,55 @@ void ClientGame::receiveSnapshots() {
       icePoolTuning_ = received.icePoolTuning;
       hasSnapshot_ = true;
       interpolation_.push(received);
-      prediction_.reconcile(
-        received.players[localPlayerIndex_],
-        received.hasAcknowledgedCommand[localPlayerIndex_],
-        received.acknowledgedCommand[localPlayerIndex_],
-        arena_,
-        movementTuning_,
-        received.icePools,
-        icePoolTuning_,
-        kFixedTickSeconds
-      );
+      if (!spectator_) {
+        prediction_.reconcile(
+          received.players[localPlayerIndex_],
+          received.hasAcknowledgedCommand[localPlayerIndex_],
+          received.acknowledgedCommand[localPlayerIndex_],
+          arena_,
+          movementTuning_,
+          received.icePools,
+          icePoolTuning_,
+          kFixedTickSeconds
+        );
+      }
       diagnostics.snapshotApplyMilliseconds +=
         std::chrono::duration<float, std::milli>(
           std::chrono::steady_clock::now() - applyStart
         ).count();
       ++diagnostics.snapshotsApplied;
+    }
+  }
+  ChatHistoryChunk chatChunk;
+  while (transport_.receiveChatHistory(chatChunk)) {
+    while (
+      !chatHistory_.empty() &&
+      isSequenceNewer(
+        chatChunk.oldestAvailableSequence,
+        chatHistory_.front().sequence
+      )
+    ) {
+      chatHistory_.pop_front();
+    }
+    for (std::size_t index = 0; index < chatChunk.messageCount; ++index) {
+      const ChatMessage& message = chatChunk.messages[index];
+      const bool alreadyPresent = std::any_of(
+        chatHistory_.begin(),
+        chatHistory_.end(),
+        [&message](const ChatMessage& existing) {
+          return existing.sequence == message.sequence;
+        }
+      );
+      if (
+        !alreadyPresent &&
+        (chatHistory_.empty() ||
+         isSequenceNewer(message.sequence, chatHistory_.back().sequence))
+      ) {
+        chatHistory_.push_back(message);
+      }
+    }
+    while (chatHistory_.size() > kChatHistoryCapacity) {
+      chatHistory_.pop_front();
     }
   }
   const SnapshotDiagnostics transportDiagnostics =
@@ -173,11 +263,34 @@ void ClientGame::receiveSnapshots() {
   snapshotDiagnostics_ = diagnostics;
 }
 
+const std::deque<ChatMessage>& ClientGame::chatHistory() const {
+  return chatHistory_;
+}
+
 void ClientGame::advanceInterpolation(
   float elapsedSeconds,
-  float interpolationDelaySeconds
+  float interpolationDelaySeconds,
+  bool adaptive,
+  float minimumDelaySeconds,
+  float maximumDelaySeconds,
+  float maximumExtrapolationSeconds
 ) {
-  interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
+  if (adaptive) {
+    interpolation_.advanceAdaptive(
+      elapsedSeconds,
+      interpolationDelaySeconds,
+      transport_.networkTelemetry().snapshotJitterMilliseconds / 1000.0F,
+      minimumDelaySeconds,
+      maximumDelaySeconds,
+      maximumExtrapolationSeconds
+    );
+  } else {
+    interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
+  }
+}
+
+const InterpolationDiagnostics& ClientGame::interpolationDiagnostics() const {
+  return interpolation_.diagnostics();
 }
 
 bool ClientGame::hasSnapshot() const {
@@ -189,7 +302,7 @@ const ServerSnapshot& ClientGame::snapshot() const {
 }
 
 bool ClientGame::hasAcknowledgedCommand() const {
-  return snapshot_.hasAcknowledgedCommand[localPlayerIndex_];
+  return !spectator_ && snapshot_.hasAcknowledgedCommand[localPlayerIndex_];
 }
 
 bool ClientGame::hasPendingMovementTuning() const {
@@ -197,11 +310,19 @@ bool ClientGame::hasPendingMovementTuning() const {
 }
 
 std::uint32_t ClientGame::lastAcknowledgedCommand() const {
-  return snapshot_.acknowledgedCommand[localPlayerIndex_];
+  return spectator_ ? 0U : snapshot_.acknowledgedCommand[localPlayerIndex_];
 }
 
 const PlayerState& ClientGame::predictedPlayer() const {
   return prediction_.player();
+}
+
+std::size_t ClientGame::localPlayerIndex() const {
+  return localPlayerIndex_;
+}
+
+bool ClientGame::spectator() const {
+  return spectator_;
 }
 
 PlayerState ClientGame::interpolatedPlayer(std::size_t playerIndex) const {

@@ -5,6 +5,48 @@
 #include <limits>
 
 namespace lg {
+
+bool hasValidMcGuffinLayout(const Arena& arena) {
+  const auto validBase = [](const ArenaMcGuffinBase& base, Team expectedTeam) {
+    return base.team == expectedTeam &&
+      base.min.x < base.max.x && base.min.y < base.max.y && base.min.z < base.max.z;
+  };
+  bool hasRedSpawn = false;
+  bool hasBlueSpawn = false;
+  bool hasValidRedSpawn = false;
+  bool hasValidBlueSpawn = false;
+  for (std::size_t index = 0; index < arena.teamSpawnCount; ++index) {
+    const ArenaTeamSpawn& spawn = arena.teamSpawns[index];
+    const bool red = spawn.group == ArenaSpawnGroup::RedBase;
+    const bool blue = spawn.group == ArenaSpawnGroup::BlueBase;
+    hasRedSpawn = hasRedSpawn || red;
+    hasBlueSpawn = hasBlueSpawn || blue;
+    PlayerState player;
+    player.position = spawn.position;
+    player.position.z += player.bounds.halfHeight;
+    const bool usable = !pointInsideMcGuffinBase(spawn.position, arena.mcguffin.redBase) &&
+      !pointInsideMcGuffinBase(spawn.position, arena.mcguffin.blueBase) &&
+      !playerPositionSolid(arena, player, player.position);
+    hasValidRedSpawn = hasValidRedSpawn || (red && usable);
+    hasValidBlueSpawn = hasValidBlueSpawn || (blue && usable);
+  }
+  // Legacy maps authored before physical spawn groups remain loadable.
+  for (Team team : arena.spawnTeams) {
+    if (!hasRedSpawn && team == Team::Red) hasValidRedSpawn = true;
+    if (!hasBlueSpawn && team == Team::Blue) hasValidBlueSpawn = true;
+  }
+  return arena.mcguffin.hasNeutralSpawn &&
+    arena.mcguffin.hasRedBase && arena.mcguffin.hasBlueBase &&
+    validBase(arena.mcguffin.redBase, Team::Red) &&
+    validBase(arena.mcguffin.blueBase, Team::Blue) &&
+    hasValidRedSpawn && hasValidBlueSpawn;
+}
+
+bool pointInsideMcGuffinBase(Vec3 point, const ArenaMcGuffinBase& base) {
+  return point.x >= base.min.x && point.x <= base.max.x &&
+    point.y >= base.min.y && point.y <= base.max.y &&
+    point.z >= base.min.z && point.z <= base.max.z;
+}
 namespace {
 
 void setGroundContact(CollisionResult& result, Vec3 normal) {

@@ -137,6 +137,89 @@ void SnapshotInterpolation::advance(
   }
 }
 
+void SnapshotInterpolation::advanceAdaptive(
+  float elapsedSeconds,
+  float baseDelaySeconds,
+  float observedJitterSeconds,
+  float minimumDelaySeconds,
+  float maximumDelaySeconds,
+  float maximumExtrapolationSeconds
+) {
+  if (!initialized_ || snapshots_.empty()) {
+    return;
+  }
+
+  const float elapsed = std::max(0.0F, elapsedSeconds);
+  const float minimumDelay = std::max(0.0F, minimumDelaySeconds);
+  const float maximumDelay = std::max(minimumDelay, maximumDelaySeconds);
+  // Two jitter deviations cover ordinary arrival variation without making the
+  // presentation clock chase every individual packet.
+  const float desiredDelay = std::clamp(
+    std::max(baseDelaySeconds, minimumDelay) +
+      (2.0F * std::max(0.0F, observedJitterSeconds)),
+    minimumDelay,
+    maximumDelay
+  );
+  if (!adaptiveInitialized_) {
+    diagnostics_.effectiveDelaySeconds = desiredDelay;
+  } else if (desiredDelay > diagnostics_.effectiveDelaySeconds) {
+    // Add safety margin promptly when conditions worsen; remove it slowly so
+    // short calm periods cannot make the buffer oscillate.
+    diagnostics_.effectiveDelaySeconds = desiredDelay;
+  } else {
+    diagnostics_.effectiveDelaySeconds = std::max(
+      desiredDelay,
+      diagnostics_.effectiveDelaySeconds - (elapsed * 0.004F)
+    );
+  }
+
+  const double oldestTick = static_cast<double>(snapshots_.front().serverTick);
+  const double newestTick = static_cast<double>(snapshots_.back().serverTick);
+  const double targetTick = std::max(
+    oldestTick,
+    newestTick - static_cast<double>(diagnostics_.effectiveDelaySeconds) *
+      static_cast<double>(kFixedTickRate)
+  );
+  if (!adaptiveInitialized_) {
+    presentationTick_ = targetTick;
+    adaptiveInitialized_ = true;
+  } else {
+    const double elapsedTicks = static_cast<double>(elapsed) *
+      static_cast<double>(kFixedTickRate);
+    presentationTick_ += elapsedTicks;
+    // A small rate correction recentres the buffer without visible time jumps.
+    const double correctionLimit = elapsedTicks * 0.125;
+    presentationTick_ += std::clamp(
+      targetTick - presentationTick_,
+      -correctionLimit,
+      correctionLimit
+    );
+  }
+
+  const double extrapolationTicks =
+    static_cast<double>(std::max(0.0F, maximumExtrapolationSeconds)) *
+    static_cast<double>(kFixedTickRate);
+  const double maximumTick = newestTick + extrapolationTicks;
+  const bool wouldStarve = presentationTick_ > maximumTick;
+  presentationTick_ = std::clamp(presentationTick_, oldestTick, maximumTick);
+  diagnostics_.extrapolating = presentationTick_ > newestTick;
+  diagnostics_.bufferedSeconds = static_cast<float>(
+    std::max(0.0, newestTick - presentationTick_) /
+    static_cast<double>(kFixedTickRate)
+  );
+  if (wouldStarve && !starved_) {
+    ++diagnostics_.starvationCount;
+  }
+  starved_ = wouldStarve;
+
+  while (
+    snapshots_.size() > 2 &&
+    static_cast<double>(snapshots_[1].serverTick) < presentationTick_ - 1.0
+  ) {
+    snapshots_.erase(snapshots_.begin());
+  }
+}
+
 bool SnapshotInterpolation::initialized() const {
   return initialized_;
 }
@@ -189,7 +272,13 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     return snapshots_.front().players[playerIndex];
   }
   if (current == snapshots_.end()) {
-    return snapshots_.back().players[playerIndex];
+    PlayerState result = snapshots_.back().players[playerIndex];
+    const float extrapolationSeconds = static_cast<float>(
+      (presentationTick_ - static_cast<double>(snapshots_.back().serverTick)) /
+      static_cast<double>(kFixedTickRate)
+    );
+    result.position += result.velocity * std::max(0.0F, extrapolationSeconds);
+    return result;
   }
 
   const auto previous = current - 1;
@@ -199,6 +288,10 @@ PlayerState SnapshotInterpolation::player(std::size_t playerIndex) const {
     playerIndex,
     presentationTick_
   );
+}
+
+const InterpolationDiagnostics& SnapshotInterpolation::diagnostics() const {
+  return diagnostics_;
 }
 
 } // namespace lg

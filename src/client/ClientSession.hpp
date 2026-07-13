@@ -58,16 +58,21 @@ public:
     BotCommandType botCommand = BotCommandType::None,
     std::int32_t botCommandValue = 0,
     std::int32_t botCommandMinIntervalMs = 250,
-    std::int32_t botCommandMaxIntervalMs = 750
+    std::int32_t botCommandMaxIntervalMs = 750,
+    bool requestMcGuffinThrow = false,
+    bool wantsScoreboardStats = false,
+    bool requestSpectator = false
   );
 
   [[nodiscard]] ClientConnectionState state() const;
   [[nodiscard]] bool connected() const;
   [[nodiscard]] bool readyForPlay() const;
   [[nodiscard]] std::size_t playerIndex() const;
+  [[nodiscard]] bool spectator() const;
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;
   [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfig() const;
+  [[nodiscard]] NetworkTelemetry networkTelemetry() const;
   [[nodiscard]] std::string_view host() const;
   [[nodiscard]] std::uint16_t port() const;
   [[nodiscard]] const std::string& statusMessage() const;

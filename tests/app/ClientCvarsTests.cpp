@@ -25,6 +25,28 @@ int main() {
   lg::registerClientCvars(console);
 
   failures += expect(
+    console.getBool("cl_interp_adaptive") &&
+      console.getFloat("cl_interp_min") == 0.016F &&
+      console.getFloat("cl_interp_max") == 0.064F &&
+      console.getFloat("cl_interp_extrapolate") == 0.016F &&
+      console.execute("cl_interp_extrapolate 0.051") ==
+        "value out of range for cl_interp_extrapolate",
+    "adaptive interpolation cvars should expose bounded shipped defaults"
+  );
+
+  failures += expect(
+    console.execute("cl_death_spectate_threshold") ==
+        "cl_death_spectate_threshold = 3 (default 3)" &&
+      console.execute("cl_death_camera_hold") ==
+        "cl_death_camera_hold = 0.5 (default 0.5)" &&
+      console.execute("cl_death_desaturation") ==
+        "cl_death_desaturation = 1 (default 1)" &&
+      console.execute("cl_death_desaturation 1.1") ==
+        "value out of range for cl_death_desaturation",
+    "death-camera presentation cvars should expose bounded shipped defaults"
+  );
+
+  failures += expect(
     console.execute("sensitivity") ==
       "sensitivity = 5 (default 5, Q3/QL default 5)" &&
       console.execute("sensitivity 65.1") == "sensitivity = 65.1" &&
@@ -419,6 +441,12 @@ int main() {
   failures += expect(
     console.execute("net_sim_seed 12345") == "net_sim_seed = 12345",
     "network simulation seed should be configurable"
+  );
+  failures += expect(
+    console.execute("cl_netgraph") == "cl_netgraph = 0 (default 0)" &&
+      console.execute("cl_netgraph 2") == "cl_netgraph = 2" &&
+      console.execute("cl_netgraph 3") == "value out of range for cl_netgraph",
+    "netgraph cvar should expose off, compact, and expanded modes"
   );
 
   return failures == 0 ? 0 : 1;

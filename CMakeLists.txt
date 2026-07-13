@@ -43,6 +43,7 @@ add_library(lg_duel_core
   src/sim/Collision.cpp
   src/sim/Combat.cpp
   src/sim/ClanArenaRules.cpp
+  src/sim/McGuffinRules.cpp
   src/sim/DuelRules.cpp
   src/sim/GameplayCvars.cpp
   src/sim/Movement.cpp
@@ -66,6 +67,7 @@ add_library(lg_duel_client_app
   src/app/AudioAssets.cpp
   src/app/ClientAudio.cpp
   src/app/ClientCvars.cpp
+  src/app/DeathCamera.cpp
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
   src/app/HudPresentation.cpp
@@ -75,6 +77,7 @@ add_library(lg_duel_client_app
   src/render/BitmapFont.cpp
   src/render/ChatLayout.cpp
   src/render/ConsoleLayout.cpp
+  src/render/ConsoleCat.cpp
   src/render/GltfSkinnedModel.cpp
   src/render/Renderer.cpp
   src/render/Scene3D.cpp

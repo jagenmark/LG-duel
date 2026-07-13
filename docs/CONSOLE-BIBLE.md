@@ -103,12 +103,16 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
+| `cl_death_spectate_threshold` | float | `3` | `0..30` seconds | None | Archive | A live-respawn delay at or above this value switches the death camera to a living teammate after the hold. Shorter delays retain the local death-position view. |
+| `cl_death_camera_hold` | float | `0.5` | `0..10` seconds | None | Archive | Minimum time to retain the local death-position view before teammate spectating begins. |
+| `cl_death_desaturation` | float | `1` | `0..1` | None | Archive | Strength of the neutral grey death-view treatment. `0` disables it and `1` uses the full effect. HUD text remains readable above the treatment. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |
 | `cl_showfps` | bool | `0` | bool | Ingen | Arkiv | Visar FPS, genomsnittlig frame time och renderer-backend i fönstertiteln. |
 | `cl_showspeed` | bool | `1` | bool | Q3/QL-style UPS | Arkiv | Visar horisontell predicted speed under crosshair som `<värde> ups`. Intern hastighet multipliceras med `40`, så `8 = 320 ups`. |
 | `cl_show_net` | bool | `1` | bool | Ingen | Arkiv | Visar ping, ticks, command ack, rewind, prediction och overload i titeln. |
+| `cl_netgraph` | int | `0` | `0..2` | None | Archive | Right-side network HUD. `0` hides it, `1` shows live ping/jitter/loss/rate/interpolation, and `2` adds bandwidth, packet sizes, prediction/rewind diagnostics, and a ten-second delivery graph. |
 | `net_sim_latency_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: extra one-way latency i ms efter connect. `60` pa bade outgoing och incoming ger ungefar +120 ms RTT. |
 | `net_sim_jitter_ms` | int | `0` | `0..5000` | Ingen | Nej | Lokal klient-UDP-simulator: slumpad one-way variation runt `net_sim_latency_ms` per datagram. Delay clampas till minst `0`. |
 | `net_sim_loss_percent` | int | `0` | `0..100` | Ingen | Nej | Lokal klient-UDP-simulator: oberoende sannolikhet per datagram att droppas. |
@@ -118,6 +122,10 @@ SDL_Renderer om GPU-initiering misslyckas.
 | `cl_show_alive_counts` | bool | `0` | bool | Ingen | Arkiv | Visar antal levande röda och blå spelare på HUD:en i Clan Arena. Kan växlas med `toggle cl_show_alive_counts`. |
 | `cl_interp_mode` | int | `1` | `0..1` | Ingen | Arkiv | Remote interpolation mode. `0`: legacy senaste snapshot-par + lokal render-alpha och gammal viewed tick. `1`: buffrad interpolation med `cl_interp`. |
 | `cl_interp` | float | `0.024` | `0..0.25` | 3 ticks vid 125 Hz | Arkiv | Remote player snapshot interpolation delay i sekunder. Lägre värde minskar visuell latency men kräver jämnare snapshots; högre värde döljer jitter bättre. |
+| `cl_interp_adaptive` | bool | `1` | `0..1` | None | Archive | Adjust the remote-player interpolation reserve from measured snapshot jitter. |
+| `cl_interp_min` | float | `0.016` | `0..0.25` | 2 ticks at 125 Hz | Archive | Minimum delay used by adaptive interpolation. |
+| `cl_interp_max` | float | `0.064` | `0..0.25` | 8 ticks at 125 Hz | Archive | Maximum delay used by adaptive interpolation. |
+| `cl_interp_extrapolate` | float | `0.016` | `0..0.05` | 2 ticks at 125 Hz | Archive | Maximum visual extrapolation through a snapshot gap; gameplay authority is unchanged. |
 
 ### 3.2 Ljud
 
@@ -403,19 +411,27 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `player <name>` | string, `1..20` bytes/tecken i nuvarande ASCII-användning | Sätter, arkiverar och replikerar spelarnamn via `cl_player_name`. Flera ord tillåts. Returnerar `name = ...`. |
 | `ready` | inga argument | Togglar ready under väntfasen. Defaultbindning `F3`. |
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
-| `gamemode <läge>` | `duel`, `ca`, `clanarena` eller `clan_arena` | Väljer spelläge under warmup. Alla spelare får använda kommandot. |
-| `team <lag>` | `red`, `blue`, `none` eller `unassigned` | Väljer lag under warmup. En Clan Arena-spelare måste välja rött eller blått lag innan `ready`. |
+| `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, or `mcguffin` | Selects the mode during warmup. McGuffin requires a compatible active map. |
+| `team <team>` | `red`, `blue`, `none`, `unassigned`, `spectator`, or `spec` | Selects a team during warmup. `spectator` releases the authoritative player body while retaining the connection; during warmup a spectator can claim a free body with `team red`, `team blue`, or `team none`. Clan Arena and McGuffin players must choose Red or Blue before `ready`. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
 | `reconnect` | inga | Återansluter till senast begärda host/port. |
-| `net_stats` | inga | Skriver connection state, host, port, player slot och ping. |
+| `net_stats` | none | Prints connection identity, ping, jitter, bidirectional loss, snapshot rate/age, bandwidth, packet sizes, and local network-simulation counters. |
 | `messagemode` | inga | Öppnar chat-input. Defaultbindning `T`. |
-| `showchat` | inga | Visar chatthistorik i fem sekunder. Defaultbindning `Z`. |
+| `showchat` | no arguments | Shows chat history for five seconds. |
+| `+showchat` / `-showchat` | no arguments | Holds expanded chat history open. The mouse wheel scrolls it. Default binding: `Z`. |
 
-Chat skickas med `Enter`, begränsas till `64` bytes och historiken behåller de
-senaste `8` meddelandena. Chatten döljs fem sekunder efter senaste meddelande
-eller manuell expansion.
+The network layer provides six authoritative player bodies plus eight separate
+spectator connections. If all player bodies are occupied, a newly accepted
+connection starts as a spectator. Spectators are excluded from readiness,
+team balance, objectives, scoring, spawning, and player limits.
+
+Chat is sent with `Enter`, limited to `240` UTF-8 bytes, and the authoritative
+server retains the latest `40` messages. A newly connected client receives that
+history through acknowledged, MTU-sized chat packets rather than gameplay
+snapshots. Opening chat with `T` or receiving a new message returns the view to
+the newest message.
 
 ### 4.3 Klient och konfiguration
 
@@ -426,6 +442,9 @@ eller manuell expansion.
 | `writeconfig` | inga | Skriver arkiverade cvars och bindings till `client.cfg`. |
 | `toggleconsole` | inga | Öppnar/stänger konsolen. |
 | `actionlist` | inga | Listar bindbara gameplay-actions. |
+| `mcguffin_throw` | none | Throws the carried McGuffin using the authoritative server tuning. Default bind: `G`. |
+| `spectate_next` | none | Follows the next eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse1 performs the same contextual action without changing its normal `+attack` bind. |
+| `spectate_prev` | none | Follows the previous eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse2 performs the same contextual action without changing its normal `+zoom` bind. |
 
 ### 4.4 Konsolens redigeringsinput
 
@@ -485,6 +504,7 @@ knappen släpps.
 | `+attack` / `-attack` | Håll/släpp eld med valt vapen. |
 | `+dash` / `-dash` | Start the universal movement dash on press. Default bind: `mouse3`. Direction is sampled from movement input and locked when dash starts. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
+| `+showchat` / `-showchat` | Hold chat history open; use the mouse wheel to scroll. |
 | `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
 | `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|1..8>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun, plasma gun, or freeze gun. Weapon selection is sent to the server every command tick. |
 
@@ -500,9 +520,10 @@ knappen släpps.
 | `Space` | `+moveup` |
 | `Left/Right Ctrl` | `+movedown` |
 | `Left/Right Shift` | `+speed` |
-| `Mouse1` | `+attack` |
-| `Mouse2` | `+zoom` |
+| `Mouse1` | `+attack`; next living teammate while spectating |
+| `Mouse2` | `+zoom`; previous living teammate while spectating |
 | `Mouse3` | `+dash` |
+| `G` | `mcguffin_throw` |
 | `1` | `weapon mg` |
 | `2` | `weapon sg` |
 | `3` | `weapon gl` |
@@ -517,7 +538,7 @@ knappen släpps.
 | `F5` | `resetmatch` |
 | `F3` | `ready` |
 | `T` | `messagemode` |
-| `Z` | `showchat` |
+| `Z` | `+showchat` |
 | `Tab` | `+scores` |
 | `Escape` | `quit` |
 
@@ -548,6 +569,23 @@ automatiskt.
 | `sv_playerlimit` | int | `2` | `1..6` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
 | `sv_roundend` | float | `5` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
+| `sv_respawn_delay` | float | `2` | `0..30` seconds | General server rule | Death-respawn delay used by modes with live respawning, including McGuffin. Zero respawns immediately. Elimination modes ignore it. |
+| `sv_mcg_scorelimit` | int | `100` | `1..1000` points | Diabotical: 100 | Points required to win a McGuffin round. |
+| `sv_mcg_points_per_second` | int | `1` | `1..20` points/s | Provisional | Installed-objective scoring rate. |
+| `sv_mcg_carry_points_per_second` | int | `1` | `1..20` points/s | Provisional | Unbanked carry-credit accumulation rate. |
+| `sv_mcg_carry_limit` | int | `10` | `1..100` points | Diabotical: 10 | Maximum unbanked carry credit. |
+| `sv_mcg_spawn_delay` | float | `30` | `0..120` seconds | Diabotical: about 30 | Delay before neutral pickup becomes active. |
+| `sv_mcg_install_delay` | float | `0` | `0..10` seconds | Provisional | Required own-base installation hold. |
+| `sv_mcg_steal_time` | float | `1` | `0..10` seconds | Provisional | Uninterrupted enemy-base steal hold. |
+| `sv_mcg_return_time` | float | `30` | `0..120` seconds | LG Duel safety rule | An uncollected ground McGuffin teleports to its initial neutral spawn after this delay. Installed/base states are unaffected; zero disables the safety return. |
+| `sv_mcg_throw_speed` | float | `12` | `0..50` world units/s | LG Duel tuning | Forward launch speed along the carrier's aim. |
+| `sv_mcg_throw_up_speed` | float | `4` | `0..30` world units/s | LG Duel tuning | Upward speed added to shape the throw arc. |
+| `sv_mcg_throw_velocity_inherit` | float | `1` | `0..2` multiplier | LG Duel tuning | Fraction of carrier velocity inherited by the objective. |
+| `sv_mcg_throw_gravity` | float | `20` | `0..100` world units/s² | LG Duel tuning | Gravity applied while the thrown objective is airborne. |
+| `sv_mcg_throw_bounce` | float | `0.4` | `0..1.5` multiplier | LG Duel tuning | Velocity retained and reflected at world impacts. |
+| `sv_mcg_throw_pickup_delay` | float | `0.2` | `0..3` seconds | LG Duel tuning | Global pickup lockout after a throw, preventing immediate self-recapture. |
+| `sv_mcg_final_hold` | float | `3` | `0..30` seconds | Provisional | Uncontested hold needed to convert 99 to victory. |
+| `sv_mcg_pickup_radius` | float | `0.9` | `0.1..5` world units | LG Duel geometry | Ground-objective touch radius. |
 | `sv_matchend` | float | `5` | `0..60` sekunder | Ingen direkt | Delay efter matchvinst innan reset till ready-up. |
 | `sv_showopponenthealth` | bool | `1` | bool | Ingen Q3-standard | Visar motståndarens HP-bar för båda klienterna. |
 
@@ -559,6 +597,8 @@ Servern stöder även samtliga inbyggda kommandon i avsnitt 4.1.
 |---|---|
 | `resetmatch` | Nollställer score och återgår till ready-up. |
 | `status` | Skriver `players=<n> phase=<id> score=<p1>-<p2>-...-<p6>`. |
+| `mcguffin_debug` | Prints authoritative McGuffin state and timers. |
+| `spawn_debug` | Prints the latest authoritative team-spawn scoring decision. |
 
 `phase` använder:
 

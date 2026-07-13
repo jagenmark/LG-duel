@@ -40,6 +40,7 @@ public:
     const std::array<std::uint32_t, kDuelPlayerCount>& playerSessions
   );
   void setMatchRules(const MatchRules& rules);
+  void setMcGuffinConfig(const McGuffinConfig& config);
   void setRuntimeGameplayTuning(
     const MovementTuning& movementTuning,
     float playerSizeScaleXY,
@@ -87,6 +88,7 @@ public:
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] const std::string& mapDirectory() const;
+  [[nodiscard]] const std::string& spawnDebugString() const;
   [[nodiscard]] const MatchRules& matchRules() const;
 
 private:
@@ -117,6 +119,12 @@ private:
   void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
+  [[nodiscard]] ArenaSpawnGroup spawnGroupForTeam(Team team) const;
+  [[nodiscard]] std::optional<std::size_t> selectTeamSpawn(
+    std::size_t playerIndex,
+    const PlayerState& freshPlayer
+  );
+  [[nodiscard]] std::uint32_t nextSpawnRandomU32();
   void respawnRound();
   void updateMatchState();
   void beginCountdown();
@@ -170,6 +178,11 @@ private:
   void updateFootstepAudioEvents();
   void resetHealthPickups();
   void updateHealthPickups();
+  void resetMcGuffinRound();
+  void updateMcGuffin();
+  void dropMcGuffinCarrier(std::size_t playerIndex);
+  void recordMcGuffinEvent(McGuffinEventType event, std::size_t playerIndex);
+  void beginMcGuffinRoundEnd(Team winnerTeam);
   void restoreTransientCombatEvents();
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
@@ -271,6 +284,14 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};
   std::array<bool, kDuelPlayerCount> receivedCommandThisTick_ = {};
+  std::array<ActionEdgeState, kDuelPlayerCount> lastActionEdges_ = {};
+  std::array<bool, kDuelPlayerCount> jumpEdgeThisTick_ = {};
+  std::array<bool, kDuelPlayerCount> dashEdgeThisTick_ = {};
+  std::array<bool, kDuelPlayerCount> attackEdgeThisTick_ = {};
+  std::array<UserCommand, kDuelPlayerCount> attackEdgeCommands_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> attackEdgeViewedServerTicks_ = {};
+  std::array<bool, kDuelPlayerCount> mcguffinThrowRequestedThisTick_ = {};
+  std::array<UserCommand, kDuelPlayerCount> mcguffinThrowCommands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> playerSessions_ = {};
   std::array<bool, kDuelPlayerCount> botPlayers_ = {};
   bool botStareEnabled_ = true;
@@ -285,7 +306,20 @@ private:
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};
+  McGuffinConfig mcguffinConfig_ = {};
+  McGuffinObjective mcguffinObjective_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> mcguffinStealTicks_ = {};
+  std::uint32_t mcguffinCarrySubPoints_ = 0;
+  std::uint16_t mcguffinCarriedPoints_ = 0;
+  std::uint32_t mcguffinFinalHoldTicks_ = 0;
+  std::uint32_t mcguffinRoundLiveTicks_ = 0;
+  std::uint32_t mcguffinThrowPickupLockoutTicks_ = 0;
+  std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks_ = {};
+  std::array<bool, Arena::kTeamSpawnCount> spawnWasUsed_ = {};
+  std::uint32_t spawnRandomState_ = 0x51A7E123U;
+  std::string spawnDebugString_ = "no team spawn selected yet";
   WeaponSwitchingMode weaponSwitchingMode_ = WeaponSwitchingMode::Crazy;
+  ChatHistory chatHistory_ = {};
   ServerSnapshot snapshot_ = {};
 };
 

@@ -59,7 +59,9 @@ void ClientSession::update() {
   }
 
   if (transport_->connected() && !game_) {
-    game_ = std::make_unique<ClientGame>(*transport_, transport_->playerIndex());
+    game_ = std::make_unique<ClientGame>(
+      *transport_, transport_->playerIndex(), transport_->clientIndex()
+    );
     state_ = ClientConnectionState::Connected;
     statusMessage_ = "Connected to " + lastHost_ + ':' + std::to_string(lastPort_);
   }
@@ -115,7 +117,10 @@ void ClientSession::sendCommand(
     BotCommandType botCommand,
     std::int32_t botCommandValue,
     std::int32_t botCommandMinIntervalMs,
-    std::int32_t botCommandMaxIntervalMs
+    std::int32_t botCommandMaxIntervalMs,
+    bool requestMcGuffinThrow,
+    bool wantsScoreboardStats,
+    bool requestSpectator
   ) {
   if (game_) {
     game_->sendCommand(
@@ -150,7 +155,10 @@ void ClientSession::sendCommand(
         botCommand,
         botCommandValue,
         botCommandMinIntervalMs,
-        botCommandMaxIntervalMs
+        botCommandMaxIntervalMs,
+        requestMcGuffinThrow,
+        wantsScoreboardStats,
+        requestSpectator
       );
   }
 }
@@ -168,7 +176,11 @@ bool ClientSession::readyForPlay() const {
 }
 
 std::size_t ClientSession::playerIndex() const {
-  return transport_ ? transport_->playerIndex() : 0U;
+  return game_ ? game_->localPlayerIndex() : 0U;
+}
+
+bool ClientSession::spectator() const {
+  return game_ && game_->spectator();
 }
 
 float ClientSession::pingMilliseconds() const {
@@ -181,6 +193,10 @@ ClientNetworkSimulationStats ClientSession::networkSimulationStats() const {
 
 ClientNetworkSimulationConfig ClientSession::networkSimulationConfig() const {
   return transport_ ? transport_->networkSimulationConfig() : ClientNetworkSimulationConfig{};
+}
+
+NetworkTelemetry ClientSession::networkTelemetry() const {
+  return transport_ ? transport_->networkTelemetry() : NetworkTelemetry{};
 }
 
 std::string_view ClientSession::host() const {

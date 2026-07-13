@@ -8,6 +8,7 @@ namespace lg {
 enum class GameMode : std::uint8_t {
   Duel = 0,
   ClanArena = 1,
+  McGuffin = 2,
 };
 
 enum class Team : std::uint8_t {
@@ -19,7 +20,9 @@ enum class Team : std::uint8_t {
 inline constexpr std::size_t kPlayableTeamCount = 2;
 
 [[nodiscard]] constexpr bool isValidGameMode(GameMode gameMode) {
-  return gameMode == GameMode::Duel || gameMode == GameMode::ClanArena;
+  return gameMode == GameMode::Duel ||
+    gameMode == GameMode::ClanArena ||
+    gameMode == GameMode::McGuffin;
 }
 
 [[nodiscard]] constexpr bool isValidTeam(Team team) {

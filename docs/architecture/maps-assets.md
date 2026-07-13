@@ -10,7 +10,9 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
 
 - `src/map/MapParser.*` parses entities, properties, brushes, and Quake-style face texture parameters.
 - `src/map/MapToArena.*` converts `worldspawn` and `func_group` brushes to cuboid `ArenaWall`s when possible, otherwise convex `ArenaBrush` hulls.
-- `lg_spawn` entities become spawn positions.
+- `lg_spawn` entities become legacy spawn positions. Team maps may additionally
+  use `info_player_team`/`lg_spawn` with physical `spawn_group` values
+  `red_base` or `blue_base`; their authored `angle`/`yaw` is retained.
 - `trigger_jumppad` brush entities become non-solid, non-rendered `ArenaJumpPad` trigger AABBs. Visible pad surfaces should be ordinary `worldspawn` or `func_group` geometry; the trigger brush can use `common/trigger` or `textures/common/trigger` for editor visibility only.
 - `item_health_small` and `item_health_large` point entities become static `ArenaHealthPickup` entries. Server snapshots replicate only their fixed availability bits.
 - `worldspawn`/`func_group` brushes using `common/playerclip` or `textures/common/playerclip` on every face become collision-only solids. They stay in `ArenaWall`/`ArenaBrush` for collision and traces, but `renderable=false` keeps them out of static world rendering and lighting. Mixed playerclip/non-playerclip brushes are rejected; apply playerclip to the whole brush.
@@ -43,7 +45,8 @@ Materials are hashed/stable ids from material paths. Renderer texture loading ex
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
 - Arena counts are fixed: 256 walls, 256 brushes, 48 jumppads, 32 health pickups, 96 static lights.
 - Multiple `light_sun` entities are not supported.
-- Spawn yaw is parsed only for validity; spawn orientation is not stored in `Arena`, so actual orientation intent is unclear.
+- Legacy Duel/CA spawn yaw remains unused. Authored team-spawn yaw is stored and
+  applied by the authoritative team spawn selector.
 - Jumppads do not use brush/entity rotation as launch authority. Launch priority is target-based ballistic, explicit direction and speed, angle/pitch and speed, then straight up.
 - Teleport triggers are parsed as ignored entities, not gameplay.
 - Playerclip currently blocks players, hitscan/world traces, rockets, grenades, and plasma. The collision/trace API does not yet carry cheap content masks to distinguish players from projectiles.

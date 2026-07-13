@@ -6,6 +6,7 @@
 #include "sim/Collision.hpp"
 #include "sim/DuelRules.hpp"
 #include "sim/GameplayCvars.hpp"
+#include "sim/McGuffinRules.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -13,6 +14,7 @@
 #include <filesystem>
 #include <iostream>
 #include <limits>
+#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -33,6 +35,17 @@ constexpr float kPi = 3.14159265359F;
 constexpr float kHalfPi = kPi * 0.5F;
 constexpr float kTwoPi = kPi * 2.0F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
+
+[[nodiscard]] bool consumeActionEdge(
+  std::uint32_t incoming,
+  std::uint32_t& consumed
+) {
+  if (incoming == 0U || (consumed != 0U && !isSequenceNewer(incoming, consumed))) {
+    return false;
+  }
+  consumed = incoming;
+  return true;
+}
 
 [[nodiscard]] PlayerState spawnPlayer(
   const Arena& arena,
@@ -107,9 +120,10 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   ) {
     return false;
   }
-  return snapshot.gameMode == GameMode::ClanArena
-    ? areClanArenaEnemies(snapshot.teams, attackerIndex, targetIndex)
-    : areDuelOpponents(attackerIndex, targetIndex);
+  if (snapshot.gameMode == GameMode::Duel) {
+    return areDuelOpponents(attackerIndex, targetIndex);
+  }
+  return areClanArenaEnemies(snapshot.teams, attackerIndex, targetIndex);
 }
 
 [[nodiscard]] std::size_t firstCombatTarget(
@@ -537,6 +551,10 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
 
 void ServerGame::tick(float fixedDt) {
   receivedCommandThisTick_.fill(false);
+  mcguffinThrowRequestedThisTick_.fill(false);
+  jumpEdgeThisTick_.fill(false);
+  dashEdgeThisTick_.fill(false);
+  attackEdgeThisTick_.fill(false);
   receiveCommands();
   updateMatchState();
   updateBotCommands(fixedDt);
@@ -671,6 +689,7 @@ void ServerGame::tick(float fixedDt) {
     player.velocity = collision.velocity;
   }
   updateHealthPickups();
+  updateMcGuffin();
   updateFootstepAudioEvents();
 
   const std::array<PlayerState, kDuelPlayerCount> combatPlayers = snapshot_.players;
@@ -1077,7 +1096,9 @@ void ServerGame::tick(float fixedDt) {
 
   if (snapshot_.matchPhase == MatchPhase::Live) {
     ++snapshot_.liveTicksElapsed;
-    if (matchRules_.timeLimitMinutes > 0) {
+    // McGuffin rounds end through score control and the final-hold rule. A
+    // generic match timer must not bypass its best-of-three round structure.
+    if (matchRules_.timeLimitMinutes > 0 && snapshot_.gameMode != GameMode::McGuffin) {
       const std::uint32_t limitTicks =
         static_cast<std::uint32_t>(matchRules_.timeLimitMinutes) * 60U * 125U;
       if (snapshot_.liveTicksElapsed >= limitTicks) {
@@ -1086,8 +1107,13 @@ void ServerGame::tick(float fixedDt) {
           if (leader.has_value()) {
             beginMatchEnd(*leader);
           }
-        } else {
+        } else if (snapshot_.gameMode == GameMode::ClanArena) {
           const auto leader = clanArenaScoreLeader(snapshot_.teamScores);
+          if (leader.has_value()) {
+            beginMatchEnd(*leader);
+          }
+        } else {
+          const auto leader = clanArenaScoreLeader(snapshot_.mcguffinScores);
           if (leader.has_value()) {
             beginMatchEnd(*leader);
           }
@@ -1118,6 +1144,7 @@ void ServerGame::resetMatch() {
   snapshot_.botPlayers = botPlayers;
   snapshot_.gameMode = gameMode;
   snapshot_.teams = teams;
+  snapshot_.mcguffinConfig = mcguffinConfig_;
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex, healthAmount_);
     PlayerState& player = snapshot_.players[playerIndex];
@@ -1150,6 +1177,9 @@ void ServerGame::resetMatch() {
   snapshot_.matchWinner = 255;
   snapshot_.roundWinningTeam = Team::None;
   snapshot_.matchWinningTeam = Team::None;
+  snapshot_.mcguffinRedBaseOwner = Team::Red;
+  snapshot_.mcguffinBlueBaseOwner = Team::Blue;
+  resetMcGuffin(mcguffinObjective_, arena_.mcguffin.neutralSpawn);
   snapshot_.playerNames = playerNames;
   snapshot_.matchPhase = enoughPlayersConnected()
     ? MatchPhase::WaitingForReady
@@ -1195,6 +1225,9 @@ void ServerGame::resetMatch() {
   receivedCommandThisTick_ = {};
   playerSessions_ = {};
   botCombatStates_ = {};
+  if (snapshot_.gameMode == GameMode::McGuffin) {
+    resetMcGuffinRound();
+  }
   updateParticipatingPlayers();
   history_.clear();
   recordHistory();
@@ -1206,6 +1239,10 @@ void ServerGame::setArena(const Arena& arena) {
 
 void ServerGame::setArena(const Arena& arena, MapDescriptor descriptor) {
   arena_ = arena;
+  spawnLastUsedTicks_ = {};
+  spawnWasUsed_ = {};
+  spawnRandomState_ = 0x51A7E123U;
+  spawnDebugString_ = "no team spawn selected yet";
   mapDescriptor_ = std::move(descriptor);
   ++mapRevision_;
   if (mapRevision_ == 0) {
@@ -1219,6 +1256,18 @@ void ServerGame::setMapDirectory(std::string mapDirectory) {
 }
 
 void ServerGame::respawnPlayer(std::size_t playerIndex) {
+  // A respawn starts a new life, including for zero-delay modes. Do not let
+  // cached input or an interrupted objective interaction execute on the new
+  // body before a fresh command arrives from that player.
+  commands_[playerIndex] = {};
+  viewedServerTicks_[playerIndex] = 0;
+  hasCommand_[playerIndex] = false;
+  receivedCommandThisTick_[playerIndex] = false;
+  mcguffinStealTicks_[playerIndex] = 0;
+  mcguffinThrowRequestedThisTick_[playerIndex] = false;
+  mcguffinThrowCommands_[playerIndex] = {};
+  botCombatStates_[playerIndex] = {};
+  snapshot_.respawnTicksRemaining[playerIndex] = 0;
   snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex, healthAmount_);
   snapshot_.players[playerIndex].bounds.radius =
     kDefaultPlayerBounds.radius * playerSizeScaleXY_;
@@ -1227,6 +1276,32 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   snapshot_.players[playerIndex].position.z =
     arena_.spawnPositions[playerIndex].z +
     snapshot_.players[playerIndex].bounds.halfHeight;
+  if (snapshot_.gameMode == GameMode::McGuffin &&
+      isPlayableTeam(snapshot_.teams[playerIndex])) {
+    const std::optional<std::size_t> selected = selectTeamSpawn(
+      playerIndex, snapshot_.players[playerIndex]
+    );
+    if (selected.has_value()) {
+      const ArenaTeamSpawn& spawn = arena_.teamSpawns[*selected];
+      snapshot_.players[playerIndex].position = spawn.position;
+      snapshot_.players[playerIndex].position.z +=
+        snapshot_.players[playerIndex].bounds.halfHeight;
+      snapshot_.players[playerIndex].viewYawRadians = spawn.yawRadians;
+    } else if (arena_.teamSpawnCount == 0) {
+      // Compatibility path for older team-tagged maps.
+      for (std::size_t spawnIndex = 0; spawnIndex < arena_.spawnTeams.size(); ++spawnIndex) {
+        if (arena_.spawnTeams[spawnIndex] != snapshot_.teams[playerIndex]) continue;
+        snapshot_.players[playerIndex].position = arena_.spawnPositions[spawnIndex];
+        snapshot_.players[playerIndex].position.z +=
+          snapshot_.players[playerIndex].bounds.halfHeight;
+        break;
+      }
+    } else {
+      // Physical groups are authoritative when present. Never resurrect an
+      // invalid rejected point through permanent-team legacy metadata.
+      snapshot_.players[playerIndex].health = 0;
+    }
+  }
   snapshot_.lightningGuns[playerIndex] = {};
   snapshot_.weaponFires[playerIndex] = {};
   snapshot_.rocketExplosions[playerIndex] = {};
@@ -1263,6 +1338,17 @@ void ServerGame::respawnRound() {
   botCombatStates_ = {};
   rockets_ = {};
   snapshot_.rockets = {};
+  if (snapshot_.gameMode == GameMode::McGuffin) {
+    // Base ownership changes between rounds and must be established before
+    // players select physical spawn groups for their new lives.
+    resetMcGuffinRound();
+  }
+  // Round respawns are one logical reset. Mark every old body inactive first
+  // so spawn safety never scores candidates against positions from the round
+  // that just ended; earlier selections still reserve space for later ones.
+  for (PlayerState& player : snapshot_.players) {
+    player.health = 0;
+  }
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     respawnPlayer(playerIndex);
   }
@@ -1281,7 +1367,7 @@ void ServerGame::setConnectedPlayers(
     return;
   }
 
-  const bool abortActiveMatch = !warmupPhase();
+  const bool abortActiveMatch = !warmupPhase() && snapshot_.gameMode != GameMode::McGuffin;
   const std::array<bool, kDuelPlayerCount> previousConnected =
     snapshot_.connectedPlayers;
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
@@ -1292,6 +1378,7 @@ void ServerGame::setConnectedPlayers(
     }
 
     if (wasHuman && !isHuman) {
+      dropMcGuffinCarrier(index);
       snapshot_.readyPlayers[index] = false;
       snapshot_.teams[index] = Team::None;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
@@ -1324,6 +1411,8 @@ void ServerGame::setConnectedPlayers(
     snapshot_.phaseTicksRemaining = 0;
     snapshot_.scores = {};
     snapshot_.teamScores = {};
+    snapshot_.mcguffinRoundsWon = {};
+    snapshot_.mcguffinRound = 0;
     snapshot_.matchCombatStats = {};
     snapshot_.liveTicksElapsed = 0;
     snapshot_.roundWinner = 255;
@@ -1370,6 +1459,9 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   viewedServerTicks_[playerIndex] = 0;
   hasCommand_[playerIndex] = false;
   receivedCommandThisTick_[playerIndex] = false;
+  lastActionEdges_[playerIndex] = {};
+  jumpEdgeThisTick_[playerIndex] = false;
+  dashEdgeThisTick_[playerIndex] = false;
   snapshot_.acknowledgedCommand[playerIndex] = 0;
   snapshot_.hasAcknowledgedCommand[playerIndex] = false;
   lightningGunStates_[playerIndex] = {};
@@ -1392,6 +1484,185 @@ void ServerGame::setMatchRules(const MatchRules& rules) {
     static_cast<std::uint8_t>(kDuelPlayerCount)
   );
   snapshot_.matchRules = matchRules_;
+}
+
+ArenaSpawnGroup ServerGame::spawnGroupForTeam(Team team) const {
+  if (snapshot_.mcguffinRedBaseOwner == team) return ArenaSpawnGroup::RedBase;
+  if (snapshot_.mcguffinBlueBaseOwner == team) return ArenaSpawnGroup::BlueBase;
+  // Before the deciding round's first installation, use the authored staging
+  // side. Once a base is claimed, the ownership fields take over immediately.
+  return team == Team::Red
+    ? ArenaSpawnGroup::RedBase
+    : ArenaSpawnGroup::BlueBase;
+}
+
+std::uint32_t ServerGame::nextSpawnRandomU32() {
+  std::uint32_t value = spawnRandomState_;
+  value ^= value << 13U;
+  value ^= value >> 17U;
+  value ^= value << 5U;
+  spawnRandomState_ = value == 0U ? 0x51A7E123U : value;
+  return spawnRandomState_;
+}
+
+std::optional<std::size_t> ServerGame::selectTeamSpawn(
+  std::size_t playerIndex,
+  const PlayerState& freshPlayer
+) {
+  struct Candidate {
+    std::size_t index = 0;
+    float score = 0.0F;
+    float nearestEnemy = 20.0F;
+    std::uint32_t recentTicks = 625;
+    int visibleEnemies = 0;
+    bool occupied = false;
+  };
+
+  constexpr float kEnemyDistanceWeight = 4.0F;
+  constexpr float kVisibleEnemyPenalty = 100.0F;
+  constexpr float kCloseEnemyDistance = 5.0F;
+  constexpr float kCloseEnemyPenalty = 60.0F;
+  constexpr float kNearbyTeammateDistance = 6.0F;
+  constexpr float kNearbyTeammateBonus = 10.0F;
+  constexpr float kRecentUsePenalty = 30.0F;
+  constexpr std::uint32_t kRecentUseTicks = 625;
+
+  const Team team = snapshot_.teams[playerIndex];
+  const ArenaSpawnGroup group = spawnGroupForTeam(team);
+  std::array<Candidate, Arena::kTeamSpawnCount> candidates = {};
+  std::size_t candidateCount = 0;
+  for (std::size_t spawnIndex = 0;
+       spawnIndex < arena_.teamSpawnCount;
+       ++spawnIndex) {
+    const ArenaTeamSpawn& spawn = arena_.teamSpawns[spawnIndex];
+    if (spawn.group != group) continue;
+
+    PlayerState atSpawn = freshPlayer;
+    atSpawn.position = spawn.position;
+    atSpawn.position.z += atSpawn.bounds.halfHeight;
+    if (playerPositionSolid(arena_, atSpawn, atSpawn.position) ||
+        pointInsideMcGuffinBase(spawn.position, arena_.mcguffin.redBase) ||
+        pointInsideMcGuffinBase(spawn.position, arena_.mcguffin.blueBase)) {
+      continue;
+    }
+
+    Candidate candidate;
+    candidate.index = spawnIndex;
+    bool foundEnemy = false;
+    for (std::size_t other = 0; other < kDuelPlayerCount; ++other) {
+      if (other == playerIndex || !isActiveCombatant(other)) continue;
+      const PlayerState& otherPlayer = snapshot_.players[other];
+      const Vec3 delta = otherPlayer.position - atSpawn.position;
+      const float distance = length(delta);
+      const float horizontalDistance = std::sqrt(
+        (delta.x * delta.x) + (delta.y * delta.y)
+      );
+      const bool overlaps =
+        horizontalDistance < atSpawn.bounds.radius + otherPlayer.bounds.radius &&
+        std::fabs(delta.z) < atSpawn.bounds.halfHeight + otherPlayer.bounds.halfHeight;
+      candidate.occupied = candidate.occupied || overlaps;
+
+      if (snapshot_.teams[other] == team) {
+        if (distance <= kNearbyTeammateDistance) {
+          candidate.score += kNearbyTeammateBonus;
+        }
+        continue;
+      }
+      if (!isPlayableTeam(snapshot_.teams[other])) continue;
+      foundEnemy = true;
+      candidate.nearestEnemy = std::min(candidate.nearestEnemy, distance);
+      if (distance <= kCloseEnemyDistance) candidate.score -= kCloseEnemyPenalty;
+      if (distance > 0.0001F) {
+        const WorldTrace trace = traceWorld(
+          arena_, atSpawn.position, delta / distance, distance
+        );
+        if (trace.distance >= distance - 0.01F) {
+          ++candidate.visibleEnemies;
+          candidate.score -= kVisibleEnemyPenalty;
+        }
+      }
+    }
+    candidate.score += (foundEnemy ? candidate.nearestEnemy : 20.0F) *
+      kEnemyDistanceWeight;
+    if (candidate.occupied) candidate.score -= 1000.0F;
+    if (spawnWasUsed_[spawnIndex]) {
+      candidate.recentTicks = snapshot_.serverTick - spawnLastUsedTicks_[spawnIndex];
+      if (candidate.recentTicks < kRecentUseTicks) {
+        const float fraction = 1.0F -
+          (static_cast<float>(candidate.recentTicks) /
+            static_cast<float>(kRecentUseTicks));
+        candidate.score -= kRecentUsePenalty * fraction;
+      }
+    }
+    candidates[candidateCount++] = candidate;
+  }
+
+  if (candidateCount == 0) {
+    spawnDebugString_ = "no valid physical spawn candidates";
+    return std::nullopt;
+  }
+  const bool hasUnoccupied = std::any_of(
+    candidates.begin(), candidates.begin() + candidateCount,
+    [](const Candidate& candidate) { return !candidate.occupied; }
+  );
+  std::sort(
+    candidates.begin(), candidates.begin() + candidateCount,
+    [hasUnoccupied](const Candidate& left, const Candidate& right) {
+      if (hasUnoccupied && left.occupied != right.occupied) return !left.occupied;
+      if (left.score != right.score) return left.score > right.score;
+      return left.index < right.index;
+    }
+  );
+  const std::size_t eligibleCount = hasUnoccupied
+    ? static_cast<std::size_t>(std::count_if(
+        candidates.begin(), candidates.begin() + candidateCount,
+        [](const Candidate& candidate) { return !candidate.occupied; }
+      ))
+    : candidateCount;
+  const std::size_t topCount = std::min<std::size_t>(3, eligibleCount);
+  const float floorScore = candidates[topCount - 1U].score;
+  std::array<std::uint32_t, 3> weights = {};
+  std::uint32_t totalWeight = 0;
+  for (std::size_t index = 0; index < topCount; ++index) {
+    weights[index] = 1U + static_cast<std::uint32_t>(std::clamp(
+      (candidates[index].score - floorScore) * 10.0F,
+      0.0F,
+      10000.0F
+    ));
+    totalWeight += weights[index];
+  }
+  std::uint32_t roll = nextSpawnRandomU32() % totalWeight;
+  std::size_t selectedRank = 0;
+  for (; selectedRank + 1U < topCount; ++selectedRank) {
+    if (roll < weights[selectedRank]) break;
+    roll -= weights[selectedRank];
+  }
+  const Candidate& selected = candidates[selectedRank];
+  spawnWasUsed_[selected.index] = true;
+  spawnLastUsedTicks_[selected.index] = snapshot_.serverTick;
+
+  std::ostringstream debug;
+  debug << "player=" << playerIndex << " group="
+        << (group == ArenaSpawnGroup::RedBase ? "red_base" : "blue_base");
+  for (std::size_t index = 0; index < candidateCount; ++index) {
+    const Candidate& candidate = candidates[index];
+    debug << " #" << candidate.index << " score=" << candidate.score
+          << " enemy=" << candidate.nearestEnemy
+          << " los=" << candidate.visibleEnemies
+          << " occupied=" << (candidate.occupied ? 1 : 0)
+          << " recent=" << candidate.recentTicks;
+    if (candidate.index == selected.index) debug << " SELECTED";
+  }
+  spawnDebugString_ = debug.str();
+  return selected.index;
+}
+
+void ServerGame::setMcGuffinConfig(const McGuffinConfig& config) {
+  if (!isValidMcGuffinConfig(config)) {
+    return;
+  }
+  mcguffinConfig_ = config;
+  snapshot_.mcguffinConfig = config;
 }
 
 void ServerGame::setRuntimeGameplayTuning(
@@ -1694,6 +1965,8 @@ void ServerGame::updateMatchState() {
       }
       snapshot_.scores = {};
       snapshot_.teamScores = {};
+      snapshot_.mcguffinRoundsWon = {};
+      snapshot_.mcguffinRound = 0;
       snapshot_.matchCombatStats = {};
       snapshot_.liveTicksElapsed = 0;
       snapshot_.roundWinner = 255;
@@ -1730,7 +2003,8 @@ void ServerGame::updateMatchState() {
       --snapshot_.phaseTicksRemaining;
     }
     if (snapshot_.phaseTicksRemaining == 0) {
-      respawnRound();
+      // beginCountdown owns the round respawn. Running it here as well would
+      // consume two spawn selections and discard the first result.
       beginCountdown();
     }
     break;
@@ -1741,6 +2015,8 @@ void ServerGame::updateMatchState() {
     if (snapshot_.phaseTicksRemaining == 0) {
       snapshot_.scores = {};
       snapshot_.teamScores = {};
+      snapshot_.mcguffinRoundsWon = {};
+      snapshot_.mcguffinRound = 0;
       snapshot_.matchCombatStats = {};
       snapshot_.readyPlayers = {};
       snapshot_.liveTicksElapsed = 0;
@@ -1844,7 +2120,7 @@ bool ServerGame::allConnectedPlayersReady() const {
     if (!snapshot_.readyPlayers[index]) {
       return false;
     }
-    if (snapshot_.gameMode == GameMode::ClanArena) {
+    if (snapshot_.gameMode != GameMode::Duel) {
       if (!isPlayableTeam(snapshot_.teams[index])) {
         return false;
       }
@@ -1852,7 +2128,7 @@ bool ServerGame::allConnectedPlayersReady() const {
       hasBluePlayer = hasBluePlayer || snapshot_.teams[index] == Team::Blue;
     }
   }
-  if (snapshot_.gameMode == GameMode::ClanArena && (!hasRedPlayer || !hasBluePlayer)) {
+  if (snapshot_.gameMode != GameMode::Duel && (!hasRedPlayer || !hasBluePlayer)) {
     return false;
   }
   return true;
@@ -1883,9 +2159,9 @@ bool ServerGame::isValidEnemyTarget(
   ) {
     return false;
   }
-  return snapshot_.gameMode == GameMode::ClanArena
-    ? areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex)
-    : areDuelOpponents(attackerIndex, targetIndex);
+  return snapshot_.gameMode == GameMode::Duel
+    ? areDuelOpponents(attackerIndex, targetIndex)
+    : areClanArenaEnemies(snapshot_.teams, attackerIndex, targetIndex);
 }
 
 bool ServerGame::hasLineOfSight(
@@ -2317,7 +2593,7 @@ void ServerGame::applyDamageAndKnockback(
       if (winner.has_value()) {
         beginRoundEnd(*winner);
       }
-    } else {
+    } else if (snapshot_.gameMode == GameMode::ClanArena) {
       std::array<bool, kDuelPlayerCount> alivePlayers = {};
       for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
         alivePlayers[index] =
@@ -2331,6 +2607,14 @@ void ServerGame::applyDamageAndKnockback(
       );
       if (winner.has_value()) {
         beginRoundEnd(*winner);
+      }
+    } else {
+      dropMcGuffinCarrier(targetIndex);
+      if (matchRules_.deathRespawnTicks == 0) {
+        respawnPlayer(targetIndex);
+      } else {
+        snapshot_.respawnTicksRemaining[targetIndex] =
+          matchRules_.deathRespawnTicks;
       }
     }
     return;
@@ -2818,6 +3102,386 @@ void ServerGame::updateHealthPickups() {
   }
 }
 
+void ServerGame::recordMcGuffinEvent(
+  McGuffinEventType event,
+  std::size_t playerIndex
+) {
+  ++snapshot_.mcguffin.eventSequence;
+  snapshot_.mcguffin.lastEvent = event;
+  snapshot_.mcguffin.eventPlayerIndex = playerIndex < kDuelPlayerCount
+    ? static_cast<std::uint8_t>(playerIndex)
+    : kNoMcGuffinCarrier;
+}
+
+void ServerGame::resetMcGuffinRound() {
+  resetMcGuffin(mcguffinObjective_, arena_.mcguffin.neutralSpawn);
+  snapshot_.mcguffinScores = {};
+  mcguffinStealTicks_ = {};
+  mcguffinCarrySubPoints_ = 0;
+  mcguffinCarriedPoints_ = 0;
+  mcguffinFinalHoldTicks_ = 0;
+  mcguffinRoundLiveTicks_ = 0;
+  mcguffinThrowPickupLockoutTicks_ = 0;
+  if (snapshot_.mcguffinRound == 1U) {
+    snapshot_.mcguffinRedBaseOwner = Team::Blue;
+    snapshot_.mcguffinBlueBaseOwner = Team::Red;
+  } else if (snapshot_.mcguffinRound >= 2U) {
+    // The deciding round's first valid delivery claims a base.
+    snapshot_.mcguffinRedBaseOwner = Team::None;
+    snapshot_.mcguffinBlueBaseOwner = Team::None;
+  } else {
+    snapshot_.mcguffinRedBaseOwner = Team::Red;
+    snapshot_.mcguffinBlueBaseOwner = Team::Blue;
+  }
+  snapshot_.mcguffin.lastEvent = McGuffinEventType::None;
+  snapshot_.mcguffin.eventPlayerIndex = kNoMcGuffinCarrier;
+  snapshot_.mcguffin.state = mcguffinObjective_.state;
+  snapshot_.mcguffin.associatedTeam = Team::None;
+  snapshot_.mcguffin.carrierTeam = Team::None;
+  snapshot_.mcguffin.carrierIndex = kNoMcGuffinCarrier;
+  snapshot_.mcguffin.position = mcguffinObjective_.position;
+  snapshot_.mcguffin.velocity = {};
+  snapshot_.mcguffin.stateTicks = 0;
+  snapshot_.mcguffin.scoreSubPoints = 0;
+  snapshot_.mcguffin.carrySubPoints = 0;
+  snapshot_.mcguffin.carriedPoints = 0;
+  snapshot_.mcguffin.interactionTicks = 0;
+  snapshot_.mcguffin.finalHoldTicks = 0;
+}
+
+void ServerGame::dropMcGuffinCarrier(std::size_t playerIndex) {
+  if (
+    mcguffinObjective_.state != McGuffinState::Carried ||
+    mcguffinObjective_.carrierIndex != playerIndex ||
+    playerIndex >= kDuelPlayerCount
+  ) {
+    return;
+  }
+  Vec3 position = snapshot_.players[playerIndex].position;
+  position.z = std::max(arena_.min.z, position.z - snapshot_.players[playerIndex].bounds.halfHeight);
+  if (dropMcGuffin(mcguffinObjective_, playerIndex, position)) {
+    recordMcGuffinEvent(McGuffinEventType::Drop, playerIndex);
+    // Damage is resolved after the objective update in the tick. Mirror the
+    // drop immediately so the snapshot published this tick never names a dead
+    // or disconnected carrier.
+    snapshot_.mcguffin.state = mcguffinObjective_.state;
+    snapshot_.mcguffin.carrierTeam = Team::None;
+    snapshot_.mcguffin.carrierIndex = kNoMcGuffinCarrier;
+    snapshot_.mcguffin.position = mcguffinObjective_.position;
+    snapshot_.mcguffin.velocity = {};
+    snapshot_.mcguffin.stateTicks = 0;
+  }
+}
+
+void ServerGame::beginMcGuffinRoundEnd(Team winnerTeam) {
+  const std::size_t index = winnerTeam == Team::Red ? 0U : 1U;
+  if (!isPlayableTeam(winnerTeam)) return;
+  ++snapshot_.mcguffinRoundsWon[index];
+  ++snapshot_.mcguffinRound;
+  snapshot_.roundWinningTeam = winnerTeam;
+  snapshot_.mcguffinScores[index] = mcguffinConfig_.scoreLimit;
+  recordMcGuffinEvent(McGuffinEventType::RoundWin, kDuelPlayerCount);
+  if (snapshot_.mcguffinRoundsWon[index] >= 2U) {
+    beginMatchEnd(winnerTeam);
+    return;
+  }
+  snapshot_.matchPhase = MatchPhase::RoundEnd;
+  snapshot_.phaseTicksRemaining = matchRules_.roundEndTicks;
+}
+
+void ServerGame::updateMcGuffin() {
+  if (snapshot_.gameMode != GameMode::McGuffin) return;
+
+  if (snapshot_.matchPhase == MatchPhase::Live) {
+    ++mcguffinRoundLiveTicks_;
+  }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (snapshot_.respawnTicksRemaining[index] == 0) continue;
+    --snapshot_.respawnTicksRemaining[index];
+    if (snapshot_.respawnTicksRemaining[index] == 0 && isOccupiedSlot(index)) {
+      respawnPlayer(index);
+    }
+  }
+
+  if (snapshot_.matchPhase != MatchPhase::Live) return;
+
+  if (mcguffinThrowPickupLockoutTicks_ > 0) {
+    --mcguffinThrowPickupLockoutTicks_;
+  }
+
+  // Throw requests are latched from newly accepted packets, then executed
+  // after movement so origin and inherited velocity use this tick's state.
+  if (mcguffinObjective_.state == McGuffinState::Carried) {
+    const std::size_t carrier = mcguffinObjective_.carrierIndex;
+    if (carrier < kDuelPlayerCount && mcguffinThrowRequestedThisTick_[carrier] &&
+        isActiveCombatant(carrier)) {
+      const UserCommand& command = mcguffinThrowCommands_[carrier];
+      const Vec3 forward = cameraForward(
+        command.viewYawRadians, command.viewPitchRadians
+      );
+      const Vec3 velocity =
+        (forward * mcguffinConfig_.throwSpeed) +
+        Vec3{0.0F, 0.0F, mcguffinConfig_.throwUpSpeed} +
+        (snapshot_.players[carrier].velocity *
+          mcguffinConfig_.throwVelocityInheritance);
+      const Vec3 carrierPosition = snapshot_.players[carrier].position;
+      constexpr float kThrowOriginOffset = 0.8F;
+      const WorldTrace originTrace = traceWorld(
+        arena_, carrierPosition, forward, kThrowOriginOffset
+      );
+      // Keep the launch point on the carrier side of nearby geometry. The
+      // ordinary dropped-object sweep takes over from this clamped position.
+      const float originDistance = std::max(
+        0.0F,
+        std::min(kThrowOriginOffset, originTrace.distance) -
+          (2.0F * kProjectileCollisionEpsilon)
+      );
+      const Vec3 origin = carrierPosition + (forward * originDistance);
+      if (throwMcGuffin(mcguffinObjective_, carrier, origin, velocity)) {
+        mcguffinThrowPickupLockoutTicks_ =
+          mcguffinConfig_.throwPickupLockoutTicks;
+        // Carry credit belongs to the current objective run, not one carrier,
+        // so a deliberate pass preserves the same bankable reserve as a drop.
+        recordMcGuffinEvent(McGuffinEventType::Throw, carrier);
+      }
+    }
+  }
+
+  if (mcguffinObjective_.state == McGuffinState::Carried) {
+    const std::size_t carrier = mcguffinObjective_.carrierIndex;
+    if (
+      carrier >= kDuelPlayerCount || !isActiveCombatant(carrier) ||
+      snapshot_.teams[carrier] != mcguffinObjective_.carrierTeam
+    ) {
+      dropMcGuffinCarrier(carrier);
+    } else {
+      mcguffinObjective_.position = snapshot_.players[carrier].position;
+    }
+  }
+
+  if (mcguffinObjective_.state == McGuffinState::Dropped &&
+      length(mcguffinObjective_.velocity) > 0.0F) {
+    mcguffinObjective_.velocity.z -=
+      mcguffinConfig_.throwGravity * kFixedTickSeconds;
+    const Vec3 start = mcguffinObjective_.position;
+    const Vec3 next = start +
+      (mcguffinObjective_.velocity * kFixedTickSeconds);
+    const Vec3 segment = next - start;
+    const float distance = length(segment);
+    if (distance > 0.000001F) {
+      const WorldTrace trace = traceWorld(arena_, start, segment / distance, distance);
+      if (trace.distance < distance - kProjectileCollisionEpsilon) {
+        Vec3 normal = bounceNormalForPoint(arena_, trace.end);
+        if (dot(mcguffinObjective_.velocity, normal) > 0.0F) normal *= -1.0F;
+        const float normalVelocity = dot(mcguffinObjective_.velocity, normal);
+        if (normalVelocity < 0.0F) {
+          mcguffinObjective_.velocity =
+            (mcguffinObjective_.velocity - (normal * (2.0F * normalVelocity))) *
+            mcguffinConfig_.throwBounceDamping;
+        }
+        if (normal.z > 0.5F && length(mcguffinObjective_.velocity) < 0.5F) {
+          mcguffinObjective_.velocity = {};
+        }
+        mcguffinObjective_.position = trace.end +
+          (normal * (2.0F * kProjectileCollisionEpsilon));
+      } else {
+        mcguffinObjective_.position = next;
+      }
+    }
+  }
+
+  auto baseCenter = [](const ArenaMcGuffinBase& base) {
+    return (base.min + base.max) * 0.5F;
+  };
+  const auto ownerForPosition = [&](Vec3 position) {
+    if (pointInsideMcGuffinBase(position, arena_.mcguffin.redBase)) {
+      return snapshot_.mcguffinRedBaseOwner;
+    }
+    if (pointInsideMcGuffinBase(position, arena_.mcguffin.blueBase)) {
+      return snapshot_.mcguffinBlueBaseOwner;
+    }
+    return Team::None;
+  };
+
+  if (
+    mcguffinObjective_.state == McGuffinState::NeutralSpawn &&
+    mcguffinRoundLiveTicks_ < mcguffinConfig_.initialSpawnTicks
+  ) {
+    mcguffinObjective_.stateTicks = mcguffinRoundLiveTicks_;
+  } else if (
+    mcguffinObjective_.state == McGuffinState::NeutralSpawn ||
+    mcguffinObjective_.state == McGuffinState::Dropped
+  ) {
+    if (mcguffinObjective_.state == McGuffinState::NeutralSpawn) {
+      mcguffinObjective_.stateTicks = mcguffinConfig_.initialSpawnTicks;
+    }
+    for (std::size_t index = 0;
+         mcguffinThrowPickupLockoutTicks_ == 0 && index < kDuelPlayerCount;
+         ++index) {
+      if (!isActiveCombatant(index) || !isPlayableTeam(snapshot_.teams[index])) continue;
+      if (tryPickupMcGuffin(
+        mcguffinObjective_, mcguffinConfig_, index, snapshot_.teams[index],
+        snapshot_.players[index].position
+      )) {
+        recordMcGuffinEvent(McGuffinEventType::Pickup, index);
+        break;
+      }
+    }
+  }
+
+  bool carrierAtOwnBase = false;
+  Team installedAtBase = Team::None;
+  Vec3 installedPosition = {};
+  ArenaSpawnGroup pendingClaimGroup = ArenaSpawnGroup::None;
+  if (mcguffinObjective_.state == McGuffinState::Carried) {
+    const std::size_t carrier = mcguffinObjective_.carrierIndex;
+    if (carrier < kDuelPlayerCount) {
+      const Vec3 position = snapshot_.players[carrier].position;
+      const bool inRed = pointInsideMcGuffinBase(position, arena_.mcguffin.redBase);
+      const bool inBlue = pointInsideMcGuffinBase(position, arena_.mcguffin.blueBase);
+      const bool canClaimBase = snapshot_.mcguffinRound >= 2U && (inRed || inBlue) &&
+        snapshot_.mcguffinRedBaseOwner == Team::None &&
+        snapshot_.mcguffinBlueBaseOwner == Team::None;
+      if (canClaimBase) {
+        // Treat the carrier as provisionally owning this trigger so the normal
+        // installation timer can run. Ownership is committed only after that
+        // timer completes, allowing a touch-and-retreat to leave both bases free.
+        pendingClaimGroup = inRed
+          ? ArenaSpawnGroup::RedBase
+          : ArenaSpawnGroup::BlueBase;
+      }
+      const Team owner = canClaimBase
+        ? mcguffinObjective_.carrierTeam
+        : ownerForPosition(position);
+      carrierAtOwnBase = owner == mcguffinObjective_.carrierTeam;
+      if (carrierAtOwnBase) {
+        installedAtBase = owner;
+        installedPosition = inRed
+          ? baseCenter(arena_.mcguffin.redBase)
+          : baseCenter(arena_.mcguffin.blueBase);
+      }
+
+      if (mcguffinCarriedPoints_ < mcguffinConfig_.carryPointLimit) {
+        mcguffinCarrySubPoints_ += mcguffinConfig_.carryPointsPerSecond;
+        const std::uint32_t subPointsPerPoint =
+          static_cast<std::uint32_t>(kFixedTickRate);
+        const std::uint32_t points = mcguffinCarrySubPoints_ / subPointsPerPoint;
+        mcguffinCarrySubPoints_ %= subPointsPerPoint;
+        mcguffinCarriedPoints_ = static_cast<std::uint16_t>(std::min<std::uint32_t>(
+          mcguffinConfig_.carryPointLimit,
+          static_cast<std::uint32_t>(mcguffinCarriedPoints_) + points
+        ));
+        if (mcguffinCarriedPoints_ >= mcguffinConfig_.carryPointLimit) {
+          mcguffinCarrySubPoints_ = 0;
+        }
+      }
+    }
+  }
+
+  const McGuffinState beforeTick = mcguffinObjective_.state;
+  std::optional<Team> winner;
+  const Team scoringTeam = beforeTick == McGuffinState::InstalledRed
+    ? Team::Red : beforeTick == McGuffinState::InstalledBlue ? Team::Blue : Team::None;
+  const std::size_t scoringIndex = scoringTeam == Team::Red ? 0U : 1U;
+  if (isPlayableTeam(scoringTeam) &&
+      snapshot_.mcguffinScores[scoringIndex] + 1U >= mcguffinConfig_.scoreLimit) {
+    const ArenaMcGuffinBase& base = scoringTeam == snapshot_.mcguffinRedBaseOwner
+      ? arena_.mcguffin.redBase : arena_.mcguffin.blueBase;
+    bool contested = false;
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      contested = contested || (isActiveCombatant(index) &&
+        snapshot_.teams[index] != scoringTeam &&
+        pointInsideMcGuffinBase(snapshot_.players[index].position, base));
+    }
+    mcguffinFinalHoldTicks_ = contested ? 0U : mcguffinFinalHoldTicks_ + 1U;
+    if (mcguffinFinalHoldTicks_ >= mcguffinConfig_.finalHoldTicks) {
+      winner = scoringTeam;
+    }
+  } else {
+    winner = tickMcGuffin(
+      mcguffinObjective_, mcguffinConfig_, carrierAtOwnBase,
+      snapshot_.mcguffinScores
+    );
+  }
+
+  if (beforeTick == McGuffinState::Dropped &&
+      mcguffinObjective_.state == McGuffinState::NeutralSpawn) {
+    recordMcGuffinEvent(McGuffinEventType::Return, kDuelPlayerCount);
+  }
+
+  if (beforeTick == McGuffinState::Carried &&
+      mcguffinObjective_.state != McGuffinState::Carried) {
+    if (pendingClaimGroup != ArenaSpawnGroup::None &&
+        (mcguffinObjective_.state == McGuffinState::InstalledRed ||
+         mcguffinObjective_.state == McGuffinState::InstalledBlue)) {
+      const Team claimant = installedAtBase;
+      const Team opponent = claimant == Team::Red ? Team::Blue : Team::Red;
+      if (pendingClaimGroup == ArenaSpawnGroup::RedBase) {
+        snapshot_.mcguffinRedBaseOwner = claimant;
+        snapshot_.mcguffinBlueBaseOwner = opponent;
+      } else {
+        snapshot_.mcguffinBlueBaseOwner = claimant;
+        snapshot_.mcguffinRedBaseOwner = opponent;
+      }
+    }
+    mcguffinObjective_.position = installedPosition;
+    const std::size_t index = installedAtBase == Team::Red ? 0U : 1U;
+    snapshot_.mcguffinScores[index] = static_cast<std::uint16_t>(std::min<unsigned>(
+      mcguffinConfig_.scoreLimit > 0 ? mcguffinConfig_.scoreLimit - 1U : 0U,
+      static_cast<unsigned>(snapshot_.mcguffinScores[index]) + mcguffinCarriedPoints_
+    ));
+    mcguffinCarrySubPoints_ = 0;
+    mcguffinCarriedPoints_ = 0;
+    recordMcGuffinEvent(
+      McGuffinEventType::Install,
+      snapshot_.mcguffin.eventPlayerIndex
+    );
+  }
+
+  if (mcguffinObjective_.state == McGuffinState::InstalledRed ||
+      mcguffinObjective_.state == McGuffinState::InstalledBlue) {
+    const Team owner = mcguffinObjective_.associatedTeam;
+    const ArenaMcGuffinBase& base = owner == snapshot_.mcguffinRedBaseOwner
+      ? arena_.mcguffin.redBase : arena_.mcguffin.blueBase;
+    mcguffinObjective_.position = baseCenter(base);
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      const bool stealing = isActiveCombatant(index) &&
+        snapshot_.teams[index] != owner &&
+        pointInsideMcGuffinBase(snapshot_.players[index].position, base);
+      mcguffinStealTicks_[index] = stealing ? mcguffinStealTicks_[index] + 1U : 0U;
+      if (stealing && mcguffinStealTicks_[index] >= mcguffinConfig_.stealTicks &&
+          tryStealMcGuffin(
+            mcguffinObjective_, mcguffinConfig_, index, snapshot_.teams[index],
+            mcguffinObjective_.position
+          )) {
+        mcguffinStealTicks_ = {};
+        mcguffinFinalHoldTicks_ = 0;
+        recordMcGuffinEvent(McGuffinEventType::Steal, index);
+        break;
+      }
+    }
+  } else {
+    mcguffinStealTicks_ = {};
+  }
+
+  if (winner.has_value()) beginMcGuffinRoundEnd(*winner);
+
+  snapshot_.mcguffin.state = mcguffinObjective_.state;
+  snapshot_.mcguffin.associatedTeam = mcguffinObjective_.associatedTeam;
+  snapshot_.mcguffin.carrierTeam = mcguffinObjective_.carrierTeam;
+  snapshot_.mcguffin.carrierIndex = mcguffinObjective_.carrierIndex;
+  snapshot_.mcguffin.position = mcguffinObjective_.position;
+  snapshot_.mcguffin.velocity = mcguffinObjective_.velocity;
+  snapshot_.mcguffin.stateTicks = mcguffinObjective_.stateTicks;
+  snapshot_.mcguffin.scoreSubPoints = mcguffinObjective_.scoreSubPoints;
+  snapshot_.mcguffin.carrySubPoints = mcguffinCarrySubPoints_;
+  snapshot_.mcguffin.carriedPoints = mcguffinCarriedPoints_;
+  snapshot_.mcguffin.interactionTicks = *std::max_element(
+    mcguffinStealTicks_.begin(), mcguffinStealTicks_.end()
+  );
+  snapshot_.mcguffin.finalHoldTicks = mcguffinFinalHoldTicks_;
+}
+
 void ServerGame::restoreTransientCombatEvents() {
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (
@@ -3132,7 +3796,7 @@ void ServerGame::handleBotCommandRequest(const CommandPacket& packet) {
 }
 
 void ServerGame::updateClanArenaBotTeams() {
-  if (snapshot_.gameMode != GameMode::ClanArena) {
+  if (snapshot_.gameMode == GameMode::Duel) {
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
       if (botPlayers_[index]) {
         snapshot_.teams[index] = Team::None;
@@ -3253,6 +3917,10 @@ const std::string& ServerGame::mapDirectory() const {
   return mapDirectory_;
 }
 
+const std::string& ServerGame::spawnDebugString() const {
+  return spawnDebugString_;
+}
+
 bool ServerGame::loadRequestedMap(const std::string& mapName) {
   if (!isValidMapName(mapName)) {
     return false;
@@ -3260,6 +3928,12 @@ bool ServerGame::loadRequestedMap(const std::string& mapName) {
 
   const LocalMapLoadResult result = loadLocalMap(mapName, mapDirectory_);
   if (result.ok) {
+    if (snapshot_.gameMode == GameMode::McGuffin &&
+        !hasValidMcGuffinLayout(result.arena)) {
+      std::cerr << "map load rejected for '" << mapName
+                << "': active McGuffin mode requires one neutral spawn, two bases, and team spawns\n";
+      return false;
+    }
     setArena(result.arena, result.descriptor);
     return true;
   }
@@ -3280,6 +3954,44 @@ void ServerGame::receiveCommands() {
       isSequenceNewer(packet.command.sequence, snapshot_.acknowledgedCommand[playerIndex]);
     if (!isNewCommand) {
       continue;
+    }
+
+    ActionEdgeState& consumedEdges = lastActionEdges_[playerIndex];
+    jumpEdgeThisTick_[playerIndex] = jumpEdgeThisTick_[playerIndex] || consumeActionEdge(
+      packet.actionEdges.jump,
+      consumedEdges.jump
+    );
+    dashEdgeThisTick_[playerIndex] = dashEdgeThisTick_[playerIndex] || consumeActionEdge(
+      packet.actionEdges.dash,
+      consumedEdges.dash
+    );
+    const bool resetEdge = consumeActionEdge(
+      packet.actionEdges.reset,
+      consumedEdges.reset
+    );
+    const bool readyEdge = consumeActionEdge(
+      packet.actionEdges.ready,
+      consumedEdges.ready
+    );
+    const bool mcguffinThrowEdge = consumeActionEdge(
+      packet.actionEdges.mcguffinThrow,
+      consumedEdges.mcguffinThrow
+    );
+    const bool attackEdge = consumeActionEdge(
+      packet.actionEdges.attack,
+      consumedEdges.attack
+    );
+    if (attackEdge) {
+      // Apply the original click's aim and rewind tick when a later redundant
+      // command is the first datagram that delivers this attack edge.
+      packet.command.attack = true;
+      packet.command.viewYawRadians = packet.actionEdges.attackYawRadians;
+      packet.command.viewPitchRadians = packet.actionEdges.attackPitchRadians;
+      packet.command.weapon = packet.actionEdges.attackWeapon;
+      packet.viewedServerTick = packet.actionEdges.attackViewedServerTick;
+      attackEdgeThisTick_[playerIndex] = true;
+      attackEdgeCommands_[playerIndex] = packet.command;
+      attackEdgeViewedServerTicks_[playerIndex] = packet.viewedServerTick;
     }
 
     if (packet.requestMovementTuning) {
@@ -3477,6 +4189,14 @@ void ServerGame::receiveCommands() {
       warmupPhase() &&
       packet.requestedGameMode != snapshot_.gameMode
     ) {
+      if (
+        packet.requestedGameMode == GameMode::McGuffin &&
+        !hasValidMcGuffinLayout(arena_)
+      ) {
+        std::cerr << "Cannot start McGuffin: map requires exactly one neutral "
+          "spawn, one Red base, one Blue base, and team spawns.\n";
+        continue;
+      }
       snapshot_.gameMode = packet.requestedGameMode;
       snapshot_.teams = {};
       resetMatch();
@@ -3486,7 +4206,7 @@ void ServerGame::receiveCommands() {
     if (
       packet.requestTeam &&
       snapshot_.connectedPlayers[playerIndex] &&
-      snapshot_.gameMode == GameMode::ClanArena &&
+      snapshot_.gameMode != GameMode::Duel &&
       warmupPhase() &&
       packet.requestedTeam != snapshot_.teams[playerIndex]
     ) {
@@ -3496,13 +4216,13 @@ void ServerGame::receiveCommands() {
       refreshWarmupRosterState();
     }
 
-    if (packet.requestReset) {
+    if (packet.requestReset || resetEdge) {
       resetMatch();
       snapshot_.hasAcknowledgedCommand[playerIndex] = true;
       snapshot_.acknowledgedCommand[playerIndex] = packet.command.sequence;
       continue;
     }
-    if (packet.toggleReady) {
+    if (packet.toggleReady || readyEdge) {
       if (
         snapshot_.connectedPlayers[playerIndex] &&
         warmupPhase() &&
@@ -3515,9 +4235,29 @@ void ServerGame::receiveCommands() {
       }
     }
     if (!packet.chatMessage.empty()) {
-      ++snapshot_.chatSequence;
-      snapshot_.chatPlayerIndex = packet.playerIndex;
-      snapshot_.chatMessage = packet.chatMessage;
+      const std::uint32_t previousSequence = chatHistory_.messageCount == 0U
+        ? 0U
+        : chatHistory_.messages[chatHistory_.messageCount - 1U].sequence;
+      if (chatHistory_.messageCount == kChatHistoryCapacity) {
+        std::move(
+          chatHistory_.messages.begin() + 1,
+          chatHistory_.messages.end(),
+          chatHistory_.messages.begin()
+        );
+        --chatHistory_.messageCount;
+      }
+      // Preserve the name used when the message was sent; a later occupant of
+      // the same player slot must not appear to have authored old chat.
+      std::uint32_t nextSequence = previousSequence + 1U;
+      if (nextSequence == 0U) {
+        nextSequence = 1U;
+      }
+      chatHistory_.messages[chatHistory_.messageCount++] = ChatMessage{
+        nextSequence,
+        packet.playerIndex,
+        snapshot_.playerNames[packet.playerIndex],
+        packet.chatMessage,
+      };
     }
     if (!packet.playerName.empty()) {
       snapshot_.playerNames[playerIndex] = packet.playerName;
@@ -3528,14 +4268,44 @@ void ServerGame::receiveCommands() {
     if (packet.botCommand != BotCommandType::None) {
       handleBotCommandRequest(packet);
     }
+    if (packet.requestMcGuffinThrow || mcguffinThrowEdge) {
+      mcguffinThrowRequestedThisTick_[playerIndex] = true;
+      mcguffinThrowCommands_[playerIndex] = packet.command;
+      if (mcguffinThrowEdge) {
+        // The edge retains the aim from the original click even when a later
+        // redundant command is the first datagram that reaches the server.
+        mcguffinThrowCommands_[playerIndex].viewYawRadians =
+          packet.actionEdges.mcguffinThrowYawRadians;
+        mcguffinThrowCommands_[playerIndex].viewPitchRadians =
+          packet.actionEdges.mcguffinThrowPitchRadians;
+      }
+    }
 
     commands_[playerIndex] = packet.command;
+    commands_[playerIndex].jump =
+      commands_[playerIndex].jump || jumpEdgeThisTick_[playerIndex];
+    commands_[playerIndex].dash =
+      commands_[playerIndex].dash || dashEdgeThisTick_[playerIndex];
     viewedServerTicks_[playerIndex] = packet.viewedServerTick;
     hasCommand_[playerIndex] = true;
     receivedCommandThisTick_[playerIndex] = true;
     snapshot_.hasAcknowledgedCommand[playerIndex] = true;
     snapshot_.acknowledgedCommand[playerIndex] = packet.command.sequence;
   }
+
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    if (!attackEdgeThisTick_[playerIndex] || !hasCommand_[playerIndex]) {
+      continue;
+    }
+    commands_[playerIndex].attack = true;
+    commands_[playerIndex].viewYawRadians =
+      attackEdgeCommands_[playerIndex].viewYawRadians;
+    commands_[playerIndex].viewPitchRadians =
+      attackEdgeCommands_[playerIndex].viewPitchRadians;
+    commands_[playerIndex].weapon = attackEdgeCommands_[playerIndex].weapon;
+    viewedServerTicks_[playerIndex] = attackEdgeViewedServerTicks_[playerIndex];
+  }
+
 }
 
 void ServerGame::publishSnapshot() {
@@ -3546,6 +4316,7 @@ void ServerGame::publishSnapshot() {
   snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   snapshot_.botAttackMode = botAttackMode_;
+  transport_.publishChatHistory(chatHistory_);
   transport_.sendSnapshot(snapshot_);
 }
 

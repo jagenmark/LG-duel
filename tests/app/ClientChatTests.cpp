@@ -17,19 +17,19 @@ void expect(bool condition, const char* context) {
 } // namespace
 
 int main() {
-  lg::ServerSnapshot snapshot;
-  snapshot.chatPlayerIndex = 1;
-  snapshot.chatMessage = "good luck";
-  snapshot.playerNames[1] = "Zap Witch";
+  lg::ChatMessage message;
+  message.playerIndex = 1;
+  message.message = "good luck";
+  message.speakerName = "Zap Witch";
 
   expect(
-    lg::chatLine(snapshot) == "Zap Witch: good luck",
+    lg::chatLine(message) == "Zap Witch: good luck",
     "chat line should use replicated player names"
   );
 
-  snapshot.playerNames[1].clear();
+  message.speakerName.clear();
   expect(
-    lg::chatLine(snapshot) == "PLAYER 2: good luck",
+    lg::chatLine(message) == "PLAYER 2: good luck",
     "chat line should fall back when the replicated player name is empty"
   );
 

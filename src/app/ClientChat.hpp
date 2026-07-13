@@ -19,9 +19,11 @@ namespace lg {
   return "PLAYER " + std::to_string(playerIndex + 1U);
 }
 
-[[nodiscard]] inline std::string chatLine(const ServerSnapshot& snapshot) {
-  return chatPlayerDisplayName(snapshot, snapshot.chatPlayerIndex) +
-    ": " + snapshot.chatMessage;
+[[nodiscard]] inline std::string chatLine(const ChatMessage& message) {
+  const std::string speaker = !message.speakerName.empty()
+    ? message.speakerName
+    : "PLAYER " + std::to_string(message.playerIndex + 1U);
+  return speaker + ": " + message.message;
 }
 
 } // namespace lg

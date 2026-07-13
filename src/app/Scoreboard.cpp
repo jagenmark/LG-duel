@@ -139,7 +139,8 @@ void populateScoreboard(
   hud.scoreboardLines.push_back(
     scoreboardColumns(
       "  NAME",
-      snapshot.gameMode == GameMode::ClanArena ? "KILLS" : "SCORE",
+      snapshot.gameMode == GameMode::ClanArena ? "KILLS" :
+        snapshot.gameMode == GameMode::McGuffin ? "TEAM" : "SCORE",
       "ACC",
       "DAMAGE"
     )
@@ -160,7 +161,11 @@ void populateScoreboard(
       weaponAccuracyLabel(accuracy.weapon, accuracy.percent);
     const std::string row = scoreboardColumns(
       name,
-      std::to_string(snapshot.scores[index]),
+      snapshot.gameMode == GameMode::McGuffin
+        ? std::to_string(snapshot.mcguffinScores[
+            snapshot.teams[index] == Team::Blue ? 1U : 0U
+          ])
+        : std::to_string(snapshot.scores[index]),
       weaponAccuracy,
       std::to_string(totalDamage(stats))
     );
@@ -168,7 +173,7 @@ void populateScoreboard(
       row
     );
     hud.scoreboardLineTeams.push_back(
-      snapshot.gameMode == GameMode::ClanArena
+      snapshot.gameMode != GameMode::Duel
         ? snapshot.teams[index]
         : Team::None
     );

@@ -7,6 +7,7 @@
 #include "sim/IcePool.hpp"
 #include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
+#include "sim/McGuffinRules.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 
@@ -18,10 +19,17 @@
 namespace lg {
 
 inline constexpr std::size_t kDuelPlayerCount = kMaxPlayers;
-inline constexpr std::size_t kMaxBundledCommands = 3;
+inline constexpr std::size_t kMaxSpectatorClients = 8;
+inline constexpr std::size_t kMaxNetworkClients =
+  kDuelPlayerCount + kMaxSpectatorClients;
+inline constexpr std::uint8_t kNoAssignedPlayer = 255;
+inline constexpr std::size_t kMaxBundledCommands = 12;
+inline constexpr std::size_t kMaxCommandDatagramBytes = 1200;
 inline constexpr std::size_t kLocalHitFeedbackEventWindow = 4;
 inline constexpr std::size_t kMaxChatMessageBytes = 240;
 inline constexpr std::size_t kMaxPlayerNameBytes = 20;
+inline constexpr std::size_t kChatHistoryCapacity = 40;
+inline constexpr std::size_t kChatHistoryChunkCapacity = 4;
 inline constexpr std::size_t kMaxMapNameBytes = 32;
 inline constexpr float kMaxLightningKnockback = 100000.0F;
 inline constexpr float kMaxRocketKnockback = 1000.0F;
@@ -68,7 +76,39 @@ struct MatchRules {
   std::uint16_t countdownTicks = 625;
   std::uint16_t roundEndTicks = 625;
   std::uint16_t matchEndTicks = 625;
+  // Shared by modes that respawn players during live play. Elimination modes
+  // still end their round on death instead of consulting this timer.
+  std::uint16_t deathRespawnTicks = 250;
   bool showOpponentHealth = true;
+};
+
+enum class McGuffinEventType : std::uint8_t {
+  None = 0,
+  Pickup = 1,
+  Drop = 2,
+  Install = 3,
+  Steal = 4,
+  Return = 5,
+  RoundWin = 6,
+  Throw = 7,
+};
+
+struct McGuffinSnapshot {
+  McGuffinState state = McGuffinState::NeutralSpawn;
+  Team associatedTeam = Team::None;
+  Team carrierTeam = Team::None;
+  std::uint8_t carrierIndex = kNoMcGuffinCarrier;
+  Vec3 position = {};
+  Vec3 velocity = {};
+  std::uint32_t stateTicks = 0;
+  std::uint32_t scoreSubPoints = 0;
+  std::uint32_t carrySubPoints = 0;
+  std::uint16_t carriedPoints = 0;
+  std::uint32_t interactionTicks = 0;
+  std::uint32_t finalHoldTicks = 0;
+  std::uint32_t eventSequence = 0;
+  McGuffinEventType lastEvent = McGuffinEventType::None;
+  std::uint8_t eventPlayerIndex = kNoMcGuffinCarrier;
 };
 
 struct ConnectRequest {
@@ -77,8 +117,26 @@ struct ConnectRequest {
 
 struct ConnectAccept {
   std::uint32_t clientNonce = 0;
-  std::uint8_t playerIndex = 0;
+  std::uint8_t clientIndex = 0;
+  std::uint8_t playerIndex = kNoAssignedPlayer;
   std::uint32_t serverTick = 0;
+};
+
+// Edge counters are cumulative input state. Repeating them in every command
+// bundle makes one-shot actions loss-tolerant without executing duplicates.
+struct ActionEdgeState {
+  std::uint32_t jump = 0;
+  std::uint32_t dash = 0;
+  std::uint32_t reset = 0;
+  std::uint32_t ready = 0;
+  std::uint32_t mcguffinThrow = 0;
+  float mcguffinThrowYawRadians = 0.0F;
+  float mcguffinThrowPitchRadians = 0.0F;
+  std::uint32_t attack = 0;
+  float attackYawRadians = 0.0F;
+  float attackPitchRadians = 0.0F;
+  std::uint32_t attackViewedServerTick = 0;
+  Weapon attackWeapon = Weapon::LightningGun;
 };
 
 struct CommandPacket {
@@ -124,9 +182,16 @@ struct CommandPacket {
   std::int32_t botCommandValue = 0;
   std::int32_t botCommandMinIntervalMs = 250;
   std::int32_t botCommandMaxIntervalMs = 750;
+  bool requestMcGuffinThrow = false;
+  bool wantsScoreboardStats = false;
+  std::uint32_t acknowledgedConfigurationRevision = 0;
+  bool requestSpectator = false;
+  ActionEdgeState actionEdges = {};
 };
 
 struct CommandBundle {
+  std::uint32_t datagramSequence = 0;
+  ActionEdgeState actionEdges = {};
   std::uint8_t commandCount = 0;
   std::array<CommandPacket, kMaxBundledCommands> commands = {};
 };
@@ -139,6 +204,31 @@ struct DisconnectPacket {
   std::uint32_t clientNonce = 0;
 };
 
+struct ChatMessage {
+  std::uint32_t sequence = 0;
+  std::uint8_t playerIndex = 0;
+  std::string speakerName;
+  std::string message;
+};
+
+struct ChatHistory {
+  std::uint8_t messageCount = 0;
+  std::array<ChatMessage, kChatHistoryCapacity> messages = {};
+};
+
+// Chat travels outside the high-frequency gameplay snapshot. Four maximum-size
+// entries keep each history datagram comfortably below common UDP MTUs.
+struct ChatHistoryChunk {
+  std::uint32_t oldestAvailableSequence = 0;
+  std::uint32_t latestSequence = 0;
+  std::uint8_t messageCount = 0;
+  std::array<ChatMessage, kChatHistoryChunkCapacity> messages = {};
+};
+
+struct ChatHistoryAck {
+  std::uint32_t sequence = 0;
+};
+
 struct WeaponCombatStats {
   std::uint32_t damageDealt = 0;
   std::uint16_t attempts = 0;
@@ -147,6 +237,12 @@ struct WeaponCombatStats {
 
 struct RoundCombatStats {
   std::array<WeaponCombatStats, kWeaponCount> weapons = {};
+};
+
+struct CombatStatsPacket {
+  std::uint32_t serverTick = 0;
+  std::array<RoundCombatStats, kDuelPlayerCount> round = {};
+  std::array<RoundCombatStats, kDuelPlayerCount> match = {};
 };
 
 struct FootstepAudioEvent {
@@ -181,6 +277,15 @@ struct LocalHitFeedbackEvent {
 
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
+  // This recipient-only state describes the connection's current body
+  // assignment without making observers simulation entities or expanding
+  // gameplay arrays. Other transports leave the tag false.
+  bool hasLocalClientState = false;
+  std::uint8_t localPlayerIndex = kNoAssignedPlayer;
+  bool localSpectator = false;
+  std::uint8_t spectatorCount = 0;
+  std::uint32_t acknowledgedCommandDatagramSequence = 0;
+  std::uint32_t commandDatagramAckBits = 0;
   std::uint32_t mapRevision = 1;
   MapDescriptor map = {};
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
@@ -205,12 +310,22 @@ struct ServerSnapshot {
   GameMode gameMode = GameMode::Duel;
   std::array<Team, kDuelPlayerCount> teams = {};
   std::array<std::uint16_t, kPlayableTeamCount> teamScores = {};
+  std::array<std::uint16_t, kPlayableTeamCount> mcguffinScores = {};
+  std::array<std::uint8_t, kPlayableTeamCount> mcguffinRoundsWon = {};
+  std::uint8_t mcguffinRound = 0;
+  Team mcguffinRedBaseOwner = Team::Red;
+  Team mcguffinBlueBaseOwner = Team::Blue;
+  McGuffinSnapshot mcguffin = {};
+  McGuffinConfig mcguffinConfig = {};
   Team roundWinningTeam = Team::None;
   Team matchWinningTeam = Team::None;
   std::array<bool, kDuelPlayerCount> connectedPlayers = {};
   std::array<bool, kDuelPlayerCount> botPlayers = {};
   std::array<bool, kDuelPlayerCount> participatingPlayers = {};
   std::array<bool, kDuelPlayerCount> readyPlayers = {};
+  bool hasCombatStats = true;
+  std::uint32_t configurationRevision = 1;
+  bool hasConfiguration = true;
   MatchPhase matchPhase = MatchPhase::WaitingForPlayers;
   MatchRules matchRules = {};
   MovementTuning movementTuning = {};
@@ -249,9 +364,6 @@ struct ServerSnapshot {
   std::uint8_t roundWinner = 255;
   std::uint8_t matchWinner = 255;
   bool playersColliding = false;
-  std::uint32_t chatSequence = 0;
-  std::uint8_t chatPlayerIndex = 0;
-  std::string chatMessage;
 };
 
 // Snapshots are decoded, queued, copied, assigned, and interpolated constantly.

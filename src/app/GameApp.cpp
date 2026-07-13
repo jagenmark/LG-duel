@@ -4,6 +4,7 @@
 #include "app/ClientChat.hpp"
 #include "app/ClientCvars.hpp"
 #include "app/ConsoleInput.hpp"
+#include "app/DeathCamera.hpp"
 #include "app/HudPresentation.hpp"
 #include "app/PerfTelemetry.hpp"
 #include "app/Scoreboard.hpp"
@@ -49,6 +50,7 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <optional>
 #include <set>
 #include <sstream>
 #include <string>
@@ -1797,6 +1799,7 @@ struct ClientConsoleState {
   bool selecting = false;
   std::size_t selectionAnchor = 0;
   std::size_t selectionFocus = 0;
+  ConsoleCatController cat;
 };
 
 struct ClientChatState {
@@ -1814,6 +1817,8 @@ struct ClientChatState {
   std::string pendingMessage;
   std::deque<Message> history;
   std::uint32_t lastSequence = 0;
+  std::size_t scrollRows = 0;
+  const ClientGame* sourceGame = nullptr;
   std::chrono::steady_clock::time_point visibleUntil = {};
 };
 
@@ -3073,6 +3078,7 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   renderState.hasSelection = state.hasSelection;
   renderState.selectionAnchor = state.selectionAnchor;
   renderState.selectionFocus = state.selectionFocus;
+  renderState.cat = state.cat.pose();
   return renderState;
 }
 
@@ -3119,6 +3125,7 @@ HudRenderState chatHudRenderState(const ClientChatState& state) {
   hud.chatHasSelection = hasSelection(state.selection);
   hud.chatSelectionAnchor = state.selection.anchor;
   hud.chatSelectionFocus = state.selection.focus;
+  hud.chatScrollRows = state.scrollRows;
   return hud;
 }
 
@@ -3269,6 +3276,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("mouse1", "+attack");
   (void)bindings.bind("mouse2", "+zoom");
   (void)bindings.bind("mouse3", "+dash");
+  (void)bindings.bind("g", "mcguffin_throw");
   (void)bindings.bind("2", "weapon mg");
   (void)bindings.bind("3", "weapon sg");
   (void)bindings.bind("5", "weapon gl");
@@ -3284,7 +3292,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("f5", "resetmatch");
   (void)bindings.bind("f3", "ready");
   (void)bindings.bind("t", "messagemode");
-  (void)bindings.bind("z", "showchat");
+  (void)bindings.bind("z", "+showchat");
   (void)bindings.bind("tab", "+scores");
   (void)bindings.bind("f10", "settings");
   (void)bindings.bind("f12", "quit");
@@ -3296,6 +3304,8 @@ std::string gameModeName(GameMode gameMode) {
     return "DUEL";
   case GameMode::ClanArena:
     return "CLAN ARENA";
+  case GameMode::McGuffin:
+    return "MCGUFFIN";
   }
   return "UNKNOWN";
 }
@@ -3394,9 +3404,14 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
     "PLAYERS " + std::to_string(occupiedCount) + '/' +
     std::to_string(kDuelPlayerCount)
   );
+  if (snapshot.spectatorCount > 0) {
+    hud.topLeftLines.push_back(
+      "SPECTATORS " + std::to_string(snapshot.spectatorCount)
+    );
+  }
   if (snapshot.matchPhase != MatchPhase::Live) {
     hud.topLeftLines.push_back("MODE " + gameModeName(snapshot.gameMode));
-    if (snapshot.gameMode == GameMode::ClanArena) {
+    if (snapshot.gameMode != GameMode::Duel) {
       hud.topLeftLines.push_back(
         "TEAM " + teamName(snapshot.teams[localPlayerIndex])
       );
@@ -3406,7 +3421,61 @@ HudRenderState buildHud(const ClientSession& session, bool showAliveCounts) {
     hud.topRightLines.push_back(aliveCountLine(snapshot));
   }
   hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
-  if (snapshot.matchRules.timeLimitMinutes > 0) {
+  if (snapshot.gameMode == GameMode::McGuffin) {
+    const char* state = "AT CENTER";
+    if (snapshot.mcguffin.state == McGuffinState::Carried) state = "CARRIED";
+    else if (snapshot.mcguffin.state == McGuffinState::Dropped) state = "DROPPED";
+    else if (snapshot.mcguffin.state == McGuffinState::InstalledRed) state = "RED CONTROL";
+    else if (snapshot.mcguffin.state == McGuffinState::InstalledBlue) state = "BLUE CONTROL";
+    hud.topCenterLines.emplace_back(std::string("MCGUFFIN ") + state);
+    if (snapshot.mcguffin.state == McGuffinState::NeutralSpawn &&
+        snapshot.mcguffin.stateTicks < snapshot.mcguffinConfig.initialSpawnTicks) {
+      const std::uint32_t ticks = snapshot.mcguffinConfig.initialSpawnTicks -
+        snapshot.mcguffin.stateTicks;
+      hud.topCenterLines.push_back("SPAWNS IN " + std::to_string((ticks + 124U) / 125U));
+    }
+    if (snapshot.mcguffin.state == McGuffinState::Dropped &&
+        snapshot.mcguffinConfig.returnTicks > 0 &&
+        snapshot.mcguffin.stateTicks < snapshot.mcguffinConfig.returnTicks) {
+      const std::uint32_t ticks = snapshot.mcguffinConfig.returnTicks -
+        snapshot.mcguffin.stateTicks;
+      hud.topCenterLines.push_back("RETURNS IN " + std::to_string((ticks + 124U) / 125U));
+    }
+    if (snapshot.mcguffin.carrierIndex < kDuelPlayerCount) {
+      hud.topCenterLines.push_back(
+        snapshot.mcguffin.carrierIndex == localPlayerIndex
+          ? "YOU HAVE THE MCGUFFIN"
+          : snapshot.playerNames[snapshot.mcguffin.carrierIndex] + " HAS THE MCGUFFIN"
+      );
+    }
+    switch (snapshot.mcguffin.lastEvent) {
+    case McGuffinEventType::Pickup:
+      hud.topCenterLines.emplace_back("OBJECTIVE PICKED UP");
+      break;
+    case McGuffinEventType::Drop:
+      hud.topCenterLines.emplace_back("OBJECTIVE DROPPED");
+      break;
+    case McGuffinEventType::Install:
+      hud.topCenterLines.emplace_back("OBJECTIVE INSTALLED");
+      break;
+    case McGuffinEventType::Steal:
+      hud.topCenterLines.emplace_back("OBJECTIVE STOLEN");
+      break;
+    case McGuffinEventType::Return:
+      hud.topCenterLines.emplace_back("OBJECTIVE RETURNED");
+      break;
+    case McGuffinEventType::RoundWin:
+      hud.topCenterLines.emplace_back("SCORE LIMIT REACHED");
+      break;
+    case McGuffinEventType::Throw:
+      hud.topCenterLines.emplace_back("OBJECTIVE THROWN");
+      break;
+    case McGuffinEventType::None:
+      break;
+    }
+  }
+  if (snapshot.matchRules.timeLimitMinutes > 0 &&
+      snapshot.gameMode != GameMode::McGuffin) {
     const std::uint32_t limitTicks =
       static_cast<std::uint32_t>(snapshot.matchRules.timeLimitMinutes) * 60U * 125U;
     const std::uint32_t remainingTicks =
@@ -3601,6 +3670,7 @@ int GameApp::run() const {
   bool running = true;
   bool resetRequested = false;
   bool readyRequested = false;
+  bool mcguffinThrowRequested = false;
   bool quitRequested = false;
   bool clearRequested = false;
   bool writeConfigRequested = false;
@@ -3610,10 +3680,13 @@ int GameApp::run() const {
   bool showChatRequested = false;
   bool requestGameModePending = false;
   bool requestTeamPending = false;
+  bool requestSpectatorPending = false;
   GameMode requestedGameMode = GameMode::Duel;
   Team requestedTeam = Team::None;
   int scoreboardPressCount = 0;
+  int chatHistoryPressCount = 0;
   int zoomPressCount = 0;
+  int pendingSpectateCycle = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
   Weapon viewWeapon = Weapon::LightningGun;
   Weapon previousViewWeapon = Weapon::LightningGun;
@@ -3636,6 +3709,11 @@ int GameApp::run() const {
   std::deque<PendingBotCommand> pendingBotCommands;
   ClientChatState chatState;
   ClientSession session;
+  std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
+    netGraphCorrectionSerials = {};
+  std::array<float, kNetworkTelemetryHistorySamples>
+    netGraphCorrectionDistances = {};
+  std::uint32_t lastNetGraphCorrectionCount = 0;
 
   const auto registerButtonCommand =
     [&console](std::string name, int& pressCount) {
@@ -3669,6 +3747,7 @@ int GameApp::run() const {
   registerButtonCommand("attack", input.attack);
   registerButtonCommand("dash", input.dash);
   registerButtonCommand("scores", scoreboardPressCount);
+  registerButtonCommand("showchat", chatHistoryPressCount);
   registerButtonCommand("zoom", zoomPressCount);
 
   console.registerCommand(
@@ -4010,11 +4089,35 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+    "mcguffin_throw",
+    "Throw the carried McGuffin along the current aim direction.",
+    [&mcguffinThrowRequested](const std::vector<std::string>&) {
+      mcguffinThrowRequested = true;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
+    "spectate_next",
+    "Follow the next available living teammate while spectating.",
+    [&pendingSpectateCycle](const std::vector<std::string>&) {
+      pendingSpectateCycle = 1;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
+    "spectate_prev",
+    "Follow the previous available living teammate while spectating.",
+    [&pendingSpectateCycle](const std::vector<std::string>&) {
+      pendingSpectateCycle = -1;
+      return std::string{};
+    }
+  );
+  console.registerCommand(
     "gamemode",
-    "Select the active gamemode: gamemode <duel|ca|clanarena>.",
+    "Select the active gamemode: gamemode <duel|ca|mcguffin>.",
     [&requestGameModePending, &requestedGameMode](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: gamemode <duel|ca|clanarena>");
+        return std::string("usage: gamemode <duel|ca|mcguffin>");
       }
       std::string value = arguments[1];
       std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -4024,8 +4127,10 @@ int GameApp::run() const {
         requestedGameMode = GameMode::Duel;
       } else if (value == "ca" || value == "clanarena" || value == "clan_arena") {
         requestedGameMode = GameMode::ClanArena;
+      } else if (value == "mcg" || value == "mcguffin") {
+        requestedGameMode = GameMode::McGuffin;
       } else {
-        return std::string("usage: gamemode <duel|ca|clanarena>");
+        return std::string("usage: gamemode <duel|ca|mcguffin>");
       }
       requestGameModePending = true;
       return std::string("gamemode = ") + gameModeName(requestedGameMode);
@@ -4033,10 +4138,12 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "team",
-    "Select your Clan Arena team: team <red|blue|none>.",
-    [&requestTeamPending, &requestedTeam](const std::vector<std::string>& arguments) {
+    "Select a team or become an observer: team <red|blue|none|spectator>.",
+    [&requestTeamPending, &requestSpectatorPending, &requestedTeam](
+      const std::vector<std::string>& arguments
+    ) {
       if (arguments.size() != 2) {
-        return std::string("usage: team <red|blue|none>");
+        return std::string("usage: team <red|blue|none|spectator>");
       }
       std::string value = arguments[1];
       std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -4048,9 +4155,14 @@ int GameApp::run() const {
         requestedTeam = Team::Blue;
       } else if (value == "none" || value == "unassigned") {
         requestedTeam = Team::None;
+      } else if (value == "spectator" || value == "spec") {
+        requestSpectatorPending = true;
+        requestTeamPending = false;
+        return std::string("team = spectator");
       } else {
-        return std::string("usage: team <red|blue|none>");
+        return std::string("usage: team <red|blue|none|spectator>");
       }
+      requestSpectatorPending = false;
       requestTeamPending = true;
       return std::string("team = ") + teamName(requestedTeam);
     }
@@ -4245,12 +4357,14 @@ int GameApp::run() const {
         "+attack\n"
         "+dash\n"
         "+scores\n"
+        "+showchat\n"
         "+zoom\n"
         "weapon\n"
         "map\n"
         "player\n"
         "resetmatch\n"
         "ready\n"
+        "mcguffin_throw\n"
         "gamemode\n"
         "team\n"
         "bot_add\n"
@@ -4276,16 +4390,26 @@ int GameApp::run() const {
     [&session](const std::vector<std::string>&) {
       const ClientNetworkSimulationConfig config = session.networkSimulationConfig();
       const ClientNetworkSimulationStats stats = session.networkSimulationStats();
-      char text[320];
+      const NetworkTelemetry telemetry = session.networkTelemetry();
+      char text[512];
       std::snprintf(
         text,
         sizeof(text),
-        "state=%d host=%s port=%u player=%zu ping=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu}",
+        "state=%d host=%s port=%u player=%zu ping=%.1fms jitter=%.1fms loss={in=%.1f%% out=%.1f%%} rate=%.1f/s bw={in=%.0f out=%.0f}kbit packet={snap=%zu cmd=%zu} age=%.1fms sim={lat=%dms jit=%dms loss=%d%% reorder=%d%% seed=%u qout=%zu qin=%zu drop=%llu/%llu reorder=%llu/%llu}",
         static_cast<int>(session.state()),
         std::string(session.host()).c_str(),
         static_cast<unsigned int>(session.port()),
         session.playerIndex() + 1U,
-        session.pingMilliseconds(),
+        telemetry.pingMilliseconds,
+        telemetry.snapshotJitterMilliseconds,
+        telemetry.incomingLossPercent,
+        telemetry.outgoingLossPercent,
+        telemetry.snapshotRate,
+        telemetry.incomingKilobitsPerSecond,
+        telemetry.outgoingKilobitsPerSecond,
+        telemetry.lastSnapshotBytes,
+        telemetry.lastCommandBytes,
+        telemetry.snapshotAgeMilliseconds,
         config.latencyMs,
         config.jitterMs,
         config.lossPercent,
@@ -4314,7 +4438,7 @@ int GameApp::run() const {
   if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
     (void)bindings.bind("t", "messagemode");
-    (void)bindings.bind("z", "showchat");
+    (void)bindings.bind("z", "+showchat");
     (void)bindings.bind("tab", "+scores");
     if (bindings.binding("mouse2").empty()) {
       (void)bindings.bind("mouse2", "+zoom");
@@ -4377,6 +4501,18 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 14");
   }
+  if (console.getInt("cl_config_version") < 15) {
+    if (bindings.binding("z") == "showchat") {
+      (void)bindings.bind("z", "+showchat");
+    }
+    (void)console.execute("set cl_config_version 15");
+  }
+  if (console.getInt("cl_config_version") < 16) {
+    if (bindings.binding("g").empty()) {
+      (void)bindings.bind("g", "mcguffin_throw");
+    }
+    (void)console.execute("set cl_config_version 16");
+  }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
   SettingsMenuState settingsMenu;
@@ -4419,6 +4555,13 @@ int GameApp::run() const {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
       if (open) {
+        int width = 0;
+        int height = 0;
+        SDL_GetWindowSize(window, &width, &height);
+        consoleState.cat.reset(
+          static_cast<float>(width),
+          static_cast<float>(height)
+        );
         SDL_SetWindowRelativeMouseMode(window, false);
         SDL_StartTextInput(window);
       } else {
@@ -4444,6 +4587,7 @@ int GameApp::run() const {
       chatState.inputOpen = open;
       if (open) {
         chatState.cursorIndex = chatState.input.size();
+        chatState.scrollRows = 0U;
         clearChatSelection(chatState);
       }
       input.mouseDeltaX = 0.0F;
@@ -4506,6 +4650,11 @@ int GameApp::run() const {
   PresentationViewState presentationView;
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
+  float localDeathElapsedSeconds = 0.0F;
+  std::optional<std::size_t> deathSpectatorTarget;
+  bool wasTeammateSpectating = false;
+  bool previousSpectateAttackDown = false;
+  bool previousSpectateZoomDown = false;
   MovementTuning lastRequestedMovementTuning = movementTuningFromCvars(console);
   float lastRequestedPlayerSizeScaleXY =
     console.getFloat("g_playersize_xy");
@@ -4915,6 +5064,20 @@ int GameApp::run() const {
           input.mouseDeltaY += event.motion.yrel;
         }
         break;
+      case SDL_EVENT_MOUSE_WHEEL:
+        if (chatState.inputOpen || chatHistoryPressCount > 0) {
+          if (event.wheel.y > 0.0F) {
+            chatState.scrollRows = std::min<std::size_t>(
+              chatState.scrollRows + 3U,
+              kChatHistoryCapacity * 16U
+            );
+          } else if (event.wheel.y < 0.0F) {
+            chatState.scrollRows = chatState.scrollRows > 3U
+              ? chatState.scrollRows - 3U
+              : 0U;
+          }
+        }
+        break;
       case SDL_EVENT_WINDOW_FOCUS_LOST:
         executeBindingCommands(bindings.releaseAll());
         consoleState.selecting = false;
@@ -4931,8 +5094,24 @@ int GameApp::run() const {
       consoleState.output.clear();
       clearRequested = false;
     }
+    if (consoleState.open) {
+      float cursorX = 0.0F;
+      float cursorY = 0.0F;
+      (void)SDL_GetMouseState(&cursorX, &cursorY);
+      int width = 0;
+      int height = 0;
+      SDL_GetWindowSize(window, &width, &height);
+      consoleState.cat.update(
+        outerFrameElapsed.count(),
+        cursorX,
+        cursorY,
+        static_cast<float>(width),
+        static_cast<float>(height)
+      );
+    }
     if (showChatRequested) {
       chatState.visibleUntil = Clock::now() + std::chrono::seconds(5);
+      chatState.scrollRows = 0U;
       showChatRequested = false;
     }
     if (settingsMenuRequested) {
@@ -4944,22 +5123,27 @@ int GameApp::run() const {
       }
       applySettingsMenuToggle();
     }
-    if (const ClientGame* chatGame = session.game();
-        chatGame != nullptr && chatGame->hasSnapshot()) {
-      const ServerSnapshot& snapshot = chatGame->snapshot();
-      if (
-        snapshot.chatSequence != 0U &&
-        snapshot.chatSequence != chatState.lastSequence
-      ) {
-        chatState.lastSequence = snapshot.chatSequence;
-        chatState.history.push_back(ClientChatState::Message{
-          snapshot.chatPlayerIndex,
-          snapshot.chatMessage,
-          chatPlayerDisplayName(snapshot, snapshot.chatPlayerIndex),
-        });
-        while (chatState.history.size() > 8U) {
-          chatState.history.pop_front();
+    const ClientGame* chatGame = session.game();
+    if (chatGame != chatState.sourceGame) {
+      chatState.sourceGame = chatGame;
+      chatState.history.clear();
+      chatState.lastSequence = 0U;
+      chatState.scrollRows = 0U;
+    }
+    if (chatGame != nullptr && !chatGame->chatHistory().empty()) {
+      const auto& serverHistory = chatGame->chatHistory();
+      const std::uint32_t latestSequence = serverHistory.back().sequence;
+      if (latestSequence != chatState.lastSequence) {
+        chatState.history.clear();
+        for (const ChatMessage& message : serverHistory) {
+          chatState.history.push_back(ClientChatState::Message{
+            message.playerIndex,
+            message.message,
+            message.speakerName,
+          });
         }
+        chatState.lastSequence = latestSequence;
+        chatState.scrollRows = 0U;
         chatState.visibleUntil = Clock::now() + std::chrono::seconds(5);
       }
     }
@@ -5014,7 +5198,7 @@ int GameApp::run() const {
     const bool usePresentationView = true;
     const bool gameInputControlsView =
       usePresentationView && !consoleState.open && !chatState.inputOpen &&
-      !settingsMenu.open;
+      !settingsMenu.open && !wasTeammateSpectating;
     const bool wantsRelativeMouse =
       !consoleState.open && !chatState.inputOpen && !settingsMenu.open;
 
@@ -5261,7 +5445,10 @@ int GameApp::run() const {
         botCommandForPacket.type,
         botCommandForPacket.value,
         botCommandForPacket.minIntervalMs,
-        botCommandForPacket.maxIntervalMs
+        botCommandForPacket.maxIntervalMs,
+        mcguffinThrowRequested,
+        scoreboardPressCount > 0,
+        requestSpectatorPending
       );
       if (!sentPlayerName.empty()) {
         lastSentPlayerName = sentPlayerName;
@@ -5271,8 +5458,10 @@ int GameApp::run() const {
       pendingMapName.clear();
       resetRequested = false;
       readyRequested = false;
+      mcguffinThrowRequested = false;
       requestGameModePending = false;
       requestTeamPending = false;
+      requestSpectatorPending = false;
       movementTuningRequestPending = false;
       session.update();
       if (ClientGame* updatedGame = session.game();
@@ -5375,6 +5564,86 @@ int GameApp::run() const {
       input.mouseDeltaY = 0.0F;
     }
 
+    DeathCameraDecision deathCamera;
+    if (const ClientGame* cameraGame = session.game();
+        cameraGame != nullptr && cameraGame->hasSnapshot()) {
+      const ServerSnapshot& cameraSnapshot = cameraGame->snapshot();
+      const std::size_t localPlayerIndex = session.playerIndex();
+      const bool dedicatedSpectator = session.spectator();
+      const bool localPlayerDead = !dedicatedSpectator &&
+        cameraSnapshot.players[localPlayerIndex].health <= 0;
+      const bool previouslySpectating = wasTeammateSpectating;
+      localDeathElapsedSeconds = localPlayerDead
+        ? localDeathElapsedSeconds + elapsed.count()
+        : 0.0F;
+      const DeathCameraConfig deathCameraConfig = {
+        console.getFloat("cl_death_spectate_threshold"),
+        console.getFloat("cl_death_camera_hold"),
+        console.getFloat("cl_death_desaturation"),
+      };
+      deathCamera = dedicatedSpectator
+        ? spectatorCameraDecision(cameraSnapshot, deathSpectatorTarget)
+        : deathCameraDecision(
+            cameraSnapshot,
+            localPlayerIndex,
+            localDeathElapsedSeconds,
+            deathCameraConfig,
+            deathSpectatorTarget
+          );
+      if (deathCamera.mode == DeathCameraMode::Teammate) {
+        deathSpectatorTarget = deathCamera.teammateIndex;
+        const bool attackDown = input.attack > 0;
+        const bool zoomDown = zoomPressCount > 0;
+        int cycleDirection = pendingSpectateCycle;
+        if (wasTeammateSpectating && cycleDirection == 0 &&
+            attackDown && !previousSpectateAttackDown) {
+          cycleDirection = 1;
+        }
+        if (wasTeammateSpectating && cycleDirection == 0 &&
+            zoomDown && !previousSpectateZoomDown) {
+          cycleDirection = -1;
+        }
+        if (cycleDirection != 0) {
+          deathSpectatorTarget = dedicatedSpectator
+            ? cycleSpectatorTarget(
+                cameraSnapshot, deathSpectatorTarget, cycleDirection
+              )
+            : cycleDeathCameraTeammate(
+                cameraSnapshot,
+                localPlayerIndex,
+                deathSpectatorTarget,
+                cycleDirection
+              );
+          deathCamera = dedicatedSpectator
+            ? spectatorCameraDecision(cameraSnapshot, deathSpectatorTarget)
+            : deathCameraDecision(
+                cameraSnapshot,
+                localPlayerIndex,
+                localDeathElapsedSeconds,
+                deathCameraConfig,
+                deathSpectatorTarget
+              );
+        }
+        pendingSpectateCycle = 0;
+        previousSpectateAttackDown = attackDown;
+        previousSpectateZoomDown = zoomDown;
+        wasTeammateSpectating = true;
+      } else {
+        wasTeammateSpectating = false;
+        previousSpectateAttackDown = input.attack > 0;
+        previousSpectateZoomDown = zoomPressCount > 0;
+        if (!localPlayerDead && !dedicatedSpectator) {
+          if (previouslySpectating) {
+            // Reacquire the newly spawned authoritative facing instead of
+            // carrying an unrelated pre-spectate view into the new life.
+            presentationView.initialized = false;
+          }
+          deathSpectatorTarget.reset();
+          pendingSpectateCycle = 0;
+        }
+      }
+    }
+
     const ClientGame* currentAudioGame = session.game();
     if (currentAudioGame != audioGame) {
       audioGame = currentAudioGame;
@@ -5433,7 +5702,20 @@ int GameApp::run() const {
         audioSnapshot.serverTick != lastAudioServerTick
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
-        const bool localPlayerAlive =
+        const std::size_t audioSubjectIndex =
+          deathCameraSubjectIndex(deathCamera, localPlayerIndex);
+        const bool followingPlayer =
+          deathCamera.mode == DeathCameraMode::Teammate;
+        const std::size_t feedbackPlayerIndex = followingPlayer
+          ? audioSubjectIndex : localPlayerIndex;
+        // Spectator rendering and sound share one subject. Keep the predicted
+        // local listener while playing, but use the followed authoritative
+        // player while dead so world panning never remains at the corpse.
+        const PlayerState audioListener =
+          !session.spectator() && audioSubjectIndex == localPlayerIndex
+          ? currentAudioGame->predictedPlayer()
+          : audioSnapshot.players[audioSubjectIndex];
+        const bool localPlayerAlive = !session.spectator() &&
           currentAudioGame->predictedPlayer().health > 0;
         if (
           hasLocalPlayerAliveState &&
@@ -5449,15 +5731,15 @@ int GameApp::run() const {
         if (audioSnapshot.serverTick != lastDamageNumberServerTick) {
           if (damageNumberStateInitialized) {
             std::uint32_t newestFeedbackSequence =
-              lastDamageNumberFeedbackSequences[localPlayerIndex];
+              lastDamageNumberFeedbackSequences[feedbackPlayerIndex];
             const std::uint32_t previousFeedbackSequence =
               newestFeedbackSequence;
             const bool hadFeedbackSequence =
-              hasLastDamageNumberFeedbackSequence[localPlayerIndex];
+              hasLastDamageNumberFeedbackSequence[feedbackPlayerIndex];
             bool consumedFeedback = false;
             for (
               const LocalHitFeedbackEvent& feedback :
-              audioSnapshot.localHitFeedbackEvents[localPlayerIndex]
+              audioSnapshot.localHitFeedbackEvents[feedbackPlayerIndex]
             ) {
               if (
                 !feedback.active ||
@@ -5473,7 +5755,7 @@ int GameApp::run() const {
               LocalDamageEvent event{
                 localDamageSourceForWeapon(feedback.weapon),
                 feedback.sequence,
-                static_cast<std::uint8_t>(localPlayerIndex),
+                static_cast<std::uint8_t>(feedbackPlayerIndex),
                 feedback.targetPlayerIndex,
                 feedback.damageApplied,
                 true,
@@ -5486,22 +5768,22 @@ int GameApp::run() const {
               damageNumberState.addLocalDamageEvent(event, damageConfig);
               consumedFeedback = true;
               if (
-                !hasLastDamageNumberFeedbackSequence[localPlayerIndex] ||
+                !hasLastDamageNumberFeedbackSequence[feedbackPlayerIndex] ||
                 isSequenceNewer(feedback.sequence, newestFeedbackSequence)
               ) {
                 newestFeedbackSequence = feedback.sequence;
               }
             }
-            lastDamageNumberFeedbackSequences[localPlayerIndex] =
+            lastDamageNumberFeedbackSequences[feedbackPlayerIndex] =
               newestFeedbackSequence;
-            hasLastDamageNumberFeedbackSequence[localPlayerIndex] =
+            hasLastDamageNumberFeedbackSequence[feedbackPlayerIndex] =
               hadFeedbackSequence || consumedFeedback;
           } else {
             bool foundFeedbackSequence = false;
             std::uint32_t newestFeedbackSequence = 0;
             for (
               const LocalHitFeedbackEvent& feedback :
-              audioSnapshot.localHitFeedbackEvents[localPlayerIndex]
+              audioSnapshot.localHitFeedbackEvents[feedbackPlayerIndex]
             ) {
               if (!feedback.active) {
                 continue;
@@ -5515,9 +5797,9 @@ int GameApp::run() const {
               foundFeedbackSequence = true;
             }
             if (foundFeedbackSequence) {
-              lastDamageNumberFeedbackSequences[localPlayerIndex] =
+              lastDamageNumberFeedbackSequences[feedbackPlayerIndex] =
                 newestFeedbackSequence;
-              hasLastDamageNumberFeedbackSequence[localPlayerIndex] = true;
+              hasLastDamageNumberFeedbackSequence[feedbackPlayerIndex] = true;
             }
           }
           damageNumberStateInitialized = true;
@@ -5525,7 +5807,7 @@ int GameApp::run() const {
         }
 
         const bool localHit =
-          audioSnapshot.lightningGuns[localPlayerIndex].hit;
+          audioSnapshot.lightningGuns[feedbackPlayerIndex].hit;
         const float volume = console.getFloat("s_volume");
         const bool soundEnabled = console.getBool("s_enable");
         const auto soundVolume = [&console, volume](std::string_view name) {
@@ -5550,9 +5832,9 @@ int GameApp::run() const {
           ) {
             return;
           }
-          const SpatialAudio painAudio = playerIndex == localPlayerIndex
+          const SpatialAudio painAudio = playerIndex == audioSubjectIndex
             ? SpatialAudio{painVolume, 0.0F}
-            : worldAudio(painVolume, player.position, currentAudioGame->predictedPlayer());
+            : worldAudio(painVolume, player.position, audioListener);
           audio.playPainGrunt(painAudio.volume, painAudio.pan);
         };
         playPainGruntIfDamaged(localPlayerIndex);
@@ -5574,23 +5856,23 @@ int GameApp::run() const {
         ) {
           audio.playHit(
             hitVolume,
-            audioSnapshot.lightningGuns[localPlayerIndex].damageApplied,
-            audioSnapshot.lightningGuns[localPlayerIndex].headshot
+            audioSnapshot.lightningGuns[feedbackPlayerIndex].damageApplied,
+            audioSnapshot.lightningGuns[feedbackPlayerIndex].headshot
           );
           lastHitSoundServerTick = audioSnapshot.serverTick;
         }
         if (audioStateInitialized) {
           updateFootstepAudio(
-            footstepAudioStates[localPlayerIndex],
-            currentAudioGame->predictedPlayer(),
-            currentAudioGame->predictedPlayer(),
+            footstepAudioStates[audioSubjectIndex],
+            audioListener,
+            audioListener,
             true,
             soundEnabled ? footstepVolume : 0.0F,
             audio
           );
           if (soundEnabled) {
             for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-              if (playerIndex == localPlayerIndex) {
+              if (playerIndex == audioSubjectIndex) {
                 continue;
               }
               const FootstepAudioEvent& event =
@@ -5605,7 +5887,7 @@ int GameApp::run() const {
                 worldAudio(
                   footstepVolume,
                   event.position,
-                  currentAudioGame->predictedPlayer()
+                  audioListener
                 );
               if (event.jumping) {
                 audio.playJump(spatial.volume, spatial.pan);
@@ -5633,7 +5915,7 @@ int GameApp::run() const {
                 worldAudio(
                   soundVolume("s_gl_bounce_volume"),
                   event.position,
-                  currentAudioGame->predictedPlayer()
+                  audioListener
                 );
               audio.playGrenadeBounce(spatial.volume * 0.5F, spatial.pan);
               lastPlayedGrenadeBounceAudioSequences[eventIndex] = event.sequence;
@@ -5641,28 +5923,31 @@ int GameApp::run() const {
           }
         }
         if (soundEnabled && audioStateInitialized) {
-          const FragEvent& localFrag = audioSnapshot.fragEvents[localPlayerIndex];
+          const FragEvent& localFrag =
+            audioSnapshot.fragEvents[feedbackPlayerIndex];
           if (
             localFrag.active &&
-            localFrag.targetPlayerIndex != localPlayerIndex &&
+            localFrag.targetPlayerIndex != feedbackPlayerIndex &&
             shouldPlaySnapshotAudioEvent(
-              hasLastPlayedFragEvent[localPlayerIndex],
-              sameFragEvent(localFrag, lastPlayedFragEvents[localPlayerIndex]),
+              hasLastPlayedFragEvent[feedbackPlayerIndex],
+              sameFragEvent(localFrag, lastPlayedFragEvents[feedbackPlayerIndex]),
               audioSnapshot.serverTick,
-              lastPlayedFragAudioTicks[localPlayerIndex],
+              lastPlayedFragAudioTicks[feedbackPlayerIndex],
               kTransientAudioEventTicks
             )
           ) {
             audio.playFrag(fragVolume);
-            lastPlayedFragEvents[localPlayerIndex] = localFrag;
-            lastPlayedFragAudioTicks[localPlayerIndex] = audioSnapshot.serverTick;
-            hasLastPlayedFragEvent[localPlayerIndex] = true;
+            lastPlayedFragEvents[feedbackPlayerIndex] = localFrag;
+            lastPlayedFragAudioTicks[feedbackPlayerIndex] = audioSnapshot.serverTick;
+            hasLastPlayedFragEvent[feedbackPlayerIndex] = true;
           }
 
           for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
 
             const WeaponFireResult& fire = audioSnapshot.weaponFires[playerIndex];
-            const bool localWeaponEvent = playerIndex == localPlayerIndex;
+            const bool listenerWeaponEvent = playerIndex == audioSubjectIndex;
+            const bool localWeaponEvent = followingPlayer
+              ? listenerWeaponEvent : playerIndex == localPlayerIndex;
             if (
               fire.fired &&
               shouldPlaySnapshotAudioEvent(
@@ -5689,12 +5974,12 @@ int GameApp::run() const {
               } else if (fireAudio.cue == WeaponFireAudioCue::PlasmaGun) {
                 weaponFireVolume = soundVolume("s_pg_fire_volume");
               }
-              const SpatialAudio weaponFireAudio = localWeaponEvent
+              const SpatialAudio weaponFireAudio = listenerWeaponEvent
                 ? SpatialAudio{weaponFireVolume, 0.0F}
                 : worldAudio(
                   weaponFireVolume,
                   fire.start,
-                  currentAudioGame->predictedPlayer()
+                  audioListener
                 );
               if (fireAudio.cue == WeaponFireAudioCue::Railgun) {
                 audio.playRailFire(weaponFireAudio.volume, weaponFireAudio.pan);
@@ -5748,7 +6033,7 @@ int GameApp::run() const {
               const SpatialAudio explosionAudio = worldAudio(
                   soundVolume("s_rl_explosion_volume"),
                   explosion.position,
-                  currentAudioGame->predictedPlayer()
+                  audioListener
               );
               audio.playRocketExplosion(explosionAudio.volume, explosionAudio.pan);
               if (
@@ -5778,6 +6063,7 @@ int GameApp::run() const {
           }
         }
         if (
+          !session.spectator() &&
           soundEnabled &&
           audioStateInitialized &&
           audioSnapshot.matchPhase != lastAudioMatchPhase &&
@@ -5824,20 +6110,26 @@ int GameApp::run() const {
       if (
         console.getBool("s_enable") &&
         currentAudioGame != nullptr &&
-        currentAudioGame->hasSnapshot() &&
-        currentAudioGame->predictedPlayer().health > 0
+        currentAudioGame->hasSnapshot()
       ) {
         const std::size_t localPlayerIndex = session.playerIndex();
         const ServerSnapshot& snapshot = currentAudioGame->snapshot();
+        const std::size_t audioSubjectIndex =
+          deathCameraSubjectIndex(deathCamera, localPlayerIndex);
+        const PlayerState audioListener =
+          !session.spectator() && audioSubjectIndex == localPlayerIndex
+          ? currentAudioGame->predictedPlayer()
+          : snapshot.players[audioSubjectIndex];
         const float masterVolume =
           console.getFloat("s_volume") * console.getFloat("s_lg_fire_volume");
-        if (snapshot.lightningGuns[localPlayerIndex].active) {
+        if (audioListener.health > 0 &&
+            snapshot.lightningGuns[audioSubjectIndex].active) {
           lightningGunVolume = masterVolume;
           lightningGunPan = 0.0F;
         }
         for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
           if (
-            playerIndex == localPlayerIndex ||
+            playerIndex == audioSubjectIndex ||
             !snapshot.lightningGuns[playerIndex].active ||
             snapshot.players[playerIndex].health <= 0
           ) {
@@ -5846,7 +6138,7 @@ int GameApp::run() const {
           const SpatialAudio spatial = worldAudio(
               masterVolume,
               snapshot.players[playerIndex].position,
-              currentAudioGame->predictedPlayer()
+              audioListener
           );
           if (spatial.volume > lightningGunVolume) {
             lightningGunVolume = spatial.volume;
@@ -5865,7 +6157,11 @@ int GameApp::run() const {
         interpolationGame != nullptr && interpolationGame->hasSnapshot()) {
       interpolationGame->advanceInterpolation(
         elapsed.count(),
-        console.getFloat("cl_interp")
+        console.getFloat("cl_interp"),
+        console.getBool("cl_interp_adaptive"),
+        console.getFloat("cl_interp_min"),
+        console.getFloat("cl_interp_max"),
+        console.getFloat("cl_interp_extrapolate")
       );
     }
 
@@ -5987,7 +6283,20 @@ int GameApp::run() const {
       renderLocalPlayerIndex = localPlayerIndex;
       renderPlayer = renderClient->predictedPlayer();
       const ServerSnapshot& renderSnapshot = renderClient->snapshot();
+      std::size_t cameraPlayerIndex = localPlayerIndex;
+      if (deathCamera.mode == DeathCameraMode::Teammate &&
+          deathCamera.teammateIndex.has_value()) {
+        cameraPlayerIndex = deathCameraSubjectIndex(
+          deathCamera, localPlayerIndex
+        );
+        renderPlayer = bufferedInterpolation
+          ? renderClient->interpolatedPlayer(cameraPlayerIndex)
+          : renderClient->interpolatedPlayer(cameraPlayerIndex, interpolationAlpha);
+        displayedSelectedWeapon = renderSnapshot.selectedWeapons[cameraPlayerIndex];
+        if (session.spectator()) renderLocalPlayerIndex = cameraPlayerIndex;
+      }
       if (
+        !session.spectator() &&
         localRenderPredictionSeconds > 0.0F &&
         renderPlayer.health > 0
       ) {
@@ -6026,22 +6335,21 @@ int GameApp::run() const {
         renderPlayer = visualPlayer;
       }
       for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-        if (playerIndex == localPlayerIndex) {
+        if (playerIndex == cameraPlayerIndex ||
+            (!session.spectator() && playerIndex == localPlayerIndex)) {
           continue;
         }
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
           continue;
         }
         if (
-          renderSnapshot.gameMode == GameMode::ClanArena &&
+          renderSnapshot.gameMode != GameMode::Duel &&
           renderSnapshot.players[playerIndex].health <= 0
         ) {
           continue;
         }
-        const bool teammate = playerPresentedAsTeammate(
-          renderSnapshot,
-          localPlayerIndex,
-          playerIndex
+        const bool teammate = !session.spectator() && playerPresentedAsTeammate(
+          renderSnapshot, localPlayerIndex, playerIndex
         );
         renderRemotePlayers[playerIndex] = RemotePlayerView{
           bufferedInterpolation
@@ -6069,16 +6377,17 @@ int GameApp::run() const {
         hasLastRemoteHealth[playerIndex] = true;
       }
       renderLocalLightningGun =
-        renderSnapshot.lightningGuns[localPlayerIndex];
+        renderSnapshot.lightningGuns[cameraPlayerIndex];
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
       renderRockets = renderSnapshot.rockets;
       renderIcePools = renderSnapshot.icePools;
-      const LocalHitFeedbackBatch hitFeedback =
-        consumeLocalHitFeedbackEvents(
-          renderSnapshot.localHitFeedbackEvents[localPlayerIndex],
-          localHitFeedbackDedupe
-        );
+      const LocalHitFeedbackBatch hitFeedback = session.spectator()
+        ? LocalHitFeedbackBatch{}
+        : consumeLocalHitFeedbackEvents(
+            renderSnapshot.localHitFeedbackEvents[localPlayerIndex],
+            localHitFeedbackDedupe
+          );
       if (hitFeedback.active) {
         lastEnemyHitTime = now;
         hasEnemyHitTime = true;
@@ -6094,7 +6403,8 @@ int GameApp::run() const {
         }
       }
     }
-    if (usePresentationView && presentationView.initialized) {
+    if (usePresentationView && presentationView.initialized &&
+        deathCamera.mode != DeathCameraMode::Teammate) {
       renderPlayer.viewYawRadians = presentationView.yawRadians;
       renderPlayer.viewPitchRadians = presentationView.pitchRadians;
     }
@@ -6178,6 +6488,12 @@ int GameApp::run() const {
       }
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    if (deathCamera.mode != DeathCameraMode::Alive) {
+      currentRenderSettings.crosshairEnabled = false;
+      currentRenderSettings.showOwnWeapons =
+        deathCamera.mode == DeathCameraMode::Teammate &&
+        console.getBool("r_show_weapons");
+    }
     currentRenderSettings.localSelectedWeapon = displayedSelectedWeapon;
     currentRenderSettings.localPlayerIndex =
       static_cast<std::uint8_t>(renderLocalPlayerIndex);
@@ -6326,7 +6642,7 @@ int GameApp::run() const {
         }
       }
     }
-    if (zoomPressCount > 0) {
+    if (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate) {
       currentRenderSettings.fieldOfView = console.getFloat("cl_zoom_fov");
     }
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
@@ -6458,6 +6774,81 @@ int GameApp::run() const {
         session.game()->snapshot().healthPickupAvailable;
     }
     HudRenderState hud = buildHud(session, console.getBool("cl_show_alive_counts"));
+    hud.netGraph.mode = console.getInt("cl_netgraph");
+    hud.netGraph.telemetry = session.networkTelemetry();
+    hud.netGraph.interpolationDelayMilliseconds =
+      console.getFloat("cl_interp") * 1000.0F;
+    if (const ClientGame* netGame = session.game();
+        netGame != nullptr && netGame->hasSnapshot()) {
+      if (console.getBool("cl_interp_adaptive")) {
+        const InterpolationDiagnostics& interpolation =
+          netGame->interpolationDiagnostics();
+        hud.netGraph.interpolationDelayMilliseconds =
+          interpolation.effectiveDelaySeconds * 1000.0F;
+        hud.netGraph.interpolationBufferedMilliseconds =
+          interpolation.bufferedSeconds * 1000.0F;
+        hud.netGraph.interpolationStarvations = interpolation.starvationCount;
+        hud.netGraph.interpolationExtrapolating = interpolation.extrapolating;
+      }
+      const PredictionDiagnostics& prediction = netGame->predictionDiagnostics();
+      const SnapshotDiagnostics snapshotDiagnostics = netGame->snapshotDiagnostics();
+      if (
+        prediction.correctionCount != lastNetGraphCorrectionCount &&
+        hud.netGraph.telemetry.historyCount > 0
+      ) {
+        const std::uint64_t serial = hud.netGraph.telemetry.history[
+          hud.netGraph.telemetry.historyCount - 1U
+        ].serial;
+        const std::size_t slot = serial % netGraphCorrectionSerials.size();
+        netGraphCorrectionSerials[slot] = serial;
+        netGraphCorrectionDistances[slot] = prediction.lastCorrectionDistance;
+      }
+      lastNetGraphCorrectionCount = prediction.correctionCount;
+      for (std::size_t index = 0;
+           index < hud.netGraph.telemetry.historyCount;
+           ++index) {
+        NetworkTelemetrySample& sample = hud.netGraph.telemetry.history[index];
+        const std::size_t slot = sample.serial % netGraphCorrectionSerials.size();
+        if (netGraphCorrectionSerials[slot] == sample.serial) {
+          sample.predictionCorrectionDistance =
+            netGraphCorrectionDistances[slot];
+        }
+      }
+      hud.netGraph.pendingCommands = prediction.pendingCommandCount;
+      hud.netGraph.correctionCount = prediction.correctionCount;
+      hud.netGraph.lastCorrectionDistance = prediction.lastCorrectionDistance;
+      hud.netGraph.snapshotQueueDepth = snapshotDiagnostics.snapshotQueueDepth;
+      const LightningGunResult& lightning = netGame->snapshot().lightningGuns[
+        session.playerIndex()
+      ];
+      hud.netGraph.requestedRewindTicks = lightning.requestedRewindTicks;
+      hud.netGraph.appliedRewindTicks = lightning.appliedRewindTicks;
+    }
+    if (deathCamera.mode != DeathCameraMode::Alive) {
+      hud.deathDesaturation = deathCamera.desaturation;
+      hud.centerLines.clear();
+      if (deathCamera.mode == DeathCameraMode::Teammate &&
+          deathCamera.teammateIndex.has_value()) {
+        hud.topCenterLines.push_back(
+          "SPECTATING " +
+          session.game()->snapshot().playerNames[*deathCamera.teammateIndex]
+        );
+      }
+      if (session.spectator()) {
+        hud.bottomCenterLines.clear();
+        hud.centerLines.clear();
+        hud.deathDesaturation = 0.0F;
+      }
+      if (deathCamera.respawnSecondsRemaining > 0.0F) {
+        std::ostringstream respawn;
+        respawn.setf(std::ios::fixed);
+        respawn.precision(1);
+        respawn << "RESPAWNING IN " << deathCamera.respawnSecondsRemaining;
+        hud.centerLines.push_back(respawn.str());
+      } else if (deathCamera.mode != DeathCameraMode::Teammate) {
+        hud.centerLines.push_back("WAITING FOR ROUND END");
+      }
+    }
     hud.selectedWeapon = displayedSelectedWeapon;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
@@ -6740,7 +7131,11 @@ int GameApp::run() const {
         session.playerIndex()
       );
     }
-    if (chatState.inputOpen || Clock::now() < chatState.visibleUntil) {
+    if (
+      chatState.inputOpen ||
+      chatHistoryPressCount > 0 ||
+      Clock::now() < chatState.visibleUntil
+    ) {
       for (const ClientChatState::Message& message : chatState.history) {
         hud.chatLines.push_back(HudRenderState::ChatLine{
           message.playerIndex,
@@ -6781,6 +7176,50 @@ int GameApp::run() const {
       currentRenderSettings
     );
     transientTracerStore.fillActiveEffects(activeTransientEffects);
+    if (session.game() != nullptr && session.game()->hasSnapshot()) {
+      const ServerSnapshot& objectiveSnapshot = session.game()->snapshot();
+      if (objectiveSnapshot.gameMode == GameMode::McGuffin) {
+        const auto addMarker = [&activeTransientEffects](
+          Vec3 position,
+          RenderColor color,
+          float scale,
+          std::uint32_t seed
+        ) {
+          activeTransientEffects.push_back({
+            TransientEffectType::PlasmaExplosionCore,
+            position,
+            0.0F,
+            1.0F,
+            scale,
+            scale,
+            color,
+            seed,
+          });
+        };
+        const ArenaMcGuffinLayout& layout = renderArena.mcguffin;
+        if (layout.hasRedBase) {
+          addMarker((layout.redBase.min + layout.redBase.max) * 0.5F,
+            {255, 64, 64, 150}, 0.55F, 0xA11CE001U);
+        }
+        if (layout.hasBlueBase) {
+          addMarker((layout.blueBase.min + layout.blueBase.max) * 0.5F,
+            {64, 128, 255, 150}, 0.55F, 0xA11CE002U);
+        }
+        const bool waitingToSpawn =
+          objectiveSnapshot.mcguffin.state == McGuffinState::NeutralSpawn &&
+          objectiveSnapshot.mcguffin.stateTicks <
+            objectiveSnapshot.mcguffinConfig.initialSpawnTicks;
+        if (!waitingToSpawn) {
+          const RenderColor color = objectiveSnapshot.mcguffin.associatedTeam == Team::Red
+            ? RenderColor{255, 72, 72, 235}
+            : objectiveSnapshot.mcguffin.associatedTeam == Team::Blue
+              ? RenderColor{72, 140, 255, 235}
+              : RenderColor{255, 224, 96, 235};
+          addMarker(objectiveSnapshot.mcguffin.position, color, 0.32F, 0xA11CE003U);
+        }
+      }
+    }
+    hud.chatScrollRows = chatState.scrollRows;
     renderer.render(
       renderArena,
       renderPlayer,

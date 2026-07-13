@@ -9,7 +9,7 @@
 namespace lg {
 
 inline constexpr std::uint32_t kProtocolMagic = 0x4C474455U;
-inline constexpr std::uint16_t kProtocolVersion = 44;
+inline constexpr std::uint16_t kProtocolVersion = 51;
 inline constexpr std::size_t kMaxPacketBytes = 65535;
 
 enum class PacketType : std::uint8_t {
@@ -21,6 +21,9 @@ enum class PacketType : std::uint8_t {
   Ping = 6,
   Pong = 7,
   Disconnect = 8,
+  ChatHistory = 9,
+  ChatHistoryAck = 10,
+  CombatStats = 11,
 };
 
 using WirePacket = std::vector<std::uint8_t>;
@@ -56,6 +59,31 @@ using WirePacket = std::vector<std::uint8_t>;
 [[nodiscard]] bool decodeDisconnectPacket(
   const WirePacket& wire,
   DisconnectPacket& packet
+);
+
+[[nodiscard]] bool encodeChatHistoryChunk(
+  const ChatHistoryChunk& packet,
+  WirePacket& wire
+);
+[[nodiscard]] bool decodeChatHistoryChunk(
+  const WirePacket& wire,
+  ChatHistoryChunk& packet
+);
+[[nodiscard]] bool encodeChatHistoryAck(
+  const ChatHistoryAck& packet,
+  WirePacket& wire
+);
+[[nodiscard]] bool decodeChatHistoryAck(
+  const WirePacket& wire,
+  ChatHistoryAck& packet
+);
+[[nodiscard]] bool encodeCombatStatsPacket(
+  const CombatStatsPacket& packet,
+  WirePacket& wire
+);
+[[nodiscard]] bool decodeCombatStatsPacket(
+  const WirePacket& wire,
+  CombatStatsPacket& packet
 );
 
 } // namespace lg

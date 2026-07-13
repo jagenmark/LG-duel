@@ -193,7 +193,7 @@ bool playerPresentedAsTeammate(
   std::size_t localPlayerIndex,
   std::size_t remotePlayerIndex
 ) {
-  return snapshot.gameMode == GameMode::ClanArena &&
+  return snapshot.gameMode != GameMode::Duel &&
     !warmupPhase(snapshot.matchPhase) &&
     localPlayerIndex < kDuelPlayerCount &&
     remotePlayerIndex < kDuelPlayerCount &&
@@ -214,6 +214,18 @@ std::string hudScoreLine(
       std::to_string(snapshot.matchRules.roundLimit);
   }
 
+  if (snapshot.gameMode == GameMode::McGuffin) {
+    const std::size_t localTeamIndex =
+      teamScoreIndex(snapshot.teams[localPlayerIndex]);
+    const std::size_t opposingTeamIndex = 1U - localTeamIndex;
+    return "MCGUFFIN " +
+      std::to_string(snapshot.mcguffinScores[localTeamIndex]) + '-' +
+      std::to_string(snapshot.mcguffinScores[opposingTeamIndex]) + " / " +
+      std::to_string(snapshot.mcguffinConfig.scoreLimit) + "  ROUNDS " +
+      std::to_string(snapshot.mcguffinRoundsWon[localTeamIndex]) + '-' +
+      std::to_string(snapshot.mcguffinRoundsWon[opposingTeamIndex]);
+  }
+
   return "SCORE " + std::to_string(snapshot.scores[localPlayerIndex]) +
     " / " + std::to_string(snapshot.matchRules.roundLimit);
 }
@@ -223,7 +235,7 @@ bool localPlayerWonResult(
   std::size_t localPlayerIndex,
   bool matchResult
 ) {
-  if (snapshot.gameMode == GameMode::ClanArena) {
+  if (snapshot.gameMode != GameMode::Duel) {
     const Team winningTeam =
       matchResult ? snapshot.matchWinningTeam : snapshot.roundWinningTeam;
     return isPlayableTeam(winningTeam) &&

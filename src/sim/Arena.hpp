@@ -3,6 +3,7 @@
 #include "shared/Constants.hpp"
 #include "shared/Math.hpp"
 #include "sim/PlayerState.hpp"
+#include "sim/GameMode.hpp"
 
 #include <array>
 #include <cstddef>
@@ -97,12 +98,40 @@ struct ArenaHealthPickup {
   HealthPickupType type = HealthPickupType::Small;
 };
 
+struct ArenaMcGuffinBase {
+  Vec3 min = {};
+  Vec3 max = {};
+  Team team = Team::None;
+};
+
+struct ArenaMcGuffinLayout {
+  Vec3 neutralSpawn = {};
+  ArenaMcGuffinBase redBase = {};
+  ArenaMcGuffinBase blueBase = {};
+  bool hasNeutralSpawn = false;
+  bool hasRedBase = false;
+  bool hasBlueBase = false;
+};
+
+enum class ArenaSpawnGroup : std::uint8_t {
+  None = 0,
+  RedBase = 1,
+  BlueBase = 2,
+};
+
+struct ArenaTeamSpawn {
+  Vec3 position = {};
+  float yawRadians = 0.0F;
+  ArenaSpawnGroup group = ArenaSpawnGroup::None;
+};
+
 struct Arena {
   static constexpr std::size_t kWallCount = 256;
   static constexpr std::size_t kBrushCount = 256;
   static constexpr std::size_t kStaticLightCount = 96;
   static constexpr std::size_t kJumpPadCount = 48;
   static constexpr std::size_t kHealthPickupCount = 32;
+  static constexpr std::size_t kTeamSpawnCount = 32;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
@@ -125,7 +154,18 @@ struct Arena {
     {-6.0F, 3.0F, 0.0F},
     {6.0F, 3.0F, 0.0F},
   }};
+  // Team tags are optional for legacy modes, but McGuffin validates that both
+  // playable teams have at least one authored spawn.
+  std::array<Team, kMaxPlayers> spawnTeams = {};
+  // Team modes use a larger physical spawn pool. Groups describe map sides,
+  // not permanent teams, so ownership swaps do not require rewriting the map.
+  std::array<ArenaTeamSpawn, kTeamSpawnCount> teamSpawns = {};
+  std::size_t teamSpawnCount = 0;
+  ArenaMcGuffinLayout mcguffin = {};
 };
+
+[[nodiscard]] bool hasValidMcGuffinLayout(const Arena& arena);
+[[nodiscard]] bool pointInsideMcGuffinBase(Vec3 point, const ArenaMcGuffinBase& base);
 
 struct ArenaLoadResult {
   Arena arena = {};

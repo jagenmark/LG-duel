@@ -9,13 +9,18 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <string>
 
 namespace lg {
 
 class ClientGame {
 public:
-  ClientGame(NetTransport& transport, std::size_t localPlayerIndex);
+  ClientGame(
+    NetTransport& transport,
+    std::size_t localPlayerIndex,
+    std::size_t commandClientIndex = kNoAssignedPlayer
+  );
 
   void sendCommand(
     const UserCommand& command,
@@ -49,10 +54,20 @@ public:
     BotCommandType botCommand = BotCommandType::None,
     std::int32_t botCommandValue = 0,
     std::int32_t botCommandMinIntervalMs = 250,
-    std::int32_t botCommandMaxIntervalMs = 750
+    std::int32_t botCommandMaxIntervalMs = 750,
+    bool requestMcGuffinThrow = false,
+    bool wantsScoreboardStats = false,
+    bool requestSpectator = false
   );
   void receiveSnapshots();
-  void advanceInterpolation(float elapsedSeconds, float interpolationDelaySeconds);
+  void advanceInterpolation(
+    float elapsedSeconds,
+    float interpolationDelaySeconds,
+    bool adaptive = false,
+    float minimumDelaySeconds = 0.016F,
+    float maximumDelaySeconds = 0.064F,
+    float maximumExtrapolationSeconds = 0.016F
+  );
 
   [[nodiscard]] bool hasSnapshot() const;
   [[nodiscard]] const ServerSnapshot& snapshot() const;
@@ -66,12 +81,18 @@ public:
   [[nodiscard]] const MovementTuning& movementTuning() const;
   [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const;
+  [[nodiscard]] const InterpolationDiagnostics& interpolationDiagnostics() const;
   [[nodiscard]] bool hasConnectionError() const;
   [[nodiscard]] const std::string& connectionError() const;
+  [[nodiscard]] const std::deque<ChatMessage>& chatHistory() const;
+  [[nodiscard]] std::size_t localPlayerIndex() const;
+  [[nodiscard]] bool spectator() const;
 
 private:
   NetTransport& transport_;
   std::size_t localPlayerIndex_ = 0;
+  std::size_t commandClientIndex_ = 0;
+  bool spectator_ = false;
   Arena arena_ = {};
   std::uint32_t mapRevision_ = 1;
   MovementTuning movementTuning_ = {};
@@ -81,11 +102,16 @@ private:
   ServerSnapshot snapshot_ = {};
   MapDescriptor map_ = {};
   SnapshotDiagnostics snapshotDiagnostics_ = {};
+  ActionEdgeState actionEdges_ = {};
+  bool previousJumpHeld_ = false;
+  bool previousDashHeld_ = false;
+  bool previousAttackHeld_ = false;
   std::uint32_t lastSnapshotPacketsDecoded_ = 0;
   std::string connectionError_;
   std::uint32_t pendingMovementTuningCommand_ = 0;
   bool hasPendingMovementTuning_ = false;
   bool hasSnapshot_ = false;
+  std::deque<ChatMessage> chatHistory_;
 };
 
 } // namespace lg

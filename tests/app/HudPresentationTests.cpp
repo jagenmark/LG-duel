@@ -551,5 +551,17 @@ int main() {
     "bot settings alone should not create a HUD opponent"
   );
 
+  snapshot.gameMode = lg::GameMode::McGuffin;
+  snapshot.teams[0] = lg::Team::Red;
+  snapshot.mcguffinScores = {64, 51};
+  snapshot.mcguffinRoundsWon = {1, 0};
+  failures += expect(
+    lg::hudScoreLine(snapshot, 0) == "MCGUFFIN 64-51 / 100  ROUNDS 1-0",
+    "McGuffin HUD should show objective points, limit, and match rounds"
+  );
+  snapshot.roundWinningTeam = lg::Team::Red;
+  failures += expect(lg::localPlayerWonResult(snapshot, 0, false),
+    "McGuffin result should use team authority");
+
   return failures == 0 ? 0 : 1;
 }

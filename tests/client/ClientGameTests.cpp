@@ -50,6 +50,7 @@ void queueSnapshot(lg::LoopbackTransport& transport, lg::ServerSnapshot snapshot
   if (snapshot.map.mapName.empty() || snapshot.map.contentHash == 0) {
     snapshot.map = testMap().descriptor;
   }
+  snapshot.localPlayerIndex = 0;
   transport.sendSnapshot(snapshot);
 }
 
@@ -59,6 +60,48 @@ int main() {
   int failures = 0;
   const lg::Arena arena;
   const lg::MovementTuning tuning;
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::UserCommand command;
+    command.sequence = 1;
+    command.attack = true;
+    command.viewYawRadians = 0.75F;
+    command.viewPitchRadians = -0.25F;
+    command.weapon = lg::Weapon::Railgun;
+    client.sendCommand(command, false);
+    lg::CommandPacket firstPress;
+    failures += expect(
+      transport.receiveCommand(firstPress) &&
+        firstPress.actionEdges.attack == 1U &&
+        nearlyEqual(firstPress.actionEdges.attackYawRadians, 0.75F) &&
+        firstPress.actionEdges.attackWeapon == lg::Weapon::Railgun,
+      "attack presses should carry a cumulative edge with original aim"
+    );
+
+    command.sequence = 2;
+    client.sendCommand(command, false);
+    lg::CommandPacket held;
+    failures += expect(
+      transport.receiveCommand(held) && held.actionEdges.attack == 1U,
+      "holding attack should not create duplicate action edges"
+    );
+    command.sequence = 3;
+    command.attack = false;
+    client.sendCommand(command, false);
+    lg::CommandPacket release;
+    (void)transport.receiveCommand(release);
+    command.sequence = 4;
+    command.attack = true;
+    client.sendCommand(command, false);
+    lg::CommandPacket secondPress;
+    failures += expect(
+      transport.receiveCommand(secondPress) &&
+        secondPress.actionEdges.attack == 2U,
+      "a later attack press should advance the cumulative edge"
+    );
+  }
 
   {
     lg::LoopbackTransport transport;
@@ -700,6 +743,63 @@ int main() {
     failures += expect(
       sent.viewedServerTick == largeServerTick + 2U,
       "ClientGame should send an exact presented server tick after long uptime"
+    );
+  }
+
+  {
+    lg::SnapshotInterpolation interpolation;
+    for (std::uint32_t tick = 0; tick <= 5; ++tick) {
+      lg::ServerSnapshot snapshot;
+      snapshot.serverTick = tick;
+      snapshot.players[1].position.x = static_cast<float>(tick);
+      snapshot.players[1].velocity.x = 125.0F;
+      interpolation.push(snapshot);
+    }
+    interpolation.advanceAdaptive(0.0F, 0.024F, 0.0F, 0.016F, 0.064F, 0.016F);
+    failures += expect(
+      nearlyEqual(interpolation.player(1).position.x, 2.0F),
+      "adaptive interpolation should establish its configured reserve"
+    );
+    interpolation.advanceAdaptive(
+      lg::kFixedTickSeconds,
+      0.024F,
+      0.012F,
+      0.016F,
+      0.064F,
+      0.016F
+    );
+    failures += expect(
+      interpolation.diagnostics().effectiveDelaySeconds > 0.024F &&
+        interpolation.player(1).position.x > 2.0F,
+      "adaptive interpolation should react to jitter while draining buffered snapshots"
+    );
+    interpolation.advanceAdaptive(0.1F, 0.024F, 0.0F, 0.016F, 0.064F, 0.016F);
+    failures += expect(
+      interpolation.diagnostics().starvationCount == 1U,
+      "adaptive interpolation should count a sustained snapshot starvation once"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ChatHistory history;
+    history.messageCount = 5U;
+    for (std::size_t index = 0; index < history.messageCount; ++index) {
+      history.messages[index] = lg::ChatMessage{
+        static_cast<std::uint32_t>(index + 10U),
+        static_cast<std::uint8_t>(index % 2U),
+        index % 2U == 0U ? "yg" : "Zap Witch",
+        "message " + std::to_string(index + 1U),
+      };
+    }
+    transport.publishChatHistory(history);
+    client.receiveSnapshots();
+    failures += expect(
+      client.chatHistory().size() == 5U &&
+        client.chatHistory().front().sequence == 10U &&
+        client.chatHistory().back().message == "message 5",
+      "ClientGame should assemble ordered chat history across chunks"
     );
   }
 

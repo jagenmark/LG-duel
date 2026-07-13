@@ -2369,6 +2369,35 @@
 ( 658 28 -548 ) ( 658 28 -547 ) ( 658 29 -548 ) Circular/Square/Roofs/Square_Roofs_18-128x128 0 0 0 1 1
 }
 }
+// LG Duel McGuffin objective entities.
+{
+"classname" "info_mcguffin_spawn"
+"origin" "628 105 -870"
+}
+{
+"classname" "trigger_mcguffin_base"
+"team" "red"
+{
+( 480 80 -920 ) ( 480 80 -840 ) ( 480 155 -840 ) common/trigger 0 0 0 1 1
+( 560 80 -920 ) ( 560 155 -840 ) ( 560 80 -840 ) common/trigger 0 0 0 1 1
+( 480 80 -920 ) ( 560 80 -840 ) ( 480 80 -840 ) common/trigger 0 0 0 1 1
+( 480 155 -920 ) ( 480 155 -840 ) ( 560 155 -840 ) common/trigger 0 0 0 1 1
+( 480 80 -920 ) ( 480 155 -920 ) ( 560 155 -920 ) common/trigger 0 0 0 1 1
+( 480 80 -840 ) ( 560 155 -840 ) ( 480 155 -840 ) common/trigger 0 0 0 1 1
+}
+}
+{
+"classname" "trigger_mcguffin_base"
+"team" "blue"
+{
+( 695 55 -920 ) ( 695 55 -840 ) ( 695 135 -840 ) common/trigger 0 0 0 1 1
+( 770 55 -920 ) ( 770 135 -840 ) ( 770 55 -840 ) common/trigger 0 0 0 1 1
+( 695 55 -920 ) ( 770 55 -840 ) ( 695 55 -840 ) common/trigger 0 0 0 1 1
+( 695 135 -920 ) ( 695 135 -840 ) ( 770 135 -840 ) common/trigger 0 0 0 1 1
+( 695 55 -920 ) ( 695 135 -920 ) ( 770 135 -920 ) common/trigger 0 0 0 1 1
+( 695 55 -840 ) ( 770 135 -840 ) ( 695 135 -840 ) common/trigger 0 0 0 1 1
+}
+}
 // entity 1
 {
 "classname" "target_position"
@@ -3660,19 +3689,69 @@
 }
 // entity 17
 {
-"classname" "lg_spawn"
-"origin" "521.66 118.163 -897.211"
+"classname" "info_player_team"
+"spawn_group" "red_base"
+"origin" "450 95 -897.211"
 "angle" "0"
 "_tb_layer" "14"
 }
 // entity 18
 {
-"classname" "lg_spawn"
-"origin" "733.391 92.1024 -890.153"
-"angle" "180"
+"classname" "info_player_team"
+"spawn_group" "red_base"
+"origin" "450 140 -897.211"
+"angle" "0"
 "_tb_layer" "14"
 }
 // entity 19
+{
+"classname" "info_player_team"
+"spawn_group" "red_base"
+"origin" "590 70 -897.211"
+"angle" "145"
+"_tb_layer" "14"
+}
+// entity 20
+{
+"classname" "info_player_team"
+"spawn_group" "red_base"
+"origin" "590 165 -897.211"
+"angle" "-145"
+"_tb_layer" "14"
+}
+// entity 21
+{
+"classname" "info_player_team"
+"spawn_group" "blue_base"
+"origin" "665 55 -890.153"
+"angle" "25"
+"_tb_layer" "14"
+}
+// entity 22
+{
+"classname" "info_player_team"
+"spawn_group" "blue_base"
+"origin" "665 155 -890.153"
+"angle" "-25"
+"_tb_layer" "14"
+}
+// entity 23
+{
+"classname" "info_player_team"
+"spawn_group" "blue_base"
+"origin" "800 55 -890.153"
+"angle" "180"
+"_tb_layer" "14"
+}
+// entity 24
+{
+"classname" "info_player_team"
+"spawn_group" "blue_base"
+"origin" "800 155 -890.153"
+"angle" "180"
+"_tb_layer" "14"
+}
+// entity 25
 {
 "classname" "item_health_small"
 "origin" "621.404 -1264.75 -930.322"
