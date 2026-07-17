@@ -1,4 +1,6 @@
 #include "render/Renderer.hpp"
+
+#include "dev/PngWriter.hpp"
 #include "app/TextInput.hpp"
 #include "render/BitmapFont.hpp"
 #include "render/GltfSkinnedModel.hpp"
@@ -4850,7 +4852,9 @@ void appendCommandBatches(
   const HudRenderState& hud,
   const ConsoleRenderState& console,
   float cameraVerticalOffset,
-  RendererFrameDiagnostics& diagnostics
+  RendererFrameDiagnostics& diagnostics,
+  const FrameCaptureRequest* captureRequest,
+  FrameCaptureResult* captureResult
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
   diagnostics.sceneBuildMilliseconds = 0.0F;
@@ -5141,6 +5145,7 @@ void appendCommandBatches(
     appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
     const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
     const Uint32 worldVertexCount = dynamic3DVertexCount;
+    if (captureRequest == nullptr || !captureRequest->hideHud) {
     const DrawList2D floatingHealthBars = buildFloatingHealthBars(
       static_cast<int>(outputWidth),
       static_cast<int>(outputHeight),
@@ -5238,6 +5243,7 @@ void appendCommandBatches(
       static_cast<float>(outputWidth),
       static_cast<float>(outputHeight)
     );
+    }
     uploadStart = RenderClock::now();
     diagnostics.sceneBuildMilliseconds =
       millisecondsBetween(buildStart, uploadStart);
@@ -6253,7 +6259,86 @@ void appendCommandBatches(
   diagnostics.renderBuildUploadMilliseconds =
     millisecondsBetween(buildStart, submitStart);
   // Submit is CPU-side command submission time, not actual display present time.
-  const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+  SDL_GPUTransferBuffer* captureTransfer = nullptr;
+  SDL_GPUTextureFormat captureFormat = SDL_GPU_TEXTUREFORMAT_INVALID;
+  if (captureRequest != nullptr && captureResult != nullptr) {
+    captureResult->requested = true;
+    captureResult->path = captureRequest->path;
+    captureResult->width = outputWidth;
+    captureResult->height = outputHeight;
+    captureFormat = SDL_GetGPUSwapchainTextureFormat(device, window);
+    const bool supportedFormat =
+      captureFormat == SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM ||
+      captureFormat == SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB ||
+      captureFormat == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM ||
+      captureFormat == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB;
+    const std::uint64_t captureBytes64 =
+      static_cast<std::uint64_t>(outputWidth) * outputHeight * 4U;
+    if (swapchainTexture == nullptr || outputWidth == 0U || outputHeight == 0U) {
+      captureResult->error = "renderer did not acquire a usable swapchain texture";
+    } else if (!supportedFormat || captureBytes64 > std::numeric_limits<Uint32>::max()) {
+      captureResult->error = "SDL_GPU swapchain format or dimensions are not capture-compatible";
+    } else {
+      const SDL_GPUTransferBufferCreateInfo transferInfo = {
+        SDL_GPU_TRANSFERBUFFERUSAGE_DOWNLOAD,
+        static_cast<Uint32>(captureBytes64),
+        0,
+      };
+      captureTransfer = SDL_CreateGPUTransferBuffer(device, &transferInfo);
+      SDL_GPUCopyPass* copyPass = captureTransfer != nullptr
+        ? SDL_BeginGPUCopyPass(commandBuffer)
+        : nullptr;
+      if (copyPass == nullptr) {
+        captureResult->error = std::string("could not create GPU capture resources: ") + SDL_GetError();
+      } else {
+        const SDL_GPUTextureRegion source = {
+          swapchainTexture, 0, 0, 0, 0, 0, outputWidth, outputHeight, 1,
+        };
+        const SDL_GPUTextureTransferInfo destination = {
+          captureTransfer, 0, outputWidth, outputHeight,
+        };
+        SDL_DownloadFromGPUTexture(copyPass, &source, &destination);
+        SDL_EndGPUCopyPass(copyPass);
+      }
+    }
+  }
+
+  SDL_GPUFence* captureFence = captureTransfer != nullptr
+    ? SDL_SubmitGPUCommandBufferAndAcquireFence(commandBuffer)
+    : nullptr;
+  const bool submitted = captureTransfer != nullptr
+    ? captureFence != nullptr
+    : SDL_SubmitGPUCommandBuffer(commandBuffer);
+  if (captureTransfer != nullptr && captureFence != nullptr && captureResult != nullptr) {
+    SDL_GPUFence* fences[] = {captureFence};
+    if (!SDL_WaitForGPUFences(device, true, fences, 1)) {
+      captureResult->error = std::string("GPU capture fence wait failed: ") + SDL_GetError();
+    } else {
+      const void* mapped = SDL_MapGPUTransferBuffer(device, captureTransfer, false);
+      if (mapped == nullptr) {
+        captureResult->error = std::string("GPU capture buffer mapping failed: ") + SDL_GetError();
+      } else {
+        const std::size_t pixelBytes =
+          static_cast<std::size_t>(outputWidth) * outputHeight * 4U;
+        std::vector<std::uint8_t> rgba(pixelBytes);
+        std::memcpy(rgba.data(), mapped, pixelBytes);
+        SDL_UnmapGPUTransferBuffer(device, captureTransfer);
+        if (
+          captureFormat == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM ||
+          captureFormat == SDL_GPU_TEXTUREFORMAT_B8G8R8A8_UNORM_SRGB
+        ) {
+          for (std::size_t index = 0; index < rgba.size(); index += 4U) {
+            std::swap(rgba[index], rgba[index + 2U]);
+          }
+        }
+        captureResult->ok = dev::writeRgbaPng(
+          captureRequest->path, outputWidth, outputHeight, rgba, captureResult->error
+        );
+      }
+    }
+    SDL_ReleaseGPUFence(device, captureFence);
+  }
+  if (captureTransfer != nullptr) SDL_ReleaseGPUTransferBuffer(device, captureTransfer);
   diagnostics.submitMilliseconds =
     millisecondsBetween(submitStart, RenderClock::now());
   return submitted;
@@ -7405,7 +7490,9 @@ void Renderer::render(
   std::uint32_t newExplosionEventsConsumed,
   const RenderSettings& settings,
   const HudRenderState& hud,
-  const ConsoleRenderState& console
+  const ConsoleRenderState& console,
+  const FrameCaptureRequest* captureRequest,
+  FrameCaptureResult* captureResult
 ) {
 #if LG_DUEL_HAS_SDL3
   const auto renderStart = RenderClock::now();
@@ -7555,7 +7642,9 @@ void Renderer::render(
           hud,
           console,
           cameraStepOffset_,
-          lastFrameDiagnostics_
+          lastFrameDiagnostics_,
+          captureRequest,
+          captureResult
         ) &&
         !gpuErrorReported_) {
       std::cerr << "SDL_GPU frame submission failed: " << SDL_GetError() << '\n';
@@ -7891,34 +7980,72 @@ void Renderer::render(
     static_cast<float>(width) / static_cast<float>(std::max(1, height)),
     settings.fieldOfView
   );
-  drawCommandList(
-    renderer,
-    buildFloatingHealthBars(
-      width,
-      height,
-      camera,
-      arena,
-      remotePlayers,
-      perspectiveScene.remoteRenderVisible,
-      settings,
-      hud
-    )
-  );
-  drawCommandList(
-    renderer,
-    buildFloatingDamageNumbers(width, height, camera, settings, hud)
-  );
-  drawCommandList(
-    renderer,
-    buildScreenUi(
-      width,
-      height,
-      player,
-      settings,
-      hud,
-      console
-    )
-  );
+  if (captureRequest == nullptr || !captureRequest->hideHud) {
+    drawCommandList(
+      renderer,
+      buildFloatingHealthBars(
+        width,
+        height,
+        camera,
+        arena,
+        remotePlayers,
+        perspectiveScene.remoteRenderVisible,
+        settings,
+        hud
+      )
+    );
+    drawCommandList(
+      renderer,
+      buildFloatingDamageNumbers(width, height, camera, settings, hud)
+    );
+    drawCommandList(
+      renderer,
+      buildScreenUi(
+        width,
+        height,
+        player,
+        settings,
+        hud,
+        console
+      )
+    );
+  }
+  if (captureRequest != nullptr && captureResult != nullptr) {
+    captureResult->requested = true;
+    captureResult->path = captureRequest->path;
+    SDL_Surface* surface = SDL_RenderReadPixels(renderer, nullptr);
+    if (surface == nullptr) {
+      captureResult->error = std::string("SDL_Renderer capture failed: ") + SDL_GetError();
+    } else {
+      SDL_Surface* rgbaSurface = SDL_ConvertSurface(surface, SDL_PIXELFORMAT_RGBA32);
+      SDL_DestroySurface(surface);
+      if (rgbaSurface == nullptr) {
+        captureResult->error = std::string("capture pixel conversion failed: ") + SDL_GetError();
+      } else {
+        captureResult->width = static_cast<std::uint32_t>(rgbaSurface->w);
+        captureResult->height = static_cast<std::uint32_t>(rgbaSurface->h);
+        std::vector<std::uint8_t> pixels(
+          static_cast<std::size_t>(rgbaSurface->w) * rgbaSurface->h * 4U
+        );
+        const auto* source = static_cast<const std::uint8_t*>(rgbaSurface->pixels);
+        for (int row = 0; row < rgbaSurface->h; ++row) {
+          std::memcpy(
+            pixels.data() + static_cast<std::size_t>(row) * rgbaSurface->w * 4U,
+            source + static_cast<std::size_t>(row) * rgbaSurface->pitch,
+            static_cast<std::size_t>(rgbaSurface->w) * 4U
+          );
+        }
+        SDL_DestroySurface(rgbaSurface);
+        captureResult->ok = dev::writeRgbaPng(
+          captureRequest->path,
+          captureResult->width,
+          captureResult->height,
+          pixels,
+          captureResult->error
+        );
+      }
+    }
+  }
   SDL_RenderPresent(renderer);
   lastFrameDiagnostics_.totalRenderMilliseconds =
     millisecondsBetween(renderStart, RenderClock::now());
@@ -7930,6 +8057,8 @@ void Renderer::render(
   (void)settings;
   (void)hud;
   (void)console;
+  (void)captureRequest;
+  (void)captureResult;
 #endif
 }
 

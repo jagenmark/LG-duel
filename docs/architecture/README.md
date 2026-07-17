@@ -12,6 +12,7 @@ LG Duel is a small fixed-tick arena FPS. The architecture is split around an aut
 - Rendering: `src/render/Renderer.*` selects SDL_GPU or SDL_Renderer fallback. `src/render/Scene3D.*` builds first-person 3D world/effect geometry, and `ScreenUi.*` builds screen-space HUD/UI overlays from simulation snapshots and presentation state.
 - Maps/assets/config: `src/map/MapParser.*` and `MapToArena.*` load restricted Quake `.map` files into `src/sim/Arena.*`; `config/balance.cfg` configures authoritative non-cvar balance, `config/server_cvars.cfg` seeds server cvars, and `config/default_client.cfg` seeds client cvars/binds before the user `client.cfg`.
 - Tests: `tests/CMakeLists.txt` defines focused executables for sim, net/protocol, server, client prediction, render scene building, cvars, input, HUD, audio, and smoke coverage.
+- Developer control: `src/dev/DevControl*` provides an explicitly enabled loopback-only structured control plane; the CLI and MCP adapter call it without changing gameplay networking.
 
 ## Core Flow
 
@@ -28,6 +29,7 @@ The local client predicts its own `PlayerState` by replaying unacknowledged comm
 - [Maps And Assets](maps-assets.md)
 - [Config And Testing](config-testing.md)
 - [Performance](performance.md)
+- [Performance benchmarks](../PERFORMANCE-BENCHMARKS.md)
 
 ## Invariants And Footguns
 
@@ -37,4 +39,5 @@ The local client predicts its own `PlayerState` by replaying unacknowledged comm
 - Protocol layout is positional; changing packet fields requires updating both encoder and decoder and bumping `kProtocolVersion`.
 - Static render geometry should be cached or rebuilt only when the arena/material state changes.
 - Avoid adding allocation-heavy work to server ticks, packet encode/decode, prediction, or per-frame scene construction.
+- Developer control is disabled in normal launches. Enabled requests cross to the SDL thread through a bounded queue and never enter snapshots or the authoritative server tick.
 - Put new gameplay constants in the appropriate config path when designers need to tune them. Do not let clients load local `balance.cfg`; authoritative balance comes from the server and is replicated through existing snapshot/command state where needed.

@@ -9,10 +9,15 @@
 #include <span>
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace lg {
+
+struct ArenaCollisionIndex;
 
 inline constexpr float kDefaultJumpPadSpeed = 20.0F;
 inline constexpr float kPlayerStepHeight = 0.45F;
@@ -126,9 +131,32 @@ struct ArenaTeamSpawn {
   ArenaSpawnGroup group = ArenaSpawnGroup::None;
 };
 
+template <typename T, std::size_t MaxCount>
+class BoundedArenaStorage {
+public:
+  // Indexed writes materialize only the required prefix on the heap. Arena's
+  // active count must never expose an element that has not first been written.
+  [[nodiscard]] T& operator[](std::size_t index) {
+    if (index >= MaxCount) {
+      throw std::out_of_range("arena storage capacity exceeded");
+    }
+    if (index >= elements_.size()) {
+      elements_.resize(index + 1U);
+    }
+    return elements_[index];
+  }
+
+  [[nodiscard]] const T& operator[](std::size_t index) const {
+    return elements_[index];
+  }
+
+private:
+  std::vector<T> elements_;
+};
+
 struct Arena {
-  static constexpr std::size_t kWallCount = 256;
-  static constexpr std::size_t kBrushCount = 256;
+  static constexpr std::size_t kWallCount = 2048;
+  static constexpr std::size_t kBrushCount = 1024;
   static constexpr std::size_t kStaticLightCount = 96;
   static constexpr std::size_t kJumpPadCount = 48;
   static constexpr std::size_t kHealthPickupCount = 32;
@@ -136,9 +164,11 @@ struct Arena {
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
-  std::array<ArenaWall, kWallCount> walls = {};
+  // Active prefixes preserve authored order. Geometry is heap-backed to keep
+  // Arena small on the stack, but collision still scales linearly with counts.
+  BoundedArenaStorage<ArenaWall, kWallCount> walls = {};
   std::size_t wallCount = 0;
-  std::array<ArenaBrush, kBrushCount> brushes = {};
+  BoundedArenaStorage<ArenaBrush, kBrushCount> brushes = {};
   std::size_t brushCount = 0;
   std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
   std::size_t staticLightCount = 0;
@@ -163,6 +193,9 @@ struct Arena {
   std::array<ArenaTeamSpawn, kTeamSpawnCount> teamSpawns = {};
   std::size_t teamSpawnCount = 0;
   ArenaMcGuffinLayout mcguffin = {};
+  // Optional immutable acceleration data. Directly constructed test arenas
+  // remain valid and use the linear oracle until finalized by a map boundary.
+  std::shared_ptr<const ArenaCollisionIndex> collisionIndex;
 };
 
 // Used before a server selects a packaged map and by clients that receive that

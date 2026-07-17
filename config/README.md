@@ -55,6 +55,22 @@ not put server-authoritative balance values here.
 It is loaded after client cvars are registered. These values are presentation
 only and do not affect server gameplay.
 
+## dev-camera-presets.json
+
+`dev-camera-presets.json` contains named, deterministic presentation-camera
+views used by the opt-in developer-control CLI and MCP capture workflow. It is
+not a cvar file, is never gameplay authority, and does not affect normal play.
+
+## benchmarks/
+
+`benchmarks/` contains versioned, opt-in performance-scenario descriptors.
+They set a deterministic presentation contract (map, camera, pacing, actors,
+effects, and captures) for the separate benchmark tool; they are not startup
+configs and do not affect normal client/server play or gameplay authority.
+Benchmark results and screenshots belong under ignored `build/benchmarks/`.
+See [Performance benchmarks](../docs/PERFORMANCE-BENCHMARKS.md) for the schema,
+limitations, and repeat/compare workflow.
+
 ## Code Defaults
 
 C++ structs keep conservative fallback values so tests and library-style

@@ -18,6 +18,13 @@ The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `ar
 
 The SDL_Renderer fallback draws immediate geometry and does not have the same static-world GPU cache. It is simpler but less representative of the intended high-performance 3D path.
 
+Opt-in developer captures use the real final render target. SDL_Renderer reads
+pixels immediately before present. SDL_GPU schedules a swapchain-to-download
+transfer after all render passes, submits with a fence, maps only after that
+fence completes, normalizes RGBA/BGRA, and writes PNG. This synchronous readback
+exists only for an explicit capture request; ordinary frames allocate no
+capture buffer and never wait on a capture fence.
+
 ## Player Outlines
 
 SDL_GPU player outlines are object-mask-based screen-space outlines. `Scene3D` records outline eligibility separately from normal player materials, including enemy/teammate group, visibility mode, alpha, pulse, and pixel width. The mask pass redraws the same already-built player body vertex ranges used by the normal world pass; it does not generate expanded outline meshes or rebuild player geometry for outlines.

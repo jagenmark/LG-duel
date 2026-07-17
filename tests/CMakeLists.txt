@@ -179,6 +179,17 @@ lg_duel_set_warnings(lg_duel_arena_map_tests)
 
 add_test(NAME lg_duel_arena_map_tests COMMAND lg_duel_arena_map_tests)
 
+add_executable(lg_duel_arena_broadphase_tests
+  sim/ArenaBroadphaseTests.cpp
+)
+
+target_link_libraries(lg_duel_arena_broadphase_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_arena_broadphase_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_arena_broadphase_tests)
+
+add_test(NAME lg_duel_arena_broadphase_tests COMMAND lg_duel_arena_broadphase_tests)
+set_tests_properties(lg_duel_arena_broadphase_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 add_executable(lg_duel_quake_map_tests
   sim/QuakeMapTests.cpp
 )
@@ -261,6 +272,42 @@ target_compile_features(lg_duel_console_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_console_tests)
 
 add_test(NAME lg_duel_console_tests COMMAND lg_duel_console_tests)
+
+add_executable(lg_duel_dev_control_tests
+  dev/DevControlTests.cpp
+)
+
+target_link_libraries(lg_duel_dev_control_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_dev_control_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_dev_control_tests)
+
+add_test(NAME lg_duel_dev_control_tests COMMAND lg_duel_dev_control_tests)
+
+add_executable(lg_duel_benchmark_tests
+  benchmark/BenchmarkTests.cpp
+)
+
+target_link_libraries(lg_duel_benchmark_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_benchmark_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_benchmark_tests)
+
+add_test(NAME lg_duel_benchmark_tests COMMAND lg_duel_benchmark_tests)
+
+find_package(Python3 QUIET COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+  add_test(
+    NAME lg_duel_control_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_tools.py
+  )
+  add_test(
+    NAME lg_duel_benchmark_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_benchmark.py
+  )
+  add_test(
+    NAME lg_duel_q3_import_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_import_q3_map.py
+  )
+endif()
 
 add_executable(lg_duel_weapon_catalog_tests
   sim/WeaponCatalogTests.cpp

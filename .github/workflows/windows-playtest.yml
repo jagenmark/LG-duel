@@ -71,5 +71,5 @@ jobs:
           name: LG-Duel-Windows-x64
           path: dist/LG-Duel-Windows-x64.zip
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
           archive: false

@@ -518,6 +518,21 @@ struct RendererFrameDiagnostics {
   std::string_view selectedPresentModeName = "n/a";
 };
 
+struct FrameCaptureRequest {
+  std::string path;
+  bool hideHud = true;
+  bool hideOverlays = true;
+};
+
+struct FrameCaptureResult {
+  bool requested = false;
+  bool ok = false;
+  std::string path;
+  std::string error;
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
+};
+
 enum class PresentMode : int {
   Fifo = 0,
   Mailbox = 1,
@@ -547,7 +562,9 @@ public:
     std::uint32_t newExplosionEventsConsumed,
     const RenderSettings& settings,
     const HudRenderState& hud,
-    const ConsoleRenderState& console
+    const ConsoleRenderState& console,
+    const FrameCaptureRequest* captureRequest = nullptr,
+    FrameCaptureResult* captureResult = nullptr
   );
   [[nodiscard]] bool setVSync(bool enabled);
   [[nodiscard]] bool setPresentMode(PresentMode mode);

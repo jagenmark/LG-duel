@@ -1,4 +1,5 @@
 #include "sim/Arena.hpp"
+#include "sim/ArenaBroadphase.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -799,13 +800,29 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
 ) {
   PlayerArenaTrace trace{end, {}, 1.0F, false, false};
   keepEarliestTrace(traceArenaBounds(arena, player, start, end), trace);
+  constexpr float kBroadphaseEpsilon = 0.001F;
+  ArenaBroadphaseCandidates candidates;
+  const Vec3 queryMin = {
+    std::min(start.x, end.x) - player.bounds.radius - kBroadphaseEpsilon,
+    std::min(start.y, end.y) - player.bounds.radius - kBroadphaseEpsilon,
+    std::min(start.z, end.z) - player.bounds.halfHeight - kBroadphaseEpsilon,
+  };
+  const Vec3 queryMax = {
+    std::max(start.x, end.x) + player.bounds.radius + kBroadphaseEpsilon,
+    std::max(start.y, end.y) + player.bounds.radius + kBroadphaseEpsilon,
+    std::max(start.z, end.z) + player.bounds.halfHeight + kBroadphaseEpsilon,
+  };
+  const bool indexed = queryArenaCollisionIndex(arena, queryMin, queryMax, candidates);
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (indexed && !candidates.walls.test(index)) continue;
     keepEarliestTrace(traceWall(arena.walls[index], player, start, end), trace);
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (indexed && !candidates.brushes.test(index)) continue;
     keepEarliestTrace(traceBrushWalkableDrop(arena.brushes[index], player, start, end), trace);
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (indexed && !candidates.brushes.test(index)) continue;
     // Submit the specialized drop first so equal-fraction ramp landings retain
     // their walkable result instead of the general convex sweep's face choice.
     keepEarliestTrace(traceBrush(arena.brushes[index], player, start, end), trace);

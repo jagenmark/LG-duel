@@ -2,6 +2,9 @@
 #include "sim/MapRegistry.hpp"
 
 #include <cmath>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string_view>
@@ -36,6 +39,18 @@ int main() {
       loaded.descriptor.contentHash == lg::hashArena(arena),
       "eyetoeye descriptor hash should match loaded arena"
     );
+    lg::Arena visuallyChanged = arena;
+    visuallyChanged.walls[0].faceMaterialIds[0] ^= 0x1U;
+    failures += expect(
+      lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+      "map hash should include per-face render materials"
+    );
+    visuallyChanged = arena;
+    visuallyChanged.walls[0].faceTextureProjections[0].uOffset += 1.0F;
+    failures += expect(
+      lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+      "map hash should include texture projections used by the renderer"
+    );
     lg::MapDescriptor mismatched = loaded.descriptor;
     mismatched.contentHash ^= 0x1U;
     const lg::LocalMapLoadResult verified = lg::loadAndVerifyLocalMap(mismatched);
@@ -43,8 +58,45 @@ int main() {
   }
 
   {
+    const lg::LocalMapLoadResult loaded = lg::loadLocalMap("overkill_import");
+    failures += expect(loaded.ok, "generated overkill import should load through the local map registry");
+    failures += expect(
+      loaded.ok && loaded.arena.wallCount == 1256,
+      "generated overkill import should preserve its validated box count"
+    );
+    failures += expect(
+      loaded.ok && loaded.arena.brushCount == 673,
+      "generated overkill import should preserve its validated convex-brush count"
+    );
+    failures += expect(
+      loaded.ok && loaded.descriptor.contentHash == lg::hashArena(loaded.arena),
+      "generated overkill import descriptor should bind to parsed arena content"
+    );
+  }
+
+  {
     const lg::LocalMapLoadResult missing = lg::loadLocalMap("missing_map");
     failures += expect(!missing.ok, "missing local map should fail like any other local map");
+  }
+
+  {
+    const std::filesystem::path temporaryDirectory =
+      std::filesystem::temp_directory_path() / "lg-duel-map-error-test";
+    const std::filesystem::path malformedMap = temporaryDirectory / "malformed.map";
+    std::filesystem::create_directories(temporaryDirectory);
+    {
+      std::ofstream file(malformedMap);
+      file << "version 1\n";
+    }
+    const lg::LocalMapLoadResult malformed =
+      lg::loadLocalMap("malformed", temporaryDirectory.string());
+    failures += expect(!malformed.ok, "malformed local map should fail");
+    failures += expect(
+      malformed.error.find("expected entity") != std::string::npos,
+      "local map failures should preserve the parser diagnostic"
+    );
+    std::filesystem::remove(malformedMap);
+    std::filesystem::remove(temporaryDirectory);
   }
 
   {
@@ -63,18 +115,50 @@ spawn p2 2,0,0 yaw=180
   {
     std::ostringstream text;
     text << "version 1\n";
-    text << "bounds min=0,0,0 max=320,2,2\n";
-    for (int index = 0; index < 160; ++index) {
+    text << "bounds min=0,0,0 max=600,2,2\n";
+    for (int index = 0; index < 300; ++index) {
       const float x = static_cast<float>(index) * 2.0F;
       text << "box box_" << index << ' '
            << x << ",0,0 "
            << x + 1.0F << ",1,1\n";
     }
     text << "spawn p1 1,1.5,0\n";
-    text << "spawn p2 319,1.5,0\n";
+    text << "spawn p2 599,1.5,0\n";
     const lg::ArenaLoadResult result = lg::loadArenaFromText(text.str());
-    failures += expect(result.ok, "one-hundred-sixty-box map should load under the expanded arena limit");
-    failures += expect(result.arena.wallCount == 160, "expanded arena limit should preserve all boxes");
+    failures += expect(result.ok, "three-hundred-box map should load above the old arena limit");
+    failures += expect(result.arena.wallCount == 300, "expanded arena limit should preserve all boxes");
+    failures += expect(
+      nearlyEqual(result.arena.walls[299].min.x, 598.0F),
+      "expanded arena storage should preserve authored box order"
+    );
+  }
+
+  {
+    lg::Arena arena;
+    for (std::size_t index = 0; index < 300; ++index) {
+      arena.brushes[index].materialId = static_cast<std::uint32_t>(index + 1U);
+    }
+    arena.brushCount = 300;
+    const lg::Arena& loadedArena = arena;
+    failures += expect(
+      loadedArena.brushes[299].materialId == 300U,
+      "expanded convex-brush storage should preserve entries above the old limit"
+    );
+  }
+
+  {
+    std::ostringstream text;
+    text << "version 1\n";
+    text << "bounds min=-2,-2,0 max=2,2,2\n";
+    for (std::size_t index = 0; index <= lg::Arena::kWallCount; ++index) {
+      text << "box box_" << index << " -1,-1,0 1,1,1\n";
+    }
+    const lg::ArenaLoadResult result = lg::loadArenaFromText(text.str());
+    failures += expect(!result.ok, "maps above the fixed box limit should still fail");
+    failures += expect(
+      result.error.find("too many boxes") != std::string::npos,
+      "box capacity failures should preserve the loader diagnostic"
+    );
   }
 
   {

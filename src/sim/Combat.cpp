@@ -1,4 +1,5 @@
 #include "sim/Combat.hpp"
+#include "sim/ArenaBroadphase.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -387,7 +388,25 @@ WorldTrace traceWorld(
     trace.normal = arenaExit.normal;
     trace.hit = true;
   }
+  constexpr float kBroadphaseEpsilon = 0.001F;
+  const Vec3 segmentEnd = origin + (direction * maxDistance);
+  ArenaBroadphaseCandidates candidates;
+  const bool indexed = queryArenaCollisionIndex(
+    arena,
+    {
+      std::min(origin.x, segmentEnd.x) - kBroadphaseEpsilon,
+      std::min(origin.y, segmentEnd.y) - kBroadphaseEpsilon,
+      std::min(origin.z, segmentEnd.z) - kBroadphaseEpsilon,
+    },
+    {
+      std::max(origin.x, segmentEnd.x) + kBroadphaseEpsilon,
+      std::max(origin.y, segmentEnd.y) + kBroadphaseEpsilon,
+      std::max(origin.z, segmentEnd.z) + kBroadphaseEpsilon,
+    },
+    candidates
+  );
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (indexed && !candidates.walls.test(index)) continue;
     const TraceHit hit = wallHit(arena.walls[index], origin, direction);
     if (hit.hit && hit.distance <= trace.distance) {
       trace.distance = hit.distance;
@@ -396,6 +415,7 @@ WorldTrace traceWorld(
     }
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (indexed && !candidates.brushes.test(index)) continue;
     // Reject brushes whose cheap AABB entry is already behind a nearer hit;
     // exact convex-plane tracing then determines the visible impact surface.
     const float boundsDistance =

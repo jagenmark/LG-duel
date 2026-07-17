@@ -1,4 +1,7 @@
 /build/
+/build/benchmarks/
+/build/captures/
+__pycache__/
 /dist/
 /.server/
 /build-errors.txt
@@ -8,6 +11,12 @@ AGENTS.md
 .vscode/
 git 
 maps/autosave/
+
+# Local third-party Quake 3 / Quake Live imports and diagnostic decompiles.
+# Generated LG-Duel candidates belong under maps/ instead.
+/imports/q3/**/*.bsp
+/imports/q3/**/*.aas
+/imports/q3/**/work/
 
 # Local Blender handoff packages and backup/inspection saves.
 assets/models/revolver/*.blend1
