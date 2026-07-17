@@ -9,13 +9,16 @@
 #include "app/PerfTelemetry.hpp"
 #include "app/Scoreboard.hpp"
 #include "app/TextInput.hpp"
+#include "benchmark/Benchmark.hpp"
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
 #include "client/LocalHitFeedback.hpp"
 #include "console/ConsoleConfig.hpp"
 #include "console/ConsoleSystem.hpp"
+#include "dev/DevControlServer.hpp"
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
+#include "net/NetCodec.hpp"
 #include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/GltfSkinnedModel.hpp"
@@ -30,6 +33,7 @@
 #include "sim/Combat.hpp"
 #include "sim/GameplayCvars.hpp"
 #include "sim/Movement.hpp"
+#include "sim/MapRegistry.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 #include "sim/WeaponCatalog.hpp"
@@ -3669,8 +3673,16 @@ HudRenderState buildHud(
 
 } // namespace
 
-GameApp::GameApp(std::string serverHost, std::uint16_t serverPort)
-  : serverHost_(std::move(serverHost)), serverPort_(serverPort) {}
+GameApp::GameApp(
+  std::string serverHost,
+  std::uint16_t serverPort,
+  DeveloperControlOptions developerControl,
+  BenchmarkOptions benchmark
+)
+  : serverHost_(std::move(serverHost)),
+    serverPort_(serverPort),
+    developerControl_(developerControl),
+    benchmark_(benchmark) {}
 
 int GameApp::run() const {
 #if LG_DUEL_HAS_SDL3
@@ -3702,6 +3714,37 @@ int GameApp::run() const {
   const char* executableBasePath = SDL_GetBasePath();
   const std::filesystem::path assetBasePath =
     executableBasePath != nullptr ? executableBasePath : std::filesystem::current_path();
+  const std::filesystem::path runtimeDirectory =
+    std::filesystem::weakly_canonical(assetBasePath);
+  dev::DevControlServer developerControl;
+  const std::filesystem::path repositoryRoot =
+    runtimeDirectory.parent_path().parent_path();
+  const std::filesystem::path captureDirectory =
+    runtimeDirectory.parent_path() / "captures";
+  std::string lastControlError;
+  if (developerControl_.enabled) {
+    std::error_code directoryError;
+    std::filesystem::create_directories(captureDirectory, directoryError);
+    if (directoryError) {
+      std::cerr << "Could not create developer capture directory: "
+                << directoryError.message() << '\n';
+      renderer.shutdown();
+      SDL_DestroyWindow(window);
+      SDL_Quit();
+      return 1;
+    }
+    std::string controlError;
+    if (!developerControl.start(developerControl_.port, controlError)) {
+      std::cerr << "Developer control startup failed: " << controlError << '\n';
+      renderer.shutdown();
+      SDL_DestroyWindow(window);
+      SDL_Quit();
+      return 1;
+    }
+    std::cout << "Developer control enabled on 127.0.0.1:"
+              << developerControl.port() << '\n';
+    std::cout << "Capture output: " << captureDirectory.string() << '\n';
+  }
   ClientAudio audio;
   const bool audioAvailable =
     audioSubsystemAvailable && audio.initialize(assetBasePath);
@@ -3753,6 +3796,49 @@ int GameApp::run() const {
   std::deque<PendingBotCommand> pendingBotCommands;
   ClientChatState chatState;
   ClientSession session;
+  dev::CameraTransform developmentCamera;
+  bool developmentCameraEnabled = false;
+  std::uint64_t renderedFrameSerial = 0;
+  struct ActiveControlOperation {
+    enum class Stage {
+      Start,
+      WaitingForMap,
+      WaitingForCameraFrame,
+      CaptureReady,
+      BenchmarkWarmup,
+      BenchmarkMeasure,
+      BenchmarkWaitingForCameraFrame,
+      BenchmarkCaptureReady,
+      BenchmarkFinalize,
+    };
+    dev::QueuedControlRequest queued;
+    Stage stage = Stage::Start;
+    std::string targetMap;
+    std::uint32_t previousMapRevision = 0;
+    std::uint64_t requiredRenderedFrame = 0;
+    std::size_t viewpointIndex = 0;
+    std::vector<dev::JsonValue> viewResults;
+    std::string captureStem;
+    std::filesystem::path pendingCapturePath;
+    std::chrono::steady_clock::time_point deadline = {};
+    std::chrono::steady_clock::time_point benchmarkPhaseStart = {};
+    std::uint64_t benchmarkPhaseFrames = 0;
+    std::vector<benchmark::FrameSample> benchmarkSamples;
+    std::map<std::string, std::string, std::less<>> restoredCvars;
+    std::size_t benchmarkScreenshotIndex = 0;
+    std::vector<std::string> benchmarkScreenshotPaths;
+    bool previousDevelopmentCameraEnabled = false;
+    dev::CameraTransform previousDevelopmentCamera;
+    BotAttackMode previousBotAttackMode = BotAttackMode::Off;
+    bool previousBotStare = true;
+    bool previousBotStandstill = false;
+    bool previousBotDodge = false;
+    std::int32_t previousBotDodgeMinIntervalMs = 250;
+    std::int32_t previousBotDodgeMaxIntervalMs = 750;
+    int previousBotCount = 0;
+    bool benchmarkBotsConfigured = false;
+  };
+  std::optional<ActiveControlOperation> activeControlOperation;
   std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
     netGraphCorrectionSerials = {};
   std::array<float, kNetworkTelemetryHistorySamples>
@@ -4821,12 +4907,455 @@ int GameApp::run() const {
   activeTransientEffects.reserve(kMaxTransientEffects);
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
+  const auto currentMapName = [&session]() -> std::string {
+    const ClientGame* game = session.game();
+    return game != nullptr && game->hasSnapshot()
+      ? game->snapshot().map.mapName
+      : std::string{};
+  };
+  const auto currentMapRevision = [&session]() -> std::uint32_t {
+    const ClientGame* game = session.game();
+    return game != nullptr && game->hasSnapshot()
+      ? game->snapshot().mapRevision
+      : 0U;
+  };
+  const auto currentMapContentHash = [&session]() -> std::uint32_t {
+    const ClientGame* game = session.game();
+    return game != nullptr && game->hasSnapshot()
+      ? game->snapshot().map.contentHash
+      : 0U;
+  };
+  const auto currentControlCamera = [&]() {
+    if (developmentCameraEnabled) return developmentCamera;
+    dev::CameraTransform camera;
+    const ClientGame* game = session.game();
+    if (game != nullptr && game->hasSnapshot() && !session.spectator()) {
+      const PlayerState& player = game->predictedPlayer();
+      camera.position = player.position + Vec3{0.0F, 0.0F, 0.65F};
+      camera.yawDegrees = player.viewYawRadians * kRadiansToDegrees;
+      camera.pitchDegrees = player.viewPitchRadians * kRadiansToDegrees;
+    }
+    camera.fieldOfView = console.getFloat("cl_fov");
+    return camera;
+  };
+  const auto captureRelativePath = [&repositoryRoot](const std::filesystem::path& path) {
+    const std::filesystem::path relative = path.lexically_relative(repositoryRoot);
+    return relative.empty() ? path.generic_string() : relative.generic_string();
+  };
+  const auto timestampMilliseconds = []() -> std::int64_t {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()
+    ).count();
+  };
+  const auto controlStatus = [&]() {
+    dev::JsonValue status = dev::JsonValue::objectValue();
+    const ClientGame* game = session.game();
+    const bool hasSnapshot = game != nullptr && game->hasSnapshot();
+    status.object["control_protocol"] = dev::JsonValue::numberValue(1);
+    status.object["client_running"] = dev::JsonValue::booleanValue(true);
+    status.object["server_running"] = dev::JsonValue::booleanValue(session.connected());
+    status.object["connected"] = dev::JsonValue::booleanValue(session.connected());
+    status.object["connection_state"] = dev::JsonValue::numberValue(
+      static_cast<int>(session.state())
+    );
+    status.object["connection_message"] = dev::JsonValue::stringValue(session.statusMessage());
+    status.object["map"] = dev::JsonValue::stringValue(currentMapName());
+    status.object["map_revision"] = dev::JsonValue::numberValue(currentMapRevision());
+    status.object["game_mode"] = dev::JsonValue::stringValue(
+      hasSnapshot ? gameModeName(game->snapshot().gameMode) : "UNKNOWN"
+    );
+    status.object["match_state"] = dev::JsonValue::stringValue(
+      hasSnapshot ? matchPhaseName(game->snapshot().matchPhase) : "UNKNOWN"
+    );
+    status.object["spectator"] = dev::JsonValue::booleanValue(session.spectator());
+    status.object["development_camera"] = dev::JsonValue::booleanValue(developmentCameraEnabled);
+    status.object["benchmark_enabled"] = dev::JsonValue::booleanValue(benchmark_.enabled);
+    status.object["game_protocol_version"] = dev::JsonValue::numberValue(kProtocolVersion);
+    status.object["camera"] = dev::cameraJson(currentControlCamera());
+    status.object["renderer"] = dev::JsonValue::stringValue(std::string(renderer.backendName()));
+    status.object["capture_output_directory"] =
+      dev::JsonValue::stringValue(captureDirectory.string());
+    status.object["capture_output_relative"] =
+      dev::JsonValue::stringValue(captureRelativePath(captureDirectory));
+    status.object["last_control_error"] = dev::JsonValue::stringValue(lastControlError);
+    return status;
+  };
+  const auto setBenchmarkCamera = [&](const benchmark::CameraPose& pose) {
+    developmentCamera.position = pose.position;
+    developmentCamera.yawDegrees = pose.yawDegrees;
+    developmentCamera.pitchDegrees = pose.pitchDegrees;
+    developmentCamera.fieldOfView = pose.fieldOfView;
+    developmentCameraEnabled = true;
+  };
+  const auto restoreBenchmarkState = [&]() {
+    if (!activeControlOperation.has_value() ||
+        activeControlOperation->queued.request.operation != dev::ControlOperation::RunBenchmark) return;
+    ActiveControlOperation& active = *activeControlOperation;
+    for (const auto& [name, value] : active.restoredCvars) {
+      (void)console.execute("set " + name + " " + value);
+    }
+    if (active.benchmarkBotsConfigured) {
+      pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
+      if (active.previousBotCount > 0) {
+        pendingBotCommands.push_back(PendingBotCommand{
+          BotCommandType::Add, active.previousBotCount
+        });
+      }
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::AttackMode,
+        static_cast<std::int32_t>(active.previousBotAttackMode)
+      });
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Stare, active.previousBotStare ? 1 : 0
+      });
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Standstill, active.previousBotStandstill ? 1 : 0
+      });
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Dodge,
+        active.previousBotDodge ? 1 : 0,
+        active.previousBotDodgeMinIntervalMs,
+        active.previousBotDodgeMaxIntervalMs,
+      });
+    }
+    developmentCameraEnabled = active.previousDevelopmentCameraEnabled;
+    developmentCamera = active.previousDevelopmentCamera;
+  };
+  const auto completeControlError = [&](std::string code, std::string message) {
+    if (!activeControlOperation.has_value()) return;
+    lastControlError = message;
+    developerControl.complete(
+      activeControlOperation->queued.token,
+      dev::errorResponse(
+        activeControlOperation->queued.request.id,
+        std::move(code),
+        std::move(message)
+      )
+    );
+    restoreBenchmarkState();
+    activeControlOperation.reset();
+  };
+  const auto activateFirstViewpoint = [&]() {
+    ActiveControlOperation& active = *activeControlOperation;
+    const dev::CameraViewpoint& view = active.queued.request.viewpoints[0];
+    developmentCamera = view.camera;
+    developmentCameraEnabled = true;
+    active.viewpointIndex = 0;
+    active.requiredRenderedFrame = renderedFrameSerial + 1U;
+    active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+    active.stage = ActiveControlOperation::Stage::WaitingForCameraFrame;
+  };
+
   while (running) {
     const auto outerFrameStart = Clock::now();
     const auto outerFrameElapsed =
       std::chrono::duration<float>(outerFrameStart - previousOuterFrameStart);
     previousOuterFrameStart = outerFrameStart;
     const float outerFrameMilliseconds = outerFrameElapsed.count() * 1000.0F;
+    if (developerControl.running() && !activeControlOperation.has_value()) {
+      if (std::optional<dev::QueuedControlRequest> queued = developerControl.pollRequest();
+          queued.has_value()) {
+        activeControlOperation.emplace();
+        activeControlOperation->queued = std::move(*queued);
+        activeControlOperation->deadline =
+          std::chrono::steady_clock::now() + std::chrono::seconds(20);
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::Start) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
+      switch (request.operation) {
+      case dev::ControlOperation::Status:
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, controlStatus())
+        );
+        activeControlOperation.reset();
+        break;
+      case dev::ControlOperation::GetCamera:
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, dev::cameraJson(currentControlCamera()))
+        );
+        activeControlOperation.reset();
+        break;
+      case dev::ControlOperation::SetCamera: {
+        developmentCamera = request.camera;
+        if (!developmentCamera.fieldOfView.has_value()) {
+          developmentCamera.fieldOfView = console.getFloat("cl_fov");
+        }
+        developmentCameraEnabled = true;
+        dev::JsonValue result = dev::cameraJson(developmentCamera);
+        result.object["mode"] = dev::JsonValue::stringValue("development_camera");
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::LoadMap:
+      case dev::ControlOperation::ReloadMap:
+      case dev::ControlOperation::CaptureMapViews: {
+        const bool captureViews = request.operation == dev::ControlOperation::CaptureMapViews;
+        const bool needsMap = request.operation != dev::ControlOperation::CaptureMapViews ||
+          !request.mapName.empty();
+        if (captureViews) {
+          const std::string mapPart = request.mapName.empty() ? currentMapName() : request.mapName;
+          active.captureStem = dev::sanitizeGeneratedCaptureName(
+            mapPart + "-" + (request.presetName.empty() ? "views" : request.presetName) +
+            "-" + std::to_string(timestampMilliseconds())
+          );
+        }
+        if (!needsMap) {
+          if (currentMapName().empty()) {
+            completeControlError("not_ready", "no active map is available for capture");
+          } else {
+            activateFirstViewpoint();
+          }
+          break;
+        }
+        if (!session.connected() || session.game() == nullptr || !session.game()->hasSnapshot()) {
+          completeControlError("not_connected", "map changes require a connected client with an active snapshot");
+          break;
+        }
+        active.targetMap = request.operation == dev::ControlOperation::ReloadMap
+          ? currentMapName()
+          : request.mapName;
+        if (!isValidMapName(active.targetMap)) {
+          completeControlError("invalid_map", "the current or requested map name is not safe");
+          break;
+        }
+        const LocalMapLoadResult localMap = loadLocalMap(
+          active.targetMap,
+          (runtimeDirectory / "maps").string()
+        );
+        if (!localMap.ok) {
+          completeControlError("map_load_failed", localMap.error);
+          break;
+        }
+        active.targetMap = localMap.descriptor.mapName;
+        active.previousMapRevision = currentMapRevision();
+        pendingMapName = active.targetMap;
+        active.stage = ActiveControlOperation::Stage::WaitingForMap;
+        break;
+      }
+      case dev::ControlOperation::CaptureScreenshot: {
+        if (currentMapName().empty()) {
+          completeControlError("not_ready", "no active map is available for capture");
+          break;
+        }
+        const std::string requestedName = request.captureName.empty()
+          ? currentMapName() + "-" + std::to_string(timestampMilliseconds())
+          : request.captureName;
+        active.captureStem = dev::sanitizeGeneratedCaptureName(requestedName);
+        active.requiredRenderedFrame = renderedFrameSerial + 1U;
+        active.stage = ActiveControlOperation::Stage::WaitingForCameraFrame;
+        break;
+      }
+      case dev::ControlOperation::RunBenchmark: {
+        if (!benchmark_.enabled) {
+          completeControlError("benchmark_disabled", "run_benchmark requires the explicit --benchmark client option");
+          break;
+        }
+        if (!session.connected() || session.game() == nullptr || !session.game()->hasSnapshot()) {
+          completeControlError("not_connected", "benchmark requires a connected client with an active snapshot");
+          break;
+        }
+        const benchmark::Scenario& scenario = request.benchmarkScenario;
+        const LocalMapLoadResult localMap = loadLocalMap(
+          scenario.map,
+          (runtimeDirectory / "maps").string()
+        );
+        if (!localMap.ok) {
+          completeControlError("map_load_failed", localMap.error);
+          break;
+        }
+        active.previousDevelopmentCameraEnabled = developmentCameraEnabled;
+        active.previousDevelopmentCamera = developmentCamera;
+        active.previousBotAttackMode = botAttackMode;
+        active.previousBotStare = botStareEnabled;
+        active.previousBotStandstill = botStandstillEnabled;
+        active.previousBotDodge = botDodgeEnabled;
+        active.previousBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
+        active.previousBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
+        const std::map<std::string, std::string, std::less<>> overrides = [&]() {
+          std::map<std::string, std::string, std::less<>> values = scenario.cvars;
+          values["vid_width"] = std::to_string(scenario.width);
+          values["vid_height"] = std::to_string(scenario.height);
+          values["vid_fullscreen"] = std::to_string(scenario.fullscreen);
+          values["r_vsync"] = std::to_string(scenario.vsync);
+          values["r_present_mode"] = scenario.vsync != 0 ? "0" : "2";
+          values["r_maxfps"] = std::to_string(scenario.frameCap);
+          values["cl_fov"] = std::to_string(scenario.fieldOfView);
+          return values;
+        }();
+        for (const auto& [name, value] : overrides) {
+          active.restoredCvars.emplace(name, console.valueString(name));
+          (void)console.execute("set " + name + " " + value);
+        }
+        active.targetMap = localMap.descriptor.mapName;
+        active.previousMapRevision = currentMapRevision();
+        pendingMapName = active.targetMap;
+        active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        active.stage = ActiveControlOperation::Stage::WaitingForMap;
+        break;
+      }
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::WaitingForMap) {
+      ActiveControlOperation& active = *activeControlOperation;
+      if (currentMapName() == active.targetMap &&
+          currentMapRevision() > active.previousMapRevision) {
+        if (active.queued.request.operation == dev::ControlOperation::RunBenchmark) {
+          const benchmark::Scenario& scenario = active.queued.request.benchmarkScenario;
+          setBenchmarkCamera(scenario.cameraStart);
+          active.benchmarkPhaseStart = Clock::now();
+          active.benchmarkPhaseFrames = 0;
+          active.benchmarkSamples.clear();
+          active.benchmarkSamples.reserve(
+            static_cast<std::size_t>(scenario.measuredFrames.value_or(
+              static_cast<std::uint64_t>(scenario.measuredSeconds.value_or(10.0) * 1000.0)
+            ))
+          );
+          active.previousBotCount = static_cast<int>(std::count(
+            session.game()->snapshot().botPlayers.begin(),
+            session.game()->snapshot().botPlayers.end(),
+            true
+          ));
+          // Start every benchmark from an exact bot roster; map reloads retain
+          // bots during ordinary development play.
+          pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
+          if (scenario.actors.bots > 0) {
+            pendingBotCommands.push_back(PendingBotCommand{BotCommandType::Add, scenario.actors.bots});
+          }
+          if (const std::optional<BotAttackMode> mode = parseBotAttackMode(scenario.actors.attackMode)) {
+            pendingBotCommands.push_back(PendingBotCommand{BotCommandType::AttackMode, static_cast<std::int32_t>(*mode)});
+          }
+          pendingBotCommands.push_back(PendingBotCommand{BotCommandType::Stare, scenario.actors.stare ? 1 : 0});
+          pendingBotCommands.push_back(PendingBotCommand{BotCommandType::Standstill, scenario.actors.standstill ? 1 : 0});
+          pendingBotCommands.push_back(PendingBotCommand{
+            BotCommandType::Dodge,
+            scenario.actors.dodge ? 1 : 0,
+            scenario.actors.dodgeMinMilliseconds,
+            scenario.actors.dodgeMaxMilliseconds,
+          });
+          active.benchmarkBotsConfigured = true;
+          active.stage = ActiveControlOperation::Stage::BenchmarkWarmup;
+        } else if (active.queued.request.operation == dev::ControlOperation::CaptureMapViews) {
+          activateFirstViewpoint();
+        } else {
+          dev::JsonValue result = dev::JsonValue::objectValue();
+          result.object["map"] = dev::JsonValue::stringValue(currentMapName());
+          result.object["map_revision"] = dev::JsonValue::numberValue(currentMapRevision());
+          result.object["previous_map_revision"] =
+            dev::JsonValue::numberValue(active.previousMapRevision);
+          developerControl.complete(
+            active.queued.token,
+            dev::successResponse(active.queued.request.id, std::move(result))
+          );
+          activeControlOperation.reset();
+        }
+      } else if (std::chrono::steady_clock::now() > active.deadline) {
+        completeControlError(
+          "map_timeout",
+          "server did not activate map '" + active.targetMap +
+            "' with a new revision within 20 seconds"
+        );
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::WaitingForCameraFrame) {
+      if (renderedFrameSerial >= activeControlOperation->requiredRenderedFrame) {
+        activeControlOperation->stage = ActiveControlOperation::Stage::CaptureReady;
+      } else if (std::chrono::steady_clock::now() > activeControlOperation->deadline) {
+        completeControlError(
+          "capture_timeout",
+          "renderer did not complete the frame required for capture within 20 seconds"
+        );
+      }
+    }
+    if (activeControlOperation.has_value()) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
+      if (request.operation == dev::ControlOperation::RunBenchmark) {
+        const benchmark::Scenario& scenario = request.benchmarkScenario;
+        const auto phaseNow = Clock::now();
+        if (active.stage == ActiveControlOperation::Stage::BenchmarkWarmup) {
+          ++active.benchmarkPhaseFrames;
+          const double seconds = std::chrono::duration<double>(
+            phaseNow - active.benchmarkPhaseStart
+          ).count();
+          const bool secondsDone = scenario.warmupSeconds && seconds >= *scenario.warmupSeconds;
+          const bool framesDone = scenario.warmupFrames &&
+            active.benchmarkPhaseFrames >= *scenario.warmupFrames;
+          if (secondsDone || framesDone) {
+            active.benchmarkPhaseStart = phaseNow;
+            active.benchmarkPhaseFrames = 0;
+            active.stage = ActiveControlOperation::Stage::BenchmarkMeasure;
+          }
+        } else if (active.stage == ActiveControlOperation::Stage::BenchmarkMeasure) {
+          const double seconds = std::chrono::duration<double>(
+            phaseNow - active.benchmarkPhaseStart
+          ).count();
+          setBenchmarkCamera(benchmark::cameraAt(scenario, seconds));
+          const RendererFrameDiagnostics& render = renderer.lastFrameDiagnostics();
+          const ClientGame* game = session.game();
+          const SnapshotDiagnostics snapshot = game != nullptr
+            ? game->snapshotDiagnostics() : SnapshotDiagnostics{};
+          benchmark::FrameSample sample;
+          sample.index = active.benchmarkPhaseFrames;
+          sample.elapsedSeconds = seconds;
+          sample.frameMilliseconds = outerFrameMilliseconds;
+          sample.sceneBuildMilliseconds = render.sceneBuildMilliseconds;
+          sample.vertexUploadMilliseconds = render.gpuVertexUploadMilliseconds;
+          sample.swapchainAcquireMilliseconds = render.swapchainAcquireMilliseconds;
+          sample.drawIssueMilliseconds = render.worldDrawIssueMilliseconds;
+          sample.submitMilliseconds = render.submitMilliseconds;
+          sample.renderCpuMilliseconds = render.totalRenderMilliseconds;
+          sample.snapshotDecodeMilliseconds = snapshot.snapshotDecodeMilliseconds;
+          sample.snapshotApplyMilliseconds = snapshot.snapshotApplyMilliseconds;
+          sample.uploadedVertices = render.totalUploadedVertices;
+          sample.renderedTriangles = render.worldRenderedTriangles + render.dynamicTriangles;
+          sample.worldDraws = render.worldDrawCalls;
+          sample.visiblePlayers = render.visibleRemotePlayers;
+          sample.projectileCount = render.projectilesRendered;
+          sample.effectCount = render.activeTransientEffects;
+          sample.instanceUploadBytes = render.projectileInstanceUploadBytes +
+            render.tracerInstanceUploadBytes + render.explosionInstanceUploadBytes +
+            render.remoteWeaponInstanceUploadBytes;
+          sample.instanceDraws = render.projectileMeshDrawCalls +
+            render.projectileGlowDrawCalls + render.tracerDrawCalls +
+            render.explosionDrawCalls + render.remoteWeaponDrawCalls;
+          active.benchmarkSamples.push_back(sample);
+          ++active.benchmarkPhaseFrames;
+          const bool secondsDone = scenario.measuredSeconds && seconds >= *scenario.measuredSeconds;
+          const bool framesDone = scenario.measuredFrames &&
+            active.benchmarkPhaseFrames >= *scenario.measuredFrames;
+          if (secondsDone || framesDone) {
+            if (scenario.screenshots.empty()) {
+              active.stage = ActiveControlOperation::Stage::BenchmarkFinalize;
+            } else {
+              active.benchmarkScreenshotIndex = 0;
+              const benchmark::Screenshot& screenshot = scenario.screenshots[0];
+              const double cameraSeconds = scenario.measuredSeconds.value_or(seconds) * screenshot.progress;
+              setBenchmarkCamera(benchmark::cameraAt(scenario, cameraSeconds));
+              active.requiredRenderedFrame = renderedFrameSerial + 1U;
+              active.deadline = phaseNow + std::chrono::seconds(20);
+              active.stage = ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame;
+            }
+          }
+        } else if (active.stage == ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame) {
+          if (renderedFrameSerial >= active.requiredRenderedFrame) {
+            active.stage = ActiveControlOperation::Stage::BenchmarkCaptureReady;
+          } else if (phaseNow > active.deadline) {
+            completeControlError("capture_timeout", "benchmark screenshot renderer timeout");
+          }
+        }
+      }
+    }
     if (console.getBool("r_perf_reset")) {
       perfTelemetry.clear();
       (void)console.execute("set r_perf_reset 0");
@@ -6659,6 +7188,20 @@ int GameApp::run() const {
       }
     }
     RenderSettings currentRenderSettings = renderSettings(console);
+    if (developmentCameraEnabled) {
+      // The development camera replaces presentation state only. The client
+      // continues to send ordinary commands and the server remains authoritative.
+      renderPlayer = {};
+      renderPlayer.position =
+        developmentCamera.position - Vec3{0.0F, 0.0F, 0.65F};
+      renderPlayer.viewYawRadians = developmentCamera.yawDegrees * kDegreesToRadians;
+      renderPlayer.viewPitchRadians = developmentCamera.pitchDegrees * kDegreesToRadians;
+      renderPlayer.health = 100;
+      currentRenderSettings.fieldOfView = developmentCamera.fieldOfView.value_or(
+        currentRenderSettings.fieldOfView
+      );
+      currentRenderSettings.showOwnWeapons = false;
+    }
     const Vec3 localViewVelocity = {
       dot(renderPlayer.velocity, yawForward(renderPlayer.viewYawRadians)),
       dot(renderPlayer.velocity, yawRight(renderPlayer.viewYawRadians)),
@@ -7502,6 +8045,76 @@ int GameApp::run() const {
       }
     }
     hud.chatScrollRows = chatState.scrollRows;
+    std::optional<FrameCaptureRequest> frameCaptureRequest;
+    FrameCaptureResult frameCaptureResult;
+    bool captureHideHud = false;
+    bool captureHideOverlays = false;
+    if (activeControlOperation.has_value() &&
+        (activeControlOperation->stage == ActiveControlOperation::Stage::CaptureReady ||
+         activeControlOperation->stage == ActiveControlOperation::Stage::BenchmarkCaptureReady)) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
+      if (request.operation == dev::ControlOperation::RunBenchmark) {
+        const benchmark::Screenshot& screenshot =
+          request.benchmarkScenario.screenshots[active.benchmarkScreenshotIndex];
+        const std::filesystem::path screenshotDirectory = repositoryRoot / "build" /
+          "benchmarks" / request.benchmarkScenario.name / request.runGroup /
+          request.runId / "screenshots";
+        std::error_code screenshotDirectoryError;
+        std::filesystem::create_directories(screenshotDirectory, screenshotDirectoryError);
+        if (screenshotDirectoryError) {
+          completeControlError("capture_directory_failed", screenshotDirectoryError.message());
+        } else {
+          active.pendingCapturePath = screenshotDirectory / (screenshot.name + ".png");
+          captureHideHud = true;
+          captureHideOverlays = true;
+          frameCaptureRequest = FrameCaptureRequest{
+            active.pendingCapturePath.string(), true, true
+          };
+        }
+      } else {
+      std::string captureName = active.captureStem;
+      if (request.operation == dev::ControlOperation::CaptureMapViews) {
+        const dev::CameraViewpoint& view = request.viewpoints[active.viewpointIndex];
+        captureName += "-" + view.name;
+        captureHideHud = view.hideHud;
+        captureHideOverlays = view.hideOverlays;
+      } else {
+        captureHideHud = request.hideHud;
+        captureHideOverlays = request.hideOverlays;
+      }
+      active.pendingCapturePath = captureDirectory / (captureName + ".png");
+      frameCaptureRequest = FrameCaptureRequest{
+        active.pendingCapturePath.string(),
+        captureHideHud,
+        captureHideOverlays,
+      };
+      }
+    }
+    ConsoleRenderState renderedConsole = consoleRenderState(consoleState);
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->queued.request.operation == dev::ControlOperation::RunBenchmark) {
+      const benchmark::Scenario& scenario =
+        activeControlOperation->queued.request.benchmarkScenario;
+      if (scenario.hideHud) hud = {};
+      if (scenario.hideOverlays) {
+        renderedConsole = {};
+        currentRenderSettings.showRendererPerf = false;
+        hud.topLeftLines.clear();
+        hud.settingsOpen = false;
+        hud.settingsItems.clear();
+      }
+    }
+    if (frameCaptureRequest.has_value()) {
+      if (captureHideHud) hud = {};
+      if (captureHideOverlays) {
+        renderedConsole = {};
+        currentRenderSettings.showRendererPerf = false;
+        hud.topLeftLines.clear();
+        hud.settingsOpen = false;
+        hud.settingsItems.clear();
+      }
+    }
     renderer.render(
       renderArena,
       renderPlayer,
@@ -7517,8 +8130,187 @@ int GameApp::run() const {
       transientTracerStore.explosionEventsConsumedThisFrame,
       currentRenderSettings,
       hud,
-      consoleRenderState(consoleState)
+      renderedConsole,
+      frameCaptureRequest.has_value() ? &*frameCaptureRequest : nullptr,
+      frameCaptureRequest.has_value() ? &frameCaptureResult : nullptr
     );
+    ++renderedFrameSerial;
+    if (frameCaptureRequest.has_value() && activeControlOperation.has_value()) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
+      dev::JsonValue capture = dev::JsonValue::objectValue();
+      capture.object["ok"] = dev::JsonValue::booleanValue(frameCaptureResult.ok);
+      capture.object["path"] =
+        dev::JsonValue::stringValue(active.pendingCapturePath.string());
+      capture.object["relative_path"] = dev::JsonValue::stringValue(
+        captureRelativePath(active.pendingCapturePath)
+      );
+      capture.object["width"] = dev::JsonValue::numberValue(frameCaptureResult.width);
+      capture.object["height"] = dev::JsonValue::numberValue(frameCaptureResult.height);
+      capture.object["map"] = dev::JsonValue::stringValue(currentMapName());
+      capture.object["map_revision"] = dev::JsonValue::numberValue(currentMapRevision());
+      capture.object["map_content_hash"] =
+        dev::JsonValue::numberValue(currentMapContentHash());
+      capture.object["renderer"] =
+        dev::JsonValue::stringValue(std::string(renderer.backendName()));
+      capture.object["camera"] = dev::cameraJson(currentControlCamera());
+      capture.object["timestamp_ms"] =
+        dev::JsonValue::numberValue(static_cast<double>(timestampMilliseconds()));
+      if (!frameCaptureResult.ok) {
+        capture.object["error"] = dev::JsonValue::stringValue(frameCaptureResult.error);
+        lastControlError = frameCaptureResult.error;
+      }
+
+      if (request.operation == dev::ControlOperation::RunBenchmark) {
+        if (!frameCaptureResult.ok) {
+          completeControlError("capture_failed", frameCaptureResult.error);
+        } else {
+          active.benchmarkScreenshotPaths.push_back(
+            captureRelativePath(active.pendingCapturePath)
+          );
+          ++active.benchmarkScreenshotIndex;
+          if (active.benchmarkScreenshotIndex >= request.benchmarkScenario.screenshots.size()) {
+            active.stage = ActiveControlOperation::Stage::BenchmarkFinalize;
+          } else {
+            const benchmark::Screenshot& next =
+              request.benchmarkScenario.screenshots[active.benchmarkScreenshotIndex];
+            const double duration = request.benchmarkScenario.measuredSeconds.value_or(
+              active.benchmarkSamples.empty() ? 0.0 : active.benchmarkSamples.back().elapsedSeconds
+            );
+            setBenchmarkCamera(benchmark::cameraAt(
+              request.benchmarkScenario, duration * next.progress
+            ));
+            active.requiredRenderedFrame = renderedFrameSerial + 1U;
+            active.deadline = Clock::now() + std::chrono::seconds(20);
+            active.stage = ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame;
+          }
+        }
+      } else if (request.operation == dev::ControlOperation::CaptureScreenshot) {
+        if (frameCaptureResult.ok) {
+          developerControl.complete(
+            active.queued.token,
+            dev::successResponse(request.id, std::move(capture))
+          );
+        } else {
+          developerControl.complete(
+            active.queued.token,
+            dev::errorResponse(request.id, "capture_failed", frameCaptureResult.error)
+          );
+        }
+        activeControlOperation.reset();
+      } else {
+        const dev::CameraViewpoint& completedView =
+          request.viewpoints[active.viewpointIndex];
+        capture.object["name"] = dev::JsonValue::stringValue(completedView.name);
+        capture.object["label"] = dev::JsonValue::stringValue(completedView.label);
+        active.viewResults.push_back(std::move(capture));
+        ++active.viewpointIndex;
+        if (active.viewpointIndex < request.viewpoints.size()) {
+          developmentCamera = request.viewpoints[active.viewpointIndex].camera;
+          developmentCameraEnabled = true;
+          active.requiredRenderedFrame = renderedFrameSerial + 1U;
+          active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(20);
+          active.stage = ActiveControlOperation::Stage::WaitingForCameraFrame;
+        } else {
+          dev::JsonValue manifest = dev::JsonValue::objectValue();
+          manifest.object["map"] = dev::JsonValue::stringValue(currentMapName());
+          manifest.object["map_revision"] =
+            dev::JsonValue::numberValue(currentMapRevision());
+          manifest.object["map_content_hash"] =
+            dev::JsonValue::numberValue(currentMapContentHash());
+          manifest.object["renderer"] =
+            dev::JsonValue::stringValue(std::string(renderer.backendName()));
+          manifest.object["preset"] = dev::JsonValue::stringValue(request.presetName);
+          manifest.object["timestamp_ms"] =
+            dev::JsonValue::numberValue(static_cast<double>(timestampMilliseconds()));
+          manifest.object["views"] = dev::JsonValue::arrayValue(active.viewResults);
+          const std::filesystem::path manifestPath =
+            captureDirectory / (active.captureStem + "-manifest.json");
+          std::ofstream manifestFile(manifestPath, std::ios::binary | std::ios::trunc);
+          manifestFile << dev::writeJson(manifest) << '\n';
+          if (!manifestFile) {
+            completeControlError(
+              "manifest_write_failed",
+              "could not write capture manifest '" + manifestPath.string() + "'"
+            );
+          } else {
+            dev::JsonValue result = manifest;
+            result.object["manifest_path"] =
+              dev::JsonValue::stringValue(manifestPath.string());
+            result.object["manifest_relative_path"] =
+              dev::JsonValue::stringValue(captureRelativePath(manifestPath));
+            developerControl.complete(
+              active.queued.token,
+              dev::successResponse(request.id, std::move(result))
+            );
+            activeControlOperation.reset();
+          }
+        }
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::BenchmarkFinalize) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
+      benchmark::ResultContext context;
+      context.runId = request.runId;
+      context.runGroup = request.runGroup;
+      context.scenarioHash = request.scenarioHash;
+      context.actualMap = currentMapName();
+      context.renderer = std::string(renderer.backendName());
+      context.actualMapContentHash = currentMapContentHash();
+      SDL_GetWindowSizeInPixels(window, &context.actualWidth, &context.actualHeight);
+      context.selectedPresentMode = renderer.lastFrameDiagnostics().selectedPresentModeName;
+      context.completed = true;
+      context.screenshotPaths = active.benchmarkScreenshotPaths;
+      if (const ClientGame* game = session.game(); game != nullptr && game->hasSnapshot()) {
+        context.actualActorCount = static_cast<std::uint32_t>(std::count(
+          game->snapshot().participatingPlayers.begin(),
+          game->snapshot().participatingPlayers.end(),
+          true
+        ));
+      }
+      if (context.actualActorCount !=
+          static_cast<std::uint32_t>(request.benchmarkScenario.actors.expectedCount)) {
+        context.warnings.push_back("observed actor count does not equal actors.expected_count");
+      }
+      if (request.benchmarkScenario.unsupportedEffectFixture) {
+        context.warnings.push_back("requested effect fixture is unsupported by the native benchmark runner");
+      }
+      std::filesystem::path resultDirectory;
+      std::string artifactError;
+      if (!benchmark::writeArtifacts(
+            repositoryRoot / "build" / "benchmarks",
+            request.benchmarkScenario,
+            context,
+            active.benchmarkSamples,
+            resultDirectory,
+            artifactError
+          )) {
+        completeControlError("artifact_write_failed", artifactError);
+      } else {
+        dev::JsonValue response = benchmark::resultJson(
+          request.benchmarkScenario, context, active.benchmarkSamples
+        );
+        response.object["result_directory"] =
+          dev::JsonValue::stringValue(resultDirectory.string());
+        response.object["result_path"] = dev::JsonValue::stringValue(
+          (resultDirectory / "result.json").string()
+        );
+        response.object["frame_times_path"] = dev::JsonValue::stringValue(
+          (resultDirectory / "frame-times.csv").string()
+        );
+        response.object["telemetry_path"] = dev::JsonValue::stringValue(
+          (resultDirectory / "telemetry.csv").string()
+        );
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(response))
+        );
+        restoreBenchmarkState();
+        activeControlOperation.reset();
+      }
+    }
     session.update();
     if (console.getBool("r_perf")) {
       const ClientGame* perfGame = session.game();
@@ -7558,6 +8350,8 @@ int GameApp::run() const {
       }
     }
   }
+  restoreBenchmarkState();
+  developerControl.stop();
   saveClientConfig(console, bindings, configPath);
   audio.shutdown();
   renderer.shutdown();

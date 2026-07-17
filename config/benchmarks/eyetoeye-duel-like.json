@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "eyetoeye-duel-like",
+  "labels": ["duel", "combat", "eyetoeye", "normal-load"],
+  "map": "eyetoeye",
+  "backend_requirement": "gpu",
+  "resolution": [1280, 720],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 0,
+  "fov": 100.0,
+  "warmup_seconds": 2.0,
+  "measured_seconds": 5.0,
+  "camera_start": {
+    "position": [22.4, 0.0, -12.85],
+    "yaw": 180.0,
+    "pitch": 0.0,
+    "fov": 100.0
+  },
+  "camera_path": [
+    {"progress": 0.0, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0},
+    {"progress": 1.0, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0}
+  ],
+  "player_state": {"alive": true, "weapon": "lightning_gun", "hide_hud": true, "hide_overlays": true},
+  "actors": {
+    "bots": 1,
+    "attack_mode": "medium",
+    "stare": true,
+    "standstill": false,
+    "dodge": true,
+    "dodge_min_ms": 250,
+    "dodge_max_ms": 750,
+    "expected_count": 2,
+    "commands": ["bot_add 1", "bot_stare 1", "bot_standstill 0", "bot_dodge 1 250 750", "bot_attack medium"]
+  },
+  "effects": {"projectiles": "none", "tracers": "authoritative_lightning", "explosions": "none"},
+  "cvars": {"r_frustum_cull": 1, "r_show_weapons": 1, "r_player_model": 1, "r_draw_player_outlines": 1},
+  "screenshots": [{"name": "combat-state", "progress": 1.0}],
+  "residual_nondeterminism": ["Live-server bot reaction/aim variation is not a renderer fixture. Compare only benchmark artifacts with the same scenario state hash and run metadata."]
+}

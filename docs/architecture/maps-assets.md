@@ -22,6 +22,12 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
 
 Server map requests flow through `ServerGame::loadRequestedMap()`. Names are restricted to simple stems/extensions, resolved under `mapDirectory_`, and attempted as `.map` when no extension is given. Successful loads call `setArena()`, bump `mapRevision_`, reset the match, and force clients to receive updated arena data.
 
+The opt-in developer-control client reuses this request path. It validates the
+runtime map locally for early parse/conversion errors, queues the existing map
+command, and acknowledges success only after receiving the requested map with
+a newer authoritative revision. `scripts/watch-maps.ps1` remains the
+source-to-`build/default/maps` synchronizer.
+
 ## Collision Vs Render Data
 
 Collision and traces use `ArenaWall` AABBs and `ArenaBrush` convex planes/vertices. Rendering uses the same structures plus material ids, face material ids, texture projections, light data, and a `renderable` bit. Playerclip solids keep collision data but skip render geometry. `ArenaJumpPad` data is not solid, is not rendered, and is checked only by movement. There is no separate server-only collision asset yet, so avoid adding render-only heavyweight data to `Arena` unless it is revision-gated and justified.

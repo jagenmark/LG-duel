@@ -1,4 +1,5 @@
 #include "sim/MapRegistry.hpp"
+#include "sim/ArenaBroadphase.hpp"
 
 #include <bit>
 #include <cctype>
@@ -32,6 +33,17 @@ void hashVec3(std::uint32_t& hash, Vec3 value) {
   hashFloat(hash, value.x);
   hashFloat(hash, value.y);
   hashFloat(hash, value.z);
+}
+
+void hashTextureProjection(std::uint32_t& hash, const TextureProjection& projection) {
+  hashVec3(hash, projection.uAxis);
+  hashVec3(hash, projection.vAxis);
+  hashFloat(hash, projection.uOffset);
+  hashFloat(hash, projection.vOffset);
+  hashFloat(hash, projection.rotationDegrees);
+  hashFloat(hash, projection.uScale);
+  hashFloat(hash, projection.vScale);
+  hashU32(hash, projection.valid ? 1U : 0U);
 }
 
 std::filesystem::path resolveMapDirectory(const std::string& mapDirectory) {
@@ -98,6 +110,12 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, wall.max);
     hashU32(hash, wall.materialId);
     hashU32(hash, wall.renderable ? 1U : 0U);
+    for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
+      // The network/capture content hash must change with rendered appearance,
+      // not only collision extents.
+      hashU32(hash, wall.faceMaterialIds[faceIndex]);
+      hashTextureProjection(hash, wall.faceTextureProjections[faceIndex]);
+    }
   }
   hashU32(hash, static_cast<std::uint32_t>(arena.brushCount));
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
@@ -116,6 +134,7 @@ std::uint32_t hashArena(const Arena& arena) {
       hashVec3(hash, face.normal);
       hashFloat(hash, face.distance);
       hashU32(hash, face.materialId);
+      hashTextureProjection(hash, face.textureProjection);
       hashU32(hash, face.vertexCount);
       for (std::uint8_t vertex = 0; vertex < face.vertexCount; ++vertex) {
         hashU32(hash, face.vertices[vertex]);
@@ -195,6 +214,7 @@ LocalMapLoadResult loadLocalMap(
 
   const std::filesystem::path directory = resolveMapDirectory(mapDirectory);
   std::vector<std::filesystem::path> candidates;
+  std::vector<std::string> loadErrors;
   if (extension.empty()) {
     candidates.push_back(directory / (mapName + ".map"));
   } else {
@@ -205,6 +225,7 @@ LocalMapLoadResult loadLocalMap(
     ArenaLoadResult result;
     loadArenaFromFile(path.string(), result);
     if (result.ok) {
+      buildArenaCollisionIndex(result.arena);
       return {
         result.arena,
         describeMap(canonicalName, result.arena),
@@ -212,12 +233,21 @@ LocalMapLoadResult loadLocalMap(
         {},
       };
     }
+    if (!result.error.empty()) {
+      loadErrors.push_back(std::move(result.error));
+    }
   }
 
   std::ostringstream error;
   error << "unknown local map '" << mapName << "'; tried";
   for (const std::filesystem::path& path : candidates) {
     error << " '" << path.string() << "'";
+  }
+  if (!loadErrors.empty()) {
+    error << "; loader error";
+    for (const std::string& loadError : loadErrors) {
+      error << ": " << loadError;
+    }
   }
   return {{}, {}, false, error.str()};
 }

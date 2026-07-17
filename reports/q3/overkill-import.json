@@ -1,0 +1,524 @@
+{
+  "conversion": {
+    "aas_route_import_attempted": false,
+    "ambiguous_targetnames": {},
+    "capacity_policy": "Geometry and gameplay entities are emitted without converter truncation; over-limit output is marked and the CLI fails unless explicitly allowed. LG-Duel currently activates only the first six authored spawns, so runtime_effective_spawns and runtime_inactive_spawns make that loader behavior explicit.",
+    "collision_material_policy": "All-common/clip and all-common/weapclip brushes become invisible common/playerclip. LG-Duel has no weapon-only collision mask, so weapclip is conservatively retained for all traces.",
+    "limits": {
+      "convex_brushes": 1024,
+      "health_pickups": 32,
+      "jump_pads": 48,
+      "lights": 96,
+      "spawns": 6,
+      "walls": 2048
+    },
+    "omitted_brushes": {
+      "confident_non_solid_utility": 34,
+      "invalid_geometry": 11
+    },
+    "omitted_entities": {
+      "advertisement:unsupported": 4,
+      "ammo_bullets:unsupported": 3,
+      "ammo_cells:unsupported": 1,
+      "ammo_grenades:unsupported": 1,
+      "ammo_lightning:unsupported": 1,
+      "ammo_pack:unsupported": 10,
+      "ammo_rockets:unsupported": 2,
+      "ammo_shells:unsupported": 3,
+      "ammo_slugs:unsupported": 1,
+      "info_player_intermission:unsupported": 1,
+      "item_armor_body:unsupported": 1,
+      "item_armor_combat:unsupported": 1,
+      "item_armor_jacket:unsupported": 1,
+      "item_armor_shard:unsupported": 4,
+      "item_health_mega:unsupported": 1,
+      "item_quad:unsupported": 1,
+      "item_regen:unsupported": 1,
+      "misc_portal_camera:unsupported": 1,
+      "misc_teleporter_dest:teleport_unsupported": 1,
+      "target_location:unsupported": 34,
+      "target_speaker:unsupported": 32,
+      "team_CTF_blueplayer:unsupported": 8,
+      "team_CTF_redplayer:unsupported": 9,
+      "team_dom_point:unsupported": 3,
+      "trigger_hurt:unsupported": 3,
+      "trigger_multiple:unsupported": 3,
+      "trigger_teleport:teleport_unsupported": 1,
+      "weapon_grenadelauncher:unsupported": 1,
+      "weapon_hmg:unsupported": 1,
+      "weapon_lightning:unsupported": 1,
+      "weapon_plasmagun:unsupported": 1,
+      "weapon_railgun:unsupported": 1,
+      "weapon_rocketlauncher:unsupported": 1,
+      "weapon_shotgun:unsupported": 2
+    },
+    "omitted_patch_policy": "Patches are never approximated or tessellated.",
+    "omitted_patches": 306,
+    "over_limits": {
+      "spawns": {
+        "excess": 26,
+        "limit": 6,
+        "projected": 32
+      }
+    },
+    "placeholder_materials": [
+      "Tiny3/Brick/Brick_09-128x128",
+      "Tiny3/Metal/Metal_04-128x128",
+      "Tiny3/Stone/Stone_14-128x128"
+    ],
+    "projected_counts": {
+      "convex_brushes": 673,
+      "entities": 59,
+      "health_pickups": 16,
+      "jump_pads": 5,
+      "lights": 0,
+      "spawns": 32,
+      "walls": 1256
+    },
+    "runtime_effective_spawns": 6,
+    "runtime_inactive_spawns": 26,
+    "scale_policy": "No rescale or rebalance is applied. Authored Quake coordinates are preserved; LG-Duel's existing loader converts them at 1/40 and bounds gain 40 Quake units of padding.",
+    "shader_policy": "Every emitted solid face uses an existing Tiny3 placeholder; Q3 shaders are inventory-only.",
+    "static_geometry_policy": "Only validated worldspawn and func_static classic brushes are emitted."
+  },
+  "gameplay": {
+    "converted": {
+      "health_pickups": 16,
+      "jump_pads": 5,
+      "spawns": 32,
+      "target_positions": 5
+    },
+    "source_health_pickups": 16,
+    "source_lights": 0,
+    "source_spawns": 32,
+    "source_teleports": 1,
+    "source_trigger_push": 5
+  },
+  "geometry": {
+    "degenerate_face_count": 0,
+    "invalid_brush_count": 11,
+    "issues": [
+      {
+        "brush_index": 267,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 2680,
+        "reason": "convex face resolves to 0 vertices"
+      },
+      {
+        "brush_index": 303,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 3050,
+        "reason": "convex brush has no closed volume"
+      },
+      {
+        "brush_index": 304,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 3060,
+        "reason": "convex face resolves to 0 vertices"
+      },
+      {
+        "brush_index": 307,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 3094,
+        "reason": "convex face resolves to 0 vertices"
+      },
+      {
+        "brush_index": 378,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 3814,
+        "reason": "convex face resolves to 0 vertices"
+      },
+      {
+        "brush_index": 381,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 3846,
+        "reason": "convex face resolves to 0 vertices"
+      },
+      {
+        "brush_index": 391,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 3950,
+        "reason": "convex face resolves to 2 vertices"
+      },
+      {
+        "brush_index": 1762,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 17710,
+        "reason": "convex brush has no closed volume"
+      },
+      {
+        "brush_index": 1763,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 17722,
+        "reason": "convex brush has no closed volume"
+      },
+      {
+        "brush_index": 1789,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 17986,
+        "reason": "convex face resolves to 0 vertices"
+      },
+      {
+        "brush_index": 1790,
+        "classname": "worldspawn",
+        "degenerate_faces": 0,
+        "entity_index": 0,
+        "line": 17998,
+        "reason": "convex face resolves to 0 vertices"
+      }
+    ],
+    "valid_brush_count": 1975
+  },
+  "inventory": {
+    "classic_brush_count": 1986,
+    "classnames": {
+      "advertisement": 4,
+      "ammo_bullets": 3,
+      "ammo_cells": 1,
+      "ammo_grenades": 1,
+      "ammo_lightning": 1,
+      "ammo_pack": 10,
+      "ammo_rockets": 2,
+      "ammo_shells": 3,
+      "ammo_slugs": 1,
+      "func_static": 13,
+      "info_player_deathmatch": 32,
+      "info_player_intermission": 1,
+      "item_armor_body": 1,
+      "item_armor_combat": 1,
+      "item_armor_jacket": 1,
+      "item_armor_shard": 4,
+      "item_health": 8,
+      "item_health_large": 1,
+      "item_health_mega": 1,
+      "item_health_small": 7,
+      "item_quad": 1,
+      "item_regen": 1,
+      "misc_portal_camera": 1,
+      "misc_teleporter_dest": 1,
+      "target_location": 34,
+      "target_position": 26,
+      "target_speaker": 32,
+      "team_CTF_blueplayer": 8,
+      "team_CTF_redplayer": 9,
+      "team_dom_point": 3,
+      "trigger_hurt": 3,
+      "trigger_multiple": 3,
+      "trigger_push": 5,
+      "trigger_teleport": 1,
+      "weapon_grenadelauncher": 1,
+      "weapon_hmg": 1,
+      "weapon_lightning": 1,
+      "weapon_plasmagun": 1,
+      "weapon_railgun": 1,
+      "weapon_rocketlauncher": 1,
+      "weapon_shotgun": 2,
+      "worldspawn": 1
+    },
+    "entity_count": 233,
+    "face_materials": {
+      "base_floor/pjgrate2": 24,
+      "base_light/ceil1_38_10k": 62,
+      "base_support/cable": 32,
+      "base_trim/pewter_shiney": 490,
+      "common/caulk": 1031,
+      "common/clip": 645,
+      "common/hint": 186,
+      "common/nodraw": 26,
+      "common/nodrop": 18,
+      "common/trigger": 86,
+      "common/weapclip": 6,
+      "ctf/ctf_redflag": 3,
+      "gothic_block/blocks11b": 1605,
+      "gothic_block/blocks17j": 30,
+      "gothic_block/blocks18b": 310,
+      "gothic_block/blocks18c_3": 1203,
+      "gothic_block/gkc10": 118,
+      "gothic_block/gkc15_big": 116,
+      "gothic_block/gkc_large_right": 4,
+      "gothic_ceiling/ceilingtechplain": 150,
+      "gothic_door/archxiandm1dblack_pot": 35,
+      "gothic_door/xian_tourneyarch_inside2": 24,
+      "gothic_door/xian_tourneyarch_tall2b_pot": 39,
+      "gothic_floor/blocks17floor2": 273,
+      "gothic_floor/largerblock3b2": 479,
+      "gothic_floor/metalbridge06": 45,
+      "gothic_floor/q1metal7_98d_256x256": 395,
+      "gothic_floor/xstepborder10": 92,
+      "gothic_floor/xstepborder12": 45,
+      "gothic_floor/xstepborder8": 100,
+      "gothic_light/ironcrosslt2_1000": 22,
+      "gothic_light/pentagram_light1_10K": 61,
+      "gothic_trim/baseboard09_c3": 263,
+      "gothic_trim/km_arena1tower4": 3,
+      "gothic_trim/km_arena1tower7": 16,
+      "gothic_trim/metalsupsolid": 312,
+      "gothic_trim/newskull": 23,
+      "gothic_trim/pitted_roof": 6,
+      "gothic_trim/pitted_rust": 2530,
+      "gothic_trim/pitted_rust3_black": 830,
+      "gothic_wall/dm5_archifin_pot": 2,
+      "gothic_wall/xiantourneywall_c1_pot": 6,
+      "sfx/bounce_xq1metalbig": 14,
+      "sfx/flame1_hell": 1,
+      "sfx/hellfog": 19,
+      "sfx/launchpad_blocks17": 2,
+      "sfx/metalbridge06_bounce": 6,
+      "skies/overkill": 217,
+      "stone/pjrock21": 12
+    },
+    "patch_count": 306,
+    "patch_kinds": {
+      "patchDef2": 306
+    },
+    "patch_materials": {
+      "ad_content/2x1": 4,
+      "base_floor/pjgrate2": 1,
+      "gothic_block/blocks11b": 39,
+      "gothic_block/blocks17j": 1,
+      "gothic_block/blocks18b": 14,
+      "gothic_block/blocks18c_3": 67,
+      "gothic_block/gkc15_big": 6,
+      "gothic_door/archxiandm1dblack_pot": 16,
+      "gothic_door/xian_tourneyarch_inside2": 6,
+      "gothic_door/xian_tourneyarch_tall2b_pot": 12,
+      "gothic_floor/blocks17floor2": 3,
+      "gothic_floor/metalbridge06": 3,
+      "gothic_floor/q1metal7_98d_256x256": 8,
+      "gothic_trim/baseboard09_c3": 3,
+      "gothic_trim/metalsupport4": 4,
+      "gothic_trim/metalsupsolid": 1,
+      "gothic_trim/pitted_roof": 3,
+      "gothic_trim/pitted_rust": 54,
+      "gothic_trim/pitted_rust3_black": 47,
+      "ql/telex": 1,
+      "sfx/ntrl_techfloor_kc": 13
+    },
+    "unsupported_constructs": {}
+  },
+  "outputs": {
+    "candidate_map": {
+      "name": "overkill_import.map",
+      "sha256": "1fdb734a8d46b9babd80d8bcbd159db8a7e46f12a45d7446159bf5ebf7d728b6",
+      "size": 1103104
+    }
+  },
+  "schema_version": 1,
+  "sources": {
+    "aas": {
+      "bsp_checksum": -1989511671,
+      "bsp_checksum_unsigned": 2305455625,
+      "magic": "EAAS",
+      "name": "overkill.aas",
+      "note": "Metadata only; no AAS route import was attempted.",
+      "route_import_attempted": false,
+      "sha256": "e53625957ad4e2dd2cb9987c6b24f74b6635d2c5308c7764339dd4b22bc60b92",
+      "size": 867588,
+      "version": 5
+    },
+    "bsp": {
+      "lumps": [
+        {
+          "count": 19094,
+          "index": 0,
+          "length": 19094,
+          "name": "entities",
+          "offset": 6751336,
+          "record_size": 1,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 69,
+          "index": 1,
+          "length": 4968,
+          "name": "textures",
+          "offset": 208,
+          "record_size": 72,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 5702,
+          "index": 2,
+          "length": 91232,
+          "name": "planes",
+          "offset": 5176,
+          "record_size": 16,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 6683,
+          "index": 3,
+          "length": 240588,
+          "name": "nodes",
+          "offset": 418680,
+          "record_size": 36,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 6714,
+          "index": 4,
+          "length": 322272,
+          "name": "leafs",
+          "offset": 96408,
+          "record_size": 48,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 26081,
+          "index": 5,
+          "length": 104324,
+          "name": "leaf_faces",
+          "offset": 795724,
+          "record_size": 4,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 11068,
+          "index": 6,
+          "length": 44272,
+          "name": "leaf_brushes",
+          "offset": 900048,
+          "record_size": 4,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 30,
+          "index": 7,
+          "length": 1200,
+          "name": "models",
+          "offset": 944320,
+          "record_size": 40,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 1986,
+          "index": 8,
+          "length": 23832,
+          "name": "brushes",
+          "offset": 659268,
+          "record_size": 12,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 14078,
+          "index": 9,
+          "length": 112624,
+          "name": "brush_sides",
+          "offset": 683100,
+          "record_size": 8,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 28634,
+          "index": 10,
+          "length": 1259896,
+          "name": "vertices",
+          "offset": 945520,
+          "record_size": 44,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 23067,
+          "index": 11,
+          "length": 92268,
+          "name": "mesh_vertices",
+          "offset": 6770648,
+          "record_size": 4,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 3,
+          "index": 12,
+          "length": 216,
+          "name": "effects",
+          "offset": 6770432,
+          "record_size": 72,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 4164,
+          "index": 13,
+          "length": 433056,
+          "name": "faces",
+          "offset": 2205416,
+          "record_size": 104,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 26,
+          "index": 14,
+          "length": 1277952,
+          "name": "lightmaps",
+          "offset": 3865048,
+          "record_size": 49152,
+          "trailing_bytes": 0
+        },
+        {
+          "count": 201042,
+          "index": 15,
+          "length": 1608336,
+          "name": "light_volumes",
+          "offset": 5143000,
+          "record_size": 8,
+          "trailing_bytes": 0
+        },
+        {
+          "index": 16,
+          "length": 1226576,
+          "name": "visibility",
+          "offset": 2638472
+        }
+      ],
+      "magic": "IBSP",
+      "name": "overkill.bsp",
+      "sha256": "ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133",
+      "size": 6863428,
+      "version": 47,
+      "world_model_bounds": {
+        "max": [
+          3000.000244140625,
+          2368.0,
+          1824.0
+        ],
+        "min": [
+          -1664.0,
+          -4120.0,
+          -1640.0
+        ]
+      }
+    },
+    "q3map2": {
+      "archive_sha256": "25c2e14e2b0bd7a9897b2f943c8821458873c8713973f9c3d68d49f26fe79e35",
+      "distribution": "NetRadiant-custom",
+      "release": "20260114",
+      "setup_script": "scripts/setup-q3map2.ps1",
+      "version": "2.5.17n-git-68ecbed"
+    },
+    "raw_map": {
+      "name": "overkill.raw.map",
+      "sha256": "30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc",
+      "size": 2440317
+    }
+  },
+  "status": "over_limit"
+}

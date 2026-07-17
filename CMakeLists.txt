@@ -20,6 +20,7 @@ function(lg_duel_set_windows_stack target)
 endfunction()
 
 add_library(lg_duel_core
+  src/benchmark/Benchmark.cpp
   src/client/ClientGame.cpp
   src/client/HitConfirmAudio.cpp
   src/client/ClientSession.cpp
@@ -28,6 +29,10 @@ add_library(lg_duel_core
   src/client/Prediction.cpp
   src/console/ConsoleConfig.cpp
   src/console/ConsoleSystem.cpp
+  src/dev/DevControlProtocol.cpp
+  src/dev/DevControlServer.cpp
+  src/dev/DevJson.cpp
+  src/dev/PngWriter.cpp
   src/input/InputBindings.cpp
   src/map/MapParser.cpp
   src/map/MapToArena.cpp
@@ -38,6 +43,7 @@ add_library(lg_duel_core
   src/net/UdpTransport.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
+  src/sim/ArenaBroadphase.cpp
   src/sim/ArenaMap.cpp
   src/sim/BalanceConfig.cpp
   src/sim/Collision.cpp
@@ -285,11 +291,19 @@ add_executable(lg_duel_map_validate
 target_link_libraries(lg_duel_map_validate PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_map_validate)
 
+add_executable(lg_duel_sim_benchmark
+  tools/SimulationBenchmark.cpp
+)
+
+target_link_libraries(lg_duel_sim_benchmark PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_sim_benchmark)
+
 foreach(target IN ITEMS
   lg_duel_client
   lg_duel_server
   lg_duel_server_probe
   lg_duel_map_validate
+  lg_duel_sim_benchmark
 )
   lg_duel_set_windows_stack(${target})
 endforeach()

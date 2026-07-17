@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "eyetoeye-projectile-effects",
+  "labels": ["projectiles", "effects", "stress", "presentation-fixture"],
+  "map": "eyetoeye",
+  "backend_requirement": "gpu",
+  "resolution": [1280, 720],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 0,
+  "fov": 100.0,
+  "warmup_seconds": 2.0,
+  "measured_seconds": 5.0,
+  "camera_start": {
+    "position": [0.0, 22.4, -12.85],
+    "yaw": -90.0,
+    "pitch": 0.0,
+    "fov": 100.0
+  },
+  "camera_path": [
+    {"progress": 0.0, "position": [0.0, 22.4, -12.85], "yaw": -90.0, "pitch": 0.0, "fov": 100.0},
+    {"progress": 1.0, "position": [0.0, 22.4, -12.85], "yaw": -90.0, "pitch": 0.0, "fov": 100.0}
+  ],
+  "player_state": {"alive": true, "weapon": "rocket_launcher", "hide_hud": true, "hide_overlays": true},
+  "actors": {
+    "bots": 1,
+    "attack_mode": "hard",
+    "stare": true,
+    "standstill": false,
+    "dodge": true,
+    "dodge_min_ms": 250,
+    "dodge_max_ms": 750,
+    "expected_count": 2,
+    "commands": ["bot_add 1", "bot_stare 1", "bot_standstill 0", "bot_dodge 1 250 750", "bot_attack hard"]
+  },
+  "effects": {
+    "projectiles": "fixed_cycle",
+    "projectile_count": 8,
+    "weapons": ["rocket_launcher", "grenade_launcher", "plasma_gun"],
+    "tracers": "authoritative_lightning",
+    "explosions": "fixed_cycle",
+    "fixture_only": true
+  },
+  "cvars": {"r_frustum_cull": 1, "r_show_weapons": 1, "r_player_model": 1, "r_draw_player_outlines": 1},
+  "screenshots": [{"name": "projectile-peak", "progress": 0.5}, {"name": "effect-steady-state", "progress": 1.0}],
+  "residual_nondeterminism": ["Current bot_attack modes select only the Lightning Gun; bots cannot authoritatively select Rocket Launcher, Grenade Launcher, or Plasma Gun.", "Projectile and explosion load is therefore a deterministic renderer fixture, not a live authoritative combat benchmark. It must be reported as fixture_only and must not be used to claim end-to-end projectile gameplay performance."]
+}

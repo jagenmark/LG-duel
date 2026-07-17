@@ -2,7 +2,6 @@
 
 #include "map/MapToArena.hpp"
 
-#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <filesystem>
@@ -200,6 +199,8 @@ std::uint32_t arenaMaterialId(std::string_view material) {
 
 ArenaLoadResult loadArenaFromText(std::string_view text) {
   ParsedArena parsed;
+  // Resetting lazy storage releases any materialized geometry; indexed writes
+  // below allocate the authored prefix while fixed limits remain loader errors.
   parsed.arena.walls = {};
   parsed.arena.wallCount = 0;
   parsed.arena.brushes = {};

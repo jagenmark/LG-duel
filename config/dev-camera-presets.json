@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "maps": {
+    "eyetoeye": {
+      "presets": {
+        "standard": [
+          {
+            "name": "north-to-center",
+            "label": "North spawn approach toward center",
+            "position": [0.0, 22.4, -12.85],
+            "yaw": -90.0,
+            "pitch": 0.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "east-to-center",
+            "label": "East spawn approach toward center",
+            "position": [22.4, 0.0, -12.85],
+            "yaw": 180.0,
+            "pitch": 0.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "south-to-center",
+            "label": "South spawn approach toward center",
+            "position": [0.0, -22.0, -12.85],
+            "yaw": 90.0,
+            "pitch": 0.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          }
+        ]
+      }
+    },
+    "overkill_import": {
+      "presets": {
+        "structural": [
+          {
+            "name": "lower-central-route",
+            "label": "Lower central route from a preserved deathmatch spawn",
+            "position": [-2.0, -3.8, 7.65],
+            "yaw": 270.0,
+            "pitch": 0.0,
+            "fov": 105.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "upper-north-crossing",
+            "label": "Upper north platform and crossing from a high spawn",
+            "position": [16.0, 33.6, 24.05],
+            "yaw": 270.0,
+            "pitch": -5.0,
+            "fov": 105.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "south-launch-route",
+            "label": "Southern route looking toward the imported launch structure",
+            "position": [16.0, -45.2, 10.85],
+            "yaw": 90.0,
+            "pitch": 0.0,
+            "fov": 105.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          }
+        ]
+      }
+    }
+  }
+}

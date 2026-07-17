@@ -41,10 +41,13 @@ Architecture docs:
 * [Maps and assets](docs/architecture/maps-assets.md)
 * [Config and testing](docs/architecture/config-testing.md)
 * [Performance](docs/architecture/performance.md)
+* [Performance benchmarks](docs/PERFORMANCE-BENCHMARKS.md)
 
 Reference:
 
 * [Console and cvar bible](docs/CONSOLE-BIBLE.md)
+* [Developer control and visual capture](docs/DEVELOPER-CONTROL.md)
+* [Performance benchmarks](docs/PERFORMANCE-BENCHMARKS.md)
 
 
 ## Build And Test
@@ -131,10 +134,12 @@ Architecture docs:
 - [Maps and assets](docs/architecture/maps-assets.md)
 - [Config and testing](docs/architecture/config-testing.md)
 - [Performance](docs/architecture/performance.md)
+- [Performance benchmarks](docs/PERFORMANCE-BENCHMARKS.md)
 
 Reference:
 
 - [Console and cvar bible](docs/CONSOLE-BIBLE.md)
+- [Performance benchmarks](docs/PERFORMANCE-BENCHMARKS.md)
 
 
 ## Mapmaking

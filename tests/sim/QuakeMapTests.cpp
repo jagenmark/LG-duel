@@ -6,6 +6,7 @@
 #include <iostream>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -606,6 +607,21 @@ int main() {
         result.arena.brushes[0].faceCount == 14 &&
         result.arena.brushes[0].vertexCount == 24,
       "inward-wound 14-face prism should keep all faces and vertices"
+    );
+  }
+
+  {
+    std::string brushes;
+    const std::string convexBrush = inwardWoundDodecagonalPrismBrush();
+    brushes.reserve(convexBrush.size() * (lg::Arena::kBrushCount + 1U));
+    for (std::size_t index = 0; index <= lg::Arena::kBrushCount; ++index) {
+      brushes += convexBrush;
+    }
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(basicMap(std::move(brushes)));
+    failures += expect(!result.ok, "maps above the fixed convex-brush limit should fail");
+    failures += expect(
+      result.error.find("too many convex brushes") != std::string::npos,
+      "convex-brush capacity failures should preserve the loader diagnostic"
     );
   }
 
