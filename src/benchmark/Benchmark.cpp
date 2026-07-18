@@ -137,6 +137,20 @@ namespace {
   return json;
 }
 
+[[nodiscard]] dev::JsonValue cameraPoseJson(const CameraPose& pose) {
+  dev::JsonValue result = dev::JsonValue::objectValue();
+  result.object["position"] = dev::JsonValue::arrayValue({
+    dev::JsonValue::numberValue(pose.position.x),
+    dev::JsonValue::numberValue(pose.position.y),
+    dev::JsonValue::numberValue(pose.position.z),
+  });
+  result.object["yaw"] = dev::JsonValue::numberValue(pose.yawDegrees);
+  result.object["pitch"] = dev::JsonValue::numberValue(pose.pitchDegrees);
+  result.object["fov"] = pose.fieldOfView
+    ? dev::JsonValue::numberValue(*pose.fieldOfView) : dev::JsonValue{};
+  return result;
+}
+
 } // namespace
 
 ParseResult parseScenario(const dev::JsonValue& root) {
@@ -258,13 +272,11 @@ bool isSafeScenarioHash(std::string_view value) {
   return value.size() >= 8U && value.size() <= 128U && std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isxdigit(c) != 0; });
 }
 
-CameraPose cameraAt(const Scenario& scenario, double measuredSeconds) {
-  // Presentation time is quantized to the authoritative 125 Hz tick so camera motion is repeatable.
-  const double quantized = std::floor(std::max(0.0, measuredSeconds) * 125.0) / 125.0;
+CameraPose cameraAtProgress(const Scenario& scenario, double requestedProgress) {
   const double duration = scenario.measuredSeconds.value_or(
     static_cast<double>(scenario.measuredFrames.value_or(1U)) / 125.0
   );
-  const double progress = duration > 0.0 ? std::clamp(quantized / duration, 0.0, 1.0) : 1.0;
+  const double progress = std::clamp(requestedProgress, 0.0, 1.0);
   std::vector<std::pair<double, CameraPose>> points;
   points.reserve(scenario.cameraPath.size() + 1U);
   points.emplace_back(0.0, scenario.cameraStart);
@@ -288,6 +300,15 @@ CameraPose cameraAt(const Scenario& scenario, double measuredSeconds) {
     }
   }
   return points.back().second;
+}
+
+CameraPose cameraAt(const Scenario& scenario, double measuredSeconds) {
+  // Presentation time is quantized to the authoritative 125 Hz tick so camera motion is repeatable.
+  const double quantized = std::floor(std::max(0.0, measuredSeconds) * 125.0) / 125.0;
+  const double duration = scenario.measuredSeconds.value_or(
+    static_cast<double>(scenario.measuredFrames.value_or(1U)) / 125.0
+  );
+  return cameraAtProgress(scenario, duration > 0.0 ? quantized / duration : 1.0);
 }
 
 Summary summarize(const std::vector<FrameSample>& samples) {
@@ -320,6 +341,8 @@ dev::JsonValue resultJson(const Scenario& scenario, const ResultContext& context
   root.object["scenario_name"] = dev::JsonValue::stringValue(scenario.name);
   root.object["scenario_hash"] = dev::JsonValue::stringValue(context.scenarioHash);
   root.object["renderer"] = dev::JsonValue::stringValue(context.renderer);
+  root.object["map"] = dev::JsonValue::stringValue(context.actualMap);
+  root.object["map_revision"] = dev::JsonValue::numberValue(context.actualMapRevision);
   root.object["map_content_hash"] = dev::JsonValue::numberValue(context.actualMapContentHash);
   root.object["actual_resolution"] = dev::JsonValue::arrayValue({
     dev::JsonValue::numberValue(context.actualWidth), dev::JsonValue::numberValue(context.actualHeight)
@@ -351,6 +374,27 @@ dev::JsonValue resultJson(const Scenario& scenario, const ResultContext& context
   root.object["validity"] = std::move(validity);
   dev::JsonValue warnings = dev::JsonValue::arrayValue(); for (const std::string& warning : context.warnings) warnings.array.push_back(dev::JsonValue::stringValue(warning)); root.object["warnings"] = std::move(warnings);
   dev::JsonValue screenshots = dev::JsonValue::arrayValue(); for (const std::string& path : context.screenshotPaths) screenshots.array.push_back(dev::JsonValue::stringValue(path)); root.object["screenshots"] = std::move(screenshots);
+  dev::JsonValue checkpoints = dev::JsonValue::arrayValue();
+  for (std::size_t index = 0; index < scenario.screenshots.size(); ++index) {
+    const Screenshot& screenshot = scenario.screenshots[index];
+    dev::JsonValue checkpoint = dev::JsonValue::objectValue();
+    checkpoint.object["name"] = dev::JsonValue::stringValue(screenshot.name);
+    checkpoint.object["progress"] = dev::JsonValue::numberValue(screenshot.progress);
+    checkpoint.object["camera"] = cameraPoseJson(
+      cameraAtProgress(scenario, screenshot.progress)
+    );
+    checkpoint.object["map"] = dev::JsonValue::stringValue(context.actualMap);
+    checkpoint.object["map_revision"] =
+      dev::JsonValue::numberValue(context.actualMapRevision);
+    checkpoint.object["map_content_hash"] =
+      dev::JsonValue::numberValue(context.actualMapContentHash);
+    if (index < context.screenshotPaths.size()) {
+      checkpoint.object["path"] =
+        dev::JsonValue::stringValue(context.screenshotPaths[index]);
+    }
+    checkpoints.array.push_back(std::move(checkpoint));
+  }
+  root.object["screenshot_checkpoints"] = std::move(checkpoints);
   return root;
 }
 

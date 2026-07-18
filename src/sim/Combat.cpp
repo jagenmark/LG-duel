@@ -405,6 +405,15 @@ WorldTrace traceWorld(
     },
     candidates
   );
+  if (arenaBroadphaseProfilingEnabled()) {
+    const std::uint64_t walls = indexed
+      ? static_cast<std::uint64_t>(candidates.walls.count())
+      : static_cast<std::uint64_t>(arena.wallCount);
+    const std::uint64_t brushes = indexed
+      ? static_cast<std::uint64_t>(candidates.brushes.count())
+      : static_cast<std::uint64_t>(arena.brushCount);
+    recordArenaBroadphaseCandidateTests(walls + brushes);
+  }
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     if (indexed && !candidates.walls.test(index)) continue;
     const TraceHit hit = wallHit(arena.walls[index], origin, direction);

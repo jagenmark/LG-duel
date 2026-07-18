@@ -11,8 +11,8 @@
   "vsync": false,
   "frame_cap": 0,
   "fov": 105.0,
-  "warmup_seconds": 5.0,
-  "measured_seconds": 15.0,
+  "warmup_seconds": 15.0,
+  "measured_seconds": 60.0,
   "camera_start": {
     "position": [-2.0, -3.8, 7.65],
     "yaw": 270.0,

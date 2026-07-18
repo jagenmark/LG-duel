@@ -32,6 +32,11 @@ DEFAULT_TIMEOUT = 180.0
 DEFAULT_STABLE_CV_PERCENT = 3.0
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 NATIVE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+POWER_GUID = re.compile(r"[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}")
+BACKGROUND_APP_NAMES = {
+    "discord.exe", "firefox.exe", "spotify.exe", "steam.exe", "steamwebhelper.exe",
+    "chrome.exe", "msedge.exe", "obs64.exe",
+}
 
 
 class BenchmarkError(RuntimeError):
@@ -384,10 +389,14 @@ def aggregate_runs(runs: list[dict[str, Any]], *, stable_cv_percent: float = DEF
     headline = "frame_ms" if "frame_ms" in metrics else "cpu_ms" if "cpu_ms" in metrics else next(iter(metrics), None)
     cv = metrics.get(headline, {}).get("cv_percent") if headline else None
     valid = all(run.get("valid", True) is True for run in runs)
+    enough_repetitions = len(runs) >= 3
     return {
         "schema_version": RESULT_SCHEMA_VERSION, "run_count": len(runs), "valid": valid,
         "headline_metric": headline, "stable_cv_threshold_percent": stable_cv_percent,
-        "stable": bool(valid and cv is not None and cv <= stable_cv_percent), "metrics": metrics,
+        "minimum_stability_repetitions": 3,
+        "stable": bool(valid and enough_repetitions and cv is not None and cv <= stable_cv_percent),
+        "stability_warning": None if enough_repetitions else "at least 3 repetitions are required to assess stability",
+        "metrics": metrics,
         "outlier_runs": sorted({index + 1 for stats in metrics.values() for index in stats["outliers"]["indices"]}),
     }
 
@@ -473,6 +482,50 @@ def _vulkan_metadata(renderer: Any) -> dict[str, Any]:
     return metadata
 
 
+def _windows_host_metadata() -> dict[str, Any]:
+    if os.name != "nt":
+        return {}
+    metadata: dict[str, Any] = {}
+    try:
+        power = subprocess.run(
+            ["powercfg", "/getactivescheme"], text=True, capture_output=True,
+            timeout=4.0, check=False,
+        )
+        match = POWER_GUID.search(power.stdout)
+        metadata["power_scheme_guid"] = match.group(0).lower() if match else None
+        name = re.search(r"\(([^)]+)\)", power.stdout)
+        metadata["power_scheme_name"] = name.group(1) if name else None
+    except (OSError, subprocess.TimeoutExpired) as error:
+        metadata["power_scheme_error"] = str(error)
+    try:
+        processes = subprocess.run(
+            ["tasklist", "/fo", "csv", "/nh"], text=True, capture_output=True,
+            timeout=8.0, check=False,
+        )
+        active = {
+            row[0].lower()
+            for row in csv.reader(processes.stdout.splitlines())
+            if row and row[0].lower() in BACKGROUND_APP_NAMES
+        }
+        metadata["background_applications_detected"] = sorted(active)
+    except (OSError, subprocess.TimeoutExpired, csv.Error) as error:
+        metadata["background_application_scan_error"] = str(error)
+    try:
+        battery = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-CimInstance Win32_Battery | Select-Object -First 1 BatteryStatus,EstimatedChargeRemaining | ConvertTo-Json -Compress"],
+            text=True, capture_output=True, timeout=8.0, check=False,
+        )
+        if battery.stdout.strip():
+            value = json.loads(battery.stdout)
+            metadata["battery_status"] = value.get("BatteryStatus")
+            metadata["battery_charge_percent"] = value.get("EstimatedChargeRemaining")
+            metadata["ac_power_connected"] = value.get("BatteryStatus") in {2, 6, 7, 8, 9, 11}
+    except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError) as error:
+        metadata["battery_metadata_error"] = str(error)
+    return metadata
+
+
 def environment_metadata(status: dict[str, Any] | None = None) -> dict[str, Any]:
     status = status or {}
     renderer = status.get("renderer")
@@ -484,7 +537,143 @@ def environment_metadata(status: dict[str, Any] | None = None) -> dict[str, Any]
         "control_protocol_version": status.get("control_protocol"),
     }
     metadata.update(_vulkan_metadata(renderer))
+    metadata.update(_windows_host_metadata())
     return metadata
+
+
+class _PowerPlanGuard:
+    def __init__(self, enabled: bool):
+        self.enabled = enabled
+        self.original: str | None = None
+        self.temporary: str | None = None
+        self.metadata: dict[str, Any] = {"requested": enabled, "active": False}
+
+    def activate(self) -> dict[str, Any]:
+        if not self.enabled:
+            return self.metadata
+        if os.name != "nt":
+            raise BenchmarkError("--controlled-environment currently supports Windows power plans only")
+        current = subprocess.run(
+            ["powercfg", "/getactivescheme"], text=True, capture_output=True,
+            timeout=5.0, check=False,
+        )
+        match = POWER_GUID.search(current.stdout)
+        if current.returncode != 0 or not match:
+            raise BenchmarkError("could not identify the active Windows power plan")
+        self.original = match.group(0)
+        duplicate = subprocess.run(
+            ["powercfg", "/duplicatescheme", "SCHEME_MIN"], text=True,
+            capture_output=True, timeout=5.0, check=False,
+        )
+        match = POWER_GUID.search(duplicate.stdout)
+        if duplicate.returncode != 0 or not match:
+            raise BenchmarkError(
+                "could not create a temporary High performance power plan: "
+                + (duplicate.stderr.strip() or duplicate.stdout.strip())
+            )
+        self.temporary = match.group(0)
+        activated = subprocess.run(
+            ["powercfg", "/setactive", self.temporary], text=True,
+            capture_output=True, timeout=5.0, check=False,
+        )
+        if activated.returncode != 0:
+            self.restore()
+            raise BenchmarkError("could not activate the temporary High performance power plan")
+        self.metadata = {
+            "requested": True, "active": True, "original_scheme_guid": self.original,
+            "temporary_high_performance_scheme_guid": self.temporary,
+        }
+        return self.metadata
+
+    def restore(self) -> None:
+        if self.original:
+            subprocess.run(
+                ["powercfg", "/setactive", self.original], text=True,
+                capture_output=True, timeout=5.0, check=False,
+            )
+        if self.temporary:
+            subprocess.run(
+                ["powercfg", "/delete", self.temporary], text=True,
+                capture_output=True, timeout=5.0, check=False,
+            )
+        self.original = None
+        self.temporary = None
+
+
+class _VulkanIcdGuard:
+    def __init__(self, required: bool):
+        self.required = required
+        self.previous = {
+            name: os.environ.get(name)
+            for name in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "VK_ADD_DRIVER_FILES")
+        }
+        self.metadata: dict[str, Any] = {"required": required, "selection": "not-applicable"}
+
+    @staticmethod
+    def _probe(environment: dict[str, str]) -> tuple[bool, dict[str, Any], str]:
+        try:
+            completed = subprocess.run(
+                ["vulkaninfo", "--summary"], text=True, capture_output=True,
+                timeout=8.0, check=False, env=environment,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            return False, {}, str(error)
+        parsed = _parse_vulkan_summary(completed.stdout)
+        ok = completed.returncode == 0 and bool(parsed.get("gpu_name"))
+        return ok, parsed, (completed.stderr.strip() or completed.stdout.strip())
+
+    def activate(self) -> dict[str, Any]:
+        if not self.required:
+            return self.metadata
+        current = os.environ.copy()
+        ok, parsed, error = self._probe(current)
+        if ok:
+            self.metadata = {"required": True, "selection": "loader-default-or-inherited", **parsed}
+            return self.metadata
+        if os.name != "nt":
+            raise BenchmarkError(f"Vulkan loader probe failed: {error}")
+
+        candidates: list[Path] = []
+        for variable in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES"):
+            for value in (self.previous.get(variable) or "").split(os.pathsep):
+                if value:
+                    candidates.append(Path(value))
+        driver_store = Path(os.environ.get("WINDIR", r"C:\Windows")) / "System32" / "DriverStore" / "FileRepository"
+        for pattern in ("igvk64.json", "nv-vk64.json", "amd-vulkan64.json"):
+            candidates.extend(driver_store.glob(f"*/{pattern}"))
+        unique = sorted(
+            {path.resolve() for path in candidates if path.is_file()},
+            key=lambda path: path.stat().st_mtime,
+            reverse=True,
+        )
+        probe_errors = []
+        for path in unique:
+            environment = os.environ.copy()
+            environment["VK_DRIVER_FILES"] = str(path)
+            environment.pop("VK_ICD_FILENAMES", None)
+            environment.pop("VK_ADD_DRIVER_FILES", None)
+            ok, parsed, candidate_error = self._probe(environment)
+            if not ok:
+                probe_errors.append(f"{path}: {candidate_error.splitlines()[-1] if candidate_error else 'failed'}")
+                continue
+            os.environ["VK_DRIVER_FILES"] = str(path)
+            os.environ.pop("VK_ICD_FILENAMES", None)
+            os.environ.pop("VK_ADD_DRIVER_FILES", None)
+            self.metadata = {
+                "required": True, "selection": "verified-driver-store-manifest",
+                "manifest": str(path), "manifest_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                **parsed,
+            }
+            return self.metadata
+        detail = "; ".join(probe_errors[-3:]) or error
+        raise BenchmarkError(f"no working Vulkan ICD could be verified before launch: {detail}")
+
+    def restore(self) -> None:
+        for name, value in self.previous.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
 
 
 def _attach_run_conditions(normalized: dict[str, Any], conditions: dict[str, Any]) -> None:
@@ -519,21 +708,34 @@ def _start_client(port: int, timeout: float) -> dict[str, Any]:
                 "a development-control client is already running without --benchmark; "
                 "stop the owned client before starting a benchmark"
             )
+        status["_launcher_started"] = False
         return status
     except ControlError:
         command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
                    str(REPO_ROOT / "scripts" / "lg-dev.ps1"), "start", "-ControlPort", str(port), "-Benchmark"]
+        state_dir = REPO_ROOT / "build" / "dev-control"
+        state_dir.mkdir(parents=True, exist_ok=True)
         try:
-            completed = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, timeout=min(timeout, 30.0))
+            # Do not use PIPE here. On Windows a spawned game process can retain
+            # an inherited pipe handle after the launcher exits, preventing
+            # subprocess.run() from ever observing EOF.
+            with (state_dir / "launcher.stdout.log").open("a", encoding="utf-8") as stdout, \
+                 (state_dir / "launcher.stderr.log").open("a", encoding="utf-8") as stderr:
+                completed = subprocess.run(
+                    command, cwd=REPO_ROOT, text=True, stdout=stdout, stderr=stderr,
+                    timeout=min(timeout, 30.0),
+                )
         except subprocess.TimeoutExpired as error:
             raise BenchmarkError("benchmark client startup timed out; inspect build/dev-control/client.stderr.log") from error
         if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise BenchmarkError(f"benchmark client failed to start: {detail or 'lg-dev.ps1 returned an error'}")
+            raise BenchmarkError(
+                "benchmark client failed to start; inspect build/dev-control/launcher.stderr.log"
+            )
         try:
             status = send_request("status", port=port, timeout=min(timeout, 10.0))
             if not status.get("benchmark_enabled", False):
                 raise BenchmarkError("client started without the required --benchmark option")
+            status["_launcher_started"] = True
             return status
         except ControlError as error:
             raise BenchmarkError(f"benchmark client did not become ready: {error}") from error
@@ -551,6 +753,54 @@ def _safe_artifact_path(path_text: str, run_dir: Path) -> Path:
     if resolved != allowed and allowed not in resolved.parents:
         raise BenchmarkError(f"native benchmark returned artifact outside build/benchmarks: {resolved}")
     return resolved
+
+
+def _dev_log_offsets() -> dict[Path, int]:
+    root = REPO_ROOT / "build" / "dev-control"
+    return {
+        root / name: (root / name).stat().st_size if (root / name).is_file() else 0
+        for name in ("client.stdout.log", "client.stderr.log", "server.stdout.log", "server.stderr.log")
+    }
+
+
+def _capture_dev_logs(run_dir: Path, offsets: dict[Path, int]) -> dict[str, Any]:
+    log_dir = run_dir / "logs"
+    log_dir.mkdir()
+    paths: dict[str, str] = {}
+    diagnostics: list[str] = []
+    for source, offset in offsets.items():
+        destination = log_dir / source.name
+        data = b""
+        try:
+            if source.is_file():
+                with source.open("rb") as stream:
+                    if source.stat().st_size >= offset:
+                        stream.seek(offset)
+                    data = stream.read()
+        except OSError as error:
+            diagnostics.append(f"could not capture {source.name}: {error}")
+        destination.write_bytes(data)
+        paths[source.stem.replace(".", "_")] = str(destination)
+        text = data.decode("utf-8", errors="replace").lower()
+        if any(token in text for token in ("fatal", "assert", "device lost", "protocol error")):
+            diagnostics.append(f"{source.name} contains a renderer/protocol error marker")
+    return {"paths": paths, "diagnostics": diagnostics}
+
+
+def _png_metadata(path: Path) -> dict[str, Any]:
+    try:
+        data = path.read_bytes()
+    except OSError as error:
+        return {"read_error": str(error)}
+    result: dict[str, Any] = {
+        "bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    if len(data) >= 24 and data[:8] == b"\x89PNG\r\n\x1a\n" and data[12:16] == b"IHDR":
+        result["width"] = int.from_bytes(data[16:20], "big")
+        result["height"] = int.from_bytes(data[20:24], "big")
+    else:
+        result["format_error"] = "not a valid PNG header"
+    return result
 
 
 def _native_summary(summary: dict[str, Any]) -> dict[str, Any]:
@@ -628,7 +878,22 @@ def _normalize_native_result(response: dict[str, Any], run_dir: Path, run_id: st
              else str(_safe_artifact_path(shot, run_dir)) if isinstance(shot, str) else shot)
             for shot in screenshots
         ]
-    result["native"] = {key: value for key, value in source.items() if key not in {"samples"}}
+    native = {key: value for key, value in source.items() if key not in {"samples"}}
+    checkpoints = source.get("screenshot_checkpoints", [])
+    if isinstance(checkpoints, list):
+        normalized_checkpoints = []
+        for checkpoint in checkpoints:
+            if not isinstance(checkpoint, dict):
+                continue
+            item = dict(checkpoint)
+            if isinstance(item.get("path"), str):
+                path = _safe_artifact_path(item["path"], run_dir)
+                item["path"] = str(path)
+                item["image"] = _png_metadata(path)
+            normalized_checkpoints.append(item)
+        native["screenshot_checkpoints"] = normalized_checkpoints
+        result["screenshot_checkpoints"] = normalized_checkpoints
+    result["native"] = native
     return result
 
 
@@ -652,6 +917,8 @@ def render_report(result: dict[str, Any]) -> str:
               f"- Host: {environment.get('os', 'unknown')} / {environment.get('cpu', 'unknown')} / {environment.get('logical_cores', 'unknown')} logical cores",
               f"- Renderer: {environment.get('renderer', 'unknown')} / requested {settings.get('backend', 'unknown')} / resolution {settings.get('resolution', 'unknown')}",
               f"- Protocol/benchmark version: {environment.get('protocol_version', 'unknown')}",
+              f"- Power: {environment.get('power_scheme_name', 'unknown')} / controlled: {environment.get('power_plan_control', {}).get('active', False)} / AC: {environment.get('ac_power_connected', 'unknown')}",
+              f"- Background applications detected: {', '.join(environment.get('background_applications_detected', [])) or 'none'}",
               f"- Started/completed: {result.get('started_at', 'unknown')} / {result.get('completed_at', 'unknown')}",
               "", "## Metrics", ""]
     lines.append("| Metric | Median | p95 | p99 | Max | CV |")
@@ -663,19 +930,29 @@ def render_report(result: dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
-                  timeout: float = DEFAULT_TIMEOUT, request_sender: Callable[..., dict[str, Any]] = send_request,
-                  start_client: bool = True) -> dict[str, Any]:
+def _run_benchmark_impl(scenario_name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
+                        timeout: float = DEFAULT_TIMEOUT,
+                        request_sender: Callable[..., dict[str, Any]] = send_request,
+                        start_client: bool = True,
+                        power_control: dict[str, Any] | None = None,
+                        vulkan_selection: dict[str, Any] | None = None) -> dict[str, Any]:
     repetitions = _positive_int(repetitions, "repetitions")
     scenario, scenario_path, digest = load_scenario(scenario_name)
     status = _start_client(port, timeout) if start_client else {}
     requested_backend = scenario["backend_requirement"].lower()
     actual_renderer = str(status.get("renderer", "")).lower()
     if requested_backend == "gpu" and status and "gpu" not in actual_renderer:
+        if status.get("_launcher_started"):
+            subprocess.run(
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
+                 str(REPO_ROOT / "scripts" / "lg-dev.ps1"), "stop"],
+                cwd=REPO_ROOT, text=True, capture_output=True, timeout=15.0, check=False,
+            )
         raise BenchmarkError(
             f"scenario requires SDL_GPU, but the active renderer is "
             f"{status.get('renderer', 'unknown')}"
         )
+    status.pop("_launcher_started", None)
     git = _git_metadata()
     commit_short = str(git["commit"])[:12]
     run_group = f"{_timestamp()}-{commit_short}"
@@ -689,6 +966,8 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     result_dir.mkdir(parents=True)
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     environment = environment_metadata(status)
+    environment["power_plan_control"] = power_control or {"requested": False, "active": False}
+    environment["vulkan_icd_selection"] = vulkan_selection or {"required": False}
     run_conditions = {
         "git": git,
         "environment": environment,
@@ -702,12 +981,16 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
         run_dir = result_dir / run_id
         run_dir.mkdir()
         payload = build_run_request(scenario, digest, run_id, run_group)
+        log_offsets = _dev_log_offsets()
         try:
             response = request_sender("run_benchmark", port=port, timeout=timeout, **payload)
         except ControlError as error:
             raise BenchmarkError(f"{run_id} failed: {error}; partial artifacts remain at {result_dir}") from error
         normalized = _normalize_native_result(response, run_dir, run_id)
-        _attach_run_conditions(normalized, run_conditions)
+        log_capture = _capture_dev_logs(run_dir, log_offsets)
+        normalized["logs"] = log_capture
+        per_run_conditions = {**run_conditions, "logs": log_capture}
+        _attach_run_conditions(normalized, per_run_conditions)
         _write_json(run_dir / "orchestration.json", normalized)
         runs.append(normalized)
     aggregate = aggregate_runs(runs)
@@ -733,10 +1016,34 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     return result
 
 
+def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
+                  timeout: float = DEFAULT_TIMEOUT, request_sender: Callable[..., dict[str, Any]] = send_request,
+                  start_client: bool = True, controlled_environment: bool = False) -> dict[str, Any]:
+    scenario, _, _ = load_scenario(scenario_name)
+    icd_guard = _VulkanIcdGuard(
+        start_client and scenario["backend_requirement"].lower() == "gpu"
+    )
+    vulkan_selection = icd_guard.activate()
+    guard = _PowerPlanGuard(controlled_environment)
+    try:
+        power_control = guard.activate()
+        try:
+            return _run_benchmark_impl(
+                scenario_name, repetitions=repetitions, port=port, timeout=timeout,
+                request_sender=request_sender, start_client=start_client,
+                power_control=power_control, vulkan_selection=vulkan_selection,
+            )
+        finally:
+            guard.restore()
+    finally:
+        icd_guard.restore()
+
+
 def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: str = "overkill_import",
                              warmup_batches: int = 5, measured_batches: int = 40,
                              operations_per_batch: int = 256, timeout: float = DEFAULT_TIMEOUT,
-                             force_linear: bool = False) -> dict[str, Any]:
+                             force_linear: bool = False,
+                             profile_broadphase: bool = False) -> dict[str, Any]:
     if workload not in {"movement-collision", "trace-projectile"}:
         raise BenchmarkError("simulation workload must be movement-collision or trace-projectile")
     validate_safe_name(map_name, "map")
@@ -764,6 +1071,8 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     ]
     if force_linear:
         command.append("--force-linear")
+    if profile_broadphase:
+        command.append("--profile-broadphase")
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     try:
         completed = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, timeout=timeout)
@@ -785,6 +1094,7 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
         "workload": workload, "map": map_name, "repetitions": repetitions,
         "warmup_batches": warmup_batches, "measured_batches": measured_batches,
         "operations_per_batch": operations_per_batch,
+        "profile_broadphase": profile_broadphase,
     }
     digest = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
@@ -1009,6 +1319,10 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("--scenario", required=True)
     run.add_argument("--repetitions", type=int, default=3)
+    run.add_argument(
+        "--controlled-environment", action="store_true",
+        help="temporarily activate a High performance Windows power plan for the run set",
+    )
     sim_run = commands.add_parser("sim-run")
     sim_run.add_argument("--workload", required=True, choices=("movement-collision", "trace-projectile"))
     sim_run.add_argument("--map", default="overkill_import")
@@ -1017,6 +1331,7 @@ def build_parser() -> argparse.ArgumentParser:
     sim_run.add_argument("--measured-batches", type=int, default=40)
     sim_run.add_argument("--operations-per-batch", type=int, default=256)
     sim_run.add_argument("--force-linear", action="store_true")
+    sim_run.add_argument("--profile-broadphase", action="store_true")
     create = commands.add_parser("baseline-create")
     create.add_argument("--scenario", required=True)
     create.add_argument("--name", required=True)
@@ -1036,14 +1351,17 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if args.command == "list":
         return list_scenarios(), 0
     if args.command == "run":
-        result = run_benchmark(args.scenario, repetitions=args.repetitions, port=args.port, timeout=args.timeout)
+        result = run_benchmark(
+            args.scenario, repetitions=args.repetitions, port=args.port,
+            timeout=args.timeout, controlled_environment=args.controlled_environment,
+        )
         return result, 0 if result["aggregate"]["valid"] else 3
     if args.command == "sim-run":
         result = run_simulation_benchmark(
             args.workload, repetitions=args.repetitions, map_name=args.map,
             warmup_batches=args.warmup_batches, measured_batches=args.measured_batches,
             operations_per_batch=args.operations_per_batch, timeout=args.timeout,
-            force_linear=args.force_linear,
+            force_linear=args.force_linear, profile_broadphase=args.profile_broadphase,
         )
         return result, 0 if result["aggregate"]["valid"] else 3
     if args.command == "baseline-create":

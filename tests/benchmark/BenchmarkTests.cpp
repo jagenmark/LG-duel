@@ -76,6 +76,12 @@ int main() {
       std::fabs(halfway.position.x - 4.96F) < 0.001F,
       "camera interpolation should quantize presentation time to 125 Hz"
     );
+    const lg::benchmark::CameraPose checkpoint =
+      lg::benchmark::cameraAtProgress(cameraScenario, 0.5);
+    failures += expect(
+      std::fabs(checkpoint.position.x - 5.0F) < 0.001F,
+      "normalized screenshot checkpoints should not shift with measured duration"
+    );
   }
 
   std::vector<lg::benchmark::FrameSample> samples(1000);
@@ -89,6 +95,8 @@ int main() {
     lg::benchmark::ResultContext context;
     context.runId = "run-01"; context.runGroup = "group-01";
     context.scenarioHash = "0123456789abcdef"; context.actualMap = "eyetoeye";
+    context.actualMapRevision = 7; context.actualMapContentHash = 1234;
+    context.screenshotPaths = {"screenshots/final.png"};
     context.completed = true; context.actualActorCount = 2;
     const std::string result = lg::dev::writeJson(
       lg::benchmark::resultJson(valid.scenario, context, samples)
@@ -96,6 +104,12 @@ int main() {
     failures += expect(result.find("\"percentile_method\"") != std::string::npos, "result should document percentile method");
     failures += expect(result.find("\"16.67\"") != std::string::npos, "result should include frame-time thresholds");
     failures += expect(result.find("\"expected_actors\":true") != std::string::npos, "result actor validity should use snapshot actor count");
+    failures += expect(
+      result.find("\"map_revision\":7") != std::string::npos &&
+        result.find("\"screenshot_checkpoints\"") != std::string::npos &&
+        result.find("\"position\":[10,0,2]") != std::string::npos,
+      "result should bind screenshot checkpoints to map and deterministic camera state"
+    );
     context.actualActorCount = 3;
     const std::string extraActorResult = lg::dev::writeJson(
       lg::benchmark::resultJson(valid.scenario, context, samples)

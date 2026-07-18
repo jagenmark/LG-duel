@@ -5340,8 +5340,7 @@ int GameApp::run() const {
             } else {
               active.benchmarkScreenshotIndex = 0;
               const benchmark::Screenshot& screenshot = scenario.screenshots[0];
-              const double cameraSeconds = scenario.measuredSeconds.value_or(seconds) * screenshot.progress;
-              setBenchmarkCamera(benchmark::cameraAt(scenario, cameraSeconds));
+              setBenchmarkCamera(benchmark::cameraAtProgress(scenario, screenshot.progress));
               active.requiredRenderedFrame = renderedFrameSerial + 1U;
               active.deadline = phaseNow + std::chrono::seconds(20);
               active.stage = ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame;
@@ -8174,11 +8173,8 @@ int GameApp::run() const {
           } else {
             const benchmark::Screenshot& next =
               request.benchmarkScenario.screenshots[active.benchmarkScreenshotIndex];
-            const double duration = request.benchmarkScenario.measuredSeconds.value_or(
-              active.benchmarkSamples.empty() ? 0.0 : active.benchmarkSamples.back().elapsedSeconds
-            );
-            setBenchmarkCamera(benchmark::cameraAt(
-              request.benchmarkScenario, duration * next.progress
+            setBenchmarkCamera(benchmark::cameraAtProgress(
+              request.benchmarkScenario, next.progress
             ));
             active.requiredRenderedFrame = renderedFrameSerial + 1U;
             active.deadline = Clock::now() + std::chrono::seconds(20);
@@ -8258,6 +8254,7 @@ int GameApp::run() const {
       context.scenarioHash = request.scenarioHash;
       context.actualMap = currentMapName();
       context.renderer = std::string(renderer.backendName());
+      context.actualMapRevision = currentMapRevision();
       context.actualMapContentHash = currentMapContentHash();
       SDL_GetWindowSizeInPixels(window, &context.actualWidth, &context.actualHeight);
       context.selectedPresentMode = renderer.lastFrameDiagnostics().selectedPresentModeName;

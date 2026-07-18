@@ -10,6 +10,7 @@ namespace {
 
 constexpr std::size_t kLeafSize = 8;
 constexpr std::size_t kTraversalStackSize = 64;
+thread_local ArenaBroadphaseProfile* gActiveProfile = nullptr;
 
 [[nodiscard]] Vec3 minimum(Vec3 lhs, Vec3 rhs) {
   return {std::min(lhs.x, rhs.x), std::min(lhs.y, rhs.y), std::min(lhs.z, rhs.z)};
@@ -82,7 +83,90 @@ constexpr std::size_t kTraversalStackSize = 64;
   return nodeIndex;
 }
 
+void recordQueryProfile(
+  ArenaBroadphaseProfile& profile,
+  const Arena& arena,
+  std::uint64_t nodesVisited,
+  std::uint64_t candidatesReturned,
+  bool fallback
+) {
+  ++profile.queryCount;
+  profile.totalStaticSolids = std::max<std::uint64_t>(
+    profile.totalStaticSolids,
+    static_cast<std::uint64_t>(arena.wallCount + arena.brushCount)
+  );
+  profile.nodesVisited += nodesVisited;
+  profile.candidatesReturned += candidatesReturned;
+  profile.maxNodesVisited = std::max(profile.maxNodesVisited, nodesVisited);
+  profile.maxCandidatesReturned = std::max(
+    profile.maxCandidatesReturned,
+    candidatesReturned
+  );
+  if (fallback) ++profile.fallbackCount;
+}
+
+template <bool Profile>
+[[nodiscard]] bool queryArenaCollisionIndexImpl(
+  const Arena& arena,
+  Vec3 queryMin,
+  Vec3 queryMax,
+  ArenaBroadphaseCandidates& candidates
+) {
+  candidates = {};
+  std::uint64_t nodesVisited = 0;
+  std::uint64_t candidatesReturned = 0;
+  const std::shared_ptr<const ArenaCollisionIndex>& index = arena.collisionIndex;
+  if (!index || index->nodes.empty() || index->sourceWallCount != arena.wallCount ||
+      index->sourceBrushCount != arena.brushCount) {
+    if constexpr (Profile) {
+      recordQueryProfile(*gActiveProfile, arena, nodesVisited, candidatesReturned, true);
+    }
+    return false;
+  }
+  std::array<std::uint32_t, kTraversalStackSize> stack = {};
+  std::size_t stackSize = 1U;
+  stack[0] = 0U;
+  while (stackSize > 0U) {
+    const ArenaBroadphaseNode& node = index->nodes[stack[--stackSize]];
+    if constexpr (Profile) ++nodesVisited;
+    if (!overlaps(node.min, node.max, queryMin, queryMax)) continue;
+    if (node.count > 0U) {
+      for (std::size_t offset = 0; offset < node.count; ++offset) {
+        const ArenaBroadphasePrimitive& primitive = index->primitives[node.first + offset];
+        if (!overlaps(primitive.min, primitive.max, queryMin, queryMax)) continue;
+        if (primitive.brush) candidates.brushes.set(primitive.index);
+        else candidates.walls.set(primitive.index);
+        if constexpr (Profile) ++candidatesReturned;
+      }
+      continue;
+    }
+    if (stackSize + 2U > stack.size()) {
+      candidates = {};
+      if constexpr (Profile) {
+        recordQueryProfile(*gActiveProfile, arena, nodesVisited, 0, true);
+      }
+      return false;
+    }
+    stack[stackSize++] = node.right;
+    stack[stackSize++] = node.left;
+  }
+  if constexpr (Profile) {
+    recordQueryProfile(*gActiveProfile, arena, nodesVisited, candidatesReturned, false);
+  }
+  return true;
+}
+
 } // namespace
+
+ArenaBroadphaseProfileScope::ArenaBroadphaseProfileScope(
+  ArenaBroadphaseProfile& profile
+) : previous_(gActiveProfile) {
+  gActiveProfile = &profile;
+}
+
+ArenaBroadphaseProfileScope::~ArenaBroadphaseProfileScope() {
+  gActiveProfile = previous_;
+}
 
 void buildArenaCollisionIndex(Arena& arena) {
   auto index = std::make_shared<ArenaCollisionIndex>();
@@ -108,32 +192,23 @@ bool queryArenaCollisionIndex(
   Vec3 queryMax,
   ArenaBroadphaseCandidates& candidates
 ) {
-  candidates = {};
-  const std::shared_ptr<const ArenaCollisionIndex>& index = arena.collisionIndex;
-  if (!index || index->nodes.empty() || index->sourceWallCount != arena.wallCount ||
-      index->sourceBrushCount != arena.brushCount) {
-    return false;
+  if (gActiveProfile != nullptr) {
+    return queryArenaCollisionIndexImpl<true>(arena, queryMin, queryMax, candidates);
   }
-  std::array<std::uint32_t, kTraversalStackSize> stack = {};
-  std::size_t stackSize = 1U;
-  stack[0] = 0U;
-  while (stackSize > 0U) {
-    const ArenaBroadphaseNode& node = index->nodes[stack[--stackSize]];
-    if (!overlaps(node.min, node.max, queryMin, queryMax)) continue;
-    if (node.count > 0U) {
-      for (std::size_t offset = 0; offset < node.count; ++offset) {
-        const ArenaBroadphasePrimitive& primitive = index->primitives[node.first + offset];
-        if (!overlaps(primitive.min, primitive.max, queryMin, queryMax)) continue;
-        if (primitive.brush) candidates.brushes.set(primitive.index);
-        else candidates.walls.set(primitive.index);
-      }
-      continue;
-    }
-    if (stackSize + 2U > stack.size()) return false;
-    stack[stackSize++] = node.right;
-    stack[stackSize++] = node.left;
-  }
-  return true;
+  return queryArenaCollisionIndexImpl<false>(arena, queryMin, queryMax, candidates);
+}
+
+bool arenaBroadphaseProfilingEnabled() {
+  return gActiveProfile != nullptr;
+}
+
+void recordArenaBroadphaseCandidateTests(std::uint64_t count) {
+  if (gActiveProfile == nullptr) return;
+  gActiveProfile->candidatesTested += count;
+  gActiveProfile->maxCandidatesTested = std::max(
+    gActiveProfile->maxCandidatesTested,
+    count
+  );
 }
 
 } // namespace lg

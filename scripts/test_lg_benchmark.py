@@ -64,6 +64,9 @@ class BenchmarkTests(unittest.TestCase):
         self.assertFalse(aggregate["stable"])
         stable = lg_benchmark.aggregate_runs(runs[:3])
         self.assertTrue(stable["stable"])
+        single = lg_benchmark.aggregate_runs(runs[:1])
+        self.assertFalse(single["stable"])
+        self.assertIn("3 repetitions", single["stability_warning"])
 
     def test_vulkan_summary_and_icd_metadata(self) -> None:
         summary = """GPU0:\n apiVersion = 1.4.348\n driverVersion = 101.8861\n deviceType = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU\n deviceName = Intel(R) Arc(TM) 140V GPU (16GB)\n driverName = Intel Corporation\n driverInfo = 101.8861\n"""
@@ -137,6 +140,25 @@ class BenchmarkTests(unittest.TestCase):
         baseline["environment"].update({"gpu_name": "GPU A", "graphics_driver_version": "1", "vulkan_api_version": "1.3"})
         result["environment"].update({"gpu_name": "GPU A", "graphics_driver_version": "2", "vulkan_api_version": "1.3"})
         self.assertIn("graphics_driver_version", lg_benchmark._comparison_mismatch(baseline, result))
+
+    def test_png_checkpoint_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "capture.png"
+            header = (
+                b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\x0dIHDR" +
+                (1280).to_bytes(4, "big") + (720).to_bytes(4, "big") + b"\x08\x06\x00\x00\x00"
+            )
+            path.write_bytes(header)
+            metadata = lg_benchmark._png_metadata(path)
+        self.assertEqual(metadata["width"], 1280)
+        self.assertEqual(metadata["height"], 720)
+        self.assertRegex(metadata["sha256"], r"^[0-9a-f]{64}$")
+
+    def test_profile_broadphase_cli_flag(self) -> None:
+        args = lg_benchmark.build_parser().parse_args([
+            "sim-run", "--workload", "trace-projectile", "--profile-broadphase",
+        ])
+        self.assertTrue(args.profile_broadphase)
 
     def test_result_schema_generation_and_request_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

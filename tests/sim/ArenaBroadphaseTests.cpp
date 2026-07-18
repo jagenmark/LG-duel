@@ -1,4 +1,5 @@
 #include "sim/Arena.hpp"
+#include "sim/ArenaBroadphase.hpp"
 #include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 
@@ -52,6 +53,40 @@ int main() {
     }
     lg::Arena linear = loaded.arena;
     linear.collisionIndex.reset();
+    const lg::Vec3 profileDirection = lg::normalize(loaded.arena.max - loaded.arena.min);
+    const float profileDistance = lg::length(loaded.arena.max - loaded.arena.min);
+    lg::ArenaBroadphaseProfile indexedProfile;
+    {
+      lg::ArenaBroadphaseProfileScope scope(indexedProfile);
+      (void)lg::traceWorld(
+        loaded.arena,
+        loaded.arena.min,
+        profileDirection,
+        profileDistance
+      );
+    }
+    const std::uint64_t staticSolidCount =
+      static_cast<std::uint64_t>(loaded.arena.wallCount + loaded.arena.brushCount);
+    if (indexedProfile.queryCount != 1U ||
+        indexedProfile.totalStaticSolids != staticSolidCount ||
+        indexedProfile.nodesVisited == 0U ||
+        indexedProfile.candidatesReturned == 0U ||
+        indexedProfile.candidatesTested != indexedProfile.candidatesReturned ||
+        indexedProfile.fallbackCount != 0U) {
+      std::cerr << "FAILED: indexed broadphase profiling counters for " << mapName << '\n';
+      return 5;
+    }
+    lg::ArenaBroadphaseProfile linearProfile;
+    {
+      lg::ArenaBroadphaseProfileScope scope(linearProfile);
+      (void)lg::traceWorld(linear, linear.min, profileDirection, profileDistance);
+    }
+    if (linearProfile.queryCount != 1U || linearProfile.fallbackCount != 1U ||
+        linearProfile.candidatesReturned != 0U ||
+        linearProfile.candidatesTested != staticSolidCount) {
+      std::cerr << "FAILED: linear fallback profiling counters for " << mapName << '\n';
+      return 6;
+    }
     std::uint32_t random = loaded.descriptor.contentHash ^ 0x7f4a7c15U;
     for (std::size_t sample = 0; sample < 1000U; ++sample) {
       const lg::Vec3 origin = {

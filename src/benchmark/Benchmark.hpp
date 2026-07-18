@@ -118,6 +118,7 @@ struct ResultContext {
   std::string scenarioHash;
   std::string actualMap;
   std::string renderer;
+  std::uint32_t actualMapRevision = 0;
   std::uint32_t actualMapContentHash = 0;
   int actualWidth = 0;
   int actualHeight = 0;
@@ -131,6 +132,7 @@ struct ResultContext {
 [[nodiscard]] ParseResult parseScenario(const dev::JsonValue& value);
 [[nodiscard]] bool isSafeRunId(std::string_view value);
 [[nodiscard]] bool isSafeScenarioHash(std::string_view value);
+[[nodiscard]] CameraPose cameraAtProgress(const Scenario& scenario, double progress);
 [[nodiscard]] CameraPose cameraAt(const Scenario& scenario, double measuredSeconds);
 [[nodiscard]] Summary summarize(const std::vector<FrameSample>& samples);
 [[nodiscard]] dev::JsonValue resultJson(

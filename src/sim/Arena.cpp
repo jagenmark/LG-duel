@@ -813,6 +813,17 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
     std::max(start.z, end.z) + player.bounds.halfHeight + kBroadphaseEpsilon,
   };
   const bool indexed = queryArenaCollisionIndex(arena, queryMin, queryMax, candidates);
+  if (arenaBroadphaseProfilingEnabled()) {
+    const std::uint64_t walls = indexed
+      ? static_cast<std::uint64_t>(candidates.walls.count())
+      : static_cast<std::uint64_t>(arena.wallCount);
+    const std::uint64_t brushes = indexed
+      ? static_cast<std::uint64_t>(candidates.brushes.count())
+      : static_cast<std::uint64_t>(arena.brushCount);
+    // Each brush candidate enters both the walkable-drop specialization and
+    // the general convex sweep, so both real narrowphase tests are counted.
+    recordArenaBroadphaseCandidateTests(walls + brushes * 2U);
+  }
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     if (indexed && !candidates.walls.test(index)) continue;
     keepEarliestTrace(traceWall(arena.walls[index], player, start, end), trace);

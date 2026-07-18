@@ -1,4 +1,5 @@
 #include "dev/DevJson.hpp"
+#include "sim/ArenaBroadphase.hpp"
 #include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
@@ -32,6 +33,7 @@ struct Options {
   std::size_t measuredBatches = 40;
   std::size_t operationsPerBatch = 256;
   bool forceLinear = false;
+  bool profileBroadphase = false;
 };
 
 struct BatchSample {
@@ -41,6 +43,9 @@ struct BatchSample {
   double hitscanMicroseconds = 0.0;
   double projectileMicroseconds = 0.0;
   std::uint64_t checksum = 0;
+  lg::ArenaBroadphaseProfile movementProfile;
+  lg::ArenaBroadphaseProfile hitscanProfile;
+  lg::ArenaBroadphaseProfile projectileProfile;
 };
 
 volatile std::uint64_t gChecksumSink = 0;
@@ -64,11 +69,16 @@ volatile std::uint64_t gChecksumSink = 0;
     if (argument == "--help") {
       std::cout << "Usage: lg_duel_sim_benchmark --workload movement-collision|trace-projectile "
                    "--output DIR [--map NAME] [--map-directory DIR] [--repetitions N] "
-                   "[--warmup-batches N] [--measured-batches N] [--operations-per-batch N]\n";
+                   "[--warmup-batches N] [--measured-batches N] [--operations-per-batch N] "
+                   "[--force-linear] [--profile-broadphase]\n";
       return false;
     }
     if (argument == "--force-linear") {
       options.forceLinear = true;
+      continue;
+    }
+    if (argument == "--profile-broadphase") {
+      options.profileBroadphase = true;
       continue;
     }
     if (index + 1 >= argc) {
@@ -141,8 +151,11 @@ void mix(std::uint64_t& hash, lg::Vec3 value) {
 [[nodiscard]] std::uint64_t runMovementBatch(
   const lg::Arena& arena,
   std::size_t operations,
-  std::size_t batchSeed
+  std::size_t batchSeed,
+  lg::ArenaBroadphaseProfile* profile = nullptr
 ) {
+  std::optional<lg::ArenaBroadphaseProfileScope> profileScope;
+  if (profile != nullptr) profileScope.emplace(*profile);
   auto players = initialPlayers(arena);
   const lg::MovementTuning tuning = {};
   std::uint64_t hash = 1469598103934665603ULL;
@@ -178,19 +191,25 @@ void mix(std::uint64_t& hash, lg::Vec3 value) {
   std::size_t operations,
   std::size_t batchSeed,
   double& hitscanMicroseconds,
-  double& projectileMicroseconds
+  double& projectileMicroseconds,
+  lg::ArenaBroadphaseProfile* hitscanProfile = nullptr,
+  lg::ArenaBroadphaseProfile* projectileProfile = nullptr
 ) {
   std::uint64_t hash = 1469598103934665603ULL;
   const auto hitscanStart = Clock::now();
-  for (std::size_t operation = 0; operation < operations; ++operation) {
-    const std::size_t key = operation + batchSeed * operations;
-    const lg::Vec3 origin = arena.spawnPositions[key % lg::kMaxPlayers] +
-      lg::Vec3{0.0F, 0.0F, 0.65F};
-    const lg::WorldTrace trace = lg::traceWorld(arena, origin, deterministicDirection(key), 180.0F);
-    mix(hash, static_cast<std::uint32_t>(trace.hit));
-    mix(hash, trace.distance);
-    mix(hash, trace.end);
-    mix(hash, trace.normal);
+  {
+    std::optional<lg::ArenaBroadphaseProfileScope> profileScope;
+    if (hitscanProfile != nullptr) profileScope.emplace(*hitscanProfile);
+    for (std::size_t operation = 0; operation < operations; ++operation) {
+      const std::size_t key = operation + batchSeed * operations;
+      const lg::Vec3 origin = arena.spawnPositions[key % lg::kMaxPlayers] +
+        lg::Vec3{0.0F, 0.0F, 0.65F};
+      const lg::WorldTrace trace = lg::traceWorld(arena, origin, deterministicDirection(key), 180.0F);
+      mix(hash, static_cast<std::uint32_t>(trace.hit));
+      mix(hash, trace.distance);
+      mix(hash, trace.end);
+      mix(hash, trace.normal);
+    }
   }
   const auto hitscanEnd = Clock::now();
 
@@ -199,17 +218,21 @@ void mix(std::uint64_t& hash, lg::Vec3 value) {
     projectiles[index] = arena.spawnPositions[index % lg::kMaxPlayers] + lg::Vec3{0.0F, 0.0F, 0.7F};
   }
   const auto projectileStart = Clock::now();
-  for (std::size_t operation = 0; operation < operations; ++operation) {
-    const std::size_t projectileIndex = operation % projectiles.size();
-    const std::size_t key = operation + batchSeed * operations + 0x9e37U;
-    const lg::Vec3 direction = deterministicDirection(key);
-    const lg::WorldTrace trace = lg::traceWorld(arena, projectiles[projectileIndex], direction, 0.4F);
-    projectiles[projectileIndex] = trace.hit
-      ? arena.spawnPositions[(projectileIndex + operation + 1U) % lg::kMaxPlayers] + lg::Vec3{0.0F, 0.0F, 0.7F}
-      : trace.end;
-    mix(hash, static_cast<std::uint32_t>(trace.hit));
-    mix(hash, trace.distance);
-    mix(hash, projectiles[projectileIndex]);
+  {
+    std::optional<lg::ArenaBroadphaseProfileScope> profileScope;
+    if (projectileProfile != nullptr) profileScope.emplace(*projectileProfile);
+    for (std::size_t operation = 0; operation < operations; ++operation) {
+      const std::size_t projectileIndex = operation % projectiles.size();
+      const std::size_t key = operation + batchSeed * operations + 0x9e37U;
+      const lg::Vec3 direction = deterministicDirection(key);
+      const lg::WorldTrace trace = lg::traceWorld(arena, projectiles[projectileIndex], direction, 0.4F);
+      projectiles[projectileIndex] = trace.hit
+        ? arena.spawnPositions[(projectileIndex + operation + 1U) % lg::kMaxPlayers] + lg::Vec3{0.0F, 0.0F, 0.7F}
+        : trace.end;
+      mix(hash, static_cast<std::uint32_t>(trace.hit));
+      mix(hash, trace.distance);
+      mix(hash, projectiles[projectileIndex]);
+    }
   }
   const auto projectileEnd = Clock::now();
   hitscanMicroseconds = std::chrono::duration<double, std::micro>(hitscanEnd - hitscanStart).count() /
@@ -217,6 +240,75 @@ void mix(std::uint64_t& hash, lg::Vec3 value) {
   projectileMicroseconds = std::chrono::duration<double, std::micro>(projectileEnd - projectileStart).count() /
     static_cast<double>(operations);
   return hash;
+}
+
+void mergeProfile(
+  lg::ArenaBroadphaseProfile& aggregate,
+  const lg::ArenaBroadphaseProfile& sample
+) {
+  aggregate.queryCount += sample.queryCount;
+  aggregate.totalStaticSolids = std::max(
+    aggregate.totalStaticSolids,
+    sample.totalStaticSolids
+  );
+  aggregate.nodesVisited += sample.nodesVisited;
+  aggregate.candidatesReturned += sample.candidatesReturned;
+  aggregate.candidatesTested += sample.candidatesTested;
+  aggregate.fallbackCount += sample.fallbackCount;
+  aggregate.maxNodesVisited = std::max(
+    aggregate.maxNodesVisited,
+    sample.maxNodesVisited
+  );
+  aggregate.maxCandidatesReturned = std::max(
+    aggregate.maxCandidatesReturned,
+    sample.maxCandidatesReturned
+  );
+  aggregate.maxCandidatesTested = std::max(
+    aggregate.maxCandidatesTested,
+    sample.maxCandidatesTested
+  );
+}
+
+[[nodiscard]] lg::dev::JsonValue profileJson(
+  const lg::ArenaBroadphaseProfile& profile
+) {
+  lg::dev::JsonValue result = lg::dev::JsonValue::objectValue();
+  const double queryCount = static_cast<double>(profile.queryCount);
+  result.object["query_count"] = lg::dev::JsonValue::numberValue(queryCount);
+  result.object["total_static_solids"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.totalStaticSolids)
+  );
+  result.object["nodes_visited"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.nodesVisited)
+  );
+  result.object["nodes_visited_per_query"] = lg::dev::JsonValue::numberValue(
+    queryCount > 0.0 ? static_cast<double>(profile.nodesVisited) / queryCount : 0.0
+  );
+  result.object["max_nodes_visited"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.maxNodesVisited)
+  );
+  result.object["bvh_candidates_returned"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.candidatesReturned)
+  );
+  result.object["bvh_candidates_per_query"] = lg::dev::JsonValue::numberValue(
+    queryCount > 0.0 ? static_cast<double>(profile.candidatesReturned) / queryCount : 0.0
+  );
+  result.object["max_bvh_candidates_returned"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.maxCandidatesReturned)
+  );
+  result.object["candidates_actually_tested"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.candidatesTested)
+  );
+  result.object["candidates_tested_per_query"] = lg::dev::JsonValue::numberValue(
+    queryCount > 0.0 ? static_cast<double>(profile.candidatesTested) / queryCount : 0.0
+  );
+  result.object["max_candidates_tested"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.maxCandidatesTested)
+  );
+  result.object["fallback_count"] = lg::dev::JsonValue::numberValue(
+    static_cast<double>(profile.fallbackCount)
+  );
+  return result;
 }
 
 [[nodiscard]] double nearestRank(std::vector<double> values, double fraction) {
@@ -298,7 +390,12 @@ int main(int argc, char** argv) {
       sample.batch = batch + 1U;
       if (options.workload == "movement-collision") {
         const auto start = Clock::now();
-        sample.checksum = runMovementBatch(loaded.arena, options.operationsPerBatch, batch);
+        sample.checksum = runMovementBatch(
+          loaded.arena,
+          options.operationsPerBatch,
+          batch,
+          options.profileBroadphase ? &sample.movementProfile : nullptr
+        );
         const auto end = Clock::now();
         sample.movementMicroseconds = std::chrono::duration<double, std::micro>(end - start).count() /
           static_cast<double>(options.operationsPerBatch);
@@ -306,7 +403,9 @@ int main(int argc, char** argv) {
       } else {
         sample.checksum = runTraceBatch(
           loaded.arena, options.operationsPerBatch, batch,
-          sample.hitscanMicroseconds, sample.projectileMicroseconds
+          sample.hitscanMicroseconds, sample.projectileMicroseconds,
+          options.profileBroadphase ? &sample.hitscanProfile : nullptr,
+          options.profileBroadphase ? &sample.projectileProfile : nullptr
         );
         hitscanSamples.push_back(sample.hitscanMicroseconds);
         projectileSamples.push_back(sample.projectileMicroseconds);
@@ -333,6 +432,39 @@ int main(int argc, char** argv) {
     return 5;
   }
 
+  std::filesystem::path profilePath;
+  if (options.profileBroadphase) {
+    profilePath = options.outputDirectory / "broadphase-profile.csv";
+    std::ofstream profileCsv(profilePath, std::ios::binary | std::ios::trunc);
+    profileCsv << "repetition,batch,phase,query_count,total_static_solids,nodes_visited,"
+      "bvh_candidates_returned,candidates_actually_tested,fallback_count,"
+      "max_nodes_visited,max_bvh_candidates_returned,max_candidates_tested\n";
+    const auto writeProfile = [&profileCsv](
+      const BatchSample& sample,
+      std::string_view phase,
+      const lg::ArenaBroadphaseProfile& profile
+    ) {
+      profileCsv << sample.repetition << ',' << sample.batch << ',' << phase << ','
+        << profile.queryCount << ',' << profile.totalStaticSolids << ','
+        << profile.nodesVisited << ',' << profile.candidatesReturned << ','
+        << profile.candidatesTested << ',' << profile.fallbackCount << ','
+        << profile.maxNodesVisited << ',' << profile.maxCandidatesReturned << ','
+        << profile.maxCandidatesTested << '\n';
+    };
+    for (const BatchSample& sample : samples) {
+      if (options.workload == "movement-collision") {
+        writeProfile(sample, "movement", sample.movementProfile);
+      } else {
+        writeProfile(sample, "hitscan", sample.hitscanProfile);
+        writeProfile(sample, "projectile", sample.projectileProfile);
+      }
+    }
+    if (!profileCsv) {
+      std::cerr << "LG simulation benchmark error: could not write " << profilePath << '\n';
+      return 5;
+    }
+  }
+
   lg::dev::JsonValue root = lg::dev::JsonValue::objectValue();
   root.object["schema_version"] = lg::dev::JsonValue::numberValue(1.0);
   root.object["benchmark_kind"] = lg::dev::JsonValue::stringValue("shared-simulation-microbenchmark");
@@ -340,6 +472,8 @@ int main(int argc, char** argv) {
   root.object["collision_query_mode"] = lg::dev::JsonValue::stringValue(
     options.forceLinear ? "forced-linear" : "indexed-when-available"
   );
+  root.object["broadphase_profiling_enabled"] =
+    lg::dev::JsonValue::booleanValue(options.profileBroadphase);
   root.object["map"] = lg::dev::JsonValue::stringValue(options.map);
   root.object["map_content_hash"] = lg::dev::JsonValue::numberValue(loaded.descriptor.contentHash);
   root.object["wall_count"] = lg::dev::JsonValue::numberValue(static_cast<double>(loaded.arena.wallCount));
@@ -357,8 +491,36 @@ int main(int argc, char** argv) {
   if (!hitscanSamples.empty()) metrics.object["hitscan_us_per_trace"] = summaryJson(hitscanSamples);
   if (!projectileSamples.empty()) metrics.object["projectile_segment_us_per_trace"] = summaryJson(projectileSamples);
   root.object["metrics"] = std::move(metrics);
+  if (options.profileBroadphase) {
+    lg::ArenaBroadphaseProfile movement;
+    lg::ArenaBroadphaseProfile hitscan;
+    lg::ArenaBroadphaseProfile projectile;
+    for (const BatchSample& sample : samples) {
+      mergeProfile(movement, sample.movementProfile);
+      mergeProfile(hitscan, sample.hitscanProfile);
+      mergeProfile(projectile, sample.projectileProfile);
+    }
+    lg::dev::JsonValue profile = lg::dev::JsonValue::objectValue();
+    profile.object["instrumentation_note"] = lg::dev::JsonValue::stringValue(
+      "Explicit profiling adds counter overhead; use unprofiled runs for timing comparisons."
+    );
+    if (movement.queryCount > 0U) {
+      profile.object["movement"] = profileJson(movement);
+    }
+    if (hitscan.queryCount > 0U) {
+      profile.object["hitscan"] = profileJson(hitscan);
+    }
+    if (projectile.queryCount > 0U) {
+      profile.object["projectile"] = profileJson(projectile);
+    }
+    root.object["broadphase_profile"] = std::move(profile);
+  }
   lg::dev::JsonValue artifacts = lg::dev::JsonValue::objectValue();
   artifacts.object["samples_csv"] = lg::dev::JsonValue::stringValue(csvPath.string());
+  if (options.profileBroadphase) {
+    artifacts.object["broadphase_profile_csv"] =
+      lg::dev::JsonValue::stringValue(profilePath.string());
+  }
   root.object["artifacts"] = std::move(artifacts);
 
   const std::filesystem::path resultPath = options.outputDirectory / "result.json";

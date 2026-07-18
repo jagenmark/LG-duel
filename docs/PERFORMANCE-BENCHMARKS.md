@@ -38,7 +38,7 @@ Every descriptor is JSON with `schema_version: 1` and `expected_benchmark_versio
 | `name`, `labels`, `map` | Safe identifier, searchable classification, and a repository map name. The map must load and its content hash is compatibility data. |
 | `backend_requirement` | `gpu` requires the SDL_GPU path; no fallback result may be compared as equivalent. |
 | `resolution`, `fullscreen`, `vsync`, `frame_cap`, `fov` | Explicit presentation contract. `frame_cap: 0` means uncapped. |
-| `warmup_seconds` or `warmup_frames`; `measured_seconds` or `measured_frames` | Exactly one unit must be supplied for each phase. Warmup has no timing samples; only the measured interval contributes samples. Curated descriptors use explicit 2–5 second warm-ups and 5–25 second measured intervals. |
+| `warmup_seconds` or `warmup_frames`; `measured_seconds` or `measured_frames` | Exactly one unit must be supplied for each phase. Warmup has no timing samples; only the measured interval contributes samples. Curated descriptors use explicit warm-ups and measured intervals sized for their workload. |
 | `camera_start`, `camera_path` | LG-unit position plus degree yaw/pitch/FOV. `camera_path` is a direct ordered array of keyframes, each using exactly one of normalized `progress` or `time_seconds`. |
 | `player_state` | Presentation-only local-player state and UI visibility. It is not a server command. |
 | `actors` | Structured requested bot setup: `bots`, `attack_mode`, `stare`, `standstill`, `dodge`, optional dodge intervals, and `expected_count`; `commands` documents the equivalent real console sequence. |
@@ -47,7 +47,7 @@ Every descriptor is JSON with `schema_version: 1` and `expected_benchmark_versio
 | `screenshots` | Array of `{ "name", "progress" }`; capture happens outside timed sampling. |
 | `residual_nondeterminism` | Honest list of known uncontrolled inputs or unsupported conditions; an empty list means none are known. |
 
-Camera progress uses measured elapsed time quantized down to the 125 Hz simulation interval, not mouse input. A time/progress value therefore resolves to the same transform independent of render rate. Keyframes must be nondecreasing and are linearly interpolated between fixed positions/angles; duplicate static endpoints intentionally make a stationary camera explicit.
+Camera progress during measured rendering uses elapsed time quantized down to the 125 Hz simulation interval, not mouse input. A time/progress value therefore resolves to the same transform independent of render rate. Screenshot checkpoints are outside timed sampling and evaluate their normalized progress exactly, so changing the measured duration does not subtly move a checkpoint. Keyframes must be nondecreasing and are linearly interpolated between fixed positions/angles; duplicate static endpoints intentionally make a stationary camera explicit.
 
 The seven supplied scenarios establish a small comparison suite:
 
@@ -57,7 +57,7 @@ The seven supplied scenarios establish a small comparison suite:
 - `eyetoeye-projectile-effects`: a declarative future projectile/effect presentation fixture. Current bots select only the Lightning Gun and the native runner does not inject synthetic projectiles, so this descriptor is deliberately marked invalid at execution (`supported_workload: false`) rather than silently measuring a different workload. Use the headless `trace-projectile` workload for current quantitative projectile-query evidence.
 - `overkill-high-visibility`: static large-map structural/sightline stress using a checked-in `overkill_import` camera preset.
 - `eyetoeye-static-long`: 5-second warm-up plus a 25-second static baseline for tail stability.
-- `overkill-static-flythrough`: deterministic 15-second presentation-only camera interpolation through all three checked-in Overkill structural views; the world remains static.
+- `overkill-static-flythrough`: 15-second warm-up plus a deterministic 60-second presentation-only camera interpolation through all three checked-in Overkill structural views; the world remains static.
 
 The camera coordinates come from `config/dev-camera-presets.json`, not arbitrary map-space guesses. Bot commands are current commands: `bot_add [count]` is permitted only in warmup; `bot_attack 0|off|easy|medium|hard`, `bot_stare`, `bot_standstill`, and `bot_dodge` control supported training behavior. Today, bot combat always selects the Lightning Gun.
 
@@ -68,6 +68,7 @@ Build the repository normally, then let the wrapper start an owned client with t
 ```powershell
 .\scripts\lg-benchmark.ps1 list
 .\scripts\lg-benchmark.ps1 run --scenario eyetoeye-static-baseline --repetitions 5 --json
+.\scripts\lg-benchmark.ps1 --timeout 900 run --scenario overkill-static-flythrough --repetitions 7 --controlled-environment
 .\scripts\lg-benchmark.ps1 baseline-create --scenario eyetoeye-static-baseline --name gpu-driver-current --repetitions 5
 .\scripts\lg-benchmark.ps1 compare --baseline gpu-driver-current --result build/benchmarks/eyetoeye-static-baseline/<run-group> --threshold-percent 5 --tail-threshold-percent 8
 .\scripts\lg-benchmark.ps1 report --result build/benchmarks/eyetoeye-static-baseline/<run-group> --detailed
@@ -78,17 +79,22 @@ Shared simulation hot paths have a separate headless executable so renderer sche
 ```powershell
 .\scripts\lg-benchmark.ps1 sim-run --workload movement-collision --map overkill_import --repetitions 5 --warmup-batches 40 --measured-batches 60 --operations-per-batch 256
 .\scripts\lg-benchmark.ps1 sim-run --workload trace-projectile --map overkill_import --repetitions 5 --warmup-batches 60 --measured-batches 100 --operations-per-batch 256
+.\scripts\lg-benchmark.ps1 sim-run --workload trace-projectile --map overkill_import --repetitions 1 --warmup-batches 10 --measured-batches 20 --operations-per-batch 256 --profile-broadphase
 ```
 
 `movement-collision` drives the real shared 125 Hz `simulateMovement` path from fixed spawn states and commands. `trace-projectile` separately measures long `traceWorld` rays and short projectile-style swept segments. Both hash all returned state, repeat the identical workload, and invalidate a result if replay checksums differ. `--force-linear` disables the derived collision index for a paired same-binary broadphase comparison; it is a diagnostic implementation selector and is recorded in native JSON.
 
+`--profile-broadphase` is an explicit diagnostic run. It records total static solids, queries, nodes visited, BVH candidates returned, candidates actually passed to the existing narrow phase, per-query maxima, and fallback count in `broadphase-profile.csv` and native JSON. Profiling adds counter overhead, so use a separate unprofiled run for timing comparisons. Large maxima identify pathological queries even when the averages are healthy.
+
+`--controlled-environment` temporarily duplicates and activates the Windows High performance power plan, records the active plan and AC/battery state, then restores the original plan and removes the temporary one. It does not close applications. Close browsers, Discord, Spotify, Steam, capture tools, and other GPU-heavy applications yourself; the report records a conservative list of detected background applications so an accidentally loaded run is visible.
+
 Use `--port`, `--timeout`, or `--json` when the wrapper needs those global options. The exact executable/build directory is preset dependent; use wrapper help rather than assuming a packaged game contains it. MCP exposes the same opt-in work as thin adapter tools: `lg_list_benchmarks`, `lg_run_benchmark`, `lg_compare_benchmarks`, `lg_get_benchmark_result`, and `lg_create_benchmark_baseline`. It returns structured results and requested PNGs, not a hand-written summary.
 
-A run warms selected map, renderer resources, and fixed scenario state; then resets scenario time/state for every repetition and collects only the declared measured interval. Screenshots, PNG encoding, filesystem writes, process start-up, map loading, baseline reading, and comparison output are outside timing samples. Results retain raw samples and a per-run summary so a future percentile implementation can be audited.
+A run warms selected map, renderer resources, and fixed scenario state; then resets scenario time/state for every repetition and collects only the declared measured interval. Screenshots, PNG encoding, filesystem writes, process start-up, map loading, baseline reading, and comparison output are outside timing samples. Results retain raw samples and a per-run summary so a future percentile implementation can be audited. Every run also slices newly appended client/server stdout and stderr into `run-*/logs/`.
 
 Use one baseline per comparable environment. By default the comparator refuses different scenario/version, map hash, backend or fallback, resolution, presentation settings, camera/state hash, or percentile method. An explicit force option may produce an annotated non-comparable report, never a normal regression verdict. For repeats, compare the documented aggregate (for example, median of per-run p95 values) rather than the luckiest run.
 
-The simulation runner first summarizes batch samples within each repetition, then uses the median of repetition medians and the median of repetition p95/p99 values. Stability is the coefficient of variation across repetition medians. Batch-to-batch geometry differences therefore do not masquerade as host noise. Tukey outliers remain in all statistics and are reported.
+The simulation runner first summarizes batch samples within each repetition, then uses the median of repetition medians and the median of repetition p95/p99 values. Stability is the coefficient of variation across repetition medians and is not assessed with fewer than three repetitions. Batch-to-batch geometry differences therefore do not masquerade as host noise. Tukey outliers remain in all statistics and are reported.
 
 ## Static Collision Broadphase
 
@@ -98,7 +104,7 @@ The index is derived data held alongside `Arena`; it is omitted from map hashes 
 
 ## Validity And Visual Safeguards
 
-A usable result has the requested backend, exact warmup/measured counts, finite nonnegative samples, compatible metadata, and no scenario-validation warning. It records a real rendered screenshot at each requested progress for human visual review. Screenshots verify composition, material availability, missing geometry, visible actor/effect load, and backend fallback; they are not pixel-perfect cross-driver tests.
+A usable result has the requested backend, exact warmup/measured counts, finite nonnegative samples, compatible metadata, and no scenario-validation warning. It records a real rendered screenshot at each requested progress for human visual review. Each screenshot checkpoint is bound to its deterministic camera transform, map name/revision/content hash, image dimensions, byte count, SHA-256, and artifact path. Screenshots verify composition, material availability, missing geometry, visible actor/effect load, and backend fallback; they are not pixel-perfect cross-driver tests.
 
 Do not hide a regression by disabling culling, players, weapons, effects, outlines, HUD, or texture behavior unless the descriptor labels that choice and the comparison uses that same choice. Conversely, do not enable debug HUDs, logs, captures, or GPU readbacks inside measurement. A visual fixture must be labelled `fixture_only`; it is evidence about a renderer path, not evidence that server combat produced the state.
 
@@ -112,7 +118,7 @@ Do not hide a regression by disabling culling, players, weapons, effects, outlin
 
 ## Reproducing And Interpreting Results
 
-Use AC power and a stable power plan, close GPU-heavy applications, wait for background work to settle, and run enough repeats to see variance. Record driver/OS/build changes. Compare p50 for typical cost and p95/p99/max for pacing risk; average FPS alone is insufficient. A direct CPU-time change is a regression signal, not proof of GPU execution speed.
+Use AC power and a stable power plan, close GPU-heavy applications, wait for background work to settle, and run enough repeats to see variance. For Overkill rendering use at least seven repetitions; a run set above the 3% headline CV stability gate is exploratory rather than comparison evidence. Record driver/OS/build changes. Compare p50 for typical cost and p95/p99/max for pacing risk; average FPS alone is insufficient. A direct CPU-time change is a regression signal, not proof of GPU execution speed.
 
 Static-world improvements should show in the GPU-required static baseline; dynamic player/outline/effect work needs the corresponding diagnostic counts. A high-visible imported map is a useful structural stress case, not a proxy for every duel map. SDL_Renderer fallback is less representative because it lacks the static SDL_GPU world cache and screen-space outline path; never merge it into GPU baseline trends.
 

@@ -37,6 +37,32 @@ struct ArenaBroadphaseCandidates {
   std::bitset<Arena::kBrushCount> brushes;
 };
 
+struct ArenaBroadphaseProfile {
+  std::uint64_t queryCount = 0;
+  std::uint64_t totalStaticSolids = 0;
+  std::uint64_t nodesVisited = 0;
+  std::uint64_t candidatesReturned = 0;
+  std::uint64_t candidatesTested = 0;
+  std::uint64_t fallbackCount = 0;
+  std::uint64_t maxNodesVisited = 0;
+  std::uint64_t maxCandidatesReturned = 0;
+  std::uint64_t maxCandidatesTested = 0;
+};
+
+// Profiling is explicitly scoped by the simulation benchmark. The ordinary
+// authoritative simulation only pays one predictable null check per query.
+class ArenaBroadphaseProfileScope {
+public:
+  explicit ArenaBroadphaseProfileScope(ArenaBroadphaseProfile& profile);
+  ~ArenaBroadphaseProfileScope();
+
+  ArenaBroadphaseProfileScope(const ArenaBroadphaseProfileScope&) = delete;
+  ArenaBroadphaseProfileScope& operator=(const ArenaBroadphaseProfileScope&) = delete;
+
+private:
+  ArenaBroadphaseProfile* previous_ = nullptr;
+};
+
 // The index is derived from immutable authored geometry. It is deliberately
 // excluded from map hashes and network serialization.
 void buildArenaCollisionIndex(Arena& arena);
@@ -47,5 +73,8 @@ void buildArenaCollisionIndex(Arena& arena);
   Vec3 queryMax,
   ArenaBroadphaseCandidates& candidates
 );
+
+[[nodiscard]] bool arenaBroadphaseProfilingEnabled();
+void recordArenaBroadphaseCandidateTests(std::uint64_t count);
 
 } // namespace lg

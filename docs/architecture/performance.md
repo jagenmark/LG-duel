@@ -74,7 +74,7 @@ compatible results. See [Performance benchmarks](../PERFORMANCE-BENCHMARKS.md)
 for scenario fields, warmup boundaries, bot/effect limitations, captures,
 repetition, validity checks, and interpretation.
 
-Collision and trace changes must also run the headless shared-simulation workloads. They time the real movement and `traceWorld` paths, verify deterministic replay checksums, and support a forced-linear same-binary comparison so broadphase evidence is not inferred from renderer FPS.
+Collision and trace changes must also run the headless shared-simulation workloads. They time the real movement and `traceWorld` paths, verify deterministic replay checksums, and support a forced-linear same-binary comparison so broadphase evidence is not inferred from renderer FPS. Explicit broadphase-profile runs record nodes visited, returned/tested candidates, maxima, and fallbacks; keep those counter-instrumented runs separate from timing claims.
 
 ## Footguns
 
