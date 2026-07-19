@@ -3891,9 +3891,9 @@ template <typename Vertex>
 }
 
 [[nodiscard]] GpuGltfPlayerResources* createGpuGltfPlayerResources(
-  SDL_GPUDevice* device
+  SDL_GPUDevice* device,
+  const GltfSkinnedModel& model
 ) {
-  const GltfSkinnedModel& model = duelistMaleModel();
   if (!model.loaded() || model.primitives().empty()) {
     return new GpuGltfPlayerResources();
   }
@@ -7583,7 +7583,7 @@ bool Renderer::initialize(void* window) {
           );
         GpuSimpleResources* simpleResources = createGpuSimpleResources(device);
         GpuGltfPlayerResources* gltfPlayerResources =
-          createGpuGltfPlayerResources(device);
+          createGpuGltfPlayerResources(device, duelistMaleModel());
         const SDL_GPUBufferCreateInfo vertexBufferInfo = {
           SDL_GPU_BUFFERUSAGE_VERTEX,
           static_cast<Uint32>(kMaxGpuVertices * sizeof(GpuVertex)),
@@ -7954,6 +7954,37 @@ void Renderer::render(
     auto* outlineDepthTexture =
       static_cast<SDL_GPUTexture*>(gpuOutlineDepthTexture_);
     auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
+    const GltfSkinnedModel* requestedPlayerModel = settings.playerModel == 2
+      ? &workerPlayerModel()
+      : &duelistMaleModel();
+    auto* gltfPlayerResources =
+      static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_);
+    if (
+      settings.playerModel > 0 &&
+      requestedPlayerModel->loaded() &&
+      (
+        gltfPlayerResources == nullptr ||
+        gltfPlayerResources->sourcePath != requestedPlayerModel->sourcePath()
+      )
+    ) {
+      GpuGltfPlayerResources* replacement = createGpuGltfPlayerResources(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        *requestedPlayerModel
+      );
+      if (replacement != nullptr && !replacement->primitives.empty()) {
+        destroyGpuGltfPlayerResources(
+          static_cast<SDL_GPUDevice*>(gpuDevice_),
+          gltfPlayerResources
+        );
+        gpuGltfPlayerResources_ = replacement;
+        gltfPlayerResources = replacement;
+      } else {
+        destroyGpuGltfPlayerResources(
+          static_cast<SDL_GPUDevice*>(gpuDevice_),
+          replacement
+        );
+      }
+    }
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
@@ -7978,7 +8009,7 @@ void Renderer::render(
           static_cast<SDL_GPUBuffer*>(gpuVertexBuffer_),
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
           static_cast<GpuSimpleResources*>(gpuSimpleResources_),
-          static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_),
+          gltfPlayerResources,
           fontAtlasSet,
           static_cast<SDL_GPUSampler*>(gpuFontSampler_),
           static_cast<TextureAtlas*>(gpuWorldTextureAtlas_),
