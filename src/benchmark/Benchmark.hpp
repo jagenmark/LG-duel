@@ -2,6 +2,7 @@
 
 #include "dev/DevJson.hpp"
 #include "shared/Math.hpp"
+#include "sim/UserCommand.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -35,6 +36,7 @@ struct Screenshot {
 
 struct Actors {
   int bots = 0;
+  Weapon weapon = Weapon::MachineGun;
   std::string attackMode = "off";
   bool stare = true;
   bool standstill = false;

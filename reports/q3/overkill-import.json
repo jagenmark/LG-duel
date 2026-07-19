@@ -4,8 +4,433 @@
     "adaptation": {
       "brush_policy": {
         "default_action": "allow",
-        "rules": []
+        "rules": [
+          {
+            "action": "drop",
+            "reason": "Remove the east doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.",
+            "source_brush_index": 1884,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Remove the east doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.",
+            "source_brush_index": 1886,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Remove the west doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.",
+            "source_brush_index": 1908,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Remove the west doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.",
+            "source_brush_index": 1909,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Replace the south-right doorway's square main clip and adjacent snag lip with one continuous bevel.",
+            "source_brush_index": 1914,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Remove the south-right doorway's 13-unit snag lip beside the replacement main clip.",
+            "source_brush_index": 1915,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Remove the bent-left doorway's 13-unit snag lip beside the replacement main clip.",
+            "source_brush_index": 1918,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Replace the bent-left doorway's square main clip and adjacent snag lip with one continuous bevel.",
+            "source_brush_index": 1919,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Replace the bent-right doorway's square main clip and adjacent snag lip with one continuous bevel.",
+            "source_brush_index": 1920,
+            "source_entity_index": 0
+          },
+          {
+            "action": "drop",
+            "reason": "Remove the bent-right doorway's 13-unit snag lip beside the replacement main clip.",
+            "source_brush_index": 1921,
+            "source_entity_index": 0
+          }
+        ]
       },
+      "collision_visuals": [
+        {
+          "id": "teleporter-frame-left",
+          "material_role": "trim",
+          "reason": "Restore the missing left teleporter frame from its original playerclip hull.",
+          "source_brush_index": 1926,
+          "source_entity_index": 0
+        },
+        {
+          "id": "teleporter-frame-right",
+          "material_role": "trim",
+          "reason": "Restore the missing right teleporter frame from its original playerclip hull.",
+          "source_brush_index": 1927,
+          "source_entity_index": 0
+        },
+        {
+          "id": "teleporter-frame-base",
+          "material_role": "accent",
+          "reason": "Restore the missing teleporter base from its original playerclip hull.",
+          "source_brush_index": 1928,
+          "source_entity_index": 0
+        }
+      ],
+      "derived_collision_hulls": [
+        {
+          "classification": "playerclip",
+          "faces": [
+            [
+              [
+                0,
+                -1776,
+                384
+              ],
+              [
+                192,
+                -1792,
+                384
+              ],
+              [
+                128,
+                -1776,
+                384
+              ]
+            ],
+            [
+              [
+                0,
+                -1776,
+                800
+              ],
+              [
+                128,
+                -1776,
+                800
+              ],
+              [
+                192,
+                -1792,
+                800
+              ]
+            ],
+            [
+              [
+                0,
+                -1776,
+                384
+              ],
+              [
+                128,
+                -1776,
+                384
+              ],
+              [
+                128,
+                -1776,
+                800
+              ]
+            ],
+            [
+              [
+                128,
+                -1776,
+                384
+              ],
+              [
+                192,
+                -1792,
+                384
+              ],
+              [
+                192,
+                -1792,
+                800
+              ]
+            ],
+            [
+              [
+                192,
+                -1792,
+                384
+              ],
+              [
+                0,
+                -1792,
+                384
+              ],
+              [
+                0,
+                -1792,
+                800
+              ]
+            ],
+            [
+              [
+                0,
+                -1792,
+                384
+              ],
+              [
+                0,
+                -1776,
+                384
+              ],
+              [
+                0,
+                -1776,
+                800
+              ]
+            ]
+          ],
+          "id": "doorway-south-right-bevel",
+          "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+          "replaces": {
+            "source_brush_index": 1914,
+            "source_entity_index": 0
+          }
+        },
+        {
+          "classification": "playerclip",
+          "faces": [
+            [
+              [
+                -704,
+                48,
+                256
+              ],
+              [
+                -576,
+                32,
+                256
+              ],
+              [
+                -640,
+                32,
+                256
+              ]
+            ],
+            [
+              [
+                -704,
+                48,
+                800
+              ],
+              [
+                -640,
+                32,
+                800
+              ],
+              [
+                -576,
+                32,
+                800
+              ]
+            ],
+            [
+              [
+                -704,
+                48,
+                256
+              ],
+              [
+                -640,
+                32,
+                256
+              ],
+              [
+                -640,
+                32,
+                800
+              ]
+            ],
+            [
+              [
+                -640,
+                32,
+                256
+              ],
+              [
+                -576,
+                32,
+                256
+              ],
+              [
+                -576,
+                32,
+                800
+              ]
+            ],
+            [
+              [
+                -576,
+                32,
+                256
+              ],
+              [
+                -576,
+                48,
+                256
+              ],
+              [
+                -576,
+                48,
+                800
+              ]
+            ],
+            [
+              [
+                -576,
+                48,
+                256
+              ],
+              [
+                -704,
+                48,
+                256
+              ],
+              [
+                -704,
+                48,
+                800
+              ]
+            ]
+          ],
+          "id": "doorway-bent-left-bevel",
+          "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+          "replaces": {
+            "source_brush_index": 1919,
+            "source_entity_index": 0
+          }
+        },
+        {
+          "classification": "playerclip",
+          "faces": [
+            [
+              [
+                64,
+                32,
+                256
+              ],
+              [
+                192,
+                48,
+                256
+              ],
+              [
+                128,
+                32,
+                256
+              ]
+            ],
+            [
+              [
+                64,
+                32,
+                800
+              ],
+              [
+                128,
+                32,
+                800
+              ],
+              [
+                192,
+                48,
+                800
+              ]
+            ],
+            [
+              [
+                64,
+                32,
+                256
+              ],
+              [
+                128,
+                32,
+                256
+              ],
+              [
+                128,
+                32,
+                800
+              ]
+            ],
+            [
+              [
+                128,
+                32,
+                256
+              ],
+              [
+                192,
+                48,
+                256
+              ],
+              [
+                192,
+                48,
+                800
+              ]
+            ],
+            [
+              [
+                192,
+                48,
+                256
+              ],
+              [
+                64,
+                48,
+                256
+              ],
+              [
+                64,
+                48,
+                800
+              ]
+            ],
+            [
+              [
+                64,
+                48,
+                256
+              ],
+              [
+                64,
+                32,
+                256
+              ],
+              [
+                64,
+                32,
+                800
+              ]
+            ]
+          ],
+          "id": "doorway-bent-right-bevel",
+          "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+          "replaces": {
+            "source_brush_index": 1920,
+            "source_entity_index": 0
+          }
+        }
+      ],
       "lights": [
         {
           "color": [
@@ -138,50 +563,300 @@
         "wall": "Overkill/Overkill_Basalt_Block-128x128"
       },
       "name": "overkill-lg-duel",
+      "patch_rules": [
+        {
+          "action": "reconstruct",
+          "reason": "Restore the south-left doorway's lower arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 0
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the south-left doorway's main arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 1
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the south-left doorway's upper trim without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 2
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 15
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 16
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 17
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 18
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 19
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 20
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 21
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 22
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 23
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 24
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 25
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 26
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 27
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the south-right doorway's lower arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 33
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the south-right doorway's main arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 34
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the south-right doorway's upper trim without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 35
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the bent-left doorway's lower arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 46
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the bent-left doorway's upper arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 47
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the bent-right doorway's upper arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 48
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Restore the bent-right doorway's lower arch without duplicating its source clip.",
+          "role": "render_only",
+          "source_patch_index": 49
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 129
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 130
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 132
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 133
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 136
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 137
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 139
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 140
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 170
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 171
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 172
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 173
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 174
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 175
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 176
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 177
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 178
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 179
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 180
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 181
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 182
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 183
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 189
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 276
+        },
+        {
+          "action": "reconstruct",
+          "reason": "Preserve the previously reviewed Overkill structural patch selection.",
+          "role": "solid",
+          "source_patch_index": 278
+        }
+      ],
       "patch_subdivisions": 2,
       "patch_thickness": 2.0,
       "raw_decompile_sha256": "30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc",
-      "reconstruct_patch_indices": [
-        15,
-        16,
-        17,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        25,
-        26,
-        27,
-        129,
-        130,
-        132,
-        133,
-        136,
-        137,
-        139,
-        140,
-        170,
-        171,
-        172,
-        173,
-        174,
-        175,
-        176,
-        177,
-        178,
-        179,
-        180,
-        181,
-        182,
-        183,
-        189,
-        276,
-        278
-      ],
-      "schema_version": 2,
+      "schema_version": 3,
       "selected_spawn_origins": [
         [
           -80,
@@ -362,7 +1037,7 @@
     },
     "adaptation_binding": {
       "raw_decompile_sha256": "30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc",
-      "schema_version": 2,
+      "schema_version": 3,
       "source_bsp_sha256": "ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133",
       "verified": true
     },
@@ -370,10 +1045,10 @@
     "ambiguous_targetnames": {},
     "brush_policy": {
       "default_action": "allow",
-      "drop_count": 0,
-      "matched_rule_count": 0,
+      "drop_count": 10,
+      "matched_rule_count": 10,
       "override_count": 0,
-      "rule_count": 0
+      "rule_count": 10
     },
     "brushes": [
       {
@@ -33525,12 +34200,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the east doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the east doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.",
         "source_brush_index": 1884,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -33559,12 +34234,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the east doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the east doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.",
         "source_brush_index": 1886,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -33934,12 +34609,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the west doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the west doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.",
         "source_brush_index": 1908,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -33951,12 +34626,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the west doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the west doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.",
         "source_brush_index": 1909,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -34036,12 +34711,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Replace the south-right doorway's square main clip and adjacent snag lip with one continuous bevel.",
+        "requested_action": "drop",
+        "requested_reason": "Replace the south-right doorway's square main clip and adjacent snag lip with one continuous bevel.",
         "source_brush_index": 1914,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -34053,12 +34728,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the south-right doorway's 13-unit snag lip beside the replacement main clip.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the south-right doorway's 13-unit snag lip beside the replacement main clip.",
         "source_brush_index": 1915,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -34104,12 +34779,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the bent-left doorway's 13-unit snag lip beside the replacement main clip.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the bent-left doorway's 13-unit snag lip beside the replacement main clip.",
         "source_brush_index": 1918,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -34121,12 +34796,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Replace the bent-left doorway's square main clip and adjacent snag lip with one continuous bevel.",
+        "requested_action": "drop",
+        "requested_reason": "Replace the bent-left doorway's square main clip and adjacent snag lip with one continuous bevel.",
         "source_brush_index": 1919,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -34138,12 +34813,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Replace the bent-right doorway's square main clip and adjacent snag lip with one continuous bevel.",
+        "requested_action": "drop",
+        "requested_reason": "Replace the bent-right doorway's square main clip and adjacent snag lip with one continuous bevel.",
         "source_brush_index": 1920,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -34155,12 +34830,12 @@
       {
         "automatic_classification": "playerclip",
         "automatic_omission_reason": null,
-        "effective_classification": "playerclip",
-        "emitted": true,
+        "effective_classification": null,
+        "emitted": false,
         "material_role": null,
-        "omission_reason": null,
-        "requested_action": "allow",
-        "requested_reason": null,
+        "omission_reason": "Remove the bent-right doorway's 13-unit snag lip beside the replacement main clip.",
+        "requested_action": "drop",
+        "requested_reason": "Remove the bent-right doorway's 13-unit snag lip beside the replacement main clip.",
         "source_brush_index": 1921,
         "source_classname": "worldspawn",
         "source_entity_index": 0,
@@ -35062,6 +35737,142 @@
     ],
     "capacity_policy": "Geometry and gameplay entities are emitted without converter truncation; over-limit output is marked and the CLI fails unless explicitly allowed. LG-Duel currently activates up to 32 authored spawns, so runtime_effective_spawns and runtime_inactive_spawns make that loader behavior explicit.",
     "collision_material_policy": "All-common/clip and common/playerclip brushes emit common/playerclip; all-common/weapclip brushes remain common/weapclip. LG-Duel currently traces both conservatively as collision.",
+    "collision_visuals": {
+      "count": 3,
+      "items": [
+        {
+          "bounds": {
+            "max": [
+              -1322.0,
+              -848.0,
+              264.0
+            ],
+            "min": [
+              -1390.0,
+              -915.9999999999998,
+              128.0
+            ]
+          },
+          "id": "teleporter-frame-left",
+          "material_role": "trim",
+          "reason": "Restore the missing left teleporter frame from its original playerclip hull.",
+          "source_brush_index": 1926,
+          "source_classification": "playerclip",
+          "source_entity_index": 0
+        },
+        {
+          "bounds": {
+            "max": [
+              -1234.0,
+              -940.5,
+              264.0
+            ],
+            "min": [
+              -1301.5,
+              -1007.9999999999999,
+              128.0
+            ]
+          },
+          "id": "teleporter-frame-right",
+          "material_role": "trim",
+          "reason": "Restore the missing right teleporter frame from its original playerclip hull.",
+          "source_brush_index": 1927,
+          "source_classification": "playerclip",
+          "source_entity_index": 0
+        },
+        {
+          "bounds": {
+            "max": [
+              -1266.0,
+              -882.9999999999999,
+              144.0
+            ],
+            "min": [
+              -1358.0000000000002,
+              -972.9999999999999,
+              128.0
+            ]
+          },
+          "id": "teleporter-frame-base",
+          "material_role": "accent",
+          "reason": "Restore the missing teleporter base from its original playerclip hull.",
+          "source_brush_index": 1928,
+          "source_classification": "playerclip",
+          "source_entity_index": 0
+        }
+      ]
+    },
+    "derived_collision_hulls": {
+      "count": 3,
+      "items": [
+        {
+          "bounds": {
+            "max": [
+              191.99999999999937,
+              -1776.0,
+              800.0
+            ],
+            "min": [
+              -0.0,
+              -1792.0,
+              384.0
+            ]
+          },
+          "classification": "playerclip",
+          "face_count": 6,
+          "id": "doorway-south-right-bevel",
+          "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+          "replaces": {
+            "source_brush_index": 1914,
+            "source_entity_index": 0
+          }
+        },
+        {
+          "bounds": {
+            "max": [
+              -576.0,
+              48.0,
+              800.0
+            ],
+            "min": [
+              -704.0,
+              32.0,
+              256.0
+            ]
+          },
+          "classification": "playerclip",
+          "face_count": 6,
+          "id": "doorway-bent-left-bevel",
+          "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+          "replaces": {
+            "source_brush_index": 1919,
+            "source_entity_index": 0
+          }
+        },
+        {
+          "bounds": {
+            "max": [
+              192.0,
+              48.0,
+              800.0
+            ],
+            "min": [
+              64.0,
+              32.0,
+              256.0
+            ]
+          },
+          "classification": "playerclip",
+          "face_count": 6,
+          "id": "doorway-bent-right-bevel",
+          "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+          "replaces": {
+            "source_brush_index": 1920,
+            "source_entity_index": 0
+          }
+        }
+      ]
+    },
     "limits": {
       "convex_brushes": 1024,
       "health_pickups": 32,
@@ -35074,7 +35885,8 @@
     "omitted_brushes": {
       "confident_non_solid_utility": 34,
       "fog_volume": 3,
-      "invalid_geometry": 11
+      "invalid_geometry": 11,
+      "policy_drop": 10
     },
     "omitted_entities": {
       "advertisement:unsupported": 4,
@@ -35111,21 +35923,24 @@
       "weapon_shotgun:unsupported": 2
     },
     "omitted_patch_policy": "Only adaptation-selected patches are reconstructed as thin deterministic convex prisms; all others remain omitted.",
-    "omitted_patches": 268,
+    "omitted_patches": 258,
     "over_limits": {},
     "placeholder_materials": [],
     "projected_counts": {
-      "convex_brushes": 915,
-      "entities": 1994,
+      "convex_brushes": 994,
+      "entities": 2070,
       "health_pickups": 16,
       "jump_pads": 5,
       "lights": 6,
       "spawns": 32,
       "teleports": 1,
-      "walls": 1254
+      "walls": 1251
     },
-    "reconstructed_patch_brushes": 242,
+    "reconstructed_patch_brushes": 322,
     "reconstructed_patch_indices": [
+      0,
+      1,
+      2,
       15,
       16,
       17,
@@ -35139,6 +35954,13 @@
       25,
       26,
       27,
+      33,
+      34,
+      35,
+      46,
+      47,
+      48,
+      49,
       129,
       130,
       132,
@@ -35165,7 +35987,69 @@
       276,
       278
     ],
-    "reconstructed_patches": 38,
+    "reconstructed_patches": 48,
+    "reconstructed_patches_by_role": {
+      "render_only": {
+        "brush_count": 80,
+        "indices": [
+          0,
+          1,
+          2,
+          33,
+          34,
+          35,
+          46,
+          47,
+          48,
+          49
+        ],
+        "patch_count": 10
+      },
+      "solid": {
+        "brush_count": 242,
+        "indices": [
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          129,
+          130,
+          132,
+          133,
+          136,
+          137,
+          139,
+          140,
+          170,
+          171,
+          172,
+          173,
+          174,
+          175,
+          176,
+          177,
+          178,
+          179,
+          180,
+          181,
+          182,
+          183,
+          189,
+          276,
+          278
+        ],
+        "patch_count": 38
+      }
+    },
     "runtime_effective_spawns": 32,
     "runtime_inactive_spawns": 0,
     "scale_policy": "No rescale or rebalance is applied. Authored Quake coordinates are preserved; LG-Duel's existing loader converts them at 1/40 and bounds gain 40 Quake units of padding.",
@@ -35282,7 +36166,7 @@
         "reason": "convex face resolves to 0 vertices"
       }
     ],
-    "valid_brush_count": 2218
+    "valid_brush_count": 2301
   },
   "inventory": {
     "classic_brush_count": 1986,
@@ -35414,8 +36298,8 @@
   "outputs": {
     "candidate_map": {
       "name": "overkill_import.map",
-      "sha256": "de342e0bc20677210c606d0af55fc87bb5a49b7983e1b8e947ea701c351669a2",
-      "size": 1662798
+      "sha256": "c8221d86af6adff2bcba11568ed7bbc5854c6a91d7df78b2b92e80564a438c8e",
+      "size": 1729588
     }
   },
   "schema_version": 2,

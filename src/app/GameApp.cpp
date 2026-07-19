@@ -3816,6 +3816,7 @@ int GameApp::run() const {
   bool botStareEnabled = true;
   bool botStandstillEnabled = false;
   BotAttackMode botAttackMode = BotAttackMode::Off;
+  Weapon botWeapon = Weapon::MachineGun;
   struct PendingBotCommand {
     BotCommandType type = BotCommandType::None;
     std::int32_t value = 0;
@@ -3864,6 +3865,7 @@ int GameApp::run() const {
     bool previousDevelopmentCameraEnabled = false;
     dev::CameraTransform previousDevelopmentCamera;
     BotAttackMode previousBotAttackMode = BotAttackMode::Off;
+    Weapon previousBotWeapon = Weapon::MachineGun;
     bool previousBotStare = true;
     bool previousBotStandstill = false;
     bool previousBotDodge = false;
@@ -4141,6 +4143,27 @@ int GameApp::run() const {
       return queueBotCommand(PendingBotCommand{
         BotCommandType::AttackMode,
         static_cast<std::int32_t>(*mode),
+      });
+    }
+  );
+  console.registerCommand(
+    "bot_weapon",
+    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|rg|pg|fg|re|1..9].",
+    [&botWeapon, &queueBotCommand](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return std::string("bot_weapon = ") +
+          std::string(weaponShortName(botWeapon));
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+      }
+      const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
+      if (!weapon.has_value()) {
+        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+      }
+      return queueBotCommand(PendingBotCommand{
+        BotCommandType::Weapon,
+        static_cast<std::int32_t>(*weapon),
       });
     }
   );
@@ -4540,6 +4563,7 @@ int GameApp::run() const {
         "bot_add\n"
         "bot_kick\n"
         "bot_attack\n"
+        "bot_weapon\n"
         "bot_dodge\n"
         "bot_dodge_min_ms\n"
         "bot_dodge_max_ms\n"
@@ -5073,6 +5097,10 @@ int GameApp::run() const {
     restoreControlCvars();
     if (active.benchmarkBotsConfigured) {
       pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
+      pendingBotCommands.push_back(PendingBotCommand{
+        BotCommandType::Weapon,
+        static_cast<std::int32_t>(active.previousBotWeapon),
+      });
       if (active.previousBotCount > 0) {
         pendingBotCommands.push_back(PendingBotCommand{
           BotCommandType::Add, active.previousBotCount
@@ -5289,6 +5317,7 @@ int GameApp::run() const {
         active.previousDevelopmentCameraEnabled = developmentCameraEnabled;
         active.previousDevelopmentCamera = developmentCamera;
         active.previousBotAttackMode = botAttackMode;
+        active.previousBotWeapon = botWeapon;
         active.previousBotStare = botStareEnabled;
         active.previousBotStandstill = botStandstillEnabled;
         active.previousBotDodge = botDodgeEnabled;
@@ -5364,6 +5393,10 @@ int GameApp::run() const {
           // Start every benchmark from an exact bot roster; map reloads retain
           // bots during ordinary development play.
           pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
+          pendingBotCommands.push_back(PendingBotCommand{
+            BotCommandType::Weapon,
+            static_cast<std::int32_t>(scenario.actors.weapon),
+          });
           if (scenario.actors.bots > 0) {
             pendingBotCommands.push_back(PendingBotCommand{BotCommandType::Add, scenario.actors.bots});
           }
@@ -6302,6 +6335,7 @@ int GameApp::run() const {
         botStareEnabled = updatedSnapshot.botStareEnabled;
         botStandstillEnabled = updatedSnapshot.botStandstillEnabled;
         botAttackMode = updatedSnapshot.botAttackMode;
+        botWeapon = updatedSnapshot.botWeapon;
         const MovementTuning consoleMovementTuning =
           movementTuningFromCvars(console);
         const WeaponDamageTuning consoleWeaponDamage =

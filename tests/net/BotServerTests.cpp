@@ -144,6 +144,33 @@ int main() {
     latestSnapshot(transport);
     makeOneHumanWarmup(server);
     (void)server.addBots(1);
+    failures += expect(
+      server.snapshot().botWeapon == lg::Weapon::MachineGun &&
+        server.snapshot().selectedWeapons[1] == lg::Weapon::MachineGun,
+      "training bots should default to the Machine Gun"
+    );
+
+    lg::CommandPacket weapon;
+    weapon.playerIndex = 0;
+    weapon.command.sequence = 1;
+    weapon.botCommand = lg::BotCommandType::Weapon;
+    weapon.botCommandValue = static_cast<std::int32_t>(lg::Weapon::RocketLauncher);
+    transport.sendCommand(weapon);
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.botWeapon == lg::Weapon::RocketLauncher &&
+        snapshot.selectedWeapons[1] == lg::Weapon::RocketLauncher,
+      "bot_weapon should authoritatively switch all bots"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    makeOneHumanWarmup(server);
+    (void)server.addBots(1);
     readyHuman(transport, server);
     failures += expect(server.snapshot().matchPhase == lg::MatchPhase::Countdown,
       "one human plus one ready bot should enter countdown after the human readies");
@@ -213,6 +240,7 @@ int main() {
     latestSnapshot(transport);
     makeOneHumanWarmup(server);
     (void)server.addBots(1);
+    server.setBotWeapon(lg::Weapon::LightningGun);
     server.setBotBehavior(false, true, false, 250, 750, lg::BotAttackMode::Easy);
     failures += expect(server.botAttackMode() == lg::BotAttackMode::Easy,
       "bot_attack easy should select easy mode");
@@ -247,6 +275,7 @@ int main() {
     server.setArena(flatArena(true));
     server.setConnectedPlayers({true, false, false, false, false, false});
     (void)server.addBots(1);
+    server.setBotWeapon(lg::Weapon::LightningGun);
     server.setBotBehavior(false, true, false, 250, 750, lg::BotAttackMode::Hard);
     bool fired = false;
     for (int tick = 0; tick < 80; ++tick) {

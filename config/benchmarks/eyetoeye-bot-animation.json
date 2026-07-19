@@ -26,6 +26,7 @@
   "player_state": {"alive": true, "weapon": "lightning_gun", "hide_hud": true, "hide_overlays": true},
   "actors": {
     "bots": 5,
+    "weapon": "mg",
     "attack_mode": "off",
     "stare": true,
     "standstill": false,
@@ -33,7 +34,7 @@
     "dodge_min_ms": 250,
     "dodge_max_ms": 750,
     "expected_count": 6,
-    "commands": ["bot_add 5", "bot_attack off", "bot_stare 1", "bot_standstill 0", "bot_dodge 1 250 750"]
+    "commands": ["bot_weapon mg", "bot_add 5", "bot_attack off", "bot_stare 1", "bot_standstill 0", "bot_dodge 1 250 750"]
   },
   "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
   "cvars": {"r_frustum_cull": 1, "r_show_weapons": 1, "r_player_model": 1, "r_draw_player_outlines": 1},

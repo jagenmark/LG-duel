@@ -1,6 +1,7 @@
 #include "sim/Arena.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -85,12 +86,16 @@ int main() {
     const lg::LocalMapLoadResult loaded = lg::loadLocalMap("overkill_import");
     failures += expect(loaded.ok, "generated overkill import should load through the local map registry");
     failures += expect(
-      loaded.ok && loaded.arena.wallCount == 1254,
-      "generated overkill import should omit the three non-solid fog volumes"
+      loaded.ok && loaded.arena.wallCount == 1251,
+      "generated overkill import should omit fog volumes and replaced doorway main clips"
     );
     failures += expect(
-      loaded.ok && loaded.arena.brushCount == 915,
+      loaded.ok && loaded.arena.brushCount == 911,
       "generated overkill import should preserve its validated convex-brush count"
+    );
+    failures += expect(
+      loaded.ok && loaded.arena.visualWallCount == 0 && loaded.arena.visualBrushCount == 83,
+      "reviewed doorway patches and teleporter frame should load as render-only convex geometry"
     );
     failures += expect(
       loaded.ok &&
@@ -112,6 +117,146 @@ int main() {
     failures += expect(
       loaded.ok && loaded.descriptor.contentHash == lg::hashArena(loaded.arena),
       "generated overkill import descriptor should bind to parsed arena content"
+    );
+
+    const auto findWall = [&loaded](std::uint32_t sourceBrushIndex) -> const lg::ArenaWall* {
+      for (std::size_t index = 0; index < loaded.arena.wallCount; ++index) {
+        const lg::ArenaWall& wall = loaded.arena.walls[index];
+        if (wall.sourceEntityIndex == 0U && wall.sourceBrushIndex == sourceBrushIndex) {
+          return &wall;
+        }
+      }
+      return nullptr;
+    };
+    const auto findBrush = [&loaded](std::uint32_t sourceBrushIndex) -> const lg::ArenaBrush* {
+      for (std::size_t index = 0; index < loaded.arena.brushCount; ++index) {
+        const lg::ArenaBrush& brush = loaded.arena.brushes[index];
+        if (brush.sourceEntityIndex == 0U && brush.sourceBrushIndex == sourceBrushIndex) {
+          return &brush;
+        }
+      }
+      return nullptr;
+    };
+    const auto findVisualBrush = [&loaded](std::uint32_t sourceBrushIndex) -> const lg::ArenaBrush* {
+      for (std::size_t index = 0; index < loaded.arena.visualBrushCount; ++index) {
+        const lg::ArenaBrush& brush = loaded.arena.visualBrushes[index];
+        if (brush.sourceEntityIndex == 0U && brush.sourceBrushIndex == sourceBrushIndex) {
+          return &brush;
+        }
+      }
+      return nullptr;
+    };
+    for (const std::uint32_t sourceBrushIndex : {1926U, 1927U, 1928U}) {
+      failures += expect(
+        findVisualBrush(sourceBrushIndex) != nullptr && findBrush(sourceBrushIndex) != nullptr,
+        "teleporter frame visuals should retain links to their authoritative source clips"
+      );
+    }
+    constexpr std::array<std::uint32_t, 3> replacementIndices = {1914U, 1919U, 1920U};
+    for (const std::uint32_t sourceBrushIndex : replacementIndices) {
+      const lg::ArenaBrush* replacement = findBrush(sourceBrushIndex);
+      failures += expect(
+        replacement != nullptr && replacement->faceCount == 6U,
+        "each reviewed doorway main clip should be replaced by a full-height six-face bevel"
+      );
+    }
+    constexpr std::array<std::uint32_t, 7> removedLipIndices = {
+      1884U, 1886U, 1908U, 1909U, 1915U, 1918U, 1921U
+    };
+    for (const std::uint32_t sourceBrushIndex : removedLipIndices) {
+      failures += expect(
+        findWall(sourceBrushIndex) == nullptr && findBrush(sourceBrushIndex) == nullptr,
+        "each reviewed doorway snag lip should be absent from authoritative collision"
+      );
+    }
+
+    const auto scrapeDoorway = [&](std::uint32_t bevelIndex,
+                                   lg::Vec3 start,
+                                   lg::Vec3 heldVelocity) {
+      const lg::ArenaBrush* bevel = findBrush(bevelIndex);
+      if (bevel == nullptr) {
+        return start;
+      }
+      lg::PlayerState player;
+      player.position = start;
+      for (int tick = 0; tick < 80; ++tick) {
+        const lg::CollisionResult move = lg::slidePlayerArenaMove(
+          loaded.arena, player, player.position, heldVelocity, lg::kFixedTickSeconds
+        );
+        player.position = move.position;
+      }
+      return player.position;
+    };
+    const lg::Vec3 southRight = scrapeDoorway(
+      1914U, {5.8F, -43.2F, 10.5F}, {-8.0F, -1.0F, 0.0F}
+    );
+    const lg::Vec3 bentLeft = scrapeDoorway(
+      1919U, {-18.6F, 0.35F, 7.3F}, {8.0F, 1.0F, 0.0F}
+    );
+    const lg::Vec3 bentRight = scrapeDoorway(
+      1920U, {5.8F, 0.35F, 7.3F}, {-8.0F, 1.0F, 0.0F}
+    );
+    const lg::Vec3 southRightReverse = scrapeDoorway(
+      1914U, {-1.0F, -43.2F, 10.5F}, {8.0F, -1.0F, 0.0F}
+    );
+    const lg::Vec3 bentLeftReverse = scrapeDoorway(
+      1919U, {-13.4F, 0.35F, 7.3F}, {-8.0F, 1.0F, 0.0F}
+    );
+    const lg::Vec3 bentRightReverse = scrapeDoorway(
+      1920U, {0.6F, 0.35F, 7.3F}, {8.0F, 1.0F, 0.0F}
+    );
+    const bool doorwayScrapesPass =
+      southRight.x < 1.5F && bentLeft.x > -14.0F && bentRight.x < 1.5F &&
+      southRightReverse.x > 3.0F && bentLeftReverse.x < -17.0F && bentRightReverse.x > 4.0F;
+    if (!doorwayScrapesPass) {
+      std::cerr << "doorway scrape positions: southRight=" << southRight.x << ',' << southRight.y
+                << " bentLeft=" << bentLeft.x << ',' << bentLeft.y
+                << " bentRight=" << bentRight.x << ',' << bentRight.y
+                << " southRightReverse=" << southRightReverse.x << ',' << southRightReverse.y
+                << " bentLeftReverse=" << bentLeftReverse.x << ',' << bentLeftReverse.y
+                << " bentRightReverse=" << bentRightReverse.x << ',' << bentRightReverse.y << '\n';
+    }
+    failures += expect(
+      doorwayScrapesPass,
+      "held diagonal movement should scrape through every repaired doorway bevel from either direction"
+    );
+
+    const auto scrapeRoute = [&](lg::Vec3 start, lg::Vec3 heldVelocity) {
+      lg::PlayerState player;
+      player.position = start;
+      for (int tick = 0; tick < 80; ++tick) {
+        const lg::CollisionResult move = lg::slidePlayerArenaMove(
+          loaded.arena, player, player.position, heldVelocity, lg::kFixedTickSeconds
+        );
+        player.position = move.position;
+      }
+      return player.position;
+    };
+    const std::array<lg::Vec3, 8> lipRouteResults = {{
+      scrapeRoute({8.3F, 0.2F, 7.3F}, {8.0F, 1.0F, 0.0F}),
+      scrapeRoute({8.3F, -1.8F, 7.3F}, {8.0F, -1.0F, 0.0F}),
+      scrapeRoute({13.2F, 0.2F, 7.3F}, {-8.0F, 1.0F, 0.0F}),
+      scrapeRoute({13.2F, -1.8F, 7.3F}, {-8.0F, -1.0F, 0.0F}),
+      scrapeRoute({-21.3F, 0.2F, 7.3F}, {-8.0F, 1.0F, 0.0F}),
+      scrapeRoute({-21.3F, -1.8F, 7.3F}, {-8.0F, -1.0F, 0.0F}),
+      scrapeRoute({-25.7F, 0.2F, 7.3F}, {8.0F, 1.0F, 0.0F}),
+      scrapeRoute({-25.7F, -1.8F, 7.3F}, {8.0F, -1.0F, 0.0F}),
+    }};
+    const bool lipRoutesPass =
+      lipRouteResults[0].x > 11.0F && lipRouteResults[1].x > 11.0F &&
+      lipRouteResults[2].x < 10.5F && lipRouteResults[3].x < 10.5F &&
+      lipRouteResults[4].x < -24.0F && lipRouteResults[5].x < -24.0F &&
+      lipRouteResults[6].x > -23.0F && lipRouteResults[7].x > -23.0F;
+    if (!lipRoutesPass) {
+      std::cerr << "doorway lip scrape x positions:";
+      for (const lg::Vec3 result : lipRouteResults) {
+        std::cerr << ' ' << result.x;
+      }
+      std::cerr << '\n';
+    }
+    failures += expect(
+      lipRoutesPass,
+      "held diagonal movement should pass both sides of each doorway after low lips are removed"
     );
   }
 

@@ -143,8 +143,8 @@ int main() {
     source.chatMessage = "åäöÅÄÖ";
     source.playerName = "yg";
     source.mapName = "testmap";
-    source.botCommand = lg::BotCommandType::Add;
-    source.botCommandValue = 1;
+    source.botCommand = lg::BotCommandType::Weapon;
+    source.botCommandValue = static_cast<std::int32_t>(lg::Weapon::Revolver);
     source.requestMcGuffinThrow = true;
     source.viewedServerTick = 88;
     source.actionEdges.jump = 4;
@@ -198,9 +198,9 @@ int main() {
     failures += expect(decoded.playerName == "yg", "player name should round trip");
     failures += expect(decoded.mapName == "testmap", "map name should round trip");
     failures += expect(
-      decoded.botCommand == lg::BotCommandType::Add &&
-        decoded.botCommandValue == 1,
-      "bot command request should round trip"
+      decoded.botCommand == lg::BotCommandType::Weapon &&
+        decoded.botCommandValue == static_cast<std::int32_t>(lg::Weapon::Revolver),
+      "bot weapon command request should round trip"
     );
     failures += expect(decoded.requestReset, "reset bit should round trip");
     failures += expect(decoded.toggleReady, "ready bit should round trip");
@@ -300,6 +300,14 @@ int main() {
     failures += expect(
       !lg::encodeCommandPacket(invalidTeam, wire),
       "invalid requested team should not encode"
+    );
+
+    lg::CommandPacket invalidBotWeapon = source;
+    invalidBotWeapon.botCommandValue =
+      static_cast<std::int32_t>(lg::kLastWeapon) + 1;
+    failures += expect(
+      !lg::encodeCommandPacket(invalidBotWeapon, wire),
+      "invalid bot weapon should not encode"
     );
 
     lg::CommandPacket invalidMovement = source;
@@ -712,6 +720,7 @@ int main() {
     source.botDodgeEnabled = true;
     source.botDodgeMinIntervalMs = 300;
     source.botDodgeMaxIntervalMs = 700;
+    source.botWeapon = lg::Weapon::RocketLauncher;
     source.weaponSwitchingMode = lg::WeaponSwitchingMode::Ql;
     source.phaseTicksRemaining = 321;
     source.liveTicksElapsed = 900;
@@ -962,6 +971,7 @@ int main() {
       decoded.botDodgeEnabled &&
       decoded.botDodgeMinIntervalMs == 300 &&
       decoded.botDodgeMaxIntervalMs == 700 &&
+      decoded.botWeapon == lg::Weapon::RocketLauncher &&
       decoded.weaponSwitchingMode == lg::WeaponSwitchingMode::Ql,
       "authoritative movement tuning should round trip"
     );

@@ -906,12 +906,29 @@ void collectTextureMaterialFiles(
   std::uint64_t hash = 1469598103934665603ULL;
   hash = hashCombine(hash, arena.wallCount);
   hash = hashCombine(hash, arena.brushCount);
+  hash = hashCombine(hash, arena.visualWallCount);
+  hash = hashCombine(hash, arena.visualBrushCount);
   hash = hashCombine(hash, arena.staticLightCount);
+  hash = hashCombine(hash, arena.renderDefaultFloor ? 1U : 0U);
   const auto hashFloat = [](float value) {
     static_assert(sizeof(float) == sizeof(std::uint32_t));
     std::uint32_t bits = 0;
     std::memcpy(&bits, &value, sizeof(bits));
     return static_cast<std::uint64_t>(bits);
+  };
+  const auto hashTextureProjection = [&hashFloat](std::uint64_t projectionHash,
+                                                  const TextureProjection& projection) {
+    projectionHash = hashCombine(projectionHash, projection.valid ? 1U : 0U);
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.uAxis.x));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.uAxis.y));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.uAxis.z));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.vAxis.x));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.vAxis.y));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.vAxis.z));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.uOffset));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.vOffset));
+    projectionHash = hashCombine(projectionHash, hashFloat(projection.uScale));
+    return hashCombine(projectionHash, hashFloat(projection.vScale));
   };
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
@@ -953,7 +970,48 @@ void collectTextureMaterialFiles(
         hash = hashCombine(hash, hashFloat(vertex.y));
         hash = hashCombine(hash, hashFloat(vertex.z));
       }
-      hash = hashCombine(hash, face.textureProjection.valid ? 1U : 0U);
+      hash = hashTextureProjection(hash, face.textureProjection);
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    const ArenaWall& wall = arena.visualWalls[index];
+    hash = hashCombine(hash, hashFloat(wall.min.x));
+    hash = hashCombine(hash, hashFloat(wall.min.y));
+    hash = hashCombine(hash, hashFloat(wall.min.z));
+    hash = hashCombine(hash, hashFloat(wall.max.x));
+    hash = hashCombine(hash, hashFloat(wall.max.y));
+    hash = hashCombine(hash, hashFloat(wall.max.z));
+    hash = hashCombine(hash, wall.materialId);
+    for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
+      hash = hashCombine(hash, wall.faceMaterialIds[faceIndex]);
+      const TextureProjection& projection = wall.faceTextureProjections[faceIndex];
+      hash = hashCombine(hash, projection.valid ? 1U : 0U);
+      hash = hashCombine(hash, hashFloat(projection.uAxis.x));
+      hash = hashCombine(hash, hashFloat(projection.uAxis.y));
+      hash = hashCombine(hash, hashFloat(projection.uAxis.z));
+      hash = hashCombine(hash, hashFloat(projection.vAxis.x));
+      hash = hashCombine(hash, hashFloat(projection.vAxis.y));
+      hash = hashCombine(hash, hashFloat(projection.vAxis.z));
+      hash = hashCombine(hash, hashFloat(projection.uOffset));
+      hash = hashCombine(hash, hashFloat(projection.vOffset));
+      hash = hashCombine(hash, hashFloat(projection.uScale));
+      hash = hashCombine(hash, hashFloat(projection.vScale));
+    }
+  }
+  for (std::size_t brushIndex = 0; brushIndex < arena.visualBrushCount; ++brushIndex) {
+    const ArenaBrush& brush = arena.visualBrushes[brushIndex];
+    hash = hashCombine(hash, brush.faceCount);
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      const ArenaBrushFace& face = brush.faces[faceIndex];
+      hash = hashCombine(hash, face.materialId);
+      hash = hashCombine(hash, face.vertexCount);
+      for (std::uint8_t vertexIndex = 0; vertexIndex < face.vertexCount; ++vertexIndex) {
+        const Vec3 vertex = brush.vertices[face.vertices[vertexIndex]];
+        hash = hashCombine(hash, hashFloat(vertex.x));
+        hash = hashCombine(hash, hashFloat(vertex.y));
+        hash = hashCombine(hash, hashFloat(vertex.z));
+      }
+      hash = hashTextureProjection(hash, face.textureProjection);
     }
   }
   for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
@@ -7103,22 +7161,24 @@ void drawPerspectiveWorld(
   SDL_SetRenderDrawColor(renderer, 120, 138, 156, 255);
   drawWireBox(renderer, camera, width, height, arena.min, arena.max);
 
-  std::array<std::size_t, Arena::kWallCount> wallDrawOrder = {};
+  std::array<const ArenaWall*, Arena::kWallCount + Arena::kVisualWallCount>
+    wallDrawOrder = {};
   std::size_t wallDrawCount = 0;
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     if (!arena.walls[index].renderable) {
       continue;
     }
-    wallDrawOrder[wallDrawCount++] = index;
+    wallDrawOrder[wallDrawCount++] = &arena.walls[index];
+  }
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    wallDrawOrder[wallDrawCount++] = &arena.visualWalls[index];
   }
   std::sort(
     wallDrawOrder.begin(),
     wallDrawOrder.begin() + static_cast<std::ptrdiff_t>(wallDrawCount),
-    [&arena, &camera](std::size_t lhs, std::size_t rhs) {
-      const Vec3 lhsCenter =
-        (arena.walls[lhs].min + arena.walls[lhs].max) * 0.5F;
-      const Vec3 rhsCenter =
-        (arena.walls[rhs].min + arena.walls[rhs].max) * 0.5F;
+    [&camera](const ArenaWall* lhs, const ArenaWall* rhs) {
+      const Vec3 lhsCenter = (lhs->min + lhs->max) * 0.5F;
+      const Vec3 rhsCenter = (rhs->min + rhs->max) * 0.5F;
       return dot(lhsCenter - camera.position, camera.forward) >
         dot(rhsCenter - camera.position, camera.forward);
     }
@@ -7126,7 +7186,7 @@ void drawPerspectiveWorld(
 
   SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_NONE);
   for (std::size_t orderIndex = 0; orderIndex < wallDrawCount; ++orderIndex) {
-    const ArenaWall& wall = arena.walls[wallDrawOrder[orderIndex]];
+    const ArenaWall& wall = *wallDrawOrder[orderIndex];
     drawSolidBox(
       renderer,
       camera,
@@ -7140,7 +7200,7 @@ void drawPerspectiveWorld(
 
   SDL_SetRenderDrawColor(renderer, 120, 138, 156, 255);
   for (std::size_t orderIndex = 0; orderIndex < wallDrawCount; ++orderIndex) {
-    const ArenaWall& wall = arena.walls[wallDrawOrder[orderIndex]];
+    const ArenaWall& wall = *wallDrawOrder[orderIndex];
     drawWireBox(renderer, camera, width, height, wall.min, wall.max);
     SDL_SetRenderDrawColor(renderer, 156, 170, 184, 255);
     for (float z = wall.min.z + 1.0F; z < wall.max.z; z += 1.0F) {

@@ -65,8 +65,7 @@ class LaunchTests(unittest.TestCase):
             build.mkdir()
             (build / "lg_duel_client.exe").touch()
             (build / "lg_duel_server.exe").touch()
-            with mock.patch.object(lg_launch, "BUILD_DIR", build), \
-                 mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
+            with mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
                  mock.patch.object(lg_launch, "resolve_vulkan_selection", return_value=self.selection()), \
                  mock.patch.object(
                      lg_launch, "send_request",
@@ -78,9 +77,11 @@ class LaunchTests(unittest.TestCase):
                      side_effect=[FakeProcess(301), FakeProcess(302)],
                  ) as launch, \
                  mock.patch.object(lg_launch, "_write_state", side_effect=written.append):
-                result = lg_launch.ensure_client(renderer="gpu", timeout=1)
+                result = lg_launch.ensure_client(renderer="gpu", timeout=1, build_dir=build)
         self.assertTrue(result["gpu_verified"])
         self.assertEqual(launch.call_count, 2)
+        self.assertTrue(all(call.args[5] == build.resolve() for call in launch.call_args_list))
+        self.assertEqual(result["build_directory"], str(build.resolve()))
         self.assertEqual(written[0]["server"], {"pid": 301, "owned": True, "path": str(build / "lg_duel_server.exe")})
         self.assertEqual(written[0]["client"]["pid"], 302)
         self.assertTrue(written[0]["client"]["owned"])

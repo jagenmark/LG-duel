@@ -53,6 +53,8 @@ struct ArenaWall {
   ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
   std::uint32_t sourceEntityIndex = kInvalidSourceGeometryIndex;
   std::uint32_t sourceBrushIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t sourcePatchIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t sourcePatchPieceIndex = kInvalidSourceGeometryIndex;
   bool renderable = true;
 };
 
@@ -82,6 +84,8 @@ struct ArenaBrush {
   ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
   std::uint32_t sourceEntityIndex = kInvalidSourceGeometryIndex;
   std::uint32_t sourceBrushIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t sourcePatchIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t sourcePatchPieceIndex = kInvalidSourceGeometryIndex;
 };
 
 struct ArenaStaticLight {
@@ -180,6 +184,8 @@ private:
 struct Arena {
   static constexpr std::size_t kWallCount = 2048;
   static constexpr std::size_t kBrushCount = 1024;
+  static constexpr std::size_t kVisualWallCount = 2048;
+  static constexpr std::size_t kVisualBrushCount = 1024;
   static constexpr std::size_t kStaticLightCount = 96;
   static constexpr std::size_t kJumpPadCount = 48;
   static constexpr std::size_t kTeleportCount = 16;
@@ -189,12 +195,21 @@ struct Arena {
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
   Vec3 max = {12.0F, 12.0F, 8.0F};
+  // Hand-made test maps use the plain ground grid. Source-bound imports own
+  // every visible floor and must not receive a second face at world z = 0.
+  bool renderDefaultFloor = true;
   // Active prefixes preserve authored order. Geometry is heap-backed to keep
   // Arena small on the stack, but collision still scales linearly with counts.
   BoundedArenaStorage<ArenaWall, kWallCount> walls = {};
   std::size_t wallCount = 0;
   BoundedArenaStorage<ArenaBrush, kBrushCount> brushes = {};
   std::size_t brushCount = 0;
+  // Visual geometry is map content but never authoritative collision. Keeping
+  // it in disjoint storage makes accidental movement/trace participation hard.
+  BoundedArenaStorage<ArenaWall, kVisualWallCount> visualWalls = {};
+  std::size_t visualWallCount = 0;
+  BoundedArenaStorage<ArenaBrush, kVisualBrushCount> visualBrushes = {};
+  std::size_t visualBrushCount = 0;
   std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
   std::size_t staticLightCount = 0;
   ArenaSunLight sunLight = {};

@@ -147,6 +147,49 @@ std::uint32_t hashArena(const Arena& arena) {
       }
     }
   }
+  if (arena.visualWallCount > 0 || arena.visualBrushCount > 0) {
+    // Preserve legacy hashes for maps without visual-only content. Once used,
+    // the domain marker and both counts make this extension unambiguous.
+    hashU32(hash, 0x56495331U);
+    hashU32(hash, static_cast<std::uint32_t>(arena.visualWallCount));
+    for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+      const ArenaWall& wall = arena.visualWalls[index];
+      hashVec3(hash, wall.min);
+      hashVec3(hash, wall.max);
+      hashU32(hash, wall.materialId);
+      hashU32(hash, wall.sourcePatchIndex);
+      hashU32(hash, wall.sourcePatchPieceIndex);
+      for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
+        hashU32(hash, wall.faceMaterialIds[faceIndex]);
+        hashTextureProjection(hash, wall.faceTextureProjections[faceIndex]);
+      }
+    }
+    hashU32(hash, static_cast<std::uint32_t>(arena.visualBrushCount));
+    for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+      const ArenaBrush& brush = arena.visualBrushes[index];
+      hashVec3(hash, brush.min);
+      hashVec3(hash, brush.max);
+      hashU32(hash, brush.materialId);
+      hashU32(hash, brush.sourcePatchIndex);
+      hashU32(hash, brush.sourcePatchPieceIndex);
+      hashU32(hash, brush.vertexCount);
+      hashU32(hash, brush.faceCount);
+      for (std::uint8_t vertex = 0; vertex < brush.vertexCount; ++vertex) {
+        hashVec3(hash, brush.vertices[vertex]);
+      }
+      for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+        const ArenaBrushFace& face = brush.faces[faceIndex];
+        hashVec3(hash, face.normal);
+        hashFloat(hash, face.distance);
+        hashU32(hash, face.materialId);
+        hashTextureProjection(hash, face.textureProjection);
+        hashU32(hash, face.vertexCount);
+        for (std::uint8_t vertex = 0; vertex < face.vertexCount; ++vertex) {
+          hashU32(hash, face.vertices[vertex]);
+        }
+      }
+    }
+  }
   hashU32(hash, static_cast<std::uint32_t>(arena.spawnCount));
   for (std::size_t index = 0; index < arena.spawnCount; ++index) {
     hashVec3(hash, arena.spawnPositions[index]);

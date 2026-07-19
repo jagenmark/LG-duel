@@ -140,6 +140,7 @@ TOOLS: list[dict[str, Any]] = [
                 "repetitions": {"type": "integer", "minimum": 1, "maximum": 100, "default": 3},
                 "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 27961},
                 "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600, "default": 180},
+                "build_mode": {"type": "string", "enum": ["release", "debug"], "default": "release"},
             },
             "required": ["scenario"], "additionalProperties": False,
         },
@@ -181,6 +182,7 @@ TOOLS: list[dict[str, Any]] = [
                 "repetitions": {"type": "integer", "minimum": 1, "maximum": 100, "default": 3},
                 "port": {"type": "integer", "minimum": 1, "maximum": 65535, "default": 27961},
                 "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600, "default": 180},
+                "build_mode": {"type": "string", "enum": ["release", "debug"], "default": "release"},
             },
             "required": ["scenario", "name"], "additionalProperties": False,
         },
@@ -246,6 +248,7 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         result = run_benchmark(
             arguments["scenario"], repetitions=arguments.get("repetitions", 3),
             port=arguments.get("port", 27961), timeout=arguments.get("timeout", 180.0),
+            build_mode=arguments.get("build_mode", "release"),
         )
         summary = {key: value for key, value in result.items() if key != "runs"}
         summary["screenshots"] = [shot for run in result.get("runs", []) for shot in run.get("screenshots", [])]
@@ -262,6 +265,7 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         result = create_baseline(
             arguments["scenario"], arguments["name"], repetitions=arguments.get("repetitions", 3),
             port=arguments.get("port", 27961), timeout=arguments.get("timeout", 180.0),
+            build_mode=arguments.get("build_mode", "release"),
         )
         summary = {key: value for key, value in result.items() if key != "runs"}
         summary["screenshots"] = [shot for run in result.get("runs", []) for shot in run.get("screenshots", [])]

@@ -1,6 +1,7 @@
 #include "benchmark/Benchmark.hpp"
 
 #include "sim/MapRegistry.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -196,6 +197,10 @@ ParseResult parseScenario(const dev::JsonValue& root) {
   if (const dev::JsonValue* actors = root.find("actors"); actors != nullptr) {
     if (actors->type != dev::JsonValue::Type::Object) return {{}, false, "actors must be an object"};
     if (const dev::JsonValue* bots = actors->find("bots"); bots && !integer(bots, scenario.actors.bots, 0, 64)) return {{}, false, "actors.bots must be in [0,64]"};
+    const std::string weaponToken = dev::stringMember(*actors, "weapon").value_or("mg");
+    const std::optional<Weapon> weapon = parseWeaponToken(weaponToken);
+    if (!weapon.has_value()) return {{}, false, "actors.weapon is unsupported"};
+    scenario.actors.weapon = *weapon;
     scenario.actors.attackMode = dev::stringMember(*actors, "attack_mode").value_or("off");
     if (scenario.actors.attackMode != "off" && scenario.actors.attackMode != "easy" && scenario.actors.attackMode != "medium" && scenario.actors.attackMode != "hard") return {{}, false, "actors.attack_mode is unsupported"};
     scenario.actors.stare = dev::boolMember(*actors, "stare").value_or(true);

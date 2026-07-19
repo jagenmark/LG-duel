@@ -46,6 +46,119 @@ bool finiteVec3(lg::Vec3 value) {
     std::isfinite(value.z);
 }
 
+lg::BoundingSphere legacyMaterialMeshBounds(
+  std::span<const lg::WeaponMaterialVertex3D> vertices
+) {
+  if (vertices.empty()) {
+    return {};
+  }
+  lg::Vec3 center = {};
+  for (const lg::WeaponMaterialVertex3D& vertex : vertices) {
+    center += vertex.position;
+  }
+  center *= 1.0F / static_cast<float>(vertices.size());
+  float radius = 0.0F;
+  for (const lg::WeaponMaterialVertex3D& vertex : vertices) {
+    radius = std::max(radius, lg::length(vertex.position - center));
+  }
+  return {center, radius};
+}
+
+bool validStaticMeshBatches(const lg::Scene3D& scene) {
+  std::size_t covered = 0U;
+  for (std::size_t batchIndex = 0U;
+       batchIndex < scene.staticMeshBatches.size();
+       ++batchIndex) {
+    const lg::StaticMeshBatch& batch = scene.staticMeshBatches[batchIndex];
+    if (
+      batch.firstInstance != covered ||
+      batch.instanceCount == 0U ||
+      covered + batch.instanceCount > scene.staticMeshInstances.size()
+    ) {
+      return false;
+    }
+    if (batchIndex > 0U) {
+      const lg::StaticMeshBatch& previous = scene.staticMeshBatches[batchIndex - 1U];
+      if (previous.mesh == batch.mesh && previous.pass == batch.pass) {
+        return false;
+      }
+    }
+    for (std::size_t offset = 0U; offset < batch.instanceCount; ++offset) {
+      const lg::StaticMeshInstance& instance =
+        scene.staticMeshInstances[covered + offset];
+      if (instance.mesh != batch.mesh || instance.pass != batch.pass) {
+        return false;
+      }
+    }
+    covered += batch.instanceCount;
+  }
+  return covered == scene.staticMeshInstances.size() &&
+    std::is_sorted(
+      scene.staticMeshInstances.begin(),
+      scene.staticMeshInstances.end(),
+      [](const lg::StaticMeshInstance& lhs, const lg::StaticMeshInstance& rhs) {
+        if (lhs.pass != rhs.pass) {
+          return static_cast<int>(lhs.pass) < static_cast<int>(rhs.pass);
+        }
+        return static_cast<std::uint16_t>(lhs.mesh) <
+          static_cast<std::uint16_t>(rhs.mesh);
+      }
+    );
+}
+
+bool validSimpleBatches(const lg::Scene3D& scene) {
+  std::size_t covered = 0U;
+  for (std::size_t batchIndex = 0U;
+       batchIndex < scene.simpleBatches.size();
+       ++batchIndex) {
+    const lg::SimpleRenderBatch& batch = scene.simpleBatches[batchIndex];
+    if (
+      batch.firstInstance != covered ||
+      batch.instanceCount == 0U ||
+      covered + batch.instanceCount > scene.simpleInstances.size()
+    ) {
+      return false;
+    }
+    if (batchIndex > 0U) {
+      const lg::SimpleRenderBatch& previous = scene.simpleBatches[batchIndex - 1U];
+      if (
+        previous.mesh == batch.mesh &&
+        previous.billboard == batch.billboard &&
+        previous.pass == batch.pass
+      ) {
+        return false;
+      }
+    }
+    for (std::size_t offset = 0U; offset < batch.instanceCount; ++offset) {
+      const lg::SimpleRenderInstance& instance = scene.simpleInstances[covered + offset];
+      if (
+        instance.mesh != batch.mesh ||
+        instance.billboard != batch.billboard ||
+        instance.pass != batch.pass
+      ) {
+        return false;
+      }
+    }
+    covered += batch.instanceCount;
+  }
+  return covered == scene.simpleInstances.size() &&
+    std::is_sorted(
+      scene.simpleInstances.begin(),
+      scene.simpleInstances.end(),
+      [](const lg::SimpleRenderInstance& lhs, const lg::SimpleRenderInstance& rhs) {
+        if (lhs.pass != rhs.pass) {
+          return static_cast<int>(lhs.pass) < static_cast<int>(rhs.pass);
+        }
+        if (lhs.mesh != rhs.mesh) {
+          return static_cast<std::uint16_t>(lhs.mesh) <
+            static_cast<std::uint16_t>(rhs.mesh);
+        }
+        return static_cast<std::uint16_t>(lhs.billboard) <
+          static_cast<std::uint16_t>(rhs.billboard);
+      }
+    );
+}
+
 lg::Vec3 transformPoint(const lg::StaticMeshInstance& instance, lg::Vec3 local) {
   return {
     lg::dot(instance.modelRow0, local) + instance.modelTranslation.x,
@@ -559,6 +672,29 @@ int main() {
   arena.wallCount = 0;
 
   {
+    lg::Arena floorArena;
+    floorArena.min = {-2.0F, -2.0F, -2.0F};
+    floorArena.max = {2.0F, 2.0F, 2.0F};
+    floorArena.wallCount = 1;
+    floorArena.walls[0] = {{-1.0F, -1.0F, -0.2F}, {1.0F, 1.0F, 0.0F}};
+    floorArena.walls[0].materialId = lg::arenaMaterialId("test/imported-floor");
+    const lg::Scene3D withDefaultFloor = lg::buildStaticWorldScene(floorArena);
+    floorArena.renderDefaultFloor = false;
+    const lg::Scene3D importedFloor = lg::buildStaticWorldScene(floorArena);
+    const bool keptImportedFloor = std::any_of(
+      importedFloor.vertices.begin(), importedFloor.vertices.end(),
+      [&](const lg::Vertex3D& vertex) {
+        return vertex.materialId == floorArena.walls[0].materialId;
+      }
+    );
+    failures += expect(
+      importedFloor.vertices.size() < withDefaultFloor.vertices.size() &&
+        keptImportedFloor,
+      "imported maps should omit the default z=0 floor but keep their source floor"
+    );
+  }
+
+  {
     lg::Arena clipArena;
     const lg::Scene3D baselineStaticScene = lg::buildStaticWorldScene(clipArena);
     clipArena.wallCount = 1;
@@ -576,6 +712,58 @@ int main() {
       clippedStaticScene.vertices.size() == baselineStaticScene.vertices.size() &&
         !foundPlayerClipMaterial,
       "non-renderable playerclip walls should not emit static world geometry"
+    );
+  }
+
+  {
+    lg::Arena visualArena;
+    const lg::Scene3D baselineStaticScene = lg::buildStaticWorldScene(visualArena);
+    visualArena.visualWallCount = 1;
+    visualArena.visualWalls[0].min = {0.0F, 0.0F, 0.0F};
+    visualArena.visualWalls[0].max = {1.0F, 1.0F, 1.0F};
+    visualArena.visualWalls[0].materialId = lg::arenaMaterialId("patch/arch");
+    visualArena.visualWalls[0].sourcePatchIndex = 46U;
+    const lg::Scene3D visualStaticScene = lg::buildStaticWorldScene(visualArena);
+    bool foundVisualMaterial = false;
+    for (const lg::Vertex3D& vertex : visualStaticScene.vertices) {
+      foundVisualMaterial = foundVisualMaterial ||
+        vertex.materialId == visualArena.visualWalls[0].materialId;
+    }
+    failures += expect(
+      visualStaticScene.vertices.size() > baselineStaticScene.vertices.size() &&
+        foundVisualMaterial,
+      "visual-only walls should emit textured static world geometry"
+    );
+
+    visualArena.visualBrushCount = 1;
+    lg::ArenaBrush& visualBrush = visualArena.visualBrushes[0];
+    visualBrush.vertexCount = 3;
+    visualBrush.vertices[0] = {2.0F, 0.0F, 0.0F};
+    visualBrush.vertices[1] = {3.0F, 0.0F, 0.0F};
+    visualBrush.vertices[2] = {2.0F, 1.0F, 0.0F};
+    visualBrush.faceCount = 1;
+    visualBrush.faces[0].vertexCount = 3;
+    visualBrush.faces[0].vertices = {0U, 1U, 2U};
+    visualBrush.faces[0].normal = {0.0F, 0.0F, 1.0F};
+    visualBrush.faces[0].materialId = lg::arenaMaterialId("patch/curve");
+    const lg::Scene3D visualBrushScene = lg::buildStaticWorldScene(visualArena);
+    const bool foundVisualBrush = std::any_of(
+      visualBrushScene.vertices.begin(),
+      visualBrushScene.vertices.end(),
+      [&visualBrush](const lg::Vertex3D& vertex) {
+        return vertex.materialId == visualBrush.faces[0].materialId;
+      }
+    );
+    failures += expect(
+      foundVisualBrush,
+      "visual-only convex brushes should emit textured static world geometry"
+    );
+
+    lg::Scene3D collisionDebug;
+    lg::appendCollisionDebugGeometry(collisionDebug, visualArena, 1);
+    failures += expect(
+      collisionDebug.translucentVertices.empty(),
+      "visual-only geometry should stay absent from r_show_collision"
     );
   }
 
@@ -1094,6 +1282,30 @@ int main() {
       legacyModelScene.playerBoxStats.legacyCpuGeneratedVertices == 0 &&
       legacyModelScene.playerBoxStats.legacyDynamicVertexUploadBytes == 0,
     "r_player_model 0 should submit seven compact cube instances and no legacy body vertices"
+  );
+  constexpr std::array<lg::PlayerBodyPartType, 7> expectedPlayerBoxOrder = {{
+    lg::PlayerBodyPartType::Torso,
+    lg::PlayerBodyPartType::Hips,
+    lg::PlayerBodyPartType::Head,
+    lg::PlayerBodyPartType::LeftArm,
+    lg::PlayerBodyPartType::RightArm,
+    lg::PlayerBodyPartType::LeftLeg,
+    lg::PlayerBodyPartType::RightLeg,
+  }};
+  std::size_t playerBoxOrderIndex = 0U;
+  bool stablePlayerBoxOrder = true;
+  for (const lg::StaticMeshInstance& instance : legacyModelScene.staticMeshInstances) {
+    if (!instance.playerBoxBody) {
+      continue;
+    }
+    stablePlayerBoxOrder = stablePlayerBoxOrder &&
+      playerBoxOrderIndex < expectedPlayerBoxOrder.size() &&
+      instance.playerBodyPart == expectedPlayerBoxOrder[playerBoxOrderIndex];
+    ++playerBoxOrderIndex;
+  }
+  failures += expect(
+    stablePlayerBoxOrder && playerBoxOrderIndex == expectedPlayerBoxOrder.size(),
+    "static mesh finalization should preserve submission order within one batch key"
   );
   bool foundTorso = false;
   bool foundHead = false;
@@ -1800,6 +2012,40 @@ int main() {
   failures += expect(
     hasRocketLauncherMetal && hasRocketLauncherRed,
     "rocket-launcher material meshes should preserve metal and red identification paint"
+  );
+
+  const std::array<lg::MeshHandle, 13> cachedBoundsMeshes = {{
+    lg::MeshHandle::RemoteMachineGunBody,
+    lg::MeshHandle::RemoteMachineGunBarrels,
+    lg::MeshHandle::RemoteRevolverBody,
+    lg::MeshHandle::RemoteRevolverCylinder,
+    lg::MeshHandle::RemoteRocketLauncherBody,
+    lg::MeshHandle::RemoteRocketLauncherRecoil,
+    lg::MeshHandle::RemoteRocketLauncherLatch,
+    lg::MeshHandle::RemoteFreezeGunBody,
+    lg::MeshHandle::RemoteFreezeGunFocus,
+    lg::MeshHandle::RemoteFreezeGunCoolant,
+    lg::MeshHandle::RemotePlasmaGunBody,
+    lg::MeshHandle::RemotePlasmaGunProngs,
+    lg::MeshHandle::RemotePlasmaGunCore,
+  }};
+  bool cachedMaterialBoundsMatch = true;
+  for (lg::MeshHandle mesh : cachedBoundsMeshes) {
+    const lg::MaterialMeshAsset* material = lg::materialMeshAsset(mesh);
+    if (material == nullptr) {
+      cachedMaterialBoundsMatch = false;
+      continue;
+    }
+    const lg::BoundingSphere previous = legacyMaterialMeshBounds(material->vertices);
+    cachedMaterialBoundsMatch = cachedMaterialBoundsMatch &&
+      material->localBounds.center.x == previous.center.x &&
+      material->localBounds.center.y == previous.center.y &&
+      material->localBounds.center.z == previous.center.z &&
+      material->localBounds.radius == previous.radius;
+  }
+  failures += expect(
+    cachedMaterialBoundsMatch,
+    "cached material weapon bounds should match the prior two-pass calculation"
   );
 
   lg::LightningGunResult opponentBeam;
@@ -2938,6 +3184,16 @@ int main() {
       multiPlasmaProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
       multiPlasmaProjectileScene.simpleBatches.size() == 2U,
     "multiple plasma projectiles should group into one core batch and one glow batch"
+  );
+  failures += expect(
+    !multiPlasmaProjectileScene.staticMeshBatches.empty() &&
+      validStaticMeshBatches(multiPlasmaProjectileScene) &&
+      validSimpleBatches(multiPlasmaProjectileScene) &&
+      multiPlasmaProjectileScene.simpleBatches[0].firstInstance == 0U &&
+      multiPlasmaProjectileScene.simpleBatches[0].instanceCount == 2U &&
+      multiPlasmaProjectileScene.simpleBatches[1].firstInstance == 2U &&
+      multiPlasmaProjectileScene.simpleBatches[1].instanceCount == 2U,
+    "final batches should cover sorted interleaved mesh and pass instances"
   );
   failures += expect(
     multiPlasmaProjectileScene.projectileStats.projectileInstanceUploadBytes ==

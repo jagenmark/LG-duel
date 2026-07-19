@@ -31469,22 +31469,6 @@
 {
 "classname" "func_group"
 "lg_source_entity_index" "0"
-"lg_source_brush_index" "1884"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( 384 14 328 ) ( 384 14 256 ) ( 384 48 256 ) common/playerclip 0 0 0 1 1
-( 397 14 256 ) ( 384 14 256 ) ( 384 14 328 ) common/playerclip 0 0 0 1 1
-( 448 48 362 ) ( 384 48 362 ) ( 384 48 256 ) common/playerclip 0 0 0 1 1
-( 384 48 256 ) ( 384 14 256 ) ( 397 14 256 ) common/playerclip 0 0 0 1 1
-( 384 14 328 ) ( 384 48 362 ) ( 448 48 362 ) common/playerclip 0 0 0 1 1
-( 448 48 256 ) ( 397 14 256 ) ( 397 14 328 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
 "lg_source_brush_index" "1885"
 "lg_source_classname" "worldspawn"
 "lg_collision_class" "playerclip"
@@ -31496,22 +31480,6 @@
 ( 528 -192 704 ) ( 528 -256 704 ) ( 384 -112 704 ) common/playerclip 0 0 0 1 1
 ( 528 -256 704 ) ( 528 -256 256 ) ( 384 -112 256 ) common/playerclip 0 0 0 1 1
 ( 448 -112 704 ) ( 448 -112 256 ) ( 528 -192 256 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1886"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( 384 -112 362 ) ( 384 -112 256 ) ( 384 -78 256 ) common/playerclip 0 0 0 1 1
-( 448 -112 256 ) ( 384 -112 256 ) ( 384 -112 362 ) common/playerclip 0 0 0 1 1
-( 384 -78 328 ) ( 384 -78 256 ) ( 397 -78 256 ) common/playerclip 0 0 0 1 1
-( 384 -78 256 ) ( 384 -112 256 ) ( 448 -112 256 ) common/playerclip 0 0 0 1 1
-( 448 -112 362 ) ( 384 -112 362 ) ( 384 -78 328 ) common/playerclip 0 0 0 1 1
-( 448 -112 362 ) ( 397 -78 328 ) ( 397 -78 256 ) common/playerclip 0 0 0 1 1
 }
 }
 {
@@ -31789,38 +31757,6 @@
 {
 "classname" "func_group"
 "lg_source_entity_index" "0"
-"lg_source_brush_index" "1908"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( -896 48 362 ) ( -896 48 256 ) ( -896 14 256 ) common/playerclip 0 0 0 1 1
-( -896 14 256 ) ( -909 14 256 ) ( -909 14 328 ) common/playerclip 0 0 0 1 1
-( -896 48 362 ) ( -960 48 362 ) ( -960 48 256 ) common/playerclip 0 0 0 1 1
-( -960 48 256 ) ( -909 14 256 ) ( -896 14 256 ) common/playerclip 0 0 0 1 1
-( -909 14 256 ) ( -960 48 256 ) ( -960 48 362 ) common/playerclip 0 0 0 1 1
-( -960 48 362 ) ( -896 48 362 ) ( -896 14 328 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1909"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( -896 -78 328 ) ( -896 -78 256 ) ( -896 -112 256 ) common/playerclip 0 0 0 1 1
-( -896 -112 256 ) ( -960 -112 256 ) ( -960 -112 362 ) common/playerclip 0 0 0 1 1
-( -909 -78 328 ) ( -909 -78 256 ) ( -896 -78 256 ) common/playerclip 0 0 0 1 1
-( -960 -112 256 ) ( -896 -112 256 ) ( -896 -78 256 ) common/playerclip 0 0 0 1 1
-( -960 -112 362 ) ( -960 -112 256 ) ( -909 -78 256 ) common/playerclip 0 0 0 1 1
-( -896 -112 362 ) ( -960 -112 362 ) ( -909 -78 328 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
 "lg_source_brush_index" "1910"
 "lg_source_classname" "worldspawn"
 "lg_collision_class" "playerclip"
@@ -31885,38 +31821,6 @@
 {
 "classname" "func_group"
 "lg_source_entity_index" "0"
-"lg_source_brush_index" "1914"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( 0 -1792 800 ) ( 0 -1792 384 ) ( 0 -1776 384 ) common/playerclip 0 0 0 1 1
-( 192 -1776 800 ) ( 192 -1776 384 ) ( 192 -1792 384 ) common/playerclip 0 0 0 1 1
-( 192 -1792 384 ) ( 0 -1792 384 ) ( 0 -1792 800 ) common/playerclip 0 0 0 1 1
-( 192 -1776 800 ) ( 0 -1776 800 ) ( 0 -1776 384 ) common/playerclip 0 0 0 1 1
-( 0 -1776 384 ) ( 0 -1792 384 ) ( 192 -1792 384 ) common/playerclip 0 0 0 1 1
-( 192 -1776 800 ) ( 192 -1792 800 ) ( 0 -1792 800 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1915"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( 192 -1750 456 ) ( 192 -1750 384 ) ( 192 -1784 384 ) common/playerclip 0 0 0 1 1
-( 192 -1784 384 ) ( 128 -1784 384 ) ( 128 -1784 490 ) common/playerclip 0 0 0 1 1
-( 179 -1750 456 ) ( 179 -1750 384 ) ( 192 -1750 384 ) common/playerclip 0 0 0 1 1
-( 128 -1784 384 ) ( 192 -1784 384 ) ( 192 -1750 384 ) common/playerclip 0 0 0 1 1
-( 128 -1784 490 ) ( 128 -1784 384 ) ( 179 -1750 384 ) common/playerclip 0 0 0 1 1
-( 192 -1784 490 ) ( 128 -1784 490 ) ( 179 -1750 456 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
 "lg_source_brush_index" "1916"
 "lg_source_classname" "worldspawn"
 "lg_collision_class" "playerclip"
@@ -31944,70 +31848,6 @@
 ( -320 -500 259 ) ( -320 -500 252 ) ( -200 -500 252 ) common/playerclip 0 0 0 1 1
 ( -200 -500 259 ) ( -200 -1228 384 ) ( -320 -1228 384 ) common/playerclip 0 0 0 1 1
 ( -320 -500 252 ) ( -320 -1228 376 ) ( -200 -1228 376 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1918"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( -704 14 328 ) ( -704 14 256 ) ( -704 48 256 ) common/playerclip 0 0 0 1 1
-( -691 14 256 ) ( -704 14 256 ) ( -704 14 328 ) common/playerclip 0 0 0 1 1
-( -640 48 362 ) ( -704 48 362 ) ( -704 48 256 ) common/playerclip 0 0 0 1 1
-( -704 48 256 ) ( -704 14 256 ) ( -691 14 256 ) common/playerclip 0 0 0 1 1
-( -704 14 328 ) ( -704 48 362 ) ( -640 48 362 ) common/playerclip 0 0 0 1 1
-( -640 48 256 ) ( -691 14 256 ) ( -691 14 328 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1919"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( -704 32 800 ) ( -704 32 256 ) ( -704 48 256 ) common/playerclip 0 0 0 1 1
-( -576 48 800 ) ( -576 48 256 ) ( -576 32 256 ) common/playerclip 0 0 0 1 1
-( -576 32 256 ) ( -704 32 256 ) ( -704 32 800 ) common/playerclip 0 0 0 1 1
-( -576 48 800 ) ( -704 48 800 ) ( -704 48 256 ) common/playerclip 0 0 0 1 1
-( -704 48 256 ) ( -704 32 256 ) ( -576 32 256 ) common/playerclip 0 0 0 1 1
-( -576 48 800 ) ( -576 32 800 ) ( -704 32 800 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1920"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( 64 32 800 ) ( 64 32 256 ) ( 64 48 256 ) common/playerclip 0 0 0 1 1
-( 192 48 800 ) ( 192 48 256 ) ( 192 32 256 ) common/playerclip 0 0 0 1 1
-( 192 32 256 ) ( 64 32 256 ) ( 64 32 800 ) common/playerclip 0 0 0 1 1
-( 192 48 800 ) ( 64 48 800 ) ( 64 48 256 ) common/playerclip 0 0 0 1 1
-( 64 48 256 ) ( 64 32 256 ) ( 192 32 256 ) common/playerclip 0 0 0 1 1
-( 192 48 800 ) ( 192 32 800 ) ( 64 32 800 ) common/playerclip 0 0 0 1 1
-}
-}
-{
-"classname" "func_group"
-"lg_source_entity_index" "0"
-"lg_source_brush_index" "1921"
-"lg_source_classname" "worldspawn"
-"lg_collision_class" "playerclip"
-// brush 0
-{
-( 192 48 362 ) ( 192 48 256 ) ( 192 14 256 ) common/playerclip 0 0 0 1 1
-( 192 14 256 ) ( 179 14 256 ) ( 179 14 328 ) common/playerclip 0 0 0 1 1
-( 192 48 362 ) ( 128 48 362 ) ( 128 48 256 ) common/playerclip 0 0 0 1 1
-( 128 48 256 ) ( 179 14 256 ) ( 192 14 256 ) common/playerclip 0 0 0 1 1
-( 179 14 256 ) ( 128 48 256 ) ( 128 48 362 ) common/playerclip 0 0 0 1 1
-( 128 48 362 ) ( 192 48 362 ) ( 192 14 328 ) common/playerclip 0 0 0 1 1
 }
 }
 {
@@ -32830,6 +32670,1224 @@
 ( -688 -208 512 ) ( -688 -464 512 ) ( -704 -480 512 ) common/playerclip 0 0 0 1 1
 ( -688 -464 448 ) ( -704 -480 448 ) ( -704 -480 512 ) common/playerclip 0 0 0 1 1
 ( -704 -192 512 ) ( -704 -192 448 ) ( -688 -208 448 ) common/playerclip 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( -704.316228 -1791.05132 512 ) ( -560.316228 -1743.05132 512 ) ( -560.316228 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 512 ) ( -559.683772 -1744.94868 448 ) ( -559.683772 -1744.94868 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 512 ) ( -559.683772 -1744.94868 512 ) ( -560.316228 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 512 ) ( -559.683772 -1744.94868 448 ) ( -560.316228 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 448 ) ( -703.683772 -1792.94868 512 ) ( -704.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( -704.316228 -1791.05132 512 ) ( -560.316228 -1743.05132 448 ) ( -704.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 512 ) ( -703.683772 -1792.94868 448 ) ( -559.683772 -1744.94868 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 512 ) ( -559.683772 -1744.94868 448 ) ( -560.316228 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 448 ) ( -703.683772 -1792.94868 448 ) ( -704.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 448 ) ( -703.683772 -1792.94868 512 ) ( -704.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( -704.316228 -1791.05132 448 ) ( -560.316228 -1743.05132 448 ) ( -560.316228 -1743.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 448 ) ( -559.683772 -1744.94868 384 ) ( -559.683772 -1744.94868 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 448 ) ( -559.683772 -1744.94868 448 ) ( -560.316228 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 448 ) ( -559.683772 -1744.94868 384 ) ( -560.316228 -1743.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 384 ) ( -703.683772 -1792.94868 448 ) ( -704.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( -704.316228 -1791.05132 448 ) ( -560.316228 -1743.05132 384 ) ( -704.316228 -1791.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 448 ) ( -703.683772 -1792.94868 384 ) ( -559.683772 -1744.94868 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 448 ) ( -559.683772 -1744.94868 384 ) ( -560.316228 -1743.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 384 ) ( -703.683772 -1792.94868 384 ) ( -704.316228 -1791.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 384 ) ( -703.683772 -1792.94868 448 ) ( -704.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( -560.948683 -1743.68377 512 ) ( -512.948683 -1599.68377 512 ) ( -512.948683 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 512 ) ( -511.051317 -1600.31623 448 ) ( -511.051317 -1600.31623 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 512 ) ( -511.051317 -1600.31623 512 ) ( -512.948683 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 512 ) ( -511.051317 -1600.31623 448 ) ( -512.948683 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 448 ) ( -559.051317 -1744.31623 512 ) ( -560.948683 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( -560.948683 -1743.68377 512 ) ( -512.948683 -1599.68377 448 ) ( -560.948683 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 512 ) ( -559.051317 -1744.31623 448 ) ( -511.051317 -1600.31623 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 512 ) ( -511.051317 -1600.31623 448 ) ( -512.948683 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 448 ) ( -559.051317 -1744.31623 448 ) ( -560.948683 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 448 ) ( -559.051317 -1744.31623 512 ) ( -560.948683 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( -560.948683 -1743.68377 448 ) ( -512.948683 -1599.68377 448 ) ( -512.948683 -1599.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 448 ) ( -511.051317 -1600.31623 384 ) ( -511.051317 -1600.31623 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 448 ) ( -511.051317 -1600.31623 448 ) ( -512.948683 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 448 ) ( -511.051317 -1600.31623 384 ) ( -512.948683 -1599.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 384 ) ( -559.051317 -1744.31623 448 ) ( -560.948683 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "0"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( -560.948683 -1743.68377 448 ) ( -512.948683 -1599.68377 384 ) ( -560.948683 -1743.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 448 ) ( -559.051317 -1744.31623 384 ) ( -511.051317 -1600.31623 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 448 ) ( -511.051317 -1600.31623 384 ) ( -512.948683 -1599.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 384 ) ( -559.051317 -1744.31623 384 ) ( -560.948683 -1743.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 384 ) ( -559.051317 -1744.31623 448 ) ( -560.948683 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( -704.316228 -1791.05132 768 ) ( -560.316228 -1743.05132 768 ) ( -560.316228 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 768 ) ( -559.683772 -1744.94868 640 ) ( -559.683772 -1744.94868 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 768 ) ( -559.683772 -1744.94868 768 ) ( -560.316228 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 768 ) ( -559.683772 -1744.94868 640 ) ( -560.316228 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 640 ) ( -703.683772 -1792.94868 768 ) ( -704.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( -704.316228 -1791.05132 768 ) ( -560.316228 -1743.05132 640 ) ( -704.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 768 ) ( -703.683772 -1792.94868 640 ) ( -559.683772 -1744.94868 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 768 ) ( -559.683772 -1744.94868 640 ) ( -560.316228 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 640 ) ( -703.683772 -1792.94868 640 ) ( -704.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 640 ) ( -703.683772 -1792.94868 768 ) ( -704.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( -704.316228 -1791.05132 640 ) ( -560.316228 -1743.05132 640 ) ( -560.316228 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 640 ) ( -559.683772 -1744.94868 512 ) ( -559.683772 -1744.94868 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 640 ) ( -559.683772 -1744.94868 640 ) ( -560.316228 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 640 ) ( -559.683772 -1744.94868 512 ) ( -560.316228 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 512 ) ( -703.683772 -1792.94868 640 ) ( -704.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( -704.316228 -1791.05132 640 ) ( -560.316228 -1743.05132 512 ) ( -704.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 640 ) ( -703.683772 -1792.94868 512 ) ( -559.683772 -1744.94868 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 640 ) ( -559.683772 -1744.94868 512 ) ( -560.316228 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 512 ) ( -703.683772 -1792.94868 512 ) ( -704.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 512 ) ( -703.683772 -1792.94868 640 ) ( -704.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( -560.948683 -1743.68377 768 ) ( -512.948683 -1599.68377 768 ) ( -512.948683 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 768 ) ( -511.051317 -1600.31623 640 ) ( -511.051317 -1600.31623 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 768 ) ( -511.051317 -1600.31623 768 ) ( -512.948683 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 768 ) ( -511.051317 -1600.31623 640 ) ( -512.948683 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 640 ) ( -559.051317 -1744.31623 768 ) ( -560.948683 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( -560.948683 -1743.68377 768 ) ( -512.948683 -1599.68377 640 ) ( -560.948683 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 768 ) ( -559.051317 -1744.31623 640 ) ( -511.051317 -1600.31623 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 768 ) ( -511.051317 -1600.31623 640 ) ( -512.948683 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 640 ) ( -559.051317 -1744.31623 640 ) ( -560.948683 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 640 ) ( -559.051317 -1744.31623 768 ) ( -560.948683 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( -560.948683 -1743.68377 640 ) ( -512.948683 -1599.68377 640 ) ( -512.948683 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 640 ) ( -511.051317 -1600.31623 512 ) ( -511.051317 -1600.31623 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 640 ) ( -511.051317 -1600.31623 640 ) ( -512.948683 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 640 ) ( -511.051317 -1600.31623 512 ) ( -512.948683 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 512 ) ( -559.051317 -1744.31623 640 ) ( -560.948683 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "1"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( -560.948683 -1743.68377 640 ) ( -512.948683 -1599.68377 512 ) ( -560.948683 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 640 ) ( -559.051317 -1744.31623 512 ) ( -511.051317 -1600.31623 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 640 ) ( -511.051317 -1600.31623 512 ) ( -512.948683 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 512 ) ( -559.051317 -1744.31623 512 ) ( -560.948683 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 512 ) ( -559.051317 -1744.31623 640 ) ( -560.948683 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( -704.316228 -1791.05132 800 ) ( -560.316228 -1743.05132 800 ) ( -560.316228 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 800 ) ( -559.683772 -1744.94868 784 ) ( -559.683772 -1744.94868 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 800 ) ( -559.683772 -1744.94868 800 ) ( -560.316228 -1743.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 800 ) ( -559.683772 -1744.94868 784 ) ( -560.316228 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 784 ) ( -703.683772 -1792.94868 800 ) ( -704.316228 -1791.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( -704.316228 -1791.05132 800 ) ( -560.316228 -1743.05132 784 ) ( -704.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 800 ) ( -703.683772 -1792.94868 784 ) ( -559.683772 -1744.94868 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 800 ) ( -559.683772 -1744.94868 784 ) ( -560.316228 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 784 ) ( -703.683772 -1792.94868 784 ) ( -704.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 784 ) ( -703.683772 -1792.94868 800 ) ( -704.316228 -1791.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( -704.316228 -1791.05132 784 ) ( -560.316228 -1743.05132 784 ) ( -560.316228 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 784 ) ( -559.683772 -1744.94868 768 ) ( -559.683772 -1744.94868 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 784 ) ( -559.683772 -1744.94868 784 ) ( -560.316228 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 784 ) ( -559.683772 -1744.94868 768 ) ( -560.316228 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 768 ) ( -703.683772 -1792.94868 784 ) ( -704.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( -704.316228 -1791.05132 784 ) ( -560.316228 -1743.05132 768 ) ( -704.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 784 ) ( -703.683772 -1792.94868 768 ) ( -559.683772 -1744.94868 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 784 ) ( -559.683772 -1744.94868 768 ) ( -560.316228 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 -1744.94868 768 ) ( -703.683772 -1792.94868 768 ) ( -704.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 -1792.94868 768 ) ( -703.683772 -1792.94868 784 ) ( -704.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( -560.948683 -1743.68377 800 ) ( -512.948683 -1599.68377 800 ) ( -512.948683 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 800 ) ( -511.051317 -1600.31623 784 ) ( -511.051317 -1600.31623 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 800 ) ( -511.051317 -1600.31623 800 ) ( -512.948683 -1599.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 800 ) ( -511.051317 -1600.31623 784 ) ( -512.948683 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 784 ) ( -559.051317 -1744.31623 800 ) ( -560.948683 -1743.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( -560.948683 -1743.68377 800 ) ( -512.948683 -1599.68377 784 ) ( -560.948683 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 800 ) ( -559.051317 -1744.31623 784 ) ( -511.051317 -1600.31623 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 800 ) ( -511.051317 -1600.31623 784 ) ( -512.948683 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 784 ) ( -559.051317 -1744.31623 784 ) ( -560.948683 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 784 ) ( -559.051317 -1744.31623 800 ) ( -560.948683 -1743.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( -560.948683 -1743.68377 784 ) ( -512.948683 -1599.68377 784 ) ( -512.948683 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 784 ) ( -511.051317 -1600.31623 768 ) ( -511.051317 -1600.31623 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 784 ) ( -511.051317 -1600.31623 784 ) ( -512.948683 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 784 ) ( -511.051317 -1600.31623 768 ) ( -512.948683 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 768 ) ( -559.051317 -1744.31623 784 ) ( -560.948683 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "2"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( -560.948683 -1743.68377 784 ) ( -512.948683 -1599.68377 768 ) ( -560.948683 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 784 ) ( -559.051317 -1744.31623 768 ) ( -511.051317 -1600.31623 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 784 ) ( -511.051317 -1600.31623 768 ) ( -512.948683 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -1600.31623 768 ) ( -559.051317 -1744.31623 768 ) ( -560.948683 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 -1744.31623 768 ) ( -559.051317 -1744.31623 784 ) ( -560.948683 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( 192.316228 -1791.05132 384 ) ( 48.3162278 -1743.05132 384 ) ( 48.3162278 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 384 ) ( 47.6837722 -1744.94868 448 ) ( 47.6837722 -1744.94868 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 384 ) ( 47.6837722 -1744.94868 384 ) ( 48.3162278 -1743.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 384 ) ( 47.6837722 -1744.94868 448 ) ( 48.3162278 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 448 ) ( 191.683772 -1792.94868 384 ) ( 192.316228 -1791.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( 192.316228 -1791.05132 384 ) ( 48.3162278 -1743.05132 448 ) ( 192.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 384 ) ( 191.683772 -1792.94868 448 ) ( 47.6837722 -1744.94868 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 384 ) ( 47.6837722 -1744.94868 448 ) ( 48.3162278 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 448 ) ( 191.683772 -1792.94868 448 ) ( 192.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 448 ) ( 191.683772 -1792.94868 384 ) ( 192.316228 -1791.05132 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( 192.316228 -1791.05132 448 ) ( 48.3162278 -1743.05132 448 ) ( 48.3162278 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 448 ) ( 47.6837722 -1744.94868 512 ) ( 47.6837722 -1744.94868 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 448 ) ( 47.6837722 -1744.94868 448 ) ( 48.3162278 -1743.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 448 ) ( 47.6837722 -1744.94868 512 ) ( 48.3162278 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 512 ) ( 191.683772 -1792.94868 448 ) ( 192.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( 192.316228 -1791.05132 448 ) ( 48.3162278 -1743.05132 512 ) ( 192.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 448 ) ( 191.683772 -1792.94868 512 ) ( 47.6837722 -1744.94868 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 448 ) ( 47.6837722 -1744.94868 512 ) ( 48.3162278 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 512 ) ( 191.683772 -1792.94868 512 ) ( 192.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 512 ) ( 191.683772 -1792.94868 448 ) ( 192.316228 -1791.05132 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( 48.9486833 -1743.68377 384 ) ( 0.948683298 -1599.68377 384 ) ( 0.948683298 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 384 ) ( -0.948683298 -1600.31623 448 ) ( -0.948683298 -1600.31623 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 384 ) ( -0.948683298 -1600.31623 384 ) ( 0.948683298 -1599.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 384 ) ( -0.948683298 -1600.31623 448 ) ( 0.948683298 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 448 ) ( 47.0513167 -1744.31623 384 ) ( 48.9486833 -1743.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( 48.9486833 -1743.68377 384 ) ( 0.948683298 -1599.68377 448 ) ( 48.9486833 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 384 ) ( 47.0513167 -1744.31623 448 ) ( -0.948683298 -1600.31623 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 384 ) ( -0.948683298 -1600.31623 448 ) ( 0.948683298 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 448 ) ( 47.0513167 -1744.31623 448 ) ( 48.9486833 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 448 ) ( 47.0513167 -1744.31623 384 ) ( 48.9486833 -1743.68377 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( 48.9486833 -1743.68377 448 ) ( 0.948683298 -1599.68377 448 ) ( 0.948683298 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 448 ) ( -0.948683298 -1600.31623 512 ) ( -0.948683298 -1600.31623 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 448 ) ( -0.948683298 -1600.31623 448 ) ( 0.948683298 -1599.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 448 ) ( -0.948683298 -1600.31623 512 ) ( 0.948683298 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 512 ) ( 47.0513167 -1744.31623 448 ) ( 48.9486833 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "33"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( 48.9486833 -1743.68377 448 ) ( 0.948683298 -1599.68377 512 ) ( 48.9486833 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 448 ) ( 47.0513167 -1744.31623 512 ) ( -0.948683298 -1600.31623 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 448 ) ( -0.948683298 -1600.31623 512 ) ( 0.948683298 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 512 ) ( 47.0513167 -1744.31623 512 ) ( 48.9486833 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 512 ) ( 47.0513167 -1744.31623 448 ) ( 48.9486833 -1743.68377 448 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( 192.316228 -1791.05132 512 ) ( 48.3162278 -1743.05132 512 ) ( 48.3162278 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 512 ) ( 47.6837722 -1744.94868 640 ) ( 47.6837722 -1744.94868 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 512 ) ( 47.6837722 -1744.94868 512 ) ( 48.3162278 -1743.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 512 ) ( 47.6837722 -1744.94868 640 ) ( 48.3162278 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 640 ) ( 191.683772 -1792.94868 512 ) ( 192.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( 192.316228 -1791.05132 512 ) ( 48.3162278 -1743.05132 640 ) ( 192.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 512 ) ( 191.683772 -1792.94868 640 ) ( 47.6837722 -1744.94868 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 512 ) ( 47.6837722 -1744.94868 640 ) ( 48.3162278 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 640 ) ( 191.683772 -1792.94868 640 ) ( 192.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 640 ) ( 191.683772 -1792.94868 512 ) ( 192.316228 -1791.05132 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( 192.316228 -1791.05132 640 ) ( 48.3162278 -1743.05132 640 ) ( 48.3162278 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 640 ) ( 47.6837722 -1744.94868 768 ) ( 47.6837722 -1744.94868 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 640 ) ( 47.6837722 -1744.94868 640 ) ( 48.3162278 -1743.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 640 ) ( 47.6837722 -1744.94868 768 ) ( 48.3162278 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 768 ) ( 191.683772 -1792.94868 640 ) ( 192.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( 192.316228 -1791.05132 640 ) ( 48.3162278 -1743.05132 768 ) ( 192.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 640 ) ( 191.683772 -1792.94868 768 ) ( 47.6837722 -1744.94868 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 640 ) ( 47.6837722 -1744.94868 768 ) ( 48.3162278 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 768 ) ( 191.683772 -1792.94868 768 ) ( 192.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 768 ) ( 191.683772 -1792.94868 640 ) ( 192.316228 -1791.05132 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( 48.9486833 -1743.68377 512 ) ( 0.948683298 -1599.68377 512 ) ( 0.948683298 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 512 ) ( -0.948683298 -1600.31623 640 ) ( -0.948683298 -1600.31623 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 512 ) ( -0.948683298 -1600.31623 512 ) ( 0.948683298 -1599.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 512 ) ( -0.948683298 -1600.31623 640 ) ( 0.948683298 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 640 ) ( 47.0513167 -1744.31623 512 ) ( 48.9486833 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( 48.9486833 -1743.68377 512 ) ( 0.948683298 -1599.68377 640 ) ( 48.9486833 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 512 ) ( 47.0513167 -1744.31623 640 ) ( -0.948683298 -1600.31623 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 512 ) ( -0.948683298 -1600.31623 640 ) ( 0.948683298 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 640 ) ( 47.0513167 -1744.31623 640 ) ( 48.9486833 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 640 ) ( 47.0513167 -1744.31623 512 ) ( 48.9486833 -1743.68377 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( 48.9486833 -1743.68377 640 ) ( 0.948683298 -1599.68377 640 ) ( 0.948683298 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 640 ) ( -0.948683298 -1600.31623 768 ) ( -0.948683298 -1600.31623 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 640 ) ( -0.948683298 -1600.31623 640 ) ( 0.948683298 -1599.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 640 ) ( -0.948683298 -1600.31623 768 ) ( 0.948683298 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 768 ) ( 47.0513167 -1744.31623 640 ) ( 48.9486833 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "34"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( 48.9486833 -1743.68377 640 ) ( 0.948683298 -1599.68377 768 ) ( 48.9486833 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 640 ) ( 47.0513167 -1744.31623 768 ) ( -0.948683298 -1600.31623 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 640 ) ( -0.948683298 -1600.31623 768 ) ( 0.948683298 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 768 ) ( 47.0513167 -1744.31623 768 ) ( 48.9486833 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 768 ) ( 47.0513167 -1744.31623 640 ) ( 48.9486833 -1743.68377 640 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( 192.316228 -1791.05132 768 ) ( 48.3162278 -1743.05132 768 ) ( 48.3162278 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 768 ) ( 47.6837722 -1744.94868 784 ) ( 47.6837722 -1744.94868 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 768 ) ( 47.6837722 -1744.94868 768 ) ( 48.3162278 -1743.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 768 ) ( 47.6837722 -1744.94868 784 ) ( 48.3162278 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 784 ) ( 191.683772 -1792.94868 768 ) ( 192.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( 192.316228 -1791.05132 768 ) ( 48.3162278 -1743.05132 784 ) ( 192.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 768 ) ( 191.683772 -1792.94868 784 ) ( 47.6837722 -1744.94868 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 768 ) ( 47.6837722 -1744.94868 784 ) ( 48.3162278 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 784 ) ( 191.683772 -1792.94868 784 ) ( 192.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 784 ) ( 191.683772 -1792.94868 768 ) ( 192.316228 -1791.05132 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( 192.316228 -1791.05132 784 ) ( 48.3162278 -1743.05132 784 ) ( 48.3162278 -1743.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 784 ) ( 47.6837722 -1744.94868 800 ) ( 47.6837722 -1744.94868 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 784 ) ( 47.6837722 -1744.94868 784 ) ( 48.3162278 -1743.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 784 ) ( 47.6837722 -1744.94868 800 ) ( 48.3162278 -1743.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 800 ) ( 191.683772 -1792.94868 784 ) ( 192.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( 192.316228 -1791.05132 784 ) ( 48.3162278 -1743.05132 800 ) ( 192.316228 -1791.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 784 ) ( 191.683772 -1792.94868 800 ) ( 47.6837722 -1744.94868 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 784 ) ( 47.6837722 -1744.94868 800 ) ( 48.3162278 -1743.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 -1744.94868 800 ) ( 191.683772 -1792.94868 800 ) ( 192.316228 -1791.05132 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 -1792.94868 800 ) ( 191.683772 -1792.94868 784 ) ( 192.316228 -1791.05132 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( 48.9486833 -1743.68377 768 ) ( 0.948683298 -1599.68377 768 ) ( 0.948683298 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 768 ) ( -0.948683298 -1600.31623 784 ) ( -0.948683298 -1600.31623 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 768 ) ( -0.948683298 -1600.31623 768 ) ( 0.948683298 -1599.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 768 ) ( -0.948683298 -1600.31623 784 ) ( 0.948683298 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 784 ) ( 47.0513167 -1744.31623 768 ) ( 48.9486833 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( 48.9486833 -1743.68377 768 ) ( 0.948683298 -1599.68377 784 ) ( 48.9486833 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 768 ) ( 47.0513167 -1744.31623 784 ) ( -0.948683298 -1600.31623 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 768 ) ( -0.948683298 -1600.31623 784 ) ( 0.948683298 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 784 ) ( 47.0513167 -1744.31623 784 ) ( 48.9486833 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 784 ) ( 47.0513167 -1744.31623 768 ) ( 48.9486833 -1743.68377 768 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( 48.9486833 -1743.68377 784 ) ( 0.948683298 -1599.68377 784 ) ( 0.948683298 -1599.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 784 ) ( -0.948683298 -1600.31623 800 ) ( -0.948683298 -1600.31623 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 784 ) ( -0.948683298 -1600.31623 784 ) ( 0.948683298 -1599.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 784 ) ( -0.948683298 -1600.31623 800 ) ( 0.948683298 -1599.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 800 ) ( 47.0513167 -1744.31623 784 ) ( 48.9486833 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "35"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( 48.9486833 -1743.68377 784 ) ( 0.948683298 -1599.68377 800 ) ( 48.9486833 -1743.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 784 ) ( 47.0513167 -1744.31623 800 ) ( -0.948683298 -1600.31623 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 784 ) ( -0.948683298 -1600.31623 800 ) ( 0.948683298 -1599.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -1600.31623 800 ) ( 47.0513167 -1744.31623 800 ) ( 48.9486833 -1743.68377 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 -1744.31623 800 ) ( 47.0513167 -1744.31623 784 ) ( 48.9486833 -1743.68377 784 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( -704.316228 63.0513167 256 ) ( -560.316228 15.0513167 256 ) ( -560.316228 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 256 ) ( -559.683772 16.9486833 384 ) ( -559.683772 16.9486833 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 256 ) ( -559.683772 16.9486833 256 ) ( -560.316228 15.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 256 ) ( -559.683772 16.9486833 384 ) ( -560.316228 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 384 ) ( -703.683772 64.9486833 256 ) ( -704.316228 63.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( -704.316228 63.0513167 256 ) ( -560.316228 15.0513167 384 ) ( -704.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 256 ) ( -703.683772 64.9486833 384 ) ( -559.683772 16.9486833 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 256 ) ( -559.683772 16.9486833 384 ) ( -560.316228 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 384 ) ( -703.683772 64.9486833 384 ) ( -704.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 384 ) ( -703.683772 64.9486833 256 ) ( -704.316228 63.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( -704.316228 63.0513167 384 ) ( -560.316228 15.0513167 384 ) ( -560.316228 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 384 ) ( -559.683772 16.9486833 512 ) ( -559.683772 16.9486833 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 384 ) ( -559.683772 16.9486833 384 ) ( -560.316228 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 384 ) ( -559.683772 16.9486833 512 ) ( -560.316228 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 512 ) ( -703.683772 64.9486833 384 ) ( -704.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( -704.316228 63.0513167 384 ) ( -560.316228 15.0513167 512 ) ( -704.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 384 ) ( -703.683772 64.9486833 512 ) ( -559.683772 16.9486833 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 384 ) ( -559.683772 16.9486833 512 ) ( -560.316228 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 512 ) ( -703.683772 64.9486833 512 ) ( -704.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 512 ) ( -703.683772 64.9486833 384 ) ( -704.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( -560.948683 15.6837722 256 ) ( -512.948683 -128.316228 256 ) ( -512.948683 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 256 ) ( -511.051317 -127.683772 384 ) ( -511.051317 -127.683772 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 256 ) ( -511.051317 -127.683772 256 ) ( -512.948683 -128.316228 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 256 ) ( -511.051317 -127.683772 384 ) ( -512.948683 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 384 ) ( -559.051317 16.3162278 256 ) ( -560.948683 15.6837722 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( -560.948683 15.6837722 256 ) ( -512.948683 -128.316228 384 ) ( -560.948683 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 256 ) ( -559.051317 16.3162278 384 ) ( -511.051317 -127.683772 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 256 ) ( -511.051317 -127.683772 384 ) ( -512.948683 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 384 ) ( -559.051317 16.3162278 384 ) ( -560.948683 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 384 ) ( -559.051317 16.3162278 256 ) ( -560.948683 15.6837722 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( -560.948683 15.6837722 384 ) ( -512.948683 -128.316228 384 ) ( -512.948683 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 384 ) ( -511.051317 -127.683772 512 ) ( -511.051317 -127.683772 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 384 ) ( -511.051317 -127.683772 384 ) ( -512.948683 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 384 ) ( -511.051317 -127.683772 512 ) ( -512.948683 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 512 ) ( -559.051317 16.3162278 384 ) ( -560.948683 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "46"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( -560.948683 15.6837722 384 ) ( -512.948683 -128.316228 512 ) ( -560.948683 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 384 ) ( -559.051317 16.3162278 512 ) ( -511.051317 -127.683772 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 384 ) ( -511.051317 -127.683772 512 ) ( -512.948683 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 512 ) ( -559.051317 16.3162278 512 ) ( -560.948683 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 512 ) ( -559.051317 16.3162278 384 ) ( -560.948683 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( -704.316228 63.0513167 512 ) ( -560.316228 15.0513167 512 ) ( -560.316228 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 512 ) ( -559.683772 16.9486833 656 ) ( -559.683772 16.9486833 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 512 ) ( -559.683772 16.9486833 512 ) ( -560.316228 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 512 ) ( -559.683772 16.9486833 656 ) ( -560.316228 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 656 ) ( -703.683772 64.9486833 512 ) ( -704.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( -704.316228 63.0513167 512 ) ( -560.316228 15.0513167 656 ) ( -704.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 512 ) ( -703.683772 64.9486833 656 ) ( -559.683772 16.9486833 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 512 ) ( -559.683772 16.9486833 656 ) ( -560.316228 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 656 ) ( -703.683772 64.9486833 656 ) ( -704.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 656 ) ( -703.683772 64.9486833 512 ) ( -704.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( -704.316228 63.0513167 656 ) ( -560.316228 15.0513167 656 ) ( -560.316228 15.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 656 ) ( -559.683772 16.9486833 800 ) ( -559.683772 16.9486833 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 656 ) ( -559.683772 16.9486833 656 ) ( -560.316228 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 656 ) ( -559.683772 16.9486833 800 ) ( -560.316228 15.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 800 ) ( -703.683772 64.9486833 656 ) ( -704.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( -704.316228 63.0513167 656 ) ( -560.316228 15.0513167 800 ) ( -704.316228 63.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 656 ) ( -703.683772 64.9486833 800 ) ( -559.683772 16.9486833 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 656 ) ( -559.683772 16.9486833 800 ) ( -560.316228 15.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.683772 16.9486833 800 ) ( -703.683772 64.9486833 800 ) ( -704.316228 63.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -703.683772 64.9486833 800 ) ( -703.683772 64.9486833 656 ) ( -704.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( -560.948683 15.6837722 512 ) ( -512.948683 -128.316228 512 ) ( -512.948683 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 512 ) ( -511.051317 -127.683772 656 ) ( -511.051317 -127.683772 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 512 ) ( -511.051317 -127.683772 512 ) ( -512.948683 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 512 ) ( -511.051317 -127.683772 656 ) ( -512.948683 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 656 ) ( -559.051317 16.3162278 512 ) ( -560.948683 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( -560.948683 15.6837722 512 ) ( -512.948683 -128.316228 656 ) ( -560.948683 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 512 ) ( -559.051317 16.3162278 656 ) ( -511.051317 -127.683772 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 512 ) ( -511.051317 -127.683772 656 ) ( -512.948683 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 656 ) ( -559.051317 16.3162278 656 ) ( -560.948683 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 656 ) ( -559.051317 16.3162278 512 ) ( -560.948683 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( -560.948683 15.6837722 656 ) ( -512.948683 -128.316228 656 ) ( -512.948683 -128.316228 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 656 ) ( -511.051317 -127.683772 800 ) ( -511.051317 -127.683772 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 656 ) ( -511.051317 -127.683772 656 ) ( -512.948683 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 656 ) ( -511.051317 -127.683772 800 ) ( -512.948683 -128.316228 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 800 ) ( -559.051317 16.3162278 656 ) ( -560.948683 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "47"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( -560.948683 15.6837722 656 ) ( -512.948683 -128.316228 800 ) ( -560.948683 15.6837722 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 656 ) ( -559.051317 16.3162278 800 ) ( -511.051317 -127.683772 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 656 ) ( -511.051317 -127.683772 800 ) ( -512.948683 -128.316228 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -511.051317 -127.683772 800 ) ( -559.051317 16.3162278 800 ) ( -560.948683 15.6837722 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -559.051317 16.3162278 800 ) ( -559.051317 16.3162278 656 ) ( -560.948683 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( 192.316228 63.0513167 800 ) ( 48.3162278 15.0513167 800 ) ( 48.3162278 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 800 ) ( 47.6837722 16.9486833 656 ) ( 47.6837722 16.9486833 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 800 ) ( 47.6837722 16.9486833 800 ) ( 48.3162278 15.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 800 ) ( 47.6837722 16.9486833 656 ) ( 48.3162278 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 656 ) ( 191.683772 64.9486833 800 ) ( 192.316228 63.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( 192.316228 63.0513167 800 ) ( 48.3162278 15.0513167 656 ) ( 192.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 800 ) ( 191.683772 64.9486833 656 ) ( 47.6837722 16.9486833 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 800 ) ( 47.6837722 16.9486833 656 ) ( 48.3162278 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 656 ) ( 191.683772 64.9486833 656 ) ( 192.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 656 ) ( 191.683772 64.9486833 800 ) ( 192.316228 63.0513167 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( 192.316228 63.0513167 656 ) ( 48.3162278 15.0513167 656 ) ( 48.3162278 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 656 ) ( 47.6837722 16.9486833 512 ) ( 47.6837722 16.9486833 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 656 ) ( 47.6837722 16.9486833 656 ) ( 48.3162278 15.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 656 ) ( 47.6837722 16.9486833 512 ) ( 48.3162278 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 512 ) ( 191.683772 64.9486833 656 ) ( 192.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( 192.316228 63.0513167 656 ) ( 48.3162278 15.0513167 512 ) ( 192.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 656 ) ( 191.683772 64.9486833 512 ) ( 47.6837722 16.9486833 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 656 ) ( 47.6837722 16.9486833 512 ) ( 48.3162278 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 512 ) ( 191.683772 64.9486833 512 ) ( 192.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 512 ) ( 191.683772 64.9486833 656 ) ( 192.316228 63.0513167 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( 48.9486833 15.6837722 800 ) ( 0.948683298 -128.316228 800 ) ( 0.948683298 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 800 ) ( -0.948683298 -127.683772 656 ) ( -0.948683298 -127.683772 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 800 ) ( -0.948683298 -127.683772 800 ) ( 0.948683298 -128.316228 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 800 ) ( -0.948683298 -127.683772 656 ) ( 0.948683298 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 656 ) ( 47.0513167 16.3162278 800 ) ( 48.9486833 15.6837722 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( 48.9486833 15.6837722 800 ) ( 0.948683298 -128.316228 656 ) ( 48.9486833 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 800 ) ( 47.0513167 16.3162278 656 ) ( -0.948683298 -127.683772 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 800 ) ( -0.948683298 -127.683772 656 ) ( 0.948683298 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 656 ) ( 47.0513167 16.3162278 656 ) ( 48.9486833 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 656 ) ( 47.0513167 16.3162278 800 ) ( 48.9486833 15.6837722 800 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( 48.9486833 15.6837722 656 ) ( 0.948683298 -128.316228 656 ) ( 0.948683298 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 656 ) ( -0.948683298 -127.683772 512 ) ( -0.948683298 -127.683772 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 656 ) ( -0.948683298 -127.683772 656 ) ( 0.948683298 -128.316228 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 656 ) ( -0.948683298 -127.683772 512 ) ( 0.948683298 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 512 ) ( 47.0513167 16.3162278 656 ) ( 48.9486833 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "48"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( 48.9486833 15.6837722 656 ) ( 0.948683298 -128.316228 512 ) ( 48.9486833 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 656 ) ( 47.0513167 16.3162278 512 ) ( -0.948683298 -127.683772 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 656 ) ( -0.948683298 -127.683772 512 ) ( 0.948683298 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 512 ) ( 47.0513167 16.3162278 512 ) ( 48.9486833 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 512 ) ( 47.0513167 16.3162278 656 ) ( 48.9486833 15.6837722 656 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "0"
+// brush 0
+{
+( 192.316228 63.0513167 512 ) ( 48.3162278 15.0513167 512 ) ( 48.3162278 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 512 ) ( 47.6837722 16.9486833 384 ) ( 47.6837722 16.9486833 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 512 ) ( 47.6837722 16.9486833 512 ) ( 48.3162278 15.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 512 ) ( 47.6837722 16.9486833 384 ) ( 48.3162278 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 384 ) ( 191.683772 64.9486833 512 ) ( 192.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "1"
+// brush 0
+{
+( 192.316228 63.0513167 512 ) ( 48.3162278 15.0513167 384 ) ( 192.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 512 ) ( 191.683772 64.9486833 384 ) ( 47.6837722 16.9486833 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 512 ) ( 47.6837722 16.9486833 384 ) ( 48.3162278 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 384 ) ( 191.683772 64.9486833 384 ) ( 192.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 384 ) ( 191.683772 64.9486833 512 ) ( 192.316228 63.0513167 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "2"
+// brush 0
+{
+( 192.316228 63.0513167 384 ) ( 48.3162278 15.0513167 384 ) ( 48.3162278 15.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 384 ) ( 47.6837722 16.9486833 256 ) ( 47.6837722 16.9486833 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 384 ) ( 47.6837722 16.9486833 384 ) ( 48.3162278 15.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 384 ) ( 47.6837722 16.9486833 256 ) ( 48.3162278 15.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 256 ) ( 191.683772 64.9486833 384 ) ( 192.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "3"
+// brush 0
+{
+( 192.316228 63.0513167 384 ) ( 48.3162278 15.0513167 256 ) ( 192.316228 63.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 384 ) ( 191.683772 64.9486833 256 ) ( 47.6837722 16.9486833 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 384 ) ( 47.6837722 16.9486833 256 ) ( 48.3162278 15.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.6837722 16.9486833 256 ) ( 191.683772 64.9486833 256 ) ( 192.316228 63.0513167 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 191.683772 64.9486833 256 ) ( 191.683772 64.9486833 384 ) ( 192.316228 63.0513167 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "4"
+// brush 0
+{
+( 48.9486833 15.6837722 512 ) ( 0.948683298 -128.316228 512 ) ( 0.948683298 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 512 ) ( -0.948683298 -127.683772 384 ) ( -0.948683298 -127.683772 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 512 ) ( -0.948683298 -127.683772 512 ) ( 0.948683298 -128.316228 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 512 ) ( -0.948683298 -127.683772 384 ) ( 0.948683298 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 384 ) ( 47.0513167 16.3162278 512 ) ( 48.9486833 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "5"
+// brush 0
+{
+( 48.9486833 15.6837722 512 ) ( 0.948683298 -128.316228 384 ) ( 48.9486833 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 512 ) ( 47.0513167 16.3162278 384 ) ( -0.948683298 -127.683772 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 512 ) ( -0.948683298 -127.683772 384 ) ( 0.948683298 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 384 ) ( 47.0513167 16.3162278 384 ) ( 48.9486833 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 384 ) ( 47.0513167 16.3162278 512 ) ( 48.9486833 15.6837722 512 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "6"
+// brush 0
+{
+( 48.9486833 15.6837722 384 ) ( 0.948683298 -128.316228 384 ) ( 0.948683298 -128.316228 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 384 ) ( -0.948683298 -127.683772 256 ) ( -0.948683298 -127.683772 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 384 ) ( -0.948683298 -127.683772 384 ) ( 0.948683298 -128.316228 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 384 ) ( -0.948683298 -127.683772 256 ) ( 0.948683298 -128.316228 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 256 ) ( 47.0513167 16.3162278 384 ) ( 48.9486833 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_patch_index" "49"
+"lg_source_patch_piece_index" "7"
+// brush 0
+{
+( 48.9486833 15.6837722 384 ) ( 0.948683298 -128.316228 256 ) ( 48.9486833 15.6837722 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 384 ) ( 47.0513167 16.3162278 256 ) ( -0.948683298 -127.683772 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 384 ) ( -0.948683298 -127.683772 256 ) ( 0.948683298 -128.316228 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( -0.948683298 -127.683772 256 ) ( 47.0513167 16.3162278 256 ) ( 48.9486833 15.6837722 256 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+( 47.0513167 16.3162278 256 ) ( 47.0513167 16.3162278 384 ) ( 48.9486833 15.6837722 384 ) Overkill/Overkill_Basalt_Block-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "0"
+"lg_source_brush_index" "1926"
+"lg_adaptation_visual_id" "teleporter-frame-left"
+// brush 0
+{
+( -1390 -882 128 ) ( -1357 -916 128 ) ( -1322 -883 128 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1322 -883 264 ) ( -1357 -916 264 ) ( -1390 -882 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1356 -848 264 ) ( -1356 -848 128 ) ( -1322 -883 128 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1322 -883 128 ) ( -1357 -916 128 ) ( -1357 -916 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1357 -916 264 ) ( -1357 -916 128 ) ( -1390 -882 128 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1390 -882 128 ) ( -1356 -848 128 ) ( -1356 -848 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "0"
+"lg_source_brush_index" "1927"
+"lg_adaptation_visual_id" "teleporter-frame-right"
+// brush 0
+{
+( -1301.5 -974.5 128 ) ( -1268 -1008 128 ) ( -1234 -974 128 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1234 -974 264 ) ( -1268 -1008 264 ) ( -1301 -975 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1267.5 -940.5 128 ) ( -1234 -974 128 ) ( -1234 -974 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1234 -974 128 ) ( -1268 -1008 128 ) ( -1268 -1008 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1268 -1008 264 ) ( -1268 -1008 128 ) ( -1301.5 -974.5 128 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -1301.5 -974.5 128 ) ( -1267.5 -940.5 128 ) ( -1267 -941 264 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "0"
+"lg_source_brush_index" "1928"
+"lg_adaptation_visual_id" "teleporter-frame-base"
+// brush 0
+{
+( -1358 -939 128 ) ( -1324 -973 128 ) ( -1279 -961 128 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1266 -917 144 ) ( -1279 -961 144 ) ( -1324 -973 144 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1300 -883 144 ) ( -1345 -895 144 ) ( -1345 -895 128 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1300 -883 144 ) ( -1300 -883 128 ) ( -1266 -917 128 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1358 -939 128 ) ( -1345 -895 128 ) ( -1345 -895 144 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1324 -973 144 ) ( -1324 -973 128 ) ( -1358 -939 128 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1279 -961 128 ) ( -1324 -973 128 ) ( -1324 -973 144 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -1266 -917 128 ) ( -1279 -961 128 ) ( -1279 -961 144 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_source_entity_index" "0"
+"lg_source_brush_index" "1914"
+"lg_collision_class" "playerclip"
+"lg_adaptation_derived_id" "doorway-south-right-bevel"
+// brush 0
+{
+( 0 -1776 384 ) ( 192 -1792 384 ) ( 128 -1776 384 ) common/playerclip 0 0 0 1 1
+( 0 -1776 800 ) ( 128 -1776 800 ) ( 192 -1792 800 ) common/playerclip 0 0 0 1 1
+( 0 -1776 384 ) ( 128 -1776 384 ) ( 128 -1776 800 ) common/playerclip 0 0 0 1 1
+( 128 -1776 384 ) ( 192 -1792 384 ) ( 192 -1792 800 ) common/playerclip 0 0 0 1 1
+( 192 -1792 384 ) ( 0 -1792 384 ) ( 0 -1792 800 ) common/playerclip 0 0 0 1 1
+( 0 -1792 384 ) ( 0 -1776 384 ) ( 0 -1776 800 ) common/playerclip 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_source_entity_index" "0"
+"lg_source_brush_index" "1919"
+"lg_collision_class" "playerclip"
+"lg_adaptation_derived_id" "doorway-bent-left-bevel"
+// brush 0
+{
+( -704 48 256 ) ( -576 32 256 ) ( -640 32 256 ) common/playerclip 0 0 0 1 1
+( -704 48 800 ) ( -640 32 800 ) ( -576 32 800 ) common/playerclip 0 0 0 1 1
+( -704 48 256 ) ( -640 32 256 ) ( -640 32 800 ) common/playerclip 0 0 0 1 1
+( -640 32 256 ) ( -576 32 256 ) ( -576 32 800 ) common/playerclip 0 0 0 1 1
+( -576 32 256 ) ( -576 48 256 ) ( -576 48 800 ) common/playerclip 0 0 0 1 1
+( -576 48 256 ) ( -704 48 256 ) ( -704 48 800 ) common/playerclip 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_source_entity_index" "0"
+"lg_source_brush_index" "1920"
+"lg_collision_class" "playerclip"
+"lg_adaptation_derived_id" "doorway-bent-right-bevel"
+// brush 0
+{
+( 64 32 256 ) ( 192 48 256 ) ( 128 32 256 ) common/playerclip 0 0 0 1 1
+( 64 32 800 ) ( 128 32 800 ) ( 192 48 800 ) common/playerclip 0 0 0 1 1
+( 64 32 256 ) ( 128 32 256 ) ( 128 32 800 ) common/playerclip 0 0 0 1 1
+( 128 32 256 ) ( 192 48 256 ) ( 192 48 800 ) common/playerclip 0 0 0 1 1
+( 192 48 256 ) ( 64 48 256 ) ( 64 48 800 ) common/playerclip 0 0 0 1 1
+( 64 48 256 ) ( 64 32 256 ) ( 64 32 800 ) common/playerclip 0 0 0 1 1
 }
 }
 {

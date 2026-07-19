@@ -19,6 +19,7 @@ import json
 import math
 import os
 import pathlib
+import re
 import struct
 import sys
 import tempfile
@@ -600,7 +601,7 @@ def _validate_adaptation_binding(
     raw_sha256: str,
     bsp: dict[str, object],
 ) -> None:
-    if not adaptation or adaptation.get("schema_version") != 2:
+    if not adaptation or adaptation.get("schema_version") not in {2, 3}:
         return
     expected_bsp = adaptation.get("source_bsp_sha256")
     expected_raw = adaptation.get("raw_decompile_sha256")
@@ -617,6 +618,73 @@ def _validate_adaptation_binding(
         raise ConversionError(
             f"adaptation raw decompile SHA-256 mismatch: expected {expected_raw.lower()}, got {raw_sha256}"
         )
+
+
+def _patch_rules(
+    adaptation: dict[str, object] | None,
+    patch_count: int,
+) -> dict[int, dict[str, object]]:
+    if not adaptation:
+        return {}
+    schema_version = adaptation.get("schema_version")
+    if schema_version == 3:
+        if "reconstruct_patch_indices" in adaptation:
+            raise ConversionError(
+                "adaptation schema v3 must use patch_rules, not reconstruct_patch_indices"
+            )
+        raw_rules = adaptation.get("patch_rules", [])
+        if not isinstance(raw_rules, list):
+            raise ConversionError("adaptation patch_rules must be an array")
+        rules: dict[int, dict[str, object]] = {}
+        for rule_index, raw_rule in enumerate(raw_rules):
+            if not isinstance(raw_rule, dict):
+                raise ConversionError(f"adaptation patch rule {rule_index} must be an object")
+            unknown = set(raw_rule) - {"source_patch_index", "action", "role", "reason"}
+            if unknown:
+                raise ConversionError(
+                    f"adaptation patch rule {rule_index} has invalid fields: {sorted(unknown)}"
+                )
+            patch_index = raw_rule.get("source_patch_index")
+            if not isinstance(patch_index, int) or isinstance(patch_index, bool) or patch_index < 0:
+                raise ConversionError(
+                    f"adaptation patch rule {rule_index} has invalid source_patch_index"
+                )
+            if raw_rule.get("action") != "reconstruct":
+                raise ConversionError(f"adaptation patch rule {rule_index} has invalid action")
+            if raw_rule.get("role") not in {"solid", "render_only"}:
+                raise ConversionError(f"adaptation patch rule {rule_index} has invalid role")
+            reason = raw_rule.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                raise ConversionError(f"adaptation patch rule {rule_index} needs a nonempty reason")
+            if patch_index in rules:
+                raise ConversionError(f"adaptation patch_rules has duplicate source_patch_index {patch_index}")
+            if patch_index >= patch_count:
+                raise ConversionError(
+                    f"adaptation patch index {patch_index} is outside the source inventory"
+                )
+            rules[patch_index] = dict(raw_rule)
+        return rules
+    if "patch_rules" in adaptation:
+        raise ConversionError("adaptation patch_rules require schema_version 3")
+    raw_indices = adaptation.get("reconstruct_patch_indices", [])
+    if not isinstance(raw_indices, list) or not all(
+        isinstance(index, int) and not isinstance(index, bool) and index >= 0 for index in raw_indices
+    ):
+        raise ConversionError("adaptation reconstruct_patch_indices must be a non-negative integer array")
+    if len(set(raw_indices)) != len(raw_indices):
+        raise ConversionError("adaptation reconstruct_patch_indices must not contain duplicates")
+    missing = set(raw_indices) - set(range(patch_count))
+    if missing:
+        raise ConversionError(f"adaptation patch indices are outside the source inventory: {sorted(missing)}")
+    return {
+        index: {
+            "source_patch_index": index,
+            "action": "reconstruct",
+            "role": "solid",
+            "reason": "legacy reconstruct_patch_indices selection",
+        }
+        for index in raw_indices
+    }
 
 
 def _automatic_brush_classification(brush: Brush, result: GeometryResult) -> tuple[str | None, str]:
@@ -701,6 +769,233 @@ def _brush_policy_rules(
                 raise ConversionError(f"adaptation brush policy rule {index} material_role requires visible_solid")
         rules[locator] = dict(raw_rule)
     return rules, {"default_action": "allow", "rule_count": len(rules)}
+
+
+def _derived_collision_hulls(
+    adaptation: dict[str, object] | None,
+    entities: Sequence[Entity],
+    results: dict[int, GeometryResult],
+    policy_rules: dict[tuple[int, int], dict[str, object]],
+) -> list[dict[str, object]]:
+    if not adaptation:
+        return []
+    raw_hulls = adaptation.get("derived_collision_hulls", [])
+    if adaptation.get("schema_version") != 3:
+        if "derived_collision_hulls" in adaptation:
+            raise ConversionError("adaptation derived_collision_hulls require schema_version 3")
+        return []
+    if not isinstance(raw_hulls, list):
+        raise ConversionError("adaptation derived_collision_hulls must be an array")
+    hulls: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    seen_replacements: set[tuple[int, int]] = set()
+    for hull_index, raw_hull in enumerate(raw_hulls):
+        if not isinstance(raw_hull, dict):
+            raise ConversionError(f"adaptation derived collision hull {hull_index} must be an object")
+        unknown = set(raw_hull) - {"id", "reason", "classification", "replaces", "faces"}
+        if unknown:
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index} has invalid fields: {sorted(unknown)}"
+            )
+        derived_id = raw_hull.get("id")
+        if (
+            not isinstance(derived_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", derived_id)
+        ):
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index} has invalid stable id"
+            )
+        if derived_id in seen_ids:
+            raise ConversionError(f"adaptation derived collision hull has duplicate id '{derived_id}'")
+        seen_ids.add(derived_id)
+        reason = raw_hull.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index} needs a nonempty reason"
+            )
+        classification = raw_hull.get("classification")
+        if classification not in {"playerclip", "weapclip"}:
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index} has invalid classification"
+            )
+        replaces = raw_hull.get("replaces")
+        if not isinstance(replaces, dict) or set(replaces) != {
+            "source_entity_index", "source_brush_index"
+        }:
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index}.replaces must be exactly one source brush locator"
+            )
+        entity_index = replaces.get("source_entity_index")
+        brush_index = replaces.get("source_brush_index")
+        if (
+            not isinstance(entity_index, int) or isinstance(entity_index, bool) or entity_index < 0
+            or not isinstance(brush_index, int) or isinstance(brush_index, bool) or brush_index < 0
+        ):
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index}.replaces has invalid locator indices"
+            )
+        locator = (entity_index, brush_index)
+        if locator in seen_replacements:
+            raise ConversionError(
+                f"adaptation derived collision hull has duplicate replacement locator {locator}"
+            )
+        seen_replacements.add(locator)
+        if entity_index >= len(entities) or brush_index >= len(entities[entity_index].brushes):
+            raise ConversionError(
+                f"adaptation derived collision hull replacement {locator} is outside the source inventory"
+            )
+        source_entity = entities[entity_index]
+        if (source_entity.get("classname") or "<missing>") not in {"worldspawn", "func_static"}:
+            raise ConversionError(
+                f"adaptation derived collision hull replacement {locator} is not static geometry"
+            )
+        source_brush = source_entity.brushes[brush_index]
+        automatic, _ = _automatic_brush_classification(source_brush, results[id(source_brush)])
+        if automatic != classification:
+            raise ConversionError(
+                f"adaptation derived collision hull replacement {locator} class mismatch: "
+                f"source is {automatic!r}, hull is {classification!r}"
+            )
+        policy_rule = policy_rules.get(locator)
+        if not policy_rule or policy_rule.get("action") != "drop":
+            raise ConversionError(
+                f"adaptation derived collision hull replacement {locator} must be explicitly dropped by brush_policy"
+            )
+        raw_faces = raw_hull.get("faces")
+        if not isinstance(raw_faces, list) or not 4 <= len(raw_faces) <= 16:
+            raise ConversionError(
+                f"adaptation derived collision hull {hull_index}.faces must contain 4 to 16 faces"
+            )
+        faces: list[Face] = []
+        material = "common/playerclip" if classification == "playerclip" else "common/weapclip"
+        for face_index, raw_face in enumerate(raw_faces):
+            if not isinstance(raw_face, list) or len(raw_face) != 3:
+                raise ConversionError(
+                    f"adaptation derived collision hull {hull_index} face {face_index} must contain exactly three points"
+                )
+            points: list[tuple[float, float, float]] = []
+            for point_index, raw_point in enumerate(raw_face):
+                if (
+                    not isinstance(raw_point, list) or len(raw_point) != 3
+                    or not all(
+                        isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+                        for value in raw_point
+                    )
+                ):
+                    raise ConversionError(
+                        f"adaptation derived collision hull {hull_index} face {face_index} "
+                        f"point {point_index} must be a finite three-number array"
+                    )
+                points.append(tuple(float(value) for value in raw_point))
+            faces.append(Face(tuple(points), material, 0))
+        brush = Brush(faces, 0)
+        result = validate_brush(brush)
+        if not result.valid:
+            raise ConversionError(
+                f"adaptation derived collision hull '{derived_id}' is not a closed convex brush: {result.reason}"
+            )
+        results[id(brush)] = result
+        hulls.append({
+            "id": derived_id,
+            "reason": reason,
+            "classification": classification,
+            "entity_index": entity_index,
+            "brush_index": brush_index,
+            "brush": brush,
+            "bounds": result.bounds,
+            "face_count": len(faces),
+        })
+    return hulls
+
+
+def _collision_visuals(
+    adaptation: dict[str, object] | None,
+    entities: Sequence[Entity],
+    results: dict[int, GeometryResult],
+) -> list[dict[str, object]]:
+    if not adaptation:
+        return []
+    raw_visuals = adaptation.get("collision_visuals", [])
+    if adaptation.get("schema_version") != 3:
+        if "collision_visuals" in adaptation:
+            raise ConversionError("adaptation collision_visuals require schema_version 3")
+        return []
+    if not isinstance(raw_visuals, list):
+        raise ConversionError("adaptation collision_visuals must be an array")
+    materials = adaptation.get("materials", {})
+    if not isinstance(materials, dict):
+        raise ConversionError("adaptation materials must be an object")
+
+    visuals: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    seen_locators: set[tuple[int, int]] = set()
+    for visual_index, raw_visual in enumerate(raw_visuals):
+        if not isinstance(raw_visual, dict):
+            raise ConversionError(f"adaptation collision visual {visual_index} must be an object")
+        unknown = set(raw_visual) - {
+            "id", "reason", "source_entity_index", "source_brush_index", "material_role"
+        }
+        if unknown:
+            raise ConversionError(
+                f"adaptation collision visual {visual_index} has invalid fields: {sorted(unknown)}"
+            )
+        visual_id = raw_visual.get("id")
+        if (
+            not isinstance(visual_id, str)
+            or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", visual_id)
+        ):
+            raise ConversionError(f"adaptation collision visual {visual_index} has invalid stable id")
+        if visual_id in seen_ids:
+            raise ConversionError(f"adaptation collision visual has duplicate id '{visual_id}'")
+        seen_ids.add(visual_id)
+        reason = raw_visual.get("reason")
+        if not isinstance(reason, str) or not reason.strip():
+            raise ConversionError(f"adaptation collision visual {visual_index} needs a nonempty reason")
+        entity_index = raw_visual.get("source_entity_index")
+        brush_index = raw_visual.get("source_brush_index")
+        if (
+            not isinstance(entity_index, int) or isinstance(entity_index, bool) or entity_index < 0
+            or not isinstance(brush_index, int) or isinstance(brush_index, bool) or brush_index < 0
+        ):
+            raise ConversionError(f"adaptation collision visual {visual_index} has invalid source locator")
+        locator = (entity_index, brush_index)
+        if locator in seen_locators:
+            raise ConversionError(f"adaptation collision visual has duplicate source locator {locator}")
+        seen_locators.add(locator)
+        if entity_index >= len(entities) or brush_index >= len(entities[entity_index].brushes):
+            raise ConversionError(
+                f"adaptation collision visual source locator {locator} is outside the source inventory"
+            )
+        source_entity = entities[entity_index]
+        if (source_entity.get("classname") or "<missing>") not in {"worldspawn", "func_static"}:
+            raise ConversionError(
+                f"adaptation collision visual source locator {locator} is not static geometry"
+            )
+        brush = source_entity.brushes[brush_index]
+        classification, _ = _automatic_brush_classification(brush, results[id(brush)])
+        if classification not in {"playerclip", "weapclip"}:
+            raise ConversionError(
+                f"adaptation collision visual source locator {locator} is not a collision-only brush"
+            )
+        material_role = raw_visual.get("material_role")
+        if (
+            not isinstance(material_role, str) or not material_role
+            or not isinstance(materials.get(material_role), str) or not materials[material_role]
+        ):
+            raise ConversionError(
+                f"adaptation collision visual {visual_index} names an invalid material_role"
+            )
+        visuals.append({
+            "id": visual_id,
+            "reason": reason,
+            "entity_index": entity_index,
+            "brush_index": brush_index,
+            "classification": classification,
+            "material_role": material_role,
+            "brush": brush,
+            "bounds": results[id(brush)].bounds,
+        })
+    return visuals
 
 
 def _quadratic(a: Sequence[float], b: Sequence[float], c: Sequence[float], t: float) -> tuple[float, float, float]:
@@ -887,6 +1182,12 @@ def convert(
                 })
 
     policy_rules, policy_summary = _brush_policy_rules(adaptation, entities)
+    derived_hulls = _derived_collision_hulls(adaptation, entities, results, policy_rules)
+    collision_visuals = _collision_visuals(adaptation, entities, results)
+    for hull in derived_hulls:
+        bounds = hull["bounds"]
+        if isinstance(bounds, tuple):
+            valid_bounds.append(bounds)
     emitted_world: list[Brush] = []
     emitted_static: list[dict[str, object]] = []
     brush_rows: list[dict[str, object]] = []
@@ -943,12 +1244,15 @@ def convert(
     reconstructed_patch_count = 0
     reconstructed_patch_brushes = 0
     adaptation_marker_count = 0
-    selected_patch_indices: set[int] = set()
+    patch_count = sum(len(entity.patches) for entity in entities)
+    patch_rules = _patch_rules(adaptation, patch_count)
+    selected_patch_indices = set(patch_rules)
+    reconstructed_by_role = {
+        "solid": {"patch_count": 0, "brush_count": 0, "indices": []},
+        "render_only": {"patch_count": 0, "brush_count": 0, "indices": []},
+    }
+    emitted_render_patches: list[dict[str, object]] = []
     if adaptation:
-        raw_indices = adaptation.get("reconstruct_patch_indices", [])
-        if not isinstance(raw_indices, list) or not all(isinstance(index, int) and index >= 0 for index in raw_indices):
-            raise ConversionError("adaptation reconstruct_patch_indices must be a non-negative integer array")
-        selected_patch_indices = set(raw_indices)
         subdivisions = adaptation.get("patch_subdivisions", 2)
         thickness = adaptation.get("patch_thickness", 2.0)
         if not isinstance(subdivisions, int) or subdivisions < 1 or subdivisions > 4:
@@ -958,7 +1262,8 @@ def convert(
         patch_index = 0
         for entity in entities:
             for patch in entity.patches:
-                if patch_index in selected_patch_indices:
+                rule = patch_rules.get(patch_index)
+                if rule is not None:
                     reconstructed = _reconstruct_patch(patch, subdivisions, float(thickness))
                     if not reconstructed:
                         raise ConversionError(f"adaptation patch {patch_index} at line {patch.line} could not be reconstructed")
@@ -967,13 +1272,22 @@ def convert(
                         results[id(brush)] = result
                         if result.bounds:
                             valid_bounds.append(result.bounds)
-                    emitted_world.extend(reconstructed)
+                    role = str(rule["role"])
+                    if role == "solid":
+                        emitted_world.extend(reconstructed)
+                    else:
+                        for piece_index, brush in enumerate(reconstructed):
+                            emitted_render_patches.append({
+                                "patch_index": patch_index,
+                                "piece_index": piece_index,
+                                "brush": brush,
+                            })
                     reconstructed_patch_count += 1
                     reconstructed_patch_brushes += len(reconstructed)
+                    reconstructed_by_role[role]["patch_count"] += 1
+                    reconstructed_by_role[role]["brush_count"] += len(reconstructed)
+                    reconstructed_by_role[role]["indices"].append(patch_index)
                 patch_index += 1
-        missing_indices = selected_patch_indices - set(range(patch_index))
-        if missing_indices:
-            raise ConversionError(f"adaptation patch indices are outside the source inventory: {sorted(missing_indices)}")
 
         raw_markers = adaptation.get("marker_boxes", [])
         materials_by_role = adaptation.get("materials", {})
@@ -1183,9 +1497,17 @@ def convert(
 
     wall_count = sum(results[id(brush)].kind == "wall" for brush in emitted_world) + sum(
         results[id(item["brush"])].kind == "wall" for item in emitted_static
+    ) + sum(results[id(item["brush"])].kind == "wall" for item in emitted_render_patches) + sum(
+        results[id(item["brush"])].kind == "wall" for item in collision_visuals
+    ) + sum(
+        results[id(item["brush"])].kind == "wall" for item in derived_hulls
     )
     convex_count = sum(results[id(brush)].kind == "convex_brush" for brush in emitted_world) + sum(
         results[id(item["brush"])].kind == "convex_brush" for item in emitted_static
+    ) + sum(results[id(item["brush"])].kind == "convex_brush" for item in emitted_render_patches) + sum(
+        results[id(item["brush"])].kind == "convex_brush" for item in collision_visuals
+    ) + sum(
+        results[id(item["brush"])].kind == "convex_brush" for item in derived_hulls
     )
     projected = {
         "walls": wall_count,
@@ -1195,7 +1517,10 @@ def convert(
         "health_pickups": converted_counts["health_pickups"],
         "spawns": converted_counts["spawns"],
         "teleports": converted_counts["teleports"],
-        "entities": 1 + len(emitted_static) + len(mapped_entities),
+        "entities": (
+            1 + len(emitted_static) + len(emitted_render_patches) + len(collision_visuals)
+            + len(derived_hulls) + len(mapped_entities)
+        ),
     }
     over_limits = {
         name: {"projected": projected[name], "limit": limit, "excess": projected[name] - limit}
@@ -1235,6 +1560,31 @@ def convert(
         ], [item["brush"]], adaptation=adaptation,
             classification=str(item["classification"]),
             material_role=item["material_role"] if isinstance(item["material_role"], str) else None))
+    for item in emitted_render_patches:
+        output_lines.extend(_emit_entity([
+            ("classname", "func_group"),
+            ("lg_geometry_role", "render_only"),
+            ("lg_source_patch_index", str(item["patch_index"])),
+            ("lg_source_patch_piece_index", str(item["piece_index"])),
+        ], [item["brush"]], adaptation=adaptation))
+    for item in collision_visuals:
+        output_lines.extend(_emit_entity([
+            ("classname", "func_group"),
+            ("lg_geometry_role", "render_only"),
+            ("lg_source_entity_index", str(item["entity_index"])),
+            ("lg_source_brush_index", str(item["brush_index"])),
+            ("lg_adaptation_visual_id", str(item["id"])),
+        ], [item["brush"]], adaptation=adaptation,
+            material_role=str(item["material_role"])))
+    for item in derived_hulls:
+        output_lines.extend(_emit_entity([
+            ("classname", "func_group"),
+            ("lg_source_entity_index", str(item["entity_index"])),
+            ("lg_source_brush_index", str(item["brush_index"])),
+            ("lg_collision_class", str(item["classification"])),
+            ("lg_adaptation_derived_id", str(item["id"])),
+        ], [item["brush"]], adaptation=adaptation,
+            classification=str(item["classification"])))
     for properties, brushes, trigger in mapped_entities:
         output_lines.extend(_emit_entity(properties, brushes, trigger, adaptation))
     output_map = "\n".join(output_lines) + "\n"
@@ -1290,7 +1640,7 @@ def convert(
                 "schema_version": adaptation.get("schema_version"),
                 "source_bsp_sha256": adaptation.get("source_bsp_sha256"),
                 "raw_decompile_sha256": adaptation.get("raw_decompile_sha256"),
-                "verified": adaptation.get("schema_version") == 2,
+                "verified": adaptation.get("schema_version") in {2, 3},
             } if adaptation else None),
             "projected_counts": projected,
             "limits": LIMITS,
@@ -1303,6 +1653,39 @@ def convert(
             "reconstructed_patches": reconstructed_patch_count,
             "reconstructed_patch_brushes": reconstructed_patch_brushes,
             "reconstructed_patch_indices": sorted(selected_patch_indices),
+            "reconstructed_patches_by_role": reconstructed_by_role,
+            "derived_collision_hulls": {
+                "count": len(derived_hulls),
+                "items": [{
+                    "id": item["id"],
+                    "reason": item["reason"],
+                    "classification": item["classification"],
+                    "replaces": {
+                        "source_entity_index": item["entity_index"],
+                        "source_brush_index": item["brush_index"],
+                    },
+                    "face_count": item["face_count"],
+                    "bounds": {
+                        "min": list(item["bounds"][0]),
+                        "max": list(item["bounds"][1]),
+                    },
+                } for item in derived_hulls],
+            },
+            "collision_visuals": {
+                "count": len(collision_visuals),
+                "items": [{
+                    "id": item["id"],
+                    "reason": item["reason"],
+                    "source_entity_index": item["entity_index"],
+                    "source_brush_index": item["brush_index"],
+                    "source_classification": item["classification"],
+                    "material_role": item["material_role"],
+                    "bounds": {
+                        "min": list(item["bounds"][0]),
+                        "max": list(item["bounds"][1]),
+                    },
+                } for item in collision_visuals],
+            },
             "adaptation_marker_boxes": adaptation_marker_count,
             "omitted_patches": sum(patch_kinds.values()) - reconstructed_patch_count,
             "omitted_patch_policy": (
@@ -1396,6 +1779,14 @@ def markdown_report(report: dict[str, object]) -> str:
         f"- Classic brushes: {inventory['classic_brush_count']}",
         f"- Source patches: {inventory['patch_count']}",
         f"- Reconstructed patches: {conversion['reconstructed_patches']} ({conversion['reconstructed_patch_brushes']} convex brushes)",
+        f"- Solid reconstructed patches: {conversion['reconstructed_patches_by_role']['solid']['patch_count']} "
+        f"({conversion['reconstructed_patches_by_role']['solid']['brush_count']} brushes; indices "
+        f"`{conversion['reconstructed_patches_by_role']['solid']['indices']}`)",
+        f"- Render-only reconstructed patches: {conversion['reconstructed_patches_by_role']['render_only']['patch_count']} "
+        f"({conversion['reconstructed_patches_by_role']['render_only']['brush_count']} brushes; indices "
+        f"`{conversion['reconstructed_patches_by_role']['render_only']['indices']}`)",
+        f"- Derived collision hulls: {conversion['derived_collision_hulls']['count']}",
+        f"- Collision-backed render-only hulls: {conversion['collision_visuals']['count']}",
         f"- Valid brushes: {geometry['valid_brush_count']}",
         f"- Invalid brushes: {geometry['invalid_brush_count']}",
         f"- Degenerate faces: {geometry['degenerate_face_count']}",
@@ -1449,6 +1840,38 @@ def markdown_report(report: dict[str, object]) -> str:
             f"{row['source_line']} | `{', '.join(row['source_materials'])}` | `{automatic}` | "
             f"`{row['requested_action']}` | `{effective}` | {result} |"
         )
+    if conversion["derived_collision_hulls"]["items"]:
+        lines.extend([
+            "",
+            "### Derived collision hulls",
+            "",
+            "| ID | Class | Replaces | Faces | Bounds | Reason |",
+            "|---|---|---|---:|---|---|",
+        ])
+        for hull in conversion["derived_collision_hulls"]["items"]:
+            replacement = hull["replaces"]
+            bounds = hull["bounds"]
+            lines.append(
+                f"| `{hull['id']}` | `{hull['classification']}` | "
+                f"`({replacement['source_entity_index']}, {replacement['source_brush_index']})` | "
+                f"{hull['face_count']} | `{bounds['min']} .. {bounds['max']}` | {hull['reason']} |"
+            )
+    if conversion["collision_visuals"]["items"]:
+        lines.extend([
+            "",
+            "### Collision-backed render-only hulls",
+            "",
+            "| ID | Source | Source class | Material role | Bounds | Reason |",
+            "|---|---|---|---|---|---|",
+        ])
+        for visual in conversion["collision_visuals"]["items"]:
+            bounds = visual["bounds"]
+            lines.append(
+                f"| `{visual['id']}` | "
+                f"`({visual['source_entity_index']}, {visual['source_brush_index']})` | "
+                f"`{visual['source_classification']}` | `{visual['material_role']}` | "
+                f"`{bounds['min']} .. {bounds['max']}` | {visual['reason']} |"
+            )
     lines.extend([
         "",
         (
@@ -1521,8 +1944,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         adaptation = None
         if args.adaptation:
             adaptation = json.loads(args.adaptation.read_text(encoding="utf-8"))
-            if not isinstance(adaptation, dict) or adaptation.get("schema_version") != 2:
-                raise ConversionError("adaptation must be a JSON object with schema_version 2")
+            if not isinstance(adaptation, dict) or adaptation.get("schema_version") not in {2, 3}:
+                raise ConversionError("adaptation must be a JSON object with schema_version 2 or 3")
             adaptation = dict(adaptation)
             adaptation["source_file"] = args.adaptation.name
         output_map, report = convert(raw_text, args.raw_map.name, bsp, aas, adaptation)

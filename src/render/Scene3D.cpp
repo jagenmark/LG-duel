@@ -1669,10 +1669,9 @@ void addFirstPersonWeaponModel(
     std::max(length(frame.basis.forward * scale), length(frame.basis.right * scale)),
     length(frame.basis.up * scale)
   );
-  float localRadius = asset != nullptr ? asset->localBounds.radius : 0.0F;
-  if (materialAsset != nullptr) {
-    localRadius = materialMeshBounds(materialAsset->vertices).radius;
-  }
+  const float localRadius = materialAsset != nullptr
+    ? materialAsset->localBounds.radius
+    : (asset != nullptr ? asset->localBounds.radius : 0.0F);
   const float radius = localRadius * boundsScale;
   return {
     mesh,
@@ -1696,26 +1695,7 @@ void addFirstPersonWeaponModel(
 }
 
 void appendStaticMeshInstance(Scene3D& scene, const StaticMeshInstance& instance) {
-  const std::uint32_t index =
-    static_cast<std::uint32_t>(scene.staticMeshInstances.size());
   scene.staticMeshInstances.push_back(instance);
-  for (StaticMeshBatch& batch : scene.staticMeshBatches) {
-    const std::uint32_t batchEnd = batch.firstInstance + batch.instanceCount;
-    if (
-      batch.mesh == instance.mesh &&
-      batch.pass == instance.pass &&
-      batchEnd == index
-    ) {
-      ++batch.instanceCount;
-      return;
-    }
-  }
-  scene.staticMeshBatches.push_back({
-    instance.mesh,
-    instance.pass,
-    index,
-    1U,
-  });
 }
 
 [[nodiscard]] WeaponModelFrame revolverRecoilFrame(
@@ -2942,48 +2922,67 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   static const MaterialMeshAsset body = {
     MeshHandle::RemoteRevolverBody,
     revolverBodyVertices,
+    materialMeshBounds(revolverBodyVertices),
   };
   static const MaterialMeshAsset cylinder = {
     MeshHandle::RemoteRevolverCylinder,
     revolverCylinderVertices,
+    materialMeshBounds(revolverCylinderVertices),
   };
   static const MaterialMeshAsset machineGunBody = {
     MeshHandle::RemoteMachineGunBody,
     machineGunBodyVertices,
+    materialMeshBounds(machineGunBodyVertices),
   };
   static const MaterialMeshAsset machineGunBarrels = {
     MeshHandle::RemoteMachineGunBarrels,
     machineGunBarrelVertices,
+    materialMeshBounds(machineGunBarrelVertices),
   };
   static const MaterialMeshAsset rocketLauncherBody = {
     MeshHandle::RemoteRocketLauncherBody,
     rocketLauncherBodyVertices,
+    materialMeshBounds(rocketLauncherBodyVertices),
   };
   static const MaterialMeshAsset rocketLauncherRecoil = {
     MeshHandle::RemoteRocketLauncherRecoil,
     rocketLauncherRecoilVertices,
+    materialMeshBounds(rocketLauncherRecoilVertices),
   };
   static const MaterialMeshAsset rocketLauncherLatch = {
     MeshHandle::RemoteRocketLauncherLatch,
     rocketLauncherLatchVertices,
+    materialMeshBounds(rocketLauncherLatchVertices),
   };
   static const MaterialMeshAsset freezeGunBody = {
-    MeshHandle::RemoteFreezeGunBody, freezeGunBodyVertices,
+    MeshHandle::RemoteFreezeGunBody,
+    freezeGunBodyVertices,
+    materialMeshBounds(freezeGunBodyVertices),
   };
   static const MaterialMeshAsset freezeGunFocus = {
-    MeshHandle::RemoteFreezeGunFocus, freezeGunFocusVertices,
+    MeshHandle::RemoteFreezeGunFocus,
+    freezeGunFocusVertices,
+    materialMeshBounds(freezeGunFocusVertices),
   };
   static const MaterialMeshAsset freezeGunCoolant = {
-    MeshHandle::RemoteFreezeGunCoolant, freezeGunCoolantVertices,
+    MeshHandle::RemoteFreezeGunCoolant,
+    freezeGunCoolantVertices,
+    materialMeshBounds(freezeGunCoolantVertices),
   };
   static const MaterialMeshAsset plasmaGunBody = {
-    MeshHandle::RemotePlasmaGunBody, plasmaGunBodyVertices,
+    MeshHandle::RemotePlasmaGunBody,
+    plasmaGunBodyVertices,
+    materialMeshBounds(plasmaGunBodyVertices),
   };
   static const MaterialMeshAsset plasmaGunProngs = {
-    MeshHandle::RemotePlasmaGunProngs, plasmaGunProngVertices,
+    MeshHandle::RemotePlasmaGunProngs,
+    plasmaGunProngVertices,
+    materialMeshBounds(plasmaGunProngVertices),
   };
   static const MaterialMeshAsset plasmaGunCore = {
-    MeshHandle::RemotePlasmaGunCore, plasmaGunCoreVertices,
+    MeshHandle::RemotePlasmaGunCore,
+    plasmaGunCoreVertices,
+    materialMeshBounds(plasmaGunCoreVertices),
   };
   if (handle == MeshHandle::RemoteMachineGunBody) {
     return &machineGunBody;
@@ -3343,23 +3342,7 @@ namespace {
 }
 
 void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) {
-  const std::uint32_t index =
-    static_cast<std::uint32_t>(scene.simpleInstances.size());
   scene.simpleInstances.push_back(instance);
-  for (SimpleRenderBatch& batch : scene.simpleBatches) {
-    const std::uint32_t batchEnd = batch.firstInstance + batch.instanceCount;
-    if (sameSimpleBatchKey(batch, instance) && batchEnd == index) {
-      ++batch.instanceCount;
-      return;
-    }
-  }
-  scene.simpleBatches.push_back({
-    instance.mesh,
-    instance.billboard,
-    instance.pass,
-    index,
-    1U,
-  });
 }
 
 [[nodiscard]] bool finiteVec3(Vec3 value) {
@@ -4650,10 +4633,14 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
   scene.vertices.reserve(
     512U +
     arena.wallCount * 36U +
-    arena.brushCount * ArenaBrush::kMaxFaces * 12U
+    arena.brushCount * ArenaBrush::kMaxFaces * 12U +
+    arena.visualWallCount * 36U +
+    arena.visualBrushCount * ArenaBrush::kMaxFaces * 12U
   );
 
-  addFloorTreatment(scene, arena);
+  if (arena.renderDefaultFloor) {
+    addFloorTreatment(scene, arena);
+  }
   addArenaBoundaryWalls(scene, arena);
   addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
@@ -4668,6 +4655,14 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
       continue;
     }
     addArenaBrush(scene, arena, arena.brushes[index]);
+  }
+  // These arrays are deliberately consumed only by static-world rendering;
+  // collision debug and authoritative simulation iterate the solid arrays.
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    addWallBox(scene, arena, arena.visualWalls[index]);
+  }
+  for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+    addArenaBrush(scene, arena, arena.visualBrushes[index]);
   }
 
   if (lightDebugEnabled()) {

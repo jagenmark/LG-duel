@@ -27,7 +27,6 @@ constexpr std::uint32_t kTransientCombatEventTicks = 8;
 constexpr std::uint32_t kLocalHitFeedbackEventRetentionTicks = 32;
 constexpr CollisionBounds kDefaultPlayerBounds = {};
 constexpr float kQ3KnockbackToInternalScale = 22.0F / 1000.0F;
-constexpr float kLightningKnockbackUsefulMinimum = 682.0F;
 constexpr float kProjectileCollisionEpsilon = 0.0001F;
 constexpr float kHealthPickupTouchRadius = 0.7F;
 constexpr float kHealthPickupTouchHalfHeight = 0.8F;
@@ -1214,6 +1213,7 @@ void ServerGame::resetMatch() {
   snapshot_.botDodgeEnabled = botDodgeEnabled_;
   snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+  snapshot_.botWeapon = botWeapon_;
   snapshot_.weaponSwitchingMode = weaponSwitchingMode_;
   resetHealthPickups();
   snapshot_.roundWinner = 255;
@@ -1401,7 +1401,9 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   rocketCooldownTicks_[playerIndex] = 0;
   grenadeCooldownTicks_[playerIndex] = 0;
   plasmaGunCooldownTicks_[playerIndex] = 0;
-  selectedWeapons_[playerIndex] = Weapon::LightningGun;
+  selectedWeapons_[playerIndex] = botPlayers_[playerIndex]
+    ? botWeapon_
+    : Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
   lightningAmmoCredit_[playerIndex] = 1.0;
   freezeAmmoCredit_[playerIndex] = 1.0;
@@ -1554,7 +1556,9 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   freezeGunStates_[playerIndex] = {};
   lightningAmmoCredit_[playerIndex] = 1.0;
   freezeAmmoCredit_[playerIndex] = 1.0;
-  selectedWeapons_[playerIndex] = Weapon::LightningGun;
+  selectedWeapons_[playerIndex] = botPlayers_[playerIndex]
+    ? botWeapon_
+    : Weapon::LightningGun;
   weaponPulloutTicks_[playerIndex] = 0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
   refillAmmo(playerIndex);
@@ -1913,6 +1917,16 @@ void ServerGame::setBotAttackMode(BotAttackMode mode) {
   }
 }
 
+void ServerGame::setBotWeapon(Weapon weapon) {
+  if (weapon > kLastWeapon) {
+    return;
+  }
+  // Bots request this authoritative selection every tick, so normal weapon
+  // switching and pullout rules still apply instead of being bypassed.
+  botWeapon_ = weapon;
+  snapshot_.botWeapon = botWeapon_;
+}
+
 BotRosterChange ServerGame::addBots(std::optional<std::size_t> count) {
   if (!warmupPhase()) {
     return {false, 0, "bot_add is only allowed during warmup"};
@@ -2017,6 +2031,10 @@ int ServerGame::botDodgeMaxIntervalMs() const {
 
 BotAttackMode ServerGame::botAttackMode() const {
   return botAttackMode_;
+}
+
+Weapon ServerGame::botWeapon() const {
+  return botWeapon_;
 }
 
 bool ServerGame::isBotSlot(std::size_t playerIndex) const {
@@ -3737,7 +3755,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
     command.viewYawRadians = snapshot_.players[playerIndex].viewYawRadians;
     command.viewPitchRadians = snapshot_.players[playerIndex].viewPitchRadians;
     command.planarAim = false;
-    command.weapon = Weapon::LightningGun;
+    command.weapon = botWeapon_;
 
     if (botStandstillEnabled_) {
       command.forwardMove = 0.0F;
@@ -3911,6 +3929,9 @@ void ServerGame::handleBotCommandRequest(const CommandPacket& packet) {
         packet.botCommandMinIntervalMs,
         packet.botCommandMaxIntervalMs
       );
+      break;
+    case BotCommandType::Weapon:
+      setBotWeapon(static_cast<Weapon>(packet.botCommandValue));
       break;
   }
 }
@@ -4484,6 +4505,7 @@ void ServerGame::publishSnapshot() {
   snapshot_.botDodgeMinIntervalMs = botDodgeMinIntervalMs_;
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   snapshot_.botAttackMode = botAttackMode_;
+  snapshot_.botWeapon = botWeapon_;
   transport_.publishChatHistory(chatHistory_);
   transport_.sendSnapshot(snapshot_);
 }

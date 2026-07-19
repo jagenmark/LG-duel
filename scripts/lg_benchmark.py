@@ -33,10 +33,22 @@ DEFAULT_TIMEOUT = 180.0
 DEFAULT_STABLE_CV_PERCENT = 3.0
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 NATIVE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+BUILD_MODES = {
+    "release": {"directory": REPO_ROOT / "build" / "perf", "preset": "perf"},
+    "debug": {"directory": REPO_ROOT / "build" / "default", "preset": "default"},
+}
 
 
 class BenchmarkError(RuntimeError):
     """An actionable benchmark input, execution, or artifact error."""
+
+
+def benchmark_build(build_mode: str) -> tuple[Path, str]:
+    try:
+        selected = BUILD_MODES[build_mode]
+    except KeyError as error:
+        raise BenchmarkError("build mode must be 'release' or 'debug'") from error
+    return Path(selected["directory"]), str(selected["preset"])
 
 
 def _object(value: Any, label: str) -> dict[str, Any]:
@@ -206,12 +218,14 @@ def validate_scenario(document: Any, *, source: Path | None = None) -> dict[str,
         raise BenchmarkError("scenario.player_state.weapon must be a non-empty string")
 
     actors = _object(obj["actors"], "scenario.actors")
-    _closed(actors, {"bots", "attack_mode", "stare", "standstill", "dodge", "dodge_min_ms", "dodge_max_ms", "expected_count", "commands"}, "scenario.actors")
+    _closed(actors, {"bots", "weapon", "attack_mode", "stare", "standstill", "dodge", "dodge_min_ms", "dodge_max_ms", "expected_count", "commands"}, "scenario.actors")
     for key in ("bots", "dodge_min_ms", "dodge_max_ms", "expected_count"):
         if key in actors and (isinstance(actors[key], bool) or not isinstance(actors[key], int) or actors[key] < 0):
             raise BenchmarkError(f"scenario.actors.{key} must be a non-negative integer")
     if "commands" in actors and (not isinstance(actors["commands"], list) or not all(isinstance(x, str) for x in actors["commands"])):
         raise BenchmarkError("scenario.actors.commands must be a string array")
+    if "weapon" in actors and (not isinstance(actors["weapon"], str) or not actors["weapon"]):
+        raise BenchmarkError("scenario.actors.weapon must be a non-empty string")
     for key in ("stare", "standstill", "dodge"):
         if key in actors and not isinstance(actors[key], bool):
             raise BenchmarkError(f"scenario.actors.{key} must be boolean")
@@ -521,14 +535,18 @@ def build_run_request(scenario: dict[str, Any], digest: str, run_id: str, run_gr
     return {"scenario": scenario, "scenario_hash": digest, "run_id": run_id, "run_group": run_group}
 
 
-def _start_client(port: int, timeout: float) -> dict[str, Any]:
+def _start_client(port: int, timeout: float, build_mode: str = "release") -> dict[str, Any]:
+    build_dir, preset = benchmark_build(build_mode)
     try:
         return ensure_client(
             renderer="gpu", benchmark=True, control_port=port,
-            timeout=min(timeout, 30.0),
+            timeout=min(timeout, 30.0), build_dir=build_dir,
         )
     except LaunchError as error:
-        raise BenchmarkError(f"benchmark client failed GPU startup verification: {error}") from error
+        raise BenchmarkError(
+            f"benchmark client failed GPU startup verification for the '{build_mode}' build: {error}; "
+            f"run cmake --preset {preset} and cmake --build --preset {preset}"
+        ) from error
 
 
 def _safe_artifact_path(path_text: str, run_dir: Path) -> Path:
@@ -642,6 +660,7 @@ def render_report(result: dict[str, Any]) -> str:
               f"- Valid: {aggregate.get('valid', False)}", f"- Stable: {aggregate.get('stable', False)}",
               f"- Commit: `{git.get('commit', 'unknown')}` (dirty: {git.get('dirty', 'unknown')})",
               f"- Host: {environment.get('os', 'unknown')} / {environment.get('cpu', 'unknown')} / {environment.get('logical_cores', 'unknown')} logical cores",
+              f"- Build mode: {environment.get('build_mode', 'unknown')}",
               f"- Renderer: {environment.get('renderer', 'unknown')} / requested {settings.get('backend', 'unknown')} / resolution {settings.get('resolution', 'unknown')}",
               f"- Protocol/benchmark version: {environment.get('protocol_version', 'unknown')}",
               f"- Started/completed: {result.get('started_at', 'unknown')} / {result.get('completed_at', 'unknown')}",
@@ -657,10 +676,11 @@ def render_report(result: dict[str, Any]) -> str:
 
 def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
                   timeout: float = DEFAULT_TIMEOUT, request_sender: Callable[..., dict[str, Any]] = send_request,
-                  start_client: bool = True) -> dict[str, Any]:
+                  start_client: bool = True, build_mode: str = "release") -> dict[str, Any]:
     repetitions = _positive_int(repetitions, "repetitions")
+    build_dir, _ = benchmark_build(build_mode)
     scenario, scenario_path, digest = load_scenario(scenario_name)
-    status = _start_client(port, timeout) if start_client else {}
+    status = _start_client(port, timeout, build_mode) if start_client else {}
     requested_backend = scenario["backend_requirement"].lower()
     actual_renderer = str(status.get("renderer", ""))
     if requested_backend == "gpu" and status and (
@@ -684,6 +704,12 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     result_dir.mkdir(parents=True)
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     environment = environment_metadata(status)
+    environment["build_mode"] = build_mode
+    environment["build_directory"] = str(build_dir)
+    client_executable = build_dir / "lg_duel_client.exe"
+    if client_executable.is_file():
+        environment["executable"] = str(client_executable)
+        environment["executable_sha256"] = hashlib.sha256(client_executable.read_bytes()).hexdigest()
     run_conditions = {
         "git": git,
         "environment": environment,
@@ -731,7 +757,7 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
 def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: str = "overkill_import",
                              warmup_batches: int = 5, measured_batches: int = 40,
                              operations_per_batch: int = 256, timeout: float = DEFAULT_TIMEOUT,
-                             force_linear: bool = False) -> dict[str, Any]:
+                             force_linear: bool = False, build_mode: str = "release") -> dict[str, Any]:
     if workload not in {"movement-collision", "trace-projectile"}:
         raise BenchmarkError("simulation workload must be movement-collision or trace-projectile")
     validate_safe_name(map_name, "map")
@@ -739,9 +765,13 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     warmup_batches = _positive_int(warmup_batches, "warmup batches")
     measured_batches = _positive_int(measured_batches, "measured batches")
     operations_per_batch = _positive_int(operations_per_batch, "operations per batch")
-    executable = REPO_ROOT / "build" / "default" / "lg_duel_sim_benchmark.exe"
+    build_dir, preset = benchmark_build(build_mode)
+    executable = build_dir / "lg_duel_sim_benchmark.exe"
     if not executable.is_file():
-        raise BenchmarkError(f"simulation benchmark executable not found: {executable}; build preset default first")
+        raise BenchmarkError(
+            f"simulation benchmark executable not found: {executable}; "
+            f"run cmake --preset {preset} and cmake --build --preset {preset}"
+        )
     git = _git_metadata()
     commit_short = str(git["commit"])[:12]
     group = f"{_timestamp()}-{commit_short}"
@@ -784,6 +814,8 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     digest = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
     environment = environment_metadata({"renderer": "headless/shared-simulation"})
+    environment["build_mode"] = build_mode
+    environment["build_directory"] = str(build_dir)
     environment["executable"] = str(executable)
     environment["executable_sha256"] = executable_hash
     sample_columns = {
@@ -866,12 +898,16 @@ def load_result(reference: str | Path, *, baseline: bool = False, detailed: bool
 
 
 def create_baseline(scenario_name: str, name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
-                    timeout: float = DEFAULT_TIMEOUT, result: dict[str, Any] | None = None) -> dict[str, Any]:
+                    timeout: float = DEFAULT_TIMEOUT, result: dict[str, Any] | None = None,
+                    build_mode: str = "release") -> dict[str, Any]:
     validate_safe_name(name, "baseline name")
     target = BASELINE_ROOT / name
     if target.exists():
         raise BenchmarkError(f"baseline '{name}' already exists")
-    result = result or run_benchmark(scenario_name, repetitions=repetitions, port=port, timeout=timeout)
+    result = result or run_benchmark(
+        scenario_name, repetitions=repetitions, port=port, timeout=timeout,
+        build_mode=build_mode,
+    )
     target.mkdir(parents=True)
     baseline = dict(result)
     baseline["baseline_name"] = name
@@ -903,7 +939,7 @@ def _comparison_mismatch(baseline: dict[str, Any], result: dict[str, Any]) -> li
         if baseline.get("settings", {}).get(key) != result.get("settings", {}).get(key):
             reasons.append(key)
     base_env, new_env = baseline.get("environment", {}), result.get("environment", {})
-    for key in ("renderer", "protocol_version", "gpu_name", "graphics_driver_version", "vulkan_api_version",
+    for key in ("build_mode", "renderer", "protocol_version", "gpu_name", "graphics_driver_version", "vulkan_api_version",
                 "observed_resolution", "selected_present_mode"):
         if base_env.get(key) != new_env.get(key):
             reasons.append(key)
@@ -1004,6 +1040,7 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("--scenario", required=True)
     run.add_argument("--repetitions", type=int, default=3)
+    run.add_argument("--build-mode", choices=tuple(BUILD_MODES), default="release")
     sim_run = commands.add_parser("sim-run")
     sim_run.add_argument("--workload", required=True, choices=("movement-collision", "trace-projectile"))
     sim_run.add_argument("--map", default="overkill_import")
@@ -1012,10 +1049,12 @@ def build_parser() -> argparse.ArgumentParser:
     sim_run.add_argument("--measured-batches", type=int, default=40)
     sim_run.add_argument("--operations-per-batch", type=int, default=256)
     sim_run.add_argument("--force-linear", action="store_true")
+    sim_run.add_argument("--build-mode", choices=tuple(BUILD_MODES), default="release")
     create = commands.add_parser("baseline-create")
     create.add_argument("--scenario", required=True)
     create.add_argument("--name", required=True)
     create.add_argument("--repetitions", type=int, default=3)
+    create.add_argument("--build-mode", choices=tuple(BUILD_MODES), default="release")
     compare = commands.add_parser("compare")
     compare.add_argument("--baseline", required=True)
     compare.add_argument("--result", required=True)
@@ -1031,18 +1070,24 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
     if args.command == "list":
         return list_scenarios(), 0
     if args.command == "run":
-        result = run_benchmark(args.scenario, repetitions=args.repetitions, port=args.port, timeout=args.timeout)
+        result = run_benchmark(
+            args.scenario, repetitions=args.repetitions, port=args.port,
+            timeout=args.timeout, build_mode=args.build_mode,
+        )
         return result, 0 if result["aggregate"]["valid"] else 3
     if args.command == "sim-run":
         result = run_simulation_benchmark(
             args.workload, repetitions=args.repetitions, map_name=args.map,
             warmup_batches=args.warmup_batches, measured_batches=args.measured_batches,
             operations_per_batch=args.operations_per_batch, timeout=args.timeout,
-            force_linear=args.force_linear,
+            force_linear=args.force_linear, build_mode=args.build_mode,
         )
         return result, 0 if result["aggregate"]["valid"] else 3
     if args.command == "baseline-create":
-        return create_baseline(args.scenario, args.name, repetitions=args.repetitions, port=args.port, timeout=args.timeout), 0
+        return create_baseline(
+            args.scenario, args.name, repetitions=args.repetitions, port=args.port,
+            timeout=args.timeout, build_mode=args.build_mode,
+        ), 0
     if args.command == "compare":
         result = compare_results(args.baseline, args.result, threshold_percent=args.threshold_percent,
                                  tail_threshold_percent=args.tail_threshold_percent)

@@ -19,6 +19,19 @@
       }
     },
     {
+      "name": "perf",
+      "displayName": "Performance Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/perf",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "BUILD_TESTING": "OFF",
+        "LG_DUEL_REQUIRE_SDL3": "ON",
+        "LG_DUEL_FETCH_SDL3": "ON"
+      }
+    },
+    {
       "name": "msvc",
       "displayName": "MSVC Debug",
       "generator": "Visual Studio 17 2022",
@@ -33,6 +46,10 @@
     {
       "name": "default",
       "configurePreset": "default"
+    },
+    {
+      "name": "perf",
+      "configurePreset": "perf"
     },
     {
       "name": "msvc",

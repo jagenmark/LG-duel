@@ -7,6 +7,7 @@
 #include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
 #include "sim/GameplayCvars.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -495,6 +496,26 @@ int ServerApp::run() const {
       }
       server.setBotAttackMode(*mode);
       return std::string("bot_attack = ") + botAttackModeCvarValue(*mode);
+    }
+  );
+  console.registerCommand(
+    "bot_weapon",
+    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|rg|pg|fg|re|1..9].",
+    [&server](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return std::string("bot_weapon = ") +
+          std::string(weaponShortName(server.botWeapon()));
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+      }
+      const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
+      if (!weapon.has_value()) {
+        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+      }
+      server.setBotWeapon(*weapon);
+      return std::string("bot_weapon = ") +
+        std::string(weaponShortName(*weapon));
     }
   );
 

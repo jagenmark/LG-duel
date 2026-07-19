@@ -86,6 +86,8 @@ constexpr std::size_t kTraversalStackSize = 64;
 
 void buildArenaCollisionIndex(Arena& arena) {
   auto index = std::make_shared<ArenaCollisionIndex>();
+  // Visual-only geometry is intentionally absent: the index is authoritative
+  // collision data shared by movement and world traces.
   index->sourceWallCount = arena.wallCount;
   index->sourceBrushCount = arena.brushCount;
   index->primitives.reserve(arena.wallCount + arena.brushCount);

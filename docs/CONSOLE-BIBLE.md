@@ -424,6 +424,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
 | `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, or `mcguffin` | Selects the mode during warmup. McGuffin requires a compatible active map. |
 | `team <team>` | `red`, `blue`, `none`, `unassigned`, `spectator`, or `spec` | Selects a team during warmup. `spectator` releases the authoritative player body while retaining the connection; during warmup a spectator can claim a free body with `team red`, `team blue`, or `team none`. Clan Arena and McGuffin players must choose Red or Blue before `ready`. |
+| `bot_weapon [mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|re\|1..9]` | Optional weapon token | Shows or changes the server-authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). Normal weapon-switch and pullout rules still apply. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
@@ -610,6 +611,7 @@ Servern stöder även samtliga inbyggda kommandon i avsnitt 4.1.
 | `status` | Skriver `players=<n> phase=<id> score=<p1>-<p2>-...-<p6>`. |
 | `mcguffin_debug` | Prints authoritative McGuffin state and timers. |
 | `spawn_debug` | Prints the latest authoritative team-spawn scoring decision. |
+| `bot_weapon [mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|re\|1..9]` | Shows or changes the authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). |
 
 `phase` använder:
 
