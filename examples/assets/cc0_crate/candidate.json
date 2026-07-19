@@ -1,0 +1,14 @@
+{
+  "source": "Local test data",
+  "id": "cc0_crate_demo",
+  "name": "CC0 Crate",
+  "page_url": "asset.json",
+  "download_url": "crate.obj",
+  "author": "OpenAI",
+  "license": {
+    "id": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt",
+    "text": "CC0 1.0 Universal; no attribution required."
+  },
+  "tags": ["crate", "demo", "prop"]
+}

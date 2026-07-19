@@ -5,6 +5,8 @@ __pycache__/
 /dist/
 /.server/
 /build-errors.txt
+/imports/assets/review/*
+!/imports/assets/review/quaternius_worker/
 skills-lock.json
 .agents
 AGENTS.md

@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "staging_root": "build/asset-staging",
+  "review_import_root": "imports/assets/review",
+  "engine_validator": "build/default/lg_duel_asset_validate",
+  "blender_version_prefix": "5.1",
+  "blender_script": "tools/asset_pipeline_blender.py",
+  "validation_manifests": {
+    "player_model": "asset_pipeline/validation/player_model.json"
+  },
+  "approved_sources": [
+    {"name": "Poly Haven", "domains": ["polyhaven.com", "cdn.polyhaven.com"]},
+    {"name": "Kenney", "domains": ["kenney.nl"]},
+    {"name": "Quaternius", "domains": ["quaternius.com", "drive.google.com", "googleusercontent.com"]},
+    {"name": "OpenGameArt", "domains": ["opengameart.org"]},
+    {"name": "Sketchfab", "domains": ["sketchfab.com", "media.sketchfab.com"]},
+    {"name": "Local test data", "domains": ["localhost"], "local_only": true, "search_catalogs": ["examples/assets/cc0_crate/catalog.json"]}
+  ],
+  "licenses": {
+    "permitted": {
+      "CC0-1.0": {"commercial_use": true, "modification": true, "attribution": false},
+      "CC-BY-4.0": {"commercial_use": true, "modification": true, "attribution": true}
+    },
+    "review_required": ["CC-BY-SA-4.0", "OGL-UK-3.0", "LicenseRef-*"],
+    "prohibited": ["CC-BY-NC-*", "CC-BY-ND-*", "editorial-only", "personal-use-only", "unknown", "custom"]
+  },
+  "budgets": {
+    "player_model": {"max_vertices": 30000, "max_triangles": 50000, "max_materials": 16, "max_texture_dimension": 2048, "max_bones": 96, "max_influences_per_vertex": 4, "max_animations": 40},
+    "prop": {"max_vertices": 12000, "max_triangles": 20000, "max_materials": 3, "max_texture_dimension": 2048, "max_bones": 0, "max_influences_per_vertex": 0, "max_animations": 0},
+    "environment": {"max_vertices": 60000, "max_triangles": 100000, "max_materials": 8, "max_texture_dimension": 2048, "max_bones": 0, "max_influences_per_vertex": 0, "max_animations": 0}
+  },
+  "formats": {
+    "source": ["fbx", "obj", "gltf", "glb"],
+    "runtime": ["glb"],
+    "textures": ["png", "jpg", "jpeg", "tga"]
+  },
+  "archive_limits": {"max_files": 2000, "max_file_bytes": 536870912, "max_total_bytes": 2147483648, "max_path_depth": 12, "max_compression_ratio": 200}
+}

@@ -1,0 +1,8 @@
+# CC0 sample crate by OpenAI, 2026
+newmtl CrateWood
+Ka 0.08 0.04 0.01
+Kd 0.52 0.22 0.06
+Ks 0.02 0.02 0.02
+Ns 8.0
+d 1.0
+illum 2

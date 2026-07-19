@@ -1,0 +1,23 @@
+{
+  "request": {
+    "asset_type": "player_model",
+    "output_name": "casual_male_char_review",
+    "unit_scale_meters": 1.0,
+    "source_up_axis": "Y",
+    "source_forward_axis": "-Z",
+    "options": {
+      "triangulate": true,
+      "consolidate_materials": true,
+      "texture_max_dimension": 2048,
+      "lod_ratios": [],
+      "max_influences": 4,
+      "animation_renames": {},
+      "animation_trims": {},
+      "bone_map": {},
+      "required_bones": [],
+      "generate_collision": true,
+      "generate_hitboxes": true,
+      "preview_views": ["front", "right", "back", "iso"]
+    }
+  }
+}

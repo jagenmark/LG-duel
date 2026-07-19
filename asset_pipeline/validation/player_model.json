@@ -1,0 +1,7 @@
+{
+  "require_animations": true,
+  "require_proxy_nodes": true,
+  "require_skin": true,
+  "require_weapon_attachment": true,
+  "weapon_attachment_nodes": ["weapon_socket"]
+}

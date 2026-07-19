@@ -299,12 +299,21 @@ add_executable(lg_duel_sim_benchmark
 target_link_libraries(lg_duel_sim_benchmark PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_sim_benchmark)
 
+add_executable(lg_duel_asset_validate
+  tools/AssetValidate.cpp
+  src/render/GltfSkinnedModel.cpp
+)
+
+target_link_libraries(lg_duel_asset_validate PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_asset_validate)
+
 foreach(target IN ITEMS
   lg_duel_client
   lg_duel_server
   lg_duel_server_probe
   lg_duel_map_validate
   lg_duel_sim_benchmark
+  lg_duel_asset_validate
 )
   lg_duel_set_windows_stack(${target})
 endforeach()

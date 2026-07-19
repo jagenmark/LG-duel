@@ -1,0 +1,161 @@
+{
+  "files": [
+    {
+      "path": "ATTRIBUTION.md",
+      "sha256": "7a82650e27387e3aca80319094836aea6db7eca212581917ded05ba287dd790c",
+      "size": 478,
+      "type": "md"
+    },
+    {
+      "path": "REVIEW.md",
+      "sha256": "618021ea945c288e6d1cd5ec3a6fd3d7098bb8db28be690e5964b809114e307c",
+      "size": 2732,
+      "type": "md"
+    },
+    {
+      "path": "before-after.md",
+      "sha256": "19250496e57aa3cfbe869ff5343a2843cd97190e44842f414b26b442e7f0d069",
+      "size": 1100,
+      "type": "md"
+    },
+    {
+      "path": "license/CC0-1.0.txt",
+      "sha256": "aa40183e11a110ef6368de54b1b2219db57ab22febc063e6d2cd726e527e5086",
+      "size": 6899,
+      "type": "txt"
+    },
+    {
+      "path": "license/SOURCE-LICENSE-METADATA.txt",
+      "sha256": "c36057edfa00d493be0ef1bc558571b4625dc29149b186351518214deb900c22",
+      "size": 190,
+      "type": "txt"
+    },
+    {
+      "path": "license/animations-license-evidence.json",
+      "sha256": "1ce76f0c2824c1a4dd8232acbeff15dbdaf5a10fea0f432fbef0f25e8c2075ca",
+      "size": 595,
+      "type": "json"
+    },
+    {
+      "path": "license/quaternius-source-page.zip",
+      "sha256": "31d2389ab6a33a886779d37b548d83c1957da7760fdc961e332ee480741031ac",
+      "size": 4303,
+      "type": "zip"
+    },
+    {
+      "path": "license/worker-license-evidence.json",
+      "sha256": "d2920081f17e49556f5ad0d8267036d635005b1e582fa93b31c8ee2dd900a51c",
+      "size": 600,
+      "type": "json"
+    },
+    {
+      "path": "previews/crouch-walk.png",
+      "sha256": "c6d3130721c80b0236b953a44b2518a74e50e5cfca99864728aeabf304f4d122",
+      "size": 172359,
+      "type": "png"
+    },
+    {
+      "path": "previews/fall.png",
+      "sha256": "dc3b99519c9f81ee40cb0cddd1cba2363cd56a1e440d9fa28e17665218dfc0ab",
+      "size": 179458,
+      "type": "png"
+    },
+    {
+      "path": "previews/front.png",
+      "sha256": "d8bcab4f741e4a058d7d00d1c3c4dd17cbf027601cc23ef36544297a1d633d66",
+      "size": 170168,
+      "type": "png"
+    },
+    {
+      "path": "previews/idle-two-handed.png",
+      "sha256": "04fa194f9d48f8f5b86f37434ea80f6a12a789ab0b135a79d62c8299e45a16a8",
+      "size": 174296,
+      "type": "png"
+    },
+    {
+      "path": "previews/iso.png",
+      "sha256": "b02109777fbcbc3669df02dddab7c3ae9066244873a78348998f04822b00e67a",
+      "size": 174292,
+      "type": "png"
+    },
+    {
+      "path": "previews/jump.png",
+      "sha256": "ec6b60140a48fb3c9ef9ecef3b2edec96e48c8f462944eee0d79a155b28e0cd7",
+      "size": 190606,
+      "type": "png"
+    },
+    {
+      "path": "previews/land.png",
+      "sha256": "5a523c23e232494e6c4770c51ad7530d8404cfa793e6ce74c9060faf11d7fba5",
+      "size": 175142,
+      "type": "png"
+    },
+    {
+      "path": "previews/run-back.png",
+      "sha256": "82515aa88fe9a48c64d98897349513fa6caf0a42e71140c63c13944facf99380",
+      "size": 171708,
+      "type": "png"
+    },
+    {
+      "path": "previews/run.png",
+      "sha256": "af8447cc69e2ee779ff372b995f7cc34d6ccc5084f7eb166e4839d3c50bfc487",
+      "size": 172359,
+      "type": "png"
+    },
+    {
+      "path": "previews/strafe-left.png",
+      "sha256": "68524c77bdc0f4bda94a10958f0d84e865a22922c994f19dfa4b8822f226cb85",
+      "size": 173216,
+      "type": "png"
+    },
+    {
+      "path": "provenance.json",
+      "sha256": "81947ed7b6c067ecd1d163133bf0f841e4041c7de477b332986791e4efc9af9d",
+      "size": 2596,
+      "type": "json"
+    },
+    {
+      "path": "quaternius_worker.glb",
+      "sha256": "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60",
+      "size": 2563772,
+      "type": "glb"
+    },
+    {
+      "path": "recipe.json",
+      "sha256": "7e737b1fab0028e92286019f282fb4e8cd91ed7b669d428eb6239216b409c1e8",
+      "size": 2898,
+      "type": "json"
+    },
+    {
+      "path": "reports/engine-validation.json",
+      "sha256": "9f987537314884fa0540888c9829850e8f36fb67f86c090728400c829863402a",
+      "size": 3117,
+      "type": "json"
+    },
+    {
+      "path": "reports/input-bindings.json",
+      "sha256": "a55a565c96d47d79453846f4fc9a363a2a3e42381a840982f34e6df9eb2014d4",
+      "size": 2222,
+      "type": "json"
+    },
+    {
+      "path": "reports/process-tool.json",
+      "sha256": "e77b4de1b191b43982e048e29561707237877a382d3f32c11fa722ff69bad40a",
+      "size": 4244,
+      "type": "json"
+    },
+    {
+      "path": "reports/validation.json",
+      "sha256": "9a73c33cfde7147816682858949830ca323dcc5cff2e03e03155728df1e2776c",
+      "size": 796,
+      "type": "json"
+    },
+    {
+      "path": "review-entry.json",
+      "sha256": "1195a64f26e223fe9d9c02d1a4b3c2264d7e4658dd6437ec6b1d0260d8289518",
+      "size": 617,
+      "type": "json"
+    }
+  ],
+  "pipeline_version": 1
+}

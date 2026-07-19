@@ -1,0 +1,25 @@
+﻿{
+  "schema_version": 1,
+  "asset": "build/asset-staging/Quaternius-ultimate_modular_men_humanoid_rig/work/worker-playable/quaternius_worker.glb",
+  "ok": true,
+  "headless_cpu_only": true,
+  "gpu_render_checks": "not_run_requires_client_preview",
+  "counts": {"primitives": 13, "vertices": 10244, "triangles": 5240, "materials": 13, "animations": 33, "joints": 73},
+  "bounds": {"min": [-0.837733626,-0.00367258745,-0.102561384], "max": [0.837733626,1.86275852,0.286688447]},
+  "sampling": {"instances": 16, "pose_samples": 1584, "checksum": 1357680.61, "timing_threshold_used": false},
+  "nodes": ["Head_end","Head","Neck","Index4.L_end","Index4.L","Index3.L","Index2.L","Index1.L","Middle4.L_end","Middle4.L","Middle3.L","Middle2.L","Middle1.L","Ring4.L_end","Ring4.L","Ring3.L","Ring2.L","Ring1.L","Pinky4.L_end","Pinky4.L","Pinky3.L","Pinky2.L","Pinky1.L","Thumb3.L_end","Thumb3.L","Thumb2.L","Thumb1.L","Wrist.L","LowerArm.L","UpperArm.L","Shoulder.L","Index4.R_end","Index4.R","Index3.R","Index2.R","Index1.R","Middle4.R_end","Middle4.R","Middle3.R","Middle2.R","Middle1.R","Ring4.R_end","Ring4.R","Ring3.R","Ring2.R","Ring1.R","Pinky4.R_end","Pinky4.R","Pinky3.R","Pinky2.R","Pinky1.R","Thumb3.R_end","Thumb3.R","Thumb2.R","Thumb1.R","weapon_socket","Wrist.R","LowerArm.R","UpperArm.R","Shoulder.R","Chest","Torso","Abdomen","Hips","Foot.L_end","Foot.L","LowerLeg.L","UpperLeg.L","Foot.R_end","Foot.R","LowerLeg.R","UpperLeg.R","Body","Root","Worker_Body","Worker_Feet","Worker_Head","Worker_Legs","CharacterArmature","UCX_quaternius_worker_00","HITBOX_quaternius_worker_00","HITBOX_quaternius_worker_01","HITBOX_quaternius_worker_02","HITBOX_quaternius_worker_03"],
+  "proxy_nodes": ["HITBOX_quaternius_worker_00","HITBOX_quaternius_worker_01","HITBOX_quaternius_worker_02","HITBOX_quaternius_worker_03"],
+  "weapon_attachment_nodes": ["weapon_socket"],
+  "checks": [
+    {"name": "load", "pass": true, "detail": "GltfSkinnedModel loaded the asset"},
+    {"name": "glb_structure", "pass": true, "detail": "glTF 2 JSON and binary chunks parsed"},
+    {"name": "mesh_primitives", "pass": true, "detail": "primitives=13 vertices=10244 triangles=5240"},
+    {"name": "bounds", "pass": true, "detail": "finite ordered model and primitive bounds"},
+    {"name": "skin_influences_max_four", "pass": true, "detail": "no JOINTS_1/WEIGHTS_1 data and WEIGHTS_0 is VEC4"},
+    {"name": "skin_weights_normalized", "pass": true, "detail": "all encoded WEIGHTS_0 sums are within 0.002 of one; weighted_vertices=10244"},
+    {"name": "outline_cpu_eligibility", "pass": true, "detail": "triangle primitives and bounds are present; GPU outline output requires client preview"},
+    {"name": "collision_proxy_alignment", "pass": true, "detail": "encoded proxy node transforms are finite; shape fit requires client preview or manifest bounds"},
+    {"name": "animations_sampleable", "pass": true, "detail": "sampled each clip at three fixed times"},
+    {"name": "multiple_instance_cpu_sampling", "pass": true, "detail": "fixed headless samples for instances=16; no wall-clock pass threshold"}
+  ]
+}

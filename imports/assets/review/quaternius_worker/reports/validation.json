@@ -1,0 +1,32 @@
+{
+  "accepted": true,
+  "asset_class": "player_model",
+  "structural": {
+    "format": "glb",
+    "meshes": 9,
+    "vertices": 10364,
+    "triangles": 5300,
+    "materials": 13,
+    "textures": 0,
+    "skins": 1,
+    "bones": 73,
+    "max_influences_per_vertex": 4,
+    "animations": 33,
+    "bounds": {
+      "min": [-0.8377336263656616, -0.9130207300186157, -0.45026853680610657],
+      "max": [0.8377336263656616, 1.8627585172653198, 0.45026853680610657],
+      "size": [1.6754672527313232, 2.7757792472839355, 0.9005370736122131]
+    },
+    "errors": []
+  },
+  "budget": {
+    "max_vertices": 30000,
+    "max_triangles": 50000,
+    "max_materials": 16,
+    "max_texture_dimension": 2048,
+    "max_bones": 96,
+    "max_influences_per_vertex": 4,
+    "max_animations": 40
+  },
+  "errors": []
+}

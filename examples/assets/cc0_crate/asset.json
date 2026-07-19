@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "id": "cc0_crate_demo",
+  "title": "CC0 Crate",
+  "author": "OpenAI",
+  "source_path": "crate.obj",
+  "asset_type": "prop",
+  "license": {
+    "spdx_id": "CC0-1.0",
+    "name": "CC0 1.0 Universal",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "snapshot": "LICENSE.txt"
+  },
+  "catalog": {
+    "candidate": true,
+    "tags": ["crate", "demo", "prop"],
+    "notes": "Tiny hand-authored asset used to test the import path."
+  },
+  "request": {
+    "input_path": "crate.obj",
+    "output_dir": "processed",
+    "asset_type": "prop",
+    "output_name": "cc0_crate_demo",
+    "unit_scale_meters": 1.0,
+    "source_up_axis": "Z",
+    "source_forward_axis": "-Y",
+    "budgets": {
+      "max_triangles": 12,
+      "max_vertices": 24,
+      "max_materials": 1,
+      "max_textures": 0,
+      "lod_triangles": [6]
+    },
+    "options": {
+      "triangulate": true,
+      "consolidate_materials": true,
+      "texture_max_dimension": 256,
+      "lod_ratios": [0.5],
+      "max_influences": 4,
+      "animation_renames": {},
+      "animation_trims": {},
+      "bone_map": {},
+      "required_bones": [],
+      "generate_collision": true,
+      "generate_hitboxes": false,
+      "preview_views": ["front", "right", "iso"]
+    }
+  }
+}
