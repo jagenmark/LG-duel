@@ -67,6 +67,7 @@ namespace {
   if (name == "reload_map") return ControlOperation::ReloadMap;
   if (name == "get_camera") return ControlOperation::GetCamera;
   if (name == "set_camera") return ControlOperation::SetCamera;
+  if (name == "set_collision_debug") return ControlOperation::SetCollisionDebug;
   if (name == "capture_screenshot") return ControlOperation::CaptureScreenshot;
   if (name == "capture_map_views") return ControlOperation::CaptureMapViews;
   if (name == "run_benchmark") return ControlOperation::RunBenchmark;
@@ -126,6 +127,15 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
   if (request.operation == ControlOperation::SetCamera) {
     std::string error;
     if (!parseCamera(root, request.camera, error)) return {{}, false, std::move(error)};
+  }
+  if (request.operation == ControlOperation::SetCollisionDebug) {
+    const JsonValue* mode = root.find("mode");
+    if (mode == nullptr || mode->type != JsonValue::Type::Number ||
+        !std::isfinite(mode->number) || std::floor(mode->number) != mode->number ||
+        mode->number < 0.0 || mode->number > 5.0) {
+      return {{}, false, "mode must be an integer between 0 and 5"};
+    }
+    request.collisionDebugMode = static_cast<int>(mode->number);
   }
   if (request.operation == ControlOperation::CaptureScreenshot &&
       !request.captureName.empty() && !isSafeCaptureName(request.captureName)) {

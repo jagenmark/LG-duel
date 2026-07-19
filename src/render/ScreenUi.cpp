@@ -2392,13 +2392,28 @@ void addHud(
 
   if (hud.scoreboardOpen) {
     const float panelWidth =
-      std::min(720.0F, static_cast<float>(width) - 80.0F);
-    const float panelHeight =
-      72.0F + static_cast<float>(hud.scoreboardLines.size()) * 28.0F;
+      std::min(720.0F, std::max(160.0F, static_cast<float>(width) - 32.0F));
+    const float lineCount = static_cast<float>(
+      std::max<std::size_t>(1U, hud.scoreboardLines.size())
+    );
+    const float panelHeight = std::min(
+      40.0F + lineCount * 28.0F,
+      std::max(120.0F, static_cast<float>(height) - 24.0F)
+    );
+    const float rowHeight = std::min(28.0F, (panelHeight - 32.0F) / lineCount);
+    // A full 16-player roster must remain readable on the minimum supported
+    // viewport instead of extending beyond the screen. Scale both columns and
+    // rows together so the scoreboard preserves its visual hierarchy.
+    const float scoreboardScale = std::min({
+      1.0F,
+      rowHeight / 28.0F,
+      std::max(0.5F, (panelWidth - 32.0F) / 660.0F),
+    });
+    const float scoreboardTextScale = textScale * scoreboardScale;
     const float panelX =
       (static_cast<float>(width) - panelWidth) * 0.5F;
     const float panelY =
-      (static_cast<float>(height) - panelHeight) * 0.35F;
+      std::max(12.0F, (static_cast<float>(height) - panelHeight) * 0.35F);
     addRect(
       drawList,
       panelX,
@@ -2416,13 +2431,15 @@ void addHud(
       {78, 168, 235, 255}
     );
 
-    const float scoreboardX =
-      panelX + std::max(16.0F, (panelWidth - 660.0F) * 0.5F);
+    const float scoreboardX = panelX + std::max(
+      16.0F,
+      (panelWidth - 660.0F * scoreboardScale) * 0.5F
+    );
     const float nameX = scoreboardX;
-    const float scoreX = scoreboardX + 280.0F;
-    const float accuracyX = scoreboardX + 360.0F;
-    const float percentX = accuracyX + textWidth("LG ", textScale);
-    const float damageX = scoreboardX + 470.0F;
+    const float scoreX = scoreboardX + 280.0F * scoreboardScale;
+    const float accuracyX = scoreboardX + 360.0F * scoreboardScale;
+    const float percentX = accuracyX + textWidth("LG ", scoreboardTextScale);
+    const float damageX = scoreboardX + 470.0F * scoreboardScale;
 
     constexpr std::size_t kScoreboardNameColumnChars = 16U;
     constexpr std::size_t kScoreboardScoreColumnChars =
@@ -2432,7 +2449,7 @@ void addHud(
     constexpr std::size_t kScoreboardDamageColumnChars =
       kScoreboardAccuracyColumnChars + 8U;
 
-    float scoreboardY = panelY + 20.0F;
+    float scoreboardY = panelY + std::max(8.0F, 20.0F * scoreboardScale);
     for (std::size_t index = 0; index < hud.scoreboardLines.size(); ++index) {
       const std::string& line = hud.scoreboardLines[index];
       const Team team = index < hud.scoreboardLineTeams.size()
@@ -2453,7 +2470,7 @@ void addHud(
           scoreboardY,
           line,
           {255, 220, 120, 255},
-          textScale
+          scoreboardTextScale
         );
       } else {
         const RenderColor baseColor = {225, 235, 245, 255};
@@ -2487,11 +2504,11 @@ void addHud(
             scoreboardY,
             name,
             nameColor,
-            textScale
+            scoreboardTextScale
           );
         }
         if (!score.empty()) {
-          addText(drawList, scoreX, scoreboardY, score, baseColor, textScale);
+          addText(drawList, scoreX, scoreboardY, score, baseColor, scoreboardTextScale);
         }
         if (hasWeaponColumn && accuracy.size() >= 2U) {
           addText(
@@ -2500,7 +2517,7 @@ void addHud(
             scoreboardY,
             accuracy.substr(0U, 2U),
             quakeLiveWeaponColor(hud.scoreboardLineAccuracyWeapons[index]),
-            textScale
+            scoreboardTextScale
           );
           const std::string percent = trimCell(accuracy.substr(2U));
           if (!percent.empty()) {
@@ -2510,7 +2527,7 @@ void addHud(
               scoreboardY,
               percent,
               baseColor,
-              textScale
+              scoreboardTextScale
             );
           }
         } else if (!accuracy.empty()) {
@@ -2520,14 +2537,14 @@ void addHud(
             scoreboardY,
             accuracy,
             baseColor,
-            textScale
+            scoreboardTextScale
           );
         }
         if (!damage.empty()) {
-          addText(drawList, damageX, scoreboardY, damage, baseColor, textScale);
+          addText(drawList, damageX, scoreboardY, damage, baseColor, scoreboardTextScale);
         }
       }
-      scoreboardY += 28.0F;
+      scoreboardY += rowHeight;
     }
   }
 

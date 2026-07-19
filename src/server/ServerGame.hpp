@@ -319,6 +319,7 @@ private:
   std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks_ = {};
   std::array<bool, Arena::kTeamSpawnCount> spawnWasUsed_ = {};
   std::uint32_t spawnRandomState_ = 0x51A7E123U;
+  std::size_t nextDeathmatchSpawnIndex_ = 0;
   std::string spawnDebugString_ = "no team spawn selected yet";
   WeaponSwitchingMode weaponSwitchingMode_ = WeaponSwitchingMode::Crazy;
   ChatHistory chatHistory_ = {};

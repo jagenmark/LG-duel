@@ -379,6 +379,23 @@ int main() {
     "remote frustum culling should default on and be toggleable"
   );
   failures += expect(
+    console.execute("r_world_frustum_cull") ==
+      "r_world_frustum_cull = 0 (default 0)" &&
+      console.execute("r_world_frustum_cull 1") ==
+        "r_world_frustum_cull = 1" &&
+      console.getBool("r_world_frustum_cull"),
+    "experimental static-world frustum culling should default off and be toggleable"
+  );
+  failures += expect(
+    console.execute("r_show_collision") ==
+        "r_show_collision = 0 (default 0)" &&
+      console.execute("r_show_collision 5") == "r_show_collision = 5" &&
+      console.execute("r_show_collision 6") ==
+        "value out of range for r_show_collision" &&
+      console.getInt("r_show_collision") == 5,
+    "collision visualization should expose the five bounded debug categories"
+  );
+  failures += expect(
     console.execute("r_texture_filter") ==
         "r_texture_filter = 2 (default 2)" &&
       console.execute("r_texture_filter 0") == "r_texture_filter = 0" &&

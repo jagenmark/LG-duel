@@ -133,7 +133,7 @@ int main() {
     "maximum-length player names should be clipped before the score column"
   );
 
-  snapshot.participatingPlayers = {true, true, true, true, true, true};
+  snapshot.participatingPlayers.fill(true);
   hud = {};
   lg::populateScoreboard(hud, snapshot, 0);
   failures += expect(

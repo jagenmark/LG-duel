@@ -34,6 +34,11 @@ namespace {
   return extension == ".png" || extension == ".bmp" || extension == ".jpg";
 }
 
+[[nodiscard]] bool isCollisionOnlyMaterial(std::string_view material) {
+  return material == "common/clip" || material == "common/playerclip" ||
+    material == "common/weapclip";
+}
+
 [[nodiscard]] int validateMapTextures(
   const std::filesystem::path& mapPath,
   const std::filesystem::path& textureRoot
@@ -60,8 +65,12 @@ namespace {
         if (face.material.empty()) {
           continue;
         }
+        const std::string material = normalizedTextureMaterial(face.material);
+        if (isCollisionOnlyMaterial(material)) {
+          continue;
+        }
         std::filesystem::path texturePath =
-          textureRoot / normalizedTextureMaterial(face.material);
+          textureRoot / material;
         if (!hasTextureExtension(texturePath)) {
           texturePath += ".png";
         }

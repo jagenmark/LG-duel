@@ -13,7 +13,6 @@
 namespace lg {
 namespace {
 
-constexpr std::size_t kMaxSpawnCount = kMaxPlayers;
 constexpr std::size_t kMinimumDuelSpawnCount = 2;
 constexpr float kMaxCoordinateMagnitude = 1000.0F;
 
@@ -167,7 +166,7 @@ struct ParsedArena {
     }
   }
 
-  for (std::size_t index = 0; index < parsed.spawnCount; ++index) {
+  for (std::size_t index = 0; index < arena.spawnCount; ++index) {
     if (!finiteAndReasonable(arena.spawnPositions[index])) {
       return {{}, false, "spawn " + std::to_string(index) + " coordinates are out of range"};
     }
@@ -210,6 +209,8 @@ ArenaLoadResult loadArenaFromText(std::string_view text) {
   parsed.arena.jumpPads = {};
   parsed.arena.jumpPadCount = 0;
   parsed.arena.spawnPositions = {};
+  parsed.arena.spawnTeams = {};
+  parsed.arena.spawnCount = 0;
 
   bool hasVersion = false;
   bool hasBounds = false;
@@ -271,7 +272,7 @@ ArenaLoadResult loadArenaFromText(std::string_view text) {
       if (tokens.size() < 3 || tokens.size() > 4) {
         return {{}, false, lineError(lineNumber, "spawn expects id position [yaw=degrees]")};
       }
-      if (parsed.spawnCount >= kMaxSpawnCount) {
+      if (parsed.spawnCount >= Arena::kSpawnCount) {
         return {{}, false, lineError(lineNumber, "too many spawn points")};
       }
       Vec3 position;
@@ -282,6 +283,7 @@ ArenaLoadResult loadArenaFromText(std::string_view text) {
         return {{}, false, lineError(lineNumber, "spawn option must be yaw=degrees")};
       }
       parsed.arena.spawnPositions[parsed.spawnCount++] = position;
+      parsed.arena.spawnCount = parsed.spawnCount;
     } else {
       return {{}, false, lineError(lineNumber, "unknown directive '" + tokens[0] + "'")};
     }

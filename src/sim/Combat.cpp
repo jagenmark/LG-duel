@@ -1,4 +1,6 @@
 #include "sim/Combat.hpp"
+
+#include "benchmark/BenchmarkTiming.hpp"
 #include "sim/ArenaBroadphase.hpp"
 
 #include <algorithm>
@@ -379,6 +381,7 @@ WorldTrace traceWorld(
   Vec3 direction,
   float maxDistance
 ) {
+  benchmark::ScopedTiming timing(benchmark::TimingSubsystem::Traces);
   WorldTrace trace;
   trace.start = origin;
   trace.distance = maxDistance;

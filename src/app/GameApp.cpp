@@ -10,6 +10,7 @@
 #include "app/Scoreboard.hpp"
 #include "app/TextInput.hpp"
 #include "benchmark/Benchmark.hpp"
+#include "benchmark/BenchmarkTiming.hpp"
 #include "client/ClientSession.hpp"
 #include "client/HitConfirmAudio.hpp"
 #include "client/LocalHitFeedback.hpp"
@@ -69,6 +70,7 @@ namespace {
 constexpr float kHalfPi = 1.57079632679F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr int kMaxSimulationTicksPerFrame = 8;
+constexpr std::uint64_t kMaximumReservedBenchmarkFramesPerSecond = 4096U;
 constexpr float kDegreesToRadians = 0.01745329252F;
 constexpr float kRadiansToDegrees = 57.2957795131F;
 constexpr float kQ3RunRoll = 0.005F;
@@ -1300,10 +1302,19 @@ struct FrameTimeHistory {
   sample.dynamicTriangles = renderDiagnostics.dynamicTriangles;
   sample.worldSourceTriangles = renderDiagnostics.worldSourceTriangles;
   sample.worldRenderedTriangles = renderDiagnostics.worldRenderedTriangles;
+  sample.worldSubmittedTriangles = renderDiagnostics.worldSubmittedTriangles;
   sample.worldDuplicateTrianglesCulled =
     renderDiagnostics.worldDuplicateTrianglesCulled;
   sample.worldVertexCount = renderDiagnostics.worldVertexCount;
   sample.worldDrawCalls = renderDiagnostics.worldDrawCalls;
+  sample.worldSubmittedRanges = renderDiagnostics.worldSubmittedRanges;
+  sample.worldTotalChunks = renderDiagnostics.worldTotalChunks;
+  sample.worldVisibleChunks = renderDiagnostics.worldVisibleChunks;
+  sample.worldCulledChunks = renderDiagnostics.worldCulledChunks;
+  sample.worldVisibilityTestedNodes =
+    renderDiagnostics.worldVisibilityTestedNodes;
+  sample.worldVisibilityQueryMilliseconds =
+    renderDiagnostics.worldVisibilityQueryMilliseconds;
   sample.gpuDepthBits = renderDiagnostics.gpuDepthBits;
   sample.worldLoadedTextures = renderDiagnostics.worldLoadedTextures;
   sample.worldMissingTextures = renderDiagnostics.worldMissingTextures;
@@ -1504,13 +1515,25 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "world: tris %u->%u | vertices %u | draws %u | depth %u-bit | dup culled %u",
+    "world: tris %u->%u | submitted %u | vertices %u | draws %u | dup culled %u",
     latest.worldSourceTriangles,
     latest.worldRenderedTriangles,
+    latest.worldSubmittedTriangles,
     latest.worldVertexCount,
     latest.worldDrawCalls,
-    latest.gpuDepthBits,
     latest.worldDuplicateTrianglesCulled
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "world BVH: chunks %u/%u | culled %u | nodes %u | ranges %u | query %.3f ms",
+    latest.worldVisibleChunks,
+    latest.worldTotalChunks,
+    latest.worldCulledChunks,
+    latest.worldVisibilityTestedNodes,
+    latest.worldSubmittedRanges,
+    latest.worldVisibilityQueryMilliseconds
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -2800,7 +2823,10 @@ bool saveClientConfig(
   return file.good();
 }
 
-RenderSettings renderSettings(const ConsoleSystem& console) {
+RenderSettings renderSettings(
+  const ConsoleSystem& console,
+  bool collisionDebugSupported
+) {
   RenderSettings settings;
   settings.fieldOfView = console.getFloat("cl_fov");
   settings.healthTextScale = console.getFloat("cl_health_size");
@@ -2810,6 +2836,12 @@ RenderSettings renderSettings(const ConsoleSystem& console) {
   settings.fpsTextScale = console.getFloat("cl_showfps_size");
   settings.uiFont = console.getString("r_ui_font");
   settings.frustumCullRemotePlayers = console.getBool("r_frustum_cull");
+  settings.worldFrustumCull = console.getBool("r_world_frustum_cull");
+  // SDL_Renderer does not consume Scene3D translucent geometry. Keep the
+  // diagnostic fallback honest and avoid building an overlay it cannot show.
+  settings.showCollision = collisionDebugSupported
+    ? console.getInt("r_show_collision")
+    : 0;
   settings.textureFilter = console.getInt("r_texture_filter");
   settings.textureAnisotropy = console.getInt("r_texture_anisotropy");
   settings.textureLodBias = console.getFloat("r_texture_lod_bias");
@@ -3824,6 +3856,8 @@ int GameApp::run() const {
     std::chrono::steady_clock::time_point benchmarkPhaseStart = {};
     std::uint64_t benchmarkPhaseFrames = 0;
     std::vector<benchmark::FrameSample> benchmarkSamples;
+    std::vector<benchmark::SimulationTickSample> benchmarkTickSamples;
+    benchmark::TimingValues lastBenchmarkFrameTiming;
     std::map<std::string, std::string, std::less<>> restoredCvars;
     std::size_t benchmarkScreenshotIndex = 0;
     std::vector<std::string> benchmarkScreenshotPaths;
@@ -4969,10 +5003,47 @@ int GameApp::run() const {
     );
     status.object["spectator"] = dev::JsonValue::booleanValue(session.spectator());
     status.object["development_camera"] = dev::JsonValue::booleanValue(developmentCameraEnabled);
+    const bool collisionDebugSupported = renderer.backendName() == "SDL_GPU/vulkan";
+    const int requestedCollisionDebugMode = console.getInt("r_show_collision");
+    status.object["collision_debug_supported"] =
+      dev::JsonValue::booleanValue(collisionDebugSupported);
+    status.object["collision_debug_requested_mode"] =
+      dev::JsonValue::numberValue(requestedCollisionDebugMode);
+    status.object["collision_debug_mode"] = dev::JsonValue::numberValue(
+      collisionDebugSupported ? requestedCollisionDebugMode : 0
+    );
     status.object["benchmark_enabled"] = dev::JsonValue::booleanValue(benchmark_.enabled);
     status.object["game_protocol_version"] = dev::JsonValue::numberValue(kProtocolVersion);
     status.object["camera"] = dev::cameraJson(currentControlCamera());
     status.object["renderer"] = dev::JsonValue::stringValue(std::string(renderer.backendName()));
+    status.object["requested_renderer"] =
+      dev::JsonValue::stringValue(std::string(renderer.requestedBackendName()));
+    status.object["actual_renderer"] =
+      dev::JsonValue::stringValue(std::string(renderer.backendName()));
+    status.object["gpu_name"] =
+      dev::JsonValue::stringValue(std::string(renderer.gpuName()));
+    status.object["graphics_driver_name"] =
+      dev::JsonValue::stringValue(std::string(renderer.graphicsDriverName()));
+    status.object["graphics_driver_version"] =
+      dev::JsonValue::stringValue(std::string(renderer.graphicsDriverVersion()));
+    status.object["graphics_driver_info"] =
+      dev::JsonValue::stringValue(std::string(renderer.graphicsDriverInfo()));
+    status.object["software_renderer"] =
+      dev::JsonValue::booleanValue(renderer.softwareRenderer());
+    status.object["vulkan_api_version"] =
+      dev::JsonValue::stringValue(std::string(renderer.vulkanApiVersion()));
+    status.object["vulkan_icd_path"] =
+      dev::JsonValue::stringValue(std::string(renderer.vulkanIcdPath()));
+    status.object["vulkan_icd_sha256"] =
+      dev::JsonValue::stringValue(std::string(renderer.vulkanIcdSha256()));
+    // The client exposes observed device identity and the launch selection.
+    // Only the external launcher can compare both and mark the session verified.
+    status.object["gpu_verification_state"] = dev::JsonValue::stringValue(
+      renderer.backendName() == "SDL_GPU/vulkan"
+        ? "pending-launcher-verification"
+        : "not-verified"
+    );
+    status.object["gpu_verified"] = dev::JsonValue::booleanValue(false);
     status.object["capture_output_directory"] =
       dev::JsonValue::stringValue(captureDirectory.string());
     status.object["capture_output_relative"] =
@@ -4987,13 +5058,19 @@ int GameApp::run() const {
     developmentCamera.fieldOfView = pose.fieldOfView;
     developmentCameraEnabled = true;
   };
-  const auto restoreBenchmarkState = [&]() {
-    if (!activeControlOperation.has_value() ||
-        activeControlOperation->queued.request.operation != dev::ControlOperation::RunBenchmark) return;
+  const auto restoreControlCvars = [&]() {
+    if (!activeControlOperation.has_value()) return;
     ActiveControlOperation& active = *activeControlOperation;
     for (const auto& [name, value] : active.restoredCvars) {
       (void)console.execute("set " + name + " " + value);
     }
+    active.restoredCvars.clear();
+  };
+  const auto restoreBenchmarkState = [&]() {
+    if (!activeControlOperation.has_value() ||
+        activeControlOperation->queued.request.operation != dev::ControlOperation::RunBenchmark) return;
+    ActiveControlOperation& active = *activeControlOperation;
+    restoreControlCvars();
     if (active.benchmarkBotsConfigured) {
       pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
       if (active.previousBotCount > 0) {
@@ -5033,6 +5110,7 @@ int GameApp::run() const {
       )
     );
     restoreBenchmarkState();
+    restoreControlCvars();
     activeControlOperation.reset();
   };
   const auto activateFirstViewpoint = [&]() {
@@ -5095,6 +5173,30 @@ int GameApp::run() const {
         activeControlOperation.reset();
         break;
       }
+      case dev::ControlOperation::SetCollisionDebug: {
+        if (renderer.backendName() != "SDL_GPU/vulkan") {
+          completeControlError(
+            "renderer_unsupported",
+            "collision debug visualization requires verified SDL_GPU/vulkan"
+          );
+          break;
+        }
+        // Keep automation on the same bounded CVAR path as the in-game console.
+        // This operation only changes presentation; authoritative traces are untouched.
+        const std::string consoleResult = console.execute(
+          "set r_show_collision " + std::to_string(request.collisionDebugMode)
+        );
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["mode"] =
+          dev::JsonValue::numberValue(console.getInt("r_show_collision"));
+        result.object["console_result"] = dev::JsonValue::stringValue(consoleResult);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
       case dev::ControlOperation::LoadMap:
       case dev::ControlOperation::ReloadMap:
       case dev::ControlOperation::CaptureMapViews: {
@@ -5102,6 +5204,18 @@ int GameApp::run() const {
         const bool needsMap = request.operation != dev::ControlOperation::CaptureMapViews ||
           !request.mapName.empty();
         if (captureViews) {
+          // Visual review must be reproducible even when a developer has an
+          // extreme archived mip bias. Restore their preferences afterward.
+          static constexpr std::array<std::pair<std::string_view, std::string_view>, 3>
+            kCaptureTextureCvars{{
+              {"r_texture_filter", "2"},
+              {"r_texture_anisotropy", "8"},
+              {"r_texture_lod_bias", "0.5"},
+            }};
+          for (const auto& [name, value] : kCaptureTextureCvars) {
+            active.restoredCvars.emplace(std::string(name), console.valueString(name));
+            (void)console.execute("set " + std::string(name) + " " + std::string(value));
+          }
           const std::string mapPart = request.mapName.empty() ? currentMapName() : request.mapName;
           active.captureStem = dev::sanitizeGeneratedCaptureName(
             mapPart + "-" + (request.presetName.empty() ? "views" : request.presetName) +
@@ -5215,11 +5329,33 @@ int GameApp::run() const {
           active.benchmarkPhaseStart = Clock::now();
           active.benchmarkPhaseFrames = 0;
           active.benchmarkSamples.clear();
+          const std::uint64_t maximumMeasuredFrames = scenario.measuredFrames
+            ? *scenario.measuredFrames
+            : static_cast<std::uint64_t>(
+                std::ceil(scenario.measuredSeconds.value_or(10.0) *
+                  static_cast<double>(
+                    scenario.frameCap > 0
+                      ? static_cast<std::uint64_t>(scenario.frameCap) + 1U
+                      : kMaximumReservedBenchmarkFramesPerSecond
+                  ))
+              ) + 1U;
           active.benchmarkSamples.reserve(
-            static_cast<std::size_t>(scenario.measuredFrames.value_or(
-              static_cast<std::uint64_t>(scenario.measuredSeconds.value_or(10.0) * 1000.0)
-            ))
+            static_cast<std::size_t>(maximumMeasuredFrames)
           );
+          active.benchmarkTickSamples.clear();
+          const std::uint64_t maximumMeasuredTicks = scenario.measuredFrames
+            ? *scenario.measuredFrames *
+              static_cast<std::uint64_t>(kMaxSimulationTicksPerFrame)
+            : static_cast<std::uint64_t>(
+                std::ceil(scenario.measuredSeconds.value_or(10.0) *
+                  static_cast<double>(kFixedTickRate))
+              ) + static_cast<std::uint64_t>(kMaxSimulationTicksPerFrame);
+          // Reserve the complete fixed-tick stream before measurement so a
+          // catch-up frame never reallocates inside the benchmark interval.
+          active.benchmarkTickSamples.reserve(
+            static_cast<std::size_t>(maximumMeasuredTicks)
+          );
+          active.lastBenchmarkFrameTiming = {};
           active.previousBotCount = static_cast<int>(std::count(
             session.game()->snapshot().botPlayers.begin(),
             session.game()->snapshot().botPlayers.end(),
@@ -5317,9 +5453,50 @@ int GameApp::run() const {
           sample.renderCpuMilliseconds = render.totalRenderMilliseconds;
           sample.snapshotDecodeMilliseconds = snapshot.snapshotDecodeMilliseconds;
           sample.snapshotApplyMilliseconds = snapshot.snapshotApplyMilliseconds;
+          sample.networkProcessingMilliseconds =
+            active.lastBenchmarkFrameTiming.milliseconds(
+              benchmark::TimingSubsystem::NetworkProcessing
+            );
+          sample.simulationMilliseconds =
+            active.lastBenchmarkFrameTiming.milliseconds(
+              benchmark::TimingSubsystem::Simulation
+            );
+          sample.movementCollisionMilliseconds =
+            active.lastBenchmarkFrameTiming.milliseconds(
+              benchmark::TimingSubsystem::MovementCollision
+            );
+          sample.tracesMilliseconds =
+            active.lastBenchmarkFrameTiming.milliseconds(
+              benchmark::TimingSubsystem::Traces
+            );
+          sample.interpolationMilliseconds =
+            active.lastBenchmarkFrameTiming.milliseconds(
+              benchmark::TimingSubsystem::Interpolation
+            );
+          sample.animationMilliseconds =
+            active.lastBenchmarkFrameTiming.milliseconds(
+              benchmark::TimingSubsystem::Animation
+            );
+          sample.worldVisibilityMilliseconds = render.worldVisibilityMilliseconds;
+          sample.renderInstanceConstructionMilliseconds =
+            render.renderInstanceConstructionMilliseconds;
+          sample.worldCommandEncodingMilliseconds =
+            render.worldCommandEncodingMilliseconds;
+          sample.dynamicCommandEncodingMilliseconds =
+            render.dynamicCommandEncodingMilliseconds;
+          sample.uiMilliseconds = render.uiMilliseconds;
           sample.uploadedVertices = render.totalUploadedVertices;
-          sample.renderedTriangles = render.worldRenderedTriangles + render.dynamicTriangles;
+          sample.renderedTriangles =
+            render.worldSubmittedTriangles + render.dynamicTriangles;
           sample.worldDraws = render.worldDrawCalls;
+          sample.worldSubmittedTriangles = render.worldSubmittedTriangles;
+          sample.worldSubmittedRanges = render.worldSubmittedRanges;
+          sample.worldTotalChunks = render.worldTotalChunks;
+          sample.worldVisibleChunks = render.worldVisibleChunks;
+          sample.worldCulledChunks = render.worldCulledChunks;
+          sample.worldVisibilityTestedNodes = render.worldVisibilityTestedNodes;
+          sample.worldVisibilityQueryMilliseconds =
+            render.worldVisibilityQueryMilliseconds;
           sample.visiblePlayers = render.visibleRemotePlayers;
           sample.projectileCount = render.projectilesRendered;
           sample.effectCount = render.activeTransientEffects;
@@ -5329,6 +5506,16 @@ int GameApp::run() const {
           sample.instanceDraws = render.projectileMeshDrawCalls +
             render.projectileGlowDrawCalls + render.tracerDrawCalls +
             render.explosionDrawCalls + render.remoteWeaponDrawCalls;
+          if (
+            active.benchmarkSamples.size() ==
+            active.benchmarkSamples.capacity()
+          ) {
+            completeControlError(
+              "benchmark_sample_capacity",
+              "benchmark exceeded its allocation-free render sample capacity"
+            );
+            continue;
+          }
           active.benchmarkSamples.push_back(sample);
           ++active.benchmarkPhaseFrames;
           const bool secondsDone = scenario.measuredSeconds && seconds >= *scenario.measuredSeconds;
@@ -5356,6 +5543,17 @@ int GameApp::run() const {
         }
       }
     }
+    const bool benchmarkFrameTimingEnabled =
+      activeControlOperation.has_value() &&
+      activeControlOperation->queued.request.operation ==
+        dev::ControlOperation::RunBenchmark &&
+      activeControlOperation->stage ==
+        ActiveControlOperation::Stage::BenchmarkMeasure;
+    benchmark::TimingValues currentBenchmarkFrameTiming;
+    benchmark::TimingSinkScope benchmarkFrameTimingScope(
+      benchmarkFrameTimingEnabled ? &currentBenchmarkFrameTiming : nullptr,
+      nullptr
+    );
     if (console.getBool("r_perf_reset")) {
       perfTelemetry.clear();
       (void)console.execute("set r_perf_reset 0");
@@ -5986,6 +6184,18 @@ int GameApp::run() const {
       if (client == nullptr || !client->hasSnapshot()) {
         break;
       }
+      benchmark::TimingValues currentBenchmarkTickTiming;
+      std::optional<benchmark::TimingSinkScope> benchmarkTickTimingScope;
+      std::optional<benchmark::ScopedTiming> simulationTiming;
+      if (benchmarkFrameTimingEnabled) {
+        benchmarkTickTimingScope.emplace(
+          &currentBenchmarkFrameTiming,
+          &currentBenchmarkTickTiming
+        );
+        // The fixed-tick total is inclusive. Nested network, movement and trace
+        // spans remain separately visible for attribution.
+        simulationTiming.emplace(benchmark::TimingSubsystem::Simulation);
+      }
       LocalInputState tickInput = input;
       if (consumedMouseForTick) {
         // SDL reports one mouse delta per rendered frame. Apply it to only the
@@ -6176,6 +6386,34 @@ int GameApp::run() const {
             updatedSnapshot.botDodgeMaxIntervalMs;
           movementTuningRequestPending = false;
         }
+      }
+      if (benchmarkFrameTimingEnabled && activeControlOperation.has_value()) {
+        simulationTiming.reset();
+        benchmarkTickTimingScope.reset();
+        benchmark::SimulationTickSample tickSample;
+        tickSample.index = activeControlOperation->benchmarkTickSamples.size();
+        tickSample.renderFrameIndex =
+          activeControlOperation->benchmarkPhaseFrames;
+        tickSample.elapsedSeconds = std::chrono::duration<double>(
+          Clock::now() - activeControlOperation->benchmarkPhaseStart
+        ).count();
+        tickSample.simulationMilliseconds =
+          currentBenchmarkTickTiming.milliseconds(
+            benchmark::TimingSubsystem::Simulation
+          );
+        tickSample.networkProcessingMilliseconds =
+          currentBenchmarkTickTiming.milliseconds(
+            benchmark::TimingSubsystem::NetworkProcessing
+          );
+        tickSample.movementCollisionMilliseconds =
+          currentBenchmarkTickTiming.milliseconds(
+            benchmark::TimingSubsystem::MovementCollision
+          );
+        tickSample.tracesMilliseconds =
+          currentBenchmarkTickTiming.milliseconds(
+            benchmark::TimingSubsystem::Traces
+          );
+        activeControlOperation->benchmarkTickSamples.push_back(tickSample);
       }
       consumedMouseForTick = true;
     }
@@ -6807,6 +7045,9 @@ int GameApp::run() const {
     }
     if (ClientGame* interpolationGame = session.game();
         interpolationGame != nullptr && interpolationGame->hasSnapshot()) {
+      benchmark::ScopedTiming interpolationTiming(
+        benchmark::TimingSubsystem::Interpolation
+      );
       interpolationGame->advanceInterpolation(
         elapsed.count(),
         console.getFloat("cl_interp"),
@@ -7036,13 +7277,18 @@ int GameApp::run() const {
         presentationConfig.leanScale = teammate
           ? console.getFloat("r_teammate_lean_scale")
           : console.getFloat("r_enemy_lean_scale");
-        renderRemotePlayers[playerIndex].presentation = updatePlayerPresentation(
-          playerPresentationStates[playerIndex],
-          renderRemotePlayers[playerIndex].player,
-          elapsed.count(),
-          static_cast<std::uint32_t>(playerIndex),
-          presentationConfig
-        );
+        {
+          benchmark::ScopedTiming animationTiming(
+            benchmark::TimingSubsystem::Animation
+          );
+          renderRemotePlayers[playerIndex].presentation = updatePlayerPresentation(
+            playerPresentationStates[playerIndex],
+            renderRemotePlayers[playerIndex].player,
+            elapsed.count(),
+            static_cast<std::uint32_t>(playerIndex),
+            presentationConfig
+          );
+        }
         renderRemotePlayers[playerIndex].hasPresentation = true;
         const int currentRemoteHealth =
           renderSnapshot.players[playerIndex].health;
@@ -7088,6 +7334,8 @@ int GameApp::run() const {
       renderPlayer.viewYawRadians = presentationView.yawRadians;
       renderPlayer.viewPitchRadians = presentationView.pitchRadians;
     }
+    std::optional<benchmark::ScopedTiming> weaponAnimationTiming;
+    weaponAnimationTiming.emplace(benchmark::TimingSubsystem::Animation);
     const bool ownsPresentedSubject =
       !session.spectator() && renderLocalPlayerIndex == session.playerIndex();
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -7187,7 +7435,11 @@ int GameApp::run() const {
           freezeGunFiringResponse[playerIndex].phaseRadians;
       }
     }
-    RenderSettings currentRenderSettings = renderSettings(console);
+    RenderSettings currentRenderSettings = renderSettings(
+      console,
+      renderer.backendName() == "SDL_GPU/vulkan"
+    );
+    currentRenderSettings.benchmarkTimingEnabled = benchmarkFrameTimingEnabled;
     if (developmentCameraEnabled) {
       // The development camera replaces presentation state only. The client
       // continues to send ordinary commands and the server remains authoritative.
@@ -7224,6 +7476,7 @@ int GameApp::run() const {
         console.getFloat("cl_camera_position_response"),
       }
     );
+    weaponAnimationTiming.reset();
     if (deathCamera.mode != DeathCameraMode::Alive) {
       currentRenderSettings.crosshairEnabled = false;
       currentRenderSettings.showOwnWeapons =
@@ -7684,6 +7937,20 @@ int GameApp::run() const {
       );
       if (currentRenderSettings.showRendererPerfDetail) {
         hud.topLeftLines.emplace_back(
+          "world BVH: chunks " +
+          std::to_string(diagnostics.worldVisibleChunks) + "/" +
+          std::to_string(diagnostics.worldTotalChunks) +
+          " | culled " +
+          std::to_string(diagnostics.worldCulledChunks) +
+          " | nodes " +
+          std::to_string(diagnostics.worldVisibilityTestedNodes) +
+          " | tris " +
+          std::to_string(diagnostics.worldSubmittedTriangles) + "/" +
+          std::to_string(diagnostics.worldRenderedTriangles) +
+          " | ranges " +
+          std::to_string(diagnostics.worldSubmittedRanges)
+        );
+        hud.topLeftLines.emplace_back(
           "culling: candidates " +
           std::to_string(diagnostics.remoteCandidates) +
           " | frustum visible " +
@@ -7975,6 +8242,22 @@ int GameApp::run() const {
     hud.chatSelectionAnchor = chatState.selection.anchor;
     hud.chatSelectionFocus = chatState.selection.focus;
     populateSettingsMenuRenderState(hud, settingsMenu);
+    if (currentRenderSettings.showCollision != 0) {
+      static constexpr std::array<std::string_view, 6> collisionModeLabels = {{
+        "off",
+        "all: blue solid | green playerclip | orange weapclip | purple trigger",
+        "visible solids (blue)",
+        "playerclip (green)",
+        "weapclip (orange)",
+        "triggers (purple)",
+      }};
+      const std::size_t collisionMode = static_cast<std::size_t>(
+        std::clamp(currentRenderSettings.showCollision, 0, 5)
+      );
+      hud.topLeftLines.emplace_back(
+        "collision: " + std::string(collisionModeLabels[collisionMode])
+      );
+    }
     if (console.getBool("r_perf")) {
       appendPerfHudLines(
         hud,
@@ -8243,6 +8526,7 @@ int GameApp::run() const {
               active.queued.token,
               dev::successResponse(request.id, std::move(result))
             );
+            restoreControlCvars();
             activeControlOperation.reset();
           }
         }
@@ -8284,13 +8568,17 @@ int GameApp::run() const {
             request.benchmarkScenario,
             context,
             active.benchmarkSamples,
+            active.benchmarkTickSamples,
             resultDirectory,
             artifactError
           )) {
         completeControlError("artifact_write_failed", artifactError);
       } else {
         dev::JsonValue response = benchmark::resultJson(
-          request.benchmarkScenario, context, active.benchmarkSamples
+          request.benchmarkScenario,
+          context,
+          active.benchmarkSamples,
+          active.benchmarkTickSamples
         );
         response.object["result_directory"] =
           dev::JsonValue::stringValue(resultDirectory.string());
@@ -8302,6 +8590,9 @@ int GameApp::run() const {
         );
         response.object["telemetry_path"] = dev::JsonValue::stringValue(
           (resultDirectory / "telemetry.csv").string()
+        );
+        response.object["simulation_ticks_path"] = dev::JsonValue::stringValue(
+          (resultDirectory / "simulation-ticks.csv").string()
         );
         developerControl.complete(
           active.queued.token,
@@ -8321,6 +8612,10 @@ int GameApp::run() const {
           perfGame != nullptr ? perfGame->snapshotDiagnostics() : SnapshotDiagnostics{}
         )
       );
+    }
+    if (benchmarkFrameTimingEnabled && activeControlOperation.has_value()) {
+      activeControlOperation->lastBenchmarkFrameTiming =
+        currentBenchmarkFrameTiming;
     }
     const int requestedMaxFps = std::max(0, console.getInt("r_maxfps"));
     if (requestedMaxFps != appliedMaxFps) {
@@ -8351,6 +8646,7 @@ int GameApp::run() const {
     }
   }
   restoreBenchmarkState();
+  restoreControlCvars();
   developerControl.stop();
   saveClientConfig(console, bindings, configPath);
   audio.shutdown();

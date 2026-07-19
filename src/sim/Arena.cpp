@@ -1,4 +1,6 @@
 #include "sim/Arena.hpp"
+
+#include "benchmark/BenchmarkTiming.hpp"
 #include "sim/ArenaBroadphase.hpp"
 
 #include <algorithm>
@@ -19,6 +21,7 @@ Arena makeDefaultServerArena() {
     {-3.0F, -9.0F, 0.0F},
     {3.0F, -9.0F, 0.0F},
   }};
+  arena.spawnCount = 6;
   arena.walls[0] = {{-15.0F, -11.0F, 0.0F}, {-3.0F, -7.0F, 2.0F}};
   arena.walls[1] = {{3.0F, -11.0F, 0.0F}, {15.0F, -7.0F, 2.0F}};
   arena.walls[2] = {{-15.0F, 6.5F, 0.0F}, {15.0F, 11.0F, 2.0F}};
@@ -51,7 +54,8 @@ bool hasValidMcGuffinLayout(const Arena& arena) {
     hasValidBlueSpawn = hasValidBlueSpawn || (blue && usable);
   }
   // Legacy maps authored before physical spawn groups remain loadable.
-  for (Team team : arena.spawnTeams) {
+  for (std::size_t index = 0; index < arena.spawnCount; ++index) {
+    const Team team = arena.spawnTeams[index];
     if (!hasRedSpawn && team == Team::Red) hasValidRedSpawn = true;
     if (!hasBlueSpawn && team == Team::Blue) hasValidBlueSpawn = true;
   }
@@ -951,6 +955,7 @@ void keepEarliestTrace(const PlayerArenaTrace& candidate, PlayerArenaTrace& trac
   Vec3 start,
   Vec3 end
 ) {
+  benchmark::ScopedTiming timing(benchmark::TimingSubsystem::Traces);
   PlayerArenaTrace trace = traceWallsAndBounds(arena, player, start, end);
   if (trace.hit) {
     trace.hitFlags |= static_cast<std::uint8_t>(MovementHitFlags::Arena);

@@ -399,9 +399,8 @@ int main() {
       command.mapName.assign(lg::kMaxMapNameBytes, 'm');
     }
     failures += expect(
-      lg::encodeCommandBundle(bundle, wire) &&
-        wire.size() <= lg::kMaxPacketBytes,
-      "maximum chat and player names should fit a redundant command bundle"
+      !lg::encodeCommandBundle(bundle, wire),
+      "an oversized redundant command bundle should fail encoding"
     );
   }
 
@@ -719,6 +718,9 @@ int main() {
     source.roundWinner = 0;
     source.matchWinner = 255;
     source.playersColliding = true;
+    // High-frequency gameplay snapshots never embed scoreboard aggregates;
+    // those use the independently bounded CombatStats packet below.
+    source.hasCombatStats = false;
 
     lg::WirePacket wire;
     lg::ServerSnapshot decoded;
@@ -891,18 +893,9 @@ int main() {
       "gamemode and team match state should round trip"
     );
     failures += expect(
-      decoded.matchCombatStats[0]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .attempts == 500 &&
-        decoded.matchCombatStats[0]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .hits == 275 &&
-        decoded.matchCombatStats[0]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .damageDealt == 180 &&
-        decoded.playerNames[0] == "yg" &&
+      !decoded.hasCombatStats && decoded.playerNames[0] == "yg" &&
         decoded.playerNames[1] == "opponent",
-      "scoreboard names and aggregate stats should round trip"
+      "gameplay names should round trip without embedded combat aggregates"
     );
     failures += expect(
       decoded.connectedPlayers == source.connectedPlayers &&
@@ -912,19 +905,8 @@ int main() {
       "lobby, bot, and participating-player state should round trip"
     );
     failures += expect(
-      decoded.roundCombatStats[0]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .attempts == 250 &&
-        decoded.roundCombatStats[0]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .hits == 125 &&
-        decoded.roundCombatStats[0]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .damageDealt == 80 &&
-        decoded.roundCombatStats[1]
-          .weapons[lg::weaponIndex(lg::Weapon::LightningGun)]
-          .damageDealt == 24,
-      "round combat stats should round trip"
+      !decoded.hasCombatStats,
+      "round combat stats should stay out of gameplay snapshots"
     );
     failures += expect(
       decoded.matchPhase == lg::MatchPhase::Countdown &&
@@ -1017,9 +999,10 @@ int main() {
     failures += expect(lg::encodeServerSnapshot(fullSnapshot, wire),
                        "full refresh snapshot should encode");
     const std::size_t fullBytes = wire.size();
-    failures += expect(fullBytes - configurationBytes ==
-      2U * lg::kDuelPlayerCount * lg::kWeaponCount * 8U,
-      "combat statistics refresh should add exactly 864 bytes");
+    failures += expect(
+      fullBytes <= lg::kMaxUdpApplicationDatagramBytes,
+      "compressible combat-statistics fixture should stay within one datagram"
+    );
     failures += expect(leanBytes < 2500 && configurationBytes < 2500,
                        "normal and configuration refresh snapshots should stay below budget");
     std::cout << "snapshot bytes: gameplay=" << leanBytes
@@ -1043,6 +1026,44 @@ int main() {
       "combat statistics should round trip below the datagram budget"
     );
     std::cout << "combat-stats packet bytes=" << statsBytes << '\n';
+
+    lg::CombatStatsPacket diverseStats;
+    diverseStats.serverTick = 1235;
+    diverseStats.firstPlayerIndex = 8;
+    diverseStats.playerCount = 4;
+    for (std::size_t player = 8; player < 12; ++player) {
+      for (std::size_t weapon = 0; weapon < lg::kWeaponCount; ++weapon) {
+        const std::uint32_t seed = static_cast<std::uint32_t>(
+          (player + 1U) * 2654435761U + weapon * 2246822519U
+        );
+        diverseStats.round[player].weapons[weapon] = {
+          seed,
+          static_cast<std::uint16_t>(seed >> 8U),
+          static_cast<std::uint16_t>(static_cast<std::uint16_t>(seed >> 8U) / 2U),
+        };
+        diverseStats.match[player].weapons[weapon] = {
+          seed ^ 0xA5A5A5A5U,
+          static_cast<std::uint16_t>(seed >> 3U),
+          static_cast<std::uint16_t>(static_cast<std::uint16_t>(seed >> 3U) / 2U),
+        };
+      }
+    }
+    failures += expect(
+      lg::encodeCombatStatsPacket(diverseStats, wire) &&
+        wire.size() <= lg::kMaxUdpApplicationDatagramBytes &&
+        lg::decodeCombatStatsPacket(wire, decodedStats) &&
+        decodedStats.firstPlayerIndex == 8U &&
+        decodedStats.playerCount == 4U &&
+        decodedStats.match[11].weapons[8].damageDealt ==
+          diverseStats.match[11].weapons[8].damageDealt,
+      "diverse combat statistics pages should remain below the datagram ceiling"
+    );
+    diverseStats.firstPlayerIndex = 15;
+    diverseStats.playerCount = 2;
+    failures += expect(
+      !lg::encodeCombatStatsPacket(diverseStats, wire),
+      "combat statistics pages should reject ranges beyond player capacity"
+    );
     lg::ServerSnapshot sixPlayerSnapshot = leanSnapshot;
     sixPlayerSnapshot.gameMode = lg::GameMode::ClanArena;
     sixPlayerSnapshot.matchRules.playerLimit =
@@ -1070,6 +1091,125 @@ int main() {
                << " duel-full=" << fullBytes
                << " six-player=" << sixPlayerSnapshotBytes
                << " active-combat=" << activeCombatSnapshotBytes << '\n';
+
+    lg::ServerSnapshot sixteenPlayerSnapshot = leanSnapshot;
+    sixteenPlayerSnapshot.gameMode = lg::GameMode::ClanArena;
+    sixteenPlayerSnapshot.matchRules.playerLimit =
+      static_cast<std::uint8_t>(lg::kDuelPlayerCount);
+    sixteenPlayerSnapshot.connectedPlayers.fill(true);
+    sixteenPlayerSnapshot.participatingPlayers.fill(true);
+    sixteenPlayerSnapshot.hasAcknowledgedCommand.fill(true);
+    for (std::size_t index = 0; index < lg::kDuelPlayerCount; ++index) {
+      sixteenPlayerSnapshot.acknowledgedCommand[index] =
+        static_cast<std::uint32_t>(100U + index);
+      sixteenPlayerSnapshot.players[index].position = {
+        static_cast<float>(index),
+        -static_cast<float>(index) * 0.5F,
+        0.9F + static_cast<float>(index) * 0.01F,
+      };
+      sixteenPlayerSnapshot.selectedWeapons[index] =
+        static_cast<lg::Weapon>(index % lg::kWeaponCount);
+      sixteenPlayerSnapshot.teams[index] =
+        (index % 2U) == 0U ? lg::Team::Red : lg::Team::Blue;
+    }
+    lg::LocalHitFeedbackEvent& lastWindowEvent =
+      sixteenPlayerSnapshot.localHitFeedbackEvents[15][3];
+    lastWindowEvent.active = true;
+    lastWindowEvent.sequence = 0x12345678U;
+    lastWindowEvent.targetPlayerIndex = 0;
+    lastWindowEvent.damageApplied = 77;
+    lastWindowEvent.headshot = true;
+    lastWindowEvent.weapon = lg::Weapon::Railgun;
+    failures += expect(
+      lg::encodeServerSnapshot(sixteenPlayerSnapshot, wire) &&
+        wire.size() <= lg::kMaxUdpApplicationDatagramBytes,
+      "typical sixteen-player snapshot should fit one UDP datagram"
+    );
+    const std::size_t sixteenPlayerSnapshotBytes = wire.size();
+    lg::ServerSnapshot decodedSixteenPlayers;
+    failures += expect(
+      lg::decodeServerSnapshot(wire, decodedSixteenPlayers) &&
+        decodedSixteenPlayers.connectedPlayers ==
+          sixteenPlayerSnapshot.connectedPlayers &&
+        nearlyEqual(decodedSixteenPlayers.players[15].position.x,
+                    sixteenPlayerSnapshot.players[15].position.x) &&
+        nearlyEqual(decodedSixteenPlayers.players[15].position.z,
+                    sixteenPlayerSnapshot.players[15].position.z) &&
+        decodedSixteenPlayers.acknowledgedCommand ==
+          sixteenPlayerSnapshot.acknowledgedCommand &&
+        decodedSixteenPlayers.playerNames[15] == "PLAYER 16" &&
+        decodedSixteenPlayers.localHitFeedbackEvents[15][3].active &&
+        decodedSixteenPlayers.localHitFeedbackEvents[15][3].sequence ==
+          lastWindowEvent.sequence,
+      "all sixteen slots and the final hit-feedback window should round trip"
+    );
+    std::cout << "snapshot bytes: sixteen-player="
+              << sixteenPlayerSnapshotBytes << '\n';
+
+    lg::ServerSnapshot unboundedBurst = sixteenPlayerSnapshot;
+    for (std::size_t player = 0; player < lg::kDuelPlayerCount; ++player) {
+      auto& beam = unboundedBurst.lightningGuns[player];
+      beam.active = true;
+      beam.hit = true;
+      beam.targetPlayerIndex = static_cast<std::uint8_t>((player + 1U) %
+        lg::kDuelPlayerCount);
+      beam.damageApplied = static_cast<int>(player + 1U);
+      beam.start = {static_cast<float>(player * 17U + 1U),
+                    static_cast<float>(player * 19U + 2U),
+                    static_cast<float>(player * 23U + 3U)};
+      beam.end = {beam.start.x + 101.25F, beam.start.y + 203.5F,
+                  beam.start.z + 307.75F};
+      beam.hasRewindDebug = true;
+      beam.rewindTargetTick = static_cast<std::uint32_t>(500U + player);
+      beam.currentTargetPosition = beam.start;
+      beam.rewoundTargetPosition = beam.end;
+      for (std::size_t event = 0;
+           event < lg::kLocalHitFeedbackEventWindow;
+           ++event) {
+        auto& feedback = unboundedBurst.localHitFeedbackEvents[player][event];
+        feedback.active = true;
+        feedback.sequence = static_cast<std::uint32_t>(player * 101U + event);
+        feedback.targetPlayerIndex = beam.targetPlayerIndex;
+        feedback.damageApplied = static_cast<int>(player * 7U + event + 1U);
+        feedback.weapon = lg::Weapon::LightningGun;
+      }
+    }
+    failures += expect(
+      !lg::encodeServerSnapshot(unboundedBurst, wire) && wire.empty(),
+      "an incompressible event burst should fail instead of exceeding 1200 bytes"
+    );
+
+    failures += expect(
+      lg::encodeServerSnapshot(sixteenPlayerSnapshot, wire) && wire[7] == 1U,
+      "sixteen-player fixture should exercise compressed snapshot framing"
+    );
+    lg::WirePacket malformedCompressed = wire;
+    malformedCompressed.pop_back();
+    malformedCompressed[8] = static_cast<std::uint8_t>(
+      malformedCompressed.size() - 12U
+    );
+    malformedCompressed[9] = static_cast<std::uint8_t>(
+      (malformedCompressed.size() - 12U) >> 8U
+    );
+    failures += expect(
+      !lg::decodeServerSnapshot(malformedCompressed, decoded),
+      "truncated compressed snapshots should be rejected"
+    );
+    malformedCompressed = wire;
+    malformedCompressed[14] |= 1U;
+    malformedCompressed[15] = 0xFFU;
+    malformedCompressed[16] = 0x0FU;
+    failures += expect(
+      !lg::decodeServerSnapshot(malformedCompressed, decoded),
+      "compressed snapshots should reject back-references before output"
+    );
+    malformedCompressed = wire;
+    malformedCompressed[12] = 0xFFU;
+    malformedCompressed[13] = 0xFFU;
+    failures += expect(
+      !lg::decodeServerSnapshot(malformedCompressed, decoded),
+      "compressed snapshot expansion must match its bounded declared size"
+    );
 
     lg::Arena smallArena;
     lg::Arena largeArena = smallArena;

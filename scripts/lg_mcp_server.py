@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from lg_control import ControlError, load_preset, send_request
+from lg_launch import LaunchError, ensure_client, status_with_state
 from lg_benchmark import (
     BenchmarkError, compare_results, create_baseline, list_scenarios, load_result, run_benchmark,
 )
@@ -21,6 +22,18 @@ PROTOCOL_VERSION = "2025-06-18"
 
 TOOLS: list[dict[str, Any]] = [
     {
+        "name": "lg_start",
+        "description": "Start or attach to LG Duel and verify the requested renderer before reuse.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "renderer": {"type": "string", "enum": ["gpu", "fallback"], "default": "gpu"},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "lg_status",
         "description": "Get structured LG Duel client, server, map, camera, renderer, and capture status.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -30,7 +43,10 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Request an authoritative map load and wait for the new active map revision.",
         "inputSchema": {
             "type": "object",
-            "properties": {"map": {"type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.map)?$"}},
+            "properties": {
+                "map": {"type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.map)?$"},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
             "required": ["map"], "additionalProperties": False,
         },
     },
@@ -39,14 +55,21 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Reload the active authoritative map and wait for its revision to advance.",
         "inputSchema": {
             "type": "object",
-            "properties": {"map": {"type": "string", "description": "Optional expected current map safety check."}},
+            "properties": {
+                "map": {"type": "string", "description": "Optional expected current map safety check."},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
             "additionalProperties": False,
         },
     },
     {
         "name": "lg_get_camera",
         "description": "Get the effective development or player camera transform.",
-        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+        "inputSchema": {
+            "type": "object",
+            "properties": {"allow_fallback": {"type": "boolean", "default": False}},
+            "additionalProperties": False,
+        },
     },
     {
         "name": "lg_set_camera",
@@ -58,6 +81,7 @@ TOOLS: list[dict[str, Any]] = [
                 "yaw": {"type": "number"},
                 "pitch": {"type": "number", "minimum": -89.9, "maximum": 89.9},
                 "fov": {"type": "number", "minimum": 30, "maximum": 140},
+                "allow_fallback": {"type": "boolean", "default": False},
             },
             "required": ["position", "yaw", "pitch"], "additionalProperties": False,
         },
@@ -71,8 +95,21 @@ TOOLS: list[dict[str, Any]] = [
                 "name": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$"},
                 "hide_hud": {"type": "boolean", "default": True},
                 "hide_overlays": {"type": "boolean", "default": True},
+                "allow_fallback": {"type": "boolean", "default": False},
             },
             "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_set_collision_debug",
+        "description": "Set the renderer-only collision visualization mode without changing authoritative collision.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "mode": {"type": "integer", "minimum": 0, "maximum": 5},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["mode"], "additionalProperties": False,
         },
     },
     {
@@ -83,6 +120,7 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "map": {"type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.map)?$"},
                 "preset": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$", "default": "standard"},
+                "allow_fallback": {"type": "boolean", "default": False},
             },
             "required": ["map"], "additionalProperties": False,
         },
@@ -151,8 +189,23 @@ TOOLS: list[dict[str, Any]] = [
 
 
 def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "lg_start":
+        renderer = str(arguments.get("renderer", "gpu"))
+        allow_fallback = bool(arguments.get("allow_fallback", False))
+        if renderer == "fallback" and not allow_fallback:
+            raise LaunchError("renderer='fallback' requires allow_fallback=true")
+        return ensure_client(renderer=renderer, allow_fallback=allow_fallback)
     if name == "lg_status":
-        return send_request("status")
+        return status_with_state()
+    if name in {
+        "lg_load_map", "lg_reload_map", "lg_get_camera", "lg_set_camera",
+        "lg_set_collision_debug", "lg_capture_screenshot", "lg_capture_map_views",
+    }:
+        allow_fallback = bool(arguments.get("allow_fallback", False))
+        ensure_client(
+            renderer="fallback" if allow_fallback else "gpu",
+            allow_fallback=allow_fallback,
+        )
     if name == "lg_load_map":
         return send_request("load_map", map=arguments["map"])
     if name == "lg_reload_map":
@@ -169,6 +222,11 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
             "set_camera", position=arguments["position"], yaw=arguments["yaw"],
             pitch=arguments["pitch"], fov=arguments.get("fov")
         )
+    if name == "lg_set_collision_debug":
+        mode = arguments["mode"]
+        if isinstance(mode, bool) or not isinstance(mode, int) or not 0 <= mode <= 5:
+            raise ControlError("mode must be an integer between 0 and 5")
+        return send_request("set_collision_debug", mode=mode)
     if name == "lg_capture_screenshot":
         return send_request(
             "capture_screenshot", name=arguments.get("name"),
@@ -260,7 +318,10 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": {"tools": {"listChanged": False}},
                 "serverInfo": SERVER_INFO,
-                "instructions": "Launch LG Duel with --dev-control before calling tools.",
+                "instructions": (
+                    "Visual tools start or attach to a verified SDL_GPU/vulkan session by default. "
+                    "Fallback requires explicit allow_fallback=true."
+                ),
             },
         }
     if method == "ping":
@@ -276,7 +337,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
         try:
             result = invoke_tool(str(name), arguments)
             payload = tool_result(result)
-        except (ControlError, BenchmarkError, KeyError, TypeError, ValueError) as error:
+        except (ControlError, LaunchError, BenchmarkError, KeyError, TypeError, ValueError) as error:
             payload = {
                 "content": [{"type": "text", "text": f"LG Duel tool error: {error}"}],
                 "isError": True,

@@ -2,8 +2,8 @@
   "schema_version": 1,
   "benchmark_version": 1,
   "expected_benchmark_version": 1,
-  "name": "overkill-static-flythrough",
-  "labels": ["static-world", "flythrough", "high-visibility", "large-map", "overkill-import"],
+  "name": "overkill-static-flythrough-bvh-off",
+  "labels": ["static-world", "flythrough", "large-map", "overkill-import", "bvh-control"],
   "map": "overkill_import",
   "backend_requirement": "gpu",
   "resolution": [1280, 720],
@@ -24,7 +24,12 @@
     {"progress": 0.5, "position": [16.0, 33.6, 24.05], "yaw": 270.0, "pitch": -5.0, "fov": 105.0},
     {"progress": 1.0, "position": [16.0, -45.2, 10.85], "yaw": 90.0, "pitch": 0.0, "fov": 105.0}
   ],
-  "player_state": {"alive": true, "weapon": "lightning_gun", "hide_hud": true, "hide_overlays": true},
+  "player_state": {
+    "alive": true,
+    "weapon": "lightning_gun",
+    "hide_hud": true,
+    "hide_overlays": true
+  },
   "actors": {
     "bots": 0,
     "attack_mode": "off",
@@ -34,10 +39,14 @@
     "expected_count": 1,
     "commands": []
   },
-  "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
+  "effects": {
+    "projectiles": "none",
+    "tracers": "none",
+    "explosions": "none"
+  },
   "cvars": {
     "r_frustum_cull": 1,
-    "r_world_frustum_cull": 1,
+    "r_world_frustum_cull": 0,
     "r_show_weapons": 1,
     "r_player_model": 1,
     "r_draw_player_outlines": 1,
@@ -51,6 +60,6 @@
     {"name": "south-launch-route", "progress": 1.0}
   ],
   "residual_nondeterminism": [
-    "Camera interpolation is deterministic, but renderer scheduling and asynchronous resource residency remain host-dependent."
+    "This control scenario disables only static-world BVH frustum culling; renderer scheduling and asynchronous resource residency remain host-dependent."
   ]
 }

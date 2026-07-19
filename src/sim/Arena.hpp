@@ -22,6 +22,16 @@ struct ArenaCollisionIndex;
 inline constexpr float kDefaultJumpPadSpeed = 20.0F;
 inline constexpr float kPlayerStepHeight = 0.45F;
 inline constexpr float kMinWalkNormal = 0.7F;
+inline constexpr std::uint32_t kInvalidSourceGeometryIndex = UINT32_MAX;
+
+// Collision classes remain behaviorally identical until player/projectile
+// masks are separated. Keeping the authored distinction now makes imported
+// geometry auditable without changing server-authoritative traces.
+enum class ArenaCollisionKind : std::uint8_t {
+  VisibleSolid = 0,
+  PlayerClip = 1,
+  WeaponClip = 2,
+};
 
 struct TextureProjection {
   Vec3 uAxis = {};
@@ -40,6 +50,9 @@ struct ArenaWall {
   std::uint32_t materialId = 0;
   std::array<std::uint32_t, 6> faceMaterialIds = {};
   std::array<TextureProjection, 6> faceTextureProjections = {};
+  ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
+  std::uint32_t sourceEntityIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t sourceBrushIndex = kInvalidSourceGeometryIndex;
   bool renderable = true;
 };
 
@@ -66,6 +79,9 @@ struct ArenaBrush {
   std::uint8_t vertexCount = 0;
   std::array<ArenaBrushFace, kMaxFaces> faces = {};
   std::uint8_t faceCount = 0;
+  ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
+  std::uint32_t sourceEntityIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t sourceBrushIndex = kInvalidSourceGeometryIndex;
 };
 
 struct ArenaStaticLight {
@@ -92,6 +108,13 @@ struct ArenaJumpPad {
   float targetSpeed = 0.0F;
   bool hasTarget = false;
   bool hasTargetSpeed = false;
+};
+
+struct ArenaTeleport {
+  Vec3 min = {};
+  Vec3 max = {};
+  Vec3 destination = {};
+  Vec3 exitVelocity = {};
 };
 
 enum class HealthPickupType : std::uint8_t {
@@ -159,7 +182,9 @@ struct Arena {
   static constexpr std::size_t kBrushCount = 1024;
   static constexpr std::size_t kStaticLightCount = 96;
   static constexpr std::size_t kJumpPadCount = 48;
+  static constexpr std::size_t kTeleportCount = 16;
   static constexpr std::size_t kHealthPickupCount = 32;
+  static constexpr std::size_t kSpawnCount = 32;
   static constexpr std::size_t kTeamSpawnCount = 32;
 
   Vec3 min = {-12.0F, -12.0F, 0.0F};
@@ -175,9 +200,11 @@ struct Arena {
   ArenaSunLight sunLight = {};
   std::array<ArenaJumpPad, kJumpPadCount> jumpPads = {};
   std::size_t jumpPadCount = 0;
+  std::array<ArenaTeleport, kTeleportCount> teleports = {};
+  std::size_t teleportCount = 0;
   std::array<ArenaHealthPickup, kHealthPickupCount> healthPickups = {};
   std::size_t healthPickupCount = 0;
-  std::array<Vec3, kMaxPlayers> spawnPositions = {{
+  std::array<Vec3, kSpawnCount> spawnPositions = {{
     {-3.0F, 0.0F, 0.0F},
     {3.0F, 0.0F, 0.0F},
     {0.0F, 3.0F, 0.0F},
@@ -185,9 +212,12 @@ struct Arena {
     {-6.0F, 3.0F, 0.0F},
     {6.0F, 3.0F, 0.0F},
   }};
+  // Deathmatch spawns are authored content, not player slots. Only this
+  // prefix participates in validation, hashing, and server selection.
+  std::size_t spawnCount = 6;
   // Team tags are optional for legacy modes, but McGuffin validates that both
   // playable teams have at least one authored spawn.
-  std::array<Team, kMaxPlayers> spawnTeams = {};
+  std::array<Team, kSpawnCount> spawnTeams = {};
   // Team modes use a larger physical spawn pool. Groups describe map sides,
   // not permanent teams, so ownership swaps do not require rewriting the map.
   std::array<ArenaTeamSpawn, kTeamSpawnCount> teamSpawns = {};

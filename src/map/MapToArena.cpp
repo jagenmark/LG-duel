@@ -26,10 +26,12 @@ constexpr float kDegreesToRadians = 0.01745329252F;
 constexpr Vec3 kDefaultSunDirection = {0.25916052F, -0.43193421F, -0.86386842F};
 constexpr Vec3 kDefaultSunColor = {1.0F, 0.94117647F, 0.78431374F};
 constexpr float kDefaultSunIntensity = 0.7F;
+constexpr float kDefaultTeleportExitSpeed = 10.0F;
 
 struct TargetPosition {
   std::string targetname;
   Vec3 position = {};
+  float yawRadians = 0.0F;
   int line = 0;
 };
 
@@ -50,6 +52,21 @@ struct TargetPosition {
   const char* end = begin + text.size();
   const auto result = std::from_chars(begin, end, value);
   return result.ec == std::errc{} && result.ptr == end && std::isfinite(value);
+}
+
+[[nodiscard]] bool parseUint32(std::string_view text, std::uint32_t& value) {
+  const char* begin = text.data();
+  const char* end = begin + text.size();
+  const auto result = std::from_chars(begin, end, value);
+  return result.ec == std::errc{} && result.ptr == end;
+}
+
+[[nodiscard]] bool isSha256Hex(std::string_view value) {
+  return value.size() == 64U && std::all_of(
+    value.begin(),
+    value.end(),
+    [](unsigned char character) { return std::isxdigit(character) != 0; }
+  );
 }
 
 [[nodiscard]] bool parseSpaceVec3(std::string_view text, Vec3& value) {
@@ -90,28 +107,124 @@ struct TargetPosition {
 }
 
 [[nodiscard]] bool isPlayerClipMaterial(std::string_view material) {
-  return normalizedMaterialName(material) == "common/playerclip";
+  const std::string normalized = normalizedMaterialName(material);
+  return normalized == "common/playerclip" || normalized == "common/clip";
 }
 
-[[nodiscard]] bool brushHasPlayerClipMaterial(const MapBrush& brush) {
+[[nodiscard]] bool isWeaponClipMaterial(std::string_view material) {
+  return normalizedMaterialName(material) == "common/weapclip";
+}
+
+[[nodiscard]] bool isCollisionOnlyMaterial(std::string_view material) {
+  return isPlayerClipMaterial(material) || isWeaponClipMaterial(material);
+}
+
+[[nodiscard]] bool brushHasCollisionOnlyMaterial(const MapBrush& brush) {
   return std::any_of(
     brush.faces.begin(),
     brush.faces.end(),
     [](const MapFace& face) {
-      return isPlayerClipMaterial(face.material);
+      return isCollisionOnlyMaterial(face.material);
     }
   );
 }
 
-[[nodiscard]] bool brushIsPlayerClip(const MapBrush& brush) {
+[[nodiscard]] bool brushUsesOnlyMaterialClass(
+  const MapBrush& brush,
+  bool (*predicate)(std::string_view)
+) {
   return !brush.faces.empty() &&
     std::all_of(
       brush.faces.begin(),
       brush.faces.end(),
-      [](const MapFace& face) {
-        return isPlayerClipMaterial(face.material);
+      [predicate](const MapFace& face) {
+        return predicate(face.material);
       }
     );
+}
+
+[[nodiscard]] ArenaCollisionKind inferredCollisionKind(const MapBrush& brush) {
+  if (brushUsesOnlyMaterialClass(brush, isPlayerClipMaterial)) {
+    return ArenaCollisionKind::PlayerClip;
+  }
+  if (brushUsesOnlyMaterialClass(brush, isWeaponClipMaterial)) {
+    return ArenaCollisionKind::WeaponClip;
+  }
+  return ArenaCollisionKind::VisibleSolid;
+}
+
+[[nodiscard]] std::string_view collisionKindName(ArenaCollisionKind kind) {
+  switch (kind) {
+    case ArenaCollisionKind::VisibleSolid: return "visible_solid";
+    case ArenaCollisionKind::PlayerClip: return "playerclip";
+    case ArenaCollisionKind::WeaponClip: return "weapclip";
+  }
+  return "visible_solid";
+}
+
+[[nodiscard]] bool parseCollisionKind(
+  std::string_view value,
+  ArenaCollisionKind& kind
+) {
+  if (value == "visible_solid") {
+    kind = ArenaCollisionKind::VisibleSolid;
+    return true;
+  }
+  if (value == "playerclip") {
+    kind = ArenaCollisionKind::PlayerClip;
+    return true;
+  }
+  if (value == "weapclip") {
+    kind = ArenaCollisionKind::WeaponClip;
+    return true;
+  }
+  return false;
+}
+
+struct SourceBrushMetadata {
+  ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
+  std::uint32_t entityIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t brushIndex = kInvalidSourceGeometryIndex;
+  bool hasCollisionKind = false;
+};
+
+[[nodiscard]] bool parseSourceBrushMetadata(
+  const MapEntity& entity,
+  SourceBrushMetadata& metadata,
+  std::string& error
+) {
+  const MapProperty* collision = findProperty(entity, "lg_collision_class");
+  if (collision != nullptr) {
+    if (!parseCollisionKind(collision->value, metadata.collisionKind)) {
+      error = "line " + std::to_string(collision->line) +
+        ": lg_collision_class must be visible_solid, playerclip, or weapclip";
+      return false;
+    }
+    metadata.hasCollisionKind = true;
+  }
+
+  const MapProperty* sourceEntity = findProperty(entity, "lg_source_entity_index");
+  const MapProperty* sourceBrush = findProperty(entity, "lg_source_brush_index");
+  if ((sourceEntity == nullptr) != (sourceBrush == nullptr)) {
+    error = "line " + std::to_string(entity.line) +
+      ": source brush metadata requires both lg_source_entity_index and lg_source_brush_index";
+    return false;
+  }
+  if (sourceEntity == nullptr) {
+    return true;
+  }
+  if (
+    entity.brushes.size() != 1U ||
+    !parseUint32(sourceEntity->value, metadata.entityIndex) ||
+    !parseUint32(sourceBrush->value, metadata.brushIndex) ||
+    metadata.entityIndex == kInvalidSourceGeometryIndex ||
+    metadata.brushIndex == kInvalidSourceGeometryIndex
+  ) {
+    error = "line " + std::to_string(entity.line) +
+      ": source brush metadata requires one brush and non-negative 32-bit indices";
+    return false;
+  }
+  return true;
 }
 
 void clearRenderableMaterial(ArenaWall& wall) {
@@ -132,6 +245,7 @@ void clearRenderableMaterial(ArenaBrush& brush) {
   const MapBrush& brush,
   Vec3& minimum,
   Vec3& maximum,
+  std::string_view ownerClass,
   std::string& error
 ) {
   bool initialized = false;
@@ -157,7 +271,7 @@ void clearRenderableMaterial(ArenaBrush& brush) {
     !(minimum.x < maximum.x && minimum.y < maximum.y && minimum.z < maximum.z)
   ) {
     error = "line " + std::to_string(brush.line) +
-      ": trigger_jumppad brush has degenerate or inverted bounds";
+      ": " + std::string(ownerClass) + " brush has degenerate or inverted bounds";
     return false;
   }
   return true;
@@ -243,6 +357,7 @@ void clearRenderableMaterial(ArenaBrush& brush) {
 
 [[nodiscard]] bool parseOptionalYaw(
   const MapEntity& entity,
+  std::string_view owner,
   float& yawRadians,
   std::string& error
 ) {
@@ -256,7 +371,8 @@ void clearRenderableMaterial(ArenaBrush& brush) {
   }
   float value = 0.0F;
   if (!parseFloat(*yaw, value)) {
-    error = "line " + std::to_string(entity.line) + ": spawn yaw must be a finite float";
+    error = "line " + std::to_string(entity.line) + ": " +
+      std::string(owner) + " yaw must be a finite float";
     return false;
   }
   constexpr float kDegreesToRadians = 0.01745329252F;
@@ -794,22 +910,44 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
 [[nodiscard]] bool convertSolidBrushes(
   const MapEntity& entity,
   std::string_view ownerClass,
+  bool requireSourceLocator,
   std::vector<ArenaWall>& walls,
   std::vector<ArenaBrush>& brushes,
   std::string& error
 ) {
+  SourceBrushMetadata metadata;
+  if (!parseSourceBrushMetadata(entity, metadata, error)) {
+    return false;
+  }
+  if (requireSourceLocator && metadata.entityIndex == kInvalidSourceGeometryIndex) {
+    error = "line " + std::to_string(entity.line) +
+      ": source-bound imported func_group requires lg_source_entity_index and "
+      "lg_source_brush_index";
+    return false;
+  }
   for (std::size_t brushIndex = 0; brushIndex < entity.brushes.size(); ++brushIndex) {
     const MapBrush& brush = entity.brushes[brushIndex];
-    const bool playerClip = brushIsPlayerClip(brush);
-    if (!playerClip && brushHasPlayerClipMaterial(brush)) {
+    const ArenaCollisionKind collisionKind = inferredCollisionKind(brush);
+    const bool collisionOnly = collisionKind != ArenaCollisionKind::VisibleSolid;
+    if (!collisionOnly && brushHasCollisionOnlyMaterial(brush)) {
       error = "line " + std::to_string(brush.line) +
-        ": playerclip brushes must use common/playerclip on every face";
+        ": collision-only brushes must use one clip class on every face";
+      return false;
+    }
+    if (metadata.hasCollisionKind && metadata.collisionKind != collisionKind) {
+      error = "line " + std::to_string(brush.line) +
+        ": lg_collision_class " + std::string(collisionKindName(metadata.collisionKind)) +
+        " does not match brush materials classified as " +
+        std::string(collisionKindName(collisionKind));
       return false;
     }
     ArenaWall wall;
     if (convertCuboidBrush(brush, wall, error)) {
-      wall.renderable = !playerClip;
-      if (playerClip) {
+      wall.collisionKind = collisionKind;
+      wall.sourceEntityIndex = metadata.entityIndex;
+      wall.sourceBrushIndex = metadata.brushIndex;
+      wall.renderable = !collisionOnly;
+      if (collisionOnly) {
         clearRenderableMaterial(wall);
       }
       walls.push_back(wall);
@@ -819,8 +957,11 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     if (!convertConvexBrush(brush, ownerClass, brushIndex, arenaBrush, error)) {
       return false;
     }
-    arenaBrush.renderable = !playerClip;
-    if (playerClip) {
+    arenaBrush.collisionKind = collisionKind;
+    arenaBrush.sourceEntityIndex = metadata.entityIndex;
+    arenaBrush.sourceBrushIndex = metadata.brushIndex;
+    arenaBrush.renderable = !collisionOnly;
+    if (collisionOnly) {
       clearRenderableMaterial(arenaBrush);
     }
     brushes.push_back(arenaBrush);
@@ -1179,6 +1320,9 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   }
   target.targetname = targetname->value;
   target.position = scaleQuakeUnits(position);
+  if (!parseOptionalYaw(entity, "target_position", target.yawRadians, error)) {
+    return false;
+  }
   target.line = entity.line;
   return true;
 }
@@ -1267,10 +1411,51 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
       return false;
     }
     ArenaJumpPad jumpPad = templatePad;
-    if (!brushPointBounds(brush, jumpPad.min, jumpPad.max, error)) {
+    if (!brushPointBounds(brush, jumpPad.min, jumpPad.max, "trigger_jumppad", error)) {
       return false;
     }
     jumpPads.push_back(jumpPad);
+  }
+  return true;
+}
+
+[[nodiscard]] bool convertTeleportEntity(
+  const MapEntity& entity,
+  const std::vector<TargetPosition>& targets,
+  std::vector<ArenaTeleport>& teleports,
+  std::string& error
+) {
+  const MapProperty* target = findProperty(entity, "target");
+  if (target == nullptr || target->value.empty()) {
+    error = "line " + std::to_string(entity.line) + ": trigger_teleport is missing target";
+    return false;
+  }
+  const TargetPosition* destination = findTargetPosition(targets, target->value);
+  if (destination == nullptr) {
+    error = "line " + std::to_string(target->line) + ": trigger_teleport target '" +
+      target->value + "' does not match a target_position";
+    return false;
+  }
+  if (entity.brushes.empty()) {
+    error = "line " + std::to_string(entity.line) + ": trigger_teleport requires at least one brush";
+    return false;
+  }
+  for (const MapBrush& brush : entity.brushes) {
+    if (teleports.size() >= Arena::kTeleportCount) {
+      error = "line " + std::to_string(entity.line) + ": too many trigger_teleport brushes";
+      return false;
+    }
+    ArenaTeleport teleport;
+    if (!brushPointBounds(brush, teleport.min, teleport.max, "trigger_teleport", error)) {
+      return false;
+    }
+    teleport.destination = destination->position;
+    teleport.exitVelocity = {
+      std::cos(destination->yawRadians) * kDefaultTeleportExitSpeed,
+      std::sin(destination->yawRadians) * kDefaultTeleportExitSpeed,
+      0.0F,
+    };
+    teleports.push_back(teleport);
   }
   return true;
 }
@@ -1297,6 +1482,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaBrush> brushes;
   std::vector<ArenaStaticLight> staticLights;
   std::vector<ArenaJumpPad> jumpPads;
+  std::vector<ArenaTeleport> teleports;
   std::vector<ArenaHealthPickup> healthPickups;
   std::vector<TargetPosition> targetPositions;
   ArenaSunLight sunLight;
@@ -1309,6 +1495,31 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   bool hasBoundsMax = false;
   Vec3 boundsMin = {};
   Vec3 boundsMax = {};
+  bool sourceBoundImport = false;
+
+  // A source-bound import is auditable only if every emitted source brush can
+  // be traced back to the exact decompile. Ordinary hand-authored maps remain
+  // free to use func_group without importer metadata.
+  for (const MapEntity& entity : document.entities) {
+    const std::string* classname = entity.property("classname");
+    if (classname == nullptr || *classname != "worldspawn") {
+      continue;
+    }
+    const MapProperty* sourceBsp = findProperty(entity, "lg_source_bsp_sha256");
+    const MapProperty* rawDecompile = findProperty(entity, "lg_raw_decompile_sha256");
+    if ((sourceBsp == nullptr) != (rawDecompile == nullptr)) {
+      return {{}, false, "line " + std::to_string(entity.line) +
+        ": imported world metadata requires both lg_source_bsp_sha256 and "
+        "lg_raw_decompile_sha256"};
+    }
+    if (sourceBsp != nullptr) {
+      if (!isSha256Hex(sourceBsp->value) || !isSha256Hex(rawDecompile->value)) {
+        return {{}, false, "line " + std::to_string(entity.line) +
+          ": imported source hashes must be 64 hexadecimal characters"};
+      }
+      sourceBoundImport = true;
+    }
+  }
 
   // Resolve named targets first so triggers may reference entities that appear
   // later in the map file without making entity order semantically significant.
@@ -1352,15 +1563,21 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         hasBoundsMax = true;
       }
       std::string error;
-      if (!convertSolidBrushes(entity, *classname, walls, brushes, error)) {
+      if (!convertSolidBrushes(entity, *classname, false, walls, brushes, error)) {
         return {{}, false, error};
       }
     } else if (*classname == "func_group") {
       std::string error;
-      if (!convertSolidBrushes(entity, *classname, walls, brushes, error)) {
+      if (!convertSolidBrushes(
+            entity, *classname, sourceBoundImport, walls, brushes, error
+          )) {
         return {{}, false, error};
       }
     } else if (isSpawnClass(*classname)) {
+      if (spawns.size() >= Arena::kSpawnCount) {
+        return {{}, false, "line " + std::to_string(entity.line) +
+          ": too many spawn points"};
+      }
       const std::string* origin = entity.property("origin");
       if (origin == nullptr) {
         return {{}, false, "line " + std::to_string(entity.line) + ": spawn entity is missing origin"};
@@ -1372,7 +1589,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       position = scaleQuakeUnits(position);
       float yawRadians = 0.0F;
       std::string error;
-      if (!parseOptionalYaw(entity, yawRadians, error)) {
+      if (!parseOptionalYaw(entity, "spawn", yawRadians, error)) {
         return {{}, false, error};
       }
       spawns.push_back(position);
@@ -1465,8 +1682,42 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     } else if (*classname == "target_position") {
       continue;
     } else if (*classname == "trigger_teleport") {
-      continue;
+      std::string error;
+      if (!convertTeleportEntity(entity, targetPositions, teleports, error)) {
+        return {{}, false, error};
+      }
     }
+  }
+
+  std::vector<std::uint64_t> sourceBrushLocators;
+  sourceBrushLocators.reserve(walls.size() + brushes.size());
+  const auto recordSourceLocator = [&sourceBrushLocators](
+    std::uint32_t entityIndex,
+    std::uint32_t brushIndex
+  ) {
+    if (
+      entityIndex == kInvalidSourceGeometryIndex ||
+      brushIndex == kInvalidSourceGeometryIndex
+    ) {
+      return;
+    }
+    sourceBrushLocators.push_back(
+      (static_cast<std::uint64_t>(entityIndex) << 32U) |
+      static_cast<std::uint64_t>(brushIndex)
+    );
+  };
+  for (const ArenaWall& wall : walls) {
+    recordSourceLocator(wall.sourceEntityIndex, wall.sourceBrushIndex);
+  }
+  for (const ArenaBrush& brush : brushes) {
+    recordSourceLocator(brush.sourceEntityIndex, brush.sourceBrushIndex);
+  }
+  std::sort(sourceBrushLocators.begin(), sourceBrushLocators.end());
+  if (
+    std::adjacent_find(sourceBrushLocators.begin(), sourceBrushLocators.end()) !=
+    sourceBrushLocators.end()
+  ) {
+    return {{}, false, "duplicate imported source brush locator"};
   }
 
   if (hasBoundsMin != hasBoundsMax) {
@@ -1490,6 +1741,11 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       if (jumpPad.hasTarget) {
         expandBounds(jumpPad.targetPosition, boundsMin, boundsMax, initialized);
       }
+    }
+    for (const ArenaTeleport& teleport : teleports) {
+      expandBounds(teleport.min, boundsMin, boundsMax, initialized);
+      expandBounds(teleport.max, boundsMin, boundsMax, initialized);
+      expandBounds(teleport.destination, boundsMin, boundsMax, initialized);
     }
     for (const ArenaHealthPickup& pickup : healthPickups) {
       expandBounds(pickup.position, boundsMin, boundsMax, initialized);
@@ -1529,8 +1785,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
           << wall.min.x << ',' << wall.min.y << ',' << wall.min.z << ' '
           << wall.max.x << ',' << wall.max.y << ',' << wall.max.z << '\n';
   }
-  const std::size_t legacySpawnCount = std::min(spawns.size(), kMaxPlayers);
-  for (std::size_t index = 0; index < legacySpawnCount; ++index) {
+  for (std::size_t index = 0; index < spawns.size(); ++index) {
     const Vec3 spawn = spawns[index];
     arenaText << "spawn spawn_" << index << ' '
           << spawn.x << ',' << spawn.y << ',' << spawn.z << " yaw=0\n";
@@ -1548,6 +1803,9 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       result.arena.walls[index].faceMaterialIds = walls[index].faceMaterialIds;
       result.arena.walls[index].faceTextureProjections =
         walls[index].faceTextureProjections;
+      result.arena.walls[index].collisionKind = walls[index].collisionKind;
+      result.arena.walls[index].sourceEntityIndex = walls[index].sourceEntityIndex;
+      result.arena.walls[index].sourceBrushIndex = walls[index].sourceBrushIndex;
       result.arena.walls[index].renderable = walls[index].renderable;
     }
     result.arena.brushCount = brushes.size();
@@ -1562,6 +1820,10 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     result.arena.jumpPadCount = jumpPads.size();
     for (std::size_t index = 0; index < result.arena.jumpPadCount; ++index) {
       result.arena.jumpPads[index] = jumpPads[index];
+    }
+    result.arena.teleportCount = teleports.size();
+    for (std::size_t index = 0; index < result.arena.teleportCount; ++index) {
+      result.arena.teleports[index] = teleports[index];
     }
     result.arena.healthPickupCount = healthPickups.size();
     for (std::size_t index = 0; index < result.arena.healthPickupCount; ++index) {

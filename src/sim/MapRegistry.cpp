@@ -109,6 +109,9 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, wall.min);
     hashVec3(hash, wall.max);
     hashU32(hash, wall.materialId);
+    hashU32(hash, static_cast<std::uint32_t>(wall.collisionKind));
+    hashU32(hash, wall.sourceEntityIndex);
+    hashU32(hash, wall.sourceBrushIndex);
     hashU32(hash, wall.renderable ? 1U : 0U);
     for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
       // The network/capture content hash must change with rendered appearance,
@@ -123,6 +126,9 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, brush.min);
     hashVec3(hash, brush.max);
     hashU32(hash, brush.materialId);
+    hashU32(hash, static_cast<std::uint32_t>(brush.collisionKind));
+    hashU32(hash, brush.sourceEntityIndex);
+    hashU32(hash, brush.sourceBrushIndex);
     hashU32(hash, brush.renderable ? 1U : 0U);
     hashU32(hash, brush.vertexCount);
     hashU32(hash, brush.faceCount);
@@ -141,11 +147,10 @@ std::uint32_t hashArena(const Arena& arena) {
       }
     }
   }
-  for (const Vec3& spawn : arena.spawnPositions) {
-    hashVec3(hash, spawn);
-  }
-  for (Team team : arena.spawnTeams) {
-    hashU32(hash, static_cast<std::uint32_t>(team));
+  hashU32(hash, static_cast<std::uint32_t>(arena.spawnCount));
+  for (std::size_t index = 0; index < arena.spawnCount; ++index) {
+    hashVec3(hash, arena.spawnPositions[index]);
+    hashU32(hash, static_cast<std::uint32_t>(arena.spawnTeams[index]));
   }
   hashU32(hash, static_cast<std::uint32_t>(arena.teamSpawnCount));
   for (std::size_t index = 0; index < arena.teamSpawnCount; ++index) {
@@ -184,6 +189,14 @@ std::uint32_t hashArena(const Arena& arena) {
     hashFloat(hash, jumpPad.targetSpeed);
     hashU32(hash, jumpPad.hasTarget ? 1U : 0U);
     hashU32(hash, jumpPad.hasTargetSpeed ? 1U : 0U);
+  }
+  hashU32(hash, static_cast<std::uint32_t>(arena.teleportCount));
+  for (std::size_t index = 0; index < arena.teleportCount; ++index) {
+    const ArenaTeleport& teleport = arena.teleports[index];
+    hashVec3(hash, teleport.min);
+    hashVec3(hash, teleport.max);
+    hashVec3(hash, teleport.destination);
+    hashVec3(hash, teleport.exitVelocity);
   }
   hashU32(hash, static_cast<std::uint32_t>(arena.healthPickupCount));
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {

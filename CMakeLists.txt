@@ -90,6 +90,7 @@ add_library(lg_duel_client_app
   src/render/Scene3D.cpp
   src/render/ScreenUi.cpp
   src/render/ViewModelPresentation.cpp
+  src/render/WorldVisibility.cpp
 )
 
 target_link_libraries(lg_duel_client_app PUBLIC lg_duel_core)

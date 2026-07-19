@@ -19,15 +19,28 @@ Each result must label every metric with its scope.
 | Category | Meaning |
 | --- | --- |
 | Direct | Client-thread wall time around a measured render frame; the primary frame-time distribution. |
+| Render-frame subsystems | Coarse client-thread CPU spans for network processing, fixed-tick work performed during the frame, movement/collision, traces, interpolation, animation, world visibility, render-instance construction, world and dynamic command encoding, UI, swapchain acquisition, and submission. Nested spans are attribution data and must not be added together as if they were disjoint. |
+| Simulation-tick subsystems | One sample per client fixed prediction tick for inclusive tick simulation plus its nested network, movement/collision, and trace spans. A render frame may contain zero or multiple tick samples. |
 | Derived | Mean, p50, p95, p99, maximum, FPS conversion, run-to-run deltas, and regression verdicts calculated from direct samples. |
 | Backend-specific CPU timing | Renderer diagnostics such as scene build, dynamic upload preparation, swapchain acquire, draw issue, submit, total render, and diagnostics counts. These remain CPU-side observations and retain backend/present-mode labels. |
 | Unavailable | GPU execution duration, GPU allocation cost, GPU memory use, and general GPU utilization. SDL 3.4.10 exposes no GPU timestamp-query API for this renderer, and SDL_Renderer exposes none either. CPU submit/acquire timing is not a substitute for GPU execution time. |
 
-Record selected backend, requested and selected present mode, resolution, fullscreen/vsync/frame-cap state, map content hash, scenario/version, build identity, system/driver information, and any fallback. Vulkan runs query `vulkaninfo --summary` outside the measured interval and record the physical-device name, driver name/version, Vulkan API version, effective `VK_DRIVER_FILES`/legacy loader variables, ICD manifest SHA-256, and resolved driver library. This metadata is written to both `aggregate.json` and every native `run-*/result.json`. A GPU-required scenario is invalid if the renderer fell back to SDL_Renderer. Comparisons reject a different GPU, graphics-driver version, or Vulkan API version.
+Record selected backend, requested and selected present mode, resolution, fullscreen/vsync/frame-cap state, map content hash, scenario/version, build identity, system/driver information, and any fallback. The shared GPU launcher queries `vulkaninfo --summary` outside the measured interval, verifies the single selected Intel ICD before startup, and attests the renderer after control answers. Results record the physical-device name, driver name/version, Vulkan API version, effective `VK_DRIVER_FILES`, ICD manifest SHA-256, resolved driver library, and verification state. This metadata is written to both `aggregate.json` and every native `run-*/result.json`. A GPU-required scenario aborts if the renderer falls back or any attested value differs. Comparisons reject a different GPU, graphics-driver version, or Vulkan API version.
 
 ### Percentiles
 
 Version 1 uses nearest rank: sort samples ascending and select the one-based rank `ceil(p * N)`. It never interpolates a frame time that was not observed. `p99.9` is reported only for at least 1,000 samples. Changing this convention requires a benchmark-version bump or an explicit incompatible-comparison refusal.
+
+`telemetry.csv` records the per-render-frame subsystem values and
+`simulation-ticks.csv` records the independent fixed-tick stream. `result.json`
+exposes median, p95, and p99 for every subsystem under
+`subsystem_timings.render_frame` and `subsystem_timings.simulation_tick`.
+All spans use `steady_clock`; the extra clock reads are enabled only during the
+measured benchmark stage. Renderer spans are CPU command construction and API
+submission time, never GPU execution time.
+Second-based runs reserve for up to 4,096 render samples per second before
+measurement; exceeding that safety ceiling aborts instead of reallocating and
+polluting the measured tail.
 
 ## Scenario Format
 
@@ -49,15 +62,20 @@ Every descriptor is JSON with `schema_version: 1` and `expected_benchmark_versio
 
 Camera progress uses measured elapsed time quantized down to the 125 Hz simulation interval, not mouse input. A time/progress value therefore resolves to the same transform independent of render rate. Keyframes must be nondecreasing and are linearly interpolated between fixed positions/angles; duplicate static endpoints intentionally make a stationary camera explicit.
 
-The seven supplied scenarios establish a small comparison suite:
+The eight supplied scenarios establish a small comparison suite:
 
 - `eyetoeye-static-baseline`: low-action cached-world control.
 - `eyetoeye-duel-like`: normal two-participant Lightning-Gun bot duel request.
-- `eyetoeye-bot-animation`: full six-player-capacity bot movement/animation request using `bot_add`, `bot_dodge`, `bot_stare`, and `bot_standstill`.
+- `eyetoeye-bot-animation`: six-player bot movement/animation request using `bot_add`, `bot_dodge`, `bot_stare`, and `bot_standstill`; it is a retained comparison workload, not the 16-player capacity ceiling.
 - `eyetoeye-projectile-effects`: a declarative future projectile/effect presentation fixture. Current bots select only the Lightning Gun and the native runner does not inject synthetic projectiles, so this descriptor is deliberately marked invalid at execution (`supported_workload: false`) rather than silently measuring a different workload. Use the headless `trace-projectile` workload for current quantitative projectile-query evidence.
 - `overkill-high-visibility`: static large-map structural/sightline stress using a checked-in `overkill_import` camera preset.
 - `eyetoeye-static-long`: 5-second warm-up plus a 25-second static baseline for tail stability.
 - `overkill-static-flythrough`: deterministic 15-second presentation-only camera interpolation through all three checked-in Overkill structural views; the world remains static.
+- `overkill-static-flythrough-bvh-off`: identical camera workload with only `r_world_frustum_cull` disabled, providing a same-build control for static-world BVH comparisons.
+
+`r_world_frustum_cull` is intentionally experimental and defaults off. Promote it
+only when repeated same-host comparisons against the `bvh-off` descriptor meet
+the frame-median and p95 budgets without excessive material-range inflation.
 
 The camera coordinates come from `config/dev-camera-presets.json`, not arbitrary map-space guesses. Bot commands are current commands: `bot_add [count]` is permitted only in warmup; `bot_attack 0|off|easy|medium|hard`, `bot_stare`, `bot_standstill`, and `bot_dodge` control supported training behavior. Today, bot combat always selects the Lightning Gun.
 
@@ -120,7 +138,7 @@ Static-world improvements should show in the GPU-required static baseline; dynam
 
 - **Benchmark control unavailable:** build the client, stop any ordinary development-control client on the chosen port, and let the wrapper relaunch it with `--benchmark`.
 - **GPU requirement failed:** record the fallback/error and fix the selected SDL_GPU backend/driver before comparing results.
-- **Vulkan loader has no default ICD:** set `VK_DRIVER_FILES` to the verified vendor manifest for the launch shell. The result must show `vulkan_metadata_status: available`; do not compare a run whose ICD identity is unknown.
+- **Vulkan loader has no valid default ICD:** put the verified Intel selection in ignored `build/dev-control/vulkan.json` (or point `LG_DUEL_VULKAN_CONFIG` at another ignored JSON file), including `icd_path`, `icd_sha256`, and `gpu_name`. The shared launcher supplies `VK_DRIVER_FILES`; do not bypass its hash/device attestation with a launch-shell override.
 - **Map or textures differ:** rerun from the same repository/build output and inspect map content hash and screenshot. Imported-map texture coverage can differ from compact `eyetoeye`.
 - **Bot setup rejected:** start from warmup; `bot_add` cannot change the roster after warmup. Verify `expected_count` before timing.
 - **Noisy p95/p99:** repeat the scenario, check thermal/power/compositor changes and background work, and compare compatible runs only.

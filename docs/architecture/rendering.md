@@ -12,9 +12,9 @@ Screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`,
 
 ## GPU And Fallback Paths
 
-`Renderer::initialize()` tries SDL_GPU only when `LG_DUEL_RENDER_BACKEND` requests `gpu`, `sdl_gpu`, or `vulkan`; otherwise it uses SDL_Renderer fallback. SDL_GPU creates pipelines, font texture, transfer/vertex buffers, depth texture, and static world cache. If GPU setup fails, it falls back to SDL_Renderer.
+`Renderer::initialize()` tries Vulkan SDL_GPU only when `LG_DUEL_RENDER_BACKEND` requests `gpu`, `sdl_gpu`, or `vulkan`; otherwise it uses the explicitly selected SDL_Renderer fallback. SDL_GPU creates pipelines, font texture, transfer/vertex buffers, depth texture, and static world cache. An explicit GPU request fails closed if Vulkan or GPU resource initialization fails; it never changes renderer class to SDL_Renderer or another SDL_GPU driver.
 
-The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `arenaStaticWorldFingerprint()`. It batches by material and uploads static world vertices/textures when the arena/material fingerprint changes. Dynamic 3D vertices are rebuilt/uploaded per frame into a bounded scratch path, followed by a 2D overlay pass for HUD, console, chat, scoreboard, settings, crosshair, and screen-space combat UI.
+The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `arenaStaticWorldFingerprint()`. It builds a renderer-owned BVH over immutable triangle chunks and packs those chunks material-major without changing collision or gameplay authority. Experimental `r_world_frustum_cull 1` queries that BVH, but adaptively retains full material batches unless triangle savings justify extra ranges. It remains opt-in until the measured flythrough beats the `0` control path. Dynamic 3D vertices are rebuilt/uploaded per frame into a bounded scratch path, followed by a 2D overlay pass for HUD, console, chat, scoreboard, settings, crosshair, and screen-space combat UI.
 
 The SDL_Renderer fallback draws immediate geometry and does not have the same static-world GPU cache. It is simpler but less representative of the intended high-performance 3D path.
 

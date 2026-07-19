@@ -227,8 +227,108 @@ int main() {
     const lg::ArenaLoadResult result = lg::loadArenaFromMapText(basicMap(mixedBrush));
     failures += expect(!result.ok, "mixed playerclip brushes should be rejected");
     failures += expect(
-      result.error.find("playerclip") != std::string::npos,
+      result.error.find("collision-only") != std::string::npos,
       "mixed playerclip rejection should explain the whole-brush rule"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone")) +
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_source_entity_index\" \"7\"\n"
+      "\"lg_source_brush_index\" \"42\"\n"
+      "\"lg_collision_class\" \"weapclip\"\n" +
+      cuboidBrush(20, -80, 0, 60, 80, 80, "common/weapclip") +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "weapclip provenance entity should convert");
+    failures += expect(
+      result.arena.wallCount == 2 &&
+        !result.arena.walls[1].renderable &&
+        result.arena.walls[1].collisionKind == lg::ArenaCollisionKind::WeaponClip &&
+        result.arena.walls[1].sourceEntityIndex == 7U &&
+        result.arena.walls[1].sourceBrushIndex == 42U,
+      "weapclip should retain its diagnostic class and stable source locator"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone")) +
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_source_entity_index\" \"7\"\n"
+      "\"lg_collision_class\" \"weapclip\"\n" +
+      cuboidBrush(20, -80, 0, 60, 80, 80, "common/weapclip") +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !result.ok && result.error.find("requires both") != std::string::npos,
+      "partial source brush provenance should fail instead of silently losing identity"
+    );
+  }
+
+  {
+    std::string text = basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone"));
+    const std::string worldClass = "\"classname\" \"worldspawn\"\n";
+    text.insert(
+      text.find(worldClass) + worldClass.size(),
+      "\"lg_source_bsp_sha256\" "
+      "\"0000000000000000000000000000000000000000000000000000000000000000\"\n"
+      "\"lg_raw_decompile_sha256\" "
+      "\"1111111111111111111111111111111111111111111111111111111111111111\"\n"
+    );
+    text +=
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_collision_class\" \"visible_solid\"\n" +
+      cuboidBrush(20, -20, 0, 40, 20, 40, "stone") +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !result.ok && result.error.find("source-bound imported func_group") !=
+        std::string::npos,
+      "source-bound imports should reject func_group brushes with both locator fields missing"
+    );
+  }
+
+  {
+    std::string text = basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone"));
+    const std::string worldClass = "\"classname\" \"worldspawn\"\n";
+    text.insert(
+      text.find(worldClass) + worldClass.size(),
+      "\"lg_source_bsp_sha256\" "
+      "\"0000000000000000000000000000000000000000000000000000000000000000\"\n"
+    );
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !result.ok && result.error.find("requires both") != std::string::npos,
+      "source-bound imports should require the BSP and raw-map hash pair"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone")) +
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_source_entity_index\" \"7\"\n"
+      "\"lg_source_brush_index\" \"42\"\n" +
+      cuboidBrush(-20, -20, 0, 0, 20, 40, "stone") +
+      "}\n"
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_source_entity_index\" \"7\"\n"
+      "\"lg_source_brush_index\" \"42\"\n" +
+      cuboidBrush(20, -20, 0, 40, 20, 40, "stone") +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !result.ok && result.error.find("duplicate imported source brush locator") !=
+        std::string::npos,
+      "duplicate source brush provenance should fail instead of making audit rules ambiguous"
     );
   }
 
@@ -481,6 +581,33 @@ int main() {
     const std::string text =
       basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
       "{\n"
+      "\"classname\" \"target_position\"\n"
+      "\"targetname\" \"tele_exit\"\n"
+      "\"origin\" \"400 800 120\"\n"
+      "\"angle\" \"90\"\n"
+      "}\n"
+      "{\n"
+      "\"classname\" \"trigger_teleport\"\n"
+      "\"target\" \"tele_exit\"\n" +
+      cuboidBrush(-8, -8, 16, 8, 8, 24) +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "target-based teleport map should convert");
+    failures += expect(result.arena.teleportCount == 1, "teleport trigger should be stored in arena data");
+    failures += expect(result.arena.wallCount == 1, "teleport trigger should not become solid geometry");
+    failures += expect(
+      nearlyEqual(result.arena.teleports[0].destination.x, 10.0F) &&
+        nearlyEqual(result.arena.teleports[0].destination.y, 20.0F) &&
+        nearlyEqual(result.arena.teleports[0].exitVelocity.x, 0.0F) &&
+        nearlyEqual(result.arena.teleports[0].exitVelocity.y, 10.0F),
+      "teleport destination and authored exit angle should use LG units"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
       "\"classname\" \"trigger_jumppad\"\n"
       "\"target\" \"missing_target\"\n" +
       cuboidBrush(-8, -8, 16, 8, 8, 24) +
@@ -637,6 +764,26 @@ int main() {
     failures += expect(
       nearlyEqual(result.arena.min.x, -1.05F) && nearlyEqual(result.arena.max.x, 1.05F),
       "converter should auto-compute bounds with padding"
+    );
+  }
+
+  {
+    std::string text = basicMap(cuboidBrush(-64, -64, -8, 64, 64, 0));
+    for (std::size_t index = 2; index < lg::Arena::kSpawnCount; ++index) {
+      text += "{\n\"classname\" \"lg_spawn\"\n\"origin\" \"" +
+        std::to_string(static_cast<int>(index) - 16) + " 0 8\"\n}\n";
+    }
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      result.ok && result.arena.spawnCount == lg::Arena::kSpawnCount,
+      "map conversion should retain thirty-two authored spawns"
+    );
+
+    text += "{\n\"classname\" \"lg_spawn\"\n\"origin\" \"24 0 8\"\n}\n";
+    const lg::ArenaLoadResult overflow = lg::loadArenaFromMapText(text);
+    failures += expect(
+      !overflow.ok && overflow.error.find("too many spawn points") != std::string::npos,
+      "map conversion should reject a thirty-third authored spawn"
     );
   }
 

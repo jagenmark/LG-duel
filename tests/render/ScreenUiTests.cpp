@@ -1206,6 +1206,34 @@ int main() {
           scoreboardTitle->position.y - 8.0F,
       "fixed waiting status position should stay above the scoreboard"
     );
+
+    layoutHud.scoreboardLines = {"SCOREBOARD", "  NAME              SCORE ACC     DAMAGE"};
+    for (std::size_t player = 0; player < lg::kDuelPlayerCount; ++player) {
+      layoutHud.scoreboardLines.push_back(
+        "  PLAYER " + std::to_string(player + 1U)
+      );
+    }
+    const lg::DrawList2D fullRosterUi = lg::buildScreenUi(
+      640,
+      480,
+      opponent,
+      settings,
+      layoutHud,
+      console
+    );
+    const lg::Text2D* fullRosterTitle = findText(fullRosterUi, "SCOREBOARD");
+    const lg::Text2D* lastRosterPlayer = findText(
+      fullRosterUi,
+      "PLAYER " + std::to_string(lg::kDuelPlayerCount)
+    );
+    failures += expect(
+      fullRosterTitle != nullptr &&
+        lastRosterPlayer != nullptr &&
+        fullRosterTitle->position.y >= 0.0F &&
+        lastRosterPlayer->position.y + 16.0F * lastRosterPlayer->scale <= 480.0F &&
+        lastRosterPlayer->scale < 2.0F,
+      "full player-capacity scoreboard should compact to a 640x480 viewport"
+    );
   }
 
   {

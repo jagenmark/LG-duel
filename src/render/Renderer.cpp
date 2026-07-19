@@ -7,6 +7,7 @@
 #include "render/Scene3D.hpp"
 #include "render/ScreenUi.hpp"
 #include "render/Perspective.hpp"
+#include "render/WorldVisibility.hpp"
 
 #if LG_DUEL_HAS_SDL3
 #include <SDL3/SDL.h>
@@ -18,6 +19,7 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
 #include <cstddef>
 #include <cmath>
 #include <cstdlib>
@@ -58,20 +60,65 @@ namespace {
   constexpr bool debugMode = true;
 #endif
 
-  SDL_GPUDevice* device =
-    SDL_CreateGPUDevice(shaderFormats, debugMode, "vulkan");
-  if (device != nullptr) {
-    return device;
-  }
+  const auto create = [=](const char* name) {
+    const SDL_PropertiesID properties = SDL_CreateProperties();
+    if (properties == 0) {
+      return static_cast<SDL_GPUDevice*>(nullptr);
+    }
+    SDL_SetBooleanProperty(
+      properties,
+      SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN,
+      (shaderFormats & SDL_GPU_SHADERFORMAT_SPIRV) != 0
+    );
+    SDL_SetBooleanProperty(
+      properties,
+      SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN,
+      debugMode
+    );
+    // A requested GPU visual session must never select SwiftShader/Lavapipe.
+    // The launcher still attests the concrete device after control startup.
+    SDL_SetBooleanProperty(
+      properties,
+      SDL_PROP_GPU_DEVICE_CREATE_VULKAN_REQUIRE_HARDWARE_ACCELERATION_BOOLEAN,
+      true
+    );
+    if (name != nullptr) {
+      SDL_SetStringProperty(
+        properties,
+        SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
+        name
+      );
+    }
+    SDL_GPUDevice* result = SDL_CreateGPUDeviceWithProperties(properties);
+    SDL_DestroyProperties(properties);
+    return result;
+  };
 
-  const std::string vulkanError = SDL_GetError();
-  device = SDL_CreateGPUDevice(shaderFormats, debugMode, nullptr);
+  SDL_GPUDevice* device = create("vulkan");
   if (device == nullptr) {
-    std::cerr
-      << "SDL_GPU Vulkan initialization failed: " << vulkanError << '\n'
-      << "SDL_GPU automatic initialization failed: " << SDL_GetError() << '\n';
+    std::cerr << "SDL_GPU Vulkan initialization failed: " << SDL_GetError() << '\n';
   }
   return device;
+}
+
+[[nodiscard]] std::string environmentValue(const char* name) {
+  const char* value = std::getenv(name);
+  return value != nullptr ? value : "";
+}
+
+[[nodiscard]] bool looksLikeSoftwareRenderer(std::string value) {
+  std::transform(
+    value.begin(),
+    value.end(),
+    value.begin(),
+    [](unsigned char character) {
+      return static_cast<char>(std::tolower(character));
+    }
+  );
+  return value.find("swiftshader") != std::string::npos ||
+    value.find("llvmpipe") != std::string::npos ||
+    value.find("lavapipe") != std::string::npos ||
+    value.find("software") != std::string::npos;
 }
 
 constexpr std::size_t kMaxGpuVertices = 131072;
@@ -281,6 +328,11 @@ struct StaticWorldMesh {
   SDL_GPUSampler* sampler = nullptr;
   std::vector<WorldTexture> textures;
   std::vector<StaticWorldBatch> batches;
+  std::vector<StaticWorldBatch> chunkBatches;
+  std::vector<StaticWorldBatch> visibleBatches;
+  WorldVisibility visibility;
+  WorldVisibilityQueryScratch visibilityScratch;
+  bool useCulledBatches = false;
   std::uint64_t arenaFingerprint = 0;
   std::uint32_t sourceTriangles = 0;
   std::uint32_t duplicateTrianglesCulled = 0;
@@ -3230,35 +3282,59 @@ void appendScene3D(
       << " mipmaps=generated\n";
   }
 
-  std::vector<GpuVertex> gpuVertices;
-  gpuVertices.reserve(worldScene.vertices.size());
-  mesh->batches.reserve(referenced.size() + 1U);
-  const auto appendBatch = [&](std::uint32_t materialId, WorldTexture* texture) {
-    const Uint32 firstVertex = static_cast<Uint32>(gpuVertices.size());
-    const float width = static_cast<float>(std::max(1, texture->width));
-    const float height = static_cast<float>(std::max(1, texture->height));
-    for (std::size_t index = 0; index + 2U < worldScene.vertices.size(); index += 3U) {
-      if (worldScene.vertices[index].materialId != materialId) {
-        continue;
-      }
-      for (std::size_t offset = 0; offset < 3U; ++offset) {
-        const Vertex3D& source = worldScene.vertices[index + offset];
-        gpuVertices.push_back(gpuVertex3D(source, source.u / width, source.v / height));
-      }
-    }
-    const Uint32 vertexCount = static_cast<Uint32>(gpuVertices.size()) - firstVertex;
-    if (vertexCount > 0) {
-      mesh->batches.push_back({materialId, firstVertex, vertexCount, texture});
-    }
-  };
+  std::vector<WorldVisibilityTriangle> visibilityTriangles;
+  visibilityTriangles.reserve(worldScene.vertices.size() / 3U);
+  for (std::size_t index = 0; index + 2U < worldScene.vertices.size(); index += 3U) {
+    visibilityTriangles.push_back({
+      worldScene.vertices[index].position,
+      worldScene.vertices[index + 1U].position,
+      worldScene.vertices[index + 2U].position,
+      worldScene.vertices[index].materialId,
+    });
+  }
+  mesh->visibility = buildWorldVisibility(visibilityTriangles);
 
-  appendBatch(0U, whiteTexture);
-  for (std::uint32_t materialId : referenced) {
+  const auto textureForMaterial = [&](std::uint32_t materialId) {
+    if (materialId == 0U) {
+      return whiteTexture;
+    }
     WorldTexture* texture = missingTexture;
     if (const auto found = textureByMaterial.find(materialId); found != textureByMaterial.end()) {
       texture = found->second;
     }
-    appendBatch(materialId, texture);
+    return texture;
+  };
+
+  std::vector<GpuVertex> gpuVertices;
+  gpuVertices.reserve(worldScene.vertices.size());
+  mesh->batches.reserve(referenced.size() + 1U);
+  mesh->chunkBatches.reserve(mesh->visibility.chunks.size());
+  mesh->visibleBatches.reserve(mesh->visibility.chunks.size());
+  for (const WorldVisibilityChunk& chunk : mesh->visibility.chunks) {
+    WorldTexture* texture = textureForMaterial(chunk.materialId);
+    if (mesh->batches.empty() || mesh->batches.back().materialId != chunk.materialId) {
+      mesh->batches.push_back({
+        chunk.materialId,
+        static_cast<Uint32>(gpuVertices.size()),
+        0U,
+        texture,
+      });
+    }
+    const Uint32 firstVertex = static_cast<Uint32>(gpuVertices.size());
+    const float width = static_cast<float>(std::max(1, texture->width));
+    const float height = static_cast<float>(std::max(1, texture->height));
+    for (std::uint32_t offset = 0; offset < chunk.triangleCount; ++offset) {
+      const std::uint32_t triangleIndex =
+        mesh->visibility.orderedTriangleIndices[chunk.firstTriangle + offset];
+      const std::size_t firstSourceVertex = static_cast<std::size_t>(triangleIndex) * 3U;
+      for (std::size_t vertexOffset = 0; vertexOffset < 3U; ++vertexOffset) {
+        const Vertex3D& source = worldScene.vertices[firstSourceVertex + vertexOffset];
+        gpuVertices.push_back(gpuVertex3D(source, source.u / width, source.v / height));
+      }
+    }
+    const Uint32 vertexCount = static_cast<Uint32>(gpuVertices.size()) - firstVertex;
+    mesh->chunkBatches.push_back({chunk.materialId, firstVertex, vertexCount, texture});
+    mesh->batches.back().vertexCount += vertexCount;
   }
 
   if (!updateStaticWorldSampler(device, mesh, settings)) {
@@ -3358,6 +3434,109 @@ void appendScene3D(
   destroyStaticWorldMesh(device, mesh);
   mesh = buildStaticWorldMesh(device, arena, settings);
   return mesh;
+}
+
+void updateStaticWorldVisibility(
+  StaticWorldMesh& mesh,
+  const PerspectiveCamera& camera,
+  bool cullingEnabled
+) {
+  mesh.visibleBatches.clear();
+  mesh.useCulledBatches = false;
+  if (!cullingEnabled) {
+    mesh.visibilityScratch.testedNodes = 0U;
+    mesh.visibilityScratch.visibleChunkCount =
+      static_cast<std::uint32_t>(mesh.chunkBatches.size());
+    return;
+  }
+
+  queryWorldVisibility(mesh.visibility, camera, mesh.visibilityScratch);
+  if (mesh.visibilityScratch.visibleChunkCount == mesh.chunkBatches.size()) {
+    // The root-inside fast path commonly lands here. Aggregate material draws
+    // are already optimal, so avoid rebuilding equivalent visible ranges.
+    return;
+  }
+  // Chunk GPU ranges are already material-major. A linear scan both restores
+  // draw order and merges spatial neighbors without allocating after warmup.
+  for (std::size_t index = 0; index < mesh.chunkBatches.size(); ++index) {
+    if (mesh.visibilityScratch.visibleChunks[index] == 0U) {
+      continue;
+    }
+    const StaticWorldBatch& chunk = mesh.chunkBatches[index];
+    if (
+      !mesh.visibleBatches.empty() &&
+      mesh.visibleBatches.back().materialId == chunk.materialId &&
+      mesh.visibleBatches.back().texture == chunk.texture &&
+      mesh.visibleBatches.back().firstVertex + mesh.visibleBatches.back().vertexCount ==
+        chunk.firstVertex
+    ) {
+      mesh.visibleBatches.back().vertexCount += chunk.vertexCount;
+    } else {
+      mesh.visibleBatches.push_back(chunk);
+    }
+  }
+
+  std::uint64_t fullTriangles = 0U;
+  for (const StaticWorldBatch& batch : mesh.batches) {
+    fullTriangles += batch.vertexCount / 3U;
+  }
+  std::uint64_t visibleTriangles = 0U;
+  for (const StaticWorldBatch& batch : mesh.visibleBatches) {
+    visibleTriangles += batch.vertexCount / 3U;
+  }
+  const std::uint64_t savedTriangles = fullTriangles - visibleTriangles;
+  const std::uint64_t rangeInflation = mesh.visibleBatches.size() > mesh.batches.size()
+    ? mesh.visibleBatches.size() - mesh.batches.size()
+    : 0U;
+  // Direct range submission is worthwhile only when it removes at least ten
+  // percent of the world and repays each draw beyond the material baseline
+  // with 800 culled triangles. Otherwise the five-ish aggregate draws win.
+  mesh.useCulledBatches = fullTriangles > 0U &&
+    savedTriangles * 10U >= fullTriangles &&
+    savedTriangles >= 800U * rangeInflation;
+}
+
+[[nodiscard]] std::span<const StaticWorldBatch> staticWorldDrawBatches(
+  const StaticWorldMesh& mesh,
+  bool cullingEnabled
+) {
+  return cullingEnabled && mesh.useCulledBatches
+    ? std::span<const StaticWorldBatch>(mesh.visibleBatches)
+    : std::span<const StaticWorldBatch>(mesh.batches);
+}
+
+void drawStaticWorldGeometry(
+  SDL_GPURenderPass* renderPass,
+  StaticWorldMesh& mesh,
+  bool cullingEnabled,
+  RendererFrameDiagnostics* diagnostics
+) {
+  for (const StaticWorldBatch& batch : staticWorldDrawBatches(mesh, cullingEnabled)) {
+    if (
+      batch.vertexCount == 0U ||
+      batch.texture == nullptr ||
+      batch.texture->texture == nullptr
+    ) {
+      continue;
+    }
+    const SDL_GPUTextureSamplerBinding textureBinding = {
+      batch.texture->texture,
+      mesh.sampler,
+    };
+    SDL_BindGPUFragmentSamplers(renderPass, 0, &textureBinding, 1);
+    SDL_DrawGPUPrimitives(
+      renderPass,
+      batch.vertexCount,
+      1,
+      batch.firstVertex,
+      0
+    );
+    if (diagnostics != nullptr) {
+      ++diagnostics->worldDrawCalls;
+      ++diagnostics->worldSubmittedRanges;
+      diagnostics->worldSubmittedTriangles += batch.vertexCount / 3U;
+    }
+  }
 }
 
 template <typename Vertex>
@@ -4857,6 +5036,11 @@ void appendCommandBatches(
   FrameCaptureResult* captureResult
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
+  diagnostics.renderInstanceConstructionMilliseconds = 0.0F;
+  diagnostics.worldVisibilityMilliseconds = 0.0F;
+  diagnostics.worldCommandEncodingMilliseconds = 0.0F;
+  diagnostics.dynamicCommandEncodingMilliseconds = 0.0F;
+  diagnostics.uiMilliseconds = 0.0F;
   diagnostics.sceneBuildMilliseconds = 0.0F;
   diagnostics.gpuVertexUploadMilliseconds = 0.0F;
   diagnostics.worldDrawIssueMilliseconds = 0.0F;
@@ -4864,9 +5048,16 @@ void appendCommandBatches(
   diagnostics.submitMilliseconds = 0.0F;
   diagnostics.worldSourceTriangles = 0;
   diagnostics.worldRenderedTriangles = 0;
+  diagnostics.worldSubmittedTriangles = 0;
   diagnostics.worldDuplicateTrianglesCulled = 0;
   diagnostics.worldVertexCount = 0;
   diagnostics.worldDrawCalls = 0;
+  diagnostics.worldSubmittedRanges = 0;
+  diagnostics.worldTotalChunks = 0;
+  diagnostics.worldVisibleChunks = 0;
+  diagnostics.worldCulledChunks = 0;
+  diagnostics.worldVisibilityTestedNodes = 0;
+  diagnostics.worldVisibilityQueryMilliseconds = 0.0F;
   diagnostics.gpuDepthBits = gpuDepthFormatBits(depthFormat);
   diagnostics.worldLoadedTextures = 0;
   diagnostics.worldMissingTextures = 0;
@@ -5000,6 +5191,10 @@ void appendCommandBatches(
     vertices.clear();
     std::vector<OverlayDrawBatch> overlayBatches;
     const auto sceneBuildStart = RenderClock::now();
+    RenderClock::time_point instanceConstructionStart = {};
+    if (settings.benchmarkTimingEnabled) {
+      instanceConstructionStart = RenderClock::now();
+    }
     perspectiveScene = buildPerspectiveScene(
       static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
       arena,
@@ -5138,6 +5333,13 @@ void appendCommandBatches(
     diagnostics.geometryOutlineFallbackUsed =
       perspectiveScene.geometryOutlineFallbackUsed;
     appendScene3D(vertices, perspectiveScene, worldAtlas);
+    if (settings.benchmarkTimingEnabled) {
+      // Instance construction ends before HUD building and draw encoding.
+      diagnostics.renderInstanceConstructionMilliseconds = millisecondsBetween(
+        instanceConstructionStart,
+        RenderClock::now()
+      );
+    }
     diagnostics.sceneBuildMilliseconds =
       millisecondsBetween(sceneBuildStart, RenderClock::now());
     const Uint32 opaqueDynamicVertexCount =
@@ -5145,6 +5347,10 @@ void appendCommandBatches(
     appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
     const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
     const Uint32 worldVertexCount = dynamic3DVertexCount;
+    RenderClock::time_point uiBuildStart = {};
+    if (settings.benchmarkTimingEnabled) {
+      uiBuildStart = RenderClock::now();
+    }
     if (captureRequest == nullptr || !captureRequest->hideHud) {
     const DrawList2D floatingHealthBars = buildFloatingHealthBars(
       static_cast<int>(outputWidth),
@@ -5244,6 +5450,11 @@ void appendCommandBatches(
       static_cast<float>(outputHeight)
     );
     }
+    if (settings.benchmarkTimingEnabled) {
+      // UI includes HUD list construction and conversion to overlay batches.
+      diagnostics.uiMilliseconds =
+        millisecondsBetween(uiBuildStart, RenderClock::now());
+    }
     uploadStart = RenderClock::now();
     diagnostics.sceneBuildMilliseconds =
       millisecondsBetween(buildStart, uploadStart);
@@ -5328,6 +5539,36 @@ void appendCommandBatches(
       (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
       return false;
     }
+    StaticWorldMesh* worldMesh =
+      ensureStaticWorldMesh(device, staticWorld, arena, settings);
+    if (worldMesh != nullptr) {
+      RenderClock::time_point visibilityStart = {};
+      if (settings.benchmarkTimingEnabled || settings.worldFrustumCull) {
+        visibilityStart = RenderClock::now();
+      }
+      updateStaticWorldVisibility(
+        *worldMesh,
+        perspectiveScene.camera,
+        settings.worldFrustumCull
+      );
+      RenderClock::time_point visibilityEnd = {};
+      if (settings.benchmarkTimingEnabled || settings.worldFrustumCull) {
+        visibilityEnd = RenderClock::now();
+      }
+      if (settings.worldFrustumCull) {
+        diagnostics.worldVisibilityQueryMilliseconds =
+          millisecondsBetween(visibilityStart, visibilityEnd);
+      }
+      if (settings.benchmarkTimingEnabled) {
+        // Visibility covers only the CPU query and visible-range selection.
+        diagnostics.worldVisibilityMilliseconds =
+          millisecondsBetween(visibilityStart, visibilityEnd);
+      }
+    }
+    const bool hasStaticWorld = worldMesh != nullptr &&
+      worldMesh->vertexBuffer != nullptr &&
+      worldMesh->sampler != nullptr &&
+      !worldMesh->batches.empty();
     diagnostics.projectileInstanceUploadBytes =
       perspectiveScene.projectileStats.projectileInstanceUploadBytes;
     diagnostics.tracerInstanceUploadBytes =
@@ -5341,6 +5582,11 @@ void appendCommandBatches(
       static_cast<std::uint32_t>(vertices.size());
 
     const auto drawIssueStart = uploadEnd;
+    RenderClock::time_point threeDimensionalEncodingStart = {};
+    float staticWorldEncodingMilliseconds = 0.0F;
+    if (settings.benchmarkTimingEnabled) {
+      threeDimensionalEncodingStart = RenderClock::now();
+    }
     SDL_GPUColorTargetInfo colorTarget = {};
     colorTarget.texture = swapchainTexture;
     colorTarget.clear_color = {0.047F, 0.055F, 0.071F, 1.0F};
@@ -5378,12 +5624,6 @@ void appendCommandBatches(
       (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
       return false;
     }
-      StaticWorldMesh* worldMesh =
-        ensureStaticWorldMesh(device, staticWorld, arena, settings);
-      const bool hasStaticWorld = worldMesh != nullptr &&
-        worldMesh->vertexBuffer != nullptr &&
-        worldMesh->sampler != nullptr &&
-        !worldMesh->batches.empty();
       if (hasStaticWorld || dynamic3DVertexCount > 0 || !perspectiveScene.simpleInstances.empty()) {
         const auto worldDrawStart = RenderClock::now();
         if (hasStaticWorld) {
@@ -5393,7 +5633,23 @@ void appendCommandBatches(
           diagnostics.worldDuplicateTrianglesCulled =
             worldMesh->duplicateTrianglesCulled;
           diagnostics.worldVertexCount = worldMesh->vertexCount;
-          diagnostics.worldDrawCalls = static_cast<std::uint32_t>(worldMesh->batches.size());
+          diagnostics.worldDrawCalls = 0U;
+          diagnostics.worldSubmittedRanges = 0U;
+          diagnostics.worldTotalChunks =
+            static_cast<std::uint32_t>(worldMesh->chunkBatches.size());
+          const bool submittedCulledWorld =
+            settings.worldFrustumCull && worldMesh->useCulledBatches;
+          // Visibility telemetry describes the geometry actually submitted.
+          // The adaptive policy may deliberately keep aggregate full-world
+          // draws when extra ranges cost more than the rejected triangles.
+          diagnostics.worldVisibleChunks = submittedCulledWorld
+            ? worldMesh->visibilityScratch.visibleChunkCount
+            : diagnostics.worldTotalChunks;
+          diagnostics.worldCulledChunks =
+            diagnostics.worldTotalChunks - diagnostics.worldVisibleChunks;
+          diagnostics.worldVisibilityTestedNodes = settings.worldFrustumCull
+            ? worldMesh->visibilityScratch.testedNodes
+            : 0U;
           diagnostics.worldLoadedTextures = worldMesh->loadedTextures;
           diagnostics.worldMissingTextures = worldMesh->missingTextures;
           diagnostics.worldReferencedMaterials = worldMesh->referencedMaterials;
@@ -5450,23 +5706,19 @@ void appendCommandBatches(
         if (hasStaticWorld) {
           const SDL_GPUBufferBinding staticBinding = {worldMesh->vertexBuffer, 0};
           SDL_BindGPUVertexBuffers(worldPass, 0, &staticBinding, 1);
-          for (const StaticWorldBatch& batch : worldMesh->batches) {
-            if (batch.vertexCount == 0 || batch.texture == nullptr ||
-                batch.texture->texture == nullptr) {
-              continue;
-            }
-            const SDL_GPUTextureSamplerBinding textureBinding = {
-              batch.texture->texture,
-              worldMesh->sampler,
-            };
-            SDL_BindGPUFragmentSamplers(worldPass, 0, &textureBinding, 1);
-            SDL_DrawGPUPrimitives(
-              worldPass,
-              batch.vertexCount,
-              1,
-              batch.firstVertex,
-              0
-            );
+          RenderClock::time_point staticWorldStart = {};
+          if (settings.benchmarkTimingEnabled) {
+            staticWorldStart = RenderClock::now();
+          }
+          drawStaticWorldGeometry(
+            worldPass,
+            *worldMesh,
+            settings.worldFrustumCull,
+            &diagnostics
+          );
+          if (settings.benchmarkTimingEnabled) {
+            staticWorldEncodingMilliseconds +=
+              millisecondsBetween(staticWorldStart, RenderClock::now());
           }
         }
         const SDL_GPUBufferBinding binding = {vertexBuffer, 0};
@@ -5559,10 +5811,13 @@ void appendCommandBatches(
               << "LG_DUEL_TEXTURE_PIPELINE_V2 world frame counters"
               << " sourceTriangles=" << diagnostics.worldSourceTriangles
               << " renderedTriangles=" << diagnostics.worldRenderedTriangles
+              << " submittedTriangles=" << diagnostics.worldSubmittedTriangles
               << " duplicateTrianglesCulled="
               << diagnostics.worldDuplicateTrianglesCulled
               << " staticVertices=" << diagnostics.worldVertexCount
               << " drawCalls=" << diagnostics.worldDrawCalls
+              << " visibleChunks=" << diagnostics.worldVisibleChunks
+              << '/' << diagnostics.worldTotalChunks
               << " loadedTextures=" << diagnostics.worldLoadedTextures
               << " referencedMaterials=" << diagnostics.worldReferencedMaterials
               << " sceneBuildMs=" << diagnostics.sceneBuildMilliseconds
@@ -5775,31 +6030,21 @@ void appendCommandBatches(
           0,
         };
         SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &staticBinding, 1);
-        for (const StaticWorldBatch& batch : outlineWorldMesh->batches) {
-          if (
-            batch.vertexCount == 0 ||
-            batch.texture == nullptr ||
-            batch.texture->texture == nullptr
-          ) {
-            continue;
-          }
-          const SDL_GPUTextureSamplerBinding textureBinding = {
-            batch.texture->texture,
-            outlineWorldMesh->sampler,
-          };
-          SDL_BindGPUFragmentSamplers(
-            outlineDepthPass,
-            0,
-            &textureBinding,
-            1
-          );
-          SDL_DrawGPUPrimitives(
-            outlineDepthPass,
-            batch.vertexCount,
-            1,
-            batch.firstVertex,
-            0
-          );
+        RenderClock::time_point staticWorldStart = {};
+        if (settings.benchmarkTimingEnabled) {
+          staticWorldStart = RenderClock::now();
+        }
+        // The main pass already chose culled or aggregate batches. Reusing the
+        // decision keeps outline depth identical without a second query.
+        drawStaticWorldGeometry(
+          outlineDepthPass,
+          *outlineWorldMesh,
+          settings.worldFrustumCull,
+          nullptr
+        );
+        if (settings.benchmarkTimingEnabled) {
+          staticWorldEncodingMilliseconds +=
+            millisecondsBetween(staticWorldStart, RenderClock::now());
         }
       }
       const SDL_GPUBufferBinding outlineDynamicBinding = {vertexBuffer, 0};
@@ -6199,6 +6444,22 @@ void appendCommandBatches(
       SDL_EndGPURenderPass(viewModelPass);
     }
 
+    if (settings.benchmarkTimingEnabled) {
+      // Static-world calls are removed from the surrounding 3D command span;
+      // the remainder is dynamic geometry, instances, outlines, and viewmodel.
+      const float totalThreeDimensionalEncodingMilliseconds =
+        millisecondsBetween(threeDimensionalEncodingStart, RenderClock::now());
+      diagnostics.worldCommandEncodingMilliseconds =
+        staticWorldEncodingMilliseconds;
+      diagnostics.dynamicCommandEncodingMilliseconds = std::max(
+        0.0F,
+        totalThreeDimensionalEncodingMilliseconds - staticWorldEncodingMilliseconds
+      );
+    }
+    RenderClock::time_point uiEncodingStart = {};
+    if (settings.benchmarkTimingEnabled) {
+      uiEncodingStart = RenderClock::now();
+    }
     SDL_GPURenderPass* overlayPass =
       SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
     if (overlayPass == nullptr) {
@@ -6251,6 +6512,11 @@ void appendCommandBatches(
       }
     }
     SDL_EndGPURenderPass(overlayPass);
+    if (settings.benchmarkTimingEnabled) {
+      // Final UI encoding is added to the earlier HUD/batch construction span.
+      diagnostics.uiMilliseconds +=
+        millisecondsBetween(uiEncodingStart, RenderClock::now());
+    }
     diagnostics.worldDrawIssueMilliseconds =
       millisecondsBetween(drawIssueStart, RenderClock::now());
   }
@@ -7165,6 +7431,10 @@ Renderer::~Renderer() {
 bool Renderer::initialize(void* window) {
 #if LG_DUEL_HAS_SDL3
   window_ = window;
+  requestedBackendName_ = gpuBackendRequested() ? "gpu" : "fallback";
+  vulkanApiVersion_ = environmentValue("LG_DUEL_VULKAN_API_VERSION");
+  vulkanIcdPath_ = environmentValue("LG_DUEL_VULKAN_ICD_PATH");
+  vulkanIcdSha256_ = environmentValue("LG_DUEL_VULKAN_ICD_SHA256");
   if (gpuBackendRequested()) {
     SDL_GPUDevice* device = createGpuDevice();
     if (device != nullptr) {
@@ -7373,12 +7643,38 @@ bool Renderer::initialize(void* window) {
           const char* driver = SDL_GetGPUDeviceDriver(device);
           backendName_ = "SDL_GPU/";
           backendName_ += driver != nullptr ? driver : "unknown";
+          const SDL_PropertiesID properties = SDL_GetGPUDeviceProperties(device);
+          if (properties != 0) {
+            gpuName_ = SDL_GetStringProperty(
+              properties,
+              SDL_PROP_GPU_DEVICE_NAME_STRING,
+              ""
+            );
+            graphicsDriverName_ = SDL_GetStringProperty(
+              properties,
+              SDL_PROP_GPU_DEVICE_DRIVER_NAME_STRING,
+              ""
+            );
+            graphicsDriverVersion_ = SDL_GetStringProperty(
+              properties,
+              SDL_PROP_GPU_DEVICE_DRIVER_VERSION_STRING,
+              ""
+            );
+            graphicsDriverInfo_ = SDL_GetStringProperty(
+              properties,
+              SDL_PROP_GPU_DEVICE_DRIVER_INFO_STRING,
+              ""
+            );
+          }
+          softwareRenderer_ = looksLikeSoftwareRenderer(
+            gpuName_ + " " + graphicsDriverName_ + " " + graphicsDriverInfo_
+          );
           return true;
         }
 
         std::cerr
           << "SDL_GPU resource initialization failed: " << SDL_GetError()
-          << "\nFalling back to SDL_Renderer.\n";
+          << "\nGPU startup aborted.\n";
         if (transferBuffer != nullptr) {
           SDL_ReleaseGPUTransferBuffer(device, transferBuffer);
         }
@@ -7452,10 +7748,21 @@ bool Renderer::initialize(void* window) {
       if (device != nullptr) {
         std::cerr
           << "SDL_GPU could not claim the window: " << SDL_GetError()
-          << "\nFalling back to SDL_Renderer.\n";
+          << "\nGPU startup aborted.\n";
         SDL_DestroyGPUDevice(device);
       }
     }
+  }
+
+  if (gpuBackendRequested()) {
+    // An explicit GPU request is a renderer-class requirement. Silently
+    // changing it to SDL_Renderer makes visual review and benchmarks invalid.
+    std::cerr
+      << "SDL_GPU/vulkan was requested but could not be initialized; "
+      << "refusing SDL_Renderer fallback.\n";
+    backendName_ = "unavailable";
+    window_ = nullptr;
+    return false;
   }
 
   renderer_ = SDL_CreateRenderer(static_cast<SDL_Window*>(window), nullptr);
@@ -7468,6 +7775,12 @@ bool Renderer::initialize(void* window) {
     SDL_GetRendererName(static_cast<SDL_Renderer*>(renderer_));
   backendName_ = "SDL_Renderer/";
   backendName_ += rendererName != nullptr ? rendererName : "unknown";
+  gpuName_.clear();
+  graphicsDriverName_.clear();
+  graphicsDriverVersion_.clear();
+  graphicsDriverInfo_.clear();
+  softwareRenderer_ = rendererName != nullptr &&
+    looksLikeSoftwareRenderer(rendererName);
   return true;
 #else
   (void)window;
@@ -7661,6 +7974,11 @@ void Renderer::render(
   }
 
   lastFrameDiagnostics_.swapchainAcquireMilliseconds = 0.0F;
+  lastFrameDiagnostics_.renderInstanceConstructionMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldVisibilityMilliseconds = 0.0F;
+  lastFrameDiagnostics_.worldCommandEncodingMilliseconds = 0.0F;
+  lastFrameDiagnostics_.dynamicCommandEncodingMilliseconds = 0.0F;
+  lastFrameDiagnostics_.uiMilliseconds = 0.0F;
   lastFrameDiagnostics_.sceneBuildMilliseconds = 0.0F;
   lastFrameDiagnostics_.gpuVertexUploadMilliseconds = 0.0F;
   lastFrameDiagnostics_.worldDrawIssueMilliseconds = 0.0F;
@@ -7668,9 +7986,16 @@ void Renderer::render(
   lastFrameDiagnostics_.submitMilliseconds = 0.0F;
   lastFrameDiagnostics_.worldSourceTriangles = 0;
   lastFrameDiagnostics_.worldRenderedTriangles = 0;
+  lastFrameDiagnostics_.worldSubmittedTriangles = 0;
   lastFrameDiagnostics_.worldDuplicateTrianglesCulled = 0;
   lastFrameDiagnostics_.worldVertexCount = 0;
   lastFrameDiagnostics_.worldDrawCalls = 0;
+  lastFrameDiagnostics_.worldSubmittedRanges = 0;
+  lastFrameDiagnostics_.worldTotalChunks = 0;
+  lastFrameDiagnostics_.worldVisibleChunks = 0;
+  lastFrameDiagnostics_.worldCulledChunks = 0;
+  lastFrameDiagnostics_.worldVisibilityTestedNodes = 0;
+  lastFrameDiagnostics_.worldVisibilityQueryMilliseconds = 0.0F;
   lastFrameDiagnostics_.gpuDepthBits = 0;
   lastFrameDiagnostics_.worldLoadedTextures = 0;
   lastFrameDiagnostics_.worldMissingTextures = 0;
@@ -8120,6 +8445,42 @@ std::string_view Renderer::backendName() const {
   return backendName_;
 }
 
+std::string_view Renderer::requestedBackendName() const {
+  return requestedBackendName_;
+}
+
+std::string_view Renderer::gpuName() const {
+  return gpuName_;
+}
+
+std::string_view Renderer::graphicsDriverName() const {
+  return graphicsDriverName_;
+}
+
+std::string_view Renderer::graphicsDriverVersion() const {
+  return graphicsDriverVersion_;
+}
+
+std::string_view Renderer::graphicsDriverInfo() const {
+  return graphicsDriverInfo_;
+}
+
+std::string_view Renderer::vulkanApiVersion() const {
+  return vulkanApiVersion_;
+}
+
+std::string_view Renderer::vulkanIcdPath() const {
+  return vulkanIcdPath_;
+}
+
+std::string_view Renderer::vulkanIcdSha256() const {
+  return vulkanIcdSha256_;
+}
+
+bool Renderer::softwareRenderer() const {
+  return softwareRenderer_;
+}
+
 const RendererFrameDiagnostics& Renderer::lastFrameDiagnostics() const {
   return lastFrameDiagnostics_;
 }
@@ -8342,7 +8703,16 @@ void Renderer::shutdown() {
 #endif
   window_ = nullptr;
   backendName_ = "uninitialized";
+  requestedBackendName_ = "fallback";
+  gpuName_.clear();
+  graphicsDriverName_.clear();
+  graphicsDriverVersion_.clear();
+  graphicsDriverInfo_.clear();
+  vulkanApiVersion_.clear();
+  vulkanIcdPath_.clear();
+  vulkanIcdSha256_.clear();
   gpuBackend_ = false;
+  softwareRenderer_ = false;
   gpuErrorReported_ = false;
 }
 

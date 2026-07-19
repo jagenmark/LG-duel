@@ -78,15 +78,16 @@ lg_duel_client [host] [port]
 LG_DUEL_RENDER_BACKEND=gpu lg_duel_client
 ```
 
-| Värde | Funktion |
+| Value | Function |
 |---|---|
-| Ej satt/annat | Använd SDL_Renderer-kompatibilitetsvägen. |
-| `gpu` | Begär SDL_GPU. |
-| `sdl_gpu` | Samma som `gpu`. |
-| `vulkan` | Samma som `gpu`; Vulkan föredras. |
+| Unset/other | Use the explicitly selected SDL_Renderer compatibility path. |
+| `gpu` | Require SDL_GPU with Vulkan; initialization failure aborts startup. |
+| `sdl_gpu` | Same as `gpu`. |
+| `vulkan` | Same as `gpu`. |
 
-SDL_GPU försöker Vulkan först, därefter SDL:s automatiska GPU-val och till sist
-SDL_Renderer om GPU-initiering misslyckas.
+An explicit GPU request never changes renderer class to SDL_Renderer or another
+SDL_GPU driver. Development launchers additionally verify the selected Vulkan
+ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 
 ## 3. Klient-cvars
 
@@ -241,6 +242,8 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 |---|---:|---:|---|---|---|
 | `r_vsync` | bool | `1` | bool | Q3 `r_swapInterval 0` | GPU: mailbox/vsync när på, immediate när av om plattformen stöder det. Projektet har alltså motsatt standard mot Q3. |
 | `r_frustum_cull` | bool | `1` | bool | Ingen direkt | CPU-side konservativ frustum-culling av remote player-kroppar, vapen, geometri-outline och flytande healthbars i 3D. |
+| `r_world_frustum_cull` | bool | `0` | bool | None directly | Experimental GPU-only conservative BVH frustum culling for cached static-world chunks. It remains opt-in because the current direct-draw path does not yet beat full material batches across the Overkill flythrough; `0` preserves the five-batch control path. |
+| `r_show_collision` | int | `0` | `0..5` | Q3 `r_showtris` and editor filters, conceptually | GPU-only collision audit overlay. `0`: off. `1`: all categories. `2`: visible solids (blue). `3`: playerclip (green). `4`: weapclip (orange). `5`: jump-pad, teleport, and McGuffin-base triggers (purple). The explicit SDL_Renderer fallback reports an effective mode of `0`; typed control rejects activation there. Playerclip and weapclip remain behaviorally identical until authoritative trace masks are separated. |
 | `r_texture_filter` | int | `2` | `0..2` | Q3 `r_textureMode` närmast | World/material texture filtering. `0`: nearest. `1`: bilinear with mipmaps. `2`: trilinear with mipmaps. |
 | `r_texture_anisotropy` | int | `8` | `1..16`, renderer snappar till `1/2/4/8/16` | Q3/driver aniso settings närmast | World/material anisotropic filtering level. Unsupported anisotropy disables safely with a renderer log. |
 | `r_texture_lod_bias` | float | `0.5` | `-2..4` | Q3/driver LOD-bias närmast | World/material mip LOD bias. Positive values choose blurrier, more stable mip levels; changes recreate the sampler without reloading textures. |
@@ -430,7 +433,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `showchat` | no arguments | Shows chat history for five seconds. |
 | `+showchat` / `-showchat` | no arguments | Holds expanded chat history open. The mouse wheel scrolls it. Default binding: `Z`. |
 
-The network layer provides six authoritative player bodies plus eight separate
+The network layer provides sixteen authoritative player bodies plus eight separate
 spectator connections. If all player bodies are occupied, a newly accepted
 connection starts as a spectator. Spectators are excluded from readiness,
 team balance, objectives, scoring, spawning, and player limits.
@@ -574,7 +577,7 @@ automatiskt.
 |---|---:|---:|---|---|---|
 | `sv_roundlimit` | int | `10` | `1..100` | Ingen direkt Q3 roundlimit-standard | Antal vunna rundor som krävs för matchvinst. |
 | `sv_timelimit` | int | `0` | `0..120` minuter | Q3 `timelimit 0` | Matchtid; `0` stänger av tidsgränsen. |
-| `sv_playerlimit` | int | `2` | `1..6` | Ingen direkt | Antal anslutna spelare som krävs för att matchflödet ska börja. |
+| `sv_playerlimit` | int | `2` | `1..16` | No direct equivalent | Number of connected players required for match flow to begin. |
 | `sv_countdown` | float | `5` | `0..60` sekunder | Ingen exakt standard | Countdown före live round. Movement är aktiv; weapons är låsta under countdown. |
 | `sv_roundend` | float | `5` | `0..30` sekunder | Ingen direkt | Delay efter round innan respawn/nästa countdown. |
 | `sv_respawn_delay` | float | `2` | `0..30` seconds | General server rule | Death-respawn delay used by modes with live respawning, including McGuffin. Zero respawns immediately. Elimination modes ignore it. |
@@ -690,9 +693,10 @@ resetmatch
 
 ## 10. Kända gränser
 
-- Nuvarande nätprotokoll och simulation har upp till `6` spelarslots.
-- `sv_playerlimit` kan vara `1..6` och styr hur många anslutna spelare som
-  krävs för att matchflödet ska börja.
+- The network protocol and simulation support up to `16` concurrent player slots,
+  plus eight separate spectator connections.
+- `sv_playerlimit` accepts `1..16` and controls how many connected players are
+  required before match flow begins.
 - `config/balance.cfg` är serverauktoritativ och innehåller bara icke-cvar
   gameplayvärden. Lokala klientkopior ska inte påverka gameplay.
 - `config/server_cvars.cfg` sätter serverns `sv_*` och tillfälliga utvecklings-

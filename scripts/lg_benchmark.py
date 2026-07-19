@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable
 
 from lg_control import ControlError, send_request
+from lg_launch import LaunchError, ensure_client
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -477,13 +478,22 @@ def environment_metadata(status: dict[str, Any] | None = None) -> dict[str, Any]
     status = status or {}
     renderer = status.get("renderer")
     protocol = status.get("game_protocol_version", status.get("protocol_version"))
-    metadata = {
+    metadata: dict[str, Any] = {
         "os": platform.platform(), "cpu": platform.processor() or platform.machine(),
         "logical_cores": os.cpu_count(), "python": platform.python_version(),
         "renderer": renderer, "protocol_version": protocol,
         "control_protocol_version": status.get("control_protocol"),
     }
-    metadata.update(_vulkan_metadata(renderer))
+    for key in (
+        "gpu_name", "gpu_type", "graphics_driver_name", "graphics_driver_version",
+        "vulkan_api_version", "vulkan_metadata_status", "vulkan_driver_environment",
+        "vulkan_icd_manifests", "vulkan_icd_manifest_records", "software_renderer",
+        "gpu_verification_state", "gpu_verified", "vulkan_selection_source",
+    ):
+        if key in status:
+            metadata[key] = status[key]
+    if "vulkan_metadata_status" not in metadata:
+        metadata.update(_vulkan_metadata(renderer))
     return metadata
 
 
@@ -513,30 +523,12 @@ def build_run_request(scenario: dict[str, Any], digest: str, run_id: str, run_gr
 
 def _start_client(port: int, timeout: float) -> dict[str, Any]:
     try:
-        status = send_request("status", port=port, timeout=min(timeout, 2.0))
-        if not status.get("benchmark_enabled", False):
-            raise BenchmarkError(
-                "a development-control client is already running without --benchmark; "
-                "stop the owned client before starting a benchmark"
-            )
-        return status
-    except ControlError:
-        command = ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File",
-                   str(REPO_ROOT / "scripts" / "lg-dev.ps1"), "start", "-ControlPort", str(port), "-Benchmark"]
-        try:
-            completed = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, timeout=min(timeout, 30.0))
-        except subprocess.TimeoutExpired as error:
-            raise BenchmarkError("benchmark client startup timed out; inspect build/dev-control/client.stderr.log") from error
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout).strip()
-            raise BenchmarkError(f"benchmark client failed to start: {detail or 'lg-dev.ps1 returned an error'}")
-        try:
-            status = send_request("status", port=port, timeout=min(timeout, 10.0))
-            if not status.get("benchmark_enabled", False):
-                raise BenchmarkError("client started without the required --benchmark option")
-            return status
-        except ControlError as error:
-            raise BenchmarkError(f"benchmark client did not become ready: {error}") from error
+        return ensure_client(
+            renderer="gpu", benchmark=True, control_port=port,
+            timeout=min(timeout, 30.0),
+        )
+    except LaunchError as error:
+        raise BenchmarkError(f"benchmark client failed GPU startup verification: {error}") from error
 
 
 def _safe_artifact_path(path_text: str, run_dir: Path) -> Path:
@@ -670,11 +662,14 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     scenario, scenario_path, digest = load_scenario(scenario_name)
     status = _start_client(port, timeout) if start_client else {}
     requested_backend = scenario["backend_requirement"].lower()
-    actual_renderer = str(status.get("renderer", "")).lower()
-    if requested_backend == "gpu" and status and "gpu" not in actual_renderer:
+    actual_renderer = str(status.get("renderer", ""))
+    if requested_backend == "gpu" and status and (
+        actual_renderer != "SDL_GPU/vulkan" or status.get("gpu_verified") is not True
+    ):
         raise BenchmarkError(
-            f"scenario requires SDL_GPU, but the active renderer is "
-            f"{status.get('renderer', 'unknown')}"
+            "scenario requires a verified SDL_GPU/vulkan session, but the active "
+            f"renderer is {status.get('renderer', 'unknown')} with verification "
+            f"state {status.get('gpu_verification_state', 'unknown')}"
         )
     git = _git_metadata()
     commit_short = str(git["commit"])[:12]

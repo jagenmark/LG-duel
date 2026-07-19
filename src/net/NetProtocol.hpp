@@ -247,6 +247,8 @@ struct RoundCombatStats {
 
 struct CombatStatsPacket {
   std::uint32_t serverTick = 0;
+  std::uint8_t firstPlayerIndex = 0;
+  std::uint8_t playerCount = static_cast<std::uint8_t>(kDuelPlayerCount);
   std::array<RoundCombatStats, kDuelPlayerCount> round = {};
   std::array<RoundCombatStats, kDuelPlayerCount> match = {};
 };
@@ -364,6 +366,16 @@ struct ServerSnapshot {
     "PLAYER 4",
     "PLAYER 5",
     "PLAYER 6",
+    "PLAYER 7",
+    "PLAYER 8",
+    "PLAYER 9",
+    "PLAYER 10",
+    "PLAYER 11",
+    "PLAYER 12",
+    "PLAYER 13",
+    "PLAYER 14",
+    "PLAYER 15",
+    "PLAYER 16",
   };
   std::uint32_t phaseTicksRemaining = 0;
   std::uint32_t liveTicksElapsed = 0;
@@ -377,7 +389,7 @@ struct ServerSnapshot {
 // MSVC's STL/layout is bulkier than Clang's here, so this budget is intentionally
 // about the native in-memory snapshot, not the encoded packet size.
 static_assert(
-  sizeof(ServerSnapshot) < 8192,
+  sizeof(ServerSnapshot) < 12288,
   "ServerSnapshot must remain compact; static Arena data belongs outside snapshots."
 );
 

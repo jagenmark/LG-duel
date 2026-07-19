@@ -51,6 +51,30 @@ int main() {
       lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
       "map hash should include texture projections used by the renderer"
     );
+    lg::Arena auditMetadataChanged = arena;
+    auditMetadataChanged.walls[0].collisionKind = lg::ArenaCollisionKind::PlayerClip;
+    failures += expect(
+      lg::hashArena(auditMetadataChanged) != loaded.descriptor.contentHash,
+      "map hash should include wall collision classification"
+    );
+    auditMetadataChanged = arena;
+    auditMetadataChanged.walls[0].sourceEntityIndex = 7U;
+    auditMetadataChanged.walls[0].sourceBrushIndex = 42U;
+    failures += expect(
+      lg::hashArena(auditMetadataChanged) != loaded.descriptor.contentHash,
+      "map hash should include wall source provenance"
+    );
+    failures += expect(arena.brushCount > 0, "eyetoeye should include a convex brush");
+    if (arena.brushCount > 0) {
+      auditMetadataChanged = arena;
+      auditMetadataChanged.brushes[0].collisionKind = lg::ArenaCollisionKind::WeaponClip;
+      auditMetadataChanged.brushes[0].sourceEntityIndex = 8U;
+      auditMetadataChanged.brushes[0].sourceBrushIndex = 9U;
+      failures += expect(
+        lg::hashArena(auditMetadataChanged) != loaded.descriptor.contentHash,
+        "map hash should include convex-brush collision classification and provenance"
+      );
+    }
     lg::MapDescriptor mismatched = loaded.descriptor;
     mismatched.contentHash ^= 0x1U;
     const lg::LocalMapLoadResult verified = lg::loadAndVerifyLocalMap(mismatched);
@@ -61,12 +85,29 @@ int main() {
     const lg::LocalMapLoadResult loaded = lg::loadLocalMap("overkill_import");
     failures += expect(loaded.ok, "generated overkill import should load through the local map registry");
     failures += expect(
-      loaded.ok && loaded.arena.wallCount == 1256,
-      "generated overkill import should preserve its validated box count"
+      loaded.ok && loaded.arena.wallCount == 1254,
+      "generated overkill import should omit the three non-solid fog volumes"
     );
     failures += expect(
-      loaded.ok && loaded.arena.brushCount == 673,
+      loaded.ok && loaded.arena.brushCount == 915,
       "generated overkill import should preserve its validated convex-brush count"
+    );
+    failures += expect(
+      loaded.ok &&
+        loaded.arena.spawnCount == 32 &&
+        nearlyEqual(loaded.arena.spawnPositions[0].x, -2.0F) &&
+        nearlyEqual(loaded.arena.spawnPositions[0].y, -3.8F) &&
+        nearlyEqual(loaded.arena.spawnPositions[31].x, -11.6F) &&
+        nearlyEqual(loaded.arena.spawnPositions[31].y, -39.2F),
+      "generated overkill import should preserve all source deathmatch spawns"
+    );
+    failures += expect(
+      loaded.ok && loaded.arena.teleportCount == 1,
+      "generated overkill import should preserve its restored teleport route"
+    );
+    failures += expect(
+      loaded.ok && loaded.arena.staticLightCount == 6 && loaded.arena.sunLight.enabled,
+      "generated overkill import should preserve its reviewed adaptation lighting"
     );
     failures += expect(
       loaded.ok && loaded.descriptor.contentHash == lg::hashArena(loaded.arena),
@@ -110,6 +151,49 @@ spawn p2 2,0,0 yaw=180
     failures += expect(result.ok, "valid map text should load");
     failures += expect(result.arena.wallCount == 1, "valid map should include one box");
     failures += expect(nearlyEqual(result.arena.spawnPositions[1].x, 2.0F), "valid map should parse spawns");
+  }
+
+  {
+    std::ostringstream text;
+    text << "version 1\n"
+         << "bounds min=-40,-2,0 max=40,2,4\n"
+         << "box floor -40,-2,0 40,2,1\n";
+    for (std::size_t index = 0; index < lg::Arena::kSpawnCount; ++index) {
+      text << "spawn p" << index << ' ' << static_cast<int>(index) - 16 << ",0,1\n";
+    }
+    const lg::ArenaLoadResult result = lg::loadArenaFromText(text.str());
+    failures += expect(result.ok, "maps may author thirty-two deathmatch spawns");
+    failures += expect(
+      result.ok && result.arena.spawnCount == lg::Arena::kSpawnCount &&
+        nearlyEqual(result.arena.spawnPositions[31].x, 15.0F),
+      "loader should retain the complete authored spawn prefix"
+    );
+
+    if (result.ok) {
+      lg::Arena inactiveChanged = result.arena;
+      inactiveChanged.spawnCount = 31;
+      const std::uint32_t before = lg::hashArena(inactiveChanged);
+      inactiveChanged.spawnPositions[31].x += 1.0F;
+      failures += expect(
+        lg::hashArena(inactiveChanged) == before,
+        "arena hash should ignore inactive spawn storage"
+      );
+    }
+  }
+
+  {
+    std::ostringstream text;
+    text << "version 1\n"
+         << "bounds min=-40,-2,0 max=40,2,4\n"
+         << "box floor -40,-2,0 40,2,1\n";
+    for (std::size_t index = 0; index <= lg::Arena::kSpawnCount; ++index) {
+      text << "spawn p" << index << ' ' << static_cast<int>(index) - 16 << ",0,1\n";
+    }
+    const lg::ArenaLoadResult result = lg::loadArenaFromText(text.str());
+    failures += expect(
+      !result.ok && result.error.find("too many spawn points") != std::string::npos,
+      "maps above the thirty-two-spawn capacity should fail clearly"
+    );
   }
 
   {

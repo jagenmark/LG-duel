@@ -105,7 +105,7 @@ namespace {
     "r_render_scale", "r_texture_filter", "r_texture_anisotropy", "r_texture_lod_bias",
     "r_draw_remote_players", "r_draw_remote_weapons", "r_draw_player_outlines",
     "r_player_outline_style", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
-    "r_frustum_cull", "r_player_model",
+    "r_frustum_cull", "r_world_frustum_cull", "r_player_model",
     "s_enable", "vid_fullscreen", "vid_width", "vid_height", "r_vsync", "r_present_mode"
   };
   return allowed.contains(name);
@@ -310,7 +310,12 @@ Summary summarize(const std::vector<FrameSample>& samples) {
   return result;
 }
 
-dev::JsonValue resultJson(const Scenario& scenario, const ResultContext& context, const std::vector<FrameSample>& samples) {
+dev::JsonValue resultJson(
+  const Scenario& scenario,
+  const ResultContext& context,
+  const std::vector<FrameSample>& samples,
+  const std::vector<SimulationTickSample>& tickSamples
+) {
   const Summary summary = summarize(samples);
   dev::JsonValue root = dev::JsonValue::objectValue();
   root.object["schema_version"] = dev::JsonValue::numberValue(kBenchmarkSchemaVersion);
@@ -328,6 +333,128 @@ dev::JsonValue resultJson(const Scenario& scenario, const ResultContext& context
   root.object["gpu_execution_timing_available"] = dev::JsonValue::booleanValue(false);
   root.object["percentile_method"] = dev::JsonValue::stringValue("nearest-rank: sort ascending and select ceil(p*N), one-based; p99.9 is null below 1000 samples");
   root.object["summary"] = summaryJson(summary);
+  const auto timingMetric = [](const auto& source, auto select) {
+    std::vector<double> values;
+    values.reserve(source.size());
+    for (const auto& sample : source) values.push_back(select(sample));
+    std::sort(values.begin(), values.end());
+    dev::JsonValue metric = dev::JsonValue::objectValue();
+    metric.object["count"] = dev::JsonValue::numberValue(
+      static_cast<double>(values.size())
+    );
+    metric.object["median_ms"] = dev::JsonValue::numberValue(
+      nearestRank(values, 0.5)
+    );
+    metric.object["p95_ms"] = dev::JsonValue::numberValue(
+      nearestRank(values, 0.95)
+    );
+    metric.object["p99_ms"] = dev::JsonValue::numberValue(
+      nearestRank(values, 0.99)
+    );
+    return metric;
+  };
+  dev::JsonValue renderFrameTimings = dev::JsonValue::objectValue();
+  renderFrameTimings.object["network_processing"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.networkProcessingMilliseconds; }
+  );
+  renderFrameTimings.object["simulation"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.simulationMilliseconds; }
+  );
+  renderFrameTimings.object["movement_collision"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.movementCollisionMilliseconds; }
+  );
+  renderFrameTimings.object["traces"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.tracesMilliseconds; }
+  );
+  renderFrameTimings.object["interpolation"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.interpolationMilliseconds; }
+  );
+  renderFrameTimings.object["animation"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.animationMilliseconds; }
+  );
+  renderFrameTimings.object["world_visibility"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.worldVisibilityMilliseconds; }
+  );
+  renderFrameTimings.object["render_instance_construction"] = timingMetric(
+    samples,
+    [](const FrameSample& s) { return s.renderInstanceConstructionMilliseconds; }
+  );
+  renderFrameTimings.object["world_command_encoding"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.worldCommandEncodingMilliseconds; }
+  );
+  renderFrameTimings.object["dynamic_command_encoding"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.dynamicCommandEncodingMilliseconds; }
+  );
+  renderFrameTimings.object["ui"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.uiMilliseconds; }
+  );
+  renderFrameTimings.object["swapchain_acquisition"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.swapchainAcquireMilliseconds; }
+  );
+  renderFrameTimings.object["submission"] = timingMetric(
+    samples, [](const FrameSample& s) { return s.submitMilliseconds; }
+  );
+  dev::JsonValue simulationTickTimings = dev::JsonValue::objectValue();
+  simulationTickTimings.object["simulation"] = timingMetric(
+    tickSamples,
+    [](const SimulationTickSample& s) { return s.simulationMilliseconds; }
+  );
+  simulationTickTimings.object["network_processing"] = timingMetric(
+    tickSamples,
+    [](const SimulationTickSample& s) { return s.networkProcessingMilliseconds; }
+  );
+  simulationTickTimings.object["movement_collision"] = timingMetric(
+    tickSamples,
+    [](const SimulationTickSample& s) { return s.movementCollisionMilliseconds; }
+  );
+  simulationTickTimings.object["traces"] = timingMetric(
+    tickSamples,
+    [](const SimulationTickSample& s) { return s.tracesMilliseconds; }
+  );
+  dev::JsonValue subsystemTimings = dev::JsonValue::objectValue();
+  subsystemTimings.object["clock"] =
+    dev::JsonValue::stringValue("std::chrono::steady_clock");
+  subsystemTimings.object["nested_spans"] = dev::JsonValue::booleanValue(true);
+  subsystemTimings.object["render_frame"] = std::move(renderFrameTimings);
+  subsystemTimings.object["simulation_tick"] = std::move(simulationTickTimings);
+  root.object["subsystem_timings"] = std::move(subsystemTimings);
+  const auto visibilityMetric = [&samples](auto select) {
+    std::vector<double> values;
+    values.reserve(samples.size());
+    for (const FrameSample& sample : samples) {
+      values.push_back(static_cast<double>(select(sample)));
+    }
+    std::sort(values.begin(), values.end());
+    dev::JsonValue metric = dev::JsonValue::objectValue();
+    metric.object["median"] = dev::JsonValue::numberValue(nearestRank(values, 0.5));
+    metric.object["p95"] = dev::JsonValue::numberValue(nearestRank(values, 0.95));
+    metric.object["max"] = dev::JsonValue::numberValue(
+      values.empty() ? 0.0 : values.back()
+    );
+    return metric;
+  };
+  dev::JsonValue worldVisibility = dev::JsonValue::objectValue();
+  worldVisibility.object["submitted_triangles"] = visibilityMetric(
+    [](const FrameSample& sample) { return sample.worldSubmittedTriangles; }
+  );
+  worldVisibility.object["submitted_ranges"] = visibilityMetric(
+    [](const FrameSample& sample) { return sample.worldSubmittedRanges; }
+  );
+  worldVisibility.object["visible_chunks"] = visibilityMetric(
+    [](const FrameSample& sample) { return sample.worldVisibleChunks; }
+  );
+  worldVisibility.object["culled_chunks"] = visibilityMetric(
+    [](const FrameSample& sample) { return sample.worldCulledChunks; }
+  );
+  worldVisibility.object["tested_nodes"] = visibilityMetric(
+    [](const FrameSample& sample) { return sample.worldVisibilityTestedNodes; }
+  );
+  worldVisibility.object["query_ms"] = visibilityMetric(
+    [](const FrameSample& sample) {
+      return sample.worldVisibilityQueryMilliseconds;
+    }
+  );
+  root.object["world_visibility"] = std::move(worldVisibility);
   dev::JsonValue thresholds = dev::JsonValue::objectValue();
   for (const double threshold : {2.63, 4.17, 6.94, 8.33, 16.67}) {
     const std::size_t over = static_cast<std::size_t>(std::count_if(samples.begin(), samples.end(), [threshold](const FrameSample& sample) { return sample.frameMilliseconds > threshold; }));
@@ -354,17 +481,74 @@ dev::JsonValue resultJson(const Scenario& scenario, const ResultContext& context
   return root;
 }
 
-bool writeArtifacts(const std::filesystem::path& benchmarkRoot, const Scenario& scenario, const ResultContext& context, const std::vector<FrameSample>& samples, std::filesystem::path& resultDirectory, std::string& error) {
+bool writeArtifacts(
+  const std::filesystem::path& benchmarkRoot,
+  const Scenario& scenario,
+  const ResultContext& context,
+  const std::vector<FrameSample>& samples,
+  const std::vector<SimulationTickSample>& tickSamples,
+  std::filesystem::path& resultDirectory,
+  std::string& error
+) {
   if (!isSafeRunId(context.runGroup) || !isSafeRunId(context.runId) || !isSafeRunId(scenario.name)) { error = "unsafe scenario, run group, or run id"; return false; }
   resultDirectory = benchmarkRoot / scenario.name / context.runGroup / context.runId;
   std::error_code ec; std::filesystem::create_directories(resultDirectory / "screenshots", ec);
   if (ec) { error = "could not create benchmark result directory: " + ec.message(); return false; }
-  std::ofstream frames(resultDirectory / "frame-times.csv", std::ios::trunc); frames << "frame,elapsed_seconds,frame_ms\n";
-  std::ofstream telemetry(resultDirectory / "telemetry.csv", std::ios::trunc); telemetry << "frame,elapsed_seconds,frame_ms,scene_build_ms,vertex_upload_ms,swapchain_acquire_ms,draw_issue_ms,submit_ms,total_render_cpu_ms,snapshot_decode_ms,snapshot_apply_ms,uploaded_vertices,rendered_triangles,world_draws,visible_players,projectiles,effects,instance_upload_bytes,instance_draws\n";
-  frames << std::setprecision(10); telemetry << std::setprecision(10);
-  for (const FrameSample& s : samples) { frames << s.index << ',' << s.elapsedSeconds << ',' << s.frameMilliseconds << '\n'; telemetry << s.index << ',' << s.elapsedSeconds << ',' << s.frameMilliseconds << ',' << s.sceneBuildMilliseconds << ',' << s.vertexUploadMilliseconds << ',' << s.swapchainAcquireMilliseconds << ',' << s.drawIssueMilliseconds << ',' << s.submitMilliseconds << ',' << s.renderCpuMilliseconds << ',' << s.snapshotDecodeMilliseconds << ',' << s.snapshotApplyMilliseconds << ',' << s.uploadedVertices << ',' << s.renderedTriangles << ',' << s.worldDraws << ',' << s.visiblePlayers << ',' << s.projectileCount << ',' << s.effectCount << ',' << s.instanceUploadBytes << ',' << s.instanceDraws << '\n'; }
-  std::ofstream result(resultDirectory / "result.json", std::ios::trunc); result << dev::writeJson(resultJson(scenario, context, samples)) << '\n';
-  if (!frames || !telemetry || !result) { error = "could not write benchmark artifacts"; return false; }
+  std::ofstream frames(resultDirectory / "frame-times.csv", std::ios::trunc);
+  frames << "frame,elapsed_seconds,frame_ms\n";
+  std::ofstream telemetry(resultDirectory / "telemetry.csv", std::ios::trunc);
+  telemetry << "frame,elapsed_seconds,frame_ms,scene_build_ms,vertex_upload_ms,"
+    "swapchain_acquire_ms,draw_issue_ms,submit_ms,total_render_cpu_ms,"
+    "snapshot_decode_ms,snapshot_apply_ms,network_processing_ms,simulation_ms,"
+    "movement_collision_ms,traces_ms,interpolation_ms,animation_ms,"
+    "world_visibility_ms,render_instance_construction_ms,"
+    "world_command_encoding_ms,dynamic_command_encoding_ms,ui_ms,"
+    "uploaded_vertices,rendered_triangles,world_draws,world_submitted_triangles,"
+    "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
+    "world_culled_chunks,world_visibility_tested_nodes,world_visibility_query_ms,"
+    "visible_players,projectiles,effects,instance_upload_bytes,instance_draws\n";
+  std::ofstream ticks(resultDirectory / "simulation-ticks.csv", std::ios::trunc);
+  ticks << "tick,render_frame,elapsed_seconds,simulation_ms,"
+    "network_processing_ms,movement_collision_ms,traces_ms\n";
+  frames << std::setprecision(10);
+  telemetry << std::setprecision(10);
+  ticks << std::setprecision(10);
+  for (const FrameSample& s : samples) {
+    frames << s.index << ',' << s.elapsedSeconds << ',' << s.frameMilliseconds << '\n';
+    telemetry << s.index << ',' << s.elapsedSeconds << ',' << s.frameMilliseconds
+      << ',' << s.sceneBuildMilliseconds << ',' << s.vertexUploadMilliseconds
+      << ',' << s.swapchainAcquireMilliseconds << ',' << s.drawIssueMilliseconds
+      << ',' << s.submitMilliseconds << ',' << s.renderCpuMilliseconds
+      << ',' << s.snapshotDecodeMilliseconds << ',' << s.snapshotApplyMilliseconds
+      << ',' << s.networkProcessingMilliseconds << ',' << s.simulationMilliseconds
+      << ',' << s.movementCollisionMilliseconds << ',' << s.tracesMilliseconds
+      << ',' << s.interpolationMilliseconds << ',' << s.animationMilliseconds
+      << ',' << s.worldVisibilityMilliseconds
+      << ',' << s.renderInstanceConstructionMilliseconds
+      << ',' << s.worldCommandEncodingMilliseconds
+      << ',' << s.dynamicCommandEncodingMilliseconds << ',' << s.uiMilliseconds
+      << ',' << s.uploadedVertices << ',' << s.renderedTriangles
+      << ',' << s.worldDraws << ',' << s.worldSubmittedTriangles
+      << ',' << s.worldSubmittedRanges << ',' << s.worldTotalChunks
+      << ',' << s.worldVisibleChunks << ',' << s.worldCulledChunks
+      << ',' << s.worldVisibilityTestedNodes
+      << ',' << s.worldVisibilityQueryMilliseconds << ',' << s.visiblePlayers
+      << ',' << s.projectileCount << ',' << s.effectCount
+      << ',' << s.instanceUploadBytes << ',' << s.instanceDraws << '\n';
+  }
+  for (const SimulationTickSample& s : tickSamples) {
+    ticks << s.index << ',' << s.renderFrameIndex << ',' << s.elapsedSeconds
+      << ',' << s.simulationMilliseconds << ',' << s.networkProcessingMilliseconds
+      << ',' << s.movementCollisionMilliseconds << ',' << s.tracesMilliseconds
+      << '\n';
+  }
+  std::ofstream result(resultDirectory / "result.json", std::ios::trunc);
+  result << dev::writeJson(resultJson(scenario, context, samples, tickSamples))
+    << '\n';
+  if (!frames || !telemetry || !ticks || !result) {
+    error = "could not write benchmark artifacts";
+    return false;
+  }
   return true;
 }
 

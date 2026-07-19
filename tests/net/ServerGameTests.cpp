@@ -180,6 +180,29 @@ int main() {
     latestSnapshot(transport);
 
     lg::Arena arena;
+    arena.spawnCount = lg::Arena::kSpawnCount;
+    for (std::size_t index = 0; index < arena.spawnCount; ++index) {
+      arena.spawnPositions[index] = {static_cast<float>(index), 0.0F, 0.0F};
+    }
+    server.setArena(arena);
+    const lg::ServerSnapshot& snapshot = server.snapshot();
+    bool allSlotsUseAuthoredSpawns = true;
+    for (std::size_t index = 0; index < lg::kDuelPlayerCount; ++index) {
+      allSlotsUseAuthoredSpawns = allSlotsUseAuthoredSpawns &&
+        std::fabs(snapshot.players[index].position.x - static_cast<float>(index)) < 0.0001F;
+    }
+    failures += expect(
+      allSlotsUseAuthoredSpawns,
+      "all player slots should initialize from the independent thirty-two-point spawn pool"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::Arena arena;
     arena.min = {-8.0F, -8.0F, 0.0F};
     arena.max = {8.0F, 8.0F, 8.0F};
     arena.spawnPositions[0] = {0.0F, 0.0F, 0.0F};

@@ -1,5 +1,7 @@
 #include "sim/Movement.hpp"
 
+#include "benchmark/BenchmarkTiming.hpp"
+
 #include "shared/Math.hpp"
 #include "sim/Combat.hpp"
 
@@ -301,12 +303,13 @@ struct StepMoveResult {
   );
 }
 
-[[nodiscard]] bool playerOverlapsJumpPad(
+[[nodiscard]] bool playerOverlapsTrigger(
   const PlayerState& player,
-  const ArenaJumpPad& jumpPad
+  Vec3 minimum,
+  Vec3 maximum
 ) {
-  const float closestX = clamp(player.position.x, jumpPad.min.x, jumpPad.max.x);
-  const float closestY = clamp(player.position.y, jumpPad.min.y, jumpPad.max.y);
+  const float closestX = clamp(player.position.x, minimum.x, maximum.x);
+  const float closestY = clamp(player.position.y, minimum.y, maximum.y);
   const float deltaX = player.position.x - closestX;
   const float deltaY = player.position.y - closestY;
   const bool overlapsPlanar =
@@ -315,8 +318,15 @@ struct StepMoveResult {
   const float playerMinZ = player.position.z - player.bounds.halfHeight;
   const float playerMaxZ = player.position.z + player.bounds.halfHeight;
   return overlapsPlanar &&
-    playerMaxZ >= jumpPad.min.z &&
-    playerMinZ <= jumpPad.max.z;
+    playerMaxZ >= minimum.z &&
+    playerMinZ <= maximum.z;
+}
+
+[[nodiscard]] bool playerOverlapsJumpPad(
+  const PlayerState& player,
+  const ArenaJumpPad& jumpPad
+) {
+  return playerOverlapsTrigger(player, jumpPad.min, jumpPad.max);
 }
 
 [[nodiscard]] Vec3 ballisticLaunchVelocity(
@@ -374,6 +384,23 @@ void applyJumpPads(
     player.onGround = false;
     player.movementMode = MovementMode::Airborne;
     player.jumpPadCooldownTicksRemaining = jumpPadCooldownDurationTicks;
+    return;
+  }
+}
+
+void applyTeleports(PlayerState& player, const Arena& arena) {
+  for (std::size_t index = 0; index < arena.teleportCount; ++index) {
+    const ArenaTeleport& teleport = arena.teleports[index];
+    if (!playerOverlapsTrigger(player, teleport.min, teleport.max)) {
+      continue;
+    }
+    // Trigger volumes are evaluated after collision movement on both the
+    // authoritative server and predicted client. Preserve that shared order so
+    // crossing the boundary resolves on the same fixed tick.
+    player.position = teleport.destination;
+    player.velocity = teleport.exitVelocity;
+    player.onGround = false;
+    player.movementMode = MovementMode::Airborne;
     return;
   }
 }
@@ -846,6 +873,7 @@ void simulateGroundedOrAirborne(
   }
   decrementDashCooldown(player);
   applyJumpPads(player, arena, tuning, jumpPadCooldownDurationTicks);
+  applyTeleports(player, arena);
 }
 
 void applyFlightDamping(
@@ -914,6 +942,7 @@ void simulateFlying(
   player.movementMode = MovementMode::Flying;
   decrementDashCooldown(player);
   applyJumpPads(player, arena, tuning, jumpPadCooldownDurationTicks);
+  applyTeleports(player, arena);
 }
 
 } // namespace
@@ -969,6 +998,9 @@ void simulateMovement(
   std::span<const PlayerCollisionProxy> playerProxies,
   std::uint8_t playerIndex
 ) {
+  benchmark::ScopedTiming timing(
+    benchmark::TimingSubsystem::MovementCollision
+  );
   if (tuning.flightEnabled) {
     player.movementMode = MovementMode::Flying;
   } else if (player.movementMode == MovementMode::Flying) {

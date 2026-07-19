@@ -31,7 +31,7 @@ Packet encode/decode:
 
 ## Caching And Batching
 
-- Static world GPU cache: `StaticWorldMesh` in `Renderer.cpp`, keyed by `arenaStaticWorldFingerprint()`.
+- Static world GPU cache: `StaticWorldMesh` in `Renderer.cpp`, keyed by `arenaStaticWorldFingerprint()`. Its renderer-owned triangle-chunk BVH is independent of the authoritative collision broadphase. The current direct-draw query is experimental and defaults off because the checked-in Overkill flythrough does not yet show an aggregate win; future GPU-driven visibility or map PVS can consume the same chunks.
 - Static textures are loaded from disk and uploaded to GPU resources, not embedded in per-frame packets.
 - Snapshot map data is revision-gated by `mapRevision` and `hasArena`.
 - Transient combat events use bounded arrays plus short retention windows instead of unbounded event logs.

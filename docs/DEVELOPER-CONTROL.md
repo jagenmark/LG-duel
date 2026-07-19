@@ -50,14 +50,41 @@ The owned-process workflow is:
 .\scripts\lg-control.ps1 stop
 ```
 
-`start` uses `build/default`, attaches to an existing server from that exact
-repository executable when possible, launches a hidden client with control
-enabled, records ownership in `build/dev-control/processes.json`, and writes
-logs beside it. `stop` stops only processes launched by the wrapper whose
-current executable path still matches. It never kills an attached or unrelated
-process.
+`start` defaults to a verified `SDL_GPU/vulkan` session. The shared launcher
+selects the same Intel ICD accepted by a valid local benchmark, checks its
+manifest hash, probes the configured device with `vulkaninfo`, and passes that
+single-manifest loader environment to the client. Once control answers, it
+requires the exact renderer, GPU, driver, Vulkan version, manifest path/hash,
+and `software_renderer: false` before reporting readiness. It performs the same
+attestation before attaching to an already-running client.
 
-Manual launch:
+The launcher uses `build/default`, launches hidden processes with control
+enabled, records ownership and verified launch metadata in
+`build/dev-control/processes.json`, and writes logs beside it. `stop` stops only
+processes launched by the wrapper whose current executable path still matches.
+It never kills an attached or unrelated process. If GPU startup falls back or
+fails verification, only launcher-owned processes are terminated and the error
+includes the selected ICD and client/Vulkan diagnostics.
+
+Vulkan selection contains no tracked machine path. Resolution checks, in order:
+
+1. An ignored JSON file named by `LG_DUEL_VULKAN_CONFIG`.
+2. `build/dev-control/vulkan.json` or `build/vulkan.json`.
+3. The newest valid local Intel Vulkan benchmark `aggregate.json` under
+   `build/benchmarks/`.
+
+A direct local JSON document supplies `icd_path`, `icd_sha256`, `gpu_name`, and
+optionally the expected `graphics_driver_version` and `vulkan_api_version`.
+Because `build/` is ignored, machine-specific paths and hashes remain local.
+Fallback is diagnostic-only and requires `-Renderer fallback` on the start
+wrapper or `--allow-fallback` on direct control commands.
+
+The repository-root `Start LG Duel Client GPU.bat` uses this verified launcher
+with `-ExternalServer`, so it owns only the client started alongside the
+separate server batch. It never starts an unverified direct client or accepts
+SDL_Renderer readiness.
+
+Unverified manual launch (not accepted by GPU-required control/MCP workflows):
 
 ```powershell
 Start-Process .\build\default\lg_duel_server.exe -ArgumentList 27960
@@ -82,6 +109,7 @@ control layer intentionally does not replace that job. After an edit:
 ```powershell
 .\scripts\lg-control.ps1 reload-map eyetoeye
 .\scripts\lg-control.ps1 set-camera --position 0,22.4,-12.85 --yaw -90 --pitch 0 --fov 100
+.\scripts\lg-control.ps1 set-collision-debug 2
 .\scripts\lg-control.ps1 capture --name central-overview
 .\scripts\lg-control.ps1 capture-map-views --map eyetoeye --preset standard
 ```
@@ -124,9 +152,17 @@ Success and failure shapes are explicit:
 ```
 
 Operations are `status`, `load_map`, `reload_map`, `get_camera`, `set_camera`,
-`capture_screenshot`, and `capture_map_views`. The multi-view request includes
-a typed `views` array; CLI and MCP resolve the named repository preset before
-making that single runtime request.
+`set_collision_debug`, `capture_screenshot`, and `capture_map_views`. The
+`set_collision_debug` request requires an integer `mode`: `0` disables the
+overlay, `1` shows all collision, `2` shows visible solids, `3` shows
+`playerclip`, `4` shows `weapclip`, and `5` shows triggers. This bounded
+operation changes only renderer visualization; it does not change authoritative
+collision, movement, hit registration, or traces. Collision visualization
+requires verified `SDL_GPU/vulkan`; the explicit SDL_Renderer fallback returns
+`renderer_unsupported` rather than claiming the overlay is active. Status exposes
+the requested mode, effective mode, and backend support independently. The
+multi-view request includes a typed `views` array; CLI and MCP resolve the named
+repository preset before making that single runtime request.
 
 ## MCP For Codex
 
@@ -136,10 +172,16 @@ Register the repository-local stdio server with a dynamically resolved path:
 .\scripts\setup-lg-mcp.ps1
 ```
 
-Equivalent command:
+The setup script resolves `python.exe` and the MCP server to absolute paths,
+registers them, verifies `lg-duel` in `codex mcp list`, and prints the Windows
+host, user profile, registration scope, and exact Codex config file. This makes
+host-user registration distinct from a different shell, container, or
+`CODEX_HOME` profile.
+
+Equivalent command shape (use the absolute paths printed by the script):
 
 ```powershell
-codex mcp add lg-duel -- python (Resolve-Path .\scripts\lg_mcp_server.py)
+codex mcp add lg-duel -- C:\absolute\path\to\python.exe C:\absolute\path\to\lg_mcp_server.py
 ```
 
 Restart Codex or begin a new task after registration. Remove the local entry:
@@ -148,10 +190,14 @@ Restart Codex or begin a new task after registration. Remove the local entry:
 .\scripts\setup-lg-mcp.ps1 -Remove
 ```
 
-Tools are `lg_status`, `lg_load_map`, `lg_reload_map`, `lg_get_camera`,
-`lg_set_camera`, `lg_capture_screenshot`, and `lg_capture_map_views`. Each has
+Tools are `lg_start`, `lg_status`, `lg_load_map`, `lg_reload_map`, `lg_get_camera`,
+`lg_set_camera`, `lg_set_collision_debug`, `lg_capture_screenshot`, and
+`lg_capture_map_views`. Each has
 a closed typed JSON schema. Results include text plus `structuredContent`;
-captures also return existing PNGs as MCP `image/png` content.
+captures also return existing PNGs as MCP `image/png` content. Visual MCP tools
+start or attach through the shared verified GPU launcher. Screenshot and
+multi-view capture cannot silently reuse an SDL_Renderer, D3D11, SwiftShader,
+or other fallback client. Explicit fallback requires `allow_fallback: true`.
 
 ## Troubleshooting And Limitations
 
@@ -162,11 +208,16 @@ captures also return existing PNGs as MCP `image/png` content.
 - **Map timeout:** local validation passed but the authoritative server did not
   activate the map. Inspect the server log; a remote server may use different
   maps or an incompatible build.
+- **GPU verification failed:** inspect the selected ICD, expected/actual device,
+  and Vulkan/client errors returned by the launcher. Repair the ignored local
+  selection or create a valid benchmark baseline; do not review fallback PNGs
+  as GPU output.
 - **Blank/failed capture:** inspect the returned renderer/error. GPU capture
-  supports SDL 3.4.10 SDR RGBA/BGRA swapchains. Try wrapper option
-  `-Renderer fallback` to isolate GPU-driver issues.
-- **MCP tools fail:** MCP intentionally does not supervise processes. Start the
-  game first; tool errors remain actionable structured results.
+  supports SDL 3.4.10 SDR RGBA/BGRA swapchains. Use wrapper option
+  `-Renderer fallback` only as an explicitly labelled driver diagnostic.
+- **MCP tools fail:** visual tools supervise or verify the local client through
+  the shared launcher. Structured errors distinguish launch, attachment,
+  renderer attestation, and control-operation failures.
 
 Known limitations: requests are serial; output is PNG only; the development
 camera is stationary (no remote free-flight input); MCP uses control port

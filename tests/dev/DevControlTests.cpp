@@ -64,6 +64,24 @@ int main() {
     "valid deterministic camera parameters should be accepted"
   );
   failures += expect(
+    !parseRequest(R"({"operation":"set_collision_debug"})").ok,
+    "collision debug mode should be required"
+  );
+  failures += expect(
+    !parseRequest(R"({"operation":"set_collision_debug","mode":"3"})").ok &&
+      !parseRequest(R"({"operation":"set_collision_debug","mode":2.5})").ok &&
+      !parseRequest(R"({"operation":"set_collision_debug","mode":6})").ok,
+    "collision debug mode should reject wrong types, fractions, and values outside 0 through 5"
+  );
+  const lg::dev::ControlRequestParseResult collisionDebug =
+    parseRequest(R"({"operation":"set_collision_debug","mode":3})");
+  failures += expect(
+    collisionDebug.ok &&
+      collisionDebug.request.operation == lg::dev::ControlOperation::SetCollisionDebug &&
+      collisionDebug.request.collisionDebugMode == 3,
+    "typed collision debug requests should retain their bounded mode"
+  );
+  failures += expect(
     !parseRequest(R"({"operation":"capture_screenshot","name":"../../bad"})").ok,
     "unsafe capture filenames should be rejected"
   );

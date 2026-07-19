@@ -1,5 +1,7 @@
 #include "client/ClientSession.hpp"
 
+#include "benchmark/BenchmarkTiming.hpp"
+
 #include <utility>
 
 namespace lg {
@@ -40,6 +42,9 @@ bool ClientSession::reconnect() {
 }
 
 void ClientSession::update() {
+  benchmark::ScopedTiming timing(
+    benchmark::TimingSubsystem::NetworkProcessing
+  );
   if (!transport_) {
     return;
   }

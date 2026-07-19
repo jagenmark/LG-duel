@@ -17,6 +17,7 @@ enum class ControlOperation {
   ReloadMap,
   GetCamera,
   SetCamera,
+  SetCollisionDebug,
   CaptureScreenshot,
   CaptureMapViews,
   RunBenchmark,
@@ -43,6 +44,7 @@ struct ControlRequest {
   std::string mapName;
   std::string presetName;
   CameraTransform camera;
+  int collisionDebugMode = 0;
   std::string captureName;
   bool hideHud = true;
   bool hideOverlays = true;
