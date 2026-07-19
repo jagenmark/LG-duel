@@ -67,6 +67,11 @@ PerfWindowSummary PerfTelemetry::summarize() {
   summary.worldDrawIssue = summarizeMetric(
     [](const PerfSample& sample) { return sample.worldDrawIssueMilliseconds; }
   );
+  summary.worldVisibilityQuery = summarizeMetric(
+    [](const PerfSample& sample) {
+      return sample.worldVisibilityQueryMilliseconds;
+    }
+  );
   summary.submit = summarizeMetric(
     [](const PerfSample& sample) { return sample.submitMilliseconds; }
   );

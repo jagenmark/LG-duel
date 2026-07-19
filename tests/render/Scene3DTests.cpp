@@ -580,6 +580,88 @@ int main() {
   }
 
   {
+    lg::Arena debugArena;
+    debugArena.wallCount = 3;
+    for (std::size_t index = 0; index < debugArena.wallCount; ++index) {
+      debugArena.walls[index].min = {static_cast<float>(index) * 2.0F, 0.0F, 0.0F};
+      debugArena.walls[index].max = {static_cast<float>(index) * 2.0F + 1.0F, 1.0F, 1.0F};
+    }
+    debugArena.walls[0].collisionKind = lg::ArenaCollisionKind::VisibleSolid;
+    debugArena.walls[1].collisionKind = lg::ArenaCollisionKind::PlayerClip;
+    debugArena.walls[2].collisionKind = lg::ArenaCollisionKind::WeaponClip;
+    debugArena.jumpPadCount = 1;
+    debugArena.jumpPads[0].min = {0.0F, 2.0F, 0.0F};
+    debugArena.jumpPads[0].max = {1.0F, 3.0F, 1.0F};
+    debugArena.teleportCount = 1;
+    debugArena.teleports[0].min = {2.0F, 2.0F, 0.0F};
+    debugArena.teleports[0].max = {3.0F, 3.0F, 1.0F};
+    debugArena.mcguffin.hasRedBase = true;
+    debugArena.mcguffin.redBase.min = {4.0F, 2.0F, 0.0F};
+    debugArena.mcguffin.redBase.max = {5.0F, 3.0F, 1.0F};
+    debugArena.mcguffin.hasBlueBase = true;
+    debugArena.mcguffin.blueBase.min = {6.0F, 2.0F, 0.0F};
+    debugArena.mcguffin.blueBase.max = {7.0F, 3.0F, 1.0F};
+
+    lg::Scene3D allCollision;
+    lg::appendCollisionDebugGeometry(allCollision, debugArena, 1);
+    bool foundBlue = false;
+    bool foundGreen = false;
+    bool foundOrange = false;
+    bool foundPurple = false;
+    for (const lg::Vertex3D& vertex : allCollision.translucentVertices) {
+      foundBlue = foundBlue ||
+        (vertex.color.red == 64 && vertex.color.green == 160 && vertex.color.blue == 255);
+      foundGreen = foundGreen ||
+        (vertex.color.red == 72 && vertex.color.green == 255 && vertex.color.blue == 128);
+      foundOrange = foundOrange ||
+        (vertex.color.red == 255 && vertex.color.green == 156 && vertex.color.blue == 48);
+      foundPurple = foundPurple ||
+        (vertex.color.red == 208 && vertex.color.green == 96 && vertex.color.blue == 255);
+    }
+    failures += expect(
+      foundBlue && foundGreen && foundOrange && foundPurple,
+      "all-collision mode should color visible solids, playerclip, weapclip, and triggers distinctly"
+    );
+
+    lg::Scene3D playerClipOnly;
+    lg::appendCollisionDebugGeometry(playerClipOnly, debugArena, 3);
+    failures += expect(
+      playerClipOnly.translucentVertices.size() == 36U &&
+        std::all_of(
+          playerClipOnly.translucentVertices.begin(),
+          playerClipOnly.translucentVertices.end(),
+          [](const lg::Vertex3D& vertex) {
+            return vertex.color.red == 72 && vertex.color.green == 255 &&
+              vertex.color.blue == 128;
+          }
+        ),
+      "playerclip-only mode should exclude visible solids, weapclip, and triggers"
+    );
+
+    lg::Scene3D triggersOnly;
+    lg::appendCollisionDebugGeometry(triggersOnly, debugArena, 5);
+    failures += expect(
+      triggersOnly.translucentVertices.size() == 4U * 36U &&
+        std::all_of(
+          triggersOnly.translucentVertices.begin(),
+          triggersOnly.translucentVertices.end(),
+          [](const lg::Vertex3D& vertex) {
+            return vertex.color.red == 208 && vertex.color.green == 96 &&
+              vertex.color.blue == 255;
+          }
+        ),
+      "trigger mode should include jump pads, teleports, and both enabled McGuffin bases"
+    );
+
+    lg::Scene3D disabledCollision;
+    lg::appendCollisionDebugGeometry(disabledCollision, debugArena, 0);
+    failures += expect(
+      disabledCollision.translucentVertices.empty(),
+      "disabled collision visualization should emit no debug geometry"
+    );
+  }
+
+  {
     lg::TextureProjection projection;
     projection.uAxis = {1.0F, 0.0F, 0.0F};
     projection.vAxis = {0.0F, -1.0F, 0.0F};

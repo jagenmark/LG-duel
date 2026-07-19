@@ -695,6 +695,14 @@ struct Scene3D {
   std::uint32_t remoteFrustumCulled = 0;
 };
 
+// Appends presentation-only translucent collision geometry. The mode matches
+// r_show_collision and never changes which authoritative traces use a solid.
+void appendCollisionDebugGeometry(
+  Scene3D& scene,
+  const Arena& arena,
+  int mode
+);
+
 [[nodiscard]] const StaticMeshAsset* staticMeshAsset(MeshHandle handle);
 [[nodiscard]] const MaterialMeshAsset* materialMeshAsset(MeshHandle handle);
 [[nodiscard]] MeshHandle remoteWeaponMeshHandle(Weapon weapon);

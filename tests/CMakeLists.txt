@@ -304,6 +304,10 @@ if(Python3_Interpreter_FOUND)
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_benchmark.py
   )
   add_test(
+    NAME lg_duel_launch_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_launch.py
+  )
+  add_test(
     NAME lg_duel_q3_import_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_import_q3_map.py
   )
@@ -455,6 +459,17 @@ target_compile_features(lg_duel_perspective_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_perspective_tests)
 
 add_test(NAME lg_duel_perspective_tests COMMAND lg_duel_perspective_tests)
+
+add_executable(lg_duel_world_visibility_tests
+  render/WorldVisibilityTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/WorldVisibility.cpp
+)
+
+target_link_libraries(lg_duel_world_visibility_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_world_visibility_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_world_visibility_tests)
+
+add_test(NAME lg_duel_world_visibility_tests COMMAND lg_duel_world_visibility_tests)
 
 add_executable(lg_duel_screen_ui_tests
   render/ScreenUiTests.cpp

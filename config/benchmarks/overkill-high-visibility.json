@@ -34,7 +34,16 @@
     "commands": []
   },
   "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
-  "cvars": {"r_frustum_cull": 1, "r_show_weapons": 1, "r_player_model": 1, "r_draw_player_outlines": 1},
+  "cvars": {
+    "r_frustum_cull": 1,
+    "r_world_frustum_cull": 1,
+    "r_show_weapons": 1,
+    "r_player_model": 1,
+    "r_draw_player_outlines": 1,
+    "r_texture_filter": 2,
+    "r_texture_anisotropy": 8,
+    "r_texture_lod_bias": 0.5
+  },
   "screenshots": [{"name": "upper-north-crossing", "progress": 1.0}],
   "residual_nondeterminism": ["This imported map is a structural stress case, not a representative competitive duel layout. Texture availability and renderer fallback must be recorded with the result."]
 }

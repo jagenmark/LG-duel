@@ -223,6 +223,11 @@ struct RenderSettings {
   bool drawRemoteWeapons = true;
   bool drawPlayerOutlines = true;
   bool frustumCullRemotePlayers = true;
+  bool worldFrustumCull = false;
+  bool benchmarkTimingEnabled = false;
+  // 0 off, 1 all, 2 visible solids, 3 playerclip, 4 weapclip, 5 triggers.
+  // This is presentation-only and never changes authoritative trace masks.
+  int showCollision = 0;
   int textureFilter = 2;
   int textureAnisotropy = 8;
   float textureLodBias = 0.5F;
@@ -394,6 +399,12 @@ struct TransientEffect {
 
 struct RendererFrameDiagnostics {
   float swapchainAcquireMilliseconds = 0.0F;
+  // Coarse CPU-side frame stages; GPU execution is not included.
+  float renderInstanceConstructionMilliseconds = 0.0F;
+  float worldVisibilityMilliseconds = 0.0F;
+  float worldCommandEncodingMilliseconds = 0.0F;
+  float dynamicCommandEncodingMilliseconds = 0.0F;
+  float uiMilliseconds = 0.0F;
   float sceneBuildMilliseconds = 0.0F;
   float gpuVertexUploadMilliseconds = 0.0F;
   float worldDrawIssueMilliseconds = 0.0F;
@@ -402,9 +413,16 @@ struct RendererFrameDiagnostics {
   float totalRenderMilliseconds = 0.0F;
   std::uint32_t worldSourceTriangles = 0;
   std::uint32_t worldRenderedTriangles = 0;
+  std::uint32_t worldSubmittedTriangles = 0;
   std::uint32_t worldDuplicateTrianglesCulled = 0;
   std::uint32_t worldVertexCount = 0;
   std::uint32_t worldDrawCalls = 0;
+  std::uint32_t worldSubmittedRanges = 0;
+  std::uint32_t worldTotalChunks = 0;
+  std::uint32_t worldVisibleChunks = 0;
+  std::uint32_t worldCulledChunks = 0;
+  std::uint32_t worldVisibilityTestedNodes = 0;
+  float worldVisibilityQueryMilliseconds = 0.0F;
   std::uint32_t gpuDepthBits = 0;
   std::uint32_t worldLoadedTextures = 0;
   std::uint32_t worldMissingTextures = 0;
@@ -569,6 +587,15 @@ public:
   [[nodiscard]] bool setVSync(bool enabled);
   [[nodiscard]] bool setPresentMode(PresentMode mode);
   [[nodiscard]] std::string_view backendName() const;
+  [[nodiscard]] std::string_view requestedBackendName() const;
+  [[nodiscard]] std::string_view gpuName() const;
+  [[nodiscard]] std::string_view graphicsDriverName() const;
+  [[nodiscard]] std::string_view graphicsDriverVersion() const;
+  [[nodiscard]] std::string_view graphicsDriverInfo() const;
+  [[nodiscard]] std::string_view vulkanApiVersion() const;
+  [[nodiscard]] std::string_view vulkanIcdPath() const;
+  [[nodiscard]] std::string_view vulkanIcdSha256() const;
+  [[nodiscard]] bool softwareRenderer() const;
   [[nodiscard]] const RendererFrameDiagnostics& lastFrameDiagnostics() const;
   void shutdown();
 
@@ -615,11 +642,20 @@ private:
   std::uint32_t gpuOutlineDepthHeight_ = 0;
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
+  std::string requestedBackendName_ = "fallback";
+  std::string gpuName_;
+  std::string graphicsDriverName_;
+  std::string graphicsDriverVersion_;
+  std::string graphicsDriverInfo_;
+  std::string vulkanApiVersion_;
+  std::string vulkanIcdPath_;
+  std::string vulkanIcdSha256_;
   RendererFrameDiagnostics lastFrameDiagnostics_ = {};
   std::chrono::steady_clock::time_point previousCameraStepUpdate_ = {};
   float previousCameraPlayerZ_ = 0.0F;
   float cameraStepOffset_ = 0.0F;
   bool gpuBackend_ = false;
+  bool softwareRenderer_ = false;
   bool gpuErrorReported_ = false;
   bool hasPreviousCameraPlayerZ_ = false;
 };

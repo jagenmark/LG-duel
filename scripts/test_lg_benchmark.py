@@ -9,6 +9,7 @@ from unittest import mock
 
 import lg_benchmark
 from lg_benchmark import BenchmarkError
+from lg_launch import LaunchError
 
 
 class BenchmarkTests(unittest.TestCase):
@@ -171,10 +172,11 @@ class BenchmarkTests(unittest.TestCase):
             lg_benchmark.load_scenario("../escape")
 
     def test_timeout_is_actionable(self) -> None:
-        with mock.patch("subprocess.run", side_effect=__import__("subprocess").TimeoutExpired("powershell", 1)):
-            with mock.patch.object(lg_benchmark, "send_request", side_effect=lg_benchmark.ControlError("offline")):
-                with self.assertRaisesRegex(BenchmarkError, "startup timed out"):
-                    lg_benchmark._start_client(27961, 1)
+        with mock.patch.object(
+            lg_benchmark, "ensure_client", side_effect=LaunchError("startup timed out while waiting for Vulkan")
+        ):
+            with self.assertRaisesRegex(BenchmarkError, "startup timed out"):
+                lg_benchmark._start_client(27961, 1)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,6 @@
 #include "render/Scene3D.hpp"
+
+#include "benchmark/BenchmarkTiming.hpp"
 #include "render/BakedWeaponModels.hpp"
 #include "render/BakedMachineGunModel.hpp"
 #include "render/BakedRevolverModel.hpp"
@@ -2719,6 +2721,117 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 
 } // namespace
 
+void appendCollisionDebugGeometry(
+  Scene3D& scene,
+  const Arena& arena,
+  int mode
+) {
+  if (mode <= 0 || mode > 5) {
+    return;
+  }
+
+  constexpr RenderColor visibleSolidColor = {64, 160, 255, 72};
+  constexpr RenderColor playerClipColor = {72, 255, 128, 96};
+  constexpr RenderColor weaponClipColor = {255, 156, 48, 104};
+  constexpr RenderColor triggerColor = {208, 96, 255, 110};
+  constexpr float kSurfaceOffset = 0.006F;
+
+  const auto includes = [mode](int category) {
+    return mode == 1 || mode == category;
+  };
+  const auto colorFor = [&](ArenaCollisionKind kind) {
+    switch (kind) {
+      case ArenaCollisionKind::VisibleSolid: return visibleSolidColor;
+      case ArenaCollisionKind::PlayerClip: return playerClipColor;
+      case ArenaCollisionKind::WeaponClip: return weaponClipColor;
+    }
+    return visibleSolidColor;
+  };
+  const auto categoryFor = [](ArenaCollisionKind kind) {
+    switch (kind) {
+      case ArenaCollisionKind::VisibleSolid: return 2;
+      case ArenaCollisionKind::PlayerClip: return 3;
+      case ArenaCollisionKind::WeaponClip: return 4;
+    }
+    return 2;
+  };
+  const auto addBox = [&](Vec3 minimum, Vec3 maximum, RenderColor color) {
+    const std::array<Vec3, 8> corners = {{
+      {minimum.x, minimum.y, minimum.z},
+      {maximum.x, minimum.y, minimum.z},
+      {maximum.x, maximum.y, minimum.z},
+      {minimum.x, maximum.y, minimum.z},
+      {minimum.x, minimum.y, maximum.z},
+      {maximum.x, minimum.y, maximum.z},
+      {maximum.x, maximum.y, maximum.z},
+      {minimum.x, maximum.y, maximum.z},
+    }};
+    constexpr std::array<std::array<std::size_t, 4>, 6> faces = {{
+      {{0, 3, 2, 1}}, {{4, 5, 6, 7}}, {{0, 1, 5, 4}},
+      {{1, 2, 6, 5}}, {{2, 3, 7, 6}}, {{3, 0, 4, 7}},
+    }};
+    for (std::size_t faceIndex = 0; faceIndex < faces.size(); ++faceIndex) {
+      const Vec3 offset = wallFaceNormal(faceIndex) * kSurfaceOffset;
+      const auto& face = faces[faceIndex];
+      addQuad(
+        scene,
+        corners[face[0]] + offset,
+        corners[face[1]] + offset,
+        corners[face[2]] + offset,
+        corners[face[3]] + offset,
+        color
+      );
+    }
+  };
+
+  // The overlay is intentionally rebuilt only while the debug cvar is active.
+  // It observes the exact authoritative hulls but never participates in traces.
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    const ArenaWall& wall = arena.walls[index];
+    if (includes(categoryFor(wall.collisionKind))) {
+      addBox(wall.min, wall.max, colorFor(wall.collisionKind));
+    }
+  }
+  for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
+    const ArenaBrush& brush = arena.brushes[brushIndex];
+    if (!includes(categoryFor(brush.collisionKind))) {
+      continue;
+    }
+    const RenderColor color = colorFor(brush.collisionKind);
+    for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      const ArenaBrushFace& face = brush.faces[faceIndex];
+      if (face.vertexCount < 3U) {
+        continue;
+      }
+      const Vec3 origin =
+        brush.vertices[face.vertices[0]] + face.normal * kSurfaceOffset;
+      for (std::uint8_t vertex = 1U; vertex + 1U < face.vertexCount; ++vertex) {
+        addTriangle(
+          scene,
+          origin,
+          brush.vertices[face.vertices[vertex]] + face.normal * kSurfaceOffset,
+          brush.vertices[face.vertices[vertex + 1U]] + face.normal * kSurfaceOffset,
+          color
+        );
+      }
+    }
+  }
+  if (includes(5)) {
+    for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
+      addBox(arena.jumpPads[index].min, arena.jumpPads[index].max, triggerColor);
+    }
+    for (std::size_t index = 0; index < arena.teleportCount; ++index) {
+      addBox(arena.teleports[index].min, arena.teleports[index].max, triggerColor);
+    }
+    if (arena.mcguffin.hasRedBase) {
+      addBox(arena.mcguffin.redBase.min, arena.mcguffin.redBase.max, triggerColor);
+    }
+    if (arena.mcguffin.hasBlueBase) {
+      addBox(arena.mcguffin.blueBase.min, arena.mcguffin.blueBase.max, triggerColor);
+    }
+  }
+}
+
 [[nodiscard]] std::vector<Vertex3D> proceduralWeaponVertices(Weapon weapon);
 
 const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
@@ -4153,6 +4266,7 @@ Scene3D buildPerspectiveScene(
   scene.outlineMaskDraws.reserve(kDuelPlayerCount);
   scene.gltfPlayerModelInstances.reserve(kDuelPlayerCount);
   scene.gltfBonePalette.reserve(kDuelPlayerCount * 64U);
+  appendCollisionDebugGeometry(scene, arena, settings.showCollision);
   GltfSkinnedModel::PoseScratch gltfPoseScratch;
   const GltfSkinnedModel* gltfPlayerModel =
     settings.playerModel == 1 ? &duelistMaleModel() : nullptr;
@@ -4326,6 +4440,9 @@ Scene3D buildPerspectiveScene(
       scene.geometryOutlineFallbackUsed = true;
     }
     if (settings.drawRemotePlayers) {
+      benchmark::ScopedTiming animationTiming(
+        benchmark::TimingSubsystem::Animation
+      );
       ++scene.remoteBodyModelsBuilt;
       if (usePlayerBoxModel) {
         ++scene.playerBoxStats.visiblePlayers;

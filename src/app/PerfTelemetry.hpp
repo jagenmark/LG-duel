@@ -22,9 +22,16 @@ struct PerfSample {
   std::uint32_t dynamicTriangles = 0;
   std::uint32_t worldSourceTriangles = 0;
   std::uint32_t worldRenderedTriangles = 0;
+  std::uint32_t worldSubmittedTriangles = 0;
   std::uint32_t worldDuplicateTrianglesCulled = 0;
   std::uint32_t worldVertexCount = 0;
   std::uint32_t worldDrawCalls = 0;
+  std::uint32_t worldSubmittedRanges = 0;
+  std::uint32_t worldTotalChunks = 0;
+  std::uint32_t worldVisibleChunks = 0;
+  std::uint32_t worldCulledChunks = 0;
+  std::uint32_t worldVisibilityTestedNodes = 0;
+  float worldVisibilityQueryMilliseconds = 0.0F;
   std::uint32_t gpuDepthBits = 0;
   std::uint32_t worldLoadedTextures = 0;
   std::uint32_t worldMissingTextures = 0;
@@ -134,6 +141,7 @@ struct PerfWindowSummary {
   PerfMetricSummary gpuVertexUpload = {};
   PerfMetricSummary swapchainAcquire = {};
   PerfMetricSummary worldDrawIssue = {};
+  PerfMetricSummary worldVisibilityQuery = {};
   PerfMetricSummary submit = {};
   PerfMetricSummary totalRender = {};
   PerfMetricSummary snapshotDecode = {};

@@ -304,6 +304,165 @@ bool readHeader(Reader& reader, PacketType expectedType, std::size_t wireSize) {
     payloadBytes == wireSize - kHeaderBytes;
 }
 
+constexpr std::uint8_t kCompressedPayloadFlag = 1U;
+constexpr std::size_t kSnapshotMatchWindow = 4096U;
+constexpr std::size_t kSnapshotMinMatch = 3U;
+constexpr std::size_t kSnapshotMaxMatch = 18U;
+
+[[nodiscard]] std::uint16_t readWireU16(
+  const WirePacket& wire,
+  std::size_t offset
+) {
+  return static_cast<std::uint16_t>(wire[offset]) |
+    (static_cast<std::uint16_t>(wire[offset + 1U]) << 8U);
+}
+
+[[nodiscard]] std::uint32_t snapshotMatchHash(
+  const WirePacket& input,
+  std::size_t offset
+) {
+  const std::uint32_t value =
+    static_cast<std::uint32_t>(input[offset]) |
+    (static_cast<std::uint32_t>(input[offset + 1U]) << 8U) |
+    (static_cast<std::uint32_t>(input[offset + 2U]) << 16U);
+  return (value * 2654435761U) >> 20U;
+}
+
+// Player snapshots and combat-stat arrays contain repeated fixed-capacity
+// records. A small deterministic LZ window preserves every authoritative bit
+// while removing that repetition; there is no stateful cross-packet dictionary.
+[[nodiscard]] bool compactSnapshotWire(WirePacket& wire) {
+  if (wire.size() < kHeaderBytes || wire.size() > kMaxPacketBytes) return false;
+  const std::size_t payloadBytes = wire.size() - kHeaderBytes;
+  if (payloadBytes > std::numeric_limits<std::uint16_t>::max()) return false;
+
+  WirePacket compressed;
+  compressed.reserve(payloadBytes);
+  compressed.push_back(static_cast<std::uint8_t>(payloadBytes));
+  compressed.push_back(static_cast<std::uint8_t>(payloadBytes >> 8U));
+  std::array<std::int32_t, 4096> latest = {};
+  latest.fill(-1);
+  std::size_t inputOffset = kHeaderBytes;
+  while (inputOffset < wire.size()) {
+    const std::size_t controlOffset = compressed.size();
+    compressed.push_back(0U);
+    std::uint8_t control = 0U;
+    for (std::size_t token = 0; token < 8U && inputOffset < wire.size(); ++token) {
+      std::size_t matchLength = 0U;
+      std::size_t matchDistance = 0U;
+      if (inputOffset + kSnapshotMinMatch <= wire.size()) {
+        const std::size_t hash = snapshotMatchHash(wire, inputOffset);
+        const std::int32_t candidate = latest[hash];
+        latest[hash] = static_cast<std::int32_t>(inputOffset);
+        if (candidate >= static_cast<std::int32_t>(kHeaderBytes)) {
+          const std::size_t candidateOffset = static_cast<std::size_t>(candidate);
+          const std::size_t distance = inputOffset - candidateOffset;
+          if (distance <= kSnapshotMatchWindow) {
+            const std::size_t limit = std::min(
+              kSnapshotMaxMatch,
+              wire.size() - inputOffset
+            );
+            while (matchLength < limit &&
+                   wire[candidateOffset + matchLength] ==
+                     wire[inputOffset + matchLength]) {
+              ++matchLength;
+            }
+            if (matchLength >= kSnapshotMinMatch) matchDistance = distance;
+          }
+        }
+      }
+      if (matchLength >= kSnapshotMinMatch) {
+        control |= static_cast<std::uint8_t>(1U << token);
+        const std::uint16_t encoded = static_cast<std::uint16_t>(
+          (matchDistance - 1U) |
+          ((matchLength - kSnapshotMinMatch) << 12U)
+        );
+        compressed.push_back(static_cast<std::uint8_t>(encoded));
+        compressed.push_back(static_cast<std::uint8_t>(encoded >> 8U));
+        inputOffset += matchLength;
+      } else {
+        compressed.push_back(wire[inputOffset++]);
+      }
+    }
+    compressed[controlOffset] = control;
+  }
+
+  if (compressed.size() < payloadBytes) {
+    WirePacket compacted(wire.begin(), wire.begin() + kHeaderBytes);
+    compacted[7] = kCompressedPayloadFlag;
+    compacted.insert(compacted.end(), compressed.begin(), compressed.end());
+    const std::size_t compactedPayloadBytes = compacted.size() - kHeaderBytes;
+    compacted[8] = static_cast<std::uint8_t>(compactedPayloadBytes);
+    compacted[9] = static_cast<std::uint8_t>(compactedPayloadBytes >> 8U);
+    wire = std::move(compacted);
+  }
+  // Encoding failure is deliberate: a caller must never hand an oversized
+  // snapshot to UDP and accidentally rely on IP fragmentation.
+  if (wire.size() > kMaxUdpApplicationDatagramBytes) {
+    wire.clear();
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool expandSnapshotWire(
+  const WirePacket& wire,
+  WirePacket& expanded
+) {
+  if (wire.size() < kHeaderBytes ||
+      wire.size() > kMaxUdpApplicationDatagramBytes ||
+      readWireU16(wire, 8U) != wire.size() - kHeaderBytes) {
+    return false;
+  }
+  const std::uint8_t flags = wire[7];
+  if (flags == 0U) {
+    expanded = wire;
+    return true;
+  }
+  if (flags != kCompressedPayloadFlag || wire.size() < kHeaderBytes + 2U) {
+    return false;
+  }
+  const std::size_t expandedPayloadBytes = readWireU16(wire, kHeaderBytes);
+  if (expandedPayloadBytes >
+      std::numeric_limits<std::uint16_t>::max()) return false;
+
+  WirePacket payload;
+  payload.reserve(expandedPayloadBytes);
+  std::size_t inputOffset = kHeaderBytes + 2U;
+  while (inputOffset < wire.size() && payload.size() < expandedPayloadBytes) {
+    const std::uint8_t control = wire[inputOffset++];
+    for (std::size_t token = 0;
+         token < 8U && payload.size() < expandedPayloadBytes;
+         ++token) {
+      if ((control & (1U << token)) == 0U) {
+        if (inputOffset >= wire.size()) return false;
+        payload.push_back(wire[inputOffset++]);
+        continue;
+      }
+      if (inputOffset + 2U > wire.size()) return false;
+      const std::uint16_t encoded = readWireU16(wire, inputOffset);
+      inputOffset += 2U;
+      const std::size_t distance = (encoded & 0x0FFFU) + 1U;
+      const std::size_t length = (encoded >> 12U) + kSnapshotMinMatch;
+      if (distance > payload.size() ||
+          length > expandedPayloadBytes - payload.size()) return false;
+      const std::size_t matchOffset = payload.size() - distance;
+      for (std::size_t index = 0; index < length; ++index) {
+        payload.push_back(payload[matchOffset + index]);
+      }
+    }
+  }
+  if (inputOffset != wire.size() || payload.size() != expandedPayloadBytes) {
+    return false;
+  }
+  expanded.assign(wire.begin(), wire.begin() + kHeaderBytes);
+  expanded[7] = 0U;
+  expanded[8] = static_cast<std::uint8_t>(expandedPayloadBytes);
+  expanded[9] = static_cast<std::uint8_t>(expandedPayloadBytes >> 8U);
+  expanded.insert(expanded.end(), payload.begin(), payload.end());
+  return true;
+}
+
 bool writeActionEdgeState(Writer& writer, const ActionEdgeState& edges) {
   return std::isfinite(edges.mcguffinThrowYawRadians) &&
     std::isfinite(edges.mcguffinThrowPitchRadians) &&
@@ -1389,7 +1548,10 @@ bool inspectPacketType(const WirePacket& wire, PacketType& type) {
     !reader.readU16(reserved) ||
     magic != kProtocolMagic ||
     version != kProtocolVersion ||
-    flags != 0 ||
+    (flags != 0 &&
+     !((encodedType == static_cast<std::uint8_t>(PacketType::Snapshot) ||
+        encodedType == static_cast<std::uint8_t>(PacketType::CombatStats)) &&
+       flags == kCompressedPayloadFlag)) ||
     reserved != 0 ||
     payloadBytes != wire.size() - kHeaderBytes ||
     encodedType < static_cast<std::uint8_t>(PacketType::ConnectRequest) ||
@@ -1460,7 +1622,8 @@ bool encodeCommandPacket(const CommandPacket& packet, WirePacket& wire) {
   Writer writer(wire);
   return writeHeader(writer, PacketType::Command) &&
     writeCommandBody(writer, packet) &&
-    finishPacket(writer);
+    finishPacket(writer) &&
+    writer.size() <= kMaxUdpApplicationDatagramBytes;
 }
 
 bool decodeCommandPacket(const WirePacket& wire, CommandPacket& packet) {
@@ -1513,7 +1676,8 @@ bool encodeCommandBundle(const CommandBundle& bundle, WirePacket& wire) {
       return false;
     }
   }
-  return finishPacket(writer);
+  return finishPacket(writer) &&
+    writer.size() <= kMaxUdpApplicationDatagramBytes;
 }
 
 bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle) {
@@ -1661,22 +1825,27 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
         [](const auto& value) { return value.active; }, writeFragEvent)) {
     return false;
   }
-  std::uint32_t hitFeedbackMask = 0;
+  constexpr std::size_t hitFeedbackBitCount =
+    kDuelPlayerCount * kLocalHitFeedbackEventWindow;
+  constexpr std::size_t hitFeedbackWordCount =
+    (hitFeedbackBitCount + 31U) / 32U;
+  std::array<std::uint32_t, hitFeedbackWordCount> hitFeedbackMasks = {};
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     for (std::size_t eventIndex = 0; eventIndex < kLocalHitFeedbackEventWindow; ++eventIndex) {
       const std::size_t bit = playerIndex * kLocalHitFeedbackEventWindow + eventIndex;
       if (snapshot.localHitFeedbackEvents[playerIndex][eventIndex].active) {
-        hitFeedbackMask |= std::uint32_t{1} << bit;
+        hitFeedbackMasks[bit / 32U] |= std::uint32_t{1} << (bit % 32U);
       }
     }
   }
-  if (!writer.writeU32(hitFeedbackMask)) {
-    return false;
+  for (const std::uint32_t mask : hitFeedbackMasks) {
+    if (!writer.writeU32(mask)) return false;
   }
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     for (std::size_t eventIndex = 0; eventIndex < kLocalHitFeedbackEventWindow; ++eventIndex) {
       const std::size_t bit = playerIndex * kLocalHitFeedbackEventWindow + eventIndex;
-      if ((hitFeedbackMask & (std::uint32_t{1} << bit)) != 0 &&
+      if ((hitFeedbackMasks[bit / 32U] &
+           (std::uint32_t{1} << (bit % 32U))) != 0 &&
           !writeLocalHitFeedbackEvent(
             writer,
             snapshot.localHitFeedbackEvents[playerIndex][eventIndex]
@@ -1875,7 +2044,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU8(static_cast<std::uint8_t>(snapshot.weaponSwitchingMode)))) {
     return false;
   }
-  return writer.writeBool(snapshot.botDodgeEnabled) &&
+  if (!(writer.writeBool(snapshot.botDodgeEnabled) &&
     writer.writeI32(snapshot.botDodgeMinIntervalMs) &&
     writer.writeI32(snapshot.botDodgeMaxIntervalMs) &&
     writer.writeBool(snapshot.botStareEnabled) &&
@@ -1886,15 +2055,20 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeU8(snapshot.roundWinner) &&
     writer.writeU8(snapshot.matchWinner) &&
     writer.writeBool(snapshot.playersColliding) &&
-    finishPacket(writer);
+    finishPacket(writer))) {
+    return false;
+  }
+  return compactSnapshotWire(wire);
 }
 
 bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
-  Reader reader(wire);
+  WirePacket expandedWire;
+  if (!expandSnapshotWire(wire, expandedWire)) return false;
+  Reader reader(expandedWire);
   auto decodedStorage = std::make_unique<ServerSnapshot>();
   ServerSnapshot& decoded = *decodedStorage;
   if (
-    !readHeader(reader, PacketType::Snapshot, wire.size()) ||
+    !readHeader(reader, PacketType::Snapshot, expandedWire.size()) ||
     !reader.readU32(decoded.serverTick) ||
     !reader.readBool(decoded.hasLocalClientState) ||
     !reader.readU8(decoded.localPlayerIndex) ||
@@ -1952,19 +2126,25 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       !readSparseArray(reader, decoded.fragEvents, readFragEvent)) {
     return false;
   }
-  std::uint32_t hitFeedbackMask = 0;
   constexpr std::size_t hitFeedbackBitCount =
     kDuelPlayerCount * kLocalHitFeedbackEventWindow;
-  constexpr std::uint32_t validHitFeedbackMask =
-    (std::uint32_t{1} << hitFeedbackBitCount) - 1U;
-  if (!reader.readU32(hitFeedbackMask) ||
-      (hitFeedbackMask & ~validHitFeedbackMask) != 0) {
-    return false;
+  constexpr std::size_t hitFeedbackWordCount =
+    (hitFeedbackBitCount + 31U) / 32U;
+  std::array<std::uint32_t, hitFeedbackWordCount> hitFeedbackMasks = {};
+  for (std::uint32_t& mask : hitFeedbackMasks) {
+    if (!reader.readU32(mask)) return false;
+  }
+  constexpr std::size_t hitFeedbackLastWordBits = hitFeedbackBitCount % 32U;
+  if constexpr (hitFeedbackLastWordBits != 0U) {
+    constexpr std::uint32_t validLastMask =
+      (std::uint32_t{1} << hitFeedbackLastWordBits) - 1U;
+    if ((hitFeedbackMasks.back() & ~validLastMask) != 0U) return false;
   }
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     for (std::size_t eventIndex = 0; eventIndex < kLocalHitFeedbackEventWindow; ++eventIndex) {
       const std::size_t bit = playerIndex * kLocalHitFeedbackEventWindow + eventIndex;
-      if ((hitFeedbackMask & (std::uint32_t{1} << bit)) != 0 &&
+      if ((hitFeedbackMasks[bit / 32U] &
+           (std::uint32_t{1} << (bit % 32U))) != 0 &&
           !readLocalHitFeedbackEvent(
             reader,
             decoded.localHitFeedbackEvents[playerIndex][eventIndex]
@@ -2407,7 +2587,8 @@ bool encodeChatHistoryChunk(
       return false;
     }
   }
-  return finishPacket(writer);
+  return finishPacket(writer) &&
+    writer.size() <= kMaxUdpApplicationDatagramBytes;
 }
 
 bool decodeChatHistoryChunk(
@@ -2484,31 +2665,51 @@ bool encodeCombatStatsPacket(
   const CombatStatsPacket& packet,
   WirePacket& wire
 ) {
+  const std::size_t first = packet.firstPlayerIndex;
+  const std::size_t count = packet.playerCount;
+  if (count == 0U || first >= kDuelPlayerCount ||
+      count > kDuelPlayerCount - first) {
+    return false;
+  }
   Writer writer(wire);
   if (!writeHeader(writer, PacketType::CombatStats) ||
-      !writer.writeU32(packet.serverTick)) return false;
-  for (const RoundCombatStats& stats : packet.round) {
-    if (!writeRoundCombatStats(writer, stats)) return false;
+      !writer.writeU32(packet.serverTick) ||
+      !writer.writeU8(packet.firstPlayerIndex) ||
+      !writer.writeU8(packet.playerCount)) return false;
+  for (std::size_t index = first; index < first + count; ++index) {
+    if (!writeRoundCombatStats(writer, packet.round[index])) return false;
   }
-  for (const RoundCombatStats& stats : packet.match) {
-    if (!writeRoundCombatStats(writer, stats)) return false;
+  for (std::size_t index = first; index < first + count; ++index) {
+    if (!writeRoundCombatStats(writer, packet.match[index])) return false;
   }
-  return finishPacket(writer);
+  if (!finishPacket(writer)) return false;
+  return compactSnapshotWire(wire);
 }
 
 bool decodeCombatStatsPacket(
   const WirePacket& wire,
   CombatStatsPacket& packet
 ) {
-  Reader reader(wire);
+  WirePacket expandedWire;
+  if (!expandSnapshotWire(wire, expandedWire)) return false;
+  Reader reader(expandedWire);
   CombatStatsPacket decoded;
-  if (!readHeader(reader, PacketType::CombatStats, wire.size()) ||
-      !reader.readU32(decoded.serverTick)) return false;
-  for (RoundCombatStats& stats : decoded.round) {
-    if (!readRoundCombatStats(reader, stats)) return false;
+  if (!readHeader(reader, PacketType::CombatStats, expandedWire.size()) ||
+      !reader.readU32(decoded.serverTick) ||
+      !reader.readU8(decoded.firstPlayerIndex) ||
+      !reader.readU8(decoded.playerCount) ||
+      decoded.playerCount == 0U ||
+      decoded.firstPlayerIndex >= kDuelPlayerCount ||
+      decoded.playerCount > kDuelPlayerCount - decoded.firstPlayerIndex) {
+    return false;
   }
-  for (RoundCombatStats& stats : decoded.match) {
-    if (!readRoundCombatStats(reader, stats)) return false;
+  const std::size_t first = decoded.firstPlayerIndex;
+  const std::size_t count = decoded.playerCount;
+  for (std::size_t index = first; index < first + count; ++index) {
+    if (!readRoundCombatStats(reader, decoded.round[index])) return false;
+  }
+  for (std::size_t index = first; index < first + count; ++index) {
+    if (!readRoundCombatStats(reader, decoded.match[index])) return false;
   }
   if (reader.remaining() != 0) return false;
   packet = decoded;

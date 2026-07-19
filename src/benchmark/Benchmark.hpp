@@ -87,14 +87,42 @@ struct FrameSample {
   double renderCpuMilliseconds = 0.0;
   double snapshotDecodeMilliseconds = 0.0;
   double snapshotApplyMilliseconds = 0.0;
+  double networkProcessingMilliseconds = 0.0;
+  double simulationMilliseconds = 0.0;
+  double movementCollisionMilliseconds = 0.0;
+  double tracesMilliseconds = 0.0;
+  double interpolationMilliseconds = 0.0;
+  double animationMilliseconds = 0.0;
+  double worldVisibilityMilliseconds = 0.0;
+  double renderInstanceConstructionMilliseconds = 0.0;
+  double worldCommandEncodingMilliseconds = 0.0;
+  double dynamicCommandEncodingMilliseconds = 0.0;
+  double uiMilliseconds = 0.0;
   std::uint32_t uploadedVertices = 0;
   std::uint32_t renderedTriangles = 0;
   std::uint32_t worldDraws = 0;
+  std::uint32_t worldSubmittedTriangles = 0;
+  std::uint32_t worldSubmittedRanges = 0;
+  std::uint32_t worldTotalChunks = 0;
+  std::uint32_t worldVisibleChunks = 0;
+  std::uint32_t worldCulledChunks = 0;
+  std::uint32_t worldVisibilityTestedNodes = 0;
+  double worldVisibilityQueryMilliseconds = 0.0;
   std::uint32_t visiblePlayers = 0;
   std::uint32_t projectileCount = 0;
   std::uint32_t effectCount = 0;
   std::uint32_t instanceUploadBytes = 0;
   std::uint32_t instanceDraws = 0;
+};
+
+struct SimulationTickSample {
+  std::uint64_t index = 0;
+  std::uint64_t renderFrameIndex = 0;
+  double elapsedSeconds = 0.0;
+  double simulationMilliseconds = 0.0;
+  double networkProcessingMilliseconds = 0.0;
+  double movementCollisionMilliseconds = 0.0;
+  double tracesMilliseconds = 0.0;
 };
 
 struct Summary {
@@ -136,13 +164,15 @@ struct ResultContext {
 [[nodiscard]] dev::JsonValue resultJson(
   const Scenario& scenario,
   const ResultContext& context,
-  const std::vector<FrameSample>& samples
+  const std::vector<FrameSample>& samples,
+  const std::vector<SimulationTickSample>& tickSamples
 );
 [[nodiscard]] bool writeArtifacts(
   const std::filesystem::path& benchmarkRoot,
   const Scenario& scenario,
   const ResultContext& context,
   const std::vector<FrameSample>& samples,
+  const std::vector<SimulationTickSample>& tickSamples,
   std::filesystem::path& resultDirectory,
   std::string& error
 );

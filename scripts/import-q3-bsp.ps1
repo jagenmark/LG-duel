@@ -6,6 +6,7 @@ param(
   [string]$CandidateMap = "",
   [string]$ReportDirectory = "",
   [string]$WorkDirectory = "",
+  [string]$Adaptation = "",
   [switch]$AllowOverLimit
 )
 
@@ -32,7 +33,8 @@ $reportPath = [IO.Path]::GetFullPath($ReportDirectory)
 $jsonReportPath = Join-Path $reportPath "$stem-import.json"
 $markdownReportPath = Join-Path $reportPath "$stem-import.md"
 
-$python = (Get-Command python -ErrorAction Stop).Source
+$pythonCommand = Get-Command python.exe -CommandType Application -ErrorAction Stop | Select-Object -First 1
+$python = [IO.Path]::GetFullPath($pythonCommand.Source)
 $generationPath = Join-Path $workPath (".generation-" + [guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $generationPath | Out-Null
 $conversionExitCode = 0
@@ -58,6 +60,9 @@ try {
   )
   if (-not [string]::IsNullOrWhiteSpace($SourceAas)) {
     $arguments += @("--source-aas", [IO.Path]::GetFullPath($SourceAas))
+  }
+  if (-not [string]::IsNullOrWhiteSpace($Adaptation)) {
+    $arguments += @("--adaptation", [IO.Path]::GetFullPath($Adaptation))
   }
   if ($AllowOverLimit) {
     $arguments += "--allow-over-limit"

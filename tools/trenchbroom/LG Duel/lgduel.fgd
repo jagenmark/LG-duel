@@ -1,10 +1,10 @@
-@SolidClass = worldspawn : "LG Duel world geometry. Use common/playerclip on every face for invisible player clipping."
+@SolidClass = worldspawn : "LG Duel world geometry. Use common/playerclip or common/weapclip on every face for classified invisible collision. Both currently block all traces."
 [
   lg_bounds_min(string) : "Arena bounds min" : "" : "Optional x y z bounds in TrenchBroom units."
   lg_bounds_max(string) : "Arena bounds max" : "" : "Optional x y z bounds in TrenchBroom units."
 ]
 
-@SolidClass = func_group : "LG Duel brush group. Use common/playerclip on every face for invisible player clipping."
+@SolidClass = func_group : "LG Duel brush group. Use common/playerclip or common/weapclip on every face for classified invisible collision. Both currently block all traces."
 [
 ]
 

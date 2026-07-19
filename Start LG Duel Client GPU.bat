@@ -1,4 +1,5 @@
 @echo off
+setlocal
 cd /d "%~dp0"
 tasklist /FI "IMAGENAME eq lg_duel_client.exe" | find /I "lg_duel_client.exe" >nul
 set "CLIENT_ALREADY_RUNNING=%ERRORLEVEL%"
@@ -29,5 +30,12 @@ if not exist "build\default\SDL3.dll" (
   pause
   exit /b 1
 )
-set LG_DUEL_RENDER_BACKEND=gpu
-build\default\lg_duel_client.exe 127.0.0.1 27960
+echo Starting verified Vulkan client...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\lg-dev.ps1" start -ServerPort 27960 -ControlPort 27961 -Renderer gpu -ExternalServer
+if errorlevel 1 (
+  echo.
+  echo Verified GPU startup failed. The client was not left running in fallback mode.
+  echo Diagnostics: %~dp0build\dev-control\client.stderr.log
+  pause
+  exit /b 1
+)

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <cstdint>
 #include <iostream>
 #include <memory>
@@ -484,7 +485,7 @@ int main() {
     }
     failures += expect(
       std::all_of(seenSlots.begin(), seenSlots.end(), [](bool seen) { return seen; }),
-      "the first six UDP clients should fill unique player slots"
+      "the first sixteen UDP clients should fill unique player slots"
     );
     failures += expect(
       clients.back()->spectator() &&
@@ -600,6 +601,52 @@ int main() {
         "stale commands from the prior body session must not reject the new occupant's low sequence"
       );
     }
+  }
+
+  {
+    lg::UdpServerTransport capacityTransport(0);
+    failures += expect(
+      capacityTransport.initialize(),
+      "capacity UDP server should bind an ephemeral port"
+    );
+    lg::ServerGame capacityServer(capacityTransport);
+    std::array<
+      std::unique_ptr<lg::UdpClientTransport>,
+      lg::kMaxNetworkClients
+    > capacityClients = {};
+    for (auto& client : capacityClients) {
+      client = std::make_unique<lg::UdpClientTransport>(
+        "127.0.0.1",
+        capacityTransport.localPort()
+      );
+      failures += expect(client->initialize(), "capacity client should initialize");
+    }
+    for (int iteration = 0; iteration < 600; ++iteration) {
+      for (const auto& client : capacityClients) client->update();
+      capacityTransport.update();
+      syncConnectedPlayers(capacityServer, capacityTransport);
+      capacityServer.tick(lg::kFixedTickSeconds);
+      for (const auto& client : capacityClients) client->update();
+      if (std::all_of(
+            capacityClients.begin(), capacityClients.end(),
+            [](const auto& client) { return client->connected(); }
+          )) {
+        break;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    failures += expect(
+      std::all_of(
+        capacityClients.begin(), capacityClients.end(),
+        [](const auto& client) { return client->connected(); }
+      ) &&
+        std::count_if(
+          capacityClients.begin(), capacityClients.end(),
+          [](const auto& client) { return client->spectator(); }
+        ) == static_cast<std::ptrdiff_t>(lg::kMaxSpectatorClients) &&
+        capacityTransport.connectedClientCount() == lg::kMaxNetworkClients,
+      "UDP transport should fill sixteen player and eight spectator slots"
+    );
   }
 
   return failures == 0 ? 0 : 1;

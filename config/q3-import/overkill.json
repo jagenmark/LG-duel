@@ -1,0 +1,96 @@
+{
+  "schema_version": 2,
+  "source_bsp_sha256": "ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133",
+  "raw_decompile_sha256": "30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc",
+  "name": "overkill-lg-duel",
+  "brush_policy": {
+    "default_action": "allow",
+    "rules": []
+  },
+  "materials": {
+    "wall": "Overkill/Overkill_Basalt_Block-128x128",
+    "floor": "Overkill/Overkill_Sandstone_Floor-128x128",
+    "trim": "Overkill/Overkill_Oxidized_Trim-128x128",
+    "accent": "Overkill/Overkill_Amber_Route-128x128"
+  },
+  "material_roles": {
+    "accent": [
+      "base_light/*",
+      "gothic_light/*",
+      "ql/telex",
+      "sfx/bounce_*",
+      "sfx/launchpad_*",
+      "sfx/metalbridge06_bounce",
+      "sfx/ntrl_techfloor_kc"
+    ],
+    "floor": [
+      "base_floor/*",
+      "gothic_floor/*"
+    ],
+    "trim": [
+      "base_support/*",
+      "base_trim/*",
+      "gothic_door/*",
+      "gothic_trim/*"
+    ],
+    "wall": ["*"]
+  },
+  "selected_spawn_origins": [
+    [-80, -152, 280],
+    [-240, 368, 280],
+    [264, 992, 600],
+    [-104, 1264, 600],
+    [640, 1344, 936],
+    [1168, 1936, 280],
+    [-824, -32, 280],
+    [-1152, -1000, 152],
+    [-1384, 24, 280],
+    [-1152, 960, 280],
+    [336, 848, 280],
+    [1264, 784, 280],
+    [1200, -1200, 280],
+    [272, -32, 280],
+    [416, -1312, 408],
+    [416, -608, 408],
+    [640, -1808, 408],
+    [1184, -32, 280],
+    [-80, 432, 600],
+    [1232, 432, 280],
+    [352, 1136, 280],
+    [-736, 1248, 280],
+    [-1384, -256, 280],
+    [-424, -152, 280],
+    [-80, 1872, 600],
+    [304, 2128, 280],
+    [816, 1488, 280],
+    [640, -192, 280],
+    [-160, -1568, 408],
+    [1264, 736, 280],
+    [384, 848, 280],
+    [-464, -1568, 408]
+  ],
+  "reconstruct_patch_indices": [
+    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
+    129, 130, 132, 133, 136, 137, 139, 140,
+    170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
+    181, 182, 183, 189, 276, 278
+  ],
+  "patch_subdivisions": 2,
+  "patch_thickness": 2.0,
+  "marker_boxes": [
+    {"min": [-1343, -959, 128], "max": [-1291, -907, 130], "material": "accent"}
+  ],
+  "sun": {
+    "direction": [0.35, -0.5, -1.0],
+    "color": [255, 226, 184],
+    "intensity": 0.85
+  },
+  "lights": [
+    {"origin": [-80, 80, 680], "color": [255, 218, 170], "intensity": 0.8, "radius": 1400},
+    {"origin": [640, 1050, 1050], "color": [188, 214, 255], "intensity": 0.75, "radius": 1300},
+    {"origin": [640, -1350, 680], "color": [255, 205, 150], "intensity": 0.75, "radius": 1400},
+    {"origin": [-1100, -100, 560], "color": [196, 220, 255], "intensity": 0.7, "radius": 1200},
+    {"origin": [1050, 650, 600], "color": [255, 216, 164], "intensity": 0.7, "radius": 1200},
+    {"origin": [1184, 2080, 520], "color": [255, 174, 82], "intensity": 0.9, "radius": 900}
+  ]
+}

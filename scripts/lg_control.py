@@ -118,6 +118,16 @@ def parse_position(text: str | list[str]) -> list[float]:
     return values
 
 
+def collision_debug_mode(text: str) -> int:
+    try:
+        mode = int(text)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("collision debug mode must be an integer from 0 to 5") from error
+    if not 0 <= mode <= 5:
+        raise argparse.ArgumentTypeError("collision debug mode must be an integer from 0 to 5")
+    return mode
+
+
 def human_output(result: dict[str, Any]) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
@@ -128,6 +138,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--json", action="store_true", help="emit compact machine-readable JSON")
+    parser.add_argument(
+        "--allow-fallback", action="store_true",
+        help="explicitly permit the SDL_Renderer diagnostic path for this control workflow",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
     load = commands.add_parser("load-map")
@@ -142,6 +156,8 @@ def build_parser() -> argparse.ArgumentParser:
     camera.add_argument("--yaw", type=float, required=True)
     camera.add_argument("--pitch", type=float, required=True)
     camera.add_argument("--fov", type=float)
+    collision_debug = commands.add_parser("set-collision-debug")
+    collision_debug.add_argument("mode", type=collision_debug_mode)
     capture = commands.add_parser("capture")
     capture.add_argument("--name")
     capture.add_argument("--show-hud", action="store_true")
@@ -155,7 +171,22 @@ def build_parser() -> argparse.ArgumentParser:
 def execute(arguments: argparse.Namespace) -> dict[str, Any]:
     common = {"host": arguments.host, "port": arguments.port, "timeout": arguments.timeout}
     if arguments.command == "status":
-        return send_request("status", **common)
+        if arguments.host != DEFAULT_HOST:
+            return send_request("status", **common)
+        from lg_launch import status_with_state
+        return status_with_state(port=arguments.port, timeout=arguments.timeout)
+    if arguments.host != DEFAULT_HOST:
+        raise ControlError("development-control launch and visual verification require host 127.0.0.1")
+    from lg_launch import LaunchError, ensure_client
+    try:
+        ensure_client(
+            renderer="fallback" if arguments.allow_fallback else "gpu",
+            allow_fallback=arguments.allow_fallback,
+            control_port=arguments.port,
+            timeout=min(arguments.timeout, 30.0),
+        )
+    except LaunchError as error:
+        raise ControlError(str(error)) from error
     if arguments.command == "load-map":
         return send_request("load_map", map=arguments.map, **common)
     if arguments.command == "reload-map":
@@ -172,6 +203,8 @@ def execute(arguments: argparse.Namespace) -> dict[str, Any]:
             "set_camera", position=parse_position(arguments.position), yaw=arguments.yaw,
             pitch=arguments.pitch, fov=arguments.fov, **common
         )
+    if arguments.command == "set-collision-debug":
+        return send_request("set_collision_debug", mode=arguments.mode, **common)
     if arguments.command == "capture":
         return send_request(
             "capture_screenshot", name=arguments.name,
@@ -193,9 +226,12 @@ def main(argv: list[str] | None = None) -> int:
     # PowerShell users naturally place --json after the subcommand; argparse
     # global options normally require it first, so normalize that one flag.
     json_requested = "--json" in raw
-    raw = [value for value in raw if value != "--json"]
+    fallback_requested = "--allow-fallback" in raw
+    raw = [value for value in raw if value not in {"--json", "--allow-fallback"}]
     if json_requested:
         raw.insert(0, "--json")
+    if fallback_requested:
+        raw.insert(0, "--allow-fallback")
     parser = build_parser()
     arguments = parser.parse_args(raw)
     try:

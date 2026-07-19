@@ -38,6 +38,7 @@ namespace {
 
 // The simulation runs at 125 Hz, so 25 ticks keeps scoreboard data at 5 Hz.
 constexpr std::uint32_t kCombatStatsRefreshTicks = 25;
+constexpr std::size_t kCombatStatsPlayersPerPacket = 4;
 
 void copySnapshotConfiguration(ServerSnapshot& destination,
                                const ServerSnapshot& source) {
@@ -69,6 +70,48 @@ WirePacket configurationSignature(const ServerSnapshot& snapshot) {
     signature.clear();
   }
   return signature;
+}
+
+[[nodiscard]] bool encodeBoundedGameplaySnapshot(
+  ServerSnapshot& snapshot,
+  WirePacket& wire
+) {
+  if (encodeServerSnapshot(snapshot, wire)) return true;
+
+  // Rewind geometry and movement sounds are presentation-only. They are the
+  // first deterministic casualties of a pathological same-tick event burst.
+  for (LightningGunResult& result : snapshot.lightningGuns) {
+    result.hasRewindDebug = false;
+  }
+  snapshot.footstepAudioEvents.fill({});
+  snapshot.grenadeBounceAudioEvents.fill({});
+  if (encodeServerSnapshot(snapshot, wire)) return true;
+
+  // Hit feedback is recipient-specific; other players' windows have no value
+  // to this client and must not displace its own authoritative core state.
+  for (std::size_t player = 0; player < kDuelPlayerCount; ++player) {
+    if (player != snapshot.localPlayerIndex) {
+      snapshot.localHitFeedbackEvents[player].fill({});
+    }
+  }
+  if (encodeServerSnapshot(snapshot, wire)) return true;
+
+  // Recurring beams are cheaper to lose than one-shot authoritative feedback.
+  // Preserve hit confirmations and frag events until every lower-priority
+  // presentation path has already been removed.
+  snapshot.lightningGuns.fill({});
+  if (encodeServerSnapshot(snapshot, wire)) return true;
+
+  // Preserve player/projectile/objective state before remaining transient
+  // visuals. The next snapshot remains self-contained even when this burst is
+  // not rendered.
+  snapshot.weaponFires.fill({});
+  snapshot.rocketExplosions.fill({});
+  if (encodeServerSnapshot(snapshot, wire)) return true;
+
+  snapshot.fragEvents.fill({});
+  for (auto& events : snapshot.localHitFeedbackEvents) events.fill({});
+  return encodeServerSnapshot(snapshot, wire);
 }
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
@@ -189,7 +232,10 @@ bool sameEndpoint(const Endpoint& lhs, const Endpoint& rhs) {
 }
 
 bool sendWire(SocketHandle socket, const Endpoint& endpoint, const WirePacket& wire) {
-  if (socket == kInvalidSocket || wire.empty()) {
+  // The application ceiling is below common path MTUs. Never make correctness
+  // depend on IP fragmentation, even if a codec regression produces a packet.
+  if (socket == kInvalidSocket || wire.empty() ||
+      wire.size() > kMaxUdpApplicationDatagramBytes) {
     return false;
   }
   const int sent = sendto(
@@ -204,9 +250,9 @@ bool sendWire(SocketHandle socket, const Endpoint& endpoint, const WirePacket& w
 }
 
 bool receiveWire(SocketHandle socket, Endpoint& endpoint, WirePacket& wire) {
-  // The extra byte detects oversized UDP datagrams: a full buffer means the
-  // packet exceeds the protocol maximum and must be surfaced as empty/invalid.
-  std::array<std::uint8_t, kMaxPacketBytes + 1> buffer = {};
+  // The extra byte detects a peer attempting to bypass the application MTU.
+  // Receive and discard the whole datagram, but never pass it to a decoder.
+  std::array<std::uint8_t, kMaxUdpApplicationDatagramBytes + 1> buffer = {};
   endpoint.length = sizeof(endpoint.address);
   const int received = recvfrom(
     socket,
@@ -217,9 +263,19 @@ bool receiveWire(SocketHandle socket, Endpoint& endpoint, WirePacket& wire) {
     &endpoint.length
   );
   if (received < 0) {
+#if defined(_WIN32)
+    // Winsock reports an oversized datagram as consumed plus WSAEMSGSIZE.
+    // Surface it as an empty invalid packet so the pump continues to later
+    // legitimate traffic instead of letting an MTU violation starve the queue.
+    if (WSAGetLastError() == WSAEMSGSIZE) {
+      wire.clear();
+      return true;
+    }
+#endif
     return false;
   }
-  if (received == 0 || static_cast<std::size_t>(received) > kMaxPacketBytes) {
+  if (received == 0 ||
+      static_cast<std::size_t>(received) > kMaxUdpApplicationDatagramBytes) {
     wire.clear();
     return true;
   }
@@ -658,7 +714,9 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
     // datagram and are sent independently to interested clients below.
     networkSnapshot.hasCombatStats = false;
     WirePacket wire;
-    if (!encodeServerSnapshot(networkSnapshot, wire)) {
+    if (!encodeBoundedGameplaySnapshot(networkSnapshot, wire)) {
+      impl_->error =
+        "authoritative snapshot core exceeds 1200-byte UDP datagram ceiling";
       continue;
     }
     if (sendWire(impl_->socket, client.endpoint, wire)) {
@@ -670,13 +728,26 @@ void UdpServerTransport::sendSnapshot(const ServerSnapshot& snapshot) {
         (client.lastCombatStatsTick == 0 ||
          snapshot.serverTick - client.lastCombatStatsTick >=
            kCombatStatsRefreshTicks)) {
-      CombatStatsPacket stats;
-      stats.serverTick = snapshot.serverTick;
-      stats.round = snapshot.roundCombatStats;
-      stats.match = snapshot.matchCombatStats;
-      WirePacket statsWire;
-      if (encodeCombatStatsPacket(stats, statsWire) &&
-          sendWire(impl_->socket, client.endpoint, statsWire)) {
+      bool sentAllStatsPages = true;
+      for (std::size_t first = 0; first < kDuelPlayerCount;
+           first += kCombatStatsPlayersPerPacket) {
+        CombatStatsPacket stats;
+        stats.serverTick = snapshot.serverTick;
+        stats.firstPlayerIndex = static_cast<std::uint8_t>(first);
+        stats.playerCount = static_cast<std::uint8_t>(std::min(
+          kCombatStatsPlayersPerPacket,
+          kDuelPlayerCount - first
+        ));
+        stats.round = snapshot.roundCombatStats;
+        stats.match = snapshot.matchCombatStats;
+        WirePacket statsWire;
+        if (!encodeCombatStatsPacket(stats, statsWire) ||
+            !sendWire(impl_->socket, client.endpoint, statsWire)) {
+          sentAllStatsPages = false;
+          break;
+        }
+      }
+      if (sentAllStatsPages) {
         client.lastCombatStatsTick = snapshot.serverTick;
       }
     }
@@ -1016,14 +1087,30 @@ struct UdpClientTransport::Impl {
     } else if (type == PacketType::CombatStats && connected) {
       CombatStatsPacket stats;
       if (decodeCombatStatsPacket(wire, stats) &&
-          (!hasCombatStats ||
-           isSequenceNewer(stats.serverTick, combatStatsServerTick))) {
-        // Scoreboard packets may reorder independently of snapshots. Never let
-        // an older aggregate roll the retained cache backward.
-        roundCombatStats = stats.round;
-        matchCombatStats = stats.match;
-        combatStatsServerTick = stats.serverTick;
-        hasCombatStats = true;
+          (pendingCombatStatsServerTick == 0U ||
+           stats.serverTick == pendingCombatStatsServerTick ||
+           isSequenceNewer(stats.serverTick, pendingCombatStatsServerTick))) {
+        if (stats.serverTick != pendingCombatStatsServerTick) {
+          pendingCombatStatsServerTick = stats.serverTick;
+          pendingCombatStatsPlayerMask = 0U;
+          pendingRoundCombatStats = {};
+          pendingMatchCombatStats = {};
+        }
+        const std::size_t first = stats.firstPlayerIndex;
+        const std::size_t count = stats.playerCount;
+        for (std::size_t index = first; index < first + count; ++index) {
+          pendingRoundCombatStats[index] = stats.round[index];
+          pendingMatchCombatStats[index] = stats.match[index];
+          pendingCombatStatsPlayerMask |= std::uint32_t{1} << index;
+        }
+        constexpr std::uint32_t kAllCombatStatsPlayers =
+          (std::uint32_t{1} << kDuelPlayerCount) - 1U;
+        if (pendingCombatStatsPlayerMask == kAllCombatStatsPlayers) {
+          roundCombatStats = pendingRoundCombatStats;
+          matchCombatStats = pendingMatchCombatStats;
+          combatStatsServerTick = pendingCombatStatsServerTick;
+          hasCombatStats = true;
+        }
         lastServerPacket = now;
       }
     } else if (type == PacketType::Pong && connected) {
@@ -1113,8 +1200,12 @@ struct UdpClientTransport::Impl {
           configurationRevision = 0;
           hasCombatStats = false;
           combatStatsServerTick = 0;
+          pendingCombatStatsServerTick = 0;
+          pendingCombatStatsPlayerMask = 0;
           roundCombatStats = {};
           matchCombatStats = {};
+          pendingRoundCombatStats = {};
+          pendingMatchCombatStats = {};
           telemetry = {};
           snapshotTickTags = {};
           telemetryHistoryNext = 0;
@@ -1152,8 +1243,12 @@ struct UdpClientTransport::Impl {
       configurationRevision = 0;
       hasCombatStats = false;
       combatStatsServerTick = 0;
+      pendingCombatStatsServerTick = 0;
+      pendingCombatStatsPlayerMask = 0;
       roundCombatStats = {};
       matchCombatStats = {};
+      pendingRoundCombatStats = {};
+      pendingMatchCombatStats = {};
       networkSim.clear();
     }
     sampleTelemetry(Clock::now());
@@ -1188,7 +1283,11 @@ struct UdpClientTransport::Impl {
   std::uint32_t configurationRevision = 0;
   std::array<RoundCombatStats, kDuelPlayerCount> roundCombatStats = {};
   std::array<RoundCombatStats, kDuelPlayerCount> matchCombatStats = {};
+  std::array<RoundCombatStats, kDuelPlayerCount> pendingRoundCombatStats = {};
+  std::array<RoundCombatStats, kDuelPlayerCount> pendingMatchCombatStats = {};
   std::uint32_t combatStatsServerTick = 0;
+  std::uint32_t pendingCombatStatsServerTick = 0;
+  std::uint32_t pendingCombatStatsPlayerMask = 0;
   bool hasCombatStats = false;
   ClientNetworkSimulator networkSim;
   std::uint32_t nonce = 0;
@@ -1281,8 +1380,12 @@ void UdpClientTransport::disconnect() {
   impl_->configurationRevision = 0;
   impl_->hasCombatStats = false;
   impl_->combatStatsServerTick = 0;
+  impl_->pendingCombatStatsServerTick = 0;
+  impl_->pendingCombatStatsPlayerMask = 0;
   impl_->roundCombatStats = {};
   impl_->matchCombatStats = {};
+  impl_->pendingRoundCombatStats = {};
+  impl_->pendingMatchCombatStats = {};
   impl_->chatHistory.clear();
   impl_->telemetry.valid = false;
 }

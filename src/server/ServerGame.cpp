@@ -54,7 +54,12 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 ) {
   PlayerState player;
   player.health = healthAmount;
-  player.position = arena.spawnPositions[playerIndex];
+  // Player slots and authored spawn capacity evolve independently. Stable
+  // modulo selection preserves legacy placement while preventing slot OOB.
+  const std::size_t spawnIndex = arena.spawnCount == 0
+    ? 0U
+    : playerIndex % arena.spawnCount;
+  player.position = arena.spawnPositions[spawnIndex];
   player.position.z += player.bounds.halfHeight;
   player.viewYawRadians = std::atan2(-player.position.y, -player.position.x);
   player.onGround = true;
@@ -1188,8 +1193,10 @@ void ServerGame::resetMatch() {
       kDefaultPlayerBounds.radius * playerSizeScaleXY_;
     player.bounds.halfHeight =
       kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
-    player.position.z =
-      arena_.spawnPositions[playerIndex].z + player.bounds.halfHeight;
+    const std::size_t spawnIndex = arena_.spawnCount == 0
+      ? 0U
+      : playerIndex % arena_.spawnCount;
+    player.position.z = arena_.spawnPositions[spawnIndex].z + player.bounds.halfHeight;
   }
   snapshot_.matchRules = matchRules_;
   snapshot_.movementTuning = movementTuning_;
@@ -1278,6 +1285,9 @@ void ServerGame::setArena(const Arena& arena, MapDescriptor descriptor) {
   spawnLastUsedTicks_ = {};
   spawnWasUsed_ = {};
   spawnRandomState_ = 0x51A7E123U;
+  nextDeathmatchSpawnIndex_ = arena_.spawnCount == 0U
+    ? 0U
+    : kDuelPlayerCount % arena_.spawnCount;
   spawnDebugString_ = "no team spawn selected yet";
   mapDescriptor_ = std::move(descriptor);
   ++mapRevision_;
@@ -1309,10 +1319,50 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
     kDefaultPlayerBounds.radius * playerSizeScaleXY_;
   snapshot_.players[playerIndex].bounds.halfHeight =
     kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
+  const std::size_t spawnIndex = arena_.spawnCount == 0
+    ? 0U
+    : playerIndex % arena_.spawnCount;
   snapshot_.players[playerIndex].position.z =
-    arena_.spawnPositions[playerIndex].z +
-    snapshot_.players[playerIndex].bounds.halfHeight;
-  if (snapshot_.gameMode == GameMode::McGuffin &&
+    arena_.spawnPositions[spawnIndex].z + snapshot_.players[playerIndex].bounds.halfHeight;
+  if (snapshot_.gameMode != GameMode::McGuffin && arena_.spawnCount > 0U) {
+    // Player slots are not spawn slots. Walk the complete authored pool so a
+    // 16-player match can use points 17..32, skipping solid or occupied points
+    // before falling back to the player's stable legacy spawn.
+    std::size_t selectedSpawn = spawnIndex;
+    for (std::size_t attempt = 0; attempt < arena_.spawnCount; ++attempt) {
+      const std::size_t candidate = nextDeathmatchSpawnIndex_;
+      nextDeathmatchSpawnIndex_ =
+        (nextDeathmatchSpawnIndex_ + 1U) % arena_.spawnCount;
+      PlayerState atSpawn = snapshot_.players[playerIndex];
+      atSpawn.position = arena_.spawnPositions[candidate];
+      atSpawn.position.z += atSpawn.bounds.halfHeight;
+      if (playerPositionSolid(arena_, atSpawn, atSpawn.position)) continue;
+
+      bool occupied = false;
+      for (std::size_t other = 0; other < kDuelPlayerCount; ++other) {
+        if (other == playerIndex || !isActiveCombatant(other)) continue;
+        const PlayerState& body = snapshot_.players[other];
+        const float dx = atSpawn.position.x - body.position.x;
+        const float dy = atSpawn.position.y - body.position.y;
+        const float radius = atSpawn.bounds.radius + body.bounds.radius;
+        occupied = std::fabs(atSpawn.position.z - body.position.z) <
+            atSpawn.bounds.halfHeight + body.bounds.halfHeight &&
+          dx * dx + dy * dy < radius * radius;
+        if (occupied) break;
+      }
+      if (!occupied) {
+        selectedSpawn = candidate;
+        break;
+      }
+    }
+    snapshot_.players[playerIndex].position = arena_.spawnPositions[selectedSpawn];
+    snapshot_.players[playerIndex].position.z +=
+      snapshot_.players[playerIndex].bounds.halfHeight;
+    snapshot_.players[playerIndex].viewYawRadians = std::atan2(
+      -snapshot_.players[playerIndex].position.y,
+      -snapshot_.players[playerIndex].position.x
+    );
+  } else if (snapshot_.gameMode == GameMode::McGuffin &&
       isPlayableTeam(snapshot_.teams[playerIndex])) {
     const std::optional<std::size_t> selected = selectTeamSpawn(
       playerIndex, snapshot_.players[playerIndex]
@@ -1325,7 +1375,7 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
       snapshot_.players[playerIndex].viewYawRadians = spawn.yawRadians;
     } else if (arena_.teamSpawnCount == 0) {
       // Compatibility path for older team-tagged maps.
-      for (std::size_t spawnIndex = 0; spawnIndex < arena_.spawnTeams.size(); ++spawnIndex) {
+      for (std::size_t spawnIndex = 0; spawnIndex < arena_.spawnCount; ++spawnIndex) {
         if (arena_.spawnTeams[spawnIndex] != snapshot_.teams[playerIndex]) continue;
         snapshot_.players[playerIndex].position = arena_.spawnPositions[spawnIndex];
         snapshot_.players[playerIndex].position.z +=

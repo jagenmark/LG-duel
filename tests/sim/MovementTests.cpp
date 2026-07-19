@@ -1988,6 +1988,32 @@ int main() {
 
   {
     lg::Arena arena;
+    arena.teleports[0].min = {-1.0F, -1.0F, 0.0F};
+    arena.teleports[0].max = {1.0F, 1.0F, 2.0F};
+    arena.teleports[0].destination = {12.0F, 8.0F, 4.0F};
+    arena.teleports[0].exitVelocity = {-4.0F, 4.0F, 0.0F};
+    arena.teleportCount = 1;
+    const lg::MovementTuning tuning;
+    lg::PlayerState player = groundedPlayer();
+    player.position = {0.0F, 0.0F, player.bounds.halfHeight};
+    lg::UserCommand command;
+
+    lg::simulateMovement(player, command, arena, tuning, lg::kFixedTickSeconds);
+
+    failures += expect(
+      nearlyEqual(player.position.x, 12.0F) &&
+        nearlyEqual(player.position.y, 8.0F) &&
+        nearlyEqual(player.position.z, 4.0F) &&
+        nearlyEqual(player.velocity.x, -4.0F) &&
+        nearlyEqual(player.velocity.y, 4.0F) &&
+        !player.onGround &&
+        player.movementMode == lg::MovementMode::Airborne,
+      "teleport trigger should move the player and apply the authored exit velocity"
+    );
+  }
+
+  {
+    lg::Arena arena;
     arena.walls[0] = {{0.5F, -1.0F, 0.0F}, {1.5F, 1.0F, 0.4F}};
     arena.wallCount = 1;
     const lg::MovementTuning tuning;

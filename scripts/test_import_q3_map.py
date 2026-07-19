@@ -88,6 +88,17 @@ class ConversionTests(unittest.TestCase):
             "lumps": [],
         }
 
+    def adaptation_v2(self, raw: str, **extra):
+        result = {
+            "schema_version": 2,
+            "source_bsp_sha256": self.bsp["sha256"],
+            "raw_decompile_sha256": q3._sha256(raw.encode("utf-8")),
+            "materials": {"wall": "Overkill/Wall", "accent": "Overkill/Accent"},
+            "material_roles": {"wall": ["*"]},
+        }
+        result.update(extra)
+        return result
+
     def test_maps_entities_materials_and_clean_jump_pad(self):
         raw = "\n".join(
             [
@@ -110,6 +121,7 @@ class ConversionTests(unittest.TestCase):
         self.assertIn('"classname" "func_group"', output)
         self.assertEqual(2, output.count('"classname" "lg_spawn"'))
         self.assertIn('"classname" "trigger_jumppad"', output)
+        self.assertIn('"classname" "trigger_teleport"', output)
         self.assertIn('"classname" "target_position"', output)
         self.assertIn('"classname" "item_health_small"', output)
         self.assertIn('"classname" "item_health_large"', output)
@@ -119,7 +131,7 @@ class ConversionTests(unittest.TestCase):
         self.assertIn("Tiny3/Metal/Metal_04-128x128", output)
         self.assertEqual(1, report["gameplay"]["converted"]["jump_pads"])
         self.assertEqual(1, report["gameplay"]["source_teleports"])
-        self.assertEqual(1, report["conversion"]["omitted_entities"]["trigger_teleport:teleport_unsupported"])
+        self.assertEqual(1, report["gameplay"]["converted"]["teleports"])
         self.assertEqual(
             q3._sha256(output.encode("utf-8")),
             report["outputs"]["candidate_map"]["sha256"],
@@ -158,9 +170,124 @@ class ConversionTests(unittest.TestCase):
         output, report = q3.convert(raw, "materials.map", self.bsp)
         self.assertEqual(1, report["conversion"]["omitted_brushes"]["confident_non_solid_utility"])
         self.assertEqual(2, report["conversion"]["projected_counts"]["walls"])
-        self.assertEqual(12, output.count("common/playerclip"))
+        self.assertEqual(6, output.count("common/playerclip"))
+        self.assertEqual(6, output.count("common/weapclip"))
         self.assertNotIn("common/nodrop", output)
-        self.assertIn("weapon-only collision mask", report["conversion"]["collision_material_policy"])
+        self.assertIn("remain common/weapclip", report["conversion"]["collision_material_policy"])
+
+    def test_v2_adaptation_rejects_source_hash_mismatches(self):
+        raw = entity("worldspawn", brushes=cube())
+        for field in ("source_bsp_sha256", "raw_decompile_sha256"):
+            adaptation = self.adaptation_v2(raw)
+            adaptation[field] = "f" * 64
+            with self.subTest(field=field), self.assertRaisesRegex(q3.ConversionError, "SHA-256 mismatch"):
+                q3.convert(raw, "bound.map", self.bsp, adaptation=adaptation)
+
+    def test_brush_policy_rejects_duplicate_and_out_of_range_locators(self):
+        raw = entity("worldspawn", brushes=cube())
+        base = {"source_entity_index": 0, "source_brush_index": 0, "action": "drop", "reason": "reviewed"}
+        cases = [
+            ([base, dict(base)], "duplicate locator"),
+            ([{**base, "source_brush_index": 1}], "outside the source inventory"),
+        ]
+        for rules, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(q3.ConversionError, message):
+                q3.convert(raw, "policy.map", self.bsp, adaptation=self.adaptation_v2(
+                    raw, brush_policy={"default_action": "allow", "rules": rules}
+                ))
+
+    def test_brush_policy_rejects_invalid_fields_actions_classifications_and_roles(self):
+        raw = entity("worldspawn", brushes=cube())
+        locator = {"source_entity_index": 0, "source_brush_index": 0, "reason": "reviewed"}
+        cases = [
+            ({**locator, "action": "paint"}, "invalid action"),
+            ({**locator, "action": "override", "classification": "ghost"}, "invalid classification"),
+            ({**locator, "action": "override", "classification": "visible_solid", "material_role": "missing"}, "invalid material_role"),
+            ({**locator, "action": "allow", "classification": "visible_solid"}, "invalid fields"),
+            ({**locator, "action": "drop", "reason": ""}, "nonempty reason"),
+        ]
+        for rule, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(q3.ConversionError, message):
+                q3.convert(raw, "policy.map", self.bsp, adaptation=self.adaptation_v2(
+                    raw, brush_policy={"default_action": "allow", "rules": [rule]}
+                ))
+
+    def test_brush_policy_allows_drops_and_overrides_with_stable_provenance(self):
+        raw = entity("worldspawn", brushes=cube("base/first") + cube("base/second") + cube("base/third"))
+        adaptation = self.adaptation_v2(raw, brush_policy={
+            "default_action": "allow",
+            "rules": [
+                {"source_entity_index": 0, "source_brush_index": 0, "action": "drop", "reason": "remove first"},
+                {"source_entity_index": 0, "source_brush_index": 1, "action": "override", "classification": "weapclip", "reason": "weapon blocker"},
+                {"source_entity_index": 0, "source_brush_index": 2, "action": "override", "classification": "visible_solid", "material_role": "accent", "reason": "route accent"},
+            ],
+        })
+        output, report = q3.convert(raw, "policy.map", self.bsp, adaptation=adaptation)
+        self.assertNotIn('"lg_source_brush_index" "0"', output)
+        self.assertIn('"lg_source_brush_index" "1"', output)
+        self.assertIn('"lg_source_brush_index" "2"', output)
+        self.assertEqual(6, output.count("common/weapclip"))
+        self.assertEqual(6, output.count("Overkill/Accent"))
+        self.assertEqual([False, True, True], [row["emitted"] for row in report["conversion"]["brushes"]])
+        self.assertEqual("weapclip", report["conversion"]["brushes"][1]["effective_classification"])
+
+    def test_policy_cannot_resurrect_fog_volume(self):
+        raw = entity("worldspawn", brushes=cube("sfx/hellfog"))
+        adaptation = self.adaptation_v2(raw, brush_policy={
+            "default_action": "allow",
+            "rules": [{
+                "source_entity_index": 0, "source_brush_index": 0, "action": "override",
+                "classification": "visible_solid", "material_role": "accent", "reason": "attempted recovery",
+            }],
+        })
+        output, report = q3.convert(raw, "fog.map", self.bsp, adaptation=adaptation)
+        self.assertNotIn('"classname" "func_group"', output)
+        self.assertFalse(report["conversion"]["brushes"][0]["emitted"])
+        self.assertEqual("fog_volume", report["conversion"]["brushes"][0]["omission_reason"])
+
+    def test_source_brushes_are_one_brush_groups_with_root_hashes(self):
+        raw = entity("worldspawn", brushes=cube()) + "\n" + entity("func_static", brushes=cube())
+        output, report = q3.convert(raw, "provenance.map", self.bsp)
+        self.assertEqual(2, output.count('"classname" "func_group"'))
+        self.assertIn('"lg_source_entity_index" "0"', output)
+        self.assertIn('"lg_source_entity_index" "1"', output)
+        self.assertEqual(2, output.count('"lg_source_brush_index" "0"'))
+        self.assertIn(f'"lg_source_bsp_sha256" "{self.bsp["sha256"]}"', output)
+        self.assertIn(f'"lg_raw_decompile_sha256" "{q3._sha256(raw.encode())}"', output)
+        self.assertEqual(2, len(report["conversion"]["brushes"]))
+
+    def test_hellfog_volume_emits_neither_render_nor_collision_geometry(self):
+        raw = entity("worldspawn", brushes=cube("textures/sfx/hellfog"))
+        adaptation = {
+            "materials": {
+                "wall": "Overkill/Wall",
+                "accent": "Overkill/Accent",
+            },
+            # Omission must win even if a future adaptation accidentally maps
+            # the fog shader back onto a visible material role.
+            "material_roles": {
+                "accent": ["sfx/hellfog"],
+                "wall": ["*"],
+            },
+        }
+
+        output, report = q3.convert(
+            raw,
+            "hellfog.map",
+            self.bsp,
+            adaptation=adaptation,
+        )
+
+        self.assertEqual(1, report["conversion"]["omitted_brushes"]["fog_volume"])
+        self.assertEqual(0, report["conversion"]["projected_counts"]["walls"])
+        self.assertEqual(0, report["conversion"]["projected_counts"]["convex_brushes"])
+        self.assertNotIn("sfx/hellfog", output)
+        self.assertNotIn("Overkill/Accent", output)
+        self.assertNotIn("common/playerclip", output)
+        self.assertIn(
+            "neither render nor collision geometry",
+            report["conversion"]["volume_material_policy"],
+        )
 
     def test_invalid_and_degenerate_geometry_is_reported_not_emitted(self):
         invalid = cube().replace(
@@ -183,6 +310,89 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(1, report["inventory"]["patch_materials"]["curves/arch"])
         self.assertEqual(6, report["inventory"]["face_materials"]["textures/custom/shader"])
         self.assertEqual(1, report["conversion"]["omitted_patches"])
+
+    def test_checked_in_adaptation_selects_spawns_materials_and_patches(self):
+        patch = """{ patchDef2 { curves/arch ( 3 3 0 0 0 ) (
+        ( ( 0 0 8 0 0 ) ( 0 4 10 0 0 ) ( 0 8 8 0 0 ) )
+        ( ( 4 0 10 0 0 ) ( 4 4 12 0 0 ) ( 4 8 10 0 0 ) )
+        ( ( 8 0 8 0 0 ) ( 8 4 10 0 0 ) ( 8 8 8 0 0 ) )
+        ) } }"""
+        spawns = [entity("info_player_deathmatch", f'"origin" "{index} 0 8"') for index in range(7)]
+        raw = entity("worldspawn", brushes=cube("gothic_block/wall") + patch) + "\n" + "\n".join(spawns)
+        adaptation = {
+            "schema_version": 1,
+            "materials": {"wall": "Overkill/Wall", "accent": "Overkill/Accent"},
+            "material_roles": {"accent": ["curves/*"], "wall": ["*"]},
+            "selected_spawn_origins": [[index, 0, 8] for index in range(6)],
+            "reconstruct_patch_indices": [0],
+            "patch_subdivisions": 2,
+            "patch_thickness": 1.0,
+            "marker_boxes": [{
+                "min": [16, 0, 0],
+                "max": [24, 8, 1],
+                "material": "accent",
+            }],
+            "sun": {
+                "direction": [0.35, -0.5, -1.0],
+                "color": [255, 226, 184],
+                "intensity": 0.85,
+            },
+            "lights": [{
+                "origin": [4, 4, 16],
+                "color": [255, 226, 184],
+                "intensity": 0.8,
+                "radius": 256,
+            }],
+        }
+        output, report = q3.convert(raw, "adapted.map", self.bsp, adaptation=adaptation)
+        self.assertEqual(6, output.count('"classname" "lg_spawn"'))
+        self.assertIn("Overkill/Wall", output)
+        self.assertIn("Overkill/Accent", output)
+        self.assertIn('"classname" "light_sun"', output)
+        self.assertEqual(1, report["gameplay"]["converted"]["sun_lights"])
+        self.assertEqual(1, report["gameplay"]["converted"]["lights"])
+        self.assertEqual(1, report["conversion"]["reconstructed_patches"])
+        self.assertEqual(1, report["conversion"]["adaptation_marker_boxes"])
+        self.assertEqual(0, report["conversion"]["omitted_patches"])
+        self.assertEqual("convertible", report["status"])
+
+    def test_adaptation_accepts_up_to_thirty_two_selected_spawns(self):
+        spawns = [entity("info_player_deathmatch", f'"origin" "{index} 0 8"') for index in range(32)]
+        raw = entity("worldspawn", brushes=cube()) + "\n" + "\n".join(spawns)
+        adaptation = {
+            "materials": {"wall": "Overkill/Wall"},
+            "selected_spawn_origins": [[index, 0, 8] for index in range(32)],
+        }
+
+        output, report = q3.convert(raw, "thirty-two-spawns.map", self.bsp, adaptation=adaptation)
+
+        self.assertEqual(32, output.count('"classname" "lg_spawn"'))
+        self.assertEqual(32, report["conversion"]["runtime_effective_spawns"])
+        self.assertEqual(0, report["conversion"]["runtime_inactive_spawns"])
+
+    def test_adaptation_rejects_more_than_thirty_two_selected_spawns(self):
+        spawns = [entity("info_player_deathmatch", f'"origin" "{index} 0 8"') for index in range(33)]
+        raw = entity("worldspawn", brushes=cube()) + "\n" + "\n".join(spawns)
+        adaptation = {
+            "materials": {"wall": "Overkill/Wall"},
+            "selected_spawn_origins": [[index, 0, 8] for index in range(33)],
+        }
+
+        with self.assertRaisesRegex(q3.ConversionError, "between 2 and 32 origins"):
+            q3.convert(raw, "thirty-three-spawns.map", self.bsp, adaptation=adaptation)
+
+    def test_adaptation_rejects_duplicate_selected_spawns(self):
+        spawns = [
+            entity("info_player_deathmatch", '"origin" "0 0 8"'),
+            entity("info_player_deathmatch", '"origin" "16 0 8"'),
+        ]
+        raw = entity("worldspawn", brushes=cube()) + "\n" + "\n".join(spawns)
+        adaptation = {
+            "materials": {"wall": "Overkill/Wall"},
+            "selected_spawn_origins": [[0, 0, 8], [0, 0, 8]],
+        }
+        with self.assertRaisesRegex(q3.ConversionError, "must not contain duplicates"):
+            q3.convert(raw, "duplicate-spawns.map", self.bsp, adaptation=adaptation)
 
 
 class MetadataAndCliTests(unittest.TestCase):
@@ -213,7 +423,7 @@ class MetadataAndCliTests(unittest.TestCase):
             json_path = root / "report.json"
             markdown_path = root / "report.md"
             make_bsp(bsp_path)
-            spawns = [entity("info_player_deathmatch", f'"origin" "{index} 0 0"') for index in range(7)]
+            spawns = [entity("info_player_deathmatch", f'"origin" "{index} 0 0"') for index in range(33)]
             raw_bytes = (entity("worldspawn", brushes=cube()) + "\n" + "\n".join(spawns)).encode()
             raw_path.write_bytes(raw_bytes)
             result = q3.main(
@@ -227,13 +437,13 @@ class MetadataAndCliTests(unittest.TestCase):
             )
             self.assertEqual(2, result)
             self.assertEqual(raw_bytes, raw_path.read_bytes())
-            self.assertEqual(7, output_path.read_text().count('"classname" "lg_spawn"'))
+            self.assertEqual(33, output_path.read_text().count('"classname" "lg_spawn"'))
             report = json.loads(json_path.read_text())
             self.assertEqual(q3._sha256(output_path.read_bytes()), report["outputs"]["candidate_map"]["sha256"])
             self.assertEqual("output.map", report["outputs"]["candidate_map"]["name"])
             self.assertEqual("over_limit", report["status"])
-            self.assertEqual(7, report["conversion"]["projected_counts"]["spawns"])
-            self.assertEqual(6, report["conversion"]["runtime_effective_spawns"])
+            self.assertEqual(33, report["conversion"]["projected_counts"]["spawns"])
+            self.assertEqual(32, report["conversion"]["runtime_effective_spawns"])
             self.assertEqual(1, report["conversion"]["runtime_inactive_spawns"])
             self.assertEqual(1, report["conversion"]["over_limits"]["spawns"]["excess"])
             self.assertIn("converter did not truncate", markdown_path.read_text())
