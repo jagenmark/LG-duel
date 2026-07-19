@@ -2919,9 +2919,14 @@ RenderSettings renderSettings(
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
   settings.playerModel = console.getInt("r_player_model");
   settings.enemyOutlineEnabled = console.getBool("r_enemy_outline");
+  settings.playerOutlineMode = static_cast<PlayerOutlineMode>(
+    console.getInt("r_player_outline_mode")
+  );
   settings.playerOutlineStyle = static_cast<PlayerOutlineStyle>(
     console.getInt("r_player_outline_style")
   );
+  settings.playerOutlineWidth = console.getFloat("r_player_outline_width");
+  settings.playerOutlineDebugMask = console.getBool("r_player_outline_debug_mask");
   settings.enemyOutlineWidth = console.getFloat("r_enemy_outline_width");
   settings.enemyOutlineAlpha = console.getFloat("r_enemy_outline_alpha");
   settings.enemyOutlineRed =

@@ -1456,6 +1456,20 @@ GltfSkinnedModel& duelistMaleModel() {
   return model;
 }
 
+bool GltfSkinnedModel::nodeGlobalMatrix(
+  std::string_view nodeName,
+  const PoseScratch& scratch,
+  Matrix4& out
+) const {
+  for (std::size_t index = 0; index < nodes_.size(); ++index) {
+    if (nodes_[index].name == nodeName && index < scratch.globalMatrices.size()) {
+      out = scratch.globalMatrices[index];
+      return true;
+    }
+  }
+  return false;
+}
+
 GltfSkinnedModel& workerPlayerModel() {
   static GltfSkinnedModel model;
   static bool attemptedLoad = false;

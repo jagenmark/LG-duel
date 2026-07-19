@@ -428,6 +428,22 @@ int main() {
     "renderer performance diagnostics cvars should be toggleable"
   );
   failures += expect(
+    console.execute("r_player_outline_mode") ==
+        "r_player_outline_mode = 1 (default 1)" &&
+      console.execute("r_player_outline_mode 0") == "r_player_outline_mode = 0" &&
+      console.execute("r_player_outline_mode 2") == "r_player_outline_mode = 2" &&
+      console.execute("r_player_outline_mode 3") ==
+        "value out of range for r_player_outline_mode" &&
+      console.execute("r_player_outline_width") ==
+        "r_player_outline_width = 1.5 (default 1.5)" &&
+      console.execute("r_player_outline_width 3") == "r_player_outline_width = 3" &&
+      console.execute("r_player_outline_width 3.1") ==
+        "value out of range for r_player_outline_width" &&
+      console.execute("r_player_outline_debug_mask 1") ==
+        "r_player_outline_debug_mask = 1",
+    "native player outline controls should expose bounded mode and pixel width"
+  );
+  failures += expect(
     console.execute("r_enemy_outline_width 6") == "r_enemy_outline_width = 6" &&
       console.execute("r_enemy_outline_width 7") ==
         "value out of range for r_enemy_outline_width" &&

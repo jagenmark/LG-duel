@@ -194,6 +194,7 @@ struct StaticMeshInstance {
   OutlineState outlineState = {};
   bool playerBoxBody = false;
   bool playerBoxOutlined = false;
+  bool playerSilhouetteOutlined = false;
 };
 
 struct StaticMeshBatch {
@@ -352,16 +353,40 @@ struct OutlineWorkPlan {
   return outlineFinalWidthPixels(requestedWidthPixels) * kOutlineWorkScale;
 }
 
+[[nodiscard]] inline float outlineWorkRadiusPixels(
+  float requestedWidthPixels,
+  float workScale
+) {
+  return outlineFinalWidthPixels(requestedWidthPixels) *
+    std::clamp(workScale, 0.0F, 1.0F);
+}
+
 [[nodiscard]] inline OutlineTargetDimensions outlineTargetDimensions(
   std::uint32_t framebufferWidth,
-  std::uint32_t framebufferHeight
+  std::uint32_t framebufferHeight,
+  float workScale = kOutlineWorkScale
 ) {
+  const float scale = std::clamp(workScale, 0.0F, 1.0F);
+  const bool halfResolution = scale == kOutlineWorkScale;
+  const bool nativeResolution = scale == 1.0F;
   return {
     framebufferWidth,
     framebufferHeight,
-    (framebufferWidth + 1U) / 2U,
-    (framebufferHeight + 1U) / 2U,
-    kOutlineWorkScale,
+    nativeResolution
+      ? framebufferWidth
+      : halfResolution
+      ? framebufferWidth / 2U + framebufferWidth % 2U
+      : static_cast<std::uint32_t>(
+          std::ceil(static_cast<float>(framebufferWidth) * scale)
+        ),
+    nativeResolution
+      ? framebufferHeight
+      : halfResolution
+      ? framebufferHeight / 2U + framebufferHeight % 2U
+      : static_cast<std::uint32_t>(
+          std::ceil(static_cast<float>(framebufferHeight) * scale)
+        ),
+    scale,
   };
 }
 
@@ -417,10 +442,15 @@ struct OutlineWorkPlan {
   std::span<const GltfPlayerModelInstance> gltfPlayerModelInstances,
   std::span<const OutlineMaskDraw> draws,
   std::uint32_t framebufferWidth,
-  std::uint32_t framebufferHeight
+  std::uint32_t framebufferHeight,
+  float workScale = kOutlineWorkScale
 ) {
   OutlineWorkPlan plan;
-  plan.dimensions = outlineTargetDimensions(framebufferWidth, framebufferHeight);
+  plan.dimensions = outlineTargetDimensions(
+    framebufferWidth,
+    framebufferHeight,
+    workScale
+  );
   plan.outlinedPlayers = static_cast<std::uint32_t>(draws.size());
   if (
     framebufferWidth == 0U ||
@@ -523,28 +553,39 @@ struct OutlineWorkPlan {
         fallback = true;
         break;
       }
-      constexpr std::array<Vec3, 8> kUnitCubeCorners = {{
-        {-0.5F, -0.5F, -0.5F},
-        { 0.5F, -0.5F, -0.5F},
-        { 0.5F,  0.5F, -0.5F},
-        {-0.5F,  0.5F, -0.5F},
-        {-0.5F, -0.5F,  0.5F},
-        { 0.5F, -0.5F,  0.5F},
-        { 0.5F,  0.5F,  0.5F},
-        {-0.5F,  0.5F,  0.5F},
-      }};
       for (
         std::uint32_t index = draw.firstInstance;
         index < draw.firstInstance + draw.instanceCount;
         ++index
       ) {
         const StaticMeshInstance& instance = staticMeshInstances[index];
-        for (Vec3 local : kUnitCubeCorners) {
-          addProjectedPoint({
-            dot(instance.modelRow0, local) + instance.modelTranslation.x,
-            dot(instance.modelRow1, local) + instance.modelTranslation.y,
-            dot(instance.modelRow2, local) + instance.modelTranslation.z,
-          });
+        const BoundingSphere& bounds = instance.worldBounds;
+        if (
+          !std::isfinite(bounds.radius) ||
+          bounds.radius <= 0.0F
+        ) {
+          fallback = true;
+          break;
+        }
+        // A camera-aligned cube around the real mesh sphere is conservative
+        // for long held weapons and avoids clipping them with the work scissor.
+        for (int forwardSign : {-1, 1}) {
+          for (int upSign : {-1, 1}) {
+            for (int rightSign : {-1, 1}) {
+              addProjectedPoint(
+                bounds.center +
+                camera.forward * (bounds.radius * static_cast<float>(forwardSign)) +
+                camera.up * (bounds.radius * static_cast<float>(upSign)) +
+                camera.right * (bounds.radius * static_cast<float>(rightSign))
+              );
+              if (fallback) {
+                break;
+              }
+            }
+            if (fallback) {
+              break;
+            }
+          }
           if (fallback) {
             break;
           }
@@ -576,7 +617,10 @@ struct OutlineWorkPlan {
     }
   }
   plan.maskDrawCalls = drawCalls;
-  plan.maxWorkRadiusPixels = outlineWorkRadiusPixels(plan.maxFinalWidthPixels);
+  plan.maxWorkRadiusPixels = outlineWorkRadiusPixels(
+    plan.maxFinalWidthPixels,
+    plan.dimensions.workScale
+  );
 
   if (drawCalls == 0U) {
     return plan;

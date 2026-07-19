@@ -1372,7 +1372,8 @@ void addGltfPlayerModelInstance(
   std::uint8_t playerIndex,
   OutlineState outlineState,
   bool outlined,
-  GltfSkinnedModel::PoseScratch& poseScratch
+  GltfSkinnedModel::PoseScratch& poseScratch,
+  WeaponModelFrame* weaponAttachment
 ) {
   if (!model.loaded() || model.primitives().empty()) {
     return;
@@ -1427,6 +1428,27 @@ void addGltfPlayerModelInstance(
         aimPitch
       )) {
     return;
+  }
+  if (workerModel && weaponAttachment != nullptr) {
+    GltfSkinnedModel::Matrix4 socket;
+    if (model.nodeGlobalMatrix("weapon_socket", poseScratch, socket)) {
+      weaponAttachment->basis = basis;
+      // The socket tracks the animated grip point. Its inherited wrist roll is
+      // not a weapon frame, so aim the weapon with the player's view instead.
+      const float pitchCos = std::cos(aimPitch);
+      const float pitchSin = std::sin(aimPitch);
+      weaponAttachment->basis.forward = normalize(
+        basis.forward * pitchCos + basis.up * pitchSin
+      );
+      weaponAttachment->basis.up = normalize(
+        basis.up * pitchCos - basis.forward * pitchSin
+      );
+      weaponAttachment->hand = translation +
+        basis.right * (socket.values[3] * horizontalScale) +
+        basis.up * (socket.values[7] * verticalScale) +
+        basis.forward * (socket.values[11] * horizontalScale);
+      weaponAttachment->scale = (horizontalScale + verticalScale) * 0.5F;
+    }
   }
   const std::uint32_t boneCount =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size()) - firstBone;
@@ -2714,7 +2736,6 @@ void appendCollisionDebugGeometry(
   if (mode <= 0 || mode > 5) {
     return;
   }
-
   constexpr RenderColor visibleSolidColor = {64, 160, 255, 72};
   constexpr RenderColor playerClipColor = {72, 255, 128, 96};
   constexpr RenderColor weaponClipColor = {255, 156, 48, 104};
@@ -3239,9 +3260,12 @@ void addRemoteWeaponInstance(
   float freezeGunFiringAmount,
   float freezeGunCoolantPulse,
   float freezeGunVibrationPhaseRadians,
-  float plasmaGunContainmentAmount
+  float plasmaGunContainmentAmount,
+  const WeaponModelFrame* attachment
 ) {
-  WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
+  WeaponModelFrame frame = attachment != nullptr
+    ? *attachment
+    : weaponModelFrame(player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   if (weapon == Weapon::Revolver) {
     frame = revolverGripAlignedFrame(frame);
@@ -3822,6 +3846,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
   std::uint32_t runFirst = 0;
   std::uint32_t runCount = 0;
   std::uint8_t runPlayerIndex = 0;
+  MeshHandle runMesh = MeshHandle::Invalid;
   OutlineState runState = {};
   const auto flushRun = [&]() {
     if (runCount == 0U) {
@@ -3831,14 +3856,16 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       0U,
       0U,
       runState,
-      MeshHandle::PlayerBoxCube,
+      runMesh,
       runFirst,
       runCount,
     });
-    ++scene.playerOutlinesBuilt;
-    ++scene.outlinedPlayers;
-    ++scene.playerBoxStats.outlineMaskBatches;
-    ++scene.playerBoxStats.outlineMaskDrawCalls;
+    if (runMesh == MeshHandle::PlayerBoxCube) {
+      ++scene.playerOutlinesBuilt;
+      ++scene.outlinedPlayers;
+      ++scene.playerBoxStats.outlineMaskBatches;
+      ++scene.playerBoxStats.outlineMaskDrawCalls;
+    }
     runCount = 0;
   };
   for (
@@ -3850,9 +3877,10 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     // and complete outline state form one contiguous run in the sorted buffer.
     const StaticMeshInstance& instance = scene.staticMeshInstances[index];
     if (
-      !instance.playerBoxBody ||
-      !instance.playerBoxOutlined ||
-      instance.mesh != MeshHandle::PlayerBoxCube ||
+      !(
+        (instance.playerBoxBody && instance.playerBoxOutlined) ||
+        instance.playerSilhouetteOutlined
+      ) ||
       instance.pass != RenderPass::OpaqueWorld
     ) {
       flushRun();
@@ -3862,6 +3890,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       runCount == 0U ||
       (
         instance.playerIndex == runPlayerIndex &&
+        instance.mesh == runMesh &&
         instance.outlineState.group == runState.group &&
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
@@ -3872,6 +3901,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       if (runCount == 0U) {
         runFirst = index;
         runPlayerIndex = instance.playerIndex;
+        runMesh = instance.mesh;
         runState = instance.outlineState;
       }
       ++runCount;
@@ -3879,6 +3909,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       flushRun();
       runFirst = index;
       runPlayerIndex = instance.playerIndex;
+      runMesh = instance.mesh;
       runState = instance.outlineState;
       runCount = 1U;
     }
@@ -4385,12 +4416,15 @@ Scene3D buildPerspectiveScene(
     const OutlineState outlineState = {
       remote.teammate ? OutlineGroup::Teammate : OutlineGroup::Enemy,
       outlineEnabled ? OutlineVisibility::VisibleOnly : OutlineVisibility::None,
-      outlineWidth,
+      settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+        ? settings.playerOutlineWidth
+        : outlineWidth,
       std::clamp(outlineAlpha, 0.0F, 1.0F),
       hitAmount,
     };
     const bool wantsOutline =
       settings.drawPlayerOutlines &&
+      settings.playerOutlineMode != PlayerOutlineMode::Disabled &&
       outlineEnabled &&
       outlineState.group != OutlineGroup::None &&
       outlineState.visibility != OutlineVisibility::None &&
@@ -4398,7 +4432,10 @@ Scene3D buildPerspectiveScene(
       outlineState.alpha > 0.0F;
     if (
       wantsOutline &&
-      usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
+      usesGeometryPlayerOutlineFallback(
+        settings.playerOutlineMode,
+        settings.playerOutlineStyle
+      ) &&
       settings.drawRemotePlayers
     ) {
       ++scene.playerOutlinesBuilt;
@@ -4430,6 +4467,7 @@ Scene3D buildPerspectiveScene(
         static_cast<std::uint32_t>(scene.vertices.size() - outlineStart);
       scene.geometryOutlineFallbackUsed = true;
     }
+    std::optional<WeaponModelFrame> weaponAttachment;
     if (settings.drawRemotePlayers) {
       benchmark::ScopedTiming animationTiming(
         benchmark::TimingSubsystem::Animation
@@ -4447,8 +4485,10 @@ Scene3D buildPerspectiveScene(
           remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
-          wantsOutline &&
-            settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace
+          wantsOutline && usesScreenSpacePlayerOutlines(
+            settings.playerOutlineMode,
+            settings.playerOutlineStyle
+          )
         );
       } else {
         addGltfPlayerModelInstance(
@@ -4464,14 +4504,18 @@ Scene3D buildPerspectiveScene(
           remote.hasPresentation ? &remote.presentation : nullptr,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
-          wantsOutline &&
-            settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace,
-          gltfPoseScratch
+          wantsOutline && usesScreenSpacePlayerOutlines(
+            settings.playerOutlineMode,
+            settings.playerOutlineStyle
+          ),
+          gltfPoseScratch,
+          gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment.emplace() : nullptr
         );
       }
     }
     if (settings.drawRemoteWeapons) {
       ++scene.remoteWeaponModelsBuilt;
+      const std::size_t firstWeaponInstance = scene.staticMeshInstances.size();
       addRemoteWeaponInstance(
         scene,
         remote.player,
@@ -4485,8 +4529,29 @@ Scene3D buildPerspectiveScene(
         remote.freezeGunFiringAmount,
         remote.freezeGunCoolantPulse,
         remote.freezeGunVibrationPhaseRadians,
-        remote.plasmaGunContainmentAmount
+        remote.plasmaGunContainmentAmount,
+        weaponAttachment ? &*weaponAttachment : nullptr
       );
+      if (
+        wantsOutline &&
+        settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+      ) {
+        // The native mask treats the held weapon as part of the player's one
+        // outer silhouette. Mode 1 keeps its old body-only mask unchanged.
+        for (
+          std::size_t index = firstWeaponInstance;
+          index < scene.staticMeshInstances.size();
+          ++index
+        ) {
+          StaticMeshInstance& instance = scene.staticMeshInstances[index];
+          if (instance.pass != RenderPass::OpaqueWorld) {
+            continue;
+          }
+          instance.playerIndex = static_cast<std::uint8_t>(remoteIndex);
+          instance.outlineState = outlineState;
+          instance.playerSilhouetteOutlined = true;
+        }
+      }
     }
   }
 

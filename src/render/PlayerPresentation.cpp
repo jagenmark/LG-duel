@@ -69,8 +69,9 @@ std::string_view clipName(
     case PlayerLocomotionState::Run:
       switch (direction) {
         case PlayerMoveDirection::Backward: return "RUN_BACK";
-        case PlayerMoveDirection::Left: return "STRAFE_LEFT";
-        case PlayerMoveDirection::Right: return "STRAFE_RIGHT";
+        // These two imported Worker clips carry reversed side names.
+        case PlayerMoveDirection::Left: return "STRAFE_RIGHT";
+        case PlayerMoveDirection::Right: return "STRAFE_LEFT";
         case PlayerMoveDirection::Forward:
         case PlayerMoveDirection::Stationary: return "RUN";
       }

@@ -1825,7 +1825,8 @@ void collectTextureMaterialFiles(
 }
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineDilation(
-  SDL_GPUDevice* device
+  SDL_GPUDevice* device,
+  const char* fragmentShaderFile = "outline_dilate.frag.spv"
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1837,7 +1838,7 @@ void collectTextureMaterialFiles(
   }
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
-    "outline_dilate.frag.spv",
+    fragmentShaderFile,
     SDL_GPU_SHADERSTAGE_FRAGMENT,
     1,
     1
@@ -1871,7 +1872,8 @@ void collectTextureMaterialFiles(
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipelineOutlineComposite(
   SDL_GPUDevice* device,
-  SDL_Window* window
+  SDL_Window* window,
+  const char* fragmentShaderFile = "outline_composite.frag.spv"
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1883,7 +1885,7 @@ void collectTextureMaterialFiles(
   }
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
-    "outline_composite.frag.spv",
+    fragmentShaderFile,
     SDL_GPU_SHADERSTAGE_FRAGMENT,
     2,
     1
@@ -5049,6 +5051,8 @@ void appendCommandBatches(
   SDL_GPUGraphicsPipeline* gltfPlayerModelOutlineMaskPipeline,
   SDL_GPUGraphicsPipeline* pipelineOutlineDilation,
   SDL_GPUGraphicsPipeline* pipelineOutlineComposite,
+  SDL_GPUGraphicsPipeline* pipelineOutlineNativeDilation,
+  SDL_GPUGraphicsPipeline* pipelineOutlineNativeComposite,
   SDL_GPUBuffer* vertexBuffer,
   SDL_GPUTransferBuffer* transferBuffer,
   GpuSimpleResources* simpleResources,
@@ -5668,7 +5672,12 @@ void appendCommandBatches(
     depthTarget.texture = depthTexture;
     depthTarget.clear_depth = 1.0F;
     depthTarget.load_op = SDL_GPU_LOADOP_CLEAR;
-    depthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
+    // Native outlines reuse the world depth so the mask stays hidden by the
+    // same geometry without a second opaque-world draw.
+    depthTarget.store_op =
+      settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+        ? SDL_GPU_STOREOP_STORE
+        : SDL_GPU_STOREOP_DONT_CARE;
     depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     depthTarget.cycle = true;
@@ -5907,16 +5916,27 @@ void appendCommandBatches(
         perspectiveScene.outlineMaskDraws.size()
       ),
       outputWidth,
-      outputHeight
+      outputHeight,
+      settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+        ? 1.0F
+        : kOutlineWorkScale
     );
+    const bool nativeOutline =
+      settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace;
+    SDL_GPUGraphicsPipeline* activeOutlineDilation = nativeOutline
+      ? pipelineOutlineNativeDilation
+      : pipelineOutlineDilation;
+    SDL_GPUGraphicsPipeline* activeOutlineComposite = nativeOutline
+      ? pipelineOutlineNativeComposite
+      : pipelineOutlineComposite;
     const bool outlineCompositeEnabled =
       pipelineOutlineClear != nullptr &&
       pipelineOutlineColorClear != nullptr &&
       pipelineOutlineMask != nullptr &&
       staticMeshOutlineMaskPipeline != nullptr &&
       gltfPlayerModelOutlineMaskPipeline != nullptr &&
-      pipelineOutlineDilation != nullptr &&
-      pipelineOutlineComposite != nullptr &&
+      activeOutlineDilation != nullptr &&
+      activeOutlineComposite != nullptr &&
       outlineMaskSampler != nullptr &&
       outlinePlan.hasWork;
     if (outlineCompositeEnabled) {
@@ -5925,13 +5945,15 @@ void appendCommandBatches(
       const bool outlineTargetsResized =
         outlineMaskTexture == nullptr ||
         outlineDilationTexture == nullptr ||
-        outlineDepthTexture == nullptr ||
         outlineMaskWidth != workWidth ||
         outlineMaskHeight != workHeight ||
         outlineDilationWidth != workWidth ||
         outlineDilationHeight != workHeight ||
-        outlineDepthWidth != workWidth ||
-        outlineDepthHeight != workHeight;
+        (!nativeOutline && (
+          outlineDepthTexture == nullptr ||
+          outlineDepthWidth != workWidth ||
+          outlineDepthHeight != workHeight
+        ));
       outlineMaskTexture = ensureOutlineMaskTexture(
         device,
         outlineMaskTexture,
@@ -5948,19 +5970,21 @@ void appendCommandBatches(
         workWidth,
         workHeight
       );
-      outlineDepthTexture = ensureDepthTexture(
-        device,
-        outlineDepthTexture,
-        outlineDepthWidth,
-        outlineDepthHeight,
-        workWidth,
-        workHeight,
-        depthFormat
-      );
+      if (!nativeOutline) {
+        outlineDepthTexture = ensureDepthTexture(
+          device,
+          outlineDepthTexture,
+          outlineDepthWidth,
+          outlineDepthHeight,
+          workWidth,
+          workHeight,
+          depthFormat
+        );
+      }
       if (
         outlineMaskTexture == nullptr ||
         outlineDilationTexture == nullptr ||
-        outlineDepthTexture == nullptr
+        (!nativeOutline && outlineDepthTexture == nullptr)
       ) {
         (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
         return false;
@@ -5996,48 +6020,55 @@ void appendCommandBatches(
       maskColorTarget.cycle = outlineTargetsResized;
 
       SDL_GPUDepthStencilTargetInfo maskDepthTarget = {};
-      maskDepthTarget.texture = outlineDepthTexture;
+      maskDepthTarget.texture =
+        nativeOutline ? depthTexture : outlineDepthTexture;
       maskDepthTarget.clear_depth = 1.0F;
-      maskDepthTarget.load_op =
-        outlineTargetsResized ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+      maskDepthTarget.load_op = nativeOutline
+        ? SDL_GPU_LOADOP_LOAD
+        : outlineTargetsResized
+          ? SDL_GPU_LOADOP_CLEAR
+          : SDL_GPU_LOADOP_LOAD;
       maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
       maskDepthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
       maskDepthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
-      maskDepthTarget.cycle = outlineTargetsResized;
-      SDL_GPURenderPass* outlineClearPass = SDL_BeginGPURenderPass(
-        commandBuffer,
-        &maskColorTarget,
-        1,
-        &maskDepthTarget
-      );
-      if (outlineClearPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
-        return false;
-      }
-      SDL_SetGPUViewport(outlineClearPass, &outlineViewport);
-      SDL_SetGPUScissor(outlineClearPass, &workScissor);
-      SDL_BindGPUGraphicsPipeline(outlineClearPass, pipelineOutlineClear);
-      SDL_DrawGPUPrimitives(outlineClearPass, 3, 1, 0, 0);
-      SDL_EndGPURenderPass(outlineClearPass);
+      maskDepthTarget.cycle = nativeOutline ? false : outlineTargetsResized;
+      SDL_GPURenderPass* outlineDepthPass = nullptr;
+      if (!nativeOutline) {
+        SDL_GPURenderPass* outlineClearPass = SDL_BeginGPURenderPass(
+          commandBuffer,
+          &maskColorTarget,
+          1,
+          &maskDepthTarget
+        );
+        if (outlineClearPass == nullptr) {
+          (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+          return false;
+        }
+        SDL_SetGPUViewport(outlineClearPass, &outlineViewport);
+        SDL_SetGPUScissor(outlineClearPass, &workScissor);
+        SDL_BindGPUGraphicsPipeline(outlineClearPass, pipelineOutlineClear);
+        SDL_DrawGPUPrimitives(outlineClearPass, 3, 1, 0, 0);
+        SDL_EndGPURenderPass(outlineClearPass);
 
-      maskColorTarget.load_op = SDL_GPU_LOADOP_LOAD;
-      maskColorTarget.store_op = SDL_GPU_STOREOP_STORE;
-      maskColorTarget.cycle = false;
-      maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
-      maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
-      maskDepthTarget.cycle = false;
-      SDL_GPURenderPass* outlineDepthPass = SDL_BeginGPURenderPass(
-        commandBuffer,
-        &maskColorTarget,
-        1,
-        &maskDepthTarget
-      );
-      if (outlineDepthPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
-        return false;
+        maskColorTarget.load_op = SDL_GPU_LOADOP_LOAD;
+        maskColorTarget.store_op = SDL_GPU_STOREOP_STORE;
+        maskColorTarget.cycle = false;
+        maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
+        maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
+        maskDepthTarget.cycle = false;
+        outlineDepthPass = SDL_BeginGPURenderPass(
+          commandBuffer,
+          &maskColorTarget,
+          1,
+          &maskDepthTarget
+        );
+        if (outlineDepthPass == nullptr) {
+          (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+          return false;
+        }
+        SDL_SetGPUViewport(outlineDepthPass, &outlineViewport);
+        SDL_SetGPUScissor(outlineDepthPass, &workScissor);
       }
-      SDL_SetGPUViewport(outlineDepthPass, &outlineViewport);
-      SDL_SetGPUScissor(outlineDepthPass, &workScissor);
       struct alignas(16) MaskCameraUniform {
         float position[4];
         float right[4];
@@ -6068,94 +6099,96 @@ void appendCommandBatches(
           512.0F,
         },
       };
-      SDL_PushGPUVertexUniformData(
-        commandBuffer,
-        0,
-        &maskCameraUniform,
-        sizeof(maskCameraUniform)
-      );
-      StaticWorldMesh* outlineWorldMesh =
-        ensureStaticWorldMesh(device, staticWorld, arena, settings);
-      const bool outlineHasStaticWorld =
-        outlineWorldMesh != nullptr &&
-        outlineWorldMesh->vertexBuffer != nullptr &&
-        outlineWorldMesh->sampler != nullptr &&
-        !outlineWorldMesh->batches.empty();
-      if (outlineHasStaticWorld) {
-        SDL_BindGPUGraphicsPipeline(outlineDepthPass, pipeline3D);
-        const SDL_GPUBufferBinding staticBinding = {
-          outlineWorldMesh->vertexBuffer,
+      if (!nativeOutline) {
+        SDL_PushGPUVertexUniformData(
+          commandBuffer,
           0,
-        };
-        SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &staticBinding, 1);
-        RenderClock::time_point staticWorldStart = {};
-        if (settings.benchmarkTimingEnabled) {
-          staticWorldStart = RenderClock::now();
-        }
-        // The main pass already chose culled or aggregate batches. Reusing the
-        // decision keeps outline depth identical without a second query.
-        drawStaticWorldGeometry(
-          outlineDepthPass,
-          *outlineWorldMesh,
-          settings.worldFrustumCull,
-          nullptr
+          &maskCameraUniform,
+          sizeof(maskCameraUniform)
         );
-        if (settings.benchmarkTimingEnabled) {
-          staticWorldEncodingMilliseconds +=
-            millisecondsBetween(staticWorldStart, RenderClock::now());
+        StaticWorldMesh* outlineWorldMesh =
+          ensureStaticWorldMesh(device, staticWorld, arena, settings);
+        const bool outlineHasStaticWorld =
+          outlineWorldMesh != nullptr &&
+          outlineWorldMesh->vertexBuffer != nullptr &&
+          outlineWorldMesh->sampler != nullptr &&
+          !outlineWorldMesh->batches.empty();
+        if (outlineHasStaticWorld) {
+          SDL_BindGPUGraphicsPipeline(outlineDepthPass, pipeline3D);
+          const SDL_GPUBufferBinding staticBinding = {
+            outlineWorldMesh->vertexBuffer,
+            0,
+          };
+          SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &staticBinding, 1);
+          RenderClock::time_point staticWorldStart = {};
+          if (settings.benchmarkTimingEnabled) {
+            staticWorldStart = RenderClock::now();
+          }
+          // The main pass already chose culled or aggregate batches. Reusing
+          // the decision keeps outline depth identical without a second query.
+          drawStaticWorldGeometry(
+            outlineDepthPass,
+            *outlineWorldMesh,
+            settings.worldFrustumCull,
+            nullptr
+          );
+          if (settings.benchmarkTimingEnabled) {
+            staticWorldEncodingMilliseconds +=
+              millisecondsBetween(staticWorldStart, RenderClock::now());
+          }
         }
-      }
-      const SDL_GPUBufferBinding outlineDynamicBinding = {vertexBuffer, 0};
-      SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &outlineDynamicBinding, 1);
-      if (worldAtlas != nullptr) {
-        const SDL_GPUTextureSamplerBinding worldBinding = {
-          worldAtlas->texture,
-          worldAtlas->sampler,
-        };
-        SDL_BindGPUFragmentSamplers(outlineDepthPass, 0, &worldBinding, 1);
-      } else if (
-        outlineHasStaticWorld &&
-        !outlineWorldMesh->textures.empty() &&
-        outlineWorldMesh->textures.front().texture != nullptr
-      ) {
-        const SDL_GPUTextureSamplerBinding whiteBinding = {
-          outlineWorldMesh->textures.front().texture,
-          outlineWorldMesh->sampler,
-        };
-        SDL_BindGPUFragmentSamplers(outlineDepthPass, 0, &whiteBinding, 1);
-      }
-      if (opaqueDynamicVertexCount > 0) {
-        SDL_BindGPUGraphicsPipeline(outlineDepthPass, pipeline3D);
-        SDL_DrawGPUPrimitives(
+        const SDL_GPUBufferBinding outlineDynamicBinding = {vertexBuffer, 0};
+        SDL_BindGPUVertexBuffers(outlineDepthPass, 0, &outlineDynamicBinding, 1);
+        if (worldAtlas != nullptr) {
+          const SDL_GPUTextureSamplerBinding worldBinding = {
+            worldAtlas->texture,
+            worldAtlas->sampler,
+          };
+          SDL_BindGPUFragmentSamplers(outlineDepthPass, 0, &worldBinding, 1);
+        } else if (
+          outlineHasStaticWorld &&
+          !outlineWorldMesh->textures.empty() &&
+          outlineWorldMesh->textures.front().texture != nullptr
+        ) {
+          const SDL_GPUTextureSamplerBinding whiteBinding = {
+            outlineWorldMesh->textures.front().texture,
+            outlineWorldMesh->sampler,
+          };
+          SDL_BindGPUFragmentSamplers(outlineDepthPass, 0, &whiteBinding, 1);
+        }
+        if (opaqueDynamicVertexCount > 0) {
+          SDL_BindGPUGraphicsPipeline(outlineDepthPass, pipeline3D);
+          SDL_DrawGPUPrimitives(
+            outlineDepthPass,
+            opaqueDynamicVertexCount,
+            1,
+            0,
+            0
+          );
+        }
+        drawStaticMeshBatches(
           outlineDepthPass,
-          opaqueDynamicVertexCount,
-          1,
-          0,
-          0
+          staticMeshPipeline,
+          materialMeshPipeline,
+          simpleResources,
+          perspectiveScene,
+          RenderPass::OpaqueWorld
         );
+        drawGltfPlayerModelBatches(
+          outlineDepthPass,
+          gltfPlayerModelPipeline,
+          gltfPlayerResources,
+          perspectiveScene
+        );
+        drawSimpleInstanceBatches(
+          outlineDepthPass,
+          instancedMeshPipeline,
+          instancedGlowPipeline,
+          simpleResources,
+          perspectiveScene
+        );
+        SDL_EndGPURenderPass(outlineDepthPass);
       }
-      drawStaticMeshBatches(
-        outlineDepthPass,
-        staticMeshPipeline,
-        materialMeshPipeline,
-        simpleResources,
-        perspectiveScene,
-        RenderPass::OpaqueWorld
-      );
-      drawGltfPlayerModelBatches(
-        outlineDepthPass,
-        gltfPlayerModelPipeline,
-        gltfPlayerResources,
-        perspectiveScene
-      );
-      drawSimpleInstanceBatches(
-        outlineDepthPass,
-        instancedMeshPipeline,
-        instancedGlowPipeline,
-        simpleResources,
-        perspectiveScene
-      );
-      SDL_EndGPURenderPass(outlineDepthPass);
 
       maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
       maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
@@ -6176,6 +6209,9 @@ void appendCommandBatches(
       SDL_DrawGPUPrimitives(outlineColorClearPass, 3, 1, 0, 0);
       SDL_EndGPURenderPass(outlineColorClearPass);
 
+      maskColorTarget.load_op = SDL_GPU_LOADOP_LOAD;
+      maskColorTarget.store_op = SDL_GPU_STOREOP_STORE;
+      maskColorTarget.cycle = false;
       maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
       maskDepthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
       maskDepthTarget.cycle = false;
@@ -6273,7 +6309,7 @@ void appendCommandBatches(
       }
       SDL_SetGPUViewport(dilationPass, &outlineViewport);
       SDL_SetGPUScissor(dilationPass, &workScissor);
-      SDL_BindGPUGraphicsPipeline(dilationPass, pipelineOutlineDilation);
+      SDL_BindGPUGraphicsPipeline(dilationPass, activeOutlineDilation);
       const SDL_GPUTextureSamplerBinding dilationMaskBinding = {
         outlineMaskTexture,
         outlineMaskSampler,
@@ -6287,8 +6323,18 @@ void appendCommandBatches(
         {
           1.0F / static_cast<float>(workWidth),
           1.0F / static_cast<float>(workHeight),
-          outlineWorkRadiusPixels(settings.enemyOutlineWidth),
-          outlineWorkRadiusPixels(settings.teammateOutlineWidth),
+          outlineWorkRadiusPixels(
+            settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+              ? settings.playerOutlineWidth
+              : settings.enemyOutlineWidth,
+            outlinePlan.dimensions.workScale
+          ),
+          outlineWorkRadiusPixels(
+            settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+              ? settings.playerOutlineWidth
+              : settings.teammateOutlineWidth,
+            outlinePlan.dimensions.workScale
+          ),
         },
         {
           static_cast<float>(outlinePlan.workRect.x),
@@ -6353,7 +6399,9 @@ void appendCommandBatches(
         {
           1.0F / static_cast<float>(workWidth),
           1.0F / static_cast<float>(workHeight),
-          static_cast<float>(outputWidth),
+          nativeOutline
+            ? (settings.playerOutlineDebugMask ? 1.0F : 0.0F)
+            : static_cast<float>(outputWidth),
           static_cast<float>(outputHeight),
         },
         {enemyColor[0], enemyColor[1], enemyColor[2], enemyColor[3]},
@@ -6377,7 +6425,7 @@ void appendCommandBatches(
         (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
         return false;
       }
-      SDL_BindGPUGraphicsPipeline(compositePass, pipelineOutlineComposite);
+      SDL_BindGPUGraphicsPipeline(compositePass, activeOutlineComposite);
       SDL_SetGPUScissor(compositePass, &compositeScissor);
       const std::array<SDL_GPUTextureSamplerBinding, 2> samplerBindings = {{
         {outlineMaskTexture, outlineMaskSampler},
@@ -6421,7 +6469,7 @@ void appendCommandBatches(
       diagnostics.outlineUploadBytes = outlinePlan.uploadBytes;
       diagnostics.outlineGpuTimingAvailable = false;
       diagnostics.outlineGpuMilliseconds = 0.0F;
-      diagnostics.outlinePasses = 6;
+      diagnostics.outlinePasses = nativeOutline ? 4 : 6;
       diagnostics.outlineCompositeEnabled = true;
     }
 
@@ -7234,7 +7282,10 @@ void drawPerspectiveWorld(
       : settings.enemyOutlineWidth;
     if (
       outlineEnabled &&
-      usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
+      usesGeometryPlayerOutlineFallback(
+        settings.playerOutlineMode,
+        settings.playerOutlineStyle
+      ) &&
       outlineWidth > 0.0F
     ) {
       // SDL_Renderer has no screen-space outline mask path; style 0 keeps the
@@ -7581,6 +7632,17 @@ bool Renderer::initialize(void* window) {
             device,
             static_cast<SDL_Window*>(window)
           );
+        SDL_GPUGraphicsPipeline* pipelineOutlineNativeDilation =
+          createGpuPipelineOutlineDilation(
+            device,
+            "outline_native_dilate.frag.spv"
+          );
+        SDL_GPUGraphicsPipeline* pipelineOutlineNativeComposite =
+          createGpuPipelineOutlineComposite(
+            device,
+            static_cast<SDL_Window*>(window),
+            "outline_native_composite.frag.spv"
+          );
         GpuSimpleResources* simpleResources = createGpuSimpleResources(device);
         GpuGltfPlayerResources* gltfPlayerResources =
           createGpuGltfPlayerResources(device, duelistMaleModel());
@@ -7658,6 +7720,8 @@ bool Renderer::initialize(void* window) {
           gltfPlayerModelOutlineMaskPipeline != nullptr &&
           pipelineOutlineDilation != nullptr &&
           pipelineOutlineComposite != nullptr &&
+          pipelineOutlineNativeDilation != nullptr &&
+          pipelineOutlineNativeComposite != nullptr &&
           simpleResources != nullptr &&
           gltfPlayerResources != nullptr &&
           vertexBuffer != nullptr &&
@@ -7687,6 +7751,8 @@ bool Renderer::initialize(void* window) {
             gltfPlayerModelOutlineMaskPipeline;
           gpuPipelineOutlineDilation_ = pipelineOutlineDilation;
           gpuPipelineOutlineComposite_ = pipelineOutlineComposite;
+          gpuPipelineOutlineNativeDilation_ = pipelineOutlineNativeDilation;
+          gpuPipelineOutlineNativeComposite_ = pipelineOutlineNativeComposite;
           gpuDepthFormat_ = static_cast<std::uint32_t>(depthFormat);
           gpuVertexBuffer_ = vertexBuffer;
           gpuTransferBuffer_ = transferBuffer;
@@ -7796,6 +7862,12 @@ bool Renderer::initialize(void* window) {
         }
         if (pipelineOutlineComposite != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineComposite);
+        }
+        if (pipelineOutlineNativeDilation != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineNativeDilation);
+        }
+        if (pipelineOutlineNativeComposite != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineOutlineNativeComposite);
         }
         SDL_ReleaseWindowFromGPUDevice(
           device,
@@ -8006,6 +8078,8 @@ void Renderer::render(
         ),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineDilation_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineComposite_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineNativeDilation_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineNativeComposite_),
           static_cast<SDL_GPUBuffer*>(gpuVertexBuffer_),
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
           static_cast<GpuSimpleResources*>(gpuSimpleResources_),
@@ -8779,6 +8853,20 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineComposite_)
       );
       gpuPipelineOutlineComposite_ = nullptr;
+    }
+    if (gpuPipelineOutlineNativeDilation_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineNativeDilation_)
+      );
+      gpuPipelineOutlineNativeDilation_ = nullptr;
+    }
+    if (gpuPipelineOutlineNativeComposite_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineNativeComposite_)
+      );
+      gpuPipelineOutlineNativeComposite_ = nullptr;
     }
     SDL_ReleaseWindowFromGPUDevice(
       static_cast<SDL_GPUDevice*>(gpuDevice_),

@@ -126,15 +126,15 @@ int main() {
   frame = lg::updatePlayerPresentation(directionState, player, 0.016F, 3U, config);
   failures += expect(
     frame.diagnostics.moveDirection == lg::PlayerMoveDirection::Right &&
-      activeBaseClip(frame) == "STRAFE_RIGHT",
-    "positive local right velocity should select the right-strafe clip"
+      activeBaseClip(frame) == "STRAFE_LEFT",
+    "right movement should select the imported clip that moves visually right"
   );
   player.velocity = {0.0F, 2.0F, 0.0F};
   frame = lg::updatePlayerPresentation(directionState, player, 0.016F, 3U, config);
   failures += expect(
     frame.diagnostics.moveDirection == lg::PlayerMoveDirection::Left &&
-      activeBaseClip(frame) == "STRAFE_LEFT",
-    "negative local right velocity should select the left-strafe clip"
+      activeBaseClip(frame) == "STRAFE_RIGHT",
+    "left movement should select the imported clip that moves visually left"
   );
   player.viewYawRadians = 1.57079632679F;
   player.velocity = {0.0F, 2.0F, 0.0F};

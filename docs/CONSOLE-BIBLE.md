@@ -306,7 +306,10 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_g` | int | `82` | `0..255` | Ingen exakt 1:1-default | Modellens grönkanal. |
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
-| `r_player_outline_style` | int | `0` | `0..1` | Ingen direkt | Shared player outline implementation selector. `0`: legacy geometry-expanded fallback. `1`: SDL_GPU half-resolution screen-space mask/dilation/composite path. |
+| `r_player_outline_mode` | int | `1` | `0..2` | None | Top-level player outline mode. `0`: off. `1`: keep the path chosen by `r_player_outline_style`. `2`: force the native output-resolution screen-space path. |
+| `r_player_outline_style` | int | `0` | `0..1` | None | Compatibility path selector used by mode `1`. `0`: legacy geometry-expanded fallback. `1`: SDL_GPU half-resolution screen-space mask/dilation/composite path. |
+| `r_player_outline_width` | float | `1.5` | `0..3` | None | Native mode `2` width for enemy and teammate outlines, in final output pixels. |
+| `r_player_outline_debug_mask` | bool | `0` | bool | None | In native mode `2`, show the raw source group mask instead of the outer contour. This is a temporary view and is not archived. |
 | `r_enemy_outline` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
 | `r_enemy_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_enemy_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy outline opacity. |

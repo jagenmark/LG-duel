@@ -348,6 +348,24 @@ int main() {
       workerScene.remoteWeaponStats.instancesSubmitted == 1U,
     "Worker selection should load a skinned body and retain the remote weapon"
   );
+  lg::GltfSkinnedModel::PoseScratch workerPoseScratch;
+  std::vector<std::array<float, 16>> workerPalette;
+  lg::GltfSkinnedModel::Matrix4 workerSocket;
+  const bool workerSocketSampled = lg::workerPlayerModel().appendBonePalette(
+    {{"Idle_Gun_TwoHanded", 0.8333333F, 1.0F}},
+    workerPalette,
+    workerPoseScratch
+  ) && lg::workerPlayerModel().nodeGlobalMatrix(
+    "weapon_socket", workerPoseScratch, workerSocket
+  );
+  failures += expect(
+    workerSocketSampled &&
+      std::all_of(
+        workerSocket.values.begin(), workerSocket.values.end(),
+        [](float value) { return std::isfinite(value); }
+      ),
+    "Worker two-handed pose should expose a finite animated weapon socket"
+  );
 
   lg::RenderSettings noWeaponSettings = settings;
   noWeaponSettings.drawRemoteWeapons = false;
@@ -1437,6 +1455,48 @@ int main() {
     "legacy geometry outline style should remain explicit fallback behavior"
   );
 
+  lg::RenderSettings modeDisabledOutlineSettings = settings;
+  modeDisabledOutlineSettings.playerOutlineMode = lg::PlayerOutlineMode::Disabled;
+  const lg::Scene3D modeDisabledOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, modeDisabledOutlineSettings
+  );
+  failures += expect(
+    modeDisabledOutlineScene.playerOutlinesBuilt == 0U &&
+      modeDisabledOutlineScene.outlineMaskDraws.empty() &&
+      modeDisabledOutlineScene.geometryOutlineDynamicVertices == 0U,
+    "outline mode zero should gate geometry and screen-space outline work"
+  );
+
+  lg::RenderSettings nativeOutlineSettings = settings;
+  nativeOutlineSettings.playerOutlineMode =
+    lg::PlayerOutlineMode::NativeScreenSpace;
+  nativeOutlineSettings.playerOutlineStyle = lg::PlayerOutlineStyle::Geometry;
+  nativeOutlineSettings.playerOutlineWidth = 1.5F;
+  const lg::Scene3D nativeOutlineScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, nativeOutlineSettings
+  );
+  failures += expect(
+    !nativeOutlineScene.outlineMaskDraws.empty() &&
+      nativeOutlineScene.outlineMaskDraws.size() >
+        baseScene.outlineMaskDraws.size() &&
+      !nativeOutlineScene.geometryOutlineFallbackUsed &&
+      std::any_of(
+        nativeOutlineScene.outlineMaskDraws.begin(),
+        nativeOutlineScene.outlineMaskDraws.end(),
+        [](const lg::OutlineMaskDraw& draw) {
+          return draw.mesh != lg::MeshHandle::PlayerBoxCube &&
+            draw.instanceCount > 0U;
+        }
+      ) &&
+      nearlyEqual(
+        nativeOutlineScene.outlineMaskDraws.front().state.widthPixels,
+        1.5F
+      ),
+    "native outlines should reuse body geometry and add the held weapon silhouette"
+  );
+
   std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> teammateOnlyPlayers = {};
   teammateOnlyPlayers[1] =
     lg::RemotePlayerView{
@@ -1501,6 +1561,16 @@ int main() {
       lg::kOutlineFixedDilationKernelTaps == 49U,
     "screen-space outline widths should map to half-resolution radius with a fixed 7x7 kernel"
   );
+  const lg::OutlineTargetDimensions nativeOddOutlineDimensions =
+    lg::outlineTargetDimensions(1921U, 1081U, 1.0F);
+  failures += expect(
+    nativeOddOutlineDimensions.workWidth == 1921U &&
+      nativeOddOutlineDimensions.workHeight == 1081U &&
+      nearlyEqual(nativeOddOutlineDimensions.workScale, 1.0F) &&
+      nearlyEqual(lg::outlineWorkRadiusPixels(1.5F, 1.0F), 1.5F) &&
+      nearlyEqual(lg::outlineWorkRadiusPixels(3.0F, 1.0F), 3.0F),
+    "native outline targets and radii should use exact output pixels"
+  );
 
   const lg::OutlineWorkPlan noOutlinePlan = lg::buildOutlineWorkPlan(
     baseScene.camera,
@@ -1547,6 +1617,34 @@ int main() {
       centeredOutlinePlan.compositeDrawCalls == 1U,
     "centered outlined player should use a bounded half-resolution work rectangle"
   );
+  const lg::OutlineWorkPlan nativeCenteredOutlinePlan = lg::buildOutlineWorkPlan(
+    nativeOutlineScene.camera,
+    std::span<const lg::Vertex3D>(
+      nativeOutlineScene.vertices.data(), nativeOutlineScene.vertices.size()
+    ),
+    std::span<const lg::StaticMeshInstance>(
+      nativeOutlineScene.staticMeshInstances.data(),
+      nativeOutlineScene.staticMeshInstances.size()
+    ),
+    std::span<const lg::GltfPlayerModelInstance>(
+      nativeOutlineScene.gltfPlayerModelInstances.data(),
+      nativeOutlineScene.gltfPlayerModelInstances.size()
+    ),
+    std::span<const lg::OutlineMaskDraw>(
+      nativeOutlineScene.outlineMaskDraws.data(),
+      nativeOutlineScene.outlineMaskDraws.size()
+    ),
+    1921U,
+    1081U,
+    1.0F
+  );
+  failures += expect(
+    nativeCenteredOutlinePlan.hasWork &&
+      nativeCenteredOutlinePlan.dimensions.workWidth == 1921U &&
+      nativeCenteredOutlinePlan.dimensions.workHeight == 1081U &&
+      nearlyEqual(nativeCenteredOutlinePlan.maxWorkRadiusPixels, 1.5F),
+    "native outline work plans should keep odd output size and final-pixel width"
+  );
   const lg::OutlineWorkPlan centeredBoxOutlinePlan = lg::buildOutlineWorkPlan(
     legacyModelScene.camera,
     std::span<const lg::Vertex3D>(
@@ -1571,6 +1669,52 @@ int main() {
       centeredBoxOutlinePlan.dilationDrawCalls == 1U &&
       centeredBoxOutlinePlan.compositeDrawCalls == 1U,
     "procedural box outline work plan should project static cube instance bounds"
+  );
+
+  lg::StaticMeshInstance longWeaponInstance =
+    legacyModelScene.staticMeshInstances.front();
+  longWeaponInstance.mesh = lg::MeshHandle::RemoteFreezeGunBody;
+  longWeaponInstance.worldBounds.radius *= 4.0F;
+  const std::array<lg::StaticMeshInstance, 1> longWeaponInstances = {{
+    longWeaponInstance,
+  }};
+  const std::array<lg::OutlineMaskDraw, 1> longWeaponDraws = {{
+    {
+      0U,
+      0U,
+      enemyMaskDraw.state,
+      lg::MeshHandle::RemoteFreezeGunBody,
+      0U,
+      1U,
+    },
+  }};
+  const lg::OutlineWorkPlan longWeaponPlan = lg::buildOutlineWorkPlan(
+    legacyModelScene.camera,
+    std::span<const lg::Vertex3D>(),
+    longWeaponInstances,
+    std::span<const lg::GltfPlayerModelInstance>(),
+    longWeaponDraws,
+    1920U,
+    1080U,
+    1.0F
+  );
+  lg::ProjectedPoint longWeaponRightEdge;
+  const bool longWeaponEdgeProjected = lg::projectPerspectivePoint(
+    legacyModelScene.camera,
+    longWeaponInstance.worldBounds.center +
+      legacyModelScene.camera.right * longWeaponInstance.worldBounds.radius,
+    longWeaponRightEdge
+  );
+  const float longWeaponRightPixel =
+    (longWeaponRightEdge.x + 1.0F) * 0.5F * 1920.0F;
+  failures += expect(
+    longWeaponPlan.hasWork &&
+      !longWeaponPlan.conservativeFallback &&
+      longWeaponEdgeProjected &&
+      static_cast<float>(
+        longWeaponPlan.finalRect.x + longWeaponPlan.finalRect.width
+      ) >= longWeaponRightPixel,
+    "native outline work rect should contain the true bounds of a long weapon"
   );
 
   lg::PlayerState edgeOpponent = opponent;

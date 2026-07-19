@@ -105,7 +105,9 @@ namespace {
     "cl_interp_extrapolate", "cl_local_render_prediction", "r_maxfps", "r_msaa",
     "r_render_scale", "r_texture_filter", "r_texture_anisotropy", "r_texture_lod_bias",
     "r_draw_remote_players", "r_draw_remote_weapons", "r_draw_player_outlines",
-    "r_player_outline_style", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
+    "r_player_outline_mode", "r_player_outline_style", "r_player_outline_width",
+    "r_player_outline_debug_mask", "r_enemy_outline_width",
+    "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
     "r_frustum_cull", "r_world_frustum_cull", "r_player_model",
     "s_enable", "vid_fullscreen", "vid_width", "vid_height", "r_vsync", "r_present_mode"
   };

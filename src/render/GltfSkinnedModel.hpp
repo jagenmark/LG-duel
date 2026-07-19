@@ -94,6 +94,11 @@ public:
     PoseScratch& scratch,
     float upperBodyAimPitchRadians = 0.0F
   ) const;
+  [[nodiscard]] bool nodeGlobalMatrix(
+    std::string_view nodeName,
+    const PoseScratch& scratch,
+    Matrix4& out
+  ) const;
   [[nodiscard]] bool appendBonePalette(
     std::initializer_list<SkinnedModelPoseRequest> poses,
     std::vector<std::array<float, 16>>& out,
