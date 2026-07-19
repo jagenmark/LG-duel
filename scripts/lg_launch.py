@@ -407,13 +407,13 @@ def _tail(path: Path, limit: int = 30) -> str:
 
 
 def _launch_process(executable: Path, arguments: list[str], stdout_path: Path, stderr_path: Path,
-                    environment: dict[str, str]) -> subprocess.Popen[str]:
+                    environment: dict[str, str], working_directory: Path | None = None) -> subprocess.Popen[str]:
     creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
     stdout = stdout_path.open("w", encoding="utf-8")
     stderr = stderr_path.open("w", encoding="utf-8")
     try:
         return subprocess.Popen(
-            [str(executable), *arguments], cwd=BUILD_DIR, env=environment,
+            [str(executable), *arguments], cwd=working_directory or BUILD_DIR, env=environment,
             stdout=stdout, stderr=stderr, text=True, creationflags=creationflags,
         )
     finally:
@@ -424,7 +424,11 @@ def _launch_process(executable: Path, arguments: list[str], stdout_path: Path, s
 def _existing_server_entry(server_exe: Path) -> dict[str, Any] | None:
     state = _read_state()
     entry = state.get("server") if state else None
-    if isinstance(entry, dict) and _entry_matches(entry):
+    if (
+        isinstance(entry, dict) and
+        Path(str(entry.get("path", ""))).resolve() == server_exe.resolve() and
+        _entry_matches(entry)
+    ):
         return dict(entry)
     return None
 
@@ -475,6 +479,7 @@ def ensure_client(
     server_port: int = 27960,
     control_port: int = 27961,
     timeout: float = 20.0,
+    build_dir: Path | None = None,
 ) -> dict[str, Any]:
     if renderer not in {"gpu", "fallback"}:
         raise LaunchError("renderer must be 'gpu' or 'fallback'")
@@ -482,12 +487,31 @@ def ensure_client(
         # The renderer spelling itself is the PowerShell opt-in; normalize it
         # to the same explicit flag used by MCP callers.
         allow_fallback = True
+    launch_build_dir = (build_dir or BUILD_DIR).resolve()
+    client_exe = launch_build_dir / "lg_duel_client.exe"
+    server_exe = launch_build_dir / "lg_duel_server.exe"
     selection = resolve_vulkan_selection() if renderer == "gpu" else None
     try:
         raw = send_request("status", port=control_port, timeout=min(timeout, 2.0))
     except ControlError:
         raw = None
     if raw is not None:
+        if build_dir is not None:
+            state = _read_state()
+            client_entry = state.get("client") if state else None
+            server_entry = state.get("server") if state else None
+            client_matches = isinstance(client_entry, dict) and (
+                Path(str(client_entry.get("path", ""))).resolve() == client_exe.resolve()
+            )
+            server_matches = not manage_server or (
+                isinstance(server_entry, dict) and
+                Path(str(server_entry.get("path", ""))).resolve() == server_exe.resolve()
+            )
+            if not client_matches or not server_matches:
+                raise LaunchError(
+                    "an existing development-control session does not match the requested "
+                    f"benchmark build directory '{launch_build_dir}'; stop it before benchmarking"
+                )
         try:
             verified = verify_control_status(
                 raw, requested_renderer=renderer, selection=selection, allow_fallback=allow_fallback
@@ -514,15 +538,15 @@ def ensure_client(
         }
         state["launch"] = verified
         _write_state(state)
+        verified["client_executable"] = str(client_exe)
+        verified["build_directory"] = str(launch_build_dir)
         return verified
 
-    client_exe = BUILD_DIR / "lg_duel_client.exe"
-    server_exe = BUILD_DIR / "lg_duel_server.exe"
     if not client_exe.is_file() or (manage_server and not server_exe.is_file()):
         required = "client and server" if manage_server else "client"
         raise LaunchError(
-            f"LG Duel {required} executable(s) are unavailable; "
-            "run cmake --preset default and cmake --build --preset default"
+            f"LG Duel {required} executable(s) are unavailable in '{launch_build_dir}'; "
+            "configure and build the requested CMake preset first"
         )
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     environment = os.environ.copy()
@@ -542,7 +566,7 @@ def ensure_client(
         if manage_server:
             server_process = _launch_process(
                 server_exe, [str(server_port)], STATE_DIR / "server.stdout.log",
-                STATE_DIR / "server.stderr.log", environment,
+                STATE_DIR / "server.stderr.log", environment, launch_build_dir,
             )
             server_entry = {"pid": server_process.pid, "owned": True, "path": str(server_exe)}
         else:
@@ -554,7 +578,7 @@ def ensure_client(
         client_arguments.append("--benchmark")
     client_process = _launch_process(
         client_exe, client_arguments, STATE_DIR / "client.stdout.log",
-        STATE_DIR / "client.stderr.log", environment,
+        STATE_DIR / "client.stderr.log", environment, launch_build_dir,
     )
     pending_state = {
         "server": server_entry,
@@ -588,6 +612,8 @@ def ensure_client(
         raise LaunchError(f"{error}\nSelected ICD: {icd}\nVulkan/client errors:\n{stderr or '(none recorded)'}") from error
     pending_state["launch"] = verified
     _write_state(pending_state)
+    verified["client_executable"] = str(client_exe)
+    verified["build_directory"] = str(launch_build_dir)
     return verified
 
 

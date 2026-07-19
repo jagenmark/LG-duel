@@ -67,6 +67,7 @@ enum class BotCommandType : std::uint8_t {
   Stare = 5,
   Standstill = 6,
   Dodge = 7,
+  Weapon = 8,
 };
 
 struct MatchRules {
@@ -354,6 +355,7 @@ struct ServerSnapshot {
   bool botStareEnabled = true;
   bool botStandstillEnabled = false;
   BotAttackMode botAttackMode = BotAttackMode::Off;
+  Weapon botWeapon = Weapon::MachineGun;
   WeaponSwitchingMode weaponSwitchingMode = WeaponSwitchingMode::Crazy;
   WeaponAmmoConfig weaponAmmo = {};
   std::array<WeaponAmmoArray, kDuelPlayerCount> playerAmmo = {};

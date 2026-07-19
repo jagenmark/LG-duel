@@ -185,7 +185,10 @@ struct SourceBrushMetadata {
   ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
   std::uint32_t entityIndex = kInvalidSourceGeometryIndex;
   std::uint32_t brushIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t patchIndex = kInvalidSourceGeometryIndex;
+  std::uint32_t patchPieceIndex = kInvalidSourceGeometryIndex;
   bool hasCollisionKind = false;
+  bool renderOnly = false;
 };
 
 [[nodiscard]] bool parseSourceBrushMetadata(
@@ -193,6 +196,55 @@ struct SourceBrushMetadata {
   SourceBrushMetadata& metadata,
   std::string& error
 ) {
+  const MapProperty* geometryRole = findProperty(entity, "lg_geometry_role");
+  const MapProperty* sourcePatch = findProperty(entity, "lg_source_patch_index");
+  const MapProperty* sourcePatchPiece =
+    findProperty(entity, "lg_source_patch_piece_index");
+  const MapProperty* sourceEntity = findProperty(entity, "lg_source_entity_index");
+  const MapProperty* sourceBrush = findProperty(entity, "lg_source_brush_index");
+  const MapProperty* adaptationVisualId =
+    findProperty(entity, "lg_adaptation_visual_id");
+  if (geometryRole != nullptr) {
+    if (geometryRole->value != "render_only") {
+      error = "line " + std::to_string(geometryRole->line) +
+        ": lg_geometry_role must be render_only";
+      return false;
+    }
+    metadata.renderOnly = true;
+  }
+  if (geometryRole == nullptr && sourcePatch != nullptr) {
+    error = "line " + std::to_string(entity.line) +
+      ": lg_source_patch_index requires lg_geometry_role render_only";
+    return false;
+  }
+  if (sourcePatchPiece != nullptr && sourcePatch == nullptr) {
+    error = "line " + std::to_string(sourcePatchPiece->line) +
+      ": lg_source_patch_piece_index requires render-only source patch metadata";
+    return false;
+  }
+  if (sourcePatch != nullptr) {
+    if (
+      entity.brushes.size() != 1U ||
+      !parseUint32(sourcePatch->value, metadata.patchIndex) ||
+      metadata.patchIndex == kInvalidSourceGeometryIndex
+    ) {
+      error = "line " + std::to_string(entity.line) +
+        ": render-only source patch metadata requires one brush and a "
+        "non-negative 32-bit index";
+      return false;
+    }
+    metadata.patchPieceIndex = 0U;
+    if (
+      sourcePatchPiece != nullptr &&
+      (!parseUint32(sourcePatchPiece->value, metadata.patchPieceIndex) ||
+       metadata.patchPieceIndex == kInvalidSourceGeometryIndex)
+    ) {
+      error = "line " + std::to_string(sourcePatchPiece->line) +
+        ": lg_source_patch_piece_index must be a non-negative 32-bit index";
+      return false;
+    }
+  }
+
   const MapProperty* collision = findProperty(entity, "lg_collision_class");
   if (collision != nullptr) {
     if (!parseCollisionKind(collision->value, metadata.collisionKind)) {
@@ -203,25 +255,59 @@ struct SourceBrushMetadata {
     metadata.hasCollisionKind = true;
   }
 
-  const MapProperty* sourceEntity = findProperty(entity, "lg_source_entity_index");
-  const MapProperty* sourceBrush = findProperty(entity, "lg_source_brush_index");
   if ((sourceEntity == nullptr) != (sourceBrush == nullptr)) {
     error = "line " + std::to_string(entity.line) +
       ": source brush metadata requires both lg_source_entity_index and lg_source_brush_index";
     return false;
   }
-  if (sourceEntity == nullptr) {
-    return true;
+  if (sourceEntity != nullptr) {
+    if (
+      entity.brushes.size() != 1U ||
+      !parseUint32(sourceEntity->value, metadata.entityIndex) ||
+      !parseUint32(sourceBrush->value, metadata.brushIndex) ||
+      metadata.entityIndex == kInvalidSourceGeometryIndex ||
+      metadata.brushIndex == kInvalidSourceGeometryIndex
+    ) {
+      error = "line " + std::to_string(entity.line) +
+        ": source brush metadata requires one brush and non-negative 32-bit indices";
+      return false;
+    }
   }
-  if (
-    entity.brushes.size() != 1U ||
-    !parseUint32(sourceEntity->value, metadata.entityIndex) ||
-    !parseUint32(sourceBrush->value, metadata.brushIndex) ||
-    metadata.entityIndex == kInvalidSourceGeometryIndex ||
-    metadata.brushIndex == kInvalidSourceGeometryIndex
-  ) {
-    error = "line " + std::to_string(entity.line) +
-      ": source brush metadata requires one brush and non-negative 32-bit indices";
+  if (metadata.renderOnly) {
+    const bool hasPatchSource = sourcePatch != nullptr;
+    const bool hasBrushSource = sourceEntity != nullptr;
+    if (collision != nullptr || hasPatchSource == hasBrushSource) {
+      error = "line " + std::to_string(entity.line) +
+        ": render-only geometry requires exactly one patch or brush source and no collision class";
+      return false;
+    }
+    if (hasPatchSource && adaptationVisualId != nullptr) {
+      error = "line " + std::to_string(adaptationVisualId->line) +
+        ": source patch geometry cannot use lg_adaptation_visual_id";
+      return false;
+    }
+    if (hasBrushSource) {
+      const bool validId = adaptationVisualId != nullptr &&
+        !adaptationVisualId->value.empty() &&
+        std::isalnum(
+          static_cast<unsigned char>(adaptationVisualId->value.front())
+        ) != 0 &&
+        std::all_of(
+          adaptationVisualId->value.begin(), adaptationVisualId->value.end(),
+          [](unsigned char character) {
+            return std::isalnum(character) != 0 || character == '_' ||
+              character == '-' || character == '.';
+          }
+        );
+      if (!validId) {
+        error = "line " + std::to_string(entity.line) +
+          ": render-only source brush metadata requires a stable lg_adaptation_visual_id";
+        return false;
+      }
+    }
+  } else if (adaptationVisualId != nullptr) {
+    error = "line " + std::to_string(adaptationVisualId->line) +
+      ": lg_adaptation_visual_id requires render-only source brush metadata";
     return false;
   }
   return true;
@@ -913,13 +999,23 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   bool requireSourceLocator,
   std::vector<ArenaWall>& walls,
   std::vector<ArenaBrush>& brushes,
+  std::vector<ArenaWall>& visualWalls,
+  std::vector<ArenaBrush>& visualBrushes,
   std::string& error
 ) {
   SourceBrushMetadata metadata;
   if (!parseSourceBrushMetadata(entity, metadata, error)) {
     return false;
   }
-  if (requireSourceLocator && metadata.entityIndex == kInvalidSourceGeometryIndex) {
+  if (metadata.renderOnly && ownerClass != "func_group") {
+    error = "line " + std::to_string(entity.line) +
+      ": lg_geometry_role is supported only on func_group";
+    return false;
+  }
+  if (
+    requireSourceLocator && !metadata.renderOnly &&
+    metadata.entityIndex == kInvalidSourceGeometryIndex
+  ) {
     error = "line " + std::to_string(entity.line) +
       ": source-bound imported func_group requires lg_source_entity_index and "
       "lg_source_brush_index";
@@ -929,6 +1025,11 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     const MapBrush& brush = entity.brushes[brushIndex];
     const ArenaCollisionKind collisionKind = inferredCollisionKind(brush);
     const bool collisionOnly = collisionKind != ArenaCollisionKind::VisibleSolid;
+    if (metadata.renderOnly && collisionOnly) {
+      error = "line " + std::to_string(brush.line) +
+        ": render-only geometry must use visible materials";
+      return false;
+    }
     if (!collisionOnly && brushHasCollisionOnlyMaterial(brush)) {
       error = "line " + std::to_string(brush.line) +
         ": collision-only brushes must use one clip class on every face";
@@ -946,11 +1047,17 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
       wall.collisionKind = collisionKind;
       wall.sourceEntityIndex = metadata.entityIndex;
       wall.sourceBrushIndex = metadata.brushIndex;
+      wall.sourcePatchIndex = metadata.patchIndex;
+      wall.sourcePatchPieceIndex = metadata.patchPieceIndex;
       wall.renderable = !collisionOnly;
       if (collisionOnly) {
         clearRenderableMaterial(wall);
       }
-      walls.push_back(wall);
+      if (metadata.renderOnly) {
+        visualWalls.push_back(wall);
+      } else {
+        walls.push_back(wall);
+      }
       continue;
     }
     ArenaBrush arenaBrush;
@@ -960,11 +1067,17 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     arenaBrush.collisionKind = collisionKind;
     arenaBrush.sourceEntityIndex = metadata.entityIndex;
     arenaBrush.sourceBrushIndex = metadata.brushIndex;
+    arenaBrush.sourcePatchIndex = metadata.patchIndex;
+    arenaBrush.sourcePatchPieceIndex = metadata.patchPieceIndex;
     arenaBrush.renderable = !collisionOnly;
     if (collisionOnly) {
       clearRenderableMaterial(arenaBrush);
     }
-    brushes.push_back(arenaBrush);
+    if (metadata.renderOnly) {
+      visualBrushes.push_back(arenaBrush);
+    } else {
+      brushes.push_back(arenaBrush);
+    }
   }
   return true;
 }
@@ -1480,6 +1593,8 @@ void expandBounds(Vec3 point, Vec3& minimum, Vec3& maximum, bool& initialized) {
 ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaWall> walls;
   std::vector<ArenaBrush> brushes;
+  std::vector<ArenaWall> visualWalls;
+  std::vector<ArenaBrush> visualBrushes;
   std::vector<ArenaStaticLight> staticLights;
   std::vector<ArenaJumpPad> jumpPads;
   std::vector<ArenaTeleport> teleports;
@@ -1563,13 +1678,22 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         hasBoundsMax = true;
       }
       std::string error;
-      if (!convertSolidBrushes(entity, *classname, false, walls, brushes, error)) {
+      if (!convertSolidBrushes(
+            entity, *classname, false, walls, brushes, visualWalls, visualBrushes, error
+          )) {
         return {{}, false, error};
       }
     } else if (*classname == "func_group") {
       std::string error;
       if (!convertSolidBrushes(
-            entity, *classname, sourceBoundImport, walls, brushes, error
+            entity,
+            *classname,
+            sourceBoundImport,
+            walls,
+            brushes,
+            visualWalls,
+            visualBrushes,
+            error
           )) {
         return {{}, false, error};
       }
@@ -1720,6 +1844,63 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     return {{}, false, "duplicate imported source brush locator"};
   }
 
+  std::vector<std::uint64_t> visualSourceBrushLocators;
+  visualSourceBrushLocators.reserve(visualWalls.size() + visualBrushes.size());
+  const auto recordVisualSourceBrush = [&visualSourceBrushLocators](
+    std::uint32_t entityIndex,
+    std::uint32_t brushIndex
+  ) {
+    if (
+      entityIndex == kInvalidSourceGeometryIndex ||
+      brushIndex == kInvalidSourceGeometryIndex
+    ) {
+      return;
+    }
+    visualSourceBrushLocators.push_back(
+      (static_cast<std::uint64_t>(entityIndex) << 32U) |
+      static_cast<std::uint64_t>(brushIndex)
+    );
+  };
+  for (const ArenaWall& wall : visualWalls) {
+    recordVisualSourceBrush(wall.sourceEntityIndex, wall.sourceBrushIndex);
+  }
+  for (const ArenaBrush& brush : visualBrushes) {
+    recordVisualSourceBrush(brush.sourceEntityIndex, brush.sourceBrushIndex);
+  }
+  std::sort(visualSourceBrushLocators.begin(), visualSourceBrushLocators.end());
+  if (
+    std::adjacent_find(visualSourceBrushLocators.begin(), visualSourceBrushLocators.end()) !=
+    visualSourceBrushLocators.end()
+  ) {
+    return {{}, false, "duplicate render-only source brush locator"};
+  }
+
+  std::vector<std::uint64_t> sourcePatchLocators;
+  sourcePatchLocators.reserve(visualWalls.size() + visualBrushes.size());
+  for (const ArenaWall& wall : visualWalls) {
+    if (wall.sourcePatchIndex != kInvalidSourceGeometryIndex) {
+      sourcePatchLocators.push_back(
+        (static_cast<std::uint64_t>(wall.sourcePatchIndex) << 32U) |
+        static_cast<std::uint64_t>(wall.sourcePatchPieceIndex)
+      );
+    }
+  }
+  for (const ArenaBrush& brush : visualBrushes) {
+    if (brush.sourcePatchIndex != kInvalidSourceGeometryIndex) {
+      sourcePatchLocators.push_back(
+        (static_cast<std::uint64_t>(brush.sourcePatchIndex) << 32U) |
+        static_cast<std::uint64_t>(brush.sourcePatchPieceIndex)
+      );
+    }
+  }
+  std::sort(sourcePatchLocators.begin(), sourcePatchLocators.end());
+  if (
+    std::adjacent_find(sourcePatchLocators.begin(), sourcePatchLocators.end()) !=
+    sourcePatchLocators.end()
+  ) {
+    return {{}, false, "duplicate imported source patch locator"};
+  }
+
   if (hasBoundsMin != hasBoundsMax) {
     return {{}, false, "worldspawn must define both lg_bounds_min and lg_bounds_max"};
   }
@@ -1732,6 +1913,14 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       expandBounds(wall.max, boundsMin, boundsMax, initialized);
     }
     for (const ArenaBrush& brush : brushes) {
+      expandBounds(brush.min, boundsMin, boundsMax, initialized);
+      expandBounds(brush.max, boundsMin, boundsMax, initialized);
+    }
+    for (const ArenaWall& wall : visualWalls) {
+      expandBounds(wall.min, boundsMin, boundsMax, initialized);
+      expandBounds(wall.max, boundsMin, boundsMax, initialized);
+    }
+    for (const ArenaBrush& brush : visualBrushes) {
       expandBounds(brush.min, boundsMin, boundsMax, initialized);
       expandBounds(brush.max, boundsMin, boundsMax, initialized);
     }
@@ -1772,14 +1961,22 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   arenaText << "version 1\n";
   arenaText << "bounds min=" << boundsMin.x << ',' << boundsMin.y << ',' << boundsMin.z
         << " max=" << boundsMax.x << ',' << boundsMax.y << ',' << boundsMax.z << '\n';
-  const bool needsValidationPlaceholder = walls.empty() && !brushes.empty();
+  const bool needsValidationPlaceholder = walls.empty() &&
+    (!brushes.empty() || !visualWalls.empty() || !visualBrushes.empty());
   // Reuse the arena text loader for shared bounds/spawn validation. Brush-only
   // maps need one temporary box because that legacy validator requires a wall.
   const std::size_t emittedWallCount = needsValidationPlaceholder ? 1U : walls.size();
   for (std::size_t index = 0; index < emittedWallCount; ++index) {
-    const ArenaWall placeholder = needsValidationPlaceholder
-      ? ArenaWall{brushes[0].min, brushes[0].max}
-      : ArenaWall{};
+    ArenaWall placeholder;
+    if (needsValidationPlaceholder) {
+      if (!brushes.empty()) {
+        placeholder = {brushes[0].min, brushes[0].max};
+      } else if (!visualWalls.empty()) {
+        placeholder = visualWalls[0];
+      } else {
+        placeholder = {visualBrushes[0].min, visualBrushes[0].max};
+      }
+    }
     const ArenaWall& wall = needsValidationPlaceholder ? placeholder : walls[index];
     arenaText << "box brush_" << index << ' '
           << wall.min.x << ',' << wall.min.y << ',' << wall.min.z << ' '
@@ -1792,8 +1989,15 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   }
   ArenaLoadResult result = loadArenaFromText(arenaText.str());
   if (result.ok) {
+    result.arena.renderDefaultFloor = !sourceBoundImport;
     if (brushes.size() > Arena::kBrushCount) {
       return {{}, false, "map has too many convex brushes"};
+    }
+    if (visualWalls.size() > Arena::kVisualWallCount) {
+      return {{}, false, "map has too many visual-only walls"};
+    }
+    if (visualBrushes.size() > Arena::kVisualBrushCount) {
+      return {{}, false, "map has too many visual-only convex brushes"};
     }
     result.arena.wallCount = walls.size();
     // Remove the validation placeholder and install the exact convex geometry;
@@ -1811,6 +2015,14 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     result.arena.brushCount = brushes.size();
     for (std::size_t index = 0; index < result.arena.brushCount; ++index) {
       result.arena.brushes[index] = brushes[index];
+    }
+    result.arena.visualWallCount = visualWalls.size();
+    for (std::size_t index = 0; index < result.arena.visualWallCount; ++index) {
+      result.arena.visualWalls[index] = visualWalls[index];
+    }
+    result.arena.visualBrushCount = visualBrushes.size();
+    for (std::size_t index = 0; index < result.arena.visualBrushCount; ++index) {
+      result.arena.visualBrushes[index] = visualBrushes[index];
     }
     result.arena.staticLightCount = staticLights.size();
     for (std::size_t index = 0; index < result.arena.staticLightCount; ++index) {

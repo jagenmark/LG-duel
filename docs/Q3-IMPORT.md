@@ -25,9 +25,11 @@ stale intermediate geometry. It stages the raw map, candidate, and both reports
 as one complete generation before replacing prior artifacts; the reports are
 published last and bind both raw and candidate bytes by SHA-256.
 
-Adaptation schema v2 also pins `source_bsp_sha256` and
+Adaptation schemas v2 and v3 pin `source_bsp_sha256` and
 `raw_decompile_sha256`. Conversion stops on either mismatch, so reviewed brush
-decisions cannot silently migrate to a different BSP or decompile.
+decisions cannot silently migrate to a different BSP or decompile. Schema v2
+remains accepted for existing adaptations; new reviewed geometry adaptations
+should use schema v3.
 
 ## End-to-end usage
 
@@ -60,7 +62,10 @@ The Python conversion stage:
   classification properties; worldspawn contains import hashes and derived
   reconstructed/marker geometry;
 - reconstructs only adaptation-selected quadratic patches as deterministic thin
-  convex prisms and keeps every other omitted patch explicit in the report;
+  convex prisms, with an explicit solid or render-only role, and keeps every
+  other omitted patch explicit in the report;
+- replaces reviewed, explicitly dropped clip brushes with validated derived
+  convex collision hulls while retaining the source locator and adaptation ID;
 - converts clean brush teleports whose target has one unambiguous destination;
 - supports a deliberate ordered selection of 2–32 spawns instead of relying on source order;
 - writes deterministic JSON and Markdown reports next to the candidate.
@@ -79,6 +84,90 @@ configured material role. Overrides never resurrect invalid geometry, fog,
 non-solid utilities, or mixed collision materials. JSON and Markdown reports
 record an ordered row for every static source brush, including automatic and
 requested decisions and the final result.
+
+## Reviewed geometry rules (schema v3)
+
+Schema v3 replaces the ambiguous `reconstruct_patch_indices` list with strict
+`patch_rules`. Every rule names one globally inventoried source patch, an action,
+a geometry role, and a nonempty review reason:
+
+```json
+{
+  "schema_version": 3,
+  "patch_rules": [
+    {
+      "source_patch_index": 46,
+      "action": "reconstruct",
+      "role": "render_only",
+      "reason": "Restore the doorway arch without recreating its snagging collision."
+    }
+  ]
+}
+```
+
+`solid` patch prisms retain the legacy world geometry behavior. Each
+`render_only` prism is emitted as a one-brush `func_group` with
+`lg_geometry_role=render_only`, `lg_source_patch_index`, and a deterministic
+`lg_source_patch_piece_index`. The latter is necessary because one quadratic
+patch normally produces several triangular prisms. Reports list patch and brush
+counts plus source indices separately for both roles. Patch rules reject unknown
+fields, duplicate or out-of-inventory indices, unsupported actions or roles, and
+empty reasons. Schema v3 rejects `reconstruct_patch_indices`; schema v2 retains
+that field as a compatibility path and treats its selections as solid.
+
+Render-only patch prisms are fully supported by the SDL_GPU static-world path.
+The explicit SDL_Renderer compatibility fallback does not draw convex arena
+brushes, so it also omits these prisms; it is not a valid backend for imported-map
+visual review. Developer-control, capture, and MCP visual workflows require the
+verified GPU renderer and reject fallback attachment.
+
+When the BSP has a collision hull for a compiled model but no recoverable draw
+surface, schema v3 can clone that hull into visual storage with
+`collision_visuals`. Each entry names one source clip brush, a stable ID, a
+material role, and a review reason. The source clip stays in charge of movement
+and traces. The clone uses visible materials, keeps the source brush locator,
+and never enters the collision index. This is meant for small frames, pillars,
+and bases whose collision already gives a sound outline; it is not a way to turn
+all clip brushes into visible walls.
+
+Source-bound imports also disable LG Duel's plain default ground grid. Imported
+brushes own their floor surfaces; drawing the grid at world `z = 0` would add a
+second face on maps such as Overkill.
+
+Reviewed collision smoothing uses `derived_collision_hulls`. A hull has a stable
+ID, nonempty reason, `playerclip` or `weapclip` classification, exactly one
+source-brush replacement locator, and 4–16 planar faces. Each face contains
+exactly three source-coordinate points:
+
+```json
+{
+  "id": "doorway-west-jamb-smooth",
+  "reason": "Replace the protruding doorway wedge with a flush bevel.",
+  "classification": "playerclip",
+  "replaces": {
+    "source_entity_index": 0,
+    "source_brush_index": 1918
+  },
+  "faces": [
+    [[0, 0, 0], [0, 0, 64], [0, 64, 64]],
+    [[64, 0, 0], [64, 64, 0], [64, 64, 64]],
+    [[0, 0, 0], [64, 0, 0], [64, 0, 64]],
+    [[0, 64, 0], [0, 64, 64], [64, 64, 64]],
+    [[0, 0, 0], [0, 64, 0], [64, 64, 0]],
+    [[0, 0, 64], [64, 0, 64], [64, 64, 64]]
+  ]
+}
+```
+
+All coordinates must be finite. The converter uses the normal closed-convex
+brush validator, rejects duplicate IDs and replacement locators, and requires
+the source locator to identify valid static geometry whose automatic clip class
+matches the replacement. The source brush must also have an explicit
+`brush_policy` drop rule. Ordinary reviewed drops remain valid without a
+replacement. A successful derived hull emits as a one-brush `func_group` with
+the replaced source locator, `lg_collision_class`, and
+`lg_adaptation_derived_id`; JSON and Markdown reports record its reason, face
+count, source-coordinate bounds, and provenance.
 
 Validate a candidate through the real loader:
 

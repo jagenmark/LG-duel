@@ -70,6 +70,7 @@ public:
     BotAttackMode attackMode
   );
   void setBotAttackMode(BotAttackMode mode);
+  void setBotWeapon(Weapon weapon);
   [[nodiscard]] BotRosterChange addBots(std::optional<std::size_t> count = std::nullopt);
   [[nodiscard]] BotRosterChange kickAllBots();
   [[nodiscard]] BotRosterChange kickBotAtPlayerIndex(std::size_t playerIndex);
@@ -80,6 +81,7 @@ public:
   [[nodiscard]] int botDodgeMinIntervalMs() const;
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
   [[nodiscard]] BotAttackMode botAttackMode() const;
+  [[nodiscard]] Weapon botWeapon() const;
   [[nodiscard]] bool isBotSlot(std::size_t playerIndex) const;
   [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
   [[nodiscard]] bool isOccupiedSlot(std::size_t playerIndex) const;
@@ -304,6 +306,7 @@ private:
   std::array<int, kDuelPlayerCount> botDodgeDirections_ = {};
   std::array<float, kDuelPlayerCount> botDodgeSwitchSeconds_ = {};
   BotAttackMode botAttackMode_ = BotAttackMode::Off;
+  Weapon botWeapon_ = Weapon::MachineGun;
   std::array<BotCombatState, kDuelPlayerCount> botCombatStates_ = {};
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};

@@ -106,6 +106,7 @@ struct StaticMeshAsset {
 struct MaterialMeshAsset {
   MeshHandle handle = MeshHandle::Invalid;
   std::span<const WeaponMaterialVertex3D> vertices;
+  BoundingSphere localBounds = {};
 };
 
 struct BillboardAsset {

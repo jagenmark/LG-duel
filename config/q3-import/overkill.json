@@ -1,11 +1,72 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "source_bsp_sha256": "ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133",
   "raw_decompile_sha256": "30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc",
   "name": "overkill-lg-duel",
   "brush_policy": {
     "default_action": "allow",
-    "rules": []
+    "rules": [
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1884,
+        "action": "drop",
+        "reason": "Remove the east doorway's north 34-unit snag lip; the recessed full-height jamb clip remains."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1886,
+        "action": "drop",
+        "reason": "Remove the east doorway's south 34-unit snag lip; the recessed full-height jamb clip remains."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1908,
+        "action": "drop",
+        "reason": "Remove the west doorway's north 34-unit snag lip; the recessed full-height jamb clip remains."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1909,
+        "action": "drop",
+        "reason": "Remove the west doorway's south 34-unit snag lip; the recessed full-height jamb clip remains."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1914,
+        "action": "drop",
+        "reason": "Replace the south-right doorway's square main clip and adjacent snag lip with one continuous bevel."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1915,
+        "action": "drop",
+        "reason": "Remove the south-right doorway's 13-unit snag lip beside the replacement main clip."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1918,
+        "action": "drop",
+        "reason": "Remove the bent-left doorway's 13-unit snag lip beside the replacement main clip."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1919,
+        "action": "drop",
+        "reason": "Replace the bent-left doorway's square main clip and adjacent snag lip with one continuous bevel."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1920,
+        "action": "drop",
+        "reason": "Replace the bent-right doorway's square main clip and adjacent snag lip with one continuous bevel."
+      },
+      {
+        "source_entity_index": 0,
+        "source_brush_index": 1921,
+        "action": "drop",
+        "reason": "Remove the bent-right doorway's 13-unit snag lip beside the replacement main clip."
+      }
+    ]
   },
   "materials": {
     "wall": "Overkill/Overkill_Basalt_Block-128x128",
@@ -69,11 +130,122 @@
     [384, 848, 280],
     [-464, -1568, 408]
   ],
-  "reconstruct_patch_indices": [
-    15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27,
-    129, 130, 132, 133, 136, 137, 139, 140,
-    170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180,
-    181, 182, 183, 189, 276, 278
+  "patch_rules": [
+    {"source_patch_index": 0, "action": "reconstruct", "role": "render_only", "reason": "Restore the south-left doorway's lower arch without duplicating its source clip."},
+    {"source_patch_index": 1, "action": "reconstruct", "role": "render_only", "reason": "Restore the south-left doorway's main arch without duplicating its source clip."},
+    {"source_patch_index": 2, "action": "reconstruct", "role": "render_only", "reason": "Restore the south-left doorway's upper trim without duplicating its source clip."},
+    {"source_patch_index": 15, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 16, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 17, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 18, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 19, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 20, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 21, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 22, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 23, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 24, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 25, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 26, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 27, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 33, "action": "reconstruct", "role": "render_only", "reason": "Restore the south-right doorway's lower arch without duplicating its source clip."},
+    {"source_patch_index": 34, "action": "reconstruct", "role": "render_only", "reason": "Restore the south-right doorway's main arch without duplicating its source clip."},
+    {"source_patch_index": 35, "action": "reconstruct", "role": "render_only", "reason": "Restore the south-right doorway's upper trim without duplicating its source clip."},
+    {"source_patch_index": 46, "action": "reconstruct", "role": "render_only", "reason": "Restore the bent-left doorway's lower arch without duplicating its source clip."},
+    {"source_patch_index": 47, "action": "reconstruct", "role": "render_only", "reason": "Restore the bent-left doorway's upper arch without duplicating its source clip."},
+    {"source_patch_index": 48, "action": "reconstruct", "role": "render_only", "reason": "Restore the bent-right doorway's upper arch without duplicating its source clip."},
+    {"source_patch_index": 49, "action": "reconstruct", "role": "render_only", "reason": "Restore the bent-right doorway's lower arch without duplicating its source clip."},
+    {"source_patch_index": 129, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 130, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 132, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 133, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 136, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 137, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 139, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 140, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 170, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 171, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 172, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 173, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 174, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 175, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 176, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 177, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 178, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 179, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 180, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 181, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 182, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 183, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 189, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 276, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."},
+    {"source_patch_index": 278, "action": "reconstruct", "role": "solid", "reason": "Preserve the previously reviewed Overkill structural patch selection."}
+  ],
+  "derived_collision_hulls": [
+    {
+      "id": "doorway-south-right-bevel",
+      "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+      "classification": "playerclip",
+      "replaces": {"source_entity_index": 0, "source_brush_index": 1914},
+      "faces": [
+        [[0, -1776, 384], [192, -1792, 384], [128, -1776, 384]],
+        [[0, -1776, 800], [128, -1776, 800], [192, -1792, 800]],
+        [[0, -1776, 384], [128, -1776, 384], [128, -1776, 800]],
+        [[128, -1776, 384], [192, -1792, 384], [192, -1792, 800]],
+        [[192, -1792, 384], [0, -1792, 384], [0, -1792, 800]],
+        [[0, -1792, 384], [0, -1776, 384], [0, -1776, 800]]
+      ]
+    },
+    {
+      "id": "doorway-bent-left-bevel",
+      "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+      "classification": "playerclip",
+      "replaces": {"source_entity_index": 0, "source_brush_index": 1919},
+      "faces": [
+        [[-704, 48, 256], [-576, 32, 256], [-640, 32, 256]],
+        [[-704, 48, 800], [-640, 32, 800], [-576, 32, 800]],
+        [[-704, 48, 256], [-640, 32, 256], [-640, 32, 800]],
+        [[-640, 32, 256], [-576, 32, 256], [-576, 32, 800]],
+        [[-576, 32, 256], [-576, 48, 256], [-576, 48, 800]],
+        [[-576, 48, 256], [-704, 48, 256], [-704, 48, 800]]
+      ]
+    },
+    {
+      "id": "doorway-bent-right-bevel",
+      "reason": "Replace the main clip and adjacent lip with one continuous full-height doorway bevel.",
+      "classification": "playerclip",
+      "replaces": {"source_entity_index": 0, "source_brush_index": 1920},
+      "faces": [
+        [[64, 32, 256], [192, 48, 256], [128, 32, 256]],
+        [[64, 32, 800], [128, 32, 800], [192, 48, 800]],
+        [[64, 32, 256], [128, 32, 256], [128, 32, 800]],
+        [[128, 32, 256], [192, 48, 256], [192, 48, 800]],
+        [[192, 48, 256], [64, 48, 256], [64, 48, 800]],
+        [[64, 48, 256], [64, 32, 256], [64, 32, 800]]
+      ]
+    }
+  ],
+  "collision_visuals": [
+    {
+      "id": "teleporter-frame-left",
+      "reason": "Restore the missing left teleporter frame from its original playerclip hull.",
+      "source_entity_index": 0,
+      "source_brush_index": 1926,
+      "material_role": "trim"
+    },
+    {
+      "id": "teleporter-frame-right",
+      "reason": "Restore the missing right teleporter frame from its original playerclip hull.",
+      "source_entity_index": 0,
+      "source_brush_index": 1927,
+      "material_role": "trim"
+    },
+    {
+      "id": "teleporter-frame-base",
+      "reason": "Restore the missing teleporter base from its original playerclip hull.",
+      "source_entity_index": 0,
+      "source_brush_index": 1928,
+      "material_role": "accent"
+    }
   ],
   "patch_subdivisions": 2,
   "patch_thickness": 2.0,

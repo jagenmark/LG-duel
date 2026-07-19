@@ -110,7 +110,7 @@ class BenchmarkTests(unittest.TestCase):
             "scenario": {"name": "test", "schema_version": 1, "expected_benchmark_version": 1},
             "settings": {"backend": "gpu", "resolution": [1280, 720], "window_mode": "windowed",
                          "vsync": False, "frame_cap": 0, "fov": 100, "presentation_cvars": {}},
-            "environment": {"renderer": "gpu", "protocol_version": 1},
+            "environment": {"build_mode": "release", "renderer": "gpu", "protocol_version": 1},
             "aggregate": {"valid": True, "metrics": metrics}, "result_directory": str(root / name),
         }
 
@@ -139,6 +139,30 @@ class BenchmarkTests(unittest.TestCase):
         result["environment"].update({"gpu_name": "GPU A", "graphics_driver_version": "2", "vulkan_api_version": "1.3"})
         self.assertIn("graphics_driver_version", lg_benchmark._comparison_mismatch(baseline, result))
 
+    def test_build_mode_change_invalidates_comparison(self) -> None:
+        baseline = self._artifact(Path("root"), "base", 10)
+        result = self._artifact(Path("root"), "result", 10)
+        result["environment"]["build_mode"] = "debug"
+        self.assertIn("build_mode", lg_benchmark._comparison_mismatch(baseline, result))
+
+    def test_benchmark_cli_defaults_to_release_with_debug_opt_in(self) -> None:
+        parser = lg_benchmark.build_parser()
+        release = parser.parse_args(["run", "--scenario", "eyetoeye-static-baseline"])
+        debug = parser.parse_args([
+            "sim-run", "--workload", "movement-collision", "--build-mode", "debug",
+        ])
+        self.assertEqual(release.build_mode, "release")
+        self.assertEqual(debug.build_mode, "debug")
+        self.assertEqual(lg_benchmark.benchmark_build("release")[0], lg_benchmark.REPO_ROOT / "build" / "perf")
+
+    def test_release_client_uses_perf_build_directory(self) -> None:
+        with mock.patch.object(lg_benchmark, "ensure_client", return_value={}) as ensure:
+            lg_benchmark._start_client(27961, 10, "release")
+        ensure.assert_called_once_with(
+            renderer="gpu", benchmark=True, control_port=27961, timeout=10,
+            build_dir=lg_benchmark.REPO_ROOT / "build" / "perf",
+        )
+
     def test_result_schema_generation_and_request_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -157,6 +181,7 @@ class BenchmarkTests(unittest.TestCase):
             with mock.patch.object(lg_benchmark, "SCENARIO_ROOT", scenarios), mock.patch.object(lg_benchmark, "RESULT_ROOT", results):
                 result = lg_benchmark.run_benchmark("test-scenario", repetitions=2, request_sender=sender, start_client=False)
             self.assertEqual(result["schema_version"], 1)
+            self.assertEqual(result["environment"]["build_mode"], "release")
             self.assertTrue((Path(result["result_directory"]) / "aggregate.json").is_file())
             self.assertEqual(len(calls), 2)
             self.assertEqual(calls[0][0], "run_benchmark")

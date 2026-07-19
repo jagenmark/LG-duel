@@ -66,7 +66,7 @@ The eight supplied scenarios establish a small comparison suite:
 
 - `eyetoeye-static-baseline`: low-action cached-world control.
 - `eyetoeye-duel-like`: normal two-participant Lightning-Gun bot duel request.
-- `eyetoeye-bot-animation`: six-player bot movement/animation request using `bot_add`, `bot_dodge`, `bot_stare`, and `bot_standstill`; it is a retained comparison workload, not the 16-player capacity ceiling.
+- `eyetoeye-bot-animation`: six-player bot movement/animation request using Machine Gun bot models plus `bot_add`, `bot_weapon`, `bot_dodge`, `bot_stare`, and `bot_standstill`; it is a retained comparison workload, not the 16-player capacity ceiling.
 - `eyetoeye-projectile-effects`: a declarative future projectile/effect presentation fixture. Current bots select only the Lightning Gun and the native runner does not inject synthetic projectiles, so this descriptor is deliberately marked invalid at execution (`supported_workload: false`) rather than silently measuring a different workload. Use the headless `trace-projectile` workload for current quantitative projectile-query evidence.
 - `overkill-high-visibility`: static large-map structural/sightline stress using a checked-in `overkill_import` camera preset.
 - `eyetoeye-static-long`: 5-second warm-up plus a 25-second static baseline for tail stability.
@@ -77,11 +77,20 @@ The eight supplied scenarios establish a small comparison suite:
 only when repeated same-host comparisons against the `bvh-off` descriptor meet
 the frame-median and p95 budgets without excessive material-range inflation.
 
-The camera coordinates come from `config/dev-camera-presets.json`, not arbitrary map-space guesses. Bot commands are current commands: `bot_add [count]` is permitted only in warmup; `bot_attack 0|off|easy|medium|hard`, `bot_stare`, `bot_standstill`, and `bot_dodge` control supported training behavior. Today, bot combat always selects the Lightning Gun.
+The camera coordinates come from `config/dev-camera-presets.json`, not arbitrary map-space guesses. Bot commands are current commands: `bot_add [count]` is permitted only in warmup; `bot_attack 0|off|easy|medium|hard`, `bot_weapon <weapon>`, `bot_stare`, `bot_standstill`, and `bot_dodge` control supported training behavior. Bots default to Machine Gun, and benchmark scenarios can select another authoritative bot weapon with `actors.weapon`.
 
 ## Running, Repeating, And Comparing
 
-Build the repository normally, then let the wrapper start an owned client with the explicit benchmark flag. The PowerShell wrapper owns the supported CLI contract:
+Benchmarks use the optimized `perf` Release preset by default. Configure it once,
+then rebuild it incrementally after each code change:
+
+```powershell
+cmake --preset perf
+cmake --build --preset perf
+```
+
+The wrapper starts an owned client from `build/perf` with the explicit benchmark
+flag. The PowerShell wrapper owns the supported CLI contract:
 
 ```powershell
 .\scripts\lg-benchmark.ps1 list
@@ -89,6 +98,15 @@ Build the repository normally, then let the wrapper start an owned client with t
 .\scripts\lg-benchmark.ps1 baseline-create --scenario eyetoeye-static-baseline --name gpu-driver-current --repetitions 5
 .\scripts\lg-benchmark.ps1 compare --baseline gpu-driver-current --result build/benchmarks/eyetoeye-static-baseline/<run-group> --threshold-percent 5 --tail-threshold-percent 8
 .\scripts\lg-benchmark.ps1 report --result build/benchmarks/eyetoeye-static-baseline/<run-group> --detailed
+```
+
+Use `--build-mode debug` on `run`, `sim-run`, or `baseline-create` only when a
+Debug measurement is intentional. Debug mode selects `build/default`; Release
+and Debug artifacts are recorded as different build modes and cannot be compared
+as a normal regression result.
+
+```powershell
+.\scripts\lg-benchmark.ps1 run --scenario eyetoeye-static-baseline --build-mode debug
 ```
 
 Shared simulation hot paths have a separate headless executable so renderer scheduling cannot be mistaken for collision cost. The same PowerShell entry point builds artifact-compatible reports:

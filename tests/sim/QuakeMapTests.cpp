@@ -1,6 +1,9 @@
 #include "map/MapParser.hpp"
 #include "map/MapToArena.hpp"
 #include "sim/Arena.hpp"
+#include "sim/ArenaBroadphase.hpp"
+#include "sim/Combat.hpp"
+#include "sim/MapRegistry.hpp"
 
 #include <cmath>
 #include <iostream>
@@ -329,6 +332,216 @@ int main() {
       !result.ok && result.error.find("duplicate imported source brush locator") !=
         std::string::npos,
       "duplicate source brush provenance should fail instead of making audit rules ambiguous"
+    );
+  }
+
+  {
+    std::string text = basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone"));
+    const std::string worldClass = "\"classname\" \"worldspawn\"\n";
+    text.insert(
+      text.find(worldClass) + worldClass.size(),
+      "\"lg_source_bsp_sha256\" "
+      "\"0000000000000000000000000000000000000000000000000000000000000000\"\n"
+      "\"lg_raw_decompile_sha256\" "
+      "\"1111111111111111111111111111111111111111111111111111111111111111\"\n"
+    );
+    text +=
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_geometry_role\" \"render_only\"\n"
+      "\"lg_source_patch_index\" \"46\"\n"
+      "\"lg_source_patch_piece_index\" \"3\"\n" +
+      cuboidBrush(20, -20, 0, 60, 20, 80, "patch/arch") +
+      "}\n";
+    lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      result.ok && !result.arena.renderDefaultFloor,
+      "source-bound imports should suppress the renderer's default floor"
+    );
+    failures += expect(
+      result.ok && result.arena.wallCount == 1 && result.arena.brushCount == 0 &&
+        result.arena.visualWallCount == 1 && result.arena.visualBrushCount == 0 &&
+        result.arena.visualWalls[0].sourcePatchIndex == 46U &&
+        result.arena.visualWalls[0].sourcePatchPieceIndex == 3U &&
+        result.arena.visualWalls[0].materialId == lg::arenaMaterialId("patch/arch"),
+      "render-only cuboid should retain material and patch provenance in visual storage"
+    );
+    if (result.ok) {
+      const std::uint32_t withVisualHash = lg::hashArena(result.arena);
+      lg::Arena withoutVisual = result.arena;
+      withoutVisual.visualWallCount = 0;
+      failures += expect(
+        withVisualHash != lg::hashArena(withoutVisual),
+        "render-only geometry should affect map content hash"
+      );
+      lg::Arena changedProvenance = result.arena;
+      changedProvenance.visualWalls[0].sourcePatchIndex = 47U;
+      failures += expect(
+        withVisualHash != lg::hashArena(changedProvenance),
+        "render-only source patch provenance should affect map content hash"
+      );
+
+      lg::buildArenaCollisionIndex(result.arena);
+      failures += expect(
+        result.arena.collisionIndex &&
+          result.arena.collisionIndex->primitives.size() ==
+            result.arena.wallCount + result.arena.brushCount,
+        "render-only geometry should never enter the collision broadphase"
+      );
+      lg::ArenaBroadphaseCandidates candidates;
+      const bool indexed = lg::queryArenaCollisionIndex(
+        result.arena, {0.5F, -0.5F, 0.0F}, {1.5F, 0.5F, 2.0F}, candidates
+      );
+      failures += expect(
+        indexed && candidates.walls.none() && candidates.brushes.none(),
+        "a query covering only render-only geometry should return no collision candidates"
+      );
+
+      lg::PlayerState player;
+      player.position = {0.0F, 0.0F, 1.0F};
+      failures += expect(
+        !lg::playerPositionSolid(result.arena, player, {1.0F, 0.0F, 1.0F}),
+        "render-only geometry should not make a player position solid"
+      );
+      const lg::CollisionResult move = lg::slidePlayerArenaMove(
+        result.arena, player, player.position, {2.0F, 0.0F, 0.0F}, 1.0F
+      );
+      failures += expect(
+        !move.blocked && nearlyEqual(move.position.x, 2.0F),
+        "render-only geometry should not block player movement"
+      );
+      const lg::WorldTrace trace = lg::traceWorld(
+        result.arena, player.position, {1.0F, 0.0F, 0.0F}, 2.0F
+      );
+      failures += expect(
+        !trace.hit && nearlyEqual(trace.distance, 2.0F),
+        "render-only geometry should not block hitscan or projectile world traces"
+      );
+    }
+  }
+
+  {
+    const auto renderOnlyEntity = [](std::string_view metadata, int brushCount = 1) {
+      std::string entity =
+        "{\n"
+        "\"classname\" \"func_group\"\n" + std::string(metadata);
+      for (int index = 0; index < brushCount; ++index) {
+        entity += cuboidBrush(
+          20.0F + static_cast<float>(index) * 40.0F,
+          -20.0F,
+          0.0F,
+          40.0F + static_cast<float>(index) * 40.0F,
+          20.0F,
+          40.0F,
+          "patch/arch"
+        );
+      }
+      return entity + "}\n";
+    };
+    const std::string base = basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone"));
+    const std::array<std::pair<std::string, std::string>, 7> malformed = {{
+      {"\"lg_geometry_role\" \"render_only\"\n", "exactly one"},
+      {"\"lg_source_patch_index\" \"46\"\n", "requires lg_geometry_role"},
+      {
+        "\"lg_geometry_role\" \"solid\"\n\"lg_source_patch_index\" \"46\"\n",
+        "must be render_only"
+      },
+      {
+        "\"lg_geometry_role\" \"render_only\"\n\"lg_source_patch_index\" \"-1\"\n",
+        "non-negative"
+      },
+      {
+        "\"lg_geometry_role\" \"render_only\"\n\"lg_source_patch_index\" \"46\"\n",
+        "one brush"
+      },
+      {
+        "\"lg_geometry_role\" \"render_only\"\n"
+        "\"lg_source_entity_index\" \"0\"\n"
+        "\"lg_source_brush_index\" \"42\"\n",
+        "lg_adaptation_visual_id"
+      },
+      {
+        "\"lg_geometry_role\" \"render_only\"\n"
+        "\"lg_source_entity_index\" \"0\"\n"
+        "\"lg_source_brush_index\" \"42\"\n"
+        "\"lg_adaptation_visual_id\" \"_unstable\"\n",
+        "lg_adaptation_visual_id"
+      },
+    }};
+    for (std::size_t index = 0; index < malformed.size(); ++index) {
+      const int brushCount = index == 4U ? 2 : 1;
+      const lg::ArenaLoadResult result = lg::loadArenaFromMapText(
+        base + renderOnlyEntity(malformed[index].first, brushCount)
+      );
+      failures += expect(
+        !result.ok && result.error.find(malformed[index].second) != std::string::npos,
+        "malformed render-only role/provenance should be rejected"
+      );
+    }
+
+    const std::string metadata =
+      "\"lg_geometry_role\" \"render_only\"\n"
+      "\"lg_source_patch_index\" \"46\"\n";
+    const lg::ArenaLoadResult duplicate = lg::loadArenaFromMapText(
+      base + renderOnlyEntity(metadata) + renderOnlyEntity(metadata)
+    );
+    failures += expect(
+      !duplicate.ok &&
+        duplicate.error.find("duplicate imported source patch locator") != std::string::npos,
+      "duplicate source patch provenance should be rejected"
+    );
+
+    const lg::ArenaLoadResult distinctPieces = lg::loadArenaFromMapText(
+      base +
+      renderOnlyEntity(metadata + "\"lg_source_patch_piece_index\" \"0\"\n") +
+      renderOnlyEntity(metadata + "\"lg_source_patch_piece_index\" \"1\"\n")
+    );
+    failures += expect(
+      distinctPieces.ok && distinctPieces.arena.visualWallCount == 2,
+      "distinct pieces reconstructed from one source patch should have unique locators"
+    );
+
+    const std::string sourceBrushMetadata =
+      "\"lg_geometry_role\" \"render_only\"\n"
+      "\"lg_source_entity_index\" \"0\"\n"
+      "\"lg_source_brush_index\" \"1926\"\n"
+      "\"lg_adaptation_visual_id\" \"teleporter-frame-left\"\n";
+    const lg::ArenaLoadResult sourceBrushVisual = lg::loadArenaFromMapText(
+      base + renderOnlyEntity(sourceBrushMetadata)
+    );
+    failures += expect(
+      sourceBrushVisual.ok && sourceBrushVisual.arena.visualWallCount == 1 &&
+        sourceBrushVisual.arena.visualWalls[0].sourceEntityIndex == 0U &&
+        sourceBrushVisual.arena.visualWalls[0].sourceBrushIndex == 1926U,
+      "collision-backed render-only geometry should retain its source brush locator"
+    );
+    const lg::ArenaLoadResult duplicateSourceBrushVisual = lg::loadArenaFromMapText(
+      base + renderOnlyEntity(sourceBrushMetadata) + renderOnlyEntity(sourceBrushMetadata)
+    );
+    failures += expect(
+      !duplicateSourceBrushVisual.ok &&
+        duplicateSourceBrushVisual.error.find("duplicate render-only source brush locator") !=
+          std::string::npos,
+      "duplicate collision-backed visual locators should be rejected"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-80, -80, -8, -48, 80, 0, "stone")) +
+      "{\n"
+      "\"classname\" \"func_group\"\n"
+      "\"lg_geometry_role\" \"render_only\"\n"
+      "\"lg_source_patch_index\" \"47\"\n"
+      "\"lg_source_patch_piece_index\" \"0\"\n" +
+      inwardWoundDodecagonalPrismBrush() +
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(
+      result.ok && result.arena.brushCount == 0 &&
+        result.arena.visualBrushCount == 1 &&
+        result.arena.visualBrushes[0].sourcePatchIndex == 47U,
+      "render-only non-axis geometry should use separate visual convex-brush storage"
     );
   }
 

@@ -7,10 +7,10 @@ Status: **convertible**
 - q3map2: NetRadiant-custom 20260114, `2.5.17n-git-68ecbed`, setup `scripts/setup-q3map2.ps1`, archive SHA-256 `25c2e14e2b0bd7a9897b2f943c8821458873c8713973f9c3d68d49f26fe79e35`
 - Raw map: `overkill.raw.map` (2440317 bytes, SHA-256 `30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc`)
 - BSP: `overkill.bsp`, IBSP v47, 6863428 bytes, SHA-256 `ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133`
-- Generated candidate: 1662798 bytes, SHA-256 `de342e0bc20677210c606d0af55fc87bb5a49b7983e1b8e947ea701c351669a2`
+- Generated candidate: 1729588 bytes, SHA-256 `c8221d86af6adff2bcba11568ed7bbc5854c6a91d7df78b2b92e80564a438c8e`
 - BSP world bounds: min `[-1664.0, -4120.0, -1640.0]`, max `[3000.000244140625, 2368.0, 1824.0]`
 - AAS: `overkill.aas`, EAAS v5, BSP checksum `-1989511671`, 867588 bytes, SHA-256 `e53625957ad4e2dd2cb9987c6b24f74b6635d2c5308c7764339dd4b22bc60b92`
-- Adaptation binding: schema v2, verified `True`, BSP `ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133`, raw `30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc`
+- Adaptation binding: schema v3, verified `True`, BSP `ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133`, raw `30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc`
 - AAS routes: metadata only; no AAS route import was attempted.
 
 ### BSP lumps
@@ -40,8 +40,12 @@ Status: **convertible**
 - Entities: 233
 - Classic brushes: 1986
 - Source patches: 306
-- Reconstructed patches: 38 (242 convex brushes)
-- Valid brushes: 2218
+- Reconstructed patches: 48 (322 convex brushes)
+- Solid reconstructed patches: 38 (242 brushes; indices `[15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 129, 130, 132, 133, 136, 137, 139, 140, 170, 171, 172, 173, 174, 175, 176, 177, 178, 179, 180, 181, 182, 183, 189, 276, 278]`)
+- Render-only reconstructed patches: 10 (80 brushes; indices `[0, 1, 2, 33, 34, 35, 46, 47, 48, 49]`)
+- Derived collision hulls: 3
+- Collision-backed render-only hulls: 3
+- Valid brushes: 2301
 - Invalid brushes: 11
 - Degenerate faces: 0
 
@@ -159,8 +163,8 @@ Status: **convertible**
 
 | Category | Projected | Limit | Result |
 |---|---:|---:|---|
-| walls | 1254 | 2048 | OK |
-| convex_brushes | 915 | 1024 | OK |
+| walls | 1251 | 2048 | OK |
+| convex_brushes | 994 | 1024 | OK |
 | lights | 6 | 96 | OK |
 | jump_pads | 5 | 48 | OK |
 | health_pickups | 16 | 32 | OK |
@@ -169,7 +173,7 @@ Status: **convertible**
 
 ## Static brush provenance and policy
 
-Default action: `allow`. Rules: 0 (drops: 0, overrides: 0).
+Default action: `allow`. Rules: 10 (drops: 10, overrides: 0).
 
 | Entity | Brush | Class | Line | Materials | Automatic | Requested | Effective | Result / reason |
 |---:|---:|---|---:|---|---|---|---|---|
@@ -2057,9 +2061,9 @@ Default action: `allow`. Rules: 0 (drops: 0, overrides: 0).
 | 0 | 1881 | `worldspawn` | 18901 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1882 | `worldspawn` | 18911 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1883 | `worldspawn` | 18921 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1884 | `worldspawn` | 18931 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
+| 0 | 1884 | `worldspawn` | 18931 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the east doorway's north 34-unit snag lip; the recessed full-height jamb clip remains. (Remove the east doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.) |
 | 0 | 1885 | `worldspawn` | 18941 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1886 | `worldspawn` | 18951 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
+| 0 | 1886 | `worldspawn` | 18951 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the east doorway's south 34-unit snag lip; the recessed full-height jamb clip remains. (Remove the east doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.) |
 | 0 | 1887 | `worldspawn` | 18961 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1888 | `worldspawn` | 18971 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1889 | `worldspawn` | 18981 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
@@ -2081,20 +2085,20 @@ Default action: `allow`. Rules: 0 (drops: 0, overrides: 0).
 | 0 | 1905 | `worldspawn` | 19141 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1906 | `worldspawn` | 19151 | `sfx/hellfog` | `omit:fog_volume` | `allow` | `omitted` | omitted: fog_volume |
 | 0 | 1907 | `worldspawn` | 19161 | `common/nodrop` | `omit:confident_non_solid_utility` | `allow` | `omitted` | omitted: confident_non_solid_utility |
-| 0 | 1908 | `worldspawn` | 19171 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1909 | `worldspawn` | 19181 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
+| 0 | 1908 | `worldspawn` | 19171 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the west doorway's north 34-unit snag lip; the recessed full-height jamb clip remains. (Remove the west doorway's north 34-unit snag lip; the recessed full-height jamb clip remains.) |
+| 0 | 1909 | `worldspawn` | 19181 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the west doorway's south 34-unit snag lip; the recessed full-height jamb clip remains. (Remove the west doorway's south 34-unit snag lip; the recessed full-height jamb clip remains.) |
 | 0 | 1910 | `worldspawn` | 19191 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1911 | `worldspawn` | 19201 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1912 | `worldspawn` | 19211 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1913 | `worldspawn` | 19221 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1914 | `worldspawn` | 19231 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1915 | `worldspawn` | 19241 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
+| 0 | 1914 | `worldspawn` | 19231 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Replace the south-right doorway's square main clip and adjacent snag lip with one continuous bevel. (Replace the south-right doorway's square main clip and adjacent snag lip with one continuous bevel.) |
+| 0 | 1915 | `worldspawn` | 19241 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the south-right doorway's 13-unit snag lip beside the replacement main clip. (Remove the south-right doorway's 13-unit snag lip beside the replacement main clip.) |
 | 0 | 1916 | `worldspawn` | 19251 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1917 | `worldspawn` | 19261 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1918 | `worldspawn` | 19271 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1919 | `worldspawn` | 19281 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1920 | `worldspawn` | 19291 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
-| 0 | 1921 | `worldspawn` | 19301 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
+| 0 | 1918 | `worldspawn` | 19271 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the bent-left doorway's 13-unit snag lip beside the replacement main clip. (Remove the bent-left doorway's 13-unit snag lip beside the replacement main clip.) |
+| 0 | 1919 | `worldspawn` | 19281 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Replace the bent-left doorway's square main clip and adjacent snag lip with one continuous bevel. (Replace the bent-left doorway's square main clip and adjacent snag lip with one continuous bevel.) |
+| 0 | 1920 | `worldspawn` | 19291 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Replace the bent-right doorway's square main clip and adjacent snag lip with one continuous bevel. (Replace the bent-right doorway's square main clip and adjacent snag lip with one continuous bevel.) |
+| 0 | 1921 | `worldspawn` | 19301 | `common/clip` | `playerclip` | `drop` | `omitted` | omitted: Remove the bent-right doorway's 13-unit snag lip beside the replacement main clip. (Remove the bent-right doorway's 13-unit snag lip beside the replacement main clip.) |
 | 0 | 1922 | `worldspawn` | 19311 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1923 | `worldspawn` | 19321 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1924 | `worldspawn` | 19331 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
@@ -2148,6 +2152,22 @@ Default action: `allow`. Rules: 0 (drops: 0, overrides: 0).
 | 0 | 1972 | `worldspawn` | 19817 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 | 0 | 1973 | `worldspawn` | 19827 | `common/clip` | `playerclip` | `allow` | `playerclip` | emitted |
 
+### Derived collision hulls
+
+| ID | Class | Replaces | Faces | Bounds | Reason |
+|---|---|---|---:|---|---|
+| `doorway-south-right-bevel` | `playerclip` | `(0, 1914)` | 6 | `[-0.0, -1792.0, 384.0] .. [191.99999999999937, -1776.0, 800.0]` | Replace the main clip and adjacent lip with one continuous full-height doorway bevel. |
+| `doorway-bent-left-bevel` | `playerclip` | `(0, 1919)` | 6 | `[-704.0, 32.0, 256.0] .. [-576.0, 48.0, 800.0]` | Replace the main clip and adjacent lip with one continuous full-height doorway bevel. |
+| `doorway-bent-right-bevel` | `playerclip` | `(0, 1920)` | 6 | `[64.0, 32.0, 256.0] .. [192.0, 48.0, 800.0]` | Replace the main clip and adjacent lip with one continuous full-height doorway bevel. |
+
+### Collision-backed render-only hulls
+
+| ID | Source | Source class | Material role | Bounds | Reason |
+|---|---|---|---|---|---|
+| `teleporter-frame-left` | `(0, 1926)` | `playerclip` | `trim` | `[-1390.0, -915.9999999999998, 128.0] .. [-1322.0, -848.0, 264.0]` | Restore the missing left teleporter frame from its original playerclip hull. |
+| `teleporter-frame-right` | `(0, 1927)` | `playerclip` | `trim` | `[-1301.5, -1007.9999999999999, 128.0] .. [-1234.0, -940.5, 264.0]` | Restore the missing right teleporter frame from its original playerclip hull. |
+| `teleporter-frame-base` | `(0, 1928)` | `playerclip` | `accent` | `[-1358.0000000000002, -972.9999999999999, 128.0] .. [-1266.0, -882.9999999999999, 144.0]` | Restore the missing teleporter base from its original playerclip hull. |
+
 The converter did not truncate the candidate. The checked-in adaptation deliberately selects its authored spawns, assigns original LG materials by named source-shader roles, and reconstructs only its listed patches; remaining unsupported content stays explicit below.
 
 Patch policy: Only adaptation-selected patches are reconstructed as thin deterministic convex prisms; all others remain omitted.
@@ -2162,10 +2182,11 @@ Scale policy: No rescale or rebalance is applied. Authored Quake coordinates are
 
 ## Omitted content
 
-- Patches: 268
+- Patches: 258
 - Brushes `confident_non_solid_utility`: 34
 - Brushes `fog_volume`: 3
 - Brushes `invalid_geometry`: 11
+- Brushes `policy_drop`: 10
 - Entities `advertisement:unsupported`: 4
 - Entities `ammo_bullets:unsupported`: 3
 - Entities `ammo_cells:unsupported`: 1

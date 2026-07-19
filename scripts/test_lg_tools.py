@@ -77,10 +77,20 @@ class LgToolTests(unittest.TestCase):
     def test_benchmark_mcp_schemas_are_exact_and_closed(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
         self.assertEqual(tools["lg_list_benchmarks"]["properties"], {})
-        self.assertEqual(set(tools["lg_run_benchmark"]["properties"]), {"scenario", "repetitions", "port", "timeout"})
+        self.assertEqual(
+            set(tools["lg_run_benchmark"]["properties"]),
+            {"scenario", "repetitions", "port", "timeout", "build_mode"},
+        )
         self.assertEqual(set(tools["lg_compare_benchmarks"]["required"]), {"baseline", "result"})
         self.assertEqual(set(tools["lg_get_benchmark_result"]["properties"]), {"result", "detailed"})
         self.assertEqual(set(tools["lg_create_benchmark_baseline"]["required"]), {"scenario", "name"})
+
+    def test_benchmark_mcp_routes_explicit_debug_mode(self) -> None:
+        with mock.patch("lg_mcp_server.run_benchmark", return_value={"runs": []}) as runner:
+            lg_mcp_server.invoke_tool(
+                "lg_run_benchmark", {"scenario": "eyetoeye-static-baseline", "build_mode": "debug"}
+            )
+        self.assertEqual(runner.call_args.kwargs["build_mode"], "debug")
 
     def test_mcp_setup_uses_absolute_python_and_verifies_registration(self) -> None:
         setup = (Path(__file__).resolve().parent / "setup-lg-mcp.ps1").read_text(encoding="utf-8")

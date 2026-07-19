@@ -28,7 +28,7 @@ constexpr std::size_t kHeaderBytes = 12;
 }
 
 [[nodiscard]] bool isValidBotCommandType(BotCommandType type) {
-  return type <= BotCommandType::Dodge;
+  return type <= BotCommandType::Weapon;
 }
 
 [[nodiscard]] bool isValidMcGuffinStateValue(McGuffinState state) {
@@ -94,6 +94,9 @@ constexpr std::size_t kHeaderBytes = 12;
     case BotCommandType::Standstill:
     case BotCommandType::Dodge:
       return value == 0 || value == 1;
+    case BotCommandType::Weapon:
+      return value >= 0 &&
+        value <= static_cast<std::int32_t>(kLastWeapon);
   }
   return false;
 }
@@ -716,7 +719,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     requestedGameMode <= static_cast<std::uint8_t>(GameMode::McGuffin) &&
     requestedTeam <= static_cast<std::uint8_t>(Team::Blue) &&
     weaponSwitchingMode <= static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) &&
-    botCommand <= static_cast<std::uint8_t>(BotCommandType::Dodge) &&
+    botCommand <= static_cast<std::uint8_t>(BotCommandType::Weapon) &&
     std::fabs(packet.command.forwardMove) <= 1.0F &&
     std::fabs(packet.command.rightMove) <= 1.0F &&
     std::fabs(packet.command.upMove) <= 1.0F &&
@@ -1728,6 +1731,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     snapshot.map.contentHash == 0 ||
     !isValidWeaponSwitchingMode(snapshot.weaponSwitchingMode) ||
     !isValidBotAttackMode(snapshot.botAttackMode) ||
+    !isValidWeapon(snapshot.botWeapon) ||
     !isValidTeam(snapshot.roundWinningTeam) ||
     !isValidTeam(snapshot.matchWinningTeam) ||
     !isValidMcGuffinSnapshot(snapshot.mcguffin) ||
@@ -2050,6 +2054,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeBool(snapshot.botStareEnabled) &&
     writer.writeBool(snapshot.botStandstillEnabled) &&
     writer.writeU8(static_cast<std::uint8_t>(snapshot.botAttackMode)) &&
+    writer.writeU8(static_cast<std::uint8_t>(snapshot.botWeapon)) &&
     writer.writeU32(snapshot.phaseTicksRemaining) &&
     writer.writeU32(snapshot.liveTicksElapsed) &&
     writer.writeU8(snapshot.roundWinner) &&
@@ -2296,6 +2301,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   std::uint8_t matchPhase = 0;
   std::uint8_t weaponSwitchingMode = 0;
   std::uint8_t botAttackMode = 0;
+  std::uint8_t botWeapon = 0;
   if (
     !reader.readU8(matchPhase) ||
     matchPhase > static_cast<std::uint8_t>(MatchPhase::MatchEnd) ||
@@ -2385,6 +2391,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readBool(decoded.botStareEnabled) ||
     !reader.readBool(decoded.botStandstillEnabled) ||
     !reader.readU8(botAttackMode) ||
+    !reader.readU8(botWeapon) ||
     !reader.readU32(decoded.phaseTicksRemaining) ||
     !reader.readU32(decoded.liveTicksElapsed) ||
     !reader.readU8(decoded.roundWinner) ||
@@ -2481,6 +2488,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.botDodgeMaxIntervalMs < 1 ||
     decoded.botDodgeMaxIntervalMs > 10000 ||
     botAttackMode > static_cast<std::uint8_t>(BotAttackMode::Hard) ||
+    botWeapon > static_cast<std::uint8_t>(kLastWeapon) ||
     weaponSwitchingMode > static_cast<std::uint8_t>(WeaponSwitchingMode::Crazy) ||
     (decoded.roundWinner != 255 && decoded.roundWinner >= kDuelPlayerCount) ||
     (decoded.matchWinner != 255 && decoded.matchWinner >= kDuelPlayerCount) ||
@@ -2492,6 +2500,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   decoded.weaponSwitchingMode =
     static_cast<WeaponSwitchingMode>(weaponSwitchingMode);
   decoded.botAttackMode = static_cast<BotAttackMode>(botAttackMode);
+  decoded.botWeapon = static_cast<Weapon>(botWeapon);
 
   snapshot = std::move(decoded);
   return true;

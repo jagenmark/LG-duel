@@ -99,6 +99,22 @@ class ConversionTests(unittest.TestCase):
         result.update(extra)
         return result
 
+    def adaptation_v3(self, raw: str, **extra):
+        result = self.adaptation_v2(raw, **extra)
+        result["schema_version"] = 3
+        return result
+
+    @staticmethod
+    def cube_faces():
+        return [
+            [[0, 0, 0], [0, 0, 8], [0, 8, 8]],
+            [[8, 0, 0], [8, 8, 0], [8, 8, 8]],
+            [[0, 0, 0], [8, 0, 0], [8, 0, 8]],
+            [[0, 8, 0], [0, 8, 8], [8, 8, 8]],
+            [[0, 0, 0], [0, 8, 0], [8, 8, 0]],
+            [[0, 0, 8], [8, 0, 8], [8, 8, 8]],
+        ]
+
     def test_maps_entities_materials_and_clean_jump_pad(self):
         raw = "\n".join(
             [
@@ -356,6 +372,147 @@ class ConversionTests(unittest.TestCase):
         self.assertEqual(0, report["conversion"]["omitted_patches"])
         self.assertEqual("convertible", report["status"])
 
+    def test_v3_patch_rules_emit_render_only_pieces_with_stable_provenance(self):
+        patch = """{ patchDef2 { curves/arch ( 3 3 0 0 0 ) (
+        ( ( 0 0 8 0 0 ) ( 0 4 10 0 0 ) ( 0 8 8 0 0 ) )
+        ( ( 4 0 10 0 0 ) ( 4 4 12 0 0 ) ( 4 8 10 0 0 ) )
+        ( ( 8 0 8 0 0 ) ( 8 4 10 0 0 ) ( 8 8 8 0 0 ) )
+        ) } }"""
+        raw = entity("worldspawn", brushes=cube() + patch)
+        adaptation = self.adaptation_v3(raw, patch_rules=[{
+            "source_patch_index": 0,
+            "action": "reconstruct",
+            "role": "render_only",
+            "reason": "restore reviewed doorway arch without collision",
+        }], patch_subdivisions=1, patch_thickness=1.0)
+
+        first_output, first_report = q3.convert(raw, "patch-v3.map", self.bsp, adaptation=adaptation)
+        second_output, second_report = q3.convert(raw, "patch-v3.map", self.bsp, adaptation=adaptation)
+
+        self.assertEqual(first_output, second_output)
+        self.assertEqual(first_report, second_report)
+        self.assertEqual(2, first_output.count('"lg_geometry_role" "render_only"'))
+        self.assertEqual(2, first_output.count('"lg_source_patch_index" "0"'))
+        self.assertIn('"lg_source_patch_piece_index" "0"', first_output)
+        self.assertIn('"lg_source_patch_piece_index" "1"', first_output)
+        roles = first_report["conversion"]["reconstructed_patches_by_role"]
+        self.assertEqual({"patch_count": 1, "brush_count": 2, "indices": [0]}, roles["render_only"])
+        self.assertEqual({"patch_count": 0, "brush_count": 0, "indices": []}, roles["solid"])
+
+    def test_v3_patch_rules_are_strict_and_replace_flat_indices(self):
+        patch = """{ patchDef2 { curves/arch ( 3 3 0 0 0 ) (
+        ( ( 0 0 8 0 0 ) ( 0 4 8 0 0 ) ( 0 8 8 0 0 ) )
+        ( ( 4 0 8 0 0 ) ( 4 4 9 0 0 ) ( 4 8 8 0 0 ) )
+        ( ( 8 0 8 0 0 ) ( 8 4 8 0 0 ) ( 8 8 8 0 0 ) )
+        ) } }"""
+        raw = entity("worldspawn", brushes=cube() + patch)
+        base = {
+            "source_patch_index": 0, "action": "reconstruct", "role": "solid", "reason": "reviewed",
+        }
+        cases = [
+            ({"reconstruct_patch_indices": [0]}, "must use patch_rules"),
+            ({"patch_rules": [{**base, "extra": True}]}, "invalid fields"),
+            ({"patch_rules": [{**base, "role": "collision"}]}, "invalid role"),
+            ({"patch_rules": [{**base, "reason": ""}]}, "nonempty reason"),
+            ({"patch_rules": [base, dict(base)]}, "duplicate source_patch_index"),
+            ({"patch_rules": [{**base, "source_patch_index": 1}]}, "outside the source inventory"),
+        ]
+        for extra, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(q3.ConversionError, message):
+                q3.convert(raw, "patch-rules.map", self.bsp, adaptation=self.adaptation_v3(raw, **extra))
+
+    def test_v3_derived_collision_hull_replaces_dropped_clip(self):
+        raw = entity("worldspawn", brushes=cube("common/playerclip"))
+        adaptation = self.adaptation_v3(raw,
+            brush_policy={"default_action": "allow", "rules": [{
+                "source_entity_index": 0, "source_brush_index": 0,
+                "action": "drop", "reason": "replace snagging doorway clip",
+            }]},
+            derived_collision_hulls=[{
+                "id": "doorway-0-0-smooth", "reason": "flush reviewed replacement",
+                "classification": "playerclip",
+                "replaces": {"source_entity_index": 0, "source_brush_index": 0},
+                "faces": self.cube_faces(),
+            }])
+
+        output, report = q3.convert(raw, "derived.map", self.bsp, adaptation=adaptation)
+
+        self.assertEqual(1, output.count('"lg_adaptation_derived_id" "doorway-0-0-smooth"'))
+        self.assertEqual(6, output.count("common/playerclip"))
+        self.assertEqual(1, report["conversion"]["derived_collision_hulls"]["count"])
+        item = report["conversion"]["derived_collision_hulls"]["items"][0]
+        self.assertEqual({"source_entity_index": 0, "source_brush_index": 0}, item["replaces"])
+        self.assertEqual({"min": [0.0, 0.0, 0.0], "max": [8.0, 8.0, 8.0]}, item["bounds"])
+
+    def test_v3_derived_collision_hulls_reject_invalid_relationships_and_geometry(self):
+        raw = entity("worldspawn", brushes=cube("common/playerclip") + cube("common/playerclip"))
+        drop_rules = [{
+            "source_entity_index": 0, "source_brush_index": index,
+            "action": "drop", "reason": "reviewed replacement",
+        } for index in range(2)]
+        base = {
+            "id": "smooth-a", "reason": "reviewed smooth hull", "classification": "playerclip",
+            "replaces": {"source_entity_index": 0, "source_brush_index": 0},
+            "faces": self.cube_faces(),
+        }
+        open_faces = self.cube_faces()[:-1]
+        malformed_faces = self.cube_faces()
+        malformed_faces[0] = malformed_faces[0][:-1]
+        nonfinite_faces = self.cube_faces()
+        nonfinite_faces[0][0][0] = float("inf")
+        cases = [
+            ([{**base, "faces": open_faces}], drop_rules, "closed convex brush"),
+            ([{**base, "faces": malformed_faces}], drop_rules, "exactly three points"),
+            ([{**base, "faces": nonfinite_faces}], drop_rules, "finite three-number array"),
+            ([base, {**base, "replaces": {"source_entity_index": 0, "source_brush_index": 1}}], drop_rules, "duplicate id"),
+            ([base, {**base, "id": "smooth-b"}], drop_rules, "duplicate replacement locator"),
+            ([{**base, "classification": "weapclip"}], drop_rules, "class mismatch"),
+            ([base], drop_rules[1:], "explicitly dropped"),
+        ]
+        for hulls, rules, message in cases:
+            with self.subTest(message=message), self.assertRaisesRegex(q3.ConversionError, message):
+                q3.convert(raw, "invalid-derived.map", self.bsp, adaptation=self.adaptation_v3(
+                    raw,
+                    brush_policy={"default_action": "allow", "rules": rules},
+                    derived_collision_hulls=hulls,
+                ))
+
+    def test_v3_collision_visual_clones_clip_as_render_only_visible_geometry(self):
+        raw = entity("worldspawn", brushes=cube("common/playerclip"))
+        visual = {
+            "id": "teleporter-frame-left",
+            "reason": "explain the retained teleporter clip",
+            "source_entity_index": 0,
+            "source_brush_index": 0,
+            "material_role": "accent",
+        }
+        output, report = q3.convert(
+            raw,
+            "collision-visual.map",
+            self.bsp,
+            adaptation=self.adaptation_v3(raw, collision_visuals=[visual]),
+        )
+
+        self.assertEqual(1, output.count('"lg_adaptation_visual_id" "teleporter-frame-left"'))
+        self.assertEqual(1, output.count('"lg_geometry_role" "render_only"'))
+        self.assertEqual(6, output.count("Overkill/Accent"))
+        self.assertEqual(1, report["conversion"]["collision_visuals"]["count"])
+        self.assertEqual("playerclip", report["conversion"]["collision_visuals"]["items"][0]["source_classification"])
+
+        invalid_cases = [
+            ({**visual, "source_brush_index": 1}, "outside the source inventory"),
+            ({**visual, "material_role": "missing"}, "invalid material_role"),
+            ({**visual, "id": "bad id"}, "invalid stable id"),
+        ]
+        for invalid, message in invalid_cases:
+            with self.subTest(message=message), self.assertRaisesRegex(q3.ConversionError, message):
+                q3.convert(
+                    raw,
+                    "invalid-collision-visual.map",
+                    self.bsp,
+                    adaptation=self.adaptation_v3(raw, collision_visuals=[invalid]),
+                )
+
     def test_adaptation_accepts_up_to_thirty_two_selected_spawns(self):
         spawns = [entity("info_player_deathmatch", f'"origin" "{index} 0 8"') for index in range(32)]
         raw = entity("worldspawn", brushes=cube()) + "\n" + "\n".join(spawns)
@@ -447,6 +604,50 @@ class MetadataAndCliTests(unittest.TestCase):
             self.assertEqual(1, report["conversion"]["runtime_inactive_spawns"])
             self.assertEqual(1, report["conversion"]["over_limits"]["spawns"]["excess"])
             self.assertIn("converter did not truncate", markdown_path.read_text())
+
+    def test_checked_in_overkill_adaptation_repairs_the_reviewed_doorway_family(self):
+        repository = MODULE_PATH.parent.parent
+        adaptation = json.loads(
+            (repository / "config" / "q3-import" / "overkill.json").read_text(encoding="utf-8")
+        )
+        self.assertEqual(3, adaptation["schema_version"])
+        render_only = {
+            rule["source_patch_index"]
+            for rule in adaptation["patch_rules"]
+            if rule["role"] == "render_only"
+        }
+        self.assertEqual({0, 1, 2, 33, 34, 35, 46, 47, 48, 49}, render_only)
+
+        dropped = {
+            (rule["source_entity_index"], rule["source_brush_index"])
+            for rule in adaptation["brush_policy"]["rules"]
+            if rule["action"] == "drop"
+        }
+        self.assertEqual(
+            {
+                (0, 1884), (0, 1886), (0, 1908), (0, 1909),
+                (0, 1914), (0, 1915), (0, 1918), (0, 1919),
+                (0, 1920), (0, 1921),
+            },
+            dropped,
+        )
+        replacements = {
+            (hull["replaces"]["source_entity_index"], hull["replaces"]["source_brush_index"])
+            for hull in adaptation["derived_collision_hulls"]
+        }
+        self.assertEqual({(0, 1914), (0, 1919), (0, 1920)}, replacements)
+        self.assertTrue(replacements.issubset(dropped))
+        self.assertTrue(all(len(hull["faces"]) == 6 for hull in adaptation["derived_collision_hulls"]))
+        collision_visuals = {
+            (visual["source_entity_index"], visual["source_brush_index"])
+            for visual in adaptation["collision_visuals"]
+        }
+        self.assertEqual({(0, 1926), (0, 1927), (0, 1928)}, collision_visuals)
+
+        generated = (repository / "maps" / "overkill_import.map").read_text(encoding="utf-8")
+        self.assertEqual(83, generated.count('"lg_geometry_role" "render_only"'))
+        self.assertEqual(3, generated.count('"lg_adaptation_visual_id"'))
+        self.assertEqual(3, generated.count('"lg_adaptation_derived_id"'))
 
 
 if __name__ == "__main__":

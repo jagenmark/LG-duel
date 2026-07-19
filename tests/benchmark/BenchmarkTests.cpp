@@ -37,7 +37,7 @@ constexpr std::string_view validScenario = R"({
   "warmup_frames":2,"measured_frames":4,
   "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0,"fov":90},
   "camera_path":[{"progress":1,"position":[10,0,2],"yaw":90,"pitch":10,"fov":100}],
-  "actors":{"bots":1,"attack_mode":"hard","stare":false,"standstill":true,"expected_count":2},
+  "actors":{"bots":1,"weapon":"rl","attack_mode":"hard","stare":false,"standstill":true,"expected_count":2},
   "cvars":{"r_frustum_cull":1,"r_world_frustum_cull":1,"r_player_model":"box"},
   "screenshots":[{"name":"final","progress":1}]
 })";
@@ -112,6 +112,10 @@ int main() {
   );
   const lg::benchmark::ParseResult valid = parse(validScenario);
   failures += expect(valid.ok, "documented benchmark scenario should parse");
+  failures += expect(
+    valid.ok && valid.scenario.actors.weapon == lg::Weapon::RocketLauncher,
+    "benchmark bot weapon should parse through the shared weapon catalog"
+  );
   const lg::benchmark::ParseResult unsupportedFixture = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
     "name":"effects","map":"eyetoeye","resolution":[1280,720],
@@ -138,6 +142,10 @@ int main() {
   failures += expect(
     !parse(R"({"schema_version":1,"expected_benchmark_version":1,"name":"x","map":"../evil","resolution":[1280,720],"warmup_frames":2,"measured_frames":2,"camera_start":{"position":[0,0,0],"yaw":0,"pitch":0}})").ok,
     "map traversal should be rejected"
+  );
+  failures += expect(
+    !parse(R"({"schema_version":1,"expected_benchmark_version":1,"name":"x","map":"eyetoeye","resolution":[1280,720],"warmup_frames":2,"measured_frames":2,"camera_start":{"position":[0,0,0],"yaw":0,"pitch":0},"actors":{"weapon":"banana"}})").ok,
+    "unsupported benchmark bot weapons should be rejected"
   );
   failures += expect(!lg::benchmark::isSafeRunId("../../run"), "run id traversal should be rejected");
   failures += expect(!lg::benchmark::isSafeScenarioHash("not-a-hash"), "non-hex hash should be rejected");
