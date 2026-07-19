@@ -43,6 +43,24 @@ int main() {
   lg::PlayerState player = groundedPlayer();
   player.velocity.x = config.moveEnterSpeed - 0.01F;
   auto frame = lg::updatePlayerPresentation(thresholdState, player, 0.016F, 2U, config);
+
+  lg::PlayerPresentationState deathState;
+  lg::PlayerState deadPlayer = groundedPlayer();
+  deadPlayer.health = 0;
+  auto deathFrame = lg::updatePlayerPresentation(deathState, deadPlayer, 0.25F, 0U, config);
+  failures += expect(
+    deathFrame.diagnostics.currentState == lg::PlayerLocomotionState::Death &&
+      activeBaseClip(deathFrame) == "Death",
+    "a dead player should play and hold a death clip"
+  );
+  deadPlayer.health = 100;
+  (void)lg::updatePlayerPresentation(deathState, deadPlayer, 0.016F, 0U, config);
+  deadPlayer.health = 0;
+  deathFrame = lg::updatePlayerPresentation(deathState, deadPlayer, 0.016F, 0U, config);
+  failures += expect(
+    activeBaseClip(deathFrame) == "Death",
+    "each later death should restart the full death clip"
+  );
   failures += expect(
     frame.diagnostics.currentState == lg::PlayerLocomotionState::Idle &&
       frame.diagnostics.moveDirection == lg::PlayerMoveDirection::Stationary,

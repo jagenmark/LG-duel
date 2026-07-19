@@ -21,6 +21,7 @@ enum class PlayerLocomotionState : std::uint8_t {
   Rise,
   Fall,
   Landing,
+  Death,
 };
 
 enum class PlayerMoveDirection : std::uint8_t {

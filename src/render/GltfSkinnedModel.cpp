@@ -1456,4 +1456,19 @@ GltfSkinnedModel& duelistMaleModel() {
   return model;
 }
 
+GltfSkinnedModel& workerPlayerModel() {
+  static GltfSkinnedModel model;
+  static bool attemptedLoad = false;
+  if (!attemptedLoad) {
+    attemptedLoad = true;
+    constexpr std::array<std::string_view, 4> prefixes = {{"", "../", "../../", "../../../"}};
+    for (std::string_view prefix : prefixes) {
+      if (model.load(std::string(prefix) + "assets/models/quaternius_worker/quaternius_worker.glb")) {
+        return model;
+      }
+    }
+  }
+  return model;
+}
+
 } // namespace lg

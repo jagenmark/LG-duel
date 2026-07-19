@@ -2,9 +2,7 @@
 
 This file lists reviewed outside assets. Pipeline jobs add draft entries to their review package first. A person must check the source, saved license evidence, preview, reports, and file hashes before copying an entry here with production files.
 
-No asset from the new review pipeline has been added to production yet.
-
-## Review-only records
+## Production records
 
 ### Quaternius Worker
 
@@ -17,7 +15,8 @@ No asset from the new review pipeline has been added to production yet.
 - Animation file SHA-256: `259ed6f6e5f1bb2a15215a66a9ed02e8956083a281a8098103490d1a00292b7f`
 - Review GLB: `imports/assets/review/quaternius_worker/quaternius_worker.glb`
 - Review GLB SHA-256: `b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60`
-- Status: checked review import only; no runtime file has been added to production
+- Runtime GLB: `assets/models/quaternius_worker/quaternius_worker.glb`
+- Status: production player-model option `r_player_model 2`
 - Review note: `asset_pipeline/reviews/quaternius_worker/REVIEW.md`
 
 ## Review entry form

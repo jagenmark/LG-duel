@@ -1380,11 +1380,14 @@ void addGltfPlayerModelInstance(
 
   const PlayerModelBasis basis =
     playerModelBasis(player, false, leanScale, 0.0F);
-  const float verticalScale = basis.height / kDuelistMaleHeight;
+  const bool workerModel = &model == &workerPlayerModel();
+  const float authoredHeight = workerModel ? 1.86643112F : kDuelistMaleHeight;
+  const float authoredDepthCenter = workerModel ? 0.09206353F : kDuelistMaleDepthCenter;
+  const float verticalScale = basis.height / authoredHeight;
   const float horizontalScale = basis.radius / kDuelistMaleHalfWidth * 0.94F;
   const Vec3 base = player.position - basis.up * basis.halfHeight;
   const Vec3 translation = base -
-    basis.forward * (kDuelistMaleDepthCenter * horizontalScale);
+    basis.forward * (authoredDepthCenter * horizontalScale);
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
   DuelistPoseRequests poseRequests;
@@ -1400,8 +1403,10 @@ void addGltfPlayerModelInstance(
         // the previous clip fully, then blend the new clip by transition alpha.
         weight = 1.0F;
       }
+      std::string_view clip = layer.animationName;
+      if (workerModel && clip == "IDLE") clip = "Idle_Gun_TwoHanded";
       poseRequests.push({
-        layer.animationName,
+        clip,
         layer.timeSeconds,
         weight,
         layer.mask == PlayerPoseLayerMask::UpperBody
@@ -4251,8 +4256,11 @@ Scene3D buildPerspectiveScene(
   scene.gltfBonePalette.reserve(kDuelPlayerCount * 64U);
   appendCollisionDebugGeometry(scene, arena, settings.showCollision);
   GltfSkinnedModel::PoseScratch gltfPoseScratch;
-  const GltfSkinnedModel* gltfPlayerModel =
-    settings.playerModel == 1 ? &duelistMaleModel() : nullptr;
+  const GltfSkinnedModel* gltfPlayerModel = settings.playerModel == 1
+    ? &duelistMaleModel()
+    : settings.playerModel == 2
+      ? &workerPlayerModel()
+      : nullptr;
   if (gltfPlayerModel != nullptr && gltfPlayerModel->loaded()) {
     scene.gltfBonePalette.reserve(
       kDuelPlayerCount *
@@ -4310,7 +4318,7 @@ Scene3D buildPerspectiveScene(
     const bool usePlayerBoxModel =
       settings.drawRemotePlayers &&
       (
-        settings.playerModel != 1 ||
+        settings.playerModel == 0 ||
         gltfPlayerModel == nullptr ||
         !gltfPlayerModel->loaded()
       );

@@ -173,5 +173,6 @@ private:
 };
 
 [[nodiscard]] GltfSkinnedModel& duelistMaleModel();
+[[nodiscard]] GltfSkinnedModel& workerPlayerModel();
 
 } // namespace lg

@@ -8064,9 +8064,12 @@ int GameApp::run() const {
           std::to_string(diagnostics.legacyCpuSkinnedGltfVertexUploadBytes) +
           " B"
         );
-        if (console.getInt("r_player_model") == 1) {
+        if (console.getInt("r_player_model") > 0) {
           std::string loadedAnimations = "gltf clips:";
-          for (const std::string& name : duelistMaleModel().animationNames()) {
+          const GltfSkinnedModel& activeModel = console.getInt("r_player_model") == 2
+            ? workerPlayerModel()
+            : duelistMaleModel();
+          for (const std::string& name : activeModel.animationNames()) {
             loadedAnimations += " " + name;
           }
           hud.topLeftLines.emplace_back(std::move(loadedAnimations));

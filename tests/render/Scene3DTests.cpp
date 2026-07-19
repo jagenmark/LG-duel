@@ -335,6 +335,20 @@ int main() {
     "GLB render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
   );
 
+  lg::RenderSettings workerSettings = settings;
+  workerSettings.playerModel = 2;
+  const lg::Scene3D workerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, workerSettings
+  );
+  failures += expect(
+    lg::workerPlayerModel().loaded() &&
+      workerScene.gltfPlayerModelStats.activeInstances == 1U &&
+      workerScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
+      workerScene.remoteWeaponStats.instancesSubmitted == 1U,
+    "Worker selection should load a skinned body and retain the remote weapon"
+  );
+
   lg::RenderSettings noWeaponSettings = settings;
   noWeaponSettings.drawRemoteWeapons = false;
   const lg::Scene3D noWeaponScene = lg::buildPerspectiveScene(
