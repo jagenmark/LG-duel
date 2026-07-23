@@ -248,6 +248,7 @@ target_compile_features(lg_duel_quake_map_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_quake_map_tests)
 
 add_test(NAME lg_duel_quake_map_tests COMMAND lg_duel_quake_map_tests)
+set_tests_properties(lg_duel_quake_map_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(lg_duel_fixed_tick_tests
   sim/FixedTickTests.cpp

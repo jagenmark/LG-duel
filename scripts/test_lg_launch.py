@@ -488,7 +488,15 @@ GPU0:
             result,
             {"stopped": ["client"], "already_exited": [], "failures": []},
         )
-        kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
+        termination_calls = [
+            call
+            for call in kill.call_args_list
+            if call.args[1] != 0
+        ]
+        self.assertEqual(
+            termination_calls,
+            [mock.call(101, lg_launch.signal.SIGTERM)],
+        )
 
     def test_scenario_cleanup_reports_identity_failure_without_killing(self) -> None:
         state = {
