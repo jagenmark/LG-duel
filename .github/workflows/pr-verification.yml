@@ -95,7 +95,7 @@ jobs:
 
   windows-build-and-tests:
     name: windows-build-and-tests
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 40
     steps:
       - name: Check out source
@@ -202,7 +202,7 @@ jobs:
 
   live-client-server-smoke:
     name: live-client-server-smoke
-    runs-on: windows-latest
+    runs-on: windows-2022
     timeout-minutes: 30
     steps:
       - name: Check out source

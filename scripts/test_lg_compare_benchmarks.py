@@ -354,7 +354,12 @@ class CompareBenchmarkTests(unittest.TestCase):
                 if command[:4] == ["git", "worktree", "remove", "--force"]
             ]
             self.assertEqual(len(removed), 2)
-            self.assertTrue(all(str(output.resolve()) in item for item in removed))
+            owned_names = {
+                Path(item["path"]).name
+                for item in manifest["cleanup"]
+                if item["path"].startswith("temp/worktrees/")
+            }
+            self.assertEqual({Path(item).name for item in removed}, owned_names)
             self.assertFalse(any("foreign-lg-worktree" in item for item in removed))
 
     def test_revision_run_failure_also_cleans_worktrees(self) -> None:

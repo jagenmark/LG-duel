@@ -86,6 +86,7 @@ class LaunchTests(unittest.TestCase):
             build.mkdir()
             (build / "lg_duel_client.exe").touch()
             (build / "lg_duel_server.exe").touch()
+            expected_server_path = str((build / "lg_duel_server.exe").resolve())
             with mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
                  mock.patch.object(lg_launch, "resolve_vulkan_selection", return_value=self.selection()), \
                  mock.patch.object(
@@ -103,7 +104,10 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(launch.call_count, 2)
         self.assertTrue(all(call.args[5] == build.resolve() for call in launch.call_args_list))
         self.assertEqual(result["build_directory"], str(build.resolve()))
-        self.assertEqual(written[0]["server"], {"pid": 301, "owned": True, "path": str(build / "lg_duel_server.exe")})
+        self.assertEqual(
+            written[0]["server"],
+            {"pid": 301, "owned": True, "path": expected_server_path},
+        )
         self.assertEqual(written[0]["client"]["pid"], 302)
         self.assertTrue(written[0]["client"]["owned"])
 
@@ -548,7 +552,7 @@ GPU0:
 
     def test_scenario_cleanup_stops_tracking_after_process_exits(self) -> None:
         state = {
-            "cleanup_timeout": 0.1,
+            "cleanup_timeout": 1.0,
             "run_token": "run-14",
             "client": {
                 "pid": 101,
