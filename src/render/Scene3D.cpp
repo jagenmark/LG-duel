@@ -7,6 +7,7 @@
 #include "render/BakedRocketLauncherModel.hpp"
 #include "render/BakedFreezeGunModel.hpp"
 #include "render/BakedPlasmaGunModel.hpp"
+#include "render/BakedSniperRifleModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
@@ -43,6 +44,9 @@ constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
 constexpr float kRocketLauncherViewModelScale = 0.66F;
+constexpr float kSniperRifleViewModelScale = 1.45F;
+constexpr float kSniperRifleViewModelWidthScale = 1.30F;
+constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
 constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
 
@@ -1985,6 +1989,16 @@ void appendFreezeGunInstances(
   return frame;
 }
 
+[[nodiscard]] WeaponModelFrame sniperRifleGripAlignedFrame(
+  WeaponModelFrame frame
+) {
+  // Keep the authored grip on the player hand for both world and view models.
+  frame.hand -= frame.basis.forward * (kSniperRifleGripSocket.x * frame.scale);
+  frame.hand -= frame.basis.right * (kSniperRifleGripSocket.y * frame.scale);
+  frame.hand -= frame.basis.up * (kSniperRifleGripSocket.z * frame.scale);
+  return frame;
+}
+
 void appendPlasmaGunInstances(
   Scene3D& scene,
   const WeaponModelFrame& frame,
@@ -2201,6 +2215,34 @@ void addFirstPersonWeaponModel(
     scene.viewModelStats.drawCalls += 3U;
     break;
   }
+  case Weapon::Railgun: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.scale *= kSniperRifleViewModelScale;
+    weaponFrame.hand -= weaponFrame.basis.forward * 0.05F;
+    weaponFrame.hand -= weaponFrame.basis.up * 0.03F;
+    weaponFrame = sniperRifleGripAlignedFrame(weaponFrame);
+    StaticMeshInstance instance = weaponMeshInstance(
+      MeshHandle::RemoteRailgun,
+      RenderPass::ViewModel,
+      weaponFrame,
+      {255, 255, 255, 255}
+    );
+    // End-on rifles read too thin in a centered view. Enlarge only the local
+    // width and height columns; world models and gameplay aim stay unchanged.
+    instance.modelRow0.y *= kSniperRifleViewModelWidthScale;
+    instance.modelRow1.y *= kSniperRifleViewModelWidthScale;
+    instance.modelRow2.y *= kSniperRifleViewModelWidthScale;
+    instance.modelRow0.z *= kSniperRifleViewModelHeightScale;
+    instance.modelRow1.z *= kSniperRifleViewModelHeightScale;
+    instance.modelRow2.z *= kSniperRifleViewModelHeightScale;
+    instance.worldBounds.radius *= std::max(
+      kSniperRifleViewModelWidthScale,
+      kSniperRifleViewModelHeightScale
+    );
+    appendStaticMeshInstance(scene, instance);
+    ++scene.viewModelStats.drawCalls;
+    break;
+  }
   default:
     break;
   }
@@ -2276,21 +2318,6 @@ void addRocketLauncherModel(Scene3D& scene, const WeaponModelFrame& frame) {
   addWeaponPart(scene, frame, 0.32F, -0.13F, 0.19F, {0.14F, 0.02F, 0.025F}, warning);
 }
 
-void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  constexpr RenderColor dark = {28, 26, 40, 255};
-  constexpr RenderColor violet = {83, 69, 128, 255};
-  constexpr RenderColor rail = {118, 229, 255, 255};
-  constexpr RenderColor core = {255, 224, 118, 255};
-
-  addWeaponPart(scene, frame, 0.14F, 0.0F, 0.09F, {0.24F, 0.075F, 0.07F}, dark);
-  addWeaponPart(scene, frame, 0.48F, 0.0F, 0.09F, {0.30F, 0.045F, 0.045F}, violet);
-  addWeaponPart(scene, frame, 0.78F, 0.0F, 0.09F, {0.045F, 0.075F, 0.075F}, core);
-  addWeaponPart(scene, frame, 0.43F, -0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
-  addWeaponPart(scene, frame, 0.43F, 0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
-  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.04F, 0.145F}, dark);
-  addWeaponStrut(scene, frame, {0.22F, -0.08F, 0.02F}, {0.66F, 0.08F, 0.02F}, 0.016F, rail);
-}
-
 [[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
   switch (weapon) {
   case Weapon::LightningGun:
@@ -2304,6 +2331,10 @@ void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
     return 0.50F;
   case Weapon::Revolver:
     return 0.45F;
+  case Weapon::Railgun:
+    // The imported sniper is authored near one metre long. Keep it at rifle
+    // size instead of using the short procedural weapon scale.
+    return 1.15F;
   default:
     return 0.65F;
   }
@@ -2534,13 +2565,20 @@ void addWireBox(
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   if (weapon == Weapon::Revolver) {
     frame = revolverGripAlignedFrame(frame);
+  } else if (weapon == Weapon::Railgun) {
+    frame = sniperRifleGripAlignedFrame(frame);
   }
   switch (weapon) {
   case Weapon::LightningGun:
   case Weapon::FreezeGun:
     return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
   case Weapon::Railgun:
-    return weaponLocalPoint(frame, 0.78F, 0.0F, 0.09F);
+    return weaponLocalPoint(
+      frame,
+      kSniperRifleMuzzleSocket.x,
+      kSniperRifleMuzzleSocket.y,
+      kSniperRifleMuzzleSocket.z
+    );
   case Weapon::Revolver:
     return weaponLocalPoint(frame, 0.68F, 0.0F, 0.155F);
   default:
@@ -2847,8 +2885,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     proceduralWeaponVertices(Weapon::GrenadeLauncher);
   static const std::vector<Vertex3D> lightningGunVertices =
     proceduralWeaponVertices(Weapon::LightningGun);
-  static const std::vector<Vertex3D> railgunVertices =
-    proceduralWeaponVertices(Weapon::Railgun);
   static const StaticMeshAsset shotgunAsset = {
     MeshHandle::RemoteShotgun,
     std::span<const Vertex3D>(shotgunVertices.data(), shotgunVertices.size()),
@@ -2865,12 +2901,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     MeshHandle::RemoteLightningGun,
     std::span<const Vertex3D>(lightningGunVertices.data(), lightningGunVertices.size()),
     meshBounds(lightningGunVertices),
-    RenderPass::OpaqueWorld,
-  };
-  static const StaticMeshAsset railgunAsset = {
-    MeshHandle::RemoteRailgun,
-    std::span<const Vertex3D>(railgunVertices.data(), railgunVertices.size()),
-    meshBounds(railgunVertices),
     RenderPass::OpaqueWorld,
   };
   switch (handle) {
@@ -2908,7 +2938,7 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   case MeshHandle::RemoteLightningGun:
     return &lightningGunAsset;
   case MeshHandle::RemoteRailgun:
-    return &railgunAsset;
+    return nullptr;
   case MeshHandle::RemoteRevolverBody:
   case MeshHandle::RemoteRevolverCylinder:
     return nullptr;
@@ -2945,6 +2975,8 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
     bakedMaterialWeaponVertices(kPlasmaGunProngMaterialModel);
   static const std::vector<WeaponMaterialVertex3D> plasmaGunCoreVertices =
     bakedMaterialWeaponVertices(kPlasmaGunCoreMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> sniperRifleVertices =
+    bakedMaterialWeaponVertices(kSniperRifleMaterialModel);
   static const MaterialMeshAsset body = {
     MeshHandle::RemoteRevolverBody,
     revolverBodyVertices,
@@ -3010,6 +3042,11 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
     plasmaGunCoreVertices,
     materialMeshBounds(plasmaGunCoreVertices),
   };
+  static const MaterialMeshAsset sniperRifle = {
+    MeshHandle::RemoteRailgun,
+    sniperRifleVertices,
+    materialMeshBounds(sniperRifleVertices),
+  };
   if (handle == MeshHandle::RemoteMachineGunBody) {
     return &machineGunBody;
   }
@@ -3048,6 +3085,9 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   }
   if (handle == MeshHandle::RemotePlasmaGunCore) {
     return &plasmaGunCore;
+  }
+  if (handle == MeshHandle::RemoteRailgun) {
+    return &sniperRifle;
   }
   return nullptr;
 }
@@ -3090,6 +3130,14 @@ Vec3 plasmaGunMuzzleSocket() {
 
 Vec3 plasmaGunGripSocket() {
   return kPlasmaGunGripSocket;
+}
+
+Vec3 sniperRifleGripSocket() {
+  return kSniperRifleGripSocket;
+}
+
+Vec3 sniperRifleMuzzleSocket() {
+  return kSniperRifleMuzzleSocket;
 }
 
 Vec3 firstPersonPlasmaGunMuzzlePosition(
@@ -3317,6 +3365,9 @@ void addRemoteWeaponInstance(
     scene.remoteWeaponStats.instancesSubmitted += 3U;
     return;
   }
+  if (weapon == Weapon::Railgun) {
+    frame = sniperRifleGripAlignedFrame(frame);
+  }
   MeshHandle mesh = remoteWeaponMeshHandle(weapon);
   if (mesh == MeshHandle::Invalid) {
     return;
@@ -3348,8 +3399,6 @@ void addRemoteWeaponInstance(
     addRocketLauncherModel(meshScene, frame);
     break;
   case Weapon::Railgun:
-    addRailgunModel(meshScene, frame);
-    break;
   case Weapon::MachineGun:
   case Weapon::Shotgun:
   case Weapon::PlasmaGun:

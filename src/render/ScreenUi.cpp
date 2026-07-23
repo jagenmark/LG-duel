@@ -3225,7 +3225,11 @@ DrawList2D buildPerspectiveWeaponOverlay(
   const auto drawWeapon = [&](Weapon weapon, float yOffset) {
     // Authored 3D viewmodels render in the perspective pass. Keep weapon
     // effects in this overlay, but never cover those meshes with legacy shapes.
-    if (weapon == Weapon::FreezeGun || weapon == Weapon::PlasmaGun) {
+    if (
+      weapon == Weapon::FreezeGun ||
+      weapon == Weapon::PlasmaGun ||
+      weapon == Weapon::Railgun
+    ) {
       return;
     }
     const float centerX = weaponCenterX;
@@ -3629,6 +3633,164 @@ DrawList2D buildPerspectiveWeaponOverlay(
   return drawList;
 }
 
+void addSniperScope(
+  DrawList2D& drawList,
+  int outputWidth,
+  int outputHeight,
+  std::uint8_t chargePercent,
+  float scopeAmount
+) {
+  const float width = static_cast<float>(outputWidth);
+  const float height = static_cast<float>(outputHeight);
+  const ScreenPoint center = {width * 0.5F, height * 0.5F};
+  const float amount = std::clamp(scopeAmount, 0.0F, 1.0F);
+  const float smoothAmount = amount * amount * (3.0F - 2.0F * amount);
+  const float openingScale = 1.08F - 0.08F * smoothAmount;
+  // Screen pixels are square, so one radius keeps the lens circular on every
+  // aspect ratio. The shorter side leaves a small rim around the full circle.
+  const float radius = std::min(width, height) * 0.46F * openingScale;
+  constexpr int kMaskSlices = 256;
+  const RenderColor outside = {
+    0, 0, 0, static_cast<std::uint8_t>(255.0F * smoothAmount)
+  };
+  const float sliceHeight = height / static_cast<float>(kMaskSlices);
+  for (int slice = 0; slice < kMaskSlices; ++slice) {
+    const float y = static_cast<float>(slice) * sliceHeight;
+    const float sampleY = y + sliceHeight * 0.5F;
+    const float normalizedY = (sampleY - center.y) / radius;
+    const float halfLensWidth = std::fabs(normalizedY) < 1.0F
+      ? radius * std::sqrt(1.0F - normalizedY * normalizedY)
+      : 0.0F;
+    addRect(drawList, 0.0F, y, center.x - halfLensWidth, sliceHeight + 1.0F, outside);
+    addRect(
+      drawList,
+      center.x + halfLensWidth,
+      y,
+      width - center.x - halfLensWidth,
+      sliceHeight + 1.0F,
+      outside
+    );
+  }
+
+  // Thin circular bands form the lens-edge fade. This avoids the large
+  // axis-aligned blocks produced by the old slice-based vignette.
+  constexpr int kVignetteBands = 10;
+  constexpr int kVignetteSegments = 128;
+  const float vignetteWidth = std::min(72.0F, radius * 0.14F);
+  for (int band = 0; band < kVignetteBands; ++band) {
+    const float outerRadius = radius -
+      vignetteWidth * static_cast<float>(band) /
+        static_cast<float>(kVignetteBands);
+    const float innerRadius = radius -
+      vignetteWidth * static_cast<float>(band + 1) /
+        static_cast<float>(kVignetteBands);
+    const float fade = 1.0F -
+      (static_cast<float>(band) + 0.5F) /
+        static_cast<float>(kVignetteBands);
+    const RenderColor shade = {
+      0, 0, 0, static_cast<std::uint8_t>(105.0F * fade * fade * smoothAmount)
+    };
+    for (int segment = 0; segment < kVignetteSegments; ++segment) {
+      const float angle0 = kTwoPi * static_cast<float>(segment) /
+        static_cast<float>(kVignetteSegments);
+      const float angle1 = kTwoPi * static_cast<float>(segment + 1) /
+        static_cast<float>(kVignetteSegments);
+      const std::array<ScreenPoint, 4> points = {{
+        {
+          center.x + std::cos(angle0) * outerRadius,
+          center.y + std::sin(angle0) * outerRadius,
+        },
+        {
+          center.x + std::cos(angle1) * outerRadius,
+          center.y + std::sin(angle1) * outerRadius,
+        },
+        {
+          center.x + std::cos(angle1) * innerRadius,
+          center.y + std::sin(angle1) * innerRadius,
+        },
+        {
+          center.x + std::cos(angle0) * innerRadius,
+          center.y + std::sin(angle0) * innerRadius,
+        },
+      }};
+      drawList.overlayCommands.emplace_back(FilledQuad2D{points, shade});
+    }
+  }
+
+  // A thin warm rim and plain reticle keep the target clear at low contrast.
+  constexpr int kRimSegments = 128;
+  ScreenPoint previous = {center.x + radius, center.y};
+  for (int segment = 1; segment <= kRimSegments; ++segment) {
+    const float angle = kTwoPi * static_cast<float>(segment) /
+      static_cast<float>(kRimSegments);
+    const ScreenPoint next = {
+      center.x + std::cos(angle) * radius,
+      center.y + std::sin(angle) * radius,
+    };
+    addLine(
+      drawList,
+      previous,
+      next,
+      {112, 94, 66, static_cast<std::uint8_t>(220.0F * smoothAmount)},
+      3.0F
+    );
+    previous = next;
+  }
+  addLine(
+    drawList,
+    {center.x - radius, center.y},
+    {center.x + radius, center.y},
+    {25, 22, 18, static_cast<std::uint8_t>(210.0F * smoothAmount)},
+    1.5F
+  );
+  addLine(
+    drawList,
+    {center.x, center.y - radius},
+    {center.x, center.y + radius},
+    {25, 22, 18, static_cast<std::uint8_t>(210.0F * smoothAmount)},
+    1.5F
+  );
+  const std::uint8_t scopeAlpha =
+    static_cast<std::uint8_t>(255.0F * smoothAmount);
+  addDiamond(drawList, center, 4.0F, {96, 220, 255, scopeAlpha});
+
+  const float charge = std::clamp(
+    static_cast<float>(chargePercent) / 100.0F,
+    0.0F,
+    1.0F
+  );
+  const float meterWidth = std::clamp(width * 0.12F, 120.0F, 220.0F);
+  const float meterHeight = 16.0F;
+  const float meterX = center.x + radius * 0.32F;
+  const float meterY = center.y + 26.0F;
+  addRect(
+    drawList,
+    meterX - 2.0F,
+    meterY - 2.0F,
+    meterWidth + 4.0F,
+    meterHeight + 4.0F,
+    {28, 24, 18, static_cast<std::uint8_t>(230.0F * smoothAmount)}
+  );
+  addRect(
+    drawList,
+    meterX,
+    meterY,
+    meterWidth * charge,
+    meterHeight,
+    charge >= 1.0F ? RenderColor{255, 132, 38, scopeAlpha}
+                   : RenderColor{232, 194, 92, scopeAlpha}
+  );
+  addText(
+    drawList,
+    meterX + meterWidth + 10.0F,
+    meterY - 1.0F,
+    std::to_string(chargePercent) + '%',
+    charge >= 1.0F ? RenderColor{255, 150, 52, scopeAlpha}
+                   : RenderColor{246, 220, 156, scopeAlpha},
+    1.5F
+  );
+}
+
 DrawList2D buildScreenUi(
   int outputWidth,
   int outputHeight,
@@ -3659,7 +3821,17 @@ DrawList2D buildScreenUi(
       {96, 96, 96, static_cast<std::uint8_t>(190.0F * strength)},
     });
   }
-  addCrosshair(drawList, outputWidth, outputHeight, settings);
+  if (hud.sniperScopeActive) {
+    addSniperScope(
+      drawList,
+      outputWidth,
+      outputHeight,
+      hud.sniperChargePercent,
+      hud.sniperScopeAmount
+    );
+  } else {
+    addCrosshair(drawList, outputWidth, outputHeight, settings);
+  }
   addHitMarker(drawList, outputWidth, outputHeight, settings);
   addSpeedText(drawList, outputWidth, outputHeight, hud, settings);
   addDashIndicator(drawList, outputWidth, outputHeight, localPlayer, settings);

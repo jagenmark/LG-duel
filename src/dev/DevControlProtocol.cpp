@@ -1,6 +1,7 @@
 #include "dev/DevControlProtocol.hpp"
 
 #include "sim/MapRegistry.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -70,8 +71,78 @@ namespace {
   if (name == "set_collision_debug") return ControlOperation::SetCollisionDebug;
   if (name == "capture_screenshot") return ControlOperation::CaptureScreenshot;
   if (name == "capture_map_views") return ControlOperation::CaptureMapViews;
+  if (name == "exec_console") return ControlOperation::ExecConsole;
+  if (name == "get_cvar") return ControlOperation::GetCvar;
+  if (name == "set_cvar") return ControlOperation::SetCvar;
+  if (name == "send_input") return ControlOperation::SendInput;
+  if (name == "wait_frames") return ControlOperation::WaitFrames;
+  if (name == "set_player_view") return ControlOperation::SetPlayerView;
+  if (name == "set_player_weapon") return ControlOperation::SetPlayerWeapon;
   if (name == "run_benchmark") return ControlOperation::RunBenchmark;
   return std::nullopt;
+}
+
+[[nodiscard]] bool isSafeSingleLine(std::string_view value, std::size_t maximumLength) {
+  if (value.empty() || value.size() > maximumLength) return false;
+  return std::none_of(value.begin(), value.end(), [](unsigned char character) {
+    return character == '\n' || character == '\r' || character == '\0' ||
+      (character < 0x20U && character != '\t');
+  });
+}
+
+[[nodiscard]] bool isSafeCvarName(std::string_view name) {
+  if (name.empty() || name.size() > 64U) return false;
+  return std::all_of(name.begin(), name.end(), [](unsigned char character) {
+    return std::isalnum(character) != 0 || character == '_';
+  });
+}
+
+[[nodiscard]] bool parseBoundedAxis(
+  const JsonValue& root,
+  std::string_view name,
+  float& result
+) {
+  const JsonValue* value = root.find(name);
+  if (value == nullptr) return true;
+  if (value->type != JsonValue::Type::Number || !std::isfinite(value->number) ||
+      value->number < -1.0 || value->number > 1.0) return false;
+  result = static_cast<float>(value->number);
+  return true;
+}
+
+[[nodiscard]] bool parseOptionalBool(
+  const JsonValue& root,
+  std::string_view name,
+  bool& result
+) {
+  const JsonValue* value = root.find(name);
+  if (value == nullptr) return true;
+  if (value->type != JsonValue::Type::Boolean) return false;
+  result = value->boolean;
+  return true;
+}
+
+[[nodiscard]] bool parsePlayerAngles(
+  const JsonValue& root,
+  float& yaw,
+  float& pitch,
+  std::string& error
+) {
+  const std::optional<double> parsedYaw = numberMember(root, "yaw");
+  const std::optional<double> parsedPitch = numberMember(root, "pitch");
+  if (!parsedYaw.has_value() || !std::isfinite(*parsedYaw) ||
+      std::fabs(*parsedYaw) > 1000000.0) {
+    error = "yaw must be a finite number";
+    return false;
+  }
+  if (!parsedPitch.has_value() || !std::isfinite(*parsedPitch) ||
+      *parsedPitch < -89.9 || *parsedPitch > 89.9) {
+    error = "pitch must be between -89.9 and 89.9 degrees";
+    return false;
+  }
+  yaw = static_cast<float>(*parsedYaw);
+  pitch = static_cast<float>(*parsedPitch);
+  return true;
 }
 
 } // namespace
@@ -101,6 +172,95 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
   request.captureName = stringMember(root, "name").value_or("");
   request.hideHud = boolMember(root, "hide_hud").value_or(true);
   request.hideOverlays = boolMember(root, "hide_overlays").value_or(true);
+
+  if (request.operation == ControlOperation::ExecConsole) {
+    request.consoleCommand = stringMember(root, "command").value_or("");
+    if (!isSafeSingleLine(request.consoleCommand, 1024U)) {
+      return {{}, false, "command must be one non-empty line of at most 1024 bytes"};
+    }
+  }
+  if (request.operation == ControlOperation::GetCvar ||
+      request.operation == ControlOperation::SetCvar) {
+    request.cvarName = stringMember(root, "name").value_or("");
+    if (!isSafeCvarName(request.cvarName)) {
+      return {{}, false, "cvar name may only use letters, numbers, and _"};
+    }
+    if (request.operation == ControlOperation::SetCvar) {
+      request.cvarValue = stringMember(root, "value").value_or("");
+      if (!isSafeSingleLine(request.cvarValue, 256U) ||
+          request.cvarValue.find('"') != std::string::npos) {
+        return {{}, false, "cvar value must be one non-empty line without quotes and at most 256 bytes"};
+      }
+    }
+  }
+  if (request.operation == ControlOperation::WaitFrames) {
+    const JsonValue* frames = root.find("frames");
+    if (frames == nullptr || frames->type != JsonValue::Type::Number ||
+        !std::isfinite(frames->number) || std::floor(frames->number) != frames->number ||
+        frames->number < 1.0 || frames->number > 600.0) {
+      return {{}, false, "frames must be an integer between 1 and 600"};
+    }
+    request.waitFrames = static_cast<std::uint32_t>(frames->number);
+  }
+  if (request.operation == ControlOperation::SetPlayerView) {
+    std::string error;
+    if (!parsePlayerAngles(
+          root, request.playerYawDegrees, request.playerPitchDegrees, error)) {
+      return {{}, false, std::move(error)};
+    }
+  }
+  if (request.operation == ControlOperation::SetPlayerWeapon) {
+    request.playerWeapon = stringMember(root, "weapon").value_or("");
+    if (!parseWeaponToken(request.playerWeapon).has_value()) {
+      return {{}, false, "weapon must name a valid LG Duel weapon"};
+    }
+  }
+  if (request.operation == ControlOperation::SendInput) {
+    PlayerInput& input = request.playerInput;
+    if (!parseBoundedAxis(root, "forward", input.forward) ||
+        !parseBoundedAxis(root, "right", input.right) ||
+        !parseBoundedAxis(root, "up", input.up)) {
+      return {{}, false, "forward, right, and up must be finite numbers between -1 and 1"};
+    }
+    if (!parseOptionalBool(root, "attack", input.attack) ||
+        !parseOptionalBool(root, "jump", input.jump) ||
+        !parseOptionalBool(root, "dash", input.dash) ||
+        !parseOptionalBool(root, "crouch", input.crouch) ||
+        !parseOptionalBool(root, "sneak", input.sneak) ||
+        !parseOptionalBool(root, "zoom", input.zoom)) {
+      return {{}, false, "attack, jump, dash, crouch, sneak, and zoom must be booleans"};
+    }
+    const JsonValue* ticks = root.find("ticks");
+    if (ticks == nullptr || ticks->type != JsonValue::Type::Number ||
+        !std::isfinite(ticks->number) || std::floor(ticks->number) != ticks->number ||
+        ticks->number < 1.0 || ticks->number > 1250.0) {
+      return {{}, false, "ticks must be an integer between 1 and 1250"};
+    }
+    input.ticks = static_cast<std::uint32_t>(ticks->number);
+    const JsonValue* yaw = root.find("yaw");
+    const JsonValue* pitch = root.find("pitch");
+    if ((yaw == nullptr) != (pitch == nullptr)) {
+      return {{}, false, "yaw and pitch must be supplied together"};
+    }
+    if (yaw != nullptr) {
+      float parsedYaw = 0.0F;
+      float parsedPitch = 0.0F;
+      std::string error;
+      if (!parsePlayerAngles(root, parsedYaw, parsedPitch, error)) {
+        return {{}, false, std::move(error)};
+      }
+      input.yawDegrees = parsedYaw;
+      input.pitchDegrees = parsedPitch;
+    }
+    const JsonValue* weapon = root.find("weapon");
+    if (weapon != nullptr && weapon->type != JsonValue::Type::String) {
+      return {{}, false, "weapon must be a string"};
+    }
+    input.weapon = weapon == nullptr ? std::string{} : weapon->string;
+    if (!input.weapon.empty() && !parseWeaponToken(input.weapon).has_value()) {
+      return {{}, false, "weapon must name a valid LG Duel weapon"};
+    }
+  }
 
   if (request.operation == ControlOperation::RunBenchmark) {
     request.scenarioHash = stringMember(root, "scenario_hash").value_or("");

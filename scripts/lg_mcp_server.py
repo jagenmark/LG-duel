@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from lg_control import ControlError, load_preset, send_request
-from lg_launch import LaunchError, ensure_client, status_with_state
+from lg_launch import LaunchError, ensure_client, restart_owned, status_with_state, stop_owned
 from lg_benchmark import (
     BenchmarkError, compare_results, create_baseline, list_scenarios, load_result, run_benchmark,
 )
@@ -98,6 +98,123 @@ TOOLS: list[dict[str, Any]] = [
                 "allow_fallback": {"type": "boolean", "default": False},
             },
             "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_stop",
+        "description": "Stop only LG Duel processes owned by the verified development launcher.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "lg_restart",
+        "description": "Restart the launcher-owned LG Duel session and verify its renderer.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "renderer": {"type": "string", "enum": ["gpu", "fallback"], "default": "gpu"},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_exec_console",
+        "description": "Run one bounded game-console command in the opt-in local development client.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "command": {"type": "string", "minLength": 1, "maxLength": 1024},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["command"], "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_get_cvar",
+        "description": "Read one game console variable by name.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "pattern": "^[A-Za-z0-9_]{1,64}$"},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["name"], "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_set_cvar",
+        "description": "Set one game console variable through its normal validation path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "pattern": "^[A-Za-z0-9_]{1,64}$"},
+                "value": {"type": "string", "minLength": 1, "maxLength": 256},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["name", "value"], "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_send_input",
+        "description": "Send bounded player input through the normal client command path for a fixed tick count.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticks": {"type": "integer", "minimum": 1, "maximum": 1250},
+                "forward": {"type": "number", "minimum": -1, "maximum": 1},
+                "right": {"type": "number", "minimum": -1, "maximum": 1},
+                "up": {"type": "number", "minimum": -1, "maximum": 1},
+                "yaw": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+                "pitch": {"type": "number", "minimum": -89.9, "maximum": 89.9},
+                "attack": {"type": "boolean"},
+                "jump": {"type": "boolean"},
+                "dash": {"type": "boolean"},
+                "crouch": {"type": "boolean"},
+                "sneak": {"type": "boolean"},
+                "zoom": {"type": "boolean"},
+                "weapon": {"type": "string", "minLength": 1, "maxLength": 32},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["ticks"],
+            "dependentRequired": {"yaw": ["pitch"], "pitch": ["yaw"]},
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_wait_frames",
+        "description": "Wait for a fixed number of rendered client frames.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "frames": {"type": "integer", "minimum": 1, "maximum": 600},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["frames"], "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_set_player_view",
+        "description": "Set the local player's view angles without moving the development camera.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "yaw": {"type": "number", "minimum": -1000000, "maximum": 1000000},
+                "pitch": {"type": "number", "minimum": -89.9, "maximum": 89.9},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["yaw", "pitch"], "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_set_player_weapon",
+        "description": "Select the local player's weapon through the normal command path.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "weapon": {"type": "string", "minLength": 1, "maxLength": 32},
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["weapon"], "additionalProperties": False,
         },
     },
     {
@@ -199,9 +316,19 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return ensure_client(renderer=renderer, allow_fallback=allow_fallback)
     if name == "lg_status":
         return status_with_state()
+    if name == "lg_stop":
+        return stop_owned()
+    if name == "lg_restart":
+        renderer = str(arguments.get("renderer", "gpu"))
+        allow_fallback = bool(arguments.get("allow_fallback", False))
+        if renderer == "fallback" and not allow_fallback:
+            raise LaunchError("renderer='fallback' requires allow_fallback=true")
+        return restart_owned(renderer=renderer, allow_fallback=allow_fallback)
     if name in {
         "lg_load_map", "lg_reload_map", "lg_get_camera", "lg_set_camera",
         "lg_set_collision_debug", "lg_capture_screenshot", "lg_capture_map_views",
+        "lg_exec_console", "lg_get_cvar", "lg_set_cvar", "lg_send_input",
+        "lg_wait_frames", "lg_set_player_view", "lg_set_player_weapon",
     }:
         allow_fallback = bool(arguments.get("allow_fallback", False))
         ensure_client(
@@ -210,6 +337,24 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         )
     if name == "lg_load_map":
         return send_request("load_map", map=arguments["map"])
+    if name == "lg_exec_console":
+        return send_request("exec_console", command=arguments["command"])
+    if name == "lg_get_cvar":
+        return send_request("get_cvar", name=arguments["name"])
+    if name == "lg_set_cvar":
+        return send_request("set_cvar", name=arguments["name"], value=arguments["value"])
+    if name == "lg_send_input":
+        fields = (
+            "ticks", "forward", "right", "up", "yaw", "pitch", "attack", "jump",
+            "dash", "crouch", "sneak", "zoom", "weapon",
+        )
+        return send_request("send_input", **{field: arguments[field] for field in fields if field in arguments})
+    if name == "lg_wait_frames":
+        return send_request("wait_frames", frames=arguments["frames"])
+    if name == "lg_set_player_view":
+        return send_request("set_player_view", yaw=arguments["yaw"], pitch=arguments["pitch"])
+    if name == "lg_set_player_weapon":
+        return send_request("set_player_weapon", weapon=arguments["weapon"])
     if name == "lg_reload_map":
         expected = arguments.get("map")
         if expected:

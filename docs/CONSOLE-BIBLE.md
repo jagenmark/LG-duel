@@ -143,6 +143,8 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `s_enable` | bool | `1` | bool | Ingen direkt | Arkiv | Slår av/på klientens ljudeffekter. |
 | `s_volume` | float | `0.35` | `0..1` | Ingen direkt | Arkiv | Volym för hit-, countdown- och round-ljud. |
 | `s_footstep_volume` | float | `0.45` | `0..1` | Ingen direkt | Arkiv | Separat fotstegsvolym. Multipliceras med `s_volume`. |
+| `s_rg_fire_volume` | float | `1` | `0..1` | None | Archive | Sniper Rifle fire sound scale, multiplied by `s_volume`. The old `rg` cvar name stays for config compatibility. |
+| `s_rg_ready_volume` | float | `1` | `0..1` | None | Archive | Sniper Rifle ready chime scale, multiplied by `s_volume`. The old `rg` cvar name stays for config compatibility. |
 
 ### 3.3 Serverstyrd movement och gameplay
 
@@ -174,6 +176,7 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_rl_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | RL-knockback per explosion, skalad med splash-damage. |
 | `g_knockback_time_ms` | int | `100` | `0..250` | Q3-style knockback movement timer | Antal millisekunder som grounded knockback anvander air movement utan ground friction. `0` stanger av speciallaget men behaller damage och direkt knockback. |
 | `g_fg_damage` | int | `120` | `1..500` | Ingen standardmekanik | Authoritative freeze gun damage per second, distributed over `g_lg_fire_hz` instances. Does not add FG knockback. |
+| `g_rg_damage` | int | `50` | `1..500` | TF2 Sniper base body damage | Authoritative Sniper Rifle damage at zero charge. Scoped charge scales this up before the Sniper Rifle's headshot multiplier applies. The old `rg` name stays for config and bind compatibility. |
 | `g_vampirism` | float | `0` | `0..2` | Ingen standardmekanik | Healing som multipel av utdelad skada. `0.1 = 10%`, `1 = 100%`, `2 = 200%`. Fraktioner ackumuleras och avrundas när helt HP kan delas ut. |
 | `g_selfdamage` | float | `100` | `0..100` | `100` | Procent av egen splash-damage som appliceras. Värdet rundas till närmaste heltal innan det skickas till servern. |
 | `g_healthamount` | int | `100` | `1..100000` | `100` | HP som varje spelare startar med vid spawn, rundstart och warmup-respawn. |
@@ -211,6 +214,58 @@ downslope slide force on ramps, and do not add freeze level by themselves.
 | `weapon.fg.ice_pool_slope_gravity_scale` | `1` | `0..10` | Multiplier for gravity projected down icy ramps. `0` disables the extra downhill pull. |
 | `weapon.fg.ice_pool_control_scale` | `0.35` | `0..1` | Ground acceleration multiplier while standing on ice. Lower values make uphill recovery harder. |
 | `weapon.fg.ice_pool_merge_distance` | `1` | `0..100` | Extra distance used when deciding whether a new floor hit grows an existing pool instead of creating another. |
+
+### 3.4a Sniper Rifle balance keys
+
+The Sniper Rifle uses the old Railgun slot and `weapon.rg.*` keys so saved binds
+and server files still work. The server builds charge only while the player holds
+ADS with this weapon. ADS and its scope/FOV view ease in over `0.2` seconds;
+charge starts once that settle time ends. Leaving ADS or switching weapons clears
+the charge. Firing spends all charge even on a miss.
+
+| Key | Default | Valid range | Function |
+|---|---:|---|---|
+| `weapon.rg.range` | `300` | `0.1..5000` | Hitscan range. |
+| `weapon.rg.eye_height` | `0.65` | `0..10` | Shot start height relative to the player. |
+| `weapon.rg.knockback` | `0` | `0..1000` | Knockback on hit. |
+| `weapon.rg.charge_seconds` | `3.3` | `0.05..30` | Time in ADS needed to reach full charge. |
+| `weapon.rg.max_damage_multiplier` | `3` | `1..10` | Body damage scale at full charge. Damage grows in a straight line from `g_rg_damage`. |
+| `weapon.rg.headshot_multiplier` | `3` | `1..10` | Headshot damage scale, applied after charge. With the defaults, headshots deal `150` damage at zero charge and `450` at full charge. |
+| `weapon.rg.cooldown_ticks` | `62` | `1..5000` | Ticks before the next shot. |
+| `weapon.rg.spawn_ammo` | `50` | `0..999` | Spawn ammo when `g_infiniteammo 0`. |
+
+### 3.4b Headshot balance keys
+
+The server applies these values to confirmed head hits. Each weapon can use a
+different scale without changing its body damage. Values may use decimals; the
+server rounds the final shot damage to the nearest whole point.
+
+| Key | Default | Valid range | Function |
+|---|---:|---|---|
+| `weapon.lg.headshot_multiplier` | `2` | `1..10` | Lightning Gun headshot damage scale. |
+| `weapon.fg.headshot_multiplier` | `2` | `1..10` | Freeze Gun headshot damage scale. It does not change freeze buildup. |
+| `weapon.rg.headshot_multiplier` | `3` | `1..10` | Sniper Rifle headshot damage scale. Charge damage applies first. |
+| `weapon.re.headshot_multiplier` | `2` | `1..10` | Revolver headshot damage scale. |
+| `weapon.mg.headshot_multiplier` | `2` | `1..10` | Machine Gun headshot damage scale. |
+| `weapon.sg.headshot_multiplier` | `2` | `1..10` | Shotgun headshot scale for each pellet that hits the head. |
+
+### 3.4c Revolver balance keys
+
+The Revolver has its own server-owned shot tuning, cooldown state, and ammo.
+Its gameplay shares only the common instant-hit trace with the Sniper Rifle.
+Its beam-style shot display and current fire sound asset remain shared visual
+and sound parts. Changing `g_rg_damage` or any `weapon.rg.*` key does not change
+the Revolver.
+
+| Key | Default | Valid range | Function |
+|---|---:|---|---|
+| `weapon.re.damage` | `80` | `1..500` | Body damage per shot. |
+| `weapon.re.range` | `300` | `0.1..5000` | Instant-hit range. |
+| `weapon.re.eye_height` | `0.65` | `0..10` | Shot start height relative to the player. |
+| `weapon.re.knockback` | `0` | `0..1000` | Knockback on hit. |
+| `weapon.re.headshot_multiplier` | `2` | `1..10` | Headshot damage scale. |
+| `weapon.re.cooldown_ticks` | `62` | `1..5000` | Ticks before the next Revolver shot. |
+| `weapon.re.spawn_ammo` | `50` | `0..999` | Spawn ammo when `g_infiniteammo 0`. |
 
 ### 3.5 Crosshair
 
@@ -427,7 +482,7 @@ Enemy and teammate nametags are separate so Clan Arena can style friends and ene
 | `resetmatch` | inga | Begär auktoritativ reset av matchen. Defaultbindning `F5`. Alla spelare får använda kommandot. |
 | `gamemode <mode>` | `duel`, `ca`, `clanarena`, `mcg`, or `mcguffin` | Selects the mode during warmup. McGuffin requires a compatible active map. |
 | `team <team>` | `red`, `blue`, `none`, `unassigned`, `spectator`, or `spec` | Selects a team during warmup. `spectator` releases the authoritative player body while retaining the connection; during warmup a spectator can claim a free body with `team red`, `team blue`, or `team none`. Clan Arena and McGuffin players must choose Red or Blue before `ready`. |
-| `bot_weapon [mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|re\|1..9]` | Optional weapon token | Shows or changes the server-authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). Normal weapon-switch and pullout rules still apply. |
+| `bot_weapon [mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9]` | Optional weapon token | Shows or changes the server-authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). `rg` remains an alias for `sr`. Normal weapon-switch and pullout rules still apply. |
 | `connect <host> [port]` | host string; port `1..65535` | Ansluter till server. |
 | `connect <port>` | port `1..65535` | Shorthand för `127.0.0.1:<port>`. |
 | `disconnect` | inga | Frigör serverplatsen och kopplar ned. |
@@ -520,8 +575,8 @@ knappen släpps.
 | `+dash` / `-dash` | Start the universal movement dash on press. Default bind: `mouse3`. Direction is sampled from movement input and locked when dash starts. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+showchat` / `-showchat` | Hold chat history open; use the mouse wheel to scroll. |
-| `+zoom` / `-zoom` | Håll/släpp klient-side zoom. Växlar till `cl_zoom_fov` och effektiv zoomsens. Vid default `cl_zoom_sensitivity 0`: `sensitivity * tan(cl_zoom_fov / 2) / tan(cl_fov / 2)`. |
-| `weapon <mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|1..8>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, railgun, plasma gun, or freeze gun. Weapon selection is sent to the server every command tick. |
+| `+zoom` / `-zoom` | Hold or release zoom. It uses `cl_zoom_fov` and the zoom sensitivity. With the Sniper Rifle it also opens the scope and sends ADS state to the server for charge. |
+| `weapon <mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, Sniper Rifle, plasma gun, freeze gun, or revolver. `rg`, `rail`, and `railgun` remain aliases for `sr`. |
 
 ### Standardbindings
 
@@ -614,7 +669,7 @@ Servern stöder även samtliga inbyggda kommandon i avsnitt 4.1.
 | `status` | Skriver `players=<n> phase=<id> score=<p1>-<p2>-...-<p6>`. |
 | `mcguffin_debug` | Prints authoritative McGuffin state and timers. |
 | `spawn_debug` | Prints the latest authoritative team-spawn scoring decision. |
-| `bot_weapon [mg\|sg\|gl\|rl\|lg\|rg\|pg\|fg\|re\|1..9]` | Shows or changes the authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). |
+| `bot_weapon [mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9]` | Shows or changes the authoritative weapon used by all current and future training bots. The default is Machine Gun (`mg`). `rg` remains an alias. |
 
 `phase` använder:
 

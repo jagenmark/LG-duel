@@ -138,6 +138,7 @@ struct ActionEdgeState {
   float attackPitchRadians = 0.0F;
   std::uint32_t attackViewedServerTick = 0;
   Weapon attackWeapon = Weapon::LightningGun;
+  bool attackZoomed = false;
 };
 
 struct CommandPacket {
@@ -301,6 +302,8 @@ struct ServerSnapshot {
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
   std::array<PlayerState, kDuelPlayerCount> players = {};
   std::array<Weapon, kDuelPlayerCount> selectedWeapons = {};
+  // The server owns sniper charge. A byte keeps the HUD value small on the wire.
+  std::array<std::uint8_t, kDuelPlayerCount> sniperChargePercent = {};
   std::array<LightningGunResult, kDuelPlayerCount> lightningGuns = {};
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};

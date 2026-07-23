@@ -774,6 +774,8 @@ void appendCollisionDebugGeometry(
 );
 [[nodiscard]] Vec3 plasmaGunMuzzleSocket();
 [[nodiscard]] Vec3 plasmaGunGripSocket();
+[[nodiscard]] Vec3 sniperRifleGripSocket();
+[[nodiscard]] Vec3 sniperRifleMuzzleSocket();
 [[nodiscard]] Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings

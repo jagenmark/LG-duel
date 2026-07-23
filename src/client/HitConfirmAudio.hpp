@@ -9,6 +9,7 @@ namespace lg {
 enum class WeaponFireAudioCue {
   None,
   Railgun,
+  Revolver,
   RocketLauncher,
   MachineGun,
   Shotgun,

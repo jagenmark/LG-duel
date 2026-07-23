@@ -128,10 +128,13 @@ weapon.rl.direct_hitbox_half_extent_z 0.9
 weapon.pg.direct_hitbox_half_extent_xy 0.5
 weapon.pg.direct_hitbox_half_extent_z 1.1
 weapon.rg.spawn_ammo 9
+weapon.re.spawn_ammo 11
 weapon.lg.spawn_ammo 123
+weapon.lg.headshot_multiplier 1.25
 weapon.fg.freeze_per_second 60
 weapon.fg.decay_per_second 25
 weapon.fg.max_slow_fraction 0.4
+weapon.fg.headshot_multiplier 1.5
 weapon.fg.spawn_ammo 124
 weapon.fg.ice_pool_max_radius 2.5
 weapon.fg.ice_pool_growth_per_second 12
@@ -140,6 +143,17 @@ weapon.fg.ice_pool_friction 0.8
 weapon.fg.ice_pool_slope_gravity_scale 1.25
 weapon.fg.ice_pool_control_scale 0.3
 weapon.fg.ice_pool_merge_distance 1.2
+weapon.rg.charge_seconds 4.0
+weapon.rg.max_damage_multiplier 3.5
+weapon.rg.headshot_multiplier 3.0
+weapon.re.damage 70
+weapon.re.range 250
+weapon.re.eye_height 0.7
+weapon.re.knockback 4
+weapon.re.headshot_multiplier 1.75
+weapon.re.cooldown_ticks 30
+weapon.mg.headshot_multiplier 2.25
+weapon.sg.headshot_multiplier 2.5
 )");
 
     failures += expect(loaded.ok, "balance config should parse projectile direct-hit AABB tuning");
@@ -149,9 +163,22 @@ weapon.fg.ice_pool_merge_distance 1.2
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentXY, 0.5F) &&
         nearlyEqual(loaded.config.plasmaGun.directHitboxHalfExtentZ, 1.1F) &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] == 9 &&
-        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] == 9 &&
+        loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] == 11 &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] == 123 &&
         loaded.config.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::FreezeGun)] == 124 &&
+        nearlyEqual(loaded.config.lightningGun.headshotMultiplier, 1.25F) &&
+        nearlyEqual(loaded.config.freezeGun.headshotMultiplier, 1.5F) &&
+        nearlyEqual(loaded.config.sniperChargeSeconds, 4.0F) &&
+        nearlyEqual(loaded.config.sniperMaxDamageMultiplier, 3.5F) &&
+        nearlyEqual(loaded.config.railgun.headshotMultiplier, 3.0F) &&
+        loaded.config.revolver.damage == 70 &&
+        nearlyEqual(loaded.config.revolver.range, 250.0F) &&
+        nearlyEqual(loaded.config.revolver.eyeHeight, 0.7F) &&
+        nearlyEqual(loaded.config.revolver.knockback, 4.0F) &&
+        nearlyEqual(loaded.config.revolver.headshotMultiplier, 1.75F) &&
+        loaded.config.revolverCooldownTicks == 30 &&
+        nearlyEqual(loaded.config.machineGun.headshotMultiplier, 2.25F) &&
+        nearlyEqual(loaded.config.shotgun.headshotMultiplier, 2.5F) &&
         nearlyEqual(loaded.config.freezeGun.freezePerSecond, 60.0F) &&
         nearlyEqual(loaded.config.freezeGun.decayPerSecond, 25.0F) &&
         nearlyEqual(loaded.config.freezeGun.maxSlowFraction, 0.4F) &&
@@ -743,40 +770,64 @@ weapon.gl.gravity -1
     lg::PlayerState target = playerAt(6.0F, 0.0F);
     lg::UserCommand command;
     command.attack = true;
-    command.weapon = lg::Weapon::Revolver;
     command.viewPitchRadians =
       pitchToTargetZ(attacker, target, railTuning.eyeHeight, bodyAimZ(target));
-    const lg::WeaponFireResult result = lg::simulateRailgun(
+    const lg::WeaponFireResult result = lg::simulateRevolver(
       attacker,
       target,
       command,
       arena,
-      railTuning,
-      lg::Weapon::Revolver
+      railTuning
     );
 
     failures += expect(
       result.fired && result.hit && !result.headshot &&
         result.weapon == lg::Weapon::Revolver &&
         result.damageApplied == 80 && target.health == 20,
-      "revolver should reuse railgun hitscan damage while retaining its weapon identity"
+      "revolver should use its own instant-hit simulation entry point"
     );
   }
 
   {
     const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
     lg::PlayerState target = playerAt(6.0F, 0.0F);
-    target.health = 200;
+    target.health = 300;
+    lg::HitscanTuning sniperTuning = railTuning;
+    sniperTuning.headshotMultiplier = 3.0F;
     lg::UserCommand command;
     command.attack = true;
     command.viewPitchRadians =
-      pitchToTargetZ(attacker, target, railTuning.eyeHeight, headAimZ(target));
+      pitchToTargetZ(attacker, target, sniperTuning.eyeHeight, headAimZ(target));
     const lg::WeaponFireResult result =
-      lg::simulateRailgun(attacker, target, command, arena, railTuning);
+      lg::simulateRailgun(attacker, target, command, arena, sniperTuning);
 
     failures += expect(result.hit && result.headshot, "railgun should report headshots");
-    failures += expect(result.damageApplied == 160, "railgun headshot should double damage");
-    failures += expect(target.health == 40, "railgun headshot should reduce target health");
+    failures += expect(result.damageApplied == 240, "sniper headshot should use its 3x multiplier");
+    failures += expect(target.health == 60, "sniper headshot should reduce target health");
+  }
+
+  {
+    const lg::PlayerState attacker = playerAt(0.0F, 0.0F);
+    lg::PlayerState target = playerAt(6.0F, 0.0F);
+    target.health = 200;
+    lg::HitscanTuning revolverTuning = railTuning;
+    revolverTuning.headshotMultiplier = 1.5F;
+    lg::UserCommand command;
+    command.attack = true;
+    command.viewPitchRadians =
+      pitchToTargetZ(attacker, target, revolverTuning.eyeHeight, headAimZ(target));
+    const lg::WeaponFireResult result = lg::simulateRevolver(
+      attacker,
+      target,
+      command,
+      arena,
+      revolverTuning
+    );
+
+    failures += expect(
+      result.hit && result.headshot && result.damageApplied == 120 && target.health == 80,
+      "revolver headshot should use its own 1.5x multiplier"
+    );
   }
 
   {

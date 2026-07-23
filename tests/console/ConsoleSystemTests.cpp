@@ -141,6 +141,10 @@ int main() {
   );
   failures += expect(console.execute("echo hello") == "hello", "commands should execute");
   failures += expect(
+    console.hasCvar("sensitivity") && !console.hasCvar("echo"),
+    "read-only cvar lookup should not confuse commands with cvars"
+  );
+  failures += expect(
     console.execute("cl_player_name \"Zap Witch\"") == "cl_player_name = Zap Witch",
     "quoted string cvar assignment should keep spaces"
   );

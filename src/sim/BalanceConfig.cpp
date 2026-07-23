@@ -52,6 +52,8 @@ namespace {
     config.lightningGun.range = value;
   } else if (key == "weapon.lg.eye_height" && inRange(value, 0.0F, 10.0F)) {
     config.lightningGun.eyeHeight = value;
+  } else if (key == "weapon.lg.headshot_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.lightningGun.headshotMultiplier = value;
   } else if (key == "weapon.fg.range" && inRange(value, 0.1F, 1000.0F)) {
     config.freezeGun.range = value;
   } else if (key == "weapon.fg.eye_height" && inRange(value, 0.0F, 10.0F)) {
@@ -62,6 +64,8 @@ namespace {
     config.freezeGun.decayPerSecond = value;
   } else if (key == "weapon.fg.max_slow_fraction" && inRange(value, 0.0F, 0.95F)) {
     config.freezeGun.maxSlowFraction = value;
+  } else if (key == "weapon.fg.headshot_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.freezeGun.headshotMultiplier = value;
   } else if (key == "weapon.fg.ice_pool_max_radius" && inRange(value, 0.0F, 100.0F)) {
     config.icePool.maxRadius = value;
   } else if (key == "weapon.fg.ice_pool_growth_per_second" && inRange(value, 0.0F, 1000.0F)) {
@@ -82,6 +86,20 @@ namespace {
     config.railgun.eyeHeight = value;
   } else if (key == "weapon.rg.knockback" && inRange(value, 0.0F, 1000.0F)) {
     config.railgun.knockback = value;
+  } else if (key == "weapon.rg.charge_seconds" && inRange(value, 0.05F, 30.0F)) {
+    config.sniperChargeSeconds = value;
+  } else if (key == "weapon.rg.max_damage_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.sniperMaxDamageMultiplier = value;
+  } else if (key == "weapon.rg.headshot_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.railgun.headshotMultiplier = value;
+  } else if (key == "weapon.re.range" && inRange(value, 0.1F, 5000.0F)) {
+    config.revolver.range = value;
+  } else if (key == "weapon.re.eye_height" && inRange(value, 0.0F, 10.0F)) {
+    config.revolver.eyeHeight = value;
+  } else if (key == "weapon.re.knockback" && inRange(value, 0.0F, 1000.0F)) {
+    config.revolver.knockback = value;
+  } else if (key == "weapon.re.headshot_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.revolver.headshotMultiplier = value;
   } else if (key == "weapon.mg.range" && inRange(value, 0.1F, 5000.0F)) {
     config.machineGun.range = value;
   } else if (key == "weapon.mg.eye_height" && inRange(value, 0.0F, 10.0F)) {
@@ -90,6 +108,8 @@ namespace {
     config.machineGun.knockback = value;
   } else if (key == "weapon.mg.spread_radians" && inRange(value, 0.0F, 1.5F)) {
     config.machineGun.spreadRadians = value;
+  } else if (key == "weapon.mg.headshot_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.machineGun.headshotMultiplier = value;
   } else if (key == "weapon.sg.range" && inRange(value, 0.1F, 5000.0F)) {
     config.shotgun.range = value;
   } else if (key == "weapon.sg.spread_radians" && inRange(value, 0.0F, 1.5F)) {
@@ -98,6 +118,8 @@ namespace {
     config.shotgun.eyeHeight = value;
   } else if (key == "weapon.sg.knockback" && inRange(value, 0.0F, 1000.0F)) {
     config.shotgun.knockback = value;
+  } else if (key == "weapon.sg.headshot_multiplier" && inRange(value, 1.0F, 10.0F)) {
+    config.shotgun.headshotMultiplier = value;
   } else if (key == "weapon.rl.speed" && inRange(value, 0.1F, 500.0F)) {
     config.rocketLauncher.speed = value;
   } else if (key == "weapon.rl.radius" && inRange(value, 0.1F, 100.0F)) {
@@ -180,6 +202,10 @@ namespace {
 ) {
   if (key == "weapon.rg.cooldown_ticks" && value >= 1 && value <= 5000) {
     config.railgunCooldownTicks = static_cast<std::uint32_t>(value);
+  } else if (key == "weapon.re.damage" && value >= 1 && value <= 500) {
+    config.revolver.damage = value;
+  } else if (key == "weapon.re.cooldown_ticks" && value >= 1 && value <= 5000) {
+    config.revolverCooldownTicks = static_cast<std::uint32_t>(value);
   } else if (key == "weapon.mg.cooldown_ticks" && value >= 1 && value <= 5000) {
     config.machineGunCooldownTicks = static_cast<std::uint32_t>(value);
   } else if (key == "weapon.sg.pellet_count" && value >= 1 && value <= 255) {
@@ -202,6 +228,7 @@ namespace {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::FreezeGun)] = value;
   } else if (key == "weapon.rg.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)] = value;
+  } else if (key == "weapon.re.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Revolver)] = value;
   } else if (key == "weapon.rl.spawn_ammo" && value >= 0 && value <= 999) {
     config.weaponAmmo.spawnAmmo[weaponIndex(Weapon::RocketLauncher)] = value;

@@ -43,6 +43,7 @@ struct UserCommand {
   bool dash = false;
   bool crouch = false;
   bool sneak = false;
+  bool zoomed = false;
   bool planarAim = true;
   Weapon weapon = Weapon::LightningGun;
 };

@@ -2081,6 +2081,24 @@ int main() {
       };
       plasmaGripAligned = lg::length(grip - expectedHand) < 0.001F;
     }
+    bool sniperGripAligned = true;
+    if (weapon == lg::Weapon::Railgun && foundWeaponInstance) {
+      const lg::Vec3 grip = transformPoint(
+        foundWeapon,
+        lg::sniperRifleGripSocket()
+      );
+      const lg::Vec3 expectedHand = {
+        opponent.position.x + opponent.bounds.radius * 0.18F,
+        opponent.position.y - opponent.bounds.radius * 0.84F,
+        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
+      };
+      sniperGripAligned =
+        asset == nullptr &&
+        materialAsset != nullptr &&
+        materialAsset->vertices.size() == 1710U * 3U &&
+        lg::length(grip - expectedHand) < 0.001F &&
+        nearlyEqual(lg::length(foundWeapon.modelRow0), 1.15F);
+    }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
         (
@@ -2091,11 +2109,32 @@ int main() {
         foundRevolverCylinder &&
         revolverGripAlignedAndSized &&
         plasmaGripAligned &&
+        sniperGripAligned &&
         weaponScene.remoteWeaponStats.instancesSubmitted == expectedInstances &&
         weaponScene.remoteWeaponStats.legacyDynamicVertices == 0,
       "every playable weapon should map to its expected static mesh instances"
     );
   }
+
+  const lg::MaterialMeshAsset* sniperMaterial =
+    lg::materialMeshAsset(lg::MeshHandle::RemoteRailgun);
+  bool hasSniperSteel = false;
+  bool hasSniperGreenStock = false;
+  if (sniperMaterial != nullptr) {
+    for (const lg::WeaponMaterialVertex3D& vertex : sniperMaterial->vertices) {
+      hasSniperSteel = hasSniperSteel || vertex.metallic > 0.7F;
+      hasSniperGreenStock = hasSniperGreenStock ||
+        (
+          vertex.metallic < 0.1F &&
+          vertex.baseColor.green > vertex.baseColor.red + 20U &&
+          vertex.baseColor.green > vertex.baseColor.blue + 20U
+        );
+    }
+  }
+  failures += expect(
+    hasSniperSteel && hasSniperGreenStock,
+    "sniper material mesh should keep its steel and green stock parts"
+  );
 
   const lg::MaterialMeshAsset* revolverMaterial =
     lg::materialMeshAsset(lg::MeshHandle::RemoteRevolverBody);
@@ -2673,6 +2712,56 @@ int main() {
       localShotgunScene.viewModelStats.drawCalls == 1 &&
       localShotgunScene.viewModelStats.dynamicVertices == 0,
     "first-person shotgun should use a static viewmodel mesh without dynamic vertices"
+  );
+
+  lg::RenderSettings localSniperSettings = settings;
+  localSniperSettings.localSelectedWeapon = lg::Weapon::Railgun;
+  const lg::Scene3D localSniperScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    localSniperSettings
+  );
+  bool hasSniperViewModel = false;
+  lg::StaticMeshInstance sniperViewModel = {};
+  for (const lg::StaticMeshInstance& instance : localSniperScene.staticMeshInstances) {
+    if (
+      instance.mesh == lg::MeshHandle::RemoteRailgun &&
+      instance.pass == lg::RenderPass::ViewModel
+    ) {
+      hasSniperViewModel = true;
+      sniperViewModel = instance;
+    }
+  }
+  const float sniperForwardScale = lg::length({
+    sniperViewModel.modelRow0.x,
+    sniperViewModel.modelRow1.x,
+    sniperViewModel.modelRow2.x,
+  });
+  const float sniperWidthScale = lg::length({
+    sniperViewModel.modelRow0.y,
+    sniperViewModel.modelRow1.y,
+    sniperViewModel.modelRow2.y,
+  });
+  const float sniperHeightScale = lg::length({
+    sniperViewModel.modelRow0.z,
+    sniperViewModel.modelRow1.z,
+    sniperViewModel.modelRow2.z,
+  });
+  failures += expect(
+    hasSniperViewModel &&
+      nearlyEqual(sniperForwardScale, 0.725F) &&
+      nearlyEqual(sniperWidthScale, 0.9425F) &&
+      nearlyEqual(sniperHeightScale, 0.83375F) &&
+      localSniperScene.viewModelStats.drawCalls == 1 &&
+      localSniperScene.viewModelStats.dynamicVertices == 0,
+    "first-person sniper should use its larger, thicker view-only mesh"
   );
 
   lg::RenderSettings localRevolverSettings = settings;

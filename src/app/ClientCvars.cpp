@@ -63,8 +63,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"s_lg_fire_volume", "Lightning gun firing loop volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
-  console.registerCvar({"s_rg_fire_volume", "Railgun fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
-  console.registerCvar({"s_rg_ready_volume", "Railgun ready chime volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
+  console.registerCvar({"s_rg_fire_volume", "Sniper Rifle fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
+  console.registerCvar({"s_rg_ready_volume", "Sniper Rifle ready chime volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_rl_fire_volume", "Rocket launcher fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_rl_explosion_volume", "Rocket and grenade explosion sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_mg_fire_volume", "Machine gun fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});

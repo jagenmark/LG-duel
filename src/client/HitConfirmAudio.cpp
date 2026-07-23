@@ -57,8 +57,9 @@ int localWeaponFireHitConfirmDamage(const WeaponFireResult& fire) {
 WeaponFireAudioCue weaponFireAudioCue(Weapon weapon) {
   switch (weapon) {
   case Weapon::Railgun:
-  case Weapon::Revolver:
     return WeaponFireAudioCue::Railgun;
+  case Weapon::Revolver:
+    return WeaponFireAudioCue::Revolver;
   case Weapon::RocketLauncher:
     return WeaponFireAudioCue::RocketLauncher;
   case Weapon::MachineGun:
@@ -87,8 +88,7 @@ WeaponFireAudioEvent routeWeaponFireAudioEvent(
 
   event.cue = weaponFireAudioCue(fire.weapon);
   event.startsLocalRailCooldown =
-    localWeaponEvent &&
-    (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver);
+    localWeaponEvent && fire.weapon == Weapon::Railgun;
   event.localHitConfirmDamage =
     localWeaponEvent ? localWeaponFireHitConfirmDamage(fire) : 0;
   event.localHitConfirmHeadshot =

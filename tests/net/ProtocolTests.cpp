@@ -159,6 +159,8 @@ int main() {
     source.actionEdges.attackPitchRadians = -0.15F;
     source.actionEdges.attackViewedServerTick = 86;
     source.actionEdges.attackWeapon = lg::Weapon::Railgun;
+    source.actionEdges.attackZoomed = true;
+    source.command.zoomed = true;
 
     lg::WirePacket wire;
     lg::CommandPacket decoded;
@@ -189,7 +191,8 @@ int main() {
         decoded.command.jump &&
         decoded.command.dash &&
         decoded.command.crouch &&
-        decoded.command.sneak,
+        decoded.command.sneak &&
+        decoded.command.zoomed,
       "command bits should round trip"
     );
     failures += expect(!decoded.command.planarAim, "command aim dimensionality should round trip");
@@ -211,7 +214,8 @@ int main() {
         decoded.actionEdges.mcguffinThrow == 8U &&
         nearlyEqual(decoded.actionEdges.mcguffinThrowYawRadians, 0.75F) &&
         decoded.actionEdges.attack == 9U &&
-        decoded.actionEdges.attackWeapon == lg::Weapon::Railgun,
+        decoded.actionEdges.attackWeapon == lg::Weapon::Railgun &&
+        decoded.actionEdges.attackZoomed,
       "cumulative action edges should round trip"
     );
     failures += expect(
@@ -523,6 +527,7 @@ int main() {
     source.players[1].health = 0;
     source.selectedWeapons[0] = lg::Weapon::Revolver;
     source.selectedWeapons[1] = lg::Weapon::Railgun;
+    source.sniperChargePercent[1] = 73;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::LightningGun)] = 149;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::Railgun)] = 9;
     source.playerAmmo[0][lg::weaponIndex(lg::Weapon::RocketLauncher)] = 8;
@@ -774,6 +779,10 @@ int main() {
       decoded.selectedWeapons[0] == lg::Weapon::Revolver &&
         decoded.selectedWeapons[1] == lg::Weapon::Railgun,
       "selected weapons should round trip"
+    );
+    failures += expect(
+      decoded.sniperChargePercent[1] == 73,
+      "server-owned sniper charge should round trip"
     );
     failures += expect(
       decoded.playerAmmo == source.playerAmmo,

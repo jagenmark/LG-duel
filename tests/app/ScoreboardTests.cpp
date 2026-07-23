@@ -68,7 +68,7 @@ int main() {
   const std::string& remoteRow = hud.scoreboardLines[3];
   failures += expect(
     startsAlign(header, "SCORE", localRow, "0") &&
-      startsAlign(header, "ACC", localRow, "RG") &&
+      startsAlign(header, "ACC", localRow, "SR") &&
       startsAlign(header, "DAMAGE", localRow, "84"),
     "local stat columns should align by their left edge"
   );

@@ -20,6 +20,13 @@ enum class ControlOperation {
   SetCollisionDebug,
   CaptureScreenshot,
   CaptureMapViews,
+  ExecConsole,
+  GetCvar,
+  SetCvar,
+  SendInput,
+  WaitFrames,
+  SetPlayerView,
+  SetPlayerWeapon,
   RunBenchmark,
 };
 
@@ -38,6 +45,22 @@ struct CameraViewpoint {
   bool hideOverlays = true;
 };
 
+struct PlayerInput {
+  float forward = 0.0F;
+  float right = 0.0F;
+  float up = 0.0F;
+  bool attack = false;
+  bool jump = false;
+  bool dash = false;
+  bool crouch = false;
+  bool sneak = false;
+  bool zoom = false;
+  std::uint32_t ticks = 1;
+  std::optional<float> yawDegrees;
+  std::optional<float> pitchDegrees;
+  std::string weapon;
+};
+
 struct ControlRequest {
   std::string id;
   ControlOperation operation = ControlOperation::Status;
@@ -49,6 +72,14 @@ struct ControlRequest {
   bool hideHud = true;
   bool hideOverlays = true;
   std::vector<CameraViewpoint> viewpoints;
+  std::string consoleCommand;
+  std::string cvarName;
+  std::string cvarValue;
+  PlayerInput playerInput;
+  std::uint32_t waitFrames = 1;
+  float playerYawDegrees = 0.0F;
+  float playerPitchDegrees = 0.0F;
+  std::string playerWeapon;
   benchmark::Scenario benchmarkScenario;
   std::string scenarioHash;
   std::string runGroup;

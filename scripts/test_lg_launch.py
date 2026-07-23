@@ -181,6 +181,41 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(stopped, ["client"])
         kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
 
+    def test_restart_requires_an_owned_matching_client(self) -> None:
+        state = {"client": {"pid": 101, "owned": False, "path": "client.exe"}}
+        with mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             self.assertRaisesRegex(LaunchError, "owned"):
+            lg_launch.restart_owned()
+
+    def test_restart_keeps_external_server_ownership_boundary(self) -> None:
+        state = {
+            "client": {"pid": 101, "owned": True, "path": "client.exe"},
+            "server": {"pid": 202, "owned": False, "path": "server.exe"},
+            "server_port": 28060,
+            "control_port": 28061,
+        }
+        status = {"renderer": lg_launch.GPU_RENDERER}
+        with mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             mock.patch.object(lg_launch, "_entry_matches", side_effect=[True, False, False]), \
+             mock.patch.object(lg_launch, "cleanup_owned", return_value=["client"]), \
+             mock.patch.object(lg_launch, "STATE_PATH", mock.Mock(exists=mock.Mock(return_value=False))), \
+             mock.patch.object(lg_launch, "ensure_client", return_value=status) as ensure:
+            result = lg_launch.restart_owned(renderer="gpu", timeout=3)
+        self.assertEqual(result, {"stopped": ["client"], "status": status})
+        ensure.assert_called_once_with(
+            renderer="gpu", allow_fallback=False, benchmark=False, manage_server=False,
+            server_port=28060, control_port=28061, timeout=3,
+        )
+
+    def test_restart_cli_exposes_renderer_and_timeout(self) -> None:
+        arguments = lg_launch.build_parser().parse_args(
+            ["restart", "--renderer", "fallback", "--allow-fallback", "--timeout", "4"]
+        )
+        self.assertEqual(arguments.action, "restart")
+        self.assertEqual(arguments.renderer, "fallback")
+        self.assertTrue(arguments.allow_fallback)
+        self.assertEqual(arguments.timeout, 4.0)
+
 
 if __name__ == "__main__":
     unittest.main()

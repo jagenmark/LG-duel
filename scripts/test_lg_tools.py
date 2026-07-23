@@ -48,6 +48,8 @@ class LgToolTests(unittest.TestCase):
             {
                 "lg_start", "lg_status", "lg_load_map", "lg_reload_map", "lg_get_camera",
                 "lg_set_camera", "lg_set_collision_debug", "lg_capture_screenshot", "lg_capture_map_views",
+                "lg_stop", "lg_restart", "lg_exec_console", "lg_get_cvar", "lg_set_cvar",
+                "lg_send_input", "lg_wait_frames", "lg_set_player_view", "lg_set_player_weapon",
                 "lg_list_benchmarks", "lg_run_benchmark", "lg_compare_benchmarks",
                 "lg_get_benchmark_result", "lg_create_benchmark_baseline",
             },
@@ -58,7 +60,69 @@ class LgToolTests(unittest.TestCase):
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "lg-duel-dev-control")
         listed = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual(len(listed["result"]["tools"]), 14)
+        self.assertEqual(len(listed["result"]["tools"]), 23)
+
+    def test_player_control_schemas_are_bounded(self) -> None:
+        tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
+        input_schema = tools["lg_send_input"]
+        self.assertEqual(input_schema["required"], ["ticks"])
+        self.assertEqual(input_schema["properties"]["ticks"]["maximum"], 1250)
+        self.assertEqual(input_schema["properties"]["forward"]["minimum"], -1)
+        self.assertEqual(input_schema["properties"]["pitch"]["maximum"], 89.9)
+        self.assertEqual(input_schema["dependentRequired"]["yaw"], ["pitch"])
+        self.assertEqual(tools["lg_wait_frames"]["properties"]["frames"]["maximum"], 600)
+        self.assertEqual(tools["lg_exec_console"]["properties"]["command"]["maxLength"], 1024)
+        self.assertEqual(tools["lg_set_cvar"]["properties"]["value"]["maxLength"], 256)
+
+    def test_send_input_mcp_and_cli_preserve_explicit_false(self) -> None:
+        payload = {
+            "ticks": 8, "forward": 1.0, "yaw": 45.0, "attack": False,
+            "jump": True, "weapon": "railgun",
+        }
+        with mock.patch("lg_mcp_server.ensure_client"), mock.patch(
+            "lg_mcp_server.send_request", return_value={"ticks": 8}
+        ) as sender:
+            self.assertEqual(lg_mcp_server.invoke_tool("lg_send_input", payload), {"ticks": 8})
+        sender.assert_called_once_with("send_input", **payload)
+
+        arguments = lg_control.build_parser().parse_args(
+            ["send-input", "--ticks", "8", "--forward", "1", "--no-attack", "--jump"]
+        )
+        with mock.patch("lg_launch.ensure_client"), mock.patch(
+            "lg_control.send_request", return_value={"ticks": 8}
+        ) as sender:
+            lg_control.execute(arguments)
+        sender.assert_called_once_with(
+            "send_input", ticks=8, forward=1.0, attack=False, jump=True,
+            host="127.0.0.1", port=27961, timeout=60.0,
+        )
+
+    def test_player_control_cli_rejects_out_of_range_values(self) -> None:
+        with self.assertRaises(SystemExit):
+            lg_control.build_parser().parse_args(["send-input", "--ticks", "0"])
+        with self.assertRaises(SystemExit):
+            lg_control.build_parser().parse_args(
+                ["set-player-view", "--yaw", "0", "--pitch", "90"]
+            )
+        arguments = lg_control.build_parser().parse_args(
+            ["send-input", "--ticks", "1", "--yaw", "10"]
+        )
+        with self.assertRaisesRegex(lg_control.ControlError, "together"):
+            lg_control.execute(arguments)
+
+    def test_lifecycle_mcp_routes_without_control_start_probe(self) -> None:
+        with mock.patch("lg_mcp_server.stop_owned", return_value={"stopped": ["client"]}) as stop, \
+             mock.patch("lg_mcp_server.ensure_client") as ensure:
+            self.assertEqual(
+                lg_mcp_server.invoke_tool("lg_stop", {}), {"stopped": ["client"]}
+            )
+        stop.assert_called_once_with()
+        ensure.assert_not_called()
+        with mock.patch(
+            "lg_mcp_server.restart_owned", return_value={"stopped": ["client"], "status": {}}
+        ) as restart:
+            lg_mcp_server.invoke_tool("lg_restart", {"renderer": "gpu"})
+        restart.assert_called_once_with(renderer="gpu", allow_fallback=False)
 
     def test_collision_debug_mcp_schema_and_routing(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}

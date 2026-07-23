@@ -319,6 +319,9 @@ struct HudRenderState {
   std::string fpsText;
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
+  bool sniperScopeActive = false;
+  float sniperScopeAmount = 0.0F;
+  std::uint8_t sniperChargePercent = 0;
   std::array<std::string, kWeaponCount> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
   struct KillFeedLine {
     std::string killerName;

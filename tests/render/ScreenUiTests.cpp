@@ -341,19 +341,10 @@ int main() {
       1.0F,
       settings
     );
-    bool foundRailCore = false;
-    for (const lg::DrawCommand2D& command : railOverlay.overlayCommands) {
-      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
-        foundRailCore =
-          foundRailCore ||
-          (
-            quad->color.red == 90 &&
-            quad->color.green == 220 &&
-            quad->color.blue == 255
-          );
-      }
-    }
-    failures += expect(foundRailCore, "railgun viewmodel should use its own rail core");
+    failures += expect(
+      railOverlay.overlayCommands.empty(),
+      "authored sniper viewmodel should not be covered by the old railgun overlay"
+    );
   }
 
   {
@@ -2172,6 +2163,72 @@ int main() {
         findText(compactUi, "2.75 / 3.00 tk") != nullptr &&
         findText(compactUi, "ERROR +0.25 tk  RATE 1.015x") == nullptr,
       "compact netgraph should show controller lead without expanded detail"
+    );
+  }
+
+  {
+    lg::RenderSettings scopeSettings;
+    lg::HudRenderState scopeHud;
+    scopeHud.sniperScopeActive = true;
+    scopeHud.sniperScopeAmount = 1.0F;
+    scopeHud.sniperChargePercent = 73;
+    const lg::DrawList2D scopeUi = lg::buildScreenUi(
+      1920, 1200, {}, scopeSettings, scopeHud, {}
+    );
+    std::size_t opaqueBlackQuads = 0;
+    std::size_t boxedVignetteQuads = 0;
+    float rimHalfWidth = 0.0F;
+    float rimHalfHeight = 0.0F;
+    for (const lg::DrawCommand2D& command : scopeUi.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        opaqueBlackQuads +=
+          quad->color.red == 0 && quad->color.green == 0 &&
+          quad->color.blue == 0 && quad->color.alpha == 255
+            ? 1U
+            : 0U;
+        const bool translucentBlack =
+          quad->color.red == 0 && quad->color.green == 0 &&
+          quad->color.blue == 0 && quad->color.alpha > 0 &&
+          quad->color.alpha < 255;
+        const bool axisAligned =
+          std::fabs(quad->points[0].y - quad->points[1].y) < 0.01F &&
+          std::fabs(quad->points[1].x - quad->points[2].x) < 0.01F &&
+          std::fabs(quad->points[2].y - quad->points[3].y) < 0.01F &&
+          std::fabs(quad->points[3].x - quad->points[0].x) < 0.01F;
+        boxedVignetteQuads += translucentBlack && axisAligned ? 1U : 0U;
+      } else if (const auto* line = std::get_if<lg::Line2D>(&command)) {
+        if (
+          line->color.red == 112 && line->color.green == 94 &&
+          line->color.blue == 66 && line->width == 3.0F
+        ) {
+          rimHalfWidth = std::max(
+            rimHalfWidth,
+            std::max(
+              std::fabs(line->start.x - 960.0F),
+              std::fabs(line->end.x - 960.0F)
+            )
+          );
+          rimHalfHeight = std::max(
+            rimHalfHeight,
+            std::max(
+              std::fabs(line->start.y - 600.0F),
+              std::fabs(line->end.y - 600.0F)
+            )
+          );
+        }
+      }
+    }
+    failures += expect(
+      opaqueBlackQuads >= 256U && findText(scopeUi, "73%") != nullptr,
+      "Sniper Rifle ADS should draw an opaque scope mask and charge readout"
+    );
+    failures += expect(
+      std::fabs(rimHalfWidth - rimHalfHeight) < 1.0F,
+      "Sniper scope rim should remain circular on a wide viewport"
+    );
+    failures += expect(
+      boxedVignetteQuads == 0,
+      "Sniper scope vignette should use circular bands instead of visible boxes"
     );
   }
 

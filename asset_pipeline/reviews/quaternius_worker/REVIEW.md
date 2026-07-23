@@ -2,7 +2,7 @@
 
 ## Status
 
-This record covers a review build only. The Worker GLB has not been copied to a production asset path and the game does not ship it. A later change must name the checked runtime file before production use.
+The reviewed Worker GLB is now also integrated as the production player-model option `r_player_model 2`. The runtime copy is `assets/models/quaternius_worker/quaternius_worker.glb`; new characters from the same pack must still complete their own review before production use.
 
 The checked review GLB is `imports/assets/review/quaternius_worker/quaternius_worker.glb`. Its SHA-256 is `b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60`.
 
@@ -37,11 +37,6 @@ Use the custom `Idle_Gun_TwoHanded` action for the gameplay aimed idle. This two
 
 The checked GLB contains `Idle_Gun_TwoHanded`, built from `Idle_Gun_Pointing` with an 18 cm hand offset and a 90-degree support-wrist roll. The original clips remain available.
 
-## Production gate
+## Production state
 
-Production use still needs all of these steps:
-
-1. Add the review GLB through the player-model runtime path.
-2. Map the gameplay aimed-idle state to `Idle_Gun_TwoHanded`.
-3. Review weapon fit, outline, motion, and frame time in the client.
-4. Add the checked runtime path in a separate production change.
+The game loads this model through the skinned player path and maps its aimed idle to `Idle_Gun_TwoHanded`. The runtime integration does not approve other characters from the pack; each new mesh still needs fixed previews, engine validation, and a separate visual review.

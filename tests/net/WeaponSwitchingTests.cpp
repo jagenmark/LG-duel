@@ -1,6 +1,7 @@
 #include "net/LoopbackTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
+#include "sim/BalanceConfig.hpp"
 
 #include <cstdint>
 #include <iostream>
@@ -51,6 +52,46 @@ lg::UserCommand attackWith(lg::Weapon weapon, std::uint32_t sequence) {
 
 int main() {
   int failures = 0;
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::BalanceConfig balance;
+    balance.railgunCooldownTicks = 100;
+    balance.revolver.damage = 7;
+    balance.revolverCooldownTicks = 1;
+    balance.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 9;
+    balance.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] = 11;
+    server.applyBalanceConfig(balance);
+
+    lg::UserCommand sniperMiss = attackWith(lg::Weapon::Railgun, 1);
+    sniperMiss.viewYawRadians = 3.14159265F;
+    lg::ServerSnapshot snapshot =
+      sendAndTick(transport, server, sniperMiss);
+    failures += expect(
+      snapshot.weaponFires[0].fired,
+      "setup Sniper shot should start only the Sniper cooldown"
+    );
+
+    lg::UserCommand release;
+    release.sequence = 2;
+    release.weapon = lg::Weapon::Revolver;
+    sendAndTick(transport, server, release);
+    snapshot =
+      sendAndTick(transport, server, attackWith(lg::Weapon::Revolver, 3));
+    failures += expect(
+      snapshot.weaponFires[0].fired &&
+        snapshot.weaponFires[0].weapon == lg::Weapon::Revolver,
+      "Sniper cooldown must not block the Revolver"
+    );
+    failures += expect(
+      snapshot.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] == 9 &&
+        snapshot.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Revolver)] == 11,
+      "Sniper and Revolver spawn ammo must remain separate"
+    );
+  }
 
   {
     lg::LoopbackTransport transport;

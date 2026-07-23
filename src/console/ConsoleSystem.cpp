@@ -298,6 +298,10 @@ std::string ConsoleSystem::getString(std::string_view name) const {
     : std::string{};
 }
 
+bool ConsoleSystem::hasCvar(std::string_view name) const {
+  return findCvar(name) != nullptr;
+}
+
 std::string ConsoleSystem::valueString(std::string_view name) const {
   const Cvar* cvar = findCvar(name);
   return cvar == nullptr ? std::string{} : formatValue(cvar->value);

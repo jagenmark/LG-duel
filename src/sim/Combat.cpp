@@ -15,7 +15,6 @@ constexpr float kTwoPi = 6.28318530718F;
 constexpr float kHeadHitboxBottomRatio = 0.76F;
 constexpr float kHeadHitboxTopRatio = 1.0F;
 constexpr float kHeadHitboxRadiusScale = 0.96F;
-constexpr int kHeadshotDamageMultiplier = 2;
 
 [[nodiscard]] constexpr Vec3 cross(Vec3 lhs, Vec3 rhs) {
   return {
@@ -362,8 +361,17 @@ struct HeadHitbox {
   );
 }
 
-[[nodiscard]] int applyHeadshotDamage(int damage, bool headshot) {
-  return headshot ? damage * kHeadshotDamageMultiplier : damage;
+[[nodiscard]] int applyHeadshotDamage(
+  int damage,
+  bool headshot,
+  float multiplier
+) {
+  if (!headshot) {
+    return damage;
+  }
+  return static_cast<int>(std::lround(
+    static_cast<float>(damage) * std::max(1.0F, multiplier)
+  ));
 }
 
 } // namespace
@@ -562,7 +570,11 @@ LightningGunResult simulateLightningGun(
   state.fractionalDamage -= static_cast<double>(result.damageApplied);
 
   result.damageApplied =
-    applyHeadshotDamage(result.damageApplied, result.headshot);
+    applyHeadshotDamage(
+      result.damageApplied,
+      result.headshot,
+      tuning.headshotMultiplier
+    );
   result.damageApplied = std::min(result.damageApplied, target.health);
   target.health -= result.damageApplied;
   result.knockbackImpulse =
@@ -641,7 +653,11 @@ LightningGunResult simulateFreezeGun(
   result.damageApplied = static_cast<int>(std::floor(state.fractionalDamage));
   state.fractionalDamage -= static_cast<double>(result.damageApplied);
   result.damageApplied =
-    applyHeadshotDamage(result.damageApplied, result.headshot);
+    applyHeadshotDamage(
+      result.damageApplied,
+      result.headshot,
+      tuning.headshotMultiplier
+    );
   result.damageApplied = std::min(result.damageApplied, target.health);
   target.health -= result.damageApplied;
 
@@ -683,7 +699,9 @@ float freezeMovementScale(const PlayerState& player, const FreezeGunTuning& tuni
   return std::clamp(1.0F - slowFraction, 0.05F, 1.0F);
 }
 
-WeaponFireResult simulateRailgun(
+namespace {
+
+[[nodiscard]] WeaponFireResult simulateInstantHitscan(
   const PlayerState& attacker,
   PlayerState& target,
   const UserCommand& command,
@@ -719,10 +737,53 @@ WeaponFireResult simulateRailgun(
     headHitDistance
   );
   result.damageApplied =
-    std::min(applyHeadshotDamage(tuning.damage, result.headshot), target.health);
+    std::min(
+      applyHeadshotDamage(
+        tuning.damage,
+        result.headshot,
+        tuning.headshotMultiplier
+      ),
+      target.health
+    );
   target.health -= result.damageApplied;
   result.knockbackImpulse = direction * tuning.knockback;
   return result;
+}
+
+} // namespace
+
+WeaponFireResult simulateRailgun(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const HitscanTuning& tuning
+) {
+  return simulateInstantHitscan(
+    attacker,
+    target,
+    command,
+    arena,
+    tuning,
+    Weapon::Railgun
+  );
+}
+
+WeaponFireResult simulateRevolver(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const HitscanTuning& tuning
+) {
+  return simulateInstantHitscan(
+    attacker,
+    target,
+    command,
+    arena,
+    tuning,
+    Weapon::Revolver
+  );
 }
 
 WeaponFireResult simulateMachineGun(
@@ -761,7 +822,14 @@ WeaponFireResult simulateMachineGun(
     headHitDistance
   );
   result.damageApplied =
-    std::min(applyHeadshotDamage(tuning.damage, result.headshot), target.health);
+    std::min(
+      applyHeadshotDamage(
+        tuning.damage,
+        result.headshot,
+        tuning.headshotMultiplier
+      ),
+      target.health
+    );
   target.health -= result.damageApplied;
   result.knockbackImpulse = direction * tuning.knockback;
   return result;
@@ -842,7 +910,8 @@ WeaponFireResult simulateShotgun(
     }
     totalDamage += applyHeadshotDamage(
       tuning.damagePerPellet,
-      pelletHeadshot
+      pelletHeadshot,
+      tuning.headshotMultiplier
     );
     nearestHitDistance = std::min(nearestHitDistance, hitDistance);
     accumulatedKnockbackDirection += direction;
