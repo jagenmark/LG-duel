@@ -1,0 +1,60 @@
+{
+  "schema_version": 1,
+  "name": "idle_stays_still",
+  "description": "A grounded player with no input keeps the same position.",
+  "execution": {
+    "mode": "headless",
+    "max_ticks": 20,
+    "repeat": 3
+  },
+  "world": {
+    "map": "default",
+    "game_mode": "duel",
+    "seed": 1001
+  },
+  "players": [
+    {
+      "index": 0,
+      "connected": true,
+      "bot": false,
+      "team": "none",
+      "position": [-4.0, 0.0, 0.9],
+      "velocity": [0.0, 0.0, 0.0],
+      "view_yaw_degrees": 0.0,
+      "view_pitch_degrees": 0.0,
+      "health": 100,
+      "alive": true,
+      "selected_weapon": "machine_gun"
+    },
+    {
+      "index": 1,
+      "connected": true,
+      "bot": false,
+      "team": "none",
+      "position": [4.0, 4.0, 0.9],
+      "velocity": [0.0, 0.0, 0.0],
+      "view_yaw_degrees": 180.0,
+      "view_pitch_degrees": 0.0,
+      "health": 100,
+      "alive": true,
+      "selected_weapon": "machine_gun"
+    }
+  ],
+  "timeline": [],
+  "assertions": [
+    {
+      "type": "player_position",
+      "at_completion": true,
+      "player": 0,
+      "value": [-4.0, 0.0, 0.9],
+      "tolerance": 0.0001
+    },
+    {
+      "type": "player_velocity",
+      "at_completion": true,
+      "player": 0,
+      "value": [0.0, 0.0, 0.0],
+      "tolerance": 0.0001
+    }
+  ]
+}

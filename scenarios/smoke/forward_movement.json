@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "name": "forward_movement",
+  "description": "Held forward input advances a grounded player by a repeatable amount.",
+  "execution": {"mode": "headless", "max_ticks": 40, "repeat": 3},
+  "world": {"map": "default", "game_mode": "duel", "seed": 1002},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"},
+    {"index": 1, "connected": true, "bot": false, "team": "none", "position": [4, 4, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 40, "one_tick_edges": [], "input": {"forward": 1, "right": 0, "jump": false, "crouch": false, "dash": false, "attack": false}}
+  ],
+  "assertions": [
+    {"type": "player_position", "at_completion": true, "player": 0, "value": [-1.9336987, 0, 0.9], "tolerance": 0.0001}
+  ]
+}

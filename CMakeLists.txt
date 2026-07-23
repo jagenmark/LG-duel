@@ -41,6 +41,9 @@ add_library(lg_duel_core
   src/net/NetCodec.cpp
   src/net/SimulatedTransport.cpp
   src/net/UdpTransport.cpp
+  src/scenario/ScenarioEvidence.cpp
+  src/scenario/ScenarioRuntime.cpp
+  src/scenario/ScenarioSchema.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/ArenaBroadphase.cpp
@@ -311,6 +314,13 @@ add_executable(lg_duel_sim_benchmark
 target_link_libraries(lg_duel_sim_benchmark PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_sim_benchmark)
 
+add_executable(lg_duel_scenarios
+  tools/ScenarioRunner.cpp
+)
+
+target_link_libraries(lg_duel_scenarios PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_scenarios)
+
 add_executable(lg_duel_asset_validate
   tools/AssetValidate.cpp
   src/render/GltfSkinnedModel.cpp
@@ -325,6 +335,7 @@ foreach(target IN ITEMS
   lg_duel_server_probe
   lg_duel_map_validate
   lg_duel_sim_benchmark
+  lg_duel_scenarios
   lg_duel_asset_validate
 )
   lg_duel_set_windows_stack(${target})

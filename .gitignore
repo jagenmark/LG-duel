@@ -1,6 +1,7 @@
 /build/
 /build/benchmarks/
 /build/captures/
+/scenario-results/
 __pycache__/
 /dist/
 /.server/

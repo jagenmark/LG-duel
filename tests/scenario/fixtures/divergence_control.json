@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "name": "test_divergence_control",
+  "description": "A repeatable run used as the control for a forced hash mismatch.",
+  "execution": {"mode": "headless", "max_ticks": 4, "repeat": 3},
+  "world": {"map": "default", "game_mode": "duel", "seed": 77},
+  "players": [
+    {
+      "index": 0,
+      "connected": true,
+      "bot": false,
+      "team": "none",
+      "position": [-4, 0, 0.9],
+      "velocity": [0, 0, 0],
+      "view_yaw_degrees": 0,
+      "view_pitch_degrees": 0,
+      "health": 100,
+      "alive": true,
+      "selected_weapon": "machine_gun"
+    }
+  ],
+  "timeline": [
+    {
+      "at_tick": 0,
+      "player": 0,
+      "duration_ticks": 3,
+      "one_tick_edges": [],
+      "input": {
+        "forward": 1,
+        "right": 0,
+        "jump": false,
+        "crouch": false,
+        "dash": false,
+        "attack": false
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "type": "player_health",
+      "at_completion": true,
+      "player": 0,
+      "health": 100
+    }
+  ]
+}
