@@ -12,9 +12,14 @@
 namespace lg {
 
 struct PredictionDiagnostics {
+  Vec3 lastCorrectionVector = {};
   float lastCorrectionDistance = 0.0F;
+  float maximumCorrectionDistance = 0.0F;
   std::uint32_t correctionCount = 0;
   std::size_t pendingCommandCount = 0;
+  std::size_t maximumPendingCommandCount = 0;
+  std::uint32_t oldestPendingCommandClientTick = 0;
+  bool hasPendingCommand = false;
 };
 
 class Prediction {

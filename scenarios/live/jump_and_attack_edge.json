@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "jump_and_attack_edge",
+  "description": "Jump and attack edges are sent once, then released on the next command.",
+  "execution": {"mode": "client_server", "max_ticks": 500, "repeat": 1},
+  "world": {"map": "default", "game_mode": "duel", "seed": 2102},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "railgun"},
+    {"index": 1, "connected": true, "bot": true, "team": "none", "position": [4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [{"at_tick": 0, "player": 0, "duration_ticks": 2, "one_tick_edges": ["jump", "attack"], "input": {"forward": 0, "right": 0, "jump": true, "attack": true, "weapon": "railgun", "yaw": 0, "pitch": -5}}],
+  "assertions": [
+    {"type": "event", "classification": "AUTHORITATIVE_DETERMINISTIC", "at_completion": true, "event": {"type": "weapon_fired", "actor": 0, "weapon": "railgun", "count": 1}},
+    {"type": "input_edge_count", "classification": "CLIENT_BOUNDED", "at_completion": true, "edge": "jump", "count": 1},
+    {"type": "input_edge_count", "classification": "CLIENT_BOUNDED", "at_completion": true, "edge": "attack", "count": 1},
+    {"type": "command_acknowledged", "classification": "CLIENT_BOUNDED", "at_completion": true, "timeline_index": 0, "max_ticks": 40}
+  ]
+}

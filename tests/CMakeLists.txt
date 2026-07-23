@@ -96,6 +96,24 @@ set_tests_properties(
   PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
 )
 
+add_executable(lg_duel_live_scenario_session_tests
+  scenario/LiveScenarioSessionTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/server/ServerApp.cpp
+)
+
+target_link_libraries(lg_duel_live_scenario_session_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_live_scenario_session_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_live_scenario_session_tests)
+
+add_test(
+  NAME lg_duel_live_scenario_session_tests
+  COMMAND lg_duel_live_scenario_session_tests
+)
+set_tests_properties(
+  lg_duel_live_scenario_session_tests
+  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
 add_test(
   NAME lg_duel_scenario_starter_suite
   COMMAND $<TARGET_FILE:lg_duel_scenarios>
@@ -337,6 +355,10 @@ if(Python3_Interpreter_FOUND)
   add_test(
     NAME lg_duel_launch_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_launch.py
+  )
+  add_test(
+    NAME lg_duel_live_scenario_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_live_scenario.py
   )
   add_test(
     NAME lg_duel_q3_import_python_tests

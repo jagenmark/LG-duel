@@ -3,6 +3,8 @@
 #include "shared/Math.hpp"
 #include "shared/Sequence.hpp"
 
+#include <algorithm>
+
 namespace lg {
 namespace {
 
@@ -61,6 +63,14 @@ void Prediction::predict(
     applyDeadCommand(player_, command);
   }
   diagnostics_.pendingCommandCount = pendingCommands_.size();
+  diagnostics_.maximumPendingCommandCount = std::max(
+    diagnostics_.maximumPendingCommandCount,
+    diagnostics_.pendingCommandCount
+  );
+  diagnostics_.hasPendingCommand = !pendingCommands_.empty();
+  diagnostics_.oldestPendingCommandClientTick = pendingCommands_.empty()
+    ? 0U
+    : pendingCommands_.front().command.clientTick;
 }
 
 void Prediction::predict(
@@ -94,12 +104,20 @@ void Prediction::reconcile(
   if (authoritativeState.health <= 0) {
     player_ = authoritativeState;
     pendingCommands_.clear();
+    diagnostics_.lastCorrectionVector =
+      player_.position - previousPrediction.position;
     diagnostics_.lastCorrectionDistance =
-      length(player_.position - previousPrediction.position);
+      length(diagnostics_.lastCorrectionVector);
+    diagnostics_.maximumCorrectionDistance = std::max(
+      diagnostics_.maximumCorrectionDistance,
+      diagnostics_.lastCorrectionDistance
+    );
     if (diagnostics_.lastCorrectionDistance > 0.0001F) {
       ++diagnostics_.correctionCount;
     }
     diagnostics_.pendingCommandCount = 0;
+    diagnostics_.hasPendingCommand = false;
+    diagnostics_.oldestPendingCommandClientTick = 0;
     return;
   }
   if (hasAcknowledgedCommand) {
@@ -129,11 +147,25 @@ void Prediction::reconcile(
     }
   }
 
-  diagnostics_.lastCorrectionDistance = length(player_.position - previousPrediction.position);
+  diagnostics_.lastCorrectionVector =
+    player_.position - previousPrediction.position;
+  diagnostics_.lastCorrectionDistance = length(diagnostics_.lastCorrectionVector);
+  diagnostics_.maximumCorrectionDistance = std::max(
+    diagnostics_.maximumCorrectionDistance,
+    diagnostics_.lastCorrectionDistance
+  );
   if (diagnostics_.lastCorrectionDistance > 0.0001F) {
     ++diagnostics_.correctionCount;
   }
   diagnostics_.pendingCommandCount = pendingCommands_.size();
+  diagnostics_.maximumPendingCommandCount = std::max(
+    diagnostics_.maximumPendingCommandCount,
+    diagnostics_.pendingCommandCount
+  );
+  diagnostics_.hasPendingCommand = !pendingCommands_.empty();
+  diagnostics_.oldestPendingCommandClientTick = pendingCommands_.empty()
+    ? 0U
+    : pendingCommands_.front().command.clientTick;
 }
 
 void Prediction::reconcile(

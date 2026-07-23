@@ -140,6 +140,17 @@ constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
   return areClanArenaEnemies(snapshot.teams, attackerIndex, targetIndex);
 }
 
+[[nodiscard]] bool isTraceableCombatant(
+  const ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  std::size_t targetIndex
+) {
+  return attackerIndex < kDuelPlayerCount &&
+    targetIndex < kDuelPlayerCount &&
+    attackerIndex != targetIndex &&
+    isCombatant(snapshot, targetIndex);
+}
+
 [[nodiscard]] std::size_t firstCombatTarget(
   const ServerSnapshot& snapshot,
   std::size_t attackerIndex
@@ -888,11 +899,13 @@ void ServerGame::tick(float fixedDt) {
     float bestHitDistance = worldTrace.distance;
     for (std::size_t candidateIndex = 0; candidateIndex < kDuelPlayerCount; ++candidateIndex) {
       if (
-        !isEnemyCombatant(snapshot_, attackerIndex, candidateIndex) ||
+        !isTraceableCombatant(snapshot_, attackerIndex, candidateIndex) ||
         combatPlayers[candidateIndex].health <= 0
       ) {
         continue;
       }
+      // Trace every other live body. The damage policy below decides whether
+      // warmup damage or team damage applies, while friendly knockback remains.
       const PlayerState& candidate = clampedRewindTicks == 0
         ? combatPlayers[candidateIndex]
         : historyFrame.players[candidateIndex];

@@ -132,6 +132,262 @@ int testParsing() {
   return failures;
 }
 
+int testLiveSchemaParsingAndRoundTrip() {
+  int failures = 0;
+  const std::string liveJson = R"({
+    "schema_version":1,
+    "name":"live_schema",
+    "execution":{"mode":"client_server","max_ticks":40,"repeat":1},
+    "world":{"map":"default","game_mode":"duel","seed":12},
+    "network":{"latency_ms":20,"jitter_ms":4,"packet_loss_percent":5,
+               "reorder_percent":2,"seed":1234},
+    "players":[
+      {"index":0,"connected":true,"bot":false,"team":"none",
+       "position":[-4,0,0.9],"velocity":[0,0,0],"view_yaw_degrees":0,
+       "view_pitch_degrees":0,"health":100,"alive":true,
+       "selected_weapon":"rocket_launcher"}
+    ],
+    "timeline":[
+      {"at_tick":0,"player":0,"duration_ticks":1,
+       "one_tick_edges":["sneak","zoom"],
+       "input":{"forward":0.5,"right":-0.25,"up":1,"sneak":true,"zoom":true}}
+    ],
+    "assertions":[
+      {"type":"command_acknowledged","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"timeline_index":0,"max_ticks":8},
+      {"type":"input_edge_count","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"edge":"zoom","count":1},
+      {"type":"client_pending_commands_max","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"max":16},
+      {"type":"client_correction_magnitude_max","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"max":2.5},
+      {"type":"client_correction_count","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"min":1,"max":5},
+      {"type":"client_converged","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"player":0,"tolerance":0.25,"within_ticks":20},
+      {"type":"client_connected","classification":"CLIENT_BOUNDED",
+       "at_completion":true,"expected":true},
+      {"type":"renderer_backend","classification":"RENDERER_ATTESTED",
+       "at_completion":true,"backend":"sdl_gpu/vulkan"},
+      {"type":"screenshot_checkpoint","classification":"VISUAL_REVIEW",
+       "at_completion":true,"capture":"after_fire","width":1280,"height":720}
+    ],
+    "captures":[
+      {"name":"tick_view","at_server_tick":4,"wait_rendered_frames":0},
+      {"name":"after_fire",
+       "after_event":{"type":"weapon_fired","actor":0,
+                      "weapon":"rocket_launcher"},
+       "wait_rendered_frames":3}
+    ]
+  })";
+  const auto parsed = lg::scenario::parseScenarioJson(liveJson);
+  failures += expect(parsed.ok, "client/server Phase 2 schema should parse");
+  if (!parsed.ok) {
+    std::cerr << parsed.error << '\n';
+    return failures;
+  }
+  failures += expect(
+    parsed.scenario.execution.mode ==
+        lg::scenario::ScenarioExecutionMode::ClientServer &&
+      parsed.scenario.network &&
+      parsed.scenario.network->latencyMs == 20 &&
+      parsed.scenario.network->packetLossPercent == 5 &&
+      parsed.scenario.network->seed == 1234U,
+    "live parse should keep execution and network settings");
+  failures += expect(
+    parsed.scenario.timeline[0].input.up == 1.0F &&
+      parsed.scenario.timeline[0].input.sneak &&
+      parsed.scenario.timeline[0].input.zoom &&
+      parsed.scenario.timeline[0].oneTickEdges ==
+        std::vector{
+          lg::scenario::OneTickEdge::Sneak,
+          lg::scenario::OneTickEdge::Zoom,
+        },
+    "live parse should keep up, sneak, zoom, and their edges");
+  failures += expect(
+    parsed.scenario.assertions.size() == 9U &&
+      std::holds_alternative<lg::scenario::CommandAcknowledgedAssertion>(
+        parsed.scenario.assertions[0].payload) &&
+      std::holds_alternative<lg::scenario::ScreenshotCheckpointAssertion>(
+        parsed.scenario.assertions[8].payload) &&
+      parsed.scenario.captures.size() == 2U &&
+      parsed.scenario.captures[1].afterEvent &&
+      parsed.scenario.captures[1].afterEvent->actor == 0U,
+    "live assertions and captures should use typed payloads");
+
+  const std::string canonical =
+    lg::dev::writeJson(lg::scenario::scenarioJson(parsed.scenario));
+  const auto roundTrip = lg::scenario::parseScenarioJson(canonical);
+  const std::string canonicalAgain = roundTrip.ok
+    ? lg::dev::writeJson(lg::scenario::scenarioJson(roundTrip.scenario))
+    : std::string{};
+  failures += expect(
+    roundTrip.ok && canonicalAgain == canonical,
+    "Phase 2 canonical JSON should round trip without changes");
+
+  auto replace = [](std::string source, std::string_view from, std::string_view to) {
+    const std::size_t at = source.find(from);
+    if (at != std::string::npos) source.replace(at, from.size(), to);
+    return source;
+  };
+  const auto noClassification = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("classification":"CLIENT_BOUNDED",)", ""));
+  failures += expect(
+    !noClassification.ok &&
+      noClassification.error.find("classification") != std::string::npos,
+    "client/server assertions should require a classification");
+
+  const auto noNetworkSeed = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"(,"seed":1234)", ""));
+  failures += expect(
+    !noNetworkSeed.ok &&
+      noNetworkSeed.error.find("network.seed") != std::string::npos,
+    "a network object should require an explicit seed");
+
+  std::string partialNetworkJson = validScenarioJson("partial_network");
+  partialNetworkJson.insert(
+    partialNetworkJson.find(R"("players")"),
+    R"("network":{"latency_ms":25,"seed":7},)");
+  const auto partialNetwork =
+    lg::scenario::parseScenarioJson(partialNetworkJson);
+  failures += expect(
+    partialNetwork.ok && partialNetwork.scenario.network &&
+      partialNetwork.scenario.network->latencyMs == 25 &&
+      partialNetwork.scenario.network->jitterMs == 0,
+    "network fields other than the explicit seed may use zero defaults");
+
+  const auto unknownNetwork = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("seed":1234})", R"("seed":1234,"extra":true})"));
+  failures += expect(
+    !unknownNetwork.ok &&
+      unknownNetwork.error.find("network.extra: unknown field") !=
+        std::string::npos,
+    "network objects should reject unknown fields");
+
+  const auto badNetwork = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("packet_loss_percent":5)", R"("packet_loss_percent":101)"));
+  failures += expect(
+    !badNetwork.ok &&
+      badNetwork.error.find("network.packet_loss_percent") != std::string::npos,
+    "network percentages should reject values above 100");
+
+  const auto bothCaptureTriggers = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("name":"tick_view","at_server_tick":4)",
+    R"("name":"tick_view","at_server_tick":4,)"
+    R"("after_event":{"type":"weapon_fired"})"));
+  failures += expect(
+    !bothCaptureTriggers.ok &&
+      bothCaptureTriggers.error.find("exactly one") != std::string::npos,
+    "captures should reject two trigger kinds");
+
+  const auto captureInsideInput = lg::scenario::parseScenarioJson(replace(
+    liveJson,
+    R"("at_tick":0,"player":0,"duration_ticks":1)",
+    R"("at_tick":0,"player":0,"duration_ticks":10)"));
+  failures += expect(
+    !captureInsideInput.ok &&
+      captureInsideInput.error.find("must not split") != std::string::npos,
+    "tick captures should not split a live input range");
+
+  const auto excessWait = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("wait_rendered_frames":3)", R"("wait_rendered_frames":601)"));
+  failures += expect(
+    !excessWait.ok &&
+      excessWait.error.find("wait_rendered_frames") != std::string::npos,
+    "capture frame waits should stop at 600");
+
+  const auto badCorrectionRange = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("min":1,"max":5)", R"("min":6,"max":5)"));
+  failures += expect(
+    !badCorrectionRange.ok &&
+      badCorrectionRange.error.find("assertions[4].max") != std::string::npos,
+    "client correction count should reject max below min");
+
+  const auto repeatedLive = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("max_ticks":40,"repeat":1)",
+    R"("max_ticks":40,"repeat":2)"));
+  failures += expect(
+    !repeatedLive.ok &&
+      repeatedLive.error.find("execution.repeat") != std::string::npos,
+    "live repeat counts should not be ignored");
+
+  const auto longLiveInput = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("max_ticks":40)", R"("max_ticks":1300)"));
+  const auto longLiveInputParsed = lg::scenario::parseScenarioJson(replace(
+    lg::dev::writeJson(
+      lg::scenario::scenarioJson(
+        longLiveInput.ok ? longLiveInput.scenario : parsed.scenario
+      )
+    ),
+    R"("duration_ticks":1)",
+    R"("duration_ticks":1251)"
+  ));
+  failures += expect(
+    !longLiveInputParsed.ok &&
+      longLiveInputParsed.error.find("client_server limit is 1250") !=
+        std::string::npos,
+    "live input spans should match the typed control limit");
+
+  const auto wrongRendererClass = lg::scenario::parseScenarioJson(replace(
+    liveJson,
+    R"("type":"renderer_backend","classification":"RENDERER_ATTESTED")",
+    R"("type":"renderer_backend","classification":"CLIENT_BOUNDED")"
+  ));
+  failures += expect(
+    !wrongRendererClass.ok &&
+      wrongRendererClass.error.find("assertion source") != std::string::npos,
+    "renderer assertions should require renderer attestation");
+
+  const auto missingCapture = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("capture":"after_fire")", R"("capture":"not_defined")"));
+  failures += expect(
+    !missingCapture.ok &&
+      missingCapture.error.find("does not name a capture") != std::string::npos,
+    "screenshot assertions should name a declared capture");
+
+  std::string botConvergenceJson = replace(
+    liveJson,
+    R"("at_completion":true,"player":0,"tolerance":0.25)",
+    R"("at_completion":true,"player":1,"tolerance":0.25)");
+  const std::size_t timelineStart =
+    botConvergenceJson.find(R"("timeline":[)");
+  const std::size_t playersEnd =
+    botConvergenceJson.rfind(']', timelineStart);
+  if (playersEnd != std::string::npos) {
+    botConvergenceJson.insert(
+      playersEnd,
+      R"(,{"index":1,"connected":true,"bot":true,"team":"none",)"
+      R"("position":[4,0,0.9],"velocity":[0,0,0],)"
+      R"("view_yaw_degrees":180,"view_pitch_degrees":0,"health":100,)"
+      R"("alive":true,"selected_weapon":"machine_gun"})");
+  }
+  const auto botConvergence =
+    lg::scenario::parseScenarioJson(botConvergenceJson);
+  failures += expect(
+    !botConvergence.ok &&
+      botConvergence.error.find("local non-bot player") != std::string::npos,
+    "live convergence should only inspect the local non-bot player: " +
+      botConvergence.error);
+
+  const auto headlessNoClassification =
+    lg::scenario::parseScenarioJson(validScenarioJson("headless_still_valid"));
+  failures += expect(
+    headlessNoClassification.ok,
+    "Phase 1 headless assertions may still omit classification");
+  if (headlessNoClassification.ok) {
+    const std::string headlessCanonical = lg::dev::writeJson(
+      lg::scenario::scenarioJson(headlessNoClassification.scenario));
+    failures += expect(
+      headlessCanonical.find("\"network\"") == std::string::npos &&
+        headlessCanonical.find("\"captures\"") == std::string::npos &&
+        headlessCanonical.find("\"up\"") == std::string::npos &&
+        headlessCanonical.find("\"sneak\"") == std::string::npos &&
+        headlessCanonical.find("\"zoom\"") == std::string::npos,
+      "Phase 1 canonical JSON should not gain unused Phase 2 fields");
+  }
+  return failures;
+}
+
 int testInputPlaybackAndEdges() {
   int failures = 0;
   auto shortParsed = load("divergence_control.json");
@@ -413,6 +669,7 @@ int testArtifactsAndJunit() {
 int main() {
   int failures = 0;
   failures += testParsing();
+  failures += testLiveSchemaParsingAndRoundTrip();
   failures += testInputPlaybackAndEdges();
   failures += testServerSetupAndHashes();
   failures += testEventsAssertionsAndRepeat();

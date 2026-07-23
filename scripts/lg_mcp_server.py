@@ -14,6 +14,7 @@ from lg_launch import LaunchError, ensure_client, restart_owned, status_with_sta
 from lg_benchmark import (
     BenchmarkError, compare_results, create_baseline, list_scenarios, load_result, run_benchmark,
 )
+from lg_live_scenario import LiveScenarioError, run_live_scenario
 
 
 SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.0.0"}
@@ -243,6 +244,20 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "lg_run_live_scenario",
+        "description": "Run one C++-validated client/server scenario and return its evidence directory.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "scenario": {"type": "string", "minLength": 1, "maxLength": 1024},
+                "renderer": {"type": "string", "enum": ["gpu", "fallback"], "default": "gpu"},
+                "allow_fallback": {"type": "boolean", "default": False},
+                "timeout": {"type": "number", "exclusiveMinimum": 0, "maximum": 3600, "default": 60},
+            },
+            "required": ["scenario"], "additionalProperties": False,
+        },
+    },
+    {
         "name": "lg_list_benchmarks",
         "description": "List validated offline benchmark scenarios and their canonical hashes.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
@@ -389,6 +404,18 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         )
     if name == "lg_list_benchmarks":
         return list_scenarios()
+    if name == "lg_run_live_scenario":
+        renderer = str(arguments.get("renderer", "gpu"))
+        allow_fallback = bool(arguments.get("allow_fallback", False))
+        if renderer == "fallback" and not allow_fallback:
+            raise ControlError("renderer='fallback' requires allow_fallback=true")
+        scenario = Path(arguments["scenario"])
+        if not scenario.suffix:
+            scenario = Path(__file__).resolve().parents[1] / "scenarios" / "live" / f"{scenario}.json"
+        return run_live_scenario(
+            scenario, renderer=renderer, allow_fallback=allow_fallback,
+            timeout=float(arguments.get("timeout", 60.0)),
+        )
     if name == "lg_run_benchmark":
         result = run_benchmark(
             arguments["scenario"], repetitions=arguments.get("repetitions", 3),

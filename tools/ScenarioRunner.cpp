@@ -20,6 +20,7 @@ struct Options {
   std::optional<std::uint32_t> repeat;
   std::filesystem::path output = "scenario-results";
   std::filesystem::path maps = "maps";
+  bool validateOnly = false;
 };
 
 struct SuiteEntry {
@@ -35,6 +36,7 @@ void printHelp() {
   std::cout
     << "Usage: lg_duel_scenarios [--suite smoke | --scenario NAME_OR_PATH]\n"
     << "                         [--repeat N] [--output DIR] [--maps DIR]\n"
+    << "                         [--validate-only]\n"
     << "\n"
     << "Runs authoritative simulation ticks without SDL or wall-clock waits.\n";
 }
@@ -51,6 +53,10 @@ bool parseOptions(int argc, char** argv, Options& options, std::string& error) {
     if (argument == "--help" || argument == "-h") {
       printHelp();
       return false;
+    }
+    if (argument == "--validate-only") {
+      options.validateOnly = true;
+      continue;
     }
     if (index + 1 >= argc) {
       error = argument + " needs a value";
@@ -79,6 +85,10 @@ bool parseOptions(int argc, char** argv, Options& options, std::string& error) {
   }
   if (options.suite && *options.suite != "smoke") {
     error = "the only Phase-1 suite is 'smoke'";
+    return false;
+  }
+  if (options.validateOnly && options.suite) {
+    error = "--validate-only needs one --scenario";
     return false;
   }
   return true;
@@ -251,6 +261,19 @@ int main(int argc, char** argv) {
     paths.push_back(scenarioPath(*options.scenario));
   }
 
+  if (options.validateOnly) {
+    const lg::scenario::ScenarioParseResult parsed =
+      lg::scenario::loadScenarioFile(paths.front());
+    if (!parsed.ok) {
+      std::cerr << paths.front().string()
+                << ": parse failed: " << parsed.error << '\n';
+      return 2;
+    }
+    std::cout << lg::dev::writeJson(lg::scenario::scenarioJson(parsed.scenario))
+              << '\n';
+    return 0;
+  }
+
   bool allPassed = true;
   std::vector<SuiteEntry> suiteEntries;
   for (const std::filesystem::path& path : paths) {
@@ -260,6 +283,19 @@ int main(int argc, char** argv) {
       std::cerr << path.string() << ": parse failed: " << parsed.error << '\n';
       suiteEntries.push_back({
         path.stem().string(), "ERROR", parsed.error, "", 0U, {}
+      });
+      allPassed = false;
+      continue;
+    }
+    if (
+      parsed.scenario.execution.mode ==
+      lg::scenario::ScenarioExecutionMode::ClientServer
+    ) {
+      const std::string liveError =
+        "client_server scenarios must run through scripts/lg_live_scenario.py";
+      std::cerr << path.string() << ": " << liveError << '\n';
+      suiteEntries.push_back({
+        parsed.scenario.name, "ERROR", liveError, "", 0U, {}
       });
       allPassed = false;
       continue;

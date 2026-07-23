@@ -82,13 +82,21 @@ lg::CommandPacket aimedAttack(
   std::uint32_t sequence,
   lg::Weapon weapon
 ) {
-  const lg::Vec3 offset =
-    snapshot.players[targetIndex].position - snapshot.players[attackerIndex].position;
+  constexpr float weaponEyeHeight = 0.65F;
+  constexpr float defaultPlayerHalfHeight = 0.9F;
+  const lg::PlayerState& attacker = snapshot.players[attackerIndex];
+  const float scaledEyeHeight =
+    weaponEyeHeight *
+    (attacker.bounds.halfHeight / defaultPlayerHalfHeight);
+  const lg::Vec3 muzzle =
+    attacker.position + lg::Vec3{0.0F, 0.0F, scaledEyeHeight};
+  const lg::Vec3 offset = snapshot.players[targetIndex].position - muzzle;
   lg::CommandPacket packet;
   packet.playerIndex = attackerIndex;
   packet.command.sequence = sequence;
   packet.command.attack = true;
   packet.command.weapon = weapon;
+  packet.command.planarAim = false;
   packet.command.viewYawRadians = std::atan2(offset.y, offset.x);
   packet.command.viewPitchRadians = std::atan2(
     offset.z,

@@ -41,6 +41,7 @@ add_library(lg_duel_core
   src/net/NetCodec.cpp
   src/net/SimulatedTransport.cpp
   src/net/UdpTransport.cpp
+  src/scenario/LiveScenarioSession.cpp
   src/scenario/ScenarioEvidence.cpp
   src/scenario/ScenarioRuntime.cpp
   src/scenario/ScenarioSchema.cpp

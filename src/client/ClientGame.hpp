@@ -110,6 +110,8 @@ private:
   bool previousDashHeld_ = false;
   bool previousAttackHeld_ = false;
   std::uint32_t lastSnapshotPacketsDecoded_ = 0;
+  std::uint64_t duplicateSnapshotsIgnored_ = 0;
+  std::uint64_t staleSnapshotsIgnored_ = 0;
   std::string connectionError_;
   std::uint32_t pendingMovementTuningCommand_ = 0;
   bool hasPendingMovementTuning_ = false;

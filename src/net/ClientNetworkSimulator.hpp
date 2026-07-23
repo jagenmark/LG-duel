@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <deque>
 #include <vector>
 
 namespace lg {
@@ -37,6 +38,15 @@ enum class ClientNetworkSimAction {
   Dropped,
 };
 
+struct ClientNetworkSimulationDecision {
+  std::uint64_t sequence = 0;
+  ClientNetworkSimDirection direction = ClientNetworkSimDirection::Outgoing;
+  ClientNetworkSimAction action = ClientNetworkSimAction::Immediate;
+  int delayMs = 0;
+  bool reordered = false;
+  bool queueLimitDrop = false;
+};
+
 class ClientNetworkSimulator {
 public:
   using Clock = std::chrono::steady_clock;
@@ -45,6 +55,7 @@ public:
   void setConfig(const ClientNetworkSimulationConfig& config);
   [[nodiscard]] const ClientNetworkSimulationConfig& config() const;
   [[nodiscard]] ClientNetworkSimulationStats stats() const;
+  [[nodiscard]] const std::deque<ClientNetworkSimulationDecision>& decisions() const;
   [[nodiscard]] bool active() const;
   [[nodiscard]] bool hasQueuedPackets() const;
 
@@ -80,12 +91,15 @@ private:
   [[nodiscard]] int clampedJitterMs();
   [[nodiscard]] int clampedLossPercent();
   [[nodiscard]] int clampedReorderPercent();
+  void recordDecision(ClientNetworkSimulationDecision decision);
 
   ClientNetworkSimulationConfig config_ = {};
   ClientNetworkSimulationStats counters_ = {};
   std::vector<ScheduledDatagram> outgoing_;
   std::vector<ScheduledDatagram> incoming_;
+  std::deque<ClientNetworkSimulationDecision> decisions_;
   std::uint64_t insertionOrder_ = 0;
+  std::uint64_t decisionSequence_ = 0;
   std::uint32_t randomState_ = 0x4C474455U;
 };
 

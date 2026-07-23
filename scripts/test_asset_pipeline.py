@@ -414,6 +414,25 @@ class ValidationAndManifestTests(unittest.TestCase):
             self.assertIn("reports/validation.json", [item["path"] for item in manifest["files"]])
             self.assertIn("state.json", [item["path"] for item in manifest["files"]])
 
+    def test_review_manifest_normalizes_text_line_endings_only(self):
+        with tempfile.TemporaryDirectory() as raw:
+            package = pathlib.Path(raw)
+            text_path = package / "notes.md"
+            binary_path = package / "asset.glb"
+            text_path.write_bytes(b"first\nsecond\n")
+            binary_path.write_bytes(b"binary\r\npayload")
+            expected = pipeline._review_manifest(package)
+
+            text_path.write_bytes(b"first\r\nsecond\r\n")
+            self.assertEqual(expected, pipeline._review_manifest(package))
+
+            text_path.write_bytes(b"first\r\nchanged\r\n")
+            self.assertNotEqual(expected, pipeline._review_manifest(package))
+
+            text_path.write_bytes(b"first\r\nsecond\r\n")
+            binary_path.write_bytes(b"binary\npayload")
+            self.assertNotEqual(expected, pipeline._review_manifest(package))
+
     def test_import_rejects_changed_and_new_files(self):
         for change in ("changed", "new"):
             with self.subTest(change=change), tempfile.TemporaryDirectory() as raw:
