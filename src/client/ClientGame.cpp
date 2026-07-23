@@ -87,6 +87,7 @@ void ClientGame::sendCommand(
       ? interpolation_.presentationServerTick()
       : snapshot_.serverTick;
     actionEdges_.attackWeapon = command.weapon;
+    actionEdges_.attackZoomed = command.zoomed;
   }
   previousAttackHeld_ = command.attack;
   previousJumpHeld_ = command.jump;

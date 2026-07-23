@@ -14,7 +14,11 @@ struct BalanceConfig {
   FreezeGunTuning freezeGun = {};
   IcePoolTuning icePool = {};
   HitscanTuning railgun = {};
+  float sniperChargeSeconds = 3.3F;
+  float sniperMaxDamageMultiplier = 3.0F;
   std::uint32_t railgunCooldownTicks = 188;
+  HitscanTuning revolver = {};
+  std::uint32_t revolverCooldownTicks = 188;
   MachineGunTuning machineGun = {};
   std::uint32_t machineGunCooldownTicks = 13;
   ShotgunTuning shotgun = {};

@@ -465,27 +465,36 @@ ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
 void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   lightningGunTuning_.range = config.lightningGun.range;
   lightningGunTuning_.eyeHeight = config.lightningGun.eyeHeight;
+  lightningGunTuning_.headshotMultiplier = config.lightningGun.headshotMultiplier;
   freezeGunTuning_.range = config.freezeGun.range;
   freezeGunTuning_.eyeHeight = config.freezeGun.eyeHeight;
   freezeGunTuning_.freezePerSecond = config.freezeGun.freezePerSecond;
   freezeGunTuning_.decayPerSecond = config.freezeGun.decayPerSecond;
   freezeGunTuning_.maxSlowFraction = config.freezeGun.maxSlowFraction;
+  freezeGunTuning_.headshotMultiplier = config.freezeGun.headshotMultiplier;
   icePoolTuning_ = config.icePool;
   snapshot_.icePoolTuning = icePoolTuning_;
   railgunTuning_.range = config.railgun.range;
   railgunTuning_.eyeHeight = config.railgun.eyeHeight;
   railgunTuning_.knockback = config.railgun.knockback;
+  railgunTuning_.headshotMultiplier = config.railgun.headshotMultiplier;
+  sniperChargeSeconds_ = config.sniperChargeSeconds;
+  sniperMaxDamageMultiplier_ = config.sniperMaxDamageMultiplier;
   railgunCooldownDurationTicks_ = config.railgunCooldownTicks;
+  revolverTuning_ = config.revolver;
+  revolverCooldownDurationTicks_ = config.revolverCooldownTicks;
   machineGunTuning_.range = config.machineGun.range;
   machineGunTuning_.eyeHeight = config.machineGun.eyeHeight;
   machineGunTuning_.knockback = config.machineGun.knockback;
   machineGunTuning_.spreadRadians = config.machineGun.spreadRadians;
+  machineGunTuning_.headshotMultiplier = config.machineGun.headshotMultiplier;
   machineGunCooldownDurationTicks_ = config.machineGunCooldownTicks;
   shotgunTuning_.range = config.shotgun.range;
   shotgunTuning_.pelletCount = config.shotgun.pelletCount;
   shotgunTuning_.spreadRadians = config.shotgun.spreadRadians;
   shotgunTuning_.eyeHeight = config.shotgun.eyeHeight;
   shotgunTuning_.knockback = config.shotgun.knockback;
+  shotgunTuning_.headshotMultiplier = config.shotgun.headshotMultiplier;
   shotgunCooldownDurationTicks_ = config.shotgunCooldownTicks;
   rocketLauncherTuning_.speed = config.rocketLauncher.speed;
   rocketLauncherTuning_.radius = config.rocketLauncher.radius;
@@ -555,6 +564,11 @@ void ServerGame::tick(float fixedDt) {
   // Event fields describe occurrences, not durable state. They are rebuilt for
   // this tick and restored near publication only for packet-loss tolerance.
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
+    if (cooldown > 0) {
+      --cooldown;
+    }
+  }
+  for (std::uint32_t& cooldown : revolverCooldownTicks_) {
     if (cooldown > 0) {
       --cooldown;
     }
@@ -757,6 +771,34 @@ void ServerGame::tick(float fixedDt) {
       combatPlayers[attackerIndex].health > 0 &&
       (warmupCombat || hasTarget) &&
       canFireSelectedWeapon(attackerIndex);
+    const bool sniperCanCharge =
+      command.weapon == Weapon::Railgun &&
+      command.zoomed &&
+      isCombatant(snapshot_, attackerIndex) &&
+      combatPlayers[attackerIndex].health > 0 &&
+      (snapshot_.matchPhase == MatchPhase::Live || warmupCombat);
+    if (sniperCanCharge) {
+      sniperAdsFractions_[attackerIndex] = std::min(
+        1.0F,
+        sniperAdsFractions_[attackerIndex] + fixedDt / kSniperAdsSeconds
+      );
+      // Charge belongs to the server so delayed or forged client HUD state can
+      // never raise shot damage. Leaving ADS or this weapon clears it at once.
+      if (sniperAdsFractions_[attackerIndex] >= 1.0F) {
+        sniperChargeFractions_[attackerIndex] = std::min(
+          1.0F,
+          sniperChargeFractions_[attackerIndex] +
+            fixedDt / std::max(0.05F, sniperChargeSeconds_)
+        );
+      }
+    } else {
+      sniperAdsFractions_[attackerIndex] = 0.0F;
+      sniperChargeFractions_[attackerIndex] = 0.0F;
+    }
+    snapshot_.sniperChargePercent[attackerIndex] =
+      static_cast<std::uint8_t>(std::lround(
+        sniperChargeFractions_[attackerIndex] * 100.0F
+      ));
     if (command.planarAim) {
       command.viewPitchRadians = 0.0F;
     }
@@ -794,6 +836,8 @@ void ServerGame::tick(float fixedDt) {
           ? machineGunTuning_.eyeHeight
         : command.weapon == Weapon::Shotgun
           ? shotgunTuning_.eyeHeight
+        : command.weapon == Weapon::Revolver
+          ? revolverTuning_.eyeHeight
         : railgunTuning_.eyeHeight
     );
     const Vec3 attackDirection =
@@ -806,6 +850,8 @@ void ServerGame::tick(float fixedDt) {
         ? machineGunTuning_.range
       : command.weapon == Weapon::Shotgun
         ? shotgunTuning_.range
+      : command.weapon == Weapon::Revolver
+        ? revolverTuning_.range
       : railgunTuning_.range;
     const WorldTrace worldTrace =
       traceWorld(arena_, attackStart, attackDirection, attackRange);
@@ -904,10 +950,20 @@ void ServerGame::tick(float fixedDt) {
         }
       }
     } else if (
-      (command.weapon == Weapon::Railgun || command.weapon == Weapon::Revolver) &&
+      command.weapon == Weapon::Railgun &&
       command.attack &&
       railgunCooldownTicks_[attackerIndex] == 0
     ) {
+      HitscanTuning shotTuning = railgunTuning_;
+      const float damageScale = 1.0F +
+        (sniperMaxDamageMultiplier_ - 1.0F) *
+        sniperChargeFractions_[attackerIndex];
+      shotTuning.damage = std::max(
+        1,
+        static_cast<int>(std::lround(
+          static_cast<float>(railgunTuning_.damage) * damageScale
+        ))
+      );
       if (targetIndex < kDuelPlayerCount) {
         weaponTargets[attackerIndex] = targetIndex;
         snapshot_.weaponFires[attackerIndex] = simulateRailgun(
@@ -915,12 +971,11 @@ void ServerGame::tick(float fixedDt) {
           target,
           command,
           arena_,
-          railgunTuning_,
-          command.weapon
+          shotTuning
         );
       } else {
         WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
-        fire.weapon = command.weapon;
+        fire.weapon = Weapon::Railgun;
         fire.visualSeed = command.sequence;
         fire.start = attackStart;
         fire.end = worldTrace.end;
@@ -932,7 +987,39 @@ void ServerGame::tick(float fixedDt) {
         snapshot_.weaponFires[attackerIndex]
       );
       railgunCooldownTicks_[attackerIndex] = railgunCooldownDurationTicks_;
-      (void)consumeAmmo(attackerIndex, command.weapon);
+      (void)consumeAmmo(attackerIndex, Weapon::Railgun);
+      // A shot spends the whole charge whether it hits or misses.
+      sniperChargeFractions_[attackerIndex] = 0.0F;
+      snapshot_.sniperChargePercent[attackerIndex] = 0U;
+    } else if (
+      command.weapon == Weapon::Revolver &&
+      command.attack &&
+      revolverCooldownTicks_[attackerIndex] == 0
+    ) {
+      if (targetIndex < kDuelPlayerCount) {
+        weaponTargets[attackerIndex] = targetIndex;
+        snapshot_.weaponFires[attackerIndex] = simulateRevolver(
+          combatPlayers[attackerIndex],
+          target,
+          command,
+          arena_,
+          revolverTuning_
+        );
+      } else {
+        WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
+        fire.weapon = Weapon::Revolver;
+        fire.visualSeed = command.sequence;
+        fire.start = attackStart;
+        fire.end = worldTrace.end;
+        fire.fired = command.attack && combatPlayers[attackerIndex].health > 0;
+      }
+      recordInstantWeaponAccuracy(
+        snapshot_,
+        attackerIndex,
+        snapshot_.weaponFires[attackerIndex]
+      );
+      revolverCooldownTicks_[attackerIndex] = revolverCooldownDurationTicks_;
+      (void)consumeAmmo(attackerIndex, Weapon::Revolver);
     } else if (
       command.weapon == Weapon::MachineGun &&
       command.attack &&
@@ -1233,6 +1320,10 @@ void ServerGame::resetMatch() {
   lightningAmmoCredit_.fill(1.0);
   freezeAmmoCredit_.fill(1.0);
   railgunCooldownTicks_ = {};
+  revolverCooldownTicks_ = {};
+  sniperAdsFractions_ = {};
+  sniperChargeFractions_ = {};
+  snapshot_.sniperChargePercent = {};
   machineGunCooldownTicks_ = {};
   shotgunCooldownTicks_ = {};
   rocketCooldownTicks_ = {};
@@ -1396,6 +1487,10 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   lightningGunStates_[playerIndex] = {};
   freezeGunStates_[playerIndex] = {};
   railgunCooldownTicks_[playerIndex] = 0;
+  revolverCooldownTicks_[playerIndex] = 0;
+  sniperAdsFractions_[playerIndex] = 0.0F;
+  sniperChargeFractions_[playerIndex] = 0.0F;
+  snapshot_.sniperChargePercent[playerIndex] = 0U;
   machineGunCooldownTicks_[playerIndex] = 0;
   shotgunCooldownTicks_[playerIndex] = 0;
   rocketCooldownTicks_[playerIndex] = 0;
@@ -2343,8 +2438,9 @@ std::uint32_t ServerGame::weaponCooldownTicks(
 ) const {
   switch (weapon) {
   case Weapon::Railgun:
-  case Weapon::Revolver:
     return railgunCooldownTicks_[playerIndex];
+  case Weapon::Revolver:
+    return revolverCooldownTicks_[playerIndex];
   case Weapon::MachineGun:
     return machineGunCooldownTicks_[playerIndex];
   case Weapon::Shotgun:
@@ -4185,6 +4281,7 @@ void ServerGame::receiveCommands() {
       packet.command.viewYawRadians = packet.actionEdges.attackYawRadians;
       packet.command.viewPitchRadians = packet.actionEdges.attackPitchRadians;
       packet.command.weapon = packet.actionEdges.attackWeapon;
+      packet.command.zoomed = packet.actionEdges.attackZoomed;
       packet.viewedServerTick = packet.actionEdges.attackViewedServerTick;
       attackEdgeThisTick_[playerIndex] = true;
       attackEdgeCommands_[playerIndex] = packet.command;

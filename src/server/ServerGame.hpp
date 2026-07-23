@@ -225,6 +225,9 @@ private:
   FreezeGunTuning freezeGunTuning_ = {};
   IcePoolTuning icePoolTuning_ = {};
   HitscanTuning railgunTuning_ = {};
+  HitscanTuning revolverTuning_ = {};
+  float sniperChargeSeconds_ = 3.3F;
+  float sniperMaxDamageMultiplier_ = 3.0F;
   MachineGunTuning machineGunTuning_ = {};
   ShotgunTuning shotgunTuning_ = {};
   RocketLauncherTuning rocketLauncherTuning_ = {};
@@ -239,6 +242,7 @@ private:
   std::array<double, kDuelPlayerCount> freezeAmmoCredit_ = {};
   std::array<double, kDuelPlayerCount> fractionalVampirismHealing_ = {};
   std::uint32_t railgunCooldownDurationTicks_ = 188;
+  std::uint32_t revolverCooldownDurationTicks_ = 188;
   std::uint32_t machineGunCooldownDurationTicks_ = 13;
   std::uint32_t shotgunCooldownDurationTicks_ = 125;
   std::uint32_t rocketLauncherCooldownDurationTicks_ = 100;
@@ -252,6 +256,9 @@ private:
   std::array<LightningGunState, kDuelPlayerCount> lightningGunStates_ = {};
   std::array<LightningGunState, kDuelPlayerCount> freezeGunStates_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> railgunCooldownTicks_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> revolverCooldownTicks_ = {};
+  std::array<float, kDuelPlayerCount> sniperAdsFractions_ = {};
+  std::array<float, kDuelPlayerCount> sniperChargeFractions_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> machineGunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> shotgunCooldownTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> rocketCooldownTicks_ = {};

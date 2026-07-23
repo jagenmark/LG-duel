@@ -1,6 +1,6 @@
 param(
   [Parameter(Position = 0)]
-  [ValidateSet('start', 'stop', 'status')]
+  [ValidateSet('start', 'stop', 'restart', 'status')]
   [string]$Action = 'status',
   [int]$ServerPort = 27960,
   [int]$ControlPort = 27961,
@@ -24,6 +24,9 @@ if ($Action -eq 'start') {
   if ($Renderer -eq 'fallback') { $arguments += '--allow-fallback' }
   if ($ExternalServer) { $arguments += '--external-server' }
   if ($Benchmark) { $arguments += '--benchmark' }
+} elseif ($Action -eq 'restart') {
+  $arguments += @('--renderer', $Renderer)
+  if ($Renderer -eq 'fallback') { $arguments += '--allow-fallback' }
 } elseif ($Action -eq 'status') {
   $arguments += @('--control-port', $ControlPort)
 }

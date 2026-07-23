@@ -9,9 +9,10 @@ and `lg_mcp_server.py` is a thin MCP-to-socket adapter.
 
 The client starts the service only with `--dev-control` or `--control-port`.
 Normal launches do not open a control port. The listener binds only to
-`127.0.0.1`, rejects non-loopback peers, accepts one bounded JSON-line request
-at a time, and has no shell, process-launch, arbitrary file, or generic console
-operation. Requests are limited to 64 KiB and use control protocol version 1.
+`127.0.0.1`, rejects non-loopback peers, and accepts one bounded JSON-line
+request at a time. It can run bounded game-console text, but it has no shell or
+process launch path. Requests are limited to 64 KiB and use control protocol
+version 1.
 
 The socket thread parses requests and queues them. State changes and renderer
 capture run on the SDL client thread. The socket thread waits for an explicit
@@ -110,6 +111,10 @@ control layer intentionally does not replace that job. After an edit:
 .\scripts\lg-control.ps1 reload-map eyetoeye
 .\scripts\lg-control.ps1 set-camera --position 0,22.4,-12.85 --yaw -90 --pitch 0 --fov 100
 .\scripts\lg-control.ps1 set-collision-debug 2
+.\scripts\lg-control.ps1 set-player-weapon railgun
+.\scripts\lg-control.ps1 set-player-view --yaw -90 --pitch 0
+.\scripts\lg-control.ps1 send-input --ticks 125 --forward 1
+.\scripts\lg-control.ps1 wait-frames 2
 .\scripts\lg-control.ps1 capture --name central-overview
 .\scripts\lg-control.ps1 capture-map-views --map eyetoeye --preset standard
 ```
@@ -152,7 +157,9 @@ Success and failure shapes are explicit:
 ```
 
 Operations are `status`, `load_map`, `reload_map`, `get_camera`, `set_camera`,
-`set_collision_debug`, `capture_screenshot`, and `capture_map_views`. The
+`exec_console`, `get_cvar`, `set_cvar`, `send_input`, `wait_frames`,
+`set_player_view`, `set_player_weapon`, `set_collision_debug`,
+`capture_screenshot`, and `capture_map_views`. The
 `set_collision_debug` request requires an integer `mode`: `0` disables the
 overlay, `1` shows all collision, `2` shows visible solids, `3` shows
 `playerclip`, `4` shows `weapclip`, and `5` shows triggers. This bounded
@@ -163,6 +170,16 @@ requires verified `SDL_GPU/vulkan`; the explicit SDL_Renderer fallback returns
 the requested mode, effective mode, and backend support independently. The
 multi-view request includes a typed `views` array; CLI and MCP resolve the named
 repository preset before making that single runtime request.
+
+`send_input` uses `ticks` from `1..1250`. Its `forward`, `right`, and `up` axes
+range from `-1..1`. Optional absolute yaw and pitch set the view, while attack,
+jump, dash, crouch, sneak, and zoom use booleans. Supply yaw and pitch together.
+An optional weapon token uses
+the same weapon lookup as normal play. Input enters the usual client command
+path; it does not write server state. `wait_frames` accepts `1..600` frames.
+Console commands and cvar changes use the game's console checks. Console text
+is limited to 1024 printable characters; cvar values allow 256. Neither can run
+system shell text.
 
 ## MCP For Codex
 
@@ -190,9 +207,10 @@ Restart Codex or begin a new task after registration. Remove the local entry:
 .\scripts\setup-lg-mcp.ps1 -Remove
 ```
 
-Tools are `lg_start`, `lg_status`, `lg_load_map`, `lg_reload_map`, `lg_get_camera`,
-`lg_set_camera`, `lg_set_collision_debug`, `lg_capture_screenshot`, and
-`lg_capture_map_views`. Each has
+Tools include lifecycle (`lg_start`, `lg_stop`, `lg_restart`, `lg_status`), maps
+and camera, `lg_exec_console`, `lg_get_cvar`, `lg_set_cvar`, `lg_send_input`,
+`lg_wait_frames`, `lg_set_player_view`, `lg_set_player_weapon`, collision view,
+screenshot, map-view capture, and benchmark tools. Each has
 a closed typed JSON schema. Results include text plus `structuredContent`;
 captures also return existing PNGs as MCP `image/png` content. Visual MCP tools
 start or attach through the shared verified GPU launcher. Screenshot and
@@ -219,8 +237,8 @@ or other fallback client. Explicit fallback requires `allow_fallback: true`.
   the shared launcher. Structured errors distinguish launch, attachment,
   renderer attestation, and control-operation failures.
 
-Known limitations: requests are serial; output is PNG only; the development
-camera is stationary (no remote free-flight input); MCP uses control port
-27961; and `eyetoeye/standard` is the only curated preset. Computer Use remains
-useful for unusual editor/window work, but routine reloads, camera placement,
-and capture do not require it.
+Known limitations: requests are serial; output is PNG only; MCP uses control
+port 27961; and `eyetoeye/standard` is the only curated preset. Player input
+needs a live match and follows the same server rules as local input. Computer
+Use remains useful for unusual editor/window work, but routine movement,
+console work, camera placement, and capture do not require it.

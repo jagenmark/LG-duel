@@ -31,7 +31,7 @@ void registerGameplayCvars(ConsoleSystem& console, CvarFlag flags) {
   console.registerCvar({"g_mg_damage", "Authoritative machine gun damage per shot.", 5, flags, 1.0F, 500.0F});
   console.registerCvar({"g_lg_damage", "Authoritative lightning gun damage per second, distributed over g_lg_fire_hz instances.", 120, flags, 1.0F, 500.0F});
   console.registerCvar({"g_fg_damage", "Authoritative freeze gun damage per second, distributed over g_lg_fire_hz instances.", 120, flags, 1.0F, 500.0F});
-  console.registerCvar({"g_rg_damage", "Authoritative railgun damage per shot.", 80, flags, 1.0F, 500.0F});
+  console.registerCvar({"g_rg_damage", "Authoritative Sniper Rifle damage before scoped charge.", 50, flags, 1.0F, 500.0F});
   console.registerCvar({"g_rl_damage", "Authoritative rocket/grenade direct and max splash damage.", 100, flags, 1.0F, 500.0F});
   console.registerCvar({"g_pg_damage", "Authoritative plasma gun direct hit damage.", 20, flags, 1.0F, 500.0F});
   console.registerCvar({"g_vampirism", "Heal by this multiple of authoritative damage dealt.", 0.0F, flags, 0.0F, 2.0F});

@@ -2919,9 +2919,14 @@ RenderSettings renderSettings(
   settings.enemyAlpha = console.getFloat("r_enemy_alpha");
   settings.playerModel = console.getInt("r_player_model");
   settings.enemyOutlineEnabled = console.getBool("r_enemy_outline");
+  settings.playerOutlineMode = static_cast<PlayerOutlineMode>(
+    console.getInt("r_player_outline_mode")
+  );
   settings.playerOutlineStyle = static_cast<PlayerOutlineStyle>(
     console.getInt("r_player_outline_style")
   );
+  settings.playerOutlineWidth = console.getFloat("r_player_outline_width");
+  settings.playerOutlineDebugMask = console.getBool("r_player_outline_debug_mask");
   settings.enemyOutlineWidth = console.getFloat("r_enemy_outline_width");
   settings.enemyOutlineAlpha = console.getFloat("r_enemy_outline_alpha");
   settings.enemyOutlineRed =
@@ -3074,16 +3079,19 @@ float zoomSensitivityMultiplier(
 
 MouseAimSettings mouseAimSettingsFromConsole(
   const ConsoleSystem& console,
-  bool zoomHeld
+  bool zoomHeld,
+  float zoomAmount = 1.0F
 ) {
+  const float zoomSensitivity = zoomSensitivityMultiplier(
+    console.getFloat("cl_fov"),
+    console.getFloat("cl_zoom_fov"),
+    console.getFloat("cl_zoom_sensitivity")
+  );
   return {
     console.getFloat("sensitivity"),
     zoomHeld
-      ? zoomSensitivityMultiplier(
-          console.getFloat("cl_fov"),
-          console.getFloat("cl_zoom_fov"),
-          console.getFloat("cl_zoom_sensitivity")
-        )
+      ? 1.0F + (zoomSensitivity - 1.0F) *
+          std::clamp(zoomAmount, 0.0F, 1.0F)
       : 1.0F,
     console.getFloat("cl_mouseAccel"),
     console.getFloat("cl_mouseAccelPower"),
@@ -3476,6 +3484,7 @@ HudRenderState buildHud(
     ammoText(Weapon::FreezeGun),
     ammoText(Weapon::Revolver),
   }};
+  hud.sniperChargePercent = snapshot.sniperChargePercent[localPlayerIndex];
   hud.centerLines.clear();
   hud.bottomCenterLines.push_back(
     "HEALTH " + std::to_string(snapshot.players[localPlayerIndex].health)
@@ -3645,7 +3654,8 @@ HudRenderState buildHud(
   std::uint32_t clientTick,
   const MouseAimSettings& mouseAimSettings,
   float mouseFrameSeconds,
-  Weapon weapon
+  Weapon weapon,
+  bool zoomed
 ) {
   UserCommand command;
   command.sequence = sequence;
@@ -3672,6 +3682,7 @@ HudRenderState buildHud(
   command.crouch = input.down > 0;
   command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
+  command.zoomed = zoomed;
   command.weapon = weapon;
   return command;
 }
@@ -3682,7 +3693,8 @@ HudRenderState buildHud(
   std::uint32_t clientTick,
   float yawRadians,
   float pitchRadians,
-  Weapon weapon
+  Weapon weapon,
+  bool zoomed
 ) {
   UserCommand command;
   command.sequence = sequence;
@@ -3698,6 +3710,7 @@ HudRenderState buildHud(
   command.crouch = input.down > 0;
   command.sneak = input.sneak > 0;
   command.attack = input.attack > 0;
+  command.zoomed = zoomed;
   command.weapon = weapon;
   return command;
 }
@@ -3805,6 +3818,7 @@ int GameApp::run() const {
   int scoreboardPressCount = 0;
   int chatHistoryPressCount = 0;
   int zoomPressCount = 0;
+  float sniperAdsAmount = 0.0F;
   int pendingSpectateCycle = 0;
   Weapon selectedWeapon = Weapon::LightningGun;
   Weapon viewWeapon = Weapon::LightningGun;
@@ -3837,6 +3851,9 @@ int GameApp::run() const {
       Start,
       WaitingForMap,
       WaitingForCameraFrame,
+      WaitingForFrames,
+      PlayerInput,
+      WaitingForInputAck,
       CaptureReady,
       BenchmarkWarmup,
       BenchmarkMeasure,
@@ -3849,6 +3866,9 @@ int GameApp::run() const {
     std::string targetMap;
     std::uint32_t previousMapRevision = 0;
     std::uint64_t requiredRenderedFrame = 0;
+    std::uint32_t inputTicksRemaining = 0;
+    std::uint32_t inputReleaseSequence = 0;
+    bool inputReleaseSent = false;
     std::size_t viewpointIndex = 0;
     std::vector<dev::JsonValue> viewResults;
     std::string captureStem;
@@ -3924,10 +3944,10 @@ int GameApp::run() const {
 
   console.registerCommand(
     "weapon",
-    "Select weapon: weapon <mg|sg|gl|rl|lg|rg|pg|fg|1..8>.",
+    "Select weapon: weapon <mg|sg|gl|rl|lg|sr|pg|fg|re|1..9>.",
     [&selectedWeapon](const std::vector<std::string>& arguments) {
       if (arguments.size() != 2) {
-        return std::string("usage: weapon <mg|sg|gl|rl|lg|rg|pg|fg|1..8>");
+        return std::string("usage: weapon <mg|sg|gl|rl|lg|sr|pg|fg|re|1..9>");
       }
       const std::optional<Weapon> parsed = parseWeaponToken(arguments[1]);
       if (parsed.has_value()) {
@@ -4148,18 +4168,18 @@ int GameApp::run() const {
   );
   console.registerCommand(
     "bot_weapon",
-    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|rg|pg|fg|re|1..9].",
+    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|sr|pg|fg|re|1..9].",
     [&botWeapon, &queueBotCommand](const std::vector<std::string>& arguments) {
       if (arguments.size() == 1) {
         return std::string("bot_weapon = ") +
           std::string(weaponShortName(botWeapon));
       }
       if (arguments.size() != 2) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
       }
       const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
       if (!weapon.has_value()) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|rg|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
       }
       return queueBotCommand(PendingBotCommand{
         BotCommandType::Weapon,
@@ -5073,6 +5093,22 @@ int GameApp::run() const {
     status.object["capture_output_relative"] =
       dev::JsonValue::stringValue(captureRelativePath(captureDirectory));
     status.object["last_control_error"] = dev::JsonValue::stringValue(lastControlError);
+    if (hasSnapshot && !session.spectator()) {
+      const PlayerState& player = game->predictedPlayer();
+      dev::JsonValue position = dev::JsonValue::arrayValue({
+        dev::JsonValue::numberValue(player.position.x),
+        dev::JsonValue::numberValue(player.position.y),
+        dev::JsonValue::numberValue(player.position.z),
+      });
+      status.object["player_position"] = std::move(position);
+      status.object["player_yaw"] =
+        dev::JsonValue::numberValue(player.viewYawRadians * kRadiansToDegrees);
+      status.object["player_pitch"] =
+        dev::JsonValue::numberValue(player.viewPitchRadians * kRadiansToDegrees);
+      status.object["player_health"] = dev::JsonValue::numberValue(player.health);
+      status.object["player_weapon"] =
+        dev::JsonValue::stringValue(std::string(weaponShortName(selectedWeapon)));
+    }
     return status;
   };
   const auto setBenchmarkCamera = [&](const benchmark::CameraPose& pose) {
@@ -5225,6 +5261,107 @@ int GameApp::run() const {
         activeControlOperation.reset();
         break;
       }
+      case dev::ControlOperation::ExecConsole: {
+        const std::string consoleResult = console.execute(request.consoleCommand);
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["command"] = dev::JsonValue::stringValue(request.consoleCommand);
+        result.object["output"] = dev::JsonValue::stringValue(consoleResult);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::GetCvar: {
+        if (!console.hasCvar(request.cvarName)) {
+          completeControlError("unknown_cvar", "unknown cvar: " + request.cvarName);
+          break;
+        }
+        const std::string consoleResult = console.execute(request.cvarName);
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["name"] = dev::JsonValue::stringValue(request.cvarName);
+        result.object["value"] = dev::JsonValue::stringValue(console.valueString(request.cvarName));
+        result.object["output"] = dev::JsonValue::stringValue(consoleResult);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::SetCvar: {
+        const std::string consoleResult = console.execute(
+          "set " + request.cvarName + " \"" + request.cvarValue + '"'
+        );
+        if (consoleResult.starts_with("unknown cvar:")) {
+          completeControlError("unknown_cvar", consoleResult);
+          break;
+        }
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["name"] = dev::JsonValue::stringValue(request.cvarName);
+        result.object["value"] = dev::JsonValue::stringValue(console.valueString(request.cvarName));
+        result.object["output"] = dev::JsonValue::stringValue(consoleResult);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::SetPlayerView: {
+        if (!session.connected() || session.game() == nullptr || !session.game()->hasSnapshot() ||
+            session.spectator()) {
+          completeControlError("not_playing", "player view requires an active player snapshot");
+          break;
+        }
+        developmentCameraEnabled = false;
+        presentationView.yawRadians = request.playerYawDegrees * kDegreesToRadians;
+        presentationView.pitchRadians = request.playerPitchDegrees * kDegreesToRadians;
+        presentationView.initialized = true;
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["yaw"] = dev::JsonValue::numberValue(request.playerYawDegrees);
+        result.object["pitch"] = dev::JsonValue::numberValue(request.playerPitchDegrees);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::SetPlayerWeapon: {
+        const std::optional<Weapon> weapon = parseWeaponToken(request.playerWeapon);
+        if (!weapon.has_value()) {
+          completeControlError("invalid_weapon", "unknown weapon: " + request.playerWeapon);
+          break;
+        }
+        selectedWeapon = *weapon;
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["weapon"] =
+          dev::JsonValue::stringValue(std::string(weaponShortName(selectedWeapon)));
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::WaitFrames:
+        active.requiredRenderedFrame = renderedFrameSerial + request.waitFrames;
+        active.stage = ActiveControlOperation::Stage::WaitingForFrames;
+        active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        break;
+      case dev::ControlOperation::SendInput:
+        if (!session.connected() || session.game() == nullptr || !session.game()->hasSnapshot() ||
+            session.spectator()) {
+          completeControlError("not_playing", "player input requires an active player snapshot");
+          break;
+        }
+        developmentCameraEnabled = false;
+        active.inputTicksRemaining = request.playerInput.ticks;
+        active.stage = ActiveControlOperation::Stage::PlayerInput;
+        active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        break;
       case dev::ControlOperation::LoadMap:
       case dev::ControlOperation::ReloadMap:
       case dev::ControlOperation::CaptureMapViews: {
@@ -5574,6 +5711,23 @@ int GameApp::run() const {
             completeControlError("capture_timeout", "benchmark screenshot renderer timeout");
           }
         }
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::WaitingForFrames) {
+      ActiveControlOperation& active = *activeControlOperation;
+      if (renderedFrameSerial >= active.requiredRenderedFrame) {
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["rendered_frame"] = dev::JsonValue::numberValue(renderedFrameSerial);
+        result.object["waited_frames"] =
+          dev::JsonValue::numberValue(active.queued.request.waitFrames);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+      } else if (std::chrono::steady_clock::now() > active.deadline) {
+        completeControlError("frame_wait_timeout", "renderer did not finish the requested frames");
       }
     }
     const bool benchmarkFrameTimingEnabled =
@@ -6099,7 +6253,11 @@ int GameApp::run() const {
     const float viewModelMouseDeltaY = gameInputControlsView ? input.mouseDeltaY : 0.0F;
     if (gameInputControlsView && presentationView.initialized) {
       const MouseAimSettings mouseAimSettings =
-        mouseAimSettingsFromConsole(console, zoomPressCount > 0);
+        mouseAimSettingsFromConsole(
+          console,
+          zoomPressCount > 0,
+          selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+        );
       const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
         input.mouseDeltaX,
         input.mouseDeltaY,
@@ -6230,6 +6388,40 @@ int GameApp::run() const {
         simulationTiming.emplace(benchmark::TimingSubsystem::Simulation);
       }
       LocalInputState tickInput = input;
+      bool controlInputCommand = false;
+      bool controlInputRelease = false;
+      const dev::PlayerInput* requestedControlInput = nullptr;
+      if (activeControlOperation.has_value() &&
+          activeControlOperation->queued.request.operation == dev::ControlOperation::SendInput &&
+          activeControlOperation->stage == ActiveControlOperation::Stage::PlayerInput) {
+        // Remote input uses the normal command path and excludes physical input for
+        // this tick. The server still checks movement, fire rate, hits, and damage.
+        controlInputCommand = true;
+        requestedControlInput = &activeControlOperation->queued.request.playerInput;
+        controlInputRelease = activeControlOperation->inputTicksRemaining == 0U;
+        tickInput = {};
+        if (!controlInputRelease) {
+          tickInput.forward = requestedControlInput->forward > 0.0F ? 1 : 0;
+          tickInput.back = requestedControlInput->forward < 0.0F ? 1 : 0;
+          tickInput.right = requestedControlInput->right > 0.0F ? 1 : 0;
+          tickInput.left = requestedControlInput->right < 0.0F ? 1 : 0;
+          tickInput.up = requestedControlInput->up > 0.0F || requestedControlInput->jump ? 1 : 0;
+          tickInput.down = requestedControlInput->up < 0.0F || requestedControlInput->crouch ? 1 : 0;
+          tickInput.attack = requestedControlInput->attack ? 1 : 0;
+          tickInput.dash = requestedControlInput->dash ? 1 : 0;
+          tickInput.sneak = requestedControlInput->sneak ? 1 : 0;
+          if (requestedControlInput->yawDegrees.has_value()) {
+            presentationView.yawRadians =
+              *requestedControlInput->yawDegrees * kDegreesToRadians;
+            presentationView.pitchRadians =
+              *requestedControlInput->pitchDegrees * kDegreesToRadians;
+            presentationView.initialized = true;
+          }
+          if (!requestedControlInput->weapon.empty()) {
+            selectedWeapon = *parseWeaponToken(requestedControlInput->weapon);
+          }
+        }
+      }
       if (consumedMouseForTick) {
         // SDL reports one mouse delta per rendered frame. Apply it to only the
         // first catch-up command or low frame rates would multiply the turn.
@@ -6239,17 +6431,25 @@ int GameApp::run() const {
       const PlayerState& predictedPlayer = client->predictedPlayer();
 
       const MouseAimSettings mouseAimSettings =
-        mouseAimSettingsFromConsole(console, zoomPressCount > 0);
+        mouseAimSettingsFromConsole(
+          console,
+          zoomPressCount > 0,
+          selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+        );
 
-      const UserCommand command =
-        usePresentationView && presentationView.initialized
+      UserCommand command =
+        (usePresentationView || controlInputCommand) && presentationView.initialized
           ? buildCommandWithViewAngles(
               tickInput,
               commandSequence++,
               clientTick++,
               presentationView.yawRadians,
               presentationView.pitchRadians,
-              selectedWeapon
+              selectedWeapon,
+              controlInputCommand
+                ? !controlInputRelease && requestedControlInput != nullptr &&
+                  requestedControlInput->zoom
+                : zoomPressCount > 0
             )
           : buildCommand(
               tickInput,
@@ -6258,8 +6458,19 @@ int GameApp::run() const {
               clientTick++,
               mouseAimSettings,
               elapsed.count(),
-              selectedWeapon
+              selectedWeapon,
+              controlInputCommand
+                ? !controlInputRelease && requestedControlInput != nullptr &&
+                  requestedControlInput->zoom
+                : zoomPressCount > 0
             );
+      if (controlInputCommand && requestedControlInput != nullptr && !controlInputRelease) {
+        command.forwardMove = requestedControlInput->forward;
+        command.rightMove = requestedControlInput->right;
+        command.upMove = requestedControlInput->up;
+        command.jump = requestedControlInput->jump;
+        command.crouch = requestedControlInput->crouch;
+      }
       localTracerAimHistory.remember(command);
       PendingBotCommand botCommandForPacket;
       if (!pendingBotCommands.empty()) {
@@ -6313,6 +6524,16 @@ int GameApp::run() const {
         scoreboardPressCount > 0,
         requestSpectatorPending
       );
+      if (controlInputCommand && activeControlOperation.has_value()) {
+        ActiveControlOperation& control = *activeControlOperation;
+        if (controlInputRelease) {
+          control.inputReleaseSequence = command.sequence;
+          control.inputReleaseSent = true;
+          control.stage = ActiveControlOperation::Stage::WaitingForInputAck;
+        } else if (control.inputTicksRemaining > 0U) {
+          --control.inputTicksRemaining;
+        }
+      }
       if (!sentPlayerName.empty()) {
         lastSentPlayerName = sentPlayerName;
       }
@@ -6454,6 +6675,50 @@ int GameApp::run() const {
     if (consumedMouseForTick) {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage == ActiveControlOperation::Stage::WaitingForInputAck) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const ClientGame* game = session.game();
+      if (game != nullptr && game->hasSnapshot() && game->hasAcknowledgedCommand() &&
+          isSequenceAcknowledged(
+            active.inputReleaseSequence, game->lastAcknowledgedCommand())) {
+        const PlayerState& player = game->predictedPlayer();
+        dev::JsonValue position = dev::JsonValue::arrayValue({
+          dev::JsonValue::numberValue(player.position.x),
+          dev::JsonValue::numberValue(player.position.y),
+          dev::JsonValue::numberValue(player.position.z),
+        });
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["ticks"] =
+          dev::JsonValue::numberValue(active.queued.request.playerInput.ticks);
+        result.object["release_sequence"] =
+          dev::JsonValue::numberValue(active.inputReleaseSequence);
+        result.object["acknowledged_sequence"] =
+          dev::JsonValue::numberValue(game->lastAcknowledgedCommand());
+        result.object["position"] = std::move(position);
+        result.object["yaw"] =
+          dev::JsonValue::numberValue(player.viewYawRadians * kRadiansToDegrees);
+        result.object["pitch"] =
+          dev::JsonValue::numberValue(player.viewPitchRadians * kRadiansToDegrees);
+        result.object["health"] = dev::JsonValue::numberValue(player.health);
+        result.object["weapon"] =
+          dev::JsonValue::stringValue(std::string(weaponShortName(selectedWeapon)));
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+      } else if (std::chrono::steady_clock::now() > active.deadline) {
+        completeControlError(
+          "input_ack_timeout",
+          "server did not acknowledge the neutral input release within 30 seconds"
+        );
+      }
+    } else if (activeControlOperation.has_value() &&
+               activeControlOperation->stage == ActiveControlOperation::Stage::PlayerInput &&
+               std::chrono::steady_clock::now() > activeControlOperation->deadline) {
+      completeControlError("input_timeout", "player input did not finish within 30 seconds");
     }
 
     DeathCameraDecision deathCamera;
@@ -6884,7 +7149,10 @@ int GameApp::run() const {
               const WeaponFireAudioEvent fireAudio =
                 routeWeaponFireAudioEvent(fire, localWeaponEvent);
               float weaponFireVolume = volume;
-              if (fireAudio.cue == WeaponFireAudioCue::Railgun) {
+              if (
+                fireAudio.cue == WeaponFireAudioCue::Railgun ||
+                fireAudio.cue == WeaponFireAudioCue::Revolver
+              ) {
                 weaponFireVolume = soundVolume("s_rg_fire_volume");
               } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
                 weaponFireVolume = soundVolume("s_rl_fire_volume");
@@ -6911,6 +7179,10 @@ int GameApp::run() const {
                   hasLocalRailFireTick = true;
                   localRailReadySoundPlayed = false;
                 }
+              } else if (fireAudio.cue == WeaponFireAudioCue::Revolver) {
+                // The Revolver may use the same sound asset without joining
+                // the Sniper Rifle's ready-chime and cooldown state.
+                audio.playRailFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
                 audio.playRocketFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::MachineGun) {
@@ -6976,8 +7248,7 @@ int GameApp::run() const {
           if (
             hasLocalRailFireTick &&
             !localRailReadySoundPlayed &&
-            (displayedSelectedWeapon == Weapon::Railgun ||
-             displayedSelectedWeapon == Weapon::Revolver) &&
+            displayedSelectedWeapon == Weapon::Railgun &&
             audioSnapshot.serverTick - lastLocalRailFireTick >=
               kClientRailgunCooldownTicks
           ) {
@@ -7244,7 +7515,11 @@ int GameApp::run() const {
         renderPlayer.health > 0
       ) {
         const MouseAimSettings mouseAimSettings =
-          mouseAimSettingsFromConsole(console, zoomPressCount > 0);
+          mouseAimSettingsFromConsole(
+            console,
+            zoomPressCount > 0,
+            selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+          );
         const UserCommand visualCommand =
           usePresentationView && presentationView.initialized
             ? buildCommandWithViewAngles(
@@ -7253,7 +7528,8 @@ int GameApp::run() const {
                 clientTick,
                 presentationView.yawRadians,
                 presentationView.pitchRadians,
-                selectedWeapon
+                selectedWeapon,
+                zoomPressCount > 0
               )
             : buildCommand(
                 input,
@@ -7262,7 +7538,8 @@ int GameApp::run() const {
                 clientTick,
                 mouseAimSettings,
                 elapsed.count(),
-                selectedWeapon
+                selectedWeapon,
+                zoomPressCount > 0
               );
 
         PlayerState visualPlayer = renderPlayer;
@@ -7667,8 +7944,34 @@ int GameApp::run() const {
         }
       }
     }
-    if (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate) {
+    const bool sniperAdsRequested =
+      zoomPressCount > 0 &&
+      displayedSelectedWeapon == Weapon::Railgun &&
+      deathCamera.mode == DeathCameraMode::Alive &&
+      renderPlayer.health > 0;
+    const float sniperAdsStep =
+      static_cast<float>(outerFrameElapsed.count()) / kSniperAdsSeconds;
+    sniperAdsAmount = std::clamp(
+      sniperAdsAmount + (sniperAdsRequested ? sniperAdsStep : -sniperAdsStep),
+      0.0F,
+      1.0F
+    );
+    const bool sniperScopeActive = sniperAdsAmount > 0.001F;
+    if (sniperScopeActive) {
+      const float smoothAds =
+        sniperAdsAmount * sniperAdsAmount * (3.0F - 2.0F * sniperAdsAmount);
+      currentRenderSettings.fieldOfView =
+        currentRenderSettings.fieldOfView +
+        (console.getFloat("cl_zoom_fov") - currentRenderSettings.fieldOfView) *
+          smoothAds;
+    } else if (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate) {
       currentRenderSettings.fieldOfView = console.getFloat("cl_zoom_fov");
+    }
+    if (sniperScopeActive) {
+      // The scope owns the center view while ADS is held; hiding the viewmodel
+      // keeps the rifle from drawing over its lens and charge readout.
+      currentRenderSettings.showOwnWeapons = false;
+      currentRenderSettings.crosshairEnabled = false;
     }
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
     const double presentationSeconds =
@@ -7925,6 +8228,8 @@ int GameApp::run() const {
       }
     }
     hud.selectedWeapon = displayedSelectedWeapon;
+    hud.sniperScopeActive = sniperScopeActive;
+    hud.sniperScopeAmount = sniperAdsAmount;
     hud.previousWeapon = previousViewWeapon;
     hud.damageNumbers = damageNumberState.presentation();
     hud.killFeedLines = killFeedPresentation(killFeedState);
@@ -8064,9 +8369,12 @@ int GameApp::run() const {
           std::to_string(diagnostics.legacyCpuSkinnedGltfVertexUploadBytes) +
           " B"
         );
-        if (console.getInt("r_player_model") == 1) {
+        if (console.getInt("r_player_model") > 0) {
           std::string loadedAnimations = "gltf clips:";
-          for (const std::string& name : duelistMaleModel().animationNames()) {
+          const GltfSkinnedModel& activeModel = console.getInt("r_player_model") == 2
+            ? workerPlayerModel()
+            : duelistMaleModel();
+          for (const std::string& name : activeModel.animationNames()) {
             loadedAnimations += " " + name;
           }
           hud.topLeftLines.emplace_back(std::move(loadedAnimations));

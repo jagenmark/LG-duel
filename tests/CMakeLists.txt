@@ -311,6 +311,10 @@ if(Python3_Interpreter_FOUND)
     NAME lg_duel_q3_import_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_import_q3_map.py
   )
+  add_test(
+    NAME lg_duel_asset_pipeline_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_asset_pipeline.py
+  )
 endif()
 
 add_executable(lg_duel_weapon_catalog_tests
@@ -534,6 +538,34 @@ target_compile_features(lg_duel_weapon_presentation_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_weapon_presentation_tests)
 
 add_test(NAME lg_duel_weapon_presentation_tests COMMAND lg_duel_weapon_presentation_tests)
+
+add_test(
+  NAME lg_duel_asset_validate_tests
+  COMMAND lg_duel_asset_validate
+    "${PROJECT_SOURCE_DIR}/assets/models/lg_duelist_male_v3/art/exports/lg_duelist_male.glb"
+    --instances 2
+)
+
+add_test(
+  NAME lg_duel_asset_validate_worker_review
+  COMMAND lg_duel_asset_validate
+    "${PROJECT_SOURCE_DIR}/imports/assets/review/quaternius_worker/quaternius_worker.glb"
+    --manifest "${PROJECT_SOURCE_DIR}/asset_pipeline/validation/player_model.json"
+    --instances 16
+)
+
+add_test(
+  NAME lg_duel_asset_validate_static_prop
+  COMMAND lg_duel_asset_validate
+    "${PROJECT_SOURCE_DIR}/assets/models/shotgun/lg_duel_shotgun_sg.glb"
+    --instances 16
+)
+
+add_test(
+  NAME lg_duel_asset_validate_rejects_missing_file
+  COMMAND lg_duel_asset_validate "${PROJECT_BINARY_DIR}/missing-review-asset.glb"
+)
+set_tests_properties(lg_duel_asset_validate_rejects_missing_file PROPERTIES WILL_FAIL TRUE)
 
 get_property(lg_duel_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
 foreach(target IN LISTS lg_duel_test_targets)

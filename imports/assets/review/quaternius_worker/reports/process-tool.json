@@ -1,0 +1,175 @@
+{
+  "after": {
+    "animations": 33,
+    "materials": 13,
+    "mesh_objects": 4,
+    "textures": 1,
+    "triangles": 5240,
+    "vertices": 2676
+  },
+  "asset_type": "player_model",
+  "before": {
+    "animations": 0,
+    "materials": 13,
+    "mesh_objects": 4,
+    "textures": 0,
+    "triangles": 5240,
+    "vertices": 2676
+  },
+  "budget_result": {
+    "checks": {
+      "materials": {
+        "actual": 13,
+        "limit": 16,
+        "passed": true
+      },
+      "triangles": {
+        "actual": 5240,
+        "limit": 50000,
+        "passed": true
+      },
+      "vertices": {
+        "actual": 2676,
+        "limit": 30000,
+        "passed": true
+      }
+    },
+    "passed": true
+  },
+  "errors": [],
+  "outputs": {
+    "animation_stills": [
+      "previews/idle-two-handed.png",
+      "previews/run.png",
+      "previews/strafe-left.png",
+      "previews/run-back.png",
+      "previews/jump.png",
+      "previews/fall.png",
+      "previews/crouch-walk.png",
+      "previews/land.png"
+    ],
+    "glb": "quaternius_worker.glb",
+    "previews": [
+      "previews/front.png",
+      "previews/iso.png"
+    ]
+  },
+  "processing": {
+    "animation_aliases": [
+      {
+        "name": "CROUCH_WALK",
+        "source": "RUN"
+      },
+      {
+        "name": "DUCKING",
+        "source": "IDLE"
+      },
+      {
+        "name": "FALL",
+        "source": "Roll"
+      },
+      {
+        "name": "JUMP",
+        "source": "Roll"
+      },
+      {
+        "name": "LAND_HEAVY",
+        "source": "HitRecieve"
+      },
+      {
+        "name": "LAND_LIGHT",
+        "source": "IDLE"
+      },
+      {
+        "name": "START_FORWARD",
+        "source": "RUN"
+      },
+      {
+        "name": "STOP_FORWARD",
+        "source": "IDLE"
+      }
+    ],
+    "animation_transfer": {
+      "actions_added": 24,
+      "armature": "CharacterArmature",
+      "bones": 73,
+      "mode": "retarget",
+      "source": "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\build\\asset-staging\\Quaternius-ultimate_modular_men_animations\\original\\Animations.fbx",
+      "vertex_groups_renamed": 0
+    },
+    "animations_trimmed": [],
+    "attachment_points": [
+      "weapon_socket"
+    ],
+    "bones_renamed": 0,
+    "lods": [],
+    "materials_consolidated": 0,
+    "mesh_parts": [
+      {
+        "meshes": [
+          "Worker_Feet"
+        ],
+        "source": "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\build\\asset-staging\\Quaternius-ultimate_modular_men_worker_skeletal_mesh\\work\\extracted\\Worker\\Worker_Feet.fbx"
+      },
+      {
+        "meshes": [
+          "Worker_Head"
+        ],
+        "source": "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\build\\asset-staging\\Quaternius-ultimate_modular_men_worker_skeletal_mesh\\work\\extracted\\Worker\\Worker_Head.fbx"
+      },
+      {
+        "meshes": [
+          "Worker_Legs"
+        ],
+        "source": "C:\\Users\\gosee\\Documents\\Codex\\LG-duel-clean\\build\\asset-staging\\Quaternius-ultimate_modular_men_worker_skeletal_mesh\\work\\extracted\\Worker\\Worker_Legs.fbx"
+      }
+    ],
+    "proxies": [
+      "UCX_quaternius_worker_00",
+      "HITBOX_quaternius_worker_00",
+      "HITBOX_quaternius_worker_01",
+      "HITBOX_quaternius_worker_02",
+      "HITBOX_quaternius_worker_03"
+    ],
+    "skeleton_repair": {
+      "bones_removed": [
+        "LowerLeg.L_end",
+        "LowerLeg.R_end",
+        "PT.L",
+        "PT.L_end",
+        "PT.R",
+        "PT.R_end"
+      ],
+      "parents_changed": {
+        "Foot.L": "LowerLeg.L",
+        "Foot.R": "LowerLeg.R"
+      }
+    },
+    "textures": [],
+    "two_handed_idle": {
+      "frame_range": [
+        1,
+        51
+      ],
+      "hand_offset": [
+        0.18,
+        0.0,
+        0.015
+      ],
+      "name": "Idle_Gun_TwoHanded",
+      "pole_offset": [
+        0.35,
+        -0.45,
+        -0.05
+      ],
+      "source": "Idle_Gun_Pointing",
+      "wrist_roll_degrees": 90.0
+    },
+    "weighted_vertices_limited": 152
+  },
+  "status": "ok",
+  "tool": "lg-duel-blender-pipeline",
+  "version": "5.1.2",
+  "visual_review_required": true,
+  "warnings": []
+}

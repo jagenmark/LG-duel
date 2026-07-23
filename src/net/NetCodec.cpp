@@ -484,7 +484,8 @@ bool writeActionEdgeState(Writer& writer, const ActionEdgeState& edges) {
     writer.writeFloat(edges.attackYawRadians) &&
     writer.writeFloat(edges.attackPitchRadians) &&
     writer.writeU32(edges.attackViewedServerTick) &&
-    writer.writeU8(static_cast<std::uint8_t>(edges.attackWeapon));
+    writer.writeU8(static_cast<std::uint8_t>(edges.attackWeapon)) &&
+    writer.writeBool(edges.attackZoomed);
 }
 
 bool readActionEdgeState(Reader& reader, ActionEdgeState& edges) {
@@ -501,6 +502,7 @@ bool readActionEdgeState(Reader& reader, ActionEdgeState& edges) {
     reader.readFloat(edges.attackPitchRadians) &&
     reader.readU32(edges.attackViewedServerTick) &&
     reader.readU8(attackWeapon) &&
+    reader.readBool(edges.attackZoomed) &&
     std::isfinite(edges.mcguffinThrowYawRadians) &&
     std::isfinite(edges.mcguffinThrowPitchRadians) &&
     std::isfinite(edges.attackYawRadians) &&
@@ -544,6 +546,7 @@ bool writeCommandBody(Writer& writer, const CommandPacket& packet) {
     writer.writeBool(command.dash) &&
     writer.writeBool(command.crouch) &&
     writer.writeBool(command.sneak) &&
+    writer.writeBool(command.zoomed) &&
     writer.writeBool(command.planarAim) &&
     writer.writeU8(static_cast<std::uint8_t>(command.weapon)) &&
     writer.writeBool(packet.requestReset) &&
@@ -638,6 +641,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     !reader.readBool(packet.command.dash) ||
     !reader.readBool(packet.command.crouch) ||
     !reader.readBool(packet.command.sneak) ||
+    !reader.readBool(packet.command.zoomed) ||
     !reader.readBool(packet.command.planarAim) ||
     !reader.readU8(weapon) ||
     !reader.readBool(packet.requestReset) ||
@@ -838,6 +842,7 @@ bool readCommandBody(Reader& reader, CommandPacket& packet) {
     lhs.dash == rhs.dash &&
     lhs.crouch == rhs.crouch &&
     lhs.sneak == rhs.sneak &&
+    lhs.zoomed == rhs.zoomed &&
     lhs.planarAim == rhs.planarAim &&
     lhs.weapon == rhs.weapon;
 }
@@ -864,6 +869,7 @@ bool writeCompactCommand(Writer& writer, const CommandPacket& packet) {
   inputBits |= command.sneak ? 1U << 4U : 0U;
   inputBits |= command.planarAim ? 1U << 5U : 0U;
   inputBits |= packet.wantsScoreboardStats ? 1U << 6U : 0U;
+  inputBits |= command.zoomed ? 1U << 7U : 0U;
   const bool hasControl = commandHasControl(packet);
   return writer.writeU32(command.sequence) &&
     writer.writeU32(command.clientTick) &&
@@ -913,7 +919,7 @@ bool readCompactCommand(
     return false;
   }
   if (
-    (inputBits & ~0x7FU) != 0U ||
+    (inputBits & ~0xFFU) != 0U ||
     weapon > static_cast<std::uint8_t>(kLastWeapon) ||
     std::fabs(compact.command.forwardMove) > 1.0F ||
     std::fabs(compact.command.rightMove) > 1.0F ||
@@ -928,6 +934,7 @@ bool readCompactCommand(
   compact.command.sneak = (inputBits & (1U << 4U)) != 0U;
   compact.command.planarAim = (inputBits & (1U << 5U)) != 0U;
   compact.wantsScoreboardStats = (inputBits & (1U << 6U)) != 0U;
+  compact.command.zoomed = (inputBits & (1U << 7U)) != 0U;
   compact.command.weapon = static_cast<Weapon>(weapon);
   if (!hasControl) {
     packet = compact;
@@ -1808,6 +1815,11 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       return false;
     }
   }
+  for (std::uint8_t charge : snapshot.sniperChargePercent) {
+    if (charge > 100U || !writer.writeU8(charge)) {
+      return false;
+    }
+  }
   for (const WeaponAmmoArray& ammo : snapshot.playerAmmo) {
     for (std::int32_t value : ammo) {
       if (!writer.writeI32(value)) {
@@ -2115,6 +2127,11 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       return false;
     }
     weapon = static_cast<Weapon>(encodedWeapon);
+  }
+  for (std::uint8_t& charge : decoded.sniperChargePercent) {
+    if (!reader.readU8(charge) || charge > 100U) {
+      return false;
+    }
   }
   for (WeaponAmmoArray& ammo : decoded.playerAmmo) {
     for (std::int32_t& value : ammo) {

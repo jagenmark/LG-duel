@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "asset_name": "Worker from Ultimate Modular Men Pack",
+  "author": "Quaternius",
+  "source": "Quaternius",
+  "source_page_url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+  "license_id": "CC0-1.0",
+  "license_url": "https://creativecommons.org/publicdomain/zero/1.0/",
+  "attribution_required": false,
+  "required_attribution_text": "",
+  "review_glb": "quaternius_worker.glb",
+  "review_glb_sha256": "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60",
+  "approved_aimed_idle": "Idle_Gun_TwoHanded",
+  "status": "review_only_not_production_integrated"
+}

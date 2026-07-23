@@ -27,10 +27,33 @@ enum class PlayerOutlineStyle : int {
   ScreenSpace = 1,
 };
 
+enum class PlayerOutlineMode : int {
+  Disabled = 0,
+  Compatibility = 1,
+  NativeScreenSpace = 2,
+};
+
 [[nodiscard]] inline bool usesGeometryPlayerOutlineFallback(
   PlayerOutlineStyle style
 ) {
   return style == PlayerOutlineStyle::Geometry;
+}
+
+[[nodiscard]] inline bool usesGeometryPlayerOutlineFallback(
+  PlayerOutlineMode mode,
+  PlayerOutlineStyle style
+) {
+  return mode == PlayerOutlineMode::Compatibility &&
+    usesGeometryPlayerOutlineFallback(style);
+}
+
+[[nodiscard]] inline bool usesScreenSpacePlayerOutlines(
+  PlayerOutlineMode mode,
+  PlayerOutlineStyle style
+) {
+  return mode == PlayerOutlineMode::NativeScreenSpace ||
+    (mode == PlayerOutlineMode::Compatibility &&
+     style == PlayerOutlineStyle::ScreenSpace);
 }
 
 enum class OutlineGroup : std::uint8_t {
@@ -133,7 +156,10 @@ struct RenderSettings {
   float enemyAlpha = 1.0F;
   int playerModel = 0;
   bool enemyOutlineEnabled = true;
+  PlayerOutlineMode playerOutlineMode = PlayerOutlineMode::Compatibility;
   PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::ScreenSpace;
+  float playerOutlineWidth = 1.5F;
+  bool playerOutlineDebugMask = false;
   float enemyOutlineWidth = 3.0F;
   float enemyOutlineAlpha = 1.0F;
   std::uint8_t enemyOutlineRed = 255;
@@ -293,6 +319,9 @@ struct HudRenderState {
   std::string fpsText;
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
+  bool sniperScopeActive = false;
+  float sniperScopeAmount = 0.0F;
+  std::uint8_t sniperChargePercent = 0;
   std::array<std::string, kWeaponCount> weaponValues = {{"\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E", "\xE2\x88\x9E"}};
   struct KillFeedLine {
     std::string killerName;
@@ -617,6 +646,8 @@ private:
   void* gpuPipelineGltfPlayerModelOutlineMask_ = nullptr;
   void* gpuPipelineOutlineDilation_ = nullptr;
   void* gpuPipelineOutlineComposite_ = nullptr;
+  void* gpuPipelineOutlineNativeDilation_ = nullptr;
+  void* gpuPipelineOutlineNativeComposite_ = nullptr;
   void* gpuVertexBuffer_ = nullptr;
   void* gpuTransferBuffer_ = nullptr;
   void* gpuSimpleResources_ = nullptr;

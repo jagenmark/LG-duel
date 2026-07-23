@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import socket
 import sys
 import time
@@ -128,6 +129,49 @@ def collision_debug_mode(text: str) -> int:
     return mode
 
 
+def bounded_integer(minimum: int, maximum: int):
+    def parse(text: str) -> int:
+        try:
+            value = int(text)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(f"must be an integer from {minimum} to {maximum}") from error
+        if not minimum <= value <= maximum:
+            raise argparse.ArgumentTypeError(f"must be an integer from {minimum} to {maximum}")
+        return value
+    return parse
+
+
+def bounded_number(minimum: float, maximum: float):
+    def parse(text: str) -> float:
+        try:
+            value = float(text)
+        except ValueError as error:
+            raise argparse.ArgumentTypeError(f"must be a number from {minimum:g} to {maximum:g}") from error
+        if not minimum <= value <= maximum:
+            raise argparse.ArgumentTypeError(f"must be a number from {minimum:g} to {maximum:g}")
+        return value
+    return parse
+
+
+def bounded_text(maximum: int, label: str, *, allow_empty: bool = False):
+    def parse(text: str) -> str:
+        if (not allow_empty and not text) or len(text) > maximum or any(
+            not character.isprintable() for character in text
+        ):
+            minimum = 0 if allow_empty else 1
+            raise argparse.ArgumentTypeError(
+                f"{label} must contain {minimum} to {maximum} printable characters"
+            )
+        return text
+    return parse
+
+
+def cvar_name(text: str) -> str:
+    if not re.fullmatch(r"[A-Za-z0-9_]{1,64}", text):
+        raise argparse.ArgumentTypeError("cvar name must use letters, digits, or '_'")
+    return text
+
+
 def human_output(result: dict[str, Any]) -> str:
     return json.dumps(result, indent=2, ensure_ascii=False)
 
@@ -144,6 +188,32 @@ def build_parser() -> argparse.ArgumentParser:
     )
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("status")
+    console = commands.add_parser("exec-console")
+    console.add_argument("console_command", type=bounded_text(1024, "console command"))
+    get_cvar = commands.add_parser("get-cvar")
+    get_cvar.add_argument("name", type=cvar_name)
+    set_cvar = commands.add_parser("set-cvar")
+    set_cvar.add_argument("name", type=cvar_name)
+    set_cvar.add_argument("value", type=bounded_text(256, "cvar value"))
+    send_input = commands.add_parser("send-input")
+    send_input.add_argument("--ticks", type=bounded_integer(1, 1250), required=True)
+    send_input.add_argument("--forward", type=bounded_number(-1, 1))
+    send_input.add_argument("--right", type=bounded_number(-1, 1))
+    send_input.add_argument("--up", type=bounded_number(-1, 1))
+    send_input.add_argument("--yaw", type=bounded_number(-1000000, 1000000))
+    send_input.add_argument("--pitch", type=bounded_number(-89.9, 89.9))
+    for action in ("attack", "jump", "dash", "crouch", "sneak", "zoom"):
+        send_input.add_argument(
+            f"--{action}", action=argparse.BooleanOptionalAction, default=None
+        )
+    send_input.add_argument("--weapon", type=bounded_text(32, "weapon"))
+    wait_frames = commands.add_parser("wait-frames")
+    wait_frames.add_argument("frames", type=bounded_integer(1, 600))
+    player_view = commands.add_parser("set-player-view")
+    player_view.add_argument("--yaw", type=bounded_number(-1000000, 1000000), required=True)
+    player_view.add_argument("--pitch", type=bounded_number(-89.9, 89.9), required=True)
+    player_weapon = commands.add_parser("set-player-weapon")
+    player_weapon.add_argument("weapon", type=bounded_text(32, "weapon"))
     load = commands.add_parser("load-map")
     load.add_argument("map")
     reload_map = commands.add_parser("reload-map")
@@ -175,6 +245,8 @@ def execute(arguments: argparse.Namespace) -> dict[str, Any]:
             return send_request("status", **common)
         from lg_launch import status_with_state
         return status_with_state(port=arguments.port, timeout=arguments.timeout)
+    if arguments.command == "send-input" and ((arguments.yaw is None) != (arguments.pitch is None)):
+        raise ControlError("send-input requires --yaw and --pitch together")
     if arguments.host != DEFAULT_HOST:
         raise ControlError("development-control launch and visual verification require host 127.0.0.1")
     from lg_launch import LaunchError, ensure_client
@@ -189,6 +261,25 @@ def execute(arguments: argparse.Namespace) -> dict[str, Any]:
         raise ControlError(str(error)) from error
     if arguments.command == "load-map":
         return send_request("load_map", map=arguments.map, **common)
+    if arguments.command == "exec-console":
+        return send_request("exec_console", command=arguments.console_command, **common)
+    if arguments.command == "get-cvar":
+        return send_request("get_cvar", name=arguments.name, **common)
+    if arguments.command == "set-cvar":
+        return send_request("set_cvar", name=arguments.name, value=arguments.value, **common)
+    if arguments.command == "send-input":
+        fields = (
+            "ticks", "forward", "right", "up", "yaw", "pitch", "attack", "jump",
+            "dash", "crouch", "sneak", "zoom", "weapon",
+        )
+        values = {field: getattr(arguments, field) for field in fields if getattr(arguments, field) is not None}
+        return send_request("send_input", **values, **common)
+    if arguments.command == "wait-frames":
+        return send_request("wait_frames", frames=arguments.frames, **common)
+    if arguments.command == "set-player-view":
+        return send_request("set_player_view", yaw=arguments.yaw, pitch=arguments.pitch, **common)
+    if arguments.command == "set-player-weapon":
+        return send_request("set_player_weapon", weapon=arguments.weapon, **common)
     if arguments.command == "reload-map":
         status = send_request("status", **common)
         if arguments.map and status.get("map") != arguments.map.removesuffix(".map"):

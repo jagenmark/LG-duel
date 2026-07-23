@@ -13,6 +13,7 @@ namespace lg {
 
 inline constexpr std::size_t kMaxRocketProjectiles = 8;
 inline constexpr std::uint8_t kShotgunPelletCount = 20;
+inline constexpr float kSniperAdsSeconds = 0.2F;
 
 struct LightningGunTuning {
   float range = 18.0F;
@@ -20,6 +21,7 @@ struct LightningGunTuning {
   float fireHz = 20.0F;
   float eyeHeight = 0.65F;
   float knockbackPerSecond = 22.0F;
+  float headshotMultiplier = 2.0F;
 };
 
 struct LightningGunState {
@@ -36,6 +38,7 @@ struct FreezeGunTuning {
   float decayPerSecond = 20.0F;
   float maxLevel = 100.0F;
   float maxSlowFraction = 0.40F;
+  float headshotMultiplier = 2.0F;
 };
 
 struct LightningGunResult {
@@ -64,6 +67,7 @@ struct HitscanTuning {
   int damage = 80;
   float eyeHeight = 0.65F;
   float knockback = 20.0F;
+  float headshotMultiplier = 2.0F;
 };
 
 struct MachineGunTuning {
@@ -72,6 +76,7 @@ struct MachineGunTuning {
   float eyeHeight = 0.65F;
   float knockback = 0.11F;
   float spreadRadians = 0.0F;
+  float headshotMultiplier = 2.0F;
 };
 
 struct WeaponFireResult {
@@ -96,6 +101,7 @@ struct ShotgunTuning {
   float spreadRadians = 0.0872665F;
   float eyeHeight = 0.65F;
   float knockback = 22.0F;
+  float headshotMultiplier = 2.0F;
 };
 
 struct RocketLauncherTuning {
@@ -287,8 +293,15 @@ void decayPlayerFreezeLevel(
   PlayerState& target,
   const UserCommand& command,
   const Arena& arena,
-  const HitscanTuning& tuning,
-  Weapon weapon = Weapon::Railgun
+  const HitscanTuning& tuning
+);
+
+[[nodiscard]] WeaponFireResult simulateRevolver(
+  const PlayerState& attacker,
+  PlayerState& target,
+  const UserCommand& command,
+  const Arena& arena,
+  const HitscanTuning& tuning
 );
 
 [[nodiscard]] WeaponFireResult simulateMachineGun(

@@ -236,7 +236,7 @@ int main() {
     snapshot = latestSnapshot(transport);
     failures += expect(
       snapshot.players[0].health == 20,
-      "setup rail shot should damage player before pickup healing"
+      "setup sniper shot should apply base damage before pickup healing"
     );
 
     server.tick(lg::kFixedTickSeconds);
@@ -2997,6 +2997,46 @@ int main() {
     }
     failures += expect(exploded, "rocket should eventually explode");
     failures += expect(damaged, "rocket explosion should damage the opponent");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+
+    lg::BalanceConfig balance;
+    balance.sniperChargeSeconds = 5.0F * lg::kFixedTickSeconds;
+    balance.sniperMaxDamageMultiplier = 3.0F;
+    server.applyBalanceConfig(balance);
+
+    lg::UserCommand scope;
+    scope.weapon = lg::Weapon::Railgun;
+    scope.zoomed = true;
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 32; ++tick) {
+      scope.sequence++;
+      transport.sendCommand(lg::CommandPacket{0, scope, false});
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+    }
+    failures += expect(
+      snapshot.sniperChargePercent[0] == 100,
+      "scoped Sniper Rifle should reach full server-owned charge"
+    );
+
+    scope.sequence++;
+    scope.attack = true;
+    transport.sendCommand(lg::CommandPacket{0, scope, false});
+    server.tick(lg::kFixedTickSeconds);
+    snapshot = latestSnapshot(transport);
+    failures += expect(
+      snapshot.weaponFires[0].fired && snapshot.players[1].health == 0,
+      "full Sniper Rifle charge should raise authoritative shot damage"
+    );
+    failures += expect(
+      snapshot.sniperChargePercent[0] == 0,
+      "a Sniper Rifle shot should spend its full charge"
+    );
   }
 
   return failures == 0 ? 0 : 1;

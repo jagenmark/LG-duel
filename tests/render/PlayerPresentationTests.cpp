@@ -43,6 +43,24 @@ int main() {
   lg::PlayerState player = groundedPlayer();
   player.velocity.x = config.moveEnterSpeed - 0.01F;
   auto frame = lg::updatePlayerPresentation(thresholdState, player, 0.016F, 2U, config);
+
+  lg::PlayerPresentationState deathState;
+  lg::PlayerState deadPlayer = groundedPlayer();
+  deadPlayer.health = 0;
+  auto deathFrame = lg::updatePlayerPresentation(deathState, deadPlayer, 0.25F, 0U, config);
+  failures += expect(
+    deathFrame.diagnostics.currentState == lg::PlayerLocomotionState::Death &&
+      activeBaseClip(deathFrame) == "Death",
+    "a dead player should play and hold a death clip"
+  );
+  deadPlayer.health = 100;
+  (void)lg::updatePlayerPresentation(deathState, deadPlayer, 0.016F, 0U, config);
+  deadPlayer.health = 0;
+  deathFrame = lg::updatePlayerPresentation(deathState, deadPlayer, 0.016F, 0U, config);
+  failures += expect(
+    activeBaseClip(deathFrame) == "Death",
+    "each later death should restart the full death clip"
+  );
   failures += expect(
     frame.diagnostics.currentState == lg::PlayerLocomotionState::Idle &&
       frame.diagnostics.moveDirection == lg::PlayerMoveDirection::Stationary,
@@ -108,15 +126,15 @@ int main() {
   frame = lg::updatePlayerPresentation(directionState, player, 0.016F, 3U, config);
   failures += expect(
     frame.diagnostics.moveDirection == lg::PlayerMoveDirection::Right &&
-      activeBaseClip(frame) == "STRAFE_RIGHT",
-    "positive local right velocity should select the right-strafe clip"
+      activeBaseClip(frame) == "STRAFE_LEFT",
+    "right movement should select the imported clip that moves visually right"
   );
   player.velocity = {0.0F, 2.0F, 0.0F};
   frame = lg::updatePlayerPresentation(directionState, player, 0.016F, 3U, config);
   failures += expect(
     frame.diagnostics.moveDirection == lg::PlayerMoveDirection::Left &&
-      activeBaseClip(frame) == "STRAFE_LEFT",
-    "negative local right velocity should select the left-strafe clip"
+      activeBaseClip(frame) == "STRAFE_RIGHT",
+    "left movement should select the imported clip that moves visually left"
   );
   player.viewYawRadians = 1.57079632679F;
   player.velocity = {0.0F, 2.0F, 0.0F};

@@ -1,0 +1,74 @@
+{
+  "version": 1,
+  "kind": "character_batch_profile",
+  "output_root": "build/asset-staging/review-batches/quaternius_modular_men",
+  "source_path_template": "build/asset-staging/Quaternius-ultimate_modular_men_humanoid_rig/work/extracted/Humanoid Rig/Individual Characters/FBX/{character}.fbx",
+  "rig_reference_path": "build/asset-staging/Quaternius-ultimate_modular_men_humanoid_rig/work/extracted/Humanoid Rig/Individual Characters/FBX/Worker.fbx",
+  "rig_matrix_tolerance": 0.0001,
+  "request": {
+    "asset_type": "player_model",
+    "unit_scale_meters": 1.0,
+    "source_up_axis": "Y",
+    "source_forward_axis": "-Z",
+    "options": {
+      "animation_source_path": "build/asset-staging/Quaternius-ultimate_modular_men_animations/original/Animations.fbx",
+      "animation_bone_map": {"Hand.L": "Wrist.L", "Hand.R": "Wrist.R"},
+      "animation_transfer_mode": "retarget",
+      "animation_clip_names": {
+        "Idle_Gun": "IDLE",
+        "Run": "RUN",
+        "Run_Back": "RUN_BACK",
+        "Run_Left": "STRAFE_LEFT",
+        "Run_Right": "STRAFE_RIGHT"
+      },
+      "animation_renames": {},
+      "animation_aliases": {
+        "START_FORWARD": "RUN",
+        "STOP_FORWARD": "IDLE",
+        "DUCKING": "IDLE",
+        "CROUCH_WALK": "RUN",
+        "FALL": "Roll",
+        "LAND_LIGHT": "IDLE",
+        "LAND_HEAVY": "HitRecieve"
+      },
+      "animation_trims": {},
+      "two_handed_idle": {
+        "source": "Idle_Gun_Pointing",
+        "name": "Idle_Gun_TwoHanded",
+        "hand_offset": [0.18, 0.0, 0.015],
+        "pole_offset": [0.35, -0.45, -0.05],
+        "wrist_roll_degrees": 90.0
+      },
+      "gameplay_jump": {
+        "source": "Idle_Gun_TwoHanded",
+        "name": "JUMP",
+        "frames": [1, 5, 10, 16, 22],
+        "hip_offsets": [0.0, -0.32, 0.0, 0.0, 0.0]
+      },
+      "attachment_points": {"weapon_socket": "Wrist.R"},
+      "bone_map": {"Hand.L": "Wrist.L", "Hand.R": "Wrist.R"},
+      "required_bones": ["Wrist.L", "Wrist.R"],
+      "triangulate": true,
+      "consolidate_materials": false,
+      "texture_max_dimension": 2048,
+      "lod_ratios": [],
+      "max_influences": 4,
+      "generate_collision": true,
+      "generate_hitboxes": true,
+      "preview_animation": {"name": "Idle_Gun_TwoHanded", "frame": 25},
+      "animation_preview_stills": [
+        {"name": "idle", "action": "IDLE", "frame": 25},
+        {"name": "idle-two-handed", "action": "Idle_Gun_TwoHanded", "frame": 25},
+        {"name": "run", "action": "RUN", "frame": 12},
+        {"name": "strafe-left", "action": "STRAFE_LEFT", "frame": 12},
+        {"name": "run-back", "action": "RUN_BACK", "frame": 12},
+        {"name": "jump-crouch", "action": "JUMP", "frame": 5},
+        {"name": "jump", "action": "JUMP", "frame": 16},
+        {"name": "fall", "action": "FALL", "frame": 30},
+        {"name": "crouch-walk", "action": "CROUCH_WALK", "frame": 12},
+        {"name": "land", "action": "LAND_HEAVY", "frame": 10}
+      ],
+      "preview_views": ["front", "iso"]
+    }
+  }
+}

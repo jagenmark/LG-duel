@@ -1,0 +1,57 @@
+{
+  "asset_id": "quaternius_worker",
+  "asset_title": "Worker from Ultimate Modular Men Pack",
+  "author": "Quaternius",
+  "license": {
+    "attribution_required": false,
+    "commercial_use": true,
+    "id": "CC0-1.0",
+    "modification": true,
+    "required_attribution_text": "",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/"
+  },
+  "processing": {
+    "approved_aimed_idle": "Idle_Gun_TwoHanded",
+    "approved_idle_source": "Idle_Gun_Pointing",
+    "blender_version": "5.1.2",
+    "input_bindings": "reports/input-bindings.json",
+    "input_bindings_sha256": "a55a565c96d47d79453846f4fc9a363a2a3e42381a840982f34e6df9eb2014d4",
+    "recipe": "recipe.json",
+    "recipe_sha256": "7e737b1fab0028e92286019f282fb4e8cd91ed7b669d428eb6239216b409c1e8",
+    "report": "reports/process-tool.json",
+    "report_sha256": "e77b4de1b191b43982e048e29561707237877a382d3f32c11fa722ff69bad40a",
+    "tool": "lg-duel-blender-pipeline"
+  },
+  "review_output": {
+    "path": "quaternius_worker.glb",
+    "sha256": "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60",
+    "size": 2563772,
+    "status": "review_only_not_production_integrated"
+  },
+  "schema_version": 1,
+  "source_page_snapshot": "license/quaternius-source-page.zip",
+  "source_page_snapshot_sha256": "31d2389ab6a33a886779d37b548d83c1957da7760fdc961e332ee480741031ac",
+  "source_page_url": "https://quaternius.com/packs/ultimatemodularcharacters.html",
+  "sources": [
+    {
+      "acquired_utc": "2026-07-19T17:05:00Z",
+      "download_url": "https://drive.google.com/drive/folders/1USAAquX2JJWuA2m6zol0KUkFe3UkZ8zX?usp=sharing",
+      "license_evidence": "license/worker-license-evidence.json",
+      "license_evidence_sha256": "d2920081f17e49556f5ad0d8267036d635005b1e582fa93b31c8ee2dd900a51c",
+      "original_filename": "Worker.zip",
+      "original_sha256": "ec4f387035e052a3458ce56b8bb8b7684d6b82077cfefb74e23b35ccc209e4b7",
+      "original_size": 241623,
+      "title": "Ultimate Modular Men Pack - Worker Skeletal Mesh"
+    },
+    {
+      "acquired_utc": "2026-07-19T17:05:00Z",
+      "download_url": "https://drive.google.com/drive/folders/1USAAquX2JJWuA2m6zol0KUkFe3UkZ8zX?usp=sharing",
+      "license_evidence": "license/animations-license-evidence.json",
+      "license_evidence_sha256": "1ce76f0c2824c1a4dd8232acbeff15dbdaf5a10fea0f432fbef0f25e8c2075ca",
+      "original_filename": "Animations.fbx",
+      "original_sha256": "259ed6f6e5f1bb2a15215a66a9ed02e8956083a281a8098103490d1a00292b7f",
+      "original_size": 7695388,
+      "title": "Ultimate Modular Men Pack - Animation Library"
+    }
+  ]
+}

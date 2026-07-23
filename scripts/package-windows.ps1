@@ -272,6 +272,8 @@ $requiredFiles = @(
   "shaders/outline_dilate.frag.spv",
   "shaders/outline_composite.vert.spv",
   "shaders/outline_composite.frag.spv",
+  "shaders/outline_native_dilate.frag.spv",
+  "shaders/outline_native_composite.frag.spv",
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/balance.cfg",

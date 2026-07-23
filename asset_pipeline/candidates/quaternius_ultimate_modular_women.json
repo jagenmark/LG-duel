@@ -1,0 +1,15 @@
+{
+  "source": "Quaternius",
+  "id": "ultimate_modular_women_humanoid_rig",
+  "name": "Ultimate Modular Women Pack - Humanoid Rigs",
+  "page_url": "https://quaternius.com/packs/ultimatemodularwomen.html",
+  "download_url": "https://drive.google.com/drive/folders/1XJzCxtxdbh2YNsV-wlm8vgMxZzJmZ14p",
+  "download_filename": "Ultimate_Modular_Women_Humanoid_Rigs.zip",
+  "author": "Quaternius",
+  "license": {
+    "id": "CC0-1.0",
+    "url": "https://creativecommons.org/publicdomain/zero/1.0/",
+    "text": "The source page marks the pack CC0 and permits personal and commercial use."
+  },
+  "tags": ["player", "female", "stylized", "rigged", "animated", "modular"]
+}

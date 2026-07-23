@@ -63,8 +63,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_enable", "Enable client sound effects.", true, archivedClient, {}, {}});
   console.registerCvar({"s_volume", "Client sound effect volume.", 0.35F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"s_lg_fire_volume", "Lightning gun firing loop volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
-  console.registerCvar({"s_rg_fire_volume", "Railgun fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
-  console.registerCvar({"s_rg_ready_volume", "Railgun ready chime volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
+  console.registerCvar({"s_rg_fire_volume", "Sniper Rifle fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
+  console.registerCvar({"s_rg_ready_volume", "Sniper Rifle ready chime volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_rl_fire_volume", "Rocket launcher fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_rl_explosion_volume", "Rocket and grenade explosion sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_mg_fire_volume", "Machine gun fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
@@ -157,9 +157,12 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 animated GLB.", 1, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Duelist GLB, 2 Worker GLB.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_enemy_outline", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_player_outline_mode", "Player outlines: 0 off, 1 compatibility style, 2 native-resolution screen-space.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_player_outline_style", "Player outline style: 0 legacy geometry fallback, 1 screen-space mask.", 1, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_player_outline_width", "Native screen-space player outline width in final display pixels.", 1.5F, archivedClient, 0.0F, 3.0F});
+  console.registerCvar({"r_player_outline_debug_mask", "Show the native player outline source group mask.", false, CvarFlag::None, {}, {}});
   console.registerCvar({"r_enemy_outline_width", "Enemy outline width in final display pixels (1-6 px intended).", 3.0F, archivedClient, 0.0F, 6.0F});
   console.registerCvar({"r_enemy_outline_alpha", "Enemy outline opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline_r", "Enemy model outline red channel.", 255, archivedClient, 0.0F, 255.0F});

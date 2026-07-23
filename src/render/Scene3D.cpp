@@ -7,6 +7,7 @@
 #include "render/BakedRocketLauncherModel.hpp"
 #include "render/BakedFreezeGunModel.hpp"
 #include "render/BakedPlasmaGunModel.hpp"
+#include "render/BakedSniperRifleModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
@@ -43,6 +44,9 @@ constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
 constexpr std::uint32_t kGltfBonePaletteEntryBytes = 64U;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
 constexpr float kRocketLauncherViewModelScale = 0.66F;
+constexpr float kSniperRifleViewModelScale = 1.45F;
+constexpr float kSniperRifleViewModelWidthScale = 1.30F;
+constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
 constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
 
@@ -1372,7 +1376,8 @@ void addGltfPlayerModelInstance(
   std::uint8_t playerIndex,
   OutlineState outlineState,
   bool outlined,
-  GltfSkinnedModel::PoseScratch& poseScratch
+  GltfSkinnedModel::PoseScratch& poseScratch,
+  WeaponModelFrame* weaponAttachment
 ) {
   if (!model.loaded() || model.primitives().empty()) {
     return;
@@ -1380,11 +1385,14 @@ void addGltfPlayerModelInstance(
 
   const PlayerModelBasis basis =
     playerModelBasis(player, false, leanScale, 0.0F);
-  const float verticalScale = basis.height / kDuelistMaleHeight;
+  const bool workerModel = &model == &workerPlayerModel();
+  const float authoredHeight = workerModel ? 1.86643112F : kDuelistMaleHeight;
+  const float authoredDepthCenter = workerModel ? 0.09206353F : kDuelistMaleDepthCenter;
+  const float verticalScale = basis.height / authoredHeight;
   const float horizontalScale = basis.radius / kDuelistMaleHalfWidth * 0.94F;
   const Vec3 base = player.position - basis.up * basis.halfHeight;
   const Vec3 translation = base -
-    basis.forward * (kDuelistMaleDepthCenter * horizontalScale);
+    basis.forward * (authoredDepthCenter * horizontalScale);
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
   DuelistPoseRequests poseRequests;
@@ -1400,8 +1408,10 @@ void addGltfPlayerModelInstance(
         // the previous clip fully, then blend the new clip by transition alpha.
         weight = 1.0F;
       }
+      std::string_view clip = layer.animationName;
+      if (workerModel && clip == "IDLE") clip = "Idle_Gun_TwoHanded";
       poseRequests.push({
-        layer.animationName,
+        clip,
         layer.timeSeconds,
         weight,
         layer.mask == PlayerPoseLayerMask::UpperBody
@@ -1422,6 +1432,27 @@ void addGltfPlayerModelInstance(
         aimPitch
       )) {
     return;
+  }
+  if (workerModel && weaponAttachment != nullptr) {
+    GltfSkinnedModel::Matrix4 socket;
+    if (model.nodeGlobalMatrix("weapon_socket", poseScratch, socket)) {
+      weaponAttachment->basis = basis;
+      // The socket tracks the animated grip point. Its inherited wrist roll is
+      // not a weapon frame, so aim the weapon with the player's view instead.
+      const float pitchCos = std::cos(aimPitch);
+      const float pitchSin = std::sin(aimPitch);
+      weaponAttachment->basis.forward = normalize(
+        basis.forward * pitchCos + basis.up * pitchSin
+      );
+      weaponAttachment->basis.up = normalize(
+        basis.up * pitchCos - basis.forward * pitchSin
+      );
+      weaponAttachment->hand = translation +
+        basis.right * (socket.values[3] * horizontalScale) +
+        basis.up * (socket.values[7] * verticalScale) +
+        basis.forward * (socket.values[11] * horizontalScale);
+      weaponAttachment->scale = (horizontalScale + verticalScale) * 0.5F;
+    }
   }
   const std::uint32_t boneCount =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size()) - firstBone;
@@ -1958,6 +1989,16 @@ void appendFreezeGunInstances(
   return frame;
 }
 
+[[nodiscard]] WeaponModelFrame sniperRifleGripAlignedFrame(
+  WeaponModelFrame frame
+) {
+  // Keep the authored grip on the player hand for both world and view models.
+  frame.hand -= frame.basis.forward * (kSniperRifleGripSocket.x * frame.scale);
+  frame.hand -= frame.basis.right * (kSniperRifleGripSocket.y * frame.scale);
+  frame.hand -= frame.basis.up * (kSniperRifleGripSocket.z * frame.scale);
+  return frame;
+}
+
 void appendPlasmaGunInstances(
   Scene3D& scene,
   const WeaponModelFrame& frame,
@@ -2174,6 +2215,34 @@ void addFirstPersonWeaponModel(
     scene.viewModelStats.drawCalls += 3U;
     break;
   }
+  case Weapon::Railgun: {
+    WeaponModelFrame weaponFrame = frame;
+    weaponFrame.scale *= kSniperRifleViewModelScale;
+    weaponFrame.hand -= weaponFrame.basis.forward * 0.05F;
+    weaponFrame.hand -= weaponFrame.basis.up * 0.03F;
+    weaponFrame = sniperRifleGripAlignedFrame(weaponFrame);
+    StaticMeshInstance instance = weaponMeshInstance(
+      MeshHandle::RemoteRailgun,
+      RenderPass::ViewModel,
+      weaponFrame,
+      {255, 255, 255, 255}
+    );
+    // End-on rifles read too thin in a centered view. Enlarge only the local
+    // width and height columns; world models and gameplay aim stay unchanged.
+    instance.modelRow0.y *= kSniperRifleViewModelWidthScale;
+    instance.modelRow1.y *= kSniperRifleViewModelWidthScale;
+    instance.modelRow2.y *= kSniperRifleViewModelWidthScale;
+    instance.modelRow0.z *= kSniperRifleViewModelHeightScale;
+    instance.modelRow1.z *= kSniperRifleViewModelHeightScale;
+    instance.modelRow2.z *= kSniperRifleViewModelHeightScale;
+    instance.worldBounds.radius *= std::max(
+      kSniperRifleViewModelWidthScale,
+      kSniperRifleViewModelHeightScale
+    );
+    appendStaticMeshInstance(scene, instance);
+    ++scene.viewModelStats.drawCalls;
+    break;
+  }
   default:
     break;
   }
@@ -2249,21 +2318,6 @@ void addRocketLauncherModel(Scene3D& scene, const WeaponModelFrame& frame) {
   addWeaponPart(scene, frame, 0.32F, -0.13F, 0.19F, {0.14F, 0.02F, 0.025F}, warning);
 }
 
-void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
-  constexpr RenderColor dark = {28, 26, 40, 255};
-  constexpr RenderColor violet = {83, 69, 128, 255};
-  constexpr RenderColor rail = {118, 229, 255, 255};
-  constexpr RenderColor core = {255, 224, 118, 255};
-
-  addWeaponPart(scene, frame, 0.14F, 0.0F, 0.09F, {0.24F, 0.075F, 0.07F}, dark);
-  addWeaponPart(scene, frame, 0.48F, 0.0F, 0.09F, {0.30F, 0.045F, 0.045F}, violet);
-  addWeaponPart(scene, frame, 0.78F, 0.0F, 0.09F, {0.045F, 0.075F, 0.075F}, core);
-  addWeaponPart(scene, frame, 0.43F, -0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
-  addWeaponPart(scene, frame, 0.43F, 0.09F, 0.17F, {0.28F, 0.015F, 0.018F}, rail);
-  addWeaponPart(scene, frame, 0.12F, 0.0F, -0.09F, {0.055F, 0.04F, 0.145F}, dark);
-  addWeaponStrut(scene, frame, {0.22F, -0.08F, 0.02F}, {0.66F, 0.08F, 0.02F}, 0.016F, rail);
-}
-
 [[nodiscard]] float thirdPersonWeaponVisualScale(Weapon weapon) {
   switch (weapon) {
   case Weapon::LightningGun:
@@ -2277,6 +2331,10 @@ void addRailgunModel(Scene3D& scene, const WeaponModelFrame& frame) {
     return 0.50F;
   case Weapon::Revolver:
     return 0.45F;
+  case Weapon::Railgun:
+    // The imported sniper is authored near one metre long. Keep it at rifle
+    // size instead of using the short procedural weapon scale.
+    return 1.15F;
   default:
     return 0.65F;
   }
@@ -2507,13 +2565,20 @@ void addWireBox(
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   if (weapon == Weapon::Revolver) {
     frame = revolverGripAlignedFrame(frame);
+  } else if (weapon == Weapon::Railgun) {
+    frame = sniperRifleGripAlignedFrame(frame);
   }
   switch (weapon) {
   case Weapon::LightningGun:
   case Weapon::FreezeGun:
     return weaponLocalPoint(frame, 1.00F, 0.0F, 0.105F);
   case Weapon::Railgun:
-    return weaponLocalPoint(frame, 0.78F, 0.0F, 0.09F);
+    return weaponLocalPoint(
+      frame,
+      kSniperRifleMuzzleSocket.x,
+      kSniperRifleMuzzleSocket.y,
+      kSniperRifleMuzzleSocket.z
+    );
   case Weapon::Revolver:
     return weaponLocalPoint(frame, 0.68F, 0.0F, 0.155F);
   default:
@@ -2709,7 +2774,6 @@ void appendCollisionDebugGeometry(
   if (mode <= 0 || mode > 5) {
     return;
   }
-
   constexpr RenderColor visibleSolidColor = {64, 160, 255, 72};
   constexpr RenderColor playerClipColor = {72, 255, 128, 96};
   constexpr RenderColor weaponClipColor = {255, 156, 48, 104};
@@ -2821,8 +2885,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     proceduralWeaponVertices(Weapon::GrenadeLauncher);
   static const std::vector<Vertex3D> lightningGunVertices =
     proceduralWeaponVertices(Weapon::LightningGun);
-  static const std::vector<Vertex3D> railgunVertices =
-    proceduralWeaponVertices(Weapon::Railgun);
   static const StaticMeshAsset shotgunAsset = {
     MeshHandle::RemoteShotgun,
     std::span<const Vertex3D>(shotgunVertices.data(), shotgunVertices.size()),
@@ -2839,12 +2901,6 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
     MeshHandle::RemoteLightningGun,
     std::span<const Vertex3D>(lightningGunVertices.data(), lightningGunVertices.size()),
     meshBounds(lightningGunVertices),
-    RenderPass::OpaqueWorld,
-  };
-  static const StaticMeshAsset railgunAsset = {
-    MeshHandle::RemoteRailgun,
-    std::span<const Vertex3D>(railgunVertices.data(), railgunVertices.size()),
-    meshBounds(railgunVertices),
     RenderPass::OpaqueWorld,
   };
   switch (handle) {
@@ -2882,7 +2938,7 @@ const StaticMeshAsset* staticMeshAsset(MeshHandle handle) {
   case MeshHandle::RemoteLightningGun:
     return &lightningGunAsset;
   case MeshHandle::RemoteRailgun:
-    return &railgunAsset;
+    return nullptr;
   case MeshHandle::RemoteRevolverBody:
   case MeshHandle::RemoteRevolverCylinder:
     return nullptr;
@@ -2919,6 +2975,8 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
     bakedMaterialWeaponVertices(kPlasmaGunProngMaterialModel);
   static const std::vector<WeaponMaterialVertex3D> plasmaGunCoreVertices =
     bakedMaterialWeaponVertices(kPlasmaGunCoreMaterialModel);
+  static const std::vector<WeaponMaterialVertex3D> sniperRifleVertices =
+    bakedMaterialWeaponVertices(kSniperRifleMaterialModel);
   static const MaterialMeshAsset body = {
     MeshHandle::RemoteRevolverBody,
     revolverBodyVertices,
@@ -2984,6 +3042,11 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
     plasmaGunCoreVertices,
     materialMeshBounds(plasmaGunCoreVertices),
   };
+  static const MaterialMeshAsset sniperRifle = {
+    MeshHandle::RemoteRailgun,
+    sniperRifleVertices,
+    materialMeshBounds(sniperRifleVertices),
+  };
   if (handle == MeshHandle::RemoteMachineGunBody) {
     return &machineGunBody;
   }
@@ -3022,6 +3085,9 @@ const MaterialMeshAsset* materialMeshAsset(MeshHandle handle) {
   }
   if (handle == MeshHandle::RemotePlasmaGunCore) {
     return &plasmaGunCore;
+  }
+  if (handle == MeshHandle::RemoteRailgun) {
+    return &sniperRifle;
   }
   return nullptr;
 }
@@ -3064,6 +3130,14 @@ Vec3 plasmaGunMuzzleSocket() {
 
 Vec3 plasmaGunGripSocket() {
   return kPlasmaGunGripSocket;
+}
+
+Vec3 sniperRifleGripSocket() {
+  return kSniperRifleGripSocket;
+}
+
+Vec3 sniperRifleMuzzleSocket() {
+  return kSniperRifleMuzzleSocket;
 }
 
 Vec3 firstPersonPlasmaGunMuzzlePosition(
@@ -3234,9 +3308,12 @@ void addRemoteWeaponInstance(
   float freezeGunFiringAmount,
   float freezeGunCoolantPulse,
   float freezeGunVibrationPhaseRadians,
-  float plasmaGunContainmentAmount
+  float plasmaGunContainmentAmount,
+  const WeaponModelFrame* attachment
 ) {
-  WeaponModelFrame frame = weaponModelFrame(player, leanEnabled, leanScale);
+  WeaponModelFrame frame = attachment != nullptr
+    ? *attachment
+    : weaponModelFrame(player, leanEnabled, leanScale);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   if (weapon == Weapon::Revolver) {
     frame = revolverGripAlignedFrame(frame);
@@ -3288,6 +3365,9 @@ void addRemoteWeaponInstance(
     scene.remoteWeaponStats.instancesSubmitted += 3U;
     return;
   }
+  if (weapon == Weapon::Railgun) {
+    frame = sniperRifleGripAlignedFrame(frame);
+  }
   MeshHandle mesh = remoteWeaponMeshHandle(weapon);
   if (mesh == MeshHandle::Invalid) {
     return;
@@ -3319,8 +3399,6 @@ void addRemoteWeaponInstance(
     addRocketLauncherModel(meshScene, frame);
     break;
   case Weapon::Railgun:
-    addRailgunModel(meshScene, frame);
-    break;
   case Weapon::MachineGun:
   case Weapon::Shotgun:
   case Weapon::PlasmaGun:
@@ -3817,6 +3895,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
   std::uint32_t runFirst = 0;
   std::uint32_t runCount = 0;
   std::uint8_t runPlayerIndex = 0;
+  MeshHandle runMesh = MeshHandle::Invalid;
   OutlineState runState = {};
   const auto flushRun = [&]() {
     if (runCount == 0U) {
@@ -3826,14 +3905,16 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       0U,
       0U,
       runState,
-      MeshHandle::PlayerBoxCube,
+      runMesh,
       runFirst,
       runCount,
     });
-    ++scene.playerOutlinesBuilt;
-    ++scene.outlinedPlayers;
-    ++scene.playerBoxStats.outlineMaskBatches;
-    ++scene.playerBoxStats.outlineMaskDrawCalls;
+    if (runMesh == MeshHandle::PlayerBoxCube) {
+      ++scene.playerOutlinesBuilt;
+      ++scene.outlinedPlayers;
+      ++scene.playerBoxStats.outlineMaskBatches;
+      ++scene.playerBoxStats.outlineMaskDrawCalls;
+    }
     runCount = 0;
   };
   for (
@@ -3845,9 +3926,10 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
     // and complete outline state form one contiguous run in the sorted buffer.
     const StaticMeshInstance& instance = scene.staticMeshInstances[index];
     if (
-      !instance.playerBoxBody ||
-      !instance.playerBoxOutlined ||
-      instance.mesh != MeshHandle::PlayerBoxCube ||
+      !(
+        (instance.playerBoxBody && instance.playerBoxOutlined) ||
+        instance.playerSilhouetteOutlined
+      ) ||
       instance.pass != RenderPass::OpaqueWorld
     ) {
       flushRun();
@@ -3857,6 +3939,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       runCount == 0U ||
       (
         instance.playerIndex == runPlayerIndex &&
+        instance.mesh == runMesh &&
         instance.outlineState.group == runState.group &&
         instance.outlineState.visibility == runState.visibility &&
         instance.outlineState.widthPixels == runState.widthPixels &&
@@ -3867,6 +3950,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       if (runCount == 0U) {
         runFirst = index;
         runPlayerIndex = instance.playerIndex;
+        runMesh = instance.mesh;
         runState = instance.outlineState;
       }
       ++runCount;
@@ -3874,6 +3958,7 @@ void finalizeStaticMeshBatches(Scene3D& scene) {
       flushRun();
       runFirst = index;
       runPlayerIndex = instance.playerIndex;
+      runMesh = instance.mesh;
       runState = instance.outlineState;
       runCount = 1U;
     }
@@ -4251,8 +4336,11 @@ Scene3D buildPerspectiveScene(
   scene.gltfBonePalette.reserve(kDuelPlayerCount * 64U);
   appendCollisionDebugGeometry(scene, arena, settings.showCollision);
   GltfSkinnedModel::PoseScratch gltfPoseScratch;
-  const GltfSkinnedModel* gltfPlayerModel =
-    settings.playerModel == 1 ? &duelistMaleModel() : nullptr;
+  const GltfSkinnedModel* gltfPlayerModel = settings.playerModel == 1
+    ? &duelistMaleModel()
+    : settings.playerModel == 2
+      ? &workerPlayerModel()
+      : nullptr;
   if (gltfPlayerModel != nullptr && gltfPlayerModel->loaded()) {
     scene.gltfBonePalette.reserve(
       kDuelPlayerCount *
@@ -4310,7 +4398,7 @@ Scene3D buildPerspectiveScene(
     const bool usePlayerBoxModel =
       settings.drawRemotePlayers &&
       (
-        settings.playerModel != 1 ||
+        settings.playerModel == 0 ||
         gltfPlayerModel == nullptr ||
         !gltfPlayerModel->loaded()
       );
@@ -4377,12 +4465,15 @@ Scene3D buildPerspectiveScene(
     const OutlineState outlineState = {
       remote.teammate ? OutlineGroup::Teammate : OutlineGroup::Enemy,
       outlineEnabled ? OutlineVisibility::VisibleOnly : OutlineVisibility::None,
-      outlineWidth,
+      settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+        ? settings.playerOutlineWidth
+        : outlineWidth,
       std::clamp(outlineAlpha, 0.0F, 1.0F),
       hitAmount,
     };
     const bool wantsOutline =
       settings.drawPlayerOutlines &&
+      settings.playerOutlineMode != PlayerOutlineMode::Disabled &&
       outlineEnabled &&
       outlineState.group != OutlineGroup::None &&
       outlineState.visibility != OutlineVisibility::None &&
@@ -4390,7 +4481,10 @@ Scene3D buildPerspectiveScene(
       outlineState.alpha > 0.0F;
     if (
       wantsOutline &&
-      usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle) &&
+      usesGeometryPlayerOutlineFallback(
+        settings.playerOutlineMode,
+        settings.playerOutlineStyle
+      ) &&
       settings.drawRemotePlayers
     ) {
       ++scene.playerOutlinesBuilt;
@@ -4422,6 +4516,7 @@ Scene3D buildPerspectiveScene(
         static_cast<std::uint32_t>(scene.vertices.size() - outlineStart);
       scene.geometryOutlineFallbackUsed = true;
     }
+    std::optional<WeaponModelFrame> weaponAttachment;
     if (settings.drawRemotePlayers) {
       benchmark::ScopedTiming animationTiming(
         benchmark::TimingSubsystem::Animation
@@ -4439,8 +4534,10 @@ Scene3D buildPerspectiveScene(
           remote.teammate ? settings.teammateLeanScale : settings.enemyLeanScale,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
-          wantsOutline &&
-            settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace
+          wantsOutline && usesScreenSpacePlayerOutlines(
+            settings.playerOutlineMode,
+            settings.playerOutlineStyle
+          )
         );
       } else {
         addGltfPlayerModelInstance(
@@ -4456,14 +4553,18 @@ Scene3D buildPerspectiveScene(
           remote.hasPresentation ? &remote.presentation : nullptr,
           static_cast<std::uint8_t>(remoteIndex),
           outlineState,
-          wantsOutline &&
-            settings.playerOutlineStyle == PlayerOutlineStyle::ScreenSpace,
-          gltfPoseScratch
+          wantsOutline && usesScreenSpacePlayerOutlines(
+            settings.playerOutlineMode,
+            settings.playerOutlineStyle
+          ),
+          gltfPoseScratch,
+          gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment.emplace() : nullptr
         );
       }
     }
     if (settings.drawRemoteWeapons) {
       ++scene.remoteWeaponModelsBuilt;
+      const std::size_t firstWeaponInstance = scene.staticMeshInstances.size();
       addRemoteWeaponInstance(
         scene,
         remote.player,
@@ -4477,8 +4578,29 @@ Scene3D buildPerspectiveScene(
         remote.freezeGunFiringAmount,
         remote.freezeGunCoolantPulse,
         remote.freezeGunVibrationPhaseRadians,
-        remote.plasmaGunContainmentAmount
+        remote.plasmaGunContainmentAmount,
+        weaponAttachment ? &*weaponAttachment : nullptr
       );
+      if (
+        wantsOutline &&
+        settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace
+      ) {
+        // The native mask treats the held weapon as part of the player's one
+        // outer silhouette. Mode 1 keeps its old body-only mask unchanged.
+        for (
+          std::size_t index = firstWeaponInstance;
+          index < scene.staticMeshInstances.size();
+          ++index
+        ) {
+          StaticMeshInstance& instance = scene.staticMeshInstances[index];
+          if (instance.pass != RenderPass::OpaqueWorld) {
+            continue;
+          }
+          instance.playerIndex = static_cast<std::uint8_t>(remoteIndex);
+          instance.outlineState = outlineState;
+          instance.playerSilhouetteOutlined = true;
+        }
+      }
     }
   }
 

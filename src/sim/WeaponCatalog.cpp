@@ -30,7 +30,10 @@ std::optional<Weapon> parseWeaponToken(std::string_view token) {
   if (value == "lg" || value == "lightning" || value == "lightninggun") {
     return Weapon::LightningGun;
   }
-  if (value == "rg" || value == "rail" || value == "railgun") {
+  if (
+    value == "sr" || value == "sniper" || value == "sniperrifle" ||
+    value == "rg" || value == "rail" || value == "railgun"
+  ) {
     return Weapon::Railgun;
   }
   if (value == "pg" || value == "plasma" || value == "plasmagun") {
@@ -58,7 +61,7 @@ std::string_view weaponShortName(Weapon weapon) {
   case Weapon::LightningGun:
     return "lg";
   case Weapon::Railgun:
-    return "rg";
+    return "sr";
   case Weapon::PlasmaGun:
     return "pg";
   case Weapon::FreezeGun:

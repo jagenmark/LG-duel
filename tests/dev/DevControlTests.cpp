@@ -90,6 +90,45 @@ int main() {
     "safe capture filenames should be accepted"
   );
   failures += expect(
+    parseRequest(R"({"operation":"exec_console","command":"r_show_fps"})").ok &&
+      !parseRequest("{\"operation\":\"exec_console\",\"command\":\"one\\ntwo\"}").ok,
+    "console commands should be bounded to one line"
+  );
+  failures += expect(
+    parseRequest(R"({"operation":"get_cvar","name":"cl_fov"})").ok &&
+      parseRequest(R"({"operation":"set_cvar","name":"cl_fov","value":"110"})").ok &&
+      !parseRequest(R"({"operation":"set_cvar","name":"../bad","value":"1"})").ok,
+    "cvar requests should keep names and values bounded"
+  );
+  const lg::dev::ControlRequestParseResult playerInput = parseRequest(
+    R"({"operation":"send_input","ticks":20,"forward":1,"right":-0.5,"attack":true,"yaw":90,"pitch":-10,"weapon":"sniper"})"
+  );
+  failures += expect(
+    playerInput.ok && playerInput.request.playerInput.ticks == 20U &&
+      playerInput.request.playerInput.attack &&
+      playerInput.request.playerInput.yawDegrees == std::optional<float>(90.0F),
+    "typed player input should retain bounded controls"
+  );
+  failures += expect(
+      !parseRequest(R"({"operation":"send_input","ticks":0})").ok &&
+      !parseRequest(R"({"operation":"send_input","ticks":1,"forward":2})").ok &&
+      !parseRequest(R"({"operation":"send_input","ticks":1,"yaw":10})").ok &&
+      !parseRequest(R"({"operation":"send_input","ticks":1,"attack":"true"})").ok &&
+      !parseRequest(R"({"operation":"send_input","ticks":1,"weapon":7})").ok,
+    "player input should reject bad spans, axes, types, and partial view angles"
+  );
+  failures += expect(
+    parseRequest(R"({"operation":"wait_frames","frames":5})").ok &&
+      !parseRequest(R"({"operation":"wait_frames","frames":601})").ok,
+    "frame waits should have a fixed bound"
+  );
+  failures += expect(
+    parseRequest(R"({"operation":"set_player_view","yaw":180,"pitch":20})").ok &&
+      parseRequest(R"({"operation":"set_player_weapon","weapon":"sr"})").ok &&
+      !parseRequest(R"({"operation":"set_player_weapon","weapon":"not-a-weapon"})").ok,
+    "player view and weapon requests should validate their values"
+  );
+  failures += expect(
     !parseRequest(R"({"control_protocol":99,"operation":"status"})").ok,
     "incompatible control protocol versions should be rejected"
   );

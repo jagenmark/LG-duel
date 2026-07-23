@@ -145,6 +145,12 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_composite.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_composite.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_native_dilate.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_native_dilate.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_native_composite.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_native_composite.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_mesh.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_mesh.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -241,6 +247,12 @@ add_custom_target(lg_duel_runtime_assets ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_composite.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_composite.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_native_dilate.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_native_dilate.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_native_composite.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_native_composite.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_mesh.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_mesh.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -299,12 +311,21 @@ add_executable(lg_duel_sim_benchmark
 target_link_libraries(lg_duel_sim_benchmark PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_sim_benchmark)
 
+add_executable(lg_duel_asset_validate
+  tools/AssetValidate.cpp
+  src/render/GltfSkinnedModel.cpp
+)
+
+target_link_libraries(lg_duel_asset_validate PRIVATE lg_duel_core)
+lg_duel_set_warnings(lg_duel_asset_validate)
+
 foreach(target IN ITEMS
   lg_duel_client
   lg_duel_server
   lg_duel_server_probe
   lg_duel_map_validate
   lg_duel_sim_benchmark
+  lg_duel_asset_validate
 )
   lg_duel_set_windows_stack(${target})
 endforeach()

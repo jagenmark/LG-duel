@@ -1,0 +1,39 @@
+{
+  "inputs": [
+    {
+      "license_id": "CC0-1.0",
+      "path": "build/asset-staging/Quaternius-ultimate_modular_men_humanoid_rig/work/extracted/Humanoid Rig/Individual Characters/FBX/Worker.fbx",
+      "sha256": "000eb1269f39e0b10a77c9bd33181c790341480324d72708cc7c22be177c49d6",
+      "source_package": "Quaternius-ultimate_modular_men_humanoid_rig",
+      "source_provenance_sha256": "aaeda70eb7c3a438a4a41248c4cea8ca1861ec7337df4f2cbe355aedbc6e7508"
+    },
+    {
+      "license_id": "CC0-1.0",
+      "path": "build/asset-staging/Quaternius-ultimate_modular_men_worker_skeletal_mesh/work/extracted/Worker/Worker_Feet.fbx",
+      "sha256": "a4fc307ed84819bbbedaa5a8e8226505dbe585d8f97aee2e29c3f0b1c3e9e28f",
+      "source_package": "Quaternius-ultimate_modular_men_worker_skeletal_mesh",
+      "source_provenance_sha256": "5aa42f92d0da7dbf3d366f2545d91545f651a1487a21ed305aeee1e51ae4c03f"
+    },
+    {
+      "license_id": "CC0-1.0",
+      "path": "build/asset-staging/Quaternius-ultimate_modular_men_worker_skeletal_mesh/work/extracted/Worker/Worker_Head.fbx",
+      "sha256": "12f57b247785740196717060cf3d9c26cd901a79b3bc77c40bc3bf7f91cd883e",
+      "source_package": "Quaternius-ultimate_modular_men_worker_skeletal_mesh",
+      "source_provenance_sha256": "5aa42f92d0da7dbf3d366f2545d91545f651a1487a21ed305aeee1e51ae4c03f"
+    },
+    {
+      "license_id": "CC0-1.0",
+      "path": "build/asset-staging/Quaternius-ultimate_modular_men_worker_skeletal_mesh/work/extracted/Worker/Worker_Legs.fbx",
+      "sha256": "812c4123fb4087eed0cd5d8f7df16b6a6fc678ec3b6f4edfec0e35e5f51ab464",
+      "source_package": "Quaternius-ultimate_modular_men_worker_skeletal_mesh",
+      "source_provenance_sha256": "5aa42f92d0da7dbf3d366f2545d91545f651a1487a21ed305aeee1e51ae4c03f"
+    },
+    {
+      "license_id": "CC0-1.0",
+      "path": "build/asset-staging/Quaternius-ultimate_modular_men_animations/original/Animations.fbx",
+      "sha256": "259ed6f6e5f1bb2a15215a66a9ed02e8956083a281a8098103490d1a00292b7f",
+      "source_package": "Quaternius-ultimate_modular_men_animations",
+      "source_provenance_sha256": "137a44cd02f42c90ddfb033bbc00d2f8dfb499486444f31c1785487a5a7c5719"
+    }
+  ]
+}

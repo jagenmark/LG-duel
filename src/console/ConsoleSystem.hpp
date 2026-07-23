@@ -76,6 +76,7 @@ public:
   [[nodiscard]] int getInt(std::string_view name) const;
   [[nodiscard]] float getFloat(std::string_view name) const;
   [[nodiscard]] std::string getString(std::string_view name) const;
+  [[nodiscard]] bool hasCvar(std::string_view name) const;
   [[nodiscard]] std::string valueString(std::string_view name) const;
 
 private:

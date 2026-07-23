@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "outline-native-fixed",
+  "labels": ["fixture_only", "player-outline", "fixed-camera"],
+  "map": "eyetoeye",
+  "backend_requirement": "gpu",
+  "resolution": [1920, 1200],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 0,
+  "fov": 65.0,
+  "warmup_seconds": 2.0,
+  "measured_seconds": 4.0,
+  "camera_start": {"position": [0.0, -10.0, -12.85], "yaw": 90.0, "pitch": 0.0, "fov": 65.0},
+  "camera_path": [
+    {"progress": 0.0, "position": [0.0, -10.0, -12.85], "yaw": 90.0, "pitch": 0.0, "fov": 65.0},
+    {"progress": 0.5, "position": [0.0, -20.0, -12.85], "yaw": 90.0, "pitch": 0.0, "fov": 65.0},
+    {"progress": 1.0, "position": [0.0, -30.0, -12.85], "yaw": 90.0, "pitch": 0.0, "fov": 65.0}
+  ],
+  "player_state": {"alive": true, "weapon": "railgun", "hide_hud": true, "hide_overlays": true},
+  "actors": {
+    "bots": 5,
+    "weapon": "railgun",
+    "attack_mode": "off",
+    "stare": true,
+    "standstill": true,
+    "dodge": false,
+    "dodge_min_ms": 250,
+    "dodge_max_ms": 750,
+    "expected_count": 6,
+    "commands": ["bot_weapon railgun", "bot_add 5", "bot_attack off", "bot_stare 1", "bot_standstill 1", "bot_dodge 0"]
+  },
+  "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
+  "cvars": {"r_frustum_cull": 1, "r_show_weapons": 1, "r_player_model": 2, "r_draw_player_outlines": 1, "r_player_outline_mode": 2, "r_player_outline_width": 1.5, "r_player_outline_debug_mask": 0},
+  "screenshots": [
+    {"name": "near", "progress": 0.05},
+    {"name": "medium", "progress": 0.5},
+    {"name": "distant", "progress": 1.0}
+  ],
+  "residual_nondeterminism": ["Animation time can differ by one rendered frame at a capture checkpoint."]
+}

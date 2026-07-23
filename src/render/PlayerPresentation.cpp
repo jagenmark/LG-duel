@@ -22,6 +22,7 @@ constexpr float kLandClipSeconds = 0.4166667F;
 constexpr float kStartStopClipSeconds = 0.5F;
 constexpr float kIdlePoseSeconds = 0.8333333F;
 constexpr float kDuckingPoseSeconds = 0.4166667F;
+constexpr float kDeathClipSeconds = 1.1F;
 
 float finiteOr(float value, float fallback) {
   return std::isfinite(value) ? value : fallback;
@@ -68,8 +69,9 @@ std::string_view clipName(
     case PlayerLocomotionState::Run:
       switch (direction) {
         case PlayerMoveDirection::Backward: return "RUN_BACK";
-        case PlayerMoveDirection::Left: return "STRAFE_LEFT";
-        case PlayerMoveDirection::Right: return "STRAFE_RIGHT";
+        // These two imported Worker clips carry reversed side names.
+        case PlayerMoveDirection::Left: return "STRAFE_RIGHT";
+        case PlayerMoveDirection::Right: return "STRAFE_LEFT";
         case PlayerMoveDirection::Forward:
         case PlayerMoveDirection::Stationary: return "RUN";
       }
@@ -83,6 +85,7 @@ std::string_view clipName(
     case PlayerLocomotionState::Fall: return "FALL";
     case PlayerLocomotionState::Landing:
       return heavyLanding ? "LAND_HEAVY" : "LAND_LIGHT";
+    case PlayerLocomotionState::Death: return "Death";
     case PlayerLocomotionState::Idle: return "IDLE";
   }
   return "IDLE";
@@ -128,6 +131,8 @@ float clipTime(
       return std::clamp(stateTime / duration, 0.0F, 1.0F) * kLandClipSeconds;
     }
     case PlayerLocomotionState::Idle: return kIdlePoseSeconds;
+    case PlayerLocomotionState::Death:
+      return std::min(std::max(0.0F, stateTime), kDeathClipSeconds);
     case PlayerLocomotionState::Run:
     case PlayerLocomotionState::Sneak:
     case PlayerLocomotionState::CrouchWalk: break;
@@ -274,7 +279,10 @@ PlayerPresentationFrame updatePlayerPresentation(
   PlayerLocomotionState desired = presentation.currentState;
   PlayerMoveDirection desiredDirection = PlayerMoveDirection::Stationary;
   bool desiredLandingHeavy = false;
-  if (!grounded) {
+  const bool alive = player.health > 0;
+  if (!alive) {
+    desired = PlayerLocomotionState::Death;
+  } else if (!grounded) {
     const bool justTookOff = presentation.wasGrounded;
     const float takeoffSeconds = positiveOr(config.takeoffSeconds, 0.10F);
     if (justTookOff ||

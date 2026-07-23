@@ -182,10 +182,10 @@ int main() {
       lg::routeWeaponFireAudioEvent(revolverHit, true);
 
     failures += expect(
-      event.cue == lg::WeaponFireAudioCue::Railgun &&
-        event.startsLocalRailCooldown &&
+      event.cue == lg::WeaponFireAudioCue::Revolver &&
+        !event.startsLocalRailCooldown &&
         event.localHitConfirmDamage == 80,
-      "revolver should reuse railgun fire, cooldown, and hit-confirm audio routing"
+      "revolver may reuse the fire sound without starting the Sniper cooldown chime"
     );
   }
 

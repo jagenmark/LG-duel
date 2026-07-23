@@ -57,6 +57,8 @@ int main() {
   failures += expect(
     lg::parseWeaponToken("LG") == lg::Weapon::LightningGun &&
       lg::parseWeaponToken("railgun") == lg::Weapon::Railgun &&
+      lg::parseWeaponToken("sr") == lg::Weapon::Railgun &&
+      lg::parseWeaponToken("sniper") == lg::Weapon::Railgun &&
       lg::parseWeaponToken("pg") == lg::Weapon::PlasmaGun &&
       lg::parseWeaponToken("freezegun") == lg::Weapon::FreezeGun &&
       lg::parseWeaponToken("RE") == lg::Weapon::Revolver &&
@@ -70,6 +72,7 @@ int main() {
   );
   failures += expect(
     lg::weaponShortName(lg::Weapon::GrenadeLauncher) == "gl" &&
+      lg::weaponShortName(lg::Weapon::Railgun) == "sr" &&
       lg::weaponShortName(lg::Weapon::FreezeGun) == "fg" &&
       lg::weaponShortName(lg::Weapon::Revolver) == "re",
     "weapon short names should be stable console output"

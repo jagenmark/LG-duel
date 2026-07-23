@@ -625,6 +625,43 @@ def stop_owned() -> dict[str, Any]:
     return {"stopped": stopped, "left_unowned_running": bool(state) and len(stopped) == 0}
 
 
+def restart_owned(
+    *, renderer: str = "gpu", allow_fallback: bool = False, timeout: float = 20.0
+) -> dict[str, Any]:
+    state = _read_state()
+    client = state.get("client") if state else None
+    if not isinstance(client, dict) or not client.get("owned") or not _entry_matches(client):
+        raise LaunchError("restart requires a running client owned by the development launcher")
+    server = state.get("server") if state else None
+    manage_server = bool(isinstance(server, dict) and server.get("owned"))
+    stopped = cleanup_owned(state)
+    if "client" not in stopped:
+        raise LaunchError("the owned client could not be stopped safely")
+
+    deadline = time.monotonic() + min(timeout, 5.0)
+    stopped_entries = [
+        entry for name in stopped
+        if isinstance((entry := state.get(name)), dict)
+    ]
+    while any(_entry_matches(entry) for entry in stopped_entries) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    if any(_entry_matches(entry) for entry in stopped_entries):
+        raise LaunchError("an owned LG Duel process did not stop before the restart deadline")
+    if STATE_PATH.exists():
+        STATE_PATH.unlink()
+
+    status = ensure_client(
+        renderer=renderer,
+        allow_fallback=allow_fallback,
+        benchmark=bool(state.get("benchmark", False)),
+        manage_server=manage_server,
+        server_port=int(state.get("server_port", 27960)),
+        control_port=int(state.get("control_port", 27961)),
+        timeout=timeout,
+    )
+    return {"stopped": stopped, "status": status}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Launch LG Duel with renderer verification")
     commands = parser.add_subparsers(dest="action", required=True)
@@ -643,6 +680,10 @@ def build_parser() -> argparse.ArgumentParser:
     status.add_argument("--control-port", type=int, default=27961)
     status.add_argument("--timeout", type=float, default=2.0)
     commands.add_parser("stop")
+    restart = commands.add_parser("restart")
+    restart.add_argument("--renderer", choices=("gpu", "fallback"), default="gpu")
+    restart.add_argument("--allow-fallback", action="store_true")
+    restart.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--json", action="store_true")
     return parser
 
@@ -660,6 +701,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         elif arguments.action == "status":
             result = status_with_state(port=arguments.control_port, timeout=arguments.timeout)
+        elif arguments.action == "restart":
+            result = restart_owned(
+                renderer=arguments.renderer,
+                allow_fallback=arguments.allow_fallback,
+                timeout=arguments.timeout,
+            )
         else:
             result = stop_owned()
     except (LaunchError, ControlError) as error:
