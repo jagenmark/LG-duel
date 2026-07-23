@@ -1,0 +1,23 @@
+{
+  "schema_version": 2,
+  "name": "test_invalid_schema",
+  "execution": {"mode": "headless", "max_ticks": 1, "repeat": 1},
+  "world": {"map": "default", "game_mode": "duel", "seed": 1},
+  "players": [
+    {
+      "index": 0,
+      "connected": true,
+      "bot": false,
+      "team": "none",
+      "position": [0, 0, 0.9],
+      "velocity": [0, 0, 0],
+      "view_yaw_degrees": 0,
+      "view_pitch_degrees": 0,
+      "health": 100,
+      "alive": true,
+      "selected_weapon": "machine_gun"
+    }
+  ],
+  "timeline": [],
+  "assertions": []
+}

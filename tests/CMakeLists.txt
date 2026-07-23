@@ -77,6 +77,37 @@ lg_duel_set_warnings(lg_duel_server_tests)
 
 add_test(NAME lg_duel_server_tests COMMAND lg_duel_server_tests)
 
+add_executable(lg_duel_scenario_tests
+  scenario/ScenarioTests.cpp
+)
+
+target_link_libraries(lg_duel_scenario_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_scenario_tests PRIVATE cxx_std_20)
+target_compile_definitions(
+  lg_duel_scenario_tests
+  PRIVATE
+    LG_DUEL_SCENARIO_TEST_FIXTURES="${CMAKE_CURRENT_SOURCE_DIR}/scenario/fixtures"
+)
+lg_duel_set_warnings(lg_duel_scenario_tests)
+
+add_test(NAME lg_duel_scenario_tests COMMAND lg_duel_scenario_tests)
+set_tests_properties(
+  lg_duel_scenario_tests
+  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
+add_test(
+  NAME lg_duel_scenario_starter_suite
+  COMMAND $<TARGET_FILE:lg_duel_scenarios>
+    --suite smoke
+    --repeat 3
+    --output ${PROJECT_BINARY_DIR}/scenario-ctest-results
+)
+set_tests_properties(
+  lg_duel_scenario_starter_suite
+  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
 add_executable(lg_duel_projectile_self_knockback_tests
   net/ProjectileSelfKnockbackTests.cpp
 )

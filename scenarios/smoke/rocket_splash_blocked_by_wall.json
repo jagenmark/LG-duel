@@ -1,0 +1,23 @@
+{
+  "schema_version": 1,
+  "name": "rocket_splash_blocked_by_wall",
+  "description": "Known bug reproducer: a solid wall should block rocket splash damage.",
+  "execution": {"mode": "headless", "max_ticks": 40, "repeat": 3},
+  "world": {"map": "scenario_wall", "game_mode": "duel", "seed": 1008},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "rocket_launcher"},
+    {"index": 1, "connected": true, "bot": false, "team": "none", "position": [1.8, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "jump": false, "crouch": false, "dash": false, "attack": true, "weapon": "rocket_launcher", "yaw": 0, "pitch": 0}}
+  ],
+  "assertions": [
+    {"type": "player_health", "at_completion": true, "player": 1, "health": 100},
+    {"type": "event", "at_completion": true, "event": {"type": "explosion_created", "actor": 0, "weapon": "rocket_launcher", "count": 1}}
+  ],
+  "expected_failure": {
+    "issue": "rocket-splash-through-world-geometry",
+    "assertion_index": 0,
+    "reason": "Known bug: rocket splash does not test world line of sight."
+  }
+}

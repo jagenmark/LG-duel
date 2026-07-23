@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "death_and_respawn",
+  "description": "A lethal rail hit changes score state and the next round respawns the player.",
+  "execution": {"mode": "headless", "max_ticks": 630, "repeat": 3},
+  "world": {"map": "default", "game_mode": "duel", "seed": 1007},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "railgun"},
+    {"index": 1, "connected": true, "bot": false, "team": "none", "position": [4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 80, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "jump": false, "crouch": false, "dash": false, "attack": true, "weapon": "railgun", "yaw": 0, "pitch": 0}}
+  ],
+  "assertions": [
+    {"type": "event", "at_completion": true, "event": {"type": "player_killed", "actor": 0, "target": 1, "weapon": "railgun", "count": 1}},
+    {"type": "event", "at_completion": true, "event": {"type": "player_respawned", "actor": 1, "count": 1}},
+    {"type": "event", "at_completion": true, "event": {"type": "score_changed", "actor": 0, "count": 1}},
+    {"type": "player_alive", "at_completion": true, "player": 1, "alive": true}
+  ]
+}

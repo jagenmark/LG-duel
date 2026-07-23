@@ -35,6 +35,35 @@ constexpr float kHalfPi = kPi * 0.5F;
 constexpr float kTwoPi = kPi * 2.0F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 
+[[nodiscard]] std::uint32_t scenarioRandomState(
+  std::uint64_t seed,
+  std::uint64_t stream
+) {
+  std::uint64_t value = seed + (0x9e3779b97f4a7c15ULL * stream);
+  value = (value ^ (value >> 30U)) * 0xbf58476d1ce4e5b9ULL;
+  value = (value ^ (value >> 27U)) * 0x94d049bb133111ebULL;
+  value ^= value >> 31U;
+  const std::uint32_t folded =
+    static_cast<std::uint32_t>(value) ^
+    static_cast<std::uint32_t>(value >> 32U);
+  return folded == 0U ? static_cast<std::uint32_t>(stream) : folded;
+}
+
+[[nodiscard]] bool validScenarioMatchPhase(MatchPhase phase) {
+  return phase >= MatchPhase::WaitingForPlayers &&
+    phase <= MatchPhase::MatchEnd;
+}
+
+[[nodiscard]] bool validScenarioWeapon(Weapon weapon) {
+  return weaponIndex(weapon) < kWeaponCount;
+}
+
+[[nodiscard]] bool finiteScenarioVector(Vec3 value) {
+  return std::isfinite(value.x) &&
+    std::isfinite(value.y) &&
+    std::isfinite(value.z);
+}
+
 [[nodiscard]] bool consumeActionEdge(
   std::uint32_t incoming,
   std::uint32_t& consumed
@@ -4140,6 +4169,379 @@ float ServerGame::randomFloat(float minValue, float maxValue) {
     static_cast<float>(randomU32() & 0x00ffffffU) /
     static_cast<float>(0x00ffffffU);
   return minValue + ((maxValue - minValue) * unit);
+}
+
+bool ServerGame::applyScenarioSetup(
+  const ScenarioSetup& setup,
+  std::string* error
+) {
+  const auto reject = [error](std::string message) {
+    if (error != nullptr) {
+      *error = std::move(message);
+    }
+    return false;
+  };
+
+  if (!isValidGameMode(setup.match.gameMode)) {
+    return reject("scenario game mode is invalid");
+  }
+  if (!validScenarioMatchPhase(setup.match.phase)) {
+    return reject("scenario match phase is invalid");
+  }
+  if (
+    (setup.match.roundWinner != 255 &&
+      setup.match.roundWinner >= kDuelPlayerCount) ||
+    (setup.match.matchWinner != 255 &&
+      setup.match.matchWinner >= kDuelPlayerCount)
+  ) {
+    return reject("scenario winner slot is invalid");
+  }
+  if (
+    !isValidTeam(setup.match.roundWinningTeam) ||
+    !isValidTeam(setup.match.matchWinningTeam)
+  ) {
+    return reject("scenario winning team is invalid");
+  }
+
+  for (std::size_t index = 0; index < setup.players.size(); ++index) {
+    const ScenarioPlayerSetup& player = setup.players[index];
+    const bool occupied = player.connected || player.bot;
+    if (player.connected && player.bot) {
+      return reject(
+        "scenario player " + std::to_string(index) +
+        " cannot be both connected and a bot"
+      );
+    }
+    if (!isValidTeam(player.team)) {
+      return reject("scenario player team is invalid");
+    }
+    if (setup.match.gameMode == GameMode::Duel && player.team != Team::None) {
+      return reject("duel scenario players cannot have a team");
+    }
+    if (!occupied && (player.alive || player.ready || player.team != Team::None)) {
+      return reject(
+        "scenario player " + std::to_string(index) +
+        " has active state in an empty slot"
+      );
+    }
+    if (occupied && player.alive != (player.health > 0)) {
+      return reject(
+        "scenario player " + std::to_string(index) +
+        " has conflicting alive and health state"
+      );
+    }
+    if (
+      !finiteScenarioVector(player.position) ||
+      !finiteScenarioVector(player.velocity) ||
+      !std::isfinite(player.viewYawRadians) ||
+      !std::isfinite(player.viewPitchRadians)
+    ) {
+      return reject("scenario player pose must contain finite values");
+    }
+    if (!validScenarioWeapon(player.selectedWeapon)) {
+      return reject("scenario player weapon is invalid");
+    }
+    if (player.ammo.has_value()) {
+      for (const std::int32_t ammo : *player.ammo) {
+        if (ammo < 0) {
+          return reject("scenario player ammo cannot be negative");
+        }
+      }
+    }
+  }
+
+  if (error != nullptr) {
+    error->clear();
+  }
+
+  // Scenario setup writes the server's source of truth, then updates each
+  // snapshot mirror. It never sends a packet or changes protocol state.
+  snapshot_.gameMode = setup.match.gameMode;
+  snapshot_.connectedPlayers = {};
+  snapshot_.teams = {};
+  snapshot_.readyPlayers = {};
+  botPlayers_ = {};
+  for (std::size_t index = 0; index < setup.players.size(); ++index) {
+    const ScenarioPlayerSetup& player = setup.players[index];
+    snapshot_.connectedPlayers[index] = player.connected;
+    botPlayers_[index] = player.bot;
+    snapshot_.teams[index] = player.team;
+    snapshot_.readyPlayers[index] = player.bot || player.ready;
+  }
+  resetMatch();
+
+  snapshot_.serverTick = setup.serverTick;
+  snapshot_.matchPhase = setup.match.phase;
+  snapshot_.phaseTicksRemaining = setup.match.phaseTicksRemaining;
+  snapshot_.liveTicksElapsed = setup.match.liveTicksElapsed;
+  snapshot_.scores = setup.match.scores;
+  snapshot_.teamScores = setup.match.teamScores;
+  snapshot_.mcguffinScores = setup.match.mcguffinScores;
+  snapshot_.mcguffinRoundsWon = setup.match.mcguffinRoundsWon;
+  snapshot_.mcguffinRound = setup.match.mcguffinRound;
+  snapshot_.roundWinner = setup.match.roundWinner;
+  snapshot_.matchWinner = setup.match.matchWinner;
+  snapshot_.roundWinningTeam = setup.match.roundWinningTeam;
+  snapshot_.matchWinningTeam = setup.match.matchWinningTeam;
+  snapshot_.roundCombatStats = {};
+  snapshot_.matchCombatStats = {};
+  snapshot_.respawnTicksRemaining = {};
+  snapshot_.playersColliding = false;
+
+  for (std::size_t index = 0; index < setup.players.size(); ++index) {
+    const ScenarioPlayerSetup& source = setup.players[index];
+    PlayerState& player = snapshot_.players[index];
+    player.position = source.position;
+    player.velocity = source.velocity;
+    player.viewYawRadians = source.viewYawRadians;
+    player.viewPitchRadians = source.viewPitchRadians;
+    player.health = source.alive ? source.health : 0;
+    player.freezeLevel = 0.0F;
+    player.bounds.radius = kDefaultPlayerBounds.radius * playerSizeScaleXY_;
+    player.bounds.halfHeight =
+      kDefaultPlayerBounds.halfHeight * playerSizeScaleZ_;
+    player.movementMode = source.onGround
+      ? MovementMode::Grounded
+      : MovementMode::Airborne;
+    player.knockbackTicksRemaining = 0;
+    player.dashCooldownTicksRemaining = 0;
+    player.dashActiveTicksRemaining = 0;
+    player.dashDirection = {1.0F, 0.0F, 0.0F};
+    player.jumpPadCooldownTicksRemaining = 0;
+    player.onGround = source.onGround;
+    player.jumpHeld = false;
+    player.dashHeld = false;
+    player.crouched = false;
+    player.sneaking = false;
+
+    selectedWeapons_[index] = source.selectedWeapon;
+    snapshot_.selectedWeapons[index] = source.selectedWeapon;
+    playerAmmo_[index] = source.ammo.value_or(weaponAmmoConfig_.spawnAmmo);
+    snapshot_.playerAmmo[index] = playerAmmo_[index];
+  }
+
+  lightningGunStates_ = {};
+  freezeGunStates_ = {};
+  lightningAmmoCredit_.fill(1.0);
+  freezeAmmoCredit_.fill(1.0);
+  fractionalVampirismHealing_ = {};
+  railgunCooldownTicks_ = {};
+  revolverCooldownTicks_ = {};
+  sniperAdsFractions_ = {};
+  sniperChargeFractions_ = {};
+  snapshot_.sniperChargePercent = {};
+  machineGunCooldownTicks_ = {};
+  shotgunCooldownTicks_ = {};
+  rocketCooldownTicks_ = {};
+  grenadeCooldownTicks_ = {};
+  plasmaGunCooldownTicks_ = {};
+  weaponPulloutTicks_ = {};
+
+  rockets_ = {};
+  snapshot_.rockets = {};
+  snapshot_.icePools = {};
+  resetHealthPickups();
+
+  snapshot_.lightningGuns = {};
+  snapshot_.weaponFires = {};
+  snapshot_.rocketExplosions = {};
+  snapshot_.footstepAudioEvents = {};
+  snapshot_.grenadeBounceAudioEvents = {};
+  snapshot_.fragEvents = {};
+  snapshot_.localHitFeedbackEvents = {};
+  recentWeaponFires_ = {};
+  recentWeaponFireTicks_ = {};
+  recentRocketExplosions_ = {};
+  recentRocketExplosionTicks_ = {};
+  recentFootstepAudioEvents_ = {};
+  recentFootstepAudioEventTicks_ = {};
+  recentGrenadeBounceAudioEvents_ = {};
+  recentGrenadeBounceAudioEventTicks_ = {};
+  recentFragEvents_ = {};
+  recentFragEventTicks_ = {};
+  recentLocalHitFeedbackEvents_ = {};
+  recentLocalHitFeedbackEventTicks_ = {};
+  rocketExplosionSequences_ = {};
+  grenadeBounceSequences_ = {};
+  fragEventSequences_ = {};
+  localHitFeedbackSequences_ = {};
+  footstepSequences_ = {};
+  footstepStates_ = {};
+
+  commands_ = {};
+  viewedServerTicks_ = {};
+  hasCommand_ = {};
+  receivedCommandThisTick_ = {};
+  lastActionEdges_ = {};
+  jumpEdgeThisTick_ = {};
+  dashEdgeThisTick_ = {};
+  attackEdgeThisTick_ = {};
+  attackEdgeCommands_ = {};
+  attackEdgeViewedServerTicks_ = {};
+  mcguffinThrowRequestedThisTick_ = {};
+  mcguffinThrowCommands_ = {};
+  snapshot_.acknowledgedCommand = {};
+  snapshot_.hasAcknowledgedCommand = {};
+  playerSessions_ = {};
+
+  botDodgeDirections_ = {};
+  botDodgeSwitchSeconds_ = {};
+  botCombatStates_ = {};
+  // Separate non-zero streams keep bot choices and spawn choices stable even
+  // when one system draws more random values than the other.
+  botRandomState_ = scenarioRandomState(setup.seed, 1U);
+  spawnRandomState_ = scenarioRandomState(setup.seed, 2U);
+  spawnLastUsedTicks_ = {};
+  spawnWasUsed_ = {};
+  nextDeathmatchSpawnIndex_ = arena_.spawnCount == 0U
+    ? 0U
+    : kDuelPlayerCount % arena_.spawnCount;
+
+  // Objective state is durable even outside its mode, so start every scenario
+  // from the same clean state before its first authoritative tick.
+  resetMcGuffin(mcguffinObjective_, arena_.mcguffin.neutralSpawn);
+  mcguffinStealTicks_ = {};
+  mcguffinCarrySubPoints_ = 0;
+  mcguffinCarriedPoints_ = 0;
+  mcguffinFinalHoldTicks_ = 0;
+  mcguffinRoundLiveTicks_ = 0;
+  mcguffinThrowPickupLockoutTicks_ = 0;
+  snapshot_.mcguffin = {};
+  snapshot_.mcguffin.position = mcguffinObjective_.position;
+  snapshot_.mcguffin.eventPlayerIndex = kNoMcGuffinCarrier;
+  if (snapshot_.mcguffinRound == 1U) {
+    snapshot_.mcguffinRedBaseOwner = Team::Blue;
+    snapshot_.mcguffinBlueBaseOwner = Team::Red;
+  } else if (snapshot_.mcguffinRound >= 2U) {
+    snapshot_.mcguffinRedBaseOwner = Team::None;
+    snapshot_.mcguffinBlueBaseOwner = Team::None;
+  } else {
+    snapshot_.mcguffinRedBaseOwner = Team::Red;
+    snapshot_.mcguffinBlueBaseOwner = Team::Blue;
+  }
+
+  updateParticipatingPlayers();
+  history_.clear();
+  recordHistory();
+  return true;
+}
+
+ScenarioState ServerGame::captureScenarioState() const {
+  ScenarioState state;
+  state.serverTick = snapshot_.serverTick;
+  state.mapRevision = snapshot_.mapRevision;
+  state.mapName = snapshot_.map.mapName;
+  state.mapContentHash = snapshot_.map.contentHash;
+  for (std::size_t index = 0; index < state.players.size(); ++index) {
+    ScenarioPlayerState& target = state.players[index];
+    target.slot = static_cast<std::uint8_t>(index);
+    target.connected = snapshot_.connectedPlayers[index];
+    target.bot = botPlayers_[index];
+    target.participating = snapshot_.participatingPlayers[index];
+    target.ready = snapshot_.readyPlayers[index];
+    target.team = snapshot_.teams[index];
+    target.alive =
+      target.participating && snapshot_.players[index].health > 0;
+    target.player = snapshot_.players[index];
+    target.weapon.selectedWeapon = selectedWeapons_[index];
+    target.weapon.ammo = playerAmmo_[index];
+    target.weapon.lightningGun = lightningGunStates_[index];
+    target.weapon.freezeGun = freezeGunStates_[index];
+    target.weapon.lightningAmmoCredit = lightningAmmoCredit_[index];
+    target.weapon.freezeAmmoCredit = freezeAmmoCredit_[index];
+    target.weapon.fractionalVampirismHealing =
+      fractionalVampirismHealing_[index];
+    target.weapon.railgunCooldownTicks = railgunCooldownTicks_[index];
+    target.weapon.revolverCooldownTicks = revolverCooldownTicks_[index];
+    target.weapon.sniperAdsFraction = sniperAdsFractions_[index];
+    target.weapon.sniperChargeFraction = sniperChargeFractions_[index];
+    target.weapon.machineGunCooldownTicks = machineGunCooldownTicks_[index];
+    target.weapon.shotgunCooldownTicks = shotgunCooldownTicks_[index];
+    target.weapon.rocketCooldownTicks = rocketCooldownTicks_[index];
+    target.weapon.grenadeCooldownTicks = grenadeCooldownTicks_[index];
+    target.weapon.plasmaGunCooldownTicks = plasmaGunCooldownTicks_[index];
+    target.weapon.weaponPulloutTicks = weaponPulloutTicks_[index];
+    target.respawnTicksRemaining =
+      snapshot_.respawnTicksRemaining[index];
+    target.command = commands_[index];
+    target.consumedActionEdges = lastActionEdges_[index];
+    target.viewedServerTick = viewedServerTicks_[index];
+    target.hasCommand = hasCommand_[index];
+    target.botState.dodgeDirection = botDodgeDirections_[index];
+    target.botState.dodgeSwitchSeconds = botDodgeSwitchSeconds_[index];
+    const BotCombatState& bot = botCombatStates_[index];
+    target.botState.reactionSecondsRemaining =
+      bot.reactionSecondsRemaining;
+    target.botState.targetPlayerIndex = bot.targetPlayerIndex;
+    target.botState.desiredYawRadians = bot.desiredYawRadians;
+    target.botState.desiredPitchRadians = bot.desiredPitchRadians;
+    target.botState.aimErrorYawRadians = bot.aimErrorYawRadians;
+    target.botState.aimErrorPitchRadians = bot.aimErrorPitchRadians;
+    target.botState.nextAimErrorRefreshSeconds =
+      bot.nextAimErrorRefreshSeconds;
+    target.botState.initialized = bot.initialized;
+  }
+  for (std::size_t index = 0; index < state.projectiles.size(); ++index) {
+    const RocketProjectile& source = rockets_[index];
+    ScenarioProjectileState& target = state.projectiles[index];
+    target.slot = static_cast<std::uint8_t>(index);
+    target.active = source.active;
+    target.owner = source.owner;
+    target.weapon = source.weapon;
+    target.position = source.position;
+    target.previousPosition = source.previousPosition;
+    target.velocity = source.velocity;
+    target.projectileRadius = source.projectileRadius;
+    target.projectileHitboxRadius = source.projectileHitboxRadius;
+    target.ownerCollisionArmed = source.ownerCollisionArmed;
+    target.resting = source.resting;
+    target.ageTicks = source.ageTicks;
+  }
+
+  state.match.gameMode = snapshot_.gameMode;
+  state.match.phase = snapshot_.matchPhase;
+  state.match.phaseTicksRemaining = snapshot_.phaseTicksRemaining;
+  state.match.liveTicksElapsed = snapshot_.liveTicksElapsed;
+  state.match.scores = snapshot_.scores;
+  state.match.teamScores = snapshot_.teamScores;
+  state.match.mcguffinScores = snapshot_.mcguffinScores;
+  state.match.mcguffinRoundsWon = snapshot_.mcguffinRoundsWon;
+  state.match.mcguffinRound = snapshot_.mcguffinRound;
+  state.match.roundWinner = snapshot_.roundWinner;
+  state.match.matchWinner = snapshot_.matchWinner;
+  state.match.roundWinningTeam = snapshot_.roundWinningTeam;
+  state.match.matchWinningTeam = snapshot_.matchWinningTeam;
+  state.match.roundCombatStats = snapshot_.roundCombatStats;
+  state.match.matchCombatStats = snapshot_.matchCombatStats;
+  state.healthPickupAvailable = snapshot_.healthPickupAvailable;
+  state.healthPickupCooldownTicks = healthPickupCooldownTicks_;
+  state.icePools = snapshot_.icePools;
+  state.mcguffin = mcguffinObjective_;
+  state.mcguffinRedBaseOwner = snapshot_.mcguffinRedBaseOwner;
+  state.mcguffinBlueBaseOwner = snapshot_.mcguffinBlueBaseOwner;
+  state.mcguffinStealTicks = mcguffinStealTicks_;
+  state.mcguffinCarrySubPoints = mcguffinCarrySubPoints_;
+  state.mcguffinCarriedPoints = mcguffinCarriedPoints_;
+  state.mcguffinFinalHoldTicks = mcguffinFinalHoldTicks_;
+  state.mcguffinRoundLiveTicks = mcguffinRoundLiveTicks_;
+  state.mcguffinThrowPickupLockoutTicks =
+    mcguffinThrowPickupLockoutTicks_;
+  state.botRandomState = botRandomState_;
+  state.spawnRandomState = spawnRandomState_;
+  state.rocketExplosionSequences = rocketExplosionSequences_;
+  state.fragEventSequences = fragEventSequences_;
+  state.localHitFeedbackSequences = localHitFeedbackSequences_;
+  state.footstepSequences = footstepSequences_;
+  state.grenadeBounceSequences = grenadeBounceSequences_;
+  state.spawnLastUsedTicks = spawnLastUsedTicks_;
+  state.spawnWasUsed = spawnWasUsed_;
+  state.nextDeathmatchSpawnIndex = nextDeathmatchSpawnIndex_;
+  state.playersColliding = snapshot_.playersColliding;
+  state.history.reserve(history_.size());
+  for (const HistoryFrame& frame : history_) {
+    state.history.push_back({frame.serverTick, frame.players});
+  }
+  return state;
 }
 
 const ServerSnapshot& ServerGame::snapshot() const {

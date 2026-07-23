@@ -2,6 +2,7 @@
 
 #include "net/NetProtocol.hpp"
 #include "net/NetTransport.hpp"
+#include "scenario/ScenarioState.hpp"
 #include "sim/Arena.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/Combat.hpp"
@@ -86,6 +87,11 @@ public:
   [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
   [[nodiscard]] bool isOccupiedSlot(std::size_t playerIndex) const;
   [[nodiscard]] std::array<bool, kDuelPlayerCount> occupiedPlayers() const;
+  [[nodiscard]] bool applyScenarioSetup(
+    const ScenarioSetup& setup,
+    std::string* error = nullptr
+  );
+  [[nodiscard]] ScenarioState captureScenarioState() const;
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
   [[nodiscard]] const Arena& arena() const;

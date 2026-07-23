@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "projectile_movement",
+  "description": "A rocket spawns and remains in deterministic flight after five ticks.",
+  "execution": {"mode": "headless", "max_ticks": 5, "repeat": 3},
+  "world": {"map": "default", "game_mode": "duel", "seed": 1005},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "rocket_launcher"},
+    {"index": 1, "connected": true, "bot": false, "team": "none", "position": [4, 5, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "jump": false, "crouch": false, "dash": false, "attack": true, "weapon": "rocket_launcher", "yaw": 0, "pitch": 0}}
+  ],
+  "assertions": [
+    {"type": "projectile_exists", "at_completion": true, "owner": 0, "weapon": "rocket_launcher"},
+    {"type": "event", "at_completion": true, "event": {"type": "projectile_spawned", "actor": 0, "weapon": "rocket_launcher", "count": 1}}
+  ]
+}

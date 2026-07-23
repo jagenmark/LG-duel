@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "name": "test_assertion_failure",
+  "description": "A checked failure used to test assertion evidence.",
+  "execution": {"mode": "headless", "max_ticks": 1, "repeat": 1},
+  "world": {"map": "default", "game_mode": "duel", "seed": 41},
+  "players": [
+    {
+      "index": 0,
+      "connected": true,
+      "bot": false,
+      "team": "none",
+      "position": [-4, 0, 0.9],
+      "velocity": [0, 0, 0],
+      "view_yaw_degrees": 0,
+      "view_pitch_degrees": 0,
+      "health": 100,
+      "alive": true,
+      "selected_weapon": "machine_gun"
+    }
+  ],
+  "timeline": [],
+  "assertions": [
+    {
+      "type": "player_health",
+      "at_completion": true,
+      "player": 0,
+      "health": 99
+    }
+  ],
+  "expected_failure": {
+    "issue": "test-only",
+    "assertion_index": 0,
+    "reason": "health is deliberately wrong"
+  }
+}

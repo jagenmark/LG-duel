@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "jump_and_land",
+  "description": "A one-tick jump edge launches once and lands at the start point.",
+  "execution": {"mode": "headless", "max_ticks": 180, "repeat": 3},
+  "world": {"map": "default", "game_mode": "duel", "seed": 1003},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"},
+    {"index": 1, "connected": true, "bot": false, "team": "none", "position": [4, 4, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": ["jump"], "input": {"forward": 0, "right": 0, "jump": true, "crouch": false, "dash": false, "attack": false}}
+  ],
+  "assertions": [
+    {"type": "player_position", "at_completion": true, "player": 0, "value": [-4, 0, 0.9], "tolerance": 0.001},
+    {"type": "player_velocity", "at_completion": true, "player": 0, "value": [0, 0, 0], "tolerance": 0.001}
+  ]
+}
