@@ -50,6 +50,27 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(result["gpu_verification_state"], "verified")
         self.assertEqual(written[0]["launch"]["actual_renderer"], lg_launch.GPU_RENDERER)
 
+    def test_status_keeps_default_loader_environment_empty(self) -> None:
+        launch = {
+            **self.status(),
+            "requested_renderer": "gpu",
+            "vulkan_selection_source": "default-loader",
+            "vulkan_driver_environment": {},
+            "vulkan_icd_manifest_records": [{
+                "path": r"C:\verified\igvk64.json",
+                "library_path": r"C:\verified\igvk64.dll",
+            }],
+        }
+        state = {"control_port": 27961, "launch": launch}
+        with mock.patch.object(lg_launch, "send_request", return_value=self.status()), \
+             mock.patch.object(lg_launch, "_read_state", return_value=state):
+            result = lg_launch.status_with_state()
+        self.assertEqual(result["vulkan_driver_environment"], {})
+        self.assertEqual(
+            result["vulkan_icd_manifest_records"][0]["library_path"],
+            r"C:\verified\igvk64.dll",
+        )
+
     def test_verified_gpu_startup_launches_owned_processes(self) -> None:
         class FakeProcess:
             def __init__(self, pid: int) -> None:
@@ -85,6 +106,52 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(written[0]["server"], {"pid": 301, "owned": True, "path": str(build / "lg_duel_server.exe")})
         self.assertEqual(written[0]["client"]["pid"], 302)
         self.assertTrue(written[0]["client"]["owned"])
+
+    def test_benchmark_launch_removes_vulkan_driver_overrides(self) -> None:
+        class FakeProcess:
+            def __init__(self, pid: int) -> None:
+                self.pid = pid
+
+            def poll(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / "build"
+            state_dir = Path(temporary) / "state"
+            build.mkdir()
+            (build / "lg_duel_client.exe").touch()
+            (build / "lg_duel_server.exe").touch()
+            status = self.status()
+            status["benchmark_enabled"] = True
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "VK_DRIVER_FILES": r"C:\inherited\driver.json",
+                    "VK_ICD_FILENAMES": r"C:\inherited\legacy.json",
+                },
+                clear=False,
+            ), mock.patch.object(
+                lg_launch, "STATE_DIR", state_dir
+            ), mock.patch.object(
+                lg_launch, "_probe_default_vulkan", return_value=self.selection()
+            ), mock.patch.object(
+                lg_launch, "send_request", side_effect=[ControlError("offline"), status]
+            ), mock.patch.object(
+                lg_launch, "_existing_server_entry", return_value=None
+            ), mock.patch.object(
+                lg_launch, "_launch_process",
+                side_effect=[FakeProcess(301), FakeProcess(302)],
+            ) as launch, mock.patch.object(
+                lg_launch, "_write_state"
+            ):
+                lg_launch.ensure_client(
+                    renderer="gpu", benchmark=True, timeout=1, build_dir=build
+                )
+
+        for call in launch.call_args_list:
+            environment = call.args[4]
+            self.assertNotIn("VK_DRIVER_FILES", environment)
+            self.assertNotIn("VK_ICD_FILENAMES", environment)
 
     def test_external_server_launch_owns_only_client(self) -> None:
         class FakeProcess:
@@ -124,6 +191,54 @@ class LaunchTests(unittest.TestCase):
             lg_launch._probe_vulkan(
                 lg_launch.Path(r"C:\verified\igvk64.json"), runner=mock.Mock(return_value=failed)
             )
+
+    def test_default_vulkan_probe_removes_overrides_and_finds_active_icd(self) -> None:
+        summary = """Devices:
+========
+GPU0:
+    apiVersion = 1.4.323
+    driverVersion = 101.7026
+    deviceType = PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU
+    deviceName = Intel(R) Arc(TM) Test GPU
+    driverName = Intel Corporation
+    driverInfo = 101.7026
+"""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "igvk64.json"
+            library = root / "igvk64.dll"
+            manifest.write_text(
+                '{"ICD":{"library_path":".\\\\igvk64.dll"}}', encoding="utf-8"
+            )
+            library.touch()
+            loader = (
+                f"Found ICD manifest file {manifest}, version 1.0.0\n"
+                f'Using "Intel(R) Arc(TM) Test GPU" with driver: "{library}"\n'
+            )
+
+            def run(*args, **kwargs):
+                environment = kwargs["env"]
+                self.assertNotIn("VK_DRIVER_FILES", environment)
+                self.assertNotIn("VK_ICD_FILENAMES", environment)
+                self.assertNotIn("VK_ADD_DRIVER_FILES", environment)
+                return subprocess.CompletedProcess(
+                    ["vulkaninfo", "--summary"], 0, stdout=summary, stderr=loader
+                )
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "VK_DRIVER_FILES": "driver.json",
+                    "VK_ICD_FILENAMES": "legacy.json",
+                    "VK_ADD_DRIVER_FILES": "extra.json",
+                },
+                clear=False,
+            ):
+                selection = lg_launch._probe_default_vulkan(runner=run)
+
+        self.assertEqual(selection["source"], "default-loader")
+        self.assertEqual(selection["icd_path"], str(manifest.resolve()))
+        self.assertEqual(selection["vulkan_driver_environment"], {})
 
     def test_silent_fallback_is_rejected(self) -> None:
         for renderer in ("SDL_Renderer/direct3d11", "SDL_Renderer/software", "SwiftShader"):

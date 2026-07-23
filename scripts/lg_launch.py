@@ -146,6 +146,105 @@ def _probe_vulkan(
     return selected
 
 
+def _probe_default_vulkan(
+    *,
+    runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
+) -> dict[str, Any]:
+    environment = os.environ.copy()
+    for name in ("VK_DRIVER_FILES", "VK_ICD_FILENAMES", "VK_ADD_DRIVER_FILES"):
+        environment.pop(name, None)
+    environment["VK_LOADER_DEBUG"] = "driver"
+    try:
+        completed = runner(
+            ["vulkaninfo", "--summary"],
+            text=True,
+            capture_output=True,
+            timeout=8.0,
+            check=False,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise LaunchError(f"default Vulkan loader probe failed: {error}") from error
+    if completed.returncode != 0:
+        detail = (
+            completed.stderr
+            or completed.stdout
+            or f"vulkaninfo exited {completed.returncode}"
+        ).strip()
+        raise LaunchError(f"default Vulkan loader initialization failed: {detail}")
+
+    devices = _parse_vulkan_devices(completed.stdout)
+    selected = next(
+        (
+            device
+            for device in devices
+            if "intel" in str(device.get("gpu_name", "")).lower()
+            and not _is_software_device(device)
+        ),
+        None,
+    )
+    if selected is None:
+        names = ", ".join(
+            str(device.get("gpu_name", "unknown")) for device in devices
+        ) or "none"
+        raise LaunchError(f"default Vulkan loader reported no Intel hardware GPU; devices: {names}")
+
+    loader_output = f"{completed.stdout}\n{completed.stderr}"
+    manifest_paths: list[Path] = []
+    for match in re.finditer(
+        r"Found ICD manifest file\s+(.+?\.json)(?:,|\r?$)",
+        loader_output,
+        flags=re.IGNORECASE | re.MULTILINE,
+    ):
+        path = Path(match.group(1).strip().strip('"'))
+        if path not in manifest_paths:
+            manifest_paths.append(path)
+    records = [_manifest_record(path) for path in manifest_paths]
+    records = [
+        record
+        for record in records
+        if record.get("exists") and record.get("sha256") and record.get("library_path")
+    ]
+
+    active_libraries = [
+        match.group(1)
+        for match in re.finditer(
+            r'Using ".+?" with driver:\s*"([^"]+)"',
+            loader_output,
+            flags=re.IGNORECASE,
+        )
+    ]
+    active_records = [
+        record
+        for record in records
+        if any(
+            _normalized(str(record["library_path"])) == _normalized(library)
+            for library in active_libraries
+        )
+    ]
+    if len(active_records) == 1:
+        record = active_records[0]
+    elif len(records) == 1:
+        record = records[0]
+    else:
+        paths = ", ".join(str(record.get("path")) for record in records) or "none"
+        raise LaunchError(
+            "could not identify one active Intel ICD from the default Vulkan loader; "
+            f"valid manifests: {paths}"
+        )
+
+    selected.update({
+        "source": "default-loader",
+        "software_renderer": False,
+        "icd_path": str(record["path"]),
+        "icd_sha256": str(record["sha256"]).lower(),
+        "icd_library_path": record["library_path"],
+        "verification_state": "preflight-verified",
+        "vulkan_driver_environment": {},
+    })
+    return selected
+
+
 def _selection_from_document(document: dict[str, Any], source: str) -> dict[str, Any] | None:
     environment = document.get("environment", document)
     aggregate = document.get("aggregate", {})
@@ -254,6 +353,7 @@ def resolve_vulkan_selection(
         "icd_sha256": actual_hash,
         "icd_library_path": record.get("library_path"),
         "verification_state": "preflight-verified",
+        "vulkan_driver_environment": {"VK_DRIVER_FILES": str(manifest.resolve())},
     }
 
 
@@ -322,7 +422,10 @@ def verify_control_status(
         "vulkan_selection_source": selection.get("source"),
         "gpu_type": selection.get("gpu_type"),
         "vulkan_metadata_status": "available",
-        "vulkan_driver_environment": {"VK_DRIVER_FILES": selection.get("icd_path")},
+        "vulkan_driver_environment": selection.get(
+            "vulkan_driver_environment",
+            {"VK_DRIVER_FILES": selection.get("icd_path")},
+        ),
         "vulkan_icd_manifests": [selection.get("icd_path")],
         "vulkan_icd_manifest_records": [{
             "path": selection.get("icd_path"),
@@ -793,7 +896,19 @@ def status_with_state(*, port: int = 27961, timeout: float = 2.0) -> dict[str, A
                     "vulkan_api_version": launch.get("vulkan_api_version"),
                     "icd_path": launch.get("vulkan_icd_path"),
                     "icd_sha256": launch.get("vulkan_icd_sha256"),
+                    "vulkan_driver_environment": launch.get(
+                        "vulkan_driver_environment", {}
+                    ),
                 }
+                manifest_records = launch.get("vulkan_icd_manifest_records")
+                if (
+                    isinstance(manifest_records, list)
+                    and manifest_records
+                    and isinstance(manifest_records[0], dict)
+                ):
+                    selection["icd_library_path"] = manifest_records[0].get(
+                        "library_path"
+                    )
             try:
                 return verify_control_status(
                     status,
@@ -833,7 +948,11 @@ def ensure_client(
     launch_build_dir = (build_dir or BUILD_DIR).resolve()
     client_exe = launch_build_dir / "lg_duel_client.exe"
     server_exe = launch_build_dir / "lg_duel_server.exe"
-    selection = resolve_vulkan_selection() if renderer == "gpu" else None
+    selection = (
+        _probe_default_vulkan() if renderer == "gpu" and benchmark
+        else resolve_vulkan_selection() if renderer == "gpu"
+        else None
+    )
     try:
         raw = send_request("status", port=control_port, timeout=min(timeout, 2.0))
     except ControlError:
@@ -895,13 +1014,15 @@ def ensure_client(
     environment = os.environ.copy()
     if renderer == "gpu":
         environment.update(gpu_environment(selection or {}))
-        # A legacy loader override can add a second ICD even when
-        # VK_DRIVER_FILES is correct. Preflight and the child must see the same
-        # single-manifest environment.
         environment.pop("VK_ICD_FILENAMES", None)
         environment.pop("VK_ADD_DRIVER_FILES", None)
     else:
         environment["LG_DUEL_RENDER_BACKEND"] = "fallback"
+    if benchmark:
+        # Benchmarks use the loader's normal driver search. Do not let inherited
+        # or launcher-set ICD overrides change which drivers it can find.
+        environment.pop("VK_DRIVER_FILES", None)
+        environment.pop("VK_ICD_FILENAMES", None)
 
     server_entry = _existing_server_entry(server_exe)
     server_process: subprocess.Popen[str] | None = None
