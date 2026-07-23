@@ -353,6 +353,18 @@ if(Python3_Interpreter_FOUND)
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_benchmark.py
   )
   add_test(
+    NAME lg_duel_performance_policy_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_performance_policy.py
+  )
+  add_test(
+    NAME lg_duel_benchmark_comparison_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_compare_benchmarks.py
+  )
+  add_test(
+    NAME lg_duel_verification_evidence_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_verification.py
+  )
+  add_test(
     NAME lg_duel_launch_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_launch.py
   )

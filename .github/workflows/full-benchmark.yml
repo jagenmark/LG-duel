@@ -1,0 +1,167 @@
+name: Full benchmark
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline:
+        description: Baseline commit SHA or trusted repository ref
+        required: true
+        type: string
+      candidate:
+        description: Candidate commit SHA or trusted repository ref
+        required: true
+        default: main
+        type: string
+      suite:
+        description: Versioned benchmark suite name
+        required: true
+        default: full
+        type: choice
+        options:
+          - full
+          - pr_headless
+          - trusted_gpu
+      repetitions:
+        description: Repetitions for each benchmark case
+        required: true
+        default: "5"
+        type: string
+      confirm_trusted_code:
+        description: Confirm that both refs were reviewed and contain trusted code
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-benchmark-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  full-benchmark:
+    name: full-benchmark
+    if: ${{ !github.event.repository.fork && inputs.confirm_trusted_code }}
+    runs-on:
+      - self-hosted
+      - windows
+      - trusted
+      - lg-duel-gpu
+    environment: full-benchmark
+    timeout-minutes: 180
+    steps:
+      - name: Check out trusted workflow source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Validate request
+        shell: pwsh
+        env:
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: |
+          $value = 0
+          if (-not [int]::TryParse($env:REPETITIONS, [ref]$value) -or $value -lt 1 -or $value -gt 20) {
+            throw "repetitions must be an integer from 1 through 20"
+          }
+
+      - name: Compare headless baseline and candidate
+        if: ${{ inputs.suite == 'full' || inputs.suite == 'pr_headless' }}
+        shell: pwsh
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          CANDIDATE: ${{ inputs.candidate }}
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: >
+          python scripts/lg_compare_benchmarks.py
+          --baseline "$env:BASELINE"
+          --candidate "$env:CANDIDATE"
+          --suite pr_headless
+          --repetitions "$env:REPETITIONS"
+          --profile pr_headless
+          --output verification/benchmarks/headless
+
+      - name: Compare GPU baseline and candidate
+        if: ${{ !cancelled() && (inputs.suite == 'full' || inputs.suite == 'trusted_gpu') }}
+        shell: pwsh
+        env:
+          BASELINE: ${{ inputs.baseline }}
+          CANDIDATE: ${{ inputs.candidate }}
+          REPETITIONS: ${{ inputs.repetitions }}
+        run: >
+          python scripts/lg_compare_benchmarks.py
+          --baseline "$env:BASELINE"
+          --candidate "$env:CANDIDATE"
+          --suite trusted_gpu
+          --repetitions "$env:REPETITIONS"
+          --profile trusted_gpu
+          --output verification/benchmarks/gpu
+
+      - name: Collect CI evidence
+        if: always()
+        shell: pwsh
+        run: |
+          $status = "${{ job.status }}"
+          $rank = @{
+            ERROR = 0
+            FAIL = 1
+            NOT_COMPARABLE = 2
+            WARN = 3
+            INCONCLUSIVE = 4
+            UNAVAILABLE = 5
+            PASS = 6
+          }
+          $statuses = @()
+          foreach ($comparison in @(
+            "verification/benchmarks/headless/comparison.json",
+            "verification/benchmarks/gpu/comparison.json"
+          )) {
+            if (Test-Path -LiteralPath $comparison -PathType Leaf) {
+              $statuses += (Get-Content -Raw -LiteralPath $comparison | ConvertFrom-Json).status
+            }
+          }
+          if ($statuses.Count -gt 0) {
+            $status = ($statuses | Sort-Object { $rank[$_] } | Select-Object -First 1).ToLowerInvariant()
+          }
+          python scripts/lg_verification.py collect-ci `
+            --evidence-root verification `
+            --platform windows `
+            --category performance `
+            --status "$status"
+
+      - name: Add report to the run summary
+        if: always()
+        shell: pwsh
+        run: |
+          $found = $false
+          foreach ($report in @(
+            "verification/benchmarks/headless/report.md",
+            "verification/benchmarks/gpu/report.md"
+          )) {
+            if (Test-Path -LiteralPath $report -PathType Leaf) {
+              Get-Content -Raw -LiteralPath $report | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+              $found = $true
+            }
+          }
+          if (-not $found) {
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "## Full benchmark"
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY -Value "The report was not produced. See the uploaded logs."
+          }
+
+      - name: Upload full benchmark evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: full-benchmark-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            verification/**
+            !verification/benchmarks/*/temp/**
+          if-no-files-found: warn
+          retention-days: 30

@@ -1199,15 +1199,14 @@ The implementation should leave the repository in a state where a future autonom
 
 # Implementation status
 
-- [ ] Phase 1: Deterministic scenario foundation
+- [x] Phase 1: Deterministic scenario foundation
 - [x] Phase 2: Live client/server verification
-- [ ] Phase 3: Pull-request CI
+- [x] Phase 3: Pull-request CI
 
-Phase 1 code and its focused checks are complete. The box stays unchecked
-until the required full test run passes. As of 2026-07-23, the untouched base
-commit has the same failures in `lg_duel_server_tests`,
-`lg_duel_weapon_switching_tests`, `lg_duel_clan_arena_server_tests`, and
-`lg_duel_asset_pipeline_python_tests`.
+Phase 1 is complete as of 2026-07-23. The final Phase 3 preset run passes all
+63 CTest checks, including the four checks that had failed on an earlier base
+run. The smoke suite passes seven scenarios three times with stable hashes and
+keeps `rocket_splash_blocked_by_wall` as one explicit expected failure.
 
 Phase 2 live verification is complete as of 2026-07-23. It reuses the Phase 1
 schema, setup, event journal, assertions, and hashes while running input through
@@ -1217,8 +1216,30 @@ Three repeated fallback runs pass for movement, one-shot edges, and 40 ms
 latency. A real 1280 by 720 fallback capture passes after an authoritative rail
 event. Forced launch failure leaves no owned process.
 
-The full preset run passes 56 of 60 tests. Its four failures match the
-untouched-base failures listed above. SDL_GPU/Vulkan cannot start on this host:
-the selected Intel ICD returns `ERROR_INCOMPATIBLE_DRIVER`. The GPU scenario
-reports a structured launch failure and does not use the fallback renderer.
-Performance comparison, PR gating, and Phase 3 CI work remain unimplemented.
+Phase 3 is complete as of 2026-07-23. It extends the existing benchmark runner
+with compiler, architecture, protocol, tick-rate, and simulation-tick evidence.
+The versioned policy and comparison tool support stored result sets and isolated
+baseline/candidate worktrees, five-run median aggregation, retained outlier
+reports, strict comparability, absolute-and-relative limits, hard packet checks,
+stable JSON and Markdown reports, and partial failure evidence. The PR workflow
+adds Linux, Windows, determinism, live client/server, protocol-budget, and
+headless performance jobs. A separate manual workflow runs full comparisons on
+reviewed code and trusted GPU hardware.
+
+All Python test files pass in separate processes, including 21 benchmark tests,
+13 policy tests, 11 worktree/comparison tests, and 9 evidence tests. The final
+protocol record passes with the 1,200-byte source ceiling, zero protocol-test
+failures, and a largest parsed application packet of 1,140 bytes. Real stored
+result comparisons produced `FAIL`, `INCONCLUSIVE`, and `NOT_COMPARABLE`
+evidence as intended. Each of the three fallback live cases passes on a fresh
+session with clean process shutdown. One 40 ms latency run exceeded its client
+bounds before a fresh rerun passed. One first edge-input attempt also used a
+late schedule and passed after a fresh retry. The live hosted-runner job remains
+visible but is not in the initial required-check list.
+
+SDL_GPU/Vulkan still cannot start on this host: the selected Intel ICD returns
+`ERROR_INCOMPATIBLE_DRIVER`. GPU timing stays `UNAVAILABLE`; the manual workflow
+requires renderer attestation and never uses the fallback as GPU proof. The
+system does not claim display scan-out or input-to-photon timing. Rocket splash
+line of sight, shotgun pattern work, snapshot double decoding, and grenade
+normal reconstruction remain outside Phase 3.

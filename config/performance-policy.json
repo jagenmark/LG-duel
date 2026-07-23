@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "policy_version": 1,
+  "profiles": {
+    "pr_headless": {
+      "expected_scenarios": [
+        "sim-movement-collision",
+        "sim-trace-projectile"
+      ],
+      "required_repetitions": 5,
+      "minimum_valid_runs": 5,
+      "stability_cv_percent": 12.0,
+      "gpu_required": false,
+      "comparability": {
+        "fatal": [
+          "schema_version",
+          "environment.benchmark_version",
+          "scenario.name",
+          "scenario_hash",
+          "settings.map",
+          "map_content_hash",
+          "settings.backend",
+          "environment.cpu",
+          "environment.os",
+          "environment.architecture",
+          "environment.compiler",
+          "environment.compiler_version",
+          "environment.build_type",
+          "environment.cmake_generator",
+          "environment.compile_time_options",
+          "environment.build_mode",
+          "environment.protocol_version",
+          "environment.server_tick_rate",
+          "settings.collision_query_mode",
+          "settings.warmup_batches",
+          "settings.measured_batches",
+          "settings.operations_per_batch"
+        ],
+        "warning": [
+          "environment.logical_cores"
+        ],
+        "info": [
+          "git.commit"
+        ]
+      },
+      "metrics": {
+        "movement_median": {
+          "scenarios": [
+            "sim-movement-collision"
+          ],
+          "source": "movement_collision_us_per_operation",
+          "statistic": "median",
+          "label": "Movement and collision median",
+          "unit": "us/op",
+          "direction": "lower",
+          "required": true,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.02,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.05
+        },
+        "projectile_p95": {
+          "scenarios": [
+            "sim-trace-projectile"
+          ],
+          "source": "projectile_segment_us_per_trace",
+          "statistic": "p95",
+          "label": "Projectile trace p95",
+          "unit": "us/trace",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.02,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.05
+        }
+      },
+      "hard_limits": [
+        {
+          "field": "configured_datagram_ceiling_bytes",
+          "label": "Configured application datagram ceiling",
+          "required": true,
+          "equals": 1200
+        },
+        {
+          "field": "max_app_datagram_bytes",
+          "label": "Maximum application datagram",
+          "required": true,
+          "maximum": 1200
+        },
+        {
+          "field": "snapshot_encode_failures",
+          "label": "Snapshot encode failures",
+          "required": true,
+          "maximum": 0
+        }
+      ],
+      "correctness": [
+        {
+          "path": "aggregate.valid",
+          "label": "Benchmark completed",
+          "required": true,
+          "equals": true
+        }
+      ]
+    },
+    "trusted_gpu": {
+      "expected_scenarios": [
+        "eyetoeye-static-baseline"
+      ],
+      "required_repetitions": 5,
+      "minimum_valid_runs": 5,
+      "stability_cv_percent": 8.0,
+      "gpu_required": true,
+      "comparability": {
+        "fatal": [
+          "schema_version",
+          "environment.benchmark_version",
+          "scenario.name",
+          "scenario_hash",
+          "scenario.map",
+          "map_content_hash",
+          "settings.backend",
+          "environment.renderer",
+          "environment.gpu_verified",
+          "environment.gpu_name",
+          "environment.graphics_driver_name",
+          "environment.graphics_driver_version",
+          "environment.vulkan_api_version",
+          "environment.vulkan_metadata_status",
+          "environment.vulkan_icd_manifest_records",
+          "environment.cpu",
+          "environment.os",
+          "environment.architecture",
+          "environment.compiler",
+          "environment.compiler_version",
+          "environment.build_type",
+          "environment.cmake_generator",
+          "environment.compile_time_options",
+          "environment.build_mode",
+          "environment.protocol_version",
+          "environment.server_tick_rate",
+          "settings.resolution",
+          "environment.observed_resolution",
+          "settings.window_mode",
+          "settings.vsync",
+          "environment.selected_present_mode",
+          "settings.frame_cap",
+          "settings.fov",
+          "scenario.warmup_seconds",
+          "scenario.measured_seconds",
+          "scenario.actors.expected_count",
+          "scenario.actors",
+          "settings.presentation_cvars"
+        ],
+        "warning": [
+          "environment.logical_cores"
+        ],
+        "info": [
+          "git.commit"
+        ]
+      },
+      "metrics": {
+        "frame_median": {
+          "source": "frame_ms",
+          "statistic": "median",
+          "label": "Frame time median",
+          "unit": "ms",
+          "direction": "lower",
+          "required": true,
+          "warn_relative_percent": 5.0,
+          "warn_absolute": 0.1,
+          "fail_relative_percent": 10.0,
+          "fail_absolute": 0.25
+        },
+        "frame_p95": {
+          "source": "frame_ms",
+          "statistic": "p95",
+          "label": "Frame time p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": true,
+          "warn_relative_percent": 5.0,
+          "warn_absolute": 0.15,
+          "fail_relative_percent": 10.0,
+          "fail_absolute": 0.35
+        },
+        "frame_p99": {
+          "source": "frame_ms",
+          "statistic": "p99",
+          "label": "Frame time p99",
+          "unit": "ms",
+          "direction": "lower",
+          "required": true,
+          "warn_relative_percent": 6.0,
+          "warn_absolute": 0.25,
+          "fail_relative_percent": 12.0,
+          "fail_absolute": 0.5
+        },
+        "gpu_outline_p95": {
+          "source": "gpu_outline_ms",
+          "statistic": "p95",
+          "label": "GPU outline p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.08,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.2
+        },
+        "long_frames_16_67": {
+          "source": "threshold_16.67_count_over",
+          "statistic": "median",
+          "label": "Frames over 16.67 ms",
+          "unit": "frames",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 20.0,
+          "warn_absolute": 5.0,
+          "fail_relative_percent": 50.0,
+          "fail_absolute": 20.0
+        },
+        "movement_collision_p95": {
+          "source": "movement_collision_ms",
+          "statistic": "p95",
+          "label": "Movement and collision p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        },
+        "network_processing_p95": {
+          "source": "network_processing_ms",
+          "statistic": "p95",
+          "label": "Network processing p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        },
+        "simulation_tick_p99": {
+          "source": "simulation_tick_simulation_ms",
+          "statistic": "p99",
+          "label": "Simulation tick p99",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        },
+        "snapshot_decode_p95": {
+          "source": "snapshot_decode_ms",
+          "statistic": "p95",
+          "label": "Snapshot decode p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        },
+        "submission_p95": {
+          "source": "submit_ms",
+          "statistic": "p95",
+          "label": "Submission CPU time p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        },
+        "ui_p95": {
+          "source": "ui_ms",
+          "statistic": "p95",
+          "label": "UI construction p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        },
+        "world_visibility_p95": {
+          "source": "world_visibility_ms",
+          "statistic": "p95",
+          "label": "World visibility p95",
+          "unit": "ms",
+          "direction": "lower",
+          "required": false,
+          "warn_relative_percent": 8.0,
+          "warn_absolute": 0.05,
+          "fail_relative_percent": 15.0,
+          "fail_absolute": 0.15
+        }
+      },
+      "hard_limits": [
+        {
+          "field": "configured_datagram_ceiling_bytes",
+          "label": "Configured application datagram ceiling",
+          "required": true,
+          "equals": 1200
+        },
+        {
+          "field": "max_app_datagram_bytes",
+          "label": "Maximum application datagram",
+          "required": true,
+          "maximum": 1200
+        },
+        {
+          "field": "snapshot_encode_failures",
+          "label": "Snapshot encode failures",
+          "required": true,
+          "maximum": 0
+        }
+      ],
+      "correctness": [
+        {
+          "path": "aggregate.valid",
+          "label": "Benchmark completed",
+          "required": true,
+          "equals": true
+        },
+        {
+          "path": "environment.gpu_verified",
+          "label": "GPU renderer attested",
+          "required": true,
+          "equals": true
+        },
+        {
+          "path": "assertion_failures",
+          "label": "Assertions",
+          "required": false,
+          "equals": 0
+        },
+        {
+          "path": "determinism_failures",
+          "label": "Determinism",
+          "required": false,
+          "equals": 0
+        },
+        {
+          "path": "cleanup_failures",
+          "label": "Cleanup",
+          "required": true,
+          "equals": 0
+        }
+      ]
+    }
+  }
+}

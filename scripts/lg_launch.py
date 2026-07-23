@@ -543,7 +543,24 @@ def _terminate_entry(entry: dict[str, Any]) -> bool:
         os.kill(int(entry["pid"]), signal.SIGTERM)
     except (OSError, ProcessLookupError, ValueError):
         return False
-    return True
+    # Cleanup counts only a confirmed exit. A live child can taint the next
+    # benchmark even when the first termination signal succeeded.
+    deadline = time.monotonic() + 5.0
+    while time.monotonic() < deadline:
+        if not _entry_matches(entry):
+            return True
+        time.sleep(0.05)
+    force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+    try:
+        os.kill(int(entry["pid"]), force_signal)
+    except (OSError, ProcessLookupError, ValueError):
+        return not _entry_matches(entry)
+    deadline = time.monotonic() + 2.0
+    while time.monotonic() < deadline:
+        if not _entry_matches(entry):
+            return True
+        time.sleep(0.05)
+    return False
 
 
 def cleanup_owned(state: dict[str, Any] | None) -> list[str]:
@@ -1084,9 +1101,24 @@ def ensure_client(
 def stop_owned() -> dict[str, Any]:
     state = _read_state()
     stopped = cleanup_owned(state)
-    if STATE_PATH.exists():
+    remaining = []
+    if state:
+        for name in ("client", "server"):
+            entry = state.get(name)
+            if (
+                isinstance(entry, dict)
+                and entry.get("owned")
+                and _entry_matches(entry)
+            ):
+                remaining.append(name)
+    if not remaining and STATE_PATH.exists():
         STATE_PATH.unlink()
-    return {"stopped": stopped, "left_unowned_running": bool(state) and len(stopped) == 0}
+    return {
+        "stopped": stopped,
+        "left_owned_running": bool(remaining),
+        "left_unowned_running": bool(remaining),
+        "remaining": remaining,
+    }
 
 
 def restart_owned(

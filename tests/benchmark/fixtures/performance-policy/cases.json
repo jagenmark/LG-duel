@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "description": "Small deterministic inputs for performance policy state tests.",
+  "baseline": {
+    "frame_p95_ms": [10.0, 10.0, 10.0, 10.0, 10.0],
+    "gpu_ms": [2.0, 2.0, 2.0, 2.0, 2.0],
+    "scenario_hash": "same",
+    "gpu_name": "Test GPU",
+    "max_app_datagram_bytes": 1000,
+    "snapshot_encode_failures": 0
+  },
+  "cases": {
+    "PASS": {
+      "frame_p95_ms": [10.1, 10.1, 10.1, 10.1, 10.1]
+    },
+    "WARN": {
+      "frame_p95_ms": [10.6, 10.6, 10.6, 10.6, 10.6]
+    },
+    "FAIL": {
+      "frame_p95_ms": [11.1, 11.1, 11.1, 11.1, 11.1]
+    },
+    "INCONCLUSIVE": {
+      "frame_p95_ms": [5.0, 7.5, 10.0, 12.5, 15.0]
+    },
+    "NOT_COMPARABLE": {
+      "scenario_hash": "different"
+    },
+    "UNAVAILABLE": {
+      "gpu_ms": null
+    },
+    "packet_over_1200": {
+      "max_app_datagram_bytes": 1201
+    },
+    "different_gpu": {
+      "gpu_name": "Other GPU"
+    },
+    "missing_required_metric": {
+      "frame_p95_ms": null
+    },
+    "insufficient_runs": {
+      "frame_p95_ms": [10.0, 10.0]
+    },
+    "tukey_outlier": {
+      "frame_p95_ms": [10.0, 10.0, 10.0, 10.0, 40.0]
+    },
+    "encode_failure": {
+      "snapshot_encode_failures": 1
+    }
+  }
+}

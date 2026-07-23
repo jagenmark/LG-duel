@@ -290,11 +290,27 @@ GPU0:
             "client": {"pid": 101, "owned": True, "path": "client.exe"},
             "server": {"pid": 202, "owned": False, "path": "server.exe"},
         }
-        with mock.patch.object(lg_launch, "_entry_matches", return_value=True), \
+        with mock.patch.object(lg_launch, "_entry_matches", side_effect=[True, False]), \
              mock.patch.object(os, "kill") as kill:
             stopped = lg_launch.cleanup_owned(state)
         self.assertEqual(stopped, ["client"])
         kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
+
+    def test_stop_owned_keeps_state_when_one_owned_process_remains(self) -> None:
+        state = {
+            "client": {"pid": 101, "owned": True, "path": "client.exe"},
+            "server": {"pid": 202, "owned": True, "path": "server.exe"},
+        }
+        state_path = mock.Mock()
+        state_path.exists.return_value = True
+        with mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             mock.patch.object(lg_launch, "cleanup_owned", return_value=["client"]), \
+             mock.patch.object(lg_launch, "_entry_matches", side_effect=[False, True]), \
+             mock.patch.object(lg_launch, "STATE_PATH", state_path):
+            result = lg_launch.stop_owned()
+        self.assertTrue(result["left_owned_running"])
+        self.assertEqual(result["remaining"], ["server"])
+        state_path.unlink.assert_not_called()
 
     def test_restart_requires_an_owned_matching_client(self) -> None:
         state = {"client": {"pid": 101, "owned": False, "path": "client.exe"}}

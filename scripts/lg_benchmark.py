@@ -494,6 +494,7 @@ def environment_metadata(status: dict[str, Any] | None = None) -> dict[str, Any]
     protocol = status.get("game_protocol_version", status.get("protocol_version"))
     metadata: dict[str, Any] = {
         "os": platform.platform(), "cpu": platform.processor() or platform.machine(),
+        "architecture": platform.machine(),
         "logical_cores": os.cpu_count(), "python": platform.python_version(),
         "renderer": renderer, "protocol_version": protocol,
         "control_protocol_version": status.get("control_protocol"),
@@ -509,6 +510,70 @@ def environment_metadata(status: dict[str, Any] | None = None) -> dict[str, Any]
     if "vulkan_metadata_status" not in metadata:
         metadata.update(_vulkan_metadata(renderer))
     return metadata
+
+
+def build_environment_metadata(build_dir: Path) -> dict[str, Any]:
+    """Read comparable build facts without changing the configured build."""
+    cache_path = build_dir / "CMakeCache.txt"
+    values: dict[str, str] = {}
+    try:
+        for line in cache_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if not line or line.startswith(("#", "//")) or "=" not in line:
+                continue
+            key_and_type, value = line.split("=", 1)
+            key = key_and_type.split(":", 1)[0]
+            values[key] = value
+    except OSError:
+        return {"build_metadata_status": "unavailable"}
+
+    compiler_path = values.get("CMAKE_CXX_COMPILER")
+    metadata: dict[str, Any] = {
+        "build_metadata_status": "available",
+        "build_type": values.get("CMAKE_BUILD_TYPE"),
+        "cmake_generator": values.get("CMAKE_GENERATOR"),
+        "compiler": Path(compiler_path).name if compiler_path else None,
+        "compiler_path": compiler_path,
+        "compile_time_options": {
+            key: values[key]
+            for key in sorted(values)
+            if key == "BUILD_TESTING" or key.startswith("LG_DUEL_")
+        },
+    }
+    if compiler_path:
+        try:
+            completed = subprocess.run(
+                [compiler_path, "--version"],
+                text=True,
+                capture_output=True,
+                timeout=10.0,
+                check=False,
+            )
+            first_line = (completed.stdout or completed.stderr).splitlines()
+            metadata["compiler_version"] = first_line[0].strip() if first_line else None
+        except (OSError, subprocess.TimeoutExpired):
+            metadata["compiler_version"] = None
+    return metadata
+
+
+def source_protocol_version(repo_root: Path = REPO_ROOT) -> int | None:
+    """Read the wire version used by headless tools that have no live status."""
+    header = repo_root / "src" / "net" / "NetCodec.hpp"
+    try:
+        text = header.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"\bkProtocolVersion\s*=\s*(\d+)", text)
+    return int(match.group(1)) if match else None
+
+
+def source_fixed_tick_rate(repo_root: Path = REPO_ROOT) -> float | None:
+    header = repo_root / "src" / "shared" / "Constants.hpp"
+    try:
+        text = header.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    match = re.search(r"\bkFixedTickRate\s*=\s*(\d+(?:\.\d+)?)F?", text)
+    return float(match.group(1)) if match else None
 
 
 def _attach_run_conditions(normalized: dict[str, Any], conditions: dict[str, Any]) -> None:
@@ -574,7 +639,7 @@ def _native_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {"frame_ms": frame} if frame else dict(summary)
 
 
-def _telemetry_metrics(path: Path) -> dict[str, Any]:
+def _telemetry_metrics(path: Path, *, prefix: str = "") -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8", newline="") as stream:
             rows = list(csv.DictReader(stream))
@@ -583,7 +648,7 @@ def _telemetry_metrics(path: Path) -> dict[str, Any]:
     values: dict[str, list[float]] = {}
     for row in rows:
         for key, raw in row.items():
-            if key in {"frame", "elapsed_seconds"} or raw is None:
+            if key in {"frame", "tick", "render_frame", "elapsed_seconds"} or raw is None:
                 continue
             try:
                 value = float(raw)
@@ -591,7 +656,11 @@ def _telemetry_metrics(path: Path) -> dict[str, Any]:
                 continue
             if math.isfinite(value):
                 values.setdefault(key, []).append(value)
-    return {key: summarize_values(samples) for key, samples in values.items() if samples}
+    return {
+        f"{prefix}{key}": summarize_values(samples)
+        for key, samples in values.items()
+        if samples
+    }
 
 
 def _normalize_native_result(response: dict[str, Any], run_dir: Path, run_id: str) -> dict[str, Any]:
@@ -612,6 +681,14 @@ def _normalize_native_result(response: dict[str, Any], run_dir: Path, run_id: st
     if isinstance(telemetry_text, str):
         telemetry_path = _safe_artifact_path(telemetry_text, run_dir)
         summary.update(_telemetry_metrics(telemetry_path))
+    simulation_ticks_text = source.get(
+        "simulation_ticks_path", response.get("simulation_ticks_path")
+    )
+    if isinstance(simulation_ticks_text, str):
+        simulation_ticks_path = _safe_artifact_path(simulation_ticks_text, run_dir)
+        summary.update(
+            _telemetry_metrics(simulation_ticks_path, prefix="simulation_tick_")
+        )
     thresholds = source.get("thresholds_ms", {})
     if isinstance(thresholds, dict):
         for threshold, item in thresholds.items():
@@ -704,6 +781,8 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     result_dir.mkdir(parents=True)
     started_at = dt.datetime.now(dt.timezone.utc).isoformat()
     environment = environment_metadata(status)
+    environment.update(build_environment_metadata(build_dir))
+    environment["server_tick_rate"] = source_fixed_tick_rate(REPO_ROOT)
     environment["build_mode"] = build_mode
     environment["build_directory"] = str(build_dir)
     client_executable = build_dir / "lg_duel_client.exe"
@@ -766,7 +845,8 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     measured_batches = _positive_int(measured_batches, "measured batches")
     operations_per_batch = _positive_int(operations_per_batch, "operations per batch")
     build_dir, preset = benchmark_build(build_mode)
-    executable = build_dir / "lg_duel_sim_benchmark.exe"
+    executable_name = "lg_duel_sim_benchmark.exe" if os.name == "nt" else "lg_duel_sim_benchmark"
+    executable = build_dir / executable_name
     if not executable.is_file():
         raise BenchmarkError(
             f"simulation benchmark executable not found: {executable}; "
@@ -814,6 +894,10 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     digest = hashlib.sha256(json.dumps(parameters, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     executable_hash = hashlib.sha256(executable.read_bytes()).hexdigest()
     environment = environment_metadata({"renderer": "headless/shared-simulation"})
+    environment.update(build_environment_metadata(build_dir))
+    environment["benchmark_version"] = native.get("benchmark_version", 1)
+    environment["protocol_version"] = source_protocol_version(REPO_ROOT)
+    environment["server_tick_rate"] = source_fixed_tick_rate(REPO_ROOT)
     environment["build_mode"] = build_mode
     environment["build_directory"] = str(build_dir)
     environment["executable"] = str(executable)
@@ -844,7 +928,11 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     aggregate = aggregate_runs(runs)
     result = {
         "schema_version": RESULT_SCHEMA_VERSION,
-        "scenario": {"name": f"sim-{workload}", "schema_version": 1, "expected_benchmark_version": 1},
+        "scenario": {
+            "name": f"sim-{workload}", "schema_version": 1,
+            "benchmark_version": native.get("benchmark_version", 1),
+            "expected_benchmark_version": 1, "map": map_name,
+        },
         "scenario_hash": digest, "scenario_path": str(executable), "result_directory": str(result_dir),
         "started_at": started_at, "completed_at": dt.datetime.now(dt.timezone.utc).isoformat(), "git": git,
         "environment": environment,
