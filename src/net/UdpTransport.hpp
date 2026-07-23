@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <array>
 #include <memory>
+#include <deque>
 #include <string>
 
 namespace lg {
@@ -71,6 +72,8 @@ public:
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;
   [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfig() const;
+  [[nodiscard]] const std::deque<ClientNetworkSimulationDecision>&
+    networkSimulationDecisions() const;
   [[nodiscard]] const std::string& lastError() const;
   [[nodiscard]] const std::string& host() const;
   [[nodiscard]] std::uint16_t port() const;

@@ -49,6 +49,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cctype>
 #include <cstdint>
 #include <deque>
@@ -229,6 +230,63 @@ void syncGameplayCvarsFromSnapshot(
     console.getInt("net_sim_reorder_percent"),
     static_cast<std::uint32_t>(std::max(0, console.getInt("net_sim_seed"))),
   };
+}
+
+[[nodiscard]] dev::JsonValue controlPlayerStateJson(const PlayerState& player) {
+  dev::JsonValue result = dev::JsonValue::objectValue();
+  result.object["position"] = dev::JsonValue::arrayValue({
+    dev::JsonValue::numberValue(player.position.x),
+    dev::JsonValue::numberValue(player.position.y),
+    dev::JsonValue::numberValue(player.position.z),
+  });
+  result.object["velocity"] = dev::JsonValue::arrayValue({
+    dev::JsonValue::numberValue(player.velocity.x),
+    dev::JsonValue::numberValue(player.velocity.y),
+    dev::JsonValue::numberValue(player.velocity.z),
+  });
+  result.object["yaw_degrees"] =
+    dev::JsonValue::numberValue(player.viewYawRadians * kRadiansToDegrees);
+  result.object["pitch_degrees"] =
+    dev::JsonValue::numberValue(player.viewPitchRadians * kRadiansToDegrees);
+  result.object["health"] = dev::JsonValue::numberValue(player.health);
+  result.object["on_ground"] = dev::JsonValue::booleanValue(player.onGround);
+  result.object["crouched"] = dev::JsonValue::booleanValue(player.crouched);
+  result.object["sneaking"] = dev::JsonValue::booleanValue(player.sneaking);
+  return result;
+}
+
+[[nodiscard]] dev::JsonValue controlNetworkSimulationConfigJson(
+  const ClientNetworkSimulationConfig& config
+) {
+  dev::JsonValue result = dev::JsonValue::objectValue();
+  result.object["latency_ms"] = dev::JsonValue::numberValue(config.latencyMs);
+  result.object["jitter_ms"] = dev::JsonValue::numberValue(config.jitterMs);
+  result.object["packet_loss_percent"] =
+    dev::JsonValue::numberValue(config.lossPercent);
+  result.object["reorder_percent"] =
+    dev::JsonValue::numberValue(config.reorderPercent);
+  result.object["seed"] = dev::JsonValue::numberValue(config.seed);
+  return result;
+}
+
+[[nodiscard]] std::string_view controlNetworkSimulationDirectionName(
+  ClientNetworkSimDirection direction
+) {
+  return direction == ClientNetworkSimDirection::Outgoing ? "outgoing" : "incoming";
+}
+
+[[nodiscard]] std::string_view controlNetworkSimulationActionName(
+  ClientNetworkSimAction action
+) {
+  switch (action) {
+    case ClientNetworkSimAction::Immediate:
+      return "immediate";
+    case ClientNetworkSimAction::Queued:
+      return "queued";
+    case ClientNetworkSimAction::Dropped:
+      return "dropped";
+  }
+  return "unknown";
 }
 
 #if LG_DUEL_HAS_SDL3
@@ -3843,6 +3901,7 @@ int GameApp::run() const {
   std::deque<PendingBotCommand> pendingBotCommands;
   ClientChatState chatState;
   ClientSession session;
+  std::optional<ClientNetworkSimulationConfig> developerNetworkSimulation;
   dev::CameraTransform developmentCamera;
   bool developmentCameraEnabled = false;
   std::uint64_t renderedFrameSerial = 0;
@@ -3852,6 +3911,9 @@ int GameApp::run() const {
       WaitingForMap,
       WaitingForCameraFrame,
       WaitingForFrames,
+      WaitingForClientTick,
+      WaitingForSnapshotTick,
+      WaitingForCommandAck,
       PlayerInput,
       WaitingForInputAck,
       CaptureReady,
@@ -4744,6 +4806,18 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 16");
   }
+  const char* liveScenarioMode = std::getenv("LG_DUEL_LIVE_SCENARIO");
+  if (
+    developerControl_.enabled &&
+    liveScenarioMode != nullptr &&
+    std::string_view(liveScenarioMode) == "1"
+  ) {
+    // Owned live runs use a fixed window size so capture checks do not inherit
+    // the user's archived video settings.
+    (void)console.execute("set vid_fullscreen 0");
+    (void)console.execute("set vid_width 1280");
+    (void)console.execute("set vid_height 720");
+  }
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
   SettingsMenuState settingsMenu;
@@ -5111,6 +5185,187 @@ int GameApp::run() const {
     }
     return status;
   };
+  const auto controlClientState = [&]() {
+    dev::JsonValue state = dev::JsonValue::objectValue();
+    const ClientGame* game = session.game();
+    const bool hasSnapshot = game != nullptr && game->hasSnapshot();
+    const bool hasLocalPlayer =
+      hasSnapshot && !session.spectator() && session.playerIndex() < kDuelPlayerCount;
+
+    state.object["connected"] =
+      dev::JsonValue::booleanValue(session.connected());
+    state.object["client_tick"] = dev::JsonValue::numberValue(clientTick);
+    state.object["latest_snapshot_tick"] = hasSnapshot
+      ? dev::JsonValue::numberValue(game->snapshot().serverTick)
+      : dev::JsonValue{};
+    state.object["latest_server_tick"] = hasSnapshot
+      ? dev::JsonValue::numberValue(game->snapshot().serverTick)
+      : dev::JsonValue{};
+
+    const SnapshotInterpolation::Diagnostics interpolation = game != nullptr
+      ? game->interpolationDiagnostics()
+      : SnapshotInterpolation::Diagnostics{};
+    state.object["presentation_tick"] = hasSnapshot
+      ? dev::JsonValue::numberValue(interpolation.presentationTick)
+      : dev::JsonValue{};
+    state.object["predicted_local_player"] = hasLocalPlayer
+      ? controlPlayerStateJson(game->predictedPlayer())
+      : dev::JsonValue{};
+    state.object["authoritative_local_player"] = hasLocalPlayer
+      ? controlPlayerStateJson(game->snapshot().players[session.playerIndex()])
+      : dev::JsonValue{};
+
+    const bool hasAcknowledgedCommand =
+      hasLocalPlayer && game->hasAcknowledgedCommand();
+    state.object["last_acknowledged_command"] = hasAcknowledgedCommand
+      ? dev::JsonValue::numberValue(game->lastAcknowledgedCommand())
+      : dev::JsonValue{};
+    const PredictionDiagnostics prediction = hasLocalPlayer
+      ? game->predictionDiagnostics()
+      : PredictionDiagnostics{};
+    state.object["pending_command_count"] =
+      dev::JsonValue::numberValue(prediction.pendingCommandCount);
+    state.object["maximum_pending_command_count"] =
+      dev::JsonValue::numberValue(prediction.maximumPendingCommandCount);
+    state.object["oldest_pending_command_age_ticks"] =
+      dev::JsonValue::numberValue(
+        prediction.hasPendingCommand
+          ? clientTick - prediction.oldestPendingCommandClientTick
+          : 0U
+      );
+    state.object["correction_count"] =
+      dev::JsonValue::numberValue(prediction.correctionCount);
+    state.object["last_correction_vector"] = dev::JsonValue::arrayValue({
+      dev::JsonValue::numberValue(prediction.lastCorrectionVector.x),
+      dev::JsonValue::numberValue(prediction.lastCorrectionVector.y),
+      dev::JsonValue::numberValue(prediction.lastCorrectionVector.z),
+    });
+    state.object["last_correction_distance"] =
+      dev::JsonValue::numberValue(prediction.lastCorrectionDistance);
+    state.object["maximum_correction_distance"] =
+      dev::JsonValue::numberValue(prediction.maximumCorrectionDistance);
+
+    dev::JsonValue interpolationState = dev::JsonValue::objectValue();
+    interpolationState.object["buffer_lead_ticks"] =
+      dev::JsonValue::numberValue(interpolation.bufferLeadTicks);
+    interpolationState.object["desired_buffer_lead_ticks"] =
+      dev::JsonValue::numberValue(interpolation.desiredBufferLeadTicks);
+    interpolationState.object["timeline_error_ticks"] =
+      dev::JsonValue::numberValue(interpolation.timelineErrorTicks);
+    interpolationState.object["presentation_tick"] =
+      dev::JsonValue::numberValue(interpolation.presentationTick);
+    interpolationState.object["newest_snapshot_tick"] =
+      dev::JsonValue::numberValue(interpolation.newestSnapshotTick);
+    interpolationState.object["playback_rate"] =
+      dev::JsonValue::numberValue(interpolation.playbackRate);
+    interpolationState.object["effective_delay_ms"] =
+      dev::JsonValue::numberValue(interpolation.effectiveDelaySeconds * 1000.0F);
+    interpolationState.object["buffered_snapshot_count"] =
+      dev::JsonValue::numberValue(interpolation.bufferedSnapshotCount);
+    interpolationState.object["underrun_count"] =
+      dev::JsonValue::numberValue(interpolation.underrunCount);
+    interpolationState.object["hard_correction_count"] =
+      dev::JsonValue::numberValue(interpolation.hardCorrectionCount);
+    interpolationState.object["playback_started"] =
+      dev::JsonValue::booleanValue(interpolation.playbackStarted);
+    interpolationState.object["underrun"] =
+      dev::JsonValue::booleanValue(interpolation.bufferUnderrun);
+    state.object["interpolation"] = std::move(interpolationState);
+
+    const SnapshotDiagnostics snapshots =
+      game != nullptr ? game->snapshotDiagnostics() : SnapshotDiagnostics{};
+    dev::JsonValue snapshotState = dev::JsonValue::objectValue();
+    snapshotState.object["packets_decoded"] =
+      dev::JsonValue::numberValue(snapshots.snapshotPacketsDecoded);
+    snapshotState.object["snapshots_accepted"] =
+      dev::JsonValue::numberValue(snapshots.snapshotsApplied);
+    snapshotState.object["queue_depth"] =
+      dev::JsonValue::numberValue(snapshots.snapshotQueueDepth);
+    snapshotState.object["duplicate_snapshots_ignored"] =
+      dev::JsonValue::numberValue(snapshots.duplicateSnapshotsIgnored);
+    snapshotState.object["stale_snapshots_ignored"] =
+      dev::JsonValue::numberValue(snapshots.staleSnapshotsIgnored);
+    snapshotState.object["decode_ms"] =
+      dev::JsonValue::numberValue(snapshots.snapshotDecodeMilliseconds);
+    snapshotState.object["apply_ms"] =
+      dev::JsonValue::numberValue(snapshots.snapshotApplyMilliseconds);
+    state.object["snapshots"] = std::move(snapshotState);
+
+    const NetworkTelemetry telemetry = session.networkTelemetry();
+    dev::JsonValue networkState = dev::JsonValue::objectValue();
+    networkState.object["valid"] = dev::JsonValue::booleanValue(telemetry.valid);
+    networkState.object["ping_ms"] =
+      dev::JsonValue::numberValue(telemetry.pingMilliseconds);
+    networkState.object["ping_variation_ms"] =
+      dev::JsonValue::numberValue(telemetry.pingVariationMilliseconds);
+    networkState.object["snapshot_jitter_ms"] =
+      dev::JsonValue::numberValue(telemetry.snapshotJitterMilliseconds);
+    networkState.object["incoming_loss_percent"] =
+      dev::JsonValue::numberValue(telemetry.incomingLossPercent);
+    networkState.object["outgoing_loss_percent"] =
+      dev::JsonValue::numberValue(telemetry.outgoingLossPercent);
+    networkState.object["incoming_kbps"] =
+      dev::JsonValue::numberValue(telemetry.incomingKilobitsPerSecond);
+    networkState.object["outgoing_kbps"] =
+      dev::JsonValue::numberValue(telemetry.outgoingKilobitsPerSecond);
+    networkState.object["snapshot_rate"] =
+      dev::JsonValue::numberValue(telemetry.snapshotRate);
+    networkState.object["snapshot_age_ms"] =
+      dev::JsonValue::numberValue(telemetry.snapshotAgeMilliseconds);
+    networkState.object["last_snapshot_bytes"] =
+      dev::JsonValue::numberValue(telemetry.lastSnapshotBytes);
+    networkState.object["last_command_bytes"] =
+      dev::JsonValue::numberValue(telemetry.lastCommandBytes);
+    networkState.object["late_snapshots"] =
+      dev::JsonValue::numberValue(telemetry.lateSnapshots);
+    networkState.object["reordered_snapshots"] =
+      dev::JsonValue::numberValue(telemetry.reorderedSnapshots);
+    networkState.object["acknowledged_command_datagram_sequence"] =
+      dev::JsonValue::numberValue(telemetry.acknowledgedCommandDatagramSequence);
+    state.object["network_telemetry"] = std::move(networkState);
+
+    dev::JsonValue networkSimulation = controlNetworkSimulationConfigJson(
+      session.networkSimulationConfig()
+    );
+    const ClientNetworkSimulationStats simulationStats =
+      session.networkSimulationStats();
+    dev::JsonValue stats = dev::JsonValue::objectValue();
+    stats.object["queued_outgoing_packets"] =
+      dev::JsonValue::numberValue(simulationStats.queuedOutgoingPackets);
+    stats.object["queued_incoming_packets"] =
+      dev::JsonValue::numberValue(simulationStats.queuedIncomingPackets);
+    stats.object["dropped_outgoing_packets"] =
+      dev::JsonValue::numberValue(simulationStats.droppedOutgoingPackets);
+    stats.object["dropped_incoming_packets"] =
+      dev::JsonValue::numberValue(simulationStats.droppedIncomingPackets);
+    stats.object["reordered_outgoing_packets"] =
+      dev::JsonValue::numberValue(simulationStats.reorderedOutgoingPackets);
+    stats.object["reordered_incoming_packets"] =
+      dev::JsonValue::numberValue(simulationStats.reorderedIncomingPackets);
+    networkSimulation.object["stats"] = std::move(stats);
+    std::vector<dev::JsonValue> decisions;
+    decisions.reserve(session.networkSimulationDecisions().size());
+    for (const ClientNetworkSimulationDecision& decision :
+         session.networkSimulationDecisions()) {
+      dev::JsonValue value = dev::JsonValue::objectValue();
+      value.object["sequence"] = dev::JsonValue::numberValue(decision.sequence);
+      value.object["direction"] = dev::JsonValue::stringValue(
+        std::string(controlNetworkSimulationDirectionName(decision.direction))
+      );
+      value.object["action"] = dev::JsonValue::stringValue(
+        std::string(controlNetworkSimulationActionName(decision.action))
+      );
+      value.object["delay_ms"] = dev::JsonValue::numberValue(decision.delayMs);
+      value.object["reordered"] = dev::JsonValue::booleanValue(decision.reordered);
+      value.object["queue_limit_drop"] =
+        dev::JsonValue::booleanValue(decision.queueLimitDrop);
+      decisions.push_back(std::move(value));
+    }
+    networkSimulation.object["decisions"] =
+      dev::JsonValue::arrayValue(std::move(decisions));
+    state.object["network_simulation"] = std::move(networkSimulation);
+    return state;
+  };
   const auto setBenchmarkCamera = [&](const benchmark::CameraPose& pose) {
     developmentCamera.position = pose.position;
     developmentCamera.yawDegrees = pose.yawDegrees;
@@ -5215,6 +5470,28 @@ int GameApp::run() const {
         );
         activeControlOperation.reset();
         break;
+      case dev::ControlOperation::GetClientState:
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, controlClientState())
+        );
+        activeControlOperation.reset();
+        break;
+      case dev::ControlOperation::SetNetworkSimulation: {
+        // A typed control setting remains in force across frames and reconnects.
+        // It does not pass through console text or change archived user settings.
+        developerNetworkSimulation = request.networkSimulation;
+        session.setNetworkSimulationConfig(*developerNetworkSimulation);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(
+            request.id,
+            controlNetworkSimulationConfigJson(session.networkSimulationConfig())
+          )
+        );
+        activeControlOperation.reset();
+        break;
+      }
       case dev::ControlOperation::GetCamera:
         developerControl.complete(
           active.queued.token,
@@ -5349,6 +5626,18 @@ int GameApp::run() const {
       case dev::ControlOperation::WaitFrames:
         active.requiredRenderedFrame = renderedFrameSerial + request.waitFrames;
         active.stage = ActiveControlOperation::Stage::WaitingForFrames;
+        active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        break;
+      case dev::ControlOperation::WaitClientTick:
+        active.stage = ActiveControlOperation::Stage::WaitingForClientTick;
+        active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        break;
+      case dev::ControlOperation::WaitSnapshotTick:
+        active.stage = ActiveControlOperation::Stage::WaitingForSnapshotTick;
+        active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        break;
+      case dev::ControlOperation::WaitCommandAck:
+        active.stage = ActiveControlOperation::Stage::WaitingForCommandAck;
         active.deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         break;
       case dev::ControlOperation::SendInput:
@@ -5728,6 +6017,81 @@ int GameApp::run() const {
         activeControlOperation.reset();
       } else if (std::chrono::steady_clock::now() > active.deadline) {
         completeControlError("frame_wait_timeout", "renderer did not finish the requested frames");
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage ==
+          ActiveControlOperation::Stage::WaitingForClientTick) {
+      ActiveControlOperation& active = *activeControlOperation;
+      // This tick is local fixed-step progress and does not imply server progress.
+      if (clientTick >= active.queued.request.minimumTick) {
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["min_tick"] =
+          dev::JsonValue::numberValue(active.queued.request.minimumTick);
+        result.object["client_tick"] = dev::JsonValue::numberValue(clientTick);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+      } else if (std::chrono::steady_clock::now() > active.deadline) {
+        completeControlError(
+          "client_tick_timeout",
+          "client simulation did not reach the requested tick within 30 seconds"
+        );
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage ==
+          ActiveControlOperation::Stage::WaitingForSnapshotTick) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const ClientGame* game = session.game();
+      // Only an accepted authoritative snapshot may satisfy a server tick wait.
+      if (game != nullptr && game->hasSnapshot() &&
+          game->snapshot().serverTick >= active.queued.request.minimumTick) {
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["min_tick"] =
+          dev::JsonValue::numberValue(active.queued.request.minimumTick);
+        result.object["snapshot_tick"] =
+          dev::JsonValue::numberValue(game->snapshot().serverTick);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+      } else if (std::chrono::steady_clock::now() > active.deadline) {
+        completeControlError(
+          "snapshot_tick_timeout",
+          "client did not accept the requested server snapshot tick within 30 seconds"
+        );
+      }
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage ==
+          ActiveControlOperation::Stage::WaitingForCommandAck) {
+      ActiveControlOperation& active = *activeControlOperation;
+      const ClientGame* game = session.game();
+      // Prediction cannot satisfy this wait; the ack must come from a snapshot.
+      if (game != nullptr && game->hasSnapshot() && game->hasAcknowledgedCommand() &&
+          isSequenceAcknowledged(
+            active.queued.request.commandSequence,
+            game->lastAcknowledgedCommand()
+          )) {
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["sequence"] =
+          dev::JsonValue::numberValue(active.queued.request.commandSequence);
+        result.object["acknowledged_sequence"] =
+          dev::JsonValue::numberValue(game->lastAcknowledgedCommand());
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+      } else if (std::chrono::steady_clock::now() > active.deadline) {
+        completeControlError(
+          "command_ack_timeout",
+          "server did not acknowledge the requested command within 30 seconds"
+        );
       }
     }
     const bool benchmarkFrameTimingEnabled =
@@ -6168,7 +6532,9 @@ int GameApp::run() const {
     if (quitRequested) {
       running = false;
     }
-    session.setNetworkSimulationConfig(networkSimulationConfigFromConsole(console));
+    session.setNetworkSimulationConfig(
+      developerNetworkSimulation.value_or(networkSimulationConfigFromConsole(console))
+    );
     session.update();
     const bool currentCompatVSync = console.getBool("r_vsync");
     const int currentPresentModeInt = console.getInt("r_present_mode");
@@ -6399,17 +6765,36 @@ int GameApp::run() const {
         controlInputCommand = true;
         requestedControlInput = &activeControlOperation->queued.request.playerInput;
         controlInputRelease = activeControlOperation->inputTicksRemaining == 0U;
+        const bool firstControlInputTick =
+          activeControlOperation->inputTicksRemaining ==
+          requestedControlInput->ticks;
         tickInput = {};
         if (!controlInputRelease) {
           tickInput.forward = requestedControlInput->forward > 0.0F ? 1 : 0;
           tickInput.back = requestedControlInput->forward < 0.0F ? 1 : 0;
           tickInput.right = requestedControlInput->right > 0.0F ? 1 : 0;
           tickInput.left = requestedControlInput->right < 0.0F ? 1 : 0;
-          tickInput.up = requestedControlInput->up > 0.0F || requestedControlInput->jump ? 1 : 0;
-          tickInput.down = requestedControlInput->up < 0.0F || requestedControlInput->crouch ? 1 : 0;
-          tickInput.attack = requestedControlInput->attack ? 1 : 0;
-          tickInput.dash = requestedControlInput->dash ? 1 : 0;
-          tickInput.sneak = requestedControlInput->sneak ? 1 : 0;
+          tickInput.up =
+            requestedControlInput->up > 0.0F ||
+            (
+              requestedControlInput->jump &&
+              (!requestedControlInput->jumpOneTick || firstControlInputTick)
+            ) ? 1 : 0;
+          tickInput.down =
+            requestedControlInput->up < 0.0F ||
+            (
+              requestedControlInput->crouch &&
+              (!requestedControlInput->crouchOneTick || firstControlInputTick)
+            ) ? 1 : 0;
+          tickInput.attack =
+            requestedControlInput->attack &&
+            (!requestedControlInput->attackOneTick || firstControlInputTick);
+          tickInput.dash =
+            requestedControlInput->dash &&
+            (!requestedControlInput->dashOneTick || firstControlInputTick);
+          tickInput.sneak =
+            requestedControlInput->sneak &&
+            (!requestedControlInput->sneakOneTick || firstControlInputTick);
           if (requestedControlInput->yawDegrees.has_value()) {
             presentationView.yawRadians =
               *requestedControlInput->yawDegrees * kDegreesToRadians;
@@ -6448,7 +6833,12 @@ int GameApp::run() const {
               selectedWeapon,
               controlInputCommand
                 ? !controlInputRelease && requestedControlInput != nullptr &&
-                  requestedControlInput->zoom
+                  requestedControlInput->zoom &&
+                  (
+                    !requestedControlInput->zoomOneTick ||
+                    activeControlOperation->inputTicksRemaining ==
+                      requestedControlInput->ticks
+                  )
                 : zoomPressCount > 0
             )
           : buildCommand(
@@ -6461,15 +6851,27 @@ int GameApp::run() const {
               selectedWeapon,
               controlInputCommand
                 ? !controlInputRelease && requestedControlInput != nullptr &&
-                  requestedControlInput->zoom
+                  requestedControlInput->zoom &&
+                  (
+                    !requestedControlInput->zoomOneTick ||
+                    activeControlOperation->inputTicksRemaining ==
+                      requestedControlInput->ticks
+                  )
                 : zoomPressCount > 0
             );
       if (controlInputCommand && requestedControlInput != nullptr && !controlInputRelease) {
         command.forwardMove = requestedControlInput->forward;
         command.rightMove = requestedControlInput->right;
         command.upMove = requestedControlInput->up;
-        command.jump = requestedControlInput->jump;
-        command.crouch = requestedControlInput->crouch;
+        const bool firstControlInputTick =
+          activeControlOperation->inputTicksRemaining ==
+          requestedControlInput->ticks;
+        command.jump =
+          requestedControlInput->jump &&
+          (!requestedControlInput->jumpOneTick || firstControlInputTick);
+        command.crouch =
+          requestedControlInput->crouch &&
+          (!requestedControlInput->crouchOneTick || firstControlInputTick);
       }
       localTracerAimHistory.remember(command);
       PendingBotCommand botCommandForPacket;

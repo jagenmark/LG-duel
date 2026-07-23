@@ -63,6 +63,15 @@ int main() {
       ) && delivered == packet(2),
       "latency should deliver at its deadline"
     );
+    failures += expect(
+      simulator.decisions().size() == 1U &&
+        simulator.decisions().front().direction ==
+          lg::ClientNetworkSimDirection::Incoming &&
+        simulator.decisions().front().action ==
+          lg::ClientNetworkSimAction::Queued &&
+        simulator.decisions().front().delayMs == 50,
+      "latency decisions should be recorded with direction and delay"
+    );
   }
 
   {
@@ -107,6 +116,12 @@ int main() {
       !simulator.popDue(lg::ClientNetworkSimDirection::Outgoing, now, delivered),
       "dropped outgoing packets should never be delivered"
     );
+    failures += expect(
+      simulator.decisions().size() == 1U &&
+        simulator.decisions().front().action ==
+          lg::ClientNetworkSimAction::Dropped,
+      "loss decisions should be recorded"
+    );
   }
 
   {
@@ -131,10 +146,20 @@ int main() {
       ) && delivered == packet(4),
       "reordered earlier packet should still be delivered intact"
     );
+    failures += expect(
+      simulator.decisions().size() == 2U &&
+        simulator.decisions().front().reordered &&
+        simulator.decisions().back().reordered,
+      "reorder decisions should be recorded for each chosen datagram"
+    );
   }
 
   {
     simulator.clear();
+    failures += expect(
+      simulator.decisions().empty(),
+      "session clear should discard prior decision evidence"
+    );
     simulator.setConfig({10, 0, 0, 0, 654});
     (void)simulator.enqueue(lg::ClientNetworkSimDirection::Outgoing, packet(6), now);
     (void)simulator.enqueue(lg::ClientNetworkSimDirection::Outgoing, packet(7), now);

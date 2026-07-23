@@ -2,6 +2,7 @@
 
 #include "dev/DevJson.hpp"
 #include "benchmark/Benchmark.hpp"
+#include "net/ClientNetworkSimulator.hpp"
 #include "shared/Math.hpp"
 
 #include <cstdint>
@@ -25,6 +26,11 @@ enum class ControlOperation {
   SetCvar,
   SendInput,
   WaitFrames,
+  GetClientState,
+  SetNetworkSimulation,
+  WaitClientTick,
+  WaitSnapshotTick,
+  WaitCommandAck,
   SetPlayerView,
   SetPlayerWeapon,
   RunBenchmark,
@@ -55,6 +61,12 @@ struct PlayerInput {
   bool crouch = false;
   bool sneak = false;
   bool zoom = false;
+  bool attackOneTick = false;
+  bool jumpOneTick = false;
+  bool dashOneTick = false;
+  bool crouchOneTick = false;
+  bool sneakOneTick = false;
+  bool zoomOneTick = false;
   std::uint32_t ticks = 1;
   std::optional<float> yawDegrees;
   std::optional<float> pitchDegrees;
@@ -77,6 +89,9 @@ struct ControlRequest {
   std::string cvarValue;
   PlayerInput playerInput;
   std::uint32_t waitFrames = 1;
+  ClientNetworkSimulationConfig networkSimulation = {};
+  std::uint32_t minimumTick = 0;
+  std::uint32_t commandSequence = 0;
   float playerYawDegrees = 0.0F;
   float playerPitchDegrees = 0.0F;
   std::string playerWeapon;

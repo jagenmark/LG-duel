@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <chrono>
+#include <deque>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -73,6 +74,8 @@ public:
   [[nodiscard]] float pingMilliseconds() const;
   [[nodiscard]] ClientNetworkSimulationStats networkSimulationStats() const;
   [[nodiscard]] ClientNetworkSimulationConfig networkSimulationConfig() const;
+  [[nodiscard]] const std::deque<ClientNetworkSimulationDecision>&
+    networkSimulationDecisions() const;
   [[nodiscard]] NetworkTelemetry networkTelemetry() const;
   [[nodiscard]] std::string_view host() const;
   [[nodiscard]] std::uint16_t port() const;

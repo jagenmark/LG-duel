@@ -50,7 +50,7 @@ class LgToolTests(unittest.TestCase):
                 "lg_set_camera", "lg_set_collision_debug", "lg_capture_screenshot", "lg_capture_map_views",
                 "lg_stop", "lg_restart", "lg_exec_console", "lg_get_cvar", "lg_set_cvar",
                 "lg_send_input", "lg_wait_frames", "lg_set_player_view", "lg_set_player_weapon",
-                "lg_list_benchmarks", "lg_run_benchmark", "lg_compare_benchmarks",
+                "lg_run_live_scenario", "lg_list_benchmarks", "lg_run_benchmark", "lg_compare_benchmarks",
                 "lg_get_benchmark_result", "lg_create_benchmark_baseline",
             },
         )
@@ -60,7 +60,7 @@ class LgToolTests(unittest.TestCase):
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "lg-duel-dev-control")
         listed = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual(len(listed["result"]["tools"]), 23)
+        self.assertEqual(len(listed["result"]["tools"]), 24)
 
     def test_player_control_schemas_are_bounded(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
@@ -155,6 +155,15 @@ class LgToolTests(unittest.TestCase):
                 "lg_run_benchmark", {"scenario": "eyetoeye-static-baseline", "build_mode": "debug"}
             )
         self.assertEqual(runner.call_args.kwargs["build_mode"], "debug")
+
+    def test_live_scenario_mcp_routes_without_shell(self) -> None:
+        with mock.patch("lg_mcp_server.run_live_scenario", return_value={"status": "passed"}) as runner:
+            self.assertEqual(
+                lg_mcp_server.invoke_tool("lg_run_live_scenario", {"scenario": "basic_forward", "timeout": 12}),
+                {"status": "passed"},
+            )
+        self.assertEqual(runner.call_args.args[0].name, "basic_forward.json")
+        self.assertEqual(runner.call_args.kwargs["timeout"], 12.0)
 
     def test_mcp_setup_uses_absolute_python_and_verifies_registration(self) -> None:
         setup = (Path(__file__).resolve().parent / "setup-lg-mcp.ps1").read_text(encoding="utf-8")

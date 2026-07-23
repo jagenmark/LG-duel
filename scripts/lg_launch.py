@@ -15,6 +15,7 @@ import os
 import platform
 import re
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -368,6 +369,60 @@ def _process_path(pid: int) -> str | None:
         return None
 
 
+def _scenario_process_path(pid: int) -> str | None:
+    if platform.system() == "Windows":
+        return _process_path(pid)
+    try:
+        return str(Path(f"/proc/{pid}/exe").resolve(strict=True))
+    except (OSError, RuntimeError):
+        return None
+
+
+def _process_creation_time(pid: int) -> int | None:
+    """Return a stable process start value, not wall-clock time."""
+    if pid <= 0:
+        return None
+    if platform.system() != "Windows":
+        try:
+            fields = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split()
+            return int(fields[21])
+        except (OSError, ValueError, IndexError):
+            return None
+    try:
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetProcessTimes.argtypes = (
+            wintypes.HANDLE, ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME), ctypes.POINTER(wintypes.FILETIME),
+            ctypes.POINTER(wintypes.FILETIME),
+        )
+        kernel32.GetProcessTimes.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        process = kernel32.OpenProcess(0x1000, False, pid)
+        if not process:
+            return None
+        try:
+            creation = wintypes.FILETIME()
+            exit_time = wintypes.FILETIME()
+            kernel = wintypes.FILETIME()
+            user = wintypes.FILETIME()
+            if not kernel32.GetProcessTimes(
+                process, ctypes.byref(creation), ctypes.byref(exit_time),
+                ctypes.byref(kernel), ctypes.byref(user),
+            ):
+                return None
+            return (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+        finally:
+            kernel32.CloseHandle(process)
+    except (AttributeError, OSError, ValueError):
+        return None
+
+
 def _entry_matches(entry: dict[str, Any]) -> bool:
     try:
         pid = int(entry.get("pid", 0))
@@ -419,6 +474,294 @@ def _launch_process(executable: Path, arguments: list[str], stdout_path: Path, s
     finally:
         stdout.close()
         stderr.close()
+
+
+def _control_endpoint_listening(port: int, timeout: float) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=max(0.05, min(timeout, 0.5))):
+            return True
+    except OSError:
+        return False
+
+
+def _scenario_process_record(
+    process: subprocess.Popen[str], executable: Path, run_token: str
+) -> dict[str, Any]:
+    created = _process_creation_time(process.pid)
+    if platform.system() == "Windows" and created is None:
+        raise LaunchError(f"could not attest creation time for owned process {process.pid}")
+    return {
+        "pid": process.pid,
+        "owned": True,
+        "path": str(executable.resolve()),
+        "creation_time": created,
+        "run_token": run_token,
+    }
+
+
+def _scenario_entry_matches(entry: dict[str, Any]) -> bool:
+    try:
+        pid = int(entry.get("pid", 0))
+        expected_path = str(entry.get("path", ""))
+        expected_created = entry.get("creation_time")
+        token = entry.get("run_token")
+    except (TypeError, ValueError):
+        return False
+    if pid <= 0 or not expected_path or not isinstance(token, str) or not token:
+        return False
+    actual_path = _scenario_process_path(pid)
+    if not actual_path or _normalized(actual_path) != _normalized(expected_path):
+        return False
+    actual_created = _process_creation_time(pid)
+    if expected_created is None or actual_created is None:
+        # Unknown systems fail closed. A PID and path alone can match a reused PID.
+        return False
+    return int(expected_created) == actual_created
+
+
+def _process_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        try:
+            import ctypes
+
+            process = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)
+            if not process:
+                return False
+            try:
+                exit_code = ctypes.c_ulong()
+                return bool(
+                    ctypes.windll.kernel32.GetExitCodeProcess(
+                        process, ctypes.byref(exit_code)
+                    )
+                    and exit_code.value == 259
+                )
+            finally:
+                ctypes.windll.kernel32.CloseHandle(process)
+        except (AttributeError, OSError, ValueError):
+            return False
+    try:
+        os.kill(pid, 0)
+        return True
+    except (OSError, ProcessLookupError, ValueError):
+        return False
+
+
+def cleanup_scenario_session(state: dict[str, Any] | None) -> dict[str, Any]:
+    """Stop only scenario children whose path and start time still match."""
+    stopped: list[str] = []
+    already_exited: list[str] = []
+    failures: list[str] = []
+    if not isinstance(state, dict):
+        return {
+            "stopped": stopped,
+            "already_exited": already_exited,
+            "failures": failures,
+        }
+    timeout = max(0.0, float(state.get("cleanup_timeout", 5.0)))
+    matched: list[tuple[str, dict[str, Any]]] = []
+    for name in ("client", "server"):
+        entry = state.get(name)
+        if not isinstance(entry, dict) or not entry.get("owned"):
+            continue
+        if entry.get("run_token") != state.get("run_token"):
+            failures.append(f"{name}: run token does not match")
+            continue
+        if not _scenario_entry_matches(entry):
+            try:
+                pid = int(entry.get("pid", 0))
+            except (TypeError, ValueError):
+                pid = 0
+            if _process_running(pid):
+                failures.append(f"{name}: process identity no longer matches")
+            else:
+                already_exited.append(name)
+            continue
+        try:
+            os.kill(int(entry["pid"]), signal.SIGTERM)
+            matched.append((name, entry))
+        except (OSError, ProcessLookupError, ValueError) as error:
+            try:
+                pid = int(entry.get("pid", 0))
+            except (TypeError, ValueError):
+                pid = 0
+            # The server may finish between the identity check and this call.
+            # Count that race as a clean exit only after a fresh process check.
+            if not _process_running(pid):
+                already_exited.append(name)
+            else:
+                failures.append(f"{name}: could not request exit: {error}")
+
+    deadline = time.monotonic() + timeout
+    pending = list(matched)
+    while pending and time.monotonic() < deadline:
+        pending = [
+            (name, entry)
+            for name, entry in pending
+            if _process_running(int(entry["pid"])) and _scenario_entry_matches(entry)
+        ]
+        if pending:
+            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+    for name, entry in matched:
+        if any(pending_name == name for pending_name, _ in pending):
+            failures.append(f"{name}: did not exit before cleanup deadline")
+        else:
+            stopped.append(name)
+    return {
+        "stopped": stopped,
+        "already_exited": already_exited,
+        "failures": failures,
+    }
+
+
+def launch_scenario_session(
+    scenario_path: Path | str,
+    run_dir: Path | str,
+    run_token: str,
+    server_port: int,
+    control_port: int,
+    renderer: str = "gpu",
+    allow_fallback: bool = False,
+    timeout: float = 20.0,
+    build_dir: Path | str | None = None,
+) -> dict[str, Any]:
+    """Launch a new, owned server and client for one live scenario run."""
+    if renderer not in {"gpu", "fallback"}:
+        raise LaunchError("renderer must be 'gpu' or 'fallback'")
+    if renderer == "fallback" and not allow_fallback:
+        allow_fallback = True
+    if not isinstance(run_token, str) or not run_token:
+        raise LaunchError("scenario run token must not be empty")
+    try:
+        server_port = int(server_port)
+        control_port = int(control_port)
+    except (TypeError, ValueError) as error:
+        raise LaunchError("server and control ports must be integers") from error
+    if not (1 <= server_port <= 65535 and 1 <= control_port <= 65535):
+        raise LaunchError("server and control ports must be between 1 and 65535")
+    if server_port == control_port:
+        raise LaunchError("server and control ports must differ")
+    if timeout <= 0:
+        raise LaunchError("startup timeout must be greater than zero")
+
+    scenario = Path(scenario_path).resolve()
+    output_dir = Path(run_dir).resolve()
+    launch_build_dir = Path(build_dir or BUILD_DIR).resolve()
+    client_exe = launch_build_dir / "lg_duel_client.exe"
+    server_exe = launch_build_dir / "lg_duel_server.exe"
+    missing = [
+        str(path) for path in (scenario, client_exe, server_exe) if not path.is_file()
+    ]
+    if missing:
+        raise LaunchError("required scenario session file(s) are unavailable: " + ", ".join(missing))
+
+    try:
+        send_request("status", port=control_port, timeout=min(timeout, 0.5))
+    except ControlError:
+        if _control_endpoint_listening(int(control_port), timeout):
+            raise LaunchError(f"control endpoint 127.0.0.1:{control_port} is already listening")
+    else:
+        raise LaunchError(
+            f"control endpoint 127.0.0.1:{control_port} already has a development-control session"
+        )
+
+    selection = resolve_vulkan_selection() if renderer == "gpu" else None
+    output_dir.mkdir(parents=True, exist_ok=True)
+    logs = {
+        "server_stdout": str(output_dir / "server.stdout.log"),
+        "server_stderr": str(output_dir / "server.stderr.log"),
+        "client_stdout": str(output_dir / "client.stdout.log"),
+        "client_stderr": str(output_dir / "client.stderr.log"),
+    }
+    environment = os.environ.copy()
+    environment["LG_DUEL_LIVE_SCENARIO"] = "1"
+    if renderer == "gpu":
+        environment.update(gpu_environment(selection or {}))
+        environment.pop("VK_ICD_FILENAMES", None)
+        environment.pop("VK_ADD_DRIVER_FILES", None)
+    else:
+        environment["LG_DUEL_RENDER_BACKEND"] = "fallback"
+
+    state: dict[str, Any] = {
+        "run_token": run_token,
+        "server_port": server_port,
+        "control_port": control_port,
+        "cleanup_timeout": min(5.0, timeout),
+        "logs": logs,
+        "binaries": {
+            "client": str(client_exe),
+            "server": str(server_exe),
+            "scenario": str(scenario),
+        },
+        "binary_sha256": {
+            "client": _sha256(client_exe),
+            "server": _sha256(server_exe),
+            "scenario": _sha256(scenario),
+        },
+        "build_directory": str(launch_build_dir),
+    }
+    state["build_identity"] = hashlib.sha256(
+        (state["binary_sha256"]["client"] + state["binary_sha256"]["server"]).encode("ascii")
+    ).hexdigest()
+    handles: list[subprocess.Popen[str]] = []
+    try:
+        server_process = _launch_process(
+            server_exe,
+            [
+                str(server_port), "--live-scenario", str(scenario),
+                "--scenario-run-dir", str(output_dir), "--scenario-token", run_token,
+            ],
+            Path(logs["server_stdout"]), Path(logs["server_stderr"]),
+            environment, launch_build_dir,
+        )
+        handles.append(server_process)
+        state["server"] = _scenario_process_record(server_process, server_exe, run_token)
+        client_process = _launch_process(
+            client_exe,
+            ["127.0.0.1", str(server_port), "--dev-control", "--control-port", str(control_port)],
+            Path(logs["client_stdout"]), Path(logs["client_stderr"]),
+            environment, launch_build_dir,
+        )
+        handles.append(client_process)
+        state["client"] = _scenario_process_record(client_process, client_exe, run_token)
+
+        deadline = time.monotonic() + timeout
+        raw = None
+        while time.monotonic() < deadline:
+            if server_process.poll() is not None or client_process.poll() is not None:
+                break
+            try:
+                raw = send_request(
+                    "status", port=control_port,
+                    timeout=min(2.0, max(0.05, deadline - time.monotonic())),
+                )
+                break
+            except ControlError:
+                time.sleep(min(0.25, max(0.0, deadline - time.monotonic())))
+        if raw is None:
+            raise LaunchError("scenario client did not answer before the startup deadline")
+        state["status"] = verify_control_status(
+            raw, requested_renderer=renderer, selection=selection, allow_fallback=allow_fallback
+        )
+        return state
+    except Exception as error:
+        cleanup = cleanup_scenario_session(state)
+        # A just-spawned child remains ours even if identity capture failed.
+        for process in handles:
+            if process.poll() is None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=min(5.0, timeout))
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+        log_text = "\n".join(
+            f"{name}:\n{_tail(Path(path)) or '(none recorded)'}"
+            for name, path in logs.items() if name.endswith("stderr")
+        )
+        raise LaunchError(
+            f"{error}\nCleanup: {cleanup}\nScenario logs:\n{log_text}"
+        ) from error
 
 
 def _existing_server_entry(server_exe: Path) -> dict[str, Any] | None:

@@ -53,8 +53,10 @@ state, selected weapon, projectile presence or removal, event fields and
 counts, and stable state hashes. Failure evidence includes the scenario, run,
 tick, expected value, actual value, and a plain diagnostic.
 
-Do not add client/server, render, capture, or benchmark fields to schema
-version 1. Those belong to later phases.
+Phase 2 extends schema version 1 with a strict `client_server` mode, live
+network settings, check classes, and capture points. See
+`docs/LIVE-SCENARIOS.md`. The headless path ignores no live fields: the parser
+validates one schema, and each runner rejects the wrong execution mode.
 
 Phase 1 hashes promise repeat stability within one build. They do not promise
 the same hash across compilers. The event journal reads stable authoritative

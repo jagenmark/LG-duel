@@ -10,6 +10,7 @@ namespace {
 constexpr int kMaxSimulatedDelayMs = 5000;
 constexpr int kReorderHoldMs = 16;
 constexpr std::size_t kMaxQueuedDatagrams = 512;
+constexpr std::size_t kMaxRecordedDecisions = 1024;
 constexpr std::uint32_t kDefaultSeed = 0x4C474455U;
 
 [[nodiscard]] int clampPercent(int value) {
@@ -43,6 +44,11 @@ ClientNetworkSimulationStats ClientNetworkSimulator::stats() const {
   return stats;
 }
 
+const std::deque<ClientNetworkSimulationDecision>&
+ClientNetworkSimulator::decisions() const {
+  return decisions_;
+}
+
 bool ClientNetworkSimulator::active() const {
   return config_.latencyMs > 0 ||
     config_.jitterMs > 0 ||
@@ -69,6 +75,10 @@ ClientNetworkSimAction ClientNetworkSimulator::enqueue(
     } else {
       ++counters_.droppedIncomingPackets;
     }
+    recordDecision({
+      ++decisionSequence_, direction, ClientNetworkSimAction::Dropped,
+      0, false, false,
+    });
     return ClientNetworkSimAction::Dropped;
   }
 
@@ -91,6 +101,10 @@ ClientNetworkSimAction ClientNetworkSimulator::enqueue(
     }
   }
   if (delayMs == 0) {
+    recordDecision({
+      ++decisionSequence_, direction, ClientNetworkSimAction::Immediate,
+      0, reordered, false,
+    });
     return ClientNetworkSimAction::Immediate;
   }
 
@@ -105,6 +119,10 @@ ClientNetworkSimAction ClientNetworkSimulator::enqueue(
     std::cerr << "net_sim queue limit reached; dropping "
               << (direction == ClientNetworkSimDirection::Outgoing ? "outgoing" : "incoming")
               << " datagram\n";
+    recordDecision({
+      ++decisionSequence_, direction, ClientNetworkSimAction::Dropped,
+      delayMs, reordered, true,
+    });
     return ClientNetworkSimAction::Dropped;
   }
 
@@ -112,6 +130,10 @@ ClientNetworkSimAction ClientNetworkSimulator::enqueue(
     now + std::chrono::milliseconds(delayMs),
     insertionOrder_++,
     wire,
+  });
+  recordDecision({
+    ++decisionSequence_, direction, ClientNetworkSimAction::Queued,
+    delayMs, reordered, false,
   });
   return ClientNetworkSimAction::Queued;
 }
@@ -155,6 +177,7 @@ void ClientNetworkSimulator::clear() {
   // cannot be injected into a later authoritative timeline.
   outgoing_.clear();
   incoming_.clear();
+  decisions_.clear();
 }
 
 std::vector<ClientNetworkSimulator::ScheduledDatagram>&
@@ -210,6 +233,15 @@ int ClientNetworkSimulator::clampedLossPercent() {
 
 int ClientNetworkSimulator::clampedReorderPercent() {
   return clampPercent(config_.reorderPercent);
+}
+
+void ClientNetworkSimulator::recordDecision(
+  ClientNetworkSimulationDecision decision
+) {
+  if (decisions_.size() == kMaxRecordedDecisions) {
+    decisions_.pop_front();
+  }
+  decisions_.push_back(std::move(decision));
 }
 
 } // namespace lg

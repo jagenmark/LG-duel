@@ -1589,6 +1589,11 @@ ClientNetworkSimulationConfig UdpClientTransport::networkSimulationConfig() cons
   return impl_->networkSim.config();
 }
 
+const std::deque<ClientNetworkSimulationDecision>&
+UdpClientTransport::networkSimulationDecisions() const {
+  return impl_->networkSim.decisions();
+}
+
 const std::string& UdpClientTransport::lastError() const {
   return impl_->error;
 }

@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <cmath>
 #include <cctype>
+#include <initializer_list>
+#include <limits>
+#include <set>
 
 namespace lg::dev {
 namespace {
@@ -76,6 +79,11 @@ namespace {
   if (name == "set_cvar") return ControlOperation::SetCvar;
   if (name == "send_input") return ControlOperation::SendInput;
   if (name == "wait_frames") return ControlOperation::WaitFrames;
+  if (name == "get_client_state") return ControlOperation::GetClientState;
+  if (name == "set_network_simulation") return ControlOperation::SetNetworkSimulation;
+  if (name == "wait_client_tick") return ControlOperation::WaitClientTick;
+  if (name == "wait_snapshot_tick") return ControlOperation::WaitSnapshotTick;
+  if (name == "wait_command_ack") return ControlOperation::WaitCommandAck;
   if (name == "set_player_view") return ControlOperation::SetPlayerView;
   if (name == "set_player_weapon") return ControlOperation::SetPlayerWeapon;
   if (name == "run_benchmark") return ControlOperation::RunBenchmark;
@@ -119,6 +127,31 @@ namespace {
   if (value == nullptr) return true;
   if (value->type != JsonValue::Type::Boolean) return false;
   result = value->boolean;
+  return true;
+}
+
+[[nodiscard]] bool hasOnlyMembers(
+  const JsonValue& root,
+  std::initializer_list<std::string_view> allowed
+) {
+  return std::all_of(root.object.begin(), root.object.end(), [&](const auto& member) {
+    return std::find(allowed.begin(), allowed.end(), member.first) != allowed.end();
+  });
+}
+
+[[nodiscard]] bool parseRequiredUnsigned(
+  const JsonValue& root,
+  std::string_view name,
+  std::uint32_t maximum,
+  std::uint32_t& result
+) {
+  const JsonValue* value = root.find(name);
+  if (value == nullptr || value->type != JsonValue::Type::Number ||
+      !std::isfinite(value->number) || std::floor(value->number) != value->number ||
+      value->number < 0.0 || value->number > static_cast<double>(maximum)) {
+    return false;
+  }
+  result = static_cast<std::uint32_t>(value->number);
   return true;
 }
 
@@ -202,6 +235,76 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
     }
     request.waitFrames = static_cast<std::uint32_t>(frames->number);
   }
+  if (request.operation == ControlOperation::GetClientState) {
+    if (!hasOnlyMembers(root, {"id", "control_protocol", "operation"})) {
+      return {{}, false, "get_client_state does not accept operation parameters"};
+    }
+  }
+  if (request.operation == ControlOperation::SetNetworkSimulation) {
+    if (!hasOnlyMembers(
+          root,
+          {
+            "id",
+            "control_protocol",
+            "operation",
+            "latency_ms",
+            "jitter_ms",
+            "packet_loss_percent",
+            "reorder_percent",
+            "seed",
+          })) {
+      return {{}, false, "set_network_simulation contains an unknown parameter"};
+    }
+    std::uint32_t latency = 0;
+    std::uint32_t jitter = 0;
+    std::uint32_t packetLoss = 0;
+    std::uint32_t reorder = 0;
+    std::uint32_t seed = 0;
+    if (!parseRequiredUnsigned(root, "latency_ms", 5000U, latency) ||
+        !parseRequiredUnsigned(root, "jitter_ms", 5000U, jitter) ||
+        !parseRequiredUnsigned(root, "packet_loss_percent", 100U, packetLoss) ||
+        !parseRequiredUnsigned(root, "reorder_percent", 100U, reorder) ||
+        !parseRequiredUnsigned(
+          root, "seed", std::numeric_limits<std::uint32_t>::max(), seed)) {
+      return {
+        {},
+        false,
+        "latency_ms and jitter_ms must be integers from 0 to 5000; "
+        "packet_loss_percent and reorder_percent must be integers from 0 to 100; "
+        "seed must be an unsigned 32-bit integer",
+      };
+    }
+    request.networkSimulation = ClientNetworkSimulationConfig{
+      static_cast<int>(latency),
+      static_cast<int>(jitter),
+      static_cast<int>(packetLoss),
+      static_cast<int>(reorder),
+      seed,
+    };
+  }
+  if (request.operation == ControlOperation::WaitClientTick ||
+      request.operation == ControlOperation::WaitSnapshotTick) {
+    if (!hasOnlyMembers(root, {"id", "control_protocol", "operation", "min_tick"}) ||
+        !parseRequiredUnsigned(
+          root,
+          "min_tick",
+          std::numeric_limits<std::uint32_t>::max(),
+          request.minimumTick
+        )) {
+      return {{}, false, "min_tick must be an unsigned 32-bit integer"};
+    }
+  }
+  if (request.operation == ControlOperation::WaitCommandAck) {
+    if (!hasOnlyMembers(root, {"id", "control_protocol", "operation", "sequence"}) ||
+        !parseRequiredUnsigned(
+          root,
+          "sequence",
+          std::numeric_limits<std::uint32_t>::max(),
+          request.commandSequence
+        )) {
+      return {{}, false, "sequence must be an unsigned 32-bit integer"};
+    }
+  }
   if (request.operation == ControlOperation::SetPlayerView) {
     std::string error;
     if (!parsePlayerAngles(
@@ -217,6 +320,29 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
   }
   if (request.operation == ControlOperation::SendInput) {
     PlayerInput& input = request.playerInput;
+    if (!hasOnlyMembers(
+          root,
+          {
+            "id",
+            "control_protocol",
+            "operation",
+            "ticks",
+            "forward",
+            "right",
+            "up",
+            "attack",
+            "jump",
+            "dash",
+            "crouch",
+            "sneak",
+            "zoom",
+            "yaw",
+            "pitch",
+            "weapon",
+            "one_tick_edges",
+          })) {
+      return {{}, false, "send_input contains an unknown parameter"};
+    }
     if (!parseBoundedAxis(root, "forward", input.forward) ||
         !parseBoundedAxis(root, "right", input.right) ||
         !parseBoundedAxis(root, "up", input.up)) {
@@ -259,6 +385,37 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
     input.weapon = weapon == nullptr ? std::string{} : weapon->string;
     if (!input.weapon.empty() && !parseWeaponToken(input.weapon).has_value()) {
       return {{}, false, "weapon must name a valid LG Duel weapon"};
+    }
+    if (const JsonValue* edges = root.find("one_tick_edges"); edges != nullptr) {
+      if (edges->type != JsonValue::Type::Array) {
+        return {{}, false, "one_tick_edges must be an array"};
+      }
+      std::set<std::string_view> seen;
+      for (const JsonValue& edge : edges->array) {
+        if (edge.type != JsonValue::Type::String || !seen.insert(edge.string).second) {
+          return {{}, false, "one_tick_edges must contain unique action names"};
+        }
+        if (edge.string == "attack") {
+          input.attack = true;
+          input.attackOneTick = true;
+        } else if (edge.string == "jump") {
+          input.jump = true;
+          input.jumpOneTick = true;
+        } else if (edge.string == "dash") {
+          input.dash = true;
+          input.dashOneTick = true;
+        } else if (edge.string == "crouch") {
+          input.crouch = true;
+          input.crouchOneTick = true;
+        } else if (edge.string == "sneak") {
+          input.sneak = true;
+          input.sneakOneTick = true;
+        } else if (edge.string == "zoom") {
+          input.zoom = true;
+          input.zoomOneTick = true;
+        }
+        else return {{}, false, "one_tick_edges contains an unknown action"};
+      }
     }
   }
 

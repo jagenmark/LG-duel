@@ -216,6 +216,226 @@ class LaunchTests(unittest.TestCase):
         self.assertTrue(arguments.allow_fallback)
         self.assertEqual(arguments.timeout, 4.0)
 
+    def scenario_files(self, root: Path) -> tuple[Path, Path, Path]:
+        build = root / "build"
+        build.mkdir()
+        client = build / "lg_duel_client.exe"
+        server = build / "lg_duel_server.exe"
+        scenario = root / "scenario.json"
+        client.write_bytes(b"client")
+        server.write_bytes(b"server")
+        scenario.write_text("{}", encoding="utf-8")
+        return build, scenario, root / "run"
+
+    def test_scenario_launch_owns_both_processes_and_records_identity(self) -> None:
+        class FakeProcess:
+            def __init__(self, pid: int) -> None:
+                self.pid = pid
+
+            def poll(self):
+                return None
+
+        with tempfile.TemporaryDirectory() as temporary:
+            build, scenario, run_dir = self.scenario_files(Path(temporary))
+            with mock.patch.object(
+                lg_launch, "send_request",
+                side_effect=[ControlError("offline"), self.status()],
+            ), mock.patch.object(
+                lg_launch, "_control_endpoint_listening", return_value=False
+            ), mock.patch.object(
+                lg_launch, "resolve_vulkan_selection", return_value=self.selection()
+            ), mock.patch.object(
+                lg_launch, "_process_creation_time", side_effect=[1001, 1002]
+            ), mock.patch.object(
+                lg_launch, "_launch_process",
+                side_effect=[FakeProcess(301), FakeProcess(302)],
+            ) as launch:
+                result = lg_launch.launch_scenario_session(
+                    scenario, run_dir, "run-7", 28060, 28061, build_dir=build
+                )
+
+        self.assertEqual(result["server"]["run_token"], "run-7")
+        self.assertEqual(result["client"]["creation_time"], 1002)
+        self.assertTrue(result["server"]["owned"])
+        self.assertTrue(result["client"]["owned"])
+        self.assertTrue(result["status"]["gpu_verified"])
+        self.assertEqual(len(result["binary_sha256"]["client"]), 64)
+        self.assertEqual(launch.call_args_list[0].args[1], [
+            "28060", "--live-scenario", str(scenario.resolve()),
+            "--scenario-run-dir", str(run_dir.resolve()), "--scenario-token", "run-7",
+        ])
+        self.assertEqual(launch.call_args_list[1].args[1], [
+            "127.0.0.1", "28060", "--dev-control", "--control-port", "28061",
+        ])
+
+    def test_scenario_launch_rejects_any_listening_control_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            build, scenario, run_dir = self.scenario_files(Path(temporary))
+            with mock.patch.object(
+                lg_launch, "send_request", side_effect=ControlError("not dev control")
+            ), mock.patch.object(
+                lg_launch, "_control_endpoint_listening", return_value=True
+            ), mock.patch.object(lg_launch, "_launch_process") as launch:
+                with self.assertRaisesRegex(LaunchError, "already listening"):
+                    lg_launch.launch_scenario_session(
+                        scenario, run_dir, "run-8", 28060, 28061,
+                        renderer="fallback", allow_fallback=True, build_dir=build,
+                    )
+        launch.assert_not_called()
+
+    def test_scenario_launch_rejects_missing_build_before_launch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            scenario = root / "scenario.json"
+            scenario.write_text("{}", encoding="utf-8")
+            with mock.patch.object(lg_launch, "_launch_process") as launch:
+                with self.assertRaisesRegex(LaunchError, "unavailable"):
+                    lg_launch.launch_scenario_session(
+                        scenario, root / "run", "run-9", 28060, 28061,
+                        renderer="fallback", allow_fallback=True, build_dir=root / "missing",
+                    )
+        launch.assert_not_called()
+
+    def test_scenario_launch_failure_cleans_started_server_and_includes_logs(self) -> None:
+        class FakeProcess:
+            pid = 301
+
+            def __init__(self) -> None:
+                self.terminated = False
+
+            def poll(self):
+                return None
+
+            def terminate(self):
+                self.terminated = True
+
+            def wait(self, timeout):
+                return 0
+
+        server_process = FakeProcess()
+        cleanup_result = {"stopped": ["server"], "failures": []}
+        with tempfile.TemporaryDirectory() as temporary:
+            build, scenario, run_dir = self.scenario_files(Path(temporary))
+            with mock.patch.object(
+                lg_launch, "send_request", side_effect=ControlError("offline")
+            ), mock.patch.object(
+                lg_launch, "_control_endpoint_listening", return_value=False
+            ), mock.patch.object(
+                lg_launch, "_process_creation_time", return_value=1001
+            ), mock.patch.object(
+                lg_launch, "_launch_process",
+                side_effect=[server_process, OSError("client failed")],
+            ), mock.patch.object(
+                lg_launch, "cleanup_scenario_session", return_value=cleanup_result
+            ) as cleanup:
+                with self.assertRaisesRegex(LaunchError, r"client failed[\s\S]*server"):
+                    lg_launch.launch_scenario_session(
+                        scenario, run_dir, "run-10", 28060, 28061,
+                        renderer="fallback", allow_fallback=True, build_dir=build,
+                    )
+        cleanup.assert_called_once()
+        self.assertTrue(server_process.terminated)
+
+    def test_scenario_cleanup_stops_only_owned_matching_processes(self) -> None:
+        state = {
+            "cleanup_timeout": 0.1,
+            "run_token": "run-11",
+            "client": {"pid": 101, "owned": True, "path": "client.exe",
+                       "creation_time": 1, "run_token": "run-11"},
+            "server": {"pid": 202, "owned": False, "path": "server.exe",
+                       "creation_time": 2, "run_token": "run-11"},
+        }
+        with mock.patch.object(
+            lg_launch, "_scenario_entry_matches", side_effect=[True, False]
+        ), mock.patch.object(os, "kill") as kill:
+            result = lg_launch.cleanup_scenario_session(state)
+        self.assertEqual(
+            result,
+            {"stopped": ["client"], "already_exited": [], "failures": []},
+        )
+        kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
+
+    def test_scenario_cleanup_reports_identity_failure_without_killing(self) -> None:
+        state = {
+            "run_token": "run-12",
+            "client": {"pid": 101, "owned": True, "path": "client.exe",
+                       "creation_time": 1, "run_token": "run-12"},
+        }
+        with mock.patch.object(
+            lg_launch, "_scenario_entry_matches", return_value=False
+        ), mock.patch.object(
+            lg_launch, "_process_running", return_value=True
+        ), mock.patch.object(os, "kill") as kill:
+            result = lg_launch.cleanup_scenario_session(state)
+        self.assertEqual(result["stopped"], [])
+        self.assertRegex(result["failures"][0], "identity")
+        kill.assert_not_called()
+
+    def test_scenario_cleanup_accepts_owned_process_that_already_exited(self) -> None:
+        state = {
+            "run_token": "run-13",
+            "server": {"pid": 202, "owned": True, "path": "server.exe",
+                       "creation_time": 2, "run_token": "run-13"},
+        }
+        with mock.patch.object(
+            lg_launch, "_scenario_entry_matches", return_value=False
+        ), mock.patch.object(
+            lg_launch, "_process_running", return_value=False
+        ), mock.patch.object(os, "kill") as kill:
+            result = lg_launch.cleanup_scenario_session(state)
+        self.assertEqual(result["already_exited"], ["server"])
+        self.assertEqual(result["failures"], [])
+        kill.assert_not_called()
+
+    def test_scenario_cleanup_accepts_exit_race_during_signal(self) -> None:
+        state = {
+            "run_token": "run-13b",
+            "server": {
+                "pid": 203,
+                "owned": True,
+                "path": "server.exe",
+                "creation_time": 2,
+                "run_token": "run-13b",
+            },
+        }
+        with mock.patch.object(
+            lg_launch,
+            "_scenario_entry_matches",
+            return_value=True,
+        ), mock.patch.object(
+            lg_launch,
+            "_process_running",
+            return_value=False,
+        ), mock.patch.object(
+            os,
+            "kill",
+            side_effect=PermissionError("process exited"),
+        ):
+            result = lg_launch.cleanup_scenario_session(state)
+        self.assertEqual(result["already_exited"], ["server"])
+        self.assertEqual(result["failures"], [])
+
+    def test_scenario_cleanup_stops_tracking_after_process_exits(self) -> None:
+        state = {
+            "cleanup_timeout": 0.1,
+            "run_token": "run-14",
+            "client": {
+                "pid": 101,
+                "owned": True,
+                "path": "client.exe",
+                "creation_time": 1,
+                "run_token": "run-14",
+            },
+        }
+        with mock.patch.object(
+            lg_launch, "_scenario_entry_matches", return_value=True
+        ), mock.patch.object(
+            lg_launch, "_process_running", side_effect=[True, False]
+        ), mock.patch.object(os, "kill"):
+            result = lg_launch.cleanup_scenario_session(state)
+        self.assertEqual(result["stopped"], ["client"])
+        self.assertEqual(result["failures"], [])
+
 
 if __name__ == "__main__":
     unittest.main()

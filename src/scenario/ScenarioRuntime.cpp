@@ -295,7 +295,7 @@ dev::JsonValue matchJson(const ScenarioMatchState& match) {
   return value;
 }
 
-ScenarioSetup makeSetup(const ScenarioDefinition& scenario) {
+ScenarioSetup makeScenarioSetup(const ScenarioDefinition& scenario) {
   ScenarioSetup setup;
   setup.seed = scenario.world.seed;
   setup.match.gameMode = scenario.world.gameMode;
@@ -660,6 +660,9 @@ AssertionEvidence evaluateAssertion(
       "state hash expected " + expected.hash + ", actual " + std::string(hash));
     break;
   }
+  default:
+    finish(false, "assertion is not an authoritative server-state check");
+    break;
   }
   return result;
 }
@@ -736,6 +739,54 @@ std::string differenceMessage(
 }
 
 } // namespace
+
+ScenarioSetup scenarioSetup(const ScenarioDefinition& scenario) {
+  return makeScenarioSetup(scenario);
+}
+
+bool ScenarioEventJournal::observe(
+  std::uint32_t run,
+  std::uint32_t tick,
+  const ScenarioState& before,
+  const ScenarioState& after,
+  const ServerSnapshot& snapshot,
+  std::string& error
+) {
+  return deriveEvents(
+    run,
+    tick,
+    before,
+    after,
+    snapshot,
+    events_,
+    priorTickEvents_,
+    sequence_,
+    error
+  );
+}
+
+const std::vector<EventEvidence>& ScenarioEventJournal::events() const {
+  return events_;
+}
+
+AssertionEvidence evaluateScenarioAssertion(
+  std::size_t index,
+  std::uint32_t run,
+  std::uint32_t tick,
+  const ScenarioAssertion& assertion,
+  const ScenarioState& state,
+  std::span<const EventEvidence> events
+) {
+  return evaluateAssertion(
+    index,
+    run,
+    tick,
+    assertion,
+    state,
+    scenarioStateHash(state),
+    std::vector<EventEvidence>(events.begin(), events.end())
+  );
+}
 
 std::string scenarioStateHash(const ScenarioState& state) {
   StableHash hash;
@@ -821,7 +872,7 @@ ScenarioRunResult runScenario(
     CommandQueueTransport transport;
     ServerGame game(transport);
     game.setMapDirectory(options.mapsDirectory.string());
-    const ScenarioSetup setup = makeSetup(scenario);
+    const ScenarioSetup setup = scenarioSetup(scenario);
     std::string setupError;
     if (
       scenario.world.gameMode == GameMode::McGuffin &&
@@ -990,10 +1041,13 @@ ScenarioRunResult runScenario(
               tick >= entry.atTick + entry.durationTicks) continue;
           command.forwardMove = entry.input.forward;
           command.rightMove = entry.input.right;
+          command.upMove = entry.input.up;
           command.jump = entry.input.jump;
           command.crouch = entry.input.crouch;
           command.dash = entry.input.dash;
           command.attack = entry.input.attack;
+          command.sneak = entry.input.sneak;
+          command.zoomed = entry.input.zoom;
           if (entry.input.weapon) command.weapon = *entry.input.weapon;
           if (entry.input.yawDegrees)
             command.viewYawRadians = *entry.input.yawDegrees * kPi / 180.0F;
@@ -1014,6 +1068,8 @@ ScenarioRunResult runScenario(
                 edges[player.index].attackWeapon = command.weapon;
                 break;
               case OneTickEdge::Crouch: command.crouch = true; break;
+              case OneTickEdge::Sneak: command.sneak = true; break;
+              case OneTickEdge::Zoom: command.zoomed = true; break;
               }
             }
           }

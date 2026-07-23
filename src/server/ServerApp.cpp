@@ -276,23 +276,128 @@ void syncGameplayConsoleFromSnapshot(
 
 } // namespace
 
+ServerCommandLineResult parseServerCommandLine(
+  int argc,
+  const char* const* argv
+) {
+  ServerCommandLineResult parsed;
+  if (argc < 0 || (argc > 0 && argv == nullptr)) {
+    parsed.error = "Invalid server command line";
+    return parsed;
+  }
+  if (argc > 0 && argv[0] != nullptr) {
+    parsed.options.executablePath = argv[0];
+  }
+
+  int argument = 1;
+  if (argument < argc) {
+    if (argv[argument] == nullptr) {
+      parsed.error = "Invalid UDP port";
+      return parsed;
+    }
+    const std::string_view text = argv[argument];
+    unsigned int port = 0;
+    const auto result = std::from_chars(
+      text.data(),
+      text.data() + text.size(),
+      port
+    );
+    if (
+      result.ec != std::errc{} ||
+      result.ptr != text.data() + text.size() ||
+      port > 65535U
+    ) {
+      parsed.error = "Invalid UDP port: " + std::string(text);
+      return parsed;
+    }
+    parsed.options.port = static_cast<std::uint16_t>(port);
+    ++argument;
+  }
+
+  scenario::LiveScenarioOptions live;
+  bool haveScenario = false;
+  bool haveRunDirectory = false;
+  bool haveToken = false;
+  while (argument < argc) {
+    if (argument + 1 >= argc || argv[argument] == nullptr ||
+        argv[argument + 1] == nullptr) {
+      parsed.error =
+        "Live scenario options require a value and must be supplied together";
+      return parsed;
+    }
+    const std::string_view flag = argv[argument];
+    const std::string value = argv[argument + 1];
+    if (flag == "--live-scenario" && !haveScenario) {
+      live.scenarioPath = value;
+      haveScenario = true;
+    } else if (flag == "--scenario-run-dir" && !haveRunDirectory) {
+      live.runDirectory = value;
+      haveRunDirectory = true;
+    } else if (flag == "--scenario-token" && !haveToken) {
+      live.token = value;
+      haveToken = true;
+    } else {
+      parsed.error = "Unknown or repeated server option: " +
+        std::string(flag);
+      return parsed;
+    }
+    argument += 2;
+  }
+
+  const int liveOptionCount =
+    static_cast<int>(haveScenario) +
+    static_cast<int>(haveRunDirectory) +
+    static_cast<int>(haveToken);
+  if (liveOptionCount != 0 && liveOptionCount != 3) {
+    parsed.error =
+      "--live-scenario, --scenario-run-dir, and --scenario-token "
+      "must be supplied together";
+    return parsed;
+  }
+  if (liveOptionCount == 3) {
+    if (!scenario::validateLiveScenarioOptions(live, parsed.error)) {
+      return parsed;
+    }
+    parsed.options.liveScenario = std::move(live);
+  }
+  parsed.ok = true;
+  return parsed;
+}
+
 ServerApp::ServerApp(std::uint16_t port, std::string executablePath)
-  : port_(port), executablePath_(std::move(executablePath)) {}
+  : options_{port, std::move(executablePath), std::nullopt} {}
+
+ServerApp::ServerApp(ServerLaunchOptions options)
+  : options_(std::move(options)) {}
 
 int ServerApp::run() const {
-  UdpServerTransport transport(port_);
+  std::optional<scenario::LiveScenarioSession> liveSession;
+  if (options_.liveScenario.has_value()) {
+    std::string liveError;
+    liveSession = scenario::LiveScenarioSession::load(
+      *options_.liveScenario,
+      liveError
+    );
+    if (!liveSession.has_value()) {
+      std::cerr << "Live scenario initialization failed: "
+                << liveError << '\n';
+      return 1;
+    }
+  }
+
+  UdpServerTransport transport(options_.port);
   if (!transport.initialize()) {
     std::cerr << "UDP server initialization failed: " << transport.lastError() << '\n';
     return 1;
   }
 
   const std::filesystem::path balanceConfigPath =
-    defaultConfigPath(executablePath_, "balance.cfg");
+    defaultConfigPath(options_.executablePath, "balance.cfg");
   ServerGame server(
     transport,
     balanceConfigPath.empty() ? std::string{} : balanceConfigPath.string()
   );
-  server.setMapDirectory(defaultMapDirectory(executablePath_));
+  server.setMapDirectory(defaultMapDirectory(options_.executablePath));
   (void)server.loadRequestedMap(kDefaultMapName);
   std::cout << "LG Duel server listening on UDP port " << transport.localPort() << '\n';
 
@@ -324,7 +429,7 @@ int ServerApp::run() const {
   console.registerCvar({
     "map_path",
     "Map file used by map_validate and map_reload.",
-    defaultMapPath(executablePath_),
+    defaultMapPath(options_.executablePath),
     CvarFlag::None,
   });
   registerGameplayCvars(console, CvarFlag::None);
@@ -520,7 +625,7 @@ int ServerApp::run() const {
   );
 
   const std::filesystem::path serverCvarsPath =
-    defaultConfigPath(executablePath_, "server_cvars.cfg");
+    defaultConfigPath(options_.executablePath, "server_cvars.cfg");
   if (!serverCvarsPath.empty()) {
     logConsoleConfigErrors(
       executeConsoleConfigFile(console, serverCvarsPath.string())
@@ -688,13 +793,15 @@ int ServerApp::run() const {
 
   std::mutex inputMutex;
   std::deque<std::string> inputLines;
-  std::thread([&inputMutex, &inputLines] {
-    std::string line;
-    while (std::getline(std::cin, line)) {
-      std::lock_guard lock(inputMutex);
-      inputLines.push_back(std::move(line));
-    }
-  }).detach();
+  if (!liveSession.has_value()) {
+    std::thread([&inputMutex, &inputLines] {
+      std::string line;
+      while (std::getline(std::cin, line)) {
+        std::lock_guard lock(inputMutex);
+        inputLines.push_back(std::move(line));
+      }
+    }).detach();
+  }
 
   using Clock = std::chrono::steady_clock;
   const auto tickDuration = std::chrono::duration_cast<Clock::duration>(
@@ -711,7 +818,27 @@ int ServerApp::run() const {
       transport.connectedPlayerSessions()
     );
 
-    {
+    bool observeLiveTick = false;
+    if (liveSession.has_value()) {
+      const scenario::LiveScenarioUpdate liveUpdate =
+        liveSession->beforeServerTick(
+          server,
+          transport.connectedPlayers(),
+          transport.connectedPlayerSessions()
+        );
+      if (liveUpdate == scenario::LiveScenarioUpdate::Failed) {
+        std::cerr << "Live scenario failed: "
+                  << liveSession->error() << '\n';
+        return 1;
+      }
+      if (liveUpdate == scenario::LiveScenarioUpdate::Complete) {
+        return 0;
+      }
+      observeLiveTick =
+        liveUpdate == scenario::LiveScenarioUpdate::Running;
+    }
+
+    if (!liveSession.has_value()) {
       std::lock_guard lock(inputMutex);
       while (!inputLines.empty()) {
         const std::string result = console.execute(inputLines.front());
@@ -736,6 +863,18 @@ int ServerApp::run() const {
       resetRequested = false;
     }
     server.tick(kFixedTickSeconds);
+    if (observeLiveTick) {
+      const scenario::LiveScenarioUpdate liveUpdate =
+        liveSession->afterServerTick(server);
+      if (liveUpdate == scenario::LiveScenarioUpdate::Failed) {
+        std::cerr << "Live scenario failed: "
+                  << liveSession->error() << '\n';
+        return 1;
+      }
+      if (liveUpdate == scenario::LiveScenarioUpdate::Complete) {
+        return 0;
+      }
+    }
     if (!gameplayConsoleMatchesSnapshot(console, server.snapshot())) {
       syncGameplayConsoleFromSnapshot(console, server.snapshot());
       applyConsoleCvarsToServer();

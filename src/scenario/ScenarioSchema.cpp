@@ -20,6 +20,10 @@ using Type = dev::JsonValue::Type;
 constexpr double kMaxCoordinate = 100000.0;
 constexpr double kMaxVelocity = 10000.0;
 constexpr std::uint32_t kMaxScenarioTicks = 10000000U;
+constexpr std::uint32_t kMaxLiveScenarioTicks = 2500U;
+constexpr std::uint32_t kMaxLiveInputTicks = 1250U;
+constexpr int kMaxNetworkDelayMs = 5000;
+constexpr std::uint32_t kMaxScreenshotDimension = 16384U;
 
 [[nodiscard]] std::string childPath(std::string_view path, std::string_view key) {
   return path.empty() ? std::string(key) : std::string(path) + "." + std::string(key);
@@ -208,6 +212,42 @@ template <typename Integer>
   return std::nullopt;
 }
 
+[[nodiscard]] std::optional<OneTickEdge> parseOneTickEdge(std::string_view value) {
+  if (value == "jump") return OneTickEdge::Jump;
+  if (value == "crouch") return OneTickEdge::Crouch;
+  if (value == "dash") return OneTickEdge::Dash;
+  if (value == "attack") return OneTickEdge::Attack;
+  if (value == "sneak") return OneTickEdge::Sneak;
+  if (value == "zoom") return OneTickEdge::Zoom;
+  return std::nullopt;
+}
+
+[[nodiscard]] std::string_view oneTickEdgeName(OneTickEdge edge) {
+  switch (edge) {
+  case OneTickEdge::Jump: return "jump";
+  case OneTickEdge::Crouch: return "crouch";
+  case OneTickEdge::Dash: return "dash";
+  case OneTickEdge::Attack: return "attack";
+  case OneTickEdge::Sneak: return "sneak";
+  case OneTickEdge::Zoom: return "zoom";
+  }
+  return "unknown";
+}
+
+[[nodiscard]] std::optional<AssertionClassification> parseClassification(
+  std::string_view value
+) {
+  if (value == "AUTHORITATIVE_DETERMINISTIC")
+    return AssertionClassification::AuthoritativeDeterministic;
+  if (value == "CLIENT_BOUNDED")
+    return AssertionClassification::ClientBounded;
+  if (value == "RENDERER_ATTESTED")
+    return AssertionClassification::RendererAttested;
+  if (value == "VISUAL_REVIEW")
+    return AssertionClassification::VisualReview;
+  return std::nullopt;
+}
+
 [[nodiscard]] bool parseExecution(
   const dev::JsonValue& value,
   ScenarioExecution& output,
@@ -217,11 +257,14 @@ template <typename Integer>
   if (!rejectUnknown(value, {"mode", "max_ticks", "repeat"}, path, error)) return false;
   std::string mode;
   if (!stringValue(value.find("mode"), mode, "execution.mode", error)) return false;
-  if (mode != "headless") {
-    error = "execution.mode: schema version 1 supports only headless";
+  if (mode == "headless") {
+    output.mode = ScenarioExecutionMode::Headless;
+  } else if (mode == "client_server") {
+    output.mode = ScenarioExecutionMode::ClientServer;
+  } else {
+    error = "execution.mode: must be headless or client_server";
     return false;
   }
-  output.mode = ScenarioExecutionMode::Headless;
   if (!integerValue(
         value.find("max_ticks"), std::uint32_t{1}, kMaxScenarioTicks,
         output.maxTicks, childPath(path, "max_ticks"), error)) return false;
@@ -229,6 +272,33 @@ template <typename Integer>
       !integerValue(
         repeat, std::uint32_t{1}, std::uint32_t{100}, output.repeat,
         childPath(path, "repeat"), error)) return false;
+  return true;
+}
+
+[[nodiscard]] bool parseNetwork(
+  const dev::JsonValue& value,
+  ScenarioNetwork& output,
+  std::string& error
+) {
+  const std::string path = "network";
+  if (!rejectUnknown(
+        value,
+        {"latency_ms", "jitter_ms", "packet_loss_percent", "reorder_percent", "seed"},
+        path,
+        error)) return false;
+  auto parseOptional = [&](std::string_view name, int maximum, int& target) {
+    const dev::JsonValue* member = value.find(name);
+    return member == nullptr ||
+      integerValue(member, 0, maximum, target, childPath(path, name), error);
+  };
+  if (!parseOptional("latency_ms", kMaxNetworkDelayMs, output.latencyMs) ||
+      !parseOptional("jitter_ms", kMaxNetworkDelayMs, output.jitterMs) ||
+      !parseOptional("packet_loss_percent", 100, output.packetLossPercent) ||
+      !parseOptional("reorder_percent", 100, output.reorderPercent) ||
+      !integerValue(
+        value.find("seed"), std::uint32_t{0},
+        std::numeric_limits<std::uint32_t>::max(), output.seed,
+        "network.seed", error)) return false;
   return true;
 }
 
@@ -353,17 +423,25 @@ template <typename Integer>
     return false;
   }
   if (!rejectUnknown(
-        value, {"forward", "right", "jump", "crouch", "dash", "attack",
-                "weapon", "yaw", "pitch"}, path, error)) return false;
+        value, {"forward", "right", "up", "jump", "crouch", "dash", "attack",
+                "sneak", "zoom", "weapon", "yaw", "pitch"}, path, error)) return false;
   if (const dev::JsonValue* forward = value.find("forward"); forward != nullptr &&
       !numberValue(forward, -1.0, 1.0, output.forward, childPath(path, "forward"), error))
     return false;
   if (const dev::JsonValue* right = value.find("right"); right != nullptr &&
       !numberValue(right, -1.0, 1.0, output.right, childPath(path, "right"), error))
     return false;
-  bool* boolOutputs[] = {&output.jump, &output.crouch, &output.dash, &output.attack};
-  const std::string_view boolNames[] = {"jump", "crouch", "dash", "attack"};
-  for (std::size_t index = 0; index < 4U; ++index) {
+  if (const dev::JsonValue* up = value.find("up"); up != nullptr &&
+      !numberValue(up, -1.0, 1.0, output.up, childPath(path, "up"), error))
+    return false;
+  bool* boolOutputs[] = {
+    &output.jump, &output.crouch, &output.dash, &output.attack,
+    &output.sneak, &output.zoom,
+  };
+  const std::string_view boolNames[] = {
+    "jump", "crouch", "dash", "attack", "sneak", "zoom",
+  };
+  for (std::size_t index = 0; index < std::size(boolOutputs); ++index) {
     if (const dev::JsonValue* member = value.find(boolNames[index]); member != nullptr &&
         !boolValue(member, *boolOutputs[index], childPath(path, boolNames[index]), error))
       return false;
@@ -434,21 +512,19 @@ template <typename Integer>
       const dev::JsonValue& edge = edges->array[index];
       const std::string edgePath = itemPath(childPath(path, "one_tick_edges"), index);
       if (edge.type != Type::String) {
-        error = edgePath + ": must be jump, crouch, dash, or attack";
+        error = edgePath + ": must be a supported one-tick input edge";
         return false;
       }
       if (!seen.insert(edge.string).second) {
         error = edgePath + ": duplicate edge";
         return false;
       }
-      if (edge.string == "jump") output.oneTickEdges.push_back(OneTickEdge::Jump);
-      else if (edge.string == "crouch") output.oneTickEdges.push_back(OneTickEdge::Crouch);
-      else if (edge.string == "dash") output.oneTickEdges.push_back(OneTickEdge::Dash);
-      else if (edge.string == "attack") output.oneTickEdges.push_back(OneTickEdge::Attack);
-      else {
-        error = edgePath + ": must be jump, crouch, dash, or attack";
+      const std::optional<OneTickEdge> parsed = parseOneTickEdge(edge.string);
+      if (!parsed) {
+        error = edgePath + ": must be jump, crouch, dash, attack, sneak, or zoom";
         return false;
       }
+      output.oneTickEdges.push_back(*parsed);
     }
   }
   const dev::JsonValue* input = required(value, "input", Type::Object, path, error);
@@ -584,11 +660,22 @@ template <typename Integer>
   std::string type;
   if (!stringValue(value.find("type"), type, childPath(path, "type"), error) ||
       !parseSchedule(value, output, path, maxTicks, error)) return false;
+  if (const dev::JsonValue* classification = value.find("classification");
+      classification != nullptr) {
+    if (classification->type != Type::String ||
+        !parseClassification(classification->string)) {
+      error = childPath(path, "classification") +
+        ": must be AUTHORITATIVE_DETERMINISTIC, CLIENT_BOUNDED, "
+        "RENDERER_ATTESTED, or VISUAL_REVIEW";
+      return false;
+    }
+    output.classification = *parseClassification(classification->string);
+  }
 
-  const auto common = {"type", "at_tick", "at_completion"};
   if (type == "player_position" || type == "player_velocity") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "player", "value", "tolerance"},
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "player", "value", "tolerance"},
           path, error)) return false;
     PlayerVectorAssertion parsed;
     if (!assertionPlayer(value, parsed.player, path, players, error) ||
@@ -604,7 +691,8 @@ template <typename Integer>
     output.payload = parsed;
   } else if (type == "player_health") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "player", "health"},
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "player", "health"},
           path, error)) return false;
     PlayerHealthAssertion parsed;
     if (!assertionPlayer(value, parsed.player, path, players, error) ||
@@ -615,7 +703,8 @@ template <typename Integer>
     output.payload = parsed;
   } else if (type == "player_alive") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "player", "alive"},
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "player", "alive"},
           path, error)) return false;
     PlayerAliveAssertion parsed;
     if (!assertionPlayer(value, parsed.player, path, players, error) ||
@@ -626,7 +715,8 @@ template <typename Integer>
     output.payload = parsed;
   } else if (type == "player_weapon") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "player", "weapon"},
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "player", "weapon"},
           path, error)) return false;
     PlayerWeaponAssertion parsed;
     if (!assertionPlayer(value, parsed.player, path, players, error) ||
@@ -637,7 +727,8 @@ template <typename Integer>
     output.payload = parsed;
   } else if (type == "projectile_exists" || type == "projectile_removed") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "owner", "weapon"},
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "owner", "weapon"},
           path, error)) return false;
     ProjectileAssertion parsed;
     if (const dev::JsonValue* owner = value.find("owner"); owner != nullptr) {
@@ -662,7 +753,8 @@ template <typename Integer>
     output.payload = parsed;
   } else if (type == "event") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "event"}, path, error))
+          value, {"type", "classification", "at_tick", "at_completion", "event"},
+          path, error))
       return false;
     const dev::JsonValue* event = required(value, "event", Type::Object, path, error);
     EventAssertion parsed;
@@ -683,7 +775,8 @@ template <typename Integer>
     output.payload = std::move(parsed);
   } else if (type == "state_hash") {
     if (!rejectUnknown(
-          value, {"type", "at_tick", "at_completion", "hash"}, path, error))
+          value, {"type", "classification", "at_tick", "at_completion", "hash"},
+          path, error))
       return false;
     StateHashAssertion parsed;
     if (!stringValue(
@@ -698,11 +791,127 @@ template <typename Integer>
     }
     output.type = AssertionType::StateHash;
     output.payload = std::move(parsed);
+  } else if (type == "command_acknowledged") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "timeline_index", "max_ticks"}, path, error)) return false;
+    CommandAcknowledgedAssertion parsed;
+    if (!integerValue(
+          value.find("timeline_index"), std::size_t{0}, std::size_t{99999},
+          parsed.timelineIndex, childPath(path, "timeline_index"), error) ||
+        !integerValue(
+          value.find("max_ticks"), std::uint32_t{0}, maxTicks, parsed.maxTicks,
+          childPath(path, "max_ticks"), error)) return false;
+    output.type = AssertionType::CommandAcknowledged;
+    output.payload = parsed;
+  } else if (type == "input_edge_count") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "edge", "count"}, path, error)) return false;
+    const dev::JsonValue* edge = value.find("edge");
+    InputEdgeCountAssertion parsed;
+    if (edge == nullptr || edge->type != Type::String ||
+        !parseOneTickEdge(edge->string)) {
+      error = childPath(path, "edge") +
+        ": must be jump, crouch, dash, attack, sneak, or zoom";
+      return false;
+    }
+    parsed.edge = *parseOneTickEdge(edge->string);
+    if (!integerValue(
+          value.find("count"), std::uint32_t{0}, std::uint32_t{1000000},
+          parsed.count, childPath(path, "count"), error)) return false;
+    output.type = AssertionType::InputEdgeCount;
+    output.payload = parsed;
+  } else if (type == "client_pending_commands_max") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion", "max"},
+          path, error)) return false;
+    ClientPendingCommandsMaxAssertion parsed;
+    if (!integerValue(
+          value.find("max"), std::uint32_t{0}, kMaxScenarioTicks, parsed.max,
+          childPath(path, "max"), error)) return false;
+    output.type = AssertionType::ClientPendingCommandsMax;
+    output.payload = parsed;
+  } else if (type == "client_correction_magnitude_max") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion", "max"},
+          path, error)) return false;
+    ClientCorrectionMagnitudeMaxAssertion parsed;
+    if (!numberValue(
+          value.find("max"), 0.0, kMaxCoordinate, parsed.max,
+          childPath(path, "max"), error)) return false;
+    output.type = AssertionType::ClientCorrectionMagnitudeMax;
+    output.payload = parsed;
+  } else if (type == "client_correction_count") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion", "min", "max"},
+          path, error)) return false;
+    ClientCorrectionCountAssertion parsed;
+    if (!integerValue(
+          value.find("min"), std::uint32_t{0}, kMaxScenarioTicks, parsed.min,
+          childPath(path, "min"), error)) return false;
+    if (const dev::JsonValue* maximum = value.find("max"); maximum != nullptr) {
+      std::uint32_t parsedMax = 0;
+      if (!integerValue(
+            maximum, parsed.min, kMaxScenarioTicks, parsedMax,
+            childPath(path, "max"), error)) return false;
+      parsed.max = parsedMax;
+    }
+    output.type = AssertionType::ClientCorrectionCount;
+    output.payload = parsed;
+  } else if (type == "client_converged") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "player", "tolerance", "within_ticks"}, path, error)) return false;
+    ClientConvergedAssertion parsed;
+    if (!assertionPlayer(value, parsed.player, path, players, error) ||
+        !numberValue(
+          value.find("tolerance"), 0.0, kMaxCoordinate, parsed.tolerance,
+          childPath(path, "tolerance"), error) ||
+        !integerValue(
+          value.find("within_ticks"), std::uint32_t{0}, maxTicks,
+          parsed.withinTicks, childPath(path, "within_ticks"), error)) return false;
+    output.type = AssertionType::ClientConverged;
+    output.payload = parsed;
+  } else if (type == "client_connected") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion", "expected"},
+          path, error)) return false;
+    ClientConnectedAssertion parsed;
+    if (!boolValue(
+          value.find("expected"), parsed.expected, childPath(path, "expected"), error))
+      return false;
+    output.type = AssertionType::ClientConnected;
+    output.payload = parsed;
+  } else if (type == "renderer_backend") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion", "backend"},
+          path, error)) return false;
+    RendererBackendAssertion parsed;
+    if (!stringValue(
+          value.find("backend"), parsed.backend, childPath(path, "backend"), error))
+      return false;
+    output.type = AssertionType::RendererBackend;
+    output.payload = std::move(parsed);
+  } else if (type == "screenshot_checkpoint") {
+    if (!rejectUnknown(
+          value, {"type", "classification", "at_tick", "at_completion",
+                  "capture", "width", "height"}, path, error)) return false;
+    ScreenshotCheckpointAssertion parsed;
+    if (!stringValue(
+          value.find("capture"), parsed.capture, childPath(path, "capture"), error) ||
+        !integerValue(
+          value.find("width"), std::uint32_t{1}, kMaxScreenshotDimension,
+          parsed.width, childPath(path, "width"), error) ||
+        !integerValue(
+          value.find("height"), std::uint32_t{1}, kMaxScreenshotDimension,
+          parsed.height, childPath(path, "height"), error)) return false;
+    output.type = AssertionType::ScreenshotCheckpoint;
+    output.payload = std::move(parsed);
   } else {
     error = childPath(path, "type") + ": unknown assertion type '" + type + "'";
     return false;
   }
-  (void)common;
   return true;
 }
 
@@ -712,6 +921,118 @@ template <typename Integer>
     dev::JsonValue::numberValue(value.y),
     dev::JsonValue::numberValue(value.z),
   });
+}
+
+[[nodiscard]] bool parseCaptureAfterEvent(
+  const dev::JsonValue& value,
+  CaptureAfterEvent& output,
+  std::string_view path,
+  const std::set<std::size_t>& players,
+  std::string& error
+) {
+  if (value.type != Type::Object) {
+    error = std::string(path) + ": must be an object";
+    return false;
+  }
+  if (!rejectUnknown(value, {"type", "actor", "target", "weapon"}, path, error) ||
+      !stringValue(value.find("type"), output.type, childPath(path, "type"), error))
+    return false;
+  static const std::set<std::string> supportedTypes = {
+    "weapon_fired",
+    "projectile_spawned",
+    "projectile_impacted",
+    "explosion_created",
+    "damage_applied",
+    "player_killed",
+    "player_respawned",
+    "score_changed",
+    "round_state_changed",
+  };
+  if (!supportedTypes.contains(output.type)) {
+    error = childPath(path, "type") +
+      ": unsupported event type '" + output.type + "'";
+    return false;
+  }
+  auto parsePlayerFilter = [&](std::string_view key, std::optional<std::size_t>& target) {
+    const dev::JsonValue* member = value.find(key);
+    if (member == nullptr) return true;
+    std::size_t parsed = 0;
+    if (!integerValue(
+          member, std::size_t{0}, kMaxPlayers - 1U, parsed,
+          childPath(path, key), error)) return false;
+    if (!players.contains(parsed)) {
+      error = childPath(path, key) + ": does not name a configured player";
+      return false;
+    }
+    target = parsed;
+    return true;
+  };
+  if (!parsePlayerFilter("actor", output.actor) ||
+      !parsePlayerFilter("target", output.target)) return false;
+  if (const dev::JsonValue* weapon = value.find("weapon"); weapon != nullptr) {
+    Weapon parsed = {};
+    if (!weaponValue(weapon, parsed, childPath(path, "weapon"), error)) return false;
+    output.weapon = parsed;
+  }
+  return true;
+}
+
+[[nodiscard]] bool parseCapture(
+  const dev::JsonValue& value,
+  ScenarioCapture& output,
+  std::string_view path,
+  std::uint32_t maxTicks,
+  const std::set<std::size_t>& players,
+  std::string& error
+) {
+  if (value.type != Type::Object) {
+    error = std::string(path) + ": must be an object";
+    return false;
+  }
+  if (!rejectUnknown(
+        value, {"name", "at_server_tick", "after_event", "wait_rendered_frames"},
+        path, error) ||
+      !stringValue(value.find("name"), output.name, childPath(path, "name"), error))
+    return false;
+  if (output.name.size() > 128U ||
+      !std::all_of(output.name.begin(), output.name.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '_' || c == '-';
+      })) {
+    error = childPath(path, "name") +
+      ": may only use letters, numbers, '_' and '-' (128 bytes max)";
+    return false;
+  }
+  const dev::JsonValue* tick = value.find("at_server_tick");
+  const dev::JsonValue* event = value.find("after_event");
+  if ((tick == nullptr) == (event == nullptr)) {
+    error = std::string(path) +
+      ": needs exactly one of at_server_tick or after_event";
+    return false;
+  }
+  if (tick != nullptr) {
+    std::uint32_t parsed = 0;
+    if (!integerValue(
+          tick, std::uint32_t{0}, maxTicks, parsed,
+          childPath(path, "at_server_tick"), error)) return false;
+    output.atServerTick = parsed;
+  } else {
+    if (event->type != Type::Object) {
+      error = childPath(path, "after_event") + ": must be an object";
+      return false;
+    }
+    CaptureAfterEvent parsed;
+    if (!parseCaptureAfterEvent(
+          *event, parsed, childPath(path, "after_event"), players, error))
+      return false;
+    output.afterEvent = std::move(parsed);
+  }
+  if (const dev::JsonValue* wait = value.find("wait_rendered_frames");
+      wait != nullptr &&
+      !integerValue(
+        wait, std::uint32_t{0}, std::uint32_t{600},
+        output.waitRenderedFrames, childPath(path, "wait_rendered_frames"), error))
+    return false;
+  return true;
 }
 
 void putSchedule(dev::JsonValue& value, const ScenarioAssertion& assertion) {
@@ -731,7 +1052,8 @@ ScenarioParseResult parseScenario(const dev::JsonValue& root) {
   std::string error;
   if (!rejectUnknown(
         root, {"schema_version", "name", "description", "execution", "world",
-               "players", "timeline", "assertions", "expected_failure"}, "", error))
+               "network", "players", "timeline", "assertions", "captures",
+               "expected_failure"}, "", error))
     return {{}, false, std::move(error)};
 
   ScenarioDefinition scenario;
@@ -756,9 +1078,34 @@ ScenarioParseResult parseScenario(const dev::JsonValue& root) {
     required(root, "execution", Type::Object, "", error);
   if (execution == nullptr || !parseExecution(*execution, scenario.execution, error))
     return {{}, false, std::move(error)};
+  if (
+    scenario.execution.mode == ScenarioExecutionMode::ClientServer &&
+    scenario.execution.maxTicks > kMaxLiveScenarioTicks
+  ) {
+    return {{}, false, "execution.max_ticks: client_server limit is 2500"};
+  }
+  if (
+    scenario.execution.mode == ScenarioExecutionMode::ClientServer &&
+    scenario.execution.repeat != 1U
+  ) {
+    return {
+      {},
+      false,
+      "execution.repeat: client_server scenarios run once per owned process pair"
+    };
+  }
   const dev::JsonValue* world = required(root, "world", Type::Object, "", error);
   if (world == nullptr || !parseWorld(*world, scenario.world, error))
     return {{}, false, std::move(error)};
+  if (const dev::JsonValue* network = root.find("network"); network != nullptr) {
+    if (network->type != Type::Object) {
+      return {{}, false, "network: must be an object"};
+    }
+    ScenarioNetwork parsed;
+    if (!parseNetwork(*network, parsed, error))
+      return {{}, false, std::move(error)};
+    scenario.network = parsed;
+  }
 
   const dev::JsonValue* players = required(root, "players", Type::Array, "", error);
   if (players == nullptr) return {{}, false, std::move(error)};
@@ -791,6 +1138,17 @@ ScenarioParseResult parseScenario(const dev::JsonValue& root) {
           timeline->array[index], entry, itemPath("timeline", index),
           scenario.execution.maxTicks, scriptedPlayerIndexes, error))
       return {{}, false, std::move(error)};
+    if (
+      scenario.execution.mode == ScenarioExecutionMode::ClientServer &&
+      entry.durationTicks > kMaxLiveInputTicks
+    ) {
+      return {
+        {},
+        false,
+        childPath(itemPath("timeline", index), "duration_ticks") +
+          ": client_server limit is 1250"
+      };
+    }
     scenario.timeline.push_back(std::move(entry));
   }
   std::array<std::vector<const TimelineEntry*>, kMaxPlayers> playerTimeline;
@@ -829,7 +1187,148 @@ ScenarioParseResult parseScenario(const dev::JsonValue& root) {
           assertions->array[index], assertion, itemPath("assertions", index),
           scenario.execution.maxTicks, playerIndexes, error))
       return {{}, false, std::move(error)};
+    if (
+      scenario.execution.mode == ScenarioExecutionMode::ClientServer &&
+      assertion.type == AssertionType::ClientConverged
+    ) {
+      const auto* converged =
+        std::get_if<ClientConvergedAssertion>(&assertion.payload);
+      if (
+        converged == nullptr ||
+        !scriptedPlayerIndexes.contains(converged->player)
+      ) {
+        return {
+          {},
+          false,
+          childPath(itemPath("assertions", index), "player") +
+            ": client_server convergence must name the local non-bot player"
+        };
+      }
+    }
+    if (scenario.execution.mode == ScenarioExecutionMode::ClientServer &&
+        !assertion.classification) {
+      return {
+        {},
+        false,
+        childPath(itemPath("assertions", index), "classification") +
+          ": required for client_server execution"
+      };
+    }
+    if (scenario.execution.mode == ScenarioExecutionMode::ClientServer) {
+      const AssertionClassification classification =
+        *assertion.classification;
+      const bool rendererAssertion =
+        assertion.type == AssertionType::RendererBackend;
+      const bool screenshotAssertion =
+        assertion.type == AssertionType::ScreenshotCheckpoint;
+      const bool clientAssertion =
+        assertion.type >= AssertionType::CommandAcknowledged &&
+        !rendererAssertion &&
+        !screenshotAssertion;
+      const bool validClassification =
+        (
+          rendererAssertion &&
+          classification == AssertionClassification::RendererAttested
+        ) ||
+        (
+          screenshotAssertion &&
+          classification == AssertionClassification::VisualReview
+        ) ||
+        (
+          clientAssertion &&
+          classification == AssertionClassification::ClientBounded
+        ) ||
+        (
+          !clientAssertion &&
+          !rendererAssertion &&
+          !screenshotAssertion &&
+          (
+            classification ==
+              AssertionClassification::AuthoritativeDeterministic ||
+            classification == AssertionClassification::ClientBounded
+          )
+        );
+      if (!validClassification) {
+        return {
+          {},
+          false,
+          childPath(itemPath("assertions", index), "classification") +
+            ": does not match the assertion source"
+        };
+      }
+      if (assertion.atTick.has_value()) {
+        return {
+          {},
+          false,
+          childPath(itemPath("assertions", index), "at_tick") +
+            ": client_server assertions use bounded completion checks"
+        };
+      }
+    }
+    if (const auto* acknowledged =
+          std::get_if<CommandAcknowledgedAssertion>(&assertion.payload);
+        acknowledged != nullptr && acknowledged->timelineIndex >= scenario.timeline.size()) {
+      return {
+        {},
+        false,
+        childPath(itemPath("assertions", index), "timeline_index") +
+          ": does not name a timeline entry"
+      };
+    }
     scenario.assertions.push_back(std::move(assertion));
+  }
+
+  std::set<std::string> captureNames;
+  if (const dev::JsonValue* captures = root.find("captures"); captures != nullptr) {
+    if (captures->type != Type::Array) {
+      return {{}, false, "captures: must be an array"};
+    }
+    if (captures->array.size() > 10000U) {
+      return {{}, false, "captures: must contain at most 10000 entries"};
+    }
+    for (std::size_t index = 0; index < captures->array.size(); ++index) {
+      ScenarioCapture capture;
+      const std::string path = itemPath("captures", index);
+      if (!parseCapture(
+            captures->array[index], capture, path, scenario.execution.maxTicks,
+            playerIndexes, error))
+        return {{}, false, std::move(error)};
+      if (
+        scenario.execution.mode == ScenarioExecutionMode::ClientServer &&
+        capture.atServerTick
+      ) {
+        for (const TimelineEntry& entry : scenario.timeline) {
+          const std::uint32_t endTick = entry.atTick + entry.durationTicks;
+          if (
+            *capture.atServerTick > entry.atTick &&
+            *capture.atServerTick < endTick
+          ) {
+            return {
+              {},
+              false,
+              childPath(path, "at_server_tick") +
+                ": must not split a live input range"
+            };
+          }
+        }
+      }
+      if (!captureNames.insert(capture.name).second) {
+        return {{}, false, childPath(path, "name") + ": duplicate capture name"};
+      }
+      scenario.captures.push_back(std::move(capture));
+    }
+  }
+  for (std::size_t index = 0; index < scenario.assertions.size(); ++index) {
+    const auto* checkpoint =
+      std::get_if<ScreenshotCheckpointAssertion>(&scenario.assertions[index].payload);
+    if (checkpoint != nullptr && !captureNames.contains(checkpoint->capture)) {
+      return {
+        {},
+        false,
+        childPath(itemPath("assertions", index), "capture") +
+          ": does not name a capture"
+      };
+    }
   }
 
   if (const dev::JsonValue* expected = root.find("expected_failure"); expected != nullptr) {
@@ -923,6 +1422,27 @@ std::string_view assertionTypeName(AssertionType type) {
   case AssertionType::ProjectileRemoved: return "projectile_removed";
   case AssertionType::Event: return "event";
   case AssertionType::StateHash: return "state_hash";
+  case AssertionType::CommandAcknowledged: return "command_acknowledged";
+  case AssertionType::InputEdgeCount: return "input_edge_count";
+  case AssertionType::ClientPendingCommandsMax: return "client_pending_commands_max";
+  case AssertionType::ClientCorrectionMagnitudeMax:
+    return "client_correction_magnitude_max";
+  case AssertionType::ClientCorrectionCount: return "client_correction_count";
+  case AssertionType::ClientConverged: return "client_converged";
+  case AssertionType::ClientConnected: return "client_connected";
+  case AssertionType::RendererBackend: return "renderer_backend";
+  case AssertionType::ScreenshotCheckpoint: return "screenshot_checkpoint";
+  }
+  return "unknown";
+}
+
+std::string_view assertionClassificationName(AssertionClassification classification) {
+  switch (classification) {
+  case AssertionClassification::AuthoritativeDeterministic:
+    return "AUTHORITATIVE_DETERMINISTIC";
+  case AssertionClassification::ClientBounded: return "CLIENT_BOUNDED";
+  case AssertionClassification::RendererAttested: return "RENDERER_ATTESTED";
+  case AssertionClassification::VisualReview: return "VISUAL_REVIEW";
   }
   return "unknown";
 }
@@ -933,7 +1453,9 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
   root.object["name"] = dev::JsonValue::stringValue(scenario.name);
   root.object["description"] = dev::JsonValue::stringValue(scenario.description);
   dev::JsonValue execution = dev::JsonValue::objectValue();
-  execution.object["mode"] = dev::JsonValue::stringValue("headless");
+  execution.object["mode"] = dev::JsonValue::stringValue(
+    scenario.execution.mode == ScenarioExecutionMode::ClientServer
+      ? "client_server" : "headless");
   execution.object["max_ticks"] = dev::JsonValue::numberValue(scenario.execution.maxTicks);
   execution.object["repeat"] = dev::JsonValue::numberValue(scenario.execution.repeat);
   root.object["execution"] = std::move(execution);
@@ -943,6 +1465,19 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
     dev::JsonValue::stringValue(std::string(gameModeName(scenario.world.gameMode)));
   world.object["seed"] = dev::JsonValue::numberValue(scenario.world.seed);
   root.object["world"] = std::move(world);
+  if (scenario.network) {
+    dev::JsonValue network = dev::JsonValue::objectValue();
+    network.object["latency_ms"] =
+      dev::JsonValue::numberValue(scenario.network->latencyMs);
+    network.object["jitter_ms"] =
+      dev::JsonValue::numberValue(scenario.network->jitterMs);
+    network.object["packet_loss_percent"] =
+      dev::JsonValue::numberValue(scenario.network->packetLossPercent);
+    network.object["reorder_percent"] =
+      dev::JsonValue::numberValue(scenario.network->reorderPercent);
+    network.object["seed"] = dev::JsonValue::numberValue(scenario.network->seed);
+    root.object["network"] = std::move(network);
+  }
 
   dev::JsonValue players = dev::JsonValue::arrayValue();
   for (const PlayerInitialState& player : scenario.players) {
@@ -978,20 +1513,23 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
     value.object["duration_ticks"] = dev::JsonValue::numberValue(entry.durationTicks);
     dev::JsonValue edges = dev::JsonValue::arrayValue();
     for (OneTickEdge edge : entry.oneTickEdges) {
-      std::string_view name = "attack";
-      if (edge == OneTickEdge::Jump) name = "jump";
-      else if (edge == OneTickEdge::Crouch) name = "crouch";
-      else if (edge == OneTickEdge::Dash) name = "dash";
-      edges.array.push_back(dev::JsonValue::stringValue(std::string(name)));
+      edges.array.push_back(
+        dev::JsonValue::stringValue(std::string(oneTickEdgeName(edge))));
     }
     value.object["one_tick_edges"] = std::move(edges);
     dev::JsonValue input = dev::JsonValue::objectValue();
     input.object["forward"] = dev::JsonValue::numberValue(entry.input.forward);
     input.object["right"] = dev::JsonValue::numberValue(entry.input.right);
+    if (entry.input.up != 0.0F)
+      input.object["up"] = dev::JsonValue::numberValue(entry.input.up);
     input.object["jump"] = dev::JsonValue::booleanValue(entry.input.jump);
     input.object["crouch"] = dev::JsonValue::booleanValue(entry.input.crouch);
     input.object["dash"] = dev::JsonValue::booleanValue(entry.input.dash);
     input.object["attack"] = dev::JsonValue::booleanValue(entry.input.attack);
+    if (entry.input.sneak)
+      input.object["sneak"] = dev::JsonValue::booleanValue(true);
+    if (entry.input.zoom)
+      input.object["zoom"] = dev::JsonValue::booleanValue(true);
     if (entry.input.weapon)
       input.object["weapon"] =
         dev::JsonValue::stringValue(std::string(weaponName(*entry.input.weapon)));
@@ -1009,6 +1547,10 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
     dev::JsonValue value = dev::JsonValue::objectValue();
     value.object["type"] =
       dev::JsonValue::stringValue(std::string(assertionTypeName(assertion.type)));
+    if (assertion.classification) {
+      value.object["classification"] = dev::JsonValue::stringValue(
+        std::string(assertionClassificationName(*assertion.classification)));
+    }
     putSchedule(value, assertion);
     if (const auto* parsed = std::get_if<PlayerVectorAssertion>(&assertion.payload)) {
       value.object["player"] = dev::JsonValue::numberValue(parsed->player);
@@ -1042,10 +1584,80 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
       value.object["event"] = std::move(event);
     } else if (const auto* parsed = std::get_if<StateHashAssertion>(&assertion.payload)) {
       value.object["hash"] = dev::JsonValue::stringValue(parsed->hash);
+    } else if (const auto* parsed =
+                 std::get_if<CommandAcknowledgedAssertion>(&assertion.payload)) {
+      value.object["timeline_index"] =
+        dev::JsonValue::numberValue(parsed->timelineIndex);
+      value.object["max_ticks"] = dev::JsonValue::numberValue(parsed->maxTicks);
+    } else if (const auto* parsed =
+                 std::get_if<InputEdgeCountAssertion>(&assertion.payload)) {
+      value.object["edge"] =
+        dev::JsonValue::stringValue(std::string(oneTickEdgeName(parsed->edge)));
+      value.object["count"] = dev::JsonValue::numberValue(parsed->count);
+    } else if (const auto* parsed =
+                 std::get_if<ClientPendingCommandsMaxAssertion>(&assertion.payload)) {
+      value.object["max"] = dev::JsonValue::numberValue(parsed->max);
+    } else if (const auto* parsed =
+                 std::get_if<ClientCorrectionMagnitudeMaxAssertion>(
+                   &assertion.payload)) {
+      value.object["max"] = dev::JsonValue::numberValue(parsed->max);
+    } else if (const auto* parsed =
+                 std::get_if<ClientCorrectionCountAssertion>(&assertion.payload)) {
+      value.object["min"] = dev::JsonValue::numberValue(parsed->min);
+      if (parsed->max)
+        value.object["max"] = dev::JsonValue::numberValue(*parsed->max);
+    } else if (const auto* parsed =
+                 std::get_if<ClientConvergedAssertion>(&assertion.payload)) {
+      value.object["player"] = dev::JsonValue::numberValue(parsed->player);
+      value.object["tolerance"] =
+        dev::JsonValue::numberValue(parsed->tolerance);
+      value.object["within_ticks"] =
+        dev::JsonValue::numberValue(parsed->withinTicks);
+    } else if (const auto* parsed =
+                 std::get_if<ClientConnectedAssertion>(&assertion.payload)) {
+      value.object["expected"] =
+        dev::JsonValue::booleanValue(parsed->expected);
+    } else if (const auto* parsed =
+                 std::get_if<RendererBackendAssertion>(&assertion.payload)) {
+      value.object["backend"] = dev::JsonValue::stringValue(parsed->backend);
+    } else if (const auto* parsed =
+                 std::get_if<ScreenshotCheckpointAssertion>(&assertion.payload)) {
+      value.object["capture"] = dev::JsonValue::stringValue(parsed->capture);
+      value.object["width"] = dev::JsonValue::numberValue(parsed->width);
+      value.object["height"] = dev::JsonValue::numberValue(parsed->height);
     }
     assertions.array.push_back(std::move(value));
   }
   root.object["assertions"] = std::move(assertions);
+  if (!scenario.captures.empty()) {
+    dev::JsonValue captures = dev::JsonValue::arrayValue();
+    for (const ScenarioCapture& capture : scenario.captures) {
+      dev::JsonValue value = dev::JsonValue::objectValue();
+      value.object["name"] = dev::JsonValue::stringValue(capture.name);
+      if (capture.atServerTick) {
+        value.object["at_server_tick"] =
+          dev::JsonValue::numberValue(*capture.atServerTick);
+      } else if (capture.afterEvent) {
+        dev::JsonValue event = dev::JsonValue::objectValue();
+        event.object["type"] =
+          dev::JsonValue::stringValue(capture.afterEvent->type);
+        if (capture.afterEvent->actor)
+          event.object["actor"] =
+            dev::JsonValue::numberValue(*capture.afterEvent->actor);
+        if (capture.afterEvent->target)
+          event.object["target"] =
+            dev::JsonValue::numberValue(*capture.afterEvent->target);
+        if (capture.afterEvent->weapon)
+          event.object["weapon"] = dev::JsonValue::stringValue(
+            std::string(weaponName(*capture.afterEvent->weapon)));
+        value.object["after_event"] = std::move(event);
+      }
+      value.object["wait_rendered_frames"] =
+        dev::JsonValue::numberValue(capture.waitRenderedFrames);
+      captures.array.push_back(std::move(value));
+    }
+    root.object["captures"] = std::move(captures);
+  }
   if (scenario.expectedFailure) {
     dev::JsonValue expected = dev::JsonValue::objectValue();
     expected.object["issue"] =

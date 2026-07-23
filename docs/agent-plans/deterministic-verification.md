@@ -1200,7 +1200,7 @@ The implementation should leave the repository in a state where a future autonom
 # Implementation status
 
 - [ ] Phase 1: Deterministic scenario foundation
-- [ ] Phase 2: Performance benchmark comparison
+- [x] Phase 2: Live client/server verification
 - [ ] Phase 3: Pull-request CI
 
 Phase 1 code and its focused checks are complete. The box stays unchecked
@@ -1208,3 +1208,17 @@ until the required full test run passes. As of 2026-07-23, the untouched base
 commit has the same failures in `lg_duel_server_tests`,
 `lg_duel_weapon_switching_tests`, `lg_duel_clan_arena_server_tests`, and
 `lg_duel_asset_pipeline_python_tests`.
+
+Phase 2 live verification is complete as of 2026-07-23. It reuses the Phase 1
+schema, setup, event journal, assertions, and hashes while running input through
+the owned real client, UDP transport, authoritative server, snapshots,
+prediction, reconciliation, and renderer. Focused C++ and Python checks pass.
+Three repeated fallback runs pass for movement, one-shot edges, and 40 ms
+latency. A real 1280 by 720 fallback capture passes after an authoritative rail
+event. Forced launch failure leaves no owned process.
+
+The full preset run passes 56 of 60 tests. Its four failures match the
+untouched-base failures listed above. SDL_GPU/Vulkan cannot start on this host:
+the selected Intel ICD returns `ERROR_INCOMPATIBLE_DRIVER`. The GPU scenario
+reports a structured launch failure and does not use the fallback renderer.
+Performance comparison, PR gating, and Phase 3 CI work remain unimplemented.

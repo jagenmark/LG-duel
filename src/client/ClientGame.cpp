@@ -296,6 +296,10 @@ void ClientGame::receiveSnapshots() {
           std::chrono::steady_clock::now() - applyStart
         ).count();
       ++diagnostics.snapshotsApplied;
+    } else if (received.serverTick == snapshot_.serverTick) {
+      ++duplicateSnapshotsIgnored_;
+    } else {
+      ++staleSnapshotsIgnored_;
     }
   }
   ChatHistoryChunk chatChunk;
@@ -335,6 +339,8 @@ void ClientGame::receiveSnapshots() {
   diagnostics.snapshotPacketsDecoded =
     transportDiagnostics.snapshotPacketsDecoded - lastSnapshotPacketsDecoded_;
   lastSnapshotPacketsDecoded_ = transportDiagnostics.snapshotPacketsDecoded;
+  diagnostics.duplicateSnapshotsIgnored = duplicateSnapshotsIgnored_;
+  diagnostics.staleSnapshotsIgnored = staleSnapshotsIgnored_;
   diagnostics.snapshotDecodeMilliseconds =
     transportDiagnostics.snapshotDecodeMilliseconds;
   diagnostics.snapshotQueueDepth = transportDiagnostics.snapshotQueueDepth;

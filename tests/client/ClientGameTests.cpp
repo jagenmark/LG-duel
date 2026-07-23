@@ -159,6 +159,28 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot current;
+    current.serverTick = 10;
+    current.players[0] = groundedPlayer();
+    queueSnapshot(transport, current);
+    client.receiveSnapshots();
+
+    queueSnapshot(transport, current);
+    lg::ServerSnapshot stale = current;
+    stale.serverTick = 9;
+    queueSnapshot(transport, stale);
+    client.receiveSnapshots();
+    const lg::SnapshotDiagnostics diagnostics = client.snapshotDiagnostics();
+    failures += expect(
+      diagnostics.duplicateSnapshotsIgnored == 1U &&
+        diagnostics.staleSnapshotsIgnored == 1U,
+      "client diagnostics should count ignored duplicate and stale snapshots"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
     initialSnapshot.players[0] = groundedPlayer();
     queueSnapshot(transport, initialSnapshot);
@@ -510,6 +532,7 @@ int main() {
 
     lg::UserCommand first;
     first.sequence = 10;
+    first.clientTick = 50;
     first.forwardMove = 1.0F;
     prediction.predict(first, arena, tuning, lg::kFixedTickSeconds);
 
@@ -522,9 +545,15 @@ int main() {
       prediction.diagnostics().pendingCommandCount == 1,
       "predicted command should remain pending before ack"
     );
+    failures += expect(
+      prediction.diagnostics().hasPendingCommand &&
+        prediction.diagnostics().oldestPendingCommandClientTick == 50U,
+      "prediction diagnostics should expose the oldest pending client tick"
+    );
 
     lg::UserCommand second = first;
     second.sequence = 11;
+    second.clientTick = 51;
     second.rightMove = 1.0F;
     prediction.predict(second, arena, tuning, lg::kFixedTickSeconds);
 
@@ -585,6 +614,13 @@ int main() {
     failures += expect(
       prediction.diagnostics().correctionCount == 1,
       "authoritative position difference should count as correction"
+    );
+    failures += expect(
+      nearlyEqual(
+        prediction.diagnostics().lastCorrectionVector.x,
+        corrected.position.x - expectedAfterReplay.position.x
+      ),
+      "prediction diagnostics should expose the last correction vector"
     );
     failures += expect(
       nearlyEqual(prediction.player().position.x, corrected.position.x),

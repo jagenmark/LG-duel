@@ -101,26 +101,104 @@ int main() {
     "cvar requests should keep names and values bounded"
   );
   const lg::dev::ControlRequestParseResult playerInput = parseRequest(
-    R"({"operation":"send_input","ticks":20,"forward":1,"right":-0.5,"attack":true,"yaw":90,"pitch":-10,"weapon":"sniper"})"
+    R"({"operation":"send_input","ticks":20,"forward":1,"right":-0.5,"attack":true,"yaw":90,"pitch":-10,"weapon":"sniper","one_tick_edges":["attack"]})"
   );
   failures += expect(
     playerInput.ok && playerInput.request.playerInput.ticks == 20U &&
       playerInput.request.playerInput.attack &&
+      playerInput.request.playerInput.attackOneTick &&
       playerInput.request.playerInput.yawDegrees == std::optional<float>(90.0F),
     "typed player input should retain bounded controls"
+  );
+  const auto edgeOnly = parseRequest(
+    R"({"operation":"send_input","ticks":4,"one_tick_edges":["jump"]})"
+  );
+  failures += expect(
+    edgeOnly.ok &&
+      edgeOnly.request.playerInput.jump &&
+      edgeOnly.request.playerInput.jumpOneTick,
+    "a named one-tick edge should activate its first command"
   );
   failures += expect(
       !parseRequest(R"({"operation":"send_input","ticks":0})").ok &&
       !parseRequest(R"({"operation":"send_input","ticks":1,"forward":2})").ok &&
       !parseRequest(R"({"operation":"send_input","ticks":1,"yaw":10})").ok &&
       !parseRequest(R"({"operation":"send_input","ticks":1,"attack":"true"})").ok &&
-      !parseRequest(R"({"operation":"send_input","ticks":1,"weapon":7})").ok,
+      !parseRequest(R"({"operation":"send_input","ticks":1,"weapon":7})").ok &&
+      !parseRequest(R"({"operation":"send_input","ticks":1,"one_tick_edges":["bad"]})").ok &&
+      !parseRequest(R"({"operation":"send_input","ticks":1,"extra":1})").ok,
     "player input should reject bad spans, axes, types, and partial view angles"
   );
   failures += expect(
     parseRequest(R"({"operation":"wait_frames","frames":5})").ok &&
       !parseRequest(R"({"operation":"wait_frames","frames":601})").ok,
     "frame waits should have a fixed bound"
+  );
+  const lg::dev::ControlRequestParseResult networkSimulation = parseRequest(
+    R"({"operation":"set_network_simulation","latency_ms":120,"jitter_ms":15,"packet_loss_percent":3,"reorder_percent":4,"seed":4294967295})"
+  );
+  failures += expect(
+    networkSimulation.ok &&
+      networkSimulation.request.operation ==
+        lg::dev::ControlOperation::SetNetworkSimulation &&
+      networkSimulation.request.networkSimulation.latencyMs == 120 &&
+      networkSimulation.request.networkSimulation.jitterMs == 15 &&
+      networkSimulation.request.networkSimulation.lossPercent == 3 &&
+      networkSimulation.request.networkSimulation.reorderPercent == 4 &&
+      networkSimulation.request.networkSimulation.seed == 4294967295U,
+    "typed network simulation should retain its full bounded config"
+  );
+  failures += expect(
+    !parseRequest(
+      R"({"operation":"set_network_simulation","latency_ms":5001,"jitter_ms":0,"packet_loss_percent":0,"reorder_percent":0,"seed":1})"
+    ).ok &&
+      !parseRequest(
+        R"({"operation":"set_network_simulation","latency_ms":0,"jitter_ms":0,"packet_loss_percent":101,"reorder_percent":0,"seed":1})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"set_network_simulation","latency_ms":0,"jitter_ms":0,"packet_loss_percent":0,"reorder_percent":0})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"set_network_simulation","latency_ms":0.5,"jitter_ms":0,"packet_loss_percent":0,"reorder_percent":0,"seed":1})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"set_network_simulation","latency_ms":0,"jitter_ms":0,"packet_loss_percent":0,"reorder_percent":0,"seed":4294967296})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"set_network_simulation","latency_ms":0,"jitter_ms":0,"packet_loss_percent":0,"reorder_percent":0,"seed":1,"extra":true})"
+      ).ok,
+    "network simulation should reject missing, fractional, out-of-range, and unknown fields"
+  );
+  const lg::dev::ControlRequestParseResult clientTickWait =
+    parseRequest(R"({"operation":"wait_client_tick","min_tick":123})");
+  const lg::dev::ControlRequestParseResult snapshotTickWait =
+    parseRequest(R"({"operation":"wait_snapshot_tick","min_tick":456})");
+  const lg::dev::ControlRequestParseResult commandAckWait =
+    parseRequest(R"({"operation":"wait_command_ack","sequence":789})");
+  failures += expect(
+    clientTickWait.ok &&
+      clientTickWait.request.operation == lg::dev::ControlOperation::WaitClientTick &&
+      clientTickWait.request.minimumTick == 123U &&
+      snapshotTickWait.ok &&
+      snapshotTickWait.request.operation == lg::dev::ControlOperation::WaitSnapshotTick &&
+      snapshotTickWait.request.minimumTick == 456U &&
+      commandAckWait.ok &&
+      commandAckWait.request.operation == lg::dev::ControlOperation::WaitCommandAck &&
+      commandAckWait.request.commandSequence == 789U,
+    "typed tick and command waits should retain their thresholds"
+  );
+  failures += expect(
+    !parseRequest(R"({"operation":"wait_client_tick"})").ok &&
+      !parseRequest(R"({"operation":"wait_snapshot_tick","min_tick":-1})").ok &&
+      !parseRequest(R"({"operation":"wait_snapshot_tick","min_tick":1.5})").ok &&
+      !parseRequest(R"({"operation":"wait_command_ack","sequence":"1"})").ok &&
+      !parseRequest(R"({"operation":"wait_command_ack","sequence":1,"extra":0})").ok,
+    "typed waits should reject missing, wrong-type, fractional, and unknown fields"
+  );
+  failures += expect(
+    parseRequest(R"({"operation":"get_client_state"})").ok &&
+      !parseRequest(R"({"operation":"get_client_state","extra":true})").ok,
+    "client state requests should reject operation parameters"
   );
   failures += expect(
     parseRequest(R"({"operation":"set_player_view","yaw":180,"pitch":20})").ok &&

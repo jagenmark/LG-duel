@@ -19,6 +19,7 @@ inline constexpr int kScenarioSchemaVersion = 1;
 
 enum class ScenarioExecutionMode {
   Headless,
+  ClientServer,
 };
 
 struct ScenarioExecution {
@@ -30,6 +31,14 @@ struct ScenarioExecution {
 struct ScenarioWorld {
   std::string map;
   GameMode gameMode = GameMode::Duel;
+  std::uint32_t seed = 0;
+};
+
+struct ScenarioNetwork {
+  int latencyMs = 0;
+  int jitterMs = 0;
+  int packetLossPercent = 0;
+  int reorderPercent = 0;
   std::uint32_t seed = 0;
 };
 
@@ -53,15 +62,20 @@ enum class OneTickEdge {
   Crouch,
   Dash,
   Attack,
+  Sneak,
+  Zoom,
 };
 
 struct TimelineInput {
   float forward = 0.0F;
   float right = 0.0F;
+  float up = 0.0F;
   bool jump = false;
   bool crouch = false;
   bool dash = false;
   bool attack = false;
+  bool sneak = false;
+  bool zoom = false;
   std::optional<Weapon> weapon;
   std::optional<float> yawDegrees;
   std::optional<float> pitchDegrees;
@@ -114,6 +128,56 @@ struct StateHashAssertion {
   std::string hash;
 };
 
+enum class AssertionClassification {
+  AuthoritativeDeterministic,
+  ClientBounded,
+  RendererAttested,
+  VisualReview,
+};
+
+struct CommandAcknowledgedAssertion {
+  std::size_t timelineIndex = 0;
+  std::uint32_t maxTicks = 0;
+};
+
+struct InputEdgeCountAssertion {
+  OneTickEdge edge = OneTickEdge::Attack;
+  std::uint32_t count = 0;
+};
+
+struct ClientPendingCommandsMaxAssertion {
+  std::uint32_t max = 0;
+};
+
+struct ClientCorrectionMagnitudeMaxAssertion {
+  float max = 0.0F;
+};
+
+struct ClientCorrectionCountAssertion {
+  std::uint32_t min = 0;
+  std::optional<std::uint32_t> max;
+};
+
+struct ClientConvergedAssertion {
+  std::size_t player = 0;
+  float tolerance = 0.0F;
+  std::uint32_t withinTicks = 0;
+};
+
+struct ClientConnectedAssertion {
+  bool expected = true;
+};
+
+struct RendererBackendAssertion {
+  std::string backend;
+};
+
+struct ScreenshotCheckpointAssertion {
+  std::string capture;
+  std::uint32_t width = 0;
+  std::uint32_t height = 0;
+};
+
 enum class AssertionType {
   PlayerPosition,
   PlayerVelocity,
@@ -124,6 +188,15 @@ enum class AssertionType {
   ProjectileRemoved,
   Event,
   StateHash,
+  CommandAcknowledged,
+  InputEdgeCount,
+  ClientPendingCommandsMax,
+  ClientCorrectionMagnitudeMax,
+  ClientCorrectionCount,
+  ClientConverged,
+  ClientConnected,
+  RendererBackend,
+  ScreenshotCheckpoint,
 };
 
 using AssertionPayload = std::variant<
@@ -133,14 +206,38 @@ using AssertionPayload = std::variant<
   PlayerWeaponAssertion,
   ProjectileAssertion,
   EventAssertion,
-  StateHashAssertion
+  StateHashAssertion,
+  CommandAcknowledgedAssertion,
+  InputEdgeCountAssertion,
+  ClientPendingCommandsMaxAssertion,
+  ClientCorrectionMagnitudeMaxAssertion,
+  ClientCorrectionCountAssertion,
+  ClientConvergedAssertion,
+  ClientConnectedAssertion,
+  RendererBackendAssertion,
+  ScreenshotCheckpointAssertion
 >;
 
 struct ScenarioAssertion {
   AssertionType type = AssertionType::StateHash;
+  std::optional<AssertionClassification> classification;
   std::optional<std::uint32_t> atTick;
   bool atCompletion = false;
   AssertionPayload payload = StateHashAssertion{};
+};
+
+struct CaptureAfterEvent {
+  std::string type;
+  std::optional<std::size_t> actor;
+  std::optional<std::size_t> target;
+  std::optional<Weapon> weapon;
+};
+
+struct ScenarioCapture {
+  std::string name;
+  std::optional<std::uint32_t> atServerTick;
+  std::optional<CaptureAfterEvent> afterEvent;
+  std::uint32_t waitRenderedFrames = 0;
 };
 
 struct ExpectedFailure {
@@ -155,9 +252,11 @@ struct ScenarioDefinition {
   std::string description;
   ScenarioExecution execution;
   ScenarioWorld world;
+  std::optional<ScenarioNetwork> network;
   std::vector<PlayerInitialState> players;
   std::vector<TimelineEntry> timeline;
   std::vector<ScenarioAssertion> assertions;
+  std::vector<ScenarioCapture> captures;
   std::optional<ExpectedFailure> expectedFailure;
 };
 
@@ -176,5 +275,7 @@ struct ScenarioParseResult {
 [[nodiscard]] std::string_view teamName(Team team);
 [[nodiscard]] std::string_view weaponName(Weapon weapon);
 [[nodiscard]] std::string_view assertionTypeName(AssertionType type);
+[[nodiscard]] std::string_view assertionClassificationName(
+  AssertionClassification classification);
 
 } // namespace lg::scenario

@@ -753,6 +753,9 @@ resetmatch
 
 ## 10. Kända gränser
 
+- An owned live-scenario client forces `vid_fullscreen 0`, `vid_width 1280`,
+  and `vid_height 720` after loading `client.cfg`. This test-only override
+  requires development control plus `LG_DUEL_LIVE_SCENARIO=1` and is not saved.
 - The network protocol and simulation support up to `16` concurrent player slots,
   plus eight separate spectator connections.
 - `sv_playerlimit` accepts `1..16` and controls how many connected players are

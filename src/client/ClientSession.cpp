@@ -216,6 +216,12 @@ ClientNetworkSimulationConfig ClientSession::networkSimulationConfig() const {
   return transport_ ? transport_->networkSimulationConfig() : ClientNetworkSimulationConfig{};
 }
 
+const std::deque<ClientNetworkSimulationDecision>&
+ClientSession::networkSimulationDecisions() const {
+  static const std::deque<ClientNetworkSimulationDecision> empty;
+  return transport_ ? transport_->networkSimulationDecisions() : empty;
+}
+
 NetworkTelemetry ClientSession::networkTelemetry() const {
   return transport_ ? transport_->networkTelemetry() : NetworkTelemetry{};
 }

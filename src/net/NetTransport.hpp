@@ -53,6 +53,8 @@ struct SnapshotDiagnostics {
   std::uint32_t snapshotsApplied = 0;
   float snapshotApplyMilliseconds = 0.0F;
   std::size_t snapshotQueueDepth = 0;
+  std::uint64_t duplicateSnapshotsIgnored = 0;
+  std::uint64_t staleSnapshotsIgnored = 0;
 };
 
 class NetTransport {
