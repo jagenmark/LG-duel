@@ -171,7 +171,7 @@ Projektets rörelseskala är `1 intern enhet = 40 Q3/QL units`.
 | `g_dash_cooldown` | float | `0.85` | `0..10` | No Q3/QL equivalent | Seconds before dash can be started again. |
 | `g_dash_groundhop` | float | `3.25` | `0..100` | `130 UPS`, internal `3.25` | Minimum vertical velocity for a grounded dash hop. Uses max, not addition. |
 | `g_dash_airhop` | float | `1.875` | `0..100` | `75 UPS`, internal `1.875` | Minimum vertical velocity for airborne dash correction. Uses max, not addition. |
-| `g_lg_knockback` | float | `1000` | `0..100000` | Q3 `g_knockback 1000`, motsvarar `22` internt | LG-knockback per sekund. Skalas om linjärt så `0` motsvarar gamla `682`, `500` gamla `841`, och `1000` gamla `1000`. |
+| `g_lg_knockback` | float | `1000` | `0..100000` | Q3 `g_knockback 1000`, equals `22` internally | LG knockback per second in direct Q3 scale. `0` disables knockback and `500` applies half the default impulse. |
 | `g_lg_fire_hz` | float | `20` | `1..125` | Ingen direkt stabil cvar | Authoritative LG damage/knockback and FG damage/freeze instances per second. Default 20 Hz gives 6 damage per instance with `g_lg_damage 120` or `g_fg_damage 120`; FG freeze amount comes from `balance.cfg`. |
 | `g_rl_knockback` | float | `1000` | `0..1000` | Q3 `g_knockback 1000`, motsvarar `22` internt | RL-knockback per explosion, skalad med splash-damage. |
 | `g_knockback_time_ms` | int | `100` | `0..250` | Q3-style knockback movement timer | Antal millisekunder som grounded knockback anvander air movement utan ground friction. `0` stanger av speciallaget men behaller damage och direkt knockback. |

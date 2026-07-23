@@ -3,6 +3,7 @@
 #include "shared/Constants.hpp"
 #include "sim/BalanceConfig.hpp"
 
+#include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <string_view>
@@ -45,6 +46,31 @@ lg::UserCommand attackWith(lg::Weapon weapon, std::uint32_t sequence) {
   command.sequence = sequence;
   command.attack = true;
   command.weapon = weapon;
+  return command;
+}
+
+lg::UserCommand bodyAttackWith(
+  const lg::ServerSnapshot& snapshot,
+  lg::Weapon weapon,
+  std::uint32_t sequence
+) {
+  constexpr float weaponEyeHeight = 0.65F;
+  constexpr float defaultPlayerHalfHeight = 0.9F;
+  lg::UserCommand command = attackWith(weapon, sequence);
+  const lg::PlayerState& attacker = snapshot.players[0];
+  const lg::PlayerState& target = snapshot.players[1];
+  const float scaledEyeHeight =
+    weaponEyeHeight *
+    (attacker.bounds.halfHeight / defaultPlayerHalfHeight);
+  const lg::Vec3 muzzle =
+    attacker.position + lg::Vec3{0.0F, 0.0F, scaledEyeHeight};
+  const lg::Vec3 offset = target.position - muzzle;
+  command.planarAim = false;
+  command.viewYawRadians = std::atan2(offset.y, offset.x);
+  command.viewPitchRadians = std::atan2(
+    offset.z,
+    std::hypot(offset.x, offset.y)
+  );
   return command;
 }
 
@@ -96,10 +122,13 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    latestSnapshot(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
-    lg::ServerSnapshot snapshot =
-      sendAndTick(transport, server, attackWith(lg::Weapon::Railgun, 1));
+    snapshot = sendAndTick(
+      transport,
+      server,
+      bodyAttackWith(snapshot, lg::Weapon::Railgun, 1)
+    );
     failures += expect(
       snapshot.weaponFires[0].fired && snapshot.players[1].health == 20,
       "setup rail shot should fire before testing crazy switch rules"
@@ -133,7 +162,11 @@ int main() {
     );
 
     snapshot =
-      sendAndTick(transport, server, attackWith(lg::Weapon::Railgun, 2));
+      sendAndTick(
+        transport,
+        server,
+        bodyAttackWith(snapshot, lg::Weapon::Railgun, 2)
+      );
     failures += expect(
       snapshot.weaponFires[0].fired && snapshot.players[1].health == 20,
       "setup rail shot should fire before testing CPMA switch lockout"
@@ -152,10 +185,11 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     server.setWeaponSwitchingMode(lg::WeaponSwitchingMode::Ql);
-    latestSnapshot(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
-    lg::UserCommand rail = attackWith(lg::Weapon::Railgun, 1);
-    lg::ServerSnapshot snapshot = sendAndTick(transport, server, rail);
+    lg::UserCommand rail =
+      bodyAttackWith(snapshot, lg::Weapon::Railgun, 1);
+    snapshot = sendAndTick(transport, server, rail);
     failures += expect(
       snapshot.selectedWeapons[0] == lg::Weapon::Railgun &&
         !snapshot.weaponFires[0].fired &&

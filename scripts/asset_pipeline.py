@@ -47,6 +47,7 @@ PROHIBITED_LICENSE_WORDS = (
 )
 STAGE_ORDER = {"downloaded": 1, "inspected": 2, "processed": 3, "validated": 4}
 REVIEW_MANIFEST = "reports/review-manifest.json"
+REVIEW_TEXT_SUFFIXES = {".json", ".license", ".md", ".txt"}
 
 
 class PipelineError(RuntimeError):
@@ -79,6 +80,14 @@ def sha256_file(path: pathlib.Path) -> str:
         for chunk in iter(lambda: stream.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def _review_manifest_bytes(path: pathlib.Path) -> bytes:
+    """Return stable review bytes across Git text checkout modes."""
+    data = path.read_bytes()
+    if path.suffix.lower() in REVIEW_TEXT_SUFFIXES:
+        return data.replace(b"\r\n", b"\n")
+    return data
 
 
 def safe_name(value: str, fallback: str = "asset") -> str:
@@ -1109,10 +1118,11 @@ def _review_manifest(package: pathlib.Path) -> dict[str, Any]:
                 raise PipelineError(f"review package contains a symbolic link: {relative}")
             if not stat.S_ISREG(mode):
                 raise PipelineError(f"review package contains a non-regular file: {relative}")
+            sealed_bytes = _review_manifest_bytes(path)
             files.append({
                 "path": relative,
-                "sha256": sha256_file(path),
-                "size": path.stat().st_size,
+                "sha256": hashlib.sha256(sealed_bytes).hexdigest(),
+                "size": len(sealed_bytes),
                 "type": path.suffix.lower().lstrip(".") or "none",
             })
     files.sort(key=lambda item: str(item["path"]))

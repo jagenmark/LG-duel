@@ -19,6 +19,8 @@
 namespace {
 
 constexpr float kPi = 3.14159265359F;
+constexpr float kWeaponEyeHeight = 0.65F;
+constexpr float kDefaultPlayerHalfHeight = 0.9F;
 
 int expect(bool condition, std::string_view message) {
   if (condition) {
@@ -36,6 +38,50 @@ lg::ServerSnapshot latestSnapshot(lg::LoopbackTransport& transport) {
     latest = received;
   }
   return latest;
+}
+
+void aimPitchAtPlayerBody(
+  lg::UserCommand& command,
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  std::size_t targetIndex
+) {
+  const lg::PlayerState& attacker = snapshot.players[attackerIndex];
+  const lg::PlayerState& target = snapshot.players[targetIndex];
+  const float scaledEyeHeight =
+    kWeaponEyeHeight *
+    (attacker.bounds.halfHeight / kDefaultPlayerHalfHeight);
+  const lg::Vec3 muzzle =
+    attacker.position + lg::Vec3{0.0F, 0.0F, scaledEyeHeight};
+  const lg::Vec3 offset = target.position - muzzle;
+  command.planarAim = false;
+  command.viewPitchRadians = std::atan2(
+    offset.z,
+    std::hypot(offset.x, offset.y)
+  );
+}
+
+void aimAtPlayerBody(
+  lg::UserCommand& command,
+  const lg::ServerSnapshot& snapshot,
+  std::size_t attackerIndex,
+  std::size_t targetIndex
+) {
+  const lg::Vec3 offset =
+    snapshot.players[targetIndex].position -
+    snapshot.players[attackerIndex].position;
+  command.viewYawRadians = std::atan2(offset.y, offset.x);
+  aimPitchAtPlayerBody(command, snapshot, attackerIndex, targetIndex);
+}
+
+void configureRocketDirectHitbox(
+  lg::ServerGame& server,
+  float halfExtentXY
+) {
+  lg::BalanceConfig balance;
+  balance.rocketLauncher.directHitboxHalfExtentXY = halfExtentXY;
+  balance.rocketLauncher.directHitboxHalfExtentZ = 1.0F;
+  server.applyBalanceConfig(balance);
 }
 
 bool hasLocalHitFeedback(
@@ -228,9 +274,8 @@ int main() {
     lg::UserCommand rail;
     rail.sequence = 1;
     rail.attack = true;
-    rail.planarAim = true;
-    rail.viewYawRadians = kPi;
     rail.weapon = lg::Weapon::Railgun;
+    aimAtPlayerBody(rail, snapshot, 1, 0);
     transport.sendCommand(lg::CommandPacket{1, rail, false});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
@@ -312,17 +357,16 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    latestSnapshot(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
     lg::UserCommand rail;
     rail.sequence = 1;
     rail.attack = true;
-    rail.planarAim = true;
-    rail.viewYawRadians = 0.0F;
     rail.weapon = lg::Weapon::Railgun;
+    aimAtPlayerBody(rail, snapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, rail, false});
     server.tick(lg::kFixedTickSeconds);
-    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    snapshot = latestSnapshot(transport);
     failures += expect(
       hasLocalHitFeedback(snapshot, 0, 1, 1, lg::Weapon::Railgun, 80),
       "authoritative rail damage should emit one local hit feedback event with damage"
@@ -955,8 +999,8 @@ int main() {
     failures += expect(
       snapshot.knockbackTimeMs == 1 &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.players[1].knockbackTicksRemaining == 6,
-      "later shorter knockback hit should refresh with max() and never shorten the active timer"
+        snapshot.players[1].knockbackTicksRemaining == 5,
+      "later shorter knockback should not extend the timer after the completed movement tick"
     );
   }
 
@@ -982,9 +1026,8 @@ int main() {
     failures += expect(
       snapshot.lightningKnockback == 0.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.749F &&
-        snapshot.lightningGuns[0].knockbackImpulse.x < 0.751F,
-      "g_lg_knockback 0 should map to the old 682 impulse"
+        lg::length(snapshot.lightningGuns[0].knockbackImpulse) == 0.0F,
+      "g_lg_knockback 0 should disable LG knockback"
     );
 
     lg::CommandPacket halfKnockback;
@@ -1002,9 +1045,9 @@ int main() {
     failures += expect(
       snapshot.lightningKnockback == 500.0F &&
         snapshot.lightningGuns[0].hit &&
-        snapshot.lightningGuns[0].knockbackImpulse.x > 0.924F &&
-        snapshot.lightningGuns[0].knockbackImpulse.x < 0.926F,
-      "g_lg_knockback 500 should map to the old 841 impulse"
+        snapshot.lightningGuns[0].knockbackImpulse.x > 0.549F &&
+        snapshot.lightningGuns[0].knockbackImpulse.x < 0.551F,
+      "g_lg_knockback 500 should use direct Q3-scale conversion"
     );
   }
 
@@ -1117,6 +1160,7 @@ int main() {
     freeze.sequence = 2;
     freeze.attack = true;
     freeze.weapon = lg::Weapon::FreezeGun;
+    aimAtPlayerBody(freeze, snapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, freeze, false});
     for (int tick = 0; tick < 125; ++tick) {
       server.tick(lg::kFixedTickSeconds);
@@ -1252,6 +1296,7 @@ int main() {
     railgun.sequence = 2;
     railgun.attack = true;
     railgun.weapon = lg::Weapon::Railgun;
+    aimAtPlayerBody(railgun, snapshot, 0, 1);
     lg::CommandPacket railgunAttack;
     railgunAttack.command = railgun;
     transport.sendCommand(railgunAttack);
@@ -1285,6 +1330,7 @@ int main() {
     machineGun.sequence = 2;
     machineGun.attack = true;
     machineGun.weapon = lg::Weapon::MachineGun;
+    aimAtPlayerBody(machineGun, snapshot, 0, 1);
     lg::CommandPacket machineGunAttack;
     machineGunAttack.command = machineGun;
     transport.sendCommand(machineGunAttack);
@@ -1318,6 +1364,7 @@ int main() {
     shotgun.sequence = 2;
     shotgun.attack = true;
     shotgun.weapon = lg::Weapon::Shotgun;
+    aimAtPlayerBody(shotgun, snapshot, 0, 1);
     lg::CommandPacket shotgunAttack;
     shotgunAttack.command = shotgun;
     transport.sendCommand(shotgunAttack);
@@ -1642,16 +1689,19 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     lg::ClientGame client(transport, 0);
     client.receiveSnapshots();
+    const lg::ServerSnapshot authoritativeStartup = server.snapshot();
 
     failures += expect(client.hasSnapshot(), "server should publish an initial file-backed map snapshot");
     failures += expect(client.snapshot().serverTick == 1, "file-backed startup snapshot should advance one setup tick");
     failures += expect(!client.hasAcknowledgedCommand(), "initial snapshot should not acknowledge a command");
     failures += expect(
-      client.snapshot().players[0].movementMode == lg::MovementMode::Grounded,
+      client.snapshot().players[0].movementMode ==
+        authoritativeStartup.players[0].movementMode,
       "snapshot should preserve local movement mode"
     );
     failures += expect(
-      client.snapshot().players[1].movementMode == lg::MovementMode::Grounded,
+      client.snapshot().players[1].movementMode ==
+        authoritativeStartup.players[1].movementMode,
       "snapshot should preserve remote movement mode"
     );
 
@@ -1667,7 +1717,11 @@ int main() {
     failures += expect(client.snapshot().serverTick == 2, "server tick should advance once per simulation step");
     failures += expect(client.hasAcknowledgedCommand(), "accepted command should set ack validity");
     failures += expect(client.lastAcknowledgedCommand() == 10, "snapshot should acknowledge accepted command");
-    failures += expect(client.snapshot().players[0].position.x > -8.0F, "server should simulate accepted movement");
+    failures += expect(
+      client.snapshot().players[0].position.x >
+        authoritativeStartup.players[0].position.x,
+      "server should simulate accepted movement from the file-backed spawn"
+    );
     failures += expect(client.snapshot().lightningGuns[0].hit, "server should authoritatively trace LG");
 
     lg::UserCommand duplicate = command;
@@ -1696,12 +1750,22 @@ int main() {
 
     lg::UserCommand reset;
     reset.sequence = 11;
+    const std::uint32_t tickBeforeReset = client.snapshot().serverTick;
     client.sendCommand(reset, true);
     server.tick(lg::kFixedTickSeconds);
     client.receiveSnapshots();
+    const lg::ServerSnapshot authoritativeReset = server.snapshot();
 
-    failures += expect(client.snapshot().serverTick == 4, "reset should preserve monotonic server ticks");
-    failures += expect(client.snapshot().players[0].position.x == -8.0F, "client should receive reset spawn");
+    failures += expect(
+      client.snapshot().serverTick > tickBeforeReset &&
+        client.snapshot().serverTick == authoritativeReset.serverTick,
+      "reset should preserve and replicate monotonic server ticks"
+    );
+    failures += expect(
+      client.snapshot().players[0].position.x ==
+        authoritativeReset.players[0].position.x,
+      "client should receive the authoritative file-backed reset spawn"
+    );
     failures += expect(client.snapshot().players[1].health == 100, "client should receive reset health");
 
     lg::UserCommand postResetMove;
@@ -1804,6 +1868,7 @@ int main() {
     lg::UserCommand attack;
     attack.sequence = 0;
     attack.attack = true;
+    aimPitchAtPlayerBody(attack, beforeAttack, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, attack, false, 0});
     server.tick(lg::kFixedTickSeconds);
 
@@ -2023,6 +2088,8 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    constexpr float directHitboxHalfExtentXY = 0.7F;
+    configureRocketDirectHitbox(server, directHitboxHalfExtentXY);
     lg::Arena arena;
     arena.min = {-20.0F, -20.0F, 0.0F};
     arena.max = {40.0F, 20.0F, 20.0F};
@@ -2059,7 +2126,10 @@ int main() {
       "rocket launcher AABB direct hit should report direct damage"
     );
     failures += expect(
-      std::fabs(snapshot.rocketExplosions[0].position.x - 3.517857F) < 0.03F,
+      std::fabs(
+        snapshot.rocketExplosions[0].position.x -
+        (arena.spawnPositions[1].x - directHitboxHalfExtentXY)
+      ) < 0.03F,
       "rocket launcher direct-hit explosion should occur at the AABB intersection"
     );
   }
@@ -2067,11 +2137,17 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
+    constexpr float directHitboxHalfExtentXY = 0.7F;
+    configureRocketDirectHitbox(server, directHitboxHalfExtentXY);
     lg::Arena arena;
     arena.min = {-20.0F, -20.0F, 0.0F};
     arena.max = {80.0F, 20.0F, 20.0F};
     arena.spawnPositions[0] = {-4.0F, 0.0F, 0.0F};
-    arena.spawnPositions[1] = {4.0F, 0.5F, 0.0F};
+    arena.spawnPositions[1] = {
+      4.0F,
+      directHitboxHalfExtentXY + 0.01F,
+      0.0F,
+    };
     server.setArena(arena);
     latestSnapshot(transport);
 
@@ -2413,14 +2489,15 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    latestSnapshot(transport);
+    const lg::ServerSnapshot aimSnapshot = latestSnapshot(transport);
 
     for (std::uint32_t sequence = 0; sequence < 2; ++sequence) {
       lg::UserCommand firstCommand;
       firstCommand.sequence = sequence;
       firstCommand.attack = true;
+      aimAtPlayerBody(firstCommand, aimSnapshot, 0, 1);
       lg::UserCommand secondCommand = firstCommand;
-      secondCommand.viewYawRadians = kPi;
+      aimAtPlayerBody(secondCommand, aimSnapshot, 1, 0);
       transport.sendCommand(lg::CommandPacket{0, firstCommand, false});
       transport.sendCommand(lg::CommandPacket{1, secondCommand, false});
       server.tick(lg::kFixedTickSeconds);
@@ -2448,8 +2525,9 @@ int main() {
 
     const lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.matchPhase == lg::MatchPhase::WaitingForPlayers,
-      "duel should not start when more than two players are connected"
+      snapshot.matchRules.playerLimit == 2 &&
+        snapshot.matchPhase == lg::MatchPhase::Countdown,
+      "duel player limit should be a start threshold, not an exact roster size"
     );
   }
 
@@ -2466,12 +2544,14 @@ int main() {
     server.setMatchRules(rules);
     server.setConnectedPlayers({true, false});
     server.setBotDodge(true, 1, 1);
+    const lg::BotRosterChange addedBots = server.addBots(1);
     const lg::Vec3 botStart = server.snapshot().players[1].position;
     server.tick(lg::kFixedTickSeconds);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.matchPhase == lg::MatchPhase::WaitingForPlayers,
-      "one connected player should remain in the lobby"
+      addedBots.ok && addedBots.changed == 1 &&
+        snapshot.matchPhase == lg::MatchPhase::WaitingForReady,
+      "an explicit bot add should fill the warmup roster"
     );
     failures += expect(
       snapshot.connectedPlayers[0] && !snapshot.connectedPlayers[1] &&
@@ -2481,18 +2561,24 @@ int main() {
     );
     failures += expect(
       snapshot.participatingPlayers[0] && snapshot.participatingPlayers[1] &&
-        snapshot.participatingPlayers[2] && snapshot.participatingPlayers[3] &&
-        snapshot.participatingPlayers[4] && snapshot.participatingPlayers[5],
-      "enabled dodge bots should join the authoritative player roster"
+        !snapshot.participatingPlayers[2] && !snapshot.participatingPlayers[3] &&
+        !snapshot.participatingPlayers[4] && !snapshot.participatingPlayers[5],
+      "the explicit bot should join the authoritative player roster"
     );
     server.setBotDodge(false, 1, 1);
     failures += expect(
       server.snapshot().participatingPlayers ==
-        std::array<bool, lg::kDuelPlayerCount>{true},
-      "disabled dodge bots should leave the authoritative player roster"
+        std::array<bool, lg::kDuelPlayerCount>{true, true} &&
+        server.snapshot().botPlayers[1] &&
+        !server.snapshot().botDodgeEnabled,
+      "disabling dodge should keep the bot roster intact"
     );
     server.setBotDodge(true, 1, 1);
-    failures += expect(snapshot.playerNames[1] == "BOT", "empty warmup opponent should be named BOT");
+    snapshot = server.snapshot();
+    failures += expect(
+      snapshot.playerNames[1] == "BOT 2",
+      "explicit bots should use their stable slot name"
+    );
     for (int tick = 0; tick < 20; ++tick) {
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
@@ -2507,7 +2593,7 @@ int main() {
     soloWarmupAttack.attack = true;
     const lg::Vec3 botOffset = snapshot.players[1].position - snapshot.players[0].position;
     soloWarmupAttack.viewYawRadians = std::atan2(botOffset.y, botOffset.x);
-    soloWarmupAttack.planarAim = true;
+    aimPitchAtPlayerBody(soloWarmupAttack, snapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, soloWarmupAttack, false});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
@@ -2526,6 +2612,17 @@ int main() {
       "bot_dodge targets should have authoritative hitboxes"
     );
 
+    const lg::BotRosterChange kickedBots = server.kickAllBots();
+    failures += expect(
+      kickedBots.ok && kickedBots.changed == 1,
+      "explicit bot removal should clear the test roster"
+    );
+    lg::Arena matchArena;
+    matchArena.min = {-20.0F, -20.0F, 0.0F};
+    matchArena.max = {20.0F, 20.0F, 10.0F};
+    matchArena.spawnPositions[0] = {-8.0F, 0.0F, 0.0F};
+    matchArena.spawnPositions[1] = {8.0F, 0.0F, 0.0F};
+    server.setArena(matchArena);
     server.setConnectedPlayers({true, true});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
@@ -2537,6 +2634,7 @@ int main() {
     lg::UserCommand warmupAttack;
     warmupAttack.sequence = 1;
     warmupAttack.attack = true;
+    aimAtPlayerBody(warmupAttack, snapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, warmupAttack, false});
     server.tick(lg::kFixedTickSeconds);
     warmupAttack.sequence = 2;
@@ -2578,11 +2676,12 @@ int main() {
     countdownCommand.sequence = 4;
     countdownCommand.forwardMove = 1.0F;
     countdownCommand.attack = true;
+    const lg::Vec3 countdownStart = snapshot.players[0].position;
     transport.sendCommand(lg::CommandPacket{0, countdownCommand, false, false, 0});
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     failures += expect(
-      snapshot.players[0].position.x > -8.0F,
+      lg::length(snapshot.players[0].position - countdownStart) > 0.0F,
       "players should be able to move during countdown"
     );
     failures += expect(
@@ -2611,7 +2710,11 @@ int main() {
       command.sequence = sequence + 6;
       command.clientTick = sequence;
       command.attack = true;
-      transport.sendCommand(lg::CommandPacket{0, command, false});
+      aimAtPlayerBody(command, snapshot, 0, 1);
+      lg::CommandPacket attackPacket;
+      attackPacket.command = command;
+      attackPacket.viewedServerTick = snapshot.serverTick;
+      transport.sendCommand(attackPacket);
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
       lastAttackSequence = sequence;
@@ -2711,7 +2814,11 @@ int main() {
       lg::UserCommand command;
       command.sequence = secondRoundSequence++;
       command.attack = true;
-      transport.sendCommand(lg::CommandPacket{0, command, false});
+      aimAtPlayerBody(command, snapshot, 0, 1);
+      lg::CommandPacket attackPacket;
+      attackPacket.command = command;
+      attackPacket.viewedServerTick = snapshot.serverTick;
+      transport.sendCommand(attackPacket);
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
       if (snapshot.matchPhase == lg::MatchPhase::MatchEnd) {
@@ -2762,15 +2869,16 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    latestSnapshot(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
     lg::UserCommand rail;
     rail.sequence = 1;
     rail.attack = true;
     rail.weapon = lg::Weapon::Railgun;
+    aimAtPlayerBody(rail, snapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, rail, false});
     server.tick(lg::kFixedTickSeconds);
-    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    snapshot = latestSnapshot(transport);
     failures += expect(snapshot.weaponFires[0].fired, "railgun command should fire a weapon event");
     failures += expect(snapshot.weaponFires[0].hit, "railgun should hit the spawned opponent");
     failures += expect(snapshot.players[1].health == 20, "railgun should apply 80 damage");
@@ -2786,15 +2894,16 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    latestSnapshot(transport);
+    lg::ServerSnapshot machineGunSnapshot = latestSnapshot(transport);
 
     lg::UserCommand machineGun;
     machineGun.sequence = 1;
     machineGun.attack = true;
     machineGun.weapon = lg::Weapon::MachineGun;
+    aimAtPlayerBody(machineGun, machineGunSnapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, machineGun, false});
     server.tick(lg::kFixedTickSeconds);
-    lg::ServerSnapshot machineGunSnapshot = latestSnapshot(transport);
+    machineGunSnapshot = latestSnapshot(transport);
     failures += expect(machineGunSnapshot.weaponFires[0].fired, "machine gun command should fire a weapon event");
     failures += expect(machineGunSnapshot.weaponFires[0].hit, "machine gun should hit the spawned opponent");
     failures += expect(
@@ -2827,15 +2936,16 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
-    latestSnapshot(transport);
+    lg::ServerSnapshot snapshot = latestSnapshot(transport);
 
     lg::UserCommand shotgun;
     shotgun.sequence = 1;
     shotgun.attack = true;
     shotgun.weapon = lg::Weapon::Shotgun;
+    aimAtPlayerBody(shotgun, snapshot, 0, 1);
     transport.sendCommand(lg::CommandPacket{0, shotgun, false});
     server.tick(lg::kFixedTickSeconds);
-    lg::ServerSnapshot snapshot = latestSnapshot(transport);
+    snapshot = latestSnapshot(transport);
     failures += expect(snapshot.weaponFires[0].fired, "shotgun command should fire a weapon event");
     failures += expect(snapshot.weaponFires[0].hit, "shotgun should hit the spawned opponent");
     failures += expect(
