@@ -248,6 +248,7 @@ target_compile_features(lg_duel_quake_map_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_quake_map_tests)
 
 add_test(NAME lg_duel_quake_map_tests COMMAND lg_duel_quake_map_tests)
+set_tests_properties(lg_duel_quake_map_tests PROPERTIES WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
 add_executable(lg_duel_fixed_tick_tests
   sim/FixedTickTests.cpp
@@ -351,6 +352,18 @@ if(Python3_Interpreter_FOUND)
   add_test(
     NAME lg_duel_benchmark_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_benchmark.py
+  )
+  add_test(
+    NAME lg_duel_performance_policy_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_performance_policy.py
+  )
+  add_test(
+    NAME lg_duel_benchmark_comparison_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_compare_benchmarks.py
+  )
+  add_test(
+    NAME lg_duel_verification_evidence_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_verification.py
   )
   add_test(
     NAME lg_duel_launch_python_tests

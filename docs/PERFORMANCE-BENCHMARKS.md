@@ -116,6 +116,91 @@ Shared simulation hot paths have a separate headless executable so renderer sche
 .\scripts\lg-benchmark.ps1 sim-run --workload trace-projectile --map overkill_import --repetitions 5 --warmup-batches 60 --measured-batches 100 --operations-per-batch 256
 ```
 
+### Revision and result-set comparison
+
+Phase 3 adds one policy-based comparison command on top of these artifacts:
+
+```powershell
+python scripts/lg_compare_benchmarks.py `
+  --baseline origin/main `
+  --candidate HEAD `
+  --suite pr_headless `
+  --repetitions 5 `
+  --profile pr_headless `
+  --output build/verification/benchmarks
+```
+
+The revision mode resolves both refs to commits, rejects an uncommitted candidate,
+and creates two detached worktrees below the new output directory. It configures
+separate Release builds with the same options, runs the same bounded suite, copies
+raw results and logs into the output, then removes only the worktrees and build
+trees it created. It never resets, cleans, or changes the active worktree. A failed
+configure, build, run, or cleanup still leaves a partial `manifest.json`.
+
+Existing result sets can be checked without a rebuild:
+
+```powershell
+python scripts/lg_compare_benchmarks.py `
+  --baseline-results build/verification/baseline `
+  --candidate-results build/verification/candidate `
+  --profile pr_headless `
+  --output build/verification/comparison
+```
+
+Each result root must contain exactly one valid `aggregate.json` for every scenario
+required by the selected policy profile. Missing, extra, duplicate, malformed, or
+mixed scenario artifacts fail before any percentage is calculated.
+
+`config/performance-policy.json` is the versioned source of truth. The
+`pr_headless` profile uses five runs of the two shared-simulation workloads and
+conservative CPU limits. It also requires the same compiler version, build type,
+generator, build options, and collision query mode. The `trusted_gpu` profile
+requires five verified SDL_GPU/Vulkan runs on the same build, GPU, driver, API,
+renderer, observed resolution, Vulkan ICD record, map, and scenario. A fallback
+result can never satisfy that profile.
+
+The policy uses these results:
+
+- `PASS`: all required evidence and stable metrics meet the limits.
+- `WARN`: a repeatable change exceeds both warning limits.
+- `FAIL`: a hard limit or required check fails, or a stable change exceeds both
+  failure limits.
+- `INCONCLUSIVE`: too few valid runs or too much run-to-run spread prevents a
+  sound timing verdict.
+- `NOT_COMPARABLE`: a material scenario, build, host, renderer, protocol, or
+  settings field differs or is missing.
+- `UNAVAILABLE`: an optional metric, such as unsupported GPU timing, is absent.
+- `SKIPPED`: a metric does not apply to that scenario.
+
+A timing regression must exceed both its absolute and relative limit. This keeps
+small shifts near zero from failing a change. A zero baseline uses the absolute
+limit alone. Tukey outliers remain in the result; reports list their run number,
+fences, and all pre-exclusion values. Version 1 never drops an outlier.
+
+The tool writes deterministic `comparison.json` and `report.md` files. The JSON
+includes comparability checks, run counts, raw run values, medians, spread,
+outliers, limits, hard checks, and per-metric status. The Markdown puts hard
+correctness failures before the timing table and calls out the largest regression,
+largest improvement, unavailable data, and noisy data.
+
+The common CI evidence helper writes or updates a portable evidence root:
+
+```powershell
+python scripts/lg_verification.py protocol-budget --evidence-root verification
+python scripts/lg_verification.py collect-ci `
+  --evidence-root verification `
+  --platform windows `
+  --category protocol `
+  --status success
+```
+
+Its manifest uses relative artifact paths with hashes and sizes. The protocol
+record runs the real protocol tests, checks the source ceiling remains 1,200
+bytes, records parsed packet sizes, and fails when the encoder test or hard limit
+fails. Revision and stored-result comparisons also require the configured source
+ceiling to equal 1,200 bytes; a low observed packet size cannot hide a raised
+ceiling.
+
 `movement-collision` drives the real shared 125 Hz `simulateMovement` path from fixed spawn states and commands. `trace-projectile` separately measures long `traceWorld` rays and short projectile-style swept segments. Both hash all returned state, repeat the identical workload, and invalidate a result if replay checksums differ. `--force-linear` disables the derived collision index for a paired same-binary broadphase comparison; it is a diagnostic implementation selector and is recorded in native JSON.
 
 Use `--port`, `--timeout`, or `--json` when the wrapper needs those global options. The exact executable/build directory is preset dependent; use wrapper help rather than assuming a packaged game contains it. MCP exposes the same opt-in work as thin adapter tools: `lg_list_benchmarks`, `lg_run_benchmark`, `lg_compare_benchmarks`, `lg_get_benchmark_result`, and `lg_create_benchmark_baseline`. It returns structured results and requested PNGs, not a hand-written summary.

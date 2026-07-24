@@ -86,6 +86,7 @@ class LaunchTests(unittest.TestCase):
             build.mkdir()
             (build / "lg_duel_client.exe").touch()
             (build / "lg_duel_server.exe").touch()
+            expected_server_path = str((build / "lg_duel_server.exe").resolve())
             with mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
                  mock.patch.object(lg_launch, "resolve_vulkan_selection", return_value=self.selection()), \
                  mock.patch.object(
@@ -103,7 +104,10 @@ class LaunchTests(unittest.TestCase):
         self.assertEqual(launch.call_count, 2)
         self.assertTrue(all(call.args[5] == build.resolve() for call in launch.call_args_list))
         self.assertEqual(result["build_directory"], str(build.resolve()))
-        self.assertEqual(written[0]["server"], {"pid": 301, "owned": True, "path": str(build / "lg_duel_server.exe")})
+        self.assertEqual(
+            written[0]["server"],
+            {"pid": 301, "owned": True, "path": expected_server_path},
+        )
         self.assertEqual(written[0]["client"]["pid"], 302)
         self.assertTrue(written[0]["client"]["owned"])
 
@@ -290,11 +294,27 @@ GPU0:
             "client": {"pid": 101, "owned": True, "path": "client.exe"},
             "server": {"pid": 202, "owned": False, "path": "server.exe"},
         }
-        with mock.patch.object(lg_launch, "_entry_matches", return_value=True), \
+        with mock.patch.object(lg_launch, "_entry_matches", side_effect=[True, False]), \
              mock.patch.object(os, "kill") as kill:
             stopped = lg_launch.cleanup_owned(state)
         self.assertEqual(stopped, ["client"])
         kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
+
+    def test_stop_owned_keeps_state_when_one_owned_process_remains(self) -> None:
+        state = {
+            "client": {"pid": 101, "owned": True, "path": "client.exe"},
+            "server": {"pid": 202, "owned": True, "path": "server.exe"},
+        }
+        state_path = mock.Mock()
+        state_path.exists.return_value = True
+        with mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             mock.patch.object(lg_launch, "cleanup_owned", return_value=["client"]), \
+             mock.patch.object(lg_launch, "_entry_matches", side_effect=[False, True]), \
+             mock.patch.object(lg_launch, "STATE_PATH", state_path):
+            result = lg_launch.stop_owned()
+        self.assertTrue(result["left_owned_running"])
+        self.assertEqual(result["remaining"], ["server"])
+        state_path.unlink.assert_not_called()
 
     def test_restart_requires_an_owned_matching_client(self) -> None:
         state = {"client": {"pid": 101, "owned": False, "path": "client.exe"}}
@@ -468,7 +488,15 @@ GPU0:
             result,
             {"stopped": ["client"], "already_exited": [], "failures": []},
         )
-        kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
+        termination_calls = [
+            call
+            for call in kill.call_args_list
+            if call.args[1] != 0
+        ]
+        self.assertEqual(
+            termination_calls,
+            [mock.call(101, lg_launch.signal.SIGTERM)],
+        )
 
     def test_scenario_cleanup_reports_identity_failure_without_killing(self) -> None:
         state = {
@@ -532,7 +560,7 @@ GPU0:
 
     def test_scenario_cleanup_stops_tracking_after_process_exits(self) -> None:
         state = {
-            "cleanup_timeout": 0.1,
+            "cleanup_timeout": 1.0,
             "run_token": "run-14",
             "client": {
                 "pid": 101,

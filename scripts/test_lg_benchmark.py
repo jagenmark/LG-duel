@@ -82,6 +82,58 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(metadata["vulkan_icd_manifests"], [str(manifest)])
         self.assertRegex(metadata["vulkan_icd_manifest_records"][0]["sha256"], r"^[0-9a-f]{64}$")
 
+    def test_build_environment_metadata_records_comparable_options(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            build_dir = Path(temporary)
+            (build_dir / "CMakeCache.txt").write_text(
+                "\n".join(
+                    (
+                        "CMAKE_BUILD_TYPE:STRING=Release",
+                        "CMAKE_GENERATOR:INTERNAL=Ninja",
+                        "CMAKE_CXX_COMPILER:FILEPATH=C:/tools/clang++.exe",
+                        "BUILD_TESTING:BOOL=ON",
+                        "LG_DUEL_REQUIRE_SDL3:BOOL=OFF",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            completed = mock.Mock(stdout="clang version 20.1.0\n", stderr="")
+            with mock.patch("subprocess.run", return_value=completed):
+                metadata = lg_benchmark.build_environment_metadata(build_dir)
+        self.assertEqual(metadata["build_type"], "Release")
+        self.assertEqual(metadata["cmake_generator"], "Ninja")
+        self.assertEqual(metadata["compiler"], "clang++.exe")
+        self.assertEqual(metadata["compiler_version"], "clang version 20.1.0")
+        self.assertEqual(
+            metadata["compile_time_options"],
+            {"BUILD_TESTING": "ON", "LG_DUEL_REQUIRE_SDL3": "OFF"},
+        )
+
+    def test_environment_metadata_records_architecture(self) -> None:
+        self.assertEqual(lg_benchmark.environment_metadata()["architecture"], lg_benchmark.platform.machine())
+
+    def test_source_protocol_version_reads_header(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            header = root / "src" / "net"
+            header.mkdir(parents=True)
+            (header / "NetCodec.hpp").write_text(
+                "inline constexpr std::uint16_t kProtocolVersion = 56;\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(lg_benchmark.source_protocol_version(root), 56)
+
+    def test_source_fixed_tick_rate_reads_header(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            header = root / "src" / "shared"
+            header.mkdir(parents=True)
+            (header / "Constants.hpp").write_text(
+                "inline constexpr float kFixedTickRate = 125.0F;\n",
+                encoding="utf-8",
+            )
+            self.assertEqual(lg_benchmark.source_fixed_tick_rate(root), 125.0)
+
     def test_aggregate_preserves_native_tail_statistics(self) -> None:
         runs = [
             {"valid": True, "summary": {"frame_ms": {"median": 10, "p95": 15, "p99": 20, "max": 30}}},
@@ -93,6 +145,22 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(metric["p95"], 17)
         self.assertEqual(metric["p99"], 22)
         self.assertEqual(metric["max"], 35)
+
+    def test_simulation_tick_csv_metrics_keep_their_scope(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "simulation-ticks.csv"
+            path.write_text(
+                "tick,render_frame,elapsed_seconds,simulation_ms,traces_ms\n"
+                "1,1,0.008,0.2,0.05\n"
+                "2,1,0.016,0.4,0.07\n",
+                encoding="utf-8",
+            )
+            metrics = lg_benchmark._telemetry_metrics(
+                path, prefix="simulation_tick_"
+            )
+        self.assertEqual(metrics["simulation_tick_simulation_ms"]["median"], 0.30000000000000004)
+        self.assertEqual(metrics["simulation_tick_traces_ms"]["p95"], 0.07)
+        self.assertNotIn("simulation_tick_tick", metrics)
 
     def test_tail_regression_cannot_be_masked_by_lower_median(self) -> None:
         classification, details = lg_benchmark.classify_metric(
