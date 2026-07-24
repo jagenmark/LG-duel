@@ -354,6 +354,10 @@ if(Python3_Interpreter_FOUND)
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_benchmark.py
   )
   add_test(
+    NAME lg_duel_frame_timeline_python_tests
+    COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_frame_timeline_report.py
+  )
+  add_test(
     NAME lg_duel_performance_policy_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_lg_performance_policy.py
   )

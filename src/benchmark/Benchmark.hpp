@@ -16,6 +16,7 @@ namespace lg::benchmark {
 
 inline constexpr int kBenchmarkVersion = 1;
 inline constexpr int kBenchmarkSchemaVersion = 1;
+inline constexpr int kFrameTimelineSchemaVersion = 1;
 
 struct CameraPose {
   Vec3 position = {};
@@ -164,6 +165,12 @@ struct ResultContext {
 [[nodiscard]] CameraPose cameraAt(const Scenario& scenario, double measuredSeconds);
 [[nodiscard]] Summary summarize(const std::vector<FrameSample>& samples);
 [[nodiscard]] dev::JsonValue resultJson(
+  const Scenario& scenario,
+  const ResultContext& context,
+  const std::vector<FrameSample>& samples,
+  const std::vector<SimulationTickSample>& tickSamples
+);
+[[nodiscard]] dev::JsonValue frameTimelineJson(
   const Scenario& scenario,
   const ResultContext& context,
   const std::vector<FrameSample>& samples,

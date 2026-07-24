@@ -42,6 +42,43 @@ Second-based runs reserve for up to 4,096 render samples per second before
 measurement; exceeding that safety ceiling aborts instead of reallocating and
 polluting the measured tail.
 
+### Per-frame timeline and visual report
+
+Native runs may also write `frame-timeline.json` (schema version `1`). This is
+the stable per-frame artifact: each frame has a `frame_index`, elapsed time,
+total CPU time, optional total GPU time, named CPU/GPU values, workload
+counters, and an `event_markers` array. GPU values are `null` or absent when the
+backend cannot provide execution timing; CPU submit or swapchain time must not
+be relabelled as GPU time. Fixed simulation ticks are kept as event markers
+(with their tick index and name when available), so one render frame can show
+zero, one, or several tick events.
+
+`telemetry.csv` and `simulation-ticks.csv` remain the raw measurement source of
+truth. The JSON timeline joins those streams for frame inspection and does not
+replace either CSV. Reports must use the recorded values and metadata, without
+re-measuring a run.
+
+Generate a portable report from a candidate, and optionally a compatible
+baseline, with:
+
+```powershell
+python scripts/lg_frame_timeline_report.py build/benchmarks/<scenario>/<run-group>/run-1 --baseline build/benchmarks/<scenario>/<baseline-group>/run-1 --output build/benchmarks/<scenario>/timeline-report
+```
+
+The command writes a self-contained `frame-timeline.html`, a static
+`frame-timeline.svg`, and a machine-readable `timeline-analysis.json`. The HTML has an inspectable frame
+timeline, distribution, worst-frame table, pattern summary, and (when the
+metadata permits) baseline-versus-candidate deltas. It runs in headless CI and
+uses no chart package or network fetch.
+
+Version 1 classifies isolated spikes, bursts, periodic spikes, sustained
+regressions, and alternating or sawtooth pacing with fixed deterministic
+thresholds. `timeline-analysis.json` records those thresholds, sample counts, and a
+confidence level for each finding; too few samples or missing fields produce
+`unavailable` rather than a guess. A marker or subsystem that overlaps a spike
+is a correlation only. The report does not prove that marker or subsystem
+caused the frame cost.
+
 ## Scenario Format
 
 Every descriptor is JSON with `schema_version: 1` and `expected_benchmark_version: 1`. Curated descriptors also carry `benchmark_version: 1` as human-readable metadata. A runner must reject a future or incompatible version rather than guessing semantics.
