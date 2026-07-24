@@ -488,6 +488,196 @@ dev::JsonValue resultJson(
   return root;
 }
 
+dev::JsonValue frameTimelineJson(
+  const Scenario& scenario,
+  const ResultContext& context,
+  const std::vector<FrameSample>& samples,
+  const std::vector<SimulationTickSample>& tickSamples
+) {
+  dev::JsonValue root = dev::JsonValue::objectValue();
+  root.object["format"] = dev::JsonValue::stringValue("lg-duel-frame-timeline");
+  root.object["schema_version"] =
+    dev::JsonValue::numberValue(kFrameTimelineSchemaVersion);
+
+  dev::JsonValue schema = dev::JsonValue::objectValue();
+  schema.object["frame_index"] =
+    dev::JsonValue::stringValue("zero-based measured render-frame index");
+  schema.object["elapsed_time_seconds"] = dev::JsonValue::stringValue(
+    "steady-clock seconds since the measured phase began"
+  );
+  schema.object["total_cpu_ms"] = dev::JsonValue::stringValue(
+    "CPU-observed wall-clock frame duration; subsystem spans may overlap"
+  );
+  schema.object["total_gpu_ms"] = dev::JsonValue::stringValue(
+    "GPU execution duration in milliseconds, or null when unavailable"
+  );
+  schema.object["cpu_subsystems_ms"] = dev::JsonValue::stringValue(
+    "named CPU spans in milliseconds; values are not required to sum to total_cpu_ms"
+  );
+  schema.object["gpu_subsystems_ms"] = dev::JsonValue::stringValue(
+    "named GPU spans in milliseconds; empty when GPU timing is unavailable"
+  );
+  schema.object["workload_counters"] = dev::JsonValue::stringValue(
+    "raw per-frame work and visibility counters"
+  );
+  schema.object["event_markers"] = dev::JsonValue::stringValue(
+    "events assigned to this frame; simulation tick markers include source tick indices"
+  );
+  root.object["schema"] = std::move(schema);
+
+  dev::JsonValue metadata = dev::JsonValue::objectValue();
+  metadata.object["benchmark_version"] =
+    dev::JsonValue::numberValue(kBenchmarkVersion);
+  metadata.object["benchmark_schema_version"] =
+    dev::JsonValue::numberValue(kBenchmarkSchemaVersion);
+  metadata.object["run_id"] = dev::JsonValue::stringValue(context.runId);
+  metadata.object["run_group"] = dev::JsonValue::stringValue(context.runGroup);
+  metadata.object["scenario_name"] = dev::JsonValue::stringValue(scenario.name);
+  metadata.object["scenario_hash"] =
+    dev::JsonValue::stringValue(context.scenarioHash);
+  metadata.object["renderer"] = dev::JsonValue::stringValue(context.renderer);
+  metadata.object["map_content_hash"] =
+    dev::JsonValue::numberValue(context.actualMapContentHash);
+  metadata.object["actual_resolution"] = dev::JsonValue::arrayValue({
+    dev::JsonValue::numberValue(context.actualWidth),
+    dev::JsonValue::numberValue(context.actualHeight),
+  });
+  metadata.object["selected_present_mode"] =
+    dev::JsonValue::stringValue(context.selectedPresentMode);
+  metadata.object["clock"] =
+    dev::JsonValue::stringValue("std::chrono::steady_clock");
+  root.object["metadata"] = std::move(metadata);
+
+  dev::JsonValue gpuTiming = dev::JsonValue::objectValue();
+  gpuTiming.object["available"] = dev::JsonValue::booleanValue(false);
+  gpuTiming.object["unavailable_reason"] = dev::JsonValue::stringValue(
+    "native GPU execution timing was not recorded"
+  );
+  root.object["gpu_timing"] = std::move(gpuTiming);
+  root.object["frame_count"] =
+    dev::JsonValue::numberValue(static_cast<double>(samples.size()));
+  root.object["simulation_tick_count"] =
+    dev::JsonValue::numberValue(static_cast<double>(tickSamples.size()));
+
+  std::map<std::uint64_t, std::vector<const SimulationTickSample*>> ticksByFrame;
+  for (const SimulationTickSample& tick : tickSamples) {
+    ticksByFrame[tick.renderFrameIndex].push_back(&tick);
+  }
+
+  dev::JsonValue frames = dev::JsonValue::arrayValue();
+  frames.array.reserve(samples.size());
+  for (const FrameSample& sample : samples) {
+    dev::JsonValue frame = dev::JsonValue::objectValue();
+    frame.object["frame_index"] =
+      dev::JsonValue::numberValue(static_cast<double>(sample.index));
+    frame.object["elapsed_time_seconds"] =
+      dev::JsonValue::numberValue(sample.elapsedSeconds);
+    frame.object["total_cpu_ms"] =
+      dev::JsonValue::numberValue(sample.frameMilliseconds);
+    frame.object["total_gpu_ms"] = dev::JsonValue{};
+    frame.object["gpu_timing_available"] =
+      dev::JsonValue::booleanValue(false);
+
+    dev::JsonValue cpu = dev::JsonValue::objectValue();
+    cpu.object["scene_build"] =
+      dev::JsonValue::numberValue(sample.sceneBuildMilliseconds);
+    cpu.object["vertex_upload"] =
+      dev::JsonValue::numberValue(sample.vertexUploadMilliseconds);
+    cpu.object["swapchain_acquisition"] =
+      dev::JsonValue::numberValue(sample.swapchainAcquireMilliseconds);
+    cpu.object["draw_issue"] =
+      dev::JsonValue::numberValue(sample.drawIssueMilliseconds);
+    cpu.object["submission"] =
+      dev::JsonValue::numberValue(sample.submitMilliseconds);
+    cpu.object["renderer_total"] =
+      dev::JsonValue::numberValue(sample.renderCpuMilliseconds);
+    cpu.object["snapshot_decode"] =
+      dev::JsonValue::numberValue(sample.snapshotDecodeMilliseconds);
+    cpu.object["snapshot_apply"] =
+      dev::JsonValue::numberValue(sample.snapshotApplyMilliseconds);
+    cpu.object["network_processing"] =
+      dev::JsonValue::numberValue(sample.networkProcessingMilliseconds);
+    cpu.object["simulation"] =
+      dev::JsonValue::numberValue(sample.simulationMilliseconds);
+    cpu.object["movement_collision"] =
+      dev::JsonValue::numberValue(sample.movementCollisionMilliseconds);
+    cpu.object["traces"] =
+      dev::JsonValue::numberValue(sample.tracesMilliseconds);
+    cpu.object["interpolation"] =
+      dev::JsonValue::numberValue(sample.interpolationMilliseconds);
+    cpu.object["animation"] =
+      dev::JsonValue::numberValue(sample.animationMilliseconds);
+    cpu.object["world_visibility"] =
+      dev::JsonValue::numberValue(sample.worldVisibilityMilliseconds);
+    cpu.object["render_instance_construction"] = dev::JsonValue::numberValue(
+      sample.renderInstanceConstructionMilliseconds
+    );
+    cpu.object["world_command_encoding"] =
+      dev::JsonValue::numberValue(sample.worldCommandEncodingMilliseconds);
+    cpu.object["dynamic_command_encoding"] =
+      dev::JsonValue::numberValue(sample.dynamicCommandEncodingMilliseconds);
+    cpu.object["ui"] = dev::JsonValue::numberValue(sample.uiMilliseconds);
+    frame.object["cpu_subsystems_ms"] = std::move(cpu);
+    frame.object["gpu_subsystems_ms"] = dev::JsonValue::objectValue();
+
+    dev::JsonValue workload = dev::JsonValue::objectValue();
+    workload.object["uploaded_vertices"] =
+      dev::JsonValue::numberValue(sample.uploadedVertices);
+    workload.object["rendered_triangles"] =
+      dev::JsonValue::numberValue(sample.renderedTriangles);
+    workload.object["world_draws"] =
+      dev::JsonValue::numberValue(sample.worldDraws);
+    workload.object["world_submitted_triangles"] =
+      dev::JsonValue::numberValue(sample.worldSubmittedTriangles);
+    workload.object["world_submitted_ranges"] =
+      dev::JsonValue::numberValue(sample.worldSubmittedRanges);
+    workload.object["world_total_chunks"] =
+      dev::JsonValue::numberValue(sample.worldTotalChunks);
+    workload.object["world_visible_chunks"] =
+      dev::JsonValue::numberValue(sample.worldVisibleChunks);
+    workload.object["world_culled_chunks"] =
+      dev::JsonValue::numberValue(sample.worldCulledChunks);
+    workload.object["world_visibility_tested_nodes"] =
+      dev::JsonValue::numberValue(sample.worldVisibilityTestedNodes);
+    workload.object["world_visibility_query_ms"] =
+      dev::JsonValue::numberValue(sample.worldVisibilityQueryMilliseconds);
+    workload.object["visible_players"] =
+      dev::JsonValue::numberValue(sample.visiblePlayers);
+    workload.object["projectiles"] =
+      dev::JsonValue::numberValue(sample.projectileCount);
+    workload.object["effects"] =
+      dev::JsonValue::numberValue(sample.effectCount);
+    workload.object["instance_upload_bytes"] =
+      dev::JsonValue::numberValue(sample.instanceUploadBytes);
+    workload.object["instance_draws"] =
+      dev::JsonValue::numberValue(sample.instanceDraws);
+    frame.object["workload_counters"] = std::move(workload);
+
+    dev::JsonValue markers = dev::JsonValue::arrayValue();
+    if (const auto found = ticksByFrame.find(sample.index);
+        found != ticksByFrame.end()) {
+      dev::JsonValue marker = dev::JsonValue::objectValue();
+      marker.object["type"] =
+        dev::JsonValue::stringValue("simulation_ticks");
+      marker.object["count"] =
+        dev::JsonValue::numberValue(static_cast<double>(found->second.size()));
+      dev::JsonValue indices = dev::JsonValue::arrayValue();
+      indices.array.reserve(found->second.size());
+      for (const SimulationTickSample* tick : found->second) {
+        indices.array.push_back(
+          dev::JsonValue::numberValue(static_cast<double>(tick->index))
+        );
+      }
+      marker.object["tick_indices"] = std::move(indices);
+      markers.array.push_back(std::move(marker));
+    }
+    frame.object["event_markers"] = std::move(markers);
+    frames.array.push_back(std::move(frame));
+  }
+  root.object["frames"] = std::move(frames);
+  return root;
+}
+
 bool writeArtifacts(
   const std::filesystem::path& benchmarkRoot,
   const Scenario& scenario,
@@ -552,7 +742,14 @@ bool writeArtifacts(
   std::ofstream result(resultDirectory / "result.json", std::ios::trunc);
   result << dev::writeJson(resultJson(scenario, context, samples, tickSamples))
     << '\n';
-  if (!frames || !telemetry || !ticks || !result) {
+  std::ofstream timeline(
+    resultDirectory / "frame-timeline.json",
+    std::ios::trunc
+  );
+  timeline << dev::writeJson(
+    frameTimelineJson(scenario, context, samples, tickSamples)
+  ) << '\n';
+  if (!frames || !telemetry || !ticks || !result || !timeline) {
     error = "could not write benchmark artifacts";
     return false;
   }

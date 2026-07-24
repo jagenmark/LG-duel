@@ -9332,6 +9332,9 @@ int GameApp::run() const {
         response.object["frame_times_path"] = dev::JsonValue::stringValue(
           (resultDirectory / "frame-times.csv").string()
         );
+        response.object["frame_timeline_path"] = dev::JsonValue::stringValue(
+          (resultDirectory / "frame-timeline.json").string()
+        );
         response.object["telemetry_path"] = dev::JsonValue::stringValue(
           (resultDirectory / "telemetry.csv").string()
         );

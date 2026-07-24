@@ -164,12 +164,18 @@ int main() {
 
   std::vector<lg::benchmark::FrameSample> samples(1000);
   for (std::size_t index = 0; index < samples.size(); ++index) {
+    samples[index].index = index;
+    samples[index].elapsedSeconds = static_cast<double>(index) / 100.0;
     samples[index].frameMilliseconds = static_cast<double>(index + 1U);
     samples[index].networkProcessingMilliseconds =
       static_cast<double>(index + 1U);
   }
+  samples[1].worldVisibleChunks = 17;
+  samples[1].renderCpuMilliseconds = 3.5;
   std::vector<lg::benchmark::SimulationTickSample> tickSamples(100);
   for (std::size_t index = 0; index < tickSamples.size(); ++index) {
+    tickSamples[index].index = index;
+    tickSamples[index].renderFrameIndex = index / 2U;
     tickSamples[index].simulationMilliseconds =
       static_cast<double>(index + 1U);
   }
@@ -184,6 +190,10 @@ int main() {
     const lg::dev::JsonValue resultValue = lg::benchmark::resultJson(
       valid.scenario, context, samples, tickSamples
     );
+    const lg::dev::JsonValue timelineValue =
+      lg::benchmark::frameTimelineJson(
+        valid.scenario, context, samples, tickSamples
+      );
     const std::string result = lg::dev::writeJson(resultValue);
     failures += expect(result.find("\"percentile_method\"") != std::string::npos, "result should document percentile method");
     failures += expect(result.find("\"16.67\"") != std::string::npos, "result should include frame-time thresholds");
@@ -214,6 +224,63 @@ int main() {
         simulation->find("p95_ms")->number == 95.0 &&
         simulation->find("p99_ms")->number == 99.0,
       "simulation-tick timings should aggregate independently from render frames"
+    );
+    const lg::dev::JsonValue* timelineFrames = timelineValue.find("frames");
+    const lg::dev::JsonValue* secondTimelineFrame =
+      timelineFrames != nullptr &&
+        timelineFrames->type == lg::dev::JsonValue::Type::Array &&
+        timelineFrames->array.size() > 1U
+      ? &timelineFrames->array[1] : nullptr;
+    const lg::dev::JsonValue* totalGpu = secondTimelineFrame != nullptr
+      ? secondTimelineFrame->find("total_gpu_ms") : nullptr;
+    const lg::dev::JsonValue* gpuSubsystems = secondTimelineFrame != nullptr
+      ? secondTimelineFrame->find("gpu_subsystems_ms") : nullptr;
+    const lg::dev::JsonValue* cpuSubsystems = secondTimelineFrame != nullptr
+      ? secondTimelineFrame->find("cpu_subsystems_ms") : nullptr;
+    const lg::dev::JsonValue* workload = secondTimelineFrame != nullptr
+      ? secondTimelineFrame->find("workload_counters") : nullptr;
+    const lg::dev::JsonValue* markers = secondTimelineFrame != nullptr
+      ? secondTimelineFrame->find("event_markers") : nullptr;
+    failures += expect(
+      timelineValue.find("format") != nullptr &&
+        timelineValue.find("format")->string == "lg-duel-frame-timeline" &&
+        timelineValue.find("schema_version") != nullptr &&
+        timelineValue.find("schema_version")->number == 1.0 &&
+        timelineValue.find("schema") != nullptr &&
+        timelineValue.find("metadata") != nullptr,
+      "frame timeline should identify and document its stable schema"
+    );
+    failures += expect(
+      secondTimelineFrame != nullptr &&
+        secondTimelineFrame->find("frame_index")->number == 1.0 &&
+        secondTimelineFrame->find("total_cpu_ms")->number == 2.0 &&
+        totalGpu != nullptr &&
+        totalGpu->type == lg::dev::JsonValue::Type::Null &&
+        secondTimelineFrame->find("gpu_timing_available") != nullptr &&
+        !secondTimelineFrame->find("gpu_timing_available")->boolean &&
+        gpuSubsystems != nullptr &&
+        gpuSubsystems->type == lg::dev::JsonValue::Type::Object &&
+        gpuSubsystems->object.empty(),
+      "frame timeline should keep CPU totals and explicit unavailable GPU values"
+    );
+    failures += expect(
+      cpuSubsystems != nullptr &&
+        cpuSubsystems->find("renderer_total") != nullptr &&
+        cpuSubsystems->find("renderer_total")->number == 3.5 &&
+        workload != nullptr &&
+        workload->find("world_visible_chunks") != nullptr &&
+        workload->find("world_visible_chunks")->number == 17.0,
+      "frame timeline should retain named CPU timings and workload counters"
+    );
+    failures += expect(
+      markers != nullptr &&
+        markers->type == lg::dev::JsonValue::Type::Array &&
+        markers->array.size() == 1U &&
+        markers->array[0].find("count") != nullptr &&
+        markers->array[0].find("count")->number == 2.0 &&
+        markers->array[0].find("tick_indices") != nullptr &&
+        markers->array[0].find("tick_indices")->array[0].number == 2.0,
+      "frame timeline should link simulation ticks to their render frame"
     );
     failures += expect(result.find("\"expected_actors\":true") != std::string::npos, "result actor validity should use snapshot actor count");
     context.actualActorCount = 3;
@@ -254,6 +321,11 @@ int main() {
     const std::string tickTelemetry = readFile(
       resultDirectory / "simulation-ticks.csv"
     );
+    const std::string frameTimeline = readFile(
+      resultDirectory / "frame-timeline.json"
+    );
+    const lg::dev::JsonParseResult parsedTimeline =
+      lg::dev::parseJson(frameTimeline);
     failures += expect(
       frameTelemetry.find("network_processing_ms") != std::string::npos &&
         frameTelemetry.find("dynamic_command_encoding_ms") != std::string::npos,
@@ -263,6 +335,12 @@ int main() {
       tickTelemetry.find("simulation_ms,network_processing_ms") !=
         std::string::npos,
       "simulation tick CSV should expose its independent timing stream"
+    );
+    failures += expect(
+      parsedTimeline.ok &&
+        parsedTimeline.value.find("frame_count") != nullptr &&
+        parsedTimeline.value.find("frame_count")->number == 1000.0,
+      "benchmark artifacts should include a valid frame-timeline.json"
     );
     std::error_code cleanupError;
     std::filesystem::remove_all(artifactRoot, cleanupError);
