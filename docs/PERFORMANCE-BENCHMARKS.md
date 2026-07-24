@@ -79,6 +79,11 @@ confidence level for each finding; too few samples or missing fields produce
 is a correlation only. The report does not prove that marker or subsystem
 caused the frame cost.
 
+The screenshot below shows the standalone report layout. It uses synthetic
+data only and is not a measured LG Duel performance result.
+
+![Synthetic frame timeline report](performance-examples/frame-timeline-synthetic-demo.png)
+
 ## Scenario Format
 
 Every descriptor is JSON with `schema_version: 1` and `expected_benchmark_version: 1`. Curated descriptors also carry `benchmark_version: 1` as human-readable metadata. A runner must reject a future or incompatible version rather than guessing semantics.
