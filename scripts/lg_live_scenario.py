@@ -75,8 +75,8 @@ def _copy(source: Path | str | None, target: Path) -> None:
         pass
 
 
-def _free_port() -> int:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+def _free_port(socket_type: int) -> int:
+    with socket.socket(socket.AF_INET, socket_type) as probe:
         probe.bind(("127.0.0.1", 0))
         return int(probe.getsockname()[1])
 
@@ -433,9 +433,12 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
         scenario = validate_live_scenario(scenario_path, build, timeout)
         _json(scenario_dir / "scenario.json", scenario)
         canonical_scenario_path = scenario_dir / "scenario.json"
-        server_port, control_port = _free_port(), _free_port()
+        # Probe with the protocol each process will bind. A free TCP port can
+        # still be occupied by UDP, and vice versa.
+        server_port = _free_port(socket.SOCK_DGRAM)
+        control_port = _free_port(socket.SOCK_STREAM)
         while control_port == server_port:
-            control_port = _free_port()
+            control_port = _free_port(socket.SOCK_STREAM)
         stage = "launch"
         session = lg_launch.launch_scenario_session(
             canonical_scenario_path, run_dir, run_token, server_port, control_port, renderer,

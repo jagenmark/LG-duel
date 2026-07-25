@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import socket
 import tempfile
 import unittest
 import xml.etree.ElementTree as element_tree
@@ -26,6 +27,19 @@ class LiveScenarioTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.capture_path.unlink(missing_ok=True)
+
+    def test_free_port_probes_the_requested_socket_type(self) -> None:
+        real_socket = socket.socket
+        with mock.patch.object(
+            lg_live_scenario.socket,
+            "socket",
+            wraps=real_socket,
+        ) as socket_factory:
+            port = lg_live_scenario._free_port(socket.SOCK_DGRAM)
+
+        socket_factory.assert_called_once_with(socket.AF_INET, socket.SOCK_DGRAM)
+        with real_socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+            probe.bind(("127.0.0.1", port))
 
     def scenario(self, *, capture: bool = False, network: bool = False) -> dict:
         value = {

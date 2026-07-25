@@ -91,7 +91,7 @@ jobs:
             build/default/Testing/Temporary/**
             build/sanitize/Testing/Temporary/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
   windows-build-and-tests:
     name: windows-build-and-tests
@@ -151,7 +151,7 @@ jobs:
             verification/**
             build/msvc/Testing/Temporary/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
   deterministic-scenarios:
     name: deterministic-scenarios
@@ -198,7 +198,7 @@ jobs:
           name: deterministic-scenarios-${{ github.run_attempt }}
           path: verification/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
   live-client-server-smoke:
     name: live-client-server-smoke
@@ -264,7 +264,7 @@ jobs:
           name: live-client-server-smoke-${{ github.run_attempt }}
           path: verification/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
   protocol-and-packet-budgets:
     name: protocol-and-packet-budgets
@@ -306,7 +306,7 @@ jobs:
           name: protocol-and-packet-budgets-${{ github.run_attempt }}
           path: verification/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
 
   performance-smoke:
     name: performance-smoke
@@ -375,4 +375,4 @@ jobs:
             verification/**
             !verification/benchmarks/temp/**
           if-no-files-found: warn
-          retention-days: 14
+          retention-days: 3
