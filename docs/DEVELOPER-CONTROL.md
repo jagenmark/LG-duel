@@ -217,6 +217,41 @@ start or attach through the shared verified GPU launcher. Screenshot and
 multi-view capture cannot silently reuse an SDL_Renderer, D3D11, SwiftShader,
 or other fallback client. Explicit fallback requires `allow_fallback: true`.
 
+### MCP Map Editing API
+
+The `lg_map_*` tools provide a small, typed edit path for source maps. Use
+`lg_map_list` and `lg_map_get` for metadata, then `lg_map_create` to make a new
+map from the known `initial` template. `lg_map_add_cuboid`,
+`lg_map_copy_cuboid`, `lg_map_translate_cuboid`, `lg_map_resize_cuboid`, and
+`lg_map_delete_cuboid` manage six-face, axis-aligned cuboids. Stable IDs identify
+objects created by this API. `lg_map_set_material` changes all faces of a
+managed cuboid to an allowed material. `lg_map_set_entity_properties` only
+changes supported template entity fields (origin, angle/yaw, and typed bounds).
+
+The API reads and writes only the repository `maps/` source area and the fixed
+runtime mirror `build/default/maps/`; callers cannot provide other paths or raw
+map text. Each write uses canonical serialization, an exact content revision,
+and an `expected_revision` precondition. Pass `dry_run: true` to validate and
+preview the structural/text diff without writing. A successful write returns a
+rollback token; `lg_map_rollback` restores those exact prior bytes only when its
+revision precondition still matches. Writes validate bounds, limits, materials,
+entities, and brush faces before an atomic replace, so stale or failed writes do
+not replace the source map.
+
+Use `lg_map_validate` before loading. `lg_map_validate_sync_reload` then runs
+validation, syncs the source to `build/default/maps/`, loads or reloads it, and
+returns validation data, source/runtime hashes, and the authoritative loaded map
+revision. Git actions remain outside this API.
+
+Recommended agent check: validate, validate-sync-reload, wait for frames and
+capture a screenshot or map views, enable collision debug, then check movement
+and projectile behavior with the existing input and weapon tools.
+
+Unsupported cases include non-axis-aligned or general convex brushes,
+face-level projection or material differences, triggers or new entities,
+imported or hand-edited maps outside the managed template flow, and arbitrary
+map text or filesystem paths. Use supervised TrenchBroom for those edits.
+
 ## Troubleshooting And Limitations
 
 - **Connection refused:** launch with `--dev-control`, or use the start wrapper.

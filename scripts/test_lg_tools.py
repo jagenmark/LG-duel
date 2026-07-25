@@ -52,6 +52,11 @@ class LgToolTests(unittest.TestCase):
                 "lg_send_input", "lg_wait_frames", "lg_set_player_view", "lg_set_player_weapon",
                 "lg_run_live_scenario", "lg_list_benchmarks", "lg_run_benchmark", "lg_compare_benchmarks",
                 "lg_get_benchmark_result", "lg_create_benchmark_baseline",
+                "lg_map_list", "lg_map_get", "lg_map_create", "lg_map_add_cuboid",
+                "lg_map_copy_cuboid", "lg_map_translate_cuboid", "lg_map_resize_cuboid",
+                "lg_map_delete_cuboid", "lg_map_set_material",
+                "lg_map_set_entity_properties", "lg_map_validate", "lg_map_rollback",
+                "lg_map_validate_sync_reload",
             },
         )
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in lg_mcp_server.TOOLS))
@@ -60,7 +65,34 @@ class LgToolTests(unittest.TestCase):
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "lg-duel-dev-control")
         listed = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual(len(listed["result"]["tools"]), 24)
+        self.assertEqual(len(listed["result"]["tools"]), 37)
+
+    def test_map_edit_tools_require_revisions_and_route_typed_values(self) -> None:
+        tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
+        mutation_names = {
+            "lg_map_add_cuboid", "lg_map_copy_cuboid", "lg_map_translate_cuboid",
+            "lg_map_resize_cuboid", "lg_map_delete_cuboid", "lg_map_set_material",
+            "lg_map_set_entity_properties",
+        }
+        self.assertTrue(
+            all("expected_revision" in tools[name]["required"] for name in mutation_names)
+        )
+        payload = {
+            "map": "agent_test", "id": "floor", "min": [-64, -64, -16],
+            "max": [64, 64, 0], "material": "common/clip",
+            "expected_revision": "a" * 64, "dry_run": True,
+        }
+        with mock.patch.object(
+            lg_mcp_server.MAP_EDITOR, "add_cuboid", return_value={"applied": False}
+        ) as add:
+            self.assertEqual(
+                lg_mcp_server.invoke_tool("lg_map_add_cuboid", payload),
+                {"applied": False},
+            )
+        add.assert_called_once_with(
+            "agent_test", "floor", [-64, -64, -16], [64, 64, 0],
+            "common/clip", "a" * 64, dry_run=True,
+        )
 
     def test_player_control_schemas_are_bounded(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}

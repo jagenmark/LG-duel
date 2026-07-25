@@ -15,10 +15,12 @@ from lg_benchmark import (
     BenchmarkError, compare_results, create_baseline, list_scenarios, load_result, run_benchmark,
 )
 from lg_live_scenario import LiveScenarioError, run_live_scenario
+from lg_map_edit import MapEditError, MapEditor
 
 
-SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.0.0"}
+SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.1.0"}
 PROTOCOL_VERSION = "2025-06-18"
+MAP_EDITOR = MapEditor()
 
 
 TOOLS: list[dict[str, Any]] = [
@@ -321,8 +323,286 @@ TOOLS: list[dict[str, Any]] = [
     },
 ]
 
+MAP_NAME_SCHEMA = {
+    "type": "string",
+    "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{0,63}(?:\\.map)?$",
+}
+OBJECT_ID_SCHEMA = {
+    "type": "string",
+    "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+}
+REVISION_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{64}$"}
+ROLLBACK_SCHEMA = {"type": "string", "pattern": "^[0-9a-f]{32}$"}
+VEC3_SCHEMA = {
+    "type": "array",
+    "items": {"type": "number", "minimum": -40000, "maximum": 40000},
+    "minItems": 3,
+    "maxItems": 3,
+}
+DRY_RUN_SCHEMA = {"type": "boolean", "default": False}
+
+TOOLS.extend([
+    {
+        "name": "lg_map_list",
+        "description": "List source maps, exact revisions, and MCP-managed object IDs.",
+        "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
+    },
+    {
+        "name": "lg_map_get",
+        "description": "Get the typed structure and exact revision of one MCP-managed map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"map": MAP_NAME_SCHEMA},
+            "required": ["map"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_create",
+        "description": "Create a canonical MCP-managed map from a known template; existing maps are never replaced.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "template": {"type": "string", "enum": ["initial"], "default": "initial"},
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_add_cuboid",
+        "description": "Add one axis-aligned six-face cuboid to an MCP-managed map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "min": VEC3_SCHEMA,
+                "max": VEC3_SCHEMA,
+                "material": {"type": "string", "minLength": 1, "maxLength": 192},
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "min", "max", "material", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_copy_cuboid",
+        "description": "Copy an MCP-managed cuboid to a new stable ID and translate it.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "source_id": OBJECT_ID_SCHEMA,
+                "new_id": OBJECT_ID_SCHEMA,
+                "offset": VEC3_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "source_id", "new_id", "offset", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_translate_cuboid",
+        "description": "Translate one MCP-managed cuboid by a bounded three-number offset.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "offset": VEC3_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "offset", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_resize_cuboid",
+        "description": "Set the absolute min and max bounds of one MCP-managed cuboid.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "min": VEC3_SCHEMA,
+                "max": VEC3_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "min", "max", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_delete_cuboid",
+        "description": "Delete one MCP-managed cuboid by stable ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_set_material",
+        "description": "Set one existing texture or clip material on all faces of a managed cuboid.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "material": {"type": "string", "minLength": 1, "maxLength": 192},
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "material", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_set_entity_properties",
+        "description": "Set typed world bounds or spawn transform properties on a managed template entity.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "entity_id": OBJECT_ID_SCHEMA,
+                "origin": VEC3_SCHEMA,
+                "angle": {"type": "number", "minimum": -40000, "maximum": 40000},
+                "yaw": {"type": "number", "minimum": -40000, "maximum": 40000},
+                "bounds_min": VEC3_SCHEMA,
+                "bounds_max": VEC3_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "entity_id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_validate",
+        "description": "Run structural checks and the built LG Duel map validator on one managed source map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"map": MAP_NAME_SCHEMA},
+            "required": ["map"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_rollback",
+        "description": "Restore the exact prior source bytes for one API transaction when its revision still matches.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "rollback_token": ROLLBACK_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["rollback_token", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_validate_sync_reload",
+        "description": "Validate, atomically sync to build/default/maps, then load or reload and return the authoritative revision.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "allow_fallback": {"type": "boolean", "default": False},
+            },
+            "required": ["map", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+])
+
 
 def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+    if name == "lg_map_list":
+        return MAP_EDITOR.list_maps()
+    if name == "lg_map_get":
+        return MAP_EDITOR.inspect(arguments["map"])
+    if name == "lg_map_create":
+        return MAP_EDITOR.create(
+            arguments["map"], arguments.get("template", "initial"),
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_add_cuboid":
+        return MAP_EDITOR.add_cuboid(
+            arguments["map"], arguments["id"], arguments["min"], arguments["max"],
+            arguments["material"], arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_copy_cuboid":
+        return MAP_EDITOR.copy_cuboid(
+            arguments["map"], arguments["source_id"], arguments["new_id"],
+            arguments["offset"], arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_translate_cuboid":
+        return MAP_EDITOR.translate_cuboid(
+            arguments["map"], arguments["id"], arguments["offset"],
+            arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_resize_cuboid":
+        return MAP_EDITOR.resize_cuboid(
+            arguments["map"], arguments["id"], arguments["min"], arguments["max"],
+            arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_delete_cuboid":
+        return MAP_EDITOR.delete_cuboid(
+            arguments["map"], arguments["id"], arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_set_material":
+        return MAP_EDITOR.set_material(
+            arguments["map"], arguments["id"], arguments["material"],
+            arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_set_entity_properties":
+        fields = ("origin", "angle", "yaw", "bounds_min", "bounds_max")
+        return MAP_EDITOR.set_entity_properties(
+            arguments["map"], arguments["entity_id"], arguments["expected_revision"],
+            **{field: arguments[field] for field in fields if field in arguments},
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_validate":
+        return MAP_EDITOR.validate(arguments["map"])
+    if name == "lg_map_rollback":
+        return MAP_EDITOR.rollback(
+            arguments["rollback_token"], arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_validate_sync_reload":
+        allow_fallback = bool(arguments.get("allow_fallback", False))
+        return MAP_EDITOR.validate_sync_reload(
+            arguments["map"],
+            arguments["expected_revision"],
+            ensure_runtime=lambda: ensure_client(
+                renderer="fallback" if allow_fallback else "gpu",
+                allow_fallback=allow_fallback,
+            ),
+            status=lambda: send_request("status"),
+            load=lambda map_name: send_request("load_map", map=map_name),
+            reload_current=lambda: send_request("reload_map"),
+        )
     if name == "lg_start":
         renderer = str(arguments.get("renderer", "gpu"))
         allow_fallback = bool(arguments.get("allow_fallback", False))
@@ -513,7 +793,10 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
         try:
             result = invoke_tool(str(name), arguments)
             payload = tool_result(result)
-        except (ControlError, LaunchError, BenchmarkError, KeyError, TypeError, ValueError) as error:
+        except (
+            ControlError, LaunchError, BenchmarkError, MapEditError,
+            KeyError, OSError, TypeError, ValueError,
+        ) as error:
             payload = {
                 "content": [{"type": "text", "text": f"LG Duel tool error: {error}"}],
                 "isError": True,
