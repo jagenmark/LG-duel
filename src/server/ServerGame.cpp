@@ -311,6 +311,37 @@ void recordProjectileHit(
   return target.position + Vec3{0.0F, 0.0F, target.bounds.halfHeight * 0.45F};
 }
 
+[[nodiscard]] bool splashCanReachPlayer(
+  const Arena& arena,
+  Vec3 explosionPosition,
+  const PlayerState& player
+) {
+  const float sideOffset = player.bounds.radius * 0.75F;
+  const std::array<Vec3, 5> targetPoints = {{
+    player.position,
+    player.position + Vec3{sideOffset, 0.0F, 0.0F},
+    player.position + Vec3{-sideOffset, 0.0F, 0.0F},
+    player.position + Vec3{0.0F, sideOffset, 0.0F},
+    player.position + Vec3{0.0F, -sideOffset, 0.0F},
+  }};
+
+  for (const Vec3 targetPoint : targetPoints) {
+    const Vec3 segment = explosionPosition - targetPoint;
+    const float distance = length(segment);
+    if (distance <= kProjectileCollisionEpsilon) {
+      return true;
+    }
+    const WorldTrace trace =
+      traceWorld(arena, targetPoint, segment / distance, distance);
+    // Trace from the body to the blast. An impact brush may sit at the far
+    // endpoint, but any nearer hit means solid world lies between them.
+    if (trace.distance >= distance - kProjectileCollisionEpsilon) {
+      return true;
+    }
+  }
+  return false;
+}
+
 struct BotAttackPreset {
   float reactionMinSeconds = 0.0F;
   float reactionMaxSeconds = 0.0F;
@@ -3198,6 +3229,14 @@ void ServerGame::simulateRockets(float fixedDt) {
       }
       const float distance = cylinderDistance(explosionPosition, player);
       if (distance > radius) {
+        continue;
+      }
+      // A direct hit already reached the body during the projectile sweep.
+      // Splash-only damage needs at least one clear path around solid world.
+      if (
+        playerIndex != directTarget &&
+        !splashCanReachPlayer(arena_, explosionPosition, player)
+      ) {
         continue;
       }
       const float falloff =

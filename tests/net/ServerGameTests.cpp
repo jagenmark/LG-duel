@@ -84,6 +84,40 @@ void configureRocketDirectHitbox(
   server.applyBalanceConfig(balance);
 }
 
+lg::ArenaBrush diamondBrush(
+  lg::Vec3 center,
+  float halfWidth,
+  float minZ,
+  float maxZ
+) {
+  constexpr float kInverseSqrtTwo = 0.70710678118F;
+  const float sideDistance =
+    (center.x + center.y + halfWidth) * kInverseSqrtTwo;
+  lg::ArenaBrush brush;
+  brush.min = {center.x - halfWidth, center.y - halfWidth, minZ};
+  brush.max = {center.x + halfWidth, center.y + halfWidth, maxZ};
+  brush.faceCount = 6;
+  brush.faces[0] = {
+    {kInverseSqrtTwo, kInverseSqrtTwo, 0.0F},
+    sideDistance,
+  };
+  brush.faces[1] = {
+    {-kInverseSqrtTwo, -kInverseSqrtTwo, 0.0F},
+    (-center.x - center.y + halfWidth) * kInverseSqrtTwo,
+  };
+  brush.faces[2] = {
+    {kInverseSqrtTwo, -kInverseSqrtTwo, 0.0F},
+    (center.x - center.y + halfWidth) * kInverseSqrtTwo,
+  };
+  brush.faces[3] = {
+    {-kInverseSqrtTwo, kInverseSqrtTwo, 0.0F},
+    (-center.x + center.y + halfWidth) * kInverseSqrtTwo,
+  };
+  brush.faces[4] = {{0.0F, 0.0F, -1.0F}, -minZ};
+  brush.faces[5] = {{0.0F, 0.0F, 1.0F}, maxZ};
+  return brush;
+}
+
 bool hasLocalHitFeedback(
   const lg::ServerSnapshot& snapshot,
   std::size_t attackerIndex,
@@ -3107,6 +3141,46 @@ int main() {
     }
     failures += expect(exploded, "rocket should eventually explode");
     failures += expect(damaged, "rocket explosion should damage the opponent");
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-10.0F, -10.0F, 0.0F};
+    arena.max = {10.0F, 10.0F, 10.0F};
+    arena.spawnPositions[0] = {-2.5F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {1.35F, 0.0F, 0.0F};
+    arena.brushes[0] = diamondBrush({0.0F, 0.0F, 0.0F}, 1.0F, 0.0F, 3.0F);
+    arena.brushCount = 1;
+    server.setArena(arena);
+    latestSnapshot(transport);
+
+    lg::UserCommand rocket;
+    rocket.sequence = 1;
+    rocket.attack = true;
+    rocket.weapon = lg::Weapon::RocketLauncher;
+    rocket.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{0, rocket, false});
+
+    lg::ServerSnapshot snapshot;
+    for (int tick = 0; tick < 60; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      snapshot = latestSnapshot(transport);
+      if (snapshot.rocketExplosions[0].active) {
+        break;
+      }
+    }
+
+    failures += expect(
+      snapshot.rocketExplosions[0].active,
+      "rocket should explode on the non-axis-aligned brush"
+    );
+    failures += expect(
+      snapshot.players[1].health == 100 &&
+        snapshot.rocketExplosions[0].opponentDamageApplied == 0,
+      "non-axis-aligned brushes should block rocket splash damage"
+    );
   }
 
   {

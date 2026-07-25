@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "rocket_splash_blocked_by_wall",
-  "description": "Known bug reproducer: a solid wall should block rocket splash damage.",
+  "description": "A solid wall blocks rocket splash damage.",
   "execution": {"mode": "headless", "max_ticks": 40, "repeat": 3},
   "world": {"map": "scenario_wall", "game_mode": "duel", "seed": 1008},
   "players": [
@@ -14,10 +14,5 @@
   "assertions": [
     {"type": "player_health", "at_completion": true, "player": 1, "health": 100},
     {"type": "event", "at_completion": true, "event": {"type": "explosion_created", "actor": 0, "weapon": "rocket_launcher", "count": 1}}
-  ],
-  "expected_failure": {
-    "issue": "rocket-splash-through-world-geometry",
-    "assertion_index": 0,
-    "reason": "Known bug: rocket splash does not test world line of sight."
-  }
+  ]
 }
