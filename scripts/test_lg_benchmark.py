@@ -92,7 +92,12 @@ class BenchmarkTests(unittest.TestCase):
                         "CMAKE_GENERATOR:INTERNAL=Ninja",
                         "CMAKE_CXX_COMPILER:FILEPATH=C:/tools/clang++.exe",
                         "BUILD_TESTING:BOOL=ON",
+                        "LG_DUEL_SIMD_MODE:STRING=portable",
+                        "LG_DUEL_FETCH_SDL3:BOOL=ON",
                         "LG_DUEL_REQUIRE_SDL3:BOOL=OFF",
+                        "LG_DUEL_SDL3_GIT_TAG:STRING=release-3.4.10",
+                        "LG_DUEL_SDL3_SOURCE_DIR:PATH=C:/src/SDL",
+                        "LG_DUEL_USE_PATCHED_SDL3:BOOL=OFF",
                     )
                 ),
                 encoding="utf-8",
@@ -106,7 +111,17 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(metadata["compiler_version"], "clang version 20.1.0")
         self.assertEqual(
             metadata["compile_time_options"],
-            {"BUILD_TESTING": "ON", "LG_DUEL_REQUIRE_SDL3": "OFF"},
+            {"BUILD_TESTING": "ON", "LG_DUEL_SIMD_MODE": "portable"},
+        )
+        self.assertEqual(
+            metadata["sdl_configuration"],
+            {
+                "LG_DUEL_FETCH_SDL3": "ON",
+                "LG_DUEL_REQUIRE_SDL3": "OFF",
+                "LG_DUEL_SDL3_GIT_TAG": "release-3.4.10",
+                "LG_DUEL_SDL3_SOURCE_DIR": "C:/src/SDL",
+                "LG_DUEL_USE_PATCHED_SDL3": "OFF",
+            },
         )
 
     def test_environment_metadata_records_architecture(self) -> None:

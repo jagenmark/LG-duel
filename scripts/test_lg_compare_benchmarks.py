@@ -126,7 +126,13 @@ class CompareBenchmarkTests(unittest.TestCase):
                 "cmake_generator": "Ninja",
                 "compile_time_options": {
                     "BUILD_TESTING": "ON",
+                },
+                "sdl_configuration": {
+                    "LG_DUEL_FETCH_SDL3": "ON",
                     "LG_DUEL_REQUIRE_SDL3": "OFF",
+                    "LG_DUEL_SDL3_GIT_TAG": "release-3.4.10",
+                    "LG_DUEL_SDL3_SOURCE_DIR": "",
+                    "LG_DUEL_USE_PATCHED_SDL3": "OFF",
                 },
                 "logical_cores": 8,
                 "build_mode": "release",
@@ -179,6 +185,14 @@ class CompareBenchmarkTests(unittest.TestCase):
             (target / "stdout.log").write_text("raw", encoding="utf-8")
         return root
 
+    def change_environment(
+        self, root: Path, field: str, value: object
+    ) -> None:
+        for path in root.rglob("aggregate.json"):
+            document = json.loads(path.read_text(encoding="utf-8"))
+            document["environment"][field] = value
+            path.write_text(json.dumps(document), encoding="utf-8")
+
     def test_stored_mode_pass_copies_raw_and_writes_matching_reports(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -212,7 +226,68 @@ class CompareBenchmarkTests(unittest.TestCase):
             paths = [item["path"] for item in manifest["artifacts"]]
             self.assertEqual(paths, sorted(paths))
             self.assertTrue(all(not Path(path).is_absolute() for path in paths))
-            self.assertTrue(all("sha256" in item for item in manifest["artifacts"]))
+            self.assertTrue(
+                all("sha256" in item for item in manifest["artifacts"])
+            )
+
+    def test_pr_headless_ignores_sdl_only_build_differences(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = self.result_dir(root, "base")
+            candidate = self.result_dir(root, "candidate", commit="b" * 40)
+            self.change_environment(
+                candidate,
+                "sdl_configuration",
+                {
+                    "LG_DUEL_FETCH_SDL3": "ON",
+                    "LG_DUEL_REQUIRE_SDL3": "OFF",
+                    "LG_DUEL_SDL3_GIT_TAG": "8e37db5e",
+                    "LG_DUEL_SDL3_SOURCE_DIR": "",
+                    "LG_DUEL_USE_PATCHED_SDL3": "OFF",
+                },
+            )
+            output = root / "output"
+            code = compare.execute(
+                self.args(
+                    output,
+                    baseline_results=str(baseline),
+                    candidate_results=str(candidate),
+                )
+            )
+            document = json.loads(
+                (output / "comparison.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(code, 0)
+            self.assertEqual(document["status"], "PASS")
+            self.assertTrue(document["comparable"])
+
+    def test_pr_headless_rejects_simulation_build_differences(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            baseline = self.result_dir(root, "base")
+            candidate = self.result_dir(root, "candidate", commit="b" * 40)
+            self.change_environment(
+                candidate,
+                "compile_time_options",
+                {
+                    "BUILD_TESTING": "ON",
+                    "LG_DUEL_SIMULATION_FAST_MATH": "ON",
+                },
+            )
+            output = root / "output"
+            code = compare.execute(
+                self.args(
+                    output,
+                    baseline_results=str(baseline),
+                    candidate_results=str(candidate),
+                )
+            )
+            document = json.loads(
+                (output / "comparison.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(code, 1)
+            self.assertEqual(document["status"], "NOT_COMPARABLE")
+            self.assertFalse(document["comparable"])
 
     def test_stored_output_is_deterministic_and_report_status_agrees(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

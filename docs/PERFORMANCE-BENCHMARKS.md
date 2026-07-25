@@ -225,10 +225,14 @@ mixed scenario artifacts fail before any percentage is calculated.
 `config/performance-policy.json` is the versioned source of truth. The
 `pr_headless` profile uses five runs of the two shared-simulation workloads and
 conservative CPU limits. It also requires the same compiler version, build type,
-generator, build options, and collision query mode. The `trusted_gpu` profile
-requires five verified SDL_GPU/Vulkan runs on the same build, GPU, driver, API,
-renderer, observed resolution, Vulkan ICD record, map, and scenario. A fallback
-result can never satisfy that profile.
+generator, simulation build options, and collision query mode. SDL source,
+fetch, require, tag, and patched-build settings appear under
+`environment.sdl_configuration`; `pr_headless` ignores them because its
+benchmark links only the shared core. The `trusted_gpu` profile compares both
+`environment.compile_time_options` and `environment.sdl_configuration`. It
+requires five verified SDL_GPU/Vulkan runs on the same build, SDL setup, GPU,
+driver, API, renderer, observed resolution, Vulkan ICD record, map, and
+scenario. A fallback result can never satisfy that profile.
 
 The policy uses these results:
 
