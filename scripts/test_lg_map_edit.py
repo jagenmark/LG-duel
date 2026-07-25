@@ -129,7 +129,7 @@ class MapEditorTests(unittest.TestCase):
 
     def test_failed_atomic_source_replace_leaves_old_source(self) -> None:
         self.create_map()
-        path = self.repo / "maps" / "agent_test.map"
+        path = (self.repo / "maps" / "agent_test.map").resolve()
         before = path.read_bytes()
         transactions = self.repo / "maps" / ".lg-map-api" / "transactions"
         transaction_count = len(list(transactions.glob("*.json")))
