@@ -1,0 +1,741 @@
+diff --git a/include/SDL3/SDL_gpu.h b/include/SDL3/SDL_gpu.h
+index dfe5994aadfbcffe7a97e0b91ca882d9673ee98e..ac431167339e7bd2f9230f496c9f99d88b37dd3d 100644
+--- a/include/SDL3/SDL_gpu.h
++++ b/include/SDL3/SDL_gpu.h
+@@ -410,6 +410,48 @@ extern "C" {
+  */
+ typedef struct SDL_GPUDevice SDL_GPUDevice;
+ 
++/**
++ * An opaque handle for a set of LG Duel GPU timestamp queries.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ */
++typedef struct SDL_LGGPUTimestampQueryPool SDL_LGGPUTimestampQueryPool;
++
++/**
++ * The result of an LG Duel GPU timestamp query operation.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ */
++typedef enum SDL_LGGPUTimestampResult
++{
++    SDL_LG_GPU_TIMESTAMP_UNSUPPORTED,
++    SDL_LG_GPU_TIMESTAMP_ERROR,
++    SDL_LG_GPU_TIMESTAMP_NOT_READY,
++    SDL_LG_GPU_TIMESTAMP_AVAILABLE
++} SDL_LGGPUTimestampResult;
++
++/**
++ * The point in the GPU pipeline at which to write a timestamp.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ */
++typedef enum SDL_LGGPUTimestampLocation
++{
++    SDL_LG_GPU_TIMESTAMP_TOP_OF_PIPE,
++    SDL_LG_GPU_TIMESTAMP_BOTTOM_OF_PIPE
++} SDL_LGGPUTimestampLocation;
++
++/**
++ * Details needed to turn raw LG Duel GPU timestamps into time.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ */
++typedef struct SDL_LGGPUTimestampQueryInfo
++{
++    Uint32 timestamp_valid_bits;
++    float timestamp_period_nanoseconds;
++} SDL_LGGPUTimestampQueryInfo;
++
+ /**
+  * An opaque handle representing a buffer.
+  *
+@@ -2421,6 +2463,121 @@ typedef struct SDL_GPUVulkanOptions
+  */
+ extern SDL_DECLSPEC void SDLCALL SDL_DestroyGPUDevice(SDL_GPUDevice *device);
+ 
++/**
++ * Get timestamp details for an SDL GPU device.
++ *
++ * \param device the GPU device to query.
++ * \param info output storage for the timestamp details.
++ * \returns SDL_LG_GPU_TIMESTAMP_AVAILABLE when supported,
++ *          SDL_LG_GPU_TIMESTAMP_UNSUPPORTED when the driver lacks support, or
++ *          SDL_LG_GPU_TIMESTAMP_ERROR on invalid input or a driver error.
++ *
++ * This call does not wait for GPU work.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ *
++ * \since This function is available in the LG Duel SDL 3.4.10 patch.
++ */
++extern SDL_DECLSPEC SDL_LGGPUTimestampResult SDLCALL SDL_LG_GetGPUTimestampQueryInfo(
++    SDL_GPUDevice *device,
++    SDL_LGGPUTimestampQueryInfo *info);
++
++/**
++ * Create a pool of timestamp queries.
++ *
++ * \param device the GPU device that will own the pool.
++ * \param query_count the number of timestamp slots in the pool.
++ * \returns a query pool, or NULL on error or when unsupported.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ *
++ * \since This function is available in the LG Duel SDL 3.4.10 patch.
++ */
++extern SDL_DECLSPEC SDL_LGGPUTimestampQueryPool * SDLCALL SDL_LG_CreateGPUTimestampQueryPool(
++    SDL_GPUDevice *device,
++    Uint32 query_count);
++
++/**
++ * Release a timestamp query pool.
++ *
++ * The caller must ensure that no queued or recording command buffer still
++ * uses the pool.
++ *
++ * \param device the GPU device that owns the pool.
++ * \param pool the pool to release.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ *
++ * \since This function is available in the LG Duel SDL 3.4.10 patch.
++ */
++extern SDL_DECLSPEC void SDLCALL SDL_LG_ReleaseGPUTimestampQueryPool(
++    SDL_GPUDevice *device,
++    SDL_LGGPUTimestampQueryPool *pool);
++
++/**
++ * Reset timestamp query slots in a command buffer.
++ *
++ * \param command_buffer the command buffer in which to record the reset.
++ * \param pool the timestamp query pool.
++ * \param first_query the first slot to reset.
++ * \param query_count the number of slots to reset.
++ * \returns true on success or false on error or when unsupported.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ *
++ * \since This function is available in the LG Duel SDL 3.4.10 patch.
++ */
++extern SDL_DECLSPEC bool SDLCALL SDL_LG_ResetGPUTimestampQueries(
++    SDL_GPUCommandBuffer *command_buffer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 first_query,
++    Uint32 query_count);
++
++/**
++ * Write one timestamp in a command buffer.
++ *
++ * \param command_buffer the command buffer in which to record the write.
++ * \param pool the timestamp query pool.
++ * \param query_index the slot to write.
++ * \param location the pipeline point to measure.
++ * \returns true on success or false on error or when unsupported.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ *
++ * \since This function is available in the LG Duel SDL 3.4.10 patch.
++ */
++extern SDL_DECLSPEC bool SDLCALL SDL_LG_WriteGPUTimestamp(
++    SDL_GPUCommandBuffer *command_buffer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 query_index,
++    SDL_LGGPUTimestampLocation location);
++
++/**
++ * Try to read timestamp query values without waiting.
++ *
++ * Values are valid only when this call returns
++ * SDL_LG_GPU_TIMESTAMP_AVAILABLE.
++ *
++ * \param device the GPU device that owns the pool.
++ * \param pool the timestamp query pool.
++ * \param first_query the first slot to read.
++ * \param query_count the number of slots to read.
++ * \param values output storage for query_count 64-bit values.
++ * \returns the query state or an error state.
++ *
++ * This call never asks the driver to wait.
++ *
++ * This is an LG Duel extension to SDL 3.4.10.
++ *
++ * \since This function is available in the LG Duel SDL 3.4.10 patch.
++ */
++extern SDL_DECLSPEC SDL_LGGPUTimestampResult SDLCALL SDL_LG_GetGPUTimestampQueryResults(
++    SDL_GPUDevice *device,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 first_query,
++    Uint32 query_count,
++    Uint64 *values);
++
+ /**
+  * Get the number of GPU drivers compiled into SDL.
+  *
+diff --git a/src/dynapi/SDL_dynapi.sym b/src/dynapi/SDL_dynapi.sym
+index ec2e97beb2edd60f384e6b1a056233bb797e2792..6884a3346030412db1414717873f304566aa7433 100644
+--- a/src/dynapi/SDL_dynapi.sym
++++ b/src/dynapi/SDL_dynapi.sym
+@@ -1271,6 +1271,12 @@ SDL3_0.0.0 {
+     SDL_LoadSurface_IO;
+     SDL_LoadSurface;
+     SDL_SetWindowFillDocument;
++    SDL_LG_GetGPUTimestampQueryInfo;
++    SDL_LG_CreateGPUTimestampQueryPool;
++    SDL_LG_ReleaseGPUTimestampQueryPool;
++    SDL_LG_ResetGPUTimestampQueries;
++    SDL_LG_WriteGPUTimestamp;
++    SDL_LG_GetGPUTimestampQueryResults;
+     # extra symbols go here (don't modify this line)
+   local: *;
+ };
+diff --git a/src/dynapi/SDL_dynapi_overrides.h b/src/dynapi/SDL_dynapi_overrides.h
+index bf8d64273efa4f47a1307a7d4f27b9380d0ff495..ac39ec004c46c83795dbc2b3e1a3b98006b96104 100644
+--- a/src/dynapi/SDL_dynapi_overrides.h
++++ b/src/dynapi/SDL_dynapi_overrides.h
+@@ -1297,3 +1297,9 @@
+ #define SDL_LoadSurface_IO SDL_LoadSurface_IO_REAL
+ #define SDL_LoadSurface SDL_LoadSurface_REAL
+ #define SDL_SetWindowFillDocument SDL_SetWindowFillDocument_REAL
++#define SDL_LG_GetGPUTimestampQueryInfo SDL_LG_GetGPUTimestampQueryInfo_REAL
++#define SDL_LG_CreateGPUTimestampQueryPool SDL_LG_CreateGPUTimestampQueryPool_REAL
++#define SDL_LG_ReleaseGPUTimestampQueryPool SDL_LG_ReleaseGPUTimestampQueryPool_REAL
++#define SDL_LG_ResetGPUTimestampQueries SDL_LG_ResetGPUTimestampQueries_REAL
++#define SDL_LG_WriteGPUTimestamp SDL_LG_WriteGPUTimestamp_REAL
++#define SDL_LG_GetGPUTimestampQueryResults SDL_LG_GetGPUTimestampQueryResults_REAL
+diff --git a/src/dynapi/SDL_dynapi_procs.h b/src/dynapi/SDL_dynapi_procs.h
+index 78a896a5443fffac3b20231fc2c9b165acd7170d..bfa30b1d58bd2ebbcdb650461fd668d457ca3ab8 100644
+--- a/src/dynapi/SDL_dynapi_procs.h
++++ b/src/dynapi/SDL_dynapi_procs.h
+@@ -1305,3 +1305,9 @@ SDL_DYNAPI_PROC(SDL_Surface*,SDL_RotateSurface,(SDL_Surface *a,float b),(a,b),re
+ SDL_DYNAPI_PROC(SDL_Surface*,SDL_LoadSurface_IO,(SDL_IOStream *a,bool b),(a,b),return)
+ SDL_DYNAPI_PROC(SDL_Surface*,SDL_LoadSurface,(const char *a),(a),return)
+ SDL_DYNAPI_PROC(bool,SDL_SetWindowFillDocument,(SDL_Window *a,bool b),(a,b),return)
++SDL_DYNAPI_PROC(SDL_LGGPUTimestampResult,SDL_LG_GetGPUTimestampQueryInfo,(SDL_GPUDevice *a,SDL_LGGPUTimestampQueryInfo *b),(a,b),return)
++SDL_DYNAPI_PROC(SDL_LGGPUTimestampQueryPool*,SDL_LG_CreateGPUTimestampQueryPool,(SDL_GPUDevice *a,Uint32 b),(a,b),return)
++SDL_DYNAPI_PROC(void,SDL_LG_ReleaseGPUTimestampQueryPool,(SDL_GPUDevice *a,SDL_LGGPUTimestampQueryPool *b),(a,b),)
++SDL_DYNAPI_PROC(bool,SDL_LG_ResetGPUTimestampQueries,(SDL_GPUCommandBuffer *a,SDL_LGGPUTimestampQueryPool *b,Uint32 c,Uint32 d),(a,b,c,d),return)
++SDL_DYNAPI_PROC(bool,SDL_LG_WriteGPUTimestamp,(SDL_GPUCommandBuffer *a,SDL_LGGPUTimestampQueryPool *b,Uint32 c,SDL_LGGPUTimestampLocation d),(a,b,c,d),return)
++SDL_DYNAPI_PROC(SDL_LGGPUTimestampResult,SDL_LG_GetGPUTimestampQueryResults,(SDL_GPUDevice *a,SDL_LGGPUTimestampQueryPool *b,Uint32 c,Uint32 d,Uint64 *e),(a,b,c,d,e),return)
+diff --git a/src/gpu/SDL_gpu.c b/src/gpu/SDL_gpu.c
+index 5e6d2aa959d8cfdee2e01281c54edd61d8d2b6be..0f84711ed4fba0de9cdb7126d25efdca3bbcf0d9 100644
+--- a/src/gpu/SDL_gpu.c
++++ b/src/gpu/SDL_gpu.c
+@@ -752,6 +752,147 @@ void SDL_DestroyGPUDevice(SDL_GPUDevice *device)
+     device->DestroyDevice(device);
+ }
+ 
++SDL_LGGPUTimestampResult SDL_LG_GetGPUTimestampQueryInfo(
++    SDL_GPUDevice *device,
++    SDL_LGGPUTimestampQueryInfo *info)
++{
++    CHECK_DEVICE_MAGIC(device, SDL_LG_GPU_TIMESTAMP_ERROR);
++
++    CHECK_PARAM(info == NULL) {
++        SDL_InvalidParamError("info");
++        return SDL_LG_GPU_TIMESTAMP_ERROR;
++    }
++
++    SDL_zerop(info);
++    if (device->LGGetTimestampQueryInfo == NULL) {
++        return SDL_LG_GPU_TIMESTAMP_UNSUPPORTED;
++    }
++
++    return device->LGGetTimestampQueryInfo(device->driverData, info);
++}
++
++SDL_LGGPUTimestampQueryPool *SDL_LG_CreateGPUTimestampQueryPool(
++    SDL_GPUDevice *device,
++    Uint32 query_count)
++{
++    CHECK_DEVICE_MAGIC(device, NULL);
++
++    CHECK_PARAM(query_count == 0) {
++        SDL_InvalidParamError("query_count");
++        return NULL;
++    }
++
++    if (device->LGCreateTimestampQueryPool == NULL) {
++        SDL_SetError("GPU timestamp queries are not supported");
++        return NULL;
++    }
++
++    return device->LGCreateTimestampQueryPool(device->driverData, query_count);
++}
++
++void SDL_LG_ReleaseGPUTimestampQueryPool(
++    SDL_GPUDevice *device,
++    SDL_LGGPUTimestampQueryPool *pool)
++{
++    CHECK_DEVICE_MAGIC(device, );
++
++    CHECK_PARAM(pool == NULL) {
++        return;
++    }
++
++    if (device->LGReleaseTimestampQueryPool == NULL) {
++        SDL_SetError("GPU timestamp queries are not supported");
++        return;
++    }
++
++    device->LGReleaseTimestampQueryPool(device->driverData, pool);
++}
++
++bool SDL_LG_ResetGPUTimestampQueries(
++    SDL_GPUCommandBuffer *command_buffer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 first_query,
++    Uint32 query_count)
++{
++    CommandBufferCommonHeader *commandBufferHeader = (CommandBufferCommonHeader *)command_buffer;
++
++    CHECK_PARAM(command_buffer == NULL) {
++        SDL_InvalidParamError("command_buffer");
++        return false;
++    }
++    CHECK_PARAM(pool == NULL) {
++        SDL_InvalidParamError("pool");
++        return false;
++    }
++    if (commandBufferHeader->device->debug_mode) {
++        CHECK_COMMAND_BUFFER_RETURN_FALSE
++        CHECK_ANY_PASS_IN_PROGRESS("Cannot reset timestamp queries while a pass is in progress!", false)
++    }
++
++    if (commandBufferHeader->device->LGResetTimestampQueries == NULL) {
++        SDL_SetError("GPU timestamp queries are not supported");
++        return false;
++    }
++
++    return commandBufferHeader->device->LGResetTimestampQueries(
++        command_buffer, pool, first_query, query_count);
++}
++
++bool SDL_LG_WriteGPUTimestamp(
++    SDL_GPUCommandBuffer *command_buffer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 query_index,
++    SDL_LGGPUTimestampLocation location)
++{
++    CommandBufferCommonHeader *commandBufferHeader = (CommandBufferCommonHeader *)command_buffer;
++
++    CHECK_PARAM(command_buffer == NULL) {
++        SDL_InvalidParamError("command_buffer");
++        return false;
++    }
++    CHECK_PARAM(pool == NULL) {
++        SDL_InvalidParamError("pool");
++        return false;
++    }
++    if (commandBufferHeader->device->debug_mode) {
++        CHECK_COMMAND_BUFFER_RETURN_FALSE
++    }
++
++    if (commandBufferHeader->device->LGWriteTimestamp == NULL) {
++        SDL_SetError("GPU timestamp queries are not supported");
++        return false;
++    }
++
++    return commandBufferHeader->device->LGWriteTimestamp(
++        command_buffer, pool, query_index, location);
++}
++
++SDL_LGGPUTimestampResult SDL_LG_GetGPUTimestampQueryResults(
++    SDL_GPUDevice *device,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 first_query,
++    Uint32 query_count,
++    Uint64 *values)
++{
++    CHECK_DEVICE_MAGIC(device, SDL_LG_GPU_TIMESTAMP_ERROR);
++
++    CHECK_PARAM(pool == NULL) {
++        SDL_InvalidParamError("pool");
++        return SDL_LG_GPU_TIMESTAMP_ERROR;
++    }
++    CHECK_PARAM(query_count != 0 && values == NULL) {
++        SDL_InvalidParamError("values");
++        return SDL_LG_GPU_TIMESTAMP_ERROR;
++    }
++
++    if (device->LGGetTimestampQueryResults == NULL) {
++        return SDL_LG_GPU_TIMESTAMP_UNSUPPORTED;
++    }
++
++    return device->LGGetTimestampQueryResults(
++        device->driverData, pool, first_query, query_count, values);
++}
++
+ int SDL_GetNumGPUDrivers(void)
+ {
+ #ifndef SDL_GPU_DISABLED
+diff --git a/src/gpu/SDL_sysgpu.h b/src/gpu/SDL_sysgpu.h
+index 8e0e3492b05f7f42362a85cbf5b7b17b1109b3b5..6dac914cc34634412389bbef73c91abc193b07dd 100644
+--- a/src/gpu/SDL_sysgpu.h
++++ b/src/gpu/SDL_sysgpu.h
+@@ -1072,6 +1072,39 @@ struct SDL_GPUDevice
+         SDL_GPURenderer *driverData,
+         SDL_GPUFence *fence);
+ 
++    // LG Duel timestamp queries. Drivers may leave these NULL.
++
++    SDL_LGGPUTimestampResult (*LGGetTimestampQueryInfo)(
++        SDL_GPURenderer *driverData,
++        SDL_LGGPUTimestampQueryInfo *info);
++
++    SDL_LGGPUTimestampQueryPool *(*LGCreateTimestampQueryPool)(
++        SDL_GPURenderer *driverData,
++        Uint32 queryCount);
++
++    void (*LGReleaseTimestampQueryPool)(
++        SDL_GPURenderer *driverData,
++        SDL_LGGPUTimestampQueryPool *pool);
++
++    bool (*LGResetTimestampQueries)(
++        SDL_GPUCommandBuffer *commandBuffer,
++        SDL_LGGPUTimestampQueryPool *pool,
++        Uint32 firstQuery,
++        Uint32 queryCount);
++
++    bool (*LGWriteTimestamp)(
++        SDL_GPUCommandBuffer *commandBuffer,
++        SDL_LGGPUTimestampQueryPool *pool,
++        Uint32 queryIndex,
++        SDL_LGGPUTimestampLocation location);
++
++    SDL_LGGPUTimestampResult (*LGGetTimestampQueryResults)(
++        SDL_GPURenderer *driverData,
++        SDL_LGGPUTimestampQueryPool *pool,
++        Uint32 firstQuery,
++        Uint32 queryCount,
++        Uint64 *values);
++
+     // Feature Queries
+ 
+     bool (*SupportsTextureFormat)(
+diff --git a/src/gpu/vulkan/SDL_gpu_vulkan.c b/src/gpu/vulkan/SDL_gpu_vulkan.c
+index ae19a138933638828dce13f9f04b85a041b05078..6b444bc7709103c9a2dd2b9983dc359aef363659 100644
+--- a/src/gpu/vulkan/SDL_gpu_vulkan.c
++++ b/src/gpu/vulkan/SDL_gpu_vulkan.c
+@@ -441,6 +441,14 @@ typedef struct VulkanUniformBuffer VulkanUniformBuffer;
+ typedef struct VulkanTexture VulkanTexture;
+ typedef struct VulkanTextureContainer VulkanTextureContainer;
+ 
++struct SDL_LGGPUTimestampQueryPool
++{
++    VulkanRenderer *renderer;
++    VkQueryPool queryPool;
++    Uint32 queryCount;
++    SDL_LGGPUTimestampQueryPool *next;
++};
++
+ typedef struct VulkanFenceHandle
+ {
+     VkFence fence;
+@@ -1151,6 +1159,8 @@ struct VulkanRenderer
+ 
+     Uint32 queueFamilyIndex;
+     VkQueue unifiedQueue;
++    Uint32 timestampValidBits;
++    SDL_LGGPUTimestampQueryPool *timestampQueryPools;
+ 
+     VulkanCommandBuffer **submittedCommandBuffers;
+     Uint32 submittedCommandBufferCount;
+@@ -4983,6 +4993,14 @@ static void VULKAN_DestroyDevice(
+ 
+     SDL_free(renderer->submittedCommandBuffers);
+ 
++    // The device is idle, so pools left by the caller are now safe to destroy.
++    while (renderer->timestampQueryPools != NULL) {
++        SDL_LGGPUTimestampQueryPool *pool = renderer->timestampQueryPools;
++        renderer->timestampQueryPools = pool->next;
++        renderer->vkDestroyQueryPool(renderer->logicalDevice, pool->queryPool, NULL);
++        SDL_free(pool);
++    }
++
+     for (Uint32 i = 0; i < renderer->uniformBufferPoolCount; i += 1) {
+         VULKAN_INTERNAL_DestroyBuffer(
+             renderer,
+@@ -5078,6 +5096,203 @@ static SDL_PropertiesID VULKAN_GetDeviceProperties(
+     return renderer->props;
+ }
+ 
++static SDL_LGGPUTimestampResult VULKAN_LGGetTimestampQueryInfo(
++    SDL_GPURenderer *driverData,
++    SDL_LGGPUTimestampQueryInfo *info)
++{
++    VulkanRenderer *renderer = (VulkanRenderer *)driverData;
++
++    if (renderer->timestampValidBits == 0) {
++        return SDL_LG_GPU_TIMESTAMP_UNSUPPORTED;
++    }
++
++    info->timestamp_valid_bits = renderer->timestampValidBits;
++    info->timestamp_period_nanoseconds =
++        renderer->physicalDeviceProperties.properties.limits.timestampPeriod;
++    return SDL_LG_GPU_TIMESTAMP_AVAILABLE;
++}
++
++static SDL_LGGPUTimestampQueryPool *VULKAN_LGCreateTimestampQueryPool(
++    SDL_GPURenderer *driverData,
++    Uint32 queryCount)
++{
++    VulkanRenderer *renderer = (VulkanRenderer *)driverData;
++    SDL_LGGPUTimestampQueryPool *pool;
++    VkQueryPoolCreateInfo createInfo;
++    VkResult result;
++
++    if (renderer->timestampValidBits == 0) {
++        SDL_SetError("GPU timestamp queries are not supported by this Vulkan queue");
++        return NULL;
++    }
++
++    pool = SDL_calloc(1, sizeof(*pool));
++    if (pool == NULL) {
++        return NULL;
++    }
++
++    SDL_zero(createInfo);
++    createInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
++    createInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
++    createInfo.queryCount = queryCount;
++
++    result = renderer->vkCreateQueryPool(
++        renderer->logicalDevice, &createInfo, NULL, &pool->queryPool);
++    if (result != VK_SUCCESS) {
++        SDL_SetError("%s %s", "vkCreateQueryPool", VkErrorMessages(result));
++        SDL_free(pool);
++        return NULL;
++    }
++
++    pool->renderer = renderer;
++    pool->queryCount = queryCount;
++
++    SDL_LockMutex(renderer->disposeLock);
++    pool->next = renderer->timestampQueryPools;
++    renderer->timestampQueryPools = pool;
++    SDL_UnlockMutex(renderer->disposeLock);
++
++    return pool;
++}
++
++static void VULKAN_LGReleaseTimestampQueryPool(
++    SDL_GPURenderer *driverData,
++    SDL_LGGPUTimestampQueryPool *pool)
++{
++    VulkanRenderer *renderer = (VulkanRenderer *)driverData;
++    SDL_LGGPUTimestampQueryPool **link;
++
++    SDL_LockMutex(renderer->disposeLock);
++    for (link = &renderer->timestampQueryPools; *link != NULL; link = &(*link)->next) {
++        if (*link == pool) {
++            *link = pool->next;
++            renderer->vkDestroyQueryPool(renderer->logicalDevice, pool->queryPool, NULL);
++            SDL_free(pool);
++            SDL_UnlockMutex(renderer->disposeLock);
++            return;
++        }
++    }
++    SDL_UnlockMutex(renderer->disposeLock);
++
++    SDL_SetError("Timestamp query pool does not belong to this GPU device");
++}
++
++static bool VULKAN_INTERNAL_ValidateTimestampQueryRange(
++    VulkanRenderer *renderer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 firstQuery,
++    Uint32 queryCount)
++{
++    if (pool->renderer != renderer) {
++        return SDL_SetError("Timestamp query pool does not belong to this GPU device");
++    }
++    if (firstQuery > pool->queryCount ||
++        queryCount > pool->queryCount - firstQuery) {
++        return SDL_SetError("Timestamp query range is out of bounds");
++    }
++    return true;
++}
++
++static bool VULKAN_LGResetTimestampQueries(
++    SDL_GPUCommandBuffer *commandBuffer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 firstQuery,
++    Uint32 queryCount)
++{
++    VulkanCommandBuffer *vulkanCommandBuffer = (VulkanCommandBuffer *)commandBuffer;
++    VulkanRenderer *renderer = vulkanCommandBuffer->renderer;
++
++    if (!VULKAN_INTERNAL_ValidateTimestampQueryRange(
++            renderer, pool, firstQuery, queryCount)) {
++        return false;
++    }
++    if (queryCount == 0) {
++        return true;
++    }
++
++    renderer->vkCmdResetQueryPool(
++        vulkanCommandBuffer->commandBuffer,
++        pool->queryPool,
++        firstQuery,
++        queryCount);
++    return true;
++}
++
++static bool VULKAN_LGWriteTimestamp(
++    SDL_GPUCommandBuffer *commandBuffer,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 queryIndex,
++    SDL_LGGPUTimestampLocation location)
++{
++    VulkanCommandBuffer *vulkanCommandBuffer = (VulkanCommandBuffer *)commandBuffer;
++    VulkanRenderer *renderer = vulkanCommandBuffer->renderer;
++    VkPipelineStageFlagBits stage;
++
++    if (!VULKAN_INTERNAL_ValidateTimestampQueryRange(
++            renderer, pool, queryIndex, 1)) {
++        return false;
++    }
++
++    if (location == SDL_LG_GPU_TIMESTAMP_TOP_OF_PIPE) {
++        stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
++    } else if (location == SDL_LG_GPU_TIMESTAMP_BOTTOM_OF_PIPE) {
++        stage = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
++    } else {
++        return SDL_SetError("Invalid timestamp location");
++    }
++
++    renderer->vkCmdWriteTimestamp(
++        vulkanCommandBuffer->commandBuffer,
++        stage,
++        pool->queryPool,
++        queryIndex);
++    return true;
++}
++
++static SDL_LGGPUTimestampResult VULKAN_LGGetTimestampQueryResults(
++    SDL_GPURenderer *driverData,
++    SDL_LGGPUTimestampQueryPool *pool,
++    Uint32 firstQuery,
++    Uint32 queryCount,
++    Uint64 *values)
++{
++    VulkanRenderer *renderer = (VulkanRenderer *)driverData;
++    VkResult result;
++
++    if (!VULKAN_INTERNAL_ValidateTimestampQueryRange(
++            renderer, pool, firstQuery, queryCount)) {
++        return SDL_LG_GPU_TIMESTAMP_ERROR;
++    }
++    if (queryCount == 0) {
++        return SDL_LG_GPU_TIMESTAMP_AVAILABLE;
++    }
++    if ((size_t)queryCount > SDL_SIZE_MAX / sizeof(*values)) {
++        SDL_SetError("Timestamp query result size is too large");
++        return SDL_LG_GPU_TIMESTAMP_ERROR;
++    }
++
++    // Do not add VK_QUERY_RESULT_WAIT_BIT: frame timing must never stall the CPU.
++    result = renderer->vkGetQueryPoolResults(
++        renderer->logicalDevice,
++        pool->queryPool,
++        firstQuery,
++        queryCount,
++        (size_t)queryCount * sizeof(*values),
++        values,
++        sizeof(*values),
++        VK_QUERY_RESULT_64_BIT);
++
++    if (result == VK_SUCCESS) {
++        return SDL_LG_GPU_TIMESTAMP_AVAILABLE;
++    }
++    if (result == VK_NOT_READY) {
++        return SDL_LG_GPU_TIMESTAMP_NOT_READY;
++    }
++
++    SDL_SetError("%s %s", "vkGetQueryPoolResults", VkErrorMessages(result));
++    return SDL_LG_GPU_TIMESTAMP_ERROR;
++}
++
+ static DescriptorSetCache *VULKAN_INTERNAL_AcquireDescriptorSetCache(
+     VulkanRenderer *renderer)
+ {
+@@ -12467,6 +12682,20 @@ static Uint8 VULKAN_INTERNAL_DeterminePhysicalDevice(VulkanRenderer *renderer, V
+         renderer->physicalDevice,
+         &renderer->memoryProperties);
+ 
++    {
++        Uint32 queueFamilyCount = 0;
++        VkQueueFamilyProperties *queueProperties;
++
++        renderer->vkGetPhysicalDeviceQueueFamilyProperties(
++            renderer->physicalDevice, &queueFamilyCount, NULL);
++        queueProperties = SDL_stack_alloc(VkQueueFamilyProperties, queueFamilyCount);
++        renderer->vkGetPhysicalDeviceQueueFamilyProperties(
++            renderer->physicalDevice, &queueFamilyCount, queueProperties);
++        renderer->timestampValidBits =
++            queueProperties[renderer->queueFamilyIndex].timestampValidBits;
++        SDL_stack_free(queueProperties);
++    }
++
+     SDL_stack_free(physicalDevices);
+     SDL_stack_free(physicalDeviceExtensions);
+     return 1;
+@@ -12897,6 +13126,14 @@ static SDL_GPUDevice *VULKAN_CreateDevice(bool debugMode, bool preferLowPower, S
+     result = (SDL_GPUDevice *)SDL_calloc(1, sizeof(SDL_GPUDevice));
+     ASSIGN_DRIVER(VULKAN)
+ 
++    // These are optional so other SDL GPU drivers can leave them unset.
++    result->LGGetTimestampQueryInfo = VULKAN_LGGetTimestampQueryInfo;
++    result->LGCreateTimestampQueryPool = VULKAN_LGCreateTimestampQueryPool;
++    result->LGReleaseTimestampQueryPool = VULKAN_LGReleaseTimestampQueryPool;
++    result->LGResetTimestampQueries = VULKAN_LGResetTimestampQueries;
++    result->LGWriteTimestamp = VULKAN_LGWriteTimestamp;
++    result->LGGetTimestampQueryResults = VULKAN_LGGetTimestampQueryResults;
++
+     result->driverData = (SDL_GPURenderer *)renderer;
+     result->shader_formats = SDL_GPU_SHADERFORMAT_SPIRV;
+ 
+diff --git a/src/gpu/vulkan/SDL_gpu_vulkan_vkfuncs.h b/src/gpu/vulkan/SDL_gpu_vulkan_vkfuncs.h
+index a56beff11eff19678efbcc9d9173d72e14e876bb..728f3186f64e391b281a34cc56fd66fbaf04eaf4 100644
+--- a/src/gpu/vulkan/SDL_gpu_vulkan_vkfuncs.h
++++ b/src/gpu/vulkan/SDL_gpu_vulkan_vkfuncs.h
+@@ -107,11 +107,13 @@ VULKAN_DEVICE_FUNCTION(vkCmdDrawIndirect)
+ VULKAN_DEVICE_FUNCTION(vkCmdEndRenderPass)
+ VULKAN_DEVICE_FUNCTION(vkCmdPipelineBarrier)
+ VULKAN_DEVICE_FUNCTION(vkCmdResolveImage)
++VULKAN_DEVICE_FUNCTION(vkCmdResetQueryPool)
+ VULKAN_DEVICE_FUNCTION(vkCmdSetBlendConstants)
+ VULKAN_DEVICE_FUNCTION(vkCmdSetDepthBias)
+ VULKAN_DEVICE_FUNCTION(vkCmdSetScissor)
+ VULKAN_DEVICE_FUNCTION(vkCmdSetStencilReference)
+ VULKAN_DEVICE_FUNCTION(vkCmdSetViewport)
++VULKAN_DEVICE_FUNCTION(vkCmdWriteTimestamp)
+ VULKAN_DEVICE_FUNCTION(vkCreateBuffer)
+ VULKAN_DEVICE_FUNCTION(vkCreateCommandPool)
+ VULKAN_DEVICE_FUNCTION(vkCreateDescriptorPool)
+@@ -124,6 +126,7 @@ VULKAN_DEVICE_FUNCTION(vkCreateImage)
+ VULKAN_DEVICE_FUNCTION(vkCreateImageView)
+ VULKAN_DEVICE_FUNCTION(vkCreatePipelineCache)
+ VULKAN_DEVICE_FUNCTION(vkCreatePipelineLayout)
++VULKAN_DEVICE_FUNCTION(vkCreateQueryPool)
+ VULKAN_DEVICE_FUNCTION(vkCreateRenderPass)
+ VULKAN_DEVICE_FUNCTION(vkCreateSampler)
+ VULKAN_DEVICE_FUNCTION(vkCreateSemaphore)
+@@ -140,6 +143,7 @@ VULKAN_DEVICE_FUNCTION(vkDestroyImageView)
+ VULKAN_DEVICE_FUNCTION(vkDestroyPipeline)
+ VULKAN_DEVICE_FUNCTION(vkDestroyPipelineCache)
+ VULKAN_DEVICE_FUNCTION(vkDestroyPipelineLayout)
++VULKAN_DEVICE_FUNCTION(vkDestroyQueryPool)
+ VULKAN_DEVICE_FUNCTION(vkDestroyRenderPass)
+ VULKAN_DEVICE_FUNCTION(vkDestroySampler)
+ VULKAN_DEVICE_FUNCTION(vkDestroySemaphore)
+@@ -153,6 +157,7 @@ VULKAN_DEVICE_FUNCTION(vkGetPipelineCacheData)
+ VULKAN_DEVICE_FUNCTION(vkGetFenceStatus)
+ VULKAN_DEVICE_FUNCTION(vkGetBufferMemoryRequirements)
+ VULKAN_DEVICE_FUNCTION(vkGetImageMemoryRequirements)
++VULKAN_DEVICE_FUNCTION(vkGetQueryPoolResults)
+ VULKAN_DEVICE_FUNCTION(vkMapMemory)
+ VULKAN_DEVICE_FUNCTION(vkQueueSubmit)
+ VULKAN_DEVICE_FUNCTION(vkQueueWaitIdle)

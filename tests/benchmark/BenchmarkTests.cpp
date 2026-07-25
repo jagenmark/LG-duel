@@ -182,11 +182,68 @@ int main() {
   const lg::benchmark::Summary summary = lg::benchmark::summarize(samples);
   failures += expect(summary.count == 1000U && summary.median == 500.0, "nearest-rank median should be stable");
   failures += expect(summary.p99 == 990.0 && summary.p999 == 999.0, "high percentiles should use nearest rank");
+  std::vector<lg::benchmark::FrameSample> measuredOnly(3);
+  measuredOnly[0].index = 4;
+  measuredOnly[1].index = 9;
+  measuredOnly[2].index = 15;
+  failures += expect(
+    lg::benchmark::applyGpuFrameTiming(
+      measuredOnly,
+      {
+        .benchmarkFrameIndex = 9,
+        .gpuPrimaryCommandBufferMilliseconds = 2.5,
+        .outlineApplicable = true,
+        .outlineGpuMilliseconds = 0.4,
+        .readbackLatencyFrames = 3,
+      }
+    ) &&
+      !measuredOnly[0].gpuPrimaryCommandBufferMilliseconds.has_value() &&
+      measuredOnly[1].gpuPrimaryCommandBufferMilliseconds == 2.5 &&
+      measuredOnly[1].outlineGpuMilliseconds == 0.4 &&
+      measuredOnly[1].gpuTimingReadbackLatencyFrames == 3 &&
+      !measuredOnly[2].gpuPrimaryCommandBufferMilliseconds.has_value(),
+    "delayed GPU results should patch the sample with the exact frame id"
+  );
+  failures += expect(
+    !lg::benchmark::applyGpuFrameTiming(
+      measuredOnly,
+      {
+        .benchmarkFrameIndex = 10,
+        .gpuPrimaryCommandBufferMilliseconds = 7.0,
+        .outlineApplicable = false,
+        .outlineGpuMilliseconds = std::nullopt,
+        .readbackLatencyFrames = 0,
+      }
+    ),
+    "a GPU result for an unknown frame should not attach to another sample"
+  );
+  measuredOnly[2].outlineGpuTimingApplicable = true;
+  failures += expect(
+    lg::benchmark::applyGpuFrameTiming(
+      measuredOnly,
+      {
+        .benchmarkFrameIndex = 15,
+        .gpuPrimaryCommandBufferMilliseconds = std::nullopt,
+        .outlineApplicable = false,
+        .outlineGpuMilliseconds = std::nullopt,
+        .readbackLatencyFrames = 0,
+      }
+    ) &&
+      measuredOnly[2].outlineGpuTimingApplicable &&
+      !measuredOnly[2].outlineGpuMilliseconds.has_value(),
+    "missing GPU timing should preserve outline work applicability"
+  );
+  failures += expect(
+    lg::benchmark::summarize(measuredOnly).count == 3U,
+    "only the supplied measured samples should enter benchmark aggregates"
+  );
   if (valid.ok) {
     lg::benchmark::ResultContext context;
     context.runId = "run-01"; context.runGroup = "group-01";
     context.scenarioHash = "0123456789abcdef"; context.actualMap = "eyetoeye";
     context.completed = true; context.actualActorCount = 2;
+    context.gpuTimingBackend = "unsupported";
+    context.gpuTimingUnavailableReason = "patched Vulkan timestamp support is not active";
     const lg::dev::JsonValue resultValue = lg::benchmark::resultJson(
       valid.scenario, context, samples, tickSamples
     );
@@ -282,6 +339,63 @@ int main() {
         markers->array[0].find("tick_indices")->array[0].number == 2.0,
       "frame timeline should link simulation ticks to their render frame"
     );
+    failures += expect(
+      result.find("\"gpu_timing_available\":false") != std::string::npos &&
+        result.find(
+          "\"gpu_timing_unavailable_reason\":"
+          "\"patched Vulkan timestamp support is not active\""
+        ) != std::string::npos,
+      "unsupported GPU timing metadata should give an explicit reason"
+    );
+    const lg::dev::JsonValue* unavailableGpuTimings =
+      resultValue.find("gpu_execution_timings");
+    const lg::dev::JsonValue* unavailablePrimary =
+      unavailableGpuTimings != nullptr
+        ? unavailableGpuTimings->find("gpu_primary_command_buffer") : nullptr;
+    failures += expect(
+      unavailablePrimary != nullptr &&
+        unavailablePrimary->find("count")->number == 0.0 &&
+        unavailablePrimary->find("median_ms")->type ==
+          lg::dev::JsonValue::Type::Null &&
+        resultValue.find("gpu_timestamp_valid_bits")->type ==
+          lg::dev::JsonValue::Type::Null &&
+        resultValue.find("gpu_timestamp_period_ns")->type ==
+          lg::dev::JsonValue::Type::Null &&
+        resultValue.find("gpu_timing_readback_latency_frames")->type ==
+          lg::dev::JsonValue::Type::Null,
+      "unsupported GPU timing metadata and summaries should be null, not zero"
+    );
+    failures += expect(
+      result.find("\"summary\":{\"count\":1000") != std::string::npos &&
+        result.find("\"subsystem_timings\"") != std::string::npos,
+      "adding GPU data should keep the existing CPU result fields"
+    );
+    std::vector<lg::benchmark::FrameSample> gpuSamples(4);
+    gpuSamples[0].gpuPrimaryCommandBufferMilliseconds = 1.0;
+    gpuSamples[1].gpuPrimaryCommandBufferMilliseconds = 9.0;
+    gpuSamples[3].gpuPrimaryCommandBufferMilliseconds = 3.0;
+    gpuSamples[0].outlineGpuTimingApplicable = true;
+    gpuSamples[0].outlineGpuMilliseconds = 0.25;
+    gpuSamples[1].outlineGpuTimingApplicable = true;
+    gpuSamples[2].outlineGpuTimingApplicable = false;
+    gpuSamples[3].outlineGpuTimingApplicable = true;
+    gpuSamples[3].outlineGpuMilliseconds = 0.75;
+    const lg::dev::JsonValue gpuResult = lg::benchmark::resultJson(
+      valid.scenario, context, gpuSamples, {}
+    );
+    const lg::dev::JsonValue* gpuTimings =
+      gpuResult.find("gpu_execution_timings");
+    const lg::dev::JsonValue* primary = gpuTimings != nullptr
+      ? gpuTimings->find("gpu_primary_command_buffer") : nullptr;
+    const lg::dev::JsonValue* outline = gpuTimings != nullptr
+      ? gpuTimings->find("outline") : nullptr;
+    failures += expect(
+      primary != nullptr && primary->find("count")->number == 3.0 &&
+        primary->find("median_ms")->number == 3.0 &&
+        outline != nullptr && outline->find("count")->number == 2.0 &&
+        outline->find("median_ms")->number == 0.25,
+      "GPU aggregates should use only valid optional values and nearest rank"
+    );
     failures += expect(result.find("\"expected_actors\":true") != std::string::npos, "result actor validity should use snapshot actor count");
     context.actualActorCount = 3;
     const std::string extraActorResult = lg::dev::writeJson(
@@ -296,6 +410,7 @@ int main() {
       ("lg-duel-benchmark-telemetry-" + std::to_string(
         std::chrono::steady_clock::now().time_since_epoch().count()
       ));
+    samples[0].outlineGpuTimingApplicable = true;
     std::filesystem::path resultDirectory;
     std::string artifactError;
     failures += expect(
@@ -328,7 +443,12 @@ int main() {
       lg::dev::parseJson(frameTimeline);
     failures += expect(
       frameTelemetry.find("network_processing_ms") != std::string::npos &&
-        frameTelemetry.find("dynamic_command_encoding_ms") != std::string::npos,
+        frameTelemetry.find("dynamic_command_encoding_ms") != std::string::npos &&
+        frameTelemetry.find(
+          "gpu_primary_command_buffer_ms,outline_gpu_ms,outline_gpu_state"
+        ) != std::string::npos &&
+        frameTelemetry.find(",,not_applicable,") != std::string::npos &&
+        frameTelemetry.find(",,unavailable,") != std::string::npos,
       "per-render-frame CSV should expose subsystem timing columns"
     );
     failures += expect(

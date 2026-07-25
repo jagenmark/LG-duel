@@ -88,6 +88,7 @@ add_library(lg_duel_client_app
   src/render/ChatLayout.cpp
   src/render/ConsoleLayout.cpp
   src/render/ConsoleCat.cpp
+  src/render/GpuTimestampTiming.cpp
   src/render/GltfSkinnedModel.cpp
   src/render/PlayerPresentation.cpp
   src/render/Renderer.cpp

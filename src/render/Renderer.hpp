@@ -2,6 +2,7 @@
 
 #include "render/PlayerPresentation.hpp"
 #include "render/ViewModelPresentation.hpp"
+#include "render/GpuTimestampTiming.hpp"
 
 #include "app/HudPresentation.hpp"
 #include "render/DrawList2D.hpp"
@@ -15,6 +16,7 @@
 #include <chrono>
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -251,6 +253,7 @@ struct RenderSettings {
   bool frustumCullRemotePlayers = true;
   bool worldFrustumCull = false;
   bool benchmarkTimingEnabled = false;
+  std::optional<std::uint64_t> benchmarkGpuFrameIndex;
   // 0 off, 1 all, 2 visible solids, 3 playerclip, 4 weapclip, 5 triggers.
   // This is presentation-only and never changes authoritative trace masks.
   int showCollision = 0;
@@ -626,6 +629,11 @@ public:
   [[nodiscard]] std::string_view vulkanIcdSha256() const;
   [[nodiscard]] bool softwareRenderer() const;
   [[nodiscard]] const RendererFrameDiagnostics& lastFrameDiagnostics() const;
+  void resetGpuTimingResults();
+  [[nodiscard]] std::span<const GpuFrameTimingResult> takeGpuTimingResults();
+  void drainGpuTimings();
+  [[nodiscard]] bool hasPendingGpuTimings() const;
+  [[nodiscard]] const GpuTimingAvailability& gpuTimingMetadata() const;
   void shutdown();
 
 private:
@@ -681,6 +689,7 @@ private:
   std::string vulkanApiVersion_;
   std::string vulkanIcdPath_;
   std::string vulkanIcdSha256_;
+  GpuTimestampTiming gpuTimestampTiming_;
   RendererFrameDiagnostics lastFrameDiagnostics_ = {};
   std::chrono::steady_clock::time_point previousCameraStepUpdate_ = {};
   float previousCameraPlayerZ_ = 0.0F;
