@@ -37,6 +37,13 @@ BUILD_MODES = {
     "release": {"directory": REPO_ROOT / "build" / "perf", "preset": "perf"},
     "debug": {"directory": REPO_ROOT / "build" / "default", "preset": "default"},
 }
+SDL_CONFIGURATION_OPTIONS = {
+    "LG_DUEL_FETCH_SDL3",
+    "LG_DUEL_REQUIRE_SDL3",
+    "LG_DUEL_SDL3_GIT_TAG",
+    "LG_DUEL_SDL3_SOURCE_DIR",
+    "LG_DUEL_USE_PATCHED_SDL3",
+}
 
 
 class BenchmarkError(RuntimeError):
@@ -536,7 +543,16 @@ def build_environment_metadata(build_dir: Path) -> dict[str, Any]:
         "compile_time_options": {
             key: values[key]
             for key in sorted(values)
-            if key == "BUILD_TESTING" or key.startswith("LG_DUEL_")
+            if (
+                key == "BUILD_TESTING"
+                or key.startswith("LG_DUEL_")
+            )
+            and key not in SDL_CONFIGURATION_OPTIONS
+        },
+        "sdl_configuration": {
+            key: values[key]
+            for key in sorted(SDL_CONFIGURATION_OPTIONS)
+            if key in values
         },
     }
     if compiler_path:

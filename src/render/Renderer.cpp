@@ -5094,6 +5094,7 @@ void appendCommandBatches(
   const ConsoleRenderState& console,
   float cameraVerticalOffset,
   RendererFrameDiagnostics& diagnostics,
+  GpuTimestampTiming& gpuTiming,
   const FrameCaptureRequest* captureRequest,
   FrameCaptureResult* captureResult
 ) {
@@ -5226,6 +5227,32 @@ void appendCommandBatches(
   if (commandBuffer == nullptr) {
     return false;
   }
+  bool timingActive = false;
+  bool timingOwnedSubmittedFence = false;
+  const auto submitCommandBuffer = [&](SDL_GPUFence** outputFence = nullptr) {
+    if (timingActive) {
+      gpuTiming.endFrame(commandBuffer);
+      SDL_GPUFence* fence =
+        SDL_SubmitGPUCommandBufferAndAcquireFence(commandBuffer);
+      if (fence == nullptr) {
+        gpuTiming.submissionFailed();
+        timingActive = false;
+        return false;
+      }
+      gpuTiming.submitted(device, fence);
+      timingActive = false;
+      timingOwnedSubmittedFence = true;
+      if (outputFence != nullptr) {
+        *outputFence = fence;
+      }
+      return true;
+    }
+    if (outputFence != nullptr) {
+      *outputFence = SDL_SubmitGPUCommandBufferAndAcquireFence(commandBuffer);
+      return *outputFence != nullptr;
+    }
+    return SDL_SubmitGPUCommandBuffer(commandBuffer);
+  };
 
   SDL_GPUTexture* swapchainTexture = nullptr;
   Uint32 outputWidth = 0;
@@ -5537,9 +5564,19 @@ void appendCommandBatches(
     diagnostics.dynamicTriangles =
       (diagnostics.dynamicOpaqueVertices + diagnostics.dynamicTranslucentVertices) / 3U;
     if (vertices.size() > kMaxGpuVertices) {
-      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      (void)submitCommandBuffer();
       SDL_SetError("SDL_GPU 2D vertex capacity exceeded");
       return false;
+    }
+
+    if (settings.benchmarkGpuFrameIndex.has_value()) {
+      // Reset and TOP are the first commands in the measured primary buffer.
+      // Fence polling later reads this range without stalling the render loop.
+      timingActive = gpuTiming.beginFrame(
+        commandBuffer,
+        *settings.benchmarkGpuFrameIndex,
+        false
+      );
     }
 
     if (!vertices.empty()) {
@@ -5547,7 +5584,7 @@ void appendCommandBatches(
       void* mapped =
         SDL_MapGPUTransferBuffer(device, transferBuffer, true);
       if (mapped == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       const Uint32 uploadSize =
@@ -5557,7 +5594,7 @@ void appendCommandBatches(
 
       SDL_GPUCopyPass* copyPass = SDL_BeginGPUCopyPass(commandBuffer);
       if (copyPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       const SDL_GPUTransferBufferLocation source = {transferBuffer, 0};
@@ -5598,7 +5635,7 @@ void appendCommandBatches(
           perspectiveScene
       )
     ) {
-      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      (void)submitCommandBuffer();
       return false;
     }
     StaticWorldMesh* worldMesh =
@@ -5664,7 +5701,7 @@ void appendCommandBatches(
       depthFormat
     );
     if (depthTexture == nullptr) {
-      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      (void)submitCommandBuffer();
       return false;
     }
 
@@ -5688,7 +5725,7 @@ void appendCommandBatches(
       &depthTarget
     );
     if (worldPass == nullptr) {
-      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      (void)submitCommandBuffer();
       return false;
     }
       if (hasStaticWorld || dynamic3DVertexCount > 0 || !perspectiveScene.simpleInstances.empty()) {
@@ -5986,7 +6023,7 @@ void appendCommandBatches(
         outlineDilationTexture == nullptr ||
         (!nativeOutline && outlineDepthTexture == nullptr)
       ) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
 
@@ -6032,6 +6069,7 @@ void appendCommandBatches(
       maskDepthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
       maskDepthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
       maskDepthTarget.cycle = nativeOutline ? false : outlineTargetsResized;
+      gpuTiming.beginOutline(commandBuffer);
       SDL_GPURenderPass* outlineDepthPass = nullptr;
       if (!nativeOutline) {
         SDL_GPURenderPass* outlineClearPass = SDL_BeginGPURenderPass(
@@ -6041,7 +6079,7 @@ void appendCommandBatches(
           &maskDepthTarget
         );
         if (outlineClearPass == nullptr) {
-          (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+          (void)submitCommandBuffer();
           return false;
         }
         SDL_SetGPUViewport(outlineClearPass, &outlineViewport);
@@ -6063,7 +6101,7 @@ void appendCommandBatches(
           &maskDepthTarget
         );
         if (outlineDepthPass == nullptr) {
-          (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+          (void)submitCommandBuffer();
           return false;
         }
         SDL_SetGPUViewport(outlineDepthPass, &outlineViewport);
@@ -6200,7 +6238,7 @@ void appendCommandBatches(
         nullptr
       );
       if (outlineColorClearPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       SDL_SetGPUViewport(outlineColorClearPass, &outlineViewport);
@@ -6222,7 +6260,7 @@ void appendCommandBatches(
         &maskDepthTarget
       );
       if (maskPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       SDL_SetGPUViewport(maskPass, &outlineViewport);
@@ -6304,7 +6342,7 @@ void appendCommandBatches(
         nullptr
       );
       if (dilationPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       SDL_SetGPUViewport(dilationPass, &outlineViewport);
@@ -6422,7 +6460,7 @@ void appendCommandBatches(
       SDL_GPURenderPass* compositePass =
         SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
       if (compositePass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       SDL_BindGPUGraphicsPipeline(compositePass, activeOutlineComposite);
@@ -6445,6 +6483,7 @@ void appendCommandBatches(
       );
       SDL_DrawGPUPrimitives(compositePass, 3, 1, 0, 0);
       SDL_EndGPURenderPass(compositePass);
+      gpuTiming.endOutline(commandBuffer);
 
       diagnostics.outlineMaskWidth = outlineMaskWidth;
       diagnostics.outlineMaskHeight = outlineMaskHeight;
@@ -6481,7 +6520,7 @@ void appendCommandBatches(
       SDL_GPURenderPass* viewModelPass =
         SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, &depthTarget);
       if (viewModelPass == nullptr) {
-        (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+        (void)submitCommandBuffer();
         return false;
       }
       struct alignas(16) ViewModelCameraUniform {
@@ -6569,7 +6608,7 @@ void appendCommandBatches(
     SDL_GPURenderPass* overlayPass =
       SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
     if (overlayPass == nullptr) {
-      (void)SDL_SubmitGPUCommandBuffer(commandBuffer);
+      (void)submitCommandBuffer();
       return false;
     }
 
@@ -6625,11 +6664,22 @@ void appendCommandBatches(
     }
     diagnostics.worldDrawIssueMilliseconds =
       millisecondsBetween(drawIssueStart, RenderClock::now());
+  } else if (settings.benchmarkGpuFrameIndex.has_value()) {
+    gpuTiming.publishUnavailableFrame(
+      *settings.benchmarkGpuFrameIndex,
+      false,
+      "no_swapchain_texture"
+    );
   }
 
   const auto submitStart = RenderClock::now();
   diagnostics.renderBuildUploadMilliseconds =
     millisecondsBetween(buildStart, submitStart);
+  // The frame duration ends after the last overlay pass. A later screenshot
+  // copy stays outside the benchmark range.
+  if (timingActive) {
+    gpuTiming.endFrame(commandBuffer);
+  }
   // Submit is CPU-side command submission time, not actual display present time.
   SDL_GPUTransferBuffer* captureTransfer = nullptr;
   SDL_GPUTextureFormat captureFormat = SDL_GPU_TEXTUREFORMAT_INVALID;
@@ -6675,12 +6725,10 @@ void appendCommandBatches(
     }
   }
 
-  SDL_GPUFence* captureFence = captureTransfer != nullptr
-    ? SDL_SubmitGPUCommandBufferAndAcquireFence(commandBuffer)
-    : nullptr;
-  const bool submitted = captureTransfer != nullptr
-    ? captureFence != nullptr
-    : SDL_SubmitGPUCommandBuffer(commandBuffer);
+  SDL_GPUFence* captureFence = nullptr;
+  const bool submitted = submitCommandBuffer(
+    captureTransfer != nullptr ? &captureFence : nullptr
+  );
   if (captureTransfer != nullptr && captureFence != nullptr && captureResult != nullptr) {
     SDL_GPUFence* fences[] = {captureFence};
     if (!SDL_WaitForGPUFences(device, true, fences, 1)) {
@@ -6708,7 +6756,9 @@ void appendCommandBatches(
         );
       }
     }
-    SDL_ReleaseGPUFence(device, captureFence);
+    if (!timingOwnedSubmittedFence) {
+      SDL_ReleaseGPUFence(device, captureFence);
+    }
   }
   if (captureTransfer != nullptr) SDL_ReleaseGPUTransferBuffer(device, captureTransfer);
   diagnostics.submitMilliseconds =
@@ -7795,6 +7845,7 @@ bool Renderer::initialize(void* window) {
           softwareRenderer_ = looksLikeSoftwareRenderer(
             gpuName_ + " " + graphicsDriverName_ + " " + graphicsDriverInfo_
           );
+          gpuTimestampTiming_.initialize(device, backendName_);
           return true;
         }
 
@@ -7907,6 +7958,7 @@ bool Renderer::initialize(void* window) {
     SDL_GetRendererName(static_cast<SDL_Renderer*>(renderer_));
   backendName_ = "SDL_Renderer/";
   backendName_ += rendererName != nullptr ? rendererName : "unknown";
+  gpuTimestampTiming_.initialize(nullptr, backendName_);
   gpuName_.clear();
   graphicsDriverName_.clear();
   graphicsDriverVersion_.clear();
@@ -7989,6 +8041,8 @@ void Renderer::render(
   }
 
   if (gpuBackend_) {
+    // Fence and query checks here never wait for GPU work.
+    gpuTimestampTiming_.poll(gpuDevice_);
     auto* fontAtlasSet = static_cast<FontAtlasSet*>(gpuFontAtlas_);
     const std::string requestedFont =
       settings.uiFont.empty() ? "bahnschrift.ttf" : settings.uiFont;
@@ -8121,6 +8175,7 @@ void Renderer::render(
           console,
           cameraStepOffset_,
           lastFrameDiagnostics_,
+          gpuTimestampTiming_,
           captureRequest,
           captureResult
         ) &&
@@ -8133,6 +8188,19 @@ void Renderer::render(
     gpuOutlineMaskTexture_ = outlineMaskTexture;
     gpuOutlineDilationTexture_ = outlineDilationTexture;
     gpuOutlineDepthTexture_ = outlineDepthTexture;
+    if (
+      const GpuFrameTimingResult* timing =
+        gpuTimestampTiming_.latestResult();
+      timing != nullptr &&
+      timing->outlineApplicable &&
+      timing->outlineGpuMilliseconds.has_value()
+    ) {
+      // The diagnostics show the newest completed query. Benchmark data still
+      // uses the stored frame id and never pairs results by arrival order.
+      lastFrameDiagnostics_.outlineGpuTimingAvailable = true;
+      lastFrameDiagnostics_.outlineGpuMilliseconds =
+        static_cast<float>(*timing->outlineGpuMilliseconds);
+    }
     lastFrameDiagnostics_.totalRenderMilliseconds =
       millisecondsBetween(renderStart, RenderClock::now());
     return;
@@ -8650,9 +8718,31 @@ const RendererFrameDiagnostics& Renderer::lastFrameDiagnostics() const {
   return lastFrameDiagnostics_;
 }
 
+void Renderer::resetGpuTimingResults() {
+  gpuTimestampTiming_.resetResults();
+}
+
+std::span<const GpuFrameTimingResult> Renderer::takeGpuTimingResults() {
+  return gpuTimestampTiming_.takeResults();
+}
+
+void Renderer::drainGpuTimings() {
+  gpuTimestampTiming_.drain(gpuDevice_);
+}
+
+bool Renderer::hasPendingGpuTimings() const {
+  return gpuTimestampTiming_.hasPending();
+}
+
+const GpuTimingAvailability& Renderer::gpuTimingMetadata() const {
+  return gpuTimestampTiming_.metadata();
+}
+
 void Renderer::shutdown() {
 #if LG_DUEL_HAS_SDL3
   if (gpuDevice_ != nullptr) {
+    // Shutdown may wait; render and poll paths never do.
+    gpuTimestampTiming_.shutdown(gpuDevice_);
     delete static_cast<std::vector<GpuVertex>*>(gpuVertexScratch_);
     gpuVertexScratch_ = nullptr;
     if (gpuDepthTexture_ != nullptr) {

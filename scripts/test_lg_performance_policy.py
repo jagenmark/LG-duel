@@ -101,6 +101,15 @@ class PerformancePolicyTests(unittest.TestCase):
             self.result_set(baseline, "base"), self.result_set(candidate, "candidate"), self.policy
         )
 
+    def compare_with_policy(
+        self, baseline: dict, candidate: dict, policy: dict
+    ) -> dict:
+        return policy_module.compare_result_sets(
+            self.result_set(baseline, "base"),
+            self.result_set(candidate, "candidate"),
+            policy,
+        )
+
     def test_shipped_policy_has_only_two_profiles(self) -> None:
         path = Path(__file__).parents[1] / "config" / "performance-policy.json"
         headless = policy_module.load_policy(path, "pr_headless")
@@ -110,9 +119,46 @@ class PerformancePolicyTests(unittest.TestCase):
         self.assertIn("environment.compiler_version", headless["comparability"]["fatal"])
         self.assertIn("environment.build_type", headless["comparability"]["fatal"])
         self.assertIn("environment.compile_time_options", headless["comparability"]["fatal"])
+        self.assertNotIn("environment.sdl_configuration", headless["comparability"]["fatal"])
+        self.assertIn("environment.sdl_configuration", gpu["comparability"]["fatal"])
         self.assertIn("environment.observed_resolution", gpu["comparability"]["fatal"])
         self.assertIn("environment.vulkan_icd_manifest_records", gpu["comparability"]["fatal"])
         self.assertTrue(all(rule["required"] for rule in headless["hard_limits"]))
+
+    def test_trusted_gpu_rejects_sdl_configuration_differences(self) -> None:
+        path = Path(__file__).parents[1] / "config" / "performance-policy.json"
+        policy = policy_module.load_policy(path, "trusted_gpu")
+        policy["expected_scenarios"] = ["bench"]
+        policy["comparability"] = {
+            "fatal": ["environment.sdl_configuration"],
+            "warning": [],
+            "info": [],
+        }
+        policy["metrics"] = {}
+        policy["hard_limits"] = []
+        policy["correctness"] = []
+
+        baseline = self.manifest()
+        candidate = self.manifest()
+        baseline["settings"]["backend"] = "SDL_GPU/vulkan"
+        candidate["settings"]["backend"] = "SDL_GPU/vulkan"
+        for manifest in (baseline, candidate):
+            manifest["environment"]["renderer"] = "SDL_GPU/vulkan"
+            manifest["environment"]["gpu_verified"] = True
+        baseline["environment"]["sdl_configuration"] = {
+            "LG_DUEL_SDL3_GIT_TAG": "release-3.4.10"
+        }
+        candidate["environment"]["sdl_configuration"] = {
+            "LG_DUEL_SDL3_GIT_TAG": "8e37db5e"
+        }
+
+        compared = self.compare_with_policy(baseline, candidate, policy)
+        self.assertEqual(compared["status"], "NOT_COMPARABLE")
+        self.assertFalse(compared["comparable"])
+        self.assertEqual(
+            compared["comparability"]["fatal"][0]["field"],
+            "environment.sdl_configuration",
+        )
 
     def test_policy_rejects_unknown_version_and_field(self) -> None:
         path = Path(__file__).parents[1] / "config" / "performance-policy.json"

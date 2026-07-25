@@ -3919,6 +3919,7 @@ int GameApp::run() const {
       CaptureReady,
       BenchmarkWarmup,
       BenchmarkMeasure,
+      BenchmarkGpuDrain,
       BenchmarkWaitingForCameraFrame,
       BenchmarkCaptureReady,
       BenchmarkFinalize,
@@ -5887,6 +5888,8 @@ int GameApp::run() const {
           const bool framesDone = scenario.warmupFrames &&
             active.benchmarkPhaseFrames >= *scenario.warmupFrames;
           if (secondsDone || framesDone) {
+            // Warmup never carries GPU frame tags or results into measurement.
+            renderer.resetGpuTimingResults();
             active.benchmarkPhaseStart = phaseNow;
             active.benchmarkPhaseFrames = 0;
             active.stage = ActiveControlOperation::Stage::BenchmarkMeasure;
@@ -5965,6 +5968,10 @@ int GameApp::run() const {
           sample.instanceDraws = render.projectileMeshDrawCalls +
             render.projectileGlowDrawCalls + render.tracerDrawCalls +
             render.explosionDrawCalls + render.remoteWeaponDrawCalls;
+          // Applicability describes rendered work, even when GPU timing is
+          // unavailable or its fixed query ring has no free slot.
+          sample.outlineGpuTimingApplicable =
+            render.outlineCompositeEnabled;
           if (
             active.benchmarkSamples.size() ==
             active.benchmarkSamples.capacity()
@@ -5976,22 +5983,65 @@ int GameApp::run() const {
             continue;
           }
           active.benchmarkSamples.push_back(sample);
+          // Results can arrive several frames late. Match only the renderer's
+          // stored benchmark id, after this frame's CPU sample exists.
+          for (const GpuFrameTimingResult& timing :
+               renderer.takeGpuTimingResults()) {
+            (void)benchmark::applyGpuFrameTiming(
+              active.benchmarkSamples,
+              {
+                .benchmarkFrameIndex = timing.benchmarkFrameIndex,
+                .gpuPrimaryCommandBufferMilliseconds =
+                  timing.gpuPrimaryCommandBufferMilliseconds,
+                .outlineApplicable = timing.outlineApplicable,
+                .outlineGpuMilliseconds = timing.outlineGpuMilliseconds,
+                .readbackLatencyFrames = timing.readbackLatencyFrames,
+              }
+            );
+          }
           ++active.benchmarkPhaseFrames;
           const bool secondsDone = scenario.measuredSeconds && seconds >= *scenario.measuredSeconds;
           const bool framesDone = scenario.measuredFrames &&
             active.benchmarkPhaseFrames >= *scenario.measuredFrames;
           if (secondsDone || framesDone) {
-            if (scenario.screenshots.empty()) {
-              active.stage = ActiveControlOperation::Stage::BenchmarkFinalize;
-            } else {
-              active.benchmarkScreenshotIndex = 0;
-              const benchmark::Screenshot& screenshot = scenario.screenshots[0];
-              const double cameraSeconds = scenario.measuredSeconds.value_or(seconds) * screenshot.progress;
-              setBenchmarkCamera(benchmark::cameraAt(scenario, cameraSeconds));
-              active.requiredRenderedFrame = renderedFrameSerial + 1U;
-              active.deadline = phaseNow + std::chrono::seconds(20);
-              active.stage = ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame;
-            }
+            // CPU sampling has stopped. Any wait for GPU readback belongs to
+            // the drain stage and cannot change measured frame telemetry.
+            active.stage = ActiveControlOperation::Stage::BenchmarkGpuDrain;
+          }
+        } else if (
+          active.stage == ActiveControlOperation::Stage::BenchmarkGpuDrain
+        ) {
+          renderer.drainGpuTimings();
+          for (const GpuFrameTimingResult& timing :
+               renderer.takeGpuTimingResults()) {
+            (void)benchmark::applyGpuFrameTiming(
+              active.benchmarkSamples,
+              {
+                .benchmarkFrameIndex = timing.benchmarkFrameIndex,
+                .gpuPrimaryCommandBufferMilliseconds =
+                  timing.gpuPrimaryCommandBufferMilliseconds,
+                .outlineApplicable = timing.outlineApplicable,
+                .outlineGpuMilliseconds = timing.outlineGpuMilliseconds,
+                .readbackLatencyFrames = timing.readbackLatencyFrames,
+              }
+            );
+          }
+          if (scenario.screenshots.empty()) {
+            active.stage = ActiveControlOperation::Stage::BenchmarkFinalize;
+          } else {
+            active.benchmarkScreenshotIndex = 0;
+            const benchmark::Screenshot& screenshot = scenario.screenshots[0];
+            const double measuredSeconds =
+              active.benchmarkSamples.empty()
+                ? 0.0 : active.benchmarkSamples.back().elapsedSeconds;
+            const double cameraSeconds =
+              scenario.measuredSeconds.value_or(measuredSeconds) *
+              screenshot.progress;
+            setBenchmarkCamera(benchmark::cameraAt(scenario, cameraSeconds));
+            active.requiredRenderedFrame = renderedFrameSerial + 1U;
+            active.deadline = phaseNow + std::chrono::seconds(20);
+            active.stage =
+              ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame;
           }
         } else if (active.stage == ActiveControlOperation::Stage::BenchmarkWaitingForCameraFrame) {
           if (renderedFrameSerial >= active.requiredRenderedFrame) {
@@ -8153,6 +8203,11 @@ int GameApp::run() const {
       renderer.backendName() == "SDL_GPU/vulkan"
     );
     currentRenderSettings.benchmarkTimingEnabled = benchmarkFrameTimingEnabled;
+    currentRenderSettings.benchmarkGpuFrameIndex = benchmarkFrameTimingEnabled
+      ? std::optional<std::uint64_t>(
+          activeControlOperation->benchmarkPhaseFrames
+        )
+      : std::nullopt;
     if (developmentCameraEnabled) {
       // The development camera replaces presentation state only. The client
       // continues to send ordinary commands and the server remains authoritative.
@@ -9289,6 +9344,39 @@ int GameApp::run() const {
       context.actualMapContentHash = currentMapContentHash();
       SDL_GetWindowSizeInPixels(window, &context.actualWidth, &context.actualHeight);
       context.selectedPresentMode = renderer.lastFrameDiagnostics().selectedPresentModeName;
+      const GpuTimingAvailability& gpuTiming = renderer.gpuTimingMetadata();
+      context.gpuTimingAvailable = gpuTiming.available;
+      context.gpuTimingBackend = gpuTiming.backend;
+      context.gpuTimingUnavailableReason = gpuTiming.unavailableReason;
+      if (gpuTiming.available) {
+        context.gpuTimestampValidBits = gpuTiming.timestampValidBits;
+        context.gpuTimestampPeriodNanoseconds =
+          gpuTiming.timestampPeriodNanoseconds;
+      }
+      context.gpuTimingInstrumentationVersion =
+        gpuTiming.instrumentationVersion;
+      context.sdlBaseRevision = gpuTiming.sdlBaseRevision;
+      context.sdlPatchIdentity = gpuTiming.sdlPatchIdentity;
+      std::uint64_t readbackLatencyTotal = 0;
+      std::size_t readbackLatencyCount = 0;
+      std::uint32_t maximumReadbackLatencyFrames = 0;
+      for (const benchmark::FrameSample& sample : active.benchmarkSamples) {
+        if (!context.gpuTimingAvailable ||
+            !sample.gpuTimingResultReceived) continue;
+        maximumReadbackLatencyFrames = std::max(
+          maximumReadbackLatencyFrames,
+          sample.gpuTimingReadbackLatencyFrames
+        );
+        readbackLatencyTotal += sample.gpuTimingReadbackLatencyFrames;
+        ++readbackLatencyCount;
+      }
+      if (readbackLatencyCount > 0U) {
+        context.gpuTimingReadbackLatencyFrames =
+          maximumReadbackLatencyFrames;
+        context.gpuTimingMeanReadbackLatencyFrames =
+          static_cast<double>(readbackLatencyTotal) /
+          static_cast<double>(readbackLatencyCount);
+      }
       context.completed = true;
       context.screenshotPaths = active.benchmarkScreenshotPaths;
       if (const ClientGame* game = session.game(); game != nullptr && game->hasSnapshot()) {

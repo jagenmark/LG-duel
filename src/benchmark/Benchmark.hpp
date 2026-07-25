@@ -101,6 +101,11 @@ struct FrameSample {
   double worldCommandEncodingMilliseconds = 0.0;
   double dynamicCommandEncodingMilliseconds = 0.0;
   double uiMilliseconds = 0.0;
+  std::optional<double> gpuPrimaryCommandBufferMilliseconds;
+  bool outlineGpuTimingApplicable = false;
+  std::optional<double> outlineGpuMilliseconds;
+  bool gpuTimingResultReceived = false;
+  std::uint32_t gpuTimingReadbackLatencyFrames = 0;
   std::uint32_t uploadedVertices = 0;
   std::uint32_t renderedTriangles = 0;
   std::uint32_t worldDraws = 0;
@@ -116,6 +121,14 @@ struct FrameSample {
   std::uint32_t effectCount = 0;
   std::uint32_t instanceUploadBytes = 0;
   std::uint32_t instanceDraws = 0;
+};
+
+struct GpuFrameTiming {
+  std::uint64_t benchmarkFrameIndex = 0;
+  std::optional<double> gpuPrimaryCommandBufferMilliseconds;
+  bool outlineApplicable = false;
+  std::optional<double> outlineGpuMilliseconds;
+  std::uint32_t readbackLatencyFrames = 0;
 };
 
 struct SimulationTickSample {
@@ -153,6 +166,16 @@ struct ResultContext {
   int actualWidth = 0;
   int actualHeight = 0;
   std::string selectedPresentMode;
+  bool gpuTimingAvailable = false;
+  std::string gpuTimingBackend;
+  std::string gpuTimingUnavailableReason;
+  std::optional<std::uint32_t> gpuTimestampValidBits;
+  std::optional<double> gpuTimestampPeriodNanoseconds;
+  std::optional<std::uint32_t> gpuTimingReadbackLatencyFrames;
+  std::optional<double> gpuTimingMeanReadbackLatencyFrames;
+  std::string gpuTimingInstrumentationVersion;
+  std::string sdlBaseRevision;
+  std::string sdlPatchIdentity;
   bool completed = false;
   std::uint32_t actualActorCount = 0;
   std::vector<std::string> warnings;
@@ -164,6 +187,10 @@ struct ResultContext {
 [[nodiscard]] bool isSafeScenarioHash(std::string_view value);
 [[nodiscard]] CameraPose cameraAt(const Scenario& scenario, double measuredSeconds);
 [[nodiscard]] Summary summarize(const std::vector<FrameSample>& samples);
+[[nodiscard]] bool applyGpuFrameTiming(
+  std::vector<FrameSample>& samples,
+  const GpuFrameTiming& timing
+);
 [[nodiscard]] dev::JsonValue resultJson(
   const Scenario& scenario,
   const ResultContext& context,

@@ -66,13 +66,19 @@ It is separate from normal play and gameplay authority: benchmark state never
 enters snapshots, UDP packets, or server simulation.
 
 The primary result is a client-thread frame-time distribution plus labelled
-CPU-side renderer diagnostics. SDL 3.4.10 and SDL_Renderer do not provide GPU
-timestamp queries here, so submit/acquire durations must not be reported as
-GPU execution time, allocation cost, or memory use. Record backend, selected
-present mode, map hash, resolution, settings, and fallback state; compare only
-compatible results. See [Performance benchmarks](../PERFORMANCE-BENCHMARKS.md)
-for scenario fields, warmup boundaries, bot/effect limitations, captures,
-repetition, validity checks, and interpretation.
+CPU-side renderer diagnostics. The optional patched SDL_GPU Vulkan path also
+records a GPU timestamp interval for measured work in the primary per-frame
+command buffer. Results arrive after a delay and map back to the exact measured
+frame id. The benchmark waits for outstanding results only after CPU sampling
+ends. SDL_Renderer and builds without the patch record the reason and leave GPU
+values empty. Submit/acquire time must not be reported as GPU execution time.
+GPU timestamps do not measure present, compositor, scanout, queue wait, GPU
+memory, or presentation latency. Record backend, selected present mode, map
+hash, resolution, settings, timestamp details, SDL identity, and fallback
+state; compare only compatible results. See
+[Performance benchmarks](../PERFORMANCE-BENCHMARKS.md) for the full GPU scope,
+scenario fields, warmup boundaries, bot/effect limits, captures, repetition,
+validity checks, and interpretation.
 
 Collision and trace changes must also run the headless shared-simulation workloads. They time the real movement and `traceWorld` paths, verify deterministic replay checksums, and support a forced-linear same-binary comparison so broadphase evidence is not inferred from renderer FPS.
 

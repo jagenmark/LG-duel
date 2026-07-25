@@ -534,6 +534,23 @@ lg_duel_set_warnings(lg_duel_perspective_tests)
 
 add_test(NAME lg_duel_perspective_tests COMMAND lg_duel_perspective_tests)
 
+add_executable(lg_duel_gpu_timestamp_timing_tests
+  render/GpuTimestampTimingTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/GpuTimestampTiming.cpp
+)
+
+target_link_libraries(lg_duel_gpu_timestamp_timing_tests PRIVATE lg_duel_core)
+target_compile_features(
+  lg_duel_gpu_timestamp_timing_tests
+  PRIVATE cxx_std_20
+)
+lg_duel_set_warnings(lg_duel_gpu_timestamp_timing_tests)
+
+add_test(
+  NAME lg_duel_gpu_timestamp_timing_tests
+  COMMAND lg_duel_gpu_timestamp_timing_tests
+)
+
 add_executable(lg_duel_world_visibility_tests
   render/WorldVisibilityTests.cpp
   ${PROJECT_SOURCE_DIR}/src/render/WorldVisibility.cpp

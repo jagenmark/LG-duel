@@ -137,6 +137,7 @@
           "environment.build_type",
           "environment.cmake_generator",
           "environment.compile_time_options",
+          "environment.sdl_configuration",
           "environment.build_mode",
           "environment.protocol_version",
           "environment.server_tick_rate",

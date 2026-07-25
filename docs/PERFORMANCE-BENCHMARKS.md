@@ -23,7 +23,33 @@ Each result must label every metric with its scope.
 | Simulation-tick subsystems | One sample per client fixed prediction tick for inclusive tick simulation plus its nested network, movement/collision, and trace spans. A render frame may contain zero or multiple tick samples. |
 | Derived | Mean, p50, p95, p99, maximum, FPS conversion, run-to-run deltas, and regression verdicts calculated from direct samples. |
 | Backend-specific CPU timing | Renderer diagnostics such as scene build, dynamic upload preparation, swapchain acquire, draw issue, submit, total render, and diagnostics counts. These remain CPU-side observations and retain backend/present-mode labels. |
-| Unavailable | GPU execution duration, GPU allocation cost, GPU memory use, and general GPU utilization. SDL 3.4.10 exposes no GPU timestamp-query API for this renderer, and SDL_Renderer exposes none either. CPU submit/acquire timing is not a substitute for GPU execution time. |
+| GPU execution timing | A GPU timestamp interval covering measured commands in LG Duel's primary per-frame SDL GPU command buffer, from the first measured GPU command through the final measured GPU command. |
+| Unavailable | GPU allocation cost, GPU memory use, general GPU use, and presentation latency. CPU submit/acquire timing is not a substitute for GPU execution time. |
+
+The main GPU interval excludes CPU scene build and command encoding, swapchain
+acquire blocking, queue delay before the first command starts, present,
+compositor work, scanout, and work in other command buffers. It does not measure
+input or presentation latency.
+
+The outline interval covers the compatibility clear and depth work when that
+work runs, then the outline mask, dilation, and composite work. It excludes all
+other GPU work. Each frame states whether the outline interval applies. A
+missing value stays empty; it never becomes zero.
+
+GPU timestamps arrive several frames after submission. The renderer tags each
+measured command buffer with its exact benchmark frame id. The benchmark polls
+ready results during the run, then waits for the remaining results only after
+CPU frame sampling stops. It patches the sample with the matching id. Warmup
+frames have no tag and never enter either CPU or GPU summaries.
+
+This support needs the SDL_GPU Vulkan path and the optional patched SDL build.
+The patch adds a small timestamp and readback cost to measured frames. Results
+record whether timing is available, the backend, timestamp valid bits and
+period, readback delay, tool version, and the SDL base and patch identity. The
+build picks the patched SDL form when it is present. A later official SDL query
+API can replace the patch without changing the metric scope. SDL_Renderer and
+an unpatched SDL build report a clear reason and leave timing cells empty. GPU
+timing support does not affect benchmark validity.
 
 Record selected backend, requested and selected present mode, resolution, fullscreen/vsync/frame-cap state, map content hash, scenario/version, build identity, system/driver information, and any fallback. The shared GPU launcher queries `vulkaninfo --summary` outside the measured interval, verifies the selected Intel ICD before startup, and attests the renderer after control answers. Benchmark child processes remove `VK_DRIVER_FILES` and `VK_ICD_FILENAMES` so the Vulkan loader uses its normal driver search. Results record the physical-device name, driver name/version, Vulkan API version, ICD manifest SHA-256, resolved driver library, and verification state. This metadata is written to both `aggregate.json` and every native `run-*/result.json`. A GPU-required scenario aborts if the renderer falls back or any attested value differs. Comparisons reject a different GPU, graphics-driver version, or Vulkan API version.
 
@@ -35,6 +61,9 @@ Version 1 uses nearest rank: sort samples ascending and select the one-based ran
 `simulation-ticks.csv` records the independent fixed-tick stream. `result.json`
 exposes median, p95, and p99 for every subsystem under
 `subsystem_timings.render_frame` and `subsystem_timings.simulation_tick`.
+GPU values use the same nearest-rank rule under `gpu_execution_timings`.
+`telemetry.csv` stores `gpu_primary_command_buffer_ms`, `outline_gpu_ms`, and
+`outline_gpu_state`; unavailable numbers use empty cells.
 All spans use `steady_clock`; the extra clock reads are enabled only during the
 measured benchmark stage. Renderer spans are CPU command construction and API
 submission time, never GPU execution time.
@@ -196,10 +225,14 @@ mixed scenario artifacts fail before any percentage is calculated.
 `config/performance-policy.json` is the versioned source of truth. The
 `pr_headless` profile uses five runs of the two shared-simulation workloads and
 conservative CPU limits. It also requires the same compiler version, build type,
-generator, build options, and collision query mode. The `trusted_gpu` profile
-requires five verified SDL_GPU/Vulkan runs on the same build, GPU, driver, API,
-renderer, observed resolution, Vulkan ICD record, map, and scenario. A fallback
-result can never satisfy that profile.
+generator, simulation build options, and collision query mode. SDL source,
+fetch, require, tag, and patched-build settings appear under
+`environment.sdl_configuration`; `pr_headless` ignores them because its
+benchmark links only the shared core. The `trusted_gpu` profile compares both
+`environment.compile_time_options` and `environment.sdl_configuration`. It
+requires five verified SDL_GPU/Vulkan runs on the same build, SDL setup, GPU,
+driver, API, renderer, observed resolution, Vulkan ICD record, map, and
+scenario. A fallback result can never satisfy that profile.
 
 The policy uses these results:
 

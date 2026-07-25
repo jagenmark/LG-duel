@@ -317,6 +317,33 @@ Summary summarize(const std::vector<FrameSample>& samples) {
   return result;
 }
 
+bool applyGpuFrameTiming(
+  std::vector<FrameSample>& samples,
+  const GpuFrameTiming& timing
+) {
+  // Measured samples stay in frame-id order, so delayed result patching has
+  // bounded search cost and never guesses from arrival order.
+  const auto sample = std::lower_bound(
+    samples.begin(),
+    samples.end(),
+    timing.benchmarkFrameIndex,
+    [](const FrameSample& candidate, std::uint64_t frameIndex) {
+      return candidate.index < frameIndex;
+    }
+  );
+  if (sample == samples.end() ||
+      sample->index != timing.benchmarkFrameIndex) return false;
+  sample->gpuPrimaryCommandBufferMilliseconds =
+    timing.gpuPrimaryCommandBufferMilliseconds;
+  sample->outlineGpuTimingApplicable =
+    sample->outlineGpuTimingApplicable || timing.outlineApplicable;
+  sample->outlineGpuMilliseconds = sample->outlineGpuTimingApplicable
+    ? timing.outlineGpuMilliseconds : std::nullopt;
+  sample->gpuTimingResultReceived = true;
+  sample->gpuTimingReadbackLatencyFrames = timing.readbackLatencyFrames;
+  return true;
+}
+
 dev::JsonValue resultJson(
   const Scenario& scenario,
   const ResultContext& context,
@@ -337,7 +364,42 @@ dev::JsonValue resultJson(
     dev::JsonValue::numberValue(context.actualWidth), dev::JsonValue::numberValue(context.actualHeight)
   });
   root.object["selected_present_mode"] = dev::JsonValue::stringValue(context.selectedPresentMode);
-  root.object["gpu_execution_timing_available"] = dev::JsonValue::booleanValue(false);
+  root.object["gpu_execution_timing_available"] =
+    dev::JsonValue::booleanValue(context.gpuTimingAvailable);
+  root.object["gpu_timing_available"] =
+    dev::JsonValue::booleanValue(context.gpuTimingAvailable);
+  root.object["gpu_timing_backend"] =
+    dev::JsonValue::stringValue(context.gpuTimingBackend);
+  root.object["gpu_timing_unavailable_reason"] =
+    dev::JsonValue::stringValue(context.gpuTimingUnavailableReason);
+  root.object["gpu_timestamp_valid_bits"] =
+    context.gpuTimestampValidBits
+      ? dev::JsonValue::numberValue(*context.gpuTimestampValidBits)
+      : dev::JsonValue{};
+  root.object["gpu_timestamp_period_ns"] =
+    context.gpuTimestampPeriodNanoseconds
+      ? dev::JsonValue::numberValue(*context.gpuTimestampPeriodNanoseconds)
+      : dev::JsonValue{};
+  root.object["gpu_timing_readback_latency_frames"] =
+    context.gpuTimingReadbackLatencyFrames
+      ? dev::JsonValue::numberValue(*context.gpuTimingReadbackLatencyFrames)
+      : dev::JsonValue{};
+  root.object["gpu_timing_mean_readback_latency_frames"] =
+    context.gpuTimingMeanReadbackLatencyFrames
+      ? dev::JsonValue::numberValue(*context.gpuTimingMeanReadbackLatencyFrames)
+      : dev::JsonValue{};
+  root.object["gpu_timing_instrumentation_version"] =
+    dev::JsonValue::stringValue(context.gpuTimingInstrumentationVersion);
+  root.object["sdl_base_revision"] =
+    dev::JsonValue::stringValue(context.sdlBaseRevision);
+  root.object["sdl_patch_identity"] =
+    dev::JsonValue::stringValue(context.sdlPatchIdentity);
+  dev::JsonValue sdlIdentity = dev::JsonValue::objectValue();
+  sdlIdentity.object["base_revision"] =
+    dev::JsonValue::stringValue(context.sdlBaseRevision);
+  sdlIdentity.object["patch_identity"] =
+    dev::JsonValue::stringValue(context.sdlPatchIdentity);
+  root.object["sdl_identity"] = std::move(sdlIdentity);
   root.object["percentile_method"] = dev::JsonValue::stringValue("nearest-rank: sort ascending and select ceil(p*N), one-based; p99.9 is null below 1000 samples");
   root.object["summary"] = summaryJson(summary);
   const auto timingMetric = [](const auto& source, auto select) {
@@ -425,6 +487,49 @@ dev::JsonValue resultJson(
   subsystemTimings.object["render_frame"] = std::move(renderFrameTimings);
   subsystemTimings.object["simulation_tick"] = std::move(simulationTickTimings);
   root.object["subsystem_timings"] = std::move(subsystemTimings);
+  const auto optionalTimingMetric = [](const auto& source, auto select) {
+    std::vector<double> values;
+    values.reserve(source.size());
+    for (const auto& sample : source) {
+      if (const std::optional<double> value = select(sample);
+          value.has_value() && std::isfinite(*value) && *value >= 0.0) {
+        values.push_back(*value);
+      }
+    }
+    std::sort(values.begin(), values.end());
+    dev::JsonValue metric = dev::JsonValue::objectValue();
+    metric.object["count"] =
+      dev::JsonValue::numberValue(static_cast<double>(values.size()));
+    metric.object["median_ms"] = values.empty()
+      ? dev::JsonValue{} : dev::JsonValue::numberValue(nearestRank(values, 0.5));
+    metric.object["p95_ms"] = values.empty()
+      ? dev::JsonValue{} : dev::JsonValue::numberValue(nearestRank(values, 0.95));
+    metric.object["p99_ms"] = values.empty()
+      ? dev::JsonValue{} : dev::JsonValue::numberValue(nearestRank(values, 0.99));
+    return metric;
+  };
+  dev::JsonValue gpuExecutionTimings = dev::JsonValue::objectValue();
+  gpuExecutionTimings.object["gpu_primary_command_buffer"] = optionalTimingMetric(
+    samples,
+    [](const FrameSample& sample) {
+      return sample.gpuPrimaryCommandBufferMilliseconds;
+    }
+  );
+  dev::JsonValue outlineTiming = optionalTimingMetric(
+    samples,
+    [](const FrameSample& sample) { return sample.outlineGpuMilliseconds; }
+  );
+  outlineTiming.object["applicable_count"] = dev::JsonValue::numberValue(
+    static_cast<double>(std::count_if(
+      samples.begin(),
+      samples.end(),
+      [](const FrameSample& sample) {
+        return sample.outlineGpuTimingApplicable;
+      }
+    ))
+  );
+  gpuExecutionTimings.object["outline"] = std::move(outlineTiming);
+  root.object["gpu_execution_timings"] = std::move(gpuExecutionTimings);
   const auto visibilityMetric = [&samples](auto select) {
     std::vector<double> values;
     values.reserve(samples.size());
@@ -700,6 +805,7 @@ bool writeArtifacts(
     "movement_collision_ms,traces_ms,interpolation_ms,animation_ms,"
     "world_visibility_ms,render_instance_construction_ms,"
     "world_command_encoding_ms,dynamic_command_encoding_ms,ui_ms,"
+    "gpu_primary_command_buffer_ms,outline_gpu_ms,outline_gpu_state,"
     "uploaded_vertices,rendered_triangles,world_draws,world_submitted_triangles,"
     "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
     "world_culled_chunks,world_visibility_tested_nodes,world_visibility_query_ms,"
@@ -724,6 +830,17 @@ bool writeArtifacts(
       << ',' << s.renderInstanceConstructionMilliseconds
       << ',' << s.worldCommandEncodingMilliseconds
       << ',' << s.dynamicCommandEncodingMilliseconds << ',' << s.uiMilliseconds
+      << ',';
+    if (s.gpuPrimaryCommandBufferMilliseconds) {
+      telemetry << *s.gpuPrimaryCommandBufferMilliseconds;
+    }
+    telemetry << ',';
+    if (s.outlineGpuMilliseconds) telemetry << *s.outlineGpuMilliseconds;
+    telemetry << ',' << (
+      !s.outlineGpuTimingApplicable
+        ? "not_applicable"
+        : (s.outlineGpuMilliseconds ? "available" : "unavailable")
+    )
       << ',' << s.uploadedVertices << ',' << s.renderedTriangles
       << ',' << s.worldDraws << ',' << s.worldSubmittedTriangles
       << ',' << s.worldSubmittedRanges << ',' << s.worldTotalChunks

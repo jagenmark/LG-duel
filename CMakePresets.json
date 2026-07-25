@@ -28,7 +28,18 @@
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "BUILD_TESTING": "OFF",
         "LG_DUEL_REQUIRE_SDL3": "ON",
-        "LG_DUEL_FETCH_SDL3": "ON"
+        "LG_DUEL_FETCH_SDL3": "ON",
+        "LG_DUEL_USE_PATCHED_SDL3": "ON",
+        "LG_DUEL_SDL3_GIT_TAG": "8e37db5e797b6167f3a00d697d816a684bd259c7"
+      }
+    },
+    {
+      "name": "gpu-timing",
+      "displayName": "GPU Timing Release",
+      "inherits": "perf",
+      "binaryDir": "${sourceDir}/build/gpu-timing",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
       }
     },
     {
@@ -52,6 +63,10 @@
       "configurePreset": "perf"
     },
     {
+      "name": "gpu-timing",
+      "configurePreset": "gpu-timing"
+    },
+    {
       "name": "msvc",
       "configurePreset": "msvc",
       "configuration": "Debug"
@@ -61,6 +76,13 @@
     {
       "name": "default",
       "configurePreset": "default",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "gpu-timing",
+      "configurePreset": "gpu-timing",
       "output": {
         "outputOnFailure": true
       }
