@@ -216,10 +216,10 @@ def validate_scenario(document: Any, *, source: Path | None = None) -> dict[str,
             raise BenchmarkError("scenario.camera_path keyframe timing must be strictly increasing")
 
     state = _object(obj["player_state"], "scenario.player_state")
-    _closed(state, {"alive", "spectator", "weapon", "hide_hud", "hide_overlays"}, "scenario.player_state")
+    _closed(state, {"alive", "spectator", "weapon", "attack", "hide_hud", "hide_overlays"}, "scenario.player_state")
     if not any(key in state for key in ("alive", "spectator")):
         raise BenchmarkError("scenario.player_state must define alive or spectator state")
-    if any(key in state and not isinstance(state[key], bool) for key in ("alive", "spectator", "hide_hud", "hide_overlays")):
+    if any(key in state and not isinstance(state[key], bool) for key in ("alive", "spectator", "attack", "hide_hud", "hide_overlays")):
         raise BenchmarkError("scenario.player_state boolean fields must be boolean")
     if "weapon" in state and (not isinstance(state["weapon"], str) or not state["weapon"]):
         raise BenchmarkError("scenario.player_state.weapon must be a non-empty string")

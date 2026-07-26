@@ -86,6 +86,7 @@ add_library(lg_duel_client_app
   src/app/TextInput.cpp
   src/render/BitmapFont.cpp
   src/render/ChatLayout.cpp
+  src/render/CombatEffects.cpp
   src/render/ConsoleLayout.cpp
   src/render/ConsoleCat.cpp
   src/render/GpuTimestampTiming.cpp
@@ -198,6 +199,21 @@ add_executable(lg_duel_server
 target_link_libraries(lg_duel_server PRIVATE lg_duel_core)
 lg_duel_set_warnings(lg_duel_server)
 
+# Textures are tracked at the repository root. Keep the assets/ fallback for
+# checkouts that package all runtime content beneath assets, but never create
+# an empty texture tree: map material paths must resolve to real files.
+set(LG_DUEL_TEXTURES_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/textures")
+if(NOT IS_DIRECTORY "${LG_DUEL_TEXTURES_SOURCE}" AND
+   IS_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures")
+  set(LG_DUEL_TEXTURES_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures")
+endif()
+if(NOT IS_DIRECTORY "${LG_DUEL_TEXTURES_SOURCE}")
+  message(FATAL_ERROR
+    "LG Duel runtime textures are missing. Expected '${CMAKE_CURRENT_SOURCE_DIR}/textures' "
+    "or '${CMAKE_CURRENT_SOURCE_DIR}/assets/textures'. Restore the tracked texture assets; "
+    "do not create an empty textures directory.")
+endif()
+
 add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E remove_directory
     "$<TARGET_FILE_DIR:lg_duel_client>/maps"
@@ -217,7 +233,7 @@ add_custom_target(lg_duel_runtime_assets ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts"
     "$<TARGET_FILE_DIR:lg_duel_client>/assets/fonts"
   COMMAND ${CMAKE_COMMAND} -E copy_directory
-    "${CMAKE_CURRENT_SOURCE_DIR}/textures"
+    "${LG_DUEL_TEXTURES_SOURCE}"
     "$<TARGET_FILE_DIR:lg_duel_client>/textures"
   COMMAND ${CMAKE_COMMAND} -E make_directory
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders"

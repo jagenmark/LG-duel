@@ -1584,6 +1584,7 @@ void collectTextureMaterialFiles(
     device,
     "world3d.frag.spv",
     SDL_GPU_SHADERSTAGE_FRAGMENT,
+    1,
     1
   );
   if (fragmentShader == nullptr) {
@@ -1949,7 +1950,9 @@ void collectTextureMaterialFiles(
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
     fragmentShaderName,
-    SDL_GPU_SHADERSTAGE_FRAGMENT
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    0,
+    additiveBlend ? 1U : 0U
   );
   if (fragmentShader == nullptr) {
     SDL_ReleaseGPUShader(device, vertexShader);
@@ -2159,7 +2162,11 @@ void collectTextureMaterialFiles(
     return nullptr;
   }
   SDL_GPUShader* fragmentShader = loadGpuShader(
-    device, "material_weapon.frag.spv", SDL_GPU_SHADERSTAGE_FRAGMENT, 1
+    device,
+    "material_weapon.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    1,
+    1
   );
   if (fragmentShader == nullptr) {
     SDL_ReleaseGPUShader(device, vertexShader);
@@ -5222,6 +5229,10 @@ void appendCommandBatches(
   diagnostics.explosionDrawCalls = 0;
   diagnostics.legacyWireframeExplosionDraws = 0;
   diagnostics.legacyMachineGunShotgunVisualDraws = 0;
+  diagnostics.activeTemporaryLights = 0;
+  diagnostics.activeCasings = 0;
+  diagnostics.activeImpactParticles = 0;
+  diagnostics.activeBulletDecals = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -5410,6 +5421,14 @@ void appendCommandBatches(
       perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
     diagnostics.legacyMachineGunShotgunVisualDraws =
       perspectiveScene.transientVfxStats.legacyMachineGunShotgunVisualDraws;
+    diagnostics.activeTemporaryLights =
+      perspectiveScene.transientVfxStats.activeTemporaryLights;
+    diagnostics.activeCasings =
+      perspectiveScene.transientVfxStats.activeCasings;
+    diagnostics.activeImpactParticles =
+      perspectiveScene.transientVfxStats.activeImpactParticles;
+    diagnostics.activeBulletDecals =
+      perspectiveScene.transientVfxStats.activeBulletDecals;
     diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
     diagnostics.remoteWeaponModelsBuilt =
       perspectiveScene.remoteWeaponModelsBuilt;
@@ -5728,6 +5747,42 @@ void appendCommandBatches(
       (void)submitCommandBuffer();
       return false;
     }
+      struct alignas(16) CombatLightUniform {
+        float parameters[4] = {};
+        float positionRadius[8][4] = {};
+        float colorIntensity[8][4] = {};
+      };
+      CombatLightUniform combatLightUniform;
+      const std::size_t lightCount =
+        settings.combatEffectsQuality > 0
+          ? std::min<std::size_t>(
+              perspectiveScene.temporaryLights.size(),
+              8U
+            )
+          : 0U;
+      combatLightUniform.parameters[0] = static_cast<float>(lightCount);
+      combatLightUniform.parameters[1] =
+        std::clamp(settings.toneMapExposure, 0.25F, 4.0F);
+      for (std::size_t index = 0; index < lightCount; ++index) {
+        const TemporaryLight& light = perspectiveScene.temporaryLights[index];
+        combatLightUniform.positionRadius[index][0] = light.position.x;
+        combatLightUniform.positionRadius[index][1] = light.position.y;
+        combatLightUniform.positionRadius[index][2] = light.position.z;
+        combatLightUniform.positionRadius[index][3] = light.radius;
+        combatLightUniform.colorIntensity[index][0] = light.color.x;
+        combatLightUniform.colorIntensity[index][1] = light.color.y;
+        combatLightUniform.colorIntensity[index][2] = light.color.z;
+        combatLightUniform.colorIntensity[index][3] = light.intensity;
+      }
+      struct alignas(16) GlowUniform {
+        float parameters[4] = {};
+      };
+      const GlowUniform glowUniform = {{
+        settings.bloomEnabled ? 1.0F : 0.0F,
+        std::clamp(settings.bloomThreshold, 0.5F, 4.0F),
+        std::clamp(settings.bloomIntensity, 0.0F, 1.0F),
+        0.0F,
+      }};
       if (hasStaticWorld || dynamic3DVertexCount > 0 || !perspectiveScene.simpleInstances.empty()) {
         const auto worldDrawStart = RenderClock::now();
         if (hasStaticWorld) {
@@ -5805,6 +5860,12 @@ void appendCommandBatches(
           0,
           &uniform,
           sizeof(uniform)
+        );
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          0,
+          &combatLightUniform,
+          sizeof(combatLightUniform)
         );
         SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
         if (hasStaticWorld) {
@@ -5898,6 +5959,12 @@ void appendCommandBatches(
           gltfPlayerModelPipeline,
           gltfPlayerResources,
           perspectiveScene
+        );
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          0,
+          &glowUniform,
+          sizeof(glowUniform)
         );
         drawSimpleInstanceBatches(
           worldPass,
@@ -6577,6 +6644,12 @@ void appendCommandBatches(
         0,
         &viewModelUniform,
         sizeof(viewModelUniform)
+      );
+      SDL_PushGPUFragmentUniformData(
+        commandBuffer,
+        0,
+        &combatLightUniform,
+        sizeof(combatLightUniform)
       );
       drawStaticMeshBatches(
         viewModelPass,
@@ -8342,6 +8415,10 @@ void Renderer::render(
   lastFrameDiagnostics_.explosionDrawCalls = 0;
   lastFrameDiagnostics_.legacyWireframeExplosionDraws = 0;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
+  lastFrameDiagnostics_.activeTemporaryLights = 0;
+  lastFrameDiagnostics_.activeCasings = 0;
+  lastFrameDiagnostics_.activeImpactParticles = 0;
+  lastFrameDiagnostics_.activeBulletDecals = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
@@ -8489,6 +8566,14 @@ void Renderer::render(
   lastFrameDiagnostics_.legacyWireframeExplosionDraws =
     perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
+  lastFrameDiagnostics_.activeTemporaryLights =
+    perspectiveScene.transientVfxStats.activeTemporaryLights;
+  lastFrameDiagnostics_.activeCasings =
+    perspectiveScene.transientVfxStats.activeCasings;
+  lastFrameDiagnostics_.activeImpactParticles =
+    perspectiveScene.transientVfxStats.activeImpactParticles;
+  lastFrameDiagnostics_.activeBulletDecals =
+    perspectiveScene.transientVfxStats.activeBulletDecals;
   lastFrameDiagnostics_.remoteBodyModelsBuilt =
     perspectiveScene.remoteBodyModelsBuilt;
   lastFrameDiagnostics_.remoteWeaponModelsBuilt =

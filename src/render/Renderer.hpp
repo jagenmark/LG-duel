@@ -247,6 +247,22 @@ struct RenderSettings {
   bool showOwnWeapons = true;
   int weaponPosition = 0;
   bool shotgunWeaponModelStart = false;
+  int combatEffectsQuality = 2;
+  float muzzleLightIntensity = 2.4F;
+  float muzzleLightRadius = 3.2F;
+  float muzzleLightDurationSeconds = 0.045F;
+  bool bloomEnabled = true;
+  float bloomIntensity = 0.18F;
+  float bloomThreshold = 1.15F;
+  float toneMapExposure = 1.0F;
+  bool casingsEnabled = true;
+  float casingCountMultiplier = 1.0F;
+  float casingLifetimeSeconds = 2.4F;
+  std::uint32_t maximumCasings = 48;
+  float particleMultiplier = 1.0F;
+  std::uint32_t maximumImpactParticles = 192;
+  std::uint32_t maximumBulletDecals = 128;
+  float bulletDecalLifetimeSeconds = 24.0F;
   bool drawRemotePlayers = true;
   bool drawRemoteWeapons = true;
   bool drawPlayerOutlines = true;
@@ -416,6 +432,14 @@ enum class TransientEffectType : std::uint8_t {
   PlasmaExplosionHalo,
   GrenadeExplosionFlash,
   GrenadeExplosionCore,
+  MachineGunMuzzleLight,
+  MachineGunMuzzleSmoke,
+  MachineGunMuzzleSpark,
+  MachineGunCasing,
+  BulletImpactFlash,
+  BulletImpactSpark,
+  BulletImpactDust,
+  BulletDecal,
 };
 
 struct TransientEffect {
@@ -427,6 +451,14 @@ struct TransientEffect {
   float finalScale = 1.0F;
   RenderColor color = {};
   std::uint32_t seed = 0;
+  Vec3 velocity = {};
+  Vec3 normal = {};
+  Vec3 direction = {};
+  float rotationRadians = 0.0F;
+  float angularVelocityRadiansPerSecond = 0.0F;
+  float intensity = 0.0F;
+  float radius = 0.0F;
+  std::uint8_t ownerIndex = 0;
 };
 
 struct RendererFrameDiagnostics {
@@ -565,6 +597,10 @@ struct RendererFrameDiagnostics {
   std::uint32_t explosionDrawCalls = 0;
   std::uint32_t legacyWireframeExplosionDraws = 0;
   std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
+  std::uint32_t activeTemporaryLights = 0;
+  std::uint32_t activeCasings = 0;
+  std::uint32_t activeImpactParticles = 0;
+  std::uint32_t activeBulletDecals = 0;
   std::string_view selectedPresentModeName = "n/a";
 };
 

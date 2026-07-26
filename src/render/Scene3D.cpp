@@ -9,6 +9,7 @@
 #include "render/BakedPlasmaGunModel.hpp"
 #include "render/BakedSniperRifleModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
+#include "render/WeaponPresentation.hpp"
 
 #include <algorithm>
 #include <array>
@@ -3124,6 +3125,10 @@ Vec3 machineGunMuzzleSocket() {
   return kMachineGunMuzzleSocket;
 }
 
+Vec3 machineGunCasingEjectSocket() {
+  return kMachineGunCasingEjectSocket;
+}
+
 Vec3 plasmaGunMuzzleSocket() {
   return kPlasmaGunMuzzleSocket;
 }
@@ -3172,6 +3177,21 @@ Vec3 firstPersonMachineGunMuzzlePosition(
   frame = machineGunFiringFrame(frame, settings);
   const Vec3 muzzle = kMachineGunMuzzleSocket * (1.0F / 0.78F);
   return weaponLocalPoint(frame, muzzle.x, muzzle.y, muzzle.z);
+}
+
+Vec3 firstPersonMachineGunCasingEjectPosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    player,
+    settings.weaponPosition,
+    settings.viewModelPresentation
+  );
+  frame.hand -= frame.basis.forward * 0.10F;
+  frame = machineGunFiringFrame(frame, settings);
+  const Vec3 socket = kMachineGunCasingEjectSocket * (1.0F / 0.78F);
+  return weaponLocalPoint(frame, socket.x, socket.y, socket.z);
 }
 
 Vec3 revolverMuzzleSocket() {
@@ -3637,11 +3657,20 @@ void addTransientTracerInstances(
       ++scene.transientVfxStats.tracerFrustumCulled;
       continue;
     }
-    const float fade = std::clamp(
+    float fade = std::clamp(
       1.0F - tracer.ageSeconds / std::max(0.001F, tracer.lifetimeSeconds),
       0.0F,
       1.0F
     );
+    const bool machineGunMuzzleFlash =
+      tracer.style == TracerStyle::MachineGunMuzzleFlash;
+    const MachineGunMuzzleFlashEnvelope machineGunEnvelope =
+      machineGunMuzzleFlash
+        ? machineGunMuzzleFlashEnvelope(tracer.ageSeconds, tracer.seed)
+        : MachineGunMuzzleFlashEnvelope{};
+    if (machineGunMuzzleFlash) {
+      fade = machineGunEnvelope.flameAlpha;
+    }
     RenderColor color = tracer.color;
     color.alpha = static_cast<std::uint8_t>(std::clamp(
       static_cast<float>(color.alpha) * fade,
@@ -3658,7 +3687,17 @@ void addTransientTracerInstances(
       const float styleScale = tracer.style == TracerStyle::RocketLauncherMuzzleFlash
         ? 4.0F
         : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 3.4F : 2.8F);
-      const float flashScale = std::max(0.002F, tracer.width) * styleScale;
+      const float flashScale = std::max(0.002F, tracer.width) * styleScale *
+        (machineGunMuzzleFlash ? machineGunEnvelope.coreScale : 1.0F);
+      RenderColor coreColor = tracer.color;
+      const float coreFade = machineGunMuzzleFlash
+        ? machineGunEnvelope.coreAlpha
+        : fade;
+      coreColor.alpha = static_cast<std::uint8_t>(std::clamp(
+        static_cast<float>(coreColor.alpha) * coreFade,
+        0.0F,
+        255.0F
+      ));
       appendSimpleInstance(
         scene,
         {
@@ -3669,8 +3708,8 @@ void addTransientTracerInstances(
           {flashScale, flashScale, flashScale},
           static_cast<float>(tracer.seed & 15U) * (kTwoPi / 16.0F),
           0.0F,
-          color,
-          fade,
+          coreColor,
+          coreFade,
           {tracer.start, flashScale},
         }
       );
@@ -3734,6 +3773,38 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionFlash:
   case TransientEffectType::PlasmaExplosionHalo:
   case TransientEffectType::GrenadeExplosionFlash:
+  case TransientEffectType::MachineGunMuzzleLight:
+  case TransientEffectType::MachineGunMuzzleSmoke:
+  case TransientEffectType::MachineGunMuzzleSpark:
+  case TransientEffectType::MachineGunCasing:
+  case TransientEffectType::BulletImpactFlash:
+  case TransientEffectType::BulletImpactSpark:
+  case TransientEffectType::BulletImpactDust:
+  case TransientEffectType::BulletDecal:
+    return false;
+  }
+  return false;
+}
+
+[[nodiscard]] bool effectIsExplosion(TransientEffectType type) {
+  switch (type) {
+  case TransientEffectType::RocketExplosionFlash:
+  case TransientEffectType::RocketExplosionCore:
+  case TransientEffectType::RocketExplosionHalo:
+  case TransientEffectType::PlasmaExplosionFlash:
+  case TransientEffectType::PlasmaExplosionCore:
+  case TransientEffectType::PlasmaExplosionHalo:
+  case TransientEffectType::GrenadeExplosionFlash:
+  case TransientEffectType::GrenadeExplosionCore:
+    return true;
+  case TransientEffectType::MachineGunMuzzleLight:
+  case TransientEffectType::MachineGunMuzzleSmoke:
+  case TransientEffectType::MachineGunMuzzleSpark:
+  case TransientEffectType::MachineGunCasing:
+  case TransientEffectType::BulletImpactFlash:
+  case TransientEffectType::BulletImpactSpark:
+  case TransientEffectType::BulletImpactDust:
+  case TransientEffectType::BulletDecal:
     return false;
   }
   return false;
@@ -3752,8 +3823,75 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionCore:
   case TransientEffectType::GrenadeExplosionCore:
     break;
+  case TransientEffectType::MachineGunMuzzleLight:
+  case TransientEffectType::MachineGunMuzzleSmoke:
+  case TransientEffectType::MachineGunMuzzleSpark:
+  case TransientEffectType::MachineGunCasing:
+  case TransientEffectType::BulletImpactFlash:
+  case TransientEffectType::BulletImpactSpark:
+  case TransientEffectType::BulletImpactDust:
+  case TransientEffectType::BulletDecal:
+    break;
   }
   return BillboardHandle::Invalid;
+}
+
+void addCombatParticleBillboard(
+  Scene3D& scene,
+  const TransientEffect& effect,
+  float scale,
+  RenderColor color
+) {
+  constexpr std::size_t kEdgeCount = 8U;
+  RenderColor edgeColor = color;
+  edgeColor.alpha = 0;
+  for (std::size_t index = 0; index < kEdgeCount; ++index) {
+    const float angleA =
+      static_cast<float>(index) * (kTwoPi / static_cast<float>(kEdgeCount));
+    const float angleB =
+      static_cast<float>(index + 1U) *
+      (kTwoPi / static_cast<float>(kEdgeCount));
+    const Vec3 edgeA = effect.position +
+      scene.camera.right * (std::cos(angleA) * scale) +
+      scene.camera.up * (std::sin(angleA) * scale);
+    const Vec3 edgeB = effect.position +
+      scene.camera.right * (std::cos(angleB) * scale) +
+      scene.camera.up * (std::sin(angleB) * scale);
+    scene.translucentVertices.push_back({effect.position, color});
+    scene.translucentVertices.push_back({edgeA, edgeColor});
+    scene.translucentVertices.push_back({edgeB, edgeColor});
+  }
+}
+
+void addBulletDecalGeometry(
+  Scene3D& scene,
+  const TransientEffect& effect,
+  float scale,
+  RenderColor color
+) {
+  const Vec3 normal = normalize(effect.normal);
+  Vec3 tangent = normalize(effect.direction);
+  if (length(tangent) <= 0.0001F) {
+    tangent = normalize(cross(normal, Vec3{0.0F, 0.0F, 1.0F}));
+  }
+  if (length(tangent) <= 0.0001F) {
+    tangent = {1.0F, 0.0F, 0.0F};
+  }
+  Vec3 bitangent = normalize(cross(normal, tangent));
+  const float cosine = std::cos(effect.rotationRadians);
+  const float sine = std::sin(effect.rotationRadians);
+  const Vec3 rotatedTangent = tangent * cosine + bitangent * sine;
+  bitangent = tangent * -sine + bitangent * cosine;
+  const Vec3 extentA = rotatedTangent * scale;
+  const Vec3 extentB = bitangent * (scale * 0.78F);
+  addQuad(
+    scene,
+    effect.position - extentA - extentB,
+    effect.position + extentA - extentB,
+    effect.position + extentA + extentB,
+    effect.position - extentA + extentB,
+    color
+  );
 }
 
 void addTransientEffectInstances(
@@ -3762,10 +3900,41 @@ void addTransientEffectInstances(
   const RenderSettings& settings
 ) {
   scene.transientVfxStats.activeEffects += static_cast<std::uint32_t>(effects.size());
-  scene.transientVfxStats.activeExplosionEffects =
-    static_cast<std::uint32_t>(effects.size());
   for (const TransientEffect& effect : effects) {
-    ++scene.transientVfxStats.explosionCandidates;
+    if (effect.type == TransientEffectType::MachineGunMuzzleLight) {
+      const float remaining = 1.0F - effectNormalizedAge(effect);
+      // A low tail bridges closely spaced automatic shots. The sharp term
+      // keeps the first-shot light response distinct instead of flat.
+      const float fade = std::clamp(
+        0.40F * std::pow(remaining, 1.10F) +
+          0.60F * std::pow(remaining, 2.0F),
+        0.0F,
+        1.0F
+      );
+      if (
+        settings.combatEffectsQuality > 0 &&
+        effect.radius > 0.0F &&
+        effect.intensity > 0.0F &&
+        fade > 0.0F
+      ) {
+        scene.temporaryLights.push_back({
+          effect.position,
+          {
+            static_cast<float>(effect.color.red) / 255.0F,
+            static_cast<float>(effect.color.green) / 255.0F,
+            static_cast<float>(effect.color.blue) / 255.0F,
+          },
+          effect.intensity * fade,
+          effect.radius,
+        });
+        ++scene.transientVfxStats.activeTemporaryLights;
+      }
+      continue;
+    }
+    const bool explosion = effectIsExplosion(effect.type);
+    if (explosion) {
+      ++scene.transientVfxStats.explosionCandidates;
+    }
     if (
       !std::isfinite(effect.position.x) ||
       !std::isfinite(effect.position.y) ||
@@ -3789,7 +3958,9 @@ void addTransientEffectInstances(
       settings.frustumCullRemotePlayers &&
       !sphereIntersectsPerspectiveFrustum(scene.camera, effect.position, scale)
     ) {
-      ++scene.transientVfxStats.explosionFrustumCulled;
+      if (explosion) {
+        ++scene.transientVfxStats.explosionFrustumCulled;
+      }
       continue;
     }
     RenderColor color = effect.color;
@@ -3798,6 +3969,88 @@ void addTransientEffectInstances(
       0.0F,
       255.0F
     ));
+    if (effect.type == TransientEffectType::MachineGunCasing) {
+      ++scene.transientVfxStats.activeCasings;
+      Vec3 forward = normalize(effect.velocity);
+      if (length(forward) <= 0.0001F) {
+        forward = {1.0F, 0.0F, 0.0F};
+      }
+      Vec3 right = normalize(cross(forward, Vec3{0.0F, 0.0F, 1.0F}));
+      if (length(right) <= 0.0001F) {
+        right = {0.0F, 1.0F, 0.0F};
+      }
+      Vec3 up = normalize(cross(right, forward));
+      const float cosine = std::cos(effect.rotationRadians);
+      const float sine = std::sin(effect.rotationRadians);
+      const Vec3 rotatedRight = right * cosine + up * sine;
+      up = right * -sine + up * cosine;
+      addOrientedBox(
+        scene,
+        effect.position,
+        {scale, scale * 0.28F, scale * 0.22F},
+        forward,
+        rotatedRight,
+        up,
+        color
+      );
+      continue;
+    }
+    if (effect.type == TransientEffectType::BulletDecal) {
+      ++scene.transientVfxStats.activeBulletDecals;
+      // Decals retain most of their opacity, then cleanly fade near expiry.
+      const float endFade = std::clamp((1.0F - t) * 8.0F, 0.0F, 1.0F);
+      color.alpha = static_cast<std::uint8_t>(
+        static_cast<float>(effect.color.alpha) * endFade
+      );
+      addBulletDecalGeometry(scene, effect, scale, color);
+      continue;
+    }
+    if (
+      effect.type == TransientEffectType::MachineGunMuzzleSpark ||
+      effect.type == TransientEffectType::BulletImpactSpark
+    ) {
+      ++scene.transientVfxStats.activeImpactParticles;
+      Vec3 direction = normalize(effect.velocity);
+      if (length(direction) <= 0.0001F) {
+        direction = {0.0F, 0.0F, 1.0F};
+      }
+      addSegment(
+        scene,
+        effect.position,
+        effect.position - direction * std::max(0.025F, scale * 3.2F),
+        std::max(0.002F, scale * 0.20F),
+        color
+      );
+      continue;
+    }
+    if (
+      effect.type == TransientEffectType::MachineGunMuzzleSmoke ||
+      effect.type == TransientEffectType::BulletImpactDust
+    ) {
+      ++scene.transientVfxStats.activeImpactParticles;
+      addCombatParticleBillboard(scene, effect, scale, color);
+      continue;
+    }
+    if (effect.type == TransientEffectType::BulletImpactFlash) {
+      ++scene.transientVfxStats.activeImpactParticles;
+      appendSimpleInstance(
+        scene,
+        {
+          MeshHandle::Invalid,
+          BillboardHandle::ExplosionFlash,
+          RenderPass::AdditiveGlow,
+          effect.position,
+          {scale, scale, scale},
+          effect.rotationRadians,
+          0.0F,
+          color,
+          t,
+          {effect.position, scale},
+        }
+      );
+      continue;
+    }
+    ++scene.transientVfxStats.activeExplosionEffects;
     const bool coreMesh = effectUsesCoreMesh(effect.type);
     appendSimpleInstance(
       scene,

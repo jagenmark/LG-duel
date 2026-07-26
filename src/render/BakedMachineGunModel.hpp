@@ -2745,5 +2745,6 @@ inline constexpr std::array<BakedWeaponMaterialTriangle, 1412> kMachineGunBarrel
 
 inline constexpr Vec3 kMachineGunBarrelPivot = {0.5301393F, 0.0608357F, 0.0443231F};
 inline constexpr Vec3 kMachineGunMuzzleSocket = {0.7908635F, 0.0608357F, 0.0443231F};
+inline constexpr Vec3 kMachineGunCasingEjectSocket = {0.2954875F, 0.1086351F, 0.1095042F};
 
 } // namespace lg

@@ -109,9 +109,30 @@ namespace {
     "r_player_outline_debug_mask", "r_enemy_outline_width",
     "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
     "r_frustum_cull", "r_world_frustum_cull", "r_player_model",
+    "r_combat_effects",
     "s_enable", "vid_fullscreen", "vid_width", "vid_height", "r_vsync", "r_present_mode"
   };
   return allowed.contains(name);
+}
+
+[[nodiscard]] std::optional<Weapon> parseScenarioWeapon(
+  std::string_view token
+) {
+  if (const std::optional<Weapon> weapon = parseWeaponToken(token)) {
+    return weapon;
+  }
+  std::string compact(token);
+  compact.erase(
+    std::remove_if(
+      compact.begin(),
+      compact.end(),
+      [](char value) {
+        return value == '_' || value == '-' || value == ' ';
+      }
+    ),
+    compact.end()
+  );
+  return parseWeaponToken(compact);
 }
 
 [[nodiscard]] double nearestRank(const std::vector<double>& sorted, double fraction) {
@@ -200,7 +221,7 @@ ParseResult parseScenario(const dev::JsonValue& root) {
     if (actors->type != dev::JsonValue::Type::Object) return {{}, false, "actors must be an object"};
     if (const dev::JsonValue* bots = actors->find("bots"); bots && !integer(bots, scenario.actors.bots, 0, 64)) return {{}, false, "actors.bots must be in [0,64]"};
     const std::string weaponToken = dev::stringMember(*actors, "weapon").value_or("mg");
-    const std::optional<Weapon> weapon = parseWeaponToken(weaponToken);
+    const std::optional<Weapon> weapon = parseScenarioWeapon(weaponToken);
     if (!weapon.has_value()) return {{}, false, "actors.weapon is unsupported"};
     scenario.actors.weapon = *weapon;
     scenario.actors.attackMode = dev::stringMember(*actors, "attack_mode").value_or("off");
@@ -223,6 +244,15 @@ ParseResult parseScenario(const dev::JsonValue& root) {
       playerState != nullptr && playerState->type == dev::JsonValue::Type::Object) {
     scenario.hideHud = dev::boolMember(*playerState, "hide_hud").value_or(false);
     scenario.hideOverlays = dev::boolMember(*playerState, "hide_overlays").value_or(false);
+    const std::string weaponToken =
+      dev::stringMember(*playerState, "weapon").value_or("lg");
+    const std::optional<Weapon> weapon = parseScenarioWeapon(weaponToken);
+    if (!weapon.has_value()) {
+      return {{}, false, "player_state.weapon is unsupported"};
+    }
+    scenario.playerWeapon = *weapon;
+    scenario.playerAttack =
+      dev::boolMember(*playerState, "attack").value_or(false);
   }
   if (const dev::JsonValue* effects = root.find("effects");
       effects != nullptr && effects->type == dev::JsonValue::Type::Object) {

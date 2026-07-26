@@ -69,6 +69,8 @@ struct Scenario {
   std::vector<Screenshot> screenshots;
   bool hideHud = false;
   bool hideOverlays = false;
+  Weapon playerWeapon = Weapon::LightningGun;
+  bool playerAttack = false;
   bool unsupportedEffectFixture = false;
 };
 

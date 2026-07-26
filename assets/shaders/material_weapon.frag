@@ -4,8 +4,14 @@ layout(location = 0) in vec3 worldNormal;
 layout(location = 1) in vec3 viewDirection;
 layout(location = 2) in vec4 baseColor;
 layout(location = 3) in vec2 material;
+layout(location = 4) in vec3 worldPosition;
 layout(location = 0) out vec4 outColor;
 layout(set = 2, binding = 0) uniform samplerCube weaponEnvironment;
+layout(set = 3, binding = 0, std140) uniform CombatLightData {
+  vec4 parameters;
+  vec4 positionRadius[8];
+  vec4 colorIntensity[8];
+} combatLights;
 
 const float PI = 3.14159265359;
 
@@ -57,7 +63,22 @@ void main() {
   vec3 ambientDiffuse = albedo * (1.0 - metallic) * 0.30;
   vec3 color = ambientDiffuse + (diffuse + specular) * nDotL * 4.0 +
     environmentSpecular;
-  color = filmicToneMap(color * 1.8);
+  int lightCount = clamp(int(combatLights.parameters.x + 0.5), 0, 8);
+  for (int index = 0; index < lightCount; ++index) {
+    vec3 offset = combatLights.positionRadius[index].xyz - worldPosition;
+    float radius = max(combatLights.positionRadius[index].w, 0.001);
+    float lightDistance = length(offset);
+    vec3 lightDirection = offset / max(lightDistance, 0.001);
+    float attenuation = clamp(1.0 - lightDistance / radius, 0.0, 1.0);
+    attenuation *= attenuation;
+    float localNDotL = max(dot(n, lightDirection), 0.0);
+    color += albedo * combatLights.colorIntensity[index].rgb *
+      combatLights.colorIntensity[index].w * attenuation *
+      (0.18 + localNDotL * 0.82);
+  }
+  color = filmicToneMap(
+    color * 1.8 * max(combatLights.parameters.y, 0.01)
+  );
   color = pow(color, vec3(1.0 / 2.2));
   outColor = vec4(color, baseColor.a);
 }

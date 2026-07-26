@@ -116,6 +116,19 @@ int main() {
     valid.ok && valid.scenario.actors.weapon == lg::Weapon::RocketLauncher,
     "benchmark bot weapon should parse through the shared weapon catalog"
   );
+  const lg::benchmark::ParseResult firingPlayer = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"firing-player","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "player_state":{"alive":true,"weapon":"machine_gun","attack":true}
+  })");
+  failures += expect(
+    firingPlayer.ok &&
+      firingPlayer.scenario.playerWeapon == lg::Weapon::MachineGun &&
+      firingPlayer.scenario.playerAttack,
+    "benchmark player weapon and held attack should parse"
+  );
   const lg::benchmark::ParseResult unsupportedFixture = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
     "name":"effects","map":"eyetoeye","resolution":[1280,720],

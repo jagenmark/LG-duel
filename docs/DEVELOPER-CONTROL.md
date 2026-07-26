@@ -236,6 +236,19 @@ or other fallback client. Explicit fallback requires `allow_fallback: true`.
 - **MCP tools fail:** visual tools supervise or verify the local client through
   the shared launcher. Structured errors distinguish launch, attachment,
   renderer attestation, and control-operation failures.
+- **MCP state change waits until the host timeout:** this has reproduced on the
+  Windows validation host with `lg_load_map`, `lg_send_input`,
+  `lg_exec_console`, and `lg_stop`. The adapter call waited for its 300-second
+  host limit while the verified client still answered through the direct
+  scripts. The smallest known trigger is one wrapper state-change request
+  against an otherwise healthy verified client. Retry the state change through
+  the bounded path, for example
+  `python scripts/lg_control.py --timeout 5 --json load-map scenario_wall` or
+  `python scripts/lg_control.py --timeout 5 --json send-input --ticks 1
+  --attack`. Use `python scripts/lg_launch.py --json stop` as the stop fallback.
+  Keep using the same verified client, renderer, map, and capture checks; this
+  is a control-workflow fallback, not permission to weaken visual evidence or
+  renderer attestation.
 
 Known limitations: requests are serial; output is PNG only; MCP uses control
 port 27961; and `eyetoeye/standard` is the only curated preset. Player input

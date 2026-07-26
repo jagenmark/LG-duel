@@ -71,6 +71,9 @@ def main() -> None:
     muzzle = legacy_game_point(
         bpy.data.objects["MG_MUZZLE_SOCKET"].matrix_world.translation
     )
+    casing_eject = legacy_game_point(
+        bpy.data.objects["MG_CASING_EJECT_SOCKET"].matrix_world.translation
+    )
     text = OUTPUT.read_text(encoding="utf-8")
     pivot_declaration = (
         "inline constexpr Vec3 kMachineGunBarrelPivot = {" +
@@ -78,6 +81,9 @@ def main() -> None:
         "};\n"
         "inline constexpr Vec3 kMachineGunMuzzleSocket = {" +
         ", ".join(f"{component:.7f}F" for component in muzzle) +
+        "};\n"
+        "inline constexpr Vec3 kMachineGunCasingEjectSocket = {" +
+        ", ".join(f"{component:.7f}F" for component in casing_eject) +
         "};\n\n"
     )
     OUTPUT.write_text(

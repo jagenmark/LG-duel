@@ -293,6 +293,32 @@ int main() {
     "first-person weapon position should support center, right, and left presets"
   );
   failures += expect(
+    console.execute("r_combat_effects") ==
+        "r_combat_effects = 2 (default 2)" &&
+      console.execute("r_combat_effects 3") ==
+        "value out of range for r_combat_effects" &&
+      console.execute("r_muzzle_light_duration") ==
+        "r_muzzle_light_duration = 0.13 (default 0.13)" &&
+      console.execute("r_bloom_threshold") ==
+        "r_bloom_threshold = 1.15 (default 1.15)" &&
+      console.execute("r_casing_max 97") ==
+        "value out of range for r_casing_max" &&
+      console.execute("r_decals_max") ==
+        "r_decals_max = 128 (default 128)" &&
+      console.execute("r_decal_lifetime") ==
+        "r_decal_lifetime = 24 (default 24)",
+    "combat effect cvars should expose bounded restrained defaults"
+  );
+  failures += expect(
+    console.execute("r_mg_barrel_max_rps") ==
+        "r_mg_barrel_max_rps = 14 (default 14)" &&
+      console.execute("r_mg_barrel_spin_up") ==
+        "r_mg_barrel_spin_up = 0.25 (default 0.25)" &&
+      console.execute("r_mg_barrel_spin_down") ==
+        "r_mg_barrel_spin_down = 0.55 (default 0.55)",
+    "authored machine-gun barrel playback tuning should keep current defaults"
+  );
+  failures += expect(
     console.execute("r_player_model") ==
       "r_player_model = 1 (default 1)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&

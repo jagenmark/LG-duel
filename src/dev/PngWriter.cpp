@@ -17,23 +17,41 @@ void appendBigEndian(std::vector<std::uint8_t>& bytes, std::uint32_t value) {
 }
 
 [[nodiscard]] std::uint32_t crc32(std::span<const std::uint8_t> bytes) {
+  constexpr auto table = [] {
+    std::array<std::uint32_t, 256> values{};
+    for (std::uint32_t value = 0; value < values.size(); ++value) {
+      std::uint32_t crc = value;
+      for (int bit = 0; bit < 8; ++bit) {
+        crc = (crc >> 1U) ^ ((crc & 1U) != 0U ? 0xEDB88320U : 0U);
+      }
+      values[value] = crc;
+    }
+    return values;
+  }();
   std::uint32_t crc = 0xFFFFFFFFU;
   for (const std::uint8_t byte : bytes) {
-    crc ^= byte;
-    for (int bit = 0; bit < 8; ++bit) {
-      crc = (crc >> 1U) ^ ((crc & 1U) != 0U ? 0xEDB88320U : 0U);
-    }
+    crc = table[(crc ^ byte) & 0xFFU] ^ (crc >> 8U);
   }
   return crc ^ 0xFFFFFFFFU;
 }
 
 [[nodiscard]] std::uint32_t adler32(std::span<const std::uint8_t> bytes) {
   constexpr std::uint32_t modulus = 65521U;
+  // Delaying the division over bounded chunks keeps both sums in range and
+  // avoids two costly remainder operations for every captured pixel byte.
+  constexpr std::size_t maximumChunkBytes = 5552U;
   std::uint32_t a = 1U;
   std::uint32_t b = 0U;
-  for (const std::uint8_t byte : bytes) {
-    a = (a + byte) % modulus;
-    b = (b + a) % modulus;
+  std::size_t offset = 0;
+  while (offset < bytes.size()) {
+    const std::size_t end =
+      std::min(bytes.size(), offset + maximumChunkBytes);
+    for (; offset < end; ++offset) {
+      a += bytes[offset];
+      b += a;
+    }
+    a %= modulus;
+    b %= modulus;
   }
   return (b << 16U) | a;
 }

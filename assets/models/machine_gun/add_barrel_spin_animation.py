@@ -27,6 +27,8 @@ ROTATING_PARTS = (
     "central_dark_rotation_axis",
 )
 
+CASING_SOCKET_NAME = "MG_CASING_EJECT_SOCKET"
+
 
 def reparent_preserving_world(obj, parent):
     world = obj.matrix_world.copy()
@@ -72,6 +74,19 @@ def add_reference_animation(axis):
     scene.frame_set(1)
 
 
+def ensure_attachment_points(root):
+    """Keep effect origins in the asset rather than in camera-space code."""
+    casing_socket = bpy.data.objects.get(CASING_SOCKET_NAME)
+    if casing_socket is None:
+        casing_socket = bpy.data.objects.new(CASING_SOCKET_NAME, None)
+        bpy.context.scene.collection.objects.link(casing_socket)
+    casing_socket.empty_display_type = "ARROWS"
+    casing_socket.empty_display_size = 0.045
+    casing_socket.parent = root
+    # Right and above the receiver in the authored +X-forward weapon basis.
+    casing_socket.location = (0.22, -0.075, 0.16)
+
+
 def export_game_asset(root):
     bpy.ops.object.select_all(action="DESELECT")
     selected = []
@@ -103,6 +118,7 @@ def main():
     for name in ROTATING_PARTS:
         reparent_preserving_world(bpy.data.objects[name], axis)
     add_reference_animation(axis)
+    ensure_attachment_points(root)
 
     bpy.ops.wm.save_as_mainfile(filepath=str(BLEND_PATH))
     export_game_asset(root)

@@ -22,7 +22,23 @@ import lg_launch
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_OUTPUT_ROOT = REPO_ROOT / "build" / "scenario-results"
 DEFAULT_BUILD_DIR = REPO_ROOT / "build" / "default"
-MAX_SCHEDULE_LATE_TICKS = 32
+BASE_SCHEDULE_LATE_TICKS = 32
+MAX_CAPTURE_RECOVERY_TICKS = 93
+# Direct state checks run on the client frame loop. Bound their total delay to
+# one server second so slow capture recovery can pass while a hang still fails.
+# Captures block the client while the server keeps its fixed clock running.
+# Reserve enough server life for that known tool cost; the runner removes the
+# measured capture span from later logical schedule checks.
+CAPTURE_RUNTIME_PADDING_TICKS = 125
+
+
+def _schedule_late_limit(capture_pause_ticks: int) -> int:
+    """Allow extra dispatch time only after a measured capture pause."""
+    measured_pause = max(0, int(capture_pause_ticks))
+    return BASE_SCHEDULE_LATE_TICKS + min(
+        measured_pause,
+        MAX_CAPTURE_RECOVERY_TICKS,
+    )
 
 
 class LiveScenarioError(RuntimeError):
@@ -238,6 +254,11 @@ def _sequence(response: dict[str, Any]) -> int | None:
 
 def _input_parts(entry: dict[str, Any]) -> list[dict[str, Any]]:
     source = dict(entry.get("input", {}))
+    weapon = source.get("weapon")
+    if isinstance(weapon, str):
+        # Scenario JSON uses canonical names such as machine_gun while the
+        # bounded client control protocol accepts its gameplay console tokens.
+        source["weapon"] = weapon.replace("_", "")
     duration = int(entry["duration_ticks"])
     edges = [str(value) for value in entry.get("one_tick_edges", [])]
     for edge in edges:
@@ -249,8 +270,8 @@ def _capture(capture: dict[str, Any], session: dict[str, Any], timeout: float, s
     frames = int(capture.get("wait_rendered_frames", 0))
     if frames:
         _request("wait_frames", session, timeout, frames=frames)
-    client_state = _request("get_client_state", session, timeout)
     result = _request("capture_screenshot", session, timeout, name=str(capture["name"]), hide_hud=True, hide_overlays=True)
+    client_state = _request("get_client_state", session, timeout)
     source = Path(str(result.get("path", "")))
     if not source.is_file():
         raise LiveScenarioStageError(
@@ -270,12 +291,15 @@ def _capture(capture: dict[str, Any], session: dict[str, Any], timeout: float, s
             "name": capture["name"],
             "result": result,
             "render_state": {
+                "telemetry_timing": "after_screenshot",
                 "client_tick": client_state.get("client_tick"),
                 "latest_server_tick": client_state.get("latest_server_tick"),
                 "latest_snapshot_tick": client_state.get(
                     "latest_snapshot_tick"
                 ),
                 "presentation_tick": client_state.get("presentation_tick"),
+                "combat_effects": client_state.get("combat_effects"),
+                "render_frame": client_state.get("render_frame"),
             },
         }
     )
@@ -432,7 +456,18 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
         _copy(scenario_path, scenario_dir / "scenario.json")
         scenario = validate_live_scenario(scenario_path, build, timeout)
         _json(scenario_dir / "scenario.json", scenario)
-        canonical_scenario_path = scenario_dir / "scenario.json"
+        runtime_scenario = json.loads(json.dumps(scenario))
+        capture_count = sum(
+            1
+            for capture in scenario.get("captures", [])
+            if isinstance(capture, dict)
+        )
+        if capture_count:
+            runtime_scenario["execution"]["max_ticks"] += (
+                capture_count * CAPTURE_RUNTIME_PADDING_TICKS
+            )
+        runtime_scenario_path = scenario_dir / "runtime-scenario.json"
+        _json(runtime_scenario_path, runtime_scenario)
         # Probe with the protocol each process will bind. A free TCP port can
         # still be occupied by UDP, and vice versa.
         server_port = _free_port(socket.SOCK_DGRAM)
@@ -441,7 +476,7 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
             control_port = _free_port(socket.SOCK_STREAM)
         stage = "launch"
         session = lg_launch.launch_scenario_session(
-            canonical_scenario_path, run_dir, run_token, server_port, control_port, renderer,
+            runtime_scenario_path, run_dir, run_token, server_port, control_port, renderer,
             allow_fallback, timeout, build,
         )
         ready_path = run_dir / "ready.json"
@@ -479,6 +514,7 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
             {"server_relative_tick": 0, "state": initial_client}
         )
         captured: set[str] = set()
+        capture_pause_ticks = 0
         tick_captures = sorted(
             (
                 capture
@@ -489,7 +525,7 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
         )
 
         def capture_through(relative_tick: int) -> None:
-            nonlocal stage
+            nonlocal capture_pause_ticks, stage
             for capture in tick_captures:
                 if (
                     capture["name"] in captured
@@ -499,7 +535,7 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                 requested_tick = int(capture["at_server_tick"])
                 capture_checkpoint = _checkpoint(
                     run_dir,
-                    requested_tick,
+                    requested_tick + capture_pause_ticks,
                     time.monotonic() + timeout,
                 )
                 absolute_tick = capture_checkpoint.get("absolute_server_tick")
@@ -518,8 +554,19 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                 )
                 stage = "capture"
                 _capture(capture, session, timeout, screenshots)
+                capture_finished = _latest_checkpoint(run_dir)
+                finished_tick = capture_finished.get("relative_tick")
+                started_tick = capture_checkpoint.get("relative_tick")
+                captured_pause = (
+                    max(0, finished_tick - started_tick)
+                    if isinstance(finished_tick, int) and isinstance(started_tick, int)
+                    else 0
+                )
+                capture_pause_ticks += captured_pause
                 screenshots[-1]["trigger"] = {
                     "requested_server_relative_tick": requested_tick,
+                    "runtime_capture_pause_ticks": captured_pause,
+                    "runtime_total_capture_pause_ticks": capture_pause_ticks,
                     "trigger_checkpoint_relative_tick": capture_checkpoint.get(
                         "relative_tick"
                     ),
@@ -537,9 +584,10 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
             capture_through(target)
             for part in _input_parts(entry):
                 stage = "schedule"
+                runtime_target = target + capture_pause_ticks
                 checkpoint = _checkpoint(
                     run_dir,
-                    target,
+                    runtime_target,
                     time.monotonic() + timeout,
                 )
                 absolute_server_tick = checkpoint.get("absolute_server_tick")
@@ -549,10 +597,10 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                         "checkpoint has no absolute_server_tick",
                     )
                 _request(
-                    "wait_client_tick",
-                    session,
-                    timeout,
-                    min_tick=client_tick_base + target,
+                  "wait_client_tick",
+                  session,
+                  timeout,
+                  min_tick=client_tick_base + runtime_target,
                 )
                 _request(
                     "wait_snapshot_tick",
@@ -571,17 +619,20 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                         "server_checkpoint",
                         "dispatch checkpoint has no relative_tick",
                     )
-                schedule_late_ticks = max(0, dispatch_tick - target)
-                if schedule_late_ticks > MAX_SCHEDULE_LATE_TICKS:
+                schedule_late_ticks = max(0, dispatch_tick - runtime_target)
+                schedule_late_limit = _schedule_late_limit(capture_pause_ticks)
+                if schedule_late_ticks > schedule_late_limit:
                     raise LiveScenarioStageError(
                         "schedule",
                         f"timeline[{index}] started {schedule_late_ticks} ticks late; "
-                        f"limit is {MAX_SCHEDULE_LATE_TICKS}",
+                        f"limit is {schedule_late_limit}",
                     )
                 response = _request("send_input", session, timeout, **part)
                 sequence = _sequence(response)
                 record = {"timeline_index": index, "input": part, "sequence": sequence,
                           "scheduled_server_tick": target,
+                          "scheduled_runtime_server_tick": runtime_target,
+                          "capture_pause_ticks_before_dispatch": capture_pause_ticks,
                           "dispatch_server_tick": dispatch_tick,
                           "schedule_late_ticks": schedule_late_ticks,
                           "response": response}
@@ -607,7 +658,11 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                     }
                 )
                 acknowledgements.append(record)
-            checkpoint = _checkpoint(run_dir, end_tick, time.monotonic() + timeout)
+            checkpoint = _checkpoint(
+                run_dir,
+                end_tick + capture_pause_ticks,
+                time.monotonic() + timeout,
+            )
             relative_tick = checkpoint.get("relative_tick")
             for record in acknowledgements:
                 if record["timeline_index"] == index:
@@ -621,9 +676,21 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                 ]
                 if wanted and capture["name"] not in captured and matching_events:
                     stage = "capture"
+                    capture_started = _latest_checkpoint(run_dir)
                     _capture(capture, session, timeout, screenshots)
+                    capture_finished = _latest_checkpoint(run_dir)
+                    started_tick = capture_started.get("relative_tick")
+                    finished_tick = capture_finished.get("relative_tick")
+                    captured_pause = (
+                        max(0, finished_tick - started_tick)
+                        if isinstance(finished_tick, int) and isinstance(started_tick, int)
+                        else 0
+                    )
+                    capture_pause_ticks += captured_pause
                     screenshots[-1]["trigger"] = {
                         "after_event": wanted,
+                        "runtime_capture_pause_ticks": captured_pause,
+                        "runtime_total_capture_pause_ticks": capture_pause_ticks,
                         "trigger_checkpoint_relative_tick": checkpoint.get(
                             "relative_tick"
                         ),

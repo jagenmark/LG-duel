@@ -303,6 +303,25 @@ the Revolver.
 | `r_texture_anisotropy` | int | `8` | `1..16`, renderer snappar till `1/2/4/8/16` | Q3/driver aniso settings närmast | World/material anisotropic filtering level. Unsupported anisotropy disables safely with a renderer log. |
 | `r_texture_lod_bias` | float | `0.5` | `-2..4` | Q3/driver LOD-bias närmast | World/material mip LOD bias. Positive values choose blurrier, more stable mip levels; changes recreate the sampler without reloading textures. |
 | `r_weapon_pos` | int | `0` | `0..2` | None directly | First-person weapon position: `0` center, `1` wide right, `2` wide left. This changes only local presentation and visual muzzle origins. |
+| `r_combat_effects` | int | `2` | `0..2` | None | Master combat-effect quality. `0` clears and skips the new machine-gun effects, `1` uses the reduced set, and `2` enables the full restrained set. This never changes gameplay results. |
+| `r_muzzle_light_intensity` | float | `2.4` | `0..12` | None | Presentation-only warm muzzle-light strength. |
+| `r_muzzle_light_radius` | float | `3.2` | `0..16` world units | None | Radius of each short machine-gun muzzle light. |
+| `r_muzzle_light_duration` | float | `0.13` | `0..0.25` seconds | None | Lifetime of each muzzle light. Its shaped tail bridges close machine-gun shots while the fixed pool prevents sustained-fire growth. |
+| `r_tonemap_exposure` | float | `1` | `0.25..4` | None | Fixed exposure used by the filmic world and weapon tone map. There is no automatic exposure. |
+| `r_bloom` | bool | `1` | bool | None | Enables the compact bloom response on bright effect sprites. It does not process HUD pixels. |
+| `r_bloom_intensity` | float | `0.18` | `0..1` | None | Strength of the compact bright-effect bloom response. |
+| `r_bloom_threshold` | float | `1.15` | `0.5..4` | None | Brightness threshold for compact effect bloom. Ordinary scene surfaces do not enter this path. |
+| `r_casings` | bool | `1` | bool | None | Enables local, presentation-only cartridge casings. |
+| `r_casing_count` | float | `1` | `0..1` | None | Seeded per-shot casing spawn ratio. `0` disables spawning; `1` attempts one casing for each machine-gun shot. |
+| `r_casing_lifetime` | float | `2.4` | `0.05..10` seconds | None | Visual casing lifetime. |
+| `r_casing_max` | int | `48` | `0..96` | None | Maximum active casings. The oldest active casing is reused when this limit is full. |
+| `r_impact_particles` | float | `1` | `0..2` | None | Impact-particle count multiplier. |
+| `r_impact_particle_max` | int | `192` | `0..384` | None | Shared cap for active machine-gun muzzle and impact particles. |
+| `r_decals_max` | int | `128` | `0..256` | None | Maximum active bullet decals. The oldest decal is reused when full. |
+| `r_decal_lifetime` | float | `24` | `0.05..120` seconds | None | Bullet-decal lifetime. Map/session reset clears all decals sooner. |
+| `r_mg_barrel_max_rps` | float | `14` | `0..40` revolutions/second | None | Maximum playback rate for the existing authored machine-gun barrel motion. It does not add a second spin system. |
+| `r_mg_barrel_spin_up` | float | `0.25` | `0..2` seconds | None | Time for the existing authored barrel playback to reach its maximum rate. Gameplay firing does not wait for it. |
+| `r_mg_barrel_spin_down` | float | `0.55` | `0..3` seconds | None | Time for the existing authored barrel playback to stop after firing input stops. |
 | `r_perf` | bool | `0` | bool | Ingen direkt | Visa renderer-diagnostik pa HUD. |
 | `r_perf_detail` | bool | `0` | bool | Ingen direkt | Visa detaljerad renderer-diagnostik for remote frustum-culling och geometri. |
 | `r_beam_width` | float | `2` | `1..12` | Ingen direkt stabil cvar | Local LG beam width in first-person world units. |

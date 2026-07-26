@@ -22,6 +22,7 @@
 #include "net/NetCodec.hpp"
 #include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
+#include "render/CombatEffects.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
@@ -557,6 +558,31 @@ struct WeaponPresentationFrame {
   );
 }
 
+[[nodiscard]] Vec3 machineGunCasingSource(
+  Vec3 fallback,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+) {
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return settings.showOwnWeapons
+      ? firstPersonMachineGunCasingEjectPosition(localPlayer, settings)
+      : hiddenWeaponVisualOrigin(localPlayer);
+  }
+  const Vec3 socket = machineGunCasingEjectSocket();
+  return remoteWeaponPresentationPoint(
+    fallback,
+    remotePlayers,
+    playerIndex,
+    Weapon::MachineGun,
+    settings,
+    socket.x,
+    socket.y,
+    socket.z
+  );
+}
+
 [[nodiscard]] Vec3 shotgunTracerSource(
   const WeaponFireResult& fire,
   const PlayerState& localPlayer,
@@ -607,7 +633,8 @@ struct ConsumedExplosionEvent {
 struct TransientTracerStore {
   std::array<TransientTracer, kMaxTransientTracers> tracers = {};
   std::array<bool, kMaxTransientTracers> active = {};
-  std::array<bool, kMaxTransientTracers> followLocalMuzzle = {};
+  std::array<bool, kMaxTransientTracers> followMuzzle = {};
+  std::array<std::uint8_t, kMaxTransientTracers> followPlayerIndex = {};
   std::array<Weapon, kMaxTransientTracers> followWeapon = {};
   std::array<std::uint32_t, kMaxTransientTracers> followSeed = {};
   std::array<TransientEffect, kMaxTransientEffects> effects = {};
@@ -715,9 +742,10 @@ struct TransientTracerStore {
 
   void add(
     const TransientTracer& tracer,
-    bool followMuzzle = false,
-    Weapon weapon = Weapon::LightningGun,
-    std::uint32_t seed = 0
+    bool followMuzzle,
+    Weapon weapon,
+    std::uint32_t seed,
+    std::uint8_t playerIndex
   ) {
     std::size_t slot = tracers.size();
     for (std::size_t index = 0; index < active.size(); ++index) {
@@ -736,9 +764,10 @@ struct TransientTracerStore {
     }
     tracers[slot] = tracer;
     active[slot] = true;
-    followLocalMuzzle[slot] = followMuzzle;
+    this->followMuzzle[slot] = followMuzzle;
     followWeapon[slot] = weapon;
     followSeed[slot] = seed;
+    followPlayerIndex[slot] = playerIndex;
   }
 
   void addEffect(const TransientEffect& effect) {
@@ -764,6 +793,7 @@ struct TransientTracerStore {
   void fillActive(
     std::vector<TransientTracer>& result,
     const PlayerState& localPlayer,
+    const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
     const RenderSettings& settings
   ) const {
     result.clear();
@@ -771,15 +801,39 @@ struct TransientTracerStore {
     for (std::size_t index = 0; index < tracers.size(); ++index) {
       if (active[index]) {
         TransientTracer tracer = tracers[index];
-        if (followLocalMuzzle[index]) {
+        if (
+          settings.combatEffectsQuality <= 0 &&
+          (
+            tracer.style == TracerStyle::MachineGun ||
+            tracer.style == TracerStyle::MachineGunMuzzleFlash
+          )
+        ) {
+          continue;
+        }
+        if (followMuzzle[index]) {
           const Vec3 oldStart = tracer.start;
-          if (!settings.showOwnWeapons) {
+          const std::size_t playerIndex = followPlayerIndex[index];
+          const bool local =
+            playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
+          if (local && !settings.showOwnWeapons) {
             tracer.start = hiddenWeaponVisualOrigin(localPlayer);
           } else if (followWeapon[index] == Weapon::MachineGun) {
-            tracer.start = firstPersonMachineGunMuzzlePosition(
-              localPlayer,
-              settings
-            );
+            if (local) {
+              tracer.start = firstPersonMachineGunMuzzlePosition(
+                localPlayer,
+                settings
+              );
+            } else {
+              WeaponFireResult attachmentFire;
+              attachmentFire.start = oldStart;
+              tracer.start = machineGunTracerSource(
+                attachmentFire,
+                localPlayer,
+                remotePlayers,
+                playerIndex,
+                settings
+              );
+            }
           } else if (followWeapon[index] == Weapon::Shotgun) {
             tracer.start = weaponPresentationPoint(
               firstPersonWeaponPresentationFrame(
@@ -909,7 +963,7 @@ void spawnMachineGunTracer(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
@@ -925,19 +979,19 @@ void spawnMachineGunTracer(
     tracerColor(Weapon::MachineGun, fire.visualSeed),
     fire.visualSeed,
     TracerStyle::MachineGun,
-  }, followLocalMuzzle, Weapon::MachineGun, fire.visualSeed);
+  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
   // The flash shares the tracer's deduplicated fire event and muzzle-follow
   // metadata, so it cannot repeat when the same snapshot is rendered twice.
   store.add({
     visualStart,
     visualStart + direction * 0.16F,
     0.0F,
-    0.045F,
+    kMachineGunMuzzleFlashDurationSeconds,
     0.045F,
     {255, 188, 76, 235},
     fire.visualSeed,
     TracerStyle::MachineGunMuzzleFlash,
-  }, followLocalMuzzle, Weapon::MachineGun, fire.visualSeed);
+  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
 }
 
 [[nodiscard]] Vec3 rocketLauncherMuzzleSource(
@@ -973,7 +1027,8 @@ void spawnShotgunTracers(
   const Arena& arena,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  bool followLocalMuzzle,
+  std::uint8_t playerIndex
 ) {
   const Vec3 forward = normalize(fire.end - fire.start);
   if (length(forward) <= 0.0001F) {
@@ -1020,7 +1075,7 @@ void spawnShotgunTracers(
       tracerColor(Weapon::Shotgun, fire.visualSeed + visualIndex),
       fire.visualSeed + visualIndex,
       TracerStyle::Shotgun,
-    }, followLocalMuzzle, Weapon::Shotgun, fire.visualSeed);
+    }, followLocalMuzzle, Weapon::Shotgun, fire.visualSeed, playerIndex);
   }
 }
 
@@ -1028,7 +1083,8 @@ void spawnRocketLauncherMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  bool followLocalMuzzle,
+  std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
@@ -1043,7 +1099,7 @@ void spawnRocketLauncherMuzzleFlash(
     {255, 112, 28, 245},
     fire.visualSeed,
     TracerStyle::RocketLauncherMuzzleFlash,
-  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed);
+  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed, playerIndex);
 }
 
 [[nodiscard]] Vec3 revolverMuzzleSource(
@@ -1075,7 +1131,8 @@ void spawnRevolverMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  bool followLocalMuzzle,
+  std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
@@ -1090,17 +1147,19 @@ void spawnRevolverMuzzleFlash(
     {255, 212, 118, 245},
     fire.visualSeed,
     TracerStyle::RevolverMuzzleFlash,
-  }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed);
+  }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed, playerIndex);
 }
 
 void consumeTracerWeaponFires(
   TransientTracerStore& store,
+  CombatEffects& combatEffects,
   const Arena& arena,
   const PlayerState& localPlayer,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const LocalTracerAimHistory& localAimHistory,
   const RenderSettings& settings,
+  const CombatEffectsTuning& effectsTuning,
   bool ownsPresentedSubject
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
@@ -1139,12 +1198,54 @@ void consumeTracerWeaponFires(
             localAimHistory
           )
         : fire;
-      spawnMachineGunTracer(
-        store,
-        visualFire,
-        visualStart,
-        localEvent
-      );
+      if (effectsTuning.quality > 0) {
+        spawnMachineGunTracer(
+          store,
+          visualFire,
+          visualStart,
+          eventPlayer
+        );
+        const Vec3 shotDirection = normalize(visualFire.end - visualFire.start);
+        const WorldTrace impactTrace = traceWorld(
+          arena,
+          fire.start,
+          normalize(fire.end - fire.start),
+          localTracerVisualRange(fire)
+        );
+        const PlayerState& sourcePlayer =
+          localEvent || playerIndex >= remotePlayers.size()
+            ? localPlayer
+            : remotePlayers[playerIndex].player;
+        const Vec3 muzzleRight = yawRight(sourcePlayer.viewYawRadians);
+        const Vec3 muzzleUp = cameraUp(
+          sourcePlayer.viewYawRadians,
+          sourcePlayer.viewPitchRadians
+        );
+        combatEffects.spawnMachineGunShot(
+          {
+            visualStart,
+            shotDirection,
+            muzzleRight,
+            muzzleUp,
+            machineGunCasingSource(
+              visualStart,
+              localPlayer,
+              remotePlayers,
+              playerIndex,
+              settings
+            ),
+            sourcePlayer.velocity,
+            impactTrace.end,
+            impactTrace.normal,
+            shotDirection,
+            ImpactSurfaceCategory::GenericHard,
+            fire.visualSeed,
+            eventPlayer,
+            impactTrace.hit && !fire.hit,
+          },
+          effectsTuning
+        );
+      }
     } else if (fire.weapon == Weapon::Shotgun) {
       const Vec3 visualStart = shotgunTracerSource(
         fire,
@@ -1167,7 +1268,8 @@ void consumeTracerWeaponFires(
         arena,
         visualFire,
         visualStart,
-        localEvent
+        localEvent,
+        eventPlayer
       );
     } else if (fire.weapon == Weapon::RocketLauncher) {
       const Vec3 visualStart = rocketLauncherMuzzleSource(
@@ -1181,7 +1283,8 @@ void consumeTracerWeaponFires(
         store,
         fire,
         visualStart,
-        localEvent
+        localEvent,
+        eventPlayer
       );
     } else {
       const Vec3 visualStart = revolverMuzzleSource(
@@ -1195,7 +1298,8 @@ void consumeTracerWeaponFires(
         store,
         fire,
         visualStart,
-        localEvent
+        localEvent,
+        eventPlayer
       );
     }
     store.remember(eventPlayer, fire.weapon, fire.visualSeed);
@@ -1475,6 +1579,10 @@ struct FrameTimeHistory {
   sample.activeMachineGunTracers = renderDiagnostics.activeMachineGunTracers;
   sample.activeShotgunTracers = renderDiagnostics.activeShotgunTracers;
   sample.activeExplosionEffects = renderDiagnostics.activeExplosionEffects;
+  sample.activeTemporaryLights = renderDiagnostics.activeTemporaryLights;
+  sample.activeCasings = renderDiagnostics.activeCasings;
+  sample.activeImpactParticles = renderDiagnostics.activeImpactParticles;
+  sample.activeBulletDecals = renderDiagnostics.activeBulletDecals;
   sample.newExplosionEventsConsumed = renderDiagnostics.newExplosionEventsConsumed;
   sample.tracerCandidates = renderDiagnostics.tracerCandidates;
   sample.tracerFrustumCulled = renderDiagnostics.tracerFrustumCulled;
@@ -1526,6 +1634,16 @@ void appendPerfHudLines(
     summary.gpuVertexUpload.average,
     summary.swapchainAcquire.average,
     summary.totalRender.average
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "combat effects: lights %u | casings %u | particles %u | decals %u",
+    latest.activeTemporaryLights,
+    latest.activeCasings,
+    latest.activeImpactParticles,
+    latest.activeBulletDecals
   );
   hud.topLeftLines.emplace_back(text);
 
@@ -2881,6 +2999,23 @@ bool saveClientConfig(
   return file.good();
 }
 
+CombatEffectsTuning combatEffectsTuning(const ConsoleSystem& console) {
+  return {
+    console.getInt("r_combat_effects"),
+    console.getFloat("r_muzzle_light_intensity"),
+    console.getFloat("r_muzzle_light_radius"),
+    console.getFloat("r_muzzle_light_duration"),
+    console.getBool("r_casings"),
+    console.getFloat("r_casing_count"),
+    console.getFloat("r_casing_lifetime"),
+    static_cast<std::size_t>(console.getInt("r_casing_max")),
+    console.getFloat("r_impact_particles"),
+    static_cast<std::size_t>(console.getInt("r_impact_particle_max")),
+    static_cast<std::size_t>(console.getInt("r_decals_max")),
+    console.getFloat("r_decal_lifetime"),
+  };
+}
+
 RenderSettings renderSettings(
   const ConsoleSystem& console,
   bool collisionDebugSupported
@@ -2953,6 +3088,27 @@ RenderSettings renderSettings(
     console.getBool("r_sg_weapon_model_start");
   settings.showOwnWeapons = console.getBool("r_show_weapons");
   settings.weaponPosition = console.getInt("r_weapon_pos");
+  settings.combatEffectsQuality = console.getInt("r_combat_effects");
+  settings.muzzleLightIntensity = console.getFloat("r_muzzle_light_intensity");
+  settings.muzzleLightRadius = console.getFloat("r_muzzle_light_radius");
+  settings.muzzleLightDurationSeconds =
+    console.getFloat("r_muzzle_light_duration");
+  settings.toneMapExposure = console.getFloat("r_tonemap_exposure");
+  settings.bloomEnabled = console.getBool("r_bloom");
+  settings.bloomIntensity = console.getFloat("r_bloom_intensity");
+  settings.bloomThreshold = console.getFloat("r_bloom_threshold");
+  settings.casingsEnabled = console.getBool("r_casings");
+  settings.casingCountMultiplier = console.getFloat("r_casing_count");
+  settings.casingLifetimeSeconds = console.getFloat("r_casing_lifetime");
+  settings.maximumCasings =
+    static_cast<std::uint32_t>(console.getInt("r_casing_max"));
+  settings.particleMultiplier = console.getFloat("r_impact_particles");
+  settings.maximumImpactParticles =
+    static_cast<std::uint32_t>(console.getInt("r_impact_particle_max"));
+  settings.maximumBulletDecals =
+    static_cast<std::uint32_t>(console.getInt("r_decals_max"));
+  settings.bulletDecalLifetimeSeconds =
+    console.getFloat("r_decal_lifetime");
   settings.drawRemotePlayers = console.getBool("r_draw_remote_players");
   settings.drawRemoteWeapons = console.getBool("r_draw_remote_weapons");
   settings.drawPlayerOutlines = console.getBool("r_draw_player_outlines");
@@ -3947,6 +4103,8 @@ int GameApp::run() const {
     std::vector<std::string> benchmarkScreenshotPaths;
     bool previousDevelopmentCameraEnabled = false;
     dev::CameraTransform previousDevelopmentCamera;
+    Weapon previousSelectedWeapon = Weapon::LightningGun;
+    int previousAttack = 0;
     BotAttackMode previousBotAttackMode = BotAttackMode::Off;
     Weapon previousBotWeapon = Weapon::MachineGun;
     bool previousBotStare = true;
@@ -4721,13 +4879,23 @@ int GameApp::run() const {
   );
   const std::filesystem::path defaultConfigPath =
     defaultClientConfigPath(assetBasePath);
+  const char* liveScenarioEnvironment =
+    std::getenv("LG_DUEL_LIVE_SCENARIO");
+  const bool ownedLiveScenario =
+    developerControl_.enabled &&
+    liveScenarioEnvironment != nullptr &&
+    std::string_view(liveScenarioEnvironment) == "1";
   if (std::filesystem::exists(defaultConfigPath)) {
     loadClientConfig(console, defaultConfigPath.string());
   } else {
     installDefaultBindings(bindings);
     std::cerr << "Config warning: config/default_client.cfg not found; using code default binds\n";
   }
-  loadClientConfig(console, configPath);
+  // Owned evidence runs use shipped defaults. Personal graphics values would
+  // make fixed-camera captures differ between machines.
+  if (!ownedLiveScenario) {
+    loadClientConfig(console, configPath);
+  }
   loadSoundMixerConfigs(console, assetBasePath);
   if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
@@ -4807,12 +4975,7 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 16");
   }
-  const char* liveScenarioMode = std::getenv("LG_DUEL_LIVE_SCENARIO");
-  if (
-    developerControl_.enabled &&
-    liveScenarioMode != nullptr &&
-    std::string_view(liveScenarioMode) == "1"
-  ) {
+  if (ownedLiveScenario) {
     // Owned live runs use a fixed window size so capture checks do not inherit
     // the user's archived video settings.
     (void)console.execute("set vid_fullscreen 0");
@@ -5053,11 +5216,18 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastPlasmaGunResponseFire = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
+  CombatEffects combatEffects;
   LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
   std::vector<TransientEffect> activeTransientEffects;
   activeTransientTracers.reserve(kMaxTransientTracers);
-  activeTransientEffects.reserve(kMaxTransientEffects);
+  activeTransientEffects.reserve(
+    kMaxTransientEffects +
+    CombatEffects::kLightCapacity +
+    CombatEffects::kCasingCapacity +
+    CombatEffects::kParticleCapacity +
+    CombatEffects::kDecalCapacity
+  );
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   const auto currentMapName = [&session]() -> std::string {
@@ -5365,6 +5535,44 @@ int GameApp::run() const {
     networkSimulation.object["decisions"] =
       dev::JsonValue::arrayValue(std::move(decisions));
     state.object["network_simulation"] = std::move(networkSimulation);
+
+    const CombatEffectsStats effectStats = combatEffects.stats();
+    dev::JsonValue effects = dev::JsonValue::objectValue();
+    effects.object["active_lights"] =
+      dev::JsonValue::numberValue(effectStats.activeLights);
+    effects.object["active_casings"] =
+      dev::JsonValue::numberValue(effectStats.activeCasings);
+    effects.object["active_particles"] =
+      dev::JsonValue::numberValue(effectStats.activeParticles);
+    effects.object["active_decals"] =
+      dev::JsonValue::numberValue(effectStats.activeDecals);
+    effects.object["peak_lights"] =
+      dev::JsonValue::numberValue(effectStats.peakLights);
+    effects.object["peak_casings"] =
+      dev::JsonValue::numberValue(effectStats.peakCasings);
+    effects.object["peak_particles"] =
+      dev::JsonValue::numberValue(effectStats.peakParticles);
+    effects.object["peak_decals"] =
+      dev::JsonValue::numberValue(effectStats.peakDecals);
+    effects.object["shots_spawned"] =
+      dev::JsonValue::numberValue(static_cast<double>(effectStats.shotsSpawned));
+    effects.object["effects_dropped"] =
+      dev::JsonValue::numberValue(static_cast<double>(effectStats.effectsDropped));
+    state.object["combat_effects"] = std::move(effects);
+
+    const RendererFrameDiagnostics& render = renderer.lastFrameDiagnostics();
+    dev::JsonValue renderState = dev::JsonValue::objectValue();
+    renderState.object["cpu_total_ms"] =
+      dev::JsonValue::numberValue(render.totalRenderMilliseconds);
+    renderState.object["active_lights_submitted"] =
+      dev::JsonValue::numberValue(render.activeTemporaryLights);
+    renderState.object["active_casings_submitted"] =
+      dev::JsonValue::numberValue(render.activeCasings);
+    renderState.object["active_particles_submitted"] =
+      dev::JsonValue::numberValue(render.activeImpactParticles);
+    renderState.object["active_decals_submitted"] =
+      dev::JsonValue::numberValue(render.activeBulletDecals);
+    state.object["render_frame"] = std::move(renderState);
     return state;
   };
   const auto setBenchmarkCamera = [&](const benchmark::CameraPose& pose) {
@@ -5387,6 +5595,8 @@ int GameApp::run() const {
         activeControlOperation->queued.request.operation != dev::ControlOperation::RunBenchmark) return;
     ActiveControlOperation& active = *activeControlOperation;
     restoreControlCvars();
+    selectedWeapon = active.previousSelectedWeapon;
+    input.attack = active.previousAttack;
     if (active.benchmarkBotsConfigured) {
       pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
       pendingBotCommands.push_back(PendingBotCommand{
@@ -5743,6 +5953,8 @@ int GameApp::run() const {
         }
         active.previousDevelopmentCameraEnabled = developmentCameraEnabled;
         active.previousDevelopmentCamera = developmentCamera;
+        active.previousSelectedWeapon = selectedWeapon;
+        active.previousAttack = input.attack;
         active.previousBotAttackMode = botAttackMode;
         active.previousBotWeapon = botWeapon;
         active.previousBotStare = botStareEnabled;
@@ -5782,6 +5994,10 @@ int GameApp::run() const {
         if (active.queued.request.operation == dev::ControlOperation::RunBenchmark) {
           const benchmark::Scenario& scenario = active.queued.request.benchmarkScenario;
           setBenchmarkCamera(scenario.cameraStart);
+          // The benchmark uses normal client commands so the server stays
+          // authoritative for weapon timing, hits, and damage.
+          selectedWeapon = scenario.playerWeapon;
+          input.attack = scenario.playerAttack ? 1 : 0;
           active.benchmarkPhaseStart = Clock::now();
           active.benchmarkPhaseFrames = 0;
           active.benchmarkSamples.clear();
@@ -7320,6 +7536,7 @@ int GameApp::run() const {
       hasLastPlasmaGunResponseFire = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
+      combatEffects.clear();
       activeTransientTracers.clear();
       activeTransientEffects.clear();
       footstepAudioStates = {};
@@ -8099,6 +8316,11 @@ int GameApp::run() const {
     }
     std::optional<benchmark::ScopedTiming> weaponAnimationTiming;
     weaponAnimationTiming.emplace(benchmark::TimingSubsystem::Animation);
+    const MachineGunBarrelSpinTuning machineGunSpinTuning = {
+      console.getFloat("r_mg_barrel_max_rps"),
+      console.getFloat("r_mg_barrel_spin_up"),
+      console.getFloat("r_mg_barrel_spin_down"),
+    };
     const bool ownsPresentedSubject =
       !session.spectator() && renderLocalPlayerIndex == session.playerIndex();
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -8116,7 +8338,11 @@ int GameApp::run() const {
           )
         : renderRemotePlayers[playerIndex].visible &&
           authoritativeMachineGunFire;
-      machineGunBarrelSpin[playerIndex].update(motorDriven, elapsed.count());
+      machineGunBarrelSpin[playerIndex].update(
+        motorDriven,
+        elapsed.count(),
+        machineGunSpinTuning
+      );
       renderRemotePlayers[playerIndex].machineGunBarrelRotationRadians =
         machineGunBarrelSpin[playerIndex].angleRadians;
     }
@@ -8139,7 +8365,9 @@ int GameApp::run() const {
     }
     machineGunFiringResponse.update(
       elapsed.count(),
-      machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed()
+      machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed(
+        machineGunSpinTuning
+      )
     );
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       const WeaponFireResult& fire = renderWeaponFires[playerIndex];
@@ -8263,7 +8491,9 @@ int GameApp::run() const {
       machineGunFiringResponse.kickAmount();
     currentRenderSettings.machineGunVibrationAmount =
       machineGunFiringResponse.vibrationAmount(
-        machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed()
+        machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed(
+          machineGunSpinTuning
+        )
       );
     currentRenderSettings.machineGunVibrationPhaseRadians =
       machineGunFiringResponse.vibrationPhaseRadians;
@@ -9065,24 +9295,45 @@ int GameApp::run() const {
         console
       );
     }
+    const CombatEffectsTuning frameEffectsTuning =
+      combatEffectsTuning(console);
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      WeaponFireResult attachmentFire;
+      attachmentFire.start = renderPlayer.position;
+      combatEffects.setMuzzleAttachment(
+        static_cast<std::uint8_t>(playerIndex),
+        machineGunTracerSource(
+          attachmentFire,
+          renderPlayer,
+          renderRemotePlayers,
+          playerIndex,
+          currentRenderSettings
+        )
+      );
+    }
     transientTracerStore.update(outerFrameElapsed.count());
+    combatEffects.update(outerFrameElapsed.count(), frameEffectsTuning);
     consumeTracerWeaponFires(
       transientTracerStore,
+      combatEffects,
       renderArena,
       renderPlayer,
       renderRemotePlayers,
       renderWeaponFires,
       localTracerAimHistory,
       currentRenderSettings,
+      frameEffectsTuning,
       ownsPresentedSubject
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
     transientTracerStore.fillActive(
       activeTransientTracers,
       renderPlayer,
+      renderRemotePlayers,
       currentRenderSettings
     );
     transientTracerStore.fillActiveEffects(activeTransientEffects);
+    combatEffects.appendActive(activeTransientEffects);
     if (session.game() != nullptr && session.game()->hasSnapshot()) {
       const ServerSnapshot& objectiveSnapshot = session.game()->snapshot();
       if (objectiveSnapshot.gameMode == GameMode::McGuffin) {

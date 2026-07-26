@@ -178,6 +178,17 @@ struct TransientVfxStats {
   std::uint32_t explosionDrawCalls = 0;
   std::uint32_t legacyWireframeExplosionDraws = 0;
   std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
+  std::uint32_t activeTemporaryLights = 0;
+  std::uint32_t activeCasings = 0;
+  std::uint32_t activeImpactParticles = 0;
+  std::uint32_t activeBulletDecals = 0;
+};
+
+struct TemporaryLight {
+  Vec3 position = {};
+  Vec3 color = {1.0F, 0.55F, 0.2F};
+  float intensity = 0.0F;
+  float radius = 0.0F;
 };
 
 struct StaticMeshInstance {
@@ -720,6 +731,7 @@ struct Scene3D {
   std::vector<std::array<float, 16>> gltfBonePalette;
   std::vector<SimpleRenderInstance> simpleInstances;
   std::vector<SimpleRenderBatch> simpleBatches;
+  std::vector<TemporaryLight> temporaryLights;
   ProjectileRenderStats projectileStats = {};
   RemoteWeaponRenderStats remoteWeaponStats = {};
   PlayerBoxRenderStats playerBoxStats = {};
@@ -753,7 +765,12 @@ void appendCollisionDebugGeometry(
 [[nodiscard]] MeshHandle remoteWeaponMeshHandle(Weapon weapon);
 [[nodiscard]] Vec3 machineGunBarrelPivot();
 [[nodiscard]] Vec3 machineGunMuzzleSocket();
+[[nodiscard]] Vec3 machineGunCasingEjectSocket();
 [[nodiscard]] Vec3 firstPersonMachineGunMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 firstPersonMachineGunCasingEjectPosition(
   const PlayerState& player,
   const RenderSettings& settings
 );
