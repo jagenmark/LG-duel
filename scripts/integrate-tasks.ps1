@@ -173,17 +173,25 @@ if ((Get-PropertyValue $manifest "version") -ne 1) {
   throw "Manifest version must be 1."
 }
 
+$feature = [string](Get-PropertyValue $manifest "feature")
 $baseRef = [string](Get-PropertyValue $manifest "base")
 $integrationBranch = [string](Get-PropertyValue $manifest "integrationBranch")
 $worktreeValue = [string](Get-PropertyValue $manifest "worktreePath")
 $reportValue = [string](Get-PropertyValue $manifest "reportPath" "reports/integration/latest.generated.md")
-if ([string]::IsNullOrWhiteSpace($baseRef) -or
+if ([string]::IsNullOrWhiteSpace($feature) -or
+    [string]::IsNullOrWhiteSpace($baseRef) -or
     [string]::IsNullOrWhiteSpace($integrationBranch) -or
     [string]::IsNullOrWhiteSpace($worktreeValue)) {
-  throw "Manifest base, integrationBranch, and worktreePath are required."
+  throw "Manifest feature, base, integrationBranch, and worktreePath are required."
+}
+if ($feature -notmatch "^[a-z0-9][a-z0-9-]*$") {
+  throw "Manifest feature must use lower-case letters, numbers, and hyphens."
 }
 if ($integrationBranch -eq $baseRef) {
   throw "integrationBranch must differ from base."
+}
+if (-not $integrationBranch.StartsWith("integration/", [StringComparison]::Ordinal)) {
+  throw "integrationBranch must start with 'integration/'."
 }
 
 $baseCommit = Resolve-Commit $repositoryRoot $baseRef
@@ -252,6 +260,7 @@ foreach ($commit in @($baseCommit) + @($resolvedGroups | ForEach-Object { $_.Com
 
 if ($DryRun) {
   Write-Host "Dry run: no branch or worktree changes will be made."
+  Write-Host "Feature: $feature"
   Write-Host "Base: $baseRef ($baseCommit)"
   Write-Host "Integration branch: $integrationBranch"
   Write-Host "Worktree: $worktreePath"
@@ -340,6 +349,7 @@ $reportLines.Add("# Integration report")
 $reportLines.Add("")
 $reportLines.Add("- Result: running")
 $reportLines.Add("- Started: $([DateTime]::UtcNow.ToString('u')) UTC")
+$reportLines.Add("- Feature: ``$feature``")
 $reportLines.Add("- Base: ``$baseRef`` (``$baseCommit``)")
 $reportLines.Add("- Branch: ``$integrationBranch``")
 $reportLines.Add("- Worktree: ``$worktreePath``")

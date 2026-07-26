@@ -13,3 +13,32 @@
 - If gallery publication fails, say that the image is not yet delivered. Keep the local original and metadata, retry or report the exact block, and never claim delivery from a local path alone.
 
 See `docs/VISUAL-EVIDENCE.md` for the record format, review flow, setup, and commands.
+
+## Automatic Task Integration
+
+Task workers should end a reviewed, committed worktree task with this line:
+
+```text
+Integration candidate: <feature> | <group> | <commit> | depends-on: <commit-or-none> | reviewed: yes
+```
+
+Use one short lower-case feature key with hyphens. Use group names that show the
+needed order, such as `bootstrap`, `renderer-effects`, and `ui-settings`.
+
+When two or more complete worktree tasks report candidates for the same
+feature, the coordinator must start the task integration workflow without
+waiting for a separate user request:
+
+1. Check that each candidate has a commit, passed review, and a clean task
+   worktree.
+2. Put the commits in dependency order. A named dependency must come first.
+3. Copy `config/integration-manifest.example.json`, set its `feature`, groups,
+   exact commit IDs, base, integration branch, and worktree path, then run the
+   dry run.
+4. Run `scripts/integrate-tasks.ps1` with a dedicated `integration/` branch and
+   worktree.
+5. Report the integration branch, report path, picks, and check results.
+
+Stop when a real conflict occurs. Do not resolve it without user input. Do not
+merge the integration branch into `main` and do not push any branch unless the
+user approves that action.

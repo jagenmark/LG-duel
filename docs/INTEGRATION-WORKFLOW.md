@@ -6,13 +6,25 @@ it. It does not merge uncommitted work.
 
 Copy `config/integration-manifest.example.json`, then set:
 
+- `feature`: the lower-case key shared by related task reports.
 - `base`: the commit or branch on which the batch starts.
-- `integrationBranch`: a branch used only for this batch.
+- `integrationBranch`: an `integration/` branch used only for this batch.
 - `worktreePath`: the integration worktree, relative to the repository root or
   as a full path.
 - `reportPath`: a local `reports/integration/*.generated.md` path.
 - `groups`: ordered sets such as `bootstrap`, `renderer/effects`, and
   `UI/settings`.
+
+## Automatic Use
+
+Root `AGENTS.md` tells task workers to mark a reviewed commit with a short
+`Integration candidate` line. When a coordinator sees at least two completed
+candidates with the same feature key, it prepares this workflow at once. The
+`depends-on` field and group order set the pick order.
+
+The coordinator may create and test the integration branch without another
+request. A conflict still needs user input. Merging the integration branch
+into `main` or pushing any branch still needs user approval.
 
 Each item has a `type` of `commit` or `branch`. A commit item takes one commit.
 A branch item takes each commit in `from..ref`, in oldest-first topological

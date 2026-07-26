@@ -1,5 +1,6 @@
 {
   "version": 1,
+  "feature": "visual-refresh",
   "base": "main",
   "integrationBranch": "integration/2026-07-example",
   "worktreePath": "../LG-duel-integration",

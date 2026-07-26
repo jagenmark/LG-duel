@@ -66,6 +66,7 @@ class IntegrationHelperTest(unittest.TestCase):
     def write_manifest(self):
         manifest = {
             "version": 1,
+            "feature": "test-feature",
             "base": "main",
             "integrationBranch": "integration/test",
             "worktreePath": "../integration-worktree",
@@ -118,6 +119,7 @@ class IntegrationHelperTest(unittest.TestCase):
     def test_dry_run_and_repeatable_ordered_integration(self):
         manifest = self.write_manifest()
         dry_run = self.invoke(manifest, "-DryRun")
+        self.assertIn("Feature: test-feature", dry_run.stdout)
         self.assertIn(self.bootstrap, dry_run.stdout)
         self.assertFalse((self.root.parent / "integration-worktree").exists())
 
@@ -128,7 +130,9 @@ class IntegrationHelperTest(unittest.TestCase):
         ).stdout.splitlines()
         self.assertEqual(subjects, ["bootstrap", "ui"])
         report = worktree / "reports" / "integration" / "test.generated.md"
-        self.assertIn("Result: success", report.read_text(encoding="utf-8-sig"))
+        report_text = report.read_text(encoding="utf-8-sig")
+        self.assertIn("Result: success", report_text)
+        self.assertIn("Feature: `test-feature`", report_text)
 
         rerun = self.invoke(manifest)
         self.assertIn("Skipping recorded commit", rerun.stdout)
@@ -154,6 +158,7 @@ class IntegrationHelperTest(unittest.TestCase):
 
         manifest = {
             "version": 1,
+            "feature": "conflict-test",
             "base": "main",
             "integrationBranch": "integration/conflict-test",
             "worktreePath": "../conflict-worktree",
@@ -186,6 +191,7 @@ class IntegrationHelperTest(unittest.TestCase):
     def test_rejects_active_worktree_and_report_escape(self):
         manifest = {
             "version": 1,
+            "feature": "unsafe-test",
             "base": "main",
             "integrationBranch": "integration/unsafe-test",
             "worktreePath": ".",
@@ -193,6 +199,14 @@ class IntegrationHelperTest(unittest.TestCase):
             "groups": [{"name": "empty", "items": [], "validation": []}],
         }
         path = self.root / "unsafe-manifest.json"
+
+        missing_feature = dict(manifest)
+        missing_feature.pop("feature")
+        path.write_text(json.dumps(missing_feature), encoding="utf-8")
+        feature_result = self.invoke(path, "-DryRun", check=False)
+        self.assertNotEqual(feature_result.returncode, 0)
+        self.assertIn("Manifest feature", feature_result.stderr)
+
         path.write_text(json.dumps(manifest), encoding="utf-8")
         active_result = self.invoke(path, "-DryRun", check=False)
         self.assertNotEqual(active_result.returncode, 0)
