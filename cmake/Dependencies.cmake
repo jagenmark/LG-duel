@@ -151,30 +151,18 @@ function(lg_duel_configure_sdl3 target)
 
   find_package(SDL3 QUIET CONFIG)
 
-  if(NOT SDL3_FOUND)
-    set(sdl3_source_candidates)
-    if(LG_DUEL_SDL3_SOURCE_DIR)
-      list(APPEND sdl3_source_candidates "${LG_DUEL_SDL3_SOURCE_DIR}")
+  if(NOT SDL3_FOUND AND LG_DUEL_SDL3_SOURCE_DIR)
+    if(NOT EXISTS "${LG_DUEL_SDL3_SOURCE_DIR}/CMakeLists.txt")
+      message(FATAL_ERROR "SDL3 source was not found at ${LG_DUEL_SDL3_SOURCE_DIR}.")
     endif()
-    list(APPEND
-      sdl3_source_candidates
-      "${CMAKE_SOURCE_DIR}/build/gpu/_deps/sdl3-src"
-      "${CMAKE_SOURCE_DIR}/../build/gpu/_deps/sdl3-src"
+    message(STATUS "Using explicit SDL3 source at ${LG_DUEL_SDL3_SOURCE_DIR}")
+    lg_duel_set_sdl3_build_options()
+    add_subdirectory(
+      "${LG_DUEL_SDL3_SOURCE_DIR}"
+      "${CMAKE_BINARY_DIR}/_deps/sdl3-local-build"
+      EXCLUDE_FROM_ALL
     )
-
-    foreach(sdl3_source_dir IN LISTS sdl3_source_candidates)
-      if(EXISTS "${sdl3_source_dir}/CMakeLists.txt")
-        message(STATUS "Using local SDL3 source at ${sdl3_source_dir}")
-        lg_duel_set_sdl3_build_options()
-        add_subdirectory(
-          "${sdl3_source_dir}"
-          "${CMAKE_BINARY_DIR}/_deps/sdl3-local-build"
-          EXCLUDE_FROM_ALL
-        )
-        set(SDL3_FOUND TRUE)
-        break()
-      endif()
-    endforeach()
+    set(SDL3_FOUND TRUE)
   endif()
 
   if(NOT SDL3_FOUND AND LG_DUEL_FETCH_SDL3)
@@ -184,7 +172,7 @@ function(lg_duel_configure_sdl3 target)
       SDL3
       GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
       GIT_TAG ${LG_DUEL_SDL3_GIT_TAG}
-      GIT_SHALLOW TRUE
+      GIT_SHALLOW FALSE
     )
     FetchContent_MakeAvailable(SDL3)
     set(SDL3_FOUND TRUE)
@@ -197,7 +185,11 @@ function(lg_duel_configure_sdl3 target)
     target_compile_definitions(${target} PUBLIC LG_DUEL_HAS_SDL3=0)
 
     if(LG_DUEL_REQUIRE_SDL3)
-      message(FATAL_ERROR "SDL3 was requested but was not found. Install SDL3 or set LG_DUEL_REQUIRE_SDL3=OFF.")
+      message(
+        FATAL_ERROR
+        "SDL3 was requested but was not found. Set LG_DUEL_FETCH_SDL3=ON, "
+        "set LG_DUEL_SDL3_SOURCE_DIR, install SDL3, or set LG_DUEL_REQUIRE_SDL3=OFF."
+      )
     endif()
 
     message(STATUS "SDL3 not found; building non-SDL milestone skeleton.")

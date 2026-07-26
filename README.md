@@ -8,7 +8,7 @@ LG Duel is not intended to remain only a small Lightning Gun duel prototype. Its
 
 The long-term goal is an original game in the space between arena FPS and hero shooter: mechanically expressive movement and combat, combined with distinct body archetypes, weapons, abilities, and team-oriented strategic variety.
 
-See PROJECT_CONTEXT.md, located in C:\Users\gosee\Documents\Codex\LG-duel-clean\docs, for the project’s scope, architectural direction, performance priorities, current transitional systems, and implementation principles.
+See [PROJECT_CONTEXT.md](docs/PROJECT_CONTEXT.md) for the project's scope, architectural direction, performance priorities, current transitional systems, and implementation principles.
 
 ## Current Shape
 
@@ -68,10 +68,24 @@ cmake --build --preset default
 ctest --preset default
 ```
 
+The default preset fetches the pinned SDL3 source into this worktree's
+`build/default` tree. It does not use another checkout's build files or SDL
+source. CMake builds `SDL3.dll` and copies it beside `lg_duel_client.exe`.
+
+On Windows, one command configures the pinned dependency and builds the
+playable client:
+
+```powershell
+.\bootstrap-windows-client.cmd
+```
+
+Run it from any fresh worktree. The client and SDL runtime will be in
+`build/default`. The first run needs network access to fetch SDL.
+
 Equivalent plain CMake commands:
 
 ```powershell
-cmake -S . -B build/default -DBUILD_TESTING=ON
+cmake -S . -B build/default -G Ninja -DBUILD_TESTING=ON -DLG_DUEL_REQUIRE_SDL3=ON -DLG_DUEL_FETCH_SDL3=ON -DCMAKE_DISABLE_FIND_PACKAGE_SDL3=TRUE
 cmake --build build/default
 ctest --test-dir build/default --output-on-failure
 ```
