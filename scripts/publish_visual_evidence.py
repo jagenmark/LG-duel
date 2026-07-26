@@ -238,7 +238,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=CONFIG_PATH)
     args = parser.parse_args(argv)
     try:
-        checked, image_path, _ = validate_metadata(
+        checked, image_path, config = validate_metadata(
             args.metadata.resolve(), args.config.resolve()
         )
         if args.dry_run:
@@ -252,11 +252,18 @@ def main(argv: list[str] | None = None) -> int:
             }
         else:
             entry = stage_capture(checked, image_path)
+            origin = config.get("gallery_origin")
+            if isinstance(origin, str) and origin.startswith("https://"):
+                preview = origin.rstrip("/") + entry["preview_url"]
+                full_size = origin.rstrip("/") + entry["full_size_url"]
+            else:
+                preview = entry["preview_url"]
+                full_size = entry["full_size_url"]
             result = {
                 "status": "staged_for_private_publish",
                 "capture_id": checked["capture_id"],
-                "preview_path": entry["preview_url"],
-                "full_size_path": entry["full_size_url"],
+                "preview_url": preview,
+                "full_size_url": full_size,
                 "review_status": entry["review_status"],
             }
         print(json.dumps(result, indent=2, sort_keys=True))
