@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "base": "main",
+  "integrationBranch": "integration/2026-07-example",
+  "worktreePath": "../LG-duel-integration",
+  "reportPath": "reports/integration/latest.generated.md",
+  "groups": [
+    {
+      "name": "bootstrap",
+      "items": [
+        {
+          "type": "commit",
+          "ref": "0123456789abcdef0123456789abcdef01234567"
+        }
+      ],
+      "validation": [
+        {
+          "command": "cmake",
+          "arguments": ["--preset", "default"]
+        },
+        {
+          "command": "cmake",
+          "arguments": ["--build", "--preset", "default", "--parallel", "2"]
+        },
+        {
+          "command": "ctest",
+          "arguments": ["--preset", "default"]
+        }
+      ]
+    },
+    {
+      "name": "renderer/effects",
+      "items": [
+        {
+          "type": "branch",
+          "ref": "task/renderer-effects",
+          "from": "main"
+        }
+      ],
+      "validation": [
+        {
+          "command": "cmake",
+          "arguments": ["--build", "--preset", "default", "--parallel", "2"]
+        },
+        {
+          "command": "ctest",
+          "arguments": ["--preset", "default"]
+        }
+      ]
+    },
+    {
+      "name": "UI/settings",
+      "items": [
+        {
+          "type": "commit",
+          "ref": "fedcba9876543210fedcba9876543210fedcba98"
+        }
+      ],
+      "validation": [
+        {
+          "command": "cmake",
+          "arguments": ["--build", "--preset", "default", "--parallel", "2"]
+        },
+        {
+          "command": "ctest",
+          "arguments": ["--preset", "default"]
+        }
+      ]
+    }
+  ]
+}
