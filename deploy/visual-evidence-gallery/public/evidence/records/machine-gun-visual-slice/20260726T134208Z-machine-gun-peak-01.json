@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260726T134208Z-machine-gun-peak-01",
+  "captured_at": "2026-07-26T13:42:08Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Matched fixed view during sustained fire. The frame shows the authored barrel, compact muzzle flash and tracer, local floor light, ejected casings, and a wall mark.",
+  "image": "20260726T134208Z-machine-gun-peak-01.png",
+  "review": {
+    "notes": "The matched fixed-view pair clearly shows the compact effects-on change against its clean control. The moving checkpoint clearly shows the moved viewmodel and two bounded surface-aligned marks. All captures are unobscured and readable on a phone; timing and count evidence is separate.",
+    "reviewed_at": "2026-07-26T14:07:48Z",
+    "reviewer": "codex-final-visual-and-diff-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "69884b1cf17a65ed522fec04e4946096743c8839d393350f0a6d56a6836193e8",
+  "size_bytes": 9217968,
+  "task_id": "machine-gun-visual-slice",
+  "title": "Sustained machine-gun fire"
+}
