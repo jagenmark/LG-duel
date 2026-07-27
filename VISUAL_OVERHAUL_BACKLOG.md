@@ -62,7 +62,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 2.1 Stable directional shadows
 
-**Priority:** P0  
+**Priority:** P0
 **Scope:** Use stable directional shadows supported by the renderer. Focus on camera-movement stability before higher detail.
 
 **Acceptance checks:**
