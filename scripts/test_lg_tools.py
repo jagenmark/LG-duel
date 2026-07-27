@@ -182,6 +182,15 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("set LG_DUEL_RENDER_BACKEND=gpu", launcher)
         self.assertNotIn("build\\default\\lg_duel_client.exe 127.0.0.1", launcher)
 
+    def test_power_shell_launcher_forwards_a_bounded_timeout(self) -> None:
+        launcher = (Path(__file__).resolve().parent / "lg-dev.ps1").read_text(encoding="utf-8")
+        self.assertIn("[ValidateRange(0.25, 120.0)]", launcher)
+        self.assertIn("'--timeout', $Timeout", launcher)
+
+    def test_power_shell_control_routes_status_to_the_lifecycle_wrapper(self) -> None:
+        wrapper = (Path(__file__).resolve().parent / "lg-control.ps1").read_text(encoding="utf-8")
+        self.assertIn("'restart', 'status'", wrapper)
+
 
 if __name__ == "__main__":
     unittest.main()

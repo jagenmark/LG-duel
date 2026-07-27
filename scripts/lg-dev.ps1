@@ -6,6 +6,8 @@ param(
   [int]$ControlPort = 27961,
   [ValidateSet('gpu', 'fallback')]
   [string]$Renderer = 'gpu',
+  [ValidateRange(0.25, 120.0)]
+  [double]$Timeout = 20.0,
   [switch]$ExternalServer,
   [switch]$Benchmark
 )
@@ -19,16 +21,17 @@ if ($Action -eq 'start') {
   $arguments += @(
     '--server-port', $ServerPort,
     '--control-port', $ControlPort,
-    '--renderer', $Renderer
+    '--renderer', $Renderer,
+    '--timeout', $Timeout
   )
   if ($Renderer -eq 'fallback') { $arguments += '--allow-fallback' }
   if ($ExternalServer) { $arguments += '--external-server' }
   if ($Benchmark) { $arguments += '--benchmark' }
 } elseif ($Action -eq 'restart') {
-  $arguments += @('--renderer', $Renderer)
+  $arguments += @('--renderer', $Renderer, '--timeout', $Timeout)
   if ($Renderer -eq 'fallback') { $arguments += '--allow-fallback' }
 } elseif ($Action -eq 'status') {
-  $arguments += @('--control-port', $ControlPort)
+  $arguments += @('--control-port', $ControlPort, '--timeout', $Timeout)
 }
 
 & $python @arguments
