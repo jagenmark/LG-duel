@@ -2028,18 +2028,24 @@ int main() {
       {},
       catConsole
     );
-    bool hiddenCatPatch = false;
-    bool hiddenCatLaser = false;
+    bool hiddenCatArt = false;
     for (const lg::DrawCommand2D& command : hiddenCatUi.overlayCommands) {
       if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
-        hiddenCatPatch = hiddenCatPatch ||
-          (quad->color.red == 190 && quad->color.green == 132 && quad->color.blue == 73);
-        hiddenCatLaser = hiddenCatLaser ||
+        hiddenCatArt = hiddenCatArt ||
+          (quad->color.red == 190 && quad->color.green == 132 && quad->color.blue == 73) ||
           (quad->color.red == 255 && quad->color.green == 112 && quad->color.blue == 118);
       }
     }
-    failures += expect(!hiddenCatPatch, "console cat toggle should hide cat pixels");
-    failures += expect(hiddenCatLaser, "console cat toggle should keep the laser pointer visible");
+    bool hiddenSleepMarker = false;
+    for (const lg::DrawCommand2D& command : hiddenCatUi.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        hiddenSleepMarker = hiddenSleepMarker || text->text == "Z";
+      }
+    }
+    failures += expect(
+      !hiddenCatArt && !hiddenSleepMarker,
+      "console cat toggle should emit no cat, laser, or sleep-marker commands"
+    );
 
     cat.update(0.05F, 600.0F, 650.0F, 1280.0F, 720.0F);
     failures += expect(
@@ -2095,6 +2101,30 @@ int main() {
       }
     }
     failures += expect(foundSleepZ, "sleeping console cat should emit animated Zs");
+    sleepConsole.showCat = false;
+    const lg::DrawList2D hiddenSleepUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      sleepConsole
+    );
+    bool hiddenSleepCatCommand = false;
+    for (const lg::DrawCommand2D& command : hiddenSleepUi.overlayCommands) {
+      if (const auto* text = std::get_if<lg::Text2D>(&command)) {
+        hiddenSleepCatCommand = hiddenSleepCatCommand || text->text == "Z";
+      }
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        hiddenSleepCatCommand = hiddenSleepCatCommand ||
+          (quad->color.red == 190 && quad->color.green == 132 && quad->color.blue == 73) ||
+          (quad->color.red == 255 && quad->color.green == 112 && quad->color.blue == 118);
+      }
+    }
+    failures += expect(
+      !hiddenSleepCatCommand,
+      "disabled console cat should emit no sleeping-cat, shadow, or laser commands"
+    );
     sleepyCat.update(
       0.05F,
       restingPointer.x + 20.0F,
