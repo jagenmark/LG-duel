@@ -65,8 +65,12 @@ Validate the JSON schema without launching the game:
 
 ```powershell
 .\build\default\lg_duel_scenarios.exe --scenario scenarios/live/machine_gun_visual_validation.json --validate-only
-python -m unittest scripts.test_lg_live_scenario
+python scripts/test_lg_live_scenario.py
 ```
+
+CTest runs the same direct-file check as
+`lg_duel_live_scenario_python_tests`. Keep this command in that form because
+the test imports helper modules from `scripts/`.
 
 The schema check proves the C++ scenario reader accepts the fixed timeline,
 capture points, and assertions. The Python tests cover the live runner's
