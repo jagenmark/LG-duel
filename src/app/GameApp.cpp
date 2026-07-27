@@ -9638,6 +9638,7 @@ int GameApp::run() const {
       }
     }
     ConsoleRenderState renderedConsole = consoleRenderState(consoleState);
+    renderedConsole.showCat = console.getBool("cl_show_console_cat");
     if (activeControlOperation.has_value() &&
         activeControlOperation->queued.request.operation == dev::ControlOperation::RunBenchmark) {
       const benchmark::Scenario& scenario =

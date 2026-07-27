@@ -3074,18 +3074,20 @@ void addConsole(
   }
   }
 
-  // A broad, irregular bloom reads like a laser pointer on a surface and is
-  // easier to reacquire than a precise cursor-sized square.
-  const float laserX = console.cat.laser.x;
-  const float laserY = console.cat.laser.y;
-  addRect(drawList, laserX - 14.0F, laserY - 5.0F, 28.0F, 10.0F, {255, 24, 40, 38});
-  addRect(drawList, laserX - 5.0F, laserY - 14.0F, 10.0F, 28.0F, {255, 24, 40, 38});
-  addRect(drawList, laserX - 9.0F, laserY - 7.0F, 18.0F, 14.0F, {255, 34, 48, 76});
-  addRect(drawList, laserX - 7.0F, laserY - 9.0F, 14.0F, 18.0F, {255, 34, 48, 76});
-  addRect(drawList, laserX - 5.0F, laserY - 5.0F, 10.0F, 10.0F, {255, 58, 72, 190});
-  addRect(drawList, laserX - 3.0F, laserY - 3.0F, 6.0F, 6.0F, {255, 112, 118, 245});
-  addRect(drawList, laserX + 11.0F, laserY - 9.0F, 4.0F, 4.0F, {255, 42, 58, 78});
-  addRect(drawList, laserX - 13.0F, laserY + 9.0F, 3.0F, 3.0F, {255, 42, 58, 62});
+  if (console.showCat) {
+    // The laser is part of the cat feature, so the visibility cvar must hide
+    // it with the sprite, shadow, and sleep markers.
+    const float laserX = console.cat.laser.x;
+    const float laserY = console.cat.laser.y;
+    addRect(drawList, laserX - 14.0F, laserY - 5.0F, 28.0F, 10.0F, {255, 24, 40, 38});
+    addRect(drawList, laserX - 5.0F, laserY - 14.0F, 10.0F, 28.0F, {255, 24, 40, 38});
+    addRect(drawList, laserX - 9.0F, laserY - 7.0F, 18.0F, 14.0F, {255, 34, 48, 76});
+    addRect(drawList, laserX - 7.0F, laserY - 9.0F, 14.0F, 18.0F, {255, 34, 48, 76});
+    addRect(drawList, laserX - 5.0F, laserY - 5.0F, 10.0F, 10.0F, {255, 58, 72, 190});
+    addRect(drawList, laserX - 3.0F, laserY - 3.0F, 6.0F, 6.0F, {255, 112, 118, 245});
+    addRect(drawList, laserX + 11.0F, laserY - 9.0F, 4.0F, 4.0F, {255, 42, 58, 78});
+    addRect(drawList, laserX - 13.0F, laserY + 9.0F, 3.0F, 3.0F, {255, 42, 58, 62});
+  }
 
   constexpr float textScale = 2.0F;
   const ConsoleTextLayout layout = buildConsoleTextLayout(width, height, console);
