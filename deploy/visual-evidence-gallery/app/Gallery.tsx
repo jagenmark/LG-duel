@@ -34,6 +34,7 @@ function formatBytes(value: number) {
 export function Gallery() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
+  const approvedCaptures = captures.filter((capture) => capture.review_status === "pass");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -70,7 +71,7 @@ export function Gallery() {
     );
   }
 
-  if (captures.length === 0) {
+  if (approvedCaptures.length === 0) {
     return (
       <section className="empty">
         <p className="eyebrow">No approved captures yet</p>
@@ -85,12 +86,14 @@ export function Gallery() {
       <div className="section-heading">
         <div>
           <p className="eyebrow">Published evidence</p>
-          <h2>{captures.length} approved {captures.length === 1 ? "capture" : "captures"}</h2>
+          <h2>
+            {approvedCaptures.length} approved {approvedCaptures.length === 1 ? "capture" : "captures"}
+          </h2>
         </div>
         <p>Newest first</p>
       </div>
       <div className="capture-grid">
-        {captures.map((capture) => (
+        {approvedCaptures.map((capture) => (
           <article className="capture-card" key={capture.capture_id}>
             <a
               className="preview-link"
