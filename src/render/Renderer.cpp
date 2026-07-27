@@ -1568,7 +1568,9 @@ void collectTextureMaterialFiles(
   SDL_Window* window,
   bool depthWrite,
   SDL_GPUTextureFormat depthFormat,
-  SDL_GPUCompareOp depthCompare = SDL_GPU_COMPAREOP_LESS
+  SDL_GPUCompareOp depthCompare = SDL_GPU_COMPAREOP_LESS,
+  const char* fragmentShaderPath = "world3d.frag.spv",
+  Uint32 fragmentUniformBufferCount = 1
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1582,8 +1584,9 @@ void collectTextureMaterialFiles(
   }
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
-    "world3d.frag.spv",
+    fragmentShaderPath,
     SDL_GPU_SHADERSTAGE_FRAGMENT,
+    fragmentUniformBufferCount,
     1
   );
   if (fragmentShader == nullptr) {
@@ -1949,7 +1952,9 @@ void collectTextureMaterialFiles(
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
     fragmentShaderName,
-    SDL_GPU_SHADERSTAGE_FRAGMENT
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    0,
+    additiveBlend ? 1U : 0U
   );
   if (fragmentShader == nullptr) {
     SDL_ReleaseGPUShader(device, vertexShader);
@@ -2159,7 +2164,11 @@ void collectTextureMaterialFiles(
     return nullptr;
   }
   SDL_GPUShader* fragmentShader = loadGpuShader(
-    device, "material_weapon.frag.spv", SDL_GPU_SHADERSTAGE_FRAGMENT, 1
+    device,
+    "material_weapon.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    1,
+    1
   );
   if (fragmentShader == nullptr) {
     SDL_ReleaseGPUShader(device, vertexShader);
@@ -4730,6 +4739,225 @@ void copyGltfPlayerModelDiagnostics(
   return SDL_CreateGPUTexture(device, &createInfo);
 }
 
+struct SniperScopeMeshVertex {
+  ScreenPoint position = {};
+  RenderColor color = {};
+};
+
+struct CachedSniperScopeMesh {
+  int outputWidth = 0;
+  int outputHeight = 0;
+  ScreenPoint center = {};
+  float radius = 0.0F;
+  std::vector<SniperScopeMeshVertex> vertices;
+  std::vector<int> indices;
+  std::vector<SDL_Vertex> fallbackVertices;
+};
+
+void appendSniperScopeMeshQuad(
+  CachedSniperScopeMesh& mesh,
+  const std::array<ScreenPoint, 4>& points,
+  const std::array<RenderColor, 4>& colors
+) {
+  const int first = static_cast<int>(mesh.vertices.size());
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    mesh.vertices.push_back({points[index], colors[index]});
+  }
+  mesh.indices.insert(
+    mesh.indices.end(),
+    {first, first + 1, first + 2, first, first + 2, first + 3}
+  );
+}
+
+void appendSniperScopeMeshQuad(
+  CachedSniperScopeMesh& mesh,
+  const std::array<ScreenPoint, 4>& points,
+  RenderColor color
+) {
+  appendSniperScopeMeshQuad(mesh, points, {color, color, color, color});
+}
+
+void rebuildSniperScopeMesh(
+  CachedSniperScopeMesh& mesh,
+  const SniperScopeOverlay2D& scope
+) {
+  constexpr int kSegments = 96;
+  constexpr float kTwoPi = 6.28318530718F;
+  constexpr float kOuterRingScale = 1.45F;
+  constexpr int kVignetteBands = 2;
+
+  mesh.outputWidth = scope.outputWidth;
+  mesh.outputHeight = scope.outputHeight;
+  mesh.center = scope.center;
+  mesh.radius = scope.radius;
+  mesh.vertices.clear();
+  mesh.indices.clear();
+  mesh.vertices.reserve((4U + 4U * kSegments) * 4U);
+  mesh.indices.reserve((4U + 4U * kSegments) * 6U);
+
+  const float width = static_cast<float>(scope.outputWidth);
+  const float height = static_cast<float>(scope.outputHeight);
+  const float left = scope.center.x - scope.radius;
+  const float right = scope.center.x + scope.radius;
+  const float top = scope.center.y - scope.radius;
+  const float bottom = scope.center.y + scope.radius;
+  const RenderColor outside = {0, 0, 0, 255};
+
+  // Four large rectangles cover the area beyond the lens bounding square.
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{0.0F, 0.0F}, {width, 0.0F}, {width, top}, {0.0F, top}}},
+    outside
+  );
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{0.0F, bottom}, {width, bottom}, {width, height}, {0.0F, height}}},
+    outside
+  );
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{0.0F, top}, {left, top}, {left, bottom}, {0.0F, bottom}}},
+    outside
+  );
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{right, top}, {width, top}, {width, bottom}, {right, bottom}}},
+    outside
+  );
+
+  const auto pointAt = [&](float angle, float radius) {
+    return ScreenPoint{
+      scope.center.x + std::cos(angle) * radius,
+      scope.center.y + std::sin(angle) * radius,
+    };
+  };
+  const auto appendRing = [&](
+    float outerRadius,
+    float innerRadius,
+    RenderColor outerColor,
+    RenderColor innerColor
+  ) {
+    for (int segment = 0; segment < kSegments; ++segment) {
+      const float angle0 =
+        kTwoPi * static_cast<float>(segment) / static_cast<float>(kSegments);
+      const float angle1 =
+        kTwoPi * static_cast<float>(segment + 1) /
+        static_cast<float>(kSegments);
+      appendSniperScopeMeshQuad(
+        mesh,
+        {{
+          pointAt(angle0, outerRadius),
+          pointAt(angle1, outerRadius),
+          pointAt(angle1, innerRadius),
+          pointAt(angle0, innerRadius),
+        }},
+        {outerColor, outerColor, innerColor, innerColor}
+      );
+    }
+  };
+
+  // This ring fills the corners between the lens and its bounding square.
+  appendRing(
+    scope.radius * kOuterRingScale,
+    scope.radius,
+    outside,
+    outside
+  );
+
+  const float vignetteWidth = std::min(72.0F, scope.radius * 0.14F);
+  for (int band = 0; band < kVignetteBands; ++band) {
+    const float outerFraction =
+      static_cast<float>(band) / static_cast<float>(kVignetteBands);
+    const float innerFraction =
+      static_cast<float>(band + 1) / static_cast<float>(kVignetteBands);
+    const float outerFade = 1.0F - outerFraction;
+    const float innerFade = 1.0F - innerFraction;
+    appendRing(
+      scope.radius - vignetteWidth * outerFraction,
+      scope.radius - vignetteWidth * innerFraction,
+      {
+        0,
+        0,
+        0,
+        static_cast<std::uint8_t>(105.0F * outerFade * outerFade),
+      },
+      {
+        0,
+        0,
+        0,
+        static_cast<std::uint8_t>(105.0F * innerFade * innerFade),
+      }
+    );
+  }
+
+  constexpr float kRimHalfWidth = 1.5F;
+  const RenderColor rim = {112, 94, 66, 220};
+  appendRing(
+    scope.radius + kRimHalfWidth,
+    scope.radius - kRimHalfWidth,
+    rim,
+    rim
+  );
+  mesh.fallbackVertices.resize(mesh.vertices.size());
+}
+
+[[nodiscard]] CachedSniperScopeMesh& sniperScopeMesh(
+  const SniperScopeOverlay2D& scope
+) {
+  static CachedSniperScopeMesh mesh;
+  if (
+    mesh.outputWidth != scope.outputWidth ||
+    mesh.outputHeight != scope.outputHeight ||
+    mesh.center.x != scope.center.x ||
+    mesh.center.y != scope.center.y ||
+    mesh.radius != scope.radius
+  ) {
+    rebuildSniperScopeMesh(mesh, scope);
+  }
+  return mesh;
+}
+
+[[nodiscard]] ScreenPoint transformedSniperScopePoint(
+  const SniperScopeOverlay2D& scope,
+  ScreenPoint point
+) {
+  return {
+    scope.center.x + (point.x - scope.center.x) * scope.openingScale,
+    scope.center.y + (point.y - scope.center.y) * scope.openingScale,
+  };
+}
+
+[[nodiscard]] RenderColor modulatedSniperScopeColor(
+  RenderColor color,
+  float opacity
+) {
+  color.alpha = static_cast<std::uint8_t>(std::clamp(
+    static_cast<float>(color.alpha) * std::clamp(opacity, 0.0F, 1.0F),
+    0.0F,
+    255.0F
+  ));
+  return color;
+}
+
+void appendSniperScopeOverlay(
+  std::vector<GpuVertex>& vertices,
+  const SniperScopeOverlay2D& scope,
+  float outputWidth,
+  float outputHeight
+) {
+  const CachedSniperScopeMesh& mesh = sniperScopeMesh(scope);
+  for (int index : mesh.indices) {
+    const SniperScopeMeshVertex& vertex =
+      mesh.vertices[static_cast<std::size_t>(index)];
+    vertices.push_back(gpuVertex(
+      transformedSniperScopePoint(scope, vertex.position),
+      modulatedSniperScopeColor(vertex.color, scope.opacity),
+      outputWidth,
+      outputHeight
+    ));
+  }
+}
+
 void appendTriangle(
   std::vector<GpuVertex>& vertices,
   ScreenPoint first,
@@ -4995,6 +5223,15 @@ void appendCommandBatches(
           );
         } else if constexpr (std::is_same_v<Primitive, Line2D>) {
           appendLine(vertices, primitive, outputWidth, outputHeight);
+        } else if constexpr (
+          std::is_same_v<Primitive, SniperScopeOverlay2D>
+        ) {
+          appendSniperScopeOverlay(
+            vertices,
+            primitive,
+            outputWidth,
+            outputHeight
+          );
         } else if constexpr (std::is_same_v<Primitive, Text2D>) {
           appendText(
             vertices,
@@ -5037,6 +5274,7 @@ void appendCommandBatches(
 [[nodiscard]] bool renderGpuFrame(
   SDL_GPUDevice* device,
   SDL_GPUGraphicsPipeline* pipeline2D,
+  SDL_GPUGraphicsPipeline* pipelineWorldSurface,
   SDL_GPUGraphicsPipeline* pipeline3D,
   SDL_GPUGraphicsPipeline* pipeline3DTranslucent,
   SDL_GPUGraphicsPipeline* instancedMeshPipeline,
@@ -5222,6 +5460,10 @@ void appendCommandBatches(
   diagnostics.explosionDrawCalls = 0;
   diagnostics.legacyWireframeExplosionDraws = 0;
   diagnostics.legacyMachineGunShotgunVisualDraws = 0;
+  diagnostics.activeTemporaryLights = 0;
+  diagnostics.activeCasings = 0;
+  diagnostics.activeImpactParticles = 0;
+  diagnostics.activeBulletDecals = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -5410,6 +5652,14 @@ void appendCommandBatches(
       perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
     diagnostics.legacyMachineGunShotgunVisualDraws =
       perspectiveScene.transientVfxStats.legacyMachineGunShotgunVisualDraws;
+    diagnostics.activeTemporaryLights =
+      perspectiveScene.transientVfxStats.activeTemporaryLights;
+    diagnostics.activeCasings =
+      perspectiveScene.transientVfxStats.activeCasings;
+    diagnostics.activeImpactParticles =
+      perspectiveScene.transientVfxStats.activeImpactParticles;
+    diagnostics.activeBulletDecals =
+      perspectiveScene.transientVfxStats.activeBulletDecals;
     diagnostics.remoteBodyModelsBuilt = perspectiveScene.remoteBodyModelsBuilt;
     diagnostics.remoteWeaponModelsBuilt =
       perspectiveScene.remoteWeaponModelsBuilt;
@@ -5433,6 +5683,7 @@ void appendCommandBatches(
       millisecondsBetween(sceneBuildStart, RenderClock::now());
     const Uint32 opaqueDynamicVertexCount =
       static_cast<Uint32>(vertices.size());
+    appendVertices3D(vertices, perspectiveScene.contactShadowVertices, worldAtlas);
     appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
     const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
     const Uint32 worldVertexCount = dynamic3DVertexCount;
@@ -5728,6 +5979,42 @@ void appendCommandBatches(
       (void)submitCommandBuffer();
       return false;
     }
+      struct alignas(16) CombatLightUniform {
+        float parameters[4] = {};
+        float positionRadius[8][4] = {};
+        float colorIntensity[8][4] = {};
+      };
+      CombatLightUniform combatLightUniform;
+      const std::size_t lightCount =
+        settings.combatEffectsQuality > 0
+          ? std::min<std::size_t>(
+              perspectiveScene.temporaryLights.size(),
+              8U
+            )
+          : 0U;
+      combatLightUniform.parameters[0] = static_cast<float>(lightCount);
+      combatLightUniform.parameters[1] =
+        std::clamp(settings.toneMapExposure, 0.25F, 4.0F);
+      for (std::size_t index = 0; index < lightCount; ++index) {
+        const TemporaryLight& light = perspectiveScene.temporaryLights[index];
+        combatLightUniform.positionRadius[index][0] = light.position.x;
+        combatLightUniform.positionRadius[index][1] = light.position.y;
+        combatLightUniform.positionRadius[index][2] = light.position.z;
+        combatLightUniform.positionRadius[index][3] = light.radius;
+        combatLightUniform.colorIntensity[index][0] = light.color.x;
+        combatLightUniform.colorIntensity[index][1] = light.color.y;
+        combatLightUniform.colorIntensity[index][2] = light.color.z;
+        combatLightUniform.colorIntensity[index][3] = light.intensity;
+      }
+      struct alignas(16) GlowUniform {
+        float parameters[4] = {};
+      };
+      const GlowUniform glowUniform = {{
+        settings.bloomEnabled ? 1.0F : 0.0F,
+        std::clamp(settings.bloomThreshold, 0.5F, 4.0F),
+        std::clamp(settings.bloomIntensity, 0.0F, 1.0F),
+        0.0F,
+      }};
       if (hasStaticWorld || dynamic3DVertexCount > 0 || !perspectiveScene.simpleInstances.empty()) {
         const auto worldDrawStart = RenderClock::now();
         if (hasStaticWorld) {
@@ -5806,7 +6093,7 @@ void appendCommandBatches(
           &uniform,
           sizeof(uniform)
         );
-        SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
+        SDL_BindGPUGraphicsPipeline(worldPass, pipelineWorldSurface);
         if (hasStaticWorld) {
           const SDL_GPUBufferBinding staticBinding = {worldMesh->vertexBuffer, 0};
           SDL_BindGPUVertexBuffers(worldPass, 0, &staticBinding, 1);
@@ -5825,6 +6112,13 @@ void appendCommandBatches(
               millisecondsBetween(staticWorldStart, RenderClock::now());
           }
         }
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          0,
+          &combatLightUniform,
+          sizeof(combatLightUniform)
+        );
+        SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
         const SDL_GPUBufferBinding binding = {vertexBuffer, 0};
         SDL_BindGPUVertexBuffers(worldPass, 0, &binding, 1);
         if (worldAtlas != nullptr) {
@@ -5898,6 +6192,12 @@ void appendCommandBatches(
           gltfPlayerModelPipeline,
           gltfPlayerResources,
           perspectiveScene
+        );
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          0,
+          &glowUniform,
+          sizeof(glowUniform)
         );
         drawSimpleInstanceBatches(
           worldPass,
@@ -6578,6 +6878,12 @@ void appendCommandBatches(
         &viewModelUniform,
         sizeof(viewModelUniform)
       );
+      SDL_PushGPUFragmentUniformData(
+        commandBuffer,
+        0,
+        &combatLightUniform,
+        sizeof(combatLightUniform)
+      );
       drawStaticMeshBatches(
         viewModelPass,
         staticMeshPipeline,
@@ -6909,6 +7215,38 @@ void drawThickLine(
   }
 }
 
+void drawSniperScopeOverlay(
+  SDL_Renderer* renderer,
+  const SniperScopeOverlay2D& scope
+) {
+  CachedSniperScopeMesh& mesh = sniperScopeMesh(scope);
+  for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+    const SniperScopeMeshVertex& source = mesh.vertices[index];
+    const ScreenPoint point =
+      transformedSniperScopePoint(scope, source.position);
+    const RenderColor color =
+      modulatedSniperScopeColor(source.color, scope.opacity);
+    mesh.fallbackVertices[index] = {
+      {point.x, point.y},
+      {
+        static_cast<float>(color.red) / 255.0F,
+        static_cast<float>(color.green) / 255.0F,
+        static_cast<float>(color.blue) / 255.0F,
+        static_cast<float>(color.alpha) / 255.0F,
+      },
+      {},
+    };
+  }
+  SDL_RenderGeometry(
+    renderer,
+    nullptr,
+    mesh.fallbackVertices.data(),
+    static_cast<int>(mesh.fallbackVertices.size()),
+    mesh.indices.data(),
+    static_cast<int>(mesh.indices.size())
+  );
+}
+
 void drawCommands(
   SDL_Renderer* renderer,
   const std::vector<DrawCommand2D>& commands
@@ -6947,6 +7285,10 @@ void drawCommands(
             primitive.end.y,
             primitive.width
           );
+        } else if constexpr (
+          std::is_same_v<Primitive, SniperScopeOverlay2D>
+        ) {
+          drawSniperScopeOverlay(renderer, primitive);
         } else if constexpr (std::is_same_v<Primitive, Text2D>) {
           const float snappedScale =
             kUiFontPixelHeights[nearestUiFontPixelHeightIndex(primitive.scale)] /
@@ -7615,6 +7957,15 @@ bool Renderer::initialize(void* window) {
           true,
           depthFormat
         );
+        SDL_GPUGraphicsPipeline* pipelineWorldSurface = createGpuPipeline3D(
+          device,
+          static_cast<SDL_Window*>(window),
+          true,
+          depthFormat,
+          SDL_GPU_COMPAREOP_LESS,
+          "world_surface.frag.spv",
+          0
+        );
         SDL_GPUGraphicsPipeline* pipeline3DTranslucent = createGpuPipeline3D(
           device,
           static_cast<SDL_Window*>(window),
@@ -7756,6 +8107,7 @@ bool Renderer::initialize(void* window) {
           SDL_CreateGPUSampler(device, &nearestSamplerInfo);
         if (
           pipeline != nullptr &&
+          pipelineWorldSurface != nullptr &&
           pipeline3D != nullptr &&
           pipeline3DTranslucent != nullptr &&
           instancedMeshPipeline != nullptr &&
@@ -7786,6 +8138,7 @@ bool Renderer::initialize(void* window) {
         ) {
           gpuDevice_ = device;
           gpuPipeline_ = pipeline;
+          gpuPipelineWorldSurface_ = pipelineWorldSurface;
           gpuPipeline3D_ = pipeline3D;
           gpuPipeline3DTranslucent_ = pipeline3DTranslucent;
           gpuPipelineInstancedMesh_ = instancedMeshPipeline;
@@ -7871,6 +8224,9 @@ bool Renderer::initialize(void* window) {
         destroyGpuGltfPlayerResources(device, gltfPlayerResources);
         if (pipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        }
+        if (pipelineWorldSurface != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineWorldSurface);
         }
         if (pipeline3D != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline3D);
@@ -8114,6 +8470,7 @@ void Renderer::render(
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
+          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineWorldSurface_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline3D_),
           static_cast<SDL_GPUGraphicsPipeline*>(
             gpuPipeline3DTranslucent_
@@ -8342,6 +8699,10 @@ void Renderer::render(
   lastFrameDiagnostics_.explosionDrawCalls = 0;
   lastFrameDiagnostics_.legacyWireframeExplosionDraws = 0;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
+  lastFrameDiagnostics_.activeTemporaryLights = 0;
+  lastFrameDiagnostics_.activeCasings = 0;
+  lastFrameDiagnostics_.activeImpactParticles = 0;
+  lastFrameDiagnostics_.activeBulletDecals = 0;
   auto* renderer = static_cast<SDL_Renderer*>(renderer_);
   if (renderer == nullptr) {
     lastFrameDiagnostics_.totalRenderMilliseconds =
@@ -8489,6 +8850,14 @@ void Renderer::render(
   lastFrameDiagnostics_.legacyWireframeExplosionDraws =
     perspectiveScene.transientVfxStats.legacyWireframeExplosionDraws;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
+  lastFrameDiagnostics_.activeTemporaryLights =
+    perspectiveScene.transientVfxStats.activeTemporaryLights;
+  lastFrameDiagnostics_.activeCasings =
+    perspectiveScene.transientVfxStats.activeCasings;
+  lastFrameDiagnostics_.activeImpactParticles =
+    perspectiveScene.transientVfxStats.activeImpactParticles;
+  lastFrameDiagnostics_.activeBulletDecals =
+    perspectiveScene.transientVfxStats.activeBulletDecals;
   lastFrameDiagnostics_.remoteBodyModelsBuilt =
     perspectiveScene.remoteBodyModelsBuilt;
   lastFrameDiagnostics_.remoteWeaponModelsBuilt =
@@ -8850,6 +9219,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline3D_)
       );
       gpuPipeline3D_ = nullptr;
+    }
+    if (gpuPipelineWorldSurface_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineWorldSurface_)
+      );
+      gpuPipelineWorldSurface_ = nullptr;
     }
     if (gpuPipeline3DTranslucent_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(

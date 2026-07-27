@@ -148,19 +148,29 @@ class LiveScenarioTests(unittest.TestCase):
         self.assertIn("wait_client_tick", [name for name, _ in calls])
         self.assertIn("wait_snapshot_tick", [name for name, _ in calls])
 
+    def test_input_parts_normalize_canonical_weapon_name(self) -> None:
+        parts = lg_live_scenario._input_parts(
+            {
+                "duration_ticks": 1,
+                "one_tick_edges": ["attack"],
+                "input": {"attack": True, "weapon": "machine_gun"},
+            }
+        )
+
+        self.assertEqual(parts[0]["weapon"], "machinegun")
+
     def test_capture_after_event_waits_for_frames(self) -> None:
         _, calls = self.run_scenario(self.scenario(capture=True))
         names = [name for name, _ in calls]
         self.assertIn("capture_screenshot", names)
         self.assertLess(names.index("wait_frames"), names.index("capture_screenshot"))
         capture_index = names.index("capture_screenshot")
-        state_index = max(
+        state_index = min(
             index
-            for index, name in enumerate(names[:capture_index])
+            for index, name in enumerate(names[capture_index + 1:], capture_index + 1)
             if name == "get_client_state"
         )
-        self.assertLess(names.index("wait_frames"), state_index)
-        self.assertLess(state_index, capture_index)
+        self.assertLess(capture_index, state_index)
 
     def test_tick_capture_runs_before_later_timeline_input(self) -> None:
         scenario = self.scenario()
@@ -197,6 +207,64 @@ class LiveScenarioTests(unittest.TestCase):
         sent = [calls[index][1] for index in sent_indexes]
         self.assertEqual([part["ticks"] for part in sent], [2, 1])
 
+    def test_capture_reserves_runtime_without_changing_evidence_scenario(self) -> None:
+        scenario = self.scenario(capture=True)
+        observed_runtime_ticks: list[int] = []
+        base_launcher = self.launcher(scenario)
+
+        def inspect_launcher(path, *args, **kwargs):
+            runtime = json.loads(Path(path).read_text(encoding="utf-8"))
+            observed_runtime_ticks.append(runtime["execution"]["max_ticks"])
+            return base_launcher(path, *args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "live-test.json"
+            source.write_text("{}", encoding="utf-8")
+            calls: list[tuple[str, dict]] = []
+            with mock.patch.object(
+                lg_live_scenario,
+                "validate_live_scenario",
+                return_value=scenario,
+            ), mock.patch.object(
+                lg_launch,
+                "launch_scenario_session",
+                side_effect=inspect_launcher,
+            ), mock.patch.object(
+                lg_launch,
+                "cleanup_scenario_session",
+                return_value={"stopped": ["client", "server"], "failures": []},
+            ), mock.patch.object(
+                lg_control,
+                "send_request",
+                self.sender(calls),
+            ):
+                result = lg_live_scenario.run_live_scenario(
+                    source,
+                    root / "out",
+                    timeout=1,
+                )
+
+            evidence_scenario = json.loads(
+                (
+                    Path(result["artifact_path"])
+                    / "scenarios"
+                    / scenario["name"]
+                    / "scenario.json"
+                ).read_text(encoding="utf-8")
+            )
+        self.assertEqual(
+            observed_runtime_ticks,
+            [
+                scenario["execution"]["max_ticks"]
+                + lg_live_scenario.CAPTURE_RUNTIME_PADDING_TICKS
+            ],
+        )
+        self.assertEqual(
+            evidence_scenario["execution"]["max_ticks"],
+            scenario["execution"]["max_ticks"],
+        )
+
     def test_dispatch_lateness_is_checked_after_client_state_read(self) -> None:
         scenario = self.scenario()
         with tempfile.TemporaryDirectory() as temporary:
@@ -223,11 +291,11 @@ class LiveScenarioTests(unittest.TestCase):
             ), mock.patch.object(
                 lg_live_scenario,
                 "_latest_checkpoint",
-                return_value={"relative_tick": 40},
+                return_value={"relative_tick": 140},
             ):
                 with self.assertRaisesRegex(
                     lg_live_scenario.LiveScenarioError,
-                    "started 40 ticks late",
+                    "started 140 ticks late",
                 ):
                     lg_live_scenario.run_live_scenario(
                         source,
@@ -237,6 +305,21 @@ class LiveScenarioTests(unittest.TestCase):
             names = [name for name, _ in calls]
             self.assertIn("get_client_state", names)
             self.assertNotIn("send_input", names)
+
+    def test_dispatch_lateness_only_expands_after_measured_capture_pause(self) -> None:
+        self.assertEqual(
+            lg_live_scenario._schedule_late_limit(0),
+            lg_live_scenario.BASE_SCHEDULE_LATE_TICKS,
+        )
+        self.assertEqual(
+            lg_live_scenario._schedule_late_limit(10),
+            lg_live_scenario.BASE_SCHEDULE_LATE_TICKS + 10,
+        )
+        self.assertEqual(
+            lg_live_scenario._schedule_late_limit(1000),
+            lg_live_scenario.BASE_SCHEDULE_LATE_TICKS
+            + lg_live_scenario.MAX_CAPTURE_RECOVERY_TICKS,
+        )
 
     def test_launch_failure_writes_partial_evidence(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

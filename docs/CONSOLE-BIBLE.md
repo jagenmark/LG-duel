@@ -102,7 +102,8 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_mouseAccelOffset` | float | `0` | `0..1000` | QL `cl_mouseAccelOffset 0` | Arkiv | Mushastighet i counts/ms innan acceleration börjar. Hastigheter under offset behåller baskänsligheten. |
 | `cl_mouseSensCap` | float | `0` | `0..100` | QL `cl_mouseSensCap 0` | Arkiv | Tak för accelererad känslighet. `0` betyder inget tak. |
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
-| `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan `+zoom` hålls. Påverkar bara klientens vy/aimberäkning, inte simulation eller server. |
+| `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan allmän `+zoom` hålls. Påverkar inte Sniper Rifle ADS. |
+| `cl_zoom_sniper_fov` | float | `45` | `20..140` | Projektets tidigare Sniper Rifle baseline | Arkiv | Field of view för Sniper Rifle ADS. Oberoende av `cl_zoom_fov`; scope-masken ändrar inte form eller plats. |
 | `cl_zoom_sensitivity` | float | `0` | `0..10` | Ingen direkt | Arkiv | First-person sensitivity multiplier while `+zoom` is held. `0` auto-matches the FOV ratio. |
 | `cl_death_spectate_threshold` | float | `3` | `0..30` seconds | None | Archive | A live-respawn delay at or above this value switches the death camera to a living teammate after the hold. Shorter delays retain the local death-position view. |
 | `cl_death_camera_hold` | float | `0.5` | `0..10` seconds | None | Archive | Minimum time to retain the local death-position view before teammate spectating begins. |
@@ -303,6 +304,25 @@ the Revolver.
 | `r_texture_anisotropy` | int | `8` | `1..16`, renderer snappar till `1/2/4/8/16` | Q3/driver aniso settings närmast | World/material anisotropic filtering level. Unsupported anisotropy disables safely with a renderer log. |
 | `r_texture_lod_bias` | float | `0.5` | `-2..4` | Q3/driver LOD-bias närmast | World/material mip LOD bias. Positive values choose blurrier, more stable mip levels; changes recreate the sampler without reloading textures. |
 | `r_weapon_pos` | int | `0` | `0..2` | None directly | First-person weapon position: `0` center, `1` wide right, `2` wide left. This changes only local presentation and visual muzzle origins. |
+| `r_combat_effects` | int | `2` | `0..2` | None | Master combat-effect quality. `0` clears and skips the new machine-gun effects, `1` uses the reduced set, and `2` enables the full restrained set. This never changes gameplay results. |
+| `r_muzzle_light_intensity` | float | `2.4` | `0..12` | None | Presentation-only warm muzzle-light strength. |
+| `r_muzzle_light_radius` | float | `3.2` | `0..16` world units | None | Radius of each short machine-gun muzzle light. |
+| `r_muzzle_light_duration` | float | `0.13` | `0..0.25` seconds | None | Lifetime of each muzzle light. Its shaped tail bridges close machine-gun shots while the fixed pool prevents sustained-fire growth. |
+| `r_tonemap_exposure` | float | `1` | `0.25..4` | None | Fixed exposure used by the filmic world and weapon tone map. There is no automatic exposure. |
+| `r_bloom` | bool | `1` | bool | None | Enables the compact bloom response on bright effect sprites. It does not process HUD pixels. |
+| `r_bloom_intensity` | float | `0.18` | `0..1` | None | Strength of the compact bright-effect bloom response. |
+| `r_bloom_threshold` | float | `1.15` | `0.5..4` | None | Brightness threshold for compact effect bloom. Ordinary scene surfaces do not enter this path. |
+| `r_casings` | bool | `1` | bool | None | Enables local, presentation-only cartridge casings. |
+| `r_casing_count` | float | `1` | `0..1` | None | Seeded per-shot casing spawn ratio. `0` disables spawning; `1` attempts one casing for each machine-gun shot. |
+| `r_casing_lifetime` | float | `2.4` | `0.05..10` seconds | None | Visual casing lifetime. |
+| `r_casing_max` | int | `48` | `0..96` | None | Maximum active casings. The oldest active casing is reused when this limit is full. |
+| `r_impact_particles` | float | `1` | `0..2` | None | Impact-particle count multiplier. |
+| `r_impact_particle_max` | int | `192` | `0..384` | None | Shared cap for active machine-gun muzzle and impact particles. |
+| `r_decals_max` | int | `128` | `0..256` | None | Maximum active bullet decals. The oldest decal is reused when full. |
+| `r_decal_lifetime` | float | `24` | `0.05..120` seconds | None | Bullet-decal lifetime. Map/session reset clears all decals sooner. |
+| `r_mg_barrel_max_rps` | float | `14` | `0..40` revolutions/second | None | Maximum playback rate for the existing authored machine-gun barrel motion. It does not add a second spin system. |
+| `r_mg_barrel_spin_up` | float | `0.25` | `0..2` seconds | None | Time for the existing authored barrel playback to reach its maximum rate. Gameplay firing does not wait for it. |
+| `r_mg_barrel_spin_down` | float | `0.55` | `0..3` seconds | None | Time for the existing authored barrel playback to stop after firing input stops. |
 | `r_perf` | bool | `0` | bool | Ingen direkt | Visa renderer-diagnostik pa HUD. |
 | `r_perf_detail` | bool | `0` | bool | Ingen direkt | Visa detaljerad renderer-diagnostik for remote frustum-culling och geometri. |
 | `r_beam_width` | float | `2` | `1..12` | Ingen direkt stabil cvar | Local LG beam width in first-person world units. |
@@ -575,7 +595,7 @@ knappen släpps.
 | `+dash` / `-dash` | Start the universal movement dash on press. Default bind: `mouse3`. Direction is sampled from movement input and locked when dash starts. |
 | `+scores` / `-scores` | Visa/dölj scoreboard. |
 | `+showchat` / `-showchat` | Hold chat history open; use the mouse wheel to scroll. |
-| `+zoom` / `-zoom` | Hold or release zoom. It uses `cl_zoom_fov` and the zoom sensitivity. With the Sniper Rifle it also opens the scope and sends ADS state to the server for charge. |
+| `+zoom` / `-zoom` | Hold or release zoom. General zoom uses `cl_zoom_fov`; Sniper Rifle ADS uses `cl_zoom_sniper_fov`. Both use the same `cl_zoom_sensitivity` rule. Sniper ADS also opens the scope and sends ADS state to the server for charge. |
 | `weapon <mg\|sg\|gl\|rl\|lg\|sr\|pg\|fg\|re\|1..9>` | Choose machine gun, shotgun, grenade launcher, rocket launcher, lightning gun, Sniper Rifle, plasma gun, freeze gun, or revolver. `rg`, `rail`, and `railgun` remain aliases for `sr`. |
 
 ### Standardbindings

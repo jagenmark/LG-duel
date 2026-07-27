@@ -5,6 +5,120 @@ agent-driven visual inspection. It is independent of MCP: the running client
 owns a small structured socket service, `lg-control.ps1` is a direct client,
 and `lg_mcp_server.py` is a thin MCP-to-socket adapter.
 
+## Agent Workflow: Tools Before Window Control
+
+Use the local developer-control tools for every game action that they cover.
+They address one explicit loopback endpoint, return structured state, and do
+not depend on window focus. Do not inject keys or use Computer Use for routine
+game control. Use it only after a capture, when a person needs visual
+confirmation, or when no developer-control operation can perform the task.
+
+1. Work from the intended worktree. Build it, then choose a unique server and
+   control port for that worktree. Do not reuse another worktree's default
+   endpoint.
+2. Launch that worktree's owned client with the chosen ports. Pass the same
+   control port to every later request.
+3. Check `status` before and after a state change. Use typed map, input,
+   camera, and capture operations first. Run console commands through
+   `exec-console`, never by typing into the game window.
+4. Give every call a short, known timeout. A map load or capture can take a few
+   seconds; do not leave an agent waiting on an unbounded wrapper.
+5. On a failure, read `status` and the worktree's logs, then retry only the
+   failed bounded request. Stop the owned session when done.
+
+### Isolated Worktree Session
+
+The default control port is `27961`, so it conflicts when several worktrees
+run at once. Pick unused port pairs and keep them with the task. For example,
+this worktree uses server port `28060` and control port `28061`:
+
+```powershell
+.\scripts\lg-control.ps1 start -ServerPort 28060 -ControlPort 28061 -Timeout 20
+.\scripts\lg-control.ps1 status -ControlPort 28061 -Timeout 3
+```
+
+The launcher owns only the processes it starts and stores its state under that
+worktree's `build/dev-control/`. A request with `--port 28061` reaches only
+that client. Never assume that a client on `27961` belongs to the current
+worktree.
+
+For the normal action loop, use the direct bounded client. It will launch or
+verify the local owned client when needed, but each request has its own cap:
+
+```powershell
+python .\scripts\lg_control.py --port 28061 --timeout 5 status
+python .\scripts\lg_control.py --port 28061 --timeout 10 load-map eyetoeye
+python .\scripts\lg_control.py --port 28061 --timeout 5 wait-frames 2
+python .\scripts\lg_control.py --port 28061 --timeout 10 capture --name eyetoeye-check
+```
+
+`lg-control.ps1` remains useful for lifecycle actions. Older wrapper-driven
+state changes have waited too long when a map transition did not finish. For
+map, input, camera, console, status, and capture work, prefer the direct form
+above with `--timeout`. Retry after checking status only if the first request
+timed out and the client still answers. Do not send the same map command again
+while its first request may still run.
+
+### Command Discovery And Direct Console Use
+
+The project command list lives in [CONSOLE-BIBLE.md](CONSOLE-BIBLE.md). Use
+the game commands `cmdlist`, `cvarlist`, and `help <name>` through developer
+control when the list does not answer the question:
+
+```powershell
+python .\scripts\lg_control.py --port 28061 --timeout 5 exec-console cmdlist
+python .\scripts\lg_control.py --port 28061 --timeout 5 exec-console "help settings"
+python .\scripts\lg_control.py --port 28061 --timeout 5 get-cvar cl_fov
+```
+
+F10 is bound to the `settings` console command. To open the same settings menu,
+run the command directly; do not focus the game and inject F10:
+
+```powershell
+python .\scripts\lg_control.py --port 28061 --timeout 5 exec-console settings
+```
+
+Use `exec-console toggleconsole` only when testing the console UI itself. It
+does not make key injection safer or needed.
+
+### Deterministic Map, Input, And Capture Steps
+
+Use this order for a reproducible visual check:
+
+```powershell
+python .\scripts\lg_control.py --port 28061 --timeout 10 load-map eyetoeye
+python .\scripts\lg_control.py --port 28061 --timeout 5 set-camera --position 0,22.4,-12.85 --yaw -90 --pitch 0 --fov 100
+python .\scripts\lg_control.py --port 28061 --timeout 5 send-input --ticks 125 --forward 1
+python .\scripts\lg_control.py --port 28061 --timeout 5 wait-frames 2
+python .\scripts\lg_control.py --port 28061 --timeout 10 capture --name central-overview
+python .\scripts\lg_control.py --port 28061 --timeout 10 capture-map-views --map eyetoeye --preset standard
+python .\scripts\lg_control.py --port 28061 --timeout 3 status
+```
+
+`load-map` and `reload-map` wait for an authoritative map revision. `send-input`
+uses fixed ticks, `wait-frames` uses fixed rendered frames, and capture returns
+the saved PNG path and renderer data. For scenario coverage, run
+`python .\scripts\lg_live_scenario.py <name> --timeout <seconds>`;
+it reserves distinct local ports and records its own run files. Do not try to
+drive a live scenario through a window.
+
+When a request fails, first run the bounded `status` call above. Then inspect
+`build/dev-control/client.stderr.log`, `client.stdout.log`, and the server logs
+in the same folder. If the endpoint refuses connections, restart only the
+current worktree-owned session. If status answers but a map change timed out,
+inspect its reported map and revision before retrying. If no developer tool can
+perform the needed visual-only check, take a developer-control PNG first, then
+use Computer Use only to confirm what that PNG cannot show.
+
+End with:
+
+```powershell
+.\scripts\lg-control.ps1 stop
+```
+
+This stops only launcher-owned processes. It does not terminate a client that
+another worktree or person owns.
+
 ## Architecture And Trust Boundary
 
 The client starts the service only with `--dev-control` or `--control-port`.
@@ -13,6 +127,11 @@ Normal launches do not open a control port. The listener binds only to
 request at a time. It can run bounded game-console text, but it has no shell or
 process launch path. Requests are limited to 64 KiB and use control protocol
 version 1.
+
+`exec-console settings` uses the same toggle as the default F10 binding: it
+opens the Settings / Video menu when closed and closes it when open. Closing by
+that toggle or with Escape discards unapplied draft values; only **Apply
+changes** writes them.
 
 The socket thread parses requests and queues them. State changes and renderer
 capture run on the SDL client thread. The socket thread waits for an explicit
@@ -271,6 +390,19 @@ map text or filesystem paths. Use supervised TrenchBroom for those edits.
 - **MCP tools fail:** visual tools supervise or verify the local client through
   the shared launcher. Structured errors distinguish launch, attachment,
   renderer attestation, and control-operation failures.
+- **MCP state change waits until the host timeout:** this has reproduced on the
+  Windows validation host with `lg_load_map`, `lg_send_input`,
+  `lg_exec_console`, and `lg_stop`. The adapter call waited for its 300-second
+  host limit while the verified client still answered through the direct
+  scripts. The smallest known trigger is one wrapper state-change request
+  against an otherwise healthy verified client. Retry the state change through
+  the bounded path, for example
+  `python scripts/lg_control.py --timeout 5 --json load-map scenario_wall` or
+  `python scripts/lg_control.py --timeout 5 --json send-input --ticks 1
+  --attack`. Use `python scripts/lg_launch.py --json stop` as the stop fallback.
+  Keep using the same verified client, renderer, map, and capture checks; this
+  is a control-workflow fallback, not permission to weaken visual evidence or
+  renderer attestation.
 
 Known limitations: requests are serial; output is PNG only; MCP uses control
 port 27961; and `eyetoeye/standard` is the only curated preset. Player input

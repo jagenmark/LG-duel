@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260726T134242Z-machine-gun-before-01",
+  "captured_at": "2026-07-26T13:42:42Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed scenario_wall view with the machine gun visible and r_combat_effects 0. This is the matched control frame.",
+  "image": "20260726T134242Z-machine-gun-before-01.png",
+  "review": {
+    "notes": "The matched fixed-view pair clearly shows the compact effects-on change against its clean control. The moving checkpoint clearly shows the moved viewmodel and two bounded surface-aligned marks. All captures are unobscured and readable on a phone; timing and count evidence is separate.",
+    "reviewed_at": "2026-07-26T14:07:48Z",
+    "reviewer": "codex-final-visual-and-diff-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "6c9ed578f0e93ecd8d1cb419b5a5fa88293ffdc016fb3a986210fc18bcd11e8b",
+  "size_bytes": 9217968,
+  "task_id": "machine-gun-visual-slice",
+  "title": "Combat effects disabled"
+}

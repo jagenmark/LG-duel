@@ -194,23 +194,6 @@ $sdlLicense = Get-ChildItem -Path $resolvedBuildDir -Filter "LICENSE.txt" -File 
   Where-Object { $_.FullName -match "[\\/]sdl3-src[\\/]" } |
   Select-Object -First 1
 if (-not $sdlLicense) {
-  $fallbackBuildDirs = @(
-    (Join-Path $repoRoot "build"),
-    (Join-Path (Split-Path -Parent $repoRoot) "build")
-  )
-  foreach ($buildDir in $fallbackBuildDirs) {
-    if (-not (Test-Path $buildDir)) {
-      continue
-    }
-    $sdlLicense = Get-ChildItem -Path $buildDir -Filter "LICENSE.txt" -File -Recurse |
-      Where-Object { $_.FullName -match "[\\/]sdl3-src[\\/]" } |
-      Select-Object -First 1
-    if ($sdlLicense) {
-      break
-    }
-  }
-}
-if (-not $sdlLicense) {
   throw "The SDL3 license file was not found in the fetched source tree."
 }
 
@@ -266,6 +249,8 @@ $requiredFiles = @(
   "shaders/color2d.frag.spv",
   "shaders/world3d.vert.spv",
   "shaders/world3d.frag.spv",
+  "shaders/world_surface.frag.spv",
+  "shaders/gltf_player_model.frag.spv",
   "shaders/outline_mask.frag.spv",
   "shaders/outline_clear.vert.spv",
   "shaders/outline_clear.frag.spv",

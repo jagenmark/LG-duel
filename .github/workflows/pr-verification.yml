@@ -31,8 +31,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Install build and SDL window-system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
       - name: Configure
         run: cmake --preset default
@@ -166,8 +171,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Install build and SDL window-system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
       - name: Build scenario runner
         run: |
@@ -279,8 +289,13 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Install build and SDL window-system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes ninja-build \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev libxtst-dev \
+            libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
       - name: Build protocol checks
         run: |

@@ -95,6 +95,26 @@ int main() {
     "machine-gun firing response should settle completely after its short envelope"
   );
 
+  const lg::MachineGunMuzzleFlashEnvelope muzzlePeak =
+    lg::machineGunMuzzleFlashEnvelope(0.0F, 17U);
+  const lg::MachineGunMuzzleFlashEnvelope muzzleCarry =
+    lg::machineGunMuzzleFlashEnvelope(0.080F, 17U);
+  const lg::MachineGunMuzzleFlashEnvelope muzzleVariation =
+    lg::machineGunMuzzleFlashEnvelope(0.080F, 25U);
+  const lg::MachineGunMuzzleFlashEnvelope muzzleExpired =
+    lg::machineGunMuzzleFlashEnvelope(
+      lg::kMachineGunMuzzleFlashDurationSeconds,
+      17U
+    );
+  failures += expect(
+    muzzlePeak.flameAlpha > 0.95F && muzzlePeak.coreAlpha > 0.95F &&
+      muzzleCarry.coreAlpha > 0.10F &&
+      muzzleCarry.flameAlpha < muzzleCarry.coreAlpha &&
+      muzzleCarry.coreAlpha != muzzleVariation.coreAlpha &&
+      muzzleExpired.coreAlpha == 0.0F,
+    "machine-gun flashes should keep a varied carried core between sharp shots"
+  );
+
   const lg::RevolverTracerPresentation revolverStart =
     lg::revolverTracerPresentation(0.0F);
   const lg::RevolverTracerPresentation revolverFollowEnd =

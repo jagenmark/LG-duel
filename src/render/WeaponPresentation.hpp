@@ -118,6 +118,47 @@ struct MachineGunFiringResponseState {
   }
 };
 
+struct MachineGunMuzzleFlashEnvelope {
+  float flameAlpha = 0.0F;
+  float coreAlpha = 0.0F;
+  float coreScale = 0.0F;
+};
+
+inline constexpr float kMachineGunMuzzleFlashDurationSeconds = 0.13F;
+
+[[nodiscard]] inline MachineGunMuzzleFlashEnvelope machineGunMuzzleFlashEnvelope(
+  float ageSeconds,
+  std::uint32_t visualSeed
+) {
+  if (
+    !std::isfinite(ageSeconds) ||
+    ageSeconds < 0.0F ||
+    ageSeconds >= kMachineGunMuzzleFlashDurationSeconds
+  ) {
+    return {};
+  }
+  // Keep each shot crisp, then retain a small seeded core until the next
+  // normal 13-tick shot. The carry-over avoids an all-black gap without
+  // turning held fire into a constant glow.
+  const float sharp = std::pow(std::clamp(
+    1.0F - ageSeconds / 0.055F,
+    0.0F,
+    1.0F
+  ), 1.65F);
+  const float carry = std::pow(std::clamp(
+    1.0F - ageSeconds / kMachineGunMuzzleFlashDurationSeconds,
+    0.0F,
+    1.0F
+  ), 1.10F);
+  const float variation = 0.92F +
+    static_cast<float>((visualSeed >> 3U) & 3U) * 0.025F;
+  return {
+    std::clamp(0.12F * carry * variation + 0.88F * sharp, 0.0F, 1.0F),
+    std::clamp(0.40F * carry * variation + 0.60F * sharp, 0.0F, 1.0F),
+    0.76F + 0.24F * sharp + (variation - 0.92F) * 0.40F,
+  };
+}
+
 struct RocketLauncherFiringResponseState {
   static constexpr float kDurationSeconds = 0.20F;
 

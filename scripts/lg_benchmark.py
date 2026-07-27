@@ -156,7 +156,7 @@ def validate_scenario(document: Any, *, source: Path | None = None) -> dict[str,
         "backend_requirement", "resolution", "fullscreen", "vsync", "frame_cap", "fov",
         "warmup_seconds", "warmup_frames", "measured_seconds", "measured_frames", "camera_start",
         "camera_path", "player_state", "actors", "effects", "cvars", "screenshots",
-        "residual_nondeterminism",
+        "residual_nondeterminism", "graphics_profile", "render_scale",
     }
     _closed(obj, allowed, "scenario")
     required = {
@@ -193,6 +193,12 @@ def validate_scenario(document: Any, *, source: Path | None = None) -> dict[str,
     fov = _number(obj["fov"], "scenario.fov", minimum=30.0)
     if fov > 140.0:
         raise BenchmarkError("scenario.fov must not exceed 140")
+    profile = obj.get("graphics_profile", "Default")
+    if profile not in {"Low", "Default", "Competitive", "High"}:
+        raise BenchmarkError("scenario.graphics_profile must be Low, Default, Competitive, or High")
+    render_scale = _number(obj.get("render_scale", 1.0), "scenario.render_scale", minimum=0.5)
+    if render_scale > 1.5:
+        raise BenchmarkError("scenario.render_scale must not exceed 1.5")
     for prefix in ("warmup", "measured"):
         keys = [key for key in (f"{prefix}_seconds", f"{prefix}_frames") if key in obj]
         if len(keys) != 1:
@@ -216,10 +222,10 @@ def validate_scenario(document: Any, *, source: Path | None = None) -> dict[str,
             raise BenchmarkError("scenario.camera_path keyframe timing must be strictly increasing")
 
     state = _object(obj["player_state"], "scenario.player_state")
-    _closed(state, {"alive", "spectator", "weapon", "hide_hud", "hide_overlays"}, "scenario.player_state")
+    _closed(state, {"alive", "spectator", "weapon", "attack", "hide_hud", "hide_overlays"}, "scenario.player_state")
     if not any(key in state for key in ("alive", "spectator")):
         raise BenchmarkError("scenario.player_state must define alive or spectator state")
-    if any(key in state and not isinstance(state[key], bool) for key in ("alive", "spectator", "hide_hud", "hide_overlays")):
+    if any(key in state and not isinstance(state[key], bool) for key in ("alive", "spectator", "attack", "hide_hud", "hide_overlays")):
         raise BenchmarkError("scenario.player_state boolean fields must be boolean")
     if "weapon" in state and (not isinstance(state["weapon"], str) or not state["weapon"]):
         raise BenchmarkError("scenario.player_state.weapon must be a non-empty string")

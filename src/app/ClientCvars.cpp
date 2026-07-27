@@ -5,6 +5,9 @@
 #include "net/NetProtocol.hpp"
 #include "sim/GameplayCvars.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 namespace lg {
 
 void registerClientCvars(ConsoleSystem& console) {
@@ -17,6 +20,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_mouseSensCap", "Quake Live accelerated sensitivity cap; zero disables the cap.", 0.0F, archivedClient, 0.0F, 100.0F, "0"});
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
+  console.registerCvar({"cl_zoom_sniper_fov", "Field of view for Sniper Rifle ADS.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_death_spectate_threshold", "Respawn delay in seconds at which a dead player switches to a living teammate after the camera hold.", 3.0F, archivedClient, 0.0F, 30.0F});
   console.registerCvar({"cl_death_camera_hold", "Seconds to retain the local death-position view before teammate spectating is allowed.", 0.5F, archivedClient, 0.0F, 10.0F});
@@ -51,6 +55,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"net_sim_seed", "Client UDP simulator RNG seed; 0 uses the fixed default seed.", 0, CvarFlag::Client, 0.0F, 2147483647.0F});
   console.registerCvar({"cl_show_lagcomp", "Show lag compensation status and real rewind data when used.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_show_console_cat", "Show the animated cat in the in-game console.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"cl_interp_adaptive", "Adapt the interpolation buffer to measured snapshot jitter.", true, archivedClient, {}, {}});
@@ -106,6 +111,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"vid_display", "Display index for fullscreen/window placement.", 0, archivedClient, 0.0F, 31.0F});
   console.registerCvar({"r_present_mode", "Renderer present mode: 0 FIFO/V-sync, 1 Mailbox, 2 Immediate.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_render_scale", "Internal render scale: 0.5 to 1.5. Values above 1 are Extreme / benchmark-only and are not recommended for normal play.", 1.0F, archivedClient, 0.5F, 1.5F});
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
   console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
   console.registerCvar({"r_world_frustum_cull", "Experimentally cull cached static-world chunks outside the first-person camera frustum on the GPU renderer.", false, archivedClient, {}, {}});
@@ -117,6 +123,25 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_draw_remote_weapons", "Draw remote held weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_show_weapons", "Draw local first-person weapon models.", true, archivedClient, {}, {}});
   console.registerCvar({"r_weapon_pos", "First-person weapon position: 0 center, 1 wide right, 2 wide left.", 0, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_combat_effects", "Combat effects quality: 0 off, 1 low, 2 full.", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_muzzle_light_intensity", "Presentation-only muzzle light intensity.", 2.4F, archivedClient, 0.0F, 12.0F});
+  console.registerCvar({"r_muzzle_light_radius", "Muzzle light radius in world units.", 3.2F, archivedClient, 0.0F, 16.0F});
+  console.registerCvar({"r_muzzle_light_duration", "Muzzle light lifetime in seconds.", 0.13F, archivedClient, 0.0F, 0.25F});
+  console.registerCvar({"r_tonemap_exposure", "Fixed filmic tone-map exposure.", 1.0F, archivedClient, 0.25F, 4.0F});
+  console.registerCvar({"r_bloom", "Enable compact bloom on bright effect sprites.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_bloom_intensity", "Compact bright-effect bloom intensity.", 0.18F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_bloom_threshold", "Brightness threshold for effect bloom.", 1.15F, archivedClient, 0.5F, 4.0F});
+  console.registerCvar({"r_casings", "Enable local visual cartridge casings.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_casing_count", "Machine-gun casing count multiplier.", 1.0F, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_casing_lifetime", "Casing lifetime in seconds.", 2.4F, archivedClient, 0.05F, 10.0F});
+  console.registerCvar({"r_casing_max", "Maximum active visual casings.", 48, archivedClient, 0.0F, 96.0F});
+  console.registerCvar({"r_impact_particles", "Bullet-impact particle count multiplier.", 1.0F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_impact_particle_max", "Maximum active impact and muzzle particles.", 192, archivedClient, 0.0F, 384.0F});
+  console.registerCvar({"r_decals_max", "Maximum active bullet decals.", 128, archivedClient, 0.0F, 256.0F});
+  console.registerCvar({"r_decal_lifetime", "Bullet decal lifetime in seconds.", 24.0F, archivedClient, 0.05F, 120.0F});
+  console.registerCvar({"r_mg_barrel_max_rps", "Maximum authored machine-gun barrel playback rate in revolutions per second.", 14.0F, archivedClient, 0.0F, 40.0F});
+  console.registerCvar({"r_mg_barrel_spin_up", "Seconds for the authored machine-gun barrel clip to reach full playback rate.", 0.25F, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_mg_barrel_spin_down", "Seconds for the authored machine-gun barrel clip to stop.", 0.55F, archivedClient, 0.0F, 3.0F});
   console.registerCvar({"r_draw_player_outlines", "Draw player outlines.", true, archivedClient, {}, {}});
   console.registerCvar({"r_beam_width", "Lightning beam width in pixels.", 2.0F, archivedClient, 1.0F, 12.0F});
   console.registerCvar({"r_beam_alpha", "Lightning beam opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
@@ -242,6 +267,42 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_teammate_name_r", "Floating teammate name tag red channel.", 210, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_name_g", "Floating teammate name tag green channel.", 245, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_name_b", "Floating teammate name tag blue channel.", 255, archivedClient, 0.0F, 255.0F});
+}
+
+float resolvedZoomFieldOfView(
+  float baseFieldOfView,
+  float generalZoomFieldOfView,
+  float sniperZoomFieldOfView,
+  bool zoomHeld,
+  bool sniperScopeActive,
+  float sniperAdsAmount
+) {
+  if (sniperScopeActive) {
+    const float amount = std::clamp(sniperAdsAmount, 0.0F, 1.0F);
+    const float smoothAmount = amount * amount * (3.0F - 2.0F * amount);
+    return baseFieldOfView +
+      (sniperZoomFieldOfView - baseFieldOfView) * smoothAmount;
+  }
+  return zoomHeld ? generalZoomFieldOfView : baseFieldOfView;
+}
+
+float zoomSensitivityMultiplier(
+  float baseFieldOfView,
+  float zoomFieldOfView,
+  float manualMultiplier
+) {
+  if (manualMultiplier > 0.0F) {
+    return manualMultiplier;
+  }
+
+  constexpr float kDegreesToRadians = 0.01745329252F;
+  const float baseHalfAngle = baseFieldOfView * 0.5F * kDegreesToRadians;
+  const float zoomHalfAngle = zoomFieldOfView * 0.5F * kDegreesToRadians;
+  const float baseTangent = std::tan(baseHalfAngle);
+  if (std::fabs(baseTangent) <= 0.0001F) {
+    return 1.0F;
+  }
+  return std::tan(zoomHalfAngle) / baseTangent;
 }
 
 } // namespace lg

@@ -21,6 +21,8 @@ root:
   --python assets/models/machine_gun/add_barrel_spin_animation.py
 ```
 
-The export retains `MG_BARREL_SPIN_AXIS`, `MG_MUZZLE_SOCKET`, grip metadata, and
-the reference action while excluding preview lights, camera, floor, and the
-visible editor-only muzzle marker.
+The export retains `MG_BARREL_SPIN_AXIS`, `MG_MUZZLE_SOCKET`,
+`MG_CASING_EJECT_SOCKET`, grip metadata, and the reference action while
+excluding preview lights, camera, floor, and the visible editor-only muzzle
+marker. The muzzle socket sits on the cluster center because this design fires
+through the common front ring; the casing socket stays on the fixed receiver.

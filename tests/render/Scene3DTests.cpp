@@ -288,6 +288,7 @@ int main() {
   settings.enemyOutlineGreen = 227;
   settings.enemyOutlineBlue = 19;
   settings.playerModel = 1;
+  settings.contactShadowsEnabled = true;
   lg::LightningGunResult inactiveBeam;
   const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
   const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
@@ -333,6 +334,12 @@ int main() {
       baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
       baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
     "GLB render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
+  );
+  failures += expect(
+    baseScene.contactShadowVertices.size() == 48U &&
+      baseScene.contactShadowVertices.front().color.alpha > 0 &&
+      baseScene.contactShadowVertices[1].color.alpha == 0,
+    "a grounded visible remote player should emit one soft contact shadow"
   );
 
   lg::RenderSettings workerSettings = settings;
@@ -428,6 +435,7 @@ int main() {
       noBodyBeamScene.remoteWeaponStats.instancesSubmitted == 1 &&
       noBodyBeamScene.playerOutlinesBuilt == 0 &&
       noBodyBeamScene.outlineMaskDraws.empty() &&
+      noBodyBeamScene.contactShadowVertices.empty() &&
       noBodyBeamScene.vertices.size() > noBodyNoBeamScene.vertices.size(),
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
   );
@@ -2417,6 +2425,90 @@ int main() {
       muzzleFlashScene.translucentVertices.size() == 12U,
     "MG muzzle flash should combine a directional flame with one additive billboard"
   );
+  std::array<lg::TransientEffect, 4> combatEffects = {};
+  combatEffects[0] = {
+    lg::TransientEffectType::MachineGunMuzzleLight,
+    machineGunFires[0].start,
+    0.01F,
+    0.045F,
+    1.0F,
+    1.0F,
+    {255, 154, 62, 255},
+    10U,
+  };
+  combatEffects[0].intensity = 2.4F;
+  combatEffects[0].radius = 3.2F;
+  combatEffects[1] = {
+    lg::TransientEffectType::MachineGunCasing,
+    machineGunFires[0].start + lg::Vec3{1.0F, 0.15F, 0.0F},
+    0.2F,
+    2.4F,
+    0.032F,
+    0.032F,
+    {216, 166, 70, 255},
+    11U,
+  };
+  combatEffects[1].velocity = {1.0F, 2.5F, 1.5F};
+  combatEffects[2] = {
+    lg::TransientEffectType::BulletImpactFlash,
+    machineGunFires[0].start + lg::Vec3{3.0F, 0.0F, 0.0F},
+    0.01F,
+    0.055F,
+    0.07F,
+    0.02F,
+    {244, 186, 94, 215},
+    12U,
+  };
+  combatEffects[3] = {
+    lg::TransientEffectType::BulletDecal,
+    machineGunFires[0].start + lg::Vec3{3.02F, 0.0F, 0.0F},
+    0.5F,
+    24.0F,
+    0.04F,
+    0.04F,
+    {48, 42, 36, 190},
+    13U,
+  };
+  combatEffects[3].normal = {-1.0F, 0.0F, 0.0F};
+  combatEffects[3].direction = {0.0F, 1.0F, 0.0F};
+  const lg::Scene3D combatEffectsScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(),
+    combatEffects,
+    settings
+  );
+  const bool combatEffectsSubmitted =
+    combatEffectsScene.temporaryLights.size() == 1U &&
+    combatEffectsScene.transientVfxStats.activeTemporaryLights == 1U &&
+    combatEffectsScene.transientVfxStats.activeCasings == 1U &&
+    combatEffectsScene.transientVfxStats.activeImpactParticles == 1U &&
+    combatEffectsScene.transientVfxStats.activeBulletDecals == 1U &&
+    combatEffectsScene.transientVfxStats.explosionCandidates == 0U &&
+    combatEffectsScene.transientVfxStats.explosionFrustumCulled == 0U &&
+    combatEffectsScene.transientVfxStats.explosionInstancesSubmitted == 0U;
+  if (!combatEffectsSubmitted) {
+    std::cerr << "combat effect stats: lights="
+              << combatEffectsScene.transientVfxStats.activeTemporaryLights
+              << " casings="
+              << combatEffectsScene.transientVfxStats.activeCasings
+              << " particles="
+              << combatEffectsScene.transientVfxStats.activeImpactParticles
+              << " decals="
+              << combatEffectsScene.transientVfxStats.activeBulletDecals
+              << '\n';
+  }
+  failures += expect(
+    combatEffectsSubmitted,
+    "typed combat effects should reach their bounded scene render paths"
+  );
 
   for (std::size_t index = 0; index < 6U; ++index) {
     tracerInstances[index] = {
@@ -2610,7 +2702,7 @@ int main() {
     recoilingMachineGunScene,
     lg::MeshHandle::RemoteMachineGunBarrels
   );
-  bool authoredMuzzleMatchesAllWeaponPositions = true;
+  bool authoredSocketsMatchAllWeaponPositions = true;
   for (int weaponPosition = 0; weaponPosition < 3; ++weaponPosition) {
     lg::RenderSettings positionedSettings = localMachineGunSettings;
     positionedSettings.weaponPosition = weaponPosition;
@@ -2630,17 +2722,21 @@ int main() {
       positionedScene,
       lg::MeshHandle::RemoteMachineGunBody
     );
-    authoredMuzzleMatchesAllWeaponPositions =
-      authoredMuzzleMatchesAllWeaponPositions &&
+    authoredSocketsMatchAllWeaponPositions =
+      authoredSocketsMatchAllWeaponPositions &&
       positionedBody != nullptr &&
       lg::length(
         transformPoint(*positionedBody, lg::machineGunMuzzleSocket()) -
         lg::firstPersonMachineGunMuzzlePosition(player, positionedSettings)
+      ) < 0.001F &&
+      lg::length(
+        transformPoint(*positionedBody, lg::machineGunCasingEjectSocket()) -
+        lg::firstPersonMachineGunCasingEjectPosition(player, positionedSettings)
       ) < 0.001F;
   }
   failures += expect(
-    authoredMuzzleMatchesAllWeaponPositions,
-    "MG tracer origin should match the authored model socket in every weapon position"
+    authoredSocketsMatchAllWeaponPositions,
+    "MG muzzle and casing origins should match their authored sockets in every weapon position"
   );
   failures += expect(
     idleBody != nullptr && idleBarrels != nullptr &&

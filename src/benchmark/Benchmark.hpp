@@ -57,6 +57,8 @@ struct Scenario {
   int fullscreen = 0;
   int vsync = 0;
   int frameCap = 0;
+  std::string graphicsProfile = "Default";
+  float renderScale = 1.0F;
   float fieldOfView = 90.0F;
   std::optional<double> warmupSeconds;
   std::optional<std::uint64_t> warmupFrames;
@@ -69,6 +71,8 @@ struct Scenario {
   std::vector<Screenshot> screenshots;
   bool hideHud = false;
   bool hideOverlays = false;
+  Weapon playerWeapon = Weapon::LightningGun;
+  bool playerAttack = false;
   bool unsupportedEffectFixture = false;
 };
 
@@ -166,6 +170,8 @@ struct ResultContext {
   int actualWidth = 0;
   int actualHeight = 0;
   std::string selectedPresentMode;
+  std::string graphicsProfile = "Default";
+  float renderScale = 1.0F;
   bool gpuTimingAvailable = false;
   std::string gpuTimingBackend;
   std::string gpuTimingUnavailableReason;

@@ -2,6 +2,7 @@
 #include "console/ConsoleSystem.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -23,6 +24,15 @@ int main() {
   int failures = 0;
   lg::ConsoleSystem console;
   lg::registerClientCvars(console);
+
+  failures += expect(
+    console.getBool("cl_show_console_cat") &&
+      console.execute("cl_show_console_cat 0") == "cl_show_console_cat = 0" &&
+      !console.getBool("cl_show_console_cat") &&
+      console.execute("cl_show_console_cat 1") == "cl_show_console_cat = 1" &&
+      console.getBool("cl_show_console_cat"),
+    "console cat visibility should default on and be an archived client toggle"
+  );
 
   failures += expect(
     console.getBool("cl_interp_adaptive") &&
@@ -52,6 +62,81 @@ int main() {
       console.execute("sensitivity 65.1") == "sensitivity = 65.1" &&
       console.execute("sensitivity 100.5") == "value out of range for sensitivity",
     "sensitivity should use the QL scale and allow migrated legacy values"
+  );
+  failures += expect(
+    console.execute("cl_zoom_fov") ==
+        "cl_zoom_fov = 45 (default 45)" &&
+      console.execute("cl_zoom_sniper_fov") ==
+        "cl_zoom_sniper_fov = 45 (default 45)" &&
+      console.execute("cl_zoom_sniper_fov 19.9") ==
+        "value out of range for cl_zoom_sniper_fov" &&
+      console.execute("cl_zoom_sniper_fov 140.1") ==
+        "value out of range for cl_zoom_sniper_fov" &&
+      console.execute("cl_zoom_fov 60") == "cl_zoom_fov = 60" &&
+      console.execute("cl_zoom_sniper_fov 30") ==
+        "cl_zoom_sniper_fov = 30",
+    "general and sniper zoom FOV cvars should have separate bounded values"
+  );
+  failures += expect(
+    lg::resolvedZoomFieldOfView(
+      90.0F,
+      console.getFloat("cl_zoom_fov"),
+      console.getFloat("cl_zoom_sniper_fov"),
+      false,
+      false,
+      0.0F
+    ) == 90.0F &&
+      lg::resolvedZoomFieldOfView(
+        90.0F,
+        console.getFloat("cl_zoom_fov"),
+        20.0F,
+        true,
+        false,
+        0.0F
+      ) == 60.0F &&
+      lg::resolvedZoomFieldOfView(
+        90.0F,
+        140.0F,
+        console.getFloat("cl_zoom_sniper_fov"),
+        true,
+        true,
+        1.0F
+      ) == 30.0F &&
+      lg::resolvedZoomFieldOfView(
+        90.0F,
+        140.0F,
+        console.getFloat("cl_zoom_sniper_fov"),
+        true,
+        true,
+        0.5F
+      ) == 60.0F,
+    "each zoom cvar should affect only its own camera stage"
+  );
+  const float generalAutoSensitivity =
+    lg::zoomSensitivityMultiplier(90.0F, 60.0F, 0.0F);
+  const float sniperAutoSensitivity =
+    lg::zoomSensitivityMultiplier(90.0F, 30.0F, 0.0F);
+  failures += expect(
+    std::fabs(generalAutoSensitivity - 0.5773503F) < 0.0001F &&
+      std::fabs(sniperAutoSensitivity - 0.2679492F) < 0.0001F &&
+      lg::zoomSensitivityMultiplier(90.0F, 60.0F, 0.4F) == 0.4F &&
+      lg::zoomSensitivityMultiplier(90.0F, 30.0F, 0.4F) == 0.4F,
+    "general and sniper zoom should share auto and manual sensitivity rules"
+  );
+  const std::vector<std::string> zoomArchivedConfig =
+    console.archivedConfigLines();
+  failures += expect(
+    std::find(
+      zoomArchivedConfig.begin(),
+      zoomArchivedConfig.end(),
+      "set cl_zoom_fov 60"
+    ) != zoomArchivedConfig.end() &&
+      std::find(
+        zoomArchivedConfig.begin(),
+        zoomArchivedConfig.end(),
+        "set cl_zoom_sniper_fov 30"
+      ) != zoomArchivedConfig.end(),
+    "both zoom FOV cvars should persist in the client config"
   );
   failures += expect(
     console.execute("cl_mouseAccel") ==
@@ -293,6 +378,32 @@ int main() {
     "first-person weapon position should support center, right, and left presets"
   );
   failures += expect(
+    console.execute("r_combat_effects") ==
+        "r_combat_effects = 2 (default 2)" &&
+      console.execute("r_combat_effects 3") ==
+        "value out of range for r_combat_effects" &&
+      console.execute("r_muzzle_light_duration") ==
+        "r_muzzle_light_duration = 0.13 (default 0.13)" &&
+      console.execute("r_bloom_threshold") ==
+        "r_bloom_threshold = 1.15 (default 1.15)" &&
+      console.execute("r_casing_max 97") ==
+        "value out of range for r_casing_max" &&
+      console.execute("r_decals_max") ==
+        "r_decals_max = 128 (default 128)" &&
+      console.execute("r_decal_lifetime") ==
+        "r_decal_lifetime = 24 (default 24)",
+    "combat effect cvars should expose bounded restrained defaults"
+  );
+  failures += expect(
+    console.execute("r_mg_barrel_max_rps") ==
+        "r_mg_barrel_max_rps = 14 (default 14)" &&
+      console.execute("r_mg_barrel_spin_up") ==
+        "r_mg_barrel_spin_up = 0.25 (default 0.25)" &&
+      console.execute("r_mg_barrel_spin_down") ==
+        "r_mg_barrel_spin_down = 0.55 (default 0.55)",
+    "authored machine-gun barrel playback tuning should keep current defaults"
+  );
+  failures += expect(
     console.execute("r_player_model") ==
       "r_player_model = 1 (default 1)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&
@@ -359,6 +470,13 @@ int main() {
     console.execute("r_maxfps 0") == "r_maxfps = 0" &&
       console.execute("r_maxfps -1") == "value out of range for r_maxfps",
     "frame limiter cvar should allow uncapped and reject negative caps"
+  );
+  failures += expect(
+    console.execute("r_render_scale") == "r_render_scale = 1 (default 1)" &&
+      console.execute("r_render_scale 0.5") == "r_render_scale = 0.5" &&
+      console.execute("r_render_scale 1.5") == "r_render_scale = 1.5" &&
+      console.execute("r_render_scale 1.6") == "value out of range for r_render_scale",
+    "render scale should use the safe 50 to 150 percent range"
   );
   failures += expect(
     !console.getBool("r_perf") &&
@@ -475,6 +593,14 @@ int main() {
       "set s_lg_fire_volume 0.25"
     ) == archivedConfig.end(),
     "sound mixer cvars should stay controlled by sound_mixer.cfg rather than client.cfg"
+  );
+  failures += expect(
+    std::find(
+      archivedConfig.begin(),
+      archivedConfig.end(),
+      "set cl_show_console_cat 1"
+    ) != archivedConfig.end(),
+    "console cat visibility should persist through archived client config"
   );
   failures += expect(
     console.execute("net_sim_latency_ms") ==

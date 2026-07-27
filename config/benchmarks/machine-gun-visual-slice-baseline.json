@@ -1,0 +1,64 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "machine-gun-visual-slice-baseline",
+  "labels": ["machine-gun", "combat-effects-off", "sustained-fire", "fixed-camera"],
+  "map": "eyetoeye",
+  "backend_requirement": "gpu",
+  "resolution": [1280, 720],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 240,
+  "fov": 100.0,
+  "warmup_seconds": 2.0,
+  "measured_seconds": 5.0,
+  "camera_start": {
+    "position": [22.4, 0.0, -12.85],
+    "yaw": 180.0,
+    "pitch": 0.0,
+    "fov": 100.0
+  },
+  "camera_path": [
+    {"progress": 0.0, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0},
+    {"progress": 1.0, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0}
+  ],
+  "player_state": {
+    "alive": true,
+    "weapon": "machine_gun",
+    "attack": true,
+    "hide_hud": true,
+    "hide_overlays": true
+  },
+  "actors": {
+    "bots": 1,
+    "weapon": "mg",
+    "attack_mode": "hard",
+    "stare": true,
+    "standstill": true,
+    "dodge": false,
+    "dodge_min_ms": 250,
+    "dodge_max_ms": 750,
+    "expected_count": 2,
+    "commands": ["bot_weapon mg", "bot_add 1", "bot_attack hard", "bot_stare 1", "bot_standstill 1", "bot_dodge 0"]
+  },
+  "effects": {
+    "projectiles": "none",
+    "tracers": "none",
+    "explosions": "none"
+  },
+  "cvars": {
+    "r_frustum_cull": 1,
+    "r_show_weapons": 1,
+    "r_player_model": 1,
+    "r_draw_player_outlines": 1,
+    "r_combat_effects": 0
+  },
+  "screenshots": [
+    {"name": "sustained-fire-midpoint", "progress": 0.5},
+    {"name": "sustained-fire-end", "progress": 1.0}
+  ],
+  "residual_nondeterminism": [
+    "Bot reaction and aim depend on live match state; compare repeated aggregate runs and use the live scenario for exact shot-count evidence."
+  ]
+}

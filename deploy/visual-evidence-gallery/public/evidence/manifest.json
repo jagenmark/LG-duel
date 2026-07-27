@@ -1,0 +1,56 @@
+{
+  "captures": [
+    {
+      "capture_id": "20260726T134242Z-machine-gun-before-01",
+      "captured_at": "2026-07-26T13:42:42Z",
+      "captured_by": "codex-root",
+      "description": "Fixed scenario_wall view with the machine gun visible and r_combat_effects 0. This is the matched control frame.",
+      "full_size_url": "/evidence/assets/machine-gun-visual-slice/20260726T134242Z-machine-gun-before-01.png",
+      "preview_url": "/evidence/assets/machine-gun-visual-slice/20260726T134242Z-machine-gun-before-01.png",
+      "record_url": "/evidence/records/machine-gun-visual-slice/20260726T134242Z-machine-gun-before-01.json",
+      "review_notes": "The matched fixed-view pair clearly shows the compact effects-on change against its clean control. The moving checkpoint clearly shows the moved viewmodel and two bounded surface-aligned marks. All captures are unobscured and readable on a phone; timing and count evidence is separate.",
+      "review_status": "pass",
+      "reviewed_at": "2026-07-26T14:07:48Z",
+      "reviewer": "codex-final-visual-and-diff-review",
+      "sha256": "6c9ed578f0e93ecd8d1cb419b5a5fa88293ffdc016fb3a986210fc18bcd11e8b",
+      "size_bytes": 9217968,
+      "task_id": "machine-gun-visual-slice",
+      "title": "Combat effects disabled"
+    },
+    {
+      "capture_id": "20260726T134208Z-machine-gun-peak-01",
+      "captured_at": "2026-07-26T13:42:08Z",
+      "captured_by": "codex-root",
+      "description": "Matched fixed view during sustained fire. The frame shows the authored barrel, compact muzzle flash and tracer, local floor light, ejected casings, and a wall mark.",
+      "full_size_url": "/evidence/assets/machine-gun-visual-slice/20260726T134208Z-machine-gun-peak-01.png",
+      "preview_url": "/evidence/assets/machine-gun-visual-slice/20260726T134208Z-machine-gun-peak-01.png",
+      "record_url": "/evidence/records/machine-gun-visual-slice/20260726T134208Z-machine-gun-peak-01.json",
+      "review_notes": "The matched fixed-view pair clearly shows the compact effects-on change against its clean control. The moving checkpoint clearly shows the moved viewmodel and two bounded surface-aligned marks. All captures are unobscured and readable on a phone; timing and count evidence is separate.",
+      "review_status": "pass",
+      "reviewed_at": "2026-07-26T14:07:48Z",
+      "reviewer": "codex-final-visual-and-diff-review",
+      "sha256": "69884b1cf17a65ed522fec04e4946096743c8839d393350f0a6d56a6836193e8",
+      "size_bytes": 9217968,
+      "task_id": "machine-gun-visual-slice",
+      "title": "Sustained machine-gun fire"
+    },
+    {
+      "capture_id": "20260726T132908Z-machine-gun-moving-01",
+      "captured_at": "2026-07-26T13:29:08Z",
+      "captured_by": "codex-root",
+      "description": "Fixed validation scenario after the moving-fire segment. Two bounded surface-aligned marks remain visible while the viewmodel follows the moved player view.",
+      "full_size_url": "/evidence/assets/machine-gun-visual-slice/20260726T132908Z-machine-gun-moving-01.png",
+      "preview_url": "/evidence/assets/machine-gun-visual-slice/20260726T132908Z-machine-gun-moving-01.png",
+      "record_url": "/evidence/records/machine-gun-visual-slice/20260726T132908Z-machine-gun-moving-01.json",
+      "review_notes": "The matched fixed-view pair clearly shows the compact effects-on change against its clean control. The moving checkpoint clearly shows the moved viewmodel and two bounded surface-aligned marks. All captures are unobscured and readable on a phone; timing and count evidence is separate.",
+      "review_status": "pass",
+      "reviewed_at": "2026-07-26T14:07:48Z",
+      "reviewer": "codex-final-visual-and-diff-review",
+      "sha256": "74b206191299e736335f2309366cff302807660e769a14b69e7b5d0a8432a222",
+      "size_bytes": 3687468,
+      "task_id": "machine-gun-visual-slice",
+      "title": "Moving-fire impact marks"
+    }
+  ],
+  "schema_version": 1
+}

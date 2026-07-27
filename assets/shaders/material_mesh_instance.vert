@@ -13,6 +13,7 @@ layout(location = 0) out vec3 worldNormal;
 layout(location = 1) out vec3 viewDirection;
 layout(location = 2) out vec4 baseColor;
 layout(location = 3) out vec2 material;
+layout(location = 4) out vec3 worldPositionOut;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -51,4 +52,5 @@ void main() {
   viewDirection = normalize(camera.position.xyz - worldPosition);
   baseColor = inBaseColor * instanceColor;
   material = inMaterial;
+  worldPositionOut = worldPosition;
 }

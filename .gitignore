@@ -2,6 +2,7 @@
 /build/benchmarks/
 /build/captures/
 /scenario-results/
+/reports/integration/*.generated.md
 __pycache__/
 /dist/
 /.server/
@@ -10,7 +11,6 @@ __pycache__/
 !/imports/assets/review/quaternius_worker/
 skills-lock.json
 .agents
-AGENTS.md
 .vscode/
 git 
 maps/autosave/

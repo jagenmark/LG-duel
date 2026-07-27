@@ -1,5 +1,7 @@
 #include "benchmark/Benchmark.hpp"
 
+#include "app/GraphicsProfiles.hpp"
+
 #include "sim/MapRegistry.hpp"
 #include "sim/WeaponCatalog.hpp"
 
@@ -109,9 +111,37 @@ namespace {
     "r_player_outline_debug_mask", "r_enemy_outline_width",
     "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
     "r_frustum_cull", "r_world_frustum_cull", "r_player_model",
+    "r_combat_effects",
     "s_enable", "vid_fullscreen", "vid_width", "vid_height", "r_vsync", "r_present_mode"
   };
   return allowed.contains(name);
+}
+
+[[nodiscard]] std::optional<Weapon> parseScenarioWeapon(
+  std::string_view token
+) {
+  if (const std::optional<Weapon> weapon = parseWeaponToken(token)) {
+    return weapon;
+  }
+  std::string compact(token);
+  compact.erase(
+    std::remove_if(
+      compact.begin(),
+      compact.end(),
+      [](char value) {
+        return value == '_' || value == '-' || value == ' ';
+      }
+    ),
+    compact.end()
+  );
+  return parseWeaponToken(compact);
+}
+
+[[nodiscard]] const GraphicsProfileDefinition* graphicsProfileByName(std::string_view name) {
+  for (const GraphicsProfileDefinition& profile : kGraphicsProfiles) {
+    if (profile.name == name) return &profile;
+  }
+  return nullptr;
 }
 
 [[nodiscard]] double nearestRank(const std::vector<double>& sorted, double fraction) {
@@ -172,6 +202,18 @@ ParseResult parseScenario(const dev::JsonValue& root) {
     if (!std::isfinite(*fov) || *fov < 30.0 || *fov > 140.0) return {{}, false, "fov must be between 30 and 140"};
     scenario.fieldOfView = static_cast<float>(*fov);
   }
+  if (const dev::JsonValue* profile = root.find("graphics_profile"); profile != nullptr) {
+    if (profile->type != dev::JsonValue::Type::String || graphicsProfileByName(profile->string) == nullptr) {
+      return {{}, false, "graphics_profile must be Low, Default, Competitive, or High"};
+    }
+    scenario.graphicsProfile = profile->string;
+  }
+  if (const dev::JsonValue* scale = root.find("render_scale"); scale != nullptr) {
+    if (scale->type != dev::JsonValue::Type::Number || !std::isfinite(scale->number) || scale->number < 0.5 || scale->number > 1.5) {
+      return {{}, false, "render_scale must be between 0.5 and 1.5"};
+    }
+    scenario.renderScale = static_cast<float>(scale->number);
+  }
   std::string error;
   if (!duration(root, "warmup_seconds", "warmup_frames", scenario.warmupSeconds, scenario.warmupFrames, error) ||
       !duration(root, "measured_seconds", "measured_frames", scenario.measuredSeconds, scenario.measuredFrames, error))
@@ -200,7 +242,7 @@ ParseResult parseScenario(const dev::JsonValue& root) {
     if (actors->type != dev::JsonValue::Type::Object) return {{}, false, "actors must be an object"};
     if (const dev::JsonValue* bots = actors->find("bots"); bots && !integer(bots, scenario.actors.bots, 0, 64)) return {{}, false, "actors.bots must be in [0,64]"};
     const std::string weaponToken = dev::stringMember(*actors, "weapon").value_or("mg");
-    const std::optional<Weapon> weapon = parseWeaponToken(weaponToken);
+    const std::optional<Weapon> weapon = parseScenarioWeapon(weaponToken);
     if (!weapon.has_value()) return {{}, false, "actors.weapon is unsupported"};
     scenario.actors.weapon = *weapon;
     scenario.actors.attackMode = dev::stringMember(*actors, "attack_mode").value_or("off");
@@ -223,6 +265,15 @@ ParseResult parseScenario(const dev::JsonValue& root) {
       playerState != nullptr && playerState->type == dev::JsonValue::Type::Object) {
     scenario.hideHud = dev::boolMember(*playerState, "hide_hud").value_or(false);
     scenario.hideOverlays = dev::boolMember(*playerState, "hide_overlays").value_or(false);
+    const std::string weaponToken =
+      dev::stringMember(*playerState, "weapon").value_or("lg");
+    const std::optional<Weapon> weapon = parseScenarioWeapon(weaponToken);
+    if (!weapon.has_value()) {
+      return {{}, false, "player_state.weapon is unsupported"};
+    }
+    scenario.playerWeapon = *weapon;
+    scenario.playerAttack =
+      dev::boolMember(*playerState, "attack").value_or(false);
   }
   if (const dev::JsonValue* effects = root.find("effects");
       effects != nullptr && effects->type == dev::JsonValue::Type::Object) {
@@ -364,6 +415,11 @@ dev::JsonValue resultJson(
     dev::JsonValue::numberValue(context.actualWidth), dev::JsonValue::numberValue(context.actualHeight)
   });
   root.object["selected_present_mode"] = dev::JsonValue::stringValue(context.selectedPresentMode);
+  root.object["graphics_profile"] = dev::JsonValue::stringValue(context.graphicsProfile);
+  root.object["render_scale"] = dev::JsonValue::numberValue(context.renderScale);
+  root.object["capture_readability"] = dev::JsonValue::stringValue(
+    "fixed scenario camera and explicit profile/render scale; compare only matching values"
+  );
   root.object["gpu_execution_timing_available"] =
     dev::JsonValue::booleanValue(context.gpuTimingAvailable);
   root.object["gpu_timing_available"] =

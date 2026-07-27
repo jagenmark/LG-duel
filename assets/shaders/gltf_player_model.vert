@@ -17,6 +17,7 @@ layout(location = 12) in uint instanceFlags;
 layout(location = 13) in vec4 inTintMask;
 
 layout(location = 0) out vec4 vertexColor;
+layout(location = 1) out float viewDistance;
 
 layout(set = 0, binding = 0, std430) readonly buffer BoneRows {
   vec4 rows[];
@@ -106,18 +107,26 @@ void main() {
     dot(instanceModelRow2, normalLocal)
   ));
   vec3 lightDirection = normalize(vec3(-0.35, -0.45, 0.82));
-  float brightness = clamp(
-    0.70 + max(0.0, dot(worldNormal, lightDirection)) * 0.38 +
-      abs(worldNormal.z) * 0.12,
-    0.62,
-    1.22
-  );
+  vec3 viewDirection = normalize(camera.position.xyz - worldPosition);
+  vec3 halfDirection = normalize(lightDirection + viewDirection);
+  float diffuse = max(dot(worldNormal, lightDirection), 0.0);
+  float skyFill = worldNormal.z * 0.5 + 0.5;
+  float brightness = 0.48 + diffuse * 0.52 + skyFill * 0.10;
   gl_Position = projectWorld(worldPosition);
   vec3 litMaterial = inColor.rgb * brightness;
   vec3 tintedMaterial = litMaterial * instanceColor.rgb;
   float tintWeight = clamp(inTintMask.x, 0.0, 1.0);
+  vec3 teamMaterial = mix(litMaterial, tintedMaterial, tintWeight);
+
+  // A broad cool rim holds the figure against dark walls without replacing
+  // the team tint. The tight highlight makes authored normals read in motion.
+  float rim = pow(1.0 - max(dot(worldNormal, viewDirection), 0.0), 2.6);
+  rim *= 0.16 + 0.84 * skyFill;
+  float highlight = pow(max(dot(worldNormal, halfDirection), 0.0), 28.0);
+  vec3 rimColor = mix(teamMaterial, vec3(0.58, 0.72, 0.92), 0.36);
   vertexColor = vec4(
-    mix(litMaterial, tintedMaterial, tintWeight),
+    teamMaterial + rimColor * rim * 0.24 + vec3(highlight * 0.10),
     inColor.a * instanceColor.a
   );
+  viewDistance = max(dot(worldPosition - camera.position.xyz, camera.forward.xyz), 0.0);
 }

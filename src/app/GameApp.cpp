@@ -3,6 +3,7 @@
 #include "app/ClientAudio.hpp"
 #include "app/ClientChat.hpp"
 #include "app/ClientCvars.hpp"
+#include "app/GraphicsProfiles.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/DeathCamera.hpp"
 #include "app/HudPresentation.hpp"
@@ -22,6 +23,7 @@
 #include "net/NetCodec.hpp"
 #include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
+#include "render/CombatEffects.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
@@ -557,6 +559,31 @@ struct WeaponPresentationFrame {
   );
 }
 
+[[nodiscard]] Vec3 machineGunCasingSource(
+  Vec3 fallback,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+) {
+  if (playerIndex == static_cast<std::size_t>(settings.localPlayerIndex)) {
+    return settings.showOwnWeapons
+      ? firstPersonMachineGunCasingEjectPosition(localPlayer, settings)
+      : hiddenWeaponVisualOrigin(localPlayer);
+  }
+  const Vec3 socket = machineGunCasingEjectSocket();
+  return remoteWeaponPresentationPoint(
+    fallback,
+    remotePlayers,
+    playerIndex,
+    Weapon::MachineGun,
+    settings,
+    socket.x,
+    socket.y,
+    socket.z
+  );
+}
+
 [[nodiscard]] Vec3 shotgunTracerSource(
   const WeaponFireResult& fire,
   const PlayerState& localPlayer,
@@ -607,7 +634,8 @@ struct ConsumedExplosionEvent {
 struct TransientTracerStore {
   std::array<TransientTracer, kMaxTransientTracers> tracers = {};
   std::array<bool, kMaxTransientTracers> active = {};
-  std::array<bool, kMaxTransientTracers> followLocalMuzzle = {};
+  std::array<bool, kMaxTransientTracers> followMuzzle = {};
+  std::array<std::uint8_t, kMaxTransientTracers> followPlayerIndex = {};
   std::array<Weapon, kMaxTransientTracers> followWeapon = {};
   std::array<std::uint32_t, kMaxTransientTracers> followSeed = {};
   std::array<TransientEffect, kMaxTransientEffects> effects = {};
@@ -715,9 +743,10 @@ struct TransientTracerStore {
 
   void add(
     const TransientTracer& tracer,
-    bool followMuzzle = false,
-    Weapon weapon = Weapon::LightningGun,
-    std::uint32_t seed = 0
+    bool followMuzzle,
+    Weapon weapon,
+    std::uint32_t seed,
+    std::uint8_t playerIndex
   ) {
     std::size_t slot = tracers.size();
     for (std::size_t index = 0; index < active.size(); ++index) {
@@ -736,9 +765,10 @@ struct TransientTracerStore {
     }
     tracers[slot] = tracer;
     active[slot] = true;
-    followLocalMuzzle[slot] = followMuzzle;
+    this->followMuzzle[slot] = followMuzzle;
     followWeapon[slot] = weapon;
     followSeed[slot] = seed;
+    followPlayerIndex[slot] = playerIndex;
   }
 
   void addEffect(const TransientEffect& effect) {
@@ -764,6 +794,7 @@ struct TransientTracerStore {
   void fillActive(
     std::vector<TransientTracer>& result,
     const PlayerState& localPlayer,
+    const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
     const RenderSettings& settings
   ) const {
     result.clear();
@@ -771,15 +802,39 @@ struct TransientTracerStore {
     for (std::size_t index = 0; index < tracers.size(); ++index) {
       if (active[index]) {
         TransientTracer tracer = tracers[index];
-        if (followLocalMuzzle[index]) {
+        if (
+          settings.combatEffectsQuality <= 0 &&
+          (
+            tracer.style == TracerStyle::MachineGun ||
+            tracer.style == TracerStyle::MachineGunMuzzleFlash
+          )
+        ) {
+          continue;
+        }
+        if (followMuzzle[index]) {
           const Vec3 oldStart = tracer.start;
-          if (!settings.showOwnWeapons) {
+          const std::size_t playerIndex = followPlayerIndex[index];
+          const bool local =
+            playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
+          if (local && !settings.showOwnWeapons) {
             tracer.start = hiddenWeaponVisualOrigin(localPlayer);
           } else if (followWeapon[index] == Weapon::MachineGun) {
-            tracer.start = firstPersonMachineGunMuzzlePosition(
-              localPlayer,
-              settings
-            );
+            if (local) {
+              tracer.start = firstPersonMachineGunMuzzlePosition(
+                localPlayer,
+                settings
+              );
+            } else {
+              WeaponFireResult attachmentFire;
+              attachmentFire.start = oldStart;
+              tracer.start = machineGunTracerSource(
+                attachmentFire,
+                localPlayer,
+                remotePlayers,
+                playerIndex,
+                settings
+              );
+            }
           } else if (followWeapon[index] == Weapon::Shotgun) {
             tracer.start = weaponPresentationPoint(
               firstPersonWeaponPresentationFrame(
@@ -909,7 +964,7 @@ void spawnMachineGunTracer(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
@@ -925,19 +980,19 @@ void spawnMachineGunTracer(
     tracerColor(Weapon::MachineGun, fire.visualSeed),
     fire.visualSeed,
     TracerStyle::MachineGun,
-  }, followLocalMuzzle, Weapon::MachineGun, fire.visualSeed);
+  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
   // The flash shares the tracer's deduplicated fire event and muzzle-follow
   // metadata, so it cannot repeat when the same snapshot is rendered twice.
   store.add({
     visualStart,
     visualStart + direction * 0.16F,
     0.0F,
-    0.045F,
+    kMachineGunMuzzleFlashDurationSeconds,
     0.045F,
     {255, 188, 76, 235},
     fire.visualSeed,
     TracerStyle::MachineGunMuzzleFlash,
-  }, followLocalMuzzle, Weapon::MachineGun, fire.visualSeed);
+  }, true, Weapon::MachineGun, fire.visualSeed, playerIndex);
 }
 
 [[nodiscard]] Vec3 rocketLauncherMuzzleSource(
@@ -973,7 +1028,8 @@ void spawnShotgunTracers(
   const Arena& arena,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  bool followLocalMuzzle,
+  std::uint8_t playerIndex
 ) {
   const Vec3 forward = normalize(fire.end - fire.start);
   if (length(forward) <= 0.0001F) {
@@ -1020,7 +1076,7 @@ void spawnShotgunTracers(
       tracerColor(Weapon::Shotgun, fire.visualSeed + visualIndex),
       fire.visualSeed + visualIndex,
       TracerStyle::Shotgun,
-    }, followLocalMuzzle, Weapon::Shotgun, fire.visualSeed);
+    }, followLocalMuzzle, Weapon::Shotgun, fire.visualSeed, playerIndex);
   }
 }
 
@@ -1028,7 +1084,8 @@ void spawnRocketLauncherMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  bool followLocalMuzzle,
+  std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
@@ -1043,7 +1100,7 @@ void spawnRocketLauncherMuzzleFlash(
     {255, 112, 28, 245},
     fire.visualSeed,
     TracerStyle::RocketLauncherMuzzleFlash,
-  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed);
+  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed, playerIndex);
 }
 
 [[nodiscard]] Vec3 revolverMuzzleSource(
@@ -1075,7 +1132,8 @@ void spawnRevolverMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle
+  bool followLocalMuzzle,
+  std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
@@ -1090,17 +1148,19 @@ void spawnRevolverMuzzleFlash(
     {255, 212, 118, 245},
     fire.visualSeed,
     TracerStyle::RevolverMuzzleFlash,
-  }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed);
+  }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed, playerIndex);
 }
 
 void consumeTracerWeaponFires(
   TransientTracerStore& store,
+  CombatEffects& combatEffects,
   const Arena& arena,
   const PlayerState& localPlayer,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
   const LocalTracerAimHistory& localAimHistory,
   const RenderSettings& settings,
+  const CombatEffectsTuning& effectsTuning,
   bool ownsPresentedSubject
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
@@ -1139,12 +1199,54 @@ void consumeTracerWeaponFires(
             localAimHistory
           )
         : fire;
-      spawnMachineGunTracer(
-        store,
-        visualFire,
-        visualStart,
-        localEvent
-      );
+      if (effectsTuning.quality > 0) {
+        spawnMachineGunTracer(
+          store,
+          visualFire,
+          visualStart,
+          eventPlayer
+        );
+        const Vec3 shotDirection = normalize(visualFire.end - visualFire.start);
+        const WorldTrace impactTrace = traceWorld(
+          arena,
+          fire.start,
+          normalize(fire.end - fire.start),
+          localTracerVisualRange(fire)
+        );
+        const PlayerState& sourcePlayer =
+          localEvent || playerIndex >= remotePlayers.size()
+            ? localPlayer
+            : remotePlayers[playerIndex].player;
+        const Vec3 muzzleRight = yawRight(sourcePlayer.viewYawRadians);
+        const Vec3 muzzleUp = cameraUp(
+          sourcePlayer.viewYawRadians,
+          sourcePlayer.viewPitchRadians
+        );
+        combatEffects.spawnMachineGunShot(
+          {
+            visualStart,
+            shotDirection,
+            muzzleRight,
+            muzzleUp,
+            machineGunCasingSource(
+              visualStart,
+              localPlayer,
+              remotePlayers,
+              playerIndex,
+              settings
+            ),
+            sourcePlayer.velocity,
+            impactTrace.end,
+            impactTrace.normal,
+            shotDirection,
+            ImpactSurfaceCategory::GenericHard,
+            fire.visualSeed,
+            eventPlayer,
+            impactTrace.hit && !fire.hit,
+          },
+          effectsTuning
+        );
+      }
     } else if (fire.weapon == Weapon::Shotgun) {
       const Vec3 visualStart = shotgunTracerSource(
         fire,
@@ -1167,7 +1269,8 @@ void consumeTracerWeaponFires(
         arena,
         visualFire,
         visualStart,
-        localEvent
+        localEvent,
+        eventPlayer
       );
     } else if (fire.weapon == Weapon::RocketLauncher) {
       const Vec3 visualStart = rocketLauncherMuzzleSource(
@@ -1181,7 +1284,8 @@ void consumeTracerWeaponFires(
         store,
         fire,
         visualStart,
-        localEvent
+        localEvent,
+        eventPlayer
       );
     } else {
       const Vec3 visualStart = revolverMuzzleSource(
@@ -1195,7 +1299,8 @@ void consumeTracerWeaponFires(
         store,
         fire,
         visualStart,
-        localEvent
+        localEvent,
+        eventPlayer
       );
     }
     store.remember(eventPlayer, fire.weapon, fire.visualSeed);
@@ -1475,6 +1580,10 @@ struct FrameTimeHistory {
   sample.activeMachineGunTracers = renderDiagnostics.activeMachineGunTracers;
   sample.activeShotgunTracers = renderDiagnostics.activeShotgunTracers;
   sample.activeExplosionEffects = renderDiagnostics.activeExplosionEffects;
+  sample.activeTemporaryLights = renderDiagnostics.activeTemporaryLights;
+  sample.activeCasings = renderDiagnostics.activeCasings;
+  sample.activeImpactParticles = renderDiagnostics.activeImpactParticles;
+  sample.activeBulletDecals = renderDiagnostics.activeBulletDecals;
   sample.newExplosionEventsConsumed = renderDiagnostics.newExplosionEventsConsumed;
   sample.tracerCandidates = renderDiagnostics.tracerCandidates;
   sample.tracerFrustumCulled = renderDiagnostics.tracerFrustumCulled;
@@ -1526,6 +1635,16 @@ void appendPerfHudLines(
     summary.gpuVertexUpload.average,
     summary.swapchainAcquire.average,
     summary.totalRender.average
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "combat effects: lights %u | casings %u | particles %u | decals %u",
+    latest.activeTemporaryLights,
+    latest.activeCasings,
+    latest.activeImpactParticles,
+    latest.activeBulletDecals
   );
   hud.topLeftLines.emplace_back(text);
 
@@ -1935,10 +2054,32 @@ struct ResolutionOption {
 struct SettingsMenuState {
   bool open = false;
   int selectedRow = 0;
+  std::size_t scrollRows = 0;
+  int hoveredRow = -1;
+  int pressedRow = -1;
   VideoSettings pendingVideo = {};
   int pendingMaxFps = 0;
+  int pendingProfile = 1;
+  float pendingRenderScale = 1.0F;
+  int pendingTextureFilter = 2;
+  int pendingAnisotropy = 8;
+  float pendingLodBias = 0.5F;
+  bool pendingFrustumCull = true;
+  bool pendingWorldFrustumCull = false;
+  bool pendingPlayerOutlines = true;
+  int pendingOutlineMode = 1;
+  bool pendingShowConsoleCat = true;
   VideoSettings originalVideo = {};
   int originalMaxFps = 0;
+  float originalRenderScale = 1.0F;
+  int originalTextureFilter = 2;
+  int originalAnisotropy = 8;
+  float originalLodBias = 0.5F;
+  bool originalFrustumCull = true;
+  bool originalWorldFrustumCull = false;
+  bool originalPlayerOutlines = true;
+  int originalOutlineMode = 1;
+  bool originalShowConsoleCat = true;
 };
 
 struct LingeringWeaponFire {
@@ -2590,15 +2731,86 @@ bool applyVideoSettings(
 
 [[nodiscard]] bool settingsChanged(const SettingsMenuState& menu) {
   return !sameVideoSettings(menu.pendingVideo, menu.originalVideo) ||
-    menu.pendingMaxFps != menu.originalMaxFps;
+    menu.pendingMaxFps != menu.originalMaxFps ||
+    menu.pendingRenderScale != menu.originalRenderScale ||
+    menu.pendingTextureFilter != menu.originalTextureFilter ||
+    menu.pendingAnisotropy != menu.originalAnisotropy ||
+    menu.pendingLodBias != menu.originalLodBias ||
+    menu.pendingFrustumCull != menu.originalFrustumCull ||
+    menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull ||
+    menu.pendingPlayerOutlines != menu.originalPlayerOutlines ||
+    menu.pendingOutlineMode != menu.originalOutlineMode ||
+    menu.pendingShowConsoleCat != menu.originalShowConsoleCat;
+}
+
+[[nodiscard]] int matchingGraphicsProfile(const SettingsMenuState& menu) {
+  for (std::size_t index = 0; index < kGraphicsProfiles.size(); ++index) {
+    const auto& values = kGraphicsProfiles[index].values;
+    const auto value = [&](std::string_view name) {
+      for (const GraphicsProfileValue& entry : values) if (entry.cvar == name) return entry.value;
+      return std::string_view{};
+    };
+    if (std::abs(menu.pendingRenderScale - std::stof(std::string(value("r_render_scale")))) < 0.001F &&
+        menu.pendingTextureFilter == std::stoi(std::string(value("r_texture_filter"))) &&
+        menu.pendingAnisotropy == std::stoi(std::string(value("r_texture_anisotropy"))) &&
+        std::abs(menu.pendingLodBias - std::stof(std::string(value("r_texture_lod_bias")))) < 0.001F &&
+        (menu.pendingFrustumCull ? "1" : "0") == value("r_frustum_cull") &&
+        (menu.pendingWorldFrustumCull ? "1" : "0") == value("r_world_frustum_cull") &&
+        (menu.pendingPlayerOutlines ? "1" : "0") == value("r_draw_player_outlines") &&
+        std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode")) return static_cast<int>(index);
+  }
+  return -1;
+}
+
+void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
+  const auto& values = kGraphicsProfiles[static_cast<std::size_t>(profile)].values;
+  const auto value = [&](std::string_view name) {
+    for (const GraphicsProfileValue& entry : values) if (entry.cvar == name) return entry.value;
+    return std::string_view{};
+  };
+  menu.pendingProfile = profile;
+  menu.pendingRenderScale = std::stof(std::string(value("r_render_scale")));
+  menu.pendingTextureFilter = std::stoi(std::string(value("r_texture_filter")));
+  menu.pendingAnisotropy = std::stoi(std::string(value("r_texture_anisotropy")));
+  menu.pendingLodBias = std::stof(std::string(value("r_texture_lod_bias")));
+  menu.pendingFrustumCull = value("r_frustum_cull") == "1";
+  menu.pendingWorldFrustumCull = value("r_world_frustum_cull") == "1";
+  menu.pendingPlayerOutlines = value("r_draw_player_outlines") == "1";
+  menu.pendingOutlineMode = std::stoi(std::string(value("r_player_outline_mode")));
 }
 
 void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& console) {
   menu.pendingVideo = videoSettingsFromConsole(console);
   menu.pendingMaxFps = console.getInt("r_maxfps");
+  menu.pendingRenderScale = console.getFloat("r_render_scale");
+  menu.pendingTextureFilter = console.getInt("r_texture_filter");
+  menu.pendingAnisotropy = console.getInt("r_texture_anisotropy");
+  menu.pendingLodBias = console.getFloat("r_texture_lod_bias");
+  menu.pendingFrustumCull = console.getBool("r_frustum_cull");
+  menu.pendingWorldFrustumCull = console.getBool("r_world_frustum_cull");
+  menu.pendingPlayerOutlines = console.getBool("r_draw_player_outlines");
+  menu.pendingOutlineMode = console.getInt("r_player_outline_mode");
+  menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
-  menu.selectedRow = std::clamp(menu.selectedRow, 0, 7);
+  menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
+  menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias;
+  menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull;
+  menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
+  menu.pendingProfile = matchingGraphicsProfile(menu);
+  menu.selectedRow = std::clamp(menu.selectedRow, 0, 18);
+  menu.scrollRows = 0U;
+}
+
+void keepSettingsSelectionVisible(SettingsMenuState& menu) {
+  // The renderer reserves enough room for 14 rows at its smallest panel.
+  constexpr std::size_t kVisibleRows = 14U;
+  const std::size_t selected = static_cast<std::size_t>(menu.selectedRow);
+  if (selected < menu.scrollRows) menu.scrollRows = selected;
+  if (selected >= menu.scrollRows + kVisibleRows) {
+    menu.scrollRows = selected - kVisibleRows + 1U;
+  }
 }
 
 void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
@@ -2662,6 +2874,16 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
     menu.pendingMaxFps = wrappedOption(options, index + direction);
     return;
   }
+  case 6: applyGraphicsProfile(menu, (std::max(0, menu.pendingProfile) + direction + 4) % 4); return;
+  case 7: menu.pendingRenderScale = std::clamp(menu.pendingRenderScale + 0.1F * direction, 0.5F, 1.5F); return;
+  case 8: menu.pendingTextureFilter = (menu.pendingTextureFilter + direction + 3) % 3; return;
+  case 9: { const std::array<int, 5> values{1, 2, 4, 8, 16}; const int index = optionIndex(std::vector<int>(values.begin(), values.end()), menu.pendingAnisotropy, [](int a, int b) { return a == b; }); menu.pendingAnisotropy = values[static_cast<std::size_t>((index + direction + 5) % 5)]; return; }
+  case 10: menu.pendingLodBias = std::clamp(menu.pendingLodBias + 0.25F * direction, -2.0F, 4.0F); return;
+  case 11: menu.pendingFrustumCull = !menu.pendingFrustumCull; return;
+  case 12: menu.pendingWorldFrustumCull = !menu.pendingWorldFrustumCull; return;
+  case 13: menu.pendingPlayerOutlines = !menu.pendingPlayerOutlines; return;
+  case 14: menu.pendingOutlineMode = (menu.pendingOutlineMode + direction + 3) % 3; return;
+  case 15: menu.pendingShowConsoleCat = !menu.pendingShowConsoleCat; return;
   default:
     return;
   }
@@ -2677,8 +2899,21 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
     "set r_present_mode " + std::to_string(presentModeInt(menu.pendingVideo.presentMode))
   );
   (void)console.execute("set r_maxfps " + std::to_string(menu.pendingMaxFps));
+  (void)console.execute("set r_render_scale " + std::to_string(menu.pendingRenderScale));
+  (void)console.execute("set r_texture_filter " + std::to_string(menu.pendingTextureFilter));
+  (void)console.execute("set r_texture_anisotropy " + std::to_string(menu.pendingAnisotropy));
+  (void)console.execute("set r_texture_lod_bias " + std::to_string(menu.pendingLodBias));
+  (void)console.execute("set r_frustum_cull " + std::to_string(menu.pendingFrustumCull));
+  (void)console.execute("set r_world_frustum_cull " + std::to_string(menu.pendingWorldFrustumCull));
+  (void)console.execute("set r_draw_player_outlines " + std::to_string(menu.pendingPlayerOutlines));
+  (void)console.execute("set r_player_outline_mode " + std::to_string(menu.pendingOutlineMode));
+  (void)console.execute(
+    "set cl_show_console_cat " + std::to_string(menu.pendingShowConsoleCat ? 1 : 0)
+  );
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
+  menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
@@ -2706,6 +2941,9 @@ void populateSettingsMenuRenderState(
     return;
   }
   hud.settingsOpen = true;
+  hud.settingsScrollRows = menu.scrollRows;
+  hud.settingsHoveredRow = menu.hoveredRow;
+  hud.settingsPressedRow = menu.pressedRow;
   hud.settingsItems = {
     settingsMenuItem(
       menu,
@@ -2750,9 +2988,20 @@ void populateSettingsMenuRenderState(
       fpsLimitLabel(menu.pendingMaxFps),
       menu.pendingMaxFps != menu.originalMaxFps
     ),
+    settingsMenuItem(menu, 6, "Graphics profile", matchingGraphicsProfile(menu) >= 0 ? std::string(kGraphicsProfiles[static_cast<std::size_t>(matchingGraphicsProfile(menu))].name) : "Custom", false),
+    settingsMenuItem(menu, 7, "Render scale", std::to_string(static_cast<int>(std::lround(menu.pendingRenderScale * 100.0F))) + (menu.pendingRenderScale > 1.0F ? "% Extreme / benchmark-only" : "%"), menu.pendingRenderScale != menu.originalRenderScale),
+    settingsMenuItem(menu, 8, "Texture filter", menu.pendingTextureFilter == 0 ? "Nearest" : menu.pendingTextureFilter == 1 ? "Bilinear" : "Trilinear", menu.pendingTextureFilter != menu.originalTextureFilter),
+    settingsMenuItem(menu, 9, "Texture anisotropy", std::to_string(menu.pendingAnisotropy) + "x", menu.pendingAnisotropy != menu.originalAnisotropy),
+    settingsMenuItem(menu, 10, "Texture LOD bias", std::to_string(menu.pendingLodBias), menu.pendingLodBias != menu.originalLodBias),
+    settingsMenuItem(menu, 11, "Player frustum cull", menu.pendingFrustumCull ? "On" : "Off", menu.pendingFrustumCull != menu.originalFrustumCull),
+    settingsMenuItem(menu, 12, "World frustum cull", menu.pendingWorldFrustumCull ? "On" : "Off", menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull),
+    settingsMenuItem(menu, 13, "Player outlines", menu.pendingPlayerOutlines ? "On" : "Off", menu.pendingPlayerOutlines != menu.originalPlayerOutlines),
+    settingsMenuItem(menu, 14, "Outline mode", menu.pendingOutlineMode == 0 ? "Off" : menu.pendingOutlineMode == 1 ? "Compatibility" : "Native", menu.pendingOutlineMode != menu.originalOutlineMode),
+    settingsMenuItem(menu, 15, "Console cat", menu.pendingShowConsoleCat ? "Shown" : "Hidden", menu.pendingShowConsoleCat != menu.originalShowConsoleCat),
+    settingsMenuItem(menu, 16, "Reset graphics draft", "Default profile", false, true),
     settingsMenuItem(
       menu,
-      6,
+      17,
       "Apply changes",
       settingsChanged(menu) ? "Enter" : "No changes",
       settingsChanged(menu),
@@ -2760,7 +3009,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      7,
+      18,
       "Close / Revert draft",
       "Esc",
       false,
@@ -2768,7 +3017,7 @@ void populateSettingsMenuRenderState(
     ),
   };
   hud.settingsFooter =
-    "Up/Down select   Left/Right change   Enter apply   Esc close";
+    "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
 }
 
 std::string clientConfigPath() {
@@ -2881,6 +3130,23 @@ bool saveClientConfig(
   return file.good();
 }
 
+CombatEffectsTuning combatEffectsTuning(const ConsoleSystem& console) {
+  return {
+    console.getInt("r_combat_effects"),
+    console.getFloat("r_muzzle_light_intensity"),
+    console.getFloat("r_muzzle_light_radius"),
+    console.getFloat("r_muzzle_light_duration"),
+    console.getBool("r_casings"),
+    console.getFloat("r_casing_count"),
+    console.getFloat("r_casing_lifetime"),
+    static_cast<std::size_t>(console.getInt("r_casing_max")),
+    console.getFloat("r_impact_particles"),
+    static_cast<std::size_t>(console.getInt("r_impact_particle_max")),
+    static_cast<std::size_t>(console.getInt("r_decals_max")),
+    console.getFloat("r_decal_lifetime"),
+  };
+}
+
 RenderSettings renderSettings(
   const ConsoleSystem& console,
   bool collisionDebugSupported
@@ -2953,6 +3219,27 @@ RenderSettings renderSettings(
     console.getBool("r_sg_weapon_model_start");
   settings.showOwnWeapons = console.getBool("r_show_weapons");
   settings.weaponPosition = console.getInt("r_weapon_pos");
+  settings.combatEffectsQuality = console.getInt("r_combat_effects");
+  settings.muzzleLightIntensity = console.getFloat("r_muzzle_light_intensity");
+  settings.muzzleLightRadius = console.getFloat("r_muzzle_light_radius");
+  settings.muzzleLightDurationSeconds =
+    console.getFloat("r_muzzle_light_duration");
+  settings.toneMapExposure = console.getFloat("r_tonemap_exposure");
+  settings.bloomEnabled = console.getBool("r_bloom");
+  settings.bloomIntensity = console.getFloat("r_bloom_intensity");
+  settings.bloomThreshold = console.getFloat("r_bloom_threshold");
+  settings.casingsEnabled = console.getBool("r_casings");
+  settings.casingCountMultiplier = console.getFloat("r_casing_count");
+  settings.casingLifetimeSeconds = console.getFloat("r_casing_lifetime");
+  settings.maximumCasings =
+    static_cast<std::uint32_t>(console.getInt("r_casing_max"));
+  settings.particleMultiplier = console.getFloat("r_impact_particles");
+  settings.maximumImpactParticles =
+    static_cast<std::uint32_t>(console.getInt("r_impact_particle_max"));
+  settings.maximumBulletDecals =
+    static_cast<std::uint32_t>(console.getInt("r_decals_max"));
+  settings.bulletDecalLifetimeSeconds =
+    console.getFloat("r_decal_lifetime");
   settings.drawRemotePlayers = console.getBool("r_draw_remote_players");
   settings.drawRemoteWeapons = console.getBool("r_draw_remote_weapons");
   settings.drawPlayerOutlines = console.getBool("r_draw_player_outlines");
@@ -3116,33 +3403,17 @@ RenderSettings renderSettings(
   return settings;
 }
 
-float zoomSensitivityMultiplier(
-  float baseFieldOfView,
-  float zoomFieldOfView,
-  float manualMultiplier
-) {
-  if (manualMultiplier > 0.0F) {
-    return manualMultiplier;
-  }
-
-  constexpr float sensRatio = 1.0F;
-  const float baseHalfAngle = baseFieldOfView * 0.5F * kDegreesToRadians;
-  const float zoomHalfAngle = zoomFieldOfView * 0.5F * kDegreesToRadians;
-  const float baseTangent = std::tan(baseHalfAngle);
-  if (std::fabs(baseTangent) <= 0.0001F) {
-    return 1.0F;
-  }
-  return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
-}
-
 MouseAimSettings mouseAimSettingsFromConsole(
   const ConsoleSystem& console,
   bool zoomHeld,
+  bool sniperZoom,
   float zoomAmount = 1.0F
 ) {
   const float zoomSensitivity = zoomSensitivityMultiplier(
     console.getFloat("cl_fov"),
-    console.getFloat("cl_zoom_fov"),
+    console.getFloat(
+      sniperZoom ? "cl_zoom_sniper_fov" : "cl_zoom_fov"
+    ),
     console.getFloat("cl_zoom_sensitivity")
   );
   return {
@@ -3947,6 +4218,8 @@ int GameApp::run() const {
     std::vector<std::string> benchmarkScreenshotPaths;
     bool previousDevelopmentCameraEnabled = false;
     dev::CameraTransform previousDevelopmentCamera;
+    Weapon previousSelectedWeapon = Weapon::LightningGun;
+    int previousAttack = 0;
     BotAttackMode previousBotAttackMode = BotAttackMode::Off;
     Weapon previousBotWeapon = Weapon::MachineGun;
     bool previousBotStare = true;
@@ -4721,13 +4994,23 @@ int GameApp::run() const {
   );
   const std::filesystem::path defaultConfigPath =
     defaultClientConfigPath(assetBasePath);
+  const char* liveScenarioEnvironment =
+    std::getenv("LG_DUEL_LIVE_SCENARIO");
+  const bool ownedLiveScenario =
+    developerControl_.enabled &&
+    liveScenarioEnvironment != nullptr &&
+    std::string_view(liveScenarioEnvironment) == "1";
   if (std::filesystem::exists(defaultConfigPath)) {
     loadClientConfig(console, defaultConfigPath.string());
   } else {
     installDefaultBindings(bindings);
     std::cerr << "Config warning: config/default_client.cfg not found; using code default binds\n";
   }
-  loadClientConfig(console, configPath);
+  // Owned evidence runs use shipped defaults. Personal graphics values would
+  // make fixed-camera captures differ between machines.
+  if (!ownedLiveScenario) {
+    loadClientConfig(console, configPath);
+  }
   loadSoundMixerConfigs(console, assetBasePath);
   if (console.getInt("cl_config_version") < 7) {
     (void)bindings.bind("f3", "ready");
@@ -4807,12 +5090,7 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 16");
   }
-  const char* liveScenarioMode = std::getenv("LG_DUEL_LIVE_SCENARIO");
-  if (
-    developerControl_.enabled &&
-    liveScenarioMode != nullptr &&
-    std::string_view(liveScenarioMode) == "1"
-  ) {
+  if (ownedLiveScenario) {
     // Owned live runs use a fixed window size so capture checks do not inherit
     // the user's archived video settings.
     (void)console.execute("set vid_fullscreen 0");
@@ -4921,8 +5199,12 @@ int GameApp::run() const {
       if (open) {
         syncSettingsMenuFromConsole(settingsMenu, console);
         SDL_SetWindowRelativeMouseMode(window, false);
+        SDL_ShowCursor();
       } else {
+        settingsMenu.hoveredRow = -1;
+        settingsMenu.pressedRow = -1;
         SDL_SetWindowRelativeMouseMode(window, true);
+        SDL_HideCursor();
       }
     };
   const auto applySettingsMenuToggle =
@@ -5053,11 +5335,18 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastPlasmaGunResponseFire = {};
   KillFeedState killFeedState;
   TransientTracerStore transientTracerStore;
+  CombatEffects combatEffects;
   LocalTracerAimHistory localTracerAimHistory;
   std::vector<TransientTracer> activeTransientTracers;
   std::vector<TransientEffect> activeTransientEffects;
   activeTransientTracers.reserve(kMaxTransientTracers);
-  activeTransientEffects.reserve(kMaxTransientEffects);
+  activeTransientEffects.reserve(
+    kMaxTransientEffects +
+    CombatEffects::kLightCapacity +
+    CombatEffects::kCasingCapacity +
+    CombatEffects::kParticleCapacity +
+    CombatEffects::kDecalCapacity
+  );
   std::array<FootstepAudioState, kDuelPlayerCount> footstepAudioStates = {};
 
   const auto currentMapName = [&session]() -> std::string {
@@ -5365,6 +5654,44 @@ int GameApp::run() const {
     networkSimulation.object["decisions"] =
       dev::JsonValue::arrayValue(std::move(decisions));
     state.object["network_simulation"] = std::move(networkSimulation);
+
+    const CombatEffectsStats effectStats = combatEffects.stats();
+    dev::JsonValue effects = dev::JsonValue::objectValue();
+    effects.object["active_lights"] =
+      dev::JsonValue::numberValue(effectStats.activeLights);
+    effects.object["active_casings"] =
+      dev::JsonValue::numberValue(effectStats.activeCasings);
+    effects.object["active_particles"] =
+      dev::JsonValue::numberValue(effectStats.activeParticles);
+    effects.object["active_decals"] =
+      dev::JsonValue::numberValue(effectStats.activeDecals);
+    effects.object["peak_lights"] =
+      dev::JsonValue::numberValue(effectStats.peakLights);
+    effects.object["peak_casings"] =
+      dev::JsonValue::numberValue(effectStats.peakCasings);
+    effects.object["peak_particles"] =
+      dev::JsonValue::numberValue(effectStats.peakParticles);
+    effects.object["peak_decals"] =
+      dev::JsonValue::numberValue(effectStats.peakDecals);
+    effects.object["shots_spawned"] =
+      dev::JsonValue::numberValue(static_cast<double>(effectStats.shotsSpawned));
+    effects.object["effects_dropped"] =
+      dev::JsonValue::numberValue(static_cast<double>(effectStats.effectsDropped));
+    state.object["combat_effects"] = std::move(effects);
+
+    const RendererFrameDiagnostics& render = renderer.lastFrameDiagnostics();
+    dev::JsonValue renderState = dev::JsonValue::objectValue();
+    renderState.object["cpu_total_ms"] =
+      dev::JsonValue::numberValue(render.totalRenderMilliseconds);
+    renderState.object["active_lights_submitted"] =
+      dev::JsonValue::numberValue(render.activeTemporaryLights);
+    renderState.object["active_casings_submitted"] =
+      dev::JsonValue::numberValue(render.activeCasings);
+    renderState.object["active_particles_submitted"] =
+      dev::JsonValue::numberValue(render.activeImpactParticles);
+    renderState.object["active_decals_submitted"] =
+      dev::JsonValue::numberValue(render.activeBulletDecals);
+    state.object["render_frame"] = std::move(renderState);
     return state;
   };
   const auto setBenchmarkCamera = [&](const benchmark::CameraPose& pose) {
@@ -5387,6 +5714,8 @@ int GameApp::run() const {
         activeControlOperation->queued.request.operation != dev::ControlOperation::RunBenchmark) return;
     ActiveControlOperation& active = *activeControlOperation;
     restoreControlCvars();
+    selectedWeapon = active.previousSelectedWeapon;
+    input.attack = active.previousAttack;
     if (active.benchmarkBotsConfigured) {
       pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
       pendingBotCommands.push_back(PendingBotCommand{
@@ -5743,6 +6072,8 @@ int GameApp::run() const {
         }
         active.previousDevelopmentCameraEnabled = developmentCameraEnabled;
         active.previousDevelopmentCamera = developmentCamera;
+        active.previousSelectedWeapon = selectedWeapon;
+        active.previousAttack = input.attack;
         active.previousBotAttackMode = botAttackMode;
         active.previousBotWeapon = botWeapon;
         active.previousBotStare = botStareEnabled;
@@ -5759,6 +6090,13 @@ int GameApp::run() const {
           values["r_present_mode"] = scenario.vsync != 0 ? "0" : "2";
           values["r_maxfps"] = std::to_string(scenario.frameCap);
           values["cl_fov"] = std::to_string(scenario.fieldOfView);
+          for (const GraphicsProfileDefinition& profile : kGraphicsProfiles) {
+            if (profile.name == scenario.graphicsProfile) {
+              for (const GraphicsProfileValue& value : profile.values) values[std::string(value.cvar)] = std::string(value.value);
+              break;
+            }
+          }
+          values["r_render_scale"] = std::to_string(scenario.renderScale);
           return values;
         }();
         for (const auto& [name, value] : overrides) {
@@ -5782,6 +6120,10 @@ int GameApp::run() const {
         if (active.queued.request.operation == dev::ControlOperation::RunBenchmark) {
           const benchmark::Scenario& scenario = active.queued.request.benchmarkScenario;
           setBenchmarkCamera(scenario.cameraStart);
+          // The benchmark uses normal client commands so the server stays
+          // authoritative for weapon timing, hits, and damage.
+          selectedWeapon = scenario.playerWeapon;
+          input.attack = scenario.playerAttack ? 1 : 0;
           active.benchmarkPhaseStart = Clock::now();
           active.benchmarkPhaseFrames = 0;
           active.benchmarkSamples.clear();
@@ -6220,20 +6562,28 @@ int GameApp::run() const {
           if (!pressed) {
             break;
           }
-          if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+          // The bound settings command remains a toggle while the menu owns
+          // input. Escape is the explicit draft-cancel close path.
+          if (bindings.binding(key) == "settings") {
+            setSettingsOpen(false);
+          } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setSettingsOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_UP) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 7) % 8;
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 18) % 19;
+            keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 8;
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 19;
+            keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             adjustSettingsMenuValue(settingsMenu, -1);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             adjustSettingsMenuValue(settingsMenu, 1);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (settingsMenu.selectedRow == 6) {
+            if (settingsMenu.selectedRow == 16) {
+              applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
+            } else if (settingsMenu.selectedRow == 17) {
               applySettingsMenu(console, settingsMenu);
-            } else if (settingsMenu.selectedRow == 7) {
+            } else if (settingsMenu.selectedRow == 18) {
               setSettingsOpen(false);
             } else {
               adjustSettingsMenuValue(settingsMenu, 1);
@@ -6434,6 +6784,52 @@ int GameApp::run() const {
             }
           }
         } else if (settingsMenu.open) {
+          if (event.button.button != SDL_BUTTON_LEFT) {
+            break;
+          }
+          int windowWidth = 0;
+          int windowHeight = 0;
+          SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+          const float panelWidth = std::min(
+            std::max(320.0F, static_cast<float>(windowWidth) - 48.0F),
+            static_cast<float>(windowWidth) * 0.75F
+          );
+          const float panelHeight = std::min(
+            std::max(260.0F, static_cast<float>(windowHeight) - 48.0F),
+            static_cast<float>(windowHeight) * 0.75F
+          );
+          const float panelY = (static_cast<float>(windowHeight) - panelHeight) * 0.45F;
+          const float firstRowY = panelY + 78.0F;
+          constexpr float rowHeight = 38.0F;
+          const float footerY = panelY + panelHeight - 30.0F;
+          const bool inRows = event.button.y >= firstRowY && event.button.y < footerY;
+          const int row = inRows
+            ? static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
+                (event.button.y - firstRowY) / rowHeight))
+            : -1;
+          if (pressed) {
+            settingsMenu.pressedRow = row >= 0 && row < 18 ? row : -1;
+            if (settingsMenu.pressedRow >= 0) {
+              settingsMenu.selectedRow = settingsMenu.pressedRow;
+              keepSettingsSelectionVisible(settingsMenu);
+            }
+          } else if (settingsMenu.pressedRow >= 0 && settingsMenu.pressedRow == row) {
+            const int clickedRow = settingsMenu.pressedRow;
+            settingsMenu.pressedRow = -1;
+            if (clickedRow == 15) {
+              applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
+            } else if (clickedRow == 16) {
+              applySettingsMenu(console, settingsMenu);
+            } else if (clickedRow == 17) {
+              setSettingsOpen(false);
+            } else {
+              const float panelX = (static_cast<float>(windowWidth) - panelWidth) * 0.5F;
+              const float arrowX = panelX + panelWidth - 28.0F - 9.0F * 18.0F;
+              adjustSettingsMenuValue(settingsMenu, event.button.x < arrowX + 36.0F ? -1 : 1);
+            }
+          } else {
+            settingsMenu.pressedRow = -1;
+          }
           break;
         } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
@@ -6448,6 +6844,23 @@ int GameApp::run() const {
         if (settingsMenu.open) {
           input.mouseDeltaX = 0.0F;
           input.mouseDeltaY = 0.0F;
+          int windowWidth = 0;
+          int windowHeight = 0;
+          SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+          const float panelHeight = std::min(
+            std::max(260.0F, static_cast<float>(windowHeight) - 48.0F),
+            static_cast<float>(windowHeight) * 0.75F
+          );
+          const float panelY = (static_cast<float>(windowHeight) - panelHeight) * 0.45F;
+          const float firstRowY = panelY + 78.0F;
+          const float footerY = panelY + panelHeight - 30.0F;
+          if (event.motion.y >= firstRowY && event.motion.y < footerY) {
+            const int row = static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
+              (event.motion.y - firstRowY) / 38.0F));
+            settingsMenu.hoveredRow = row < 18 ? row : -1;
+          } else {
+            settingsMenu.hoveredRow = -1;
+          }
         } else if (consoleState.open) {
           updateConsoleSelection(
             window,
@@ -6468,7 +6881,17 @@ int GameApp::run() const {
         }
         break;
       case SDL_EVENT_MOUSE_WHEEL:
-        if (consoleState.open) {
+        if (settingsMenu.open) {
+          constexpr std::size_t settingsWheelRows = 3U;
+          constexpr std::size_t visibleRows = 14U;
+          const std::size_t maxScroll = 18U - visibleRows;
+          if (event.wheel.y > 0.0F) {
+            settingsMenu.scrollRows = std::min(settingsMenu.scrollRows + settingsWheelRows, maxScroll);
+          } else if (event.wheel.y < 0.0F) {
+            settingsMenu.scrollRows = settingsMenu.scrollRows > settingsWheelRows
+              ? settingsMenu.scrollRows - settingsWheelRows : 0U;
+          }
+        } else if (consoleState.open) {
           constexpr std::size_t consoleWheelRows = 3U;
           if (event.wheel.y > 0.0F) {
             const ConsoleTextLayout layout =
@@ -6672,6 +7095,7 @@ int GameApp::run() const {
         mouseAimSettingsFromConsole(
           console,
           zoomPressCount > 0,
+          selectedWeapon == Weapon::Railgun,
           selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
         );
       const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
@@ -6869,6 +7293,7 @@ int GameApp::run() const {
         mouseAimSettingsFromConsole(
           console,
           zoomPressCount > 0,
+          selectedWeapon == Weapon::Railgun,
           selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
         );
 
@@ -7320,6 +7745,7 @@ int GameApp::run() const {
       hasLastPlasmaGunResponseFire = {};
       resetKillFeedState(killFeedState);
       transientTracerStore = TransientTracerStore{};
+      combatEffects.clear();
       activeTransientTracers.clear();
       activeTransientEffects.clear();
       footstepAudioStates = {};
@@ -7970,6 +8396,7 @@ int GameApp::run() const {
           mouseAimSettingsFromConsole(
             console,
             zoomPressCount > 0,
+            selectedWeapon == Weapon::Railgun,
             selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
           );
         const UserCommand visualCommand =
@@ -8099,6 +8526,11 @@ int GameApp::run() const {
     }
     std::optional<benchmark::ScopedTiming> weaponAnimationTiming;
     weaponAnimationTiming.emplace(benchmark::TimingSubsystem::Animation);
+    const MachineGunBarrelSpinTuning machineGunSpinTuning = {
+      console.getFloat("r_mg_barrel_max_rps"),
+      console.getFloat("r_mg_barrel_spin_up"),
+      console.getFloat("r_mg_barrel_spin_down"),
+    };
     const bool ownsPresentedSubject =
       !session.spectator() && renderLocalPlayerIndex == session.playerIndex();
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -8116,7 +8548,11 @@ int GameApp::run() const {
           )
         : renderRemotePlayers[playerIndex].visible &&
           authoritativeMachineGunFire;
-      machineGunBarrelSpin[playerIndex].update(motorDriven, elapsed.count());
+      machineGunBarrelSpin[playerIndex].update(
+        motorDriven,
+        elapsed.count(),
+        machineGunSpinTuning
+      );
       renderRemotePlayers[playerIndex].machineGunBarrelRotationRadians =
         machineGunBarrelSpin[playerIndex].angleRadians;
     }
@@ -8139,7 +8575,9 @@ int GameApp::run() const {
     }
     machineGunFiringResponse.update(
       elapsed.count(),
-      machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed()
+      machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed(
+        machineGunSpinTuning
+      )
     );
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       const WeaponFireResult& fire = renderWeaponFires[playerIndex];
@@ -8263,7 +8701,9 @@ int GameApp::run() const {
       machineGunFiringResponse.kickAmount();
     currentRenderSettings.machineGunVibrationAmount =
       machineGunFiringResponse.vibrationAmount(
-        machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed()
+        machineGunBarrelSpin[renderLocalPlayerIndex].normalizedSpeed(
+          machineGunSpinTuning
+        )
       );
     currentRenderSettings.machineGunVibrationPhaseRadians =
       machineGunFiringResponse.vibrationPhaseRadians;
@@ -8414,15 +8854,18 @@ int GameApp::run() const {
       1.0F
     );
     const bool sniperScopeActive = sniperAdsAmount > 0.001F;
-    if (sniperScopeActive) {
-      const float smoothAds =
-        sniperAdsAmount * sniperAdsAmount * (3.0F - 2.0F * sniperAdsAmount);
-      currentRenderSettings.fieldOfView =
-        currentRenderSettings.fieldOfView +
-        (console.getFloat("cl_zoom_fov") - currentRenderSettings.fieldOfView) *
-          smoothAds;
-    } else if (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate) {
-      currentRenderSettings.fieldOfView = console.getFloat("cl_zoom_fov");
+    if (
+      sniperScopeActive ||
+      (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate)
+    ) {
+      currentRenderSettings.fieldOfView = resolvedZoomFieldOfView(
+        currentRenderSettings.fieldOfView,
+        console.getFloat("cl_zoom_fov"),
+        console.getFloat("cl_zoom_sniper_fov"),
+        zoomPressCount > 0,
+        sniperScopeActive,
+        sniperAdsAmount
+      );
     }
     if (sniperScopeActive) {
       // The scope owns the center view while ADS is held; hiding the viewmodel
@@ -9065,24 +9508,45 @@ int GameApp::run() const {
         console
       );
     }
+    const CombatEffectsTuning frameEffectsTuning =
+      combatEffectsTuning(console);
+    for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+      WeaponFireResult attachmentFire;
+      attachmentFire.start = renderPlayer.position;
+      combatEffects.setMuzzleAttachment(
+        static_cast<std::uint8_t>(playerIndex),
+        machineGunTracerSource(
+          attachmentFire,
+          renderPlayer,
+          renderRemotePlayers,
+          playerIndex,
+          currentRenderSettings
+        )
+      );
+    }
     transientTracerStore.update(outerFrameElapsed.count());
+    combatEffects.update(outerFrameElapsed.count(), frameEffectsTuning);
     consumeTracerWeaponFires(
       transientTracerStore,
+      combatEffects,
       renderArena,
       renderPlayer,
       renderRemotePlayers,
       renderWeaponFires,
       localTracerAimHistory,
       currentRenderSettings,
+      frameEffectsTuning,
       ownsPresentedSubject
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
     transientTracerStore.fillActive(
       activeTransientTracers,
       renderPlayer,
+      renderRemotePlayers,
       currentRenderSettings
     );
     transientTracerStore.fillActiveEffects(activeTransientEffects);
+    combatEffects.appendActive(activeTransientEffects);
     if (session.game() != nullptr && session.game()->hasSnapshot()) {
       const ServerSnapshot& objectiveSnapshot = session.game()->snapshot();
       if (objectiveSnapshot.gameMode == GameMode::McGuffin) {
@@ -9344,6 +9808,8 @@ int GameApp::run() const {
       context.actualMapContentHash = currentMapContentHash();
       SDL_GetWindowSizeInPixels(window, &context.actualWidth, &context.actualHeight);
       context.selectedPresentMode = renderer.lastFrameDiagnostics().selectedPresentModeName;
+      context.graphicsProfile = request.benchmarkScenario.graphicsProfile;
+      context.renderScale = request.benchmarkScenario.renderScale;
       const GpuTimingAvailability& gpuTiming = renderer.gpuTimingMetadata();
       context.gpuTimingAvailable = gpuTiming.available;
       context.gpuTimingBackend = gpuTiming.backend;

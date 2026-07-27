@@ -39,6 +39,16 @@ struct Line2D {
   float width = 1.0F;
 };
 
+struct SniperScopeOverlay2D {
+  int outputWidth = 0;
+  int outputHeight = 0;
+  ScreenPoint center = {};
+  float radius = 0.0F;
+  float openingScale = 1.0F;
+  float opacity = 1.0F;
+  RenderColor color = {255, 255, 255, 255};
+};
+
 enum class TextHorizontalAlignment : std::uint8_t {
   Left,
   Center,
@@ -53,7 +63,8 @@ struct Text2D {
   TextHorizontalAlignment horizontalAlignment = TextHorizontalAlignment::Left;
 };
 
-using DrawCommand2D = std::variant<FilledQuad2D, Line2D, Text2D>;
+using DrawCommand2D =
+  std::variant<FilledQuad2D, Line2D, SniperScopeOverlay2D, Text2D>;
 
 struct DrawList2D {
   ScreenRect clip = {};

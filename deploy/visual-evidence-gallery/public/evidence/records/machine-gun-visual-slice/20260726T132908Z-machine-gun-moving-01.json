@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260726T132908Z-machine-gun-moving-01",
+  "captured_at": "2026-07-26T13:29:08Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed validation scenario after the moving-fire segment. Two bounded surface-aligned marks remain visible while the viewmodel follows the moved player view.",
+  "image": "20260726T132908Z-machine-gun-moving-01.png",
+  "review": {
+    "notes": "The matched fixed-view pair clearly shows the compact effects-on change against its clean control. The moving checkpoint clearly shows the moved viewmodel and two bounded surface-aligned marks. All captures are unobscured and readable on a phone; timing and count evidence is separate.",
+    "reviewed_at": "2026-07-26T14:07:48Z",
+    "reviewer": "codex-final-visual-and-diff-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "74b206191299e736335f2309366cff302807660e769a14b69e7b5d0a8432a222",
+  "size_bytes": 3687468,
+  "task_id": "machine-gun-visual-slice",
+  "title": "Moving-fire impact marks"
+}
