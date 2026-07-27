@@ -28,7 +28,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 1.1 Define profile settings and fallbacks
 
-**Priority:** P0  
+**Priority:** P0
 **Scope:** Document and wire settings only where renderer support already exists. Keep unsupported options staged as backlog, not new renderer work.
 
 **Acceptance checks:**
@@ -39,7 +39,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 1.2 Establish benchmark scenes and capture method
 
-**Priority:** P0  
+**Priority:** P0
 **Scope:** Choose repeatable scenes: duel lane, close combat, projectile-heavy exchange, dark/light map areas, and camera pan/turn paths.
 
 **Acceptance checks:**
@@ -73,7 +73,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 2.2 Contact shadows and restrained ambient occlusion
 
-**Priority:** P1  
+**Priority:** P1
 **Scope:** Stage only if existing support allows it. Use each to ground players and props, not to darken the whole image.
 
 **Acceptance checks:**
@@ -84,7 +84,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 2.3 Tone mapping, grading, and stylised rim light
 
-**Priority:** P1  
+**Priority:** P1
 **Scope:** Apply restrained tone mapping and grading. Use rim light only to separate silhouettes from similar-value backgrounds.
 
 **Acceptance checks:**
@@ -97,7 +97,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 3.1 Material roughness and normal response
 
-**Priority:** P1  
+**Priority:** P1
 **Scope:** Tune existing material inputs so surfaces show clear stylised form under game lighting.
 
 **Acceptance checks:**
@@ -118,7 +118,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 3.3 Selective bloom
 
-**Priority:** P1  
+**Priority:** P1
 **Scope:** Bloom only high-value gameplay lights and effects; keep it off broad scene detail.
 
 **Acceptance checks:**
@@ -131,7 +131,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 4.1 Temporary gameplay lights
 
-**Priority:** P1  
+**Priority:** P1
 **Scope:** Add only where existing renderer support allows it. Use short-lived lights for key weapon fire and major impacts.
 
 **Acceptance checks:**
@@ -142,7 +142,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 4.2 Layered impacts and muzzle particles
 
-**Priority:** P1  
+**Priority:** P1
 **Scope:** Use short, clear layers: core flash, direction cue, debris/spark cue, and brief fade. Coordinate around the active barrel-effects task; do not overlap or change its owned work.
 
 **Acceptance checks:**
@@ -153,7 +153,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 4.3 Decals
 
-**Priority:** P2  
+**Priority:** P2
 **Scope:** Stage only if existing support allows it. Keep decals brief, small, and useful for impact context.
 
 **Acceptance checks:**
@@ -166,7 +166,7 @@ Render scale belongs to settings and benchmark work only. Support and measure a 
 
 ### 5.1 Atmospheric depth
 
-**Priority:** P2  
+**Priority:** P2
 **Scope:** Add light, local depth cues only where supported. Do not turn play spaces into foggy scenes.
 
 **Acceptance checks:**
