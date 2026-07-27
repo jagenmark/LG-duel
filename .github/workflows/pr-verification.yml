@@ -35,7 +35,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ninja-build \
-            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev \
             libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
             libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
@@ -175,7 +175,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ninja-build \
-            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev \
             libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
             libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
@@ -293,7 +293,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes ninja-build \
-            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev \
+            libx11-dev libxcursor-dev libxext-dev libxfixes-dev libxi-dev libxss-dev \
             libxrandr-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev \
             libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
