@@ -211,8 +211,14 @@ class LgToolTests(unittest.TestCase):
         bootstrap = (root / "scripts" / "bootstrap-windows-client.ps1").read_text(
             encoding="utf-8"
         )
+        server = (root / "Start LG Duel Server.bat").read_text(encoding="utf-8")
         self.assertIn("scripts\\bootstrap-windows-client.ps1", launcher)
+        self.assertIn("-RepairIfNeeded", launcher)
         self.assertIn('"--preset", "default", "--fresh"', bootstrap)
+        self.assertIn("Using the existing SDL3 build", bootstrap)
+        self.assertIn("CMAKE_GENERATOR:INTERNAL=Ninja", bootstrap)
+        self.assertIn('cmake --build "build\\default" --target lg_duel_server --parallel', server)
+        self.assertNotIn("cmake --build --preset default --target lg_duel_server", server)
         self.assertIn("scripts\\lg-dev.ps1", launcher)
         self.assertIn("-Renderer gpu", launcher)
         self.assertIn("-ExternalServer", launcher)

@@ -7,7 +7,7 @@ set "CLIENT_ALREADY_RUNNING=%ERRORLEVEL%"
 if "%CLIENT_ALREADY_RUNNING%"=="0" (
   echo Existing LG Duel client detected; skipping rebuild so the running exe stays usable.
 ) else (
-  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap-windows-client.ps1"
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap-windows-client.ps1" -RepairIfNeeded
   if errorlevel 1 (
     echo SDL client bootstrap failed.
     pause
