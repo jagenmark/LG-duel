@@ -1568,7 +1568,9 @@ void collectTextureMaterialFiles(
   SDL_Window* window,
   bool depthWrite,
   SDL_GPUTextureFormat depthFormat,
-  SDL_GPUCompareOp depthCompare = SDL_GPU_COMPAREOP_LESS
+  SDL_GPUCompareOp depthCompare = SDL_GPU_COMPAREOP_LESS,
+  const char* fragmentShaderPath = "world3d.frag.spv",
+  Uint32 fragmentUniformBufferCount = 1
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -1582,9 +1584,9 @@ void collectTextureMaterialFiles(
   }
   SDL_GPUShader* fragmentShader = loadGpuShader(
     device,
-    "world3d.frag.spv",
+    fragmentShaderPath,
     SDL_GPU_SHADERSTAGE_FRAGMENT,
-    1,
+    fragmentUniformBufferCount,
     1
   );
   if (fragmentShader == nullptr) {
@@ -5272,6 +5274,7 @@ void appendCommandBatches(
 [[nodiscard]] bool renderGpuFrame(
   SDL_GPUDevice* device,
   SDL_GPUGraphicsPipeline* pipeline2D,
+  SDL_GPUGraphicsPipeline* pipelineWorldSurface,
   SDL_GPUGraphicsPipeline* pipeline3D,
   SDL_GPUGraphicsPipeline* pipeline3DTranslucent,
   SDL_GPUGraphicsPipeline* instancedMeshPipeline,
@@ -5680,6 +5683,7 @@ void appendCommandBatches(
       millisecondsBetween(sceneBuildStart, RenderClock::now());
     const Uint32 opaqueDynamicVertexCount =
       static_cast<Uint32>(vertices.size());
+    appendVertices3D(vertices, perspectiveScene.contactShadowVertices, worldAtlas);
     appendVertices3D(vertices, perspectiveScene.translucentVertices, worldAtlas);
     const Uint32 dynamic3DVertexCount = static_cast<Uint32>(vertices.size());
     const Uint32 worldVertexCount = dynamic3DVertexCount;
@@ -6089,13 +6093,7 @@ void appendCommandBatches(
           &uniform,
           sizeof(uniform)
         );
-        SDL_PushGPUFragmentUniformData(
-          commandBuffer,
-          0,
-          &combatLightUniform,
-          sizeof(combatLightUniform)
-        );
-        SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
+        SDL_BindGPUGraphicsPipeline(worldPass, pipelineWorldSurface);
         if (hasStaticWorld) {
           const SDL_GPUBufferBinding staticBinding = {worldMesh->vertexBuffer, 0};
           SDL_BindGPUVertexBuffers(worldPass, 0, &staticBinding, 1);
@@ -6114,6 +6112,13 @@ void appendCommandBatches(
               millisecondsBetween(staticWorldStart, RenderClock::now());
           }
         }
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          0,
+          &combatLightUniform,
+          sizeof(combatLightUniform)
+        );
+        SDL_BindGPUGraphicsPipeline(worldPass, pipeline3D);
         const SDL_GPUBufferBinding binding = {vertexBuffer, 0};
         SDL_BindGPUVertexBuffers(worldPass, 0, &binding, 1);
         if (worldAtlas != nullptr) {
@@ -7952,6 +7957,15 @@ bool Renderer::initialize(void* window) {
           true,
           depthFormat
         );
+        SDL_GPUGraphicsPipeline* pipelineWorldSurface = createGpuPipeline3D(
+          device,
+          static_cast<SDL_Window*>(window),
+          true,
+          depthFormat,
+          SDL_GPU_COMPAREOP_LESS,
+          "world_surface.frag.spv",
+          0
+        );
         SDL_GPUGraphicsPipeline* pipeline3DTranslucent = createGpuPipeline3D(
           device,
           static_cast<SDL_Window*>(window),
@@ -8093,6 +8107,7 @@ bool Renderer::initialize(void* window) {
           SDL_CreateGPUSampler(device, &nearestSamplerInfo);
         if (
           pipeline != nullptr &&
+          pipelineWorldSurface != nullptr &&
           pipeline3D != nullptr &&
           pipeline3DTranslucent != nullptr &&
           instancedMeshPipeline != nullptr &&
@@ -8123,6 +8138,7 @@ bool Renderer::initialize(void* window) {
         ) {
           gpuDevice_ = device;
           gpuPipeline_ = pipeline;
+          gpuPipelineWorldSurface_ = pipelineWorldSurface;
           gpuPipeline3D_ = pipeline3D;
           gpuPipeline3DTranslucent_ = pipeline3DTranslucent;
           gpuPipelineInstancedMesh_ = instancedMeshPipeline;
@@ -8208,6 +8224,9 @@ bool Renderer::initialize(void* window) {
         destroyGpuGltfPlayerResources(device, gltfPlayerResources);
         if (pipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
+        }
+        if (pipelineWorldSurface != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pipelineWorldSurface);
         }
         if (pipeline3D != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline3D);
@@ -8451,6 +8470,7 @@ void Renderer::render(
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
+          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineWorldSurface_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline3D_),
           static_cast<SDL_GPUGraphicsPipeline*>(
             gpuPipeline3DTranslucent_
@@ -9199,6 +9219,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline3D_)
       );
       gpuPipeline3D_ = nullptr;
+    }
+    if (gpuPipelineWorldSurface_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineWorldSurface_)
+      );
+      gpuPipelineWorldSurface_ = nullptr;
     }
     if (gpuPipeline3DTranslucent_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(

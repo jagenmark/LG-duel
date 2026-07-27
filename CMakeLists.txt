@@ -133,6 +133,9 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_surface.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_surface.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -171,6 +174,9 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_billboard.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_billboard.vert.spv"
@@ -250,6 +256,9 @@ add_custom_target(lg_duel_runtime_assets ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_surface.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_surface.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -288,6 +297,9 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/instanced_billboard.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/instanced_billboard.vert.spv"

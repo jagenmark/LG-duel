@@ -618,6 +618,65 @@ void addIcePoolDisk(Scene3D& scene, const IcePool& pool) {
   }
 }
 
+void addPlayerContactShadow(
+  Scene3D& scene,
+  const Arena& arena,
+  const PlayerState& player
+) {
+  if (!player.onGround) {
+    return;
+  }
+
+  constexpr int kSegments = 16;
+  constexpr float kSurfaceOffset = 0.008F;
+  constexpr float kGroundProbeDistance = 0.08F;
+  const CollisionResult groundProbe = slidePlayerArenaMove(
+    arena,
+    player,
+    player.position,
+    {0.0F, 0.0F, -kGroundProbeDistance},
+    1.0F
+  );
+  const Vec3 groundNormal = groundProbe.groundPlane
+    ? normalize(groundProbe.groundNormal)
+    : Vec3{0.0F, 0.0F, 1.0F};
+  Vec3 contactPoint = player.position;
+  const float horizontalNormalLength =
+    std::hypot(groundNormal.x, groundNormal.y);
+  if (horizontalNormalLength > 0.0001F) {
+    contactPoint.x -=
+      player.bounds.radius * groundNormal.x / horizontalNormalLength;
+    contactPoint.y -=
+      player.bounds.radius * groundNormal.y / horizontalNormalLength;
+  }
+  contactPoint.z -= player.bounds.halfHeight;
+  const Vec3 center = contactPoint + groundNormal * kSurfaceOffset;
+  Vec3 forward = yawForward(player.viewYawRadians);
+  forward = normalize(forward - groundNormal * dot(forward, groundNormal));
+  const Vec3 side = normalize(cross(groundNormal, forward));
+  const float forwardRadius = player.bounds.radius * 0.78F;
+  const float sideRadius = player.bounds.radius * 0.62F;
+  const RenderColor centerColor = {8, 11, 16, 82};
+  const RenderColor edgeColor = {8, 11, 16, 0};
+  for (int index = 0; index < kSegments; ++index) {
+    const float firstAngle =
+      static_cast<float>(index) * kTwoPi / static_cast<float>(kSegments);
+    const float secondAngle =
+      static_cast<float>(index + 1) * kTwoPi / static_cast<float>(kSegments);
+    const Vec3 first =
+      center +
+      forward * (std::cos(firstAngle) * forwardRadius) +
+      side * (std::sin(firstAngle) * sideRadius);
+    const Vec3 second =
+      center +
+      forward * (std::cos(secondAngle) * forwardRadius) +
+      side * (std::sin(secondAngle) * sideRadius);
+    scene.contactShadowVertices.push_back({center, centerColor});
+    scene.contactShadowVertices.push_back({first, edgeColor});
+    scene.contactShadowVertices.push_back({second, edgeColor});
+  }
+}
+
 void addTexturedQuad(
   Scene3D& scene,
   Vec3 first,
@@ -4732,6 +4791,9 @@ Scene3D buildPerspectiveScene(
       outlineState.visibility != OutlineVisibility::None &&
       outlineState.widthPixels > 0.0F &&
       outlineState.alpha > 0.0F;
+    if (settings.drawRemotePlayers && settings.contactShadowsEnabled) {
+      addPlayerContactShadow(scene, arena, remote.player);
+    }
     if (
       wantsOutline &&
       usesGeometryPlayerOutlineFallback(

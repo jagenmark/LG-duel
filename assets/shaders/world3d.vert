@@ -7,6 +7,7 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out vec2 texCoord;
 layout(location = 2) out vec3 worldPosition;
+layout(location = 3) out float viewDistance;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -37,4 +38,5 @@ void main() {
   vertexColor = inColor;
   texCoord = inTexCoord;
   worldPosition = inPosition;
+  viewDistance = max(viewZ, 0.0);
 }

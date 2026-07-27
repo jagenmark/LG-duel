@@ -722,6 +722,7 @@ struct OutlineWorkPlan {
 struct Scene3D {
   PerspectiveCamera camera = {};
   std::vector<Vertex3D> vertices;
+  std::vector<Vertex3D> contactShadowVertices;
   std::vector<Vertex3D> translucentVertices;
   std::vector<OutlineMaskDraw> outlineMaskDraws;
   std::vector<StaticMeshInstance> staticMeshInstances;

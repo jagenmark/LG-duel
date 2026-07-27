@@ -249,6 +249,8 @@ $requiredFiles = @(
   "shaders/color2d.frag.spv",
   "shaders/world3d.vert.spv",
   "shaders/world3d.frag.spv",
+  "shaders/world_surface.frag.spv",
+  "shaders/gltf_player_model.frag.spv",
   "shaders/outline_mask.frag.spv",
   "shaders/outline_clear.vert.spv",
   "shaders/outline_clear.frag.spv",

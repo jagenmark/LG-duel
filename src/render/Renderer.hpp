@@ -264,6 +264,7 @@ struct RenderSettings {
   std::uint32_t maximumBulletDecals = 128;
   float bulletDecalLifetimeSeconds = 24.0F;
   bool drawRemotePlayers = true;
+  bool contactShadowsEnabled = true;
   bool drawRemoteWeapons = true;
   bool drawPlayerOutlines = true;
   bool frustumCullRemotePlayers = true;
@@ -680,6 +681,7 @@ private:
   void* renderer_ = nullptr;
   void* gpuDevice_ = nullptr;
   void* gpuPipeline_ = nullptr;
+  void* gpuPipelineWorldSurface_ = nullptr;
   void* gpuPipeline3D_ = nullptr;
   void* gpuPipeline3DTranslucent_ = nullptr;
   void* gpuPipelineInstancedMesh_ = nullptr;

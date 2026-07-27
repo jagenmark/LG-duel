@@ -288,6 +288,7 @@ int main() {
   settings.enemyOutlineGreen = 227;
   settings.enemyOutlineBlue = 19;
   settings.playerModel = 1;
+  settings.contactShadowsEnabled = true;
   lg::LightningGunResult inactiveBeam;
   const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
   const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
@@ -333,6 +334,12 @@ int main() {
       baseScene.remoteWeaponStats.instancesSubmitted == 1 &&
       baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
     "GLB render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
+  );
+  failures += expect(
+    baseScene.contactShadowVertices.size() == 48U &&
+      baseScene.contactShadowVertices.front().color.alpha > 0 &&
+      baseScene.contactShadowVertices[1].color.alpha == 0,
+    "a grounded visible remote player should emit one soft contact shadow"
   );
 
   lg::RenderSettings workerSettings = settings;
@@ -428,6 +435,7 @@ int main() {
       noBodyBeamScene.remoteWeaponStats.instancesSubmitted == 1 &&
       noBodyBeamScene.playerOutlinesBuilt == 0 &&
       noBodyBeamScene.outlineMaskDraws.empty() &&
+      noBodyBeamScene.contactShadowVertices.empty() &&
       noBodyBeamScene.vertices.size() > noBodyNoBeamScene.vertices.size(),
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
   );
