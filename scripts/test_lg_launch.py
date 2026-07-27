@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import tempfile
@@ -243,6 +244,98 @@ GPU0:
         self.assertEqual(selection["source"], "default-loader")
         self.assertEqual(selection["icd_path"], str(manifest.resolve()))
         self.assertEqual(selection["vulkan_driver_environment"], {})
+
+    def test_fresh_worktree_discovers_and_records_windows_icd(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = root / "igvk64.json"
+            library = root / "igvk64.dll"
+            manifest.write_text(
+                '{"ICD":{"library_path":"./igvk64.dll"}}', encoding="utf-8"
+            )
+            library.touch()
+            state_dir = root / "build" / "dev-control"
+            probe = {
+                "gpu_name": "Intel(R) Arc(TM) Test GPU",
+                "gpu_type": "PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU",
+                "graphics_driver_name": "Intel Corporation",
+                "graphics_driver_version": "101.9999",
+                "vulkan_api_version": "1.4.999",
+                "software_renderer": False,
+            }
+            with mock.patch.object(lg_launch.platform, "system", return_value="Windows"), \
+                 mock.patch.object(lg_launch, "LOCAL_VULKAN_CONFIGS", ()), \
+                 mock.patch.object(lg_launch, "BENCHMARK_ROOT", root / "missing"), \
+                 mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
+                 mock.patch.object(lg_launch, "_windows_vulkan_manifest_paths", return_value=[manifest]), \
+                 mock.patch.object(lg_launch, "_probe_vulkan", return_value=probe), \
+                 mock.patch.dict(os.environ, {}, clear=True):
+                selection = lg_launch.discover_vulkan_selection()
+
+            saved = json.loads((state_dir / "vulkan.json").read_text(encoding="utf-8"))
+        self.assertEqual(selection["source"], f"windows-registry:{lg_launch.WINDOWS_VULKAN_DRIVERS_KEY}")
+        self.assertEqual(selection["icd_path"], str(manifest.resolve()))
+        self.assertEqual(saved["icd_path"], str(manifest.resolve()))
+        self.assertEqual(saved["generated_from"], selection["source"])
+
+    def test_fresh_worktree_rejects_missing_or_invalid_windows_icds(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            missing = root / "missing.json"
+            invalid = root / "invalid.json"
+            invalid.write_text("not JSON", encoding="utf-8")
+            with mock.patch.object(lg_launch.platform, "system", return_value="Windows"), \
+                 mock.patch.object(lg_launch, "LOCAL_VULKAN_CONFIGS", ()), \
+                 mock.patch.object(lg_launch, "BENCHMARK_ROOT", root / "missing-results"), \
+                 mock.patch.object(lg_launch, "_windows_vulkan_manifest_paths", return_value=[missing, invalid]), \
+                 mock.patch.object(lg_launch, "_probe_default_vulkan", side_effect=LaunchError("no loader ICD")), \
+                 mock.patch.dict(os.environ, {}, clear=True):
+                with self.assertRaisesRegex(LaunchError, "no verified Intel Vulkan ICD"):
+                    lg_launch.discover_vulkan_selection()
+
+    def test_fresh_worktree_uses_default_loader_when_registry_is_empty(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state_dir = root / "build" / "dev-control"
+            loader_selection = {
+                **self.selection(),
+                "source": "default-loader",
+                "vulkan_driver_environment": {},
+            }
+            with mock.patch.object(lg_launch.platform, "system", return_value="Windows"), \
+                 mock.patch.object(lg_launch, "LOCAL_VULKAN_CONFIGS", ()), \
+                 mock.patch.object(lg_launch, "BENCHMARK_ROOT", root / "missing"), \
+                 mock.patch.object(lg_launch, "STATE_DIR", state_dir), \
+                 mock.patch.object(lg_launch, "_windows_vulkan_manifest_paths", return_value=[]), \
+                 mock.patch.object(lg_launch, "_probe_default_vulkan", return_value=loader_selection), \
+                 mock.patch.dict(os.environ, {}, clear=True):
+                selection = lg_launch.discover_vulkan_selection()
+
+            saved = json.loads((state_dir / "vulkan.json").read_text(encoding="utf-8"))
+        self.assertEqual(selection["source"], "default-loader")
+        self.assertEqual(saved["generated_from"], "default-loader")
+
+    def test_explicit_config_precedes_windows_fresh_worktree_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            explicit = root / "explicit.json"
+            explicit.write_text(
+                json.dumps({
+                    "icd_path": r"C:\\explicit\\igvk64.json",
+                    "icd_sha256": "a" * 64,
+                    "gpu_name": "Intel Explicit GPU",
+                }),
+                encoding="utf-8",
+            )
+            with mock.patch.object(lg_launch.platform, "system", return_value="Windows"), \
+                 mock.patch.object(lg_launch, "LOCAL_VULKAN_CONFIGS", ()), \
+                 mock.patch.object(lg_launch, "BENCHMARK_ROOT", root / "missing"), \
+                 mock.patch.object(lg_launch, "_discover_windows_vulkan_selection") as fallback, \
+                 mock.patch.dict(os.environ, {"LG_DUEL_VULKAN_CONFIG": str(explicit)}, clear=True):
+                selection = lg_launch.discover_vulkan_selection()
+
+        self.assertEqual(selection["source"], f"local-config:{explicit}")
+        fallback.assert_not_called()
 
     def test_silent_fallback_is_rejected(self) -> None:
         for renderer in ("SDL_Renderer/direct3d11", "SDL_Renderer/software", "SwiftShader"):

@@ -4,20 +4,12 @@ cd /d "%~dp0"
 tasklist /FI "IMAGENAME eq lg_duel_client.exe" | find /I "lg_duel_client.exe" >nul
 set "CLIENT_ALREADY_RUNNING=%ERRORLEVEL%"
 
-if not exist "build\default\build.ninja" (
-  cmake --preset default
-  if errorlevel 1 (
-    echo Configure failed.
-    pause
-    exit /b 1
-  )
-)
 if "%CLIENT_ALREADY_RUNNING%"=="0" (
   echo Existing LG Duel client detected; skipping rebuild so the running exe stays usable.
 ) else (
-  cmake --build --preset default --target lg_duel_client
+  powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0scripts\bootstrap-windows-client.ps1"
   if errorlevel 1 (
-    echo Build failed.
+    echo SDL client bootstrap failed.
     pause
     exit /b 1
   )

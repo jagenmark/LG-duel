@@ -208,6 +208,11 @@ class LgToolTests(unittest.TestCase):
     def test_root_gpu_batch_uses_verified_launcher(self) -> None:
         root = Path(__file__).resolve().parents[1]
         launcher = (root / "Start LG Duel Client GPU.bat").read_text(encoding="utf-8")
+        bootstrap = (root / "scripts" / "bootstrap-windows-client.ps1").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("scripts\\bootstrap-windows-client.ps1", launcher)
+        self.assertIn('"--preset", "default", "--fresh"', bootstrap)
         self.assertIn("scripts\\lg-dev.ps1", launcher)
         self.assertIn("-Renderer gpu", launcher)
         self.assertIn("-ExternalServer", launcher)
