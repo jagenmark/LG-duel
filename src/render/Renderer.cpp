@@ -5995,6 +5995,9 @@ void appendCommandBatches(
       combatLightUniform.parameters[0] = static_cast<float>(lightCount);
       combatLightUniform.parameters[1] =
         std::clamp(settings.toneMapExposure, 0.25F, 4.0F);
+      combatLightUniform.parameters[2] = static_cast<float>(
+        std::clamp(settings.atmosphereGradeQuality, 0, 3)
+      );
       for (std::size_t index = 0; index < lightCount; ++index) {
         const TemporaryLight& light = perspectiveScene.temporaryLights[index];
         combatLightUniform.positionRadius[index][0] = light.position.x;

@@ -22,14 +22,25 @@ vec3 acesToneMap(vec3 color) {
   );
 }
 
-vec3 gradeWorld(vec3 displayColor) {
-  // Keep the restrained cool grade after the scene curve has restored the
-  // baked low-light range.
-  vec3 color =
-    displayColor * vec3(1.035, 1.015, 0.985) +
-    vec3(0.006, 0.008, 0.012);
+vec3 gradeWorld(vec3 displayColor, int quality) {
+  if (quality == 0) {
+    return displayColor;
+  }
+  vec3 gain = quality == 1
+    ? vec3(1.018, 1.008, 0.992)
+    : quality == 2
+      ? vec3(1.035, 1.015, 0.985)
+      : vec3(1.050, 1.025, 0.970);
+  vec3 lift = quality == 1
+    ? vec3(0.003, 0.004, 0.006)
+    : quality == 2
+      ? vec3(0.006, 0.008, 0.012)
+      : vec3(0.010, 0.013, 0.019);
+  float saturation =
+    quality == 1 ? 1.02 : quality == 2 ? 1.04 : 1.07;
+  vec3 color = displayColor * gain + lift;
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
-  return clamp(mix(vec3(luminance), color, 1.04), 0.0, 1.0);
+  return clamp(mix(vec3(luminance), color, saturation), 0.0, 1.0);
 }
 
 void main() {
@@ -55,12 +66,25 @@ void main() {
     ),
     vec3(1.0 / 2.2)
   );
-  vec3 color = gradeWorld(displayColor);
+  int atmosphereQuality =
+    clamp(int(combatLights.parameters.z + 0.5), 0, 3);
+  vec3 color = gradeWorld(displayColor, atmosphereQuality);
 
   // Keep near combat crisp. Only the far half of large maps gets a restrained
   // blue-grey haze, capped so silhouettes stay readable.
-  float haze = 1.0 - exp(-max(viewDistance - 28.0, 0.0) * 0.010);
-  haze = min(haze, 0.32);
+  float hazeStart = atmosphereQuality == 1
+    ? 32.0
+    : atmosphereQuality == 2 ? 28.0 : 24.0;
+  float hazeDensity = atmosphereQuality == 1
+    ? 0.006
+    : atmosphereQuality == 2 ? 0.010 : 0.014;
+  float hazeCap = atmosphereQuality == 1
+    ? 0.18
+    : atmosphereQuality == 2 ? 0.32 : 0.42;
+  float haze = atmosphereQuality == 0
+    ? 0.0
+    : 1.0 - exp(-max(viewDistance - hazeStart, 0.0) * hazeDensity);
+  haze = min(haze, hazeCap);
   const vec3 hazeColor = vec3(0.30, 0.34, 0.40);
   color = mix(color, hazeColor, haze);
   outColor = vec4(color, surface.a);

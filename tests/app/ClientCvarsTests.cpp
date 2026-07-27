@@ -39,6 +39,7 @@ int main() {
     failures += expect(
       hasValue("r_combat_effects") &&
         hasValue("r_tonemap_exposure") &&
+        hasValue("r_atmosphere_grade") &&
         hasValue("r_bloom") &&
         hasValue("r_bloom_intensity") &&
         hasValue("r_casings") &&
@@ -47,6 +48,37 @@ int main() {
       "each F10 graphics profile should define every high-level visual quality setting"
     );
   }
+  const auto profileValue = [](
+                              const lg::GraphicsProfileDefinition& profile,
+                              std::string_view cvar
+                            ) {
+    const auto value = std::find_if(
+      profile.values.begin(),
+      profile.values.end(),
+      [cvar](const lg::GraphicsProfileValue& entry) {
+        return entry.cvar == cvar;
+      }
+    );
+    return value == profile.values.end() ? std::string_view{} : value->value;
+  };
+  failures += expect(
+    profileValue(lg::kGraphicsProfiles[0], "r_atmosphere_grade") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_atmosphere_grade") == "2" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_atmosphere_grade") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_atmosphere_grade") == "3",
+    "low, default, competitive, and high profiles should map atmosphere to low, default, off, and high"
+  );
+
+  failures += expect(
+    console.getInt("r_atmosphere_grade") == 2 &&
+      console.execute("r_atmosphere_grade 0") ==
+        "r_atmosphere_grade = 0" &&
+      console.execute("r_atmosphere_grade 3") ==
+        "r_atmosphere_grade = 3" &&
+      console.execute("r_atmosphere_grade 4") ==
+        "value out of range for r_atmosphere_grade",
+    "atmosphere grade should expose exactly four saved quality values"
+  );
 
   failures += expect(
     console.getBool("cl_show_console_cat") &&

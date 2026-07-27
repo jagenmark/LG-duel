@@ -16,7 +16,7 @@ struct GraphicsProfileValue {
 struct GraphicsProfileDefinition {
   GraphicsProfile profile;
   std::string_view name;
-  std::array<GraphicsProfileValue, 15> values;
+  std::array<GraphicsProfileValue, 16> values;
 };
 
 inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
@@ -26,6 +26,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "1"},
     {"r_draw_player_outlines", "0"}, {"r_player_outline_mode", "0"},
     {"r_combat_effects", "1"}, {"r_tonemap_exposure", "1"},
+    {"r_atmosphere_grade", "1"},
     {"r_bloom", "0"}, {"r_bloom_intensity", "0.1"},
     {"r_casings", "0"}, {"r_impact_particles", "0.5"},
     {"r_decals_max", "48"}
@@ -36,6 +37,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "0"},
     {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "1"},
     {"r_combat_effects", "2"}, {"r_tonemap_exposure", "1"},
+    {"r_atmosphere_grade", "2"},
     {"r_bloom", "1"}, {"r_bloom_intensity", "0.18"},
     {"r_casings", "1"}, {"r_impact_particles", "1"},
     {"r_decals_max", "128"}
@@ -46,6 +48,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "1"},
     {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "2"},
     {"r_combat_effects", "1"}, {"r_tonemap_exposure", "1"},
+    {"r_atmosphere_grade", "0"},
     {"r_bloom", "0"}, {"r_bloom_intensity", "0.1"},
     {"r_casings", "0"}, {"r_impact_particles", "0.5"},
     {"r_decals_max", "64"}
@@ -56,6 +59,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "0"},
     {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "2"},
     {"r_combat_effects", "2"}, {"r_tonemap_exposure", "1"},
+    {"r_atmosphere_grade", "3"},
     {"r_bloom", "1"}, {"r_bloom_intensity", "0.24"},
     {"r_casings", "1"}, {"r_impact_particles", "1.5"},
     {"r_decals_max", "192"}

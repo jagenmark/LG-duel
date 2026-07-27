@@ -2051,10 +2051,10 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 23;
-constexpr int kSettingsApplyRow = 24;
-constexpr int kSettingsCloseRow = 25;
-constexpr int kSettingsRowCount = 26;
+constexpr int kSettingsResetRow = 24;
+constexpr int kSettingsApplyRow = 25;
+constexpr int kSettingsCloseRow = 26;
+constexpr int kSettingsRowCount = 27;
 
 struct SettingsMenuState {
   bool open = false;
@@ -2076,6 +2076,7 @@ struct SettingsMenuState {
   bool pendingShowConsoleCat = true;
   int pendingCombatEffects = 2;
   float pendingToneMapExposure = 1.0F;
+  int pendingAtmosphereGrade = 2;
   bool pendingBloom = true;
   float pendingBloomIntensity = 0.18F;
   bool pendingCasings = true;
@@ -2094,6 +2095,7 @@ struct SettingsMenuState {
   bool originalShowConsoleCat = true;
   int originalCombatEffects = 2;
   float originalToneMapExposure = 1.0F;
+  int originalAtmosphereGrade = 2;
   bool originalBloom = true;
   float originalBloomIntensity = 0.18F;
   bool originalCasings = true;
@@ -2762,6 +2764,7 @@ bool applyVideoSettings(
     menu.pendingShowConsoleCat != menu.originalShowConsoleCat ||
     menu.pendingCombatEffects != menu.originalCombatEffects ||
     menu.pendingToneMapExposure != menu.originalToneMapExposure ||
+    menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade ||
     menu.pendingBloom != menu.originalBloom ||
     menu.pendingBloomIntensity != menu.originalBloomIntensity ||
     menu.pendingCasings != menu.originalCasings ||
@@ -2789,6 +2792,8 @@ bool applyVideoSettings(
           menu.pendingToneMapExposure -
           std::stof(std::string(value("r_tonemap_exposure")))
         ) < 0.001F &&
+        std::to_string(menu.pendingAtmosphereGrade) ==
+          value("r_atmosphere_grade") &&
         (menu.pendingBloom ? "1" : "0") == value("r_bloom") &&
         std::abs(
           menu.pendingBloomIntensity -
@@ -2824,6 +2829,8 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingCombatEffects = std::stoi(std::string(value("r_combat_effects")));
   menu.pendingToneMapExposure =
     std::stof(std::string(value("r_tonemap_exposure")));
+  menu.pendingAtmosphereGrade =
+    std::stoi(std::string(value("r_atmosphere_grade")));
   menu.pendingBloom = value("r_bloom") == "1";
   menu.pendingBloomIntensity =
     std::stof(std::string(value("r_bloom_intensity")));
@@ -2847,6 +2854,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
   menu.pendingCombatEffects = console.getInt("r_combat_effects");
   menu.pendingToneMapExposure = console.getFloat("r_tonemap_exposure");
+  menu.pendingAtmosphereGrade = console.getInt("r_atmosphere_grade");
   menu.pendingBloom = console.getBool("r_bloom");
   menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
   menu.pendingCasings = console.getBool("r_casings");
@@ -2861,6 +2869,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
   menu.originalCasings = menu.pendingCasings;
@@ -2963,23 +2972,27 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
       4.0F
     );
     return;
-  case 18: menu.pendingBloom = !menu.pendingBloom; return;
-  case 19:
+  case 18:
+    menu.pendingAtmosphereGrade =
+      (menu.pendingAtmosphereGrade + direction + 4) % 4;
+    return;
+  case 19: menu.pendingBloom = !menu.pendingBloom; return;
+  case 20:
     menu.pendingBloomIntensity = std::clamp(
       menu.pendingBloomIntensity + 0.05F * static_cast<float>(direction),
       0.0F,
       1.0F
     );
     return;
-  case 20: menu.pendingCasings = !menu.pendingCasings; return;
-  case 21:
+  case 21: menu.pendingCasings = !menu.pendingCasings; return;
+  case 22:
     menu.pendingImpactParticles = std::clamp(
       menu.pendingImpactParticles + 0.25F * static_cast<float>(direction),
       0.0F,
       2.0F
     );
     return;
-  case 22: {
+  case 23: {
     const std::vector<int> values = {0, 32, 48, 64, 96, 128, 192, 256};
     const int index = optionIndex(
       values,
@@ -3021,6 +3034,9 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   (void)console.execute(
     "set r_tonemap_exposure " + std::to_string(menu.pendingToneMapExposure)
   );
+  (void)console.execute(
+    "set r_atmosphere_grade " + std::to_string(menu.pendingAtmosphereGrade)
+  );
   (void)console.execute("set r_bloom " + std::to_string(menu.pendingBloom ? 1 : 0));
   (void)console.execute(
     "set r_bloom_intensity " + std::to_string(menu.pendingBloomIntensity)
@@ -3038,6 +3054,7 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
   menu.originalCasings = menu.pendingCasings;
@@ -3148,13 +3165,24 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(
       menu,
       18,
+      "Atmosphere / grade",
+      menu.pendingAtmosphereGrade == 0
+        ? "Off"
+        : menu.pendingAtmosphereGrade == 1
+          ? "Low"
+          : menu.pendingAtmosphereGrade == 2 ? "Default" : "High",
+      menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade
+    ),
+    settingsMenuItem(
+      menu,
+      19,
       "Bright-effect bloom",
       menu.pendingBloom ? "On" : "Off",
       menu.pendingBloom != menu.originalBloom
     ),
     settingsMenuItem(
       menu,
-      19,
+      20,
       "Bloom strength",
       std::to_string(
         static_cast<int>(std::lround(menu.pendingBloomIntensity * 100.0F))
@@ -3163,14 +3191,14 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      20,
+      21,
       "Cartridge casings",
       menu.pendingCasings ? "On" : "Off",
       menu.pendingCasings != menu.originalCasings
     ),
     settingsMenuItem(
       menu,
-      21,
+      22,
       "Impact-particle density",
       std::to_string(
         static_cast<int>(std::lround(menu.pendingImpactParticles * 100.0F))
@@ -3179,7 +3207,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      22,
+      23,
       "Bullet decal budget",
       std::to_string(menu.pendingDecalBudget),
       menu.pendingDecalBudget != menu.originalDecalBudget
@@ -3418,6 +3446,7 @@ RenderSettings renderSettings(
   settings.muzzleLightDurationSeconds =
     console.getFloat("r_muzzle_light_duration");
   settings.toneMapExposure = console.getFloat("r_tonemap_exposure");
+  settings.atmosphereGradeQuality = console.getInt("r_atmosphere_grade");
   settings.bloomEnabled = console.getBool("r_bloom");
   settings.bloomIntensity = console.getFloat("r_bloom_intensity");
   settings.bloomThreshold = console.getFloat("r_bloom_threshold");

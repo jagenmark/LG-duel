@@ -255,6 +255,7 @@ struct RenderSettings {
   float bloomIntensity = 0.18F;
   float bloomThreshold = 1.15F;
   float toneMapExposure = 1.0F;
+  int atmosphereGradeQuality = 2;
   bool casingsEnabled = true;
   float casingCountMultiplier = 1.0F;
   float casingLifetimeSeconds = 2.4F;

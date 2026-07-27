@@ -236,6 +236,9 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("same single scene-to-display curve", shader)
         self.assertIn("acesToneMap(", shader)
         self.assertIn("combatLights.colorIntensity", shader)
+        self.assertIn("combatLights.parameters.z", shader)
+        self.assertIn("vec3(1.035, 1.015, 0.985)", shader)
+        self.assertIn("hazeCap = atmosphereQuality == 1", shader)
         self.assertIn('"world_surface.frag.spv",\n          1', renderer)
 
     def test_f10_graphics_menu_covers_saved_visual_quality_controls(self) -> None:
@@ -244,6 +247,7 @@ class LgToolTests(unittest.TestCase):
         for label in (
             "Combat effects / temp lights",
             "Tone-map exposure",
+            "Atmosphere / grade",
             "Bright-effect bloom",
             "Bloom strength",
             "Cartridge casings",
@@ -254,6 +258,7 @@ class LgToolTests(unittest.TestCase):
         for cvar in (
             "r_combat_effects",
             "r_tonemap_exposure",
+            "r_atmosphere_grade",
             "r_bloom",
             "r_bloom_intensity",
             "r_casings",
