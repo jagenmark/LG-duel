@@ -16,17 +16,17 @@ vec3 acesToneMap(vec3 color) {
   );
 }
 
-vec3 gradeWorld(vec3 srgb) {
-  vec3 linearColor = pow(max(srgb, vec3(0.0)), vec3(2.2));
-  linearColor = acesToneMap(linearColor * 1.12);
+vec3 gradeWorld(vec3 bakedSurface) {
+  // The static mesh already contains baked vertex lighting in the same display
+  // range as the UNORM world atlas. Do not decode and tone-map that product a
+  // second time: dark baked routes collapse to black when both curves apply.
+  vec3 color = max(bakedSurface, vec3(0.0));
 
-  // A small cool lift and warm gain keep dark routes legible while giving
-  // lit stone and metal a clearer split.
-  linearColor = linearColor * vec3(1.035, 1.015, 0.985) +
-    vec3(0.002, 0.003, 0.006);
-  float luminance = dot(linearColor, vec3(0.2126, 0.7152, 0.0722));
-  linearColor = mix(vec3(luminance), linearColor, 1.06);
-  return pow(clamp(linearColor, 0.0, 1.0), vec3(1.0 / 2.2));
+  // Keep the intended restrained cool grade, but give low world lighting a
+  // small display-space floor so authored wall and floor detail stays visible.
+  color = color * vec3(1.035, 1.015, 0.985) + vec3(0.014, 0.016, 0.020);
+  float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
+  return clamp(mix(vec3(luminance), color, 1.04), 0.0, 1.0);
 }
 
 void main() {
