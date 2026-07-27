@@ -225,14 +225,42 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("set LG_DUEL_RENDER_BACKEND=gpu", launcher)
         self.assertNotIn("build\\default\\lg_duel_client.exe 127.0.0.1", launcher)
 
-    def test_static_world_grade_keeps_baked_lighting_out_of_second_tonemap(self) -> None:
+    def test_static_world_keeps_pre_global_scene_curve_and_combat_lights(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader = (root / "assets" / "shaders" / "world_surface.frag").read_text(
             encoding="utf-8"
         )
-        self.assertIn("baked vertex lighting", shader)
-        self.assertIn("vec3(0.014, 0.016, 0.020)", shader)
-        self.assertNotIn("linearColor = acesToneMap", shader)
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("same single scene-to-display curve", shader)
+        self.assertIn("acesToneMap(", shader)
+        self.assertIn("combatLights.colorIntensity", shader)
+        self.assertIn('"world_surface.frag.spv",\n          1', renderer)
+
+    def test_f10_graphics_menu_covers_saved_visual_quality_controls(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        app = (root / "src" / "app" / "GameApp.cpp").read_text(encoding="utf-8")
+        for label in (
+            "Combat effects / temp lights",
+            "Tone-map exposure",
+            "Bright-effect bloom",
+            "Bloom strength",
+            "Cartridge casings",
+            "Impact-particle density",
+            "Bullet decal budget",
+        ):
+            self.assertIn(label, app)
+        for cvar in (
+            "r_combat_effects",
+            "r_tonemap_exposure",
+            "r_bloom",
+            "r_bloom_intensity",
+            "r_casings",
+            "r_impact_particles",
+            "r_decals_max",
+        ):
+            self.assertIn(f'"set {cvar} "', app)
 
     def test_power_shell_launcher_forwards_a_bounded_timeout(self) -> None:
         launcher = (Path(__file__).resolve().parent / "lg-dev.ps1").read_text(encoding="utf-8")

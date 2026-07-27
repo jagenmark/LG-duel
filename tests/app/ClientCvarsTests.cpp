@@ -1,4 +1,5 @@
 #include "app/ClientCvars.hpp"
+#include "app/GraphicsProfiles.hpp"
 #include "console/ConsoleSystem.hpp"
 
 #include <algorithm>
@@ -24,6 +25,28 @@ int main() {
   int failures = 0;
   lg::ConsoleSystem console;
   lg::registerClientCvars(console);
+
+  for (const lg::GraphicsProfileDefinition& profile : lg::kGraphicsProfiles) {
+    const auto hasValue = [&](std::string_view cvar) {
+      return std::any_of(
+        profile.values.begin(),
+        profile.values.end(),
+        [cvar](const lg::GraphicsProfileValue& value) {
+          return value.cvar == cvar;
+        }
+      );
+    };
+    failures += expect(
+      hasValue("r_combat_effects") &&
+        hasValue("r_tonemap_exposure") &&
+        hasValue("r_bloom") &&
+        hasValue("r_bloom_intensity") &&
+        hasValue("r_casings") &&
+        hasValue("r_impact_particles") &&
+        hasValue("r_decals_max"),
+      "each F10 graphics profile should define every high-level visual quality setting"
+    );
+  }
 
   failures += expect(
     console.getBool("cl_show_console_cat") &&

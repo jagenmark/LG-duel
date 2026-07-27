@@ -2051,6 +2051,11 @@ struct ResolutionOption {
   int height = 0;
 };
 
+constexpr int kSettingsResetRow = 23;
+constexpr int kSettingsApplyRow = 24;
+constexpr int kSettingsCloseRow = 25;
+constexpr int kSettingsRowCount = 26;
+
 struct SettingsMenuState {
   bool open = false;
   int selectedRow = 0;
@@ -2069,6 +2074,13 @@ struct SettingsMenuState {
   bool pendingPlayerOutlines = true;
   int pendingOutlineMode = 1;
   bool pendingShowConsoleCat = true;
+  int pendingCombatEffects = 2;
+  float pendingToneMapExposure = 1.0F;
+  bool pendingBloom = true;
+  float pendingBloomIntensity = 0.18F;
+  bool pendingCasings = true;
+  float pendingImpactParticles = 1.0F;
+  int pendingDecalBudget = 128;
   VideoSettings originalVideo = {};
   int originalMaxFps = 0;
   float originalRenderScale = 1.0F;
@@ -2080,6 +2092,13 @@ struct SettingsMenuState {
   bool originalPlayerOutlines = true;
   int originalOutlineMode = 1;
   bool originalShowConsoleCat = true;
+  int originalCombatEffects = 2;
+  float originalToneMapExposure = 1.0F;
+  bool originalBloom = true;
+  float originalBloomIntensity = 0.18F;
+  bool originalCasings = true;
+  float originalImpactParticles = 1.0F;
+  int originalDecalBudget = 128;
 };
 
 struct LingeringWeaponFire {
@@ -2740,7 +2759,14 @@ bool applyVideoSettings(
     menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull ||
     menu.pendingPlayerOutlines != menu.originalPlayerOutlines ||
     menu.pendingOutlineMode != menu.originalOutlineMode ||
-    menu.pendingShowConsoleCat != menu.originalShowConsoleCat;
+    menu.pendingShowConsoleCat != menu.originalShowConsoleCat ||
+    menu.pendingCombatEffects != menu.originalCombatEffects ||
+    menu.pendingToneMapExposure != menu.originalToneMapExposure ||
+    menu.pendingBloom != menu.originalBloom ||
+    menu.pendingBloomIntensity != menu.originalBloomIntensity ||
+    menu.pendingCasings != menu.originalCasings ||
+    menu.pendingImpactParticles != menu.originalImpactParticles ||
+    menu.pendingDecalBudget != menu.originalDecalBudget;
 }
 
 [[nodiscard]] int matchingGraphicsProfile(const SettingsMenuState& menu) {
@@ -2757,7 +2783,25 @@ bool applyVideoSettings(
         (menu.pendingFrustumCull ? "1" : "0") == value("r_frustum_cull") &&
         (menu.pendingWorldFrustumCull ? "1" : "0") == value("r_world_frustum_cull") &&
         (menu.pendingPlayerOutlines ? "1" : "0") == value("r_draw_player_outlines") &&
-        std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode")) return static_cast<int>(index);
+        std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode") &&
+        std::to_string(menu.pendingCombatEffects) == value("r_combat_effects") &&
+        std::abs(
+          menu.pendingToneMapExposure -
+          std::stof(std::string(value("r_tonemap_exposure")))
+        ) < 0.001F &&
+        (menu.pendingBloom ? "1" : "0") == value("r_bloom") &&
+        std::abs(
+          menu.pendingBloomIntensity -
+          std::stof(std::string(value("r_bloom_intensity")))
+        ) < 0.001F &&
+        (menu.pendingCasings ? "1" : "0") == value("r_casings") &&
+        std::abs(
+          menu.pendingImpactParticles -
+          std::stof(std::string(value("r_impact_particles")))
+        ) < 0.001F &&
+        std::to_string(menu.pendingDecalBudget) == value("r_decals_max")) {
+      return static_cast<int>(index);
+    }
   }
   return -1;
 }
@@ -2777,6 +2821,16 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingWorldFrustumCull = value("r_world_frustum_cull") == "1";
   menu.pendingPlayerOutlines = value("r_draw_player_outlines") == "1";
   menu.pendingOutlineMode = std::stoi(std::string(value("r_player_outline_mode")));
+  menu.pendingCombatEffects = std::stoi(std::string(value("r_combat_effects")));
+  menu.pendingToneMapExposure =
+    std::stof(std::string(value("r_tonemap_exposure")));
+  menu.pendingBloom = value("r_bloom") == "1";
+  menu.pendingBloomIntensity =
+    std::stof(std::string(value("r_bloom_intensity")));
+  menu.pendingCasings = value("r_casings") == "1";
+  menu.pendingImpactParticles =
+    std::stof(std::string(value("r_impact_particles")));
+  menu.pendingDecalBudget = std::stoi(std::string(value("r_decals_max")));
 }
 
 void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& console) {
@@ -2791,6 +2845,13 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingPlayerOutlines = console.getBool("r_draw_player_outlines");
   menu.pendingOutlineMode = console.getInt("r_player_outline_mode");
   menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
+  menu.pendingCombatEffects = console.getInt("r_combat_effects");
+  menu.pendingToneMapExposure = console.getFloat("r_tonemap_exposure");
+  menu.pendingBloom = console.getBool("r_bloom");
+  menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
+  menu.pendingCasings = console.getBool("r_casings");
+  menu.pendingImpactParticles = console.getFloat("r_impact_particles");
+  menu.pendingDecalBudget = console.getInt("r_decals_max");
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
@@ -2798,8 +2859,15 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull;
   menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
+  menu.originalCombatEffects = menu.pendingCombatEffects;
+  menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalBloom = menu.pendingBloom;
+  menu.originalBloomIntensity = menu.pendingBloomIntensity;
+  menu.originalCasings = menu.pendingCasings;
+  menu.originalImpactParticles = menu.pendingImpactParticles;
+  menu.originalDecalBudget = menu.pendingDecalBudget;
   menu.pendingProfile = matchingGraphicsProfile(menu);
-  menu.selectedRow = std::clamp(menu.selectedRow, 0, 18);
+  menu.selectedRow = std::clamp(menu.selectedRow, 0, kSettingsRowCount - 1);
   menu.scrollRows = 0U;
 }
 
@@ -2884,6 +2952,43 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
   case 13: menu.pendingPlayerOutlines = !menu.pendingPlayerOutlines; return;
   case 14: menu.pendingOutlineMode = (menu.pendingOutlineMode + direction + 3) % 3; return;
   case 15: menu.pendingShowConsoleCat = !menu.pendingShowConsoleCat; return;
+  case 16:
+    menu.pendingCombatEffects =
+      (menu.pendingCombatEffects + direction + 3) % 3;
+    return;
+  case 17:
+    menu.pendingToneMapExposure = std::clamp(
+      menu.pendingToneMapExposure + 0.1F * static_cast<float>(direction),
+      0.25F,
+      4.0F
+    );
+    return;
+  case 18: menu.pendingBloom = !menu.pendingBloom; return;
+  case 19:
+    menu.pendingBloomIntensity = std::clamp(
+      menu.pendingBloomIntensity + 0.05F * static_cast<float>(direction),
+      0.0F,
+      1.0F
+    );
+    return;
+  case 20: menu.pendingCasings = !menu.pendingCasings; return;
+  case 21:
+    menu.pendingImpactParticles = std::clamp(
+      menu.pendingImpactParticles + 0.25F * static_cast<float>(direction),
+      0.0F,
+      2.0F
+    );
+    return;
+  case 22: {
+    const std::vector<int> values = {0, 32, 48, 64, 96, 128, 192, 256};
+    const int index = optionIndex(
+      values,
+      menu.pendingDecalBudget,
+      [](int lhs, int rhs) { return lhs == rhs; }
+    );
+    menu.pendingDecalBudget = wrappedOption(values, index + direction);
+    return;
+  }
   default:
     return;
   }
@@ -2910,10 +3015,34 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   (void)console.execute(
     "set cl_show_console_cat " + std::to_string(menu.pendingShowConsoleCat ? 1 : 0)
   );
+  (void)console.execute(
+    "set r_combat_effects " + std::to_string(menu.pendingCombatEffects)
+  );
+  (void)console.execute(
+    "set r_tonemap_exposure " + std::to_string(menu.pendingToneMapExposure)
+  );
+  (void)console.execute("set r_bloom " + std::to_string(menu.pendingBloom ? 1 : 0));
+  (void)console.execute(
+    "set r_bloom_intensity " + std::to_string(menu.pendingBloomIntensity)
+  );
+  (void)console.execute("set r_casings " + std::to_string(menu.pendingCasings ? 1 : 0));
+  (void)console.execute(
+    "set r_impact_particles " + std::to_string(menu.pendingImpactParticles)
+  );
+  (void)console.execute(
+    "set r_decals_max " + std::to_string(menu.pendingDecalBudget)
+  );
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
+  menu.originalCombatEffects = menu.pendingCombatEffects;
+  menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalBloom = menu.pendingBloom;
+  menu.originalBloomIntensity = menu.pendingBloomIntensity;
+  menu.originalCasings = menu.pendingCasings;
+  menu.originalImpactParticles = menu.pendingImpactParticles;
+  menu.originalDecalBudget = menu.pendingDecalBudget;
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
@@ -2998,10 +3127,74 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(menu, 13, "Player outlines", menu.pendingPlayerOutlines ? "On" : "Off", menu.pendingPlayerOutlines != menu.originalPlayerOutlines),
     settingsMenuItem(menu, 14, "Outline mode", menu.pendingOutlineMode == 0 ? "Off" : menu.pendingOutlineMode == 1 ? "Compatibility" : "Native", menu.pendingOutlineMode != menu.originalOutlineMode),
     settingsMenuItem(menu, 15, "Console cat", menu.pendingShowConsoleCat ? "Shown" : "Hidden", menu.pendingShowConsoleCat != menu.originalShowConsoleCat),
-    settingsMenuItem(menu, 16, "Reset graphics draft", "Default profile", false, true),
+    settingsMenuItem(
+      menu,
+      16,
+      "Combat effects / temp lights",
+      menu.pendingCombatEffects == 0
+        ? "Off"
+        : menu.pendingCombatEffects == 1 ? "Reduced" : "Full",
+      menu.pendingCombatEffects != menu.originalCombatEffects
+    ),
     settingsMenuItem(
       menu,
       17,
+      "Tone-map exposure",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingToneMapExposure * 100.0F))
+      ) + "%",
+      menu.pendingToneMapExposure != menu.originalToneMapExposure
+    ),
+    settingsMenuItem(
+      menu,
+      18,
+      "Bright-effect bloom",
+      menu.pendingBloom ? "On" : "Off",
+      menu.pendingBloom != menu.originalBloom
+    ),
+    settingsMenuItem(
+      menu,
+      19,
+      "Bloom strength",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingBloomIntensity * 100.0F))
+      ) + "%",
+      menu.pendingBloomIntensity != menu.originalBloomIntensity
+    ),
+    settingsMenuItem(
+      menu,
+      20,
+      "Cartridge casings",
+      menu.pendingCasings ? "On" : "Off",
+      menu.pendingCasings != menu.originalCasings
+    ),
+    settingsMenuItem(
+      menu,
+      21,
+      "Impact-particle density",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingImpactParticles * 100.0F))
+      ) + "%",
+      menu.pendingImpactParticles != menu.originalImpactParticles
+    ),
+    settingsMenuItem(
+      menu,
+      22,
+      "Bullet decal budget",
+      std::to_string(menu.pendingDecalBudget),
+      menu.pendingDecalBudget != menu.originalDecalBudget
+    ),
+    settingsMenuItem(
+      menu,
+      kSettingsResetRow,
+      "Reset graphics draft",
+      "Default profile",
+      false,
+      true
+    ),
+    settingsMenuItem(
+      menu,
+      kSettingsApplyRow,
       "Apply changes",
       settingsChanged(menu) ? "Enter" : "No changes",
       settingsChanged(menu),
@@ -3009,7 +3202,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      18,
+      kSettingsCloseRow,
       "Close / Revert draft",
       "Esc",
       false,
@@ -6569,21 +6762,24 @@ int GameApp::run() const {
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setSettingsOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_UP) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 18) % 19;
+            settingsMenu.selectedRow =
+              (settingsMenu.selectedRow + kSettingsRowCount - 1) %
+              kSettingsRowCount;
             keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 19;
+            settingsMenu.selectedRow =
+              (settingsMenu.selectedRow + 1) % kSettingsRowCount;
             keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             adjustSettingsMenuValue(settingsMenu, -1);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             adjustSettingsMenuValue(settingsMenu, 1);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (settingsMenu.selectedRow == 16) {
+            if (settingsMenu.selectedRow == kSettingsResetRow) {
               applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
-            } else if (settingsMenu.selectedRow == 17) {
+            } else if (settingsMenu.selectedRow == kSettingsApplyRow) {
               applySettingsMenu(console, settingsMenu);
-            } else if (settingsMenu.selectedRow == 18) {
+            } else if (settingsMenu.selectedRow == kSettingsCloseRow) {
               setSettingsOpen(false);
             } else {
               adjustSettingsMenuValue(settingsMenu, 1);
@@ -6808,7 +7004,8 @@ int GameApp::run() const {
                 (event.button.y - firstRowY) / rowHeight))
             : -1;
           if (pressed) {
-            settingsMenu.pressedRow = row >= 0 && row < 18 ? row : -1;
+            settingsMenu.pressedRow =
+              row >= 0 && row < kSettingsRowCount ? row : -1;
             if (settingsMenu.pressedRow >= 0) {
               settingsMenu.selectedRow = settingsMenu.pressedRow;
               keepSettingsSelectionVisible(settingsMenu);
@@ -6816,11 +7013,11 @@ int GameApp::run() const {
           } else if (settingsMenu.pressedRow >= 0 && settingsMenu.pressedRow == row) {
             const int clickedRow = settingsMenu.pressedRow;
             settingsMenu.pressedRow = -1;
-            if (clickedRow == 15) {
+            if (clickedRow == kSettingsResetRow) {
               applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
-            } else if (clickedRow == 16) {
+            } else if (clickedRow == kSettingsApplyRow) {
               applySettingsMenu(console, settingsMenu);
-            } else if (clickedRow == 17) {
+            } else if (clickedRow == kSettingsCloseRow) {
               setSettingsOpen(false);
             } else {
               const float panelX = (static_cast<float>(windowWidth) - panelWidth) * 0.5F;
@@ -6857,7 +7054,7 @@ int GameApp::run() const {
           if (event.motion.y >= firstRowY && event.motion.y < footerY) {
             const int row = static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
               (event.motion.y - firstRowY) / 38.0F));
-            settingsMenu.hoveredRow = row < 18 ? row : -1;
+            settingsMenu.hoveredRow = row < kSettingsRowCount ? row : -1;
           } else {
             settingsMenu.hoveredRow = -1;
           }
@@ -6884,7 +7081,8 @@ int GameApp::run() const {
         if (settingsMenu.open) {
           constexpr std::size_t settingsWheelRows = 3U;
           constexpr std::size_t visibleRows = 14U;
-          const std::size_t maxScroll = 18U - visibleRows;
+          const std::size_t maxScroll =
+            static_cast<std::size_t>(kSettingsRowCount) - visibleRows;
           if (event.wheel.y > 0.0F) {
             settingsMenu.scrollRows = std::min(settingsMenu.scrollRows + settingsWheelRows, maxScroll);
           } else if (event.wheel.y < 0.0F) {

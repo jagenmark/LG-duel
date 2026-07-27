@@ -6093,6 +6093,12 @@ void appendCommandBatches(
           &uniform,
           sizeof(uniform)
         );
+        SDL_PushGPUFragmentUniformData(
+          commandBuffer,
+          0,
+          &combatLightUniform,
+          sizeof(combatLightUniform)
+        );
         SDL_BindGPUGraphicsPipeline(worldPass, pipelineWorldSurface);
         if (hasStaticWorld) {
           const SDL_GPUBufferBinding staticBinding = {worldMesh->vertexBuffer, 0};
@@ -7964,7 +7970,7 @@ bool Renderer::initialize(void* window) {
           depthFormat,
           SDL_GPU_COMPAREOP_LESS,
           "world_surface.frag.spv",
-          0
+          1
         );
         SDL_GPUGraphicsPipeline* pipeline3DTranslucent = createGpuPipeline3D(
           device,
