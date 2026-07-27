@@ -3392,33 +3392,17 @@ RenderSettings renderSettings(
   return settings;
 }
 
-float zoomSensitivityMultiplier(
-  float baseFieldOfView,
-  float zoomFieldOfView,
-  float manualMultiplier
-) {
-  if (manualMultiplier > 0.0F) {
-    return manualMultiplier;
-  }
-
-  constexpr float sensRatio = 1.0F;
-  const float baseHalfAngle = baseFieldOfView * 0.5F * kDegreesToRadians;
-  const float zoomHalfAngle = zoomFieldOfView * 0.5F * kDegreesToRadians;
-  const float baseTangent = std::tan(baseHalfAngle);
-  if (std::fabs(baseTangent) <= 0.0001F) {
-    return 1.0F;
-  }
-  return (1.0F / sensRatio) * (std::tan(zoomHalfAngle) / baseTangent);
-}
-
 MouseAimSettings mouseAimSettingsFromConsole(
   const ConsoleSystem& console,
   bool zoomHeld,
+  bool sniperZoom,
   float zoomAmount = 1.0F
 ) {
   const float zoomSensitivity = zoomSensitivityMultiplier(
     console.getFloat("cl_fov"),
-    console.getFloat("cl_zoom_fov"),
+    console.getFloat(
+      sniperZoom ? "cl_zoom_sniper_fov" : "cl_zoom_fov"
+    ),
     console.getFloat("cl_zoom_sensitivity")
   );
   return {
@@ -7100,6 +7084,7 @@ int GameApp::run() const {
         mouseAimSettingsFromConsole(
           console,
           zoomPressCount > 0,
+          selectedWeapon == Weapon::Railgun,
           selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
         );
       const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
@@ -7297,6 +7282,7 @@ int GameApp::run() const {
         mouseAimSettingsFromConsole(
           console,
           zoomPressCount > 0,
+          selectedWeapon == Weapon::Railgun,
           selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
         );
 
@@ -8399,6 +8385,7 @@ int GameApp::run() const {
           mouseAimSettingsFromConsole(
             console,
             zoomPressCount > 0,
+            selectedWeapon == Weapon::Railgun,
             selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
           );
         const UserCommand visualCommand =
@@ -8856,15 +8843,18 @@ int GameApp::run() const {
       1.0F
     );
     const bool sniperScopeActive = sniperAdsAmount > 0.001F;
-    if (sniperScopeActive) {
-      const float smoothAds =
-        sniperAdsAmount * sniperAdsAmount * (3.0F - 2.0F * sniperAdsAmount);
-      currentRenderSettings.fieldOfView =
-        currentRenderSettings.fieldOfView +
-        (console.getFloat("cl_zoom_fov") - currentRenderSettings.fieldOfView) *
-          smoothAds;
-    } else if (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate) {
-      currentRenderSettings.fieldOfView = console.getFloat("cl_zoom_fov");
+    if (
+      sniperScopeActive ||
+      (zoomPressCount > 0 && deathCamera.mode != DeathCameraMode::Teammate)
+    ) {
+      currentRenderSettings.fieldOfView = resolvedZoomFieldOfView(
+        currentRenderSettings.fieldOfView,
+        console.getFloat("cl_zoom_fov"),
+        console.getFloat("cl_zoom_sniper_fov"),
+        zoomPressCount > 0,
+        sniperScopeActive,
+        sniperAdsAmount
+      );
     }
     if (sniperScopeActive) {
       // The scope owns the center view while ADS is held; hiding the viewmodel

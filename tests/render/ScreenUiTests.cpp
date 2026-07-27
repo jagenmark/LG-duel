@@ -2240,60 +2240,73 @@ int main() {
     const lg::DrawList2D scopeUi = lg::buildScreenUi(
       1920, 1200, {}, scopeSettings, scopeHud, {}
     );
-    std::size_t opaqueBlackQuads = 0;
-    std::size_t boxedVignetteQuads = 0;
-    float rimHalfWidth = 0.0F;
-    float rimHalfHeight = 0.0F;
+    const lg::DrawList2D unscopedUi = lg::buildScreenUi(
+      1920, 1200, {}, scopeSettings, {}, {}
+    );
+    const lg::SniperScopeOverlay2D* scopeOverlay = nullptr;
+    std::size_t scopeOverlayCount = 0;
     for (const lg::DrawCommand2D& command : scopeUi.overlayCommands) {
-      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
-        opaqueBlackQuads +=
-          quad->color.red == 0 && quad->color.green == 0 &&
-          quad->color.blue == 0 && quad->color.alpha == 255
-            ? 1U
-            : 0U;
-        const bool translucentBlack =
-          quad->color.red == 0 && quad->color.green == 0 &&
-          quad->color.blue == 0 && quad->color.alpha > 0 &&
-          quad->color.alpha < 255;
-        const bool axisAligned =
-          std::fabs(quad->points[0].y - quad->points[1].y) < 0.01F &&
-          std::fabs(quad->points[1].x - quad->points[2].x) < 0.01F &&
-          std::fabs(quad->points[2].y - quad->points[3].y) < 0.01F &&
-          std::fabs(quad->points[3].x - quad->points[0].x) < 0.01F;
-        boxedVignetteQuads += translucentBlack && axisAligned ? 1U : 0U;
-      } else if (const auto* line = std::get_if<lg::Line2D>(&command)) {
-        if (
-          line->color.red == 112 && line->color.green == 94 &&
-          line->color.blue == 66 && line->width == 3.0F
-        ) {
-          rimHalfWidth = std::max(
-            rimHalfWidth,
-            std::max(
-              std::fabs(line->start.x - 960.0F),
-              std::fabs(line->end.x - 960.0F)
-            )
-          );
-          rimHalfHeight = std::max(
-            rimHalfHeight,
-            std::max(
-              std::fabs(line->start.y - 600.0F),
-              std::fabs(line->end.y - 600.0F)
-            )
-          );
-        }
+      if (
+        const auto* candidate =
+          std::get_if<lg::SniperScopeOverlay2D>(&command)
+      ) {
+        scopeOverlay = candidate;
+        ++scopeOverlayCount;
       }
     }
     failures += expect(
-      opaqueBlackQuads >= 256U && findText(scopeUi, "73%") != nullptr,
-      "Sniper Rifle ADS should draw an opaque scope mask and charge readout"
+      scopeOverlayCount == 1U &&
+        scopeOverlay != nullptr &&
+        findText(scopeUi, "73%") != nullptr,
+      "Sniper Rifle ADS should draw one cached scope overlay and charge readout"
     );
     failures += expect(
-      std::fabs(rimHalfWidth - rimHalfHeight) < 1.0F,
-      "Sniper scope rim should remain circular on a wide viewport"
+      scopeOverlay != nullptr &&
+        std::fabs(scopeOverlay->center.x - 960.0F) < 0.01F &&
+        std::fabs(scopeOverlay->center.y - 600.0F) < 0.01F &&
+        std::fabs(scopeOverlay->radius - 552.0F) < 0.01F &&
+        std::fabs(scopeOverlay->openingScale - 1.0F) < 0.01F &&
+        std::fabs(scopeOverlay->opacity - 1.0F) < 0.01F,
+      "Sniper scope overlay should keep a circular, fully open wide-screen lens"
     );
     failures += expect(
-      boxedVignetteQuads == 0,
-      "Sniper scope vignette should use circular bands instead of visible boxes"
+      scopeUi.overlayCommands.size() <=
+        unscopedUi.overlayCommands.size() + 4U,
+      "Sniper scope should add only a bounded number of UI commands"
+    );
+
+    std::array<lg::SniperScopeOverlay2D, 3> fovOverlays = {};
+    bool foundAllFovOverlays = true;
+    constexpr std::array<float, 3> kSniperFovs = {20.0F, 45.0F, 140.0F};
+    for (std::size_t index = 0; index < kSniperFovs.size(); ++index) {
+      scopeSettings.fieldOfView = kSniperFovs[index];
+      const lg::DrawList2D fovUi = lg::buildScreenUi(
+        1920, 1200, {}, scopeSettings, scopeHud, {}
+      );
+      bool found = false;
+      for (const lg::DrawCommand2D& command : fovUi.overlayCommands) {
+        if (
+          const auto* overlay =
+            std::get_if<lg::SniperScopeOverlay2D>(&command)
+        ) {
+          fovOverlays[index] = *overlay;
+          found = true;
+          break;
+        }
+      }
+      foundAllFovOverlays = foundAllFovOverlays && found;
+    }
+    failures += expect(
+      foundAllFovOverlays &&
+        fovOverlays[0].center.x == fovOverlays[1].center.x &&
+        fovOverlays[1].center.x == fovOverlays[2].center.x &&
+        fovOverlays[0].center.y == fovOverlays[1].center.y &&
+        fovOverlays[1].center.y == fovOverlays[2].center.y &&
+        fovOverlays[0].radius == fovOverlays[1].radius &&
+        fovOverlays[1].radius == fovOverlays[2].radius &&
+        fovOverlays[0].openingScale == fovOverlays[1].openingScale &&
+        fovOverlays[1].openingScale == fovOverlays[2].openingScale,
+      "scope overlay geometry should not change at low, default, or high FOV"
     );
   }
 

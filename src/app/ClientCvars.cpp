@@ -5,6 +5,9 @@
 #include "net/NetProtocol.hpp"
 #include "sim/GameplayCvars.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 namespace lg {
 
 void registerClientCvars(ConsoleSystem& console) {
@@ -17,6 +20,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_mouseSensCap", "Quake Live accelerated sensitivity cap; zero disables the cap.", 0.0F, archivedClient, 0.0F, 100.0F, "0"});
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
+  console.registerCvar({"cl_zoom_sniper_fov", "Field of view for Sniper Rifle ADS.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sensitivity", "First-person mouse sensitivity multiplier while +zoom is held; zero auto-matches FOV.", 0.0F, archivedClient, 0.0F, 10.0F});
   console.registerCvar({"cl_death_spectate_threshold", "Respawn delay in seconds at which a dead player switches to a living teammate after the camera hold.", 3.0F, archivedClient, 0.0F, 30.0F});
   console.registerCvar({"cl_death_camera_hold", "Seconds to retain the local death-position view before teammate spectating is allowed.", 0.5F, archivedClient, 0.0F, 10.0F});
@@ -262,6 +266,42 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_teammate_name_r", "Floating teammate name tag red channel.", 210, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_name_g", "Floating teammate name tag green channel.", 245, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_teammate_name_b", "Floating teammate name tag blue channel.", 255, archivedClient, 0.0F, 255.0F});
+}
+
+float resolvedZoomFieldOfView(
+  float baseFieldOfView,
+  float generalZoomFieldOfView,
+  float sniperZoomFieldOfView,
+  bool zoomHeld,
+  bool sniperScopeActive,
+  float sniperAdsAmount
+) {
+  if (sniperScopeActive) {
+    const float amount = std::clamp(sniperAdsAmount, 0.0F, 1.0F);
+    const float smoothAmount = amount * amount * (3.0F - 2.0F * amount);
+    return baseFieldOfView +
+      (sniperZoomFieldOfView - baseFieldOfView) * smoothAmount;
+  }
+  return zoomHeld ? generalZoomFieldOfView : baseFieldOfView;
+}
+
+float zoomSensitivityMultiplier(
+  float baseFieldOfView,
+  float zoomFieldOfView,
+  float manualMultiplier
+) {
+  if (manualMultiplier > 0.0F) {
+    return manualMultiplier;
+  }
+
+  constexpr float kDegreesToRadians = 0.01745329252F;
+  const float baseHalfAngle = baseFieldOfView * 0.5F * kDegreesToRadians;
+  const float zoomHalfAngle = zoomFieldOfView * 0.5F * kDegreesToRadians;
+  const float baseTangent = std::tan(baseHalfAngle);
+  if (std::fabs(baseTangent) <= 0.0001F) {
+    return 1.0F;
+  }
+  return std::tan(zoomHalfAngle) / baseTangent;
 }
 
 } // namespace lg

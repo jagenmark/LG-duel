@@ -2,6 +2,7 @@
 #include "console/ConsoleSystem.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -52,6 +53,81 @@ int main() {
       console.execute("sensitivity 65.1") == "sensitivity = 65.1" &&
       console.execute("sensitivity 100.5") == "value out of range for sensitivity",
     "sensitivity should use the QL scale and allow migrated legacy values"
+  );
+  failures += expect(
+    console.execute("cl_zoom_fov") ==
+        "cl_zoom_fov = 45 (default 45)" &&
+      console.execute("cl_zoom_sniper_fov") ==
+        "cl_zoom_sniper_fov = 45 (default 45)" &&
+      console.execute("cl_zoom_sniper_fov 19.9") ==
+        "value out of range for cl_zoom_sniper_fov" &&
+      console.execute("cl_zoom_sniper_fov 140.1") ==
+        "value out of range for cl_zoom_sniper_fov" &&
+      console.execute("cl_zoom_fov 60") == "cl_zoom_fov = 60" &&
+      console.execute("cl_zoom_sniper_fov 30") ==
+        "cl_zoom_sniper_fov = 30",
+    "general and sniper zoom FOV cvars should have separate bounded values"
+  );
+  failures += expect(
+    lg::resolvedZoomFieldOfView(
+      90.0F,
+      console.getFloat("cl_zoom_fov"),
+      console.getFloat("cl_zoom_sniper_fov"),
+      false,
+      false,
+      0.0F
+    ) == 90.0F &&
+      lg::resolvedZoomFieldOfView(
+        90.0F,
+        console.getFloat("cl_zoom_fov"),
+        20.0F,
+        true,
+        false,
+        0.0F
+      ) == 60.0F &&
+      lg::resolvedZoomFieldOfView(
+        90.0F,
+        140.0F,
+        console.getFloat("cl_zoom_sniper_fov"),
+        true,
+        true,
+        1.0F
+      ) == 30.0F &&
+      lg::resolvedZoomFieldOfView(
+        90.0F,
+        140.0F,
+        console.getFloat("cl_zoom_sniper_fov"),
+        true,
+        true,
+        0.5F
+      ) == 60.0F,
+    "each zoom cvar should affect only its own camera stage"
+  );
+  const float generalAutoSensitivity =
+    lg::zoomSensitivityMultiplier(90.0F, 60.0F, 0.0F);
+  const float sniperAutoSensitivity =
+    lg::zoomSensitivityMultiplier(90.0F, 30.0F, 0.0F);
+  failures += expect(
+    std::fabs(generalAutoSensitivity - 0.5773503F) < 0.0001F &&
+      std::fabs(sniperAutoSensitivity - 0.2679492F) < 0.0001F &&
+      lg::zoomSensitivityMultiplier(90.0F, 60.0F, 0.4F) == 0.4F &&
+      lg::zoomSensitivityMultiplier(90.0F, 30.0F, 0.4F) == 0.4F,
+    "general and sniper zoom should share auto and manual sensitivity rules"
+  );
+  const std::vector<std::string> zoomArchivedConfig =
+    console.archivedConfigLines();
+  failures += expect(
+    std::find(
+      zoomArchivedConfig.begin(),
+      zoomArchivedConfig.end(),
+      "set cl_zoom_fov 60"
+    ) != zoomArchivedConfig.end() &&
+      std::find(
+        zoomArchivedConfig.begin(),
+        zoomArchivedConfig.end(),
+        "set cl_zoom_sniper_fov 30"
+      ) != zoomArchivedConfig.end(),
+    "both zoom FOV cvars should persist in the client config"
   );
   failures += expect(
     console.execute("cl_mouseAccel") ==

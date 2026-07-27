@@ -4737,6 +4737,225 @@ void copyGltfPlayerModelDiagnostics(
   return SDL_CreateGPUTexture(device, &createInfo);
 }
 
+struct SniperScopeMeshVertex {
+  ScreenPoint position = {};
+  RenderColor color = {};
+};
+
+struct CachedSniperScopeMesh {
+  int outputWidth = 0;
+  int outputHeight = 0;
+  ScreenPoint center = {};
+  float radius = 0.0F;
+  std::vector<SniperScopeMeshVertex> vertices;
+  std::vector<int> indices;
+  std::vector<SDL_Vertex> fallbackVertices;
+};
+
+void appendSniperScopeMeshQuad(
+  CachedSniperScopeMesh& mesh,
+  const std::array<ScreenPoint, 4>& points,
+  const std::array<RenderColor, 4>& colors
+) {
+  const int first = static_cast<int>(mesh.vertices.size());
+  for (std::size_t index = 0; index < points.size(); ++index) {
+    mesh.vertices.push_back({points[index], colors[index]});
+  }
+  mesh.indices.insert(
+    mesh.indices.end(),
+    {first, first + 1, first + 2, first, first + 2, first + 3}
+  );
+}
+
+void appendSniperScopeMeshQuad(
+  CachedSniperScopeMesh& mesh,
+  const std::array<ScreenPoint, 4>& points,
+  RenderColor color
+) {
+  appendSniperScopeMeshQuad(mesh, points, {color, color, color, color});
+}
+
+void rebuildSniperScopeMesh(
+  CachedSniperScopeMesh& mesh,
+  const SniperScopeOverlay2D& scope
+) {
+  constexpr int kSegments = 96;
+  constexpr float kTwoPi = 6.28318530718F;
+  constexpr float kOuterRingScale = 1.45F;
+  constexpr int kVignetteBands = 2;
+
+  mesh.outputWidth = scope.outputWidth;
+  mesh.outputHeight = scope.outputHeight;
+  mesh.center = scope.center;
+  mesh.radius = scope.radius;
+  mesh.vertices.clear();
+  mesh.indices.clear();
+  mesh.vertices.reserve((4U + 4U * kSegments) * 4U);
+  mesh.indices.reserve((4U + 4U * kSegments) * 6U);
+
+  const float width = static_cast<float>(scope.outputWidth);
+  const float height = static_cast<float>(scope.outputHeight);
+  const float left = scope.center.x - scope.radius;
+  const float right = scope.center.x + scope.radius;
+  const float top = scope.center.y - scope.radius;
+  const float bottom = scope.center.y + scope.radius;
+  const RenderColor outside = {0, 0, 0, 255};
+
+  // Four large rectangles cover the area beyond the lens bounding square.
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{0.0F, 0.0F}, {width, 0.0F}, {width, top}, {0.0F, top}}},
+    outside
+  );
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{0.0F, bottom}, {width, bottom}, {width, height}, {0.0F, height}}},
+    outside
+  );
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{0.0F, top}, {left, top}, {left, bottom}, {0.0F, bottom}}},
+    outside
+  );
+  appendSniperScopeMeshQuad(
+    mesh,
+    {{{right, top}, {width, top}, {width, bottom}, {right, bottom}}},
+    outside
+  );
+
+  const auto pointAt = [&](float angle, float radius) {
+    return ScreenPoint{
+      scope.center.x + std::cos(angle) * radius,
+      scope.center.y + std::sin(angle) * radius,
+    };
+  };
+  const auto appendRing = [&](
+    float outerRadius,
+    float innerRadius,
+    RenderColor outerColor,
+    RenderColor innerColor
+  ) {
+    for (int segment = 0; segment < kSegments; ++segment) {
+      const float angle0 =
+        kTwoPi * static_cast<float>(segment) / static_cast<float>(kSegments);
+      const float angle1 =
+        kTwoPi * static_cast<float>(segment + 1) /
+        static_cast<float>(kSegments);
+      appendSniperScopeMeshQuad(
+        mesh,
+        {{
+          pointAt(angle0, outerRadius),
+          pointAt(angle1, outerRadius),
+          pointAt(angle1, innerRadius),
+          pointAt(angle0, innerRadius),
+        }},
+        {outerColor, outerColor, innerColor, innerColor}
+      );
+    }
+  };
+
+  // This ring fills the corners between the lens and its bounding square.
+  appendRing(
+    scope.radius * kOuterRingScale,
+    scope.radius,
+    outside,
+    outside
+  );
+
+  const float vignetteWidth = std::min(72.0F, scope.radius * 0.14F);
+  for (int band = 0; band < kVignetteBands; ++band) {
+    const float outerFraction =
+      static_cast<float>(band) / static_cast<float>(kVignetteBands);
+    const float innerFraction =
+      static_cast<float>(band + 1) / static_cast<float>(kVignetteBands);
+    const float outerFade = 1.0F - outerFraction;
+    const float innerFade = 1.0F - innerFraction;
+    appendRing(
+      scope.radius - vignetteWidth * outerFraction,
+      scope.radius - vignetteWidth * innerFraction,
+      {
+        0,
+        0,
+        0,
+        static_cast<std::uint8_t>(105.0F * outerFade * outerFade),
+      },
+      {
+        0,
+        0,
+        0,
+        static_cast<std::uint8_t>(105.0F * innerFade * innerFade),
+      }
+    );
+  }
+
+  constexpr float kRimHalfWidth = 1.5F;
+  const RenderColor rim = {112, 94, 66, 220};
+  appendRing(
+    scope.radius + kRimHalfWidth,
+    scope.radius - kRimHalfWidth,
+    rim,
+    rim
+  );
+  mesh.fallbackVertices.resize(mesh.vertices.size());
+}
+
+[[nodiscard]] CachedSniperScopeMesh& sniperScopeMesh(
+  const SniperScopeOverlay2D& scope
+) {
+  static CachedSniperScopeMesh mesh;
+  if (
+    mesh.outputWidth != scope.outputWidth ||
+    mesh.outputHeight != scope.outputHeight ||
+    mesh.center.x != scope.center.x ||
+    mesh.center.y != scope.center.y ||
+    mesh.radius != scope.radius
+  ) {
+    rebuildSniperScopeMesh(mesh, scope);
+  }
+  return mesh;
+}
+
+[[nodiscard]] ScreenPoint transformedSniperScopePoint(
+  const SniperScopeOverlay2D& scope,
+  ScreenPoint point
+) {
+  return {
+    scope.center.x + (point.x - scope.center.x) * scope.openingScale,
+    scope.center.y + (point.y - scope.center.y) * scope.openingScale,
+  };
+}
+
+[[nodiscard]] RenderColor modulatedSniperScopeColor(
+  RenderColor color,
+  float opacity
+) {
+  color.alpha = static_cast<std::uint8_t>(std::clamp(
+    static_cast<float>(color.alpha) * std::clamp(opacity, 0.0F, 1.0F),
+    0.0F,
+    255.0F
+  ));
+  return color;
+}
+
+void appendSniperScopeOverlay(
+  std::vector<GpuVertex>& vertices,
+  const SniperScopeOverlay2D& scope,
+  float outputWidth,
+  float outputHeight
+) {
+  const CachedSniperScopeMesh& mesh = sniperScopeMesh(scope);
+  for (int index : mesh.indices) {
+    const SniperScopeMeshVertex& vertex =
+      mesh.vertices[static_cast<std::size_t>(index)];
+    vertices.push_back(gpuVertex(
+      transformedSniperScopePoint(scope, vertex.position),
+      modulatedSniperScopeColor(vertex.color, scope.opacity),
+      outputWidth,
+      outputHeight
+    ));
+  }
+}
+
 void appendTriangle(
   std::vector<GpuVertex>& vertices,
   ScreenPoint first,
@@ -5002,6 +5221,15 @@ void appendCommandBatches(
           );
         } else if constexpr (std::is_same_v<Primitive, Line2D>) {
           appendLine(vertices, primitive, outputWidth, outputHeight);
+        } else if constexpr (
+          std::is_same_v<Primitive, SniperScopeOverlay2D>
+        ) {
+          appendSniperScopeOverlay(
+            vertices,
+            primitive,
+            outputWidth,
+            outputHeight
+          );
         } else if constexpr (std::is_same_v<Primitive, Text2D>) {
           appendText(
             vertices,
@@ -6982,6 +7210,38 @@ void drawThickLine(
   }
 }
 
+void drawSniperScopeOverlay(
+  SDL_Renderer* renderer,
+  const SniperScopeOverlay2D& scope
+) {
+  CachedSniperScopeMesh& mesh = sniperScopeMesh(scope);
+  for (std::size_t index = 0; index < mesh.vertices.size(); ++index) {
+    const SniperScopeMeshVertex& source = mesh.vertices[index];
+    const ScreenPoint point =
+      transformedSniperScopePoint(scope, source.position);
+    const RenderColor color =
+      modulatedSniperScopeColor(source.color, scope.opacity);
+    mesh.fallbackVertices[index] = {
+      {point.x, point.y},
+      {
+        static_cast<float>(color.red) / 255.0F,
+        static_cast<float>(color.green) / 255.0F,
+        static_cast<float>(color.blue) / 255.0F,
+        static_cast<float>(color.alpha) / 255.0F,
+      },
+      {},
+    };
+  }
+  SDL_RenderGeometry(
+    renderer,
+    nullptr,
+    mesh.fallbackVertices.data(),
+    static_cast<int>(mesh.fallbackVertices.size()),
+    mesh.indices.data(),
+    static_cast<int>(mesh.indices.size())
+  );
+}
+
 void drawCommands(
   SDL_Renderer* renderer,
   const std::vector<DrawCommand2D>& commands
@@ -7020,6 +7280,10 @@ void drawCommands(
             primitive.end.y,
             primitive.width
           );
+        } else if constexpr (
+          std::is_same_v<Primitive, SniperScopeOverlay2D>
+        ) {
+          drawSniperScopeOverlay(renderer, primitive);
         } else if constexpr (std::is_same_v<Primitive, Text2D>) {
           const float snappedScale =
             kUiFontPixelHeights[nearestUiFontPixelHeightIndex(primitive.scale)] /

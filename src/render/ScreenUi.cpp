@@ -3681,105 +3681,30 @@ void addSniperScope(
   const float openingScale = 1.08F - 0.08F * smoothAmount;
   // Screen pixels are square, so one radius keeps the lens circular on every
   // aspect ratio. The shorter side leaves a small rim around the full circle.
-  const float radius = std::min(width, height) * 0.46F * openingScale;
-  constexpr int kMaskSlices = 256;
-  const RenderColor outside = {
-    0, 0, 0, static_cast<std::uint8_t>(255.0F * smoothAmount)
-  };
-  const float sliceHeight = height / static_cast<float>(kMaskSlices);
-  for (int slice = 0; slice < kMaskSlices; ++slice) {
-    const float y = static_cast<float>(slice) * sliceHeight;
-    const float sampleY = y + sliceHeight * 0.5F;
-    const float normalizedY = (sampleY - center.y) / radius;
-    const float halfLensWidth = std::fabs(normalizedY) < 1.0F
-      ? radius * std::sqrt(1.0F - normalizedY * normalizedY)
-      : 0.0F;
-    addRect(drawList, 0.0F, y, center.x - halfLensWidth, sliceHeight + 1.0F, outside);
-    addRect(
-      drawList,
-      center.x + halfLensWidth,
-      y,
-      width - center.x - halfLensWidth,
-      sliceHeight + 1.0F,
-      outside
-    );
-  }
+  const float radius = std::min(width, height) * 0.46F;
+  drawList.overlayCommands.emplace_back(SniperScopeOverlay2D{
+    outputWidth,
+    outputHeight,
+    center,
+    radius,
+    openingScale,
+    smoothAmount,
+  });
 
-  // Thin circular bands form the lens-edge fade. This avoids the large
-  // axis-aligned blocks produced by the old slice-based vignette.
-  constexpr int kVignetteBands = 10;
-  constexpr int kVignetteSegments = 128;
-  const float vignetteWidth = std::min(72.0F, radius * 0.14F);
-  for (int band = 0; band < kVignetteBands; ++band) {
-    const float outerRadius = radius -
-      vignetteWidth * static_cast<float>(band) /
-        static_cast<float>(kVignetteBands);
-    const float innerRadius = radius -
-      vignetteWidth * static_cast<float>(band + 1) /
-        static_cast<float>(kVignetteBands);
-    const float fade = 1.0F -
-      (static_cast<float>(band) + 0.5F) /
-        static_cast<float>(kVignetteBands);
-    const RenderColor shade = {
-      0, 0, 0, static_cast<std::uint8_t>(105.0F * fade * fade * smoothAmount)
-    };
-    for (int segment = 0; segment < kVignetteSegments; ++segment) {
-      const float angle0 = kTwoPi * static_cast<float>(segment) /
-        static_cast<float>(kVignetteSegments);
-      const float angle1 = kTwoPi * static_cast<float>(segment + 1) /
-        static_cast<float>(kVignetteSegments);
-      const std::array<ScreenPoint, 4> points = {{
-        {
-          center.x + std::cos(angle0) * outerRadius,
-          center.y + std::sin(angle0) * outerRadius,
-        },
-        {
-          center.x + std::cos(angle1) * outerRadius,
-          center.y + std::sin(angle1) * outerRadius,
-        },
-        {
-          center.x + std::cos(angle1) * innerRadius,
-          center.y + std::sin(angle1) * innerRadius,
-        },
-        {
-          center.x + std::cos(angle0) * innerRadius,
-          center.y + std::sin(angle0) * innerRadius,
-        },
-      }};
-      drawList.overlayCommands.emplace_back(FilledQuad2D{points, shade});
-    }
-  }
-
-  // A thin warm rim and plain reticle keep the target clear at low contrast.
-  constexpr int kRimSegments = 128;
-  ScreenPoint previous = {center.x + radius, center.y};
-  for (int segment = 1; segment <= kRimSegments; ++segment) {
-    const float angle = kTwoPi * static_cast<float>(segment) /
-      static_cast<float>(kRimSegments);
-    const ScreenPoint next = {
-      center.x + std::cos(angle) * radius,
-      center.y + std::sin(angle) * radius,
-    };
-    addLine(
-      drawList,
-      previous,
-      next,
-      {112, 94, 66, static_cast<std::uint8_t>(220.0F * smoothAmount)},
-      3.0F
-    );
-    previous = next;
-  }
+  // The cached scope mesh owns the circular mask, edge fade, and warm rim.
+  // Plain reticle lines and the charge readout remain normal UI primitives.
+  const float animatedRadius = radius * openingScale;
   addLine(
     drawList,
-    {center.x - radius, center.y},
-    {center.x + radius, center.y},
+    {center.x - animatedRadius, center.y},
+    {center.x + animatedRadius, center.y},
     {25, 22, 18, static_cast<std::uint8_t>(210.0F * smoothAmount)},
     1.5F
   );
   addLine(
     drawList,
-    {center.x, center.y - radius},
-    {center.x, center.y + radius},
+    {center.x, center.y - animatedRadius},
+    {center.x, center.y + animatedRadius},
     {25, 22, 18, static_cast<std::uint8_t>(210.0F * smoothAmount)},
     1.5F
   );
@@ -3794,7 +3719,7 @@ void addSniperScope(
   );
   const float meterWidth = std::clamp(width * 0.12F, 120.0F, 220.0F);
   const float meterHeight = 16.0F;
-  const float meterX = center.x + radius * 0.32F;
+  const float meterX = center.x + animatedRadius * 0.32F;
   const float meterY = center.y + 26.0F;
   addRect(
     drawList,
