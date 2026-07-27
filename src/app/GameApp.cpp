@@ -2068,6 +2068,7 @@ struct SettingsMenuState {
   bool pendingWorldFrustumCull = false;
   bool pendingPlayerOutlines = true;
   int pendingOutlineMode = 1;
+  bool pendingShowConsoleCat = true;
   VideoSettings originalVideo = {};
   int originalMaxFps = 0;
   float originalRenderScale = 1.0F;
@@ -2078,6 +2079,7 @@ struct SettingsMenuState {
   bool originalWorldFrustumCull = false;
   bool originalPlayerOutlines = true;
   int originalOutlineMode = 1;
+  bool originalShowConsoleCat = true;
 };
 
 struct LingeringWeaponFire {
@@ -2737,7 +2739,8 @@ bool applyVideoSettings(
     menu.pendingFrustumCull != menu.originalFrustumCull ||
     menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull ||
     menu.pendingPlayerOutlines != menu.originalPlayerOutlines ||
-    menu.pendingOutlineMode != menu.originalOutlineMode;
+    menu.pendingOutlineMode != menu.originalOutlineMode ||
+    menu.pendingShowConsoleCat != menu.originalShowConsoleCat;
 }
 
 [[nodiscard]] int matchingGraphicsProfile(const SettingsMenuState& menu) {
@@ -2787,14 +2790,16 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingWorldFrustumCull = console.getBool("r_world_frustum_cull");
   menu.pendingPlayerOutlines = console.getBool("r_draw_player_outlines");
   menu.pendingOutlineMode = console.getInt("r_player_outline_mode");
+  menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
   menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias;
   menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull;
   menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.pendingProfile = matchingGraphicsProfile(menu);
-  menu.selectedRow = std::clamp(menu.selectedRow, 0, 17);
+  menu.selectedRow = std::clamp(menu.selectedRow, 0, 18);
   menu.scrollRows = 0U;
 }
 
@@ -2878,6 +2883,7 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
   case 12: menu.pendingWorldFrustumCull = !menu.pendingWorldFrustumCull; return;
   case 13: menu.pendingPlayerOutlines = !menu.pendingPlayerOutlines; return;
   case 14: menu.pendingOutlineMode = (menu.pendingOutlineMode + direction + 3) % 3; return;
+  case 15: menu.pendingShowConsoleCat = !menu.pendingShowConsoleCat; return;
   default:
     return;
   }
@@ -2901,9 +2907,13 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   (void)console.execute("set r_world_frustum_cull " + std::to_string(menu.pendingWorldFrustumCull));
   (void)console.execute("set r_draw_player_outlines " + std::to_string(menu.pendingPlayerOutlines));
   (void)console.execute("set r_player_outline_mode " + std::to_string(menu.pendingOutlineMode));
+  (void)console.execute(
+    "set cl_show_console_cat " + std::to_string(menu.pendingShowConsoleCat ? 1 : 0)
+  );
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
@@ -2987,10 +2997,11 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(menu, 12, "World frustum cull", menu.pendingWorldFrustumCull ? "On" : "Off", menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull),
     settingsMenuItem(menu, 13, "Player outlines", menu.pendingPlayerOutlines ? "On" : "Off", menu.pendingPlayerOutlines != menu.originalPlayerOutlines),
     settingsMenuItem(menu, 14, "Outline mode", menu.pendingOutlineMode == 0 ? "Off" : menu.pendingOutlineMode == 1 ? "Compatibility" : "Native", menu.pendingOutlineMode != menu.originalOutlineMode),
-    settingsMenuItem(menu, 15, "Reset graphics draft", "Default profile", false, true),
+    settingsMenuItem(menu, 15, "Console cat", menu.pendingShowConsoleCat ? "Shown" : "Hidden", menu.pendingShowConsoleCat != menu.originalShowConsoleCat),
+    settingsMenuItem(menu, 16, "Reset graphics draft", "Default profile", false, true),
     settingsMenuItem(
       menu,
-      16,
+      17,
       "Apply changes",
       settingsChanged(menu) ? "Enter" : "No changes",
       settingsChanged(menu),
@@ -2998,7 +3009,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      17,
+      18,
       "Close / Revert draft",
       "Esc",
       false,
@@ -6558,21 +6569,21 @@ int GameApp::run() const {
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setSettingsOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_UP) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 17) % 18;
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 18) % 19;
             keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 18;
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 19;
             keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             adjustSettingsMenuValue(settingsMenu, -1);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             adjustSettingsMenuValue(settingsMenu, 1);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (settingsMenu.selectedRow == 15) {
+            if (settingsMenu.selectedRow == 16) {
               applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
-            } else if (settingsMenu.selectedRow == 16) {
-              applySettingsMenu(console, settingsMenu);
             } else if (settingsMenu.selectedRow == 17) {
+              applySettingsMenu(console, settingsMenu);
+            } else if (settingsMenu.selectedRow == 18) {
               setSettingsOpen(false);
             } else {
               adjustSettingsMenuValue(settingsMenu, 1);

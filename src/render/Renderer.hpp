@@ -285,6 +285,7 @@ struct RenderSettings {
 
 struct ConsoleRenderState {
   bool open = false;
+  bool showCat = true;
   std::vector<std::string> lines;
   std::string input;
   std::size_t cursorIndex = 0;

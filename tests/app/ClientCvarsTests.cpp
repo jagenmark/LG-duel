@@ -26,6 +26,15 @@ int main() {
   lg::registerClientCvars(console);
 
   failures += expect(
+    console.getBool("cl_show_console_cat") &&
+      console.execute("cl_show_console_cat 0") == "cl_show_console_cat = 0" &&
+      !console.getBool("cl_show_console_cat") &&
+      console.execute("cl_show_console_cat 1") == "cl_show_console_cat = 1" &&
+      console.getBool("cl_show_console_cat"),
+    "console cat visibility should default on and be an archived client toggle"
+  );
+
+  failures += expect(
     console.getBool("cl_interp_adaptive") &&
       console.getFloat("cl_interp_min") == 0.016F &&
       console.getFloat("cl_interp_max") == 0.064F &&
@@ -584,6 +593,14 @@ int main() {
       "set s_lg_fire_volume 0.25"
     ) == archivedConfig.end(),
     "sound mixer cvars should stay controlled by sound_mixer.cfg rather than client.cfg"
+  );
+  failures += expect(
+    std::find(
+      archivedConfig.begin(),
+      archivedConfig.end(),
+      "set cl_show_console_cat 1"
+    ) != archivedConfig.end(),
+    "console cat visibility should persist through archived client config"
   );
   failures += expect(
     console.execute("net_sim_latency_ms") ==

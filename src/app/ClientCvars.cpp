@@ -55,6 +55,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"net_sim_seed", "Client UDP simulator RNG seed; 0 uses the fixed default seed.", 0, CvarFlag::Client, 0.0F, 2147483647.0F});
   console.registerCvar({"cl_show_lagcomp", "Show lag compensation status and real rewind data when used.", false, archivedClient, {}, {}});
   console.registerCvar({"cl_show_alive_counts", "Show Clan Arena alive counts on the HUD.", false, archivedClient, {}, {}});
+  console.registerCvar({"cl_show_console_cat", "Show the animated cat in the in-game console.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_interp_mode", "Remote interpolation mode: 0 legacy latest-pair, 1 buffered delay.", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"cl_interp", "Remote player snapshot interpolation delay in seconds.", kDefaultSnapshotInterpolationDelaySeconds, archivedClient, 0.0F, 0.25F});
   console.registerCvar({"cl_interp_adaptive", "Adapt the interpolation buffer to measured snapshot jitter.", true, archivedClient, {}, {}});

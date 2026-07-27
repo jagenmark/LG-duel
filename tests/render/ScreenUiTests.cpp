@@ -2019,6 +2019,28 @@ int main() {
     );
     failures += expect(foundLaser, "console should render the red laser-pointer target");
 
+    catConsole.showCat = false;
+    const lg::DrawList2D hiddenCatUi = lg::buildScreenUi(
+      1280,
+      720,
+      opponent,
+      settings,
+      {},
+      catConsole
+    );
+    bool hiddenCatPatch = false;
+    bool hiddenCatLaser = false;
+    for (const lg::DrawCommand2D& command : hiddenCatUi.overlayCommands) {
+      if (const auto* quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        hiddenCatPatch = hiddenCatPatch ||
+          (quad->color.red == 190 && quad->color.green == 132 && quad->color.blue == 73);
+        hiddenCatLaser = hiddenCatLaser ||
+          (quad->color.red == 255 && quad->color.green == 112 && quad->color.blue == 118);
+      }
+    }
+    failures += expect(!hiddenCatPatch, "console cat toggle should hide cat pixels");
+    failures += expect(hiddenCatLaser, "console cat toggle should keep the laser pointer visible");
+
     cat.update(0.05F, 600.0F, 650.0F, 1280.0F, 720.0F);
     failures += expect(
       cat.pose().laser.y == 650.0F,

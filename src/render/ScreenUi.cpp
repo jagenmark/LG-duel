@@ -2986,7 +2986,8 @@ void addConsole(
     {92, 170, 230, 255}
   );
 
-  constexpr float catPixel = 3.0F;
+  if (console.showCat) {
+    constexpr float catPixel = 3.0F;
   const CatSprite& sprite = catSprite(
     console.cat.action,
     console.cat.frame,
@@ -3070,6 +3071,7 @@ void addConsole(
         1.5F
       );
     }
+  }
   }
 
   // A broad, irregular bloom reads like a laser pointer on a surface and is
