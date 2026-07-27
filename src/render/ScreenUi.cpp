@@ -2857,12 +2857,13 @@ void addSettingsMenu(
     {0, 0, 0, 120}
   );
 
-  const float panelWidth = std::min(760.0F, static_cast<float>(width) - 48.0F);
-  const float rowHeight = 30.0F;
-  const float panelHeight = std::min(
-    static_cast<float>(height) - 48.0F,
-    112.0F + rowHeight * static_cast<float>(hud.settingsItems.size())
-  );
+  const float safeWidth = std::max(320.0F, static_cast<float>(width) - 48.0F);
+  const float safeHeight = std::max(260.0F, static_cast<float>(height) - 48.0F);
+  // A modal should read as a dedicated workspace at desktop resolution while
+  // retaining a 24 px safe margin on smaller displays.
+  const float panelWidth = std::min(safeWidth, static_cast<float>(width) * 0.75F);
+  const float rowHeight = 38.0F;
+  const float panelHeight = std::min(safeHeight, static_cast<float>(height) * 0.75F);
   const float panelX = (static_cast<float>(width) - panelWidth) * 0.5F;
   const float panelY = (static_cast<float>(height) - panelHeight) * 0.45F;
   addRect(drawList, panelX, panelY, panelWidth, panelHeight, {6, 10, 15, 238});
@@ -2872,52 +2873,84 @@ void addSettingsMenu(
   addText(
     drawList,
     panelX + 22.0F,
-    panelY + 20.0F,
+    panelY + 26.0F,
     "SETTINGS / VIDEO",
     {255, 226, 132, 255},
-    2.25F
+    2.5F
   );
 
-  float y = panelY + 64.0F;
-  constexpr float textScale = 2.0F;
+  float y = panelY + 78.0F;
+  constexpr float textScale = 2.25F;
   constexpr float characterWidth = kGlyphSize * textScale;
   const float labelX = panelX + 28.0F;
-  const float valueRight = panelX + panelWidth - 28.0F;
-  for (const HudRenderState::SettingsMenuItem& item : hud.settingsItems) {
+  // Keep values on one visual column. The fixed navigation control sits to
+  // the right of it, so changing text length never moves either control.
+  const float arrowX = panelX + panelWidth - 28.0F - 9.0F * characterWidth;
+  const float valueRight = arrowX - 14.0F;
+  const float footerY = panelY + panelHeight - 30.0F;
+  const std::size_t visibleRows = static_cast<std::size_t>(std::max(
+    1.0F, std::floor((footerY - y - 8.0F) / rowHeight)
+  ));
+  const std::size_t firstRow = std::min(hud.settingsScrollRows, hud.settingsItems.size());
+  const std::size_t lastRow = std::min(hud.settingsItems.size(), firstRow + visibleRows);
+  y += 0.0F;
+  for (std::size_t index = firstRow; index < lastRow; ++index) {
+    const HudRenderState::SettingsMenuItem& item = hud.settingsItems[index];
     const RenderColor labelColor = item.active
       ? RenderColor{255, 244, 184, 255}
       : RenderColor{214, 226, 238, 255};
     const RenderColor valueColor = item.changed
       ? RenderColor{255, 210, 95, 255}
       : RenderColor{156, 214, 242, 255};
-    if (item.active) {
+    const bool hovered = static_cast<int>(index) == hud.settingsHoveredRow;
+    const bool pressed = static_cast<int>(index) == hud.settingsPressedRow;
+    if (item.active || hovered) {
       addRect(
         drawList,
         panelX + 14.0F,
         y - 5.0F,
         panelWidth - 28.0F,
         rowHeight,
-        {32, 54, 70, 220}
+        pressed ? RenderColor{76, 112, 134, 235} :
+          (hovered ? RenderColor{42, 72, 92, 230} : RenderColor{32, 54, 70, 220})
       );
+    }
+    if (item.active) {
       addRect(drawList, panelX + 18.0F, y + 1.0F, 4.0F, 18.0F, {255, 212, 92, 255});
     }
     addText(drawList, labelX, y, item.label, labelColor, textScale);
-    const float valueX = std::max(
-      labelX + 220.0F,
-      valueRight - static_cast<float>(item.value.size()) * characterWidth
+    addText(
+      drawList,
+      valueRight,
+      y,
+      item.value,
+      valueColor,
+      textScale,
+      TextHorizontalAlignment::Right
     );
-    addText(drawList, valueX, y, item.value, valueColor, textScale);
     if (!item.command) {
-      addText(drawList, valueRight - 9.0F * characterWidth, y, "<  >", {110, 128, 144, 255}, textScale);
+      addText(drawList, arrowX, y, "<  >", hovered ? RenderColor{190, 226, 245, 255} : RenderColor{110, 128, 144, 255}, textScale);
     }
     y += rowHeight;
+  }
+
+  if (hud.settingsItems.size() > visibleRows) {
+    const float trackHeight = footerY - (panelY + 64.0F) - 8.0F;
+    const float thumbHeight = std::max(18.0F, trackHeight *
+      static_cast<float>(visibleRows) / static_cast<float>(hud.settingsItems.size()));
+    const float travel = std::max(0.0F, trackHeight - thumbHeight);
+    const std::size_t maxScroll = hud.settingsItems.size() - visibleRows;
+    const float progress = maxScroll == 0U ? 0.0F :
+      static_cast<float>(std::min(hud.settingsScrollRows, maxScroll)) / static_cast<float>(maxScroll);
+    addRect(drawList, panelX + panelWidth - 11.0F, panelY + 64.0F, 3.0F, trackHeight, {56, 80, 96, 220});
+    addRect(drawList, panelX + panelWidth - 12.0F, panelY + 64.0F + travel * progress, 5.0F, thumbHeight, {120, 202, 238, 255});
   }
 
   if (!hud.settingsFooter.empty()) {
     addText(
       drawList,
       panelX + 22.0F,
-      panelY + panelHeight - 30.0F,
+      footerY,
       hud.settingsFooter,
       {174, 190, 204, 255},
       1.5F
@@ -3806,6 +3839,13 @@ DrawList2D buildScreenUi(
     static_cast<float>(outputWidth),
     static_cast<float>(outputHeight),
   };
+  // Settings is a modal layer. Do not emit normal HUD, chat, console, scope,
+  // crosshair, weapon, or network overlays beneath it: the menu owns both the
+  // visual layer and input until it closes.
+  if (hud.settingsOpen) {
+    addSettingsMenu(drawList, outputWidth, outputHeight, hud);
+    return drawList;
+  }
   if (hud.deathDesaturation > 0.0F) {
     const float strength = std::clamp(hud.deathDesaturation, 0.0F, 1.0F);
     const std::array<ScreenPoint, 4> points = {{
@@ -3838,7 +3878,6 @@ DrawList2D buildScreenUi(
   addHud(drawList, outputWidth, outputHeight, localPlayer, hud, settings);
   addNetGraph(drawList, outputWidth, outputHeight, hud.netGraph);
   addSelectedWeaponIndicator(drawList, outputWidth, outputHeight, hud, settings);
-  addSettingsMenu(drawList, outputWidth, outputHeight, hud);
   addConsole(drawList, outputWidth, outputHeight, console);
   return drawList;
 }

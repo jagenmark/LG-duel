@@ -4,6 +4,14 @@ LG Duel benchmarks are repeatable, opt-in developer artifacts for finding render
 
 Descriptors live in `config/benchmarks/`. Results, screenshots, and comparison baselines belong under `build/benchmarks/<scenario>/<run_group>/<run_id>/` and are ignored by Git. Do not commit a result as a universal performance claim: drivers, power policy, compositor state, and selected backend all matter.
 
+## Graphics profile baseline
+
+Benchmarks default to the named `Default` graphics profile at `render_scale: 1.0`
+(100%). Descriptors may select `Low`, `Default`, `Competitive`, or `High`; all four
+use 100%. A manual scale is valid from 50% to 150%. Values above 100% are
+`Extreme / benchmark-only` and are not recommended for normal play. Native results
+record both values and note that captures need the same profile and scale.
+
 ## Architecture And Trust Boundary
 
 The normal client contains a benchmark recorder that is inert unless the process is launched with both `--dev-control` and `--benchmark`. The recorder uses the same renderer-facing state and map-loading rules as ordinary play, but it does not add timing data or synthetic state to UDP packets, snapshots, or `ServerGame`. The benchmark camera is presentation-only; bot setup still travels through the existing server-authoritative command path.

@@ -106,6 +106,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"vid_display", "Display index for fullscreen/window placement.", 0, archivedClient, 0.0F, 31.0F});
   console.registerCvar({"r_present_mode", "Renderer present mode: 0 FIFO/V-sync, 1 Mailbox, 2 Immediate.", 0, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_maxfps", "Manual CPU/render frame cap: 0 uncapped, otherwise frames per second.", 0, archivedClient, 0.0F, 1000.0F});
+  console.registerCvar({"r_render_scale", "Internal render scale: 0.5 to 1.5. Values above 1 are Extreme / benchmark-only and are not recommended for normal play.", 1.0F, archivedClient, 0.5F, 1.5F});
   console.registerCvar({"r_vsync", "Deprecated compatibility alias: 1 maps to r_present_mode 0, 0 maps to r_present_mode 2.", true, archivedClient, {}, {}});
   console.registerCvar({"r_frustum_cull", "Cull remote player geometry outside the first-person camera frustum.", true, archivedClient, {}, {}});
   console.registerCvar({"r_world_frustum_cull", "Experimentally cull cached static-world chunks outside the first-person camera frustum on the GPU renderer.", false, archivedClient, {}, {}});

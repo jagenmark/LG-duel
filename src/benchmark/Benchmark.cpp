@@ -1,5 +1,7 @@
 #include "benchmark/Benchmark.hpp"
 
+#include "app/GraphicsProfiles.hpp"
+
 #include "sim/MapRegistry.hpp"
 #include "sim/WeaponCatalog.hpp"
 
@@ -135,6 +137,13 @@ namespace {
   return parseWeaponToken(compact);
 }
 
+[[nodiscard]] const GraphicsProfileDefinition* graphicsProfileByName(std::string_view name) {
+  for (const GraphicsProfileDefinition& profile : kGraphicsProfiles) {
+    if (profile.name == name) return &profile;
+  }
+  return nullptr;
+}
+
 [[nodiscard]] double nearestRank(const std::vector<double>& sorted, double fraction) {
   if (sorted.empty()) return 0.0;
   const std::size_t rank = static_cast<std::size_t>(
@@ -192,6 +201,18 @@ ParseResult parseScenario(const dev::JsonValue& root) {
   if (const auto fov = dev::numberMember(root, "fov")) {
     if (!std::isfinite(*fov) || *fov < 30.0 || *fov > 140.0) return {{}, false, "fov must be between 30 and 140"};
     scenario.fieldOfView = static_cast<float>(*fov);
+  }
+  if (const dev::JsonValue* profile = root.find("graphics_profile"); profile != nullptr) {
+    if (profile->type != dev::JsonValue::Type::String || graphicsProfileByName(profile->string) == nullptr) {
+      return {{}, false, "graphics_profile must be Low, Default, Competitive, or High"};
+    }
+    scenario.graphicsProfile = profile->string;
+  }
+  if (const dev::JsonValue* scale = root.find("render_scale"); scale != nullptr) {
+    if (scale->type != dev::JsonValue::Type::Number || !std::isfinite(scale->number) || scale->number < 0.5 || scale->number > 1.5) {
+      return {{}, false, "render_scale must be between 0.5 and 1.5"};
+    }
+    scenario.renderScale = static_cast<float>(scale->number);
   }
   std::string error;
   if (!duration(root, "warmup_seconds", "warmup_frames", scenario.warmupSeconds, scenario.warmupFrames, error) ||
@@ -394,6 +415,11 @@ dev::JsonValue resultJson(
     dev::JsonValue::numberValue(context.actualWidth), dev::JsonValue::numberValue(context.actualHeight)
   });
   root.object["selected_present_mode"] = dev::JsonValue::stringValue(context.selectedPresentMode);
+  root.object["graphics_profile"] = dev::JsonValue::stringValue(context.graphicsProfile);
+  root.object["render_scale"] = dev::JsonValue::numberValue(context.renderScale);
+  root.object["capture_readability"] = dev::JsonValue::stringValue(
+    "fixed scenario camera and explicit profile/render scale; compare only matching values"
+  );
   root.object["gpu_execution_timing_available"] =
     dev::JsonValue::booleanValue(context.gpuTimingAvailable);
   root.object["gpu_timing_available"] =

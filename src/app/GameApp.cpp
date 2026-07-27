@@ -3,6 +3,7 @@
 #include "app/ClientAudio.hpp"
 #include "app/ClientChat.hpp"
 #include "app/ClientCvars.hpp"
+#include "app/GraphicsProfiles.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/DeathCamera.hpp"
 #include "app/HudPresentation.hpp"
@@ -2053,10 +2054,30 @@ struct ResolutionOption {
 struct SettingsMenuState {
   bool open = false;
   int selectedRow = 0;
+  std::size_t scrollRows = 0;
+  int hoveredRow = -1;
+  int pressedRow = -1;
   VideoSettings pendingVideo = {};
   int pendingMaxFps = 0;
+  int pendingProfile = 1;
+  float pendingRenderScale = 1.0F;
+  int pendingTextureFilter = 2;
+  int pendingAnisotropy = 8;
+  float pendingLodBias = 0.5F;
+  bool pendingFrustumCull = true;
+  bool pendingWorldFrustumCull = false;
+  bool pendingPlayerOutlines = true;
+  int pendingOutlineMode = 1;
   VideoSettings originalVideo = {};
   int originalMaxFps = 0;
+  float originalRenderScale = 1.0F;
+  int originalTextureFilter = 2;
+  int originalAnisotropy = 8;
+  float originalLodBias = 0.5F;
+  bool originalFrustumCull = true;
+  bool originalWorldFrustumCull = false;
+  bool originalPlayerOutlines = true;
+  int originalOutlineMode = 1;
 };
 
 struct LingeringWeaponFire {
@@ -2708,15 +2729,83 @@ bool applyVideoSettings(
 
 [[nodiscard]] bool settingsChanged(const SettingsMenuState& menu) {
   return !sameVideoSettings(menu.pendingVideo, menu.originalVideo) ||
-    menu.pendingMaxFps != menu.originalMaxFps;
+    menu.pendingMaxFps != menu.originalMaxFps ||
+    menu.pendingRenderScale != menu.originalRenderScale ||
+    menu.pendingTextureFilter != menu.originalTextureFilter ||
+    menu.pendingAnisotropy != menu.originalAnisotropy ||
+    menu.pendingLodBias != menu.originalLodBias ||
+    menu.pendingFrustumCull != menu.originalFrustumCull ||
+    menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull ||
+    menu.pendingPlayerOutlines != menu.originalPlayerOutlines ||
+    menu.pendingOutlineMode != menu.originalOutlineMode;
+}
+
+[[nodiscard]] int matchingGraphicsProfile(const SettingsMenuState& menu) {
+  for (std::size_t index = 0; index < kGraphicsProfiles.size(); ++index) {
+    const auto& values = kGraphicsProfiles[index].values;
+    const auto value = [&](std::string_view name) {
+      for (const GraphicsProfileValue& entry : values) if (entry.cvar == name) return entry.value;
+      return std::string_view{};
+    };
+    if (std::abs(menu.pendingRenderScale - std::stof(std::string(value("r_render_scale")))) < 0.001F &&
+        menu.pendingTextureFilter == std::stoi(std::string(value("r_texture_filter"))) &&
+        menu.pendingAnisotropy == std::stoi(std::string(value("r_texture_anisotropy"))) &&
+        std::abs(menu.pendingLodBias - std::stof(std::string(value("r_texture_lod_bias")))) < 0.001F &&
+        (menu.pendingFrustumCull ? "1" : "0") == value("r_frustum_cull") &&
+        (menu.pendingWorldFrustumCull ? "1" : "0") == value("r_world_frustum_cull") &&
+        (menu.pendingPlayerOutlines ? "1" : "0") == value("r_draw_player_outlines") &&
+        std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode")) return static_cast<int>(index);
+  }
+  return -1;
+}
+
+void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
+  const auto& values = kGraphicsProfiles[static_cast<std::size_t>(profile)].values;
+  const auto value = [&](std::string_view name) {
+    for (const GraphicsProfileValue& entry : values) if (entry.cvar == name) return entry.value;
+    return std::string_view{};
+  };
+  menu.pendingProfile = profile;
+  menu.pendingRenderScale = std::stof(std::string(value("r_render_scale")));
+  menu.pendingTextureFilter = std::stoi(std::string(value("r_texture_filter")));
+  menu.pendingAnisotropy = std::stoi(std::string(value("r_texture_anisotropy")));
+  menu.pendingLodBias = std::stof(std::string(value("r_texture_lod_bias")));
+  menu.pendingFrustumCull = value("r_frustum_cull") == "1";
+  menu.pendingWorldFrustumCull = value("r_world_frustum_cull") == "1";
+  menu.pendingPlayerOutlines = value("r_draw_player_outlines") == "1";
+  menu.pendingOutlineMode = std::stoi(std::string(value("r_player_outline_mode")));
 }
 
 void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& console) {
   menu.pendingVideo = videoSettingsFromConsole(console);
   menu.pendingMaxFps = console.getInt("r_maxfps");
+  menu.pendingRenderScale = console.getFloat("r_render_scale");
+  menu.pendingTextureFilter = console.getInt("r_texture_filter");
+  menu.pendingAnisotropy = console.getInt("r_texture_anisotropy");
+  menu.pendingLodBias = console.getFloat("r_texture_lod_bias");
+  menu.pendingFrustumCull = console.getBool("r_frustum_cull");
+  menu.pendingWorldFrustumCull = console.getBool("r_world_frustum_cull");
+  menu.pendingPlayerOutlines = console.getBool("r_draw_player_outlines");
+  menu.pendingOutlineMode = console.getInt("r_player_outline_mode");
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
-  menu.selectedRow = std::clamp(menu.selectedRow, 0, 7);
+  menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
+  menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias;
+  menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull;
+  menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.pendingProfile = matchingGraphicsProfile(menu);
+  menu.selectedRow = std::clamp(menu.selectedRow, 0, 17);
+  menu.scrollRows = 0U;
+}
+
+void keepSettingsSelectionVisible(SettingsMenuState& menu) {
+  // The renderer reserves enough room for 14 rows at its smallest panel.
+  constexpr std::size_t kVisibleRows = 14U;
+  const std::size_t selected = static_cast<std::size_t>(menu.selectedRow);
+  if (selected < menu.scrollRows) menu.scrollRows = selected;
+  if (selected >= menu.scrollRows + kVisibleRows) {
+    menu.scrollRows = selected - kVisibleRows + 1U;
+  }
 }
 
 void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
@@ -2780,6 +2869,15 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
     menu.pendingMaxFps = wrappedOption(options, index + direction);
     return;
   }
+  case 6: applyGraphicsProfile(menu, (std::max(0, menu.pendingProfile) + direction + 4) % 4); return;
+  case 7: menu.pendingRenderScale = std::clamp(menu.pendingRenderScale + 0.1F * direction, 0.5F, 1.5F); return;
+  case 8: menu.pendingTextureFilter = (menu.pendingTextureFilter + direction + 3) % 3; return;
+  case 9: { const std::array<int, 5> values{1, 2, 4, 8, 16}; const int index = optionIndex(std::vector<int>(values.begin(), values.end()), menu.pendingAnisotropy, [](int a, int b) { return a == b; }); menu.pendingAnisotropy = values[static_cast<std::size_t>((index + direction + 5) % 5)]; return; }
+  case 10: menu.pendingLodBias = std::clamp(menu.pendingLodBias + 0.25F * direction, -2.0F, 4.0F); return;
+  case 11: menu.pendingFrustumCull = !menu.pendingFrustumCull; return;
+  case 12: menu.pendingWorldFrustumCull = !menu.pendingWorldFrustumCull; return;
+  case 13: menu.pendingPlayerOutlines = !menu.pendingPlayerOutlines; return;
+  case 14: menu.pendingOutlineMode = (menu.pendingOutlineMode + direction + 3) % 3; return;
   default:
     return;
   }
@@ -2795,8 +2893,17 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
     "set r_present_mode " + std::to_string(presentModeInt(menu.pendingVideo.presentMode))
   );
   (void)console.execute("set r_maxfps " + std::to_string(menu.pendingMaxFps));
+  (void)console.execute("set r_render_scale " + std::to_string(menu.pendingRenderScale));
+  (void)console.execute("set r_texture_filter " + std::to_string(menu.pendingTextureFilter));
+  (void)console.execute("set r_texture_anisotropy " + std::to_string(menu.pendingAnisotropy));
+  (void)console.execute("set r_texture_lod_bias " + std::to_string(menu.pendingLodBias));
+  (void)console.execute("set r_frustum_cull " + std::to_string(menu.pendingFrustumCull));
+  (void)console.execute("set r_world_frustum_cull " + std::to_string(menu.pendingWorldFrustumCull));
+  (void)console.execute("set r_draw_player_outlines " + std::to_string(menu.pendingPlayerOutlines));
+  (void)console.execute("set r_player_outline_mode " + std::to_string(menu.pendingOutlineMode));
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
+  menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
@@ -2824,6 +2931,9 @@ void populateSettingsMenuRenderState(
     return;
   }
   hud.settingsOpen = true;
+  hud.settingsScrollRows = menu.scrollRows;
+  hud.settingsHoveredRow = menu.hoveredRow;
+  hud.settingsPressedRow = menu.pressedRow;
   hud.settingsItems = {
     settingsMenuItem(
       menu,
@@ -2868,9 +2978,19 @@ void populateSettingsMenuRenderState(
       fpsLimitLabel(menu.pendingMaxFps),
       menu.pendingMaxFps != menu.originalMaxFps
     ),
+    settingsMenuItem(menu, 6, "Graphics profile", matchingGraphicsProfile(menu) >= 0 ? std::string(kGraphicsProfiles[static_cast<std::size_t>(matchingGraphicsProfile(menu))].name) : "Custom", false),
+    settingsMenuItem(menu, 7, "Render scale", std::to_string(static_cast<int>(std::lround(menu.pendingRenderScale * 100.0F))) + (menu.pendingRenderScale > 1.0F ? "% Extreme / benchmark-only" : "%"), menu.pendingRenderScale != menu.originalRenderScale),
+    settingsMenuItem(menu, 8, "Texture filter", menu.pendingTextureFilter == 0 ? "Nearest" : menu.pendingTextureFilter == 1 ? "Bilinear" : "Trilinear", menu.pendingTextureFilter != menu.originalTextureFilter),
+    settingsMenuItem(menu, 9, "Texture anisotropy", std::to_string(menu.pendingAnisotropy) + "x", menu.pendingAnisotropy != menu.originalAnisotropy),
+    settingsMenuItem(menu, 10, "Texture LOD bias", std::to_string(menu.pendingLodBias), menu.pendingLodBias != menu.originalLodBias),
+    settingsMenuItem(menu, 11, "Player frustum cull", menu.pendingFrustumCull ? "On" : "Off", menu.pendingFrustumCull != menu.originalFrustumCull),
+    settingsMenuItem(menu, 12, "World frustum cull", menu.pendingWorldFrustumCull ? "On" : "Off", menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull),
+    settingsMenuItem(menu, 13, "Player outlines", menu.pendingPlayerOutlines ? "On" : "Off", menu.pendingPlayerOutlines != menu.originalPlayerOutlines),
+    settingsMenuItem(menu, 14, "Outline mode", menu.pendingOutlineMode == 0 ? "Off" : menu.pendingOutlineMode == 1 ? "Compatibility" : "Native", menu.pendingOutlineMode != menu.originalOutlineMode),
+    settingsMenuItem(menu, 15, "Reset graphics draft", "Default profile", false, true),
     settingsMenuItem(
       menu,
-      6,
+      16,
       "Apply changes",
       settingsChanged(menu) ? "Enter" : "No changes",
       settingsChanged(menu),
@@ -2878,7 +2998,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      7,
+      17,
       "Close / Revert draft",
       "Esc",
       false,
@@ -2886,7 +3006,7 @@ void populateSettingsMenuRenderState(
     ),
   };
   hud.settingsFooter =
-    "Up/Down select   Left/Right change   Enter apply   Esc close";
+    "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
 }
 
 std::string clientConfigPath() {
@@ -5084,8 +5204,12 @@ int GameApp::run() const {
       if (open) {
         syncSettingsMenuFromConsole(settingsMenu, console);
         SDL_SetWindowRelativeMouseMode(window, false);
+        SDL_ShowCursor();
       } else {
+        settingsMenu.hoveredRow = -1;
+        settingsMenu.pressedRow = -1;
         SDL_SetWindowRelativeMouseMode(window, true);
+        SDL_HideCursor();
       }
     };
   const auto applySettingsMenuToggle =
@@ -5971,6 +6095,13 @@ int GameApp::run() const {
           values["r_present_mode"] = scenario.vsync != 0 ? "0" : "2";
           values["r_maxfps"] = std::to_string(scenario.frameCap);
           values["cl_fov"] = std::to_string(scenario.fieldOfView);
+          for (const GraphicsProfileDefinition& profile : kGraphicsProfiles) {
+            if (profile.name == scenario.graphicsProfile) {
+              for (const GraphicsProfileValue& value : profile.values) values[std::string(value.cvar)] = std::string(value.value);
+              break;
+            }
+          }
+          values["r_render_scale"] = std::to_string(scenario.renderScale);
           return values;
         }();
         for (const auto& [name, value] : overrides) {
@@ -6436,20 +6567,28 @@ int GameApp::run() const {
           if (!pressed) {
             break;
           }
-          if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+          // The bound settings command remains a toggle while the menu owns
+          // input. Escape is the explicit draft-cancel close path.
+          if (bindings.binding(key) == "settings") {
+            setSettingsOpen(false);
+          } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setSettingsOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_UP) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 7) % 8;
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 17) % 18;
+            keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 8;
+            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 18;
+            keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             adjustSettingsMenuValue(settingsMenu, -1);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             adjustSettingsMenuValue(settingsMenu, 1);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (settingsMenu.selectedRow == 6) {
+            if (settingsMenu.selectedRow == 15) {
+              applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
+            } else if (settingsMenu.selectedRow == 16) {
               applySettingsMenu(console, settingsMenu);
-            } else if (settingsMenu.selectedRow == 7) {
+            } else if (settingsMenu.selectedRow == 17) {
               setSettingsOpen(false);
             } else {
               adjustSettingsMenuValue(settingsMenu, 1);
@@ -6650,6 +6789,52 @@ int GameApp::run() const {
             }
           }
         } else if (settingsMenu.open) {
+          if (event.button.button != SDL_BUTTON_LEFT) {
+            break;
+          }
+          int windowWidth = 0;
+          int windowHeight = 0;
+          SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+          const float panelWidth = std::min(
+            std::max(320.0F, static_cast<float>(windowWidth) - 48.0F),
+            static_cast<float>(windowWidth) * 0.75F
+          );
+          const float panelHeight = std::min(
+            std::max(260.0F, static_cast<float>(windowHeight) - 48.0F),
+            static_cast<float>(windowHeight) * 0.75F
+          );
+          const float panelY = (static_cast<float>(windowHeight) - panelHeight) * 0.45F;
+          const float firstRowY = panelY + 78.0F;
+          constexpr float rowHeight = 38.0F;
+          const float footerY = panelY + panelHeight - 30.0F;
+          const bool inRows = event.button.y >= firstRowY && event.button.y < footerY;
+          const int row = inRows
+            ? static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
+                (event.button.y - firstRowY) / rowHeight))
+            : -1;
+          if (pressed) {
+            settingsMenu.pressedRow = row >= 0 && row < 18 ? row : -1;
+            if (settingsMenu.pressedRow >= 0) {
+              settingsMenu.selectedRow = settingsMenu.pressedRow;
+              keepSettingsSelectionVisible(settingsMenu);
+            }
+          } else if (settingsMenu.pressedRow >= 0 && settingsMenu.pressedRow == row) {
+            const int clickedRow = settingsMenu.pressedRow;
+            settingsMenu.pressedRow = -1;
+            if (clickedRow == 15) {
+              applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
+            } else if (clickedRow == 16) {
+              applySettingsMenu(console, settingsMenu);
+            } else if (clickedRow == 17) {
+              setSettingsOpen(false);
+            } else {
+              const float panelX = (static_cast<float>(windowWidth) - panelWidth) * 0.5F;
+              const float arrowX = panelX + panelWidth - 28.0F - 9.0F * 18.0F;
+              adjustSettingsMenuValue(settingsMenu, event.button.x < arrowX + 36.0F ? -1 : 1);
+            }
+          } else {
+            settingsMenu.pressedRow = -1;
+          }
           break;
         } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
@@ -6664,6 +6849,23 @@ int GameApp::run() const {
         if (settingsMenu.open) {
           input.mouseDeltaX = 0.0F;
           input.mouseDeltaY = 0.0F;
+          int windowWidth = 0;
+          int windowHeight = 0;
+          SDL_GetWindowSize(window, &windowWidth, &windowHeight);
+          const float panelHeight = std::min(
+            std::max(260.0F, static_cast<float>(windowHeight) - 48.0F),
+            static_cast<float>(windowHeight) * 0.75F
+          );
+          const float panelY = (static_cast<float>(windowHeight) - panelHeight) * 0.45F;
+          const float firstRowY = panelY + 78.0F;
+          const float footerY = panelY + panelHeight - 30.0F;
+          if (event.motion.y >= firstRowY && event.motion.y < footerY) {
+            const int row = static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
+              (event.motion.y - firstRowY) / 38.0F));
+            settingsMenu.hoveredRow = row < 18 ? row : -1;
+          } else {
+            settingsMenu.hoveredRow = -1;
+          }
         } else if (consoleState.open) {
           updateConsoleSelection(
             window,
@@ -6684,7 +6886,17 @@ int GameApp::run() const {
         }
         break;
       case SDL_EVENT_MOUSE_WHEEL:
-        if (consoleState.open) {
+        if (settingsMenu.open) {
+          constexpr std::size_t settingsWheelRows = 3U;
+          constexpr std::size_t visibleRows = 14U;
+          const std::size_t maxScroll = 18U - visibleRows;
+          if (event.wheel.y > 0.0F) {
+            settingsMenu.scrollRows = std::min(settingsMenu.scrollRows + settingsWheelRows, maxScroll);
+          } else if (event.wheel.y < 0.0F) {
+            settingsMenu.scrollRows = settingsMenu.scrollRows > settingsWheelRows
+              ? settingsMenu.scrollRows - settingsWheelRows : 0U;
+          }
+        } else if (consoleState.open) {
           constexpr std::size_t consoleWheelRows = 3U;
           if (event.wheel.y > 0.0F) {
             const ConsoleTextLayout layout =
@@ -9595,6 +9807,8 @@ int GameApp::run() const {
       context.actualMapContentHash = currentMapContentHash();
       SDL_GetWindowSizeInPixels(window, &context.actualWidth, &context.actualHeight);
       context.selectedPresentMode = renderer.lastFrameDiagnostics().selectedPresentModeName;
+      context.graphicsProfile = request.benchmarkScenario.graphicsProfile;
+      context.renderScale = request.benchmarkScenario.renderScale;
       const GpuTimingAvailability& gpuTiming = renderer.gpuTimingMetadata();
       context.gpuTimingAvailable = gpuTiming.available;
       context.gpuTimingBackend = gpuTiming.backend;

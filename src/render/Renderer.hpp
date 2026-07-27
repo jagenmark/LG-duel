@@ -376,6 +376,9 @@ struct HudRenderState {
   std::vector<std::size_t> scoreboardLineAccuracyWeaponColumns;
   bool settingsOpen = false;
   std::vector<SettingsMenuItem> settingsItems;
+  std::size_t settingsScrollRows = 0;
+  int settingsHoveredRow = -1;
+  int settingsPressedRow = -1;
   std::string settingsFooter;
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;

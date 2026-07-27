@@ -128,6 +128,11 @@ request at a time. It can run bounded game-console text, but it has no shell or
 process launch path. Requests are limited to 64 KiB and use control protocol
 version 1.
 
+`exec-console settings` uses the same toggle as the default F10 binding: it
+opens the Settings / Video menu when closed and closes it when open. Closing by
+that toggle or with Escape discards unapplied draft values; only **Apply
+changes** writes them.
+
 The socket thread parses requests and queues them. State changes and renderer
 capture run on the SDL client thread. The socket thread waits for an explicit
 result with a 60-second ceiling, so it cannot block the authoritative 125 Hz

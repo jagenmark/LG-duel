@@ -387,6 +387,13 @@ int main() {
     "frame limiter cvar should allow uncapped and reject negative caps"
   );
   failures += expect(
+    console.execute("r_render_scale") == "r_render_scale = 1 (default 1)" &&
+      console.execute("r_render_scale 0.5") == "r_render_scale = 0.5" &&
+      console.execute("r_render_scale 1.5") == "r_render_scale = 1.5" &&
+      console.execute("r_render_scale 1.6") == "value out of range for r_render_scale",
+    "render scale should use the safe 50 to 150 percent range"
+  );
+  failures += expect(
     !console.getBool("r_perf") &&
       !console.getBool("r_perf_detail") &&
       !console.getBool("r_perf_reset"),

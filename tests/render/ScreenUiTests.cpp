@@ -143,6 +143,71 @@ int main() {
   hud.speedText = "320 ups";
   hud.weaponValues = {{"11", "22", "33", "44", "55", "66", "77", "88"}};
   hud.scoreboardOpen = true;
+  {
+    lg::HudRenderState settingsHud;
+    settingsHud.settingsOpen = true;
+    settingsHud.settingsItems = {
+      {"Display mode", "Borderless Fullscreen", true, false, false},
+      {"Display / Monitor", "Display 1", false, false, false},
+      {"FPS limit", "Unlimited", false, false, false},
+      {"Apply changes", "Enter", false, false, true},
+    };
+    settingsHud.topLeftLines = {"HUD MUST STAY BELOW SETTINGS"};
+    settingsHud.topRightLines = {"SCORE MUST STAY BELOW SETTINGS"};
+    settingsHud.netGraph.mode = 1;
+    settingsHud.netGraph.telemetry.valid = true;
+    lg::ConsoleRenderState settingsConsole;
+    settingsConsole.open = true;
+    settingsConsole.lines = {"CONSOLE MUST STAY BELOW SETTINGS"};
+    const lg::DrawList2D settingsUi = lg::buildScreenUi(
+      1280, 720, {}, settings, settingsHud, settingsConsole
+    );
+    const lg::Text2D* firstLabel = findText(settingsUi, "Display mode");
+    const lg::Text2D* secondLabel = findText(settingsUi, "Display / Monitor");
+    const lg::Text2D* longValue = findText(settingsUi, "Borderless Fullscreen");
+    const lg::Text2D* shortValue = findText(settingsUi, "Unlimited");
+    const lg::Text2D* commandValue = findText(settingsUi, "Enter");
+    const lg::Text2D* arrows = findText(settingsUi, "<  >");
+    failures += expect(
+      firstLabel != nullptr && secondLabel != nullptr &&
+        firstLabel->position.x == secondLabel->position.x &&
+        firstLabel->horizontalAlignment == lg::TextHorizontalAlignment::Left &&
+        longValue != nullptr && shortValue != nullptr && commandValue != nullptr &&
+        longValue->position.x == shortValue->position.x &&
+        shortValue->position.x == commandValue->position.x &&
+        longValue->horizontalAlignment == lg::TextHorizontalAlignment::Right &&
+        shortValue->horizontalAlignment == lg::TextHorizontalAlignment::Right &&
+        arrows != nullptr && arrows->position.x > shortValue->position.x,
+      "settings labels should share a left edge; values should share a right edge before fixed arrows"
+    );
+    failures += expect(
+      findText(settingsUi, "HUD MUST STAY BELOW SETTINGS") == nullptr &&
+        findText(settingsUi, "SCORE MUST STAY BELOW SETTINGS") == nullptr &&
+        findText(settingsUi, "CONSOLE MUST STAY BELOW SETTINGS") == nullptr &&
+        findText(settingsUi, "SETTINGS / VIDEO") != nullptr,
+      "settings should be the exclusive top UI layer over HUD, network, and console overlays"
+    );
+
+    lg::HudRenderState scrolledSettings = settingsHud;
+    scrolledSettings.settingsItems.clear();
+    for (int row = 0; row < 24; ++row) {
+      scrolledSettings.settingsItems.push_back(
+        {"Scroll label " + std::to_string(row), "Value", row == 6, false, false}
+      );
+    }
+    scrolledSettings.settingsScrollRows = 4U;
+    scrolledSettings.settingsHoveredRow = 6;
+    scrolledSettings.settingsPressedRow = 6;
+    const lg::DrawList2D scrolledUi = lg::buildScreenUi(
+      1280, 720, {}, settings, scrolledSettings, {}
+    );
+    failures += expect(
+      findText(scrolledUi, "Scroll label 0") == nullptr &&
+        findText(scrolledUi, "Scroll label 4") != nullptr &&
+        findText(scrolledUi, "Scroll label 6") != nullptr,
+      "settings rows should clip to the viewport after scrolling"
+    );
+  }
   hud.scoreboardLines = {"SCOREBOARD", "PLAYER  SCORE"};
   lg::ConsoleRenderState console;
 

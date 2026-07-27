@@ -126,8 +126,21 @@ int main() {
   failures += expect(
     firingPlayer.ok &&
       firingPlayer.scenario.playerWeapon == lg::Weapon::MachineGun &&
-      firingPlayer.scenario.playerAttack,
+    firingPlayer.scenario.playerAttack,
     "benchmark player weapon and held attack should parse"
+  );
+
+  const lg::benchmark::ParseResult graphicsProfile = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"profile","map":"eyetoeye","resolution":[1280,720],
+    "graphics_profile":"Competitive","render_scale":1.25,
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0}
+  })");
+  failures += expect(
+    graphicsProfile.ok && graphicsProfile.scenario.graphicsProfile == "Competitive" &&
+      std::fabs(graphicsProfile.scenario.renderScale - 1.25F) < 0.001F,
+    "benchmark graphics profile and render scale should parse"
   );
   const lg::benchmark::ParseResult unsupportedFixture = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
