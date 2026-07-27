@@ -251,7 +251,7 @@ GPU0:
             manifest = root / "igvk64.json"
             library = root / "igvk64.dll"
             manifest.write_text(
-                '{"ICD":{"library_path":".\\\\igvk64.dll"}}', encoding="utf-8"
+                '{"ICD":{"library_path":"./igvk64.dll"}}', encoding="utf-8"
             )
             library.touch()
             state_dir = root / "build" / "dev-control"
