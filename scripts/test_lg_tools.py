@@ -219,6 +219,15 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("set LG_DUEL_RENDER_BACKEND=gpu", launcher)
         self.assertNotIn("build\\default\\lg_duel_client.exe 127.0.0.1", launcher)
 
+    def test_static_world_grade_keeps_baked_lighting_out_of_second_tonemap(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader = (root / "assets" / "shaders" / "world_surface.frag").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("baked vertex lighting", shader)
+        self.assertIn("vec3(0.014, 0.016, 0.020)", shader)
+        self.assertNotIn("linearColor = acesToneMap", shader)
+
     def test_power_shell_launcher_forwards_a_bounded_timeout(self) -> None:
         launcher = (Path(__file__).resolve().parent / "lg-dev.ps1").read_text(encoding="utf-8")
         self.assertIn("[ValidateRange(0.25, 120.0)]", launcher)
