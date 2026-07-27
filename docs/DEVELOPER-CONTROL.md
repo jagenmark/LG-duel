@@ -192,6 +192,12 @@ Vulkan selection contains no tracked machine path. Resolution checks, in order:
 2. `build/dev-control/vulkan.json` or `build/vulkan.json`.
 3. The newest valid local Intel Vulkan benchmark `aggregate.json` under
    `build/benchmarks/`.
+4. On Windows only, an enabled Intel ICD registered by the Vulkan loader under
+   `HKLM\SOFTWARE\Khronos\Vulkan\Drivers`. The launcher validates the manifest,
+   driver library, and Vulkan probe, then records the verified choice in this
+   worktree's ignored `build/dev-control/vulkan.json`.
+   If that registry source is unavailable, it asks the installed Vulkan loader
+   for its active Intel ICD and applies the same checks and local record.
 
 A direct local JSON document supplies `icd_path`, `icd_sha256`, `gpu_name`, and
 optionally the expected `graphics_driver_version` and `vulkan_api_version`.

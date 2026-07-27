@@ -37,6 +37,7 @@ BENCHMARK_ROOT = REPO_ROOT / "build" / "benchmarks"
 GPU_RENDERER = "SDL_GPU/vulkan"
 FALLBACK_PREFIX = "SDL_Renderer/"
 SOFTWARE_MARKERS = ("swiftshader", "llvmpipe", "lavapipe", "software", "cpu")
+WINDOWS_VULKAN_DRIVERS_KEY = r"SOFTWARE\Khronos\Vulkan\Drivers"
 
 
 class LaunchError(RuntimeError):
@@ -289,7 +290,74 @@ def _load_local_selection(path: Path) -> dict[str, Any] | None:
     return _selection_from_document(document, f"local-config:{path}")
 
 
-def discover_vulkan_selection() -> dict[str, Any]:
+def _windows_vulkan_manifest_paths() -> list[Path]:
+    """Return enabled ICD manifest paths registered by the Windows Vulkan loader."""
+    if platform.system() != "Windows":
+        return []
+    try:
+        import winreg
+
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, WINDOWS_VULKAN_DRIVERS_KEY) as key:
+            paths: list[Path] = []
+            index = 0
+            while True:
+                try:
+                    name, value, _ = winreg.EnumValue(key, index)
+                except OSError:
+                    break
+                index += 1
+                if isinstance(value, int) and value == 0 and name.lower().endswith(".json"):
+                    paths.append(Path(name))
+            return paths
+    except OSError:
+        return []
+
+
+def _write_generated_vulkan_selection(selection: dict[str, Any]) -> None:
+    """Persist a preflight-verified system choice in this worktree only."""
+    STATE_DIR.mkdir(parents=True, exist_ok=True)
+    path = STATE_DIR / "vulkan.json"
+    fields = (
+        "icd_path", "icd_sha256", "icd_library_path", "gpu_name", "gpu_type",
+        "graphics_driver_name", "graphics_driver_version", "vulkan_api_version",
+        "verification_state",
+    )
+    document = {field: selection.get(field) for field in fields if selection.get(field) is not None}
+    document["generated_from"] = selection.get("source")
+    path.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")
+
+
+def _discover_windows_vulkan_selection(
+    *, runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run
+) -> dict[str, Any] | None:
+    for manifest in _windows_vulkan_manifest_paths():
+        record = _manifest_record(manifest)
+        library = Path(str(record.get("library_path", "")))
+        if not record.get("exists") or not record.get("sha256") or not library.is_file():
+            continue
+        try:
+            probed = _probe_vulkan(manifest, runner=runner)
+        except LaunchError:
+            continue
+        if "intel" not in str(probed.get("gpu_name", "")).lower():
+            continue
+        selection = {
+            **probed,
+            "source": f"windows-registry:{WINDOWS_VULKAN_DRIVERS_KEY}",
+            "icd_path": str(manifest.resolve()),
+            "icd_sha256": str(record["sha256"]).lower(),
+            "icd_library_path": str(library.resolve()),
+            "verification_state": "preflight-verified",
+            "vulkan_driver_environment": {"VK_DRIVER_FILES": str(manifest.resolve())},
+        }
+        _write_generated_vulkan_selection(selection)
+        return selection
+    return None
+
+
+def discover_vulkan_selection(
+    *, runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run
+) -> dict[str, Any]:
     configured = os.environ.get("LG_DUEL_VULKAN_CONFIG")
     candidates = ([Path(configured)] if configured else []) + list(LOCAL_VULKAN_CONFIGS)
     for path in candidates:
@@ -312,16 +380,27 @@ def discover_vulkan_selection() -> dict[str, Any]:
         selection = _selection_from_document(document, f"verified-benchmark:{path}")
         if selection is not None and "intel" in str(selection.get("gpu_name", "")).lower():
             return selection
+    selection = _discover_windows_vulkan_selection(runner=runner)
+    if selection is not None:
+        return selection
+    if platform.system() == "Windows":
+        try:
+            selection = _probe_default_vulkan(runner=runner)
+        except LaunchError:
+            selection = None
+        if selection is not None:
+            _write_generated_vulkan_selection(selection)
+            return selection
     raise LaunchError(
-        "no verified Intel Vulkan ICD configuration was found; set LG_DUEL_VULKAN_CONFIG "
-        "to an ignored local JSON file or create a valid local GPU benchmark baseline"
+        "no verified Intel Vulkan ICD configuration was found; set LG_DUEL_VULKAN_CONFIG, "
+        "create a local benchmark baseline, or install an enabled Intel Vulkan ICD"
     )
 
 
 def resolve_vulkan_selection(
     *, runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run
 ) -> dict[str, Any]:
-    selection = discover_vulkan_selection()
+    selection = discover_vulkan_selection(runner=runner)
     manifest = Path(str(selection.get("icd_path", "")))
     record = _manifest_record(manifest)
     if not record.get("exists"):
