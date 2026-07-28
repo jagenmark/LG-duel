@@ -308,6 +308,59 @@ int main() {
       loaded.ok && loaded.arena.staticLightCount == 6 && loaded.arena.sunLight.enabled,
       "generated overkill import should preserve its reviewed adaptation lighting"
     );
+    if (loaded.ok) {
+      const lg::Arena& arena = loaded.arena;
+      const lg::Vec3 expectedSunDirection = lg::normalize({0.35F, -0.5F, -1.0F});
+      failures += expect(
+        arena.sunLight.enabled &&
+          nearlyEqual(arena.sunLight.direction.x, expectedSunDirection.x) &&
+          nearlyEqual(arena.sunLight.direction.y, expectedSunDirection.y) &&
+          nearlyEqual(arena.sunLight.direction.z, expectedSunDirection.z) &&
+          nearlyEqual(arena.sunLight.color.x, 1.0F) &&
+          nearlyEqual(arena.sunLight.color.y, 226.0F / 255.0F) &&
+          nearlyEqual(arena.sunLight.color.z, 184.0F / 255.0F) &&
+          nearlyEqual(arena.sunLight.intensity, 0.85F),
+        "overkill sun should match its reviewed warm lighting"
+      );
+      if (arena.staticLightCount == 6U) {
+        constexpr std::array<lg::Vec3, 6> expectedPositions = {{
+          {-2.0F, 2.0F, 17.0F},
+          {16.0F, 26.25F, 26.25F},
+          {16.0F, -33.75F, 17.0F},
+          {-27.5F, -2.5F, 14.0F},
+          {26.25F, 16.25F, 15.0F},
+          {29.6F, 52.0F, 13.0F},
+        }};
+        constexpr std::array<lg::Vec3, 6> expectedColors = {{
+          {1.0F, 218.0F / 255.0F, 170.0F / 255.0F},
+          {188.0F / 255.0F, 214.0F / 255.0F, 1.0F},
+          {1.0F, 205.0F / 255.0F, 150.0F / 255.0F},
+          {196.0F / 255.0F, 220.0F / 255.0F, 1.0F},
+          {1.0F, 216.0F / 255.0F, 164.0F / 255.0F},
+          {1.0F, 174.0F / 255.0F, 82.0F / 255.0F},
+        }};
+        constexpr std::array<float, 6> expectedIntensities = {
+          0.8F, 0.75F, 0.75F, 0.7F, 0.7F, 0.9F,
+        };
+        constexpr std::array<float, 6> expectedRadii = {
+          35.0F, 32.5F, 35.0F, 30.0F, 30.0F, 22.5F,
+        };
+        for (std::size_t index = 0; index < expectedPositions.size(); ++index) {
+          const lg::ArenaStaticLight& light = arena.staticLights[index];
+          failures += expect(
+            nearlyEqual(light.position.x, expectedPositions[index].x) &&
+              nearlyEqual(light.position.y, expectedPositions[index].y) &&
+              nearlyEqual(light.position.z, expectedPositions[index].z) &&
+              nearlyEqual(light.color.x, expectedColors[index].x) &&
+              nearlyEqual(light.color.y, expectedColors[index].y) &&
+              nearlyEqual(light.color.z, expectedColors[index].z) &&
+              nearlyEqual(light.intensity, expectedIntensities[index]) &&
+              nearlyEqual(light.radius, expectedRadii[index]),
+            "overkill point lights should match the reviewed art pass"
+          );
+        }
+      }
+    }
     failures += expect(
       loaded.ok && loaded.descriptor.contentHash == lg::hashArena(loaded.arena),
       "generated overkill import descriptor should bind to parsed arena content"

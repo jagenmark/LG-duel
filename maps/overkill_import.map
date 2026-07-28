@@ -34236,48 +34236,48 @@
 {
 "classname" "light_sun"
 "direction" "0.35 -0.5 -1"
-"color" "244 232 210"
-"intensity" "0.70"
+"color" "255 226 184"
+"intensity" "0.85"
 }
 {
 "classname" "light"
 "origin" "-80 80 680"
-"color" "255 220 180"
-"intensity" "0.65"
-"radius" "1250"
+"color" "255 218 170"
+"intensity" "0.8"
+"radius" "1400"
 }
 {
 "classname" "light"
 "origin" "640 1050 1050"
-"color" "200 222 255"
-"intensity" "0.80"
+"color" "188 214 255"
+"intensity" "0.75"
 "radius" "1300"
 }
 {
 "classname" "light"
 "origin" "640 -1350 680"
-"color" "255 210 165"
-"intensity" "0.65"
-"radius" "1250"
+"color" "255 205 150"
+"intensity" "0.75"
+"radius" "1400"
 }
 {
 "classname" "light"
 "origin" "-1100 -100 560"
-"color" "200 224 255"
-"intensity" "0.75"
-"radius" "1150"
+"color" "196 220 255"
+"intensity" "0.7"
+"radius" "1200"
 }
 {
 "classname" "light"
 "origin" "1050 650 600"
-"color" "255 218 175"
-"intensity" "0.65"
-"radius" "1100"
+"color" "255 216 164"
+"intensity" "0.7"
+"radius" "1200"
 }
 {
 "classname" "light"
 "origin" "1184 2080 520"
-"color" "255 178 90"
-"intensity" "0.85"
-"radius" "760"
+"color" "255 174 82"
+"intensity" "0.9"
+"radius" "900"
 }

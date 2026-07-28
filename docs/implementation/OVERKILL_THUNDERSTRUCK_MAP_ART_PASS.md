@@ -8,17 +8,17 @@ bounds, clips, and triggers.
 
 ## Overkill
 
-The pass keeps every material token and light origin. It softens the seven
-authored lights:
+The pass keeps every material token and light origin. It uses the reviewed
+import light rig:
 
-- the sun uses `244 232 210` at `0.70`;
-- the lower centre and south route use warm light at `0.65`;
-- the north and west routes use cool light at `0.80` and `0.75`;
-- the east route uses warm light at `0.65`;
-- the north-east teleport exit uses amber light at `0.85`.
-
-The point-light radii range from 760 at the teleport exit to 1300 at the upper
-north crossing.
+- the sun uses `255 226 184` at `0.85`;
+- the lower centre uses warm light at `0.80` with a radius of `1400`;
+- the north route uses cool light at `0.75` with a radius of `1300`;
+- the south route uses warm light at `0.75` with a radius of `1400`;
+- the west route uses cool light at `0.70` with a radius of `1200`;
+- the east route uses warm light at `0.70` with a radius of `1200`;
+- the north-east teleport exit uses amber light at `0.90` with a radius of
+  `900`.
 
 ## Thunderstruck
 
