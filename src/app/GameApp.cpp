@@ -25,6 +25,7 @@
 #include "render/ChatLayout.hpp"
 #include "render/CombatEffects.hpp"
 #include "render/GltfSkinnedModel.hpp"
+#include "render/ImpactMaterials.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
 #include "render/WeaponPresentation.hpp"
@@ -83,8 +84,6 @@ constexpr float kRailgunBeamLingerSeconds = 0.5F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
-constexpr std::size_t kMaxConsumedTracerEvents = 64;
-constexpr std::size_t kMaxConsumedExplosionEvents = 64;
 constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
@@ -618,18 +617,13 @@ struct WeaponPresentationFrame {
   );
 }
 
-struct ConsumedTracerEvent {
-  std::uint8_t playerIndex = 0;
-  Weapon weapon = Weapon::LightningGun;
-  std::uint32_t visualSeed = 0;
-  bool active = false;
-};
-
-struct ConsumedExplosionEvent {
-  std::uint8_t ownerIndex = 0;
-  std::uint32_t sequence = 0;
-  bool active = false;
-};
+[[nodiscard]] Vec3 rocketLauncherMuzzleSource(
+  const WeaponFireResult& fire,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+);
 
 struct TransientTracerStore {
   std::array<TransientTracer, kMaxTransientTracers> tracers = {};
@@ -638,14 +632,11 @@ struct TransientTracerStore {
   std::array<std::uint8_t, kMaxTransientTracers> followPlayerIndex = {};
   std::array<Weapon, kMaxTransientTracers> followWeapon = {};
   std::array<std::uint32_t, kMaxTransientTracers> followSeed = {};
+  std::array<std::uint8_t, kMaxTransientTracers> expiryGraceState = {};
   std::array<TransientEffect, kMaxTransientEffects> effects = {};
   std::array<bool, kMaxTransientEffects> effectActive = {};
-  std::array<ConsumedTracerEvent, kMaxConsumedTracerEvents> consumedEvents = {};
-  std::array<ConsumedExplosionEvent, kMaxConsumedExplosionEvents> consumedExplosionEvents = {};
-  std::array<bool, kDuelPlayerCount> hasLastExplosionSequence = {};
-  std::array<std::uint32_t, kDuelPlayerCount> lastExplosionSequence = {};
-  std::uint32_t nextConsumedEvent = 0;
-  std::uint32_t nextConsumedExplosionEvent = 0;
+  std::array<std::uint8_t, kMaxTransientEffects> effectExpiryGraceState = {};
+  CombatEffectEventHistory eventHistory = {};
   std::uint32_t explosionEventsConsumedThisFrame = 0;
 
   void update(float dt) {
@@ -655,90 +646,71 @@ struct TransientTracerStore {
       if (!active[index]) {
         continue;
       }
+      if (expiryGraceState[index] == 2U) {
+        active[index] = false;
+        continue;
+      }
+      const float ageBeforeUpdate = tracers[index].ageSeconds;
       tracers[index].ageSeconds += elapsed;
       if (tracers[index].ageSeconds >= tracers[index].lifetimeSeconds) {
+        if (
+          expiryGraceState[index] == 1U &&
+          ageBeforeUpdate <= 0.0001F
+        ) {
+          expiryGraceState[index] = 2U;
+          tracers[index].ageSeconds =
+            tracers[index].lifetimeSeconds * 0.35F;
+          continue;
+        }
         active[index] = false;
+      } else if (expiryGraceState[index] == 1U) {
+        expiryGraceState[index] = 0U;
       }
     }
     for (std::size_t index = 0; index < effects.size(); ++index) {
       if (!effectActive[index]) {
         continue;
       }
+      if (effectExpiryGraceState[index] == 2U) {
+        effectActive[index] = false;
+        continue;
+      }
+      const float ageBeforeUpdate = effects[index].ageSeconds;
       effects[index].ageSeconds += elapsed;
       if (effects[index].ageSeconds >= effects[index].lifetimeSeconds) {
+        if (
+          effectExpiryGraceState[index] == 1U &&
+          ageBeforeUpdate <= 0.0001F
+        ) {
+          effectExpiryGraceState[index] = 2U;
+          effects[index].ageSeconds =
+            effects[index].lifetimeSeconds * 0.35F;
+          continue;
+        }
         effectActive[index] = false;
+      } else if (effectExpiryGraceState[index] == 1U) {
+        effectExpiryGraceState[index] = 0U;
       }
     }
   }
 
-  [[nodiscard]] bool consumed(
+  [[nodiscard]] bool acceptWeaponFire(
     std::uint8_t playerIndex,
     Weapon weapon,
     std::uint32_t visualSeed
-  ) const {
-    for (const ConsumedTracerEvent& event : consumedEvents) {
-      if (
-        event.active &&
-        event.playerIndex == playerIndex &&
-        event.weapon == weapon &&
-        event.visualSeed == visualSeed
-      ) {
-        return true;
-      }
-    }
-    return false;
+  ) {
+    return eventHistory.acceptWeaponFire(playerIndex, weapon, visualSeed);
   }
 
-  void remember(std::uint8_t playerIndex, Weapon weapon, std::uint32_t visualSeed) {
-    consumedEvents[nextConsumedEvent % consumedEvents.size()] = {
-      playerIndex,
-      weapon,
-      visualSeed,
-      true,
-    };
-    ++nextConsumedEvent;
-  }
-
-  [[nodiscard]] bool consumedExplosion(
+  [[nodiscard]] bool acceptExplosion(
     std::uint8_t ownerIndex,
     std::uint32_t sequence
-  ) const {
-    if (ownerIndex >= kDuelPlayerCount) {
-      return true;
+  ) {
+    if (!eventHistory.acceptExplosion(ownerIndex, sequence)) {
+      return false;
     }
-    if (
-      hasLastExplosionSequence[ownerIndex] &&
-      !isSequenceNewer(sequence, lastExplosionSequence[ownerIndex])
-    ) {
-      return true;
-    }
-    for (const ConsumedExplosionEvent& event : consumedExplosionEvents) {
-      if (
-        event.active &&
-        event.ownerIndex == ownerIndex &&
-        event.sequence == sequence
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void rememberExplosion(std::uint8_t ownerIndex, std::uint32_t sequence) {
-    if (ownerIndex >= kDuelPlayerCount) {
-      return;
-    }
-    consumedExplosionEvents[
-      nextConsumedExplosionEvent % consumedExplosionEvents.size()
-    ] = {
-      ownerIndex,
-      sequence,
-      true,
-    };
-    ++nextConsumedExplosionEvent;
-    lastExplosionSequence[ownerIndex] = sequence;
-    hasLastExplosionSequence[ownerIndex] = true;
     ++explosionEventsConsumedThisFrame;
+    return true;
   }
 
   void add(
@@ -769,6 +741,11 @@ struct TransientTracerStore {
     followWeapon[slot] = weapon;
     followSeed[slot] = seed;
     followPlayerIndex[slot] = playerIndex;
+    // Keep the compact Rocket flash for one extra submitted frame if a long
+    // frame crosses its whole lifetime. This keeps the cue readable at low
+    // frame rates without a time trail or an unbounded store.
+    expiryGraceState[slot] =
+      tracer.style == TracerStyle::RocketLauncherMuzzleFlash ? 1U : 0U;
   }
 
   void addEffect(const TransientEffect& effect) {
@@ -789,6 +766,12 @@ struct TransientTracerStore {
     }
     effects[slot] = effect;
     effectActive[slot] = true;
+    effectExpiryGraceState[slot] =
+      effect.type == TransientEffectType::RocketExplosionFlash ||
+        effect.type == TransientEffectType::RocketExplosionCore ||
+        effect.type == TransientEffectType::RocketExplosionHalo
+      ? 1U
+      : 0U;
   }
 
   void fillActive(
@@ -813,9 +796,11 @@ struct TransientTracerStore {
         }
         if (followMuzzle[index]) {
           const Vec3 oldStart = tracer.start;
+          const Vec3 oldDelta = tracer.end - oldStart;
           const std::size_t playerIndex = followPlayerIndex[index];
           const bool local =
             playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
+          bool followsCurrentDirection = false;
           if (local && !settings.showOwnWeapons) {
             tracer.start = hiddenWeaponVisualOrigin(localPlayer);
           } else if (followWeapon[index] == Weapon::MachineGun) {
@@ -847,17 +832,35 @@ struct TransientTracerStore {
               0.12F
             );
           } else if (followWeapon[index] == Weapon::RocketLauncher) {
-            tracer.start = firstPersonRocketLauncherMuzzlePosition(
+            WeaponFireResult attachmentFire;
+            attachmentFire.start = oldStart;
+            tracer.start = rocketLauncherMuzzleSource(
+              attachmentFire,
               localPlayer,
+              remotePlayers,
+              playerIndex,
               settings
             );
+            const PlayerState& sourcePlayer =
+              local || playerIndex >= remotePlayers.size()
+                ? localPlayer
+                : remotePlayers[playerIndex].player;
+            const Vec3 currentDirection = cameraForward(
+              sourcePlayer.viewYawRadians,
+              sourcePlayer.viewPitchRadians
+            );
+            tracer.end =
+              tracer.start + currentDirection * length(oldDelta);
+            followsCurrentDirection = true;
           } else if (followWeapon[index] == Weapon::Revolver) {
             tracer.start = firstPersonRevolverMuzzlePosition(
               localPlayer,
               settings
             );
           }
-          tracer.end += tracer.start - oldStart;
+          if (!followsCurrentDirection) {
+            tracer.end += tracer.start - oldStart;
+          }
         }
         result.push_back(tracer);
       }
@@ -1007,20 +1010,10 @@ void spawnMachineGunTracer(
       ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
       : hiddenWeaponVisualOrigin(localPlayer);
   }
-  const Vec3 muzzle = rocketLauncherMuzzleSocket();
-  const float mechanicalAmount = playerIndex < remotePlayers.size()
-    ? remotePlayers[playerIndex].rocketLauncherMechanicalAmount
-    : 0.0F;
-  return remoteWeaponPresentationPoint(
-    fire.start,
-    remotePlayers,
-    playerIndex,
-    Weapon::RocketLauncher,
-    settings,
-    muzzle.x - 0.052F * mechanicalAmount,
-    muzzle.y,
-    muzzle.z
-  );
+  return playerIndex < remotePlayers.size() &&
+      remotePlayers[playerIndex].visible
+    ? remoteRocketLauncherMuzzlePosition(remotePlayers[playerIndex], settings)
+    : fire.start;
 }
 
 void spawnShotgunTracers(
@@ -1084,7 +1077,7 @@ void spawnRocketLauncherMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle,
+  bool followMuzzle,
   std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
@@ -1093,14 +1086,14 @@ void spawnRocketLauncherMuzzleFlash(
   }
   store.add({
     visualStart,
-    visualStart + direction * 0.28F,
+    visualStart + direction * 0.22F,
     0.0F,
-    0.095F,
-    0.090F,
-    {255, 112, 28, 245},
+    0.068F,
+    0.070F,
+    {246, 92, 42, 238},
     fire.visualSeed,
     TracerStyle::RocketLauncherMuzzleFlash,
-  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed, playerIndex);
+  }, followMuzzle, Weapon::RocketLauncher, fire.visualSeed, playerIndex);
 }
 
 [[nodiscard]] Vec3 revolverMuzzleSource(
@@ -1161,6 +1154,7 @@ void consumeTracerWeaponFires(
   const LocalTracerAimHistory& localAimHistory,
   const RenderSettings& settings,
   const CombatEffectsTuning& effectsTuning,
+  std::span<const ImpactSurfaceMaterial> impactSurfaceMaterials,
   bool ownsPresentedSubject
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
@@ -1177,7 +1171,7 @@ void consumeTracerWeaponFires(
       continue;
     }
     const std::uint8_t eventPlayer = static_cast<std::uint8_t>(playerIndex);
-    if (store.consumed(eventPlayer, fire.weapon, fire.visualSeed)) {
+    if (!store.acceptWeaponFire(eventPlayer, fire.weapon, fire.visualSeed)) {
       continue;
     }
     const bool localEvent =
@@ -1239,7 +1233,7 @@ void consumeTracerWeaponFires(
             impactTrace.end,
             impactTrace.normal,
             shotDirection,
-            ImpactSurfaceCategory::GenericHard,
+            impactSurfaceCategory(impactTrace, impactSurfaceMaterials),
             fire.visualSeed,
             eventPlayer,
             impactTrace.hit && !fire.hit,
@@ -1284,8 +1278,25 @@ void consumeTracerWeaponFires(
         store,
         fire,
         visualStart,
-        localEvent,
+        true,
         eventPlayer
+      );
+      const PlayerState& sourcePlayer =
+        localEvent || playerIndex >= remotePlayers.size()
+          ? localPlayer
+          : remotePlayers[playerIndex].player;
+      combatEffects.spawnRocketLauncherShot(
+        {
+          visualStart,
+          normalize(fire.end - fire.start),
+          cameraUp(
+            sourcePlayer.viewYawRadians,
+            sourcePlayer.viewPitchRadians
+          ),
+          fire.visualSeed,
+          eventPlayer,
+        },
+        effectsTuning
       );
     } else {
       const Vec3 visualStart = revolverMuzzleSource(
@@ -1303,7 +1314,6 @@ void consumeTracerWeaponFires(
         eventPlayer
       );
     }
-    store.remember(eventPlayer, fire.weapon, fire.visualSeed);
   }
 }
 
@@ -1320,6 +1330,8 @@ void consumeTracerWeaponFires(
 
 void spawnExplosionEffects(
   TransientTracerStore& store,
+  CombatEffects& combatEffects,
+  const CombatEffectsTuning& effectsTuning,
   const RocketExplosionResult& explosion
 ) {
   if (
@@ -1342,13 +1354,48 @@ void spawnExplosionEffects(
     store.addEffect({TransientEffectType::GrenadeExplosionCore, explosion.position, 0.0F, 0.20F, radius * 0.25F, radius * 1.05F, {255, 178, 66, 190}, seed + 1U});
     return;
   }
-  store.addEffect({TransientEffectType::RocketExplosionFlash, explosion.position, 0.0F, 0.05F, radius * 0.28F, radius * 0.68F, {255, 228, 132, 230}, seed});
-  store.addEffect({TransientEffectType::RocketExplosionCore, explosion.position, 0.0F, 0.18F, radius * 0.26F, radius * 1.08F, {255, 112, 44, 200}, seed + 1U});
-  store.addEffect({TransientEffectType::RocketExplosionHalo, explosion.position, 0.0F, 0.12F, radius * 0.70F, radius * 1.45F, {255, 72, 28, 82}, seed + 2U});
+  store.addEffect({
+    TransientEffectType::RocketExplosionFlash,
+    explosion.position,
+    0.0F,
+    0.040F,
+    radius * 0.18F,
+    radius * 0.46F,
+    {255, 239, 174, 238},
+    seed,
+  });
+  store.addEffect({
+    TransientEffectType::RocketExplosionCore,
+    explosion.position,
+    0.0F,
+    0.135F,
+    radius * 0.20F,
+    radius * 0.82F,
+    {246, 104, 62, 210},
+    seed + 1U,
+  });
+  if (effectsTuning.quality > 0) {
+    store.addEffect({
+      TransientEffectType::RocketExplosionHalo,
+      explosion.position,
+      0.0F,
+      0.080F,
+      radius * 0.62F,
+      radius * 1.12F,
+      {255, 140, 76, 58},
+      seed + 2U,
+    });
+  }
+  combatEffects.spawnRocketExplosion(
+    {explosion.position, radius, seed},
+    effectsTuning
+  );
 }
 
 void consumeExplosionEvents(
   TransientTracerStore& store,
+  CombatEffects& combatEffects,
+  const CombatEffectsTuning& effectsTuning,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& explosions
 ) {
   for (std::size_t owner = 0; owner < explosions.size(); ++owner) {
@@ -1357,11 +1404,10 @@ void consumeExplosionEvents(
       continue;
     }
     const std::uint8_t eventOwner = static_cast<std::uint8_t>(owner);
-    if (store.consumedExplosion(eventOwner, explosion.sequence)) {
+    if (!store.acceptExplosion(eventOwner, explosion.sequence)) {
       continue;
     }
-    spawnExplosionEffects(store, explosion);
-    store.rememberExplosion(eventOwner, explosion.sequence);
+    spawnExplosionEffects(store, combatEffects, effectsTuning, explosion);
   }
 }
 
@@ -1584,6 +1630,8 @@ struct FrameTimeHistory {
   sample.activeCasings = renderDiagnostics.activeCasings;
   sample.activeImpactParticles = renderDiagnostics.activeImpactParticles;
   sample.activeBulletDecals = renderDiagnostics.activeBulletDecals;
+  sample.transparentEffectsSubmitted =
+    renderDiagnostics.transparentEffectsSubmitted;
   sample.newExplosionEventsConsumed = renderDiagnostics.newExplosionEventsConsumed;
   sample.tracerCandidates = renderDiagnostics.tracerCandidates;
   sample.tracerFrustumCulled = renderDiagnostics.tracerFrustumCulled;
@@ -1640,11 +1688,12 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "combat effects: lights %u | casings %u | particles %u | decals %u",
+    "combat effects: lights %u | casings %u | particles %u | decals %u | transparent %u",
     latest.activeTemporaryLights,
     latest.activeCasings,
     latest.activeImpactParticles,
-    latest.activeBulletDecals
+    latest.activeBulletDecals,
+    latest.transparentEffectsSubmitted
   );
   hud.topLeftLines.emplace_back(text);
 
@@ -2051,6 +2100,11 @@ struct ResolutionOption {
   int height = 0;
 };
 
+constexpr int kSettingsResetRow = 29;
+constexpr int kSettingsApplyRow = 30;
+constexpr int kSettingsCloseRow = 31;
+constexpr int kSettingsRowCount = 32;
+
 struct SettingsMenuState {
   bool open = false;
   int selectedRow = 0;
@@ -2069,6 +2123,19 @@ struct SettingsMenuState {
   bool pendingPlayerOutlines = true;
   int pendingOutlineMode = 1;
   bool pendingShowConsoleCat = true;
+  int pendingCombatEffects = 2;
+  float pendingToneMapExposure = 1.0F;
+  int pendingAtmosphereGrade = 2;
+  bool pendingBloom = true;
+  float pendingBloomIntensity = 0.18F;
+  int pendingAntiAliasing = 1;
+  int pendingSunShadows = 2;
+  bool pendingContactShadows = true;
+  int pendingMaterialQuality = 1;
+  int pendingPlayerRim = 1;
+  bool pendingCasings = true;
+  float pendingImpactParticles = 1.0F;
+  int pendingDecalBudget = 128;
   VideoSettings originalVideo = {};
   int originalMaxFps = 0;
   float originalRenderScale = 1.0F;
@@ -2080,6 +2147,19 @@ struct SettingsMenuState {
   bool originalPlayerOutlines = true;
   int originalOutlineMode = 1;
   bool originalShowConsoleCat = true;
+  int originalCombatEffects = 2;
+  float originalToneMapExposure = 1.0F;
+  int originalAtmosphereGrade = 2;
+  bool originalBloom = true;
+  float originalBloomIntensity = 0.18F;
+  int originalAntiAliasing = 1;
+  int originalSunShadows = 2;
+  bool originalContactShadows = true;
+  int originalMaterialQuality = 1;
+  int originalPlayerRim = 1;
+  bool originalCasings = true;
+  float originalImpactParticles = 1.0F;
+  int originalDecalBudget = 128;
 };
 
 struct LingeringWeaponFire {
@@ -2740,7 +2820,20 @@ bool applyVideoSettings(
     menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull ||
     menu.pendingPlayerOutlines != menu.originalPlayerOutlines ||
     menu.pendingOutlineMode != menu.originalOutlineMode ||
-    menu.pendingShowConsoleCat != menu.originalShowConsoleCat;
+    menu.pendingShowConsoleCat != menu.originalShowConsoleCat ||
+    menu.pendingCombatEffects != menu.originalCombatEffects ||
+    menu.pendingToneMapExposure != menu.originalToneMapExposure ||
+    menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade ||
+    menu.pendingBloom != menu.originalBloom ||
+    menu.pendingBloomIntensity != menu.originalBloomIntensity ||
+    menu.pendingAntiAliasing != menu.originalAntiAliasing ||
+    menu.pendingSunShadows != menu.originalSunShadows ||
+    menu.pendingContactShadows != menu.originalContactShadows ||
+    menu.pendingMaterialQuality != menu.originalMaterialQuality ||
+    menu.pendingPlayerRim != menu.originalPlayerRim ||
+    menu.pendingCasings != menu.originalCasings ||
+    menu.pendingImpactParticles != menu.originalImpactParticles ||
+    menu.pendingDecalBudget != menu.originalDecalBudget;
 }
 
 [[nodiscard]] int matchingGraphicsProfile(const SettingsMenuState& menu) {
@@ -2757,7 +2850,32 @@ bool applyVideoSettings(
         (menu.pendingFrustumCull ? "1" : "0") == value("r_frustum_cull") &&
         (menu.pendingWorldFrustumCull ? "1" : "0") == value("r_world_frustum_cull") &&
         (menu.pendingPlayerOutlines ? "1" : "0") == value("r_draw_player_outlines") &&
-        std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode")) return static_cast<int>(index);
+        std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode") &&
+        std::to_string(menu.pendingCombatEffects) == value("r_combat_effects") &&
+        std::abs(
+          menu.pendingToneMapExposure -
+          std::stof(std::string(value("r_tonemap_exposure")))
+        ) < 0.001F &&
+        std::to_string(menu.pendingAtmosphereGrade) ==
+          value("r_atmosphere_grade") &&
+        (menu.pendingBloom ? "1" : "0") == value("r_bloom") &&
+        std::abs(
+          menu.pendingBloomIntensity -
+          std::stof(std::string(value("r_bloom_intensity")))
+        ) < 0.001F &&
+        std::to_string(menu.pendingAntiAliasing) == value("r_antialiasing") &&
+        std::to_string(menu.pendingSunShadows) == value("r_sun_shadows") &&
+        (menu.pendingContactShadows ? "1" : "0") == value("r_contact_shadows") &&
+        std::to_string(menu.pendingMaterialQuality) == value("r_material_quality") &&
+        std::to_string(menu.pendingPlayerRim) == value("r_player_rim") &&
+        (menu.pendingCasings ? "1" : "0") == value("r_casings") &&
+        std::abs(
+          menu.pendingImpactParticles -
+          std::stof(std::string(value("r_impact_particles")))
+        ) < 0.001F &&
+        std::to_string(menu.pendingDecalBudget) == value("r_decals_max")) {
+      return static_cast<int>(index);
+    }
   }
   return -1;
 }
@@ -2777,6 +2895,27 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingWorldFrustumCull = value("r_world_frustum_cull") == "1";
   menu.pendingPlayerOutlines = value("r_draw_player_outlines") == "1";
   menu.pendingOutlineMode = std::stoi(std::string(value("r_player_outline_mode")));
+  menu.pendingCombatEffects = std::stoi(std::string(value("r_combat_effects")));
+  menu.pendingToneMapExposure =
+    std::stof(std::string(value("r_tonemap_exposure")));
+  menu.pendingAtmosphereGrade =
+    std::stoi(std::string(value("r_atmosphere_grade")));
+  menu.pendingBloom = value("r_bloom") == "1";
+  menu.pendingBloomIntensity =
+    std::stof(std::string(value("r_bloom_intensity")));
+  menu.pendingAntiAliasing =
+    std::stoi(std::string(value("r_antialiasing")));
+  menu.pendingSunShadows =
+    std::stoi(std::string(value("r_sun_shadows")));
+  menu.pendingContactShadows = value("r_contact_shadows") == "1";
+  menu.pendingMaterialQuality =
+    std::stoi(std::string(value("r_material_quality")));
+  menu.pendingPlayerRim =
+    std::stoi(std::string(value("r_player_rim")));
+  menu.pendingCasings = value("r_casings") == "1";
+  menu.pendingImpactParticles =
+    std::stof(std::string(value("r_impact_particles")));
+  menu.pendingDecalBudget = std::stoi(std::string(value("r_decals_max")));
 }
 
 void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& console) {
@@ -2791,6 +2930,19 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingPlayerOutlines = console.getBool("r_draw_player_outlines");
   menu.pendingOutlineMode = console.getInt("r_player_outline_mode");
   menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
+  menu.pendingCombatEffects = console.getInt("r_combat_effects");
+  menu.pendingToneMapExposure = console.getFloat("r_tonemap_exposure");
+  menu.pendingAtmosphereGrade = console.getInt("r_atmosphere_grade");
+  menu.pendingBloom = console.getBool("r_bloom");
+  menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
+  menu.pendingAntiAliasing = console.getInt("r_antialiasing");
+  menu.pendingSunShadows = console.getInt("r_sun_shadows");
+  menu.pendingContactShadows = console.getBool("r_contact_shadows");
+  menu.pendingMaterialQuality = console.getInt("r_material_quality");
+  menu.pendingPlayerRim = console.getInt("r_player_rim");
+  menu.pendingCasings = console.getBool("r_casings");
+  menu.pendingImpactParticles = console.getFloat("r_impact_particles");
+  menu.pendingDecalBudget = console.getInt("r_decals_max");
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
@@ -2798,8 +2950,21 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull;
   menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
+  menu.originalCombatEffects = menu.pendingCombatEffects;
+  menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
+  menu.originalBloom = menu.pendingBloom;
+  menu.originalBloomIntensity = menu.pendingBloomIntensity;
+  menu.originalAntiAliasing = menu.pendingAntiAliasing;
+  menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalContactShadows = menu.pendingContactShadows;
+  menu.originalMaterialQuality = menu.pendingMaterialQuality;
+  menu.originalPlayerRim = menu.pendingPlayerRim;
+  menu.originalCasings = menu.pendingCasings;
+  menu.originalImpactParticles = menu.pendingImpactParticles;
+  menu.originalDecalBudget = menu.pendingDecalBudget;
   menu.pendingProfile = matchingGraphicsProfile(menu);
-  menu.selectedRow = std::clamp(menu.selectedRow, 0, 18);
+  menu.selectedRow = std::clamp(menu.selectedRow, 0, kSettingsRowCount - 1);
   menu.scrollRows = 0U;
 }
 
@@ -2884,6 +3049,60 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
   case 13: menu.pendingPlayerOutlines = !menu.pendingPlayerOutlines; return;
   case 14: menu.pendingOutlineMode = (menu.pendingOutlineMode + direction + 3) % 3; return;
   case 15: menu.pendingShowConsoleCat = !menu.pendingShowConsoleCat; return;
+  case 16:
+    menu.pendingCombatEffects =
+      (menu.pendingCombatEffects + direction + 3) % 3;
+    return;
+  case 17:
+    menu.pendingToneMapExposure = std::clamp(
+      menu.pendingToneMapExposure + 0.1F * static_cast<float>(direction),
+      0.25F,
+      4.0F
+    );
+    return;
+  case 18:
+    menu.pendingAtmosphereGrade =
+      (menu.pendingAtmosphereGrade + direction + 4) % 4;
+    return;
+  case 19: menu.pendingBloom = !menu.pendingBloom; return;
+  case 20:
+    menu.pendingBloomIntensity = std::clamp(
+      menu.pendingBloomIntensity + 0.05F * static_cast<float>(direction),
+      0.0F,
+      1.0F
+    );
+    return;
+  case 21:
+    menu.pendingAntiAliasing = (menu.pendingAntiAliasing + direction + 3) % 3;
+    return;
+  case 22:
+    menu.pendingSunShadows = (menu.pendingSunShadows + direction + 3) % 3;
+    return;
+  case 23: menu.pendingContactShadows = !menu.pendingContactShadows; return;
+  case 24:
+    menu.pendingMaterialQuality = (menu.pendingMaterialQuality + direction + 3) % 3;
+    return;
+  case 25:
+    menu.pendingPlayerRim = (menu.pendingPlayerRim + direction + 3) % 3;
+    return;
+  case 26: menu.pendingCasings = !menu.pendingCasings; return;
+  case 27:
+    menu.pendingImpactParticles = std::clamp(
+      menu.pendingImpactParticles + 0.25F * static_cast<float>(direction),
+      0.0F,
+      2.0F
+    );
+    return;
+  case 28: {
+    const std::vector<int> values = {0, 32, 48, 64, 96, 128, 192, 256};
+    const int index = optionIndex(
+      values,
+      menu.pendingDecalBudget,
+      [](int lhs, int rhs) { return lhs == rhs; }
+    );
+    menu.pendingDecalBudget = wrappedOption(values, index + direction);
+    return;
+  }
   default:
     return;
   }
@@ -2910,10 +3129,58 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   (void)console.execute(
     "set cl_show_console_cat " + std::to_string(menu.pendingShowConsoleCat ? 1 : 0)
   );
+  (void)console.execute(
+    "set r_combat_effects " + std::to_string(menu.pendingCombatEffects)
+  );
+  (void)console.execute(
+    "set r_tonemap_exposure " + std::to_string(menu.pendingToneMapExposure)
+  );
+  (void)console.execute(
+    "set r_atmosphere_grade " + std::to_string(menu.pendingAtmosphereGrade)
+  );
+  (void)console.execute("set r_bloom " + std::to_string(menu.pendingBloom ? 1 : 0));
+  (void)console.execute(
+    "set r_bloom_intensity " + std::to_string(menu.pendingBloomIntensity)
+  );
+  (void)console.execute(
+    "set r_antialiasing " + std::to_string(menu.pendingAntiAliasing)
+  );
+  (void)console.execute(
+    "set r_sun_shadows " + std::to_string(menu.pendingSunShadows)
+  );
+  (void)console.execute(
+    "set r_contact_shadows " + std::to_string(menu.pendingContactShadows ? 1 : 0)
+  );
+  (void)console.execute(
+    "set r_material_quality " + std::to_string(menu.pendingMaterialQuality)
+  );
+  (void)console.execute(
+    "set r_player_rim " + std::to_string(menu.pendingPlayerRim)
+  );
+  (void)console.execute("set r_casings " + std::to_string(menu.pendingCasings ? 1 : 0));
+  (void)console.execute(
+    "set r_impact_particles " + std::to_string(menu.pendingImpactParticles)
+  );
+  (void)console.execute(
+    "set r_decals_max " + std::to_string(menu.pendingDecalBudget)
+  );
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
+  menu.originalCombatEffects = menu.pendingCombatEffects;
+  menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
+  menu.originalBloom = menu.pendingBloom;
+  menu.originalBloomIntensity = menu.pendingBloomIntensity;
+  menu.originalAntiAliasing = menu.pendingAntiAliasing;
+  menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalContactShadows = menu.pendingContactShadows;
+  menu.originalMaterialQuality = menu.pendingMaterialQuality;
+  menu.originalPlayerRim = menu.pendingPlayerRim;
+  menu.originalCasings = menu.pendingCasings;
+  menu.originalImpactParticles = menu.pendingImpactParticles;
+  menu.originalDecalBudget = menu.pendingDecalBudget;
 }
 
 [[nodiscard]] HudRenderState::SettingsMenuItem settingsMenuItem(
@@ -2998,10 +3265,128 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(menu, 13, "Player outlines", menu.pendingPlayerOutlines ? "On" : "Off", menu.pendingPlayerOutlines != menu.originalPlayerOutlines),
     settingsMenuItem(menu, 14, "Outline mode", menu.pendingOutlineMode == 0 ? "Off" : menu.pendingOutlineMode == 1 ? "Compatibility" : "Native", menu.pendingOutlineMode != menu.originalOutlineMode),
     settingsMenuItem(menu, 15, "Console cat", menu.pendingShowConsoleCat ? "Shown" : "Hidden", menu.pendingShowConsoleCat != menu.originalShowConsoleCat),
-    settingsMenuItem(menu, 16, "Reset graphics draft", "Default profile", false, true),
+    settingsMenuItem(
+      menu,
+      16,
+      "Combat effects / temp lights",
+      menu.pendingCombatEffects == 0
+        ? "Off"
+        : menu.pendingCombatEffects == 1 ? "Reduced" : "Full",
+      menu.pendingCombatEffects != menu.originalCombatEffects
+    ),
     settingsMenuItem(
       menu,
       17,
+      "Tone-map exposure",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingToneMapExposure * 100.0F))
+      ) + "%",
+      menu.pendingToneMapExposure != menu.originalToneMapExposure
+    ),
+    settingsMenuItem(
+      menu,
+      18,
+      "Atmosphere / grade",
+      menu.pendingAtmosphereGrade == 0
+        ? "Off"
+        : menu.pendingAtmosphereGrade == 1
+          ? "Low"
+          : menu.pendingAtmosphereGrade == 2 ? "Default" : "High",
+      menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade
+    ),
+    settingsMenuItem(
+      menu,
+      19,
+      "Bright-effect bloom",
+      menu.pendingBloom ? "On" : "Off",
+      menu.pendingBloom != menu.originalBloom
+    ),
+    settingsMenuItem(
+      menu,
+      20,
+      "Bloom strength",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingBloomIntensity * 100.0F))
+      ) + "%",
+      menu.pendingBloomIntensity != menu.originalBloomIntensity
+    ),
+    settingsMenuItem(
+      menu,
+      21,
+      "Anti-aliasing",
+      menu.pendingAntiAliasing == 0
+        ? "Off"
+        : menu.pendingAntiAliasing == 1 ? "2x MSAA" : "4x MSAA",
+      menu.pendingAntiAliasing != menu.originalAntiAliasing
+    ),
+    settingsMenuItem(
+      menu,
+      22,
+      "Sun shadows",
+      menu.pendingSunShadows == 0
+        ? "Off"
+        : menu.pendingSunShadows == 1 ? "Low" : "High",
+      menu.pendingSunShadows != menu.originalSunShadows
+    ),
+    settingsMenuItem(
+      menu,
+      23,
+      "Contact shadows",
+      menu.pendingContactShadows ? "On" : "Off",
+      menu.pendingContactShadows != menu.originalContactShadows
+    ),
+    settingsMenuItem(
+      menu,
+      24,
+      "Material quality",
+      menu.pendingMaterialQuality == 0
+        ? "Basic"
+        : menu.pendingMaterialQuality == 1 ? "Enhanced" : "High",
+      menu.pendingMaterialQuality != menu.originalMaterialQuality
+    ),
+    settingsMenuItem(
+      menu,
+      25,
+      "Player rim light",
+      menu.pendingPlayerRim == 0
+        ? "Off"
+        : menu.pendingPlayerRim == 1 ? "Low" : "High",
+      menu.pendingPlayerRim != menu.originalPlayerRim
+    ),
+    settingsMenuItem(
+      menu,
+      26,
+      "Cartridge casings",
+      menu.pendingCasings ? "On" : "Off",
+      menu.pendingCasings != menu.originalCasings
+    ),
+    settingsMenuItem(
+      menu,
+      27,
+      "Impact-particle density",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingImpactParticles * 100.0F))
+      ) + "%",
+      menu.pendingImpactParticles != menu.originalImpactParticles
+    ),
+    settingsMenuItem(
+      menu,
+      28,
+      "Bullet decal budget",
+      std::to_string(menu.pendingDecalBudget),
+      menu.pendingDecalBudget != menu.originalDecalBudget
+    ),
+    settingsMenuItem(
+      menu,
+      kSettingsResetRow,
+      "Reset graphics draft",
+      "Default profile",
+      false,
+      true
+    ),
+    settingsMenuItem(
+      menu,
+      kSettingsApplyRow,
       "Apply changes",
       settingsChanged(menu) ? "Enter" : "No changes",
       settingsChanged(menu),
@@ -3009,15 +3394,34 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      18,
+      kSettingsCloseRow,
       "Close / Revert draft",
       "Esc",
       false,
       true
     ),
   };
-  hud.settingsFooter =
-    "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
+  switch (menu.selectedRow) {
+  case 21:
+    hud.settingsFooter = "Smooths edges: Off, 2x MSAA, or 4x MSAA.";
+    break;
+  case 22:
+    hud.settingsFooter = "Sets the quality of shadows cast by the sun.";
+    break;
+  case 23:
+    hud.settingsFooter = "Adds short grounding shadows to players and props.";
+    break;
+  case 24:
+    hud.settingsFooter = "Sets world surface detail: Basic, Enhanced, or High.";
+    break;
+  case 25:
+    hud.settingsFooter = "Sets the edge light used to make players stand out.";
+    break;
+  default:
+    hud.settingsFooter =
+      "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
+    break;
+  }
 }
 
 std::string clientConfigPath() {
@@ -3225,9 +3629,15 @@ RenderSettings renderSettings(
   settings.muzzleLightDurationSeconds =
     console.getFloat("r_muzzle_light_duration");
   settings.toneMapExposure = console.getFloat("r_tonemap_exposure");
+  settings.atmosphereGradeQuality = console.getInt("r_atmosphere_grade");
   settings.bloomEnabled = console.getBool("r_bloom");
   settings.bloomIntensity = console.getFloat("r_bloom_intensity");
   settings.bloomThreshold = console.getFloat("r_bloom_threshold");
+  settings.antiAliasingQuality = console.getInt("r_antialiasing");
+  settings.sunShadowQuality = console.getInt("r_sun_shadows");
+  settings.contactShadowsEnabled = console.getBool("r_contact_shadows");
+  settings.materialQuality = console.getInt("r_material_quality");
+  settings.playerRimQuality = console.getInt("r_player_rim");
   settings.casingsEnabled = console.getBool("r_casings");
   settings.casingCountMultiplier = console.getFloat("r_casing_count");
   settings.casingLifetimeSeconds = console.getFloat("r_casing_lifetime");
@@ -4088,6 +4498,8 @@ int GameApp::run() const {
   const char* executableBasePath = SDL_GetBasePath();
   const std::filesystem::path assetBasePath =
     executableBasePath != nullptr ? executableBasePath : std::filesystem::current_path();
+  const std::vector<ImpactSurfaceMaterial> impactSurfaceMaterials =
+    loadImpactSurfaceMaterials(assetBasePath / "textures");
   const std::filesystem::path runtimeDirectory =
     std::filesystem::weakly_canonical(assetBasePath);
   dev::DevControlServer developerControl;
@@ -4185,6 +4597,7 @@ int GameApp::run() const {
       WaitingForClientTick,
       WaitingForSnapshotTick,
       WaitingForCommandAck,
+      WaitingForPhaseCapture,
       PlayerInput,
       WaitingForInputAck,
       CaptureReady,
@@ -4231,6 +4644,17 @@ int GameApp::run() const {
     bool benchmarkBotsConfigured = false;
   };
   std::optional<ActiveControlOperation> activeControlOperation;
+  struct ArmedPhaseCapture {
+    std::string name;
+    std::string phase;
+    bool hideHud = true;
+    bool hideOverlays = true;
+    std::filesystem::path path;
+    std::optional<dev::JsonValue> result;
+    std::string error;
+    std::chrono::steady_clock::time_point deadline = {};
+  };
+  std::optional<ArmedPhaseCapture> armedPhaseCapture;
   std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
     netGraphCorrectionSerials = {};
   std::array<float, kNetworkTelemetryHistorySamples>
@@ -5691,6 +6115,8 @@ int GameApp::run() const {
       dev::JsonValue::numberValue(render.activeImpactParticles);
     renderState.object["active_decals_submitted"] =
       dev::JsonValue::numberValue(render.activeBulletDecals);
+    renderState.object["transparent_effects_submitted"] =
+      dev::JsonValue::numberValue(render.transparentEffectsSubmitted);
     state.object["render_frame"] = std::move(renderState);
     return state;
   };
@@ -6052,6 +6478,58 @@ int GameApp::run() const {
         active.stage = ActiveControlOperation::Stage::WaitingForCameraFrame;
         break;
       }
+      case dev::ControlOperation::ArmPhaseCapture: {
+        if (currentMapName().empty() || !session.connected() ||
+            session.game() == nullptr || !session.game()->hasSnapshot()) {
+          completeControlError(
+            "not_ready",
+            "phase capture requires an active connected map"
+          );
+          break;
+        }
+        if (armedPhaseCapture.has_value()) {
+          completeControlError(
+            "capture_already_armed",
+            "collect the existing phase capture before arming another"
+          );
+          break;
+        }
+        armedPhaseCapture = ArmedPhaseCapture{
+          request.captureName,
+          request.capturePhase,
+          request.hideHud,
+          request.hideOverlays,
+          captureDirectory / (request.captureName + ".png"),
+          std::nullopt,
+          {},
+          Clock::now() + std::chrono::seconds(30),
+        };
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["name"] =
+          dev::JsonValue::stringValue(request.captureName);
+        result.object["phase"] =
+          dev::JsonValue::stringValue(request.capturePhase);
+        result.object["armed"] = dev::JsonValue::booleanValue(true);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::CollectPhaseCapture: {
+        if (!armedPhaseCapture.has_value() ||
+            armedPhaseCapture->name != request.captureName) {
+          completeControlError(
+            "capture_not_armed",
+            "no phase capture is armed with that name"
+          );
+          break;
+        }
+        active.stage = ActiveControlOperation::Stage::WaitingForPhaseCapture;
+        active.deadline = armedPhaseCapture->deadline;
+        break;
+      }
       case dev::ControlOperation::RunBenchmark: {
         if (!benchmark_.enabled) {
           completeControlError("benchmark_disabled", "run_benchmark requires the explicit --benchmark client option");
@@ -6304,6 +6782,10 @@ int GameApp::run() const {
           sample.visiblePlayers = render.visibleRemotePlayers;
           sample.projectileCount = render.projectilesRendered;
           sample.effectCount = render.activeTransientEffects;
+          sample.lightCount = render.activeTemporaryLights;
+          sample.particleCount = render.activeImpactParticles;
+          sample.transparentEffectCount =
+            render.transparentEffectsSubmitted;
           sample.instanceUploadBytes = render.projectileInstanceUploadBytes +
             render.tracerInstanceUploadBytes + render.explosionInstanceUploadBytes +
             render.remoteWeaponInstanceUploadBytes;
@@ -6486,6 +6968,36 @@ int GameApp::run() const {
         );
       }
     }
+    if (armedPhaseCapture.has_value() &&
+        !armedPhaseCapture->result.has_value() &&
+        armedPhaseCapture->error.empty() &&
+        Clock::now() > armedPhaseCapture->deadline) {
+      armedPhaseCapture->error =
+        "the named renderer phase did not occur within 30 seconds";
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage ==
+          ActiveControlOperation::Stage::WaitingForPhaseCapture) {
+      ActiveControlOperation& active = *activeControlOperation;
+      if (!armedPhaseCapture.has_value()) {
+        completeControlError(
+          "capture_not_armed",
+          "the armed phase capture no longer exists"
+        );
+      } else if (!armedPhaseCapture->error.empty()) {
+        const std::string captureError = armedPhaseCapture->error;
+        armedPhaseCapture.reset();
+        completeControlError("phase_capture_failed", captureError);
+      } else if (armedPhaseCapture->result.has_value()) {
+        dev::JsonValue result = std::move(*armedPhaseCapture->result);
+        armedPhaseCapture.reset();
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+      }
+    }
     const bool benchmarkFrameTimingEnabled =
       activeControlOperation.has_value() &&
       activeControlOperation->queued.request.operation ==
@@ -6569,21 +7081,24 @@ int GameApp::run() const {
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setSettingsOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_UP) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 18) % 19;
+            settingsMenu.selectedRow =
+              (settingsMenu.selectedRow + kSettingsRowCount - 1) %
+              kSettingsRowCount;
             keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
-            settingsMenu.selectedRow = (settingsMenu.selectedRow + 1) % 19;
+            settingsMenu.selectedRow =
+              (settingsMenu.selectedRow + 1) % kSettingsRowCount;
             keepSettingsSelectionVisible(settingsMenu);
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             adjustSettingsMenuValue(settingsMenu, -1);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
             adjustSettingsMenuValue(settingsMenu, 1);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
-            if (settingsMenu.selectedRow == 16) {
+            if (settingsMenu.selectedRow == kSettingsResetRow) {
               applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
-            } else if (settingsMenu.selectedRow == 17) {
+            } else if (settingsMenu.selectedRow == kSettingsApplyRow) {
               applySettingsMenu(console, settingsMenu);
-            } else if (settingsMenu.selectedRow == 18) {
+            } else if (settingsMenu.selectedRow == kSettingsCloseRow) {
               setSettingsOpen(false);
             } else {
               adjustSettingsMenuValue(settingsMenu, 1);
@@ -6808,7 +7323,8 @@ int GameApp::run() const {
                 (event.button.y - firstRowY) / rowHeight))
             : -1;
           if (pressed) {
-            settingsMenu.pressedRow = row >= 0 && row < 18 ? row : -1;
+            settingsMenu.pressedRow =
+              row >= 0 && row < kSettingsRowCount ? row : -1;
             if (settingsMenu.pressedRow >= 0) {
               settingsMenu.selectedRow = settingsMenu.pressedRow;
               keepSettingsSelectionVisible(settingsMenu);
@@ -6816,11 +7332,11 @@ int GameApp::run() const {
           } else if (settingsMenu.pressedRow >= 0 && settingsMenu.pressedRow == row) {
             const int clickedRow = settingsMenu.pressedRow;
             settingsMenu.pressedRow = -1;
-            if (clickedRow == 15) {
+            if (clickedRow == kSettingsResetRow) {
               applyGraphicsProfile(settingsMenu, static_cast<int>(GraphicsProfile::Default));
-            } else if (clickedRow == 16) {
+            } else if (clickedRow == kSettingsApplyRow) {
               applySettingsMenu(console, settingsMenu);
-            } else if (clickedRow == 17) {
+            } else if (clickedRow == kSettingsCloseRow) {
               setSettingsOpen(false);
             } else {
               const float panelX = (static_cast<float>(windowWidth) - panelWidth) * 0.5F;
@@ -6857,7 +7373,7 @@ int GameApp::run() const {
           if (event.motion.y >= firstRowY && event.motion.y < footerY) {
             const int row = static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
               (event.motion.y - firstRowY) / 38.0F));
-            settingsMenu.hoveredRow = row < 18 ? row : -1;
+            settingsMenu.hoveredRow = row < kSettingsRowCount ? row : -1;
           } else {
             settingsMenu.hoveredRow = -1;
           }
@@ -6884,7 +7400,8 @@ int GameApp::run() const {
         if (settingsMenu.open) {
           constexpr std::size_t settingsWheelRows = 3U;
           constexpr std::size_t visibleRows = 14U;
-          const std::size_t maxScroll = 18U - visibleRows;
+          const std::size_t maxScroll =
+            static_cast<std::size_t>(kSettingsRowCount) - visibleRows;
           if (event.wheel.y > 0.0F) {
             settingsMenu.scrollRows = std::min(settingsMenu.scrollRows + settingsWheelRows, maxScroll);
           } else if (event.wheel.y < 0.0F) {
@@ -9515,7 +10032,19 @@ int GameApp::run() const {
       attachmentFire.start = renderPlayer.position;
       combatEffects.setMuzzleAttachment(
         static_cast<std::uint8_t>(playerIndex),
+        MuzzleAttachment::MachineGun,
         machineGunTracerSource(
+          attachmentFire,
+          renderPlayer,
+          renderRemotePlayers,
+          playerIndex,
+          currentRenderSettings
+        )
+      );
+      combatEffects.setMuzzleAttachment(
+        static_cast<std::uint8_t>(playerIndex),
+        MuzzleAttachment::RocketLauncher,
+        rocketLauncherMuzzleSource(
           attachmentFire,
           renderPlayer,
           renderRemotePlayers,
@@ -9536,9 +10065,15 @@ int GameApp::run() const {
       localTracerAimHistory,
       currentRenderSettings,
       frameEffectsTuning,
+      impactSurfaceMaterials,
       ownsPresentedSubject
     );
-    consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
+    consumeExplosionEvents(
+      transientTracerStore,
+      combatEffects,
+      frameEffectsTuning,
+      renderRocketExplosions
+    );
     transientTracerStore.fillActive(
       activeTransientTracers,
       renderPlayer,
@@ -9593,9 +10128,56 @@ int GameApp::run() const {
     hud.chatScrollRows = chatState.scrollRows;
     std::optional<FrameCaptureRequest> frameCaptureRequest;
     FrameCaptureResult frameCaptureResult;
+    dev::JsonValue captureFrameState;
     bool captureHideHud = false;
     bool captureHideOverlays = false;
-    if (activeControlOperation.has_value() &&
+    bool phaseFrameCapture = false;
+    if (armedPhaseCapture.has_value() &&
+        !armedPhaseCapture->result.has_value() &&
+        armedPhaseCapture->error.empty()) {
+      const WeaponFireResult& localFire =
+        renderWeaponFires[renderLocalPlayerIndex];
+      const bool hasLocalRocket = std::any_of(
+        renderRockets.begin(),
+        renderRockets.end(),
+        [renderLocalPlayerIndex](const RocketProjectileSnapshot& rocket) {
+          return rocket.active &&
+            rocket.weapon == Weapon::RocketLauncher &&
+            rocket.owner == renderLocalPlayerIndex;
+        }
+      );
+      if (
+        (
+          armedPhaseCapture->phase == "local_rocket_launcher_muzzle" &&
+          localFire.fired &&
+          localFire.weapon == Weapon::RocketLauncher
+        ) ||
+        (
+          armedPhaseCapture->phase == "local_rocket_launcher_projectile" &&
+          !localFire.fired &&
+          hasLocalRocket &&
+          !renderRocketExplosions[renderLocalPlayerIndex].active &&
+          activeTransientTracers.empty()
+        ) ||
+        (
+          armedPhaseCapture->phase == "local_rocket_launcher_impact" &&
+          renderRocketExplosions[renderLocalPlayerIndex].active &&
+          renderRocketExplosions[renderLocalPlayerIndex].weapon ==
+            Weapon::RocketLauncher
+        )
+      ) {
+        captureHideHud = armedPhaseCapture->hideHud;
+        captureHideOverlays = armedPhaseCapture->hideOverlays;
+        frameCaptureRequest = FrameCaptureRequest{
+          armedPhaseCapture->path.string(),
+          captureHideHud,
+          captureHideOverlays,
+        };
+        phaseFrameCapture = true;
+      }
+    }
+    if (!frameCaptureRequest.has_value() &&
+        activeControlOperation.has_value() &&
         (activeControlOperation->stage == ActiveControlOperation::Stage::CaptureReady ||
          activeControlOperation->stage == ActiveControlOperation::Stage::BenchmarkCaptureReady)) {
       ActiveControlOperation& active = *activeControlOperation;
@@ -9636,6 +10218,67 @@ int GameApp::run() const {
         captureHideOverlays,
       };
       }
+    }
+    if (frameCaptureRequest.has_value()) {
+      // Bind phase evidence to the inputs of this exact render. GPU readback
+      // may block long enough for later server snapshots to arrive, so a
+      // control query made after capture cannot attest the saved PNG.
+      captureFrameState = dev::JsonValue::objectValue();
+      captureFrameState.object["rendered_frame_serial"] =
+        dev::JsonValue::numberValue(
+          static_cast<double>(renderedFrameSerial + 1U)
+        );
+      captureFrameState.object["local_player_index"] =
+        dev::JsonValue::numberValue(renderLocalPlayerIndex);
+      const ClientGame* captureGame = session.game();
+      const bool captureHasSnapshot =
+        captureGame != nullptr && captureGame->hasSnapshot();
+      captureFrameState.object["latest_snapshot_tick"] = captureHasSnapshot
+        ? dev::JsonValue::numberValue(captureGame->snapshot().serverTick)
+        : dev::JsonValue{};
+      captureFrameState.object["presentation_tick"] = captureHasSnapshot
+        ? dev::JsonValue::numberValue(
+            captureGame->interpolationDiagnostics().presentationTick
+          )
+        : dev::JsonValue{};
+
+      const WeaponFireResult& localFire =
+        renderWeaponFires[renderLocalPlayerIndex];
+      captureFrameState.object["local_rocket_launcher_fired"] =
+        dev::JsonValue::booleanValue(
+          localFire.fired && localFire.weapon == Weapon::RocketLauncher
+        );
+      std::uint32_t localRocketProjectiles = 0;
+      std::uint32_t totalRocketProjectiles = 0;
+      for (const RocketProjectileSnapshot& rocket : renderRockets) {
+        if (!rocket.active || rocket.weapon != Weapon::RocketLauncher) {
+          continue;
+        }
+        ++totalRocketProjectiles;
+        if (rocket.owner == renderLocalPlayerIndex) {
+          ++localRocketProjectiles;
+        }
+      }
+      std::uint32_t localRocketExplosions = 0;
+      std::uint32_t totalRocketExplosions = 0;
+      for (std::size_t owner = 0; owner < renderRocketExplosions.size(); ++owner) {
+        const RocketExplosionResult& explosion = renderRocketExplosions[owner];
+        if (!explosion.active || explosion.weapon != Weapon::RocketLauncher) {
+          continue;
+        }
+        ++totalRocketExplosions;
+        if (owner == renderLocalPlayerIndex) {
+          ++localRocketExplosions;
+        }
+      }
+      captureFrameState.object["local_rocket_launcher_projectiles"] =
+        dev::JsonValue::numberValue(localRocketProjectiles);
+      captureFrameState.object["total_rocket_launcher_projectiles"] =
+        dev::JsonValue::numberValue(totalRocketProjectiles);
+      captureFrameState.object["local_rocket_launcher_explosions"] =
+        dev::JsonValue::numberValue(localRocketExplosions);
+      captureFrameState.object["total_rocket_launcher_explosions"] =
+        dev::JsonValue::numberValue(totalRocketExplosions);
     }
     ConsoleRenderState renderedConsole = consoleRenderState(consoleState);
     renderedConsole.showCat = console.getBool("cl_show_console_cat");
@@ -9682,15 +10325,27 @@ int GameApp::run() const {
       frameCaptureRequest.has_value() ? &frameCaptureResult : nullptr
     );
     ++renderedFrameSerial;
-    if (frameCaptureRequest.has_value() && activeControlOperation.has_value()) {
-      ActiveControlOperation& active = *activeControlOperation;
-      const dev::ControlRequest& request = active.queued.request;
+    if (frameCaptureRequest.has_value() &&
+        (phaseFrameCapture || activeControlOperation.has_value())) {
+      const RendererFrameDiagnostics& captureRender =
+        renderer.lastFrameDiagnostics();
+      captureFrameState.object["renderer_rocket_instances"] =
+        dev::JsonValue::numberValue(captureRender.rocketInstances);
+      captureFrameState.object["renderer_tracer_instances"] =
+        dev::JsonValue::numberValue(captureRender.tracerInstancesSubmitted);
+      captureFrameState.object["renderer_explosion_instances"] =
+        dev::JsonValue::numberValue(
+          captureRender.explosionInstancesSubmitted
+        );
+      const std::filesystem::path& completedCapturePath = phaseFrameCapture
+        ? armedPhaseCapture->path
+        : activeControlOperation->pendingCapturePath;
       dev::JsonValue capture = dev::JsonValue::objectValue();
       capture.object["ok"] = dev::JsonValue::booleanValue(frameCaptureResult.ok);
       capture.object["path"] =
-        dev::JsonValue::stringValue(active.pendingCapturePath.string());
+        dev::JsonValue::stringValue(completedCapturePath.string());
       capture.object["relative_path"] = dev::JsonValue::stringValue(
-        captureRelativePath(active.pendingCapturePath)
+        captureRelativePath(completedCapturePath)
       );
       capture.object["width"] = dev::JsonValue::numberValue(frameCaptureResult.width);
       capture.object["height"] = dev::JsonValue::numberValue(frameCaptureResult.height);
@@ -9703,11 +10358,21 @@ int GameApp::run() const {
       capture.object["camera"] = dev::cameraJson(currentControlCamera());
       capture.object["timestamp_ms"] =
         dev::JsonValue::numberValue(static_cast<double>(timestampMilliseconds()));
+      capture.object["frame_state"] = std::move(captureFrameState);
       if (!frameCaptureResult.ok) {
         capture.object["error"] = dev::JsonValue::stringValue(frameCaptureResult.error);
         lastControlError = frameCaptureResult.error;
       }
 
+      if (phaseFrameCapture) {
+        if (frameCaptureResult.ok) {
+          armedPhaseCapture->result = std::move(capture);
+        } else {
+          armedPhaseCapture->error = frameCaptureResult.error;
+        }
+      } else {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
       if (request.operation == dev::ControlOperation::RunBenchmark) {
         if (!frameCaptureResult.ok) {
           completeControlError("capture_failed", frameCaptureResult.error);
@@ -9794,6 +10459,7 @@ int GameApp::run() const {
             activeControlOperation.reset();
           }
         }
+      }
       }
     }
     if (activeControlOperation.has_value() &&
@@ -9896,6 +10562,17 @@ int GameApp::run() const {
         response.object["simulation_ticks_path"] = dev::JsonValue::stringValue(
           (resultDirectory / "simulation-ticks.csv").string()
         );
+        dev::JsonValue effectiveCvars = dev::JsonValue::objectValue();
+        constexpr std::array<std::string_view, 8> kBenchmarkGraphicsContractCvars{{
+          "r_antialiasing", "r_sun_shadows", "r_contact_shadows",
+          "r_material_quality", "r_player_rim", "r_atmosphere_grade",
+          "r_bloom", "r_render_scale",
+        }};
+        for (const std::string_view name : kBenchmarkGraphicsContractCvars) {
+          effectiveCvars.object[std::string(name)] =
+            dev::JsonValue::stringValue(console.valueString(name));
+        }
+        response.object["effective_cvars"] = std::move(effectiveCvars);
         developerControl.complete(
           active.queued.token,
           dev::successResponse(request.id, std::move(response))

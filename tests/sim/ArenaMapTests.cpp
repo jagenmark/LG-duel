@@ -25,6 +25,115 @@ bool nearlyEqual(float lhs, float rhs, float epsilon = 0.0001F) {
   return std::fabs(lhs - rhs) <= epsilon;
 }
 
+std::size_t materialFaceCount(const lg::Arena& arena, std::uint32_t materialId) {
+  std::size_t count = 0;
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    const lg::ArenaWall& wall = arena.walls[index];
+    for (const std::uint32_t faceMaterialId : wall.faceMaterialIds) {
+      count += faceMaterialId == materialId ? 1U : 0U;
+    }
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    const lg::ArenaBrush& brush = arena.brushes[index];
+    for (std::size_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+      count += brush.faces[faceIndex].materialId == materialId ? 1U : 0U;
+    }
+  }
+  return count;
+}
+
+void hashGeometryByte(std::uint64_t& hash, std::uint8_t value) {
+  hash ^= value;
+  hash *= 1099511628211ULL;
+}
+
+void hashGeometryU32(std::uint64_t& hash, std::uint32_t value) {
+  hashGeometryByte(hash, static_cast<std::uint8_t>(value));
+  hashGeometryByte(hash, static_cast<std::uint8_t>(value >> 8U));
+  hashGeometryByte(hash, static_cast<std::uint8_t>(value >> 16U));
+  hashGeometryByte(hash, static_cast<std::uint8_t>(value >> 24U));
+}
+
+void hashGeometryU64(std::uint64_t& hash, std::uint64_t value) {
+  hashGeometryU32(hash, static_cast<std::uint32_t>(value));
+  hashGeometryU32(hash, static_cast<std::uint32_t>(value >> 32U));
+}
+
+void hashGeometryFloat(std::uint64_t& hash, float value) {
+  // Brush plane math can vary in its last float bit across compilers. Hash at
+  // a fixed 0.00001 LG-world-unit step while keeping collision changes visible.
+  constexpr double kGeometryHashUnitsPerWorldUnit = 100000.0;
+  const std::int64_t quantized = static_cast<std::int64_t>(
+    std::llround(static_cast<double>(value) * kGeometryHashUnitsPerWorldUnit)
+  );
+  hashGeometryU64(hash, static_cast<std::uint64_t>(quantized));
+}
+
+void hashGeometryVec3(std::uint64_t& hash, lg::Vec3 value) {
+  hashGeometryFloat(hash, value.x);
+  hashGeometryFloat(hash, value.y);
+  hashGeometryFloat(hash, value.z);
+}
+
+void hashWallGeometry(std::uint64_t& hash, const lg::ArenaWall& wall) {
+  hashGeometryVec3(hash, wall.min);
+  hashGeometryVec3(hash, wall.max);
+  hashGeometryU32(hash, static_cast<std::uint32_t>(wall.collisionKind));
+  hashGeometryU32(hash, wall.sourceEntityIndex);
+  hashGeometryU32(hash, wall.sourceBrushIndex);
+  hashGeometryU32(hash, wall.sourcePatchIndex);
+  hashGeometryU32(hash, wall.sourcePatchPieceIndex);
+  hashGeometryU32(hash, wall.renderable ? 1U : 0U);
+}
+
+void hashBrushGeometry(std::uint64_t& hash, const lg::ArenaBrush& brush) {
+  hashGeometryVec3(hash, brush.min);
+  hashGeometryVec3(hash, brush.max);
+  hashGeometryU32(hash, static_cast<std::uint32_t>(brush.collisionKind));
+  hashGeometryU32(hash, brush.sourceEntityIndex);
+  hashGeometryU32(hash, brush.sourceBrushIndex);
+  hashGeometryU32(hash, brush.sourcePatchIndex);
+  hashGeometryU32(hash, brush.sourcePatchPieceIndex);
+  hashGeometryU32(hash, brush.renderable ? 1U : 0U);
+  hashGeometryU32(hash, brush.vertexCount);
+  for (std::size_t vertexIndex = 0; vertexIndex < brush.vertexCount; ++vertexIndex) {
+    hashGeometryVec3(hash, brush.vertices[vertexIndex]);
+  }
+  hashGeometryU32(hash, brush.faceCount);
+  for (std::size_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+    const lg::ArenaBrushFace& face = brush.faces[faceIndex];
+    hashGeometryVec3(hash, face.normal);
+    hashGeometryFloat(hash, face.distance);
+    hashGeometryU32(hash, face.vertexCount);
+    for (std::size_t vertexIndex = 0; vertexIndex < face.vertexCount; ++vertexIndex) {
+      hashGeometryByte(hash, face.vertices[vertexIndex]);
+    }
+  }
+}
+
+std::uint64_t collisionGeometryFingerprint(const lg::Arena& arena) {
+  std::uint64_t hash = 14695981039346656037ULL;
+  hashGeometryVec3(hash, arena.min);
+  hashGeometryVec3(hash, arena.max);
+  hashGeometryU32(hash, static_cast<std::uint32_t>(arena.wallCount));
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    hashWallGeometry(hash, arena.walls[index]);
+  }
+  hashGeometryU32(hash, static_cast<std::uint32_t>(arena.brushCount));
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    hashBrushGeometry(hash, arena.brushes[index]);
+  }
+  hashGeometryU32(hash, static_cast<std::uint32_t>(arena.visualWallCount));
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    hashWallGeometry(hash, arena.visualWalls[index]);
+  }
+  hashGeometryU32(hash, static_cast<std::uint32_t>(arena.visualBrushCount));
+  for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+    hashBrushGeometry(hash, arena.visualBrushes[index]);
+  }
+  return hash;
+}
+
 } // namespace
 
 int main() {
@@ -35,6 +144,18 @@ int main() {
     failures += expect(loaded.ok, "eyetoeye should load from the local map registry");
     const lg::Arena& arena = loaded.arena;
     failures += expect(arena.wallCount > 0, "eyetoeye should load static geometry");
+    constexpr std::uint64_t expectedCollisionGeometryFingerprint =
+      0xa738db490b895daeULL;
+    const std::uint64_t actualCollisionGeometryFingerprint =
+      collisionGeometryFingerprint(arena);
+    if (actualCollisionGeometryFingerprint != expectedCollisionGeometryFingerprint) {
+      std::cerr << "EyeToEye collision geometry fingerprint: 0x" << std::hex
+                << actualCollisionGeometryFingerprint << std::dec << '\n';
+    }
+    failures += expect(
+      actualCollisionGeometryFingerprint == expectedCollisionGeometryFingerprint,
+      "eyetoeye collision geometry fingerprint should stay fixed across art-only changes"
+    );
     failures += expect(loaded.descriptor.mapName == "eyetoeye", "eyetoeye descriptor should use the map stem");
     failures += expect(
       loaded.descriptor.contentHash == lg::hashArena(arena),
@@ -76,6 +197,79 @@ int main() {
         "map hash should include convex-brush collision classification and provenance"
       );
     }
+
+    const std::uint32_t sandstone =
+      lg::arenaMaterialId("Overkill/Overkill_Sandstone_Floor-128x128");
+    const std::uint32_t trim =
+      lg::arenaMaterialId("Overkill/Overkill_Oxidized_Trim-128x128");
+    const std::uint32_t basalt =
+      lg::arenaMaterialId("Overkill/Overkill_Basalt_Block-128x128");
+    const std::uint32_t amber =
+      lg::arenaMaterialId("Overkill/Overkill_Amber_Route-128x128");
+    failures += expect(
+      materialFaceCount(arena, sandstone) == 6U,
+      "eyetoeye should parse six sandstone upward faces"
+    );
+    failures += expect(
+      materialFaceCount(arena, trim) == 212U,
+      "eyetoeye should parse 212 center, post, and lamp trim faces"
+    );
+    failures += expect(
+      materialFaceCount(arena, basalt) == 96U,
+      "eyetoeye should parse 96 basalt perimeter faces"
+    );
+    failures += expect(
+      materialFaceCount(arena, amber) == 5U,
+      "eyetoeye should parse four amber cardinal pads and one center fire face"
+    );
+
+    const lg::Vec3 expectedSunDirection = lg::normalize({0.35F, -0.5F, -1.0F});
+    failures += expect(
+      arena.sunLight.enabled &&
+        nearlyEqual(arena.sunLight.direction.x, expectedSunDirection.x) &&
+        nearlyEqual(arena.sunLight.direction.y, expectedSunDirection.y) &&
+        nearlyEqual(arena.sunLight.direction.z, expectedSunDirection.z) &&
+        nearlyEqual(arena.sunLight.color.x, 238.0F / 255.0F) &&
+        nearlyEqual(arena.sunLight.color.y, 226.0F / 255.0F) &&
+        nearlyEqual(arena.sunLight.color.z, 206.0F / 255.0F) &&
+        nearlyEqual(arena.sunLight.intensity, 0.6F),
+      "eyetoeye sun should parse its warm color, direction, and intensity"
+    );
+    failures += expect(
+      arena.staticLightCount == 8U,
+      "eyetoeye should keep its four outer lamps and four floor lights"
+    );
+    if (arena.staticLightCount == 8U) {
+      constexpr std::array<lg::Vec3, 8> expectedPositions = {{
+        {23.6F, 0.0F, -11.6F},
+        {9.4F, -11.6F, -15.60875F},
+        {10.6F, 10.8F, -15.60875F},
+        {-12.0F, 9.2F, -15.60875F},
+        {-9.8F, -11.2F, -15.60875F},
+        {-0.1F, -23.6F, -11.6F},
+        {-23.6F, 0.0F, -11.6F},
+        {0.0F, 23.6F, -11.6F},
+      }};
+      for (std::size_t index = 0; index < expectedPositions.size(); ++index) {
+        const lg::ArenaStaticLight& light = arena.staticLights[index];
+        const bool outerLamp = index == 0U || index >= 5U;
+        failures += expect(
+          nearlyEqual(light.position.x, expectedPositions[index].x) &&
+            nearlyEqual(light.position.y, expectedPositions[index].y) &&
+            nearlyEqual(light.position.z, expectedPositions[index].z),
+          "eyetoeye art pass should not move light origins"
+        );
+        failures += expect(
+          nearlyEqual(light.color.x, 1.0F) &&
+            nearlyEqual(light.color.y, (outerLamp ? 220.0F : 150.0F) / 255.0F) &&
+            nearlyEqual(light.color.z, (outerLamp ? 180.0F : 72.0F) / 255.0F) &&
+            nearlyEqual(light.intensity, outerLamp ? 0.75F : 0.35F) &&
+            nearlyEqual(light.radius, outerLamp ? 12.5F : 14.0F),
+          "eyetoeye point lights should parse the art-pass color, intensity, and radius"
+        );
+      }
+    }
+
     lg::MapDescriptor mismatched = loaded.descriptor;
     mismatched.contentHash ^= 0x1U;
     const lg::LocalMapLoadResult verified = lg::loadAndVerifyLocalMap(mismatched);
@@ -111,9 +305,74 @@ int main() {
       "generated overkill import should preserve its restored teleport route"
     );
     failures += expect(
-      loaded.ok && loaded.arena.staticLightCount == 6 && loaded.arena.sunLight.enabled,
+      loaded.ok && loaded.arena.staticLightCount == 11 && loaded.arena.sunLight.enabled,
       "generated overkill import should preserve its reviewed adaptation lighting"
     );
+    if (loaded.ok) {
+      const lg::Arena& arena = loaded.arena;
+      const lg::Vec3 expectedSunDirection = lg::normalize({0.35F, -0.5F, -1.0F});
+      failures += expect(
+        arena.sunLight.enabled &&
+          nearlyEqual(arena.sunLight.direction.x, expectedSunDirection.x) &&
+          nearlyEqual(arena.sunLight.direction.y, expectedSunDirection.y) &&
+          nearlyEqual(arena.sunLight.direction.z, expectedSunDirection.z) &&
+          nearlyEqual(arena.sunLight.color.x, 1.0F) &&
+          nearlyEqual(arena.sunLight.color.y, 226.0F / 255.0F) &&
+          nearlyEqual(arena.sunLight.color.z, 184.0F / 255.0F) &&
+          nearlyEqual(arena.sunLight.intensity, 0.85F),
+        "overkill sun should match its reviewed warm lighting"
+      );
+      if (arena.staticLightCount == 11U) {
+        constexpr std::array<lg::Vec3, 11> expectedPositions = {{
+          {-2.0F, 2.0F, 17.0F},
+          {16.0F, 26.25F, 26.25F},
+          {16.0F, -33.75F, 17.0F},
+          {-27.5F, -2.5F, 14.0F},
+          {26.25F, 16.25F, 15.0F},
+          {29.6F, 52.0F, 13.0F},
+          {0.0F, -9.0F, 11.0F},
+          {16.0F, 9.0F, 19.0F},
+          {16.0F, -26.0F, 11.0F},
+          {-32.5F, -23.0F, 10.0F},
+          {29.6F, 44.0F, 9.0F},
+        }};
+        constexpr std::array<lg::Vec3, 11> expectedColors = {{
+          {1.0F, 218.0F / 255.0F, 170.0F / 255.0F},
+          {188.0F / 255.0F, 214.0F / 255.0F, 1.0F},
+          {1.0F, 205.0F / 255.0F, 150.0F / 255.0F},
+          {196.0F / 255.0F, 220.0F / 255.0F, 1.0F},
+          {1.0F, 216.0F / 255.0F, 164.0F / 255.0F},
+          {1.0F, 174.0F / 255.0F, 82.0F / 255.0F},
+          {168.0F / 255.0F, 202.0F / 255.0F, 1.0F},
+          {176.0F / 255.0F, 208.0F / 255.0F, 1.0F},
+          {185.0F / 255.0F, 210.0F / 255.0F, 1.0F},
+          {190.0F / 255.0F, 216.0F / 255.0F, 1.0F},
+          {190.0F / 255.0F, 214.0F / 255.0F, 1.0F},
+        }};
+        constexpr std::array<float, 11> expectedIntensities = {
+          0.8F, 0.75F, 0.75F, 0.7F, 0.7F, 0.9F,
+          1.1F, 1.05F, 1.0F, 1.1F, 0.75F,
+        };
+        constexpr std::array<float, 11> expectedRadii = {
+          35.0F, 32.5F, 35.0F, 30.0F, 30.0F, 22.5F,
+          40.0F, 40.0F, 37.5F, 30.0F, 25.0F,
+        };
+        for (std::size_t index = 0; index < expectedPositions.size(); ++index) {
+          const lg::ArenaStaticLight& light = arena.staticLights[index];
+          failures += expect(
+            nearlyEqual(light.position.x, expectedPositions[index].x) &&
+              nearlyEqual(light.position.y, expectedPositions[index].y) &&
+              nearlyEqual(light.position.z, expectedPositions[index].z) &&
+              nearlyEqual(light.color.x, expectedColors[index].x) &&
+              nearlyEqual(light.color.y, expectedColors[index].y) &&
+              nearlyEqual(light.color.z, expectedColors[index].z) &&
+              nearlyEqual(light.intensity, expectedIntensities[index]) &&
+              nearlyEqual(light.radius, expectedRadii[index]),
+            "overkill point lights should match the reviewed art pass"
+          );
+        }
+      }
+    }
     failures += expect(
       loaded.ok && loaded.descriptor.contentHash == lg::hashArena(loaded.arena),
       "generated overkill import descriptor should bind to parsed arena content"

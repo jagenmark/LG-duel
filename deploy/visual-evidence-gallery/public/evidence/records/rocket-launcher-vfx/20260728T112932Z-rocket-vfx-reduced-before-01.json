@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T112932Z-rocket-vfx-reduced-before-01",
+  "captured_at": "2026-07-28T11:29:32Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Clean wall view before any reduced-mode Rocket effect starts.",
+  "image": "20260728T112932Z-rocket-vfx-reduced-before-01.png",
+  "review": {
+    "notes": "The wall has clean, unbroken edges and no stray effect.",
+    "reviewed_at": "2026-07-28T14:55:18Z",
+    "reviewer": "rocket-reviewer-sentinel",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "4866f0017c80074fc9102796ba081c1ebc1b2a62337fbbff7723dc84bcbe855b",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX reduced mode before firing"
+}

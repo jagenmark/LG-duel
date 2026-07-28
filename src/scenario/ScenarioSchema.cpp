@@ -934,7 +934,11 @@ template <typename Integer>
     error = std::string(path) + ": must be an object";
     return false;
   }
-  if (!rejectUnknown(value, {"type", "actor", "target", "weapon"}, path, error) ||
+  if (!rejectUnknown(
+        value,
+        {"type", "actor", "target", "weapon", "occurrence"},
+        path,
+        error) ||
       !stringValue(value.find("type"), output.type, childPath(path, "type"), error))
     return false;
   static const std::set<std::string> supportedTypes = {
@@ -974,6 +978,17 @@ template <typename Integer>
     if (!weaponValue(weapon, parsed, childPath(path, "weapon"), error)) return false;
     output.weapon = parsed;
   }
+  if (const dev::JsonValue* occurrence = value.find("occurrence");
+      occurrence != nullptr &&
+      !integerValue(
+        occurrence,
+        std::uint32_t{1},
+        std::uint32_t{10000},
+        output.occurrence,
+        childPath(path, "occurrence"),
+        error)) {
+    return false;
+  }
   return true;
 }
 
@@ -990,7 +1005,14 @@ template <typename Integer>
     return false;
   }
   if (!rejectUnknown(
-        value, {"name", "at_server_tick", "after_event", "wait_rendered_frames"},
+        value,
+        {
+          "name",
+          "at_server_tick",
+          "after_event",
+          "wait_rendered_frames",
+          "render_phase",
+        },
         path, error) ||
       !stringValue(value.find("name"), output.name, childPath(path, "name"), error))
     return false;
@@ -1032,6 +1054,25 @@ template <typename Integer>
         wait, std::uint32_t{0}, std::uint32_t{600},
         output.waitRenderedFrames, childPath(path, "wait_rendered_frames"), error))
     return false;
+  if (const dev::JsonValue* phase = value.find("render_phase"); phase != nullptr) {
+    std::string parsed;
+    if (!stringValue(
+          phase, parsed, childPath(path, "render_phase"), error)) {
+      return false;
+    }
+    static const std::set<std::string, std::less<>> kRenderPhases{
+      "before_fire",
+      "muzzle",
+      "projectile",
+      "impact",
+    };
+    if (!kRenderPhases.contains(parsed)) {
+      error = childPath(path, "render_phase") +
+        ": must be before_fire, muzzle, projectile, or impact";
+      return false;
+    }
+    output.renderPhase = std::move(parsed);
+  }
   return true;
 }
 
@@ -1650,10 +1691,16 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
         if (capture.afterEvent->weapon)
           event.object["weapon"] = dev::JsonValue::stringValue(
             std::string(weaponName(*capture.afterEvent->weapon)));
+        event.object["occurrence"] =
+          dev::JsonValue::numberValue(capture.afterEvent->occurrence);
         value.object["after_event"] = std::move(event);
       }
       value.object["wait_rendered_frames"] =
         dev::JsonValue::numberValue(capture.waitRenderedFrames);
+      if (capture.renderPhase) {
+        value.object["render_phase"] =
+          dev::JsonValue::stringValue(*capture.renderPhase);
+      }
       captures.array.push_back(std::move(value));
     }
     root.object["captures"] = std::move(captures);

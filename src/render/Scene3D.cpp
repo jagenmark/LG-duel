@@ -16,8 +16,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cctype>
 #include <cstdint>
 #include <iostream>
+#include <string>
 
 namespace lg {
 namespace {
@@ -34,7 +36,6 @@ constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 constexpr float kStaticLightAmbient = 0.18F;
-constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
@@ -136,6 +137,20 @@ constexpr StaticMeshAsset kPlasmaCoreAsset = {
   RenderPass::OpaqueWorld,
 };
 
+template <std::size_t VertexCount>
+constexpr void appendCachedTriangle(
+  std::array<Vertex3D, VertexCount>& vertices,
+  std::size_t& cursor,
+  Vec3 a,
+  Vec3 b,
+  Vec3 c,
+  RenderColor color
+) {
+  vertices[cursor++] = {a, color, 0.0F, 0.0F, 0U};
+  vertices[cursor++] = {b, color, 0.0F, 0.0F, 0U};
+  vertices[cursor++] = {c, color, 0.0F, 0.0F, 0U};
+}
+
 constexpr StaticMeshAsset kExplosionCoreAsset = {
   MeshHandle::ExplosionCore,
   std::span<const Vertex3D>(kPlasmaCoreMeshVertices.data(), kPlasmaCoreMeshVertices.size()),
@@ -143,44 +158,115 @@ constexpr StaticMeshAsset kExplosionCoreAsset = {
   RenderPass::OpaqueWorld,
 };
 
-constexpr std::array<Vertex3D, 36> kRocketProjectileMeshVertices = {{
-  {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F, -0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F,  0.18F, -0.18F}, {170, 176, 170, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F, -0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F,  0.18F}, {220, 224, 210, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F, -0.18F, -0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F,  0.18F}, {148, 152, 148, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F,  0.18F, -0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
-  {{-0.85F,  0.18F,  0.18F}, {196, 202, 190, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F, -0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.82F,  0.0F,  0.0F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F, -0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F, -0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.82F,  0.0F,  0.0F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F,  0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F,  0.18F,  0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.82F,  0.0F,  0.0F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F,  0.18F}, {230, 214, 150, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F,  0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.82F,  0.0F,  0.0F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
-  {{ 0.45F, -0.18F, -0.18F}, {244, 228, 162, 255}, 0.0F, 0.0F, 0U},
+constexpr std::array<Vec3, 6> kRocketRingDirections = {{
+  {0.0F,  1.0F,  0.0F},
+  {0.0F,  0.5F,  0.8660254F},
+  {0.0F, -0.5F,  0.8660254F},
+  {0.0F, -1.0F,  0.0F},
+  {0.0F, -0.5F, -0.8660254F},
+  {0.0F,  0.5F, -0.8660254F},
 }};
+
+constexpr Vec3 rocketRingPoint(float x, float radius, std::size_t index) {
+  return {
+    x,
+    kRocketRingDirections[index].y * radius,
+    kRocketRingDirections[index].z * radius,
+  };
+}
+
+constexpr std::array<Vertex3D, 144> makeRocketProjectileMesh() {
+  std::array<Vertex3D, 144> vertices = {};
+  std::size_t cursor = 0;
+  constexpr std::array<RenderColor, 6> kBodyColors = {{
+    {208, 214, 204, 255},
+    {180, 188, 180, 255},
+    {148, 158, 154, 255},
+    {128, 138, 136, 255},
+    {158, 168, 164, 255},
+    {198, 206, 198, 255},
+  }};
+  for (std::size_t index = 0; index < kRocketRingDirections.size(); ++index) {
+    const std::size_t next = (index + 1U) % kRocketRingDirections.size();
+    const Vec3 rearA = rocketRingPoint(-0.46F, 0.22F, index);
+    const Vec3 rearB = rocketRingPoint(-0.46F, 0.22F, next);
+    const Vec3 frontA = rocketRingPoint(0.40F, 0.22F, index);
+    const Vec3 frontB = rocketRingPoint(0.40F, 0.22F, next);
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      rearA,
+      frontB,
+      frontA,
+      kBodyColors[index]
+    );
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      rearA,
+      rearB,
+      frontB,
+      kBodyColors[index]
+    );
+
+    const Vec3 rearCapA = rocketRingPoint(-0.57F, 0.13F, index);
+    const Vec3 rearCapB = rocketRingPoint(-0.57F, 0.13F, next);
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      rearCapA,
+      rearB,
+      rearA,
+      {112, 122, 122, 255}
+    );
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      rearCapA,
+      rearCapB,
+      rearB,
+      {126, 136, 134, 255}
+    );
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      rearCapA,
+      {-0.64F, 0.0F, 0.0F},
+      rearCapB,
+      {88, 98, 100, 255}
+    );
+
+    const Vec3 frontCapA = rocketRingPoint(0.51F, 0.13F, index);
+    const Vec3 frontCapB = rocketRingPoint(0.51F, 0.13F, next);
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      frontA,
+      frontCapB,
+      frontCapA,
+      {224, 210, 154, 255}
+    );
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      frontA,
+      frontB,
+      frontCapB,
+      {236, 220, 162, 255}
+    );
+    appendCachedTriangle(
+      vertices,
+      cursor,
+      frontCapA,
+      frontCapB,
+      {0.60F, 0.0F, 0.0F},
+      {248, 232, 176, 255}
+    );
+  }
+  return vertices;
+}
+
+constexpr auto kRocketProjectileMeshVertices = makeRocketProjectileMesh();
 
 constexpr std::array<Vertex3D, 24> kGrenadeProjectileMeshVertices = {{
   {{ 0.0F,  0.0F,  0.72F}, {58, 86, 46, 255}, 0.0F, 0.0F, 0U},
@@ -215,7 +301,7 @@ constexpr StaticMeshAsset kRocketProjectileAsset = {
     kRocketProjectileMeshVertices.data(),
     kRocketProjectileMeshVertices.size()
   ),
-  {{}, 0.92F},
+  {{-0.02F, 0.0F, 0.0F}, 0.66F},
   RenderPass::OpaqueWorld,
 };
 
@@ -402,9 +488,9 @@ constexpr ProjectileVisualDescriptor kRocketProjectileVisual = {
   MeshHandle::RocketProjectile,
   BillboardHandle::RocketFlame,
   {255, 255, 255, 255},
-  {255, 126, 48, 132},
+  {246, 92, 42, 156},
   0.40F,
-  0.50F,
+  0.38F,
   true,
 };
 
@@ -555,9 +641,12 @@ void addTriangle(
 ) {
   std::vector<Vertex3D>& vertices =
     color.alpha == 255 ? scene.vertices : scene.translucentVertices;
-  vertices.push_back({first, color});
-  vertices.push_back({second, color});
-  vertices.push_back({third, color});
+  const Vec3 edgeA = second - first;
+  const Vec3 edgeB = third - first;
+  const Vec3 faceNormal = normalize(cross(edgeA, edgeB));
+  vertices.push_back({first, color, 0.0F, 0.0F, 0U, faceNormal, 0U});
+  vertices.push_back({second, color, 0.0F, 0.0F, 0U, faceNormal, 0U});
+  vertices.push_back({third, color, 0.0F, 0.0F, 0U, faceNormal, 0U});
 }
 
 void addTexturedTriangle(
@@ -569,9 +658,16 @@ void addTexturedTriangle(
   std::array<RenderColor, 3> colors,
   std::uint32_t materialId
 ) {
-  scene.vertices.push_back({first, colors[0], uv[0][0], uv[0][1], materialId});
-  scene.vertices.push_back({second, colors[1], uv[1][0], uv[1][1], materialId});
-  scene.vertices.push_back({third, colors[2], uv[2][0], uv[2][1], materialId});
+  const Vec3 faceNormal = normalize(cross(second - first, third - first));
+  scene.vertices.push_back({
+    first, colors[0], uv[0][0], uv[0][1], materialId, faceNormal, materialId
+  });
+  scene.vertices.push_back({
+    second, colors[1], uv[1][0], uv[1][1], materialId, faceNormal, materialId
+  });
+  scene.vertices.push_back({
+    third, colors[2], uv[2][0], uv[2][1], materialId, faceNormal, materialId
+  });
 }
 
 void addQuad(
@@ -800,10 +896,6 @@ void addSphereApprox(
   Vec3 normal,
   RenderColor base
 ) {
-  if (arena.staticLightCount == 0 && !arena.sunLight.enabled) {
-    return base;
-  }
-
   Vec3 lightColor = {
     static_cast<float>(base.red) * kStaticLightAmbient,
     static_cast<float>(base.green) * kStaticLightAmbient,
@@ -823,17 +915,6 @@ void addSphereApprox(
     lightColor.x += static_cast<float>(base.red) * light.color.x * contribution;
     lightColor.y += static_cast<float>(base.green) * light.color.y * contribution;
     lightColor.z += static_cast<float>(base.blue) * light.color.z * contribution;
-  }
-  if (arena.sunLight.enabled) {
-    const ArenaSunLight& sun = arena.sunLight;
-    // Sun direction is the direction rays travel; negate it for the incoming
-    // light vector from the surface toward the sun.
-    const float sunFactor =
-      std::max(dot(normal, sun.direction * -1.0F), kSunWrapMinimum);
-    const float contribution = sun.intensity * sunFactor;
-    lightColor.x += static_cast<float>(base.red) * sun.color.x * contribution;
-    lightColor.y += static_cast<float>(base.green) * sun.color.y * contribution;
-    lightColor.z += static_cast<float>(base.blue) * sun.color.z * contribution;
   }
   const float maxChannel = 255.0F * kStaticLightMax;
   return {
@@ -1424,6 +1505,98 @@ struct DuelistPoseRequests {
   return poseRequests;
 }
 
+[[nodiscard]] DuelistPoseRequests skinnedPlayerPoseRequests(
+  const GltfSkinnedModel& model,
+  const PlayerState& player,
+  bool leanEnabled,
+  float leanScale,
+  float animationTimeSeconds,
+  const PlayerPresentationFrame* presentation
+) {
+  if (presentation == nullptr || presentation->poseLayerCount == 0U) {
+    return duelistPoseRequests(
+      player,
+      leanEnabled,
+      leanScale,
+      animationTimeSeconds
+    );
+  }
+
+  const bool workerModel = &model == &workerPlayerModel();
+  DuelistPoseRequests poseRequests;
+  for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
+    const PlayerPoseLayer& layer = presentation->poseLayers[index];
+    if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
+      continue;
+    }
+    float weight = layer.weight;
+    if (index == 0U && presentation->diagnostics.previousBlendWeight > 0.0F) {
+      // The sampler blends each request over the accumulated pose. Establish
+      // the previous clip fully, then blend the new clip by transition alpha.
+      weight = 1.0F;
+    }
+    std::string_view clip = layer.animationName;
+    if (workerModel && clip == "IDLE") {
+      clip = "Idle_Gun_TwoHanded";
+    }
+    poseRequests.push({
+      clip,
+      layer.timeSeconds,
+      weight,
+      layer.mask == PlayerPoseLayerMask::UpperBody
+        ? SkinnedModelPoseMask::UpperBody
+        : SkinnedModelPoseMask::FullBody,
+    });
+  }
+  return poseRequests;
+}
+
+[[nodiscard]] float skinnedPlayerAimPitch(
+  const PlayerState& player,
+  const PlayerPresentationFrame* presentation
+) {
+  return presentation != nullptr
+    ? presentation->torsoAimPitchRadians
+    : std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
+}
+
+[[nodiscard]] WeaponModelFrame workerWeaponAttachmentFrame(
+  const PlayerState& player,
+  float leanScale,
+  float aimPitch,
+  const GltfSkinnedModel::Matrix4& socket
+) {
+  const PlayerModelBasis basis =
+    playerModelBasis(player, false, leanScale, 0.0F);
+  constexpr float kWorkerAuthoredHeight = 1.86643112F;
+  constexpr float kWorkerAuthoredDepthCenter = 0.09206353F;
+  const float verticalScale = basis.height / kWorkerAuthoredHeight;
+  const float horizontalScale =
+    basis.radius / kDuelistMaleHalfWidth * 0.94F;
+  const Vec3 base = player.position - basis.up * basis.halfHeight;
+  const Vec3 translation = base -
+    basis.forward * (kWorkerAuthoredDepthCenter * horizontalScale);
+
+  WeaponModelFrame attachment;
+  attachment.basis = basis;
+  // The socket tracks the animated grip point. Its inherited wrist roll is
+  // not a weapon frame, so aim the weapon with the player's view instead.
+  const float pitchCos = std::cos(aimPitch);
+  const float pitchSin = std::sin(aimPitch);
+  attachment.basis.forward = normalize(
+    basis.forward * pitchCos + basis.up * pitchSin
+  );
+  attachment.basis.up = normalize(
+    basis.up * pitchCos - basis.forward * pitchSin
+  );
+  attachment.hand = translation +
+    basis.right * (socket.values[3] * horizontalScale) +
+    basis.up * (socket.values[7] * verticalScale) +
+    basis.forward * (socket.values[11] * horizontalScale);
+  attachment.scale = (horizontalScale + verticalScale) * 0.5F;
+  return attachment;
+}
+
 void addGltfPlayerModelInstance(
   Scene3D& scene,
   const GltfSkinnedModel& model,
@@ -1437,7 +1610,7 @@ void addGltfPlayerModelInstance(
   OutlineState outlineState,
   bool outlined,
   GltfSkinnedModel::PoseScratch& poseScratch,
-  WeaponModelFrame* weaponAttachment
+  std::optional<WeaponModelFrame>* weaponAttachment
 ) {
   if (!model.loaded() || model.primitives().empty()) {
     return;
@@ -1455,36 +1628,15 @@ void addGltfPlayerModelInstance(
     basis.forward * (authoredDepthCenter * horizontalScale);
   const std::uint32_t firstBone =
     static_cast<std::uint32_t>(scene.gltfBonePalette.size());
-  DuelistPoseRequests poseRequests;
-  if (presentation != nullptr && presentation->poseLayerCount > 0U) {
-    for (std::size_t index = 0; index < presentation->poseLayerCount; ++index) {
-      const PlayerPoseLayer& layer = presentation->poseLayers[index];
-      if (layer.mask == PlayerPoseLayerMask::UpperBody && !leanEnabled) {
-        continue;
-      }
-      float weight = layer.weight;
-      if (index == 0U && presentation->diagnostics.previousBlendWeight > 0.0F) {
-        // The sampler blends each request over the accumulated pose. Establish
-        // the previous clip fully, then blend the new clip by transition alpha.
-        weight = 1.0F;
-      }
-      std::string_view clip = layer.animationName;
-      if (workerModel && clip == "IDLE") clip = "Idle_Gun_TwoHanded";
-      poseRequests.push({
-        clip,
-        layer.timeSeconds,
-        weight,
-        layer.mask == PlayerPoseLayerMask::UpperBody
-          ? SkinnedModelPoseMask::UpperBody
-          : SkinnedModelPoseMask::FullBody,
-      });
-    }
-  } else {
-    poseRequests = duelistPoseRequests(player, leanEnabled, leanScale, animationTimeSeconds);
-  }
-  const float aimPitch = presentation != nullptr
-    ? presentation->torsoAimPitchRadians
-    : std::clamp(player.viewPitchRadians, -0.78539816F, 0.78539816F);
+  const DuelistPoseRequests poseRequests = skinnedPlayerPoseRequests(
+    model,
+    player,
+    leanEnabled,
+    leanScale,
+    animationTimeSeconds,
+    presentation
+  );
+  const float aimPitch = skinnedPlayerAimPitch(player, presentation);
   if (!model.appendBonePalette(
         poseRequests.span(),
         scene.gltfBonePalette,
@@ -1496,22 +1648,9 @@ void addGltfPlayerModelInstance(
   if (workerModel && weaponAttachment != nullptr) {
     GltfSkinnedModel::Matrix4 socket;
     if (model.nodeGlobalMatrix("weapon_socket", poseScratch, socket)) {
-      weaponAttachment->basis = basis;
-      // The socket tracks the animated grip point. Its inherited wrist roll is
-      // not a weapon frame, so aim the weapon with the player's view instead.
-      const float pitchCos = std::cos(aimPitch);
-      const float pitchSin = std::sin(aimPitch);
-      weaponAttachment->basis.forward = normalize(
-        basis.forward * pitchCos + basis.up * pitchSin
+      weaponAttachment->emplace(
+        workerWeaponAttachmentFrame(player, leanScale, aimPitch, socket)
       );
-      weaponAttachment->basis.up = normalize(
-        basis.up * pitchCos - basis.forward * pitchSin
-      );
-      weaponAttachment->hand = translation +
-        basis.right * (socket.values[3] * horizontalScale) +
-        basis.up * (socket.values[7] * verticalScale) +
-        basis.forward * (socket.values[11] * horizontalScale);
-      weaponAttachment->scale = (horizontalScale + verticalScale) * 0.5F;
     }
   }
   const std::uint32_t boneCount =
@@ -1590,6 +1729,76 @@ void addGltfPlayerModelInstance(
       ((frame.basis.bottom + frame.basis.height * handHeightRatio) -
         player.position.z);
   return frame;
+}
+
+[[nodiscard]] WeaponModelFrame remoteRenderedWeaponFrame(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+) {
+  const bool leanEnabled = remote.teammate
+    ? settings.teammateLeanEnabled
+    : settings.enemyLeanEnabled;
+  const float leanScale = remote.teammate
+    ? settings.teammateLeanScale
+    : settings.enemyLeanScale;
+  const WeaponModelFrame genericFrame =
+    weaponModelFrame(remote.player, leanEnabled, leanScale);
+  if (
+    settings.playerModel != 2 ||
+    !settings.drawRemotePlayers
+  ) {
+    return genericFrame;
+  }
+
+  const GltfSkinnedModel& model = workerPlayerModel();
+  if (!model.loaded() || model.primitives().empty()) {
+    return genericFrame;
+  }
+  const PlayerPresentationFrame* presentation =
+    remote.hasPresentation ? &remote.presentation : nullptr;
+  const DuelistPoseRequests poseRequests = skinnedPlayerPoseRequests(
+    model,
+    remote.player,
+    leanEnabled,
+    leanScale,
+    remote.animationTimeSeconds,
+    presentation
+  );
+  struct WorkerSocketSampleCache {
+    std::vector<std::array<float, 16>> bonePalette;
+    GltfSkinnedModel::PoseScratch poseScratch;
+  };
+  // Socket-following VFX can sample more than once per frame. Keep the model's
+  // vector-backed scratch on the render thread so clear/assign reuse capacity
+  // instead of allocating for each effect.
+  thread_local WorkerSocketSampleCache sampleCache;
+  sampleCache.bonePalette.clear();
+  if (
+    !model.appendBonePalette(
+      poseRequests.span(),
+      sampleCache.bonePalette,
+      sampleCache.poseScratch,
+      skinnedPlayerAimPitch(remote.player, presentation)
+    )
+  ) {
+    return genericFrame;
+  }
+  GltfSkinnedModel::Matrix4 socket;
+  if (
+    !model.nodeGlobalMatrix(
+      "weapon_socket",
+      sampleCache.poseScratch,
+      socket
+    )
+  ) {
+    return genericFrame;
+  }
+  return workerWeaponAttachmentFrame(
+    remote.player,
+    leanScale,
+    skinnedPlayerAimPitch(remote.player, presentation),
+    socket
+  );
 }
 
 [[nodiscard]] Vec3 weaponLocalPoint(
@@ -2698,25 +2907,19 @@ void addWireBox(
   if (distanceSquared(projectile.position, remoteEye) >= distanceSquared(projectile.position, localEye)) {
     return projectile.position;
   }
-  const bool leanEnabled = remote.teammate
-    ? settings.teammateLeanEnabled
-    : settings.enemyLeanEnabled;
-  const float leanScale = remote.teammate
-    ? settings.teammateLeanScale
-    : settings.enemyLeanScale;
-  WeaponModelFrame frame = weaponModelFrame(remote.player, leanEnabled, leanScale);
-  frame.scale *= thirdPersonWeaponVisualScale(projectile.weapon);
   Vec3 muzzle;
   if (projectile.weapon == Weapon::RocketLauncher) {
-    frame = rocketLauncherGripAlignedFrame(frame);
-    muzzle = weaponLocalPoint(
-      frame,
-      kRocketLauncherMuzzleSocket.x -
-        0.052F * remote.rocketLauncherMechanicalAmount,
-      kRocketLauncherMuzzleSocket.y,
-      kRocketLauncherMuzzleSocket.z
-    );
+    muzzle = remoteRocketLauncherMuzzlePosition(remote, settings);
   } else {
+    const bool leanEnabled = remote.teammate
+      ? settings.teammateLeanEnabled
+      : settings.enemyLeanEnabled;
+    const float leanScale = remote.teammate
+      ? settings.teammateLeanScale
+      : settings.enemyLeanScale;
+    WeaponModelFrame frame =
+      weaponModelFrame(remote.player, leanEnabled, leanScale);
+    frame.scale *= thirdPersonWeaponVisualScale(projectile.weapon);
     frame = plasmaGunGripAlignedFrame(frame);
     muzzle = weaponLocalPoint(
       frame,
@@ -2825,6 +3028,47 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 }
 
 } // namespace
+
+SunShadowProjection buildSunShadowProjection(
+  const PerspectiveCamera& camera,
+  Vec3 sunDirection,
+  int quality
+) {
+  SunShadowProjection projection;
+  projection.mapSize = sunShadowMapSize(quality);
+  if (projection.mapSize == 0U) {
+    return projection;
+  }
+
+  projection.forward = length(sunDirection) > 0.0001F
+    ? normalize(sunDirection)
+    : Vec3{0.35F, 0.45F, -0.82F};
+  const Vec3 referenceUp =
+    std::fabs(projection.forward.z) > 0.95F
+      ? Vec3{0.0F, 1.0F, 0.0F}
+      : Vec3{0.0F, 0.0F, 1.0F};
+  projection.right = normalize(cross(referenceUp, projection.forward));
+  projection.up = normalize(cross(projection.forward, projection.right));
+  projection.halfExtent = quality == 1 ? 32.0F : 40.0F;
+  projection.nearPlane = 0.0F;
+  projection.farPlane = 96.0F;
+
+  Vec3 center = camera.position + camera.forward * 18.0F;
+  const float texelSize =
+    (projection.halfExtent * 2.0F) /
+    static_cast<float>(projection.mapSize);
+  const float rightCoordinate = dot(center, projection.right);
+  const float upCoordinate = dot(center, projection.up);
+  const float snappedRight =
+    std::round(rightCoordinate / texelSize) * texelSize;
+  const float snappedUp =
+    std::round(upCoordinate / texelSize) * texelSize;
+  center += projection.right * (snappedRight - rightCoordinate);
+  center += projection.up * (snappedUp - upCoordinate);
+  projection.origin =
+    center - projection.forward * (projection.farPlane * 0.5F);
+  return projection;
+}
 
 void appendCollisionDebugGeometry(
   Scene3D& scene,
@@ -3308,6 +3552,22 @@ Vec3 firstPersonRocketLauncherMuzzlePosition(
   );
 }
 
+Vec3 remoteRocketLauncherMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = remoteRenderedWeaponFrame(remote, settings);
+  frame.scale *= thirdPersonWeaponVisualScale(Weapon::RocketLauncher);
+  frame = rocketLauncherGripAlignedFrame(frame);
+  return weaponLocalPoint(
+    frame,
+    kRocketLauncherMuzzleSocket.x -
+      0.052F * remote.rocketLauncherMechanicalAmount,
+    kRocketLauncherMuzzleSocket.y,
+    kRocketLauncherMuzzleSocket.z
+  );
+}
+
 Vec3 firstPersonFreezeGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
@@ -3737,6 +3997,23 @@ void addTransientTracerInstances(
       255.0F
     ));
     addTransientTracerGeometry(scene, tracer, direction, tracerLength, color);
+    ++scene.transientVfxStats.transparentEffectsSubmitted;
+    const bool rocketLauncherMuzzleFlash =
+      tracer.style == TracerStyle::RocketLauncherMuzzleFlash;
+    if (rocketLauncherMuzzleFlash) {
+      TransientTracer hotCore = tracer;
+      hotCore.end = tracer.start + direction * (tracerLength * 0.56F);
+      hotCore.width = tracer.width * 0.36F;
+      RenderColor hotCoreColor = {255, 236, 166, color.alpha};
+      addTransientTracerGeometry(
+        scene,
+        hotCore,
+        direction,
+        tracerLength * 0.56F,
+        hotCoreColor
+      );
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
+    }
     ++scene.transientVfxStats.tracerInstancesSubmitted;
     if (
       tracer.style == TracerStyle::MachineGunMuzzleFlash ||
@@ -3744,11 +4021,13 @@ void addTransientTracerInstances(
       tracer.style == TracerStyle::RocketLauncherMuzzleFlash
     ) {
       const float styleScale = tracer.style == TracerStyle::RocketLauncherMuzzleFlash
-        ? 4.0F
+        ? 2.45F
         : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 3.4F : 2.8F);
       const float flashScale = std::max(0.002F, tracer.width) * styleScale *
         (machineGunMuzzleFlash ? machineGunEnvelope.coreScale : 1.0F);
-      RenderColor coreColor = tracer.color;
+      RenderColor coreColor = rocketLauncherMuzzleFlash
+        ? RenderColor{255, 238, 174, tracer.color.alpha}
+        : tracer.color;
       const float coreFade = machineGunMuzzleFlash
         ? machineGunEnvelope.coreAlpha
         : fade;
@@ -3773,18 +4052,22 @@ void addTransientTracerInstances(
         }
       );
       ++scene.transientVfxStats.muzzleFlashInstancesSubmitted;
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
       if (
-        tracer.style == TracerStyle::RocketLauncherMuzzleFlash ||
-        tracer.style == TracerStyle::RevolverMuzzleFlash
+        tracer.style == TracerStyle::RevolverMuzzleFlash ||
+        (
+          rocketLauncherMuzzleFlash &&
+          settings.combatEffectsQuality > 0
+        )
       ) {
         const bool revolver = tracer.style == TracerStyle::RevolverMuzzleFlash;
         RenderColor haloColor = revolver
           ? RenderColor{255, 128, 42, color.alpha}
-          : RenderColor{255, 68, 18, color.alpha};
+          : RenderColor{255, 118, 62, color.alpha};
         haloColor.alpha = static_cast<std::uint8_t>(
-          static_cast<float>(haloColor.alpha) * 0.55F
+          static_cast<float>(haloColor.alpha) * (revolver ? 0.55F : 0.24F)
         );
-        const float haloScale = flashScale * (revolver ? 1.55F : 1.85F);
+        const float haloScale = flashScale * (revolver ? 1.55F : 1.62F);
         appendSimpleInstance(
           scene,
           {
@@ -3801,11 +4084,14 @@ void addTransientTracerInstances(
           }
         );
         ++scene.transientVfxStats.muzzleFlashInstancesSubmitted;
+        ++scene.transientVfxStats.transparentEffectsSubmitted;
       }
     }
     scene.transientVfxStats.tracerInstanceUploadBytes +=
       static_cast<std::uint32_t>(
-        kTracerBeamMeshVertices.size() * kStaticMeshVertexUploadBytes
+        kTracerBeamMeshVertices.size() *
+        kStaticMeshVertexUploadBytes *
+        (rocketLauncherMuzzleFlash ? 2U : 1U)
       );
   }
 }
@@ -3833,13 +4119,17 @@ void addTransientTracerInstances(
   case TransientEffectType::PlasmaExplosionHalo:
   case TransientEffectType::GrenadeExplosionFlash:
   case TransientEffectType::MachineGunMuzzleLight:
+  case TransientEffectType::RocketLauncherMuzzleLight:
   case TransientEffectType::MachineGunMuzzleSmoke:
+  case TransientEffectType::RocketLauncherMuzzleSmoke:
   case TransientEffectType::MachineGunMuzzleSpark:
   case TransientEffectType::MachineGunCasing:
   case TransientEffectType::BulletImpactFlash:
   case TransientEffectType::BulletImpactSpark:
   case TransientEffectType::BulletImpactDust:
   case TransientEffectType::BulletDecal:
+  case TransientEffectType::RocketExplosionShard:
+  case TransientEffectType::RocketExplosionSmoke:
     return false;
   }
   return false;
@@ -3857,13 +4147,17 @@ void addTransientTracerInstances(
   case TransientEffectType::GrenadeExplosionCore:
     return true;
   case TransientEffectType::MachineGunMuzzleLight:
+  case TransientEffectType::RocketLauncherMuzzleLight:
   case TransientEffectType::MachineGunMuzzleSmoke:
+  case TransientEffectType::RocketLauncherMuzzleSmoke:
   case TransientEffectType::MachineGunMuzzleSpark:
   case TransientEffectType::MachineGunCasing:
   case TransientEffectType::BulletImpactFlash:
   case TransientEffectType::BulletImpactSpark:
   case TransientEffectType::BulletImpactDust:
   case TransientEffectType::BulletDecal:
+  case TransientEffectType::RocketExplosionShard:
+  case TransientEffectType::RocketExplosionSmoke:
     return false;
   }
   return false;
@@ -3883,16 +4177,36 @@ void addTransientTracerInstances(
   case TransientEffectType::GrenadeExplosionCore:
     break;
   case TransientEffectType::MachineGunMuzzleLight:
+  case TransientEffectType::RocketLauncherMuzzleLight:
   case TransientEffectType::MachineGunMuzzleSmoke:
+  case TransientEffectType::RocketLauncherMuzzleSmoke:
   case TransientEffectType::MachineGunMuzzleSpark:
   case TransientEffectType::MachineGunCasing:
   case TransientEffectType::BulletImpactFlash:
   case TransientEffectType::BulletImpactSpark:
   case TransientEffectType::BulletImpactDust:
   case TransientEffectType::BulletDecal:
+  case TransientEffectType::RocketExplosionShard:
+  case TransientEffectType::RocketExplosionSmoke:
     break;
   }
   return BillboardHandle::Invalid;
+}
+
+[[nodiscard]] bool effectEnabledForQuality(
+  TransientEffectType type,
+  int quality
+) {
+  if (type == TransientEffectType::RocketExplosionHalo) {
+    return quality > 0;
+  }
+  if (
+    type == TransientEffectType::RocketExplosionShard ||
+    type == TransientEffectType::RocketExplosionSmoke
+  ) {
+    return quality >= 2;
+  }
+  return true;
 }
 
 void addCombatParticleBillboard(
@@ -3960,7 +4274,15 @@ void addTransientEffectInstances(
 ) {
   scene.transientVfxStats.activeEffects += static_cast<std::uint32_t>(effects.size());
   for (const TransientEffect& effect : effects) {
-    if (effect.type == TransientEffectType::MachineGunMuzzleLight) {
+    // The store can outlive a live quality change. Gate held effects again at
+    // submission so a lower setting takes effect on the same rendered frame.
+    if (!effectEnabledForQuality(effect.type, settings.combatEffectsQuality)) {
+      continue;
+    }
+    if (
+      effect.type == TransientEffectType::MachineGunMuzzleLight ||
+      effect.type == TransientEffectType::RocketLauncherMuzzleLight
+    ) {
       const float remaining = 1.0F - effectNormalizedAge(effect);
       // A low tail bridges closely spaced automatic shots. The sharp term
       // keeps the first-shot light response distinct instead of flat.
@@ -4066,7 +4388,8 @@ void addTransientEffectInstances(
     }
     if (
       effect.type == TransientEffectType::MachineGunMuzzleSpark ||
-      effect.type == TransientEffectType::BulletImpactSpark
+      effect.type == TransientEffectType::BulletImpactSpark ||
+      effect.type == TransientEffectType::RocketExplosionShard
     ) {
       ++scene.transientVfxStats.activeImpactParticles;
       Vec3 direction = normalize(effect.velocity);
@@ -4080,14 +4403,18 @@ void addTransientEffectInstances(
         std::max(0.002F, scale * 0.20F),
         color
       );
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
       continue;
     }
     if (
       effect.type == TransientEffectType::MachineGunMuzzleSmoke ||
-      effect.type == TransientEffectType::BulletImpactDust
+      effect.type == TransientEffectType::RocketLauncherMuzzleSmoke ||
+      effect.type == TransientEffectType::BulletImpactDust ||
+      effect.type == TransientEffectType::RocketExplosionSmoke
     ) {
       ++scene.transientVfxStats.activeImpactParticles;
       addCombatParticleBillboard(scene, effect, scale, color);
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
       continue;
     }
     if (effect.type == TransientEffectType::BulletImpactFlash) {
@@ -4107,10 +4434,68 @@ void addTransientEffectInstances(
           {effect.position, scale},
         }
       );
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
       continue;
     }
     ++scene.transientVfxStats.activeExplosionEffects;
+    if (effect.type == TransientEffectType::RocketExplosionCore) {
+      // Three uses of the same cached low-poly core form one fuller faceted
+      // blast body. They retain one mesh/pass batch and avoid a shot-time mesh
+      // build while their seeded turns keep repeated impacts stable.
+      constexpr std::array<Vec3, 3> kRocketBodyScales = {{
+        {0.74F, 0.71F, 0.74F},
+        {0.70F, 0.74F, 0.71F},
+        {0.71F, 0.70F, 0.75F},
+      }};
+      constexpr std::array<RenderColor, 3> kRocketBodyColors = {{
+        {246, 104, 62, 255},
+        {255, 142, 76, 255},
+        {218, 72, 48, 255},
+      }};
+      const float seededTurn =
+        static_cast<float>((effect.seed * 2654435761U) & 1023U) *
+        (kTwoPi / 1024.0F);
+      for (std::size_t lobe = 0; lobe < kRocketBodyScales.size(); ++lobe) {
+        const Vec3 lobeScale = kRocketBodyScales[lobe] * scale;
+        appendSimpleInstance(
+          scene,
+          {
+            MeshHandle::ExplosionCore,
+            BillboardHandle::Invalid,
+            RenderPass::OpaqueWorld,
+            effect.position,
+            lobeScale,
+            seededTurn + (
+              lobe == 1U ? 1.0471976F : lobe == 2U ? -1.0471976F : 0.0F
+            ),
+            lobe == 0U ? 0.62F : lobe == 1U ? -0.58F : 0.18F,
+            kRocketBodyColors[lobe],
+            t,
+            {
+              effect.position,
+              std::max({lobeScale.x, lobeScale.y, lobeScale.z}),
+            },
+          }
+        );
+        ++scene.transientVfxStats.explosionInstancesSubmitted;
+      }
+      continue;
+    }
     const bool coreMesh = effectUsesCoreMesh(effect.type);
+    const bool rocketFlash =
+      effect.type == TransientEffectType::RocketExplosionFlash;
+    const bool rocketHalo =
+      effect.type == TransientEffectType::RocketExplosionHalo;
+    if (rocketHalo) {
+      color.alpha = static_cast<std::uint8_t>(std::clamp(
+        static_cast<float>(color.alpha) * 1.45F,
+        0.0F,
+        72.0F
+      ));
+    }
+    const float submittedScale = rocketFlash
+      ? scale * 0.54F
+      : rocketHalo ? scale * 0.72F : scale;
     appendSimpleInstance(
       scene,
       {
@@ -4118,15 +4503,18 @@ void addTransientEffectInstances(
         coreMesh ? BillboardHandle::Invalid : effectBillboard(effect.type),
         coreMesh ? RenderPass::OpaqueWorld : RenderPass::AdditiveGlow,
         effect.position,
-        {scale, scale, scale},
+        {submittedScale, submittedScale, submittedScale},
         static_cast<float>((effect.seed * 2654435761U) & 1023U) *
           (kTwoPi / 1024.0F),
         0.0F,
         color,
         t,
-        {effect.position, scale},
+        {effect.position, submittedScale},
       }
     );
+    if (!coreMesh) {
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
+    }
     ++scene.transientVfxStats.explosionInstancesSubmitted;
   }
 }
@@ -4327,6 +4715,13 @@ void finalizeGltfPlayerModelBatches(
     }
     ++primitiveCount;
   }
+  const GltfShadowCasterPlan shadowPlan = gltfShadowCasterPlan(
+    static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size()),
+    scene.gltfPlayerModelStats.bodyDrawCalls,
+    scene.lights.shadow.mapSize
+  );
+  scene.gltfPlayerModelStats.shadowCasterInstances = shadowPlan.instances;
+  scene.gltfPlayerModelStats.shadowCasterDrawCalls = shadowPlan.drawCalls;
 
   std::uint32_t runFirst = 0;
   std::uint32_t runCount = 0;
@@ -4411,8 +4806,29 @@ void addProjectileInstances(
     projectileVisualPosition(projectile, player, remotePlayers, settings);
   const float pulseSeed = static_cast<float>(projectileIndex) * 0.371F;
   const float rotation = projectileRotationRadians(projectile, projectileIndex);
-  const float cullRadius =
-    std::max(descriptor->coreScale, descriptor->glowScale);
+  const bool rocket = descriptor->type == ProjectileVisualType::Rocket;
+  const float exhaustScale = rocket
+    ? descriptor->glowScale *
+      (
+        settings.combatEffectsQuality >= 2
+          ? 1.0F
+          : settings.combatEffectsQuality == 1 ? 0.87F : 0.74F
+      )
+    : descriptor->glowScale;
+  const float exhaustOffset = rocket
+    ? descriptor->coreScale * 0.92F
+    : 0.0F;
+  const float hotCoreScale = rocket && settings.combatEffectsQuality > 0
+    ? (settings.combatEffectsQuality >= 2 ? 0.19F : 0.16F)
+    : 0.0F;
+  const float hotCoreOffset = rocket
+    ? descriptor->coreScale * 0.82F
+    : 0.0F;
+  const float cullRadius = std::max({
+    descriptor->coreScale,
+    exhaustOffset + exhaustScale,
+    hotCoreOffset + hotCoreScale,
+  });
   if (
     settings.frustumCullRemotePlayers &&
     !sphereIntersectsPerspectiveFrustum(scene.camera, position, cullRadius)
@@ -4434,7 +4850,7 @@ void addProjectileInstances(
         position,
         {descriptor->coreScale, descriptor->coreScale, descriptor->coreScale},
         rotation,
-        descriptor->type == ProjectileVisualType::Rocket
+        rocket
           ? projectileVelocityPitch(projectile.velocity)
           : 0.0F,
         descriptor->coreColor,
@@ -4445,12 +4861,18 @@ void addProjectileInstances(
     countProjectileCoreInstance(scene.projectileStats, descriptor->type);
   }
   if (descriptor->glowBillboard != BillboardHandle::Invalid) {
-    const Vec3 projectileForward = descriptor->type == ProjectileVisualType::Rocket
+    const Vec3 projectileForward = rocket
       ? projectileVelocityForward(projectile.velocity)
       : yawForward(rotation);
-    const Vec3 glowPosition = descriptor->type == ProjectileVisualType::Rocket
-      ? position - projectileForward * (descriptor->coreScale * 0.9F)
+    const Vec3 glowPosition = rocket
+      ? position - projectileForward * exhaustOffset
       : position;
+    RenderColor exhaustColor = descriptor->glowColor;
+    if (rocket && settings.combatEffectsQuality < 2) {
+      exhaustColor.alpha = static_cast<std::uint8_t>(
+        settings.combatEffectsQuality == 1 ? 144U : 130U
+      );
+    }
     appendSimpleInstance(
       scene,
       {
@@ -4458,15 +4880,42 @@ void addProjectileInstances(
         descriptor->glowBillboard,
         descriptor->usesAdditiveGlow ? RenderPass::AdditiveGlow : RenderPass::TranslucentWorld,
         glowPosition,
-        {descriptor->glowScale, descriptor->glowScale, descriptor->glowScale},
+        {exhaustScale, exhaustScale, exhaustScale},
         0.0F,
         0.0F,
-        descriptor->glowColor,
+        exhaustColor,
         pulseSeed,
-        {glowPosition, descriptor->glowScale},
+        {glowPosition, exhaustScale},
       }
     );
     ++scene.projectileStats.projectileGlowInstances;
+    if (hotCoreScale > 0.0F) {
+      const Vec3 hotCorePosition =
+        position - projectileForward * hotCoreOffset;
+      appendSimpleInstance(
+        scene,
+        {
+          MeshHandle::Invalid,
+          descriptor->glowBillboard,
+          RenderPass::AdditiveGlow,
+          hotCorePosition,
+          {hotCoreScale, hotCoreScale, hotCoreScale},
+          0.0F,
+          0.0F,
+          {
+            255,
+            232,
+            150,
+            static_cast<std::uint8_t>(
+              settings.combatEffectsQuality >= 2 ? 224U : 198U
+            ),
+          },
+          pulseSeed + 0.17F,
+          {hotCorePosition, hotCoreScale},
+        }
+      );
+      ++scene.projectileStats.projectileGlowInstances;
+    }
   }
 }
 
@@ -4565,6 +5014,56 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
 
 } // namespace
 
+WorldMaterialTraits classifyWorldMaterial(std::string_view materialPath) {
+  std::string path(materialPath);
+  std::transform(
+    path.begin(),
+    path.end(),
+    path.begin(),
+    [](unsigned char value) {
+      return static_cast<char>(std::tolower(value));
+    }
+  );
+  const auto containsAny = [&path](
+    std::initializer_list<std::string_view> words
+  ) {
+    return std::any_of(
+      words.begin(),
+      words.end(),
+      [&path](std::string_view word) {
+        return path.find(word) != std::string::npos;
+      }
+    );
+  };
+  if (containsAny({
+        "energy", "element", "teleport", "plasma", "light", "amber", "route",
+      })) {
+    return {WorldMaterialKind::Energy, 0.42F, 0.0F, 0.22F, 0.18F};
+  }
+  if (containsAny({"oxid", "rust", "corrode"})) {
+    return {WorldMaterialKind::OxidizedMetal, 0.72F, 0.42F, 0.28F, 0.0F};
+  }
+  if (containsAny({"chain", "grate", "mesh"})) {
+    return {WorldMaterialKind::Chain, 0.48F, 0.68F, 0.48F, 0.0F};
+  }
+  if (containsAny({"tech", "panel", "trim", "machine"})) {
+    return {WorldMaterialKind::Tech, 0.38F, 0.44F, 0.52F, 0.01F};
+  }
+  if (containsAny({"metal", "steel", "iron", "chrome"})) {
+    return {WorldMaterialKind::Metal, 0.32F, 0.82F, 0.62F, 0.0F};
+  }
+  if (containsAny({
+        "stone", "brick", "tile", "roof", "basalt", "sandstone",
+        "concrete", "plaster",
+      })) {
+    return {WorldMaterialKind::Masonry, 0.88F, 0.0F, 0.10F, 0.0F};
+  }
+  if (containsAny({"wood", "timber", "plank"})) {
+    return {WorldMaterialKind::Wood, 0.82F, 0.0F, 0.12F, 0.0F};
+  }
+  return {};
+}
+
 [[nodiscard]] std::array<bool, Arena::kHealthPickupCount> allHealthPickupsAvailable() {
   std::array<bool, Arena::kHealthPickupCount> available = {};
   available.fill(true);
@@ -4641,6 +5140,23 @@ Scene3D buildPerspectiveScene(
     settings.fieldOfView,
     aspectRatio
   );
+  scene.lights.sunDirection = arena.sunLight.direction;
+  scene.lights.sunColor = arena.sunLight.color;
+  scene.lights.sunIntensity =
+    arena.sunLight.enabled ? arena.sunLight.intensity : 0.0F;
+  scene.lights.fillIntensity = kStaticLightAmbient;
+  scene.lights.exposure = std::clamp(settings.toneMapExposure, 0.25F, 4.0F);
+  scene.lights.gradeQuality =
+    std::clamp(settings.atmosphereGradeQuality, 0, 3);
+  scene.lights.materialQuality = std::clamp(settings.materialQuality, 0, 2);
+  scene.lights.playerRimQuality = std::clamp(settings.playerRimQuality, 0, 2);
+  scene.lights.shadow = arena.sunLight.enabled
+    ? buildSunShadowProjection(
+        scene.camera,
+        arena.sunLight.direction,
+        settings.sunShadowQuality
+      )
+    : SunShadowProjection{};
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
   scene.outlineMaskDraws.reserve(kDuelPlayerCount);
@@ -4873,7 +5389,7 @@ Scene3D buildPerspectiveScene(
             settings.playerOutlineStyle
           ),
           gltfPoseScratch,
-          gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment.emplace() : nullptr
+          gltfPlayerModel == &workerPlayerModel() ? &weaponAttachment : nullptr
         );
       }
     }
@@ -5055,6 +5571,8 @@ Scene3D buildPerspectiveScene(
       settings
     );
   }
+  scene.transientVfxStats.transparentEffectsSubmitted +=
+    scene.projectileStats.projectileGlowInstances;
   (void)rocketExplosions;
   (void)localLightningGun;
   finalizeStaticMeshBatches(scene);

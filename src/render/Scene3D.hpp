@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <limits>
 #include <span>
+#include <string_view>
 #include <vector>
 
 namespace lg {
@@ -20,6 +21,8 @@ struct Vertex3D {
   float u = 0.0F;
   float v = 0.0F;
   std::uint32_t materialId = 0;
+  Vec3 normal = {};
+  std::uint32_t materialSlot = 0;
 };
 
 // Material meshes retain authored normals and compact PBR parameters instead
@@ -153,6 +156,26 @@ struct SimpleRenderBatch {
   std::uint32_t instanceCount = 0;
 };
 
+[[nodiscard]] constexpr bool hasBloomSources(
+  std::span<const SimpleRenderBatch> batches
+) {
+  return std::any_of(
+    batches.begin(),
+    batches.end(),
+    [](const SimpleRenderBatch& batch) {
+      return batch.instanceCount > 0U &&
+        batch.pass == RenderPass::AdditiveGlow;
+    }
+  );
+}
+
+[[nodiscard]] constexpr bool effectiveBloom(
+  bool requested,
+  std::span<const SimpleRenderBatch> batches
+) {
+  return requested && hasBloomSources(batches);
+}
+
 struct TransientVfxStats {
   std::uint32_t activeEffects = 0;
   std::uint32_t activeMachineGunTracers = 0;
@@ -182,6 +205,7 @@ struct TransientVfxStats {
   std::uint32_t activeCasings = 0;
   std::uint32_t activeImpactParticles = 0;
   std::uint32_t activeBulletDecals = 0;
+  std::uint32_t transparentEffectsSubmitted = 0;
 };
 
 struct TemporaryLight {
@@ -190,6 +214,88 @@ struct TemporaryLight {
   float intensity = 0.0F;
   float radius = 0.0F;
 };
+
+struct SunShadowProjection {
+  Vec3 origin = {};
+  Vec3 right = {1.0F, 0.0F, 0.0F};
+  Vec3 up = {0.0F, 1.0F, 0.0F};
+  Vec3 forward = {0.0F, 0.0F, -1.0F};
+  float halfExtent = 32.0F;
+  float nearPlane = 0.0F;
+  float farPlane = 96.0F;
+  std::uint32_t mapSize = 0;
+  float depthBias = 0.0012F;
+  float normalBias = 0.018F;
+};
+
+struct SceneLightData {
+  Vec3 sunDirection = {0.35F, 0.45F, -0.82F};
+  Vec3 sunColor = {1.0F, 1.0F, 1.0F};
+  float sunIntensity = 0.0F;
+  Vec3 fillColor = {0.30F, 0.36F, 0.46F};
+  float fillIntensity = 0.0F;
+  float exposure = 1.0F;
+  int gradeQuality = 0;
+  int materialQuality = 2;
+  int playerRimQuality = 2;
+  SunShadowProjection shadow = {};
+};
+
+enum class WorldMaterialKind : std::uint8_t {
+  Generic = 0,
+  Metal,
+  OxidizedMetal,
+  Chain,
+  Tech,
+  Masonry,
+  Wood,
+  Energy,
+};
+
+struct WorldMaterialTraits {
+  WorldMaterialKind kind = WorldMaterialKind::Generic;
+  float roughness = 0.78F;
+  float metallic = 0.0F;
+  float specular = 0.18F;
+  float emissive = 0.0F;
+};
+
+struct WorldMaterialLightingPlan {
+  float diffuseScale = 1.0F;
+  float specularScale = 0.0F;
+  float emissiveScale = 0.0F;
+};
+
+[[nodiscard]] WorldMaterialTraits classifyWorldMaterial(
+  std::string_view materialPath
+);
+
+[[nodiscard]] constexpr WorldMaterialLightingPlan worldMaterialLightingPlan(
+  WorldMaterialTraits traits,
+  int quality
+) {
+  return {
+    1.0F,
+    quality <= 0
+      ? 0.0F
+      : traits.specular * (quality == 1 ? 0.55F : 1.0F),
+    traits.emissive,
+  };
+}
+
+[[nodiscard]] inline std::uint32_t antiAliasingSampleCount(int quality) {
+  return quality <= 0 ? 1U : quality == 1 ? 2U : 4U;
+}
+
+[[nodiscard]] inline std::uint32_t sunShadowMapSize(int quality) {
+  return quality <= 0 ? 0U : quality == 1 ? 1024U : 2048U;
+}
+
+[[nodiscard]] SunShadowProjection buildSunShadowProjection(
+  const PerspectiveCamera& camera,
+  Vec3 sunDirection,
+  int quality
+);
 
 struct StaticMeshInstance {
   MeshHandle mesh = MeshHandle::Invalid;
@@ -267,10 +373,27 @@ struct GltfPlayerModelRenderStats {
   std::uint32_t gpuSkinnedInstances = 0;
   std::uint32_t bodyBatches = 0;
   std::uint32_t bodyDrawCalls = 0;
+  std::uint32_t shadowCasterInstances = 0;
+  std::uint32_t shadowCasterDrawCalls = 0;
   std::uint32_t outlineMaskBatches = 0;
   std::uint32_t outlineMaskDrawCalls = 0;
   std::uint32_t legacyCpuSkinnedVertexUploadBytes = 0;
 };
+
+struct GltfShadowCasterPlan {
+  std::uint32_t instances = 0;
+  std::uint32_t drawCalls = 0;
+};
+
+[[nodiscard]] constexpr GltfShadowCasterPlan gltfShadowCasterPlan(
+  std::uint32_t instanceCount,
+  std::uint32_t primitiveDrawCalls,
+  std::uint32_t shadowMapSize
+) {
+  return shadowMapSize == 0U
+    ? GltfShadowCasterPlan{}
+    : GltfShadowCasterPlan{instanceCount, primitiveDrawCalls};
+}
 
 struct ViewModelRenderStats {
   std::uint32_t drawCalls = 0;
@@ -721,6 +844,7 @@ struct OutlineWorkPlan {
 
 struct Scene3D {
   PerspectiveCamera camera = {};
+  SceneLightData lights = {};
   std::vector<Vertex3D> vertices;
   std::vector<Vertex3D> contactShadowVertices;
   std::vector<Vertex3D> translucentVertices;
@@ -784,6 +908,10 @@ void appendCollisionDebugGeometry(
 [[nodiscard]] Vec3 rocketLauncherGripSocket();
 [[nodiscard]] Vec3 firstPersonRocketLauncherMuzzlePosition(
   const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 remoteRocketLauncherMuzzlePosition(
+  const RemotePlayerView& remote,
   const RenderSettings& settings
 );
 [[nodiscard]] Vec3 firstPersonFreezeGunMuzzlePosition(

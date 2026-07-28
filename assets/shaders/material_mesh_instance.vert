@@ -14,6 +14,7 @@ layout(location = 1) out vec3 viewDirection;
 layout(location = 2) out vec4 baseColor;
 layout(location = 3) out vec2 material;
 layout(location = 4) out vec3 worldPositionOut;
+layout(location = 5) out float viewDistance;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -23,6 +24,27 @@ layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 projection;
 } camera;
 
+invariant gl_Position;
+
+vec4 projectWorld(vec3 worldPosition) {
+  vec3 offset = worldPosition - camera.position.xyz;
+  float viewX = dot(offset, camera.right.xyz);
+  float viewY = dot(offset, camera.up.xyz);
+  float viewZ = dot(offset, camera.forward.xyz);
+  float focalLength = camera.projection.x;
+  float aspectRatio = camera.projection.y;
+  float nearPlane = camera.projection.z;
+  float farPlane = camera.projection.w;
+  float depthA = farPlane / (farPlane - nearPlane);
+  float depthB = -(nearPlane * farPlane) / (farPlane - nearPlane);
+  return vec4(
+    viewX * focalLength / aspectRatio,
+    viewY * focalLength,
+    depthA * viewZ + depthB,
+    viewZ
+  );
+}
+
 void main() {
   vec4 local = vec4(inPosition, 1.0);
   vec3 worldPosition = vec3(
@@ -30,19 +52,7 @@ void main() {
     dot(instanceModelRow1, local),
     dot(instanceModelRow2, local)
   );
-  vec3 offset = worldPosition - camera.position.xyz;
-  float viewX = dot(offset, camera.right.xyz);
-  float viewY = dot(offset, camera.up.xyz);
-  float viewZ = dot(offset, camera.forward.xyz);
-  float depthA = camera.projection.w / (camera.projection.w - camera.projection.z);
-  float depthB = -(camera.projection.z * camera.projection.w) /
-    (camera.projection.w - camera.projection.z);
-  gl_Position = vec4(
-    viewX * camera.projection.x / camera.projection.y,
-    viewY * camera.projection.x,
-    depthA * viewZ + depthB,
-    viewZ
-  );
+  gl_Position = projectWorld(worldPosition);
 
   worldNormal = normalize(vec3(
     dot(instanceModelRow0.xyz, inNormal),
@@ -53,4 +63,8 @@ void main() {
   baseColor = inBaseColor * instanceColor;
   material = inMaterial;
   worldPositionOut = worldPosition;
+  viewDistance = max(
+    dot(worldPosition - camera.position.xyz, camera.forward.xyz),
+    0.0
+  );
 }

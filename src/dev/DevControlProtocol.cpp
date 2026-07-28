@@ -73,6 +73,8 @@ namespace {
   if (name == "set_camera") return ControlOperation::SetCamera;
   if (name == "set_collision_debug") return ControlOperation::SetCollisionDebug;
   if (name == "capture_screenshot") return ControlOperation::CaptureScreenshot;
+  if (name == "arm_phase_capture") return ControlOperation::ArmPhaseCapture;
+  if (name == "collect_phase_capture") return ControlOperation::CollectPhaseCapture;
   if (name == "capture_map_views") return ControlOperation::CaptureMapViews;
   if (name == "exec_console") return ControlOperation::ExecConsole;
   if (name == "get_cvar") return ControlOperation::GetCvar;
@@ -203,8 +205,54 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
   request.mapName = stringMember(root, "map").value_or("");
   request.presetName = stringMember(root, "preset").value_or("");
   request.captureName = stringMember(root, "name").value_or("");
+  request.capturePhase = stringMember(root, "phase").value_or("");
   request.hideHud = boolMember(root, "hide_hud").value_or(true);
   request.hideOverlays = boolMember(root, "hide_overlays").value_or(true);
+
+  if (request.operation == ControlOperation::ArmPhaseCapture) {
+    if (!hasOnlyMembers(
+          root,
+          {
+            "id",
+            "control_protocol",
+            "operation",
+            "name",
+            "phase",
+            "hide_hud",
+            "hide_overlays",
+          })) {
+      return {{}, false, "arm_phase_capture contains an unknown parameter"};
+    }
+    if ((root.find("hide_hud") != nullptr &&
+         root.find("hide_hud")->type != JsonValue::Type::Boolean) ||
+        (root.find("hide_overlays") != nullptr &&
+         root.find("hide_overlays")->type != JsonValue::Type::Boolean)) {
+      return {{}, false, "hide_hud and hide_overlays must be booleans"};
+    }
+    if (!isSafeCaptureName(request.captureName)) {
+      return {{}, false, "capture name may only use letters, numbers, _ and -"};
+    }
+    if (request.capturePhase != "local_rocket_launcher_muzzle" &&
+        request.capturePhase != "local_rocket_launcher_projectile" &&
+        request.capturePhase != "local_rocket_launcher_impact") {
+      return {
+        {},
+        false,
+        "phase must name a local Rocket Launcher muzzle, projectile, "
+        "or impact frame",
+      };
+    }
+  }
+  if (request.operation == ControlOperation::CollectPhaseCapture) {
+    if (!hasOnlyMembers(
+          root,
+          {"id", "control_protocol", "operation", "name"})) {
+      return {{}, false, "collect_phase_capture contains an unknown parameter"};
+    }
+    if (!isSafeCaptureName(request.captureName)) {
+      return {{}, false, "capture name may only use letters, numbers, _ and -"};
+    }
+  }
 
   if (request.operation == ControlOperation::ExecConsole) {
     request.consoleCommand = stringMember(root, "command").value_or("");

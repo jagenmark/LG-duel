@@ -43,49 +43,85 @@
           {
             "name": "lower-central-route",
             "label": "Lower central route from a preserved deathmatch spawn",
-            "position": [-2.0, -3.8, 7.65],
-            "yaw": 270.0,
-            "pitch": 0.0,
-            "fov": 105.0,
+              "position": [-2.0, -3.8, 9.5],
+              "yaw": 270.0,
+              "pitch": -8.0,
+              "fov": 90.0,
             "hide_hud": true,
             "hide_overlays": true
           },
           {
             "name": "upper-north-crossing",
             "label": "Upper north platform and crossing from a high spawn",
-            "position": [16.0, 33.6, 24.05],
-            "yaw": 270.0,
-            "pitch": -5.0,
-            "fov": 105.0,
+              "position": [16.0, 33.6, 25.5],
+              "yaw": 90.0,
+              "pitch": -6.0,
+              "fov": 85.0,
             "hide_hud": true,
             "hide_overlays": true
           },
           {
             "name": "south-launch-route",
             "label": "Southern route looking toward the imported launch structure",
-            "position": [16.0, -45.2, 10.85],
-            "yaw": 90.0,
-            "pitch": 0.0,
-            "fov": 105.0,
+              "position": [12.0, -42.0, 12.5],
+              "yaw": 78.0,
+              "pitch": -8.0,
+              "fov": 85.0,
             "hide_hud": true,
             "hide_overlays": true
           },
           {
             "name": "teleporter-approach",
             "label": "Western approach into the restored teleport trigger",
-            "position": [-28.0, -24.0, 6.6],
-            "yaw": 180.0,
-            "pitch": -4.0,
-            "fov": 100.0,
+              "position": [-26.0, -24.0, 7.0],
+              "yaw": 130.0,
+              "pitch": -16.0,
+              "fov": 78.0,
             "hide_hud": true,
             "hide_overlays": true
           },
           {
             "name": "teleporter-exit",
             "label": "Restored northeast teleport exit and amber route marker",
-            "position": [27.0, 48.0, 9.0],
-            "yaw": 45.0,
-            "pitch": -8.0,
+            "position": [24.0, 43.0, 10.0],
+            "yaw": 58.0,
+            "pitch": -16.0,
+            "fov": 85.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          }
+        ]
+      }
+    },
+    "thunderstruck": {
+      "presets": {
+        "graphics-review": [
+          {
+            "name": "lower-pad",
+            "label": "Lower spawn toward the jump pad and central route",
+            "position": [-0.6, 2.2, -30.85],
+            "yaw": 270.0,
+            "pitch": -3.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "upper-lane",
+            "label": "West upper spawn down the long lane",
+            "position": [-11.8, -0.6, -22.85],
+            "yaw": 270.0,
+            "pitch": 0.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "south-landmark",
+            "label": "South spawn toward the high southwest landmark",
+            "position": [15.6, -36.4, -25.6],
+            "yaw": 135.0,
+            "pitch": -6.0,
             "fov": 100.0,
             "hide_hud": true,
             "hide_overlays": true

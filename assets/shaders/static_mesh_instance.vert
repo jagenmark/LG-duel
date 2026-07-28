@@ -10,6 +10,7 @@ layout(location = 5) in vec4 instanceModelRow2;
 layout(location = 6) in vec4 instanceColor;
 
 layout(location = 0) out vec4 vertexColor;
+layout(location = 1) out float viewDistance;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -18,6 +19,8 @@ layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 forward;
   vec4 projection;
 } camera;
+
+invariant gl_Position;
 
 vec4 projectWorld(vec3 worldPosition) {
   vec3 offset = worldPosition - camera.position.xyz;
@@ -47,4 +50,8 @@ void main() {
   );
   gl_Position = projectWorld(worldPosition);
   vertexColor = inColor * instanceColor;
+  viewDistance = max(
+    dot(worldPosition - camera.position.xyz, camera.forward.xyz),
+    0.0
+  );
 }

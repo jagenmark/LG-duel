@@ -34,13 +34,15 @@ class PerformancePolicyError(ValueError):
 _POLICY_KEYS = {"schema_version", "policy_version", "profiles"}
 _PROFILE_KEYS = {
     "expected_scenarios", "required_repetitions", "minimum_valid_runs", "stability_cv_percent",
-    "gpu_required", "comparability", "metrics", "hard_limits", "correctness",
+    "gpu_required", "optional_diagnostics_affect_outcome", "comparability", "metrics",
+    "hard_limits", "correctness",
 }
 _COMPARABILITY_KEYS = {"fatal", "warning", "info"}
 _METRIC_KEYS = {
     "source", "statistic", "label", "unit", "direction", "required",
     "warn_relative_percent", "warn_absolute", "fail_relative_percent",
-    "fail_absolute", "stability_cv_percent", "scenarios",
+    "fail_absolute", "relative_cap_percent", "absolute_measurement_floor",
+    "stability_cv_percent", "scenarios",
 }
 _LIMIT_KEYS = {"field", "label", "required", "maximum", "minimum", "equals"}
 _FIELD_KEYS = {"path", "label", "required", "equals"}
@@ -89,8 +91,11 @@ def load_policy(path: str | Path, profile: str) -> dict[str, Any]:
     if root.get("policy_version") != 1:
         raise PerformancePolicyError(f"unsupported policy version: {root.get('policy_version')!r}")
     profiles = _object(root.get("profiles"), "profiles")
-    if set(profiles) != {"pr_headless", "trusted_gpu"}:
-        raise PerformancePolicyError("profiles must contain exactly pr_headless and trusted_gpu")
+    required_profiles = {"pr_headless", "trusted_gpu", "trusted_gpu_competitive"}
+    if set(profiles) != required_profiles:
+        raise PerformancePolicyError(
+            "profiles must contain exactly pr_headless, trusted_gpu, and trusted_gpu_competitive"
+        )
     if profile not in profiles:
         raise PerformancePolicyError(f"unknown policy profile: {profile}")
     normalized = _validate_profile(profiles[profile], profile)
@@ -115,6 +120,10 @@ def _validate_profile(raw: Any, name: str) -> dict[str, Any]:
     stability = _finite_number(value["stability_cv_percent"], f"profiles.{name}.stability_cv_percent", minimum=0)
     if not isinstance(value["gpu_required"], bool):
         raise PerformancePolicyError(f"profiles.{name}.gpu_required must be a boolean")
+    if not isinstance(value["optional_diagnostics_affect_outcome"], bool):
+        raise PerformancePolicyError(
+            f"profiles.{name}.optional_diagnostics_affect_outcome must be a boolean"
+        )
     comp = _object(value["comparability"], f"profiles.{name}.comparability")
     _closed(comp, _COMPARABILITY_KEYS, f"profiles.{name}.comparability")
     if set(comp) != _COMPARABILITY_KEYS:
@@ -141,6 +150,7 @@ def _validate_profile(raw: Any, name: str) -> dict[str, Any]:
         "expected_scenarios": scenarios, "required_repetitions": repetitions,
         "minimum_valid_runs": minimum_runs,
         "stability_cv_percent": stability, "gpu_required": value["gpu_required"],
+        "optional_diagnostics_affect_outcome": value["optional_diagnostics_affect_outcome"],
         "comparability": comparability, "metrics": metrics,
         "hard_limits": hard_limits, "correctness": correctness,
     }
@@ -172,6 +182,21 @@ def _validate_metric(name: str, raw: Any) -> dict[str, Any]:
         raise PerformancePolicyError(f"metrics.{name} fail thresholds must not be below warn thresholds")
     if "stability_cv_percent" in result:
         result["stability_cv_percent"] = _finite_number(result["stability_cv_percent"], f"metrics.{name}.stability_cv_percent", minimum=0)
+    cap_present = "relative_cap_percent" in result
+    floor_present = "absolute_measurement_floor" in result
+    if cap_present != floor_present:
+        raise PerformancePolicyError(
+            f"metrics.{name} must define relative_cap_percent and absolute_measurement_floor together"
+        )
+    if cap_present:
+        result["relative_cap_percent"] = _finite_number(
+            result["relative_cap_percent"],
+            f"metrics.{name}.relative_cap_percent", minimum=0,
+        )
+        result["absolute_measurement_floor"] = _finite_number(
+            result["absolute_measurement_floor"],
+            f"metrics.{name}.absolute_measurement_floor", minimum=0,
+        )
     if "scenarios" in result:
         result["scenarios"] = _string_list(result["scenarios"], f"metrics.{name}.scenarios")
     return result
@@ -409,6 +434,17 @@ def _metric_status(delta: float, relative: float | None, rule: dict[str, Any]) -
     relative_regression = relative if rule["direction"] == "lower" else (-relative if relative is not None else None)
     if regression <= 0:
         return "PASS"
+    if "relative_cap_percent" in rule:
+        # The cap is a hard, inclusive GPU budget.  A tiny absolute shift above
+        # it cannot establish a timing regression, so callers must remeasure.
+        # A zero baseline has no useful ratio and continues through the normal
+        # absolute-limit path below.
+        if relative_regression is not None:
+            if relative_regression <= rule["relative_cap_percent"] + 1e-9:
+                return "PASS"
+            if regression <= rule["absolute_measurement_floor"]:
+                return "INCONCLUSIVE"
+            return "FAIL"
     # A zero baseline has no useful ratio; absolute limits alone decide it.
     if relative_regression is None:
         if regression > rule["fail_absolute"]:
@@ -441,7 +477,8 @@ def _evaluate_limits(candidate: dict[str, Any], policy: dict[str, Any]) -> list[
         checks.append({
             "label": rule["label"], "field": rule["field"], "status": status,
             "observed": None if observed is _MISSING else observed,
-            "limit": rule.get("maximum", rule.get("minimum", rule.get("equals"))), "reason": reason,
+            "limit": rule.get("maximum", rule.get("minimum", rule.get("equals"))),
+            "reason": reason, "required": rule["required"],
         })
     for rule in policy["correctness"]:
         values = _all_path_values(candidate, rule["path"])
@@ -454,7 +491,8 @@ def _evaluate_limits(candidate: dict[str, Any], policy: dict[str, Any]) -> list[
             status, reason = ("FAIL", "correctness check failed") if failed else ("PASS", "")
         checks.append({
             "label": rule["label"], "field": rule["path"], "status": status,
-            "observed": None if observed is _MISSING else observed, "limit": rule["equals"], "reason": reason,
+            "observed": None if observed is _MISSING else observed, "limit": rule["equals"],
+            "reason": reason, "required": rule["required"],
         })
     return checks
 
@@ -490,7 +528,11 @@ def compare_result_sets(
             output["comparability"][level].extend({"scenario": scenario, **item} for item in compared[level])
         checks = _evaluate_limits(right, policy)
         output["correctness"].extend({"scenario": scenario, **item} for item in checks)
-        statuses.extend(item["status"] for item in checks)
+        statuses.extend(
+            item["status"] for item in checks
+            if item["required"] or policy["optional_diagnostics_affect_outcome"]
+            or item["status"] not in {"UNAVAILABLE", "INCONCLUSIVE"}
+        )
         if compared["fatal"]:
             for metric_name, rule in policy["metrics"].items():
                 output["metrics"].append({
@@ -517,7 +559,11 @@ def compare_result_sets(
                 item = {"scenario": scenario, "name": metric_name, "label": rule["label"], "unit": rule["unit"],
                         "status": status, "reason": reason, "baseline": None, "candidate": None}
                 output["metrics"].append(item)
-                statuses.append(status)
+                if (
+                    rule["required"] or policy["optional_diagnostics_affect_outcome"]
+                    or status not in {"UNAVAILABLE", "INCONCLUSIVE"}
+                ):
+                    statuses.append(status)
                 if status == "UNAVAILABLE":
                     output["unavailable"].append(f"{scenario}: {metric_name}")
                 continue
@@ -543,7 +589,11 @@ def compare_result_sets(
                 "baseline_statistics": left_stats, "candidate_statistics": right_stats,
             }
             output["metrics"].append(item)
-            statuses.append(status)
+            if (
+                rule["required"] or policy["optional_diagnostics_affect_outcome"]
+                or status not in {"UNAVAILABLE", "INCONCLUSIVE"}
+            ):
+                statuses.append(status)
             if status == "INCONCLUSIVE":
                 output["inconclusive"].append(f"{scenario}: {metric_name}")
     if "FAIL" in statuses:

@@ -11,6 +11,8 @@
   "vsync": false,
   "frame_cap": 0,
   "fov": 100.0,
+  "graphics_profile": "Default",
+  "render_scale": 1.0,
   "warmup_seconds": 2.0,
   "measured_seconds": 5.0,
   "camera_start": {

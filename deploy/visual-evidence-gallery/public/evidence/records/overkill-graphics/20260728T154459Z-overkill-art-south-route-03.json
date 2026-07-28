@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T154459Z-overkill-art-south-route-03",
+  "captured_at": "2026-07-28T15:44:59Z",
+  "captured_by": "codex-primary-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The relit south launch route with its main path and lower branch.",
+  "image": "20260728T154459Z-overkill-art-south-route-03.png",
+  "review": {
+    "notes": "The main route and lower branch read clearly, and the wall detail remains useful.",
+    "reviewed_at": "2026-07-28T15:52:02Z",
+    "reviewer": "overkill-final-reviewer-codex-v2",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "9a14ca747961f2c199b6230509e435769f3ebb7a8e7bfbd7e9593351811db954",
+  "size_bytes": 9217968,
+  "task_id": "overkill-graphics",
+  "title": "Overkill south launch route"
+}

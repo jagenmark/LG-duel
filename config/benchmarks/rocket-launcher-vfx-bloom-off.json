@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "rocket-launcher-vfx-bloom-off",
+  "labels": ["rocket-launcher", "authoritative-combat", "full-effects", "bloom-off", "fixed-camera"],
+  "map": "eyetoeye",
+  "backend_requirement": "gpu",
+  "resolution": [1280, 720],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 240,
+  "fov": 100.0,
+  "warmup_seconds": 3.0,
+  "measured_seconds": 8.0,
+  "camera_start": {"position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0},
+  "camera_path": [
+    {"progress": 0.0, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0},
+    {"progress": 1.0, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0}
+  ],
+  "player_state": {"alive": true, "weapon": "rocket_launcher", "attack": true, "hide_hud": true, "hide_overlays": true},
+  "actors": {
+    "bots": 5,
+    "weapon": "rl",
+    "attack_mode": "hard",
+    "stare": true,
+    "standstill": false,
+    "dodge": true,
+    "dodge_min_ms": 250,
+    "dodge_max_ms": 750,
+    "expected_count": 6,
+    "commands": ["bot_weapon rl", "bot_add 5", "bot_attack hard", "bot_stare 1", "bot_standstill 0", "bot_dodge 1 250 750"]
+  },
+  "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
+  "cvars": {
+    "r_frustum_cull": 1,
+    "r_show_weapons": 1,
+    "r_player_model": 1,
+    "r_draw_player_outlines": 1,
+    "r_combat_effects": 2,
+    "r_bloom": 0
+  },
+  "screenshots": [
+    {"name": "rocket-load-early", "progress": 0.2},
+    {"name": "rocket-load-mid", "progress": 0.5},
+    {"name": "rocket-load-late", "progress": 0.8}
+  ],
+  "residual_nondeterminism": [
+    "This uses real player and bot Rocket Launcher fire. Live bot aim, movement, hits, and deaths vary with match state, so compare repeated same-host aggregates and inspect the recorded actor, projectile, and effect counts."
+  ]
+}

@@ -45,6 +45,17 @@ SDL_CONFIGURATION_OPTIONS = {
     "LG_DUEL_USE_PATCHED_SDL3",
 }
 
+GRAPHICS_CONTRACT_CVARS = {
+    "r_antialiasing": "anti_aliasing",
+    "r_sun_shadows": "sun_shadow_quality",
+    "r_contact_shadows": "contact_shadows",
+    "r_material_quality": "material_quality",
+    "r_player_rim": "rim_quality",
+    "r_atmosphere_grade": "atmosphere_grade",
+    "r_bloom": "bloom",
+    "r_render_scale": "render_scale",
+}
+
 
 class BenchmarkError(RuntimeError):
     """An actionable benchmark input, execution, or artifact error."""
@@ -661,6 +672,23 @@ def _native_summary(summary: dict[str, Any]) -> dict[str, Any]:
     return {"frame_ms": frame} if frame else dict(summary)
 
 
+def graphics_contract_from_native(native: dict[str, Any], profile: str) -> dict[str, Any]:
+    """Read the effective contract from the native client before it restores cvars."""
+    effective = native.get("effective_cvars")
+    if not isinstance(effective, dict):
+        raise BenchmarkError("native benchmark result is missing effective_cvars")
+    contract: dict[str, Any] = {"profile": profile, "effective_cvars": {}}
+    for cvar, field in GRAPHICS_CONTRACT_CVARS.items():
+        value = effective.get(cvar)
+        if not isinstance(value, str) or not value:
+            raise BenchmarkError(
+                f"native benchmark result is missing effective graphics cvar {cvar}"
+            )
+        contract[field] = value
+        contract["effective_cvars"][cvar] = value
+    return contract
+
+
 def _telemetry_metrics(path: Path, *, prefix: str = "") -> dict[str, Any]:
     try:
         with path.open("r", encoding="utf-8", newline="") as stream:
@@ -687,14 +715,18 @@ def _telemetry_metrics(path: Path, *, prefix: str = "") -> dict[str, Any]:
 
 def _normalize_native_result(response: dict[str, Any], run_dir: Path, run_id: str) -> dict[str, Any]:
     source = response
-    if not isinstance(response.get("summary"), dict) and isinstance(response.get("result_path"), str):
+    if isinstance(response.get("result_path"), str):
         native_path = _safe_artifact_path(response["result_path"], run_dir)
         try:
             loaded = json.loads(native_path.read_text(encoding="utf-8"))
             if isinstance(loaded, dict):
                 source = {**loaded, **response}
         except (OSError, json.JSONDecodeError) as error:
-            raise BenchmarkError(f"could not read native benchmark result {native_path}: {error}") from error
+            # A control response may already carry a complete summary.  Keep
+            # that current result usable if an optional artifact cannot be
+            # read, but still fail when the artifact is the only summary.
+            if not isinstance(response.get("summary"), dict):
+                raise BenchmarkError(f"could not read native benchmark result {native_path}: {error}") from error
     raw_summary = source.get("summary", {})
     if not isinstance(raw_summary, dict):
         raise BenchmarkError("native benchmark response summary must be an object")
@@ -738,6 +770,11 @@ def _normalize_native_result(response: dict[str, Any], run_dir: Path, run_id: st
             for shot in screenshots
         ]
     result["native"] = {key: value for key, value in source.items() if key not in {"samples"}}
+    # New renderers may publish per-pass diagnostics.  Older native artifacts
+    # omit this key, which remains valid and comparable under existing policy.
+    diagnostics = source.get("render_pass_diagnostics")
+    if isinstance(diagnostics, dict):
+        result["render_pass_diagnostics"] = diagnostics
     return result
 
 
@@ -760,6 +797,7 @@ def render_report(result: dict[str, Any]) -> str:
               f"- Commit: `{git.get('commit', 'unknown')}` (dirty: {git.get('dirty', 'unknown')})",
               f"- Host: {environment.get('os', 'unknown')} / {environment.get('cpu', 'unknown')} / {environment.get('logical_cores', 'unknown')} logical cores",
               f"- Build mode: {environment.get('build_mode', 'unknown')}",
+              f"- Executable SHA-256: `{environment.get('executable_sha256', 'unknown')}`",
               f"- Renderer: {environment.get('renderer', 'unknown')} / requested {settings.get('backend', 'unknown')} / resolution {settings.get('resolution', 'unknown')}",
               f"- Protocol/benchmark version: {environment.get('protocol_version', 'unknown')}",
               f"- Started/completed: {result.get('started_at', 'unknown')} / {result.get('completed_at', 'unknown')}",
@@ -819,6 +857,7 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
         "launch_mode": "attached" if not start_client else "owned-or-attached",
     }
     runs: list[dict[str, Any]] = []
+    graphics_contracts: list[dict[str, Any]] = []
     for index in range(1, repetitions + 1):
         run_id = f"run-{index}"
         run_dir = result_dir / run_id
@@ -829,6 +868,14 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
         except ControlError as error:
             raise BenchmarkError(f"{run_id} failed: {error}; partial artifacts remain at {result_dir}") from error
         normalized = _normalize_native_result(response, run_dir, run_id)
+        try:
+            contract = graphics_contract_from_native(
+                normalized["native"], scenario.get("graphics_profile", "Default")
+            )
+        except BenchmarkError as error:
+            raise BenchmarkError(f"{run_id} did not attest its applied graphics contract: {error}") from error
+        normalized["graphics_contract"] = contract
+        graphics_contracts.append(contract)
         _attach_run_conditions(normalized, run_conditions)
         _write_json(run_dir / "orchestration.json", normalized)
         runs.append(normalized)
@@ -839,6 +886,9 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     environment["observed_resolution"] = observed_native.get("actual_resolution")
     environment["selected_present_mode"] = observed_native.get("selected_present_mode")
     map_content_hash = observed_native.get("map_content_hash")
+    graphics_contract = graphics_contracts[0]
+    if any(contract != graphics_contract for contract in graphics_contracts[1:]):
+        raise BenchmarkError("benchmark repetitions reported different applied graphics contracts")
     result = {
         "schema_version": RESULT_SCHEMA_VERSION, "scenario": scenario, "scenario_path": str(scenario_path),
         "scenario_hash": digest, "result_directory": str(result_dir), "started_at": started_at,
@@ -848,6 +898,9 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
             "window_mode": "fullscreen" if scenario["fullscreen"] else "windowed",
             "vsync": scenario["vsync"], "frame_cap": scenario["frame_cap"], "fov": scenario["fov"],
             "presentation_cvars": scenario["cvars"],
+            "graphics_profile": scenario.get("graphics_profile", "Default"),
+            "render_scale": scenario.get("render_scale", 1.0),
+            "graphics_contract": graphics_contract,
         }, "map_content_hash": map_content_hash, "runs": runs, "aggregate": aggregate,
     }
     _write_json(result_dir / "aggregate.json", result)
@@ -855,10 +908,19 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     return result
 
 
-def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: str = "overkill_import",
-                             warmup_batches: int = 5, measured_batches: int = 40,
-                             operations_per_batch: int = 256, timeout: float = DEFAULT_TIMEOUT,
-                             force_linear: bool = False, build_mode: str = "release") -> dict[str, Any]:
+def run_simulation_benchmark(
+    workload: str,
+    *,
+    repetitions: int = 5,
+    map_name: str = "overkill_import",
+    map_directory: str | Path | None = None,
+    warmup_batches: int = 5,
+    measured_batches: int = 40,
+    operations_per_batch: int = 256,
+    timeout: float = DEFAULT_TIMEOUT,
+    force_linear: bool = False,
+    build_mode: str = "release",
+) -> dict[str, Any]:
     if workload not in {"movement-collision", "trace-projectile"}:
         raise BenchmarkError("simulation workload must be movement-collision or trace-projectile")
     validate_safe_name(map_name, "map")
@@ -866,6 +928,15 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     warmup_batches = _positive_int(warmup_batches, "warmup batches")
     measured_batches = _positive_int(measured_batches, "measured batches")
     operations_per_batch = _positive_int(operations_per_batch, "operations per batch")
+    resolved_map_directory = (
+        Path(map_directory).expanduser().resolve()
+        if map_directory is not None
+        else (REPO_ROOT / "maps").resolve()
+    )
+    if not resolved_map_directory.is_dir():
+        raise BenchmarkError(
+            f"simulation benchmark map directory not found: {resolved_map_directory}"
+        )
     build_dir, preset = benchmark_build(build_mode)
     executable_name = "lg_duel_sim_benchmark.exe" if os.name == "nt" else "lg_duel_sim_benchmark"
     executable = build_dir / executable_name
@@ -885,7 +956,7 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     result_dir.mkdir(parents=True)
     command = [
         str(executable), "--workload", workload, "--map", map_name,
-        "--map-directory", str(REPO_ROOT / "maps"), "--output", str(result_dir),
+        "--map-directory", str(resolved_map_directory), "--output", str(result_dir),
         "--repetitions", str(repetitions), "--warmup-batches", str(warmup_batches),
         "--measured-batches", str(measured_batches), "--operations-per-batch", str(operations_per_batch),
     ]

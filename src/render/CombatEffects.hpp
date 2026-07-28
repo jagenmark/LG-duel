@@ -16,6 +16,12 @@ enum class ImpactSurfaceCategory : std::uint8_t {
   Energy,
 };
 
+enum class MuzzleAttachment : std::uint8_t {
+  MachineGun = 0,
+  RocketLauncher,
+  Count,
+};
+
 struct CombatEffectsTuning {
   int quality = 2;
   float muzzleLightIntensity = 2.4F;
@@ -47,6 +53,20 @@ struct MachineGunShotEffectsRequest {
   bool hitWorld = false;
 };
 
+struct RocketLauncherShotEffectsRequest {
+  Vec3 muzzlePosition = {};
+  Vec3 muzzleForward = {1.0F, 0.0F, 0.0F};
+  Vec3 muzzleUp = {0.0F, 0.0F, 1.0F};
+  std::uint32_t visualSeed = 0;
+  std::uint8_t ownerIndex = 0;
+};
+
+struct RocketExplosionEffectsRequest {
+  Vec3 position = {};
+  float radius = 3.0F;
+  std::uint32_t visualSeed = 0;
+};
+
 struct CombatEffectsStats {
   std::uint32_t activeLights = 0;
   std::uint32_t activeCasings = 0;
@@ -57,7 +77,49 @@ struct CombatEffectsStats {
   std::uint32_t peakParticles = 0;
   std::uint32_t peakDecals = 0;
   std::uint64_t shotsSpawned = 0;
+  std::uint64_t rocketShotsSpawned = 0;
+  std::uint64_t rocketExplosionsSpawned = 0;
   std::uint64_t effectsDropped = 0;
+};
+
+// Accepted combat events repeat across snapshot frames. This fixed history
+// keeps presentation work at one spawn per event without growing containers.
+class CombatEffectEventHistory {
+public:
+  static constexpr std::size_t kWeaponFireCapacity = 64;
+  static constexpr std::size_t kExplosionCapacity = 64;
+
+  void clear();
+  [[nodiscard]] bool acceptWeaponFire(
+    std::uint8_t playerIndex,
+    Weapon weapon,
+    std::uint32_t visualSeed
+  );
+  [[nodiscard]] bool acceptExplosion(
+    std::uint8_t ownerIndex,
+    std::uint32_t sequence
+  );
+
+private:
+  struct WeaponFireEvent {
+    std::uint8_t playerIndex = 0;
+    Weapon weapon = Weapon::LightningGun;
+    std::uint32_t visualSeed = 0;
+    bool active = false;
+  };
+
+  struct ExplosionEvent {
+    std::uint8_t ownerIndex = 0;
+    std::uint32_t sequence = 0;
+    bool active = false;
+  };
+
+  std::array<WeaponFireEvent, kWeaponFireCapacity> weaponFires_ = {};
+  std::array<ExplosionEvent, kExplosionCapacity> explosions_ = {};
+  std::array<bool, kDuelPlayerCount> hasLastExplosionSequence_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> lastExplosionSequence_ = {};
+  std::size_t nextWeaponFire_ = 0;
+  std::size_t nextExplosion_ = 0;
 };
 
 // Fixed pools keep automatic fire free of per-shot heap work. This system owns
@@ -75,7 +137,20 @@ public:
     const MachineGunShotEffectsRequest& request,
     const CombatEffectsTuning& tuning
   );
+  void spawnRocketLauncherShot(
+    const RocketLauncherShotEffectsRequest& request,
+    const CombatEffectsTuning& tuning
+  );
+  void spawnRocketExplosion(
+    const RocketExplosionEffectsRequest& request,
+    const CombatEffectsTuning& tuning
+  );
   void setMuzzleAttachment(std::uint8_t ownerIndex, Vec3 position);
+  void setMuzzleAttachment(
+    std::uint8_t ownerIndex,
+    MuzzleAttachment attachment,
+    Vec3 position
+  );
   void appendActive(std::vector<TransientEffect>& destination) const;
 
   [[nodiscard]] CombatEffectsStats stats() const;
@@ -85,6 +160,8 @@ public:
   struct PoolEntry {
     TransientEffect effect = {};
     std::uint64_t serial = 0;
+    MuzzleAttachment attachment = MuzzleAttachment::MachineGun;
+    std::uint8_t expiryGraceState = 0;
     bool active = false;
   };
 
@@ -96,10 +173,18 @@ private:
   Pool<kCasingCapacity> casings_ = {};
   Pool<kParticleCapacity> particles_ = {};
   Pool<kDecalCapacity> decals_ = {};
-  std::array<Vec3, kDuelPlayerCount> muzzleAttachments_ = {};
-  std::array<bool, kDuelPlayerCount> hasMuzzleAttachment_ = {};
+  std::array<
+    std::array<Vec3, kDuelPlayerCount>,
+    static_cast<std::size_t>(MuzzleAttachment::Count)
+  > muzzleAttachments_ = {};
+  std::array<
+    std::array<bool, kDuelPlayerCount>,
+    static_cast<std::size_t>(MuzzleAttachment::Count)
+  > hasMuzzleAttachment_ = {};
   std::uint64_t nextSerial_ = 1;
   std::uint64_t shotsSpawned_ = 0;
+  std::uint64_t rocketShotsSpawned_ = 0;
+  std::uint64_t rocketExplosionsSpawned_ = 0;
   std::uint64_t effectsDropped_ = 0;
   CombatEffectsStats peaks_ = {};
 };

@@ -12,6 +12,7 @@ layout(location = 7) in vec4 instanceColor;
 layout(location = 8) in float instancePhase;
 
 layout(location = 0) out vec4 vertexColor;
+layout(location = 1) out float viewDistance;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -50,6 +51,11 @@ void main() {
   vec3 side = vec3(-yawS, yawC, 0.0);
   vec3 up = vec3(-yawC * pitchS, -yawS * pitchS, pitchC);
   vec3 rotated = forward * scaled.x + side * scaled.y + up * scaled.z;
-  gl_Position = projectWorld(instancePosition + rotated);
+  vec3 worldPosition = instancePosition + rotated;
+  gl_Position = projectWorld(worldPosition);
   vertexColor = inColor * instanceColor;
+  viewDistance = max(
+    dot(worldPosition - camera.position.xyz, camera.forward.xyz),
+    0.0
+  );
 }

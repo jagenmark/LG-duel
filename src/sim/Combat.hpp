@@ -204,11 +204,22 @@ struct RocketExplosionResult {
   Weapon weapon = Weapon::RocketLauncher;
 };
 
+enum class WorldTraceSource : std::uint8_t {
+  None = 0,
+  ArenaBounds,
+  Wall,
+  Brush,
+};
+
 struct WorldTrace {
   Vec3 start = {};
   Vec3 end = {};
   Vec3 normal = {};
   float distance = 0.0F;
+  std::uint32_t materialId = 0;
+  std::uint32_t sourceIndex = kInvalidSourceGeometryIndex;
+  std::uint8_t faceIndex = UINT8_MAX;
+  WorldTraceSource source = WorldTraceSource::None;
   bool hit = false;
 };
 

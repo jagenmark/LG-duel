@@ -6,7 +6,6 @@ layout(location = 2) in vec2 inTexCoord;
 layout(location = 3) in vec4 inColor;
 layout(location = 4) in uvec4 inJoints;
 layout(location = 5) in vec4 inWeights;
-
 layout(location = 6) in vec4 instanceModelRow0;
 layout(location = 7) in vec4 instanceModelRow1;
 layout(location = 8) in vec4 instanceModelRow2;
@@ -16,8 +15,14 @@ layout(location = 11) in uint instanceBoneCount;
 layout(location = 12) in uint instanceFlags;
 layout(location = 13) in vec4 inTintMask;
 
-layout(location = 0) out vec4 vertexColor;
-layout(location = 1) out float viewDistance;
+layout(location = 0) out vec4 baseColor;
+layout(location = 1) out vec4 teamTint;
+layout(location = 2) out float tintWeight;
+layout(location = 3) out vec3 worldPositionOut;
+layout(location = 4) out vec3 worldNormalOut;
+layout(location = 5) out float viewDistance;
+layout(location = 6) flat out uint rimQuality;
+layout(location = 7) out vec3 viewDirection;
 
 layout(set = 0, binding = 0, std430) readonly buffer BoneRows {
   vec4 rows[];
@@ -31,24 +36,7 @@ layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 projection;
 } camera;
 
-vec4 projectWorld(vec3 worldPosition) {
-  vec3 offset = worldPosition - camera.position.xyz;
-  float viewX = dot(offset, camera.right.xyz);
-  float viewY = dot(offset, camera.up.xyz);
-  float viewZ = dot(offset, camera.forward.xyz);
-  float focalLength = camera.projection.x;
-  float aspectRatio = camera.projection.y;
-  float nearPlane = camera.projection.z;
-  float farPlane = camera.projection.w;
-  float depthA = farPlane / (farPlane - nearPlane);
-  float depthB = -(nearPlane * farPlane) / (farPlane - nearPlane);
-  return vec4(
-    viewX * focalLength / aspectRatio,
-    viewY * focalLength,
-    depthA * viewZ + depthB,
-    viewZ
-  );
-}
+invariant gl_Position;
 
 vec3 transformBonePoint(uint bone, vec3 point) {
   uint row = (instanceFirstBone + bone) * 4u;
@@ -100,33 +88,32 @@ void main() {
     dot(instanceModelRow1, local),
     dot(instanceModelRow2, local)
   );
-  vec4 normalLocal = vec4(normalize(localNormal), 0.0);
+  vec4 localNormal4 = vec4(normalize(localNormal), 0.0);
   vec3 worldNormal = normalize(vec3(
-    dot(instanceModelRow0, normalLocal),
-    dot(instanceModelRow1, normalLocal),
-    dot(instanceModelRow2, normalLocal)
+    dot(instanceModelRow0, localNormal4),
+    dot(instanceModelRow1, localNormal4),
+    dot(instanceModelRow2, localNormal4)
   ));
-  vec3 lightDirection = normalize(vec3(-0.35, -0.45, 0.82));
-  vec3 viewDirection = normalize(camera.position.xyz - worldPosition);
-  vec3 halfDirection = normalize(lightDirection + viewDirection);
-  float diffuse = max(dot(worldNormal, lightDirection), 0.0);
-  float skyFill = worldNormal.z * 0.5 + 0.5;
-  float brightness = 0.48 + diffuse * 0.52 + skyFill * 0.10;
-  gl_Position = projectWorld(worldPosition);
-  vec3 litMaterial = inColor.rgb * brightness;
-  vec3 tintedMaterial = litMaterial * instanceColor.rgb;
-  float tintWeight = clamp(inTintMask.x, 0.0, 1.0);
-  vec3 teamMaterial = mix(litMaterial, tintedMaterial, tintWeight);
-
-  // A broad cool rim holds the figure against dark walls without replacing
-  // the team tint. The tight highlight makes authored normals read in motion.
-  float rim = pow(1.0 - max(dot(worldNormal, viewDirection), 0.0), 2.6);
-  rim *= 0.16 + 0.84 * skyFill;
-  float highlight = pow(max(dot(worldNormal, halfDirection), 0.0), 28.0);
-  vec3 rimColor = mix(teamMaterial, vec3(0.58, 0.72, 0.92), 0.36);
-  vertexColor = vec4(
-    teamMaterial + rimColor * rim * 0.24 + vec3(highlight * 0.10),
-    inColor.a * instanceColor.a
+  vec3 offset = worldPosition - camera.position.xyz;
+  float viewX = dot(offset, camera.right.xyz);
+  float viewY = dot(offset, camera.up.xyz);
+  float viewZ = dot(offset, camera.forward.xyz);
+  float depthA = camera.projection.w /
+    (camera.projection.w - camera.projection.z);
+  float depthB = -(camera.projection.z * camera.projection.w) /
+    (camera.projection.w - camera.projection.z);
+  gl_Position = vec4(
+    viewX * camera.projection.x / camera.projection.y,
+    viewY * camera.projection.x,
+    depthA * viewZ + depthB,
+    viewZ
   );
-  viewDistance = max(dot(worldPosition - camera.position.xyz, camera.forward.xyz), 0.0);
+  baseColor = inColor;
+  teamTint = instanceColor;
+  tintWeight = clamp(inTintMask.x, 0.0, 1.0);
+  worldPositionOut = worldPosition;
+  worldNormalOut = worldNormal;
+  viewDistance = max(viewZ, 0.0);
+  rimQuality = uint(clamp(int(camera.position.w + 0.5), 0, 2));
+  viewDirection = camera.position.xyz - worldPosition;
 }

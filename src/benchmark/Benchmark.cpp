@@ -110,7 +110,7 @@ namespace {
     "r_player_outline_mode", "r_player_outline_style", "r_player_outline_width",
     "r_player_outline_debug_mask", "r_enemy_outline_width",
     "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
-    "r_frustum_cull", "r_world_frustum_cull", "r_player_model",
+    "r_frustum_cull", "r_world_frustum_cull", "r_player_model", "r_bloom",
     "r_combat_effects",
     "s_enable", "vid_fullscreen", "vid_width", "vid_height", "r_vsync", "r_present_mode"
   };
@@ -808,6 +808,12 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.projectileCount);
     workload.object["effects"] =
       dev::JsonValue::numberValue(sample.effectCount);
+    workload.object["lights"] =
+      dev::JsonValue::numberValue(sample.lightCount);
+    workload.object["particles"] =
+      dev::JsonValue::numberValue(sample.particleCount);
+    workload.object["transparent_effects"] =
+      dev::JsonValue::numberValue(sample.transparentEffectCount);
     workload.object["instance_upload_bytes"] =
       dev::JsonValue::numberValue(sample.instanceUploadBytes);
     workload.object["instance_draws"] =
@@ -865,7 +871,8 @@ bool writeArtifacts(
     "uploaded_vertices,rendered_triangles,world_draws,world_submitted_triangles,"
     "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
     "world_culled_chunks,world_visibility_tested_nodes,world_visibility_query_ms,"
-    "visible_players,projectiles,effects,instance_upload_bytes,instance_draws\n";
+    "visible_players,projectiles,effects,lights,particles,transparent_effects,"
+    "instance_upload_bytes,instance_draws\n";
   std::ofstream ticks(resultDirectory / "simulation-ticks.csv", std::ios::trunc);
   ticks << "tick,render_frame,elapsed_seconds,simulation_ms,"
     "network_processing_ms,movement_collision_ms,traces_ms\n";
@@ -904,6 +911,8 @@ bool writeArtifacts(
       << ',' << s.worldVisibilityTestedNodes
       << ',' << s.worldVisibilityQueryMilliseconds << ',' << s.visiblePlayers
       << ',' << s.projectileCount << ',' << s.effectCount
+      << ',' << s.lightCount << ',' << s.particleCount
+      << ',' << s.transparentEffectCount
       << ',' << s.instanceUploadBytes << ',' << s.instanceDraws << '\n';
   }
   for (const SimulationTickSample& s : tickSamples) {

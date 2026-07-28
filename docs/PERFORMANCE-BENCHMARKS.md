@@ -12,6 +12,36 @@ use 100%. A manual scale is valid from 50% to 150%. Values above 100% are
 `Extreme / benchmark-only` and are not recommended for normal play. Native results
 record both values and note that captures need the same profile and scale.
 
+## Graphics benchmark contract
+
+Every GPU artifact records the requested profile and scale, plus the effective
+comparison values: anti-aliasing mode, sun-shadow quality, contact shadows,
+material quality, player-rim quality, atmosphere grade, bloom, and render
+scale. At benchmark finalization, before cvars restore, the native client reads
+each required cvar from its live console and returns the exact console strings
+as `effective_cvars`. The runner rejects a run with a missing value; it does not
+copy or infer profile values from Python.
+
+The artifact also records the renderer, verified GPU name, graphics-driver name
+and version, Vulkan API version, ICD record, selected present mode, and
+executable SHA-256. GPU comparison rejects a different profile contract, GPU,
+driver, renderer, or presentation mode. Executable SHA-256 is retained as
+reported comparison information, not a fatal gate, so a renderer commit can be
+compared with its bootstrap base.
+
+`eyetoeye-readability-pan` is the Default control. It pans through the north,
+east, and south EyeToEye views with one fixed remote player, and captures the
+light, contrast, and dark checkpoints after timing ends.
+`eyetoeye-readability-pan-competitive` uses the identical presentation path
+with the Competitive profile. These captures check stable lighting, player
+silhouette, team/readability cues, and camera-pan stability. They are visual
+review evidence, not a claim about server authority.
+
+The native result may contain `render_pass_diagnostics`. The runner copies this
+optional object into each normalized run when it is available. Older renderers
+do not produce it; absence does not invalidate a result or turn into a zero.
+Pass diagnostics are observation data, not a substitute for GPU timestamps.
+
 ## Architecture And Trust Boundary
 
 The normal client contains a benchmark recorder that is inert unless the process is launched with both `--dev-control` and `--benchmark`. The recorder uses the same renderer-facing state and map-loading rules as ordinary play, but it does not add timing data or synthetic state to UDP packets, snapshots, or `ServerGame`. The benchmark camera is presentation-only; bot setup still travels through the existing server-authoritative command path.
@@ -57,7 +87,8 @@ period, readback delay, tool version, and the SDL base and patch identity. The
 build picks the patched SDL form when it is present. A later official SDL query
 API can replace the patch without changing the metric scope. SDL_Renderer and
 an unpatched SDL build report a clear reason and leave timing cells empty. GPU
-timing support does not affect benchmark validity.
+timing support does not affect native artifact validity, but the trusted GPU
+enforcement profiles require the primary GPU median and therefore fail without it.
 
 Record selected backend, requested and selected present mode, resolution, fullscreen/vsync/frame-cap state, map content hash, scenario/version, build identity, system/driver information, and any fallback. The shared GPU launcher queries `vulkaninfo --summary` outside the measured interval, verifies the selected Intel ICD before startup, and attests the renderer after control answers. Benchmark child processes remove `VK_DRIVER_FILES` and `VK_ICD_FILENAMES` so the Vulkan loader uses its normal driver search. Results record the physical-device name, driver name/version, Vulkan API version, ICD manifest SHA-256, resolved driver library, and verification state. This metadata is written to both `aggregate.json` and every native `run-*/result.json`. A GPU-required scenario aborts if the renderer falls back or any attested value differs. Comparisons reject a different GPU, graphics-driver version, or Vulkan API version.
 
@@ -136,17 +167,21 @@ Every descriptor is JSON with `schema_version: 1` and `expected_benchmark_versio
 | `actors` | Structured requested bot setup: `bots`, `attack_mode`, `stare`, `standstill`, `dodge`, optional dodge intervals, and `expected_count`; `commands` documents the equivalent real console sequence. |
 | `effects` | Requested bounded projectile/tracer/explosion load. `fixture_only: true` explicitly marks synthetic presentation content. |
 | `cvars` | Narrow presentation-only overrides. They must be emitted in the result and restored/isolated by the runner. |
-| `screenshots` | Array of `{ "name", "progress" }`; capture happens outside timed sampling. |
+| `screenshots` | Array of `{ "name", "progress" }`; capture happens after timed sampling, so it cannot change frame statistics. |
 | `residual_nondeterminism` | Honest list of known uncontrolled inputs or unsupported conditions; an empty list means none are known. |
 
 Camera progress uses measured elapsed time quantized down to the 125 Hz simulation interval, not mouse input. A time/progress value therefore resolves to the same transform independent of render rate. Keyframes must be nondecreasing and are linearly interpolated between fixed positions/angles; duplicate static endpoints intentionally make a stationary camera explicit.
 
-The eight supplied scenarios establish a small comparison suite:
+The supplied scenarios establish a small comparison suite. The graphics-contract
+cases add to the retained controls:
 
+- `eyetoeye-readability-pan`: Default-profile light/dark/readability control with a deterministic pan and one stationary remote player.
+- `eyetoeye-readability-pan-competitive`: same path and actor contract for Competitive.
 - `eyetoeye-static-baseline`: low-action cached-world control.
 - `eyetoeye-duel-like`: normal two-participant Lightning-Gun bot duel request.
 - `eyetoeye-bot-animation`: six-player bot movement/animation request using Machine Gun bot models plus `bot_add`, `bot_weapon`, `bot_dodge`, `bot_stare`, and `bot_standstill`; it is a retained comparison workload, not the 16-player capacity ceiling.
-- `eyetoeye-projectile-effects`: a declarative future projectile/effect presentation fixture. Current bots select only the Lightning Gun and the native runner does not inject synthetic projectiles, so this descriptor is deliberately marked invalid at execution (`supported_workload: false`) rather than silently measuring a different workload. Use the headless `trace-projectile` workload for current quantitative projectile-query evidence.
+- `machine-gun-visual-slice`: supported bounded authoritative effect load. One local and one remote Machine Gun may fire; pools and cvars cap the presentation load. It remains a live-combat workload, so repeated artifacts matter.
+- `eyetoeye-projectile-effects`: a clearly labelled presentation-only fixture. Current bots select only the Lightning Gun and the native runner does not inject synthetic rockets, grenades, plasma, or explosions, so it is deliberately invalid at execution (`supported_workload: false`) rather than silently measuring a different workload. Use the headless `trace-projectile` workload for current quantitative projectile-query evidence.
 - `overkill-high-visibility`: static large-map structural/sightline stress using a checked-in `overkill_import` camera preset.
 - `eyetoeye-static-long`: 5-second warm-up plus a 25-second static baseline for tail stability.
 - `overkill-static-flythrough`: deterministic 15-second presentation-only camera interpolation through all three checked-in Overkill structural views; the world remains static.
@@ -230,17 +265,45 @@ Each result root must contain exactly one valid `aggregate.json` for every scena
 required by the selected policy profile. Missing, extra, duplicate, malformed, or
 mixed scenario artifacts fail before any percentage is calculated.
 
+For the graphics-contract controls, collect exactly five runs of one profile
+and compare only its matching policy profile:
+
+```powershell
+.\scripts\lg-benchmark.ps1 run --scenario eyetoeye-readability-pan --repetitions 5 --json
+python scripts\lg_compare_benchmarks.py --baseline-results <default-baseline> --candidate-results <default-candidate> --profile trusted_gpu --output build\verification\graphics-default
+
+.\scripts\lg-benchmark.ps1 run --scenario eyetoeye-readability-pan-competitive --repetitions 5 --json
+python scripts\lg_compare_benchmarks.py --baseline-results <competitive-baseline> --candidate-results <competitive-candidate> --profile trusted_gpu_competitive --output build\verification\graphics-competitive
+```
+
+The accepted median GPU regression budgets are Default `<= +25%` and
+Competitive `<= +15%`. The measured GPU median is required for both enforcement
+profiles: missing timestamp data fails the comparison and cannot produce a
+budget pass. Each cap has a `0.05 ms` absolute measurement floor. A result above
+the cap fails only when its absolute rise exceeds that floor; an above-cap shift
+at or below the floor is `INCONCLUSIVE`, never `PASS` or `WARN`. A zero baseline
+has no usable ratio, so normal absolute limits apply. Both profiles require the
+primary-GPU p99 and 16.67 ms long-frame checks as spike safeguards. Frame and
+CPU breakdowns remain diagnostic: noisy or absent values appear in the report
+but do not block a valid GPU comparison. The GPU profiles do not require
+network-datagram, snapshot-encode, or launcher-cleanup evidence; those checks
+remain required only for `pr_headless`. An unpatched build may still produce an
+observe-only artifact, but it cannot satisfy either enforcement profile.
+
 `config/performance-policy.json` is the versioned source of truth. The
 `pr_headless` profile uses five runs of the two shared-simulation workloads and
 conservative CPU limits. It also requires the same compiler version, build type,
 generator, simulation build options, and collision query mode. SDL source,
 fetch, require, tag, and patched-build settings appear under
 `environment.sdl_configuration`; `pr_headless` ignores them because its
-benchmark links only the shared core. The `trusted_gpu` profile compares both
-`environment.compile_time_options` and `environment.sdl_configuration`. It
-requires five verified SDL_GPU/Vulkan runs on the same build, SDL setup, GPU,
-driver, API, renderer, observed resolution, Vulkan ICD record, map, and
-scenario. A fallback result can never satisfy that profile.
+benchmark links only the shared core. The `trusted_gpu` profile compares the
+Default readability-pan control and `trusted_gpu_competitive` compares its
+Competitive counterpart. Both compare `environment.compile_time_options` and
+`environment.sdl_configuration`, and require five verified SDL_GPU/Vulkan runs
+on the same SDL setup, profile contract, GPU, driver, API, renderer, observed
+resolution, Vulkan ICD record, map, and scenario. Executable SHA-256 remains in
+the report as info, rather than blocking the intended bootstrap-to-renderer
+comparison. A fallback result can never satisfy either profile.
 
 The policy uses these results:
 
@@ -252,12 +315,15 @@ The policy uses these results:
   sound timing verdict.
 - `NOT_COMPARABLE`: a material scenario, build, host, renderer, protocol, or
   settings field differs or is missing.
-- `UNAVAILABLE`: an optional metric, such as unsupported GPU timing, is absent.
+- `UNAVAILABLE`: an optional metric, such as outline GPU timing, is absent. The
+  primary GPU median is required by both trusted GPU enforcement profiles.
 - `SKIPPED`: a metric does not apply to that scenario.
 
-A timing regression must exceed both its absolute and relative limit. This keeps
-small shifts near zero from failing a change. A zero baseline uses the absolute
-limit alone. Tukey outliers remain in the result; reports list their run number,
+Most timing rules require a regression to exceed both their absolute and
+relative limits. The required GPU medians instead use hard relative caps:
+Default `+25%` and Competitive `+15%`. An over-cap change of `0.05 ms` or less
+is `INCONCLUSIVE`; a larger one fails. A zero baseline uses the normal absolute
+limit. Tukey outliers remain in the result; reports list their run number,
 fences, and all pre-exclusion values. Version 1 never drops an outlier.
 
 The tool writes deterministic `comparison.json` and `report.md` files. The JSON

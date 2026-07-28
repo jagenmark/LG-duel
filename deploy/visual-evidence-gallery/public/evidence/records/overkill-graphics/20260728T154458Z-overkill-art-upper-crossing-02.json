@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T154458Z-overkill-art-upper-crossing-02",
+  "captured_at": "2026-07-28T15:44:58Z",
+  "captured_by": "codex-primary-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The upper north platform and crossing from its revised clear camera angle.",
+  "image": "20260728T154458Z-overkill-art-upper-crossing-02.png",
+  "review": {
+    "notes": "The crossing stays whole and clear, and the open side route looks planned rather than broken.",
+    "reviewed_at": "2026-07-28T15:52:02Z",
+    "reviewer": "overkill-final-reviewer-codex-v2",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "95fdcf2708e477e5f652ee03ceb9c28890dbaa7a30ec38a394d77b402a179d0a",
+  "size_bytes": 9217968,
+  "task_id": "overkill-graphics",
+  "title": "Overkill upper north crossing"
+}

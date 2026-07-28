@@ -34281,3 +34281,38 @@
 "intensity" "0.9"
 "radius" "900"
 }
+{
+"classname" "light"
+"origin" "0 -360 440"
+"color" "168 202 255"
+"intensity" "1.1"
+"radius" "1600"
+}
+{
+"classname" "light"
+"origin" "640 360 760"
+"color" "176 208 255"
+"intensity" "1.05"
+"radius" "1600"
+}
+{
+"classname" "light"
+"origin" "640 -1040 440"
+"color" "185 210 255"
+"intensity" "1.0"
+"radius" "1500"
+}
+{
+"classname" "light"
+"origin" "-1300 -920 400"
+"color" "190 216 255"
+"intensity" "1.1"
+"radius" "1200"
+}
+{
+"classname" "light"
+"origin" "1184 1760 360"
+"color" "190 214 255"
+"intensity" "0.75"
+"radius" "1000"
+}

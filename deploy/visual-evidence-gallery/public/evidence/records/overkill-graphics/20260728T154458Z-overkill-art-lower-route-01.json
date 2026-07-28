@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T154458Z-overkill-art-lower-route-01",
+  "captured_at": "2026-07-28T15:44:58Z",
+  "captured_by": "codex-primary-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The relit lower central route, pickups, bridges, and amber route marker.",
+  "image": "20260728T154458Z-overkill-art-lower-route-01.png",
+  "review": {
+    "notes": "Routes, pickups, bridges, and amber marker read well with no bad clipping or overlays.",
+    "reviewed_at": "2026-07-28T15:52:02Z",
+    "reviewer": "overkill-final-reviewer-codex-v2",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "252ef39544b04f154c86c60e3f22d901c135863131f3bcd5730f8fce954be3e8",
+  "size_bytes": 9217968,
+  "task_id": "overkill-graphics",
+  "title": "Overkill lower central route"
+}

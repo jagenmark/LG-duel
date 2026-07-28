@@ -89,6 +89,60 @@ int main() {
     parseRequest(R"({"operation":"capture_screenshot","name":"central-overview"})").ok,
     "safe capture filenames should be accepted"
   );
+  const auto armedPhaseCapture = parseRequest(
+    R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","hide_hud":true,"hide_overlays":true})"
+  );
+  failures += expect(
+    armedPhaseCapture.ok &&
+      armedPhaseCapture.request.operation ==
+        lg::dev::ControlOperation::ArmPhaseCapture &&
+      armedPhaseCapture.request.captureName == "rocket-muzzle" &&
+      armedPhaseCapture.request.capturePhase ==
+        "local_rocket_launcher_muzzle",
+    "phase capture arms only a named bounded renderer phase"
+  );
+  failures += expect(
+    parseRequest(
+      R"({"operation":"arm_phase_capture","name":"rocket-impact","phase":"local_rocket_launcher_impact"})"
+    ).ok,
+    "phase capture should accept the exact local Rocket impact frame"
+  );
+  failures += expect(
+    parseRequest(
+      R"({"operation":"arm_phase_capture","name":"rocket-flight","phase":"local_rocket_launcher_projectile"})"
+    ).ok,
+    "phase capture should accept an exact local Rocket flight frame"
+  );
+  failures += expect(
+    !parseRequest(
+      R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"idle"})"
+    ).ok &&
+      !parseRequest(
+        R"({"operation":"arm_phase_capture","name":"../bad","phase":"local_rocket_launcher_muzzle"})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","extra":true})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","hide_hud":"false"})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","hide_overlays":1})"
+      ).ok,
+    "phase capture should reject unknown phases, unsafe names, extra fields, and non-boolean hide flags"
+  );
+  const auto collectedPhaseCapture = parseRequest(
+    R"({"operation":"collect_phase_capture","name":"rocket-muzzle"})"
+  );
+  failures += expect(
+    collectedPhaseCapture.ok &&
+      collectedPhaseCapture.request.operation ==
+        lg::dev::ControlOperation::CollectPhaseCapture &&
+      !parseRequest(
+        R"({"operation":"collect_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle"})"
+      ).ok,
+    "phase capture collection should bind to one safe armed name"
+  );
   failures += expect(
     parseRequest(R"({"operation":"exec_console","command":"r_show_fps"})").ok &&
       !parseRequest("{\"operation\":\"exec_console\",\"command\":\"one\\ntwo\"}").ok,

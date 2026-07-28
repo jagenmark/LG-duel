@@ -231,6 +231,7 @@ struct CaptureAfterEvent {
   std::optional<std::size_t> actor;
   std::optional<std::size_t> target;
   std::optional<Weapon> weapon;
+  std::uint32_t occurrence = 1;
 };
 
 struct ScenarioCapture {
@@ -238,6 +239,7 @@ struct ScenarioCapture {
   std::optional<std::uint32_t> atServerTick;
   std::optional<CaptureAfterEvent> afterEvent;
   std::uint32_t waitRenderedFrames = 0;
+  std::optional<std::string> renderPhase;
 };
 
 struct ExpectedFailure {

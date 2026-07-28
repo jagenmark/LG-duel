@@ -31,8 +31,9 @@ BUILD_TIMEOUT = 1200.0
 RUN_TIMEOUT = 600.0
 GIT_TIMEOUT = 60.0
 HEADLESS_WORKLOADS = ("movement-collision", "trace-projectile")
-SUITES = ("pr_headless", "trusted_gpu")
-PROFILES = ("pr_headless", "trusted_gpu")
+GPU_SUITES = ("trusted_gpu", "trusted_gpu_competitive")
+SUITES = ("pr_headless", *GPU_SUITES)
+PROFILES = ("pr_headless", *GPU_SUITES)
 SUCCESS_STATUSES = {"PASS", "WARN", "INCONCLUSIVE", "UNAVAILABLE"}
 REF_PATTERN = re.compile(r"^[A-Za-z0-9_./~^@+-]{1,240}$")
 
@@ -380,7 +381,7 @@ def _build_targets(suite: str) -> list[str]:
     targets = ["lg_duel_protocol_tests"]
     if suite == "pr_headless":
         targets.append("lg_duel_sim_benchmark")
-    if suite == "trusted_gpu":
+    if suite in GPU_SUITES:
         targets.extend(("lg_duel_client", "lg_duel_server"))
     return sorted(set(targets))
 
@@ -811,8 +812,8 @@ def execute(
             )
         if args.suite == "pr_headless" and args.profile != "pr_headless":
             raise CompareError("pr_headless suite requires the pr_headless profile")
-        if args.suite == "trusted_gpu" and args.profile != "trusted_gpu":
-            raise CompareError("trusted_gpu suite requires the trusted_gpu profile")
+        if args.suite in GPU_SUITES and args.profile != args.suite:
+            raise CompareError(f"{args.suite} suite requires the {args.suite} profile")
         baseline_commit = _resolve_ref(args.baseline, "baseline", runner)
         candidate_commit = _resolve_ref(args.candidate, "candidate", runner)
         _reject_dirty_tree(runner)
@@ -941,6 +942,20 @@ def execute(
                 path.mkdir(parents=True, exist_ok=False)
 
             if args.suite == "pr_headless":
+                shared_map_directory = sides["candidate"][0] / "maps"
+                if not shared_map_directory.is_dir():
+                    raise CompareError(
+                        "candidate map directory is missing: "
+                        f"{shared_map_directory}"
+                    )
+                manifest["shared_inputs"] = {
+                    "headless_maps": {
+                        "source": "candidate",
+                        "commit": candidate_commit,
+                        "path": "maps",
+                    }
+                }
+                _write_manifest(output, manifest)
                 # Each native call owns all repetitions. Swap the first side for
                 # the second workload to keep grouped runs from sharing one order.
                 orders = (
@@ -958,6 +973,7 @@ def execute(
                                 result = lg_benchmark.run_simulation_benchmark(
                                     workload,
                                     repetitions=repetitions,
+                                    map_directory=shared_map_directory,
                                     warmup_batches=5,
                                     measured_batches=40,
                                     operations_per_batch=256,
@@ -1023,7 +1039,7 @@ def execute(
                                 }
                             )
                             _write_manifest(output, manifest)
-            if args.suite == "trusted_gpu":
+            if args.suite in GPU_SUITES:
                 gpu_scenarios = expected
                 for side in ("baseline", "candidate"):
                     source, build, _ = sides[side]

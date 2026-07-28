@@ -173,10 +173,11 @@ int testLiveSchemaParsingAndRoundTrip() {
        "at_completion":true,"capture":"after_fire","width":1280,"height":720}
     ],
     "captures":[
-      {"name":"tick_view","at_server_tick":4,"wait_rendered_frames":0},
+      {"name":"tick_view","at_server_tick":4,"wait_rendered_frames":0,
+       "render_phase":"projectile"},
       {"name":"after_fire",
        "after_event":{"type":"weapon_fired","actor":0,
-                      "weapon":"rocket_launcher"},
+                      "weapon":"rocket_launcher","occurrence":2},
        "wait_rendered_frames":3}
     ]
   })";
@@ -211,8 +212,11 @@ int testLiveSchemaParsingAndRoundTrip() {
       std::holds_alternative<lg::scenario::ScreenshotCheckpointAssertion>(
         parsed.scenario.assertions[8].payload) &&
       parsed.scenario.captures.size() == 2U &&
+      parsed.scenario.captures[0].renderPhase ==
+        std::optional<std::string>{"projectile"} &&
       parsed.scenario.captures[1].afterEvent &&
-      parsed.scenario.captures[1].afterEvent->actor == 0U,
+      parsed.scenario.captures[1].afterEvent->actor == 0U &&
+      parsed.scenario.captures[1].afterEvent->occurrence == 2U,
     "live assertions and captures should use typed payloads");
 
   const std::string canonical =
@@ -295,6 +299,21 @@ int testLiveSchemaParsingAndRoundTrip() {
     !excessWait.ok &&
       excessWait.error.find("wait_rendered_frames") != std::string::npos,
     "capture frame waits should stop at 600");
+
+  const auto badRenderPhase = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("render_phase":"projectile")",
+    R"("render_phase":"idle")"));
+  failures += expect(
+    !badRenderPhase.ok &&
+      badRenderPhase.error.find("render_phase") != std::string::npos,
+    "captures should reject unknown render phases");
+
+  const auto badOccurrence = lg::scenario::parseScenarioJson(replace(
+    liveJson, R"("occurrence":2)", R"("occurrence":0)"));
+  failures += expect(
+    !badOccurrence.ok &&
+      badOccurrence.error.find("occurrence") != std::string::npos,
+    "event captures should reject occurrence zero");
 
   const auto badCorrectionRange = lg::scenario::parseScenarioJson(replace(
     liveJson, R"("min":1,"max":5)", R"("min":6,"max":5)"));

@@ -142,6 +142,17 @@ int main() {
       std::fabs(graphicsProfile.scenario.renderScale - 1.25F) < 0.001F,
     "benchmark graphics profile and render scale should parse"
   );
+  const lg::benchmark::ParseResult bloomControl = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"bloom-control","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"r_bloom":0}
+  })");
+  failures += expect(
+    bloomControl.ok && bloomControl.scenario.cvars.contains("r_bloom"),
+    "benchmark scenarios should allow a fixed bloom setting"
+  );
   const lg::benchmark::ParseResult unsupportedFixture = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
     "name":"effects","map":"eyetoeye","resolution":[1280,720],
@@ -198,6 +209,9 @@ int main() {
   }
   samples[1].worldVisibleChunks = 17;
   samples[1].renderCpuMilliseconds = 3.5;
+  samples[1].lightCount = 2;
+  samples[1].particleCount = 4;
+  samples[1].transparentEffectCount = 7;
   std::vector<lg::benchmark::SimulationTickSample> tickSamples(100);
   for (std::size_t index = 0; index < tickSamples.size(); ++index) {
     tickSamples[index].index = index;
@@ -352,7 +366,13 @@ int main() {
         cpuSubsystems->find("renderer_total")->number == 3.5 &&
         workload != nullptr &&
         workload->find("world_visible_chunks") != nullptr &&
-        workload->find("world_visible_chunks")->number == 17.0,
+        workload->find("world_visible_chunks")->number == 17.0 &&
+        workload->find("lights") != nullptr &&
+        workload->find("lights")->number == 2.0 &&
+        workload->find("particles") != nullptr &&
+        workload->find("particles")->number == 4.0 &&
+        workload->find("transparent_effects") != nullptr &&
+        workload->find("transparent_effects")->number == 7.0,
       "frame timeline should retain named CPU timings and workload counters"
     );
     failures += expect(
@@ -472,6 +492,9 @@ int main() {
         frameTelemetry.find("dynamic_command_encoding_ms") != std::string::npos &&
         frameTelemetry.find(
           "gpu_primary_command_buffer_ms,outline_gpu_ms,outline_gpu_state"
+        ) != std::string::npos &&
+        frameTelemetry.find(
+          "effects,lights,particles,transparent_effects,"
         ) != std::string::npos &&
         frameTelemetry.find(",,not_applicable,") != std::string::npos &&
         frameTelemetry.find(",,unavailable,") != std::string::npos,

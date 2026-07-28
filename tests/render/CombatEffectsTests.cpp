@@ -1,6 +1,9 @@
 #include "render/CombatEffects.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
+#include <limits>
 #include <string_view>
 #include <vector>
 
@@ -29,6 +32,47 @@ lg::MachineGunShotEffectsRequest shot(std::uint32_t seed) {
   return request;
 }
 
+lg::RocketLauncherShotEffectsRequest rocketShot(std::uint32_t seed) {
+  lg::RocketLauncherShotEffectsRequest request;
+  request.muzzlePosition = {4.0F, 5.0F, 6.0F};
+  request.muzzleForward = {1.0F, 0.0F, 0.0F};
+  request.muzzleUp = {0.0F, 0.0F, 1.0F};
+  request.visualSeed = seed;
+  request.ownerIndex = 0;
+  return request;
+}
+
+const lg::TransientEffect* findEffect(
+  const std::vector<lg::TransientEffect>& effects,
+  lg::TransientEffectType type
+) {
+  const auto found = std::find_if(
+    effects.begin(),
+    effects.end(),
+    [type](const lg::TransientEffect& effect) {
+      return effect.type == type;
+    }
+  );
+  return found == effects.end() ? nullptr : &*found;
+}
+
+bool sameEffect(
+  const lg::TransientEffect& lhs,
+  const lg::TransientEffect& rhs
+) {
+  return lhs.type == rhs.type &&
+    lhs.seed == rhs.seed &&
+    lhs.position.x == rhs.position.x &&
+    lhs.position.y == rhs.position.y &&
+    lhs.position.z == rhs.position.z &&
+    lhs.velocity.x == rhs.velocity.x &&
+    lhs.velocity.y == rhs.velocity.y &&
+    lhs.velocity.z == rhs.velocity.z &&
+    lhs.lifetimeSeconds == rhs.lifetimeSeconds &&
+    lhs.initialScale == rhs.initialScale &&
+    lhs.finalScale == rhs.finalScale;
+}
+
 } // namespace
 
 int main() {
@@ -55,6 +99,51 @@ int main() {
   failures += expect(
     stats.activeDecals == tuning.maximumDecals,
     "decal budget should recycle predictably under sustained fire"
+  );
+
+  lg::CombatEffects metalEffects;
+  lg::MachineGunShotEffectsRequest metalShot = shot(101U);
+  metalShot.surface = lg::ImpactSurfaceCategory::Metal;
+  metalEffects.spawnMachineGunShot(metalShot, tuning);
+  std::vector<lg::TransientEffect> metalActive;
+  metalEffects.appendActive(metalActive);
+  lg::CombatEffects stoneEffects;
+  lg::MachineGunShotEffectsRequest stoneShot = shot(101U);
+  stoneShot.surface = lg::ImpactSurfaceCategory::Stone;
+  stoneEffects.spawnMachineGunShot(stoneShot, tuning);
+  std::vector<lg::TransientEffect> stoneActive;
+  stoneEffects.appendActive(stoneActive);
+  const auto hasDust = [](const std::vector<lg::TransientEffect>& active) {
+    return std::any_of(
+      active.begin(),
+      active.end(),
+      [](const lg::TransientEffect& effect) {
+        return effect.type == lg::TransientEffectType::BulletImpactDust;
+      }
+    );
+  };
+  failures += expect(
+    !hasDust(metalActive) && hasDust(stoneActive),
+    "metal and stone impacts should keep their distinct effect variants"
+  );
+  lg::CombatEffects variantPoolEffects;
+  for (lg::ImpactSurfaceCategory category : {
+    lg::ImpactSurfaceCategory::Metal,
+    lg::ImpactSurfaceCategory::Stone,
+    lg::ImpactSurfaceCategory::Energy,
+    lg::ImpactSurfaceCategory::GenericHard,
+  }) {
+    lg::MachineGunShotEffectsRequest categoryShot = shot(
+      200U + static_cast<std::uint32_t>(category)
+    );
+    categoryShot.surface = category;
+    variantPoolEffects.spawnMachineGunShot(categoryShot, tuning);
+  }
+  stats = variantPoolEffects.stats();
+  failures += expect(
+    stats.activeParticles <= tuning.maximumParticles &&
+      stats.activeDecals <= tuning.maximumDecals,
+    "all impact surface variants should honor the shared pool caps"
   );
 
   std::vector<lg::TransientEffect> first;
@@ -149,6 +238,297 @@ int main() {
   failures += expect(
     effects.stats().shotsSpawned == 0,
     "disabled combat effects should submit no work"
+  );
+
+  lg::CombatEffectEventHistory eventHistory;
+  failures += expect(
+    eventHistory.acceptWeaponFire(0, lg::Weapon::RocketLauncher, 1001U) &&
+      !eventHistory.acceptWeaponFire(0, lg::Weapon::RocketLauncher, 1001U) &&
+      eventHistory.acceptWeaponFire(1, lg::Weapon::RocketLauncher, 1001U) &&
+      eventHistory.acceptWeaponFire(0, lg::Weapon::MachineGun, 1001U) &&
+      !eventHistory.acceptWeaponFire(
+        static_cast<std::uint8_t>(lg::kDuelPlayerCount),
+        lg::Weapon::RocketLauncher,
+        1002U
+      ),
+    "fire history should de-duplicate exact events without merging owners or weapons"
+  );
+  failures += expect(
+    eventHistory.acceptExplosion(0, 40U) &&
+      !eventHistory.acceptExplosion(0, 40U) &&
+      !eventHistory.acceptExplosion(0, 39U) &&
+      eventHistory.acceptExplosion(0, 41U) &&
+      eventHistory.acceptExplosion(1, 40U) &&
+      !eventHistory.acceptExplosion(
+        static_cast<std::uint8_t>(lg::kDuelPlayerCount),
+        42U
+      ),
+    "explosion history should reject repeats and stale owner sequences"
+  );
+  eventHistory.clear();
+  failures += expect(
+    eventHistory.acceptWeaponFire(0, lg::Weapon::RocketLauncher, 1001U) &&
+      eventHistory.acceptExplosion(0, 40U),
+    "clearing event history should permit new session events"
+  );
+  lg::CombatEffectEventHistory boundedHistory;
+  bool boundedHistoryAccepted = true;
+  for (
+    std::uint32_t seed = 0;
+    seed <= lg::CombatEffectEventHistory::kWeaponFireCapacity;
+    ++seed
+  ) {
+    boundedHistoryAccepted =
+      boundedHistory.acceptWeaponFire(
+        0,
+        lg::Weapon::RocketLauncher,
+        seed
+      ) &&
+      boundedHistoryAccepted;
+  }
+  failures += expect(
+    boundedHistoryAccepted &&
+      boundedHistory.acceptWeaponFire(0, lg::Weapon::RocketLauncher, 0U),
+    "fixed fire history should recycle its oldest key after reaching capacity"
+  );
+
+  lg::CombatEffectsTuning rocketLow = tuning;
+  rocketLow.quality = 0;
+  rocketLow.maximumParticles = 8;
+  lg::CombatEffects rocketLowEffects;
+  rocketLowEffects.spawnRocketLauncherShot(rocketShot(501U), rocketLow);
+  rocketLowEffects.spawnRocketExplosion(
+    {{7.0F, 0.0F, 1.0F}, 3.0F, 502U},
+    rocketLow
+  );
+  failures += expect(
+    rocketLowEffects.stats().activeLights == 0 &&
+      rocketLowEffects.stats().activeParticles == 0 &&
+      rocketLowEffects.stats().rocketShotsSpawned == 0 &&
+      rocketLowEffects.stats().rocketExplosionsSpawned == 0,
+    "quality zero should omit rocket secondary particles and lights"
+  );
+
+  lg::CombatEffectsTuning rocketMedium = rocketLow;
+  rocketMedium.quality = 1;
+  lg::CombatEffects rocketMediumEffects;
+  rocketMediumEffects.spawnRocketLauncherShot(rocketShot(503U), rocketMedium);
+  rocketMediumEffects.spawnRocketExplosion(
+    {{7.0F, 0.0F, 1.0F}, 3.0F, 504U},
+    rocketMedium
+  );
+  failures += expect(
+    rocketMediumEffects.stats().activeLights == 1 &&
+      rocketMediumEffects.stats().activeParticles == 0 &&
+      rocketMediumEffects.stats().rocketShotsSpawned == 1 &&
+      rocketMediumEffects.stats().rocketExplosionsSpawned == 0,
+    "medium quality should retain the short rocket light without full smoke or shards"
+  );
+
+  lg::CombatEffectsTuning rocketFull = rocketMedium;
+  rocketFull.quality = 2;
+  lg::CombatEffects rocketFullEffects;
+  rocketFullEffects.spawnRocketLauncherShot(rocketShot(505U), rocketFull);
+  rocketFullEffects.spawnRocketExplosion(
+    {{7.0F, 0.0F, 1.0F}, 3.0F, 506U},
+    rocketFull
+  );
+  failures += expect(
+    rocketFullEffects.stats().activeLights == 1 &&
+      rocketFullEffects.stats().activeParticles == 5 &&
+      rocketFullEffects.stats().rocketShotsSpawned == 1 &&
+      rocketFullEffects.stats().rocketExplosionsSpawned == 1,
+    "full quality should add one muzzle smoke, three shards, and one blast smoke"
+  );
+
+  lg::CombatEffects shortRocketLightEffects;
+  lg::CombatEffectsTuning shortRocketLight = rocketMedium;
+  shortRocketLight.muzzleLightDurationSeconds = 0.01F;
+  shortRocketLightEffects.spawnRocketLauncherShot(
+    rocketShot(507U),
+    shortRocketLight
+  );
+  shortRocketLightEffects.update(0.02F, shortRocketLight);
+  failures += expect(
+    shortRocketLightEffects.stats().activeLights == 1 &&
+      shortRocketLightEffects.stats().peakLights == 1,
+    "a first-frame hitch should keep one readable rocket light frame and record its peak"
+  );
+  shortRocketLightEffects.update(0.0F, shortRocketLight);
+  failures += expect(
+    shortRocketLightEffects.stats().activeLights == 0,
+    "the rocket light hitch grace should expire on the next update"
+  );
+
+  lg::CombatEffects liveQualityEffects;
+  liveQualityEffects.spawnRocketLauncherShot(rocketShot(508U), rocketFull);
+  liveQualityEffects.spawnRocketExplosion(
+    {{7.0F, 0.0F, 1.0F}, 3.0F, 509U},
+    rocketFull
+  );
+  liveQualityEffects.update(0.0F, rocketMedium);
+  std::vector<lg::TransientEffect> mediumQualityActive;
+  liveQualityEffects.appendActive(mediumQualityActive);
+  const bool hasFullQualityRocketParticle = std::any_of(
+    mediumQualityActive.begin(),
+    mediumQualityActive.end(),
+    [](const lg::TransientEffect& effect) {
+      return
+        effect.type ==
+          lg::TransientEffectType::RocketLauncherMuzzleSmoke ||
+        effect.type == lg::TransientEffectType::RocketExplosionShard ||
+        effect.type == lg::TransientEffectType::RocketExplosionSmoke;
+    }
+  );
+  failures += expect(
+    liveQualityEffects.stats().activeLights == 1 &&
+      !hasFullQualityRocketParticle,
+    "lowering live quality to medium should remove full-quality rocket particles"
+  );
+  liveQualityEffects.update(0.0F, rocketLow);
+  failures += expect(
+    liveQualityEffects.stats().activeLights == 0 &&
+      liveQualityEffects.stats().activeParticles == 0,
+    "lowering live quality to zero should clear all rocket effects"
+  );
+
+  std::vector<lg::TransientEffect> rocketFirst;
+  rocketFullEffects.appendActive(rocketFirst);
+  lg::CombatEffects rocketRepeatEffects;
+  rocketRepeatEffects.spawnRocketLauncherShot(rocketShot(505U), rocketFull);
+  rocketRepeatEffects.spawnRocketExplosion(
+    {{7.0F, 0.0F, 1.0F}, 3.0F, 506U},
+    rocketFull
+  );
+  std::vector<lg::TransientEffect> rocketSecond;
+  rocketRepeatEffects.appendActive(rocketSecond);
+  const lg::TransientEffect* firstSmoke = findEffect(
+    rocketFirst,
+    lg::TransientEffectType::RocketLauncherMuzzleSmoke
+  );
+  const lg::TransientEffect* secondSmoke = findEffect(
+    rocketSecond,
+    lg::TransientEffectType::RocketLauncherMuzzleSmoke
+  );
+  const lg::TransientEffect* firstShard = findEffect(
+    rocketFirst,
+    lg::TransientEffectType::RocketExplosionShard
+  );
+  const lg::TransientEffect* secondShard = findEffect(
+    rocketSecond,
+    lg::TransientEffectType::RocketExplosionShard
+  );
+  failures += expect(
+    firstSmoke != nullptr &&
+      secondSmoke != nullptr &&
+      firstShard != nullptr &&
+      secondShard != nullptr &&
+      sameEffect(*firstSmoke, *secondSmoke) &&
+      sameEffect(*firstShard, *secondShard),
+    "rocket smoke and shards should repeat exactly for a visual seed"
+  );
+
+  lg::CombatEffects attachedEffects;
+  lg::MachineGunShotEffectsRequest attachedMachineGun = shot(601U);
+  attachedMachineGun.ownerIndex = 0;
+  attachedEffects.spawnMachineGunShot(attachedMachineGun, rocketMedium);
+  attachedEffects.spawnRocketLauncherShot(rocketShot(602U), rocketMedium);
+  const lg::Vec3 machineGunSocket = {9.0F, 8.0F, 7.0F};
+  const lg::Vec3 rocketSocket = {-3.0F, 4.0F, 2.0F};
+  attachedEffects.setMuzzleAttachment(
+    0,
+    lg::MuzzleAttachment::MachineGun,
+    machineGunSocket
+  );
+  attachedEffects.setMuzzleAttachment(
+    0,
+    lg::MuzzleAttachment::RocketLauncher,
+    rocketSocket
+  );
+  attachedEffects.update(0.01F, rocketMedium);
+  std::vector<lg::TransientEffect> attachedActive;
+  attachedEffects.appendActive(attachedActive);
+  const lg::TransientEffect* machineGunLight = findEffect(
+    attachedActive,
+    lg::TransientEffectType::MachineGunMuzzleLight
+  );
+  const lg::TransientEffect* rocketLight = findEffect(
+    attachedActive,
+    lg::TransientEffectType::RocketLauncherMuzzleLight
+  );
+  failures += expect(
+    machineGunLight != nullptr &&
+      rocketLight != nullptr &&
+      machineGunLight->position.x == machineGunSocket.x &&
+      machineGunLight->position.y == machineGunSocket.y &&
+      machineGunLight->position.z == machineGunSocket.z &&
+      rocketLight->position.x == rocketSocket.x &&
+      rocketLight->position.y == rocketSocket.y &&
+      rocketLight->position.z == rocketSocket.z,
+    "machine-gun and rocket lights should follow their own moving sockets"
+  );
+
+  lg::CombatEffectsTuning cappedRocket = rocketFull;
+  cappedRocket.maximumParticles = 2;
+  lg::CombatEffects cappedRocketEffects;
+  for (std::uint32_t seed = 0; seed < 16U; ++seed) {
+    cappedRocketEffects.spawnRocketExplosion(
+      {{6.0F, 1.0F, 1.0F}, 3.0F, seed},
+      cappedRocket
+    );
+  }
+  failures += expect(
+    cappedRocketEffects.stats().activeParticles == 2 &&
+      cappedRocketEffects.stats().activeParticles <=
+        cappedRocket.maximumParticles,
+    "rocket-heavy bursts should recycle inside the fixed particle cap"
+  );
+  cappedRocketEffects.update(0.25F, cappedRocket);
+  cappedRocketEffects.update(0.25F, cappedRocket);
+  failures += expect(
+    cappedRocketEffects.stats().activeParticles == 0,
+    "rocket secondary particles should expire from the fixed pool"
+  );
+
+  lg::CombatEffects invalidRocketEffects;
+  lg::RocketLauncherShotEffectsRequest invalidShot = rocketShot(701U);
+  invalidShot.muzzlePosition.x = std::numeric_limits<float>::infinity();
+  invalidRocketEffects.spawnRocketLauncherShot(invalidShot, rocketFull);
+  invalidRocketEffects.spawnRocketExplosion(
+    {
+      {std::numeric_limits<float>::quiet_NaN(), 0.0F, 0.0F},
+      3.0F,
+      702U,
+    },
+    rocketFull
+  );
+  invalidRocketEffects.spawnRocketExplosion(
+    {
+      {3.0F, 0.0F, 1.0F},
+      std::numeric_limits<float>::infinity(),
+      703U,
+    },
+    rocketFull
+  );
+  std::vector<lg::TransientEffect> finiteRocketEffects;
+  invalidRocketEffects.appendActive(finiteRocketEffects);
+  failures += expect(
+    invalidRocketEffects.stats().rocketShotsSpawned == 0 &&
+      invalidRocketEffects.stats().rocketExplosionsSpawned == 1 &&
+      !finiteRocketEffects.empty() &&
+      std::all_of(
+        finiteRocketEffects.begin(),
+        finiteRocketEffects.end(),
+        [](const lg::TransientEffect& effect) {
+          return std::isfinite(effect.position.x) &&
+            std::isfinite(effect.position.y) &&
+            std::isfinite(effect.position.z) &&
+            std::isfinite(effect.velocity.x) &&
+            std::isfinite(effect.velocity.y) &&
+            std::isfinite(effect.velocity.z);
+        }
+      ),
+    "rocket requests should reject bad positions and clamp a bad blast radius"
   );
 
   return failures == 0 ? 0 : 1;

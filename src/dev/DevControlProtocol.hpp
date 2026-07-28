@@ -20,6 +20,8 @@ enum class ControlOperation {
   SetCamera,
   SetCollisionDebug,
   CaptureScreenshot,
+  ArmPhaseCapture,
+  CollectPhaseCapture,
   CaptureMapViews,
   ExecConsole,
   GetCvar,
@@ -81,6 +83,7 @@ struct ControlRequest {
   CameraTransform camera;
   int collisionDebugMode = 0;
   std::string captureName;
+  std::string capturePhase;
   bool hideHud = true;
   bool hideOverlays = true;
   std::vector<CameraViewpoint> viewpoints;

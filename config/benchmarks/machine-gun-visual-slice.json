@@ -3,7 +3,7 @@
   "benchmark_version": 1,
   "expected_benchmark_version": 1,
   "name": "machine-gun-visual-slice",
-  "labels": ["machine-gun", "combat-effects", "sustained-fire", "fixed-camera"],
+  "labels": ["machine-gun", "combat-effects", "sustained-fire", "fixed-camera", "authoritative-combat", "bounded-effects"],
   "map": "eyetoeye",
   "backend_requirement": "gpu",
   "resolution": [1280, 720],
@@ -11,6 +11,8 @@
   "vsync": false,
   "frame_cap": 240,
   "fov": 100.0,
+  "graphics_profile": "Default",
+  "render_scale": 1.0,
   "warmup_seconds": 2.0,
   "measured_seconds": 5.0,
   "camera_start": {
@@ -59,6 +61,7 @@
     {"name": "sustained-fire-end", "progress": 1.0}
   ],
   "residual_nondeterminism": [
-    "Bot reaction and aim depend on live match state; compare repeated aggregate runs and use the live scenario for exact shot-count evidence."
+    "Bot reaction and aim depend on live match state; compare repeated aggregate runs and use the live scenario for exact shot-count evidence.",
+    "This is the supported bounded authoritative heavy-effect case: one local and one remote Machine Gun may fire, while the configured renderer pools cap transient effects."
   ]
 }

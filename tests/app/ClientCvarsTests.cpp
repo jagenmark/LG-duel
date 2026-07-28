@@ -1,7 +1,9 @@
 #include "app/ClientCvars.hpp"
+#include "app/GraphicsProfiles.hpp"
 #include "console/ConsoleSystem.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <string>
@@ -24,6 +26,135 @@ int main() {
   int failures = 0;
   lg::ConsoleSystem console;
   lg::registerClientCvars(console);
+
+  for (const lg::GraphicsProfileDefinition& profile : lg::kGraphicsProfiles) {
+    const auto hasValue = [&](std::string_view cvar) {
+      return std::any_of(
+        profile.values.begin(),
+        profile.values.end(),
+        [cvar](const lg::GraphicsProfileValue& value) {
+          return value.cvar == cvar;
+        }
+      );
+    };
+    failures += expect(
+      hasValue("r_combat_effects") &&
+        hasValue("r_tonemap_exposure") &&
+        hasValue("r_atmosphere_grade") &&
+        hasValue("r_bloom") &&
+        hasValue("r_bloom_intensity") &&
+        hasValue("r_antialiasing") &&
+        hasValue("r_sun_shadows") &&
+        hasValue("r_contact_shadows") &&
+        hasValue("r_material_quality") &&
+        hasValue("r_player_rim") &&
+        hasValue("r_casings") &&
+        hasValue("r_impact_particles") &&
+        hasValue("r_decals_max"),
+      "each F10 graphics profile should define every high-level visual quality setting"
+    );
+  }
+  const auto profileValue = [](
+                              const lg::GraphicsProfileDefinition& profile,
+                              std::string_view cvar
+                            ) {
+    const auto value = std::find_if(
+      profile.values.begin(),
+      profile.values.end(),
+      [cvar](const lg::GraphicsProfileValue& entry) {
+        return entry.cvar == cvar;
+      }
+    );
+    return value == profile.values.end() ? std::string_view{} : value->value;
+  };
+  failures += expect(
+    profileValue(lg::kGraphicsProfiles[0], "r_atmosphere_grade") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_atmosphere_grade") == "2" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_atmosphere_grade") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_atmosphere_grade") == "3",
+    "low, default, competitive, and high profiles should map atmosphere to low, default, off, and high"
+  );
+
+  failures += expect(
+    profileValue(lg::kGraphicsProfiles[0], "r_antialiasing") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_antialiasing") == "0" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_antialiasing") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_antialiasing") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_sun_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_sun_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_sun_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_sun_shadows") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_contact_shadows") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_contact_shadows") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_contact_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_contact_shadows") == "1" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_material_quality") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_material_quality") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_material_quality") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_material_quality") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_player_rim") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_player_rim") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_player_rim") == "1" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_player_rim") == "2" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_bloom") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_bloom") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_draw_player_outlines") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_player_outline_mode") == "2" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_draw_player_outlines") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_player_outline_mode") == "2",
+    "profiles should map budgeted effects while keeping default and competitive readability"
+  );
+
+  failures += expect(
+    console.getInt("r_antialiasing") == 1 &&
+      console.getInt("r_sun_shadows") == 2 &&
+      console.getBool("r_contact_shadows") &&
+      console.getInt("r_material_quality") == 1 &&
+      console.getInt("r_player_rim") == 1 &&
+      console.execute("r_antialiasing 3") ==
+        "value out of range for r_antialiasing" &&
+      console.execute("r_sun_shadows -1") ==
+        "value out of range for r_sun_shadows" &&
+      console.execute("r_material_quality 3") ==
+        "value out of range for r_material_quality" &&
+      console.execute("r_player_rim 3") ==
+        "value out of range for r_player_rim",
+    "new graphics cvars should expose saved defaults and reject bad quality values"
+  );
+  const std::vector<std::string> graphicsArchivedConfig =
+    console.archivedConfigLines();
+  constexpr std::array<std::string_view, 5> graphicsArchivedLines{{
+    "set r_antialiasing 1",
+    "set r_sun_shadows 2",
+    "set r_contact_shadows 1",
+    "set r_material_quality 1",
+    "set r_player_rim 1",
+  }};
+  failures += expect(
+    std::all_of(
+      graphicsArchivedLines.begin(),
+      graphicsArchivedLines.end(),
+      [&](std::string_view line) {
+        return std::find(
+          graphicsArchivedConfig.begin(),
+          graphicsArchivedConfig.end(),
+          line
+        ) != graphicsArchivedConfig.end();
+      }
+    ),
+    "new graphics cvars should persist through archived client config"
+  );
+
+  failures += expect(
+    console.getInt("r_atmosphere_grade") == 2 &&
+      console.execute("r_atmosphere_grade 0") ==
+        "r_atmosphere_grade = 0" &&
+      console.execute("r_atmosphere_grade 3") ==
+        "r_atmosphere_grade = 3" &&
+      console.execute("r_atmosphere_grade 4") ==
+        "value out of range for r_atmosphere_grade",
+    "atmosphere grade should expose exactly four saved quality values"
+  );
 
   failures += expect(
     console.getBool("cl_show_console_cat") &&

@@ -11,6 +11,7 @@ import socket
 import subprocess
 import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -24,12 +25,16 @@ DEFAULT_OUTPUT_ROOT = REPO_ROOT / "build" / "scenario-results"
 DEFAULT_BUILD_DIR = REPO_ROOT / "build" / "default"
 BASE_SCHEDULE_LATE_TICKS = 32
 MAX_CAPTURE_RECOVERY_TICKS = 93
-# Direct state checks run on the client frame loop. Bound their total delay to
-# one server second so slow capture recovery can pass while a hang still fails.
+# Direct state checks run on the client frame loop. Keep the original bounded
+# dispatch recovery; exact-frame capture no longer needs a wider late limit.
 # Captures block the client while the server keeps its fixed clock running.
-# Reserve enough server life for that known tool cost; the runner removes the
-# measured capture span from later logical schedule checks.
-CAPTURE_RUNTIME_PADDING_TICKS = 125
+# Reserve 1.5 server seconds per readback so every independent phase shot can
+# still run. The runner removes the measured span from logical schedule checks.
+CAPTURE_RUNTIME_PADDING_TICKS = 188
+CLIENT_CVAR_OVERRIDE_RULES = {
+    "r_combat_effects": {"0", "1", "2"},
+    "r_bloom": {"0", "1"},
+}
 
 
 def _schedule_late_limit(capture_pause_ticks: int) -> int:
@@ -49,6 +54,94 @@ class LiveScenarioStageError(LiveScenarioError):
     def __init__(self, stage: str, detail: str) -> None:
         self.stage = stage
         super().__init__(f"{stage}: {detail}")
+
+
+def _parse_client_cvar_override(value: str) -> tuple[str, str]:
+    """Parse one narrow, presentation-only client cvar override."""
+    name, separator, requested = value.partition("=")
+    allowed = CLIENT_CVAR_OVERRIDE_RULES.get(name)
+    if not separator or allowed is None or requested not in allowed:
+        choices = ", ".join(
+            f"{key}={option}"
+            for key, values in CLIENT_CVAR_OVERRIDE_RULES.items()
+            for option in sorted(values)
+        )
+        raise argparse.ArgumentTypeError(
+            f"client cvar override must be one of: {choices}"
+        )
+    return name, requested
+
+
+def _client_cvar_overrides(
+    entries: list[tuple[str, str]] | None,
+) -> dict[str, str]:
+    overrides: dict[str, str] = {}
+    for name, value in entries or []:
+        if name in overrides:
+            raise LiveScenarioStageError(
+                "client_cvars",
+                f"duplicate client cvar override: {name}",
+            )
+        overrides[name] = value
+    return overrides
+
+
+def _cvar_response_value(response: dict[str, Any]) -> str | None:
+    value = response.get("value")
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, (str, int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+def _apply_client_cvar_overrides(
+    session: dict[str, Any],
+    timeout: float,
+    requested: dict[str, str],
+    attestation: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Set and read back owned-client presentation cvars before scenario start."""
+    output = attestation if attestation is not None else {}
+    records: list[dict[str, Any]] = []
+    applied: dict[str, str] = {}
+    output.update(
+        {
+            "requested": requested,
+            "applied": applied,
+            "records": records,
+            "applied_before_scenario_start": False,
+            "restore": "owned client exits during runner cleanup",
+        }
+    )
+    for name, value in requested.items():
+        before = _request("get_cvar", session, timeout, name=name)
+        set_response = _request(
+            "set_cvar",
+            session,
+            timeout,
+            name=name,
+            value=value,
+        )
+        after = _request("get_cvar", session, timeout, name=name)
+        read_back = _cvar_response_value(after)
+        record = {
+            "name": name,
+            "requested": value,
+            "before": _cvar_response_value(before),
+            "set_response": set_response,
+            "applied": read_back,
+            "matched": read_back == value,
+        }
+        records.append(record)
+        if read_back != value:
+            raise LiveScenarioStageError(
+                "client_cvars",
+                f"{name} read back as {read_back!r}, expected {value!r}",
+            )
+        applied[name] = read_back
+    output["applied_before_scenario_start"] = True
+    return output
 
 
 def _json(path: Path, value: Any) -> None:
@@ -207,10 +300,7 @@ def _checkpoint_for_event(
             except LiveScenarioStageError:
                 continue
             inspected.add(path)
-            if any(
-                _event_matches(event, expected)
-                for event in _events(checkpoint)
-            ):
+            if _event_occurrence_reached(_events(checkpoint), expected):
                 return checkpoint
         time.sleep(0.02)
     raise LiveScenarioStageError(
@@ -219,8 +309,92 @@ def _checkpoint_for_event(
     )
 
 
+def _capture_frame_checkpoint(
+    run_dir: Path,
+    shot: dict[str, Any],
+    deadline: float,
+) -> dict[str, Any]:
+    result = shot.get("result")
+    frame = result.get("frame_state") if isinstance(result, dict) else None
+    absolute_tick = (
+        frame.get("latest_snapshot_tick") if isinstance(frame, dict) else None
+    )
+    if not isinstance(absolute_tick, int) or isinstance(absolute_tick, bool):
+        raise LiveScenarioStageError(
+            "capture_checkpoint",
+            f"{shot.get('name')!r} has no exact capture snapshot tick",
+        )
+    while time.monotonic() < deadline:
+        for path in run_dir.glob("checkpoint-*.json"):
+            try:
+                checkpoint = _read_json(path, stage="capture_checkpoint")
+            except LiveScenarioStageError:
+                continue
+            if checkpoint.get("absolute_server_tick") == absolute_tick:
+                return checkpoint
+        time.sleep(0.02)
+    raise LiveScenarioStageError(
+        "capture_checkpoint",
+        f"{shot.get('name')!r} has no server checkpoint for capture tick "
+        f"{absolute_tick}",
+    )
+
+
 def _event_matches(event: dict[str, Any], expected: dict[str, Any]) -> bool:
-    return all(event.get(key) == value for key, value in expected.items())
+    return all(
+        event.get(key) == value
+        for key, value in expected.items()
+        if key != "occurrence"
+    )
+
+
+def _event_occurrence_reached(
+    events: list[dict[str, Any]],
+    expected: dict[str, Any],
+) -> bool:
+    occurrence = int(expected.get("occurrence", 1))
+    return sum(_event_matches(event, expected) for event in events) >= occurrence
+
+
+def _phase_capture_for_rocket_attack(
+    captures: list[Any],
+    captured: set[str],
+    occurrence: int,
+) -> tuple[dict[str, Any], str] | None:
+    phase_events = {
+        "muzzle": ("weapon_fired", "local_rocket_launcher_muzzle"),
+        "projectile": (
+            "projectile_spawned",
+            "local_rocket_launcher_projectile",
+        ),
+        "impact": ("explosion_created", "local_rocket_launcher_impact"),
+    }
+    for candidate in captures:
+        wanted = (
+            candidate.get("after_event")
+            if isinstance(candidate, dict)
+            else None
+        )
+        render_phase = (
+            candidate.get("render_phase")
+            if isinstance(candidate, dict)
+            else None
+        )
+        phase_event = phase_events.get(render_phase)
+        if (
+            not isinstance(candidate, dict)
+            or phase_event is None
+            or candidate["name"] in captured
+            or not isinstance(wanted, dict)
+            or wanted.get("type") != phase_event[0]
+            or wanted.get("actor", 0) != 0
+            or wanted.get("weapon") != "rocket_launcher"
+            or int(wanted.get("occurrence", 1)) != occurrence
+        ):
+            continue
+        return candidate, phase_event[1]
+    return None
+
 
 def _client_authority_distance(state: dict[str, Any]) -> float | None:
     predicted = state.get("predicted_local_player")
@@ -252,6 +426,193 @@ def _sequence(response: dict[str, Any]) -> int | None:
     return None
 
 
+def _capture_source_name(
+    scenario_name: str,
+    capture_name: str,
+    run_token: str,
+    sequence: int,
+    *,
+    captured_at: datetime | None = None,
+) -> str:
+    """Create a UTC evidence name that cannot collide with another run."""
+    timestamp = (captured_at or datetime.now(timezone.utc)).astimezone(
+        timezone.utc
+    )
+
+    def safe(value: str) -> str:
+        lowered = value.lower().replace("_", "-")
+        filtered = "".join(
+            character
+            for character in lowered
+            if character.isascii()
+            and (character.islower() or character.isdigit() or character == "-")
+        )
+        return "-".join(part for part in filtered.split("-") if part)
+
+    # The control protocol caps capture names at 64 bytes. Keep the UTC stamp,
+    # run key, view, and sequence visible while shortening user-owned labels.
+    task = (safe(scenario_name) or "live-scenario")[:12].strip("-")
+    view = (safe(capture_name) or "capture")[:20].strip("-")
+    token = (safe(run_token) or "run")[:8].strip("-")
+    return (
+        f"{timestamp.strftime('%Y%m%dT%H%M%SZ')}-"
+        f"{task}-{token}-{view}-{sequence:02d}"
+    )
+
+
+def _has_rocket_event(
+    events: list[dict[str, Any]],
+    event_type: str,
+    actor: int,
+) -> bool:
+    return any(
+        event.get("type") == event_type
+        and event.get("actor") == actor
+        and event.get("weapon") == "rocket_launcher"
+        for event in events
+    )
+
+
+def _validate_capture_phase(shot: dict[str, Any]) -> None:
+    """Reject a screenshot unless its exact input frame and server history agree."""
+    phase = shot.get("render_phase")
+    if phase is None:
+        return
+    if phase not in {"before_fire", "muzzle", "projectile", "impact"}:
+        raise LiveScenarioStageError(
+            "capture_phase",
+            f"{shot.get('name')!r} has unknown render phase {phase!r}",
+        )
+    result = shot.get("result")
+    frame = result.get("frame_state") if isinstance(result, dict) else None
+    if not isinstance(frame, dict):
+        raise LiveScenarioStageError(
+            "capture_phase",
+            f"{shot.get('name')!r} has no capture-time frame_state",
+        )
+    trigger = shot.get("trigger")
+    events = trigger.get("events") if isinstance(trigger, dict) else None
+    if not isinstance(events, list):
+        raise LiveScenarioStageError(
+            "capture_phase",
+            f"{shot.get('name')!r} has no authoritative trigger events",
+        )
+    events = [event for event in events if isinstance(event, dict)]
+    actor = shot.get("actor", 0)
+    local_index = frame.get("local_player_index")
+    fired = frame.get("local_rocket_launcher_fired")
+    projectiles = frame.get("local_rocket_launcher_projectiles")
+    explosions = frame.get("local_rocket_launcher_explosions")
+    rendered_rockets = frame.get("renderer_rocket_instances")
+    rendered_tracers = frame.get("renderer_tracer_instances")
+    rendered_explosions = frame.get("renderer_explosion_instances")
+    if (
+        local_index != actor
+        or not isinstance(fired, bool)
+        or not isinstance(projectiles, int)
+        or isinstance(projectiles, bool)
+        or not isinstance(explosions, int)
+        or isinstance(explosions, bool)
+        or not isinstance(rendered_rockets, int)
+        or isinstance(rendered_rockets, bool)
+        or not isinstance(rendered_tracers, int)
+        or isinstance(rendered_tracers, bool)
+        or not isinstance(rendered_explosions, int)
+        or isinstance(rendered_explosions, bool)
+    ):
+        raise LiveScenarioStageError(
+            "capture_phase",
+            f"{shot.get('name')!r} has incomplete local Rocket Launcher frame state",
+        )
+
+    rocket_events = [
+        event
+        for event in events
+        if event.get("actor") == actor
+        and event.get("weapon") == "rocket_launcher"
+    ]
+    shot_events = [
+        event for event in rocket_events if event.get("type") == "weapon_fired"
+    ]
+    latest_shot = shot_events[-1] if shot_events else None
+    shot_sequence = (
+        latest_shot.get("sequence") if isinstance(latest_shot, dict) else None
+    )
+    shot_window = [
+        event
+        for event in rocket_events
+        if (
+            not isinstance(shot_sequence, int)
+            or not isinstance(event.get("sequence"), int)
+            or event["sequence"] >= shot_sequence
+        )
+    ]
+    fired_event = latest_shot is not None
+    spawned_event = _has_rocket_event(
+        shot_window,
+        "projectile_spawned",
+        actor,
+    )
+    impact_event = _has_rocket_event(
+        shot_window,
+        "explosion_created",
+        actor,
+    )
+    accepted = {
+        "before_fire": (
+            not fired
+            and projectiles == 0
+            and explosions == 0
+            and rendered_rockets == 0
+            and rendered_tracers == 0
+            and rendered_explosions == 0
+            and not fired_event
+            and not spawned_event
+            and not impact_event
+        ),
+        "muzzle": (
+            projectiles >= 1
+            and explosions == 0
+            and rendered_rockets >= 1
+            and rendered_tracers >= 1
+            and rendered_explosions == 0
+            and fired_event
+            and spawned_event
+            and not impact_event
+        ),
+        "projectile": (
+            not fired
+            and projectiles >= 1
+            and explosions == 0
+            and rendered_rockets >= 1
+            and rendered_tracers == 0
+            and rendered_explosions == 0
+            and fired_event
+            and spawned_event
+            and not impact_event
+        ),
+        "impact": (
+            not fired
+            and projectiles == 0
+            and rendered_rockets == 0
+            and rendered_tracers == 0
+            and rendered_explosions >= 2
+            and impact_event
+        ),
+    }[phase]
+    if not accepted:
+        raise LiveScenarioStageError(
+            "capture_phase",
+            f"{shot.get('name')!r} is idle or does not match phase {phase!r}; "
+            f"frame={frame}, events={[event.get('type') for event in events]}",
+        )
+    shot["phase_evidence"] = {
+        "shot_event": latest_shot,
+        "event_window": shot_window,
+        "capture_frame": frame,
+    }
+
+
 def _input_parts(entry: dict[str, Any]) -> list[dict[str, Any]]:
     source = dict(entry.get("input", {}))
     weapon = source.get("weapon")
@@ -266,12 +627,33 @@ def _input_parts(entry: dict[str, Any]) -> list[dict[str, Any]]:
     return [{"ticks": duration, "one_tick_edges": edges, **source}]
 
 
-def _capture(capture: dict[str, Any], session: dict[str, Any], timeout: float, shots: list[dict[str, Any]]) -> None:
+def _capture(
+    capture: dict[str, Any],
+    source_name: str,
+    session: dict[str, Any],
+    timeout: float,
+    shots: list[dict[str, Any]],
+) -> None:
     frames = int(capture.get("wait_rendered_frames", 0))
     if frames:
         _request("wait_frames", session, timeout, frames=frames)
-    result = _request("capture_screenshot", session, timeout, name=str(capture["name"]), hide_hud=True, hide_overlays=True)
-    client_state = _request("get_client_state", session, timeout)
+    result = _request(
+        "capture_screenshot",
+        session,
+        timeout,
+        name=source_name,
+        hide_hud=True,
+        hide_overlays=True,
+    )
+    _record_capture_result(capture, source_name, result, shots)
+
+
+def _record_capture_result(
+    capture: dict[str, Any],
+    source_name: str,
+    result: dict[str, Any],
+    shots: list[dict[str, Any]],
+) -> None:
     source = Path(str(result.get("path", "")))
     if not source.is_file():
         raise LiveScenarioStageError(
@@ -289,18 +671,11 @@ def _capture(capture: dict[str, Any], session: dict[str, Any], timeout: float, s
     shots.append(
         {
             "name": capture["name"],
+            "source_name": source_name,
+            "render_phase": capture.get("render_phase"),
+            "actor": capture.get("actor", 0),
             "result": result,
-            "render_state": {
-                "telemetry_timing": "after_screenshot",
-                "client_tick": client_state.get("client_tick"),
-                "latest_server_tick": client_state.get("latest_server_tick"),
-                "latest_snapshot_tick": client_state.get(
-                    "latest_snapshot_tick"
-                ),
-                "presentation_tick": client_state.get("presentation_tick"),
-                "combat_effects": client_state.get("combat_effects"),
-                "render_frame": client_state.get("render_frame"),
-            },
+            "render_state": result.get("frame_state"),
         }
     )
 
@@ -412,6 +787,11 @@ def _live_assertions(scenario: dict[str, Any], client: dict[str, Any], session: 
                 image["trigger"] = found["trigger"]
             if isinstance(found, dict) and isinstance(found.get("render_state"), dict):
                 image["render_state"] = found["render_state"]
+            if isinstance(found, dict) and isinstance(found.get("phase_evidence"), dict):
+                image["phase_evidence"] = found["phase_evidence"]
+            if isinstance(found, dict):
+                image["source_name"] = found.get("source_name")
+                image["render_phase"] = found.get("render_phase")
             passed = bool(found) and image.get("verified_width") == assertion.get("width") and image.get("verified_height") == assertion.get("height")
             record.update({"status": "passed" if passed else "failed", "actual": image})
         else:
@@ -434,7 +814,8 @@ def _junit(name: str, assertions: list[dict[str, Any]], error: str | None) -> st
 
 def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT_ROOT, *, renderer: str = "gpu",
                       allow_fallback: bool = False, timeout: float = 60.0,
-                      build_dir: str | Path = DEFAULT_BUILD_DIR) -> dict[str, Any]:
+                      build_dir: str | Path = DEFAULT_BUILD_DIR,
+                      client_cvars: dict[str, str] | None = None) -> dict[str, Any]:
     """Validate, launch, drive, and collect one real client/server scenario."""
     started = time.monotonic()
     scenario_path, build = Path(path).resolve(), Path(build_dir).resolve()
@@ -451,10 +832,31 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
     client: dict[str, Any] = {}
     checkpoint: dict[str, Any] = {}
     cleanup: dict[str, Any] = {"stopped": [], "failures": []}
+    requested_client_cvars = dict(client_cvars or {})
+    invalid_client_cvars = {
+        name: value
+        for name, value in requested_client_cvars.items()
+        if (
+            name not in CLIENT_CVAR_OVERRIDE_RULES
+            or value not in CLIENT_CVAR_OVERRIDE_RULES[name]
+        )
+    }
+    client_cvar_attestation: dict[str, Any] = {
+        "requested": requested_client_cvars,
+        "applied": {},
+        "records": [],
+        "applied_before_scenario_start": False,
+        "restore": "owned client exits during runner cleanup",
+    }
     try:
         # Keep the supplied source even when C++ validation rejects it.
         _copy(scenario_path, scenario_dir / "scenario.json")
         scenario = validate_live_scenario(scenario_path, build, timeout)
+        if invalid_client_cvars:
+            raise LiveScenarioStageError(
+                "client_cvars",
+                f"client cvar overrides are not allowlisted: {invalid_client_cvars}",
+            )
         _json(scenario_dir / "scenario.json", scenario)
         runtime_scenario = json.loads(json.dumps(scenario))
         capture_count = sum(
@@ -489,6 +891,13 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
             raise LiveScenarioStageError("ready", f"server map is {ready.get('map')!r}, expected {expected_map!r}")
         if not isinstance(ready.get("map_revision"), int):
             raise LiveScenarioStageError("ready", "server ready record has no map revision")
+        stage = "client_cvars"
+        client_cvar_attestation = _apply_client_cvar_overrides(
+            session,
+            timeout,
+            requested_client_cvars,
+            client_cvar_attestation,
+        )
         initial_client = _request("get_client_state", session, timeout)
         client_tick_base = int(initial_client.get("client_tick", 0))
         stage = "network"
@@ -515,6 +924,22 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
         )
         captured: set[str] = set()
         capture_pause_ticks = 0
+        capture_source_names = {
+            str(capture["name"]): _capture_source_name(
+                str(scenario["name"]),
+                str(capture["name"]),
+                run_token,
+                index,
+            )
+            for index, capture in enumerate(
+                (
+                    capture
+                    for capture in scenario.get("captures", [])
+                    if isinstance(capture, dict)
+                ),
+                start=1,
+            )
+        }
         tick_captures = sorted(
             (
                 capture
@@ -553,7 +978,18 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                     min_tick=absolute_tick,
                 )
                 stage = "capture"
-                _capture(capture, session, timeout, screenshots)
+                _capture(
+                    capture,
+                    capture_source_names[capture["name"]],
+                    session,
+                    timeout,
+                    screenshots,
+                )
+                frame_checkpoint = _capture_frame_checkpoint(
+                    run_dir,
+                    screenshots[-1],
+                    time.monotonic() + timeout,
+                )
                 capture_finished = _latest_checkpoint(run_dir)
                 finished_tick = capture_finished.get("relative_tick")
                 started_tick = capture_checkpoint.get("relative_tick")
@@ -571,13 +1007,97 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                         "relative_tick"
                     ),
                     "trigger_checkpoint_absolute_tick": absolute_tick,
+                    "capture_frame_checkpoint_relative_tick":
+                        frame_checkpoint.get("relative_tick"),
+                    "capture_frame_checkpoint_absolute_tick":
+                        frame_checkpoint.get("absolute_server_tick"),
+                    "events": _events(frame_checkpoint)[:256],
                 }
+                _validate_capture_phase(screenshots[-1])
+                captured.add(capture["name"])
+
+        def capture_ready_events(checkpoint: dict[str, Any]) -> None:
+            """Capture reached event phases before another control frame can pass."""
+            nonlocal capture_pause_ticks, stage
+            for capture in scenario.get("captures", []):
+                wanted = (
+                    capture.get("after_event")
+                    if isinstance(capture, dict)
+                    else None
+                )
+                if (
+                    not wanted
+                    or capture["name"] in captured
+                    or not _event_occurrence_reached(
+                        _events(checkpoint),
+                        wanted,
+                    )
+                ):
+                    continue
+                stage = "capture"
+                absolute_tick = checkpoint.get("absolute_server_tick")
+                if not isinstance(absolute_tick, int):
+                    raise LiveScenarioStageError(
+                        "capture_checkpoint",
+                        "event capture checkpoint has no absolute_server_tick",
+                    )
+                _request(
+                    "wait_snapshot_tick",
+                    session,
+                    timeout,
+                    min_tick=absolute_tick,
+                )
+                capture_started = _latest_checkpoint(run_dir)
+                _capture(
+                    capture,
+                    capture_source_names[capture["name"]],
+                    session,
+                    timeout,
+                    screenshots,
+                )
+                frame_checkpoint = _capture_frame_checkpoint(
+                    run_dir,
+                    screenshots[-1],
+                    time.monotonic() + timeout,
+                )
+                matching_frame_events = [
+                    event
+                    for event in _events(frame_checkpoint)
+                    if _event_matches(event, wanted)
+                ]
+                capture_finished = _latest_checkpoint(run_dir)
+                started_tick = capture_started.get("relative_tick")
+                finished_tick = capture_finished.get("relative_tick")
+                captured_pause = (
+                    max(0, finished_tick - started_tick)
+                    if isinstance(finished_tick, int)
+                    and isinstance(started_tick, int)
+                    else 0
+                )
+                capture_pause_ticks += captured_pause
+                screenshots[-1]["trigger"] = {
+                    "after_event": wanted,
+                    "runtime_capture_pause_ticks": captured_pause,
+                    "runtime_total_capture_pause_ticks": capture_pause_ticks,
+                    "trigger_checkpoint_relative_tick": checkpoint.get(
+                        "relative_tick"
+                    ),
+                    "trigger_checkpoint_absolute_tick": absolute_tick,
+                    "capture_frame_checkpoint_relative_tick":
+                        frame_checkpoint.get("relative_tick"),
+                    "capture_frame_checkpoint_absolute_tick":
+                        frame_checkpoint.get("absolute_server_tick"),
+                    "matched_events": matching_frame_events[:256],
+                    "events": _events(frame_checkpoint)[:256],
+                }
+                _validate_capture_phase(screenshots[-1])
                 captured.add(capture["name"])
 
         scheduled_entries = sorted(
             enumerate(scenario["timeline"]),
             key=lambda item: int(item[1]["at_tick"]),
         )
+        rocket_attack_occurrence = 0
         for index, entry in scheduled_entries:
             target = int(entry["at_tick"])
             end_tick = target + int(entry["duration_ticks"])
@@ -627,6 +1147,33 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                         f"timeline[{index}] started {schedule_late_ticks} ticks late; "
                         f"limit is {schedule_late_limit}",
                     )
+                armed_capture: dict[str, Any] | None = None
+                armed_phase: str | None = None
+                if (
+                    bool(part.get("attack"))
+                    and part.get("weapon") == "rocketlauncher"
+                    and int(entry.get("player", 0)) == 0
+                ):
+                    rocket_attack_occurrence += 1
+                    phase_capture = _phase_capture_for_rocket_attack(
+                        scenario.get("captures", []),
+                        captured,
+                        rocket_attack_occurrence,
+                    )
+                    if phase_capture is not None:
+                        armed_capture, armed_phase = phase_capture
+                if armed_capture is not None:
+                    stage = "capture_arm"
+                    _request(
+                        "arm_phase_capture",
+                        session,
+                        timeout,
+                        name=capture_source_names[armed_capture["name"]],
+                        phase=armed_phase,
+                        hide_hud=True,
+                        hide_overlays=True,
+                    )
+                    stage = "schedule"
                 response = _request("send_input", session, timeout, **part)
                 sequence = _sequence(response)
                 record = {"timeline_index": index, "input": part, "sequence": sequence,
@@ -636,7 +1183,68 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                           "dispatch_server_tick": dispatch_tick,
                           "schedule_late_ticks": schedule_late_ticks,
                           "response": response}
+                if armed_capture is not None:
+                    stage = "capture"
+                    armed_result = _request(
+                        "collect_phase_capture",
+                        session,
+                        timeout,
+                        name=capture_source_names[armed_capture["name"]],
+                    )
+                    _record_capture_result(
+                        armed_capture,
+                        capture_source_names[armed_capture["name"]],
+                        armed_result,
+                        screenshots,
+                    )
+                    frame_checkpoint = _capture_frame_checkpoint(
+                        run_dir,
+                        screenshots[-1],
+                        time.monotonic() + timeout,
+                    )
+                    capture_finished = _latest_checkpoint(run_dir)
+                    frame_tick = frame_checkpoint.get("relative_tick")
+                    finished_tick = capture_finished.get("relative_tick")
+                    captured_pause = (
+                        max(0, finished_tick - frame_tick)
+                        if isinstance(frame_tick, int)
+                        and isinstance(finished_tick, int)
+                        else 0
+                    )
+                    capture_pause_ticks += captured_pause
+                    wanted = armed_capture["after_event"]
+                    matching_events = [
+                        event
+                        for event in _events(frame_checkpoint)
+                        if _event_matches(event, wanted)
+                    ]
+                    screenshots[-1]["trigger"] = {
+                        "after_event": wanted,
+                        "capture_mode": "prearmed_exact_render_phase",
+                        "runtime_capture_pause_ticks": captured_pause,
+                        "runtime_total_capture_pause_ticks":
+                            capture_pause_ticks,
+                        "trigger_checkpoint_relative_tick": frame_checkpoint.get(
+                            "relative_tick"
+                        ),
+                        "trigger_checkpoint_absolute_tick": frame_checkpoint.get(
+                            "absolute_server_tick"
+                        ),
+                        "capture_frame_checkpoint_relative_tick":
+                            frame_checkpoint.get("relative_tick"),
+                        "capture_frame_checkpoint_absolute_tick":
+                            frame_checkpoint.get("absolute_server_tick"),
+                        "matched_events": matching_events[:256],
+                        "events": _events(frame_checkpoint)[:256],
+                    }
+                    _validate_capture_phase(screenshots[-1])
+                    captured.add(armed_capture["name"])
+                    stage = "schedule"
                 capture_through(end_tick)
+                # send_input itself waits for the server to acknowledge its
+                # neutral release. Capture any event that ack proves before
+                # issuing another client control call.
+                capture_ready_events(_latest_checkpoint(run_dir))
                 if sequence is not None:
                     record["ack"] = _request("wait_command_ack", session, timeout, sequence=sequence)
                 after_input = _request("get_client_state", session, timeout)
@@ -667,39 +1275,7 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
             for record in acknowledgements:
                 if record["timeline_index"] == index:
                     record["server_relative_tick"] = relative_tick
-            for capture in scenario.get("captures", []):
-                wanted = capture.get("after_event") if isinstance(capture, dict) else None
-                matching_events = [
-                    event
-                    for event in _events(checkpoint)
-                    if wanted and _event_matches(event, wanted)
-                ]
-                if wanted and capture["name"] not in captured and matching_events:
-                    stage = "capture"
-                    capture_started = _latest_checkpoint(run_dir)
-                    _capture(capture, session, timeout, screenshots)
-                    capture_finished = _latest_checkpoint(run_dir)
-                    started_tick = capture_started.get("relative_tick")
-                    finished_tick = capture_finished.get("relative_tick")
-                    captured_pause = (
-                        max(0, finished_tick - started_tick)
-                        if isinstance(finished_tick, int) and isinstance(started_tick, int)
-                        else 0
-                    )
-                    capture_pause_ticks += captured_pause
-                    screenshots[-1]["trigger"] = {
-                        "after_event": wanted,
-                        "runtime_capture_pause_ticks": captured_pause,
-                        "runtime_total_capture_pause_ticks": capture_pause_ticks,
-                        "trigger_checkpoint_relative_tick": checkpoint.get(
-                            "relative_tick"
-                        ),
-                        "trigger_checkpoint_absolute_tick": checkpoint.get(
-                            "absolute_server_tick"
-                        ),
-                        "events": matching_events[:16],
-                    }
-                    captured.add(capture["name"])
+            capture_ready_events(_latest_checkpoint(run_dir))
         capture_through(int(scenario["execution"]["max_ticks"]))
         convergence_start_tick = max(
             (
@@ -754,11 +1330,34 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                     capture["after_event"],
                     time.monotonic() + timeout,
                 )
+                absolute_tick = checkpoint.get("absolute_server_tick")
+                if not isinstance(absolute_tick, int):
+                    raise LiveScenarioStageError(
+                        "capture_checkpoint",
+                        "event capture checkpoint has no absolute_server_tick",
+                    )
+                _request(
+                    "wait_snapshot_tick",
+                    session,
+                    timeout,
+                    min_tick=absolute_tick,
+                )
                 stage = "capture"
-                _capture(capture, session, timeout, screenshots)
+                _capture(
+                    capture,
+                    capture_source_names[capture["name"]],
+                    session,
+                    timeout,
+                    screenshots,
+                )
+                frame_checkpoint = _capture_frame_checkpoint(
+                    run_dir,
+                    screenshots[-1],
+                    time.monotonic() + timeout,
+                )
                 matching_events = [
                     event
-                    for event in _events(checkpoint)
+                    for event in _events(frame_checkpoint)
                     if _event_matches(event, capture["after_event"])
                 ]
                 screenshots[-1]["trigger"] = {
@@ -769,8 +1368,14 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                     "trigger_checkpoint_absolute_tick": checkpoint.get(
                         "absolute_server_tick"
                     ),
-                    "events": matching_events[:16],
+                    "capture_frame_checkpoint_relative_tick":
+                        frame_checkpoint.get("relative_tick"),
+                    "capture_frame_checkpoint_absolute_tick":
+                        frame_checkpoint.get("absolute_server_tick"),
+                    "matched_events": matching_events[:256],
+                    "events": _events(frame_checkpoint)[:256],
                 }
+                _validate_capture_phase(screenshots[-1])
                 captured.add(capture["name"])
         stage = "finish"
         minimum_sequence = max((row["sequence"] for row in acknowledgements if row.get("sequence") is not None), default=0)
@@ -830,6 +1435,7 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
         _json(scenario_dir / "assertions.json", assertions)
         _json(scenario_dir / "authoritative-events.json", result.get("events_since_setup", result.get("events", _events(checkpoint))))
         _json(scenario_dir / "client-events.json", [row.get("ack", {}) for row in acknowledgements])
+        _json(scenario_dir / "screenshots.json", screenshots)
         _json(scenario_dir / "client-samples.json", client_samples)
         _json(scenario_dir / "server-state.json", checkpoint)
         _json(scenario_dir / "client-state.json", client)
@@ -890,7 +1496,8 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                    "authoritative_failed": len(failed_server) + int(server_result_failed and not failed_server),
                    "cleanup": cleanup}
         _json(run_dir / "manifest.json", {"schema_version": 1, "run_token": run_token, "scenario_path": str(scenario_path), "session": session or {}})
-        _json(run_dir / "environment.json", {"renderer": renderer, "allow_fallback": allow_fallback, "build_dir": str(build), "session": session or {}})
+        _json(run_dir / "client-cvar-overrides.json", client_cvar_attestation)
+        _json(run_dir / "environment.json", {"renderer": renderer, "allow_fallback": allow_fallback, "build_dir": str(build), "session": session or {}, "client_cvar_overrides": client_cvar_attestation})
         _json(run_dir / "summary.json", summary)
         (run_dir / "junit.xml").write_text(
             _junit(summary["scenario"], junit_assertions, error),
@@ -909,14 +1516,23 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--allow-fallback", action="store_true")
     parser.add_argument("--timeout", type=float, default=60.0)
     parser.add_argument("--build-dir", default=str(DEFAULT_BUILD_DIR))
+    parser.add_argument(
+        "--client-cvar",
+        action="append",
+        default=[],
+        type=_parse_client_cvar_override,
+        metavar="NAME=VALUE",
+        help="owned-client presentation override; repeat for r_combat_effects and r_bloom",
+    )
     arguments = parser.parse_args(argv)
     if arguments.renderer == "fallback" and not arguments.allow_fallback:
         parser.error("--renderer fallback requires --allow-fallback")
     try:
+        client_cvars = _client_cvar_overrides(arguments.client_cvar)
         result = run_live_scenario(
             arguments.scenario, arguments.output_root, renderer=arguments.renderer,
             allow_fallback=arguments.allow_fallback, timeout=arguments.timeout,
-            build_dir=arguments.build_dir,
+            build_dir=arguments.build_dir, client_cvars=client_cvars,
         )
     except LiveScenarioError as error:
         print(json.dumps({"ok": False, "error": str(error)}))

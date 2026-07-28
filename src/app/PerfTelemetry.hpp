@@ -128,6 +128,7 @@ struct PerfSample {
   std::uint32_t activeCasings = 0;
   std::uint32_t activeImpactParticles = 0;
   std::uint32_t activeBulletDecals = 0;
+  std::uint32_t transparentEffectsSubmitted = 0;
   SnapshotDiagnostics snapshot = {};
 };
 
