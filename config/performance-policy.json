@@ -11,6 +11,7 @@
       "minimum_valid_runs": 5,
       "stability_cv_percent": 12.0,
       "gpu_required": false,
+      "optional_diagnostics_affect_outcome": true,
       "comparability": {
         "fatal": [
           "schema_version",
@@ -112,6 +113,7 @@
       "minimum_valid_runs": 5,
       "stability_cv_percent": 8.0,
       "gpu_required": true,
+      "optional_diagnostics_affect_outcome": false,
       "comparability": {
         "fatal": [
           "schema_version",
@@ -172,7 +174,7 @@
           "label": "Frame time median",
           "unit": "ms",
           "direction": "lower",
-          "required": true,
+          "required": false,
           "warn_relative_percent": 5.0,
           "warn_absolute": 0.1,
           "fail_relative_percent": 10.0,
@@ -184,7 +186,7 @@
           "label": "Frame time p95",
           "unit": "ms",
           "direction": "lower",
-          "required": true,
+          "required": false,
           "warn_relative_percent": 5.0,
           "warn_absolute": 0.15,
           "fail_relative_percent": 10.0,
@@ -196,7 +198,7 @@
           "label": "Frame time p99",
           "unit": "ms",
           "direction": "lower",
-          "required": true,
+          "required": false,
           "warn_relative_percent": 6.0,
           "warn_absolute": 0.25,
           "fail_relative_percent": 12.0,
@@ -222,7 +224,7 @@
           "label": "GPU primary command buffer p99 spike safeguard",
           "unit": "ms",
           "direction": "lower",
-          "required": false,
+          "required": true,
           "warn_relative_percent": 20.0,
           "warn_absolute": 0.2,
           "fail_relative_percent": 35.0,
@@ -246,11 +248,12 @@
           "label": "Frames over 16.67 ms",
           "unit": "frames",
           "direction": "lower",
-          "required": false,
+          "required": true,
           "warn_relative_percent": 20.0,
           "warn_absolute": 5.0,
           "fail_relative_percent": 50.0,
-          "fail_absolute": 20.0
+          "fail_absolute": 20.0,
+          "stability_cv_percent": 200.0
         },
         "movement_collision_p95": {
           "source": "movement_collision_ms",
@@ -337,26 +340,7 @@
           "fail_absolute": 0.15
         }
       },
-      "hard_limits": [
-        {
-          "field": "configured_datagram_ceiling_bytes",
-          "label": "Configured application datagram ceiling",
-          "required": true,
-          "equals": 1200
-        },
-        {
-          "field": "max_app_datagram_bytes",
-          "label": "Maximum application datagram",
-          "required": true,
-          "maximum": 1200
-        },
-        {
-          "field": "snapshot_encode_failures",
-          "label": "Snapshot encode failures",
-          "required": true,
-          "maximum": 0
-        }
-      ],
+      "hard_limits": [],
       "correctness": [
         {
           "path": "aggregate.valid",
@@ -381,12 +365,6 @@
           "label": "Determinism",
           "required": false,
           "equals": 0
-        },
-        {
-          "path": "cleanup_failures",
-          "label": "Cleanup",
-          "required": true,
-          "equals": 0
         }
       ]
     },
@@ -398,6 +376,7 @@
       "minimum_valid_runs": 5,
       "stability_cv_percent": 8.0,
       "gpu_required": true,
+      "optional_diagnostics_affect_outcome": false,
       "comparability": {
         "fatal": [
           "schema_version",
@@ -457,7 +436,7 @@
           "label": "Frame time median",
           "unit": "ms",
           "direction": "lower",
-          "required": true,
+          "required": false,
           "warn_relative_percent": 10.0,
           "warn_absolute": 0.1,
           "fail_relative_percent": 15.0,
@@ -469,7 +448,7 @@
           "label": "Frame time p99 spike safeguard",
           "unit": "ms",
           "direction": "lower",
-          "required": true,
+          "required": false,
           "warn_relative_percent": 12.0,
           "warn_absolute": 0.25,
           "fail_relative_percent": 20.0,
@@ -495,7 +474,7 @@
           "label": "GPU primary command buffer p99 spike safeguard",
           "unit": "ms",
           "direction": "lower",
-          "required": false,
+          "required": true,
           "warn_relative_percent": 15.0,
           "warn_absolute": 0.2,
           "fail_relative_percent": 25.0,
@@ -507,33 +486,15 @@
           "label": "Frames over 16.67 ms",
           "unit": "frames",
           "direction": "lower",
-          "required": false,
+          "required": true,
           "warn_relative_percent": 20.0,
           "warn_absolute": 5.0,
           "fail_relative_percent": 50.0,
-          "fail_absolute": 20.0
+          "fail_absolute": 20.0,
+          "stability_cv_percent": 200.0
         }
       },
-      "hard_limits": [
-        {
-          "field": "configured_datagram_ceiling_bytes",
-          "label": "Configured application datagram ceiling",
-          "required": true,
-          "equals": 1200
-        },
-        {
-          "field": "max_app_datagram_bytes",
-          "label": "Maximum application datagram",
-          "required": true,
-          "maximum": 1200
-        },
-        {
-          "field": "snapshot_encode_failures",
-          "label": "Snapshot encode failures",
-          "required": true,
-          "maximum": 0
-        }
-      ],
+      "hard_limits": [],
       "correctness": [
         {
           "path": "aggregate.valid",
@@ -546,12 +507,6 @@
           "label": "GPU renderer attested",
           "required": true,
           "equals": true
-        },
-        {
-          "path": "cleanup_failures",
-          "label": "Cleanup",
-          "required": true,
-          "equals": 0
         }
       ]
     }

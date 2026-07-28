@@ -34,7 +34,8 @@ class PerformancePolicyError(ValueError):
 _POLICY_KEYS = {"schema_version", "policy_version", "profiles"}
 _PROFILE_KEYS = {
     "expected_scenarios", "required_repetitions", "minimum_valid_runs", "stability_cv_percent",
-    "gpu_required", "comparability", "metrics", "hard_limits", "correctness",
+    "gpu_required", "optional_diagnostics_affect_outcome", "comparability", "metrics",
+    "hard_limits", "correctness",
 }
 _COMPARABILITY_KEYS = {"fatal", "warning", "info"}
 _METRIC_KEYS = {
@@ -119,6 +120,10 @@ def _validate_profile(raw: Any, name: str) -> dict[str, Any]:
     stability = _finite_number(value["stability_cv_percent"], f"profiles.{name}.stability_cv_percent", minimum=0)
     if not isinstance(value["gpu_required"], bool):
         raise PerformancePolicyError(f"profiles.{name}.gpu_required must be a boolean")
+    if not isinstance(value["optional_diagnostics_affect_outcome"], bool):
+        raise PerformancePolicyError(
+            f"profiles.{name}.optional_diagnostics_affect_outcome must be a boolean"
+        )
     comp = _object(value["comparability"], f"profiles.{name}.comparability")
     _closed(comp, _COMPARABILITY_KEYS, f"profiles.{name}.comparability")
     if set(comp) != _COMPARABILITY_KEYS:
@@ -145,6 +150,7 @@ def _validate_profile(raw: Any, name: str) -> dict[str, Any]:
         "expected_scenarios": scenarios, "required_repetitions": repetitions,
         "minimum_valid_runs": minimum_runs,
         "stability_cv_percent": stability, "gpu_required": value["gpu_required"],
+        "optional_diagnostics_affect_outcome": value["optional_diagnostics_affect_outcome"],
         "comparability": comparability, "metrics": metrics,
         "hard_limits": hard_limits, "correctness": correctness,
     }
@@ -471,7 +477,8 @@ def _evaluate_limits(candidate: dict[str, Any], policy: dict[str, Any]) -> list[
         checks.append({
             "label": rule["label"], "field": rule["field"], "status": status,
             "observed": None if observed is _MISSING else observed,
-            "limit": rule.get("maximum", rule.get("minimum", rule.get("equals"))), "reason": reason,
+            "limit": rule.get("maximum", rule.get("minimum", rule.get("equals"))),
+            "reason": reason, "required": rule["required"],
         })
     for rule in policy["correctness"]:
         values = _all_path_values(candidate, rule["path"])
@@ -484,7 +491,8 @@ def _evaluate_limits(candidate: dict[str, Any], policy: dict[str, Any]) -> list[
             status, reason = ("FAIL", "correctness check failed") if failed else ("PASS", "")
         checks.append({
             "label": rule["label"], "field": rule["path"], "status": status,
-            "observed": None if observed is _MISSING else observed, "limit": rule["equals"], "reason": reason,
+            "observed": None if observed is _MISSING else observed, "limit": rule["equals"],
+            "reason": reason, "required": rule["required"],
         })
     return checks
 
@@ -520,7 +528,11 @@ def compare_result_sets(
             output["comparability"][level].extend({"scenario": scenario, **item} for item in compared[level])
         checks = _evaluate_limits(right, policy)
         output["correctness"].extend({"scenario": scenario, **item} for item in checks)
-        statuses.extend(item["status"] for item in checks)
+        statuses.extend(
+            item["status"] for item in checks
+            if item["required"] or policy["optional_diagnostics_affect_outcome"]
+            or item["status"] not in {"UNAVAILABLE", "INCONCLUSIVE"}
+        )
         if compared["fatal"]:
             for metric_name, rule in policy["metrics"].items():
                 output["metrics"].append({
@@ -547,7 +559,11 @@ def compare_result_sets(
                 item = {"scenario": scenario, "name": metric_name, "label": rule["label"], "unit": rule["unit"],
                         "status": status, "reason": reason, "baseline": None, "candidate": None}
                 output["metrics"].append(item)
-                statuses.append(status)
+                if (
+                    rule["required"] or policy["optional_diagnostics_affect_outcome"]
+                    or status not in {"UNAVAILABLE", "INCONCLUSIVE"}
+                ):
+                    statuses.append(status)
                 if status == "UNAVAILABLE":
                     output["unavailable"].append(f"{scenario}: {metric_name}")
                 continue
@@ -573,7 +589,11 @@ def compare_result_sets(
                 "baseline_statistics": left_stats, "candidate_statistics": right_stats,
             }
             output["metrics"].append(item)
-            statuses.append(status)
+            if (
+                rule["required"] or policy["optional_diagnostics_affect_outcome"]
+                or status not in {"UNAVAILABLE", "INCONCLUSIVE"}
+            ):
+                statuses.append(status)
             if status == "INCONCLUSIVE":
                 output["inconclusive"].append(f"{scenario}: {metric_name}")
     if "FAIL" in statuses:

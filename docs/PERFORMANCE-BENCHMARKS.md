@@ -282,10 +282,13 @@ profiles: missing timestamp data fails the comparison and cannot produce a
 budget pass. Each cap has a `0.05 ms` absolute measurement floor. A result above
 the cap fails only when its absolute rise exceeds that floor; an above-cap shift
 at or below the floor is `INCONCLUSIVE`, never `PASS` or `WARN`. A zero baseline
-has no usable ratio, so normal absolute limits apply. Both profiles retain p99
-and 16.67 ms long-frame checks as spike safeguards. An unpatched build may still
-produce an observe-only artifact, but it cannot satisfy either enforcement
-profile.
+has no usable ratio, so normal absolute limits apply. Both profiles require the
+primary-GPU p99 and 16.67 ms long-frame checks as spike safeguards. Frame and
+CPU breakdowns remain diagnostic: noisy or absent values appear in the report
+but do not block a valid GPU comparison. The GPU profiles do not require
+network-datagram, snapshot-encode, or launcher-cleanup evidence; those checks
+remain required only for `pr_headless`. An unpatched build may still produce an
+observe-only artifact, but it cannot satisfy either enforcement profile.
 
 `config/performance-policy.json` is the versioned source of truth. The
 `pr_headless` profile uses five runs of the two shared-simulation workloads and

@@ -77,12 +77,12 @@ int main() {
 
   failures += expect(
     profileValue(lg::kGraphicsProfiles[0], "r_antialiasing") == "0" &&
-      profileValue(lg::kGraphicsProfiles[1], "r_antialiasing") == "1" &&
-      profileValue(lg::kGraphicsProfiles[2], "r_antialiasing") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_antialiasing") == "0" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_antialiasing") == "0" &&
       profileValue(lg::kGraphicsProfiles[3], "r_antialiasing") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_sun_shadows") == "0" &&
-      profileValue(lg::kGraphicsProfiles[1], "r_sun_shadows") == "2" &&
-      profileValue(lg::kGraphicsProfiles[2], "r_sun_shadows") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_sun_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_sun_shadows") == "0" &&
       profileValue(lg::kGraphicsProfiles[3], "r_sun_shadows") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_contact_shadows") == "1" &&
       profileValue(lg::kGraphicsProfiles[1], "r_contact_shadows") == "1" &&
@@ -95,8 +95,14 @@ int main() {
       profileValue(lg::kGraphicsProfiles[0], "r_player_rim") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_player_rim") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_player_rim") == "1" &&
-      profileValue(lg::kGraphicsProfiles[3], "r_player_rim") == "2",
-    "profiles should map anti-aliasing, shadows, materials, and player rims"
+      profileValue(lg::kGraphicsProfiles[3], "r_player_rim") == "2" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_bloom") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_bloom") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_draw_player_outlines") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_player_outline_mode") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_draw_player_outlines") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_player_outline_mode") == "2",
+    "profiles should map budgeted effects while keeping default and competitive readability"
   );
 
   failures += expect(
