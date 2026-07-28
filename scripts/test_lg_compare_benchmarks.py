@@ -41,6 +41,11 @@ class FakeGit:
                 "inline constexpr auto kMaxUdpApplicationDatagramBytes = 1200;\n",
                 encoding="utf-8",
             )
+            maps = path / "maps"
+            maps.mkdir()
+            (maps / "overkill_import.map").write_text(
+                "// shared benchmark map\n", encoding="utf-8"
+            )
             self.registered.add(path)
             return subprocess.CompletedProcess(command, 0, "", "")
         if command[:3] == ["git", "worktree", "list"]:
@@ -515,6 +520,7 @@ class CompareBenchmarkTests(unittest.TestCase):
                 }
 
             def benchmark(workload: str, **_: object) -> dict:
+                map_directories.append(Path(_["map_directory"]).resolve())
                 scenario = f"sim-{workload}"
                 result = self.aggregate(
                     scenario,
@@ -532,6 +538,7 @@ class CompareBenchmarkTests(unittest.TestCase):
                 )
                 return result
 
+            map_directories: list[Path] = []
             with mock.patch.object(compare, "_configure_and_build", side_effect=fake_build), \
                     mock.patch.object(compare, "_run_protocol_test", side_effect=protocol), \
                     mock.patch.object(
@@ -550,6 +557,9 @@ class CompareBenchmarkTests(unittest.TestCase):
                     runner=runner,
                 )
             self.assertEqual(code, 0)
+            self.assertEqual(len(map_directories), 4)
+            self.assertEqual(len(set(map_directories)), 1)
+            self.assertIn("candidate-", map_directories[0].parent.name)
             aggregate = json.loads(
                 next((output / "raw" / "candidate").rglob("aggregate.json")).read_text(
                     encoding="utf-8"
@@ -562,6 +572,14 @@ class CompareBenchmarkTests(unittest.TestCase):
             self.assertEqual(
                 [item["status"] for item in manifest["cleanup"]],
                 ["removed", "removed", "removed", "removed"],
+            )
+            self.assertEqual(
+                manifest["shared_inputs"]["headless_maps"],
+                {
+                    "source": "candidate",
+                    "commit": "b" * 40,
+                    "path": "maps",
+                },
             )
             self.assertFalse((output / "temp" / "builds").exists())
             self.assertFalse((output / "temp").exists())

@@ -908,10 +908,19 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     return result
 
 
-def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: str = "overkill_import",
-                             warmup_batches: int = 5, measured_batches: int = 40,
-                             operations_per_batch: int = 256, timeout: float = DEFAULT_TIMEOUT,
-                             force_linear: bool = False, build_mode: str = "release") -> dict[str, Any]:
+def run_simulation_benchmark(
+    workload: str,
+    *,
+    repetitions: int = 5,
+    map_name: str = "overkill_import",
+    map_directory: str | Path | None = None,
+    warmup_batches: int = 5,
+    measured_batches: int = 40,
+    operations_per_batch: int = 256,
+    timeout: float = DEFAULT_TIMEOUT,
+    force_linear: bool = False,
+    build_mode: str = "release",
+) -> dict[str, Any]:
     if workload not in {"movement-collision", "trace-projectile"}:
         raise BenchmarkError("simulation workload must be movement-collision or trace-projectile")
     validate_safe_name(map_name, "map")
@@ -919,6 +928,15 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     warmup_batches = _positive_int(warmup_batches, "warmup batches")
     measured_batches = _positive_int(measured_batches, "measured batches")
     operations_per_batch = _positive_int(operations_per_batch, "operations per batch")
+    resolved_map_directory = (
+        Path(map_directory).expanduser().resolve()
+        if map_directory is not None
+        else (REPO_ROOT / "maps").resolve()
+    )
+    if not resolved_map_directory.is_dir():
+        raise BenchmarkError(
+            f"simulation benchmark map directory not found: {resolved_map_directory}"
+        )
     build_dir, preset = benchmark_build(build_mode)
     executable_name = "lg_duel_sim_benchmark.exe" if os.name == "nt" else "lg_duel_sim_benchmark"
     executable = build_dir / executable_name
@@ -938,7 +956,7 @@ def run_simulation_benchmark(workload: str, *, repetitions: int = 5, map_name: s
     result_dir.mkdir(parents=True)
     command = [
         str(executable), "--workload", workload, "--map", map_name,
-        "--map-directory", str(REPO_ROOT / "maps"), "--output", str(result_dir),
+        "--map-directory", str(resolved_map_directory), "--output", str(result_dir),
         "--repetitions", str(repetitions), "--warmup-batches", str(warmup_batches),
         "--measured-batches", str(measured_batches), "--operations-per-batch", str(operations_per_batch),
     ]

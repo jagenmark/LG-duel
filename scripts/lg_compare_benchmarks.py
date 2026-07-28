@@ -942,6 +942,20 @@ def execute(
                 path.mkdir(parents=True, exist_ok=False)
 
             if args.suite == "pr_headless":
+                shared_map_directory = sides["candidate"][0] / "maps"
+                if not shared_map_directory.is_dir():
+                    raise CompareError(
+                        "candidate map directory is missing: "
+                        f"{shared_map_directory}"
+                    )
+                manifest["shared_inputs"] = {
+                    "headless_maps": {
+                        "source": "candidate",
+                        "commit": candidate_commit,
+                        "path": "maps",
+                    }
+                }
+                _write_manifest(output, manifest)
                 # Each native call owns all repetitions. Swap the first side for
                 # the second workload to keep grouped runs from sharing one order.
                 orders = (
@@ -959,6 +973,7 @@ def execute(
                                 result = lg_benchmark.run_simulation_benchmark(
                                     workload,
                                     repetitions=repetitions,
+                                    map_directory=shared_map_directory,
                                     warmup_batches=5,
                                     measured_batches=40,
                                     operations_per_batch=256,
