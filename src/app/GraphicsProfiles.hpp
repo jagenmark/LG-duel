@@ -57,7 +57,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_atmosphere_grade", "0"},
     {"r_bloom", "0"}, {"r_bloom_intensity", "0.1"},
     {"r_antialiasing", "0"}, {"r_sun_shadows", "0"},
-    {"r_contact_shadows", "0"}, {"r_material_quality", "1"},
+    {"r_contact_shadows", "0"}, {"r_material_quality", "0"},
     {"r_player_rim", "1"},
     {"r_casings", "0"}, {"r_impact_particles", "0.5"},
     {"r_decals_max", "64"}

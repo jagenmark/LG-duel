@@ -90,7 +90,7 @@ int main() {
       profileValue(lg::kGraphicsProfiles[3], "r_contact_shadows") == "1" &&
       profileValue(lg::kGraphicsProfiles[0], "r_material_quality") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_material_quality") == "1" &&
-      profileValue(lg::kGraphicsProfiles[2], "r_material_quality") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_material_quality") == "0" &&
       profileValue(lg::kGraphicsProfiles[3], "r_material_quality") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_player_rim") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_player_rim") == "1" &&
