@@ -86,6 +86,44 @@ OVERKILL_LIGHTS = {
     },
 }
 
+OVERKILL_FILL_LIGHTS = (
+    {
+        "classname": "light",
+        "origin": "0 -360 440",
+        "color": "168 202 255",
+        "intensity": "1.1",
+        "radius": "1600",
+    },
+    {
+        "classname": "light",
+        "origin": "640 360 760",
+        "color": "176 208 255",
+        "intensity": "1.05",
+        "radius": "1600",
+    },
+    {
+        "classname": "light",
+        "origin": "640 -1040 440",
+        "color": "185 210 255",
+        "intensity": "1.0",
+        "radius": "1500",
+    },
+    {
+        "classname": "light",
+        "origin": "-1300 -920 400",
+        "color": "190 216 255",
+        "intensity": "1.1",
+        "radius": "1200",
+    },
+    {
+        "classname": "light",
+        "origin": "1184 1760 360",
+        "color": "190 214 255",
+        "intensity": "0.75",
+        "radius": "1000",
+    },
+)
+
 THUNDERSTRUCK_LIGHTS = {
     "56 -48 -976": ("255 226 196", "0.45", "720"),
     "-720 16 -888": ("235 240 246", "0.35", "800"),
@@ -145,6 +183,11 @@ def replace_light_entity(
     return lines[: opening + 1] + body + lines[closing:]
 
 
+def light_entity_lines(desired: dict[str, str]) -> list[str]:
+    order = ("classname", "origin", "direction", "color", "intensity", "radius")
+    return ["{", *(f'"{key}" "{desired[key]}"' for key in order if key in desired), "}"]
+
+
 def transform_overkill(text: str) -> str:
     lines = split_lines(text)
     found: set[str | None] = set()
@@ -165,6 +208,8 @@ def transform_overkill(text: str) -> str:
         lines = replace_light_entity(lines, start, end, OVERKILL_LIGHTS[key])
     if found != set(OVERKILL_LIGHTS):
         raise AssertionError(f"missing Overkill light targets: {set(OVERKILL_LIGHTS) - found}")
+    for desired in OVERKILL_FILL_LIGHTS:
+        lines.extend(light_entity_lines(desired))
     return join_lines(lines)
 
 
@@ -320,12 +365,16 @@ def plane_points(text: str) -> list[str]:
     ]
 
 
-def origins(text: str) -> list[str]:
-    return [
-        match.group(2)
-        for line in split_lines(text)
-        if (match := PROPERTY_RE.match(line)) and match.group(1) == "origin"
-    ]
+def gameplay_origins(text: str) -> list[str]:
+    lines = split_lines(text)
+    result: list[str] = []
+    for start, end in entity_ranges(lines):
+        props = properties(lines, start, end)
+        if props.get("classname") in {"light", "light_sun"}:
+            continue
+        if origin := props.get("origin"):
+            result.append(origin)
+    return result
 
 
 def unresolved_textures(text: str) -> list[str]:
@@ -358,10 +407,10 @@ def verify(base: str) -> dict[str, int]:
         raise AssertionError("Overkill plane points changed")
     if plane_points(thunder_base) != plane_points(actual_thunder):
         raise AssertionError("Thunderstruck plane points changed")
-    if origins(overkill_base) != origins(actual_overkill):
-        raise AssertionError("Overkill origins changed")
-    if origins(thunder_base) != origins(actual_thunder):
-        raise AssertionError("Thunderstruck origins changed")
+    if gameplay_origins(overkill_base) != gameplay_origins(actual_overkill):
+        raise AssertionError("Overkill gameplay origins changed")
+    if gameplay_origins(thunder_base) != gameplay_origins(actual_thunder):
+        raise AssertionError("Thunderstruck gameplay origins changed")
 
     missing = unresolved_textures(actual_overkill) + unresolved_textures(actual_thunder)
     if missing:
@@ -381,7 +430,8 @@ def main() -> int:
     print(
         "map art pass verified: "
         f"{sum(counts.values())} Thunderstruck faces "
-        f"({counts}), 7 Overkill lights, 6 Thunderstruck point lights, 1 sun"
+        f"({counts}), {len(OVERKILL_LIGHTS) + len(OVERKILL_FILL_LIGHTS)} "
+        "Overkill lights, 6 Thunderstruck point lights, 1 sun"
     )
     return 0
 

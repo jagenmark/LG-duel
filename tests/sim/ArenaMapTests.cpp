@@ -305,7 +305,7 @@ int main() {
       "generated overkill import should preserve its restored teleport route"
     );
     failures += expect(
-      loaded.ok && loaded.arena.staticLightCount == 6 && loaded.arena.sunLight.enabled,
+      loaded.ok && loaded.arena.staticLightCount == 11 && loaded.arena.sunLight.enabled,
       "generated overkill import should preserve its reviewed adaptation lighting"
     );
     if (loaded.ok) {
@@ -322,28 +322,40 @@ int main() {
           nearlyEqual(arena.sunLight.intensity, 0.85F),
         "overkill sun should match its reviewed warm lighting"
       );
-      if (arena.staticLightCount == 6U) {
-        constexpr std::array<lg::Vec3, 6> expectedPositions = {{
+      if (arena.staticLightCount == 11U) {
+        constexpr std::array<lg::Vec3, 11> expectedPositions = {{
           {-2.0F, 2.0F, 17.0F},
           {16.0F, 26.25F, 26.25F},
           {16.0F, -33.75F, 17.0F},
           {-27.5F, -2.5F, 14.0F},
           {26.25F, 16.25F, 15.0F},
           {29.6F, 52.0F, 13.0F},
+          {0.0F, -9.0F, 11.0F},
+          {16.0F, 9.0F, 19.0F},
+          {16.0F, -26.0F, 11.0F},
+          {-32.5F, -23.0F, 10.0F},
+          {29.6F, 44.0F, 9.0F},
         }};
-        constexpr std::array<lg::Vec3, 6> expectedColors = {{
+        constexpr std::array<lg::Vec3, 11> expectedColors = {{
           {1.0F, 218.0F / 255.0F, 170.0F / 255.0F},
           {188.0F / 255.0F, 214.0F / 255.0F, 1.0F},
           {1.0F, 205.0F / 255.0F, 150.0F / 255.0F},
           {196.0F / 255.0F, 220.0F / 255.0F, 1.0F},
           {1.0F, 216.0F / 255.0F, 164.0F / 255.0F},
           {1.0F, 174.0F / 255.0F, 82.0F / 255.0F},
+          {168.0F / 255.0F, 202.0F / 255.0F, 1.0F},
+          {176.0F / 255.0F, 208.0F / 255.0F, 1.0F},
+          {185.0F / 255.0F, 210.0F / 255.0F, 1.0F},
+          {190.0F / 255.0F, 216.0F / 255.0F, 1.0F},
+          {190.0F / 255.0F, 214.0F / 255.0F, 1.0F},
         }};
-        constexpr std::array<float, 6> expectedIntensities = {
+        constexpr std::array<float, 11> expectedIntensities = {
           0.8F, 0.75F, 0.75F, 0.7F, 0.7F, 0.9F,
+          1.1F, 1.05F, 1.0F, 1.1F, 0.75F,
         };
-        constexpr std::array<float, 6> expectedRadii = {
+        constexpr std::array<float, 11> expectedRadii = {
           35.0F, 32.5F, 35.0F, 30.0F, 30.0F, 22.5F,
+          40.0F, 40.0F, 37.5F, 30.0F, 25.0F,
         };
         for (std::size_t index = 0; index < expectedPositions.size(); ++index) {
           const lg::ArenaStaticLight& light = arena.staticLights[index];

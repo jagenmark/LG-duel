@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T154459Z-overkill-art-teleport-exit-05",
+  "captured_at": "2026-07-28T15:44:59Z",
+  "captured_by": "codex-primary-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The restored northeast teleporter exit and amber route marker.",
+  "image": "20260728T154459Z-overkill-art-teleport-exit-05.png",
+  "review": {
+    "notes": "The pad is clear against the open floor and supports the stated exit view.",
+    "reviewed_at": "2026-07-28T15:52:02Z",
+    "reviewer": "overkill-final-reviewer-codex-v2",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "afccbf7ada0390a3c6fbe35d5faa02552c4976c78fcea87781564272555337cf",
+  "size_bytes": 9217968,
+  "task_id": "overkill-graphics",
+  "title": "Overkill teleporter exit"
+}

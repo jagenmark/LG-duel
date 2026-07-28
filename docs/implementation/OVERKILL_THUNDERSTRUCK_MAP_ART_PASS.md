@@ -2,14 +2,14 @@
 
 ## Scope
 
-This pass changes only face materials and light keys. It keeps all brush plane
-points, texture projections, entity origins, spawns, targets, transforms,
-bounds, clips, and triggers.
+This pass changes only face materials and static light data. It keeps all brush
+plane points, texture projections, gameplay entity origins, spawns, targets,
+transforms, bounds, clips, and triggers.
 
 ## Overkill
 
-The pass keeps every material token and light origin. It uses the reviewed
-import light rig:
+The pass keeps every material token and the seven key-light origins. It uses
+the reviewed import light rig:
 
 - the sun uses `255 226 184` at `0.85`;
 - the lower centre uses warm light at `0.80` with a radius of `1400`;
@@ -19,6 +19,12 @@ import light rig:
 - the east route uses warm light at `0.70` with a radius of `1200`;
 - the north-east teleport exit uses amber light at `0.90` with a radius of
   `900`.
+
+Five cool fill lights sit lower in the lower centre, upper crossing, south
+route, teleporter approach, and teleporter exit. They lift vertical route
+detail without raising the already bright floors. The renderer bakes all 11
+point lights into world vertex colors during scene setup; they add no draw,
+pass, shader, or per-frame GPU work.
 
 ## Thunderstruck
 

@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T154459Z-overkill-art-teleport-entry-04",
+  "captured_at": "2026-07-28T15:44:59Z",
+  "captured_by": "codex-primary-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The western approach to the restored teleporter with the amber pad and open path visible.",
+  "image": "20260728T154459Z-overkill-art-teleport-entry-04.png",
+  "review": {
+    "notes": "The amber pad and open floor path are clear, and the edge posts do not block either.",
+    "reviewed_at": "2026-07-28T15:52:02Z",
+    "reviewer": "overkill-final-reviewer-codex-v2",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "712d987017b89fdbdf54ff778870c6a8a37c77caadeb2875c46e5a79d7842dab",
+  "size_bytes": 9217968,
+  "task_id": "overkill-graphics",
+  "title": "Overkill teleporter approach"
+}
