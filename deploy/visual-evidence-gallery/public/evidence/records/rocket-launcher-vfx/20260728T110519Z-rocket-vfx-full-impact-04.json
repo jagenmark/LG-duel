@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T110519Z-rocket-vfx-full-impact-04",
+  "captured_at": "2026-07-28T11:05:19Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The final small layered blast with full effects.",
+  "image": "20260728T110519Z-rocket-vfx-full-impact-04.png",
+  "review": {
+    "notes": "The small layered blast reads well and keeps the wall clear.",
+    "reviewed_at": "2026-07-28T11:16:12Z",
+    "reviewer": "rocket-reviewer-sol-high",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "8f6e21651ad5fc07c5642add08c949e9067ce04888a458c325b6d1155ba9651c",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX full mode impact"
+}

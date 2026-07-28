@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T110545Z-rocket-vfx-bloom-off-muzzle-02",
+  "captured_at": "2026-07-28T11:05:45Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Exact firing frame with full effects and bloom off.",
+  "image": "20260728T110545Z-rocket-vfx-bloom-off-muzzle-02.png",
+  "review": {
+    "notes": "Clear muzzle flash with matching frame proof.",
+    "reviewed_at": "2026-07-28T11:16:12Z",
+    "reviewer": "rocket-reviewer-sol-high",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "be4d63413bdb56b72e98dec49667ba33540073d91a4d6d38843efa9d47b884f5",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX bloom-off muzzle flash"
+}

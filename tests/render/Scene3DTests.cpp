@@ -4745,9 +4745,16 @@ int main() {
   bool foundRocketExplosionHalo = false;
   bool foundPaleRocketFlash = false;
   bool foundCoralRocketBody = false;
+  float largestRocketBodyScale = 0.0F;
+  float rocketFlashScale = 0.0F;
+  float rocketHaloScale = 0.0F;
   for (const lg::SimpleRenderInstance& instance : rocketExplosionScene.simpleInstances) {
     if (instance.mesh == lg::MeshHandle::ExplosionCore) {
       ++rocketExplosionCoreCount;
+      largestRocketBodyScale = std::max(
+        largestRocketBodyScale,
+        std::max({instance.scale.x, instance.scale.y, instance.scale.z})
+      );
       foundCoralRocketBody =
         foundCoralRocketBody ||
         (
@@ -4762,6 +4769,9 @@ int main() {
     }
     foundRocketExplosionFlash =
       foundRocketExplosionFlash || instance.billboard == lg::BillboardHandle::ExplosionFlash;
+    if (instance.billboard == lg::BillboardHandle::ExplosionFlash) {
+      rocketFlashScale = instance.scale.x;
+    }
     foundPaleRocketFlash =
       foundPaleRocketFlash ||
       (
@@ -4771,14 +4781,23 @@ int main() {
       );
     foundRocketExplosionHalo =
       foundRocketExplosionHalo || instance.billboard == lg::BillboardHandle::ExplosionHalo;
+    if (instance.billboard == lg::BillboardHandle::ExplosionHalo) {
+      rocketHaloScale = instance.scale.x;
+    }
   }
   failures += expect(
     rocketExplosionCoreCount == 3U &&
       foundRocketExplosionFlash &&
       foundRocketExplosionHalo &&
       foundPaleRocketFlash &&
-      foundCoralRocketBody,
-    "rocket impact should layer a pale core, coral faceted body, and faint halo"
+      foundCoralRocketBody &&
+      largestRocketBodyScale > 0.82F &&
+      largestRocketBodyScale < 0.86F &&
+      rocketFlashScale > 0.51F &&
+      rocketFlashScale < 0.53F &&
+      rocketHaloScale > 1.27F &&
+      rocketHaloScale < 1.30F,
+    "rocket impact should keep a compact pale core, bounded coral body, and restrained halo"
   );
   lg::RenderSettings noBloomExplosionSettings = settings;
   noBloomExplosionSettings.bloomEnabled = false;

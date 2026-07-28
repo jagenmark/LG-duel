@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T110545Z-rocket-vfx-bloom-off-before-01",
+  "captured_at": "2026-07-28T11:05:45Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Clean wall view with full effects and bloom off.",
+  "image": "20260728T110545Z-rocket-vfx-bloom-off-before-01.png",
+  "review": {
+    "notes": "Clean frame with no stray effect.",
+    "reviewed_at": "2026-07-28T11:16:12Z",
+    "reviewer": "rocket-reviewer-sol-high",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "4866f0017c80074fc9102796ba081c1ebc1b2a62337fbbff7723dc84bcbe855b",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX bloom-off before firing"
+}

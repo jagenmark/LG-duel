@@ -223,6 +223,12 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
           })) {
       return {{}, false, "arm_phase_capture contains an unknown parameter"};
     }
+    if ((root.find("hide_hud") != nullptr &&
+         root.find("hide_hud")->type != JsonValue::Type::Boolean) ||
+        (root.find("hide_overlays") != nullptr &&
+         root.find("hide_overlays")->type != JsonValue::Type::Boolean)) {
+      return {{}, false, "hide_hud and hide_overlays must be booleans"};
+    }
     if (!isSafeCaptureName(request.captureName)) {
       return {{}, false, "capture name may only use letters, numbers, _ and -"};
     }

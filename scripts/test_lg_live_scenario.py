@@ -633,6 +633,39 @@ class LiveScenarioTests(unittest.TestCase):
             "local_rocket_launcher_impact",
         )
 
+    def test_second_projectile_maps_to_second_rocket_input(self) -> None:
+        capture = {
+            "name": "flight",
+            "after_event": {
+                "type": "projectile_spawned",
+                "actor": 0,
+                "weapon": "rocket_launcher",
+                "occurrence": 2,
+            },
+            "wait_rendered_frames": 0,
+            "render_phase": "projectile",
+        }
+
+        self.assertIsNone(
+            lg_live_scenario._phase_capture_for_rocket_attack(
+                [capture],
+                set(),
+                1,
+            )
+        )
+        selected = lg_live_scenario._phase_capture_for_rocket_attack(
+            [capture],
+            set(),
+            2,
+        )
+        self.assertIsNotNone(selected)
+        armed_capture, armed_phase = selected
+        self.assertEqual(armed_capture["name"], "flight")
+        self.assertEqual(
+            armed_phase,
+            "local_rocket_launcher_projectile",
+        )
+
     def test_tick_capture_runs_before_later_timeline_input(self) -> None:
         scenario = self.scenario()
         scenario["timeline"].append(

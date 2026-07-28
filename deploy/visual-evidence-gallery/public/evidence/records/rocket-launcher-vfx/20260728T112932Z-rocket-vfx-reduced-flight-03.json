@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T112932Z-rocket-vfx-reduced-flight-03",
+  "captured_at": "2026-07-28T11:29:32Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The pill-shaped rocket in flight with reduced effects.",
+  "image": "20260728T112932Z-rocket-vfx-reduced-flight-03.png",
+  "review": {
+    "notes": "The rocket stays easy to track.",
+    "reviewed_at": "2026-07-28T14:55:18Z",
+    "reviewer": "rocket-reviewer-sentinel",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "3a9fe40f13a586e1cf08d5e1356e6ee9ad40058d0a116f4ed2f2dd88a268e04e",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX reduced mode flight"
+}

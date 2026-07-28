@@ -10137,11 +10137,27 @@ int GameApp::run() const {
         armedPhaseCapture->error.empty()) {
       const WeaponFireResult& localFire =
         renderWeaponFires[renderLocalPlayerIndex];
+      const bool hasLocalRocket = std::any_of(
+        renderRockets.begin(),
+        renderRockets.end(),
+        [renderLocalPlayerIndex](const RocketProjectileSnapshot& rocket) {
+          return rocket.active &&
+            rocket.weapon == Weapon::RocketLauncher &&
+            rocket.owner == renderLocalPlayerIndex;
+        }
+      );
       if (
         (
           armedPhaseCapture->phase == "local_rocket_launcher_muzzle" &&
           localFire.fired &&
           localFire.weapon == Weapon::RocketLauncher
+        ) ||
+        (
+          armedPhaseCapture->phase == "local_rocket_launcher_projectile" &&
+          !localFire.fired &&
+          hasLocalRocket &&
+          !renderRocketExplosions[renderLocalPlayerIndex].active &&
+          activeTransientTracers.empty()
         ) ||
         (
           armedPhaseCapture->phase == "local_rocket_launcher_impact" &&

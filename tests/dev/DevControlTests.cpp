@@ -122,8 +122,14 @@ int main() {
       ).ok &&
       !parseRequest(
         R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","extra":true})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","hide_hud":"false"})"
+      ).ok &&
+      !parseRequest(
+        R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"local_rocket_launcher_muzzle","hide_overlays":1})"
       ).ok,
-    "phase capture should reject unknown phases, unsafe names, and extra fields"
+    "phase capture should reject unknown phases, unsafe names, extra fields, and non-boolean hide flags"
   );
   const auto collectedPhaseCapture = parseRequest(
     R"({"operation":"collect_phase_capture","name":"rocket-muzzle"})"

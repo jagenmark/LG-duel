@@ -10,3 +10,10 @@ The V4 rocket-fire options use these public-domain sources:
   https://opengameart.org/content/25-cc0-bang-firework-sfx
 
 Both source pages list the work under Creative Commons Zero (CC0).
+
+To rebuild the V4 options:
+
+```powershell
+python -m pip install -r scripts/requirements-rocket-audio.txt
+python scripts/generate_rocket_fire_options_v4.py
+```

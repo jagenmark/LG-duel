@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T112932Z-rocket-vfx-reduced-muzzle-02",
+  "captured_at": "2026-07-28T11:29:32Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Reduced-mode muzzle flash on the exact firing frame.",
+  "image": "20260728T112932Z-rocket-vfx-reduced-muzzle-02.png",
+  "review": {
+    "notes": "The muzzle flash is clear.",
+    "reviewed_at": "2026-07-28T14:55:18Z",
+    "reviewer": "rocket-reviewer-sentinel",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "b3055b89fcedc8f2fe169c8bccd9b8156c77335c24bfbc15befcefa085148d5a",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX reduced mode muzzle flash"
+}

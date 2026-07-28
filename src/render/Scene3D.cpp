@@ -4443,9 +4443,9 @@ void addTransientEffectInstances(
       // blast body. They retain one mesh/pass batch and avoid a shot-time mesh
       // build while their seeded turns keep repeated impacts stable.
       constexpr std::array<Vec3, 3> kRocketBodyScales = {{
-        {1.00F, 0.96F, 1.00F},
-        {0.94F, 1.00F, 0.96F},
-        {0.96F, 0.94F, 1.02F},
+        {0.74F, 0.71F, 0.74F},
+        {0.70F, 0.74F, 0.71F},
+        {0.71F, 0.70F, 0.75F},
       }};
       constexpr std::array<RenderColor, 3> kRocketBodyColors = {{
         {246, 104, 62, 255},
@@ -4484,14 +4484,18 @@ void addTransientEffectInstances(
     const bool coreMesh = effectUsesCoreMesh(effect.type);
     const bool rocketFlash =
       effect.type == TransientEffectType::RocketExplosionFlash;
-    if (effect.type == TransientEffectType::RocketExplosionHalo) {
+    const bool rocketHalo =
+      effect.type == TransientEffectType::RocketExplosionHalo;
+    if (rocketHalo) {
       color.alpha = static_cast<std::uint8_t>(std::clamp(
         static_cast<float>(color.alpha) * 1.45F,
         0.0F,
         72.0F
       ));
     }
-    const float submittedScale = rocketFlash ? scale * 0.70F : scale;
+    const float submittedScale = rocketFlash
+      ? scale * 0.54F
+      : rocketHalo ? scale * 0.72F : scale;
     appendSimpleInstance(
       scene,
       {

@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-LOCAL_DEPS = ROOT / "tmp" / "audio_python_deps"
-sys.path.insert(0, str(LOCAL_DEPS))
 
-import numpy as np  # type: ignore  # noqa: E402
-import soundfile as sf  # type: ignore  # noqa: E402
+try:
+    import numpy as np  # type: ignore
+    import soundfile as sf  # type: ignore
+except ImportError as exc:
+    raise SystemExit(
+        "Install the Rocket audio tools first: "
+        "python -m pip install -r scripts/requirements-rocket-audio.txt"
+    ) from exc
 
 
 RATE = 48_000

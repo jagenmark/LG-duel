@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260728T110545Z-rocket-vfx-bloom-off-flight-03",
+  "captured_at": "2026-07-28T11:05:45Z",
+  "captured_by": "rocket-capture-agent",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "The pill-shaped rocket in flight with bloom off.",
+  "image": "20260728T110545Z-rocket-vfx-bloom-off-flight-03.png",
+  "review": {
+    "notes": "The rocket is clear and easy to track.",
+    "reviewed_at": "2026-07-28T11:16:12Z",
+    "reviewer": "rocket-reviewer-sol-high",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "538878a2f273d4ca2642b32688daf2b9ebe9234c4788c3dcf4cd84da6f3175d9",
+  "size_bytes": 3687468,
+  "task_id": "rocket-launcher-vfx",
+  "title": "Rocket VFX bloom-off flight"
+}
