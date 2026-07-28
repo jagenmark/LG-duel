@@ -29,6 +29,27 @@ class BenchmarkTests(unittest.TestCase):
         self.assertGreaterEqual(listed["count"], 5)
         self.assertTrue(all(entry["valid"] for entry in listed["scenarios"]))
 
+    def test_graphics_contract_requires_native_effective_cvars(self) -> None:
+        effective = {
+            "r_antialiasing": "1", "r_sun_shadows": "2",
+            "r_contact_shadows": "1", "r_material_quality": "1",
+            "r_player_rim": "1", "r_atmosphere_grade": "2",
+            "r_bloom": "1", "r_render_scale": "1.250000",
+        }
+        contract = lg_benchmark.graphics_contract_from_native(
+            {"effective_cvars": effective}, "Default"
+        )
+        self.assertEqual(contract["profile"], "Default")
+        self.assertEqual(contract["anti_aliasing"], "1")
+        self.assertEqual(contract["sun_shadow_quality"], "2")
+        self.assertEqual(contract["render_scale"], "1.250000")
+        incomplete = dict(effective)
+        del incomplete["r_bloom"]
+        with self.assertRaisesRegex(BenchmarkError, "r_bloom"):
+            lg_benchmark.graphics_contract_from_native(
+                {"effective_cvars": incomplete}, "Default"
+            )
+
     def test_invalid_duration_and_resolution(self) -> None:
         value = self.scenario()
         value["warmup_frames"] = 10
@@ -259,7 +280,13 @@ class BenchmarkTests(unittest.TestCase):
                 calls.append((operation, kwargs))
                 return {"summary": {"count": 100, "mean_ms": 10, "median_ms": 10,
                                     "p95_ms": 12, "p99_ms": 14, "max_ms": 15, "stddev_ms": 0.2},
-                        "validity": {"map": True, "completed": True, "frame_count": True}}
+                        "validity": {"map": True, "completed": True, "frame_count": True},
+                        "effective_cvars": {
+                            "r_antialiasing": "1", "r_sun_shadows": "2",
+                            "r_contact_shadows": "1", "r_material_quality": "1",
+                            "r_player_rim": "1", "r_atmosphere_grade": "2",
+                            "r_bloom": "1", "r_render_scale": "1.000000",
+                        }}
 
             with mock.patch.object(lg_benchmark, "SCENARIO_ROOT", scenarios), mock.patch.object(lg_benchmark, "RESULT_ROOT", results):
                 result = lg_benchmark.run_benchmark("test-scenario", repetitions=2, request_sender=sender, start_client=False)
@@ -271,6 +298,25 @@ class BenchmarkTests(unittest.TestCase):
             self.assertEqual(calls[0][1]["scenario"], value)
             self.assertRegex(calls[0][1]["scenario_hash"], r"^[0-9a-f]{64}$")
             self.assertIn("run_group", calls[0][1])
+            self.assertIn("graphics_contract", result["settings"])
+            self.assertEqual(result["settings"]["graphics_contract"]["profile"], "Default")
+            self.assertEqual(result["settings"]["graphics_contract"]["render_scale"], "1.000000")
+
+    def test_optional_render_pass_diagnostics_are_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            run_dir = root / "test" / "run-1"
+            run_dir.mkdir(parents=True)
+            native = run_dir / "result.json"
+            native.write_text(json.dumps({
+                "summary": {"median_ms": 2.0},
+                "render_pass_diagnostics": {"world": {"draws": 4, "triangles": 120}},
+            }), encoding="utf-8")
+            with mock.patch.object(lg_benchmark, "RESULT_ROOT", root):
+                normalized = lg_benchmark._normalize_native_result(
+                    {"summary": {"median_ms": 2.0}, "result_path": str(native)}, run_dir, "run-1",
+                )
+        self.assertEqual(normalized["render_pass_diagnostics"]["world"]["draws"], 4)
 
     def test_unsafe_names_and_paths(self) -> None:
         for value in ("../escape", "..", "slash/name", ""):

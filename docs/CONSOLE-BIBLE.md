@@ -313,6 +313,11 @@ the Revolver.
 | `r_bloom` | bool | `1` | bool | None | Enables the compact bloom response on bright effect sprites. It does not process HUD pixels. |
 | `r_bloom_intensity` | float | `0.18` | `0..1` | None | Strength of the compact bright-effect bloom response. |
 | `r_bloom_threshold` | float | `1.15` | `0.5..4` | None | Brightness threshold for compact effect bloom. Ordinary scene surfaces do not enter this path. |
+| `r_antialiasing` | int | `1` | `0..2` | None | Anti-aliasing quality. `0`: off, `1`: 2x MSAA, `2`: 4x MSAA. |
+| `r_sun_shadows` | int | `2` | `0..2` | None | Sun-shadow quality. `0`: off, `1`: low, `2`: high. |
+| `r_contact_shadows` | bool | `1` | bool | None | Enables contact shadows on players and props. |
+| `r_material_quality` | int | `1` | `0..2` | None | Material quality. `0`: basic, `1`: enhanced, `2`: high. |
+| `r_player_rim` | int | `1` | `0..2` | None | Player rim-light quality. `0`: off, `1`: low, `2`: high. |
 | `r_casings` | bool | `1` | bool | None | Enables local, presentation-only cartridge casings. |
 | `r_casing_count` | float | `1` | `0..1` | None | Seeded per-shot casing spawn ratio. `0` disables spawning; `1` attempts one casing for each machine-gun shot. |
 | `r_casing_lifetime` | float | `2.4` | `0.05..10` seconds | None | Visual casing lifetime. |

@@ -40,7 +40,8 @@ _COMPARABILITY_KEYS = {"fatal", "warning", "info"}
 _METRIC_KEYS = {
     "source", "statistic", "label", "unit", "direction", "required",
     "warn_relative_percent", "warn_absolute", "fail_relative_percent",
-    "fail_absolute", "stability_cv_percent", "scenarios",
+    "fail_absolute", "relative_cap_percent", "absolute_measurement_floor",
+    "stability_cv_percent", "scenarios",
 }
 _LIMIT_KEYS = {"field", "label", "required", "maximum", "minimum", "equals"}
 _FIELD_KEYS = {"path", "label", "required", "equals"}
@@ -89,8 +90,11 @@ def load_policy(path: str | Path, profile: str) -> dict[str, Any]:
     if root.get("policy_version") != 1:
         raise PerformancePolicyError(f"unsupported policy version: {root.get('policy_version')!r}")
     profiles = _object(root.get("profiles"), "profiles")
-    if set(profiles) != {"pr_headless", "trusted_gpu"}:
-        raise PerformancePolicyError("profiles must contain exactly pr_headless and trusted_gpu")
+    required_profiles = {"pr_headless", "trusted_gpu", "trusted_gpu_competitive"}
+    if set(profiles) != required_profiles:
+        raise PerformancePolicyError(
+            "profiles must contain exactly pr_headless, trusted_gpu, and trusted_gpu_competitive"
+        )
     if profile not in profiles:
         raise PerformancePolicyError(f"unknown policy profile: {profile}")
     normalized = _validate_profile(profiles[profile], profile)
@@ -172,6 +176,21 @@ def _validate_metric(name: str, raw: Any) -> dict[str, Any]:
         raise PerformancePolicyError(f"metrics.{name} fail thresholds must not be below warn thresholds")
     if "stability_cv_percent" in result:
         result["stability_cv_percent"] = _finite_number(result["stability_cv_percent"], f"metrics.{name}.stability_cv_percent", minimum=0)
+    cap_present = "relative_cap_percent" in result
+    floor_present = "absolute_measurement_floor" in result
+    if cap_present != floor_present:
+        raise PerformancePolicyError(
+            f"metrics.{name} must define relative_cap_percent and absolute_measurement_floor together"
+        )
+    if cap_present:
+        result["relative_cap_percent"] = _finite_number(
+            result["relative_cap_percent"],
+            f"metrics.{name}.relative_cap_percent", minimum=0,
+        )
+        result["absolute_measurement_floor"] = _finite_number(
+            result["absolute_measurement_floor"],
+            f"metrics.{name}.absolute_measurement_floor", minimum=0,
+        )
     if "scenarios" in result:
         result["scenarios"] = _string_list(result["scenarios"], f"metrics.{name}.scenarios")
     return result
@@ -409,6 +428,17 @@ def _metric_status(delta: float, relative: float | None, rule: dict[str, Any]) -
     relative_regression = relative if rule["direction"] == "lower" else (-relative if relative is not None else None)
     if regression <= 0:
         return "PASS"
+    if "relative_cap_percent" in rule:
+        # The cap is a hard, inclusive GPU budget.  A tiny absolute shift above
+        # it cannot establish a timing regression, so callers must remeasure.
+        # A zero baseline has no useful ratio and continues through the normal
+        # absolute-limit path below.
+        if relative_regression is not None:
+            if relative_regression <= rule["relative_cap_percent"] + 1e-9:
+                return "PASS"
+            if regression <= rule["absolute_measurement_floor"]:
+                return "INCONCLUSIVE"
+            return "FAIL"
     # A zero baseline has no useful ratio; absolute limits alone decide it.
     if relative_regression is None:
         if regression > rule["fail_absolute"]:

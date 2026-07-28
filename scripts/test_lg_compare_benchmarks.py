@@ -90,6 +90,16 @@ class CompareBenchmarkTests(unittest.TestCase):
         values.update(changes)
         return Namespace(**values)
 
+    def test_parser_accepts_competitive_gpu_profile_and_suite(self) -> None:
+        parser = compare.build_parser()
+        args = parser.parse_args([
+            "--baseline", "base", "--candidate", "HEAD",
+            "--suite", "trusted_gpu_competitive", "--repetitions", "5",
+            "--profile", "trusted_gpu_competitive", "--output", "out",
+        ])
+        self.assertEqual(args.suite, "trusted_gpu_competitive")
+        self.assertEqual(args.profile, "trusted_gpu_competitive")
+
     def aggregate(
         self,
         scenario: str,

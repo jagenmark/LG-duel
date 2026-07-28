@@ -110,12 +110,20 @@ class PerformancePolicyTests(unittest.TestCase):
             policy,
         )
 
-    def test_shipped_policy_has_only_two_profiles(self) -> None:
+    def test_shipped_policy_has_graphics_profiles(self) -> None:
         path = Path(__file__).parents[1] / "config" / "performance-policy.json"
         headless = policy_module.load_policy(path, "pr_headless")
         gpu = policy_module.load_policy(path, "trusted_gpu")
+        competitive = policy_module.load_policy(path, "trusted_gpu_competitive")
         self.assertEqual(headless["version"], 1)
         self.assertTrue(gpu["gpu_required"])
+        self.assertTrue(competitive["gpu_required"])
+        self.assertEqual(gpu["expected_scenarios"], ["eyetoeye-readability-pan"])
+        self.assertEqual(competitive["expected_scenarios"], ["eyetoeye-readability-pan-competitive"])
+        self.assertTrue(gpu["metrics"]["gpu_primary_median"]["required"])
+        self.assertTrue(competitive["metrics"]["gpu_primary_median"]["required"])
+        self.assertEqual(gpu["metrics"]["gpu_primary_median"]["relative_cap_percent"], 25.0)
+        self.assertEqual(competitive["metrics"]["gpu_primary_median"]["relative_cap_percent"], 15.0)
         self.assertIn("environment.compiler_version", headless["comparability"]["fatal"])
         self.assertIn("environment.build_type", headless["comparability"]["fatal"])
         self.assertIn("environment.compile_time_options", headless["comparability"]["fatal"])
@@ -123,7 +131,41 @@ class PerformancePolicyTests(unittest.TestCase):
         self.assertIn("environment.sdl_configuration", gpu["comparability"]["fatal"])
         self.assertIn("environment.observed_resolution", gpu["comparability"]["fatal"])
         self.assertIn("environment.vulkan_icd_manifest_records", gpu["comparability"]["fatal"])
+        self.assertNotIn("environment.executable_sha256", gpu["comparability"]["fatal"])
+        self.assertIn("environment.executable_sha256", gpu["comparability"]["info"])
+        self.assertNotIn("environment.executable_sha256", competitive["comparability"]["fatal"])
+        self.assertIn("environment.executable_sha256", competitive["comparability"]["info"])
+        self.assertIn("settings.graphics_contract", gpu["comparability"]["fatal"])
         self.assertTrue(all(rule["required"] for rule in headless["hard_limits"]))
+
+    def test_gpu_relative_cap_boundaries_use_measurement_floor(self) -> None:
+        path = Path(__file__).parents[1] / "config" / "performance-policy.json"
+        for profile_name, cap in (("trusted_gpu", 25.0), ("trusted_gpu_competitive", 15.0)):
+            policy = policy_module.load_policy(path, profile_name)
+            policy["expected_scenarios"] = ["bench"]
+            policy["required_repetitions"] = 3
+            policy["minimum_valid_runs"] = 3
+            policy["gpu_required"] = False
+            policy["comparability"] = {"fatal": [], "warning": [], "info": []}
+            policy["metrics"] = {"gpu": policy["metrics"]["gpu_primary_median"]}
+            policy["hard_limits"] = []
+            policy["correctness"] = []
+
+            def gpu_manifest(value: float) -> dict:
+                manifest = self.manifest()
+                for run in manifest["runs"]:
+                    run["summary"]["gpu_primary_command_buffer_ms"] = {"median": value}
+                return manifest
+
+            exact_cap = 0.1 * (1.0 + cap / 100.0)
+            self.assertEqual(self.compare_with_policy(gpu_manifest(0.1), gpu_manifest(exact_cap), policy)["status"], "PASS")
+            just_over_cap = exact_cap + 0.0001
+            self.assertEqual(self.compare_with_policy(gpu_manifest(0.1), gpu_manifest(just_over_cap), policy)["status"], "INCONCLUSIVE")
+            self.assertEqual(self.compare_with_policy(gpu_manifest(0.1), gpu_manifest(0.16), policy)["status"], "FAIL")
+            missing = gpu_manifest(0.1)
+            for run in missing["runs"]:
+                del run["summary"]["gpu_primary_command_buffer_ms"]
+            self.assertEqual(self.compare_with_policy(gpu_manifest(0.1), missing, policy)["status"], "FAIL")
 
     def test_trusted_gpu_rejects_sdl_configuration_differences(self) -> None:
         path = Path(__file__).parents[1] / "config" / "performance-policy.json"

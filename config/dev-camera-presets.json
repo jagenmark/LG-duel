@@ -92,6 +92,42 @@
           }
         ]
       }
+    },
+    "thunderstruck": {
+      "presets": {
+        "graphics-review": [
+          {
+            "name": "lower-pad",
+            "label": "Lower spawn toward the jump pad and central route",
+            "position": [-0.6, 2.2, -30.85],
+            "yaw": 270.0,
+            "pitch": -3.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "upper-lane",
+            "label": "West upper spawn down the long lane",
+            "position": [-11.8, -0.6, -22.85],
+            "yaw": 270.0,
+            "pitch": 0.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          },
+          {
+            "name": "south-landmark",
+            "label": "South spawn toward the high southwest landmark",
+            "position": [15.6, -36.4, -25.6],
+            "yaw": 135.0,
+            "pitch": -6.0,
+            "fov": 100.0,
+            "hide_hud": true,
+            "hide_overlays": true
+          }
+        ]
+      }
     }
   }
 }

@@ -10123,6 +10123,17 @@ int GameApp::run() const {
         response.object["simulation_ticks_path"] = dev::JsonValue::stringValue(
           (resultDirectory / "simulation-ticks.csv").string()
         );
+        dev::JsonValue effectiveCvars = dev::JsonValue::objectValue();
+        constexpr std::array<std::string_view, 8> kBenchmarkGraphicsContractCvars{{
+          "r_antialiasing", "r_sun_shadows", "r_contact_shadows",
+          "r_material_quality", "r_player_rim", "r_atmosphere_grade",
+          "r_bloom", "r_render_scale",
+        }};
+        for (const std::string_view name : kBenchmarkGraphicsContractCvars) {
+          effectiveCvars.object[std::string(name)] =
+            dev::JsonValue::stringValue(console.valueString(name));
+        }
+        response.object["effective_cvars"] = std::move(effectiveCvars);
         developerControl.complete(
           active.queued.token,
           dev::successResponse(request.id, std::move(response))

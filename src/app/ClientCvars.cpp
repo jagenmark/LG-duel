@@ -132,6 +132,11 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_bloom", "Enable compact bloom on bright effect sprites.", true, archivedClient, {}, {}});
   console.registerCvar({"r_bloom_intensity", "Compact bright-effect bloom intensity.", 0.18F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_bloom_threshold", "Brightness threshold for effect bloom.", 1.15F, archivedClient, 0.5F, 4.0F});
+  console.registerCvar({"r_antialiasing", "Anti-aliasing quality: 0 off, 1 2x MSAA, 2 4x MSAA.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_sun_shadows", "Sun-shadow quality: 0 off, 1 low, 2 high.", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_contact_shadows", "Enable contact shadows on players and props.", true, archivedClient, {}, {}});
+  console.registerCvar({"r_material_quality", "Material quality: 0 basic, 1 enhanced, 2 high.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_player_rim", "Player rim-light quality: 0 off, 1 low, 2 high.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_casings", "Enable local visual cartridge casings.", true, archivedClient, {}, {}});
   console.registerCvar({"r_casing_count", "Machine-gun casing count multiplier.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_casing_lifetime", "Casing lifetime in seconds.", 2.4F, archivedClient, 0.05F, 10.0F});
