@@ -20,6 +20,8 @@ layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 projection;
 } camera;
 
+invariant gl_Position;
+
 vec4 projectWorld(vec3 worldPosition) {
   vec3 offset = worldPosition - camera.position.xyz;
   float viewX = dot(offset, camera.right.xyz);

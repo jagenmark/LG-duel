@@ -164,6 +164,15 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask_world.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask_world.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask_static.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask_static.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask_gltf.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask_gltf.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_clear.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_clear.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -331,6 +340,15 @@ add_custom_target(lg_duel_runtime_assets ALL
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask_world.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask_world.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask_static.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask_static.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_mask_gltf.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_mask_gltf.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/outline_clear.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/outline_clear.vert.spv"

@@ -363,6 +363,75 @@ class LgToolTests(unittest.TestCase):
             self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
         self.assertEqual(4, cmake.count("world_surface.vert.spv"))
 
+    def test_outline_mask_vertex_shaders_are_lean(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        expected_inputs = {
+            "outline_mask_world.vert": 1,
+            "outline_mask_static.vert": 4,
+            "outline_mask_gltf.vert": 9,
+        }
+        for shader_name, input_count in expected_inputs.items():
+            source = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertEqual(input_count, source.count("layout(location = "), shader_name)
+            self.assertIn("invariant gl_Position;", source, shader_name)
+            self.assertNotIn(" out ", source, shader_name)
+            self.assertEqual(
+                b"\x03\x02#\x07",
+                (shader_dir / f"{shader_name}.spv").read_bytes()[:4],
+                shader_name,
+            )
+        for shader_name in (
+            "world3d.vert",
+            "static_mesh_instance.vert",
+            "material_mesh_instance.vert",
+            "gltf_player_model.vert",
+        ):
+            source = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertIn("invariant gl_Position;", source, shader_name)
+
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        world_start = renderer.index("createGpuPipelineOutlineMask(")
+        world_end = renderer.index("createGpuPipelineOutlineClear(", world_start)
+        world_pipeline = renderer[world_start:world_end]
+        self.assertIn('"outline_mask_world.vert.spv"', world_pipeline)
+        self.assertIn(
+            "std::array<SDL_GPUVertexAttribute, 1> vertexAttributes",
+            world_pipeline,
+        )
+
+        static_start = renderer.index("createGpuStaticMeshOutlineMaskPipeline(")
+        static_end = renderer.index("createGpuGltfPlayerModelPipeline(", static_start)
+        static_pipeline = renderer[static_start:static_end]
+        self.assertIn('"outline_mask_static.vert.spv"', static_pipeline)
+        self.assertIn(
+            "std::array<SDL_GPUVertexAttribute, 4> vertexAttributes",
+            static_pipeline,
+        )
+        self.assertIn(
+            "materialLayout ? sizeof(GpuMaterialVertex) : sizeof(GpuVertex)",
+            static_pipeline,
+        )
+        self.assertIn(
+            "mesh->materialLit ? materialPipeline : simplePipeline",
+            renderer,
+        )
+        self.assertIn(
+            "std::array<SDL_GPUVertexAttribute, 9> outlineVertexAttributes",
+            renderer,
+        )
+        self.assertIn('"outline_mask_gltf.vert.spv"', renderer)
+
+        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+        package = (root / "scripts" / "package-windows.ps1").read_text(
+            encoding="utf-8"
+        )
+        for shader_name in expected_inputs:
+            self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
+            self.assertEqual(1, package.count(f"{shader_name}.spv"), shader_name)
+
     def test_empty_overlay_skips_swapchain_render_pass(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(

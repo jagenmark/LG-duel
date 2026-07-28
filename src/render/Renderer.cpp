@@ -1824,7 +1824,7 @@ void collectTextureMaterialFiles(
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
-    "world3d.vert.spv",
+    "outline_mask_world.vert.spv",
     SDL_GPU_SHADERSTAGE_VERTEX,
     0,
     1
@@ -1850,12 +1850,8 @@ void collectTextureMaterialFiles(
     SDL_GPU_VERTEXINPUTRATE_VERTEX,
     0,
   };
-  const std::array<SDL_GPUVertexAttribute, 5> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 1> vertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, x)},
-    {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuVertex, red)},
-    {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, u)},
-    {3, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, normal)},
-    {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuVertex, materialSlot)},
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -2446,11 +2442,12 @@ void collectTextureMaterialFiles(
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuStaticMeshOutlineMaskPipeline(
   SDL_GPUDevice* device,
-  SDL_GPUTextureFormat depthFormat
+  SDL_GPUTextureFormat depthFormat,
+  bool materialLayout
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
-    "static_mesh_instance.vert.spv",
+    "outline_mask_static.vert.spv",
     SDL_GPU_SHADERSTAGE_VERTEX,
     0,
     1
@@ -2471,17 +2468,21 @@ void collectTextureMaterialFiles(
   }
 
   const std::array<SDL_GPUVertexBufferDescription, 2> vertexBufferDescriptions = {{
-    {0, sizeof(GpuVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
+    {
+      0,
+      static_cast<Uint32>(
+        materialLayout ? sizeof(GpuMaterialVertex) : sizeof(GpuVertex)
+      ),
+      SDL_GPU_VERTEXINPUTRATE_VERTEX,
+      0,
+    },
     {1, sizeof(GpuStaticInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
   }};
-  const std::array<SDL_GPUVertexAttribute, 7> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 4> vertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, x)},
-    {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuVertex, red)},
-    {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, u)},
     {3, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row0)},
     {4, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row1)},
     {5, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row2)},
-    {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, red)},
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
@@ -2531,7 +2532,9 @@ void collectTextureMaterialFiles(
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
-    "gltf_player_model.vert.spv",
+    outlineMask
+      ? "outline_mask_gltf.vert.spv"
+      : "gltf_player_model.vert.spv",
     SDL_GPU_SHADERSTAGE_VERTEX,
     0,
     1,
@@ -2574,6 +2577,17 @@ void collectTextureMaterialFiles(
     {12, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, flags)},
     {13, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuModelVertex, tintWeight)},
   }};
+  const std::array<SDL_GPUVertexAttribute, 9> outlineVertexAttributes = {{
+    {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuModelVertex, position)},
+    {4, 0, SDL_GPU_VERTEXELEMENTFORMAT_USHORT4, offsetof(GpuModelVertex, joints)},
+    {5, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuModelVertex, weights)},
+    {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuGltfPlayerInstance, row0)},
+    {7, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuGltfPlayerInstance, row1)},
+    {8, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuGltfPlayerInstance, row2)},
+    {10, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, firstBone)},
+    {11, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, boneCount)},
+    {12, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, flags)},
+  }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = outlineMask
     ? SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
@@ -2589,9 +2603,13 @@ void collectTextureMaterialFiles(
     vertexBufferDescriptions.data();
   createInfo.vertex_input_state.num_vertex_buffers =
     static_cast<Uint32>(vertexBufferDescriptions.size());
-  createInfo.vertex_input_state.vertex_attributes = vertexAttributes.data();
+  createInfo.vertex_input_state.vertex_attributes = outlineMask
+    ? outlineVertexAttributes.data()
+    : vertexAttributes.data();
   createInfo.vertex_input_state.num_vertex_attributes =
-    static_cast<Uint32>(vertexAttributes.size());
+    outlineMask
+      ? static_cast<Uint32>(outlineVertexAttributes.size())
+      : static_cast<Uint32>(vertexAttributes.size());
   createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
   createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
   createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
@@ -5387,7 +5405,8 @@ void drawStaticMeshBatches(
 
 void drawStaticMeshInstanceRange(
   SDL_GPURenderPass* pass,
-  SDL_GPUGraphicsPipeline* pipeline,
+  SDL_GPUGraphicsPipeline* simplePipeline,
+  SDL_GPUGraphicsPipeline* materialPipeline,
   GpuSimpleResources* resources,
   MeshHandle meshHandle,
   std::uint32_t firstInstance,
@@ -5396,13 +5415,17 @@ void drawStaticMeshInstanceRange(
   if (
     resources == nullptr ||
     resources->staticInstances.buffer == nullptr ||
-    pipeline == nullptr ||
     instanceCount == 0U
   ) {
     return;
   }
   const GpuStaticMesh* mesh = findStaticMesh(*resources, meshHandle);
   if (mesh == nullptr || mesh->vertexBuffer == nullptr || mesh->vertexCount == 0U) {
+    return;
+  }
+  SDL_GPUGraphicsPipeline* pipeline =
+    mesh->materialLit ? materialPipeline : simplePipeline;
+  if (pipeline == nullptr) {
     return;
   }
   SDL_BindGPUGraphicsPipeline(pass, pipeline);
@@ -6602,6 +6625,7 @@ void appendCommandBatches(
   SDL_GPUGraphicsPipeline* pipelineOutlineColorClear,
   SDL_GPUGraphicsPipeline* pipelineOutlineMask,
   SDL_GPUGraphicsPipeline* staticMeshOutlineMaskPipeline,
+  SDL_GPUGraphicsPipeline* materialMeshOutlineMaskPipeline,
   SDL_GPUGraphicsPipeline* gltfPlayerModelOutlineMaskPipeline,
   SDL_GPUGraphicsPipeline* pipelineOutlineDilation,
   SDL_GPUGraphicsPipeline* pipelineOutlineComposite,
@@ -8466,6 +8490,7 @@ void appendCommandBatches(
       pipelineOutlineColorClear != nullptr &&
       pipelineOutlineMask != nullptr &&
       staticMeshOutlineMaskPipeline != nullptr &&
+      materialMeshOutlineMaskPipeline != nullptr &&
       gltfPlayerModelOutlineMaskPipeline != nullptr &&
       activeOutlineDilation != nullptr &&
       activeOutlineComposite != nullptr &&
@@ -8644,7 +8669,8 @@ void appendCommandBatches(
       maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
       maskDepthTarget.store_op = SDL_GPU_STOREOP_STORE;
       maskDepthTarget.cycle = false;
-      SDL_GPURenderPass* outlineColorClearPass = SDL_BeginGPURenderPass(
+      if (outlineDepthPlan.rebuildDepth) {
+        SDL_GPURenderPass* outlineColorClearPass = SDL_BeginGPURenderPass(
           commandBuffer,
           &maskColorTarget,
           1,
@@ -8662,10 +8688,14 @@ void appendCommandBatches(
         );
         SDL_DrawGPUPrimitives(outlineColorClearPass, 3, 1, 0, 0);
         SDL_EndGPURenderPass(outlineColorClearPass);
+      }
 
-      maskColorTarget.load_op = SDL_GPU_LOADOP_LOAD;
+      maskColorTarget.load_op = outlineDepthPlan.rebuildDepth
+        ? SDL_GPU_LOADOP_LOAD
+        : SDL_GPU_LOADOP_CLEAR;
       maskColorTarget.store_op = SDL_GPU_STOREOP_STORE;
-      maskColorTarget.cycle = false;
+      maskColorTarget.cycle =
+        !outlineDepthPlan.rebuildDepth && outlineTargetsResized;
       maskDepthTarget.load_op = SDL_GPU_LOADOP_LOAD;
       maskDepthTarget.store_op = SDL_GPU_STOREOP_DONT_CARE;
       maskDepthTarget.cycle = false;
@@ -8724,6 +8754,7 @@ void appendCommandBatches(
           drawStaticMeshInstanceRange(
             maskPass,
             staticMeshOutlineMaskPipeline,
+            materialMeshOutlineMaskPipeline,
             simpleResources,
             draw.mesh,
             draw.firstInstance,
@@ -8747,8 +8778,11 @@ void appendCommandBatches(
       SDL_GPUColorTargetInfo dilationColorTarget = {};
       dilationColorTarget.texture = outlineDilationTexture;
       dilationColorTarget.clear_color = {0.0F, 0.0F, 0.0F, 0.0F};
-      dilationColorTarget.load_op =
-        outlineTargetsResized ? SDL_GPU_LOADOP_CLEAR : SDL_GPU_LOADOP_LOAD;
+      dilationColorTarget.load_op = nativeOutline
+        ? SDL_GPU_LOADOP_DONT_CARE
+        : outlineTargetsResized
+          ? SDL_GPU_LOADOP_CLEAR
+          : SDL_GPU_LOADOP_LOAD;
       dilationColorTarget.store_op = SDL_GPU_STOREOP_STORE;
       dilationColorTarget.cycle = outlineTargetsResized;
       SDL_GPURenderPass* dilationPass = SDL_BeginGPURenderPass(
@@ -10126,7 +10160,9 @@ bool Renderer::initialize(void* window) {
         SDL_GPUGraphicsPipeline* pipelineOutlineMask =
           createGpuPipelineOutlineMask(device, depthFormat);
         SDL_GPUGraphicsPipeline* staticMeshOutlineMaskPipeline =
-          createGpuStaticMeshOutlineMaskPipeline(device, depthFormat);
+          createGpuStaticMeshOutlineMaskPipeline(device, depthFormat, false);
+        SDL_GPUGraphicsPipeline* materialMeshOutlineMaskPipeline =
+          createGpuStaticMeshOutlineMaskPipeline(device, depthFormat, true);
         SDL_GPUGraphicsPipeline* gltfPlayerModelOutlineMaskPipeline =
           createGpuGltfPlayerModelPipeline(
             device,
@@ -10259,6 +10295,7 @@ bool Renderer::initialize(void* window) {
           pipelineOutlineColorClear != nullptr &&
           pipelineOutlineMask != nullptr &&
           staticMeshOutlineMaskPipeline != nullptr &&
+          materialMeshOutlineMaskPipeline != nullptr &&
           gltfPlayerModelOutlineMaskPipeline != nullptr &&
           pipelineOutlineDilation != nullptr &&
           pipelineOutlineComposite != nullptr &&
@@ -10315,6 +10352,8 @@ bool Renderer::initialize(void* window) {
           gpuPipelineOutlineColorClear_ = pipelineOutlineColorClear;
           gpuPipelineOutlineMask_ = pipelineOutlineMask;
           gpuPipelineStaticMeshOutlineMask_ = staticMeshOutlineMaskPipeline;
+          gpuPipelineMaterialMeshOutlineMask_ =
+            materialMeshOutlineMaskPipeline;
           gpuPipelineGltfPlayerModelOutlineMask_ =
             gltfPlayerModelOutlineMaskPipeline;
           gpuPipelineOutlineDilation_ = pipelineOutlineDilation;
@@ -10477,6 +10516,12 @@ bool Renderer::initialize(void* window) {
         }
         if (staticMeshOutlineMaskPipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, staticMeshOutlineMaskPipeline);
+        }
+        if (materialMeshOutlineMaskPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(
+            device,
+            materialMeshOutlineMaskPipeline
+          );
         }
         if (gltfPlayerModelOutlineMaskPipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, gltfPlayerModelOutlineMaskPipeline);
@@ -10922,6 +10967,9 @@ void Renderer::render(
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineColorClear_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineOutlineMask_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMeshOutlineMask_),
+        static_cast<SDL_GPUGraphicsPipeline*>(
+          gpuPipelineMaterialMeshOutlineMask_
+        ),
         static_cast<SDL_GPUGraphicsPipeline*>(
           gpuPipelineGltfPlayerModelOutlineMask_
         ),
@@ -11955,6 +12003,15 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMeshOutlineMask_)
       );
       gpuPipelineStaticMeshOutlineMask_ = nullptr;
+    }
+    if (gpuPipelineMaterialMeshOutlineMask_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(
+          gpuPipelineMaterialMeshOutlineMask_
+        )
+      );
+      gpuPipelineMaterialMeshOutlineMask_ = nullptr;
     }
     if (gpuPipelineGltfPlayerModelOutlineMask_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(

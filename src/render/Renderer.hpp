@@ -505,7 +505,7 @@ struct OutlineDepthPlan {
   return {
     reuseWorldDepth,
     !reuseWorldDepth,
-    reuseWorldDepth ? 4U : 6U,
+    reuseWorldDepth ? 3U : 6U,
   };
 }
 
@@ -1001,6 +1001,7 @@ private:
   void* gpuPipelineOutlineColorClear_ = nullptr;
   void* gpuPipelineOutlineMask_ = nullptr;
   void* gpuPipelineStaticMeshOutlineMask_ = nullptr;
+  void* gpuPipelineMaterialMeshOutlineMask_ = nullptr;
   void* gpuPipelineGltfPlayerModelOutlineMask_ = nullptr;
   void* gpuPipelineOutlineDilation_ = nullptr;
   void* gpuPipelineOutlineComposite_ = nullptr;

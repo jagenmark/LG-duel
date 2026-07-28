@@ -463,7 +463,7 @@ int main() {
   failures += expect(
     nativeSingleSampleOutline.reuseWorldDepth &&
       !nativeSingleSampleOutline.rebuildDepth &&
-      nativeSingleSampleOutline.passCount == 4U &&
+      nativeSingleSampleOutline.passCount == 3U &&
       !nativeMsaaOutline.reuseWorldDepth &&
       nativeMsaaOutline.rebuildDepth &&
       nativeMsaaOutline.passCount == 6U &&
