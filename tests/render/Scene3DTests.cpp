@@ -47,6 +47,46 @@ bool finiteVec3(lg::Vec3 value) {
     std::isfinite(value.z);
 }
 
+const lg::SimpleRenderInstance* findSimpleMesh(
+  const lg::Scene3D& scene,
+  lg::MeshHandle mesh
+) {
+  const auto found = std::find_if(
+    scene.simpleInstances.begin(),
+    scene.simpleInstances.end(),
+    [mesh](const lg::SimpleRenderInstance& instance) {
+      return instance.mesh == mesh;
+    }
+  );
+  return found == scene.simpleInstances.end() ? nullptr : &*found;
+}
+
+float largestBillboardScale(
+  const lg::Scene3D& scene,
+  lg::BillboardHandle billboard
+) {
+  float scale = 0.0F;
+  for (const lg::SimpleRenderInstance& instance : scene.simpleInstances) {
+    if (instance.billboard == billboard) {
+      scale = std::max(scale, instance.scale.x);
+    }
+  }
+  return scale;
+}
+
+std::size_t billboardCount(
+  const lg::Scene3D& scene,
+  lg::BillboardHandle billboard
+) {
+  return static_cast<std::size_t>(std::count_if(
+    scene.simpleInstances.begin(),
+    scene.simpleInstances.end(),
+    [billboard](const lg::SimpleRenderInstance& instance) {
+      return instance.billboard == billboard;
+    }
+  ));
+}
+
 lg::BoundingSphere legacyMaterialMeshBounds(
   std::span<const lg::WeaponMaterialVertex3D> vertices
 ) {
@@ -2862,6 +2902,103 @@ int main() {
       muzzleFlashScene.translucentVertices.size() == 12U,
     "MG muzzle flash should combine a directional flame with one additive billboard"
   );
+  tracerInstances[0] = {
+    machineGunFires[0].start,
+    machineGunFires[0].start + lg::Vec3{0.22F, 0.0F, 0.0F},
+    0.0F,
+    0.068F,
+    0.070F,
+    {246, 92, 42, 238},
+    411U,
+    lg::TracerStyle::RocketLauncherMuzzleFlash,
+  };
+  lg::RenderSettings lowRocketMuzzleSettings = settings;
+  lowRocketMuzzleSettings.combatEffectsQuality = 0;
+  const lg::Scene3D lowRocketMuzzleScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 1U),
+    lowRocketMuzzleSettings
+  );
+  lg::RenderSettings fullRocketMuzzleSettings = settings;
+  fullRocketMuzzleSettings.combatEffectsQuality = 2;
+  const lg::Scene3D fullRocketMuzzleScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 1U),
+    fullRocketMuzzleSettings
+  );
+  lg::RenderSettings noBloomRocketMuzzleSettings = fullRocketMuzzleSettings;
+  noBloomRocketMuzzleSettings.bloomEnabled = false;
+  const lg::Scene3D noBloomRocketMuzzleScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(tracerInstances.data(), 1U),
+    noBloomRocketMuzzleSettings
+  );
+  failures += expect(
+    lowRocketMuzzleScene.transientVfxStats.activeRocketLauncherMuzzleFlashes == 1U &&
+      lowRocketMuzzleScene.transientVfxStats.muzzleFlashInstancesSubmitted == 1U &&
+      lowRocketMuzzleScene.translucentVertices.size() == 24U &&
+      billboardCount(
+        lowRocketMuzzleScene,
+        lg::BillboardHandle::ExplosionFlash
+      ) == 1U &&
+      billboardCount(
+        lowRocketMuzzleScene,
+        lg::BillboardHandle::ExplosionHalo
+      ) == 0U,
+    "low quality rocket muzzle should keep the compact flame and pale core without a halo"
+  );
+  failures += expect(
+    fullRocketMuzzleScene.transientVfxStats.muzzleFlashInstancesSubmitted == 2U &&
+      fullRocketMuzzleScene.translucentVertices.size() == 24U &&
+      billboardCount(
+        fullRocketMuzzleScene,
+        lg::BillboardHandle::ExplosionFlash
+      ) == 1U &&
+      billboardCount(
+        fullRocketMuzzleScene,
+        lg::BillboardHandle::ExplosionHalo
+      ) == 1U &&
+      fullRocketMuzzleScene.transientVfxStats.transparentEffectsSubmitted == 4U,
+    "full rocket muzzle should add one restrained halo to the two-part flame"
+  );
+  failures += expect(
+    noBloomRocketMuzzleScene.simpleInstances.size() ==
+        fullRocketMuzzleScene.simpleInstances.size() &&
+      noBloomRocketMuzzleScene.translucentVertices.size() ==
+        fullRocketMuzzleScene.translucentVertices.size() &&
+      largestBillboardScale(
+        noBloomRocketMuzzleScene,
+        lg::BillboardHandle::ExplosionFlash
+      ) == largestBillboardScale(
+        fullRocketMuzzleScene,
+        lg::BillboardHandle::ExplosionFlash
+      ),
+    "bloom off should preserve the readable rocket muzzle geometry"
+  );
   std::array<lg::TransientEffect, 4> combatEffects = {};
   combatEffects[0] = {
     lg::TransientEffectType::MachineGunMuzzleLight,
@@ -3482,6 +3619,107 @@ int main() {
       ) < 0.001F,
     "first-person rocket launcher should submit three animated material parts and preserve its muzzle socket"
   );
+  lg::RemotePlayerView remoteRocketSocketView;
+  remoteRocketSocketView.player = opponent;
+  remoteRocketSocketView.selectedWeapon = lg::Weapon::RocketLauncher;
+  remoteRocketSocketView.visible = true;
+  const lg::Vec3 remoteRocketIdleMuzzle =
+    lg::remoteRocketLauncherMuzzlePosition(
+      remoteRocketSocketView,
+      settings
+    );
+  remoteRocketSocketView.rocketLauncherMechanicalAmount = 1.0F;
+  const lg::Vec3 remoteRocketMechanicalMuzzle =
+    lg::remoteRocketLauncherMuzzlePosition(
+      remoteRocketSocketView,
+      settings
+    );
+  remoteRocketSocketView.player.viewYawRadians += 0.45F;
+  const lg::Vec3 remoteRocketTurnedMuzzle =
+    lg::remoteRocketLauncherMuzzlePosition(
+      remoteRocketSocketView,
+      settings
+    );
+  failures += expect(
+    finiteVec3(remoteRocketIdleMuzzle) &&
+      lg::length(remoteRocketMechanicalMuzzle - remoteRocketIdleMuzzle) >
+        0.01F &&
+      lg::length(remoteRocketTurnedMuzzle - remoteRocketMechanicalMuzzle) >
+        0.01F,
+    "remote rocket muzzle helper should follow mechanism motion and pose turns"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    workerRocketRemotePlayers = {};
+  workerRocketRemotePlayers[1] = remoteRocketSocketView;
+  workerRocketRemotePlayers[1].player.viewYawRadians -= 0.45F;
+  workerRocketRemotePlayers[1].rocketLauncherMechanicalAmount = 0.65F;
+  workerRocketRemotePlayers[1].hasPresentation = true;
+  workerRocketRemotePlayers[1].presentation.poseLayerCount = 1U;
+  workerRocketRemotePlayers[1].presentation.poseLayers[0] = {
+    "Idle_Gun_TwoHanded",
+    0.0F,
+    1.0F,
+  };
+  lg::RenderSettings workerRocketSettings = settings;
+  workerRocketSettings.playerModel = 2;
+  workerRocketSettings.frustumCullRemotePlayers = false;
+  std::array<lg::Vec3, 2> workerRocketRenderedMuzzles = {};
+  bool workerRocketSocketMatches = true;
+  constexpr std::array<float, 2> kWorkerRocketFrameTimes = {
+    0.1666667F,
+    0.6666667F,
+  };
+  for (std::size_t frameIndex = 0;
+       frameIndex < kWorkerRocketFrameTimes.size();
+       ++frameIndex) {
+    workerRocketRemotePlayers[1].presentation.poseLayers[0].timeSeconds =
+      kWorkerRocketFrameTimes[frameIndex];
+    const lg::Scene3D workerRocketScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      workerRocketRemotePlayers,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      workerRocketSettings
+    );
+    lg::StaticMeshInstance renderedRecoil = {};
+    bool foundRenderedRecoil = false;
+    for (const lg::StaticMeshInstance& instance :
+         workerRocketScene.staticMeshInstances) {
+      if (
+        instance.mesh == lg::MeshHandle::RemoteRocketLauncherRecoil &&
+        instance.pass == lg::RenderPass::OpaqueWorld
+      ) {
+        renderedRecoil = instance;
+        foundRenderedRecoil = true;
+        break;
+      }
+    }
+    workerRocketRenderedMuzzles[frameIndex] = transformPoint(
+      renderedRecoil,
+      lg::rocketLauncherMuzzleSocket() - lg::Vec3{0.5F, 0.0F, 0.08F}
+    );
+    const lg::Vec3 effectMuzzle = lg::remoteRocketLauncherMuzzlePosition(
+      workerRocketRemotePlayers[1],
+      workerRocketSettings
+    );
+    workerRocketSocketMatches =
+      workerRocketSocketMatches &&
+      foundRenderedRecoil &&
+      lg::length(effectMuzzle - workerRocketRenderedMuzzles[frameIndex]) <
+        0.001F;
+  }
+  failures += expect(
+    workerRocketSocketMatches &&
+      lg::length(
+        workerRocketRenderedMuzzles[1] - workerRocketRenderedMuzzles[0]
+      ) > 0.001F,
+    "Worker rocket muzzle effects should match its animated rendered weapon socket across frames"
+  );
 
   lg::RenderSettings localPlasmaGunSettings = settings;
   localPlasmaGunSettings.localSelectedWeapon = lg::Weapon::PlasmaGun;
@@ -3985,13 +4223,50 @@ int main() {
     lg::projectileVisualDescriptor(lg::ProjectileVisualType::Rocket);
   const lg::ProjectileVisualDescriptor* grenadeDescriptor =
     lg::projectileVisualDescriptor(lg::ProjectileVisualType::Grenade);
+  const lg::StaticMeshAsset* rocketProjectileAsset =
+    rocketDescriptor != nullptr
+      ? lg::staticMeshAsset(rocketDescriptor->coreMesh)
+      : nullptr;
+  bool rocketHasHexShoulder = false;
+  bool rocketHasFrontCap = false;
+  bool rocketHasRearCap = false;
+  if (rocketProjectileAsset != nullptr) {
+    for (const lg::Vertex3D& vertex : rocketProjectileAsset->vertices) {
+      rocketHasHexShoulder =
+        rocketHasHexShoulder ||
+        (
+          std::fabs(vertex.position.y - 0.11F) < 0.001F &&
+          std::fabs(vertex.position.z - 0.190526F) < 0.001F
+        );
+      rocketHasFrontCap =
+        rocketHasFrontCap ||
+        (
+          std::fabs(vertex.position.x - 0.60F) < 0.001F &&
+          std::fabs(vertex.position.y) < 0.001F &&
+          std::fabs(vertex.position.z) < 0.001F
+        );
+      rocketHasRearCap =
+        rocketHasRearCap ||
+        (
+          std::fabs(vertex.position.x + 0.64F) < 0.001F &&
+          std::fabs(vertex.position.y) < 0.001F &&
+          std::fabs(vertex.position.z) < 0.001F
+        );
+    }
+  }
   failures += expect(
     rocketDescriptor != nullptr &&
       rocketDescriptor->coreMesh == lg::MeshHandle::RocketProjectile &&
       rocketDescriptor->glowBillboard == lg::BillboardHandle::RocketFlame &&
-      lg::staticMeshAsset(rocketDescriptor->coreMesh) != nullptr &&
+      rocketProjectileAsset != nullptr &&
+      rocketProjectileAsset->vertices.size() == 144U &&
+      rocketProjectileAsset->localBounds.radius > 0.65F &&
+      rocketProjectileAsset->localBounds.radius < 0.67F &&
+      rocketHasHexShoulder &&
+      rocketHasFrontCap &&
+      rocketHasRearCap &&
       lg::billboardAsset(rocketDescriptor->glowBillboard) != nullptr,
-    "rocket projectile descriptor should resolve to rocket mesh and flame billboard assets"
+    "rocket projectile should use one cached six-sided pill mesh with beveled caps"
   );
   failures += expect(
     grenadeDescriptor != nullptr &&
@@ -4021,17 +4296,23 @@ int main() {
   failures += expect(
     rocketProjectileScene.projectileStats.projectilesRendered == 1 &&
       rocketProjectileScene.projectileStats.rocketInstances == 1 &&
-      rocketProjectileScene.projectileStats.projectileGlowInstances == 1 &&
+      rocketProjectileScene.projectileStats.projectileGlowInstances == 2 &&
       rocketProjectileScene.projectileStats.opaqueProjectileBatches == 1 &&
       rocketProjectileScene.projectileStats.additiveProjectileBatches == 1 &&
       rocketProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
-      rocketProjectileScene.simpleInstances.size() == 2U,
-    "active rocket projectile should produce one opaque rocket instance and one additive flame instance"
+      rocketProjectileScene.simpleInstances.size() == 3U,
+    "full quality rocket should produce one opaque core and two bounded exhaust layers"
+  );
+  const lg::SimpleRenderInstance* rocketCore = findSimpleMesh(
+    rocketProjectileScene,
+    lg::MeshHandle::RocketProjectile
   );
   failures += expect(
-    rocketProjectileScene.simpleInstances[0].position.x <
+    rocketCore != nullptr &&
+      rocketCore->pass == lg::RenderPass::OpaqueWorld &&
+      rocketCore->position.x <
       rocketProjectiles[0].position.x - 0.35F,
-    "remote rocket projectile instances should render from the rocket launcher barrel"
+    "remote rocket opaque core should render from the rocket launcher barrel"
   );
   failures += expect(
     rocketProjectileScene.simpleBatches.size() == 2U &&
@@ -4040,6 +4321,84 @@ int main() {
       rocketProjectileScene.simpleBatches[1].billboard == lg::BillboardHandle::RocketFlame &&
       rocketProjectileScene.simpleBatches[1].pass == lg::RenderPass::AdditiveGlow,
     "rocket projectile should use the rocket mesh opaque pass and flame additive pass"
+  );
+  lg::RenderSettings lowRocketProjectileSettings = settings;
+  lowRocketProjectileSettings.combatEffectsQuality = 0;
+  const lg::Scene3D lowRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    lowRocketProjectileSettings
+  );
+  lg::RenderSettings mediumRocketProjectileSettings = settings;
+  mediumRocketProjectileSettings.combatEffectsQuality = 1;
+  const lg::Scene3D mediumRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    mediumRocketProjectileSettings
+  );
+  lg::RenderSettings noBloomRocketProjectileSettings = settings;
+  noBloomRocketProjectileSettings.bloomEnabled = false;
+  const lg::Scene3D noBloomRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    noBloomRocketProjectileSettings
+  );
+  failures += expect(
+    lowRocketProjectileScene.projectileStats.rocketInstances == 1U &&
+      lowRocketProjectileScene.projectileStats.projectileGlowInstances == 1U &&
+      lowRocketProjectileScene.simpleInstances.size() == 2U &&
+      mediumRocketProjectileScene.projectileStats.rocketInstances == 1U &&
+      mediumRocketProjectileScene.projectileStats.projectileGlowInstances == 2U &&
+      mediumRocketProjectileScene.simpleInstances.size() == 3U &&
+      largestBillboardScale(
+        lowRocketProjectileScene,
+        lg::BillboardHandle::RocketFlame
+      ) < largestBillboardScale(
+        mediumRocketProjectileScene,
+        lg::BillboardHandle::RocketFlame
+      ) &&
+      largestBillboardScale(
+        mediumRocketProjectileScene,
+        lg::BillboardHandle::RocketFlame
+      ) < largestBillboardScale(
+        rocketProjectileScene,
+        lg::BillboardHandle::RocketFlame
+      ),
+    "rocket quality levels should keep the opaque core while reducing exhaust layers and size"
+  );
+  failures += expect(
+    noBloomRocketProjectileScene.projectileStats.rocketInstances ==
+        rocketProjectileScene.projectileStats.rocketInstances &&
+      noBloomRocketProjectileScene.projectileStats.projectileGlowInstances ==
+        rocketProjectileScene.projectileStats.projectileGlowInstances &&
+      noBloomRocketProjectileScene.simpleInstances.size() ==
+        rocketProjectileScene.simpleInstances.size() &&
+      largestBillboardScale(
+        noBloomRocketProjectileScene,
+        lg::BillboardHandle::RocketFlame
+      ) == largestBillboardScale(
+        rocketProjectileScene,
+        lg::BillboardHandle::RocketFlame
+      ),
+    "bloom off should preserve the rocket core and exhaust geometry"
   );
 
   rocketProjectiles[0].velocity = {0.0F, 0.0F, 30.0F};
@@ -4054,13 +4413,26 @@ int main() {
     rocketProjectiles,
     settings
   );
+  const lg::SimpleRenderInstance* upwardRocketCore = findSimpleMesh(
+    upwardRocketProjectileScene,
+    lg::MeshHandle::RocketProjectile
+  );
+  const bool upwardExhaustBehind = upwardRocketCore != nullptr &&
+    std::all_of(
+      upwardRocketProjectileScene.simpleInstances.begin(),
+      upwardRocketProjectileScene.simpleInstances.end(),
+      [upwardRocketCore](const lg::SimpleRenderInstance& instance) {
+        return instance.billboard != lg::BillboardHandle::RocketFlame ||
+          instance.position.z < upwardRocketCore->position.z - 0.25F;
+      }
+    );
   failures += expect(
-    upwardRocketProjectileScene.simpleInstances.size() == 2U &&
-      std::fabs(upwardRocketProjectileScene.simpleInstances[0].pitchRadians -
+    upwardRocketProjectileScene.simpleInstances.size() == 3U &&
+      upwardRocketCore != nullptr &&
+      std::fabs(upwardRocketCore->pitchRadians -
         (3.14159265359F * 0.5F)) < 0.001F &&
-      upwardRocketProjectileScene.simpleInstances[1].position.z <
-        upwardRocketProjectileScene.simpleInstances[0].position.z - 0.25F,
-    "upward rocket projectile should pitch the mesh and place flame behind it in 3D"
+      upwardExhaustBehind,
+    "upward rocket should pitch its opaque core and keep both exhaust layers behind it"
   );
 
   rocketProjectiles[0].velocity = {0.0F, 0.0F, -30.0F};
@@ -4075,13 +4447,26 @@ int main() {
     rocketProjectiles,
     settings
   );
+  const lg::SimpleRenderInstance* downwardRocketCore = findSimpleMesh(
+    downwardRocketProjectileScene,
+    lg::MeshHandle::RocketProjectile
+  );
+  const bool downwardExhaustBehind = downwardRocketCore != nullptr &&
+    std::all_of(
+      downwardRocketProjectileScene.simpleInstances.begin(),
+      downwardRocketProjectileScene.simpleInstances.end(),
+      [downwardRocketCore](const lg::SimpleRenderInstance& instance) {
+        return instance.billboard != lg::BillboardHandle::RocketFlame ||
+          instance.position.z > downwardRocketCore->position.z + 0.25F;
+      }
+    );
   failures += expect(
-    downwardRocketProjectileScene.simpleInstances.size() == 2U &&
-      std::fabs(downwardRocketProjectileScene.simpleInstances[0].pitchRadians +
+    downwardRocketProjectileScene.simpleInstances.size() == 3U &&
+      downwardRocketCore != nullptr &&
+      std::fabs(downwardRocketCore->pitchRadians +
         (3.14159265359F * 0.5F)) < 0.001F &&
-      downwardRocketProjectileScene.simpleInstances[1].position.z >
-        downwardRocketProjectileScene.simpleInstances[0].position.z + 0.25F,
-    "downward rocket projectile should pitch the mesh and place flame behind it in 3D"
+      downwardExhaustBehind,
+    "downward rocket should pitch its opaque core and keep both exhaust layers behind it"
   );
 
   rocketProjectiles[0].owner = 0;
@@ -4098,9 +4483,14 @@ int main() {
     rocketProjectiles,
     localShotgunWeaponStartSettings
   );
+  const lg::SimpleRenderInstance* localRocketCore = findSimpleMesh(
+    localRocketProjectileScene,
+    lg::MeshHandle::RocketProjectile
+  );
   failures += expect(
-    localRocketProjectileScene.simpleInstances.size() == 2U &&
-      localRocketProjectileScene.simpleInstances[0].position.z <
+    localRocketProjectileScene.simpleInstances.size() == 3U &&
+      localRocketCore != nullptr &&
+      localRocketCore->position.z <
         rocketProjectiles[0].position.z - 0.15F,
     "local rocket projectile instances should render from the first-person weapon barrel"
   );
@@ -4117,10 +4507,16 @@ int main() {
     rocketProjectiles,
     hiddenLocalProjectileSettings
   );
+  const lg::SimpleRenderInstance* hiddenLocalRocketCore = findSimpleMesh(
+    hiddenLocalRocketProjectileScene,
+    lg::MeshHandle::RocketProjectile
+  );
   failures += expect(
-    hiddenLocalRocketProjectileScene.simpleInstances.size() == 2U &&
-      hiddenLocalRocketProjectileScene.simpleInstances[0].position.z <
-        localRocketProjectileScene.simpleInstances[0].position.z - 0.15F,
+    hiddenLocalRocketProjectileScene.simpleInstances.size() == 3U &&
+      hiddenLocalRocketCore != nullptr &&
+      localRocketCore != nullptr &&
+      hiddenLocalRocketCore->position.z <
+        localRocketCore->position.z - 0.15F,
     "r_show_weapons 0 should render local rocket projectiles from the bottom-center hidden weapon origin"
   );
 
@@ -4220,11 +4616,12 @@ int main() {
   );
   failures += expect(
     multiRocketProjectileScene.projectileStats.rocketInstances == 2 &&
-      multiRocketProjectileScene.projectileStats.projectileGlowInstances == 2 &&
+      multiRocketProjectileScene.projectileStats.projectileGlowInstances == 4 &&
       multiRocketProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
       multiRocketProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
-      multiRocketProjectileScene.simpleBatches.size() == 2U,
-    "multiple rocket projectiles should batch into shared opaque and additive draws"
+      multiRocketProjectileScene.simpleBatches.size() == 2U &&
+      multiRocketProjectileScene.simpleInstances.size() == 6U,
+    "multiple rockets should batch opaque cores and both exhaust layers into two draws"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> rocketFireOnly = {};
@@ -4336,27 +4733,164 @@ int main() {
   );
   failures += expect(
     rocketExplosionScene.transientVfxStats.activeExplosionEffects == 3 &&
-      rocketExplosionScene.transientVfxStats.explosionInstancesSubmitted == 3 &&
+      rocketExplosionScene.transientVfxStats.explosionInstancesSubmitted == 5 &&
       rocketExplosionScene.transientVfxStats.explosionDrawCalls == 3 &&
       rocketExplosionScene.transientVfxStats.explosionOpaqueBatches == 1 &&
       rocketExplosionScene.transientVfxStats.explosionAdditiveBatches == 2 &&
       rocketExplosionScene.transientVfxStats.legacyWireframeExplosionDraws == 0,
-    "rocket explosion effects should submit flash, faceted core, halo, and no legacy wireframe draws"
+    "rocket impact should batch three body facets beside its flash and halo"
   );
-  bool foundRocketExplosionCore = false;
+  std::uint32_t rocketExplosionCoreCount = 0;
   bool foundRocketExplosionFlash = false;
   bool foundRocketExplosionHalo = false;
+  bool foundPaleRocketFlash = false;
+  bool foundCoralRocketBody = false;
   for (const lg::SimpleRenderInstance& instance : rocketExplosionScene.simpleInstances) {
-    foundRocketExplosionCore =
-      foundRocketExplosionCore || instance.mesh == lg::MeshHandle::ExplosionCore;
+    if (instance.mesh == lg::MeshHandle::ExplosionCore) {
+      ++rocketExplosionCoreCount;
+      foundCoralRocketBody =
+        foundCoralRocketBody ||
+        (
+          instance.color.red > instance.color.green &&
+          instance.color.green > instance.color.blue &&
+          instance.pass == lg::RenderPass::OpaqueWorld &&
+          (
+            std::fabs(instance.scale.x - instance.scale.y) > 0.01F ||
+            std::fabs(instance.scale.y - instance.scale.z) > 0.01F
+          )
+        );
+    }
     foundRocketExplosionFlash =
       foundRocketExplosionFlash || instance.billboard == lg::BillboardHandle::ExplosionFlash;
+    foundPaleRocketFlash =
+      foundPaleRocketFlash ||
+      (
+        instance.billboard == lg::BillboardHandle::ExplosionFlash &&
+        instance.color.red >= instance.color.green &&
+        instance.color.green > instance.color.blue
+      );
     foundRocketExplosionHalo =
       foundRocketExplosionHalo || instance.billboard == lg::BillboardHandle::ExplosionHalo;
   }
   failures += expect(
-    foundRocketExplosionCore && foundRocketExplosionFlash && foundRocketExplosionHalo,
-    "rocket explosion burst should use reusable core, flash, and halo assets"
+    rocketExplosionCoreCount == 3U &&
+      foundRocketExplosionFlash &&
+      foundRocketExplosionHalo &&
+      foundPaleRocketFlash &&
+      foundCoralRocketBody,
+    "rocket impact should layer a pale core, coral faceted body, and faint halo"
+  );
+  lg::RenderSettings noBloomExplosionSettings = settings;
+  noBloomExplosionSettings.bloomEnabled = false;
+  const lg::Scene3D noBloomRocketExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 3U),
+    noBloomExplosionSettings
+  );
+  failures += expect(
+    noBloomRocketExplosionScene.simpleInstances.size() ==
+        rocketExplosionScene.simpleInstances.size() &&
+      noBloomRocketExplosionScene.transientVfxStats.explosionOpaqueBatches ==
+        rocketExplosionScene.transientVfxStats.explosionOpaqueBatches &&
+      noBloomRocketExplosionScene.transientVfxStats.explosionInstancesSubmitted ==
+        rocketExplosionScene.transientVfxStats.explosionInstancesSubmitted,
+    "bloom off should keep the full opaque rocket body and its layered cue geometry"
+  );
+  explosionEffects[3] = {
+    lg::TransientEffectType::RocketExplosionShard,
+    explosionEffects[0].position + lg::Vec3{0.05F, 0.0F, 0.0F},
+    0.02F,
+    0.16F,
+    0.020F,
+    0.005F,
+    {248, 126, 72, 190},
+    14U,
+  };
+  explosionEffects[3].velocity = {2.0F, 0.2F, 0.6F};
+  explosionEffects[4] = {
+    lg::TransientEffectType::RocketExplosionSmoke,
+    explosionEffects[0].position,
+    0.02F,
+    0.27F,
+    0.18F,
+    0.48F,
+    {100, 104, 106, 58},
+    15U,
+  };
+  explosionEffects[4].velocity = {0.1F, 0.0F, 0.4F};
+  const lg::Scene3D rocketExplosionSecondaryScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 5U),
+    settings
+  );
+  failures += expect(
+    rocketExplosionSecondaryScene.transientVfxStats.activeExplosionEffects == 3U &&
+      rocketExplosionSecondaryScene.transientVfxStats.activeImpactParticles == 2U &&
+      rocketExplosionSecondaryScene.transientVfxStats.explosionInstancesSubmitted == 5U &&
+      rocketExplosionSecondaryScene.transientVfxStats.transparentEffectsSubmitted == 4U &&
+      rocketExplosionSecondaryScene.simpleInstances.size() == 5U &&
+      !rocketExplosionSecondaryScene.translucentVertices.empty(),
+    "rocket shards and smoke should stay bounded beside the layered blast"
+  );
+
+  lg::RenderSettings lowExplosionSettings = settings;
+  lowExplosionSettings.combatEffectsQuality = 0;
+  const lg::Scene3D lowExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 5U),
+    lowExplosionSettings
+  );
+  lg::RenderSettings mediumExplosionSettings = settings;
+  mediumExplosionSettings.combatEffectsQuality = 1;
+  const lg::Scene3D mediumExplosionScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>(explosionEffects.data(), 5U),
+    mediumExplosionSettings
+  );
+  failures += expect(
+    lowExplosionScene.transientVfxStats.activeExplosionEffects == 2U &&
+      lowExplosionScene.transientVfxStats.activeImpactParticles == 0U &&
+      lowExplosionScene.transientVfxStats.explosionInstancesSubmitted == 4U &&
+      lowExplosionScene.simpleInstances.size() == 4U &&
+      lowExplosionScene.translucentVertices.empty() &&
+      mediumExplosionScene.transientVfxStats.activeExplosionEffects == 3U &&
+      mediumExplosionScene.transientVfxStats.activeImpactParticles == 0U &&
+      mediumExplosionScene.transientVfxStats.explosionInstancesSubmitted == 5U &&
+      mediumExplosionScene.simpleInstances.size() == 5U &&
+      mediumExplosionScene.translucentVertices.empty(),
+    "reduced rocket quality should keep flash and body while dropping secondary parts"
   );
 
   explosionEffects[0].type = lg::TransientEffectType::PlasmaExplosionFlash;
@@ -4450,9 +4984,9 @@ int main() {
     settings
   );
   failures += expect(
-    clampedExplosionScene.simpleInstances.size() == 1U &&
+    clampedExplosionScene.simpleInstances.size() == 3U &&
       std::isfinite(clampedExplosionScene.simpleInstances[0].scale.x) &&
-      clampedExplosionScene.simpleInstances[0].scale.x <= 8.0F,
+      clampedExplosionScene.simpleInstances[0].scale.x <= 8.8F,
     "explosion effect scale should remain finite and clamped for unusual input"
   );
 
@@ -4505,7 +5039,7 @@ int main() {
     settings
   );
   failures += expect(
-    multiExplosionScene.transientVfxStats.explosionInstancesSubmitted == 6 &&
+    multiExplosionScene.transientVfxStats.explosionInstancesSubmitted == 10 &&
       multiExplosionScene.transientVfxStats.explosionDrawCalls == 3,
     "multiple overlapping explosions should batch into bounded reusable VFX draws"
   );

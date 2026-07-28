@@ -123,6 +123,9 @@ struct FrameSample {
   std::uint32_t visiblePlayers = 0;
   std::uint32_t projectileCount = 0;
   std::uint32_t effectCount = 0;
+  std::uint32_t lightCount = 0;
+  std::uint32_t particleCount = 0;
+  std::uint32_t transparentEffectCount = 0;
   std::uint32_t instanceUploadBytes = 0;
   std::uint32_t instanceDraws = 0;
 };

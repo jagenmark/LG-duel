@@ -1,5 +1,7 @@
 #include "render/CombatEffects.hpp"
 
+#include "shared/Sequence.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -23,6 +25,22 @@ namespace {
 
 [[nodiscard]] float seededSigned(std::uint32_t seed, std::uint32_t lane) {
   return seededUnit(seed, lane) * 2.0F - 1.0F;
+}
+
+[[nodiscard]] bool finite(Vec3 value) {
+  return std::isfinite(value.x) &&
+    std::isfinite(value.y) &&
+    std::isfinite(value.z);
+}
+
+[[nodiscard]] Vec3 safeDirection(Vec3 value, Vec3 fallback) {
+  if (!finite(value)) {
+    return fallback;
+  }
+  const Vec3 direction = normalize(value);
+  return finite(direction) && length(direction) > 0.0001F
+    ? direction
+    : fallback;
 }
 
 [[nodiscard]] constexpr Vec3 cross(Vec3 lhs, Vec3 rhs) {
@@ -80,6 +98,7 @@ CombatEffects::PoolEntry* allocateEntry(
     ? &*freeEntry
     : &*oldest;
   entry->serial = serial;
+  entry->expiryGraceState = 0;
   entry->active = true;
   return entry;
 }
@@ -94,18 +113,36 @@ void expireAndSimulate(
     if (!entry.active) {
       continue;
     }
+    if (entry.expiryGraceState == 2U) {
+      entry.active = false;
+      continue;
+    }
     TransientEffect& effect = entry.effect;
+    const float ageBeforeUpdate = effect.ageSeconds;
     effect.ageSeconds += deltaSeconds;
     if (
       effect.lifetimeSeconds <= 0.0F ||
       effect.ageSeconds >= effect.lifetimeSeconds
     ) {
+      if (
+        effect.lifetimeSeconds > 0.0F &&
+        entry.expiryGraceState == 1U &&
+        ageBeforeUpdate <= 0.0001F
+      ) {
+        entry.expiryGraceState = 2U;
+        effect.ageSeconds = effect.lifetimeSeconds * 0.35F;
+        continue;
+      }
       entry.active = false;
       continue;
     }
+    if (entry.expiryGraceState == 1U) {
+      entry.expiryGraceState = 0U;
+    }
     if (
       effect.type == TransientEffectType::MachineGunCasing ||
-      effect.type == TransientEffectType::BulletImpactSpark
+      effect.type == TransientEffectType::BulletImpactSpark ||
+      effect.type == TransientEffectType::RocketExplosionShard
     ) {
       effect.position += effect.velocity * deltaSeconds +
         gravity * (0.5F * deltaSeconds * deltaSeconds);
@@ -117,7 +154,9 @@ void expireAndSimulate(
       );
     } else if (
       effect.type == TransientEffectType::BulletImpactDust ||
-      effect.type == TransientEffectType::MachineGunMuzzleSmoke
+      effect.type == TransientEffectType::MachineGunMuzzleSmoke ||
+      effect.type == TransientEffectType::RocketLauncherMuzzleSmoke ||
+      effect.type == TransientEffectType::RocketExplosionSmoke
     ) {
       const float drag = std::exp(-2.8F * deltaSeconds);
       effect.position += effect.velocity * deltaSeconds;
@@ -167,6 +206,76 @@ void trimOldestToLimit(
 
 } // namespace
 
+void CombatEffectEventHistory::clear() {
+  weaponFires_ = {};
+  explosions_ = {};
+  hasLastExplosionSequence_ = {};
+  lastExplosionSequence_ = {};
+  nextWeaponFire_ = 0;
+  nextExplosion_ = 0;
+}
+
+bool CombatEffectEventHistory::acceptWeaponFire(
+  std::uint8_t playerIndex,
+  Weapon weapon,
+  std::uint32_t visualSeed
+) {
+  if (playerIndex >= kDuelPlayerCount) {
+    return false;
+  }
+  for (const WeaponFireEvent& event : weaponFires_) {
+    if (
+      event.active &&
+      event.playerIndex == playerIndex &&
+      event.weapon == weapon &&
+      event.visualSeed == visualSeed
+    ) {
+      return false;
+    }
+  }
+  weaponFires_[nextWeaponFire_ % weaponFires_.size()] = {
+    playerIndex,
+    weapon,
+    visualSeed,
+    true,
+  };
+  ++nextWeaponFire_;
+  return true;
+}
+
+bool CombatEffectEventHistory::acceptExplosion(
+  std::uint8_t ownerIndex,
+  std::uint32_t sequence
+) {
+  if (ownerIndex >= kDuelPlayerCount) {
+    return false;
+  }
+  if (
+    hasLastExplosionSequence_[ownerIndex] &&
+    !isSequenceNewer(sequence, lastExplosionSequence_[ownerIndex])
+  ) {
+    return false;
+  }
+  for (const ExplosionEvent& event : explosions_) {
+    if (
+      event.active &&
+      event.ownerIndex == ownerIndex &&
+      event.sequence == sequence
+    ) {
+      return false;
+    }
+  }
+  explosions_[nextExplosion_ % explosions_.size()] = {
+    ownerIndex,
+    sequence,
+    true,
+  };
+  ++nextExplosion_;
+  lastExplosionSequence_[ownerIndex] = sequence;
+  hasLastExplosionSequence_[ownerIndex] = true;
+  return true;
+}
+
 void CombatEffects::clear() {
   lights_ = {};
   casings_ = {};
@@ -176,6 +285,8 @@ void CombatEffects::clear() {
   hasMuzzleAttachment_ = {};
   nextSerial_ = 1;
   shotsSpawned_ = 0;
+  rocketShotsSpawned_ = 0;
+  rocketExplosionsSpawned_ = 0;
   effectsDropped_ = 0;
   peaks_ = {};
 }
@@ -185,12 +296,43 @@ void CombatEffects::update(
   const CombatEffectsTuning& tuning
 ) {
   const float dt = std::clamp(deltaSeconds, 0.0F, 0.25F);
+  peaks_.peakLights = std::max(
+    peaks_.peakLights,
+    static_cast<std::uint32_t>(activeCount(lights_))
+  );
+  peaks_.peakCasings = std::max(
+    peaks_.peakCasings,
+    static_cast<std::uint32_t>(activeCount(casings_))
+  );
+  peaks_.peakParticles = std::max(
+    peaks_.peakParticles,
+    static_cast<std::uint32_t>(activeCount(particles_))
+  );
+  peaks_.peakDecals = std::max(
+    peaks_.peakDecals,
+    static_cast<std::uint32_t>(activeCount(decals_))
+  );
   if (tuning.quality <= 0) {
     lights_ = {};
     casings_ = {};
     particles_ = {};
     decals_ = {};
     return;
+  }
+  if (tuning.quality < 2) {
+    for (PoolEntry& particle : particles_) {
+      if (
+        particle.active &&
+        (
+          particle.effect.type ==
+            TransientEffectType::RocketLauncherMuzzleSmoke ||
+          particle.effect.type == TransientEffectType::RocketExplosionShard ||
+          particle.effect.type == TransientEffectType::RocketExplosionSmoke
+        )
+      ) {
+        particle.active = false;
+      }
+    }
   }
   expireAndSimulate(lights_, dt);
   expireAndSimulate(casings_, dt);
@@ -204,14 +346,18 @@ void CombatEffects::update(
   trimOldestToLimit(decals_, tuning.maximumDecals);
 
   for (PoolEntry& light : lights_) {
+    const std::size_t attachment =
+      static_cast<std::size_t>(light.attachment);
     if (
       light.active &&
-      light.effect.ownerIndex < hasMuzzleAttachment_.size() &&
-      hasMuzzleAttachment_[light.effect.ownerIndex]
+      attachment < hasMuzzleAttachment_.size() &&
+      light.effect.ownerIndex < kDuelPlayerCount &&
+      hasMuzzleAttachment_[attachment][light.effect.ownerIndex]
     ) {
       // A muzzle light stays on the current socket during its short life, so
       // sway, recoil, remote pose changes, and frame rate cannot detach it.
-      light.effect.position = muzzleAttachments_[light.effect.ownerIndex];
+      light.effect.position =
+        muzzleAttachments_[attachment][light.effect.ownerIndex];
     }
   }
 
@@ -254,6 +400,7 @@ void CombatEffects::spawnMachineGunShot(
     light->effect.intensity = std::max(0.0F, tuning.muzzleLightIntensity);
     light->effect.radius = std::max(0.0F, tuning.muzzleLightRadius);
     light->effect.ownerIndex = request.ownerIndex;
+    light->attachment = MuzzleAttachment::MachineGun;
   }
 
   const std::size_t particleLimit = clampedLimit(
@@ -444,15 +591,186 @@ void CombatEffects::spawnMachineGunShot(
   }
 }
 
+void CombatEffects::spawnRocketLauncherShot(
+  const RocketLauncherShotEffectsRequest& request,
+  const CombatEffectsTuning& tuning
+) {
+  if (
+    tuning.quality <= 0 ||
+    request.ownerIndex >= kDuelPlayerCount ||
+    !finite(request.muzzlePosition)
+  ) {
+    return;
+  }
+  ++shotsSpawned_;
+  ++rocketShotsSpawned_;
+  const std::uint32_t seed = request.visualSeed;
+  const Vec3 forward = safeDirection(
+    request.muzzleForward,
+    Vec3{1.0F, 0.0F, 0.0F}
+  );
+  const Vec3 up = safeDirection(request.muzzleUp, Vec3{0.0F, 0.0F, 1.0F});
+
+  PoolEntry* light = allocateEntry(
+    lights_,
+    kLightCapacity,
+    nextSerial_++
+  );
+  if (light != nullptr) {
+    const float qualityScale = tuning.quality >= 2 ? 0.82F : 0.62F;
+    light->effect = {
+      TransientEffectType::RocketLauncherMuzzleLight,
+      request.muzzlePosition,
+      0.0F,
+      std::clamp(tuning.muzzleLightDurationSeconds * 0.52F, 0.001F, 0.070F),
+      1.0F,
+      1.0F,
+      {255, 194, 96, 255},
+      seed,
+    };
+    light->effect.intensity =
+      std::max(0.0F, tuning.muzzleLightIntensity) * qualityScale;
+    light->effect.radius =
+      std::max(0.0F, tuning.muzzleLightRadius) * 0.72F;
+    light->effect.ownerIndex = request.ownerIndex;
+    light->attachment = MuzzleAttachment::RocketLauncher;
+    light->expiryGraceState = 1U;
+  }
+
+  if (tuning.quality < 2) {
+    return;
+  }
+  PoolEntry* smoke = allocateEntry(
+    particles_,
+    clampedLimit(tuning.maximumParticles, kParticleCapacity),
+    nextSerial_++
+  );
+  if (smoke == nullptr) {
+    ++effectsDropped_;
+    return;
+  }
+  smoke->effect = {
+    TransientEffectType::RocketLauncherMuzzleSmoke,
+    request.muzzlePosition + forward * 0.055F,
+    0.0F,
+    0.17F,
+    0.045F,
+    0.115F,
+    {112, 116, 118, 62},
+    seed,
+  };
+  smoke->effect.velocity =
+    forward * (0.30F + seededUnit(seed, 61U) * 0.12F) +
+    up * (0.08F + seededUnit(seed, 62U) * 0.08F);
+  smoke->expiryGraceState = 1U;
+}
+
+void CombatEffects::spawnRocketExplosion(
+  const RocketExplosionEffectsRequest& request,
+  const CombatEffectsTuning& tuning
+) {
+  if (tuning.quality < 2 || !finite(request.position)) {
+    return;
+  }
+  ++rocketExplosionsSpawned_;
+  const std::uint32_t seed = request.visualSeed;
+  const float radius = std::isfinite(request.radius)
+    ? std::clamp(request.radius, 0.25F, 3.6F)
+    : 3.0F;
+  const std::size_t particleLimit = clampedLimit(
+    tuning.maximumParticles,
+    kParticleCapacity
+  );
+  const int shardCount = static_cast<int>(std::clamp(
+    std::round(3.0F * std::max(0.0F, tuning.particleMultiplier)),
+    0.0F,
+    4.0F
+  ));
+  for (int index = 0; index < shardCount; ++index) {
+    PoolEntry* shard =
+      allocateEntry(particles_, particleLimit, nextSerial_++);
+    if (shard == nullptr) {
+      ++effectsDropped_;
+      break;
+    }
+    const std::uint32_t lane = 80U + static_cast<std::uint32_t>(index) * 4U;
+    const float azimuth = seededUnit(seed, lane) *
+      2.0F * std::numbers::pi_v<float>;
+    const float vertical = std::clamp(
+      0.28F + seededSigned(seed, lane + 1U) * 0.52F,
+      -0.24F,
+      0.82F
+    );
+    const float horizontal =
+      std::sqrt(std::max(0.0F, 1.0F - vertical * vertical));
+    const Vec3 direction = {
+      std::cos(azimuth) * horizontal,
+      std::sin(azimuth) * horizontal,
+      vertical,
+    };
+    shard->effect = {
+      TransientEffectType::RocketExplosionShard,
+      request.position + direction * (radius * 0.035F),
+      0.0F,
+      0.13F + seededUnit(seed, lane + 2U) * 0.07F,
+      0.020F,
+      0.005F,
+      {248, 126, 72, 190},
+      seed + static_cast<std::uint32_t>(index),
+    };
+    shard->effect.velocity =
+      direction * (2.0F + seededUnit(seed, lane + 3U) * 2.4F);
+    shard->expiryGraceState = 1U;
+  }
+
+  PoolEntry* smoke =
+    allocateEntry(particles_, particleLimit, nextSerial_++);
+  if (smoke == nullptr) {
+    ++effectsDropped_;
+    return;
+  }
+  const float smokeScale = std::clamp(radius * 0.035F, 0.06F, 0.13F);
+  smoke->effect = {
+    TransientEffectType::RocketExplosionSmoke,
+    request.position + Vec3{0.0F, 0.0F, radius * 0.025F},
+    0.0F,
+    0.27F,
+    smokeScale,
+    smokeScale * 2.05F,
+    {104, 108, 110, 58},
+    seed + 9U,
+  };
+  smoke->effect.velocity = {
+    seededSigned(seed, 101U) * 0.12F,
+    seededSigned(seed, 102U) * 0.12F,
+    0.30F + seededUnit(seed, 103U) * 0.12F,
+  };
+  smoke->expiryGraceState = 1U;
+}
+
 void CombatEffects::setMuzzleAttachment(
   std::uint8_t ownerIndex,
   Vec3 position
 ) {
-  if (ownerIndex >= muzzleAttachments_.size()) {
+  setMuzzleAttachment(ownerIndex, MuzzleAttachment::MachineGun, position);
+}
+
+void CombatEffects::setMuzzleAttachment(
+  std::uint8_t ownerIndex,
+  MuzzleAttachment attachment,
+  Vec3 position
+) {
+  const std::size_t attachmentIndex =
+    static_cast<std::size_t>(attachment);
+  if (
+    ownerIndex >= kDuelPlayerCount ||
+    attachmentIndex >= muzzleAttachments_.size() ||
+    !finite(position)
+  ) {
     return;
   }
-  muzzleAttachments_[ownerIndex] = position;
-  hasMuzzleAttachment_[ownerIndex] = true;
+  muzzleAttachments_[attachmentIndex][ownerIndex] = position;
+  hasMuzzleAttachment_[attachmentIndex][ownerIndex] = true;
 }
 
 void CombatEffects::appendActive(
@@ -478,6 +796,8 @@ CombatEffectsStats CombatEffects::stats() const {
   result.activeParticles = static_cast<std::uint32_t>(activeCount(particles_));
   result.activeDecals = static_cast<std::uint32_t>(activeCount(decals_));
   result.shotsSpawned = shotsSpawned_;
+  result.rocketShotsSpawned = rocketShotsSpawned_;
+  result.rocketExplosionsSpawned = rocketExplosionsSpawned_;
   result.effectsDropped = effectsDropped_;
   return result;
 }

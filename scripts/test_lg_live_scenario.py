@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import argparse
 import json
 import socket
 import tempfile
 import unittest
 import xml.etree.ElementTree as element_tree
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
@@ -41,6 +43,225 @@ class LiveScenarioTests(unittest.TestCase):
         with real_socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
             probe.bind(("127.0.0.1", port))
 
+    def test_capture_source_names_are_utc_compliant_and_run_unique(self) -> None:
+        captured_at = datetime(2026, 7, 28, 13, 14, 15, tzinfo=timezone.utc)
+        full = lg_live_scenario._capture_source_name(
+            "rocket_launcher_visual_validation",
+            "rlvv-before",
+            "a1b2c3d4" + "0" * 24,
+            1,
+            captured_at=captured_at,
+        )
+        reduced = lg_live_scenario._capture_source_name(
+            "rocket_launcher_visual_validation",
+            "rlvv-before",
+            "d4c3b2a1" + "0" * 24,
+            1,
+            captured_at=captured_at,
+        )
+
+        self.assertEqual(
+            full,
+            "20260728T131415Z-rocket-launc-a1b2c3d4-rlvv-before-01",
+        )
+        self.assertNotEqual(full, reduced)
+        self.assertLessEqual(len(full), 64)
+        self.assertTrue(
+            all(character.isalnum() or character in "_-" for character in full)
+        )
+
+    def test_event_capture_waits_for_the_named_occurrence(self) -> None:
+        expected = {
+            "type": "explosion_created",
+            "actor": 0,
+            "weapon": "rocket_launcher",
+            "occurrence": 3,
+        }
+        events = [
+            {
+                "type": "explosion_created",
+                "actor": 0,
+                "weapon": "rocket_launcher",
+            },
+            {
+                "type": "explosion_created",
+                "actor": 0,
+                "weapon": "rocket_launcher",
+            },
+        ]
+
+        self.assertFalse(
+            lg_live_scenario._event_occurrence_reached(events, expected)
+        )
+        events.append(dict(events[-1]))
+        self.assertTrue(
+            lg_live_scenario._event_occurrence_reached(events, expected)
+        )
+
+    def test_capture_phase_accepts_exact_render_and_authoritative_state(self) -> None:
+        shot = {
+            "name": "muzzle",
+            "render_phase": "muzzle",
+            "actor": 0,
+            "result": {
+                "frame_state": {
+                    "local_player_index": 0,
+                    "local_rocket_launcher_fired": False,
+                    "local_rocket_launcher_projectiles": 1,
+                    "local_rocket_launcher_explosions": 0,
+                    "renderer_rocket_instances": 1,
+                    "renderer_tracer_instances": 1,
+                    "renderer_explosion_instances": 0,
+                }
+            },
+            "trigger": {
+                "events": [
+                    {
+                        "type": "weapon_fired",
+                        "actor": 0,
+                        "weapon": "rocket_launcher",
+                    },
+                    {
+                        "type": "projectile_spawned",
+                        "actor": 0,
+                        "weapon": "rocket_launcher",
+                    },
+                ]
+            },
+        }
+
+        lg_live_scenario._validate_capture_phase(shot)
+
+    def test_impact_phase_accepts_retained_render_after_snapshot_flag(self) -> None:
+        shot = {
+            "name": "impact",
+            "render_phase": "impact",
+            "actor": 0,
+            "result": {
+                "frame_state": {
+                    "local_player_index": 0,
+                    "local_rocket_launcher_fired": False,
+                    "local_rocket_launcher_projectiles": 0,
+                    "local_rocket_launcher_explosions": 0,
+                    "renderer_rocket_instances": 0,
+                    "renderer_tracer_instances": 0,
+                    "renderer_explosion_instances": 3,
+                }
+            },
+            "trigger": {
+                "events": [
+                    {
+                        "type": "weapon_fired",
+                        "actor": 0,
+                        "weapon": "rocket_launcher",
+                        "sequence": 7,
+                    },
+                    {
+                        "type": "projectile_spawned",
+                        "actor": 0,
+                        "weapon": "rocket_launcher",
+                        "sequence": 8,
+                    },
+                    {
+                        "type": "explosion_created",
+                        "actor": 0,
+                        "weapon": "rocket_launcher",
+                        "sequence": 10,
+                    },
+                ]
+            },
+        }
+
+        lg_live_scenario._validate_capture_phase(shot)
+
+    def test_capture_phase_rejects_idle_and_wrong_authority(self) -> None:
+        idle_shot = {
+            "name": "projectile",
+            "render_phase": "projectile",
+            "actor": 0,
+            "result": {
+                "frame_state": {
+                    "local_player_index": 0,
+                    "local_rocket_launcher_fired": False,
+                    "local_rocket_launcher_projectiles": 0,
+                    "local_rocket_launcher_explosions": 0,
+                    "renderer_rocket_instances": 0,
+                    "renderer_tracer_instances": 0,
+                    "renderer_explosion_instances": 0,
+                }
+            },
+            "trigger": {
+                "events": [
+                    {
+                        "type": "projectile_spawned",
+                        "actor": 0,
+                        "weapon": "rocket_launcher",
+                    }
+                ]
+            },
+        }
+        wrong_authority = {
+            "name": "impact",
+            "render_phase": "impact",
+            "actor": 0,
+            "result": {
+                "frame_state": {
+                    "local_player_index": 0,
+                    "local_rocket_launcher_fired": False,
+                    "local_rocket_launcher_projectiles": 0,
+                    "local_rocket_launcher_explosions": 1,
+                    "renderer_rocket_instances": 0,
+                    "renderer_tracer_instances": 0,
+                    "renderer_explosion_instances": 1,
+                }
+            },
+            "trigger": {
+                "events": [
+                    {
+                        "type": "explosion_created",
+                        "actor": 1,
+                        "weapon": "rocket_launcher",
+                    }
+                ]
+            },
+        }
+
+        with self.assertRaisesRegex(
+            lg_live_scenario.LiveScenarioStageError,
+            "idle or does not match",
+        ):
+            lg_live_scenario._validate_capture_phase(idle_shot)
+        with self.assertRaisesRegex(
+            lg_live_scenario.LiveScenarioStageError,
+            "idle or does not match",
+        ):
+            lg_live_scenario._validate_capture_phase(wrong_authority)
+
+    def test_before_phase_rejects_a_rendered_shot(self) -> None:
+        shot = {
+            "name": "before",
+            "render_phase": "before_fire",
+            "actor": 0,
+            "result": {
+                "frame_state": {
+                    "local_player_index": 0,
+                    "local_rocket_launcher_fired": True,
+                    "local_rocket_launcher_projectiles": 1,
+                    "local_rocket_launcher_explosions": 0,
+                    "renderer_rocket_instances": 1,
+                    "renderer_tracer_instances": 1,
+                    "renderer_explosion_instances": 0,
+                }
+            },
+            "trigger": {"events": []},
+        }
+
+        with self.assertRaisesRegex(
+            lg_live_scenario.LiveScenarioStageError,
+            "idle or does not match",
+        ):
+            lg_live_scenario._validate_capture_phase(shot)
+
     def scenario(self, *, capture: bool = False, network: bool = False) -> dict:
         value = {
             "schema_version": 1, "name": "live-test",
@@ -70,7 +291,28 @@ class LiveScenarioTests(unittest.TestCase):
             run.mkdir(parents=True, exist_ok=True)
             (run / "ready.json").write_text(json.dumps({"token": token, "scenario": scenario["name"], "map": "default", "map_revision": 1}), encoding="utf-8")
             (run / "checkpoint-0.json").write_text(json.dumps({"events": [], "state": {"map_revision": 1}, "relative_tick": 0, "absolute_server_tick": 100}), encoding="utf-8")
-            (run / "checkpoint-3.json").write_text(json.dumps({"events": [{"type": "weapon_fired", "actor": 0}], "state": {"map_revision": 1}, "relative_tick": 3, "absolute_server_tick": 103}), encoding="utf-8")
+            (run / "checkpoint-3.json").write_text(
+                json.dumps(
+                    {
+                        "events": [
+                            {
+                                "type": "weapon_fired",
+                                "actor": 0,
+                                "weapon": "rocket_launcher",
+                            },
+                            {
+                                "type": "projectile_spawned",
+                                "actor": 0,
+                                "weapon": "rocket_launcher",
+                            },
+                        ],
+                        "state": {"map_revision": 1},
+                        "relative_tick": 3,
+                        "absolute_server_tick": 103,
+                    }
+                ),
+                encoding="utf-8",
+            )
             (run / "result.json").write_text(
                 json.dumps(
                     {
@@ -94,9 +336,23 @@ class LiveScenarioTests(unittest.TestCase):
 
     def sender(self, calls: list[tuple[str, dict]]) -> mock.Mock:
         sequence = 10
+        cvars = {"r_combat_effects": "2", "r_bloom": "1"}
+        armed_capture: str | None = None
+        armed_phase: str | None = None
         def request(operation, **values):
-            nonlocal sequence
+            nonlocal sequence, armed_capture, armed_phase
             calls.append((operation, values))
+            if operation == "get_cvar":
+                return {
+                    "name": values["name"],
+                    "value": cvars[values["name"]],
+                }
+            if operation == "set_cvar":
+                cvars[values["name"]] = values["value"]
+                return {
+                    "name": values["name"],
+                    "value": values["value"],
+                }
             if operation == "send_input":
                 response = {"command_sequence": sequence}
                 sequence += 1
@@ -115,11 +371,44 @@ class LiveScenarioTests(unittest.TestCase):
                     "path": str(self.capture_path),
                     "width": 1,
                     "height": 1,
+                    "frame_state": {"latest_snapshot_tick": 103},
+                }
+            if operation == "arm_phase_capture":
+                armed_capture = values["name"]
+                armed_phase = values["phase"]
+                return {
+                    "name": armed_capture,
+                    "phase": armed_phase,
+                    "armed": True,
+                }
+            if operation == "collect_phase_capture":
+                self.assertEqual(values["name"], armed_capture)
+                impact = armed_phase == "local_rocket_launcher_impact"
+                return {
+                    "path": str(self.capture_path),
+                    "width": 1,
+                    "height": 1,
+                    "frame_state": {
+                        "latest_snapshot_tick": 103,
+                        "local_player_index": 0,
+                        "local_rocket_launcher_fired": not impact,
+                        "local_rocket_launcher_projectiles": 0 if impact else 1,
+                        "local_rocket_launcher_explosions": 0,
+                        "renderer_rocket_instances": 0 if impact else 1,
+                        "renderer_tracer_instances": 0 if impact else 1,
+                        "renderer_explosion_instances": 2 if impact else 0,
+                    },
                 }
             return {"ok": True}
         return mock.Mock(side_effect=request)
 
-    def run_scenario(self, document: dict, *, cleanup_failures: list[str] | None = None):
+    def run_scenario(
+        self,
+        document: dict,
+        *,
+        cleanup_failures: list[str] | None = None,
+        client_cvars: dict[str, str] | None = None,
+    ):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "live-test.json"
@@ -131,10 +420,104 @@ class LiveScenarioTests(unittest.TestCase):
                  mock.patch.object(lg_control, "send_request", self.sender(calls)):
                 if cleanup_failures:
                     with self.assertRaises(lg_live_scenario.LiveScenarioError):
-                        result = lg_live_scenario.run_live_scenario(source, root / "out", timeout=1)
+                        result = lg_live_scenario.run_live_scenario(
+                            source,
+                            root / "out",
+                            timeout=1,
+                            client_cvars=client_cvars,
+                        )
                 else:
-                    result = lg_live_scenario.run_live_scenario(source, root / "out", timeout=1)
+                    result = lg_live_scenario.run_live_scenario(
+                        source,
+                        root / "out",
+                        timeout=1,
+                        client_cvars=client_cvars,
+                    )
             return result if not cleanup_failures else {"artifact_path": str(next((root / "out").iterdir()))}, calls
+
+    def test_client_cvar_parser_is_strict_and_rejects_duplicates(self) -> None:
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override(
+                "r_combat_effects=1"
+            ),
+            ("r_combat_effects", "1"),
+        )
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_bloom=0"),
+            ("r_bloom", "0"),
+        )
+        with self.assertRaises(argparse.ArgumentTypeError):
+            lg_live_scenario._parse_client_cvar_override("g_rl_damage=1")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            lg_live_scenario._parse_client_cvar_override("r_bloom=2")
+        with self.assertRaisesRegex(
+            lg_live_scenario.LiveScenarioStageError,
+            "duplicate",
+        ):
+            lg_live_scenario._client_cvar_overrides(
+                [("r_bloom", "1"), ("r_bloom", "0")]
+            )
+
+    def test_client_cvars_apply_and_read_back_in_order(self) -> None:
+        calls: list[tuple[str, dict]] = []
+        values = {"r_combat_effects": "2", "r_bloom": "1"}
+
+        def request(operation: str, *_args, **parameters):
+            calls.append((operation, parameters))
+            name = parameters["name"]
+            if operation == "get_cvar":
+                return {"name": name, "value": values[name]}
+            if operation == "set_cvar":
+                values[name] = parameters["value"]
+                return {"name": name, "value": values[name]}
+            self.fail(f"unexpected operation: {operation}")
+
+        with mock.patch.object(
+            lg_live_scenario,
+            "_request",
+            side_effect=request,
+        ):
+            result = lg_live_scenario._apply_client_cvar_overrides(
+                {"control_port": 1},
+                1,
+                {"r_combat_effects": "1", "r_bloom": "0"},
+            )
+
+        self.assertEqual(
+            [name for name, _ in calls],
+            [
+                "get_cvar",
+                "set_cvar",
+                "get_cvar",
+                "get_cvar",
+                "set_cvar",
+                "get_cvar",
+            ],
+        )
+        self.assertEqual(
+            result["applied"],
+            {"r_combat_effects": "1", "r_bloom": "0"},
+        )
+        self.assertTrue(result["applied_before_scenario_start"])
+
+    def test_run_applies_client_cvars_before_initial_client_state(self) -> None:
+        _, calls = self.run_scenario(
+            self.scenario(),
+            client_cvars={"r_combat_effects": "1", "r_bloom": "0"},
+        )
+        names = [name for name, _ in calls]
+        self.assertEqual(
+            names[:6],
+            [
+                "get_cvar",
+                "set_cvar",
+                "get_cvar",
+                "get_cvar",
+                "set_cvar",
+                "get_cvar",
+            ],
+        )
+        self.assertLess(names.index("set_cvar"), names.index("get_client_state"))
 
     def test_tick_ack_schedule_releases_edges_once(self) -> None:
         result, calls = self.run_scenario(self.scenario(network=True))
@@ -171,6 +554,84 @@ class LiveScenarioTests(unittest.TestCase):
             if name == "get_client_state"
         )
         self.assertLess(capture_index, state_index)
+        capture_request = calls[capture_index][1]
+        self.assertNotEqual(capture_request["name"], "shot")
+        self.assertRegex(
+            capture_request["name"],
+            r"^\d{8}T\d{6}Z-live-test-[0-9a-f]{8}-shot-01$",
+        )
+
+    def test_event_capture_starts_before_redundant_ack_wait(self) -> None:
+        _, calls = self.run_scenario(self.scenario(capture=True))
+        names = [name for name, _ in calls]
+        ack_index = names.index("wait_command_ack")
+        capture_index = names.index("capture_screenshot")
+
+        self.assertLess(capture_index, ack_index)
+
+    def test_muzzle_capture_arms_before_input_and_collects_after(self) -> None:
+        scenario = self.scenario()
+        scenario["timeline"][0]["input"]["weapon"] = "rocket_launcher"
+        scenario["captures"] = [
+            {
+                "name": "muzzle",
+                "after_event": {
+                    "type": "weapon_fired",
+                    "actor": 0,
+                    "weapon": "rocket_launcher",
+                    "occurrence": 1,
+                },
+                "wait_rendered_frames": 0,
+                "render_phase": "muzzle",
+            }
+        ]
+
+        result, calls = self.run_scenario(scenario)
+        names = [name for name, _ in calls]
+        arm_index = names.index("arm_phase_capture")
+        input_index = names.index("send_input")
+        collect_index = names.index("collect_phase_capture")
+
+        self.assertEqual(result["status"], "passed")
+        self.assertLess(arm_index, input_index)
+        self.assertLess(input_index, collect_index)
+        self.assertNotIn(
+            "capture_screenshot",
+            names[arm_index:collect_index + 1],
+        )
+
+    def test_third_impact_maps_to_third_rocket_input(self) -> None:
+        capture = {
+            "name": "impact",
+            "after_event": {
+                "type": "explosion_created",
+                "actor": 0,
+                "weapon": "rocket_launcher",
+                "occurrence": 3,
+            },
+            "wait_rendered_frames": 0,
+            "render_phase": "impact",
+        }
+
+        self.assertIsNone(
+            lg_live_scenario._phase_capture_for_rocket_attack(
+                [capture],
+                set(),
+                2,
+            )
+        )
+        selected = lg_live_scenario._phase_capture_for_rocket_attack(
+            [capture],
+            set(),
+            3,
+        )
+        self.assertIsNotNone(selected)
+        armed_capture, armed_phase = selected
+        self.assertEqual(armed_capture["name"], "impact")
+        self.assertEqual(
+            armed_phase,
+            "local_rocket_launcher_impact",
+        )
 
     def test_tick_capture_runs_before_later_timeline_input(self) -> None:
         scenario = self.scenario()

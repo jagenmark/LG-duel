@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "name": "rocket_launcher_visual_validation",
+  "description": "Fixed first-person Rocket Launcher captures on scenario_wall: before fire, the first rendered muzzle frame, mid-flight, and the rendered authoritative impact. Each accepted image must match its named render phase.",
+  "execution": {"mode": "client_server", "max_ticks": 300, "repeat": 1},
+  "world": {"map": "scenario_wall", "game_mode": "duel", "seed": 2718},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-4, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "rocket_launcher"},
+    {"index": 1, "connected": true, "bot": true, "team": "none", "position": [4, 4, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"}
+  ],
+  "timeline": [
+    {"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "attack": true, "weapon": "rocket_launcher", "yaw": 0, "pitch": 0}},
+    {"at_tick": 120, "player": 0, "duration_ticks": 1, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "attack": true, "weapon": "rocket_launcher", "yaw": 0, "pitch": 0}},
+    {"at_tick": 240, "player": 0, "duration_ticks": 18, "one_tick_edges": ["attack"], "input": {"forward": 0, "right": 0, "attack": true, "weapon": "rocket_launcher", "yaw": 0, "pitch": 0}}
+  ],
+  "captures": [
+    {"name": "rlvv-before", "at_server_tick": 0, "wait_rendered_frames": 0, "render_phase": "before_fire"},
+    {"name": "rlvv-muzzle-peak", "after_event": {"type": "weapon_fired", "actor": 0, "weapon": "rocket_launcher", "occurrence": 1}, "wait_rendered_frames": 0, "render_phase": "muzzle"},
+    {"name": "rlvv-rocket-flight", "after_event": {"type": "projectile_spawned", "actor": 0, "weapon": "rocket_launcher", "occurrence": 2}, "wait_rendered_frames": 0, "render_phase": "projectile"},
+    {"name": "rlvv-impact", "after_event": {"type": "explosion_created", "actor": 0, "weapon": "rocket_launcher", "occurrence": 3}, "wait_rendered_frames": 0, "render_phase": "impact"}
+  ],
+  "assertions": [
+    {"type": "event", "classification": "AUTHORITATIVE_DETERMINISTIC", "at_completion": true, "event": {"type": "weapon_fired", "actor": 0, "weapon": "rocket_launcher", "count": 3}},
+    {"type": "event", "classification": "AUTHORITATIVE_DETERMINISTIC", "at_completion": true, "event": {"type": "projectile_spawned", "actor": 0, "weapon": "rocket_launcher", "count": 3}},
+    {"type": "event", "classification": "AUTHORITATIVE_DETERMINISTIC", "at_completion": true, "event": {"type": "explosion_created", "actor": 0, "weapon": "rocket_launcher", "count": 3}},
+    {"type": "projectile_removed", "classification": "AUTHORITATIVE_DETERMINISTIC", "at_completion": true, "owner": 0, "weapon": "rocket_launcher"},
+    {"type": "renderer_backend", "classification": "RENDERER_ATTESTED", "at_completion": true, "backend": "SDL_GPU/vulkan"},
+    {"type": "screenshot_checkpoint", "classification": "VISUAL_REVIEW", "at_completion": true, "capture": "rlvv-before", "width": 1280, "height": 720},
+    {"type": "screenshot_checkpoint", "classification": "VISUAL_REVIEW", "at_completion": true, "capture": "rlvv-muzzle-peak", "width": 1280, "height": 720},
+    {"type": "screenshot_checkpoint", "classification": "VISUAL_REVIEW", "at_completion": true, "capture": "rlvv-rocket-flight", "width": 1280, "height": 720},
+    {"type": "screenshot_checkpoint", "classification": "VISUAL_REVIEW", "at_completion": true, "capture": "rlvv-impact", "width": 1280, "height": 720}
+  ]
+}

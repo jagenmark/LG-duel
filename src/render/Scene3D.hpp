@@ -910,6 +910,10 @@ void appendCollisionDebugGeometry(
   const PlayerState& player,
   const RenderSettings& settings
 );
+[[nodiscard]] Vec3 remoteRocketLauncherMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+);
 [[nodiscard]] Vec3 firstPersonFreezeGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings

@@ -447,13 +447,17 @@ enum class TransientEffectType : std::uint8_t {
   GrenadeExplosionFlash,
   GrenadeExplosionCore,
   MachineGunMuzzleLight,
+  RocketLauncherMuzzleLight,
   MachineGunMuzzleSmoke,
+  RocketLauncherMuzzleSmoke,
   MachineGunMuzzleSpark,
   MachineGunCasing,
   BulletImpactFlash,
   BulletImpactSpark,
   BulletImpactDust,
   BulletDecal,
+  RocketExplosionShard,
+  RocketExplosionSmoke,
 };
 
 struct TransientEffect {

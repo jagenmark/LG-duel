@@ -84,8 +84,6 @@ constexpr float kRailgunBeamLingerSeconds = 0.5F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
-constexpr std::size_t kMaxConsumedTracerEvents = 64;
-constexpr std::size_t kMaxConsumedExplosionEvents = 64;
 constexpr std::size_t kLocalTracerAimHistorySize = 128;
 constexpr std::uint8_t kShotgunVisualPelletCount = 6;
 constexpr Vec3 kRevolverGripSocket = {-0.23F, 0.0F, -0.24F};
@@ -619,18 +617,13 @@ struct WeaponPresentationFrame {
   );
 }
 
-struct ConsumedTracerEvent {
-  std::uint8_t playerIndex = 0;
-  Weapon weapon = Weapon::LightningGun;
-  std::uint32_t visualSeed = 0;
-  bool active = false;
-};
-
-struct ConsumedExplosionEvent {
-  std::uint8_t ownerIndex = 0;
-  std::uint32_t sequence = 0;
-  bool active = false;
-};
+[[nodiscard]] Vec3 rocketLauncherMuzzleSource(
+  const WeaponFireResult& fire,
+  const PlayerState& localPlayer,
+  const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
+  std::size_t playerIndex,
+  const RenderSettings& settings
+);
 
 struct TransientTracerStore {
   std::array<TransientTracer, kMaxTransientTracers> tracers = {};
@@ -639,14 +632,11 @@ struct TransientTracerStore {
   std::array<std::uint8_t, kMaxTransientTracers> followPlayerIndex = {};
   std::array<Weapon, kMaxTransientTracers> followWeapon = {};
   std::array<std::uint32_t, kMaxTransientTracers> followSeed = {};
+  std::array<std::uint8_t, kMaxTransientTracers> expiryGraceState = {};
   std::array<TransientEffect, kMaxTransientEffects> effects = {};
   std::array<bool, kMaxTransientEffects> effectActive = {};
-  std::array<ConsumedTracerEvent, kMaxConsumedTracerEvents> consumedEvents = {};
-  std::array<ConsumedExplosionEvent, kMaxConsumedExplosionEvents> consumedExplosionEvents = {};
-  std::array<bool, kDuelPlayerCount> hasLastExplosionSequence = {};
-  std::array<std::uint32_t, kDuelPlayerCount> lastExplosionSequence = {};
-  std::uint32_t nextConsumedEvent = 0;
-  std::uint32_t nextConsumedExplosionEvent = 0;
+  std::array<std::uint8_t, kMaxTransientEffects> effectExpiryGraceState = {};
+  CombatEffectEventHistory eventHistory = {};
   std::uint32_t explosionEventsConsumedThisFrame = 0;
 
   void update(float dt) {
@@ -656,90 +646,71 @@ struct TransientTracerStore {
       if (!active[index]) {
         continue;
       }
+      if (expiryGraceState[index] == 2U) {
+        active[index] = false;
+        continue;
+      }
+      const float ageBeforeUpdate = tracers[index].ageSeconds;
       tracers[index].ageSeconds += elapsed;
       if (tracers[index].ageSeconds >= tracers[index].lifetimeSeconds) {
+        if (
+          expiryGraceState[index] == 1U &&
+          ageBeforeUpdate <= 0.0001F
+        ) {
+          expiryGraceState[index] = 2U;
+          tracers[index].ageSeconds =
+            tracers[index].lifetimeSeconds * 0.35F;
+          continue;
+        }
         active[index] = false;
+      } else if (expiryGraceState[index] == 1U) {
+        expiryGraceState[index] = 0U;
       }
     }
     for (std::size_t index = 0; index < effects.size(); ++index) {
       if (!effectActive[index]) {
         continue;
       }
+      if (effectExpiryGraceState[index] == 2U) {
+        effectActive[index] = false;
+        continue;
+      }
+      const float ageBeforeUpdate = effects[index].ageSeconds;
       effects[index].ageSeconds += elapsed;
       if (effects[index].ageSeconds >= effects[index].lifetimeSeconds) {
+        if (
+          effectExpiryGraceState[index] == 1U &&
+          ageBeforeUpdate <= 0.0001F
+        ) {
+          effectExpiryGraceState[index] = 2U;
+          effects[index].ageSeconds =
+            effects[index].lifetimeSeconds * 0.35F;
+          continue;
+        }
         effectActive[index] = false;
+      } else if (effectExpiryGraceState[index] == 1U) {
+        effectExpiryGraceState[index] = 0U;
       }
     }
   }
 
-  [[nodiscard]] bool consumed(
+  [[nodiscard]] bool acceptWeaponFire(
     std::uint8_t playerIndex,
     Weapon weapon,
     std::uint32_t visualSeed
-  ) const {
-    for (const ConsumedTracerEvent& event : consumedEvents) {
-      if (
-        event.active &&
-        event.playerIndex == playerIndex &&
-        event.weapon == weapon &&
-        event.visualSeed == visualSeed
-      ) {
-        return true;
-      }
-    }
-    return false;
+  ) {
+    return eventHistory.acceptWeaponFire(playerIndex, weapon, visualSeed);
   }
 
-  void remember(std::uint8_t playerIndex, Weapon weapon, std::uint32_t visualSeed) {
-    consumedEvents[nextConsumedEvent % consumedEvents.size()] = {
-      playerIndex,
-      weapon,
-      visualSeed,
-      true,
-    };
-    ++nextConsumedEvent;
-  }
-
-  [[nodiscard]] bool consumedExplosion(
+  [[nodiscard]] bool acceptExplosion(
     std::uint8_t ownerIndex,
     std::uint32_t sequence
-  ) const {
-    if (ownerIndex >= kDuelPlayerCount) {
-      return true;
+  ) {
+    if (!eventHistory.acceptExplosion(ownerIndex, sequence)) {
+      return false;
     }
-    if (
-      hasLastExplosionSequence[ownerIndex] &&
-      !isSequenceNewer(sequence, lastExplosionSequence[ownerIndex])
-    ) {
-      return true;
-    }
-    for (const ConsumedExplosionEvent& event : consumedExplosionEvents) {
-      if (
-        event.active &&
-        event.ownerIndex == ownerIndex &&
-        event.sequence == sequence
-      ) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  void rememberExplosion(std::uint8_t ownerIndex, std::uint32_t sequence) {
-    if (ownerIndex >= kDuelPlayerCount) {
-      return;
-    }
-    consumedExplosionEvents[
-      nextConsumedExplosionEvent % consumedExplosionEvents.size()
-    ] = {
-      ownerIndex,
-      sequence,
-      true,
-    };
-    ++nextConsumedExplosionEvent;
-    lastExplosionSequence[ownerIndex] = sequence;
-    hasLastExplosionSequence[ownerIndex] = true;
     ++explosionEventsConsumedThisFrame;
+    return true;
   }
 
   void add(
@@ -770,6 +741,11 @@ struct TransientTracerStore {
     followWeapon[slot] = weapon;
     followSeed[slot] = seed;
     followPlayerIndex[slot] = playerIndex;
+    // Keep the compact Rocket flash for one extra submitted frame if a long
+    // frame crosses its whole lifetime. This keeps the cue readable at low
+    // frame rates without a time trail or an unbounded store.
+    expiryGraceState[slot] =
+      tracer.style == TracerStyle::RocketLauncherMuzzleFlash ? 1U : 0U;
   }
 
   void addEffect(const TransientEffect& effect) {
@@ -790,6 +766,12 @@ struct TransientTracerStore {
     }
     effects[slot] = effect;
     effectActive[slot] = true;
+    effectExpiryGraceState[slot] =
+      effect.type == TransientEffectType::RocketExplosionFlash ||
+        effect.type == TransientEffectType::RocketExplosionCore ||
+        effect.type == TransientEffectType::RocketExplosionHalo
+      ? 1U
+      : 0U;
   }
 
   void fillActive(
@@ -814,9 +796,11 @@ struct TransientTracerStore {
         }
         if (followMuzzle[index]) {
           const Vec3 oldStart = tracer.start;
+          const Vec3 oldDelta = tracer.end - oldStart;
           const std::size_t playerIndex = followPlayerIndex[index];
           const bool local =
             playerIndex == static_cast<std::size_t>(settings.localPlayerIndex);
+          bool followsCurrentDirection = false;
           if (local && !settings.showOwnWeapons) {
             tracer.start = hiddenWeaponVisualOrigin(localPlayer);
           } else if (followWeapon[index] == Weapon::MachineGun) {
@@ -848,17 +832,35 @@ struct TransientTracerStore {
               0.12F
             );
           } else if (followWeapon[index] == Weapon::RocketLauncher) {
-            tracer.start = firstPersonRocketLauncherMuzzlePosition(
+            WeaponFireResult attachmentFire;
+            attachmentFire.start = oldStart;
+            tracer.start = rocketLauncherMuzzleSource(
+              attachmentFire,
               localPlayer,
+              remotePlayers,
+              playerIndex,
               settings
             );
+            const PlayerState& sourcePlayer =
+              local || playerIndex >= remotePlayers.size()
+                ? localPlayer
+                : remotePlayers[playerIndex].player;
+            const Vec3 currentDirection = cameraForward(
+              sourcePlayer.viewYawRadians,
+              sourcePlayer.viewPitchRadians
+            );
+            tracer.end =
+              tracer.start + currentDirection * length(oldDelta);
+            followsCurrentDirection = true;
           } else if (followWeapon[index] == Weapon::Revolver) {
             tracer.start = firstPersonRevolverMuzzlePosition(
               localPlayer,
               settings
             );
           }
-          tracer.end += tracer.start - oldStart;
+          if (!followsCurrentDirection) {
+            tracer.end += tracer.start - oldStart;
+          }
         }
         result.push_back(tracer);
       }
@@ -1008,20 +1010,10 @@ void spawnMachineGunTracer(
       ? firstPersonRocketLauncherMuzzlePosition(localPlayer, settings)
       : hiddenWeaponVisualOrigin(localPlayer);
   }
-  const Vec3 muzzle = rocketLauncherMuzzleSocket();
-  const float mechanicalAmount = playerIndex < remotePlayers.size()
-    ? remotePlayers[playerIndex].rocketLauncherMechanicalAmount
-    : 0.0F;
-  return remoteWeaponPresentationPoint(
-    fire.start,
-    remotePlayers,
-    playerIndex,
-    Weapon::RocketLauncher,
-    settings,
-    muzzle.x - 0.052F * mechanicalAmount,
-    muzzle.y,
-    muzzle.z
-  );
+  return playerIndex < remotePlayers.size() &&
+      remotePlayers[playerIndex].visible
+    ? remoteRocketLauncherMuzzlePosition(remotePlayers[playerIndex], settings)
+    : fire.start;
 }
 
 void spawnShotgunTracers(
@@ -1085,7 +1077,7 @@ void spawnRocketLauncherMuzzleFlash(
   TransientTracerStore& store,
   const WeaponFireResult& fire,
   Vec3 visualStart,
-  bool followLocalMuzzle,
+  bool followMuzzle,
   std::uint8_t playerIndex
 ) {
   const Vec3 direction = normalize(fire.end - fire.start);
@@ -1094,14 +1086,14 @@ void spawnRocketLauncherMuzzleFlash(
   }
   store.add({
     visualStart,
-    visualStart + direction * 0.28F,
+    visualStart + direction * 0.22F,
     0.0F,
-    0.095F,
-    0.090F,
-    {255, 112, 28, 245},
+    0.068F,
+    0.070F,
+    {246, 92, 42, 238},
     fire.visualSeed,
     TracerStyle::RocketLauncherMuzzleFlash,
-  }, followLocalMuzzle, Weapon::RocketLauncher, fire.visualSeed, playerIndex);
+  }, followMuzzle, Weapon::RocketLauncher, fire.visualSeed, playerIndex);
 }
 
 [[nodiscard]] Vec3 revolverMuzzleSource(
@@ -1179,7 +1171,7 @@ void consumeTracerWeaponFires(
       continue;
     }
     const std::uint8_t eventPlayer = static_cast<std::uint8_t>(playerIndex);
-    if (store.consumed(eventPlayer, fire.weapon, fire.visualSeed)) {
+    if (!store.acceptWeaponFire(eventPlayer, fire.weapon, fire.visualSeed)) {
       continue;
     }
     const bool localEvent =
@@ -1286,8 +1278,25 @@ void consumeTracerWeaponFires(
         store,
         fire,
         visualStart,
-        localEvent,
+        true,
         eventPlayer
+      );
+      const PlayerState& sourcePlayer =
+        localEvent || playerIndex >= remotePlayers.size()
+          ? localPlayer
+          : remotePlayers[playerIndex].player;
+      combatEffects.spawnRocketLauncherShot(
+        {
+          visualStart,
+          normalize(fire.end - fire.start),
+          cameraUp(
+            sourcePlayer.viewYawRadians,
+            sourcePlayer.viewPitchRadians
+          ),
+          fire.visualSeed,
+          eventPlayer,
+        },
+        effectsTuning
       );
     } else {
       const Vec3 visualStart = revolverMuzzleSource(
@@ -1305,7 +1314,6 @@ void consumeTracerWeaponFires(
         eventPlayer
       );
     }
-    store.remember(eventPlayer, fire.weapon, fire.visualSeed);
   }
 }
 
@@ -1322,6 +1330,8 @@ void consumeTracerWeaponFires(
 
 void spawnExplosionEffects(
   TransientTracerStore& store,
+  CombatEffects& combatEffects,
+  const CombatEffectsTuning& effectsTuning,
   const RocketExplosionResult& explosion
 ) {
   if (
@@ -1344,13 +1354,48 @@ void spawnExplosionEffects(
     store.addEffect({TransientEffectType::GrenadeExplosionCore, explosion.position, 0.0F, 0.20F, radius * 0.25F, radius * 1.05F, {255, 178, 66, 190}, seed + 1U});
     return;
   }
-  store.addEffect({TransientEffectType::RocketExplosionFlash, explosion.position, 0.0F, 0.05F, radius * 0.28F, radius * 0.68F, {255, 228, 132, 230}, seed});
-  store.addEffect({TransientEffectType::RocketExplosionCore, explosion.position, 0.0F, 0.18F, radius * 0.26F, radius * 1.08F, {255, 112, 44, 200}, seed + 1U});
-  store.addEffect({TransientEffectType::RocketExplosionHalo, explosion.position, 0.0F, 0.12F, radius * 0.70F, radius * 1.45F, {255, 72, 28, 82}, seed + 2U});
+  store.addEffect({
+    TransientEffectType::RocketExplosionFlash,
+    explosion.position,
+    0.0F,
+    0.040F,
+    radius * 0.18F,
+    radius * 0.46F,
+    {255, 239, 174, 238},
+    seed,
+  });
+  store.addEffect({
+    TransientEffectType::RocketExplosionCore,
+    explosion.position,
+    0.0F,
+    0.135F,
+    radius * 0.20F,
+    radius * 0.82F,
+    {246, 104, 62, 210},
+    seed + 1U,
+  });
+  if (effectsTuning.quality > 0) {
+    store.addEffect({
+      TransientEffectType::RocketExplosionHalo,
+      explosion.position,
+      0.0F,
+      0.080F,
+      radius * 0.62F,
+      radius * 1.12F,
+      {255, 140, 76, 58},
+      seed + 2U,
+    });
+  }
+  combatEffects.spawnRocketExplosion(
+    {explosion.position, radius, seed},
+    effectsTuning
+  );
 }
 
 void consumeExplosionEvents(
   TransientTracerStore& store,
+  CombatEffects& combatEffects,
+  const CombatEffectsTuning& effectsTuning,
   const std::array<RocketExplosionResult, kDuelPlayerCount>& explosions
 ) {
   for (std::size_t owner = 0; owner < explosions.size(); ++owner) {
@@ -1359,11 +1404,10 @@ void consumeExplosionEvents(
       continue;
     }
     const std::uint8_t eventOwner = static_cast<std::uint8_t>(owner);
-    if (store.consumedExplosion(eventOwner, explosion.sequence)) {
+    if (!store.acceptExplosion(eventOwner, explosion.sequence)) {
       continue;
     }
-    spawnExplosionEffects(store, explosion);
-    store.rememberExplosion(eventOwner, explosion.sequence);
+    spawnExplosionEffects(store, combatEffects, effectsTuning, explosion);
   }
 }
 
@@ -1586,6 +1630,8 @@ struct FrameTimeHistory {
   sample.activeCasings = renderDiagnostics.activeCasings;
   sample.activeImpactParticles = renderDiagnostics.activeImpactParticles;
   sample.activeBulletDecals = renderDiagnostics.activeBulletDecals;
+  sample.transparentEffectsSubmitted =
+    renderDiagnostics.transparentEffectsSubmitted;
   sample.newExplosionEventsConsumed = renderDiagnostics.newExplosionEventsConsumed;
   sample.tracerCandidates = renderDiagnostics.tracerCandidates;
   sample.tracerFrustumCulled = renderDiagnostics.tracerFrustumCulled;
@@ -1642,11 +1688,12 @@ void appendPerfHudLines(
   std::snprintf(
     text,
     sizeof(text),
-    "combat effects: lights %u | casings %u | particles %u | decals %u",
+    "combat effects: lights %u | casings %u | particles %u | decals %u | transparent %u",
     latest.activeTemporaryLights,
     latest.activeCasings,
     latest.activeImpactParticles,
-    latest.activeBulletDecals
+    latest.activeBulletDecals,
+    latest.transparentEffectsSubmitted
   );
   hud.topLeftLines.emplace_back(text);
 
@@ -4550,6 +4597,7 @@ int GameApp::run() const {
       WaitingForClientTick,
       WaitingForSnapshotTick,
       WaitingForCommandAck,
+      WaitingForPhaseCapture,
       PlayerInput,
       WaitingForInputAck,
       CaptureReady,
@@ -4596,6 +4644,17 @@ int GameApp::run() const {
     bool benchmarkBotsConfigured = false;
   };
   std::optional<ActiveControlOperation> activeControlOperation;
+  struct ArmedPhaseCapture {
+    std::string name;
+    std::string phase;
+    bool hideHud = true;
+    bool hideOverlays = true;
+    std::filesystem::path path;
+    std::optional<dev::JsonValue> result;
+    std::string error;
+    std::chrono::steady_clock::time_point deadline = {};
+  };
+  std::optional<ArmedPhaseCapture> armedPhaseCapture;
   std::array<std::uint64_t, kNetworkTelemetryHistorySamples>
     netGraphCorrectionSerials = {};
   std::array<float, kNetworkTelemetryHistorySamples>
@@ -6056,6 +6115,8 @@ int GameApp::run() const {
       dev::JsonValue::numberValue(render.activeImpactParticles);
     renderState.object["active_decals_submitted"] =
       dev::JsonValue::numberValue(render.activeBulletDecals);
+    renderState.object["transparent_effects_submitted"] =
+      dev::JsonValue::numberValue(render.transparentEffectsSubmitted);
     state.object["render_frame"] = std::move(renderState);
     return state;
   };
@@ -6417,6 +6478,58 @@ int GameApp::run() const {
         active.stage = ActiveControlOperation::Stage::WaitingForCameraFrame;
         break;
       }
+      case dev::ControlOperation::ArmPhaseCapture: {
+        if (currentMapName().empty() || !session.connected() ||
+            session.game() == nullptr || !session.game()->hasSnapshot()) {
+          completeControlError(
+            "not_ready",
+            "phase capture requires an active connected map"
+          );
+          break;
+        }
+        if (armedPhaseCapture.has_value()) {
+          completeControlError(
+            "capture_already_armed",
+            "collect the existing phase capture before arming another"
+          );
+          break;
+        }
+        armedPhaseCapture = ArmedPhaseCapture{
+          request.captureName,
+          request.capturePhase,
+          request.hideHud,
+          request.hideOverlays,
+          captureDirectory / (request.captureName + ".png"),
+          std::nullopt,
+          {},
+          Clock::now() + std::chrono::seconds(30),
+        };
+        dev::JsonValue result = dev::JsonValue::objectValue();
+        result.object["name"] =
+          dev::JsonValue::stringValue(request.captureName);
+        result.object["phase"] =
+          dev::JsonValue::stringValue(request.capturePhase);
+        result.object["armed"] = dev::JsonValue::booleanValue(true);
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(request.id, std::move(result))
+        );
+        activeControlOperation.reset();
+        break;
+      }
+      case dev::ControlOperation::CollectPhaseCapture: {
+        if (!armedPhaseCapture.has_value() ||
+            armedPhaseCapture->name != request.captureName) {
+          completeControlError(
+            "capture_not_armed",
+            "no phase capture is armed with that name"
+          );
+          break;
+        }
+        active.stage = ActiveControlOperation::Stage::WaitingForPhaseCapture;
+        active.deadline = armedPhaseCapture->deadline;
+        break;
+      }
       case dev::ControlOperation::RunBenchmark: {
         if (!benchmark_.enabled) {
           completeControlError("benchmark_disabled", "run_benchmark requires the explicit --benchmark client option");
@@ -6669,6 +6782,10 @@ int GameApp::run() const {
           sample.visiblePlayers = render.visibleRemotePlayers;
           sample.projectileCount = render.projectilesRendered;
           sample.effectCount = render.activeTransientEffects;
+          sample.lightCount = render.activeTemporaryLights;
+          sample.particleCount = render.activeImpactParticles;
+          sample.transparentEffectCount =
+            render.transparentEffectsSubmitted;
           sample.instanceUploadBytes = render.projectileInstanceUploadBytes +
             render.tracerInstanceUploadBytes + render.explosionInstanceUploadBytes +
             render.remoteWeaponInstanceUploadBytes;
@@ -6849,6 +6966,36 @@ int GameApp::run() const {
           "command_ack_timeout",
           "server did not acknowledge the requested command within 30 seconds"
         );
+      }
+    }
+    if (armedPhaseCapture.has_value() &&
+        !armedPhaseCapture->result.has_value() &&
+        armedPhaseCapture->error.empty() &&
+        Clock::now() > armedPhaseCapture->deadline) {
+      armedPhaseCapture->error =
+        "the named renderer phase did not occur within 30 seconds";
+    }
+    if (activeControlOperation.has_value() &&
+        activeControlOperation->stage ==
+          ActiveControlOperation::Stage::WaitingForPhaseCapture) {
+      ActiveControlOperation& active = *activeControlOperation;
+      if (!armedPhaseCapture.has_value()) {
+        completeControlError(
+          "capture_not_armed",
+          "the armed phase capture no longer exists"
+        );
+      } else if (!armedPhaseCapture->error.empty()) {
+        const std::string captureError = armedPhaseCapture->error;
+        armedPhaseCapture.reset();
+        completeControlError("phase_capture_failed", captureError);
+      } else if (armedPhaseCapture->result.has_value()) {
+        dev::JsonValue result = std::move(*armedPhaseCapture->result);
+        armedPhaseCapture.reset();
+        developerControl.complete(
+          active.queued.token,
+          dev::successResponse(active.queued.request.id, std::move(result))
+        );
+        activeControlOperation.reset();
       }
     }
     const bool benchmarkFrameTimingEnabled =
@@ -9885,7 +10032,19 @@ int GameApp::run() const {
       attachmentFire.start = renderPlayer.position;
       combatEffects.setMuzzleAttachment(
         static_cast<std::uint8_t>(playerIndex),
+        MuzzleAttachment::MachineGun,
         machineGunTracerSource(
+          attachmentFire,
+          renderPlayer,
+          renderRemotePlayers,
+          playerIndex,
+          currentRenderSettings
+        )
+      );
+      combatEffects.setMuzzleAttachment(
+        static_cast<std::uint8_t>(playerIndex),
+        MuzzleAttachment::RocketLauncher,
+        rocketLauncherMuzzleSource(
           attachmentFire,
           renderPlayer,
           renderRemotePlayers,
@@ -9909,7 +10068,12 @@ int GameApp::run() const {
       impactSurfaceMaterials,
       ownsPresentedSubject
     );
-    consumeExplosionEvents(transientTracerStore, renderRocketExplosions);
+    consumeExplosionEvents(
+      transientTracerStore,
+      combatEffects,
+      frameEffectsTuning,
+      renderRocketExplosions
+    );
     transientTracerStore.fillActive(
       activeTransientTracers,
       renderPlayer,
@@ -9964,9 +10128,40 @@ int GameApp::run() const {
     hud.chatScrollRows = chatState.scrollRows;
     std::optional<FrameCaptureRequest> frameCaptureRequest;
     FrameCaptureResult frameCaptureResult;
+    dev::JsonValue captureFrameState;
     bool captureHideHud = false;
     bool captureHideOverlays = false;
-    if (activeControlOperation.has_value() &&
+    bool phaseFrameCapture = false;
+    if (armedPhaseCapture.has_value() &&
+        !armedPhaseCapture->result.has_value() &&
+        armedPhaseCapture->error.empty()) {
+      const WeaponFireResult& localFire =
+        renderWeaponFires[renderLocalPlayerIndex];
+      if (
+        (
+          armedPhaseCapture->phase == "local_rocket_launcher_muzzle" &&
+          localFire.fired &&
+          localFire.weapon == Weapon::RocketLauncher
+        ) ||
+        (
+          armedPhaseCapture->phase == "local_rocket_launcher_impact" &&
+          renderRocketExplosions[renderLocalPlayerIndex].active &&
+          renderRocketExplosions[renderLocalPlayerIndex].weapon ==
+            Weapon::RocketLauncher
+        )
+      ) {
+        captureHideHud = armedPhaseCapture->hideHud;
+        captureHideOverlays = armedPhaseCapture->hideOverlays;
+        frameCaptureRequest = FrameCaptureRequest{
+          armedPhaseCapture->path.string(),
+          captureHideHud,
+          captureHideOverlays,
+        };
+        phaseFrameCapture = true;
+      }
+    }
+    if (!frameCaptureRequest.has_value() &&
+        activeControlOperation.has_value() &&
         (activeControlOperation->stage == ActiveControlOperation::Stage::CaptureReady ||
          activeControlOperation->stage == ActiveControlOperation::Stage::BenchmarkCaptureReady)) {
       ActiveControlOperation& active = *activeControlOperation;
@@ -10007,6 +10202,67 @@ int GameApp::run() const {
         captureHideOverlays,
       };
       }
+    }
+    if (frameCaptureRequest.has_value()) {
+      // Bind phase evidence to the inputs of this exact render. GPU readback
+      // may block long enough for later server snapshots to arrive, so a
+      // control query made after capture cannot attest the saved PNG.
+      captureFrameState = dev::JsonValue::objectValue();
+      captureFrameState.object["rendered_frame_serial"] =
+        dev::JsonValue::numberValue(
+          static_cast<double>(renderedFrameSerial + 1U)
+        );
+      captureFrameState.object["local_player_index"] =
+        dev::JsonValue::numberValue(renderLocalPlayerIndex);
+      const ClientGame* captureGame = session.game();
+      const bool captureHasSnapshot =
+        captureGame != nullptr && captureGame->hasSnapshot();
+      captureFrameState.object["latest_snapshot_tick"] = captureHasSnapshot
+        ? dev::JsonValue::numberValue(captureGame->snapshot().serverTick)
+        : dev::JsonValue{};
+      captureFrameState.object["presentation_tick"] = captureHasSnapshot
+        ? dev::JsonValue::numberValue(
+            captureGame->interpolationDiagnostics().presentationTick
+          )
+        : dev::JsonValue{};
+
+      const WeaponFireResult& localFire =
+        renderWeaponFires[renderLocalPlayerIndex];
+      captureFrameState.object["local_rocket_launcher_fired"] =
+        dev::JsonValue::booleanValue(
+          localFire.fired && localFire.weapon == Weapon::RocketLauncher
+        );
+      std::uint32_t localRocketProjectiles = 0;
+      std::uint32_t totalRocketProjectiles = 0;
+      for (const RocketProjectileSnapshot& rocket : renderRockets) {
+        if (!rocket.active || rocket.weapon != Weapon::RocketLauncher) {
+          continue;
+        }
+        ++totalRocketProjectiles;
+        if (rocket.owner == renderLocalPlayerIndex) {
+          ++localRocketProjectiles;
+        }
+      }
+      std::uint32_t localRocketExplosions = 0;
+      std::uint32_t totalRocketExplosions = 0;
+      for (std::size_t owner = 0; owner < renderRocketExplosions.size(); ++owner) {
+        const RocketExplosionResult& explosion = renderRocketExplosions[owner];
+        if (!explosion.active || explosion.weapon != Weapon::RocketLauncher) {
+          continue;
+        }
+        ++totalRocketExplosions;
+        if (owner == renderLocalPlayerIndex) {
+          ++localRocketExplosions;
+        }
+      }
+      captureFrameState.object["local_rocket_launcher_projectiles"] =
+        dev::JsonValue::numberValue(localRocketProjectiles);
+      captureFrameState.object["total_rocket_launcher_projectiles"] =
+        dev::JsonValue::numberValue(totalRocketProjectiles);
+      captureFrameState.object["local_rocket_launcher_explosions"] =
+        dev::JsonValue::numberValue(localRocketExplosions);
+      captureFrameState.object["total_rocket_launcher_explosions"] =
+        dev::JsonValue::numberValue(totalRocketExplosions);
     }
     ConsoleRenderState renderedConsole = consoleRenderState(consoleState);
     renderedConsole.showCat = console.getBool("cl_show_console_cat");
@@ -10053,15 +10309,27 @@ int GameApp::run() const {
       frameCaptureRequest.has_value() ? &frameCaptureResult : nullptr
     );
     ++renderedFrameSerial;
-    if (frameCaptureRequest.has_value() && activeControlOperation.has_value()) {
-      ActiveControlOperation& active = *activeControlOperation;
-      const dev::ControlRequest& request = active.queued.request;
+    if (frameCaptureRequest.has_value() &&
+        (phaseFrameCapture || activeControlOperation.has_value())) {
+      const RendererFrameDiagnostics& captureRender =
+        renderer.lastFrameDiagnostics();
+      captureFrameState.object["renderer_rocket_instances"] =
+        dev::JsonValue::numberValue(captureRender.rocketInstances);
+      captureFrameState.object["renderer_tracer_instances"] =
+        dev::JsonValue::numberValue(captureRender.tracerInstancesSubmitted);
+      captureFrameState.object["renderer_explosion_instances"] =
+        dev::JsonValue::numberValue(
+          captureRender.explosionInstancesSubmitted
+        );
+      const std::filesystem::path& completedCapturePath = phaseFrameCapture
+        ? armedPhaseCapture->path
+        : activeControlOperation->pendingCapturePath;
       dev::JsonValue capture = dev::JsonValue::objectValue();
       capture.object["ok"] = dev::JsonValue::booleanValue(frameCaptureResult.ok);
       capture.object["path"] =
-        dev::JsonValue::stringValue(active.pendingCapturePath.string());
+        dev::JsonValue::stringValue(completedCapturePath.string());
       capture.object["relative_path"] = dev::JsonValue::stringValue(
-        captureRelativePath(active.pendingCapturePath)
+        captureRelativePath(completedCapturePath)
       );
       capture.object["width"] = dev::JsonValue::numberValue(frameCaptureResult.width);
       capture.object["height"] = dev::JsonValue::numberValue(frameCaptureResult.height);
@@ -10074,11 +10342,21 @@ int GameApp::run() const {
       capture.object["camera"] = dev::cameraJson(currentControlCamera());
       capture.object["timestamp_ms"] =
         dev::JsonValue::numberValue(static_cast<double>(timestampMilliseconds()));
+      capture.object["frame_state"] = std::move(captureFrameState);
       if (!frameCaptureResult.ok) {
         capture.object["error"] = dev::JsonValue::stringValue(frameCaptureResult.error);
         lastControlError = frameCaptureResult.error;
       }
 
+      if (phaseFrameCapture) {
+        if (frameCaptureResult.ok) {
+          armedPhaseCapture->result = std::move(capture);
+        } else {
+          armedPhaseCapture->error = frameCaptureResult.error;
+        }
+      } else {
+      ActiveControlOperation& active = *activeControlOperation;
+      const dev::ControlRequest& request = active.queued.request;
       if (request.operation == dev::ControlOperation::RunBenchmark) {
         if (!frameCaptureResult.ok) {
           completeControlError("capture_failed", frameCaptureResult.error);
@@ -10165,6 +10443,7 @@ int GameApp::run() const {
             activeControlOperation.reset();
           }
         }
+      }
       }
     }
     if (activeControlOperation.has_value() &&
