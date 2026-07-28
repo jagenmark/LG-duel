@@ -99,7 +99,7 @@ int main() {
       profileValue(lg::kGraphicsProfiles[1], "r_bloom") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_bloom") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_draw_player_outlines") == "1" &&
-      profileValue(lg::kGraphicsProfiles[1], "r_player_outline_mode") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_player_outline_mode") == "2" &&
       profileValue(lg::kGraphicsProfiles[2], "r_draw_player_outlines") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_player_outline_mode") == "2",
     "profiles should map budgeted effects while keeping default and competitive readability"

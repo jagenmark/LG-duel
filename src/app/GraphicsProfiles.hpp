@@ -38,7 +38,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_render_scale", "1"}, {"r_texture_filter", "2"},
     {"r_texture_anisotropy", "8"}, {"r_texture_lod_bias", "0.5"},
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "0"},
-    {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "1"},
+    {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "2"},
     {"r_combat_effects", "2"}, {"r_tonemap_exposure", "1"},
     {"r_atmosphere_grade", "2"},
     {"r_bloom", "1"}, {"r_bloom_intensity", "0.18"},
