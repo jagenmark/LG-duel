@@ -11,6 +11,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace {
 
@@ -271,6 +272,406 @@ UvBounds texturedWallUvBounds(
 
 int main() {
   int failures = 0;
+  failures += expect(
+    lg::antiAliasingSampleCount(-1) == 1U &&
+      lg::antiAliasingSampleCount(0) == 1U &&
+      lg::antiAliasingSampleCount(1) == 2U &&
+      lg::antiAliasingSampleCount(2) == 4U &&
+      lg::antiAliasingSampleCount(99) == 4U,
+    "AA quality should map only to 1x, 2x, and 4x"
+  );
+  failures += expect(
+    lg::sunShadowMapSize(0) == 0U &&
+      lg::sunShadowMapSize(1) == 1024U &&
+      lg::sunShadowMapSize(2) == 2048U,
+    "sun shadow quality should map to off, 1024, and 2048"
+  );
+  constexpr lg::FragmentResourceLayout instancedColorLayout =
+    lg::instancedColorFragmentLayout();
+  failures += expect(
+    instancedColorLayout.samplers == 0U &&
+      instancedColorLayout.uniformBuffers == 1U,
+    "instanced color pipelines should declare their scene light uniform"
+  );
+  constexpr lg::FragmentResourceLayout sceneCompositeLayout =
+    lg::sceneCompositeFragmentLayout();
+  failures += expect(
+    sceneCompositeLayout.samplers == 3U &&
+      sceneCompositeLayout.uniformBuffers == 1U,
+    "scene composite should bind scene, bloom, and view-model depth"
+  );
+  constexpr lg::FragmentResourceLayout sceneCompositeNoBloomLayout =
+    lg::sceneCompositeNoBloomFragmentLayout();
+  failures += expect(
+    sceneCompositeNoBloomLayout.samplers == 1U &&
+      sceneCompositeNoBloomLayout.uniformBuffers == 1U,
+    "no-bloom composite should bind only the scene color"
+  );
+  constexpr std::array<lg::SimpleRenderBatch, 2> noBloomSources = {{
+    {
+      lg::MeshHandle::Invalid,
+      lg::BillboardHandle::ExplosionHalo,
+      lg::RenderPass::AdditiveGlow,
+      0U,
+      0U,
+    },
+    {
+      lg::MeshHandle::RocketProjectile,
+      lg::BillboardHandle::Invalid,
+      lg::RenderPass::OpaqueWorld,
+      0U,
+      1U,
+    },
+  }};
+  constexpr std::array<lg::SimpleRenderBatch, 1> bloomSources = {{
+    {
+      lg::MeshHandle::Invalid,
+      lg::BillboardHandle::ExplosionHalo,
+      lg::RenderPass::AdditiveGlow,
+      0U,
+      1U,
+    },
+  }};
+  failures += expect(
+    !lg::hasBloomSources(noBloomSources) &&
+      lg::hasBloomSources(bloomSources) &&
+      !lg::effectiveBloom(false, bloomSources) &&
+      !lg::effectiveBloom(true, noBloomSources) &&
+      lg::effectiveBloom(true, bloomSources),
+    "bloom should run only when requested and an additive batch has instances"
+  );
+  failures += expect(
+    lg::chooseSampledDepthFormat({true, true, true}) ==
+      lg::SampledDepthFormatChoice::D32 &&
+    lg::chooseSampledDepthFormat({false, true, true}) ==
+      lg::SampledDepthFormatChoice::D24 &&
+    lg::chooseSampledDepthFormat({false, false, true}) ==
+      lg::SampledDepthFormatChoice::D16 &&
+    lg::chooseSampledDepthFormat({false, false, false}) ==
+      lg::SampledDepthFormatChoice::None,
+    "depth format selection should require target and sampler support"
+  );
+  constexpr lg::AuxiliaryDepthPlan auxiliaryDepth =
+    lg::buildAuxiliaryDepthPlan(true, true);
+  failures += expect(
+    auxiliaryDepth.enabled &&
+      auxiliaryDepth.depthOnly &&
+      auxiliaryDepth.sampleCount == 1U &&
+      auxiliaryDepth.usesWorldCamera &&
+      auxiliaryDepth.includesWorld &&
+      auxiliaryDepth.includesStaticMeshes &&
+      auxiliaryDepth.includesMaterialMeshes &&
+      auxiliaryDepth.includesGltfPlayers &&
+      auxiliaryDepth.includesSimpleInstances &&
+      !lg::buildAuxiliaryDepthPlan(true, false).enabled,
+    "auxiliary depth should use all opaque world paths or disable safely"
+  );
+  constexpr lg::SunShadowPassPlan noShadowPass =
+    lg::buildSunShadowPassPlan(0U);
+  constexpr lg::SunShadowPassPlan fullShadowPass =
+    lg::buildSunShadowPassPlan(2048U);
+  failures += expect(
+    noShadowPass.textureSize == 1U &&
+      !noShadowPass.renderShadowPass &&
+      noShadowPass.useClearedFallback &&
+      fullShadowPass.textureSize == 2048U &&
+      fullShadowPass.renderShadowPass &&
+      !fullShadowPass.useClearedFallback,
+    "disabled shadows should use the cleared fallback without a frame pass"
+  );
+  failures += expect(
+    lg::classifyWorldMaterial("textures/metal/steel_plate").kind ==
+      lg::WorldMaterialKind::Metal &&
+    lg::classifyWorldMaterial("old_rusted_trim").kind ==
+      lg::WorldMaterialKind::OxidizedMetal &&
+    lg::classifyWorldMaterial("base_chain_grate").kind ==
+      lg::WorldMaterialKind::Chain &&
+    lg::classifyWorldMaterial("tech_machine_panel").kind ==
+      lg::WorldMaterialKind::Tech &&
+    lg::classifyWorldMaterial("castle/brick_wall").kind ==
+      lg::WorldMaterialKind::Masonry &&
+    lg::classifyWorldMaterial("wood/plank_floor").kind ==
+      lg::WorldMaterialKind::Wood &&
+    lg::classifyWorldMaterial("fx/amber_route_light").kind ==
+      lg::WorldMaterialKind::Energy &&
+    lg::classifyWorldMaterial("plain_unknown").kind ==
+      lg::WorldMaterialKind::Generic,
+    "world texture names should map to stable material traits"
+  );
+  const lg::WorldMaterialTraits metalTraits =
+    lg::classifyWorldMaterial("metal/steel");
+  const lg::WorldMaterialLightingPlan cheapMetal =
+    lg::worldMaterialLightingPlan(metalTraits, 0);
+  const lg::WorldMaterialLightingPlan mediumMetal =
+    lg::worldMaterialLightingPlan(metalTraits, 1);
+  const lg::WorldMaterialLightingPlan fullMetal =
+    lg::worldMaterialLightingPlan(metalTraits, 2);
+  const lg::WorldMaterialTraits energyTraits =
+    lg::classifyWorldMaterial("energy/teleport");
+  failures += expect(
+    cheapMetal.specularScale == 0.0F &&
+      mediumMetal.specularScale > 0.0F &&
+      mediumMetal.specularScale < fullMetal.specularScale &&
+      energyTraits.emissive > 0.0F &&
+      lg::worldMaterialLightingPlan(energyTraits, 0).emissiveScale ==
+        energyTraits.emissive,
+    "material quality should gate specular but keep readable emissive tags"
+  );
+  failures += expect(
+    lg::gltfShadowCasterPlan(3U, 5U, 0U).drawCalls == 0U &&
+      lg::gltfShadowCasterPlan(3U, 5U, 2048U).instances == 3U &&
+      lg::gltfShadowCasterPlan(3U, 5U, 2048U).drawCalls == 5U,
+    "skinned shadow plan should reuse body instances only when shadows run"
+  );
+  const lg::PostProcessPlan bloomPlan =
+    lg::buildPostProcessPlan(1921U, 1081U, true);
+  failures += expect(
+    bloomPlan.sceneWidth == 1921U &&
+      bloomPlan.sceneHeight == 1081U &&
+      bloomPlan.bloomWidth == 481U &&
+      bloomPlan.bloomHeight == 271U &&
+      bloomPlan.bloomPasses == 3U &&
+      bloomPlan.bloomDepthRebuildPasses == 1U &&
+      bloomPlan.bloomEnabled &&
+      bloomPlan.bloomUsesWorldCamera &&
+      bloomPlan.bloomMasksViewModel &&
+      bloomPlan.sceneCompositePasses == 1U,
+    "post process targets should keep scene size and round quarter bloom up"
+  );
+  const lg::PostProcessPlan noBloomPlan =
+    lg::buildPostProcessPlan(1280U, 720U, false);
+  failures += expect(
+    noBloomPlan.bloomWidth == 0U &&
+      noBloomPlan.bloomHeight == 0U &&
+      noBloomPlan.bloomPasses == 0U &&
+      noBloomPlan.bloomDepthRebuildPasses == 0U &&
+      !noBloomPlan.bloomEnabled &&
+      !noBloomPlan.bloomUsesWorldCamera &&
+      !noBloomPlan.bloomMasksViewModel &&
+      noBloomPlan.sceneCompositeOrder < noBloomPlan.outlineCompositeOrder &&
+      noBloomPlan.outlineCompositeOrder < noBloomPlan.hudOrder &&
+      bloomPlan.sceneCompositeOrder < bloomPlan.outlineCompositeOrder &&
+      bloomPlan.outlineCompositeOrder < bloomPlan.hudOrder,
+    "scene composite should run before outlines and HUD with bloom on or off"
+  );
+  constexpr lg::OutlineDepthPlan nativeSingleSampleOutline =
+    lg::buildOutlineDepthPlan(true, true);
+  constexpr lg::OutlineDepthPlan nativeMsaaOutline =
+    lg::buildOutlineDepthPlan(true, false);
+  constexpr lg::OutlineDepthPlan compatibilityOutline =
+    lg::buildOutlineDepthPlan(false, true);
+  failures += expect(
+    nativeSingleSampleOutline.reuseWorldDepth &&
+      !nativeSingleSampleOutline.rebuildDepth &&
+      nativeSingleSampleOutline.passCount == 4U &&
+      !nativeMsaaOutline.reuseWorldDepth &&
+      nativeMsaaOutline.rebuildDepth &&
+      nativeMsaaOutline.passCount == 6U &&
+      !compatibilityOutline.reuseWorldDepth &&
+      compatibilityOutline.rebuildDepth &&
+      compatibilityOutline.passCount == 6U,
+    "native MSAA outlines should rebuild one-sample depth"
+  );
+  const lg::DirectPresentInputs directInputs = {
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+  };
+  const lg::DirectPresentPlan directPlan =
+    lg::buildDirectPresentPlan(directInputs);
+  failures += expect(
+    directPlan.eligible &&
+      directPlan.fallback == lg::DirectPresentFallbackReason::None,
+    "direct present should accept only a fully safe frame"
+  );
+  const std::array rejectionCases = {
+    std::pair{
+      &lg::DirectPresentInputs::neutralGrade,
+      lg::DirectPresentFallbackReason::ColorGrade,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::unitExposure,
+      lg::DirectPresentFallbackReason::Exposure,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::singleSample,
+      lg::DirectPresentFallbackReason::AntiAliasing,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::bloomDisabled,
+      lg::DirectPresentFallbackReason::Bloom,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::sunShadowDisabled,
+      lg::DirectPresentFallbackReason::SunShadow,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::competitiveQuality,
+      lg::DirectPresentFallbackReason::QualityContract,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::outlineModeSupported,
+      lg::DirectPresentFallbackReason::OutlineMode,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::contactShadowsEmpty,
+      lg::DirectPresentFallbackReason::ContactShadows,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::translucentVerticesEmpty,
+      lg::DirectPresentFallbackReason::TranslucentVertices,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::translucentEffectsEmpty,
+      lg::DirectPresentFallbackReason::TranslucentEffects,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::simpleBatchesOpaque,
+      lg::DirectPresentFallbackReason::SimpleBatchPass,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::activeTexturesOpaque,
+      lg::DirectPresentFallbackReason::ActiveTextureAlpha,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::activeVerticesOpaque,
+      lg::DirectPresentFallbackReason::ActiveVertexAlpha,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::activeInstancesOpaque,
+      lg::DirectPresentFallbackReason::ActiveInstanceAlpha,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::playersOpaque,
+      lg::DirectPresentFallbackReason::PlayerAlpha,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::viewModelOpaque,
+      lg::DirectPresentFallbackReason::ViewModelAlpha,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::swapchainFormatSupported,
+      lg::DirectPresentFallbackReason::SwapchainFormat,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::pipelinesReady,
+      lg::DirectPresentFallbackReason::Pipelines,
+    },
+  };
+  for (const auto& [field, reason] : rejectionCases) {
+    lg::DirectPresentInputs unsafeInputs = directInputs;
+    unsafeInputs.*field = false;
+    const lg::DirectPresentPlan unsafePlan =
+      lg::buildDirectPresentPlan(unsafeInputs);
+    failures += expect(
+      !unsafePlan.eligible && unsafePlan.fallback == reason,
+      "direct present should reject each unsafe input"
+    );
+  }
+  constexpr float oneDisplayByte = 1.0F / 255.0F;
+  const auto neutralClearMatches = [](
+                                     float linear,
+                                     float direct) {
+    return std::fabs(
+      lg::directPresentDisplayChannel(linear) - direct
+    ) <= oneDisplayByte;
+  };
+  failures += expect(
+    nearlyEqual(lg::kDirectSdrClearColor.red, 0.047F) &&
+      nearlyEqual(lg::kDirectSdrClearColor.green, 0.055F) &&
+      nearlyEqual(lg::kDirectSdrClearColor.blue, 0.071F) &&
+      neutralClearMatches(
+        lg::kNeutralHdrSceneClearColor.red,
+        lg::kDirectSdrClearColor.red
+      ) &&
+      neutralClearMatches(
+        lg::kNeutralHdrSceneClearColor.green,
+        lg::kDirectSdrClearColor.green
+      ) &&
+      neutralClearMatches(
+        lg::kNeutralHdrSceneClearColor.blue,
+        lg::kDirectSdrClearColor.blue
+      ),
+    "direct SDR and neutral fallback clears should match within one display byte"
+  );
+  const lg::PerspectiveCamera shadowCamera = lg::makePerspectiveCamera(
+    {3.0F, 4.0F, 2.0F},
+    0.25F,
+    -0.1F,
+    90.0F,
+    16.0F / 9.0F
+  );
+  const lg::SunShadowProjection shadowProjection =
+    lg::buildSunShadowProjection(
+      shadowCamera,
+      {0.25F, -0.45F, -0.86F},
+      2
+    );
+  lg::PerspectiveCamera subTexelCamera = shadowCamera;
+  const float shadowTexel =
+    shadowProjection.halfExtent * 2.0F /
+    static_cast<float>(shadowProjection.mapSize);
+  subTexelCamera.position += shadowProjection.right * (shadowTexel * 0.2F);
+  const lg::SunShadowProjection subTexelProjection =
+    lg::buildSunShadowProjection(
+      subTexelCamera,
+      {0.25F, -0.45F, -0.86F},
+      2
+    );
+  failures += expect(
+    nearlyEqual(
+      lg::dot(shadowProjection.origin, shadowProjection.right),
+      lg::dot(subTexelProjection.origin, subTexelProjection.right),
+      0.0001F
+    ),
+    "sun shadow projection should stay fixed for sub-texel camera motion"
+  );
+  lg::Arena faceArena;
+  faceArena.renderDefaultFloor = false;
+  faceArena.wallCount = 1;
+  faceArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+  faceArena.walls[0].max = {2.0F, 2.0F, 1.0F};
+  const std::uint32_t faceMaterial = lg::arenaMaterialId("test/face");
+  faceArena.walls[0].materialId = faceMaterial;
+  const lg::Scene3D faceScene = lg::buildStaticWorldScene(faceArena);
+  const bool stableFaceData = std::all_of(
+    faceScene.vertices.begin(),
+    faceScene.vertices.end(),
+    [faceMaterial](const lg::Vertex3D& vertex) {
+      if (vertex.materialId != faceMaterial) {
+        return true;
+      }
+      return finiteVec3(vertex.normal) &&
+        lg::length(vertex.normal) > 0.99F &&
+        vertex.materialSlot == faceMaterial;
+    }
+  );
+  failures += expect(
+    std::any_of(
+      faceScene.vertices.begin(),
+      faceScene.vertices.end(),
+      [faceMaterial](const lg::Vertex3D& vertex) {
+        return vertex.materialId == faceMaterial;
+      }
+    ) && stableFaceData,
+    "static world faces should retain unit normals and material slots"
+  );
+
   lg::Arena arena;
   arena.wallCount = 0;
   lg::PlayerState player;
@@ -335,11 +736,40 @@ int main() {
       baseScene.remoteWeaponStats.legacyDynamicVertices == 0,
     "GLB render settings should build visible remote body, remote weapon instance, and screen-space outline mask input"
   );
+  lg::Arena sharedLightArena = arena;
+  sharedLightArena.sunLight.enabled = true;
+  sharedLightArena.sunLight.direction = {0.25F, -0.40F, -0.88F};
+  sharedLightArena.sunLight.color = {0.82F, 0.90F, 1.0F};
+  sharedLightArena.sunLight.intensity = 0.64F;
+  lg::RenderSettings sharedLightSettings = settings;
+  sharedLightSettings.materialQuality = 2;
+  const lg::Scene3D sharedLightScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, sharedLightArena, player, opponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets,
+    sharedLightSettings
+  );
+  failures += expect(
+    nearlyEqual(sharedLightScene.lights.sunIntensity, 0.64F) &&
+      nearlyEqual(sharedLightScene.lights.sunColor.x, 0.82F) &&
+      sharedLightScene.lights.fillIntensity > 0.0F &&
+      sharedLightScene.lights.materialQuality == 2,
+    "world, player, and weapon passes should share one scene light record"
+  );
   failures += expect(
     baseScene.contactShadowVertices.size() == 48U &&
       baseScene.contactShadowVertices.front().color.alpha > 0 &&
       baseScene.contactShadowVertices[1].color.alpha == 0,
     "a grounded visible remote player should emit one soft contact shadow"
+  );
+  lg::RenderSettings noContactShadowSettings = settings;
+  noContactShadowSettings.contactShadowsEnabled = false;
+  const lg::Scene3D noContactShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, noContactShadowSettings
+  );
+  failures += expect(
+    noContactShadowScene.contactShadowVertices.empty(),
+    "disabled contact shadows should not emit blob geometry"
   );
 
   lg::RenderSettings workerSettings = settings;
@@ -1048,18 +1478,21 @@ int main() {
     sunArena.sunLight.color = {1.0F, 1.0F, 1.0F};
     sunArena.sunLight.intensity = 0.7F;
     const lg::Scene3D sunScene = lg::buildStaticWorldScene(sunArena);
-    int topRed = 0;
-    int bottomRed = 0;
-    for (const lg::Vertex3D& vertex : sunScene.vertices) {
-      if (vertex.materialId == topMaterial) {
-        topRed = std::max(topRed, static_cast<int>(vertex.color.red));
-      } else if (vertex.materialId == bottomMaterial) {
-        bottomRed = std::max(bottomRed, static_cast<int>(vertex.color.red));
-      }
-    }
+    sunArena.sunLight.enabled = false;
+    const lg::Scene3D noSunScene = lg::buildStaticWorldScene(sunArena);
+    const bool sameBakedColors =
+      sunScene.vertices.size() == noSunScene.vertices.size() &&
+      std::equal(
+        sunScene.vertices.begin(),
+        sunScene.vertices.end(),
+        noSunScene.vertices.begin(),
+        [](const lg::Vertex3D& lhs, const lg::Vertex3D& rhs) {
+          return sameColor(lhs.color, rhs.color);
+        }
+      );
     failures += expect(
-      topRed > bottomRed + 80,
-      "downward sun should make upward-facing floor brighter"
+      sameBakedColors,
+      "sun should not enter the CPU world light bake"
     );
   }
 
@@ -1077,18 +1510,22 @@ int main() {
     sunArena.sunLight.color = {1.0F, 1.0F, 1.0F};
     sunArena.sunLight.intensity = 0.8F;
     const lg::Scene3D sunScene = lg::buildStaticWorldScene(sunArena);
-    int facingRed = 0;
-    int awayRed = 0;
-    for (const lg::Vertex3D& vertex : sunScene.vertices) {
-      if (vertex.materialId == facingMaterial) {
-        facingRed = std::max(facingRed, static_cast<int>(vertex.color.red));
-      } else if (vertex.materialId == awayMaterial) {
-        awayRed = std::max(awayRed, static_cast<int>(vertex.color.red));
-      }
-    }
+    sunArena.sunLight.direction = {-1.0F, 0.0F, 0.0F};
+    const lg::Scene3D reversedSunScene =
+      lg::buildStaticWorldScene(sunArena);
+    const bool sameBakedColors =
+      sunScene.vertices.size() == reversedSunScene.vertices.size() &&
+      std::equal(
+        sunScene.vertices.begin(),
+        sunScene.vertices.end(),
+        reversedSunScene.vertices.begin(),
+        [](const lg::Vertex3D& lhs, const lg::Vertex3D& rhs) {
+          return sameColor(lhs.color, rhs.color);
+        }
+      );
     failures += expect(
-      facingRed > awayRed + 80,
-      "wall facing sun should receive more sun contribution than wall facing away"
+      sameBakedColors,
+      "sun direction should affect only fragment lighting"
     );
   }
 

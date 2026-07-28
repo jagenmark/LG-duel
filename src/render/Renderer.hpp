@@ -13,8 +13,10 @@
 #include "net/NetTransport.hpp"
 #include "sim/PlayerState.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <optional>
 #include <span>
@@ -256,6 +258,12 @@ struct RenderSettings {
   float bloomThreshold = 1.15F;
   float toneMapExposure = 1.0F;
   int atmosphereGradeQuality = 2;
+  // GPU-only quality controls. SDL_Renderer keeps its current output.
+  // AA: 0 = 1x, 1 = 2x, 2 = 4x. Sun shadows: 0 = off, 1/2 = 1024/2048.
+  int antiAliasingQuality = 0;
+  int sunShadowQuality = 0;
+  int materialQuality = 2;
+  int playerRimQuality = 2;
   bool casingsEnabled = true;
   float casingCountMultiplier = 1.0F;
   float casingLifetimeSeconds = 2.4F;
@@ -467,6 +475,282 @@ struct TransientEffect {
   std::uint8_t ownerIndex = 0;
 };
 
+struct PostProcessPlan {
+  std::uint32_t sceneWidth = 0;
+  std::uint32_t sceneHeight = 0;
+  std::uint32_t bloomWidth = 0;
+  std::uint32_t bloomHeight = 0;
+  std::uint32_t bloomPasses = 0;
+  std::uint32_t bloomDepthRebuildPasses = 0;
+  bool bloomEnabled = false;
+  bool bloomUsesWorldCamera = false;
+  bool bloomMasksViewModel = false;
+  std::uint32_t sceneCompositePasses = 0;
+  std::uint32_t sceneCompositeOrder = 0;
+  std::uint32_t outlineCompositeOrder = 0;
+  std::uint32_t hudOrder = 0;
+};
+
+struct OutlineDepthPlan {
+  bool reuseWorldDepth = false;
+  bool rebuildDepth = true;
+  std::uint32_t passCount = 6;
+};
+
+[[nodiscard]] constexpr OutlineDepthPlan buildOutlineDepthPlan(
+  bool nativeOutline,
+  bool singleSample
+) {
+  const bool reuseWorldDepth = nativeOutline && singleSample;
+  return {
+    reuseWorldDepth,
+    !reuseWorldDepth,
+    reuseWorldDepth ? 4U : 6U,
+  };
+}
+
+enum class DirectPresentFallbackReason : std::uint8_t {
+  None = 0,
+  ColorGrade,
+  Exposure,
+  AntiAliasing,
+  Bloom,
+  SunShadow,
+  QualityContract,
+  OutlineMode,
+  ContactShadows,
+  TranslucentVertices,
+  TranslucentEffects,
+  SimpleBatchPass,
+  ActiveTextureAlpha,
+  ActiveVertexAlpha,
+  ActiveInstanceAlpha,
+  PlayerAlpha,
+  ViewModelAlpha,
+  SwapchainFormat,
+  Pipelines,
+};
+
+struct DirectPresentInputs {
+  bool neutralGrade = false;
+  bool unitExposure = false;
+  bool singleSample = false;
+  bool bloomDisabled = false;
+  bool sunShadowDisabled = false;
+  bool competitiveQuality = false;
+  bool outlineModeSupported = false;
+  bool contactShadowsEmpty = false;
+  bool translucentVerticesEmpty = false;
+  bool translucentEffectsEmpty = false;
+  bool simpleBatchesOpaque = false;
+  bool activeTexturesOpaque = false;
+  bool activeVerticesOpaque = false;
+  bool activeInstancesOpaque = false;
+  bool playersOpaque = false;
+  bool viewModelOpaque = false;
+  bool swapchainFormatSupported = false;
+  bool pipelinesReady = false;
+};
+
+struct DirectPresentPlan {
+  bool eligible = false;
+  DirectPresentFallbackReason fallback =
+    DirectPresentFallbackReason::ColorGrade;
+};
+
+[[nodiscard]] constexpr DirectPresentPlan buildDirectPresentPlan(
+  const DirectPresentInputs& inputs
+) {
+  if (!inputs.neutralGrade) {
+    return {false, DirectPresentFallbackReason::ColorGrade};
+  }
+  if (!inputs.unitExposure) {
+    return {false, DirectPresentFallbackReason::Exposure};
+  }
+  if (!inputs.singleSample) {
+    return {false, DirectPresentFallbackReason::AntiAliasing};
+  }
+  if (!inputs.bloomDisabled) {
+    return {false, DirectPresentFallbackReason::Bloom};
+  }
+  if (!inputs.sunShadowDisabled) {
+    return {false, DirectPresentFallbackReason::SunShadow};
+  }
+  if (!inputs.competitiveQuality) {
+    return {false, DirectPresentFallbackReason::QualityContract};
+  }
+  if (!inputs.outlineModeSupported) {
+    return {false, DirectPresentFallbackReason::OutlineMode};
+  }
+  if (!inputs.contactShadowsEmpty) {
+    return {false, DirectPresentFallbackReason::ContactShadows};
+  }
+  if (!inputs.translucentVerticesEmpty) {
+    return {false, DirectPresentFallbackReason::TranslucentVertices};
+  }
+  if (!inputs.translucentEffectsEmpty) {
+    return {false, DirectPresentFallbackReason::TranslucentEffects};
+  }
+  if (!inputs.simpleBatchesOpaque) {
+    return {false, DirectPresentFallbackReason::SimpleBatchPass};
+  }
+  if (!inputs.activeTexturesOpaque) {
+    return {false, DirectPresentFallbackReason::ActiveTextureAlpha};
+  }
+  if (!inputs.activeVerticesOpaque) {
+    return {false, DirectPresentFallbackReason::ActiveVertexAlpha};
+  }
+  if (!inputs.activeInstancesOpaque) {
+    return {false, DirectPresentFallbackReason::ActiveInstanceAlpha};
+  }
+  if (!inputs.playersOpaque) {
+    return {false, DirectPresentFallbackReason::PlayerAlpha};
+  }
+  if (!inputs.viewModelOpaque) {
+    return {false, DirectPresentFallbackReason::ViewModelAlpha};
+  }
+  if (!inputs.swapchainFormatSupported) {
+    return {false, DirectPresentFallbackReason::SwapchainFormat};
+  }
+  if (!inputs.pipelinesReady) {
+    return {false, DirectPresentFallbackReason::Pipelines};
+  }
+  return {true, DirectPresentFallbackReason::None};
+}
+
+struct SceneClearColor {
+  float red = 0.0F;
+  float green = 0.0F;
+  float blue = 0.0F;
+};
+
+inline constexpr SceneClearColor kDirectSdrClearColor = {
+  0.047F,
+  0.055F,
+  0.071F,
+};
+
+inline constexpr SceneClearColor kNeutralHdrSceneClearColor = {
+  0.00421044F,
+  0.00553159F,
+  0.00842750F,
+};
+
+[[nodiscard]] inline float directPresentDisplayChannel(float linear) {
+  const float color = std::max(linear, 0.0F);
+  const float mapped = std::clamp(
+    (color * (2.51F * color + 0.03F)) /
+      (color * (2.43F * color + 0.59F) + 0.14F),
+    0.0F,
+    1.0F
+  );
+  return std::pow(mapped, 1.0F / 2.2F);
+}
+
+struct FragmentResourceLayout {
+  std::uint32_t samplers = 0;
+  std::uint32_t uniformBuffers = 0;
+};
+
+[[nodiscard]] constexpr FragmentResourceLayout
+instancedColorFragmentLayout() {
+  return {0U, 1U};
+}
+
+[[nodiscard]] constexpr FragmentResourceLayout
+sceneCompositeFragmentLayout() {
+  return {3U, 1U};
+}
+
+[[nodiscard]] constexpr FragmentResourceLayout
+sceneCompositeNoBloomFragmentLayout() {
+  return {1U, 1U};
+}
+
+enum class SampledDepthFormatChoice : std::uint8_t {
+  None = 0,
+  D32,
+  D24,
+  D16,
+};
+
+struct SampledDepthFormatSupport {
+  bool d32 = false;
+  bool d24 = false;
+  bool d16 = false;
+};
+
+[[nodiscard]] constexpr SampledDepthFormatChoice chooseSampledDepthFormat(
+  SampledDepthFormatSupport support
+) {
+  return support.d32
+    ? SampledDepthFormatChoice::D32
+    : support.d24
+      ? SampledDepthFormatChoice::D24
+      : support.d16
+        ? SampledDepthFormatChoice::D16
+        : SampledDepthFormatChoice::None;
+}
+
+struct AuxiliaryDepthPlan {
+  bool enabled = false;
+  bool depthOnly = true;
+  std::uint32_t sampleCount = 1;
+  bool usesWorldCamera = true;
+  bool includesWorld = true;
+  bool includesStaticMeshes = true;
+  bool includesMaterialMeshes = true;
+  bool includesGltfPlayers = true;
+  bool includesSimpleInstances = true;
+};
+
+struct SunShadowPassPlan {
+  std::uint32_t textureSize = 1;
+  bool renderShadowPass = false;
+  bool useClearedFallback = true;
+};
+
+[[nodiscard]] constexpr SunShadowPassPlan buildSunShadowPassPlan(
+  std::uint32_t mapSize
+) {
+  return {
+    std::max(1U, mapSize),
+    mapSize > 0U,
+    mapSize == 0U,
+  };
+}
+
+[[nodiscard]] constexpr AuxiliaryDepthPlan buildAuxiliaryDepthPlan(
+  bool requested,
+  bool pipelinesReady
+) {
+  AuxiliaryDepthPlan plan;
+  plan.enabled = requested && pipelinesReady;
+  return plan;
+}
+
+[[nodiscard]] constexpr PostProcessPlan buildPostProcessPlan(
+  std::uint32_t outputWidth,
+  std::uint32_t outputHeight,
+  bool bloomEnabled
+) {
+  return {
+    outputWidth,
+    outputHeight,
+    bloomEnabled ? std::max(1U, (outputWidth + 3U) / 4U) : 0U,
+    bloomEnabled ? std::max(1U, (outputHeight + 3U) / 4U) : 0U,
+    bloomEnabled ? 3U : 0U,
+    bloomEnabled ? 1U : 0U,
+    bloomEnabled,
+    bloomEnabled,
+    bloomEnabled,
+    1U,
+    bloomEnabled ? 6U : 3U,
+    bloomEnabled ? 7U : 4U,
+    bloomEnabled ? 8U : 5U,
+  };
+}
+
 struct RendererFrameDiagnostics {
   float swapchainAcquireMilliseconds = 0.0F;
   // Coarse CPU-side frame stages; GPU execution is not included.
@@ -529,6 +813,19 @@ struct RendererFrameDiagnostics {
   std::uint32_t outlinePasses = 0;
   bool outlineCompositeEnabled = false;
   bool geometryOutlineFallbackUsed = false;
+  std::uint32_t sceneColorWidth = 0;
+  std::uint32_t sceneColorHeight = 0;
+  std::uint32_t sceneColorFormat = 0;
+  std::uint32_t sceneCompositePasses = 0;
+  std::uint32_t bloomWidth = 0;
+  std::uint32_t bloomHeight = 0;
+  std::uint32_t bloomPasses = 0;
+  bool sceneCompositeEnabled = false;
+  bool bloomEnabled = false;
+  bool directPresentEligible = false;
+  bool directPresentUsed = false;
+  std::string directPresentFallbackReason;
+  std::string directPresentFormat;
   std::uint32_t visibleRemotePlayers = 0;
   std::uint32_t remoteBodyModelsBuilt = 0;
   std::uint32_t remoteWeaponModelsBuilt = 0;
@@ -564,6 +861,8 @@ struct RendererFrameDiagnostics {
   std::uint32_t gltfGpuSkinnedInstances = 0;
   std::uint32_t gltfBodyBatches = 0;
   std::uint32_t gltfBodyDrawCalls = 0;
+  std::uint32_t gltfShadowCasterInstances = 0;
+  std::uint32_t gltfShadowCasterDrawCalls = 0;
   std::uint32_t gltfOutlineMaskBatches = 0;
   std::uint32_t gltfOutlineMaskDrawCalls = 0;
   std::uint32_t legacyCpuSkinnedGltfVertexUploadBytes = 0;
@@ -607,6 +906,7 @@ struct RendererFrameDiagnostics {
   std::uint32_t activeCasings = 0;
   std::uint32_t activeImpactParticles = 0;
   std::uint32_t activeBulletDecals = 0;
+  std::uint32_t transparentEffectsSubmitted = 0;
   std::string_view selectedPresentModeName = "n/a";
 };
 
@@ -688,7 +988,14 @@ private:
   void* gpuPipelineInstancedMesh_ = nullptr;
   void* gpuPipelineStaticMesh_ = nullptr;
   void* gpuPipelineMaterialMesh_ = nullptr;
+  void* gpuPipelineStaticMeshViewModel_ = nullptr;
+  void* gpuPipelineMaterialMeshViewModel_ = nullptr;
   void* gpuPipelineGltfPlayerModel_ = nullptr;
+  void* gpuPipelineDepthWorld_ = nullptr;
+  void* gpuPipelineDepthInstanced_ = nullptr;
+  void* gpuPipelineDepthStatic_ = nullptr;
+  void* gpuPipelineDepthMaterial_ = nullptr;
+  void* gpuPipelineDepthGltf_ = nullptr;
   void* gpuPipelineInstancedGlow_ = nullptr;
   void* gpuPipelineOutlineClear_ = nullptr;
   void* gpuPipelineOutlineColorClear_ = nullptr;
@@ -699,6 +1006,20 @@ private:
   void* gpuPipelineOutlineComposite_ = nullptr;
   void* gpuPipelineOutlineNativeDilation_ = nullptr;
   void* gpuPipelineOutlineNativeComposite_ = nullptr;
+  void* gpuPipelineSunShadowWorld_ = nullptr;
+  void* gpuPipelineSunShadowStatic_ = nullptr;
+  void* gpuPipelineSunShadowMaterial_ = nullptr;
+  void* gpuPipelineSunShadowGltf_ = nullptr;
+  void* gpuPipelineBloomSource_ = nullptr;
+  void* gpuPipelineBloomBlur_ = nullptr;
+  void* gpuPipelineSceneComposite_ = nullptr;
+  void* gpuPipelineSceneCompositeNoBloom_ = nullptr;
+  void* gpuPipelineDirectWorldSurface_ = nullptr;
+  void* gpuPipelineDirectWorld_ = nullptr;
+  void* gpuPipelineDirectInstancedMesh_ = nullptr;
+  void* gpuPipelineDirectStaticMesh_ = nullptr;
+  void* gpuPipelineDirectMaterialMesh_ = nullptr;
+  void* gpuPipelineDirectGltfPlayer_ = nullptr;
   void* gpuVertexBuffer_ = nullptr;
   void* gpuTransferBuffer_ = nullptr;
   void* gpuSimpleResources_ = nullptr;
@@ -709,19 +1030,42 @@ private:
   void* gpuStaticWorld_ = nullptr;
   void* gpuVertexScratch_ = nullptr;
   void* gpuDepthTexture_ = nullptr;
+  void* gpuViewModelDepthTexture_ = nullptr;
+  void* gpuMsaaColorTexture_ = nullptr;
+  void* gpuSceneColorTexture_ = nullptr;
+  void* gpuBloomTextureA_ = nullptr;
+  void* gpuBloomTextureB_ = nullptr;
+  void* gpuBloomDepthTexture_ = nullptr;
+  void* gpuPostProcessSampler_ = nullptr;
   void* gpuOutlineMaskTexture_ = nullptr;
   void* gpuOutlineDilationTexture_ = nullptr;
   void* gpuOutlineDepthTexture_ = nullptr;
   void* gpuOutlineMaskSampler_ = nullptr;
+  void* gpuSunShadowTexture_ = nullptr;
+  void* gpuSunShadowFallbackTexture_ = nullptr;
+  void* gpuSunShadowSampler_ = nullptr;
   std::uint32_t gpuDepthFormat_ = 0;
   std::uint32_t gpuDepthWidth_ = 0;
   std::uint32_t gpuDepthHeight_ = 0;
+  std::uint32_t gpuViewModelDepthWidth_ = 0;
+  std::uint32_t gpuViewModelDepthHeight_ = 0;
+  std::uint32_t gpuMsaaColorWidth_ = 0;
+  std::uint32_t gpuMsaaColorHeight_ = 0;
+  std::uint32_t gpuSceneColorWidth_ = 0;
+  std::uint32_t gpuSceneColorHeight_ = 0;
+  std::uint32_t gpuBloomWidth_ = 0;
+  std::uint32_t gpuBloomHeight_ = 0;
+  std::uint32_t gpuBloomDepthWidth_ = 0;
+  std::uint32_t gpuBloomDepthHeight_ = 0;
+  std::uint32_t gpuSceneColorFormat_ = 0;
+  std::uint32_t gpuSampleCount_ = 1;
   std::uint32_t gpuOutlineMaskWidth_ = 0;
   std::uint32_t gpuOutlineMaskHeight_ = 0;
   std::uint32_t gpuOutlineDilationWidth_ = 0;
   std::uint32_t gpuOutlineDilationHeight_ = 0;
   std::uint32_t gpuOutlineDepthWidth_ = 0;
   std::uint32_t gpuOutlineDepthHeight_ = 0;
+  std::uint32_t gpuSunShadowSize_ = 0;
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
   std::string requestedBackendName_ = "fallback";

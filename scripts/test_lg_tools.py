@@ -225,21 +225,200 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("set LG_DUEL_RENDER_BACKEND=gpu", launcher)
         self.assertNotIn("build\\default\\lg_duel_client.exe 127.0.0.1", launcher)
 
-    def test_static_world_keeps_pre_global_scene_curve_and_combat_lights(self) -> None:
+    def test_static_world_stays_linear_until_global_scene_curve(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader = (root / "assets" / "shaders" / "world_surface.frag").read_text(
             encoding="utf-8"
         )
+        composite = (
+            root / "assets" / "shaders" / "scene_composite.frag"
+        ).read_text(encoding="utf-8")
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
             encoding="utf-8"
         )
         self.assertIn("same single scene-to-display curve", shader)
-        self.assertIn("acesToneMap(", shader)
-        self.assertIn("combatLights.colorIntensity", shader)
-        self.assertIn("combatLights.parameters.z", shader)
-        self.assertIn("vec3(1.035, 1.015, 0.985)", shader)
+        self.assertNotIn("acesToneMap(", shader)
+        self.assertIn("acesToneMap(", composite)
+        self.assertIn("sceneLights.colorIntensity", shader)
+        self.assertIn("sceneLights.parameters.z", shader)
+        self.assertIn("sunShadowVisibility", shader)
         self.assertIn("hazeCap = atmosphereQuality == 1", shader)
-        self.assertIn('"world_surface.frag.spv",\n          1', renderer)
+        vertex_shader = (
+            root / "assets" / "shaders" / "world_surface.vert"
+        ).read_text(encoding="utf-8")
+        self.assertIn("pow(max(inColor.rgb, vec3(0.0)), vec3(2.2))", vertex_shader)
+        self.assertIn("max(vertexColor.rgb, vec3(0.00169355))", shader)
+        self.assertIn('"world_surface.frag.spv",\n    2', renderer)
+
+    def test_material_quality_zero_gates_fragment_light_loops(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        for shader_name in (
+            "world_surface.frag",
+            "world3d.frag",
+            "gltf_player_model.frag",
+            "material_weapon.frag",
+        ):
+            shader = (
+                root / "assets" / "shaders" / shader_name
+            ).read_text(encoding="utf-8")
+            quality_gate = shader.index("if (materialQuality > 0) {")
+            local_light_loop = shader.index(
+                "for (int index = 0; index <",
+                quality_gate,
+            )
+            self.assertLess(quality_gate, local_light_loop, shader_name)
+
+    def test_competitive_direct_shaders_compile_out_expensive_paths(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        shader_names = (
+            "world_surface_direct.frag",
+            "world3d_direct.frag",
+            "instanced_color_direct.frag",
+            "material_weapon_direct.frag",
+            "gltf_player_model_direct.frag",
+        )
+        shaders = {
+            name: (shader_dir / name).read_text(encoding="utf-8")
+            for name in shader_names
+        }
+        for name, shader in shaders.items():
+            self.assertIn("directDisplay", shader, name)
+            for excluded in (
+                "sampler2DShadow",
+                "positionRadius",
+                "shadowParameters",
+                "sunShadowVisibility",
+                "materialQuality",
+                "atmosphereQuality",
+                "haze",
+                "for (",
+            ):
+                self.assertNotIn(excluded, shader, name)
+
+        static_world = shaders["world_surface_direct.frag"]
+        self.assertIn("uniform sampler2D worldAtlas", static_world)
+        self.assertIn("uniform DirectSunData", static_world)
+        self.assertIn("uniform WorldMaterialData", static_world)
+        self.assertIn("vec3 bakedLight", static_world)
+        self.assertIn("directAlbedo * sunRadiance * sunNDotL", static_world)
+        self.assertIn("worldMaterial.traits.w", static_world)
+
+        dynamic_world = shaders["world3d_direct.frag"]
+        self.assertIn("uniform sampler2D worldAtlas", dynamic_world)
+        self.assertNotIn("layout(set = 3", dynamic_world)
+
+        instanced = shaders["instanced_color_direct.frag"]
+        self.assertNotIn("uniform", instanced)
+        self.assertNotIn("sampler", instanced)
+
+        for name in (
+            "material_weapon_direct.frag",
+            "gltf_player_model_direct.frag",
+        ):
+            self.assertIn("uniform DirectLightData", shaders[name])
+            self.assertNotIn("sampler", shaders[name])
+        self.assertIn("teamTint", shaders["gltf_player_model_direct.frag"])
+        self.assertIn("float rim = pow", shaders["gltf_player_model_direct.frag"])
+
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        for shader_name in shader_names:
+            self.assertIn(f'"{shader_name}.spv"', renderer)
+        self.assertIn('"world_surface.vert.spv"', renderer)
+        self.assertIn("DirectPresentFallbackReason::QualityContract", renderer)
+        self.assertIn("bool enableColorBlend = true", renderer)
+        self.assertIn(
+            '"world3d_direct.frag.spv",\n'
+            "    1,\n"
+            "    SDL_GPU_SAMPLECOUNT_1,\n"
+            "    swapchainFormat,\n"
+            "    0,\n"
+            "    false,\n"
+            '    "world3d.vert.spv",\n'
+            "    false\n"
+            "  );",
+            renderer,
+        )
+        self.assertIn(
+            '"world_surface_direct.frag.spv",\n'
+            "    1,\n"
+            "    SDL_GPU_SAMPLECOUNT_1,\n"
+            "    swapchainFormat,\n"
+            "    2,\n"
+            "    false,\n"
+            '    "world_surface.vert.spv",\n'
+            "    false\n"
+            "  );",
+            renderer,
+        )
+        self.assertIn(
+            "colorTarget.blend_state.enable_blend = enableColorBlend;",
+            renderer,
+        )
+
+        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+        for shader_name in shader_names:
+            self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
+        self.assertEqual(4, cmake.count("world_surface.vert.spv"))
+
+    def test_empty_overlay_skips_swapchain_render_pass(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        guard = (
+            "if (overlayVertexCount > 0U && !overlayBatches.empty()) {"
+        )
+        overlay_guard = renderer.index(guard)
+        overlay_pass = renderer.index(
+            "SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr)",
+            overlay_guard,
+        )
+        self.assertLess(overlay_guard, overlay_pass)
+
+    def test_direct_world_sun_matches_fallback_material_zero(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shaders = root / "assets" / "shaders"
+        direct = (shaders / "world_surface_direct.frag").read_text(
+            encoding="utf-8"
+        )
+        fallback = (shaders / "world_surface.frag").read_text(
+            encoding="utf-8"
+        )
+        parity_lines = (
+            "float bakedPeak = max(",
+            "vec3 authoredTint = clamp(vertexColor.rgb / bakedPeak, 0.0, 1.0);",
+            "vec3 directAlbedo = albedo * authoredTint;",
+            "sceneColor += directAlbedo * sunRadiance * sunNDotL",
+        )
+        for line in parity_lines:
+            self.assertIn(line, direct)
+            self.assertIn(line, fallback)
+        albedo = 0.5
+        baked_light = 0.25
+        authored_tint = baked_light / baked_light
+        expected = albedo * baked_light + albedo * authored_tint
+        self.assertAlmostEqual(0.625, expected)
+
+    def test_shadow_draw_skips_material_environment_binding(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        shadow_call = (
+            "drawStaticMeshBatches(\n"
+            "        shadowPass,\n"
+            "        sunShadowStaticPipeline,\n"
+            "        sunShadowMaterialPipeline,\n"
+            "        simpleResources,\n"
+            "        perspectiveScene,\n"
+            "        RenderPass::OpaqueWorld,\n"
+            "        false\n"
+            "      );"
+        )
+        self.assertIn(shadow_call, renderer)
 
     def test_f10_graphics_menu_covers_saved_visual_quality_controls(self) -> None:
         root = Path(__file__).resolve().parents[1]

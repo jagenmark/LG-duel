@@ -16,8 +16,10 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cctype>
 #include <cstdint>
 #include <iostream>
+#include <string>
 
 namespace lg {
 namespace {
@@ -34,7 +36,6 @@ constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
 constexpr float kStaticLightAmbient = 0.18F;
-constexpr float kSunWrapMinimum = 0.15F;
 constexpr float kStaticLightMax = 2.0F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
@@ -555,9 +556,12 @@ void addTriangle(
 ) {
   std::vector<Vertex3D>& vertices =
     color.alpha == 255 ? scene.vertices : scene.translucentVertices;
-  vertices.push_back({first, color});
-  vertices.push_back({second, color});
-  vertices.push_back({third, color});
+  const Vec3 edgeA = second - first;
+  const Vec3 edgeB = third - first;
+  const Vec3 faceNormal = normalize(cross(edgeA, edgeB));
+  vertices.push_back({first, color, 0.0F, 0.0F, 0U, faceNormal, 0U});
+  vertices.push_back({second, color, 0.0F, 0.0F, 0U, faceNormal, 0U});
+  vertices.push_back({third, color, 0.0F, 0.0F, 0U, faceNormal, 0U});
 }
 
 void addTexturedTriangle(
@@ -569,9 +573,16 @@ void addTexturedTriangle(
   std::array<RenderColor, 3> colors,
   std::uint32_t materialId
 ) {
-  scene.vertices.push_back({first, colors[0], uv[0][0], uv[0][1], materialId});
-  scene.vertices.push_back({second, colors[1], uv[1][0], uv[1][1], materialId});
-  scene.vertices.push_back({third, colors[2], uv[2][0], uv[2][1], materialId});
+  const Vec3 faceNormal = normalize(cross(second - first, third - first));
+  scene.vertices.push_back({
+    first, colors[0], uv[0][0], uv[0][1], materialId, faceNormal, materialId
+  });
+  scene.vertices.push_back({
+    second, colors[1], uv[1][0], uv[1][1], materialId, faceNormal, materialId
+  });
+  scene.vertices.push_back({
+    third, colors[2], uv[2][0], uv[2][1], materialId, faceNormal, materialId
+  });
 }
 
 void addQuad(
@@ -800,10 +811,6 @@ void addSphereApprox(
   Vec3 normal,
   RenderColor base
 ) {
-  if (arena.staticLightCount == 0 && !arena.sunLight.enabled) {
-    return base;
-  }
-
   Vec3 lightColor = {
     static_cast<float>(base.red) * kStaticLightAmbient,
     static_cast<float>(base.green) * kStaticLightAmbient,
@@ -823,17 +830,6 @@ void addSphereApprox(
     lightColor.x += static_cast<float>(base.red) * light.color.x * contribution;
     lightColor.y += static_cast<float>(base.green) * light.color.y * contribution;
     lightColor.z += static_cast<float>(base.blue) * light.color.z * contribution;
-  }
-  if (arena.sunLight.enabled) {
-    const ArenaSunLight& sun = arena.sunLight;
-    // Sun direction is the direction rays travel; negate it for the incoming
-    // light vector from the surface toward the sun.
-    const float sunFactor =
-      std::max(dot(normal, sun.direction * -1.0F), kSunWrapMinimum);
-    const float contribution = sun.intensity * sunFactor;
-    lightColor.x += static_cast<float>(base.red) * sun.color.x * contribution;
-    lightColor.y += static_cast<float>(base.green) * sun.color.y * contribution;
-    lightColor.z += static_cast<float>(base.blue) * sun.color.z * contribution;
   }
   const float maxChannel = 255.0F * kStaticLightMax;
   return {
@@ -2826,6 +2822,47 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 
 } // namespace
 
+SunShadowProjection buildSunShadowProjection(
+  const PerspectiveCamera& camera,
+  Vec3 sunDirection,
+  int quality
+) {
+  SunShadowProjection projection;
+  projection.mapSize = sunShadowMapSize(quality);
+  if (projection.mapSize == 0U) {
+    return projection;
+  }
+
+  projection.forward = length(sunDirection) > 0.0001F
+    ? normalize(sunDirection)
+    : Vec3{0.35F, 0.45F, -0.82F};
+  const Vec3 referenceUp =
+    std::fabs(projection.forward.z) > 0.95F
+      ? Vec3{0.0F, 1.0F, 0.0F}
+      : Vec3{0.0F, 0.0F, 1.0F};
+  projection.right = normalize(cross(referenceUp, projection.forward));
+  projection.up = normalize(cross(projection.forward, projection.right));
+  projection.halfExtent = quality == 1 ? 32.0F : 40.0F;
+  projection.nearPlane = 0.0F;
+  projection.farPlane = 96.0F;
+
+  Vec3 center = camera.position + camera.forward * 18.0F;
+  const float texelSize =
+    (projection.halfExtent * 2.0F) /
+    static_cast<float>(projection.mapSize);
+  const float rightCoordinate = dot(center, projection.right);
+  const float upCoordinate = dot(center, projection.up);
+  const float snappedRight =
+    std::round(rightCoordinate / texelSize) * texelSize;
+  const float snappedUp =
+    std::round(upCoordinate / texelSize) * texelSize;
+  center += projection.right * (snappedRight - rightCoordinate);
+  center += projection.up * (snappedUp - upCoordinate);
+  projection.origin =
+    center - projection.forward * (projection.farPlane * 0.5F);
+  return projection;
+}
+
 void appendCollisionDebugGeometry(
   Scene3D& scene,
   const Arena& arena,
@@ -4107,6 +4144,7 @@ void addTransientEffectInstances(
           {effect.position, scale},
         }
       );
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
       continue;
     }
     ++scene.transientVfxStats.activeExplosionEffects;
@@ -4127,6 +4165,9 @@ void addTransientEffectInstances(
         {effect.position, scale},
       }
     );
+    if (!coreMesh) {
+      ++scene.transientVfxStats.transparentEffectsSubmitted;
+    }
     ++scene.transientVfxStats.explosionInstancesSubmitted;
   }
 }
@@ -4327,6 +4368,13 @@ void finalizeGltfPlayerModelBatches(
     }
     ++primitiveCount;
   }
+  const GltfShadowCasterPlan shadowPlan = gltfShadowCasterPlan(
+    static_cast<std::uint32_t>(scene.gltfPlayerModelInstances.size()),
+    scene.gltfPlayerModelStats.bodyDrawCalls,
+    scene.lights.shadow.mapSize
+  );
+  scene.gltfPlayerModelStats.shadowCasterInstances = shadowPlan.instances;
+  scene.gltfPlayerModelStats.shadowCasterDrawCalls = shadowPlan.drawCalls;
 
   std::uint32_t runFirst = 0;
   std::uint32_t runCount = 0;
@@ -4565,6 +4613,56 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
 
 } // namespace
 
+WorldMaterialTraits classifyWorldMaterial(std::string_view materialPath) {
+  std::string path(materialPath);
+  std::transform(
+    path.begin(),
+    path.end(),
+    path.begin(),
+    [](unsigned char value) {
+      return static_cast<char>(std::tolower(value));
+    }
+  );
+  const auto containsAny = [&path](
+    std::initializer_list<std::string_view> words
+  ) {
+    return std::any_of(
+      words.begin(),
+      words.end(),
+      [&path](std::string_view word) {
+        return path.find(word) != std::string::npos;
+      }
+    );
+  };
+  if (containsAny({
+        "energy", "element", "teleport", "plasma", "light", "amber", "route",
+      })) {
+    return {WorldMaterialKind::Energy, 0.42F, 0.0F, 0.22F, 0.18F};
+  }
+  if (containsAny({"oxid", "rust", "corrode"})) {
+    return {WorldMaterialKind::OxidizedMetal, 0.72F, 0.42F, 0.28F, 0.0F};
+  }
+  if (containsAny({"chain", "grate", "mesh"})) {
+    return {WorldMaterialKind::Chain, 0.48F, 0.68F, 0.48F, 0.0F};
+  }
+  if (containsAny({"tech", "panel", "trim", "machine"})) {
+    return {WorldMaterialKind::Tech, 0.38F, 0.44F, 0.52F, 0.01F};
+  }
+  if (containsAny({"metal", "steel", "iron", "chrome"})) {
+    return {WorldMaterialKind::Metal, 0.32F, 0.82F, 0.62F, 0.0F};
+  }
+  if (containsAny({
+        "stone", "brick", "tile", "roof", "basalt", "sandstone",
+        "concrete", "plaster",
+      })) {
+    return {WorldMaterialKind::Masonry, 0.88F, 0.0F, 0.10F, 0.0F};
+  }
+  if (containsAny({"wood", "timber", "plank"})) {
+    return {WorldMaterialKind::Wood, 0.82F, 0.0F, 0.12F, 0.0F};
+  }
+  return {};
+}
+
 [[nodiscard]] std::array<bool, Arena::kHealthPickupCount> allHealthPickupsAvailable() {
   std::array<bool, Arena::kHealthPickupCount> available = {};
   available.fill(true);
@@ -4641,6 +4739,23 @@ Scene3D buildPerspectiveScene(
     settings.fieldOfView,
     aspectRatio
   );
+  scene.lights.sunDirection = arena.sunLight.direction;
+  scene.lights.sunColor = arena.sunLight.color;
+  scene.lights.sunIntensity =
+    arena.sunLight.enabled ? arena.sunLight.intensity : 0.0F;
+  scene.lights.fillIntensity = kStaticLightAmbient;
+  scene.lights.exposure = std::clamp(settings.toneMapExposure, 0.25F, 4.0F);
+  scene.lights.gradeQuality =
+    std::clamp(settings.atmosphereGradeQuality, 0, 3);
+  scene.lights.materialQuality = std::clamp(settings.materialQuality, 0, 2);
+  scene.lights.playerRimQuality = std::clamp(settings.playerRimQuality, 0, 2);
+  scene.lights.shadow = arena.sunLight.enabled
+    ? buildSunShadowProjection(
+        scene.camera,
+        arena.sunLight.direction,
+        settings.sunShadowQuality
+      )
+    : SunShadowProjection{};
   scene.vertices.reserve(4096);
   scene.translucentVertices.reserve(256);
   scene.outlineMaskDraws.reserve(kDuelPlayerCount);
@@ -5055,6 +5170,8 @@ Scene3D buildPerspectiveScene(
       settings
     );
   }
+  scene.transientVfxStats.transparentEffectsSubmitted +=
+    scene.projectileStats.projectileGlowInstances;
   (void)rocketExplosions;
   (void)localLightningGun;
   finalizeStaticMeshBatches(scene);

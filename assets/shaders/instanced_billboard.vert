@@ -13,6 +13,7 @@ layout(location = 8) in float instancePhase;
 
 layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out vec2 quadUv;
+layout(location = 2) out float viewDistance;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -51,4 +52,8 @@ void main() {
   gl_Position = projectWorld(worldPosition);
   vertexColor = inColor * instanceColor;
   quadUv = inTexCoord;
+  viewDistance = max(
+    dot(worldPosition - camera.position.xyz, camera.forward.xyz),
+    0.0
+  );
 }

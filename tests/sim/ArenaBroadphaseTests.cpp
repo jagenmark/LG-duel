@@ -29,7 +29,10 @@ namespace {
 
 [[nodiscard]] bool sameTrace(const lg::WorldTrace& lhs, const lg::WorldTrace& rhs) {
   return lhs.hit == rhs.hit && sameFloat(lhs.distance, rhs.distance) &&
-    sameVec(lhs.start, rhs.start) && sameVec(lhs.end, rhs.end) && sameVec(lhs.normal, rhs.normal);
+    sameVec(lhs.start, rhs.start) && sameVec(lhs.end, rhs.end) &&
+    sameVec(lhs.normal, rhs.normal) && lhs.materialId == rhs.materialId &&
+    lhs.sourceIndex == rhs.sourceIndex && lhs.faceIndex == rhs.faceIndex &&
+    lhs.source == rhs.source;
 }
 
 [[nodiscard]] bool sameCollision(const lg::CollisionResult& lhs, const lg::CollisionResult& rhs) {

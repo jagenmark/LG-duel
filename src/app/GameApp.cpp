@@ -25,6 +25,7 @@
 #include "render/ChatLayout.hpp"
 #include "render/CombatEffects.hpp"
 #include "render/GltfSkinnedModel.hpp"
+#include "render/ImpactMaterials.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
 #include "render/WeaponPresentation.hpp"
@@ -1161,6 +1162,7 @@ void consumeTracerWeaponFires(
   const LocalTracerAimHistory& localAimHistory,
   const RenderSettings& settings,
   const CombatEffectsTuning& effectsTuning,
+  std::span<const ImpactSurfaceMaterial> impactSurfaceMaterials,
   bool ownsPresentedSubject
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
@@ -1239,7 +1241,7 @@ void consumeTracerWeaponFires(
             impactTrace.end,
             impactTrace.normal,
             shotDirection,
-            ImpactSurfaceCategory::GenericHard,
+            impactSurfaceCategory(impactTrace, impactSurfaceMaterials),
             fire.visualSeed,
             eventPlayer,
             impactTrace.hit && !fire.hit,
@@ -2051,10 +2053,10 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 24;
-constexpr int kSettingsApplyRow = 25;
-constexpr int kSettingsCloseRow = 26;
-constexpr int kSettingsRowCount = 27;
+constexpr int kSettingsResetRow = 29;
+constexpr int kSettingsApplyRow = 30;
+constexpr int kSettingsCloseRow = 31;
+constexpr int kSettingsRowCount = 32;
 
 struct SettingsMenuState {
   bool open = false;
@@ -2079,6 +2081,11 @@ struct SettingsMenuState {
   int pendingAtmosphereGrade = 2;
   bool pendingBloom = true;
   float pendingBloomIntensity = 0.18F;
+  int pendingAntiAliasing = 1;
+  int pendingSunShadows = 2;
+  bool pendingContactShadows = true;
+  int pendingMaterialQuality = 1;
+  int pendingPlayerRim = 1;
   bool pendingCasings = true;
   float pendingImpactParticles = 1.0F;
   int pendingDecalBudget = 128;
@@ -2098,6 +2105,11 @@ struct SettingsMenuState {
   int originalAtmosphereGrade = 2;
   bool originalBloom = true;
   float originalBloomIntensity = 0.18F;
+  int originalAntiAliasing = 1;
+  int originalSunShadows = 2;
+  bool originalContactShadows = true;
+  int originalMaterialQuality = 1;
+  int originalPlayerRim = 1;
   bool originalCasings = true;
   float originalImpactParticles = 1.0F;
   int originalDecalBudget = 128;
@@ -2767,6 +2779,11 @@ bool applyVideoSettings(
     menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade ||
     menu.pendingBloom != menu.originalBloom ||
     menu.pendingBloomIntensity != menu.originalBloomIntensity ||
+    menu.pendingAntiAliasing != menu.originalAntiAliasing ||
+    menu.pendingSunShadows != menu.originalSunShadows ||
+    menu.pendingContactShadows != menu.originalContactShadows ||
+    menu.pendingMaterialQuality != menu.originalMaterialQuality ||
+    menu.pendingPlayerRim != menu.originalPlayerRim ||
     menu.pendingCasings != menu.originalCasings ||
     menu.pendingImpactParticles != menu.originalImpactParticles ||
     menu.pendingDecalBudget != menu.originalDecalBudget;
@@ -2799,6 +2816,11 @@ bool applyVideoSettings(
           menu.pendingBloomIntensity -
           std::stof(std::string(value("r_bloom_intensity")))
         ) < 0.001F &&
+        std::to_string(menu.pendingAntiAliasing) == value("r_antialiasing") &&
+        std::to_string(menu.pendingSunShadows) == value("r_sun_shadows") &&
+        (menu.pendingContactShadows ? "1" : "0") == value("r_contact_shadows") &&
+        std::to_string(menu.pendingMaterialQuality) == value("r_material_quality") &&
+        std::to_string(menu.pendingPlayerRim) == value("r_player_rim") &&
         (menu.pendingCasings ? "1" : "0") == value("r_casings") &&
         std::abs(
           menu.pendingImpactParticles -
@@ -2834,6 +2856,15 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingBloom = value("r_bloom") == "1";
   menu.pendingBloomIntensity =
     std::stof(std::string(value("r_bloom_intensity")));
+  menu.pendingAntiAliasing =
+    std::stoi(std::string(value("r_antialiasing")));
+  menu.pendingSunShadows =
+    std::stoi(std::string(value("r_sun_shadows")));
+  menu.pendingContactShadows = value("r_contact_shadows") == "1";
+  menu.pendingMaterialQuality =
+    std::stoi(std::string(value("r_material_quality")));
+  menu.pendingPlayerRim =
+    std::stoi(std::string(value("r_player_rim")));
   menu.pendingCasings = value("r_casings") == "1";
   menu.pendingImpactParticles =
     std::stof(std::string(value("r_impact_particles")));
@@ -2857,6 +2888,11 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingAtmosphereGrade = console.getInt("r_atmosphere_grade");
   menu.pendingBloom = console.getBool("r_bloom");
   menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
+  menu.pendingAntiAliasing = console.getInt("r_antialiasing");
+  menu.pendingSunShadows = console.getInt("r_sun_shadows");
+  menu.pendingContactShadows = console.getBool("r_contact_shadows");
+  menu.pendingMaterialQuality = console.getInt("r_material_quality");
+  menu.pendingPlayerRim = console.getInt("r_player_rim");
   menu.pendingCasings = console.getBool("r_casings");
   menu.pendingImpactParticles = console.getFloat("r_impact_particles");
   menu.pendingDecalBudget = console.getInt("r_decals_max");
@@ -2872,6 +2908,11 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
+  menu.originalAntiAliasing = menu.pendingAntiAliasing;
+  menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalContactShadows = menu.pendingContactShadows;
+  menu.originalMaterialQuality = menu.pendingMaterialQuality;
+  menu.originalPlayerRim = menu.pendingPlayerRim;
   menu.originalCasings = menu.pendingCasings;
   menu.originalImpactParticles = menu.pendingImpactParticles;
   menu.originalDecalBudget = menu.pendingDecalBudget;
@@ -2984,15 +3025,28 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
       1.0F
     );
     return;
-  case 21: menu.pendingCasings = !menu.pendingCasings; return;
+  case 21:
+    menu.pendingAntiAliasing = (menu.pendingAntiAliasing + direction + 3) % 3;
+    return;
   case 22:
+    menu.pendingSunShadows = (menu.pendingSunShadows + direction + 3) % 3;
+    return;
+  case 23: menu.pendingContactShadows = !menu.pendingContactShadows; return;
+  case 24:
+    menu.pendingMaterialQuality = (menu.pendingMaterialQuality + direction + 3) % 3;
+    return;
+  case 25:
+    menu.pendingPlayerRim = (menu.pendingPlayerRim + direction + 3) % 3;
+    return;
+  case 26: menu.pendingCasings = !menu.pendingCasings; return;
+  case 27:
     menu.pendingImpactParticles = std::clamp(
       menu.pendingImpactParticles + 0.25F * static_cast<float>(direction),
       0.0F,
       2.0F
     );
     return;
-  case 23: {
+  case 28: {
     const std::vector<int> values = {0, 32, 48, 64, 96, 128, 192, 256};
     const int index = optionIndex(
       values,
@@ -3041,6 +3095,21 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   (void)console.execute(
     "set r_bloom_intensity " + std::to_string(menu.pendingBloomIntensity)
   );
+  (void)console.execute(
+    "set r_antialiasing " + std::to_string(menu.pendingAntiAliasing)
+  );
+  (void)console.execute(
+    "set r_sun_shadows " + std::to_string(menu.pendingSunShadows)
+  );
+  (void)console.execute(
+    "set r_contact_shadows " + std::to_string(menu.pendingContactShadows ? 1 : 0)
+  );
+  (void)console.execute(
+    "set r_material_quality " + std::to_string(menu.pendingMaterialQuality)
+  );
+  (void)console.execute(
+    "set r_player_rim " + std::to_string(menu.pendingPlayerRim)
+  );
   (void)console.execute("set r_casings " + std::to_string(menu.pendingCasings ? 1 : 0));
   (void)console.execute(
     "set r_impact_particles " + std::to_string(menu.pendingImpactParticles)
@@ -3057,6 +3126,11 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
+  menu.originalAntiAliasing = menu.pendingAntiAliasing;
+  menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalContactShadows = menu.pendingContactShadows;
+  menu.originalMaterialQuality = menu.pendingMaterialQuality;
+  menu.originalPlayerRim = menu.pendingPlayerRim;
   menu.originalCasings = menu.pendingCasings;
   menu.originalImpactParticles = menu.pendingImpactParticles;
   menu.originalDecalBudget = menu.pendingDecalBudget;
@@ -3192,13 +3266,56 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(
       menu,
       21,
+      "Anti-aliasing",
+      menu.pendingAntiAliasing == 0
+        ? "Off"
+        : menu.pendingAntiAliasing == 1 ? "2x MSAA" : "4x MSAA",
+      menu.pendingAntiAliasing != menu.originalAntiAliasing
+    ),
+    settingsMenuItem(
+      menu,
+      22,
+      "Sun shadows",
+      menu.pendingSunShadows == 0
+        ? "Off"
+        : menu.pendingSunShadows == 1 ? "Low" : "High",
+      menu.pendingSunShadows != menu.originalSunShadows
+    ),
+    settingsMenuItem(
+      menu,
+      23,
+      "Contact shadows",
+      menu.pendingContactShadows ? "On" : "Off",
+      menu.pendingContactShadows != menu.originalContactShadows
+    ),
+    settingsMenuItem(
+      menu,
+      24,
+      "Material quality",
+      menu.pendingMaterialQuality == 0
+        ? "Basic"
+        : menu.pendingMaterialQuality == 1 ? "Enhanced" : "High",
+      menu.pendingMaterialQuality != menu.originalMaterialQuality
+    ),
+    settingsMenuItem(
+      menu,
+      25,
+      "Player rim light",
+      menu.pendingPlayerRim == 0
+        ? "Off"
+        : menu.pendingPlayerRim == 1 ? "Low" : "High",
+      menu.pendingPlayerRim != menu.originalPlayerRim
+    ),
+    settingsMenuItem(
+      menu,
+      26,
       "Cartridge casings",
       menu.pendingCasings ? "On" : "Off",
       menu.pendingCasings != menu.originalCasings
     ),
     settingsMenuItem(
       menu,
-      22,
+      27,
       "Impact-particle density",
       std::to_string(
         static_cast<int>(std::lround(menu.pendingImpactParticles * 100.0F))
@@ -3207,7 +3324,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      23,
+      28,
       "Bullet decal budget",
       std::to_string(menu.pendingDecalBudget),
       menu.pendingDecalBudget != menu.originalDecalBudget
@@ -3237,8 +3354,27 @@ void populateSettingsMenuRenderState(
       true
     ),
   };
-  hud.settingsFooter =
-    "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
+  switch (menu.selectedRow) {
+  case 21:
+    hud.settingsFooter = "Smooths edges: Off, 2x MSAA, or 4x MSAA.";
+    break;
+  case 22:
+    hud.settingsFooter = "Sets the quality of shadows cast by the sun.";
+    break;
+  case 23:
+    hud.settingsFooter = "Adds short grounding shadows to players and props.";
+    break;
+  case 24:
+    hud.settingsFooter = "Sets world surface detail: Basic, Enhanced, or High.";
+    break;
+  case 25:
+    hud.settingsFooter = "Sets the edge light used to make players stand out.";
+    break;
+  default:
+    hud.settingsFooter =
+      "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
+    break;
+  }
 }
 
 std::string clientConfigPath() {
@@ -3450,6 +3586,11 @@ RenderSettings renderSettings(
   settings.bloomEnabled = console.getBool("r_bloom");
   settings.bloomIntensity = console.getFloat("r_bloom_intensity");
   settings.bloomThreshold = console.getFloat("r_bloom_threshold");
+  settings.antiAliasingQuality = console.getInt("r_antialiasing");
+  settings.sunShadowQuality = console.getInt("r_sun_shadows");
+  settings.contactShadowsEnabled = console.getBool("r_contact_shadows");
+  settings.materialQuality = console.getInt("r_material_quality");
+  settings.playerRimQuality = console.getInt("r_player_rim");
   settings.casingsEnabled = console.getBool("r_casings");
   settings.casingCountMultiplier = console.getFloat("r_casing_count");
   settings.casingLifetimeSeconds = console.getFloat("r_casing_lifetime");
@@ -4310,6 +4451,8 @@ int GameApp::run() const {
   const char* executableBasePath = SDL_GetBasePath();
   const std::filesystem::path assetBasePath =
     executableBasePath != nullptr ? executableBasePath : std::filesystem::current_path();
+  const std::vector<ImpactSurfaceMaterial> impactSurfaceMaterials =
+    loadImpactSurfaceMaterials(assetBasePath / "textures");
   const std::filesystem::path runtimeDirectory =
     std::filesystem::weakly_canonical(assetBasePath);
   dev::DevControlServer developerControl;
@@ -9763,6 +9906,7 @@ int GameApp::run() const {
       localTracerAimHistory,
       currentRenderSettings,
       frameEffectsTuning,
+      impactSurfaceMaterials,
       ownsPresentedSubject
     );
     consumeExplosionEvents(transientTracerStore, renderRocketExplosions);

@@ -121,6 +121,48 @@ int main() {
   }
 
   {
+    lg::Arena materialArena;
+    materialArena.wallCount = 1;
+    materialArena.walls[0] =
+      {{4.0F, -1.0F, 0.0F}, {5.0F, 1.0F, 2.0F}};
+    materialArena.walls[0].materialId = 10U;
+    materialArena.walls[0].faceMaterialIds[5] = 11U;
+    const lg::WorldTrace wallTrace = lg::traceWorld(
+      materialArena,
+      {0.0F, 0.0F, 1.0F},
+      {1.0F, 0.0F, 0.0F},
+      10.0F
+    );
+    failures += expect(
+      wallTrace.source == lg::WorldTraceSource::Wall &&
+        wallTrace.sourceIndex == 0U &&
+        wallTrace.faceIndex == 5U &&
+        wallTrace.materialId == 11U,
+      "wall trace should retain the winning face material and source"
+    );
+
+    materialArena.brushCount = 1;
+    materialArena.brushes[0] =
+      convexBox({4.0F, -1.0F, 0.0F}, {5.0F, 1.0F, 2.0F});
+    materialArena.brushes[0].materialId = 20U;
+    materialArena.brushes[0].faces[0].materialId = 21U;
+    const lg::WorldTrace tiedTrace = lg::traceWorld(
+      materialArena,
+      {0.0F, 0.0F, 1.0F},
+      {1.0F, 0.0F, 0.0F},
+      10.0F
+    );
+    failures += expect(
+      nearlyEqual(tiedTrace.distance, wallTrace.distance) &&
+        tiedTrace.source == lg::WorldTraceSource::Brush &&
+        tiedTrace.sourceIndex == 0U &&
+        tiedTrace.faceIndex == 0U &&
+        tiedTrace.materialId == 21U,
+      "later authored brush should keep the existing equal-distance win order"
+    );
+  }
+
+  {
     const lg::BalanceConfigLoadResult loaded =
       lg::loadBalanceConfigFromText(R"(version 1
 weapon.rl.direct_hitbox_half_extent_xy 0.4821429

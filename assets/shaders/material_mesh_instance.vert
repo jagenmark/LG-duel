@@ -14,6 +14,7 @@ layout(location = 1) out vec3 viewDirection;
 layout(location = 2) out vec4 baseColor;
 layout(location = 3) out vec2 material;
 layout(location = 4) out vec3 worldPositionOut;
+layout(location = 5) out float viewDistance;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -53,4 +54,5 @@ void main() {
   baseColor = inBaseColor * instanceColor;
   material = inMaterial;
   worldPositionOut = worldPosition;
+  viewDistance = max(viewZ, 0.0);
 }

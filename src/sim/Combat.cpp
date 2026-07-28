@@ -88,6 +88,7 @@ constexpr float kHeadHitboxRadiusScale = 0.96F;
 struct TraceHit {
   float distance = std::numeric_limits<float>::max();
   Vec3 normal = {};
+  std::uint8_t faceIndex = UINT8_MAX;
   bool hit = false;
 };
 
@@ -126,7 +127,12 @@ struct HeadHitbox {
   clipAxis(origin.x, direction.x, arena.min.x, arena.max.x, {1.0F, 0.0F, 0.0F}, {-1.0F, 0.0F, 0.0F});
   clipAxis(origin.y, direction.y, arena.min.y, arena.max.y, {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F});
   clipAxis(origin.z, direction.z, arena.min.z, arena.max.z, {0.0F, 0.0F, 1.0F}, {0.0F, 0.0F, -1.0F});
-  return {std::max(0.0F, exitDistance), exitNormal, exitDistance < std::numeric_limits<float>::max()};
+  return {
+    std::max(0.0F, exitDistance),
+    exitNormal,
+    UINT8_MAX,
+    exitDistance < std::numeric_limits<float>::max(),
+  };
 }
 
 [[nodiscard]] TraceHit wallHit(
@@ -137,13 +143,16 @@ struct HeadHitbox {
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
   Vec3 normal = {};
-  const auto clipAxis = [&entry, &exit, &normal](
+  std::uint8_t faceIndex = UINT8_MAX;
+  const auto clipAxis = [&entry, &exit, &normal, &faceIndex](
     float axisOrigin,
     float axisDirection,
     float minValue,
     float maxValue,
     Vec3 minNormal,
-    Vec3 maxNormal
+    Vec3 maxNormal,
+    std::uint8_t minFaceIndex,
+    std::uint8_t maxFaceIndex
   ) {
     if (std::fabs(axisDirection) <= kTraceEpsilon) {
       return axisOrigin >= minValue && axisOrigin <= maxValue;
@@ -154,20 +163,30 @@ struct HeadHitbox {
     if (candidateEntry > entry) {
       entry = candidateEntry;
       normal = first < second ? minNormal : maxNormal;
+      faceIndex = first < second ? minFaceIndex : maxFaceIndex;
     }
     exit = std::min(exit, std::max(first, second));
     return entry <= exit;
   };
 
   if (
-    !clipAxis(origin.x, direction.x, wall.min.x, wall.max.x, {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}) ||
-    !clipAxis(origin.y, direction.y, wall.min.y, wall.max.y, {0.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F}) ||
-    !clipAxis(origin.z, direction.z, wall.min.z, wall.max.z, {0.0F, 0.0F, -1.0F}, {0.0F, 0.0F, 1.0F}) ||
+    !clipAxis(
+      origin.x, direction.x, wall.min.x, wall.max.x,
+      {-1.0F, 0.0F, 0.0F}, {1.0F, 0.0F, 0.0F}, 5U, 3U
+    ) ||
+    !clipAxis(
+      origin.y, direction.y, wall.min.y, wall.max.y,
+      {0.0F, -1.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, 2U, 4U
+    ) ||
+    !clipAxis(
+      origin.z, direction.z, wall.min.z, wall.max.z,
+      {0.0F, 0.0F, -1.0F}, {0.0F, 0.0F, 1.0F}, 0U, 1U
+    ) ||
     exit < 0.0F
   ) {
     return {};
   }
-  return {std::max(0.0F, entry), normal, true};
+  return {std::max(0.0F, entry), normal, faceIndex, true};
 }
 
 [[nodiscard]] TraceHit brushHit(
@@ -178,6 +197,7 @@ struct HeadHitbox {
   float entry = 0.0F;
   float exit = std::numeric_limits<float>::max();
   Vec3 normal = {};
+  std::uint8_t faceIndex = UINT8_MAX;
   for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
     const ArenaBrushFace& face = brush.faces[index];
     const float numerator = face.distance - dot(face.normal, origin);
@@ -193,6 +213,7 @@ struct HeadHitbox {
       if (planeDistance > entry) {
         entry = planeDistance;
         normal = face.normal;
+        faceIndex = index;
       }
     } else {
       exit = std::min(exit, planeDistance);
@@ -204,7 +225,7 @@ struct HeadHitbox {
   if (exit < 0.0F) {
     return {};
   }
-  return {std::max(0.0F, entry), normal, true};
+  return {std::max(0.0F, entry), normal, faceIndex, true};
 }
 
 [[nodiscard]] float brushBoundsHitDistance(
@@ -397,6 +418,7 @@ WorldTrace traceWorld(
   if (arenaExit.hit && arenaExit.distance <= trace.distance) {
     trace.distance = arenaExit.distance;
     trace.normal = arenaExit.normal;
+    trace.source = WorldTraceSource::ArenaBounds;
     trace.hit = true;
   }
   constexpr float kBroadphaseEpsilon = 0.001F;
@@ -422,6 +444,14 @@ WorldTrace traceWorld(
     if (hit.hit && hit.distance <= trace.distance) {
       trace.distance = hit.distance;
       trace.normal = hit.normal;
+      trace.materialId =
+        hit.faceIndex < arena.walls[index].faceMaterialIds.size() &&
+          arena.walls[index].faceMaterialIds[hit.faceIndex] != 0U
+        ? arena.walls[index].faceMaterialIds[hit.faceIndex]
+        : arena.walls[index].materialId;
+      trace.sourceIndex = static_cast<std::uint32_t>(index);
+      trace.faceIndex = hit.faceIndex;
+      trace.source = WorldTraceSource::Wall;
       trace.hit = true;
     }
   }
@@ -438,6 +468,14 @@ WorldTrace traceWorld(
     if (hit.hit && hit.distance <= trace.distance) {
       trace.distance = hit.distance;
       trace.normal = hit.normal;
+      trace.materialId =
+        hit.faceIndex < arena.brushes[index].faceCount &&
+          arena.brushes[index].faces[hit.faceIndex].materialId != 0U
+        ? arena.brushes[index].faces[hit.faceIndex].materialId
+        : arena.brushes[index].materialId;
+      trace.sourceIndex = static_cast<std::uint32_t>(index);
+      trace.faceIndex = hit.faceIndex;
+      trace.source = WorldTraceSource::Brush;
       trace.hit = true;
     }
   }
