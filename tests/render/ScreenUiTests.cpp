@@ -1,16 +1,17 @@
 #include "app/TextInput.hpp"
 #include "render/BitmapFont.hpp"
-#include "render/ScreenUi.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
+#include "render/OptionMenuLayout.hpp"
+#include "render/ScreenUi.hpp"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
-#include <string>
 #include <iostream>
+#include <string>
 #include <string_view>
 #include <variant>
 
@@ -207,6 +208,45 @@ int main() {
         findText(scrolledUi, "Scroll label 6") != nullptr,
       "settings rows should clip to the viewport after scrolling"
     );
+
+    lg::HudRenderState miscHud;
+    miscHud.miscMenuOpen = true;
+    miscHud.miscMenuItems = {
+        {"Weapon position", "Center", true, false, false},
+        {"Netgraph", "Off", false, false, false},
+        {"Close", "Esc", false, false, true},
+    };
+    miscHud.miscMenuFooter =
+        "Chooses windowed, borderless fullscreen, or exclusive fullscreen.";
+    miscHud.topLeftLines = {"HUD MUST STAY BELOW TOOLS"};
+    const lg::DrawList2D miscUi =
+        lg::buildScreenUi(1280, 720, {}, settings, miscHud, settingsConsole);
+    const lg::OptionMenuLayout miscLayout =
+        lg::buildOptionMenuLayout(1280, 720, miscHud.miscMenuItems.size(), 0U);
+    std::size_t miscFooterLines = 0U;
+    bool miscFooterFits = true;
+    for (const lg::DrawCommand2D &command : miscUi.overlayCommands) {
+      const auto *text = std::get_if<lg::Text2D>(&command);
+      if (text == nullptr || text->color.red != 174U ||
+          text->color.green != 190U || text->color.blue != 204U) {
+        continue;
+      }
+      ++miscFooterLines;
+      miscFooterFits =
+          miscFooterFits && text->scale >= 2.0F &&
+          text->position.x +
+                  static_cast<float>(lg::utf8GlyphCount(text->text)) * 8.0F *
+                      text->scale <=
+              miscLayout.panelX + miscLayout.panelWidth - 22.0F;
+    }
+    failures += expect(
+        findText(miscUi, "TOOLS / DEBUG") != nullptr &&
+            findText(miscUi, "Weapon position") != nullptr &&
+            miscFooterLines == 2U && miscFooterFits &&
+            findText(miscUi, "HUD MUST STAY BELOW TOOLS") == nullptr &&
+            findText(miscUi, "CONSOLE MUST STAY BELOW SETTINGS") == nullptr,
+        "tools menu should use the option-menu layout as an exclusive modal "
+        "with wrapped, readable help text");
   }
   hud.scoreboardLines = {"SCOREBOARD", "PLAYER  SCORE"};
   lg::ConsoleRenderState console;
@@ -1660,6 +1700,40 @@ int main() {
           lg::utf8GlyphCount(swedishChatLayout.rows.front().text),
       "Swedish chat text should contribute normal glyph width and remain visible in layout"
     );
+
+    chatHud.chatInputOpen = true;
+    const lg::ChatTextLayout selectableChatLayout =
+        lg::buildChatTextLayout(800, 720, chatHud);
+    const std::size_t historySelectionStart = lg::chatHistoryTextOffsetAt(
+        selectableChatLayout, selectableChatLayout.rows.front().x,
+        selectableChatLayout.rows.front().y + 2.0F);
+    const std::size_t historySelectionEnd = lg::chatHistoryTextOffsetAt(
+        selectableChatLayout,
+        selectableChatLayout.rows.front().x +
+            6.0F * selectableChatLayout.characterWidth,
+        selectableChatLayout.rows.front().y + 2.0F);
+    failures += expect(
+        !lg::chatHistorySelectedText(selectableChatLayout,
+                                     historySelectionStart, historySelectionEnd)
+             .empty(),
+        "chat history mouse selection should return visible selected text");
+    chatHud.chatHistoryHasSelection = true;
+    chatHud.chatHistorySelectionAnchor = historySelectionStart;
+    chatHud.chatHistorySelectionFocus = historySelectionEnd;
+    const lg::DrawList2D selectedHistoryUi =
+        lg::buildScreenUi(800, 720, {}, settings, chatHud, {});
+    bool foundHistorySelection = false;
+    for (const lg::DrawCommand2D &command : selectedHistoryUi.overlayCommands) {
+      if (const auto *quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundHistorySelection =
+            foundHistorySelection ||
+            (quad->color.red == 58 && quad->color.green == 118 &&
+             quad->color.blue == 188 && quad->color.alpha == 170);
+      }
+    }
+    failures +=
+        expect(foundHistorySelection,
+               "chat history selection should draw a translucent highlight");
   }
 
   {
@@ -1886,6 +1960,26 @@ int main() {
       foundSelectionHighlight,
       "console selection should render a highlight behind selected text"
     );
+
+    selectableConsole.hasSelection = false;
+    selectableConsole.inputHasSelection = true;
+    selectableConsole.inputSelectionAnchor = 0U;
+    selectableConsole.inputSelectionFocus = selectableConsole.input.size();
+    const lg::DrawList2D selectedConsoleInputUi =
+        lg::buildScreenUi(1280, 720, opponent, settings, {}, selectableConsole);
+    bool foundInputSelectionHighlight = false;
+    for (const lg::DrawCommand2D &command :
+         selectedConsoleInputUi.overlayCommands) {
+      if (const auto *quad = std::get_if<lg::FilledQuad2D>(&command)) {
+        foundInputSelectionHighlight =
+            foundInputSelectionHighlight ||
+            (quad->color.red == 58 && quad->color.green == 118 &&
+             quad->color.blue == 188 && quad->color.alpha == 170);
+      }
+    }
+    failures +=
+        expect(foundInputSelectionHighlight,
+               "console Ctrl+A selection should highlight the editable input");
   }
 
   {

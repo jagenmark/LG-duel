@@ -112,7 +112,8 @@ namespace {
     "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
     "r_frustum_cull", "r_world_frustum_cull", "r_player_model", "r_bloom",
     "r_combat_effects",
-    "s_enable", "vid_fullscreen", "vid_width", "vid_height", "r_vsync", "r_present_mode"
+    "s_enable", "s_volume", "vid_fullscreen", "vid_width", "vid_height", "r_vsync",
+    "r_present_mode"
   };
   return allowed.contains(name);
 }
@@ -294,6 +295,7 @@ ParseResult parseScenario(const dev::JsonValue& root) {
       else return {{}, false, "benchmark cvar values must be scalar"};
     }
   }
+  scenario.cvars.try_emplace("s_volume", "0");
   if (const dev::JsonValue* screenshots = root.find("screenshots"); screenshots != nullptr) {
     if (screenshots->type != dev::JsonValue::Type::Array || screenshots->array.size() > 32U) return {{}, false, "screenshots must be an array of at most 32 entries"};
     for (const dev::JsonValue& value : screenshots->array) {
@@ -386,12 +388,24 @@ bool applyGpuFrameTiming(
       sample->index != timing.benchmarkFrameIndex) return false;
   sample->gpuPrimaryCommandBufferMilliseconds =
     timing.gpuPrimaryCommandBufferMilliseconds;
+  for (std::size_t passIndex = 0;
+       passIndex < kGpuTimedPassCount;
+       ++passIndex) {
+    sample->gpuPassTimingApplicable[passIndex] =
+      sample->gpuPassTimingApplicable[passIndex] ||
+      timing.passApplicable[passIndex];
+    sample->gpuPassMilliseconds[passIndex] =
+      sample->gpuPassTimingApplicable[passIndex]
+        ? timing.passMilliseconds[passIndex]
+        : std::nullopt;
+  }
   sample->outlineGpuTimingApplicable =
     sample->outlineGpuTimingApplicable || timing.outlineApplicable;
   sample->outlineGpuMilliseconds = sample->outlineGpuTimingApplicable
     ? timing.outlineGpuMilliseconds : std::nullopt;
   sample->gpuTimingResultReceived = true;
   sample->gpuTimingReadbackLatencyFrames = timing.readbackLatencyFrames;
+  sample->gpuTimingUnavailableReason = timing.unavailableReason;
   return true;
 }
 
@@ -571,6 +585,34 @@ dev::JsonValue resultJson(
       return sample.gpuPrimaryCommandBufferMilliseconds;
     }
   );
+  const auto gpuPassTiming = [&samples, &optionalTimingMetric](
+    auto selectTiming,
+    auto selectApplicable
+  ) {
+    dev::JsonValue timing = optionalTimingMetric(samples, selectTiming);
+    timing.object["applicable_count"] = dev::JsonValue::numberValue(
+      static_cast<double>(std::count_if(
+        samples.begin(),
+        samples.end(),
+        selectApplicable
+      ))
+    );
+    return timing;
+  };
+  for (std::size_t passIndex = 0;
+       passIndex < kGpuTimedPassCount;
+       ++passIndex) {
+    const auto pass = static_cast<GpuTimedPass>(passIndex);
+    gpuExecutionTimings.object[std::string(gpuTimedPassName(pass))] =
+      gpuPassTiming(
+        [passIndex](const FrameSample& sample) {
+          return sample.gpuPassMilliseconds[passIndex];
+        },
+        [passIndex](const FrameSample& sample) {
+          return sample.gpuPassTimingApplicable[passIndex];
+        }
+      );
+  }
   dev::JsonValue outlineTiming = optionalTimingMetric(
     samples,
     [](const FrameSample& sample) { return sample.outlineGpuMilliseconds; }
@@ -676,7 +718,18 @@ dev::JsonValue frameTimelineJson(
     "named CPU spans in milliseconds; values are not required to sum to total_cpu_ms"
   );
   schema.object["gpu_subsystems_ms"] = dev::JsonValue::stringValue(
-    "named GPU spans in milliseconds; empty when GPU timing is unavailable"
+    "named GPU stage spans in milliseconds; values may overlap and do not sum to total_gpu_ms"
+  );
+  schema.object["gpu_subsystem_states"] = dev::JsonValue::stringValue(
+    "available, unavailable, or not_applicable state for every named GPU stage"
+  );
+  schema.object["gpu_timing_readback_latency_frames"] =
+    dev::JsonValue::stringValue(
+      "nonblocking timestamp readback delay, or null when no result arrived"
+    );
+  schema.object["gpu_timing_unavailable_reason"] =
+    dev::JsonValue::stringValue(
+      "per-frame query failure reason, or null when no failure was reported"
   );
   schema.object["workload_counters"] = dev::JsonValue::stringValue(
     "raw per-frame work and visibility counters"
@@ -696,6 +749,13 @@ dev::JsonValue frameTimelineJson(
   metadata.object["scenario_name"] = dev::JsonValue::stringValue(scenario.name);
   metadata.object["scenario_hash"] =
     dev::JsonValue::stringValue(context.scenarioHash);
+  metadata.object["graphics_profile"] =
+    dev::JsonValue::stringValue(context.graphicsProfile);
+  metadata.object["render_scale"] =
+    dev::JsonValue::numberValue(context.renderScale);
+  metadata.object["label"] = dev::JsonValue::stringValue(
+    scenario.name + " - " + context.graphicsProfile
+  );
   metadata.object["renderer"] = dev::JsonValue::stringValue(context.renderer);
   metadata.object["map_content_hash"] =
     dev::JsonValue::numberValue(context.actualMapContentHash);
@@ -710,11 +770,42 @@ dev::JsonValue frameTimelineJson(
   root.object["metadata"] = std::move(metadata);
 
   dev::JsonValue gpuTiming = dev::JsonValue::objectValue();
-  gpuTiming.object["available"] = dev::JsonValue::booleanValue(false);
-  gpuTiming.object["unavailable_reason"] = dev::JsonValue::stringValue(
-    "native GPU execution timing was not recorded"
+  gpuTiming.object["available"] =
+    dev::JsonValue::booleanValue(context.gpuTimingAvailable);
+  gpuTiming.object["backend"] =
+    dev::JsonValue::stringValue(context.gpuTimingBackend);
+  gpuTiming.object["unavailable_reason"] =
+    context.gpuTimingUnavailableReason.empty()
+      ? dev::JsonValue{}
+      : dev::JsonValue::stringValue(context.gpuTimingUnavailableReason);
+  gpuTiming.object["timestamp_valid_bits"] =
+    context.gpuTimestampValidBits
+      ? dev::JsonValue::numberValue(*context.gpuTimestampValidBits)
+      : dev::JsonValue{};
+  gpuTiming.object["timestamp_period_ns"] =
+    context.gpuTimestampPeriodNanoseconds
+      ? dev::JsonValue::numberValue(*context.gpuTimestampPeriodNanoseconds)
+      : dev::JsonValue{};
+  gpuTiming.object["instrumentation_version"] =
+    dev::JsonValue::stringValue(context.gpuTimingInstrumentationVersion);
+  const std::size_t gpuSampleCount = static_cast<std::size_t>(std::count_if(
+    samples.begin(),
+    samples.end(),
+    [](const FrameSample& sample) {
+      return sample.gpuPrimaryCommandBufferMilliseconds.has_value();
+    }
+  ));
+  gpuTiming.object["sample_count"] =
+    dev::JsonValue::numberValue(static_cast<double>(gpuSampleCount));
+  gpuTiming.object["coverage_percent"] = dev::JsonValue::numberValue(
+    samples.empty()
+      ? 0.0
+      : 100.0 * static_cast<double>(gpuSampleCount) /
+          static_cast<double>(samples.size())
   );
   root.object["gpu_timing"] = std::move(gpuTiming);
+  root.object["gpu_execution_timing_available"] =
+    dev::JsonValue::booleanValue(gpuSampleCount > 0U);
   root.object["frame_count"] =
     dev::JsonValue::numberValue(static_cast<double>(samples.size()));
   root.object["simulation_tick_count"] =
@@ -735,9 +826,30 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.elapsedSeconds);
     frame.object["total_cpu_ms"] =
       dev::JsonValue::numberValue(sample.frameMilliseconds);
-    frame.object["total_gpu_ms"] = dev::JsonValue{};
+    frame.object["total_gpu_ms"] =
+      sample.gpuPrimaryCommandBufferMilliseconds
+        ? dev::JsonValue::numberValue(
+            *sample.gpuPrimaryCommandBufferMilliseconds
+          )
+        : dev::JsonValue{};
     frame.object["gpu_timing_available"] =
-      dev::JsonValue::booleanValue(false);
+      dev::JsonValue::booleanValue(
+        sample.gpuPrimaryCommandBufferMilliseconds.has_value()
+      );
+    frame.object["gpu_timing_result_received"] =
+      dev::JsonValue::booleanValue(sample.gpuTimingResultReceived);
+    frame.object["gpu_timing_readback_latency_frames"] =
+      sample.gpuTimingResultReceived
+        ? dev::JsonValue::numberValue(
+            sample.gpuTimingReadbackLatencyFrames
+          )
+        : dev::JsonValue{};
+    frame.object["gpu_timing_unavailable_reason"] =
+      sample.gpuTimingUnavailableReason.empty()
+        ? dev::JsonValue{}
+        : dev::JsonValue::stringValue(
+            sample.gpuTimingUnavailableReason
+          );
 
     dev::JsonValue cpu = dev::JsonValue::objectValue();
     cpu.object["scene_build"] =
@@ -779,7 +891,29 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.dynamicCommandEncodingMilliseconds);
     cpu.object["ui"] = dev::JsonValue::numberValue(sample.uiMilliseconds);
     frame.object["cpu_subsystems_ms"] = std::move(cpu);
-    frame.object["gpu_subsystems_ms"] = dev::JsonValue::objectValue();
+    dev::JsonValue gpu = dev::JsonValue::objectValue();
+    dev::JsonValue gpuStates = dev::JsonValue::objectValue();
+    for (std::size_t passIndex = 0;
+         passIndex < kGpuTimedPassCount;
+         ++passIndex) {
+      const std::string passName = std::string(gpuTimedPassName(
+        static_cast<GpuTimedPass>(passIndex)
+      ));
+      const bool applicable =
+        sample.gpuPassTimingApplicable[passIndex];
+      const std::optional<double>& milliseconds =
+        sample.gpuPassMilliseconds[passIndex];
+      gpu.object[passName] = milliseconds
+        ? dev::JsonValue::numberValue(*milliseconds)
+        : dev::JsonValue{};
+      gpuStates.object[passName] = dev::JsonValue::stringValue(
+        !applicable
+          ? "not_applicable"
+          : milliseconds ? "available" : "unavailable"
+      );
+    }
+    frame.object["gpu_subsystems_ms"] = std::move(gpu);
+    frame.object["gpu_subsystem_states"] = std::move(gpuStates);
 
     dev::JsonValue workload = dev::JsonValue::objectValue();
     workload.object["uploaded_vertices"] =
@@ -872,7 +1006,17 @@ bool writeArtifacts(
     "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
     "world_culled_chunks,world_visibility_tested_nodes,world_visibility_query_ms,"
     "visible_players,projectiles,effects,lights,particles,transparent_effects,"
-    "instance_upload_bytes,instance_draws\n";
+    "instance_upload_bytes,instance_draws";
+  for (std::size_t passIndex = 0;
+       passIndex < kGpuTimedPassCount;
+       ++passIndex) {
+    const std::string name = std::string(gpuTimedPassName(
+      static_cast<GpuTimedPass>(passIndex)
+    ));
+    telemetry << ',' << name << "_gpu_ms," << name << "_gpu_state";
+  }
+  telemetry << ",gpu_timing_result_received,"
+    "gpu_timing_readback_latency_frames,gpu_timing_unavailable_reason\n";
   std::ofstream ticks(resultDirectory / "simulation-ticks.csv", std::ios::trunc);
   ticks << "tick,render_frame,elapsed_seconds,simulation_ms,"
     "network_processing_ms,movement_collision_ms,traces_ms\n";
@@ -913,7 +1057,29 @@ bool writeArtifacts(
       << ',' << s.projectileCount << ',' << s.effectCount
       << ',' << s.lightCount << ',' << s.particleCount
       << ',' << s.transparentEffectCount
-      << ',' << s.instanceUploadBytes << ',' << s.instanceDraws << '\n';
+      << ',' << s.instanceUploadBytes << ',' << s.instanceDraws;
+    for (std::size_t passIndex = 0;
+         passIndex < kGpuTimedPassCount;
+         ++passIndex) {
+      telemetry << ',';
+      if (s.gpuPassMilliseconds[passIndex]) {
+        telemetry << *s.gpuPassMilliseconds[passIndex];
+      }
+      telemetry << ',' << (
+        !s.gpuPassTimingApplicable[passIndex]
+          ? "not_applicable"
+          : (
+              s.gpuPassMilliseconds[passIndex]
+                ? "available"
+                : "unavailable"
+            )
+      );
+    }
+    telemetry << ',' << (s.gpuTimingResultReceived ? 1 : 0) << ',';
+    if (s.gpuTimingResultReceived) {
+      telemetry << s.gpuTimingReadbackLatencyFrames;
+    }
+    telemetry << ',' << s.gpuTimingUnavailableReason << '\n';
   }
   for (const SimulationTickSample& s : tickSamples) {
     ticks << s.index << ',' << s.renderFrameIndex << ',' << s.elapsedSeconds

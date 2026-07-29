@@ -13,6 +13,9 @@ struct ConsoleLayoutLine {
   float x = 0.0F;
   float y = 0.0F;
   std::size_t textOffset = 0;
+  std::size_t inputBegin = 0;
+  std::size_t inputEnd = 0;
+  std::size_t contentColumn = 0;
   bool prompt = false;
 };
 
@@ -42,5 +45,13 @@ struct ConsoleTextLayout {
   std::size_t anchor,
   std::size_t focus
 );
+
+[[nodiscard]] std::size_t consoleInputOffsetAt(const ConsoleTextLayout &layout,
+                                               const std::string &input,
+                                               float x, float y);
+
+[[nodiscard]] ScreenPoint
+consoleInputCursorPosition(const ConsoleTextLayout &layout,
+                           const std::string &input, std::size_t cursor);
 
 } // namespace lg

@@ -7516,6 +7516,7 @@ void appendCommandBatches(
       return false;
     }
     if (shadowPlan.renderShadowPass) {
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::SunShadow);
       SDL_GPUDepthStencilTargetInfo shadowDepthTarget = {};
       shadowDepthTarget.texture = sampledSunShadowTexture;
       shadowDepthTarget.clear_depth = 1.0F;
@@ -7611,6 +7612,7 @@ void appendCommandBatches(
         perspectiveScene
       );
       SDL_EndGPURenderPass(shadowPass);
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::SunShadow);
     }
 
     SDL_GPUColorTargetInfo colorTarget = {};
@@ -7701,6 +7703,7 @@ void appendCommandBatches(
     depthTarget.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
     depthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     depthTarget.cycle = true;
+    gpuTiming.beginPass(commandBuffer, GpuTimedPass::MainScene);
     SDL_GPURenderPass* worldPass = SDL_BeginGPURenderPass(
       commandBuffer,
       &colorTarget,
@@ -8033,6 +8036,7 @@ void appendCommandBatches(
         }
       }
     SDL_EndGPURenderPass(worldPass);
+    gpuTiming.endPass(commandBuffer, GpuTimedPass::MainScene);
 
     colorTarget.texture = directPresent ? swapchainTexture : sceneColorTexture;
     colorTarget.resolve_texture = nullptr;
@@ -8066,6 +8070,7 @@ void appendCommandBatches(
     viewModelDepthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
     viewModelDepthTarget.cycle = true;
     if (perspectiveScene.viewModelStats.drawCalls > 0U) {
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::ViewModel);
       SDL_GPURenderPass* viewModelPass = SDL_BeginGPURenderPass(
         commandBuffer,
         &colorTarget,
@@ -8171,6 +8176,7 @@ void appendCommandBatches(
         !directPresent
       );
       SDL_EndGPURenderPass(viewModelPass);
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::ViewModel);
     } else if (bloomEffective) {
       SDL_GPURenderPass* viewModelDepthClearPass =
         SDL_BeginGPURenderPass(
@@ -8198,6 +8204,7 @@ void appendCommandBatches(
     diagnostics.sceneCompositeEnabled = true;
     diagnostics.bloomEnabled = postPlan.bloomEnabled;
     if (postPlan.bloomEnabled) {
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::Bloom);
       if (
         bloomTextureB != nullptr &&
         (
@@ -8364,6 +8371,7 @@ void appendCommandBatches(
       diagnostics.bloomWidth = postPlan.bloomWidth;
       diagnostics.bloomHeight = postPlan.bloomHeight;
       diagnostics.bloomPasses = postPlan.bloomPasses;
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::Bloom);
     }
 
     colorTarget.texture = swapchainTexture;
@@ -8371,6 +8379,7 @@ void appendCommandBatches(
     colorTarget.store_op = SDL_GPU_STOREOP_STORE;
     colorTarget.load_op = SDL_GPU_LOADOP_CLEAR;
     colorTarget.clear_color = {0.0F, 0.0F, 0.0F, 1.0F};
+    gpuTiming.beginPass(commandBuffer, GpuTimedPass::SceneComposite);
     SDL_GPURenderPass* sceneCompositePass =
       SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
     if (sceneCompositePass == nullptr) {
@@ -8426,6 +8435,7 @@ void appendCommandBatches(
     );
     SDL_DrawGPUPrimitives(sceneCompositePass, 3, 1, 0, 0);
     SDL_EndGPURenderPass(sceneCompositePass);
+    gpuTiming.endPass(commandBuffer, GpuTimedPass::SceneComposite);
     colorTarget.load_op = SDL_GPU_LOADOP_LOAD;
     } else {
       // Direct mode has already written display-ready color to the
@@ -8588,6 +8598,7 @@ void appendCommandBatches(
       maskDepthTarget.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
       maskDepthTarget.cycle = reuseWorldDepth ? false : outlineTargetsResized;
       gpuTiming.beginOutline(commandBuffer);
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::OutlineMask);
       SDL_GPURenderPass* outlineDepthPass = nullptr;
       if (outlineDepthPlan.rebuildDepth) {
         SDL_GPURenderPass* outlineClearPass = SDL_BeginGPURenderPass(
@@ -8774,6 +8785,7 @@ void appendCommandBatches(
         }
       }
       SDL_EndGPURenderPass(maskPass);
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::OutlineMask);
 
       SDL_GPUColorTargetInfo dilationColorTarget = {};
       dilationColorTarget.texture = outlineDilationTexture;
@@ -8785,6 +8797,7 @@ void appendCommandBatches(
           : SDL_GPU_LOADOP_LOAD;
       dilationColorTarget.store_op = SDL_GPU_STOREOP_STORE;
       dilationColorTarget.cycle = outlineTargetsResized;
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::OutlineDilation);
       SDL_GPURenderPass* dilationPass = SDL_BeginGPURenderPass(
         commandBuffer,
         &dilationColorTarget,
@@ -8839,6 +8852,7 @@ void appendCommandBatches(
       );
       SDL_DrawGPUPrimitives(dilationPass, 3, 1, 0, 0);
       SDL_EndGPURenderPass(dilationPass);
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::OutlineDilation);
 
       float enemyPulse = 0.0F;
       float teammatePulse = 0.0F;
@@ -8905,6 +8919,7 @@ void appendCommandBatches(
         },
       };
 
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::OutlineComposite);
       SDL_GPURenderPass* compositePass =
         SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
       if (compositePass == nullptr) {
@@ -8931,6 +8946,7 @@ void appendCommandBatches(
       );
       SDL_DrawGPUPrimitives(compositePass, 3, 1, 0, 0);
       SDL_EndGPURenderPass(compositePass);
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::OutlineComposite);
       gpuTiming.endOutline(commandBuffer);
 
       diagnostics.outlineMaskWidth = outlineMaskWidth;
@@ -8979,6 +8995,7 @@ void appendCommandBatches(
     const Uint32 overlayVertexCount =
       static_cast<Uint32>(vertices.size()) - worldVertexCount;
     if (overlayVertexCount > 0U && !overlayBatches.empty()) {
+      gpuTiming.beginPass(commandBuffer, GpuTimedPass::UiOverlay);
       SDL_GPURenderPass* overlayPass =
         SDL_BeginGPURenderPass(commandBuffer, &colorTarget, 1, nullptr);
       if (overlayPass == nullptr) {
@@ -9024,6 +9041,7 @@ void appendCommandBatches(
         );
       }
       SDL_EndGPURenderPass(overlayPass);
+      gpuTiming.endPass(commandBuffer, GpuTimedPass::UiOverlay);
     }
     if (settings.benchmarkTimingEnabled) {
       // Final UI encoding is added to the earlier HUD/batch construction span.

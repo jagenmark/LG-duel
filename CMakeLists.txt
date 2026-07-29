@@ -81,6 +81,7 @@ add_library(lg_duel_client_app
   src/app/ConsoleInput.cpp
   src/app/GameApp.cpp
   src/app/HudPresentation.cpp
+  src/app/MiscMenu.cpp
   src/app/PerfTelemetry.cpp
   src/app/Scoreboard.cpp
   src/app/TextInput.cpp

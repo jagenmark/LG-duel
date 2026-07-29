@@ -2,6 +2,7 @@
 #include "app/TextInput.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/ConsoleLayout.hpp"
+#include "render/OptionMenuLayout.hpp"
 #include "sim/Combat.hpp"
 
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <cstddef>
 #include <cstdio>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace lg {
@@ -23,7 +25,8 @@ using CatSprite = std::array<std::string_view, 30>;
 constexpr std::size_t kCatSpriteWidth = 35U;
 
 // Visually authored and previewed as a palette-indexed 35x30 calico set.
-// Shared markings and compact facial features identify one cat across every pose.
+// Shared markings and compact facial features identify one cat across every
+// pose.
 constexpr CatSprite kCatIdle = {{
   "",
   "       c                    c",
@@ -432,6 +435,41 @@ constexpr CatSprite kCatProfileCrouch = {{
     value.remove_suffix(1U);
   }
   return std::string(value);
+}
+
+[[nodiscard]] std::vector<std::string>
+wrapOptionMenuFooter(std::string_view text, std::size_t maxGlyphs) {
+  constexpr std::size_t maxLines = 2U;
+  std::vector<std::string> lines;
+  maxGlyphs = std::max<std::size_t>(1U, maxGlyphs);
+  while (!text.empty() && lines.size() < maxLines) {
+    if (utf8GlyphCount(text) <= maxGlyphs) {
+      lines.push_back(trimCell(text));
+      text = {};
+      break;
+    }
+    const std::size_t hardEnd = utf8ByteOffsetForGlyph(text, maxGlyphs);
+    std::size_t breakAt = text.rfind(' ', hardEnd);
+    if (breakAt == std::string_view::npos || breakAt == 0U) {
+      breakAt = hardEnd;
+    }
+    lines.push_back(trimCell(text.substr(0U, breakAt)));
+    text.remove_prefix(breakAt);
+    while (!text.empty() && text.front() == ' ') {
+      text.remove_prefix(1U);
+    }
+  }
+  if (!text.empty() && !lines.empty()) {
+    constexpr std::string_view ellipsis = "...";
+    std::string &last = lines.back();
+    const std::size_t available =
+        maxGlyphs > ellipsis.size() ? maxGlyphs - ellipsis.size() : 0U;
+    if (utf8GlyphCount(last) > available) {
+      last.resize(utf8ByteOffsetForGlyph(last, available));
+    }
+    last += ellipsis;
+  }
+  return lines;
 }
 
 [[nodiscard]] float countdownGlyphOffsetX(
@@ -2699,6 +2737,32 @@ void addHud(
   }
 
   const ChatTextLayout chatLayout = buildChatTextLayout(width, height, hud);
+  if (hud.chatHistoryHasSelection &&
+      hud.chatHistorySelectionAnchor != hud.chatHistorySelectionFocus) {
+    const std::size_t selectionBegin =
+        std::min(hud.chatHistorySelectionAnchor, hud.chatHistorySelectionFocus);
+    const std::size_t selectionEnd =
+        std::max(hud.chatHistorySelectionAnchor, hud.chatHistorySelectionFocus);
+    for (const ChatLayoutRow &row : chatLayout.rows) {
+      const std::size_t rowBegin = row.textOffset;
+      const std::size_t rowEnd = row.textOffset + row.text.size();
+      const std::size_t begin = std::max(selectionBegin, rowBegin);
+      const std::size_t end = std::min(selectionEnd, rowEnd);
+      if (begin >= end) {
+        continue;
+      }
+      const float selectionX =
+          row.x + static_cast<float>(
+                      utf8GlyphCount(row.text.substr(0U, begin - rowBegin))) *
+                      chatLayout.characterWidth;
+      const float selectionWidth =
+          static_cast<float>(
+              utf8GlyphCount(row.text.substr(begin - rowBegin, end - begin))) *
+          chatLayout.characterWidth;
+      addRect(drawList, selectionX, row.y, selectionWidth,
+              chatLayout.lineHeight, {58, 118, 188, 170});
+    }
+  }
   for (const ChatLayoutRow& row : chatLayout.rows) {
     addText(drawList, row.x, row.y, row.text, {225, 235, 245, 255}, 2.0F);
   }
@@ -2838,15 +2902,11 @@ void addHud(
   }
 }
 
-void addSettingsMenu(
-  DrawList2D& drawList,
-  int width,
-  int height,
-  const HudRenderState& hud
-) {
-  if (!hud.settingsOpen) {
-    return;
-  }
+void addOptionMenu(DrawList2D &drawList, int width, int height,
+                   std::string_view title,
+                   const std::vector<HudRenderState::SettingsMenuItem> &items,
+                   std::size_t scrollRows, int hoveredRow, int pressedRow,
+                   std::string_view footer) {
 
   addRect(
     drawList,
@@ -2857,29 +2917,22 @@ void addSettingsMenu(
     {0, 0, 0, 120}
   );
 
-  const float safeWidth = std::max(320.0F, static_cast<float>(width) - 48.0F);
-  const float safeHeight = std::max(260.0F, static_cast<float>(height) - 48.0F);
-  // A modal should read as a dedicated workspace at desktop resolution while
-  // retaining a 24 px safe margin on smaller displays.
-  const float panelWidth = std::min(safeWidth, static_cast<float>(width) * 0.75F);
-  const float rowHeight = 38.0F;
-  const float panelHeight = std::min(safeHeight, static_cast<float>(height) * 0.75F);
-  const float panelX = (static_cast<float>(width) - panelWidth) * 0.5F;
-  const float panelY = (static_cast<float>(height) - panelHeight) * 0.45F;
+  const OptionMenuLayout layout =
+      buildOptionMenuLayout(width, height, items.size(), scrollRows);
+  const float panelWidth = layout.panelWidth;
+  const float rowHeight = layout.rowHeight;
+  const float panelHeight = layout.panelHeight;
+  const float panelX = layout.panelX;
+  const float panelY = layout.panelY;
   addRect(drawList, panelX, panelY, panelWidth, panelHeight, {6, 10, 15, 238});
-  addOutline(drawList, panelX, panelY, panelWidth, panelHeight, {88, 176, 232, 255});
+  addOutline(drawList, panelX, panelY, panelWidth, panelHeight,
+             {88, 176, 232, 255});
   addRect(drawList, panelX, panelY, panelWidth, 3.0F, {255, 212, 92, 255});
 
-  addText(
-    drawList,
-    panelX + 22.0F,
-    panelY + 26.0F,
-    "SETTINGS / VIDEO",
-    {255, 226, 132, 255},
-    2.5F
-  );
+  addText(drawList, panelX + 22.0F, panelY + 26.0F, std::string(title),
+          {255, 226, 132, 255}, 2.5F);
 
-  float y = panelY + 78.0F;
+  float y = layout.firstRowY;
   constexpr float textScale = 2.25F;
   constexpr float characterWidth = kGlyphSize * textScale;
   const float labelX = panelX + 28.0F;
@@ -2887,23 +2940,20 @@ void addSettingsMenu(
   // the right of it, so changing text length never moves either control.
   const float arrowX = panelX + panelWidth - 28.0F - 9.0F * characterWidth;
   const float valueRight = arrowX - 14.0F;
-  const float footerY = panelY + panelHeight - 30.0F;
-  const std::size_t visibleRows = static_cast<std::size_t>(std::max(
-    1.0F, std::floor((footerY - y - 8.0F) / rowHeight)
-  ));
-  const std::size_t firstRow = std::min(hud.settingsScrollRows, hud.settingsItems.size());
-  const std::size_t lastRow = std::min(hud.settingsItems.size(), firstRow + visibleRows);
-  y += 0.0F;
+  const float footerY = layout.footerY;
+  const std::size_t visibleRows = layout.visibleRows;
+  const std::size_t firstRow = std::min(scrollRows, layout.maxScrollRows);
+  const std::size_t lastRow = std::min(items.size(), firstRow + visibleRows);
   for (std::size_t index = firstRow; index < lastRow; ++index) {
-    const HudRenderState::SettingsMenuItem& item = hud.settingsItems[index];
+    const HudRenderState::SettingsMenuItem &item = items[index];
     const RenderColor labelColor = item.active
       ? RenderColor{255, 244, 184, 255}
       : RenderColor{214, 226, 238, 255};
     const RenderColor valueColor = item.changed
       ? RenderColor{255, 210, 95, 255}
       : RenderColor{156, 214, 242, 255};
-    const bool hovered = static_cast<int>(index) == hud.settingsHoveredRow;
-    const bool pressed = static_cast<int>(index) == hud.settingsPressedRow;
+    const bool hovered = static_cast<int>(index) == hoveredRow;
+    const bool pressed = static_cast<int>(index) == pressedRow;
     if (item.active || hovered) {
       addRect(
         drawList,
@@ -2934,28 +2984,47 @@ void addSettingsMenu(
     y += rowHeight;
   }
 
-  if (hud.settingsItems.size() > visibleRows) {
-    const float trackHeight = footerY - (panelY + 64.0F) - 8.0F;
-    const float thumbHeight = std::max(18.0F, trackHeight *
-      static_cast<float>(visibleRows) / static_cast<float>(hud.settingsItems.size()));
-    const float travel = std::max(0.0F, trackHeight - thumbHeight);
-    const std::size_t maxScroll = hud.settingsItems.size() - visibleRows;
-    const float progress = maxScroll == 0U ? 0.0F :
-      static_cast<float>(std::min(hud.settingsScrollRows, maxScroll)) / static_cast<float>(maxScroll);
-    addRect(drawList, panelX + panelWidth - 11.0F, panelY + 64.0F, 3.0F, trackHeight, {56, 80, 96, 220});
-    addRect(drawList, panelX + panelWidth - 12.0F, panelY + 64.0F + travel * progress, 5.0F, thumbHeight, {120, 202, 238, 255});
+  if (items.size() > visibleRows) {
+    addRect(drawList, layout.scrollbarTrackX, layout.scrollbarTrackY,
+            layout.scrollbarTrackWidth, layout.scrollbarTrackHeight,
+            {56, 80, 96, 220});
+    addRect(drawList, layout.scrollbarThumbX, layout.scrollbarThumbY,
+            layout.scrollbarThumbWidth, layout.scrollbarThumbHeight,
+            {120, 202, 238, 255});
   }
 
-  if (!hud.settingsFooter.empty()) {
-    addText(
-      drawList,
-      panelX + 22.0F,
-      footerY,
-      hud.settingsFooter,
-      {174, 190, 204, 255},
-      1.5F
-    );
+  if (!footer.empty()) {
+    constexpr float footerScale = 2.0F;
+    constexpr float footerLineHeight = 18.0F;
+    const float footerWidth = std::max(1.0F, panelWidth - 44.0F);
+    const std::size_t footerColumns = static_cast<std::size_t>(
+        std::max(1.0F, std::floor(footerWidth /
+                                  (kGlyphSize *
+                                   snappedTextScale(footerScale)))));
+    const std::vector<std::string> footerLines =
+        wrapOptionMenuFooter(footer, footerColumns);
+    float lineY =
+        footerY - (footerLines.size() > 1U ? 8.0F : 0.0F);
+    for (const std::string &line : footerLines) {
+      addText(drawList, panelX + 22.0F, lineY, line,
+              {174, 190, 204, 255}, footerScale);
+      lineY += footerLineHeight;
+    }
   }
+}
+
+void addSettingsMenu(DrawList2D &drawList, int width, int height,
+                     const HudRenderState &hud) {
+  addOptionMenu(drawList, width, height, "SETTINGS / VIDEO", hud.settingsItems,
+                hud.settingsScrollRows, hud.settingsHoveredRow,
+                hud.settingsPressedRow, hud.settingsFooter);
+}
+
+void addMiscMenu(DrawList2D &drawList, int width, int height,
+                 const HudRenderState &hud) {
+  addOptionMenu(drawList, width, height, "TOOLS / DEBUG", hud.miscMenuItems,
+                hud.miscMenuScrollRows, hud.miscMenuHoveredRow,
+                hud.miscMenuPressedRow, hud.miscMenuFooter);
 }
 
 void addConsole(
@@ -3104,45 +3173,56 @@ void addConsole(
       if (begin >= end) {
         continue;
       }
-      const float x =
-        line.x + static_cast<float>(begin - lineBegin) * layout.characterWidth;
-      addRect(
-        drawList,
-        x,
-        line.y,
-        static_cast<float>(end - begin) * layout.characterWidth,
-        layout.lineHeight,
-        {58, 118, 188, 170}
-      );
+      const float x = line.x + static_cast<float>(utf8GlyphCount(
+                                   line.text.substr(0U, begin - lineBegin))) *
+                                   layout.characterWidth;
+      addRect(drawList, x, line.y,
+              static_cast<float>(utf8GlyphCount(
+                  line.text.substr(begin - lineBegin, end - begin))) *
+                  layout.characterWidth,
+              layout.lineHeight, {58, 118, 188, 170});
+    }
+  }
+  if (console.inputHasSelection &&
+      console.inputSelectionAnchor != console.inputSelectionFocus) {
+
+    const std::size_t selectionBegin =
+        std::min(console.inputSelectionAnchor, console.inputSelectionFocus);
+    const std::size_t selectionEnd = std::min(
+        std::max(console.inputSelectionAnchor, console.inputSelectionFocus),
+        console.input.size());
+    for (const ConsoleLayoutLine &line : layout.lines) {
+      if (!line.prompt) {
+        continue;
+      }
+      const std::size_t begin = std::max(selectionBegin, line.inputBegin);
+      const std::size_t end = std::min(selectionEnd, line.inputEnd);
+      if (begin >= end) {
+        continue;
+      }
+      const float selectionX =
+          line.x +
+          static_cast<float>(line.contentColumn +
+                             utf8GlyphCount(console.input.substr(
+                                 line.inputBegin, begin - line.inputBegin))) *
+              layout.characterWidth;
+      const float selectionWidth =
+          static_cast<float>(
+              utf8GlyphCount(console.input.substr(begin, end - begin))) *
+          layout.characterWidth;
+      addRect(drawList, selectionX, line.y, selectionWidth, layout.lineHeight,
+              {58, 118, 188, 170});
     }
   }
 
-  const std::size_t clampedCursor =
-    std::min(console.cursorIndex, console.input.size());
-  const std::size_t promptCursorOffset = 2U + clampedCursor;
-  std::size_t promptBaseOffset = layout.text.size();
-  for (const ConsoleLayoutLine& line : layout.lines) {
-    if (line.prompt) {
-      promptBaseOffset = line.textOffset;
-      break;
-    }
-  }
-  const std::size_t cursorTextOffset =
-    std::min(promptBaseOffset + promptCursorOffset, layout.text.size());
-  bool cursorDrawn = false;
-  for (std::size_t index = 0; index < layout.lines.size(); ++index) {
-    const ConsoleLayoutLine& line = layout.lines[index];
+  const ScreenPoint cursor =
+      consoleInputCursorPosition(layout, console.input, console.cursorIndex);
+  for (const ConsoleLayoutLine &line : layout.lines) {
     std::string text = line.text;
-    if (line.prompt) {
-      const std::size_t lineBegin = line.textOffset;
-      const std::size_t lineEnd = line.textOffset + line.text.size();
-      if (cursorTextOffset >= lineBegin && cursorTextOffset <= lineEnd) {
-        text.insert(cursorTextOffset - lineBegin, 1U, '_');
-        cursorDrawn = true;
-      } else if (!cursorDrawn && index + 1U == layout.lines.size()) {
-        text.push_back('_');
-        cursorDrawn = true;
-      }
+    if (line.prompt && std::abs(line.y - cursor.y) < 0.01F) {
+      const auto cursorColumn = static_cast<std::size_t>(
+          std::round((cursor.x - line.x) / layout.characterWidth));
+      text.insert(utf8ByteOffsetForGlyph(text, cursorColumn), 1U, '_');
     }
     addText(
       drawList,
@@ -3153,7 +3233,6 @@ void addConsole(
       textScale
     );
   }
-
 }
 
 } // namespace
@@ -3773,6 +3852,10 @@ DrawList2D buildScreenUi(
   // visual layer and input until it closes.
   if (hud.settingsOpen) {
     addSettingsMenu(drawList, outputWidth, outputHeight, hud);
+    return drawList;
+  }
+  if (hud.miscMenuOpen) {
+    addMiscMenu(drawList, outputWidth, outputHeight, hud);
     return drawList;
   }
   if (hud.deathDesaturation > 0.0F) {

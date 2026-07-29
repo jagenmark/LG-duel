@@ -9,6 +9,8 @@ attestation, attachment, ownership, and cleanup rules.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import copy
 import hashlib
 import json
 import os
@@ -18,6 +20,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -516,17 +519,126 @@ def verify_control_status(
     return enriched
 
 
-def _read_state() -> dict[str, Any] | None:
+def _read_state(*, fail_on_corrupt: bool = False) -> dict[str, Any] | None:
     try:
         value = json.loads(STATE_PATH.read_text(encoding="utf-8-sig"))
-        return value if isinstance(value, dict) else None
-    except (OSError, json.JSONDecodeError):
+        if isinstance(value, dict):
+            return value
+        if fail_on_corrupt:
+            raise LaunchError(
+                f"launcher state is corrupt: '{STATE_PATH}' is not an object"
+            )
+        return None
+    except FileNotFoundError:
+        return None
+    except (OSError, json.JSONDecodeError) as error:
+        if fail_on_corrupt:
+            raise LaunchError(
+                f"launcher state is corrupt or unreadable: '{STATE_PATH}': "
+                f"{error}"
+            ) from error
         return None
 
 
+_LIFECYCLE_THREAD_LOCK = threading.RLock()
+_LIFECYCLE_LOCAL = threading.local()
+
+
+def _try_file_lock(lock_file: Any) -> bool:
+    lock_file.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        try:
+            msvcrt.locking(lock_file.fileno(), msvcrt.LK_NBLCK, 1)
+            return True
+        except OSError:
+            return False
+    import fcntl
+
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def _unlock_file(lock_file: Any) -> None:
+    lock_file.seek(0)
+    if os.name == "nt":
+        import msvcrt
+
+        msvcrt.locking(lock_file.fileno(), msvcrt.LK_UNLCK, 1)
+        return
+    import fcntl
+
+    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+
+
+@contextlib.contextmanager
+def _lifecycle_lock(timeout: float = 0.25) -> Any:
+    """Serialize state repair and start/stop changes across processes."""
+    depth = int(getattr(_LIFECYCLE_LOCAL, "depth", 0))
+    if depth:
+        _LIFECYCLE_LOCAL.depth = depth + 1
+        try:
+            yield
+        finally:
+            _LIFECYCLE_LOCAL.depth = depth
+        return
+    if not _LIFECYCLE_THREAD_LOCK.acquire(timeout=timeout):
+        raise LaunchError("lifecycle_busy: another launcher change is active")
+    lock_file = None
+    locked = False
+    try:
+        lock_path = STATE_PATH.with_name("lifecycle.lock")
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_file = lock_path.open("a+b")
+        if lock_file.seek(0, os.SEEK_END) == 0:
+            lock_file.write(b"\0")
+            lock_file.flush()
+        deadline = time.monotonic() + timeout
+        while not locked:
+            locked = _try_file_lock(lock_file)
+            if locked:
+                break
+            if time.monotonic() >= deadline:
+                raise LaunchError(
+                    "lifecycle_busy: another launcher change is active"
+                )
+            time.sleep(0.02)
+        _LIFECYCLE_LOCAL.depth = 1
+        # Lifecycle commands may delete or replace state. Do not treat broken
+        # state as absent and overwrite the only ownership record.
+        _read_state(fail_on_corrupt=True)
+        yield
+    finally:
+        _LIFECYCLE_LOCAL.depth = 0
+        if locked and lock_file is not None:
+            try:
+                _unlock_file(lock_file)
+            except OSError:
+                pass
+        if lock_file is not None:
+            lock_file.close()
+        _LIFECYCLE_THREAD_LOCK.release()
+
+
 def _write_state(value: dict[str, Any]) -> None:
-    STATE_DIR.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    temporary = STATE_PATH.with_name(
+        f".{STATE_PATH.name}.{os.getpid()}.{time.monotonic_ns()}.tmp"
+    )
+    try:
+        temporary.write_text(
+            json.dumps(value, indent=2) + "\n", encoding="utf-8"
+        )
+        os.replace(temporary, STATE_PATH)
+    finally:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
 
 
 def _process_path(pid: int) -> str | None:
@@ -609,48 +721,71 @@ def _entry_matches(entry: dict[str, Any]) -> bool:
     try:
         pid = int(entry.get("pid", 0))
         expected = str(entry.get("path", ""))
+        expected_created = entry.get("creation_time")
+        if isinstance(expected_created, bool):
+            return False
+        expected_created = int(expected_created)
     except (TypeError, ValueError):
         return False
     actual = _process_path(pid)
-    return bool(actual and expected and _normalized(actual) == _normalized(expected))
-
-
-def _terminate_entry(entry: dict[str, Any]) -> bool:
-    if not entry.get("owned") or not _entry_matches(entry):
-        return False
-    try:
-        os.kill(int(entry["pid"]), signal.SIGTERM)
-    except (OSError, ProcessLookupError, ValueError):
-        return False
-    # Cleanup counts only a confirmed exit. A live child can taint the next
-    # benchmark even when the first termination signal succeeded.
-    deadline = time.monotonic() + 5.0
-    while time.monotonic() < deadline:
-        if not _entry_matches(entry):
-            return True
-        time.sleep(0.05)
-    force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
-    try:
-        os.kill(int(entry["pid"]), force_signal)
-    except (OSError, ProcessLookupError, ValueError):
-        return not _entry_matches(entry)
-    deadline = time.monotonic() + 2.0
-    while time.monotonic() < deadline:
-        if not _entry_matches(entry):
-            return True
-        time.sleep(0.05)
-    return False
+    actual_created = _process_creation_time(pid)
+    return bool(
+        actual
+        and expected
+        and expected_created > 0
+        and actual_created == expected_created
+        and _normalized(actual) == _normalized(expected)
+    )
 
 
 def cleanup_owned(state: dict[str, Any] | None) -> list[str]:
-    stopped: list[str] = []
     if not state:
-        return stopped
+        return []
+    verified: dict[str, dict[str, Any]] = {}
     for name in ("client", "server"):
         entry = state.get(name)
-        if isinstance(entry, dict) and _terminate_entry(entry):
-            stopped.append(name)
-    return stopped
+        if (
+            isinstance(entry, dict)
+            and entry.get("owned") is True
+            and _entry_matches(entry)
+        ):
+            verified[name] = entry
+    if not verified:
+        return []
+
+    for entry in verified.values():
+        try:
+            os.kill(int(entry["pid"]), signal.SIGTERM)
+        except (OSError, ProcessLookupError, ValueError):
+            pass
+
+    def survivors() -> dict[str, dict[str, Any]]:
+        return {
+            name: entry
+            for name, entry in verified.items()
+            if _entry_matches(entry)
+        }
+
+    deadline = time.monotonic() + 5.0
+    live = survivors()
+    while live and time.monotonic() < deadline:
+        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+        live = survivors()
+
+    force_signal = getattr(signal, "SIGKILL", signal.SIGTERM)
+    for entry in live.values():
+        try:
+            os.kill(int(entry["pid"]), force_signal)
+        except (OSError, ProcessLookupError, ValueError):
+            pass
+    force_deadline = time.monotonic() + 2.0
+    live = survivors()
+    while live and time.monotonic() < force_deadline:
+        time.sleep(
+            min(0.05, max(0.0, force_deadline - time.monotonic()))
+        )
+        live = survivors()
+    return [name for name in verified if name not in live]
 
 
 def _tail(path: Path, limit: int = 30) -> str:
@@ -975,10 +1110,259 @@ def _existing_server_entry(server_exe: Path) -> dict[str, Any] | None:
     return None
 
 
+def _owned_process_entry(
+    process: subprocess.Popen[str], executable: Path
+) -> dict[str, Any]:
+    created = _process_creation_time(process.pid)
+    if not isinstance(created, int) or isinstance(created, bool) or created <= 0:
+        raise LaunchError(
+            f"could not record the creation time for started process {process.pid}"
+        )
+    return {
+        "pid": process.pid,
+        "owned": True,
+        "path": str(executable),
+        "creation_time": created,
+    }
+
+
+def _stop_spawned_process(process: subprocess.Popen[str] | None) -> None:
+    """Stop an exact child handle that this launcher just created."""
+    if process is None or process.poll() is not None:
+        return
+    try:
+        process.terminate()
+        process.wait(timeout=5.0)
+    except (OSError, subprocess.TimeoutExpired):
+        try:
+            process.kill()
+            process.wait(timeout=2.0)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+
+
+def _readiness_issues(status: dict[str, Any]) -> list[str]:
+    issues: list[str] = []
+    if status.get("control_protocol") != 1:
+        issues.append("control_protocol is not 1")
+    for field in ("client_running", "server_running", "connected"):
+        if status.get(field) is not True:
+            issues.append(f"{field} is not true")
+    map_name = status.get("map")
+    if not isinstance(map_name, str) or not map_name.strip():
+        issues.append("map is empty")
+    revision = status.get("map_revision")
+    if (
+        isinstance(revision, bool)
+        or not isinstance(revision, int)
+        or revision <= 0
+    ):
+        issues.append("map_revision is not a positive integer")
+    return issues
+
+
+def _wait_for_ready_status(
+    *,
+    initial_status: dict[str, Any] | None,
+    deadline: float,
+    control_port: int,
+    renderer: str,
+    selection: dict[str, Any] | None,
+    allow_fallback: bool,
+    benchmark: bool,
+    client_process: subprocess.Popen[str] | None = None,
+) -> dict[str, Any]:
+    saw_response = False
+    last_issues: list[str] = []
+
+    def check(raw: dict[str, Any]) -> dict[str, Any] | None:
+        nonlocal saw_response, last_issues
+        saw_response = True
+        actual_renderer = raw.get("renderer")
+        if isinstance(actual_renderer, str) and actual_renderer:
+            renderer_wrong = (
+                renderer == "gpu" and actual_renderer != GPU_RENDERER
+            ) or (
+                renderer == "fallback"
+                and not actual_renderer.startswith(FALLBACK_PREFIX)
+            )
+            if renderer_wrong:
+                # A named wrong renderer will not become the requested one as
+                # the rest of startup completes.
+                verify_control_status(
+                    raw,
+                    requested_renderer=renderer,
+                    selection=selection,
+                    allow_fallback=allow_fallback,
+                )
+        last_issues = _readiness_issues(raw)
+        if not isinstance(actual_renderer, str) or not actual_renderer:
+            last_issues.append("renderer is empty")
+        if last_issues:
+            return None
+        if benchmark and raw.get("benchmark_enabled") is not True:
+            raise LaunchError(
+                "client started without the required --benchmark option"
+            )
+        if renderer == "gpu" and selection is not None:
+            attestation_fields = {
+                "gpu_name": selection.get("gpu_name"),
+                "graphics_driver_version": selection.get(
+                    "graphics_driver_version"
+                ),
+                "vulkan_api_version": selection.get("vulkan_api_version"),
+                "vulkan_icd_path": selection.get("icd_path"),
+                "vulkan_icd_sha256": selection.get("icd_sha256"),
+            }
+            for field, expected in attestation_fields.items():
+                if expected not in (None, "") and raw.get(field) in (None, ""):
+                    last_issues.append(f"{field} is empty")
+            if raw.get("software_renderer") is None:
+                last_issues.append("software_renderer is empty")
+            if last_issues:
+                return None
+        return verify_control_status(
+            raw,
+            requested_renderer=renderer,
+            selection=selection,
+            allow_fallback=allow_fallback,
+        )
+
+    if initial_status is not None:
+        verified = check(initial_status)
+        if verified is not None:
+            return verified
+
+    while time.monotonic() < deadline:
+        if client_process is not None and client_process.poll() is not None:
+            break
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        try:
+            raw = send_request(
+                "status",
+                port=control_port,
+                timeout=max(0.001, min(2.0, remaining)),
+            )
+        except ControlError:
+            raw = None
+        if raw is not None:
+            verified = check(raw)
+            if verified is not None:
+                return verified
+        remaining = deadline - time.monotonic()
+        if remaining > 0:
+            time.sleep(min(0.25, remaining))
+
+    if saw_response:
+        detail = ", ".join(last_issues) or "readiness fields stayed incomplete"
+        raise LaunchError(
+            "development-control client replied but did not become ready before "
+            f"the startup deadline: {detail}"
+        )
+    raise LaunchError(
+        "development-control client did not answer before the startup deadline"
+    )
+
+
+def _has_matching_owned_process(state: dict[str, Any]) -> bool:
+    return any(
+        isinstance(entry, dict)
+        and entry.get("owned") is True
+        and _entry_matches(entry)
+        for entry in (state.get("client"), state.get("server"))
+    )
+
+
+def _matching_owned_processes(state: dict[str, Any]) -> list[str]:
+    return [
+        name
+        for name in ("client", "server")
+        if isinstance((entry := state.get(name)), dict)
+        and entry.get("owned") is True
+        and _entry_matches(entry)
+    ]
+
+
+def _unverified_live_owned_processes(state: dict[str, Any]) -> list[str]:
+    unverified: list[str] = []
+    for name in ("client", "server"):
+        entry = state.get(name)
+        if not isinstance(entry, dict) or entry.get("owned") is not True:
+            continue
+        try:
+            pid = int(entry.get("pid", 0))
+            expected_path = str(entry.get("path", ""))
+        except (TypeError, ValueError):
+            continue
+        actual_path = _process_path(pid)
+        if actual_path is None:
+            if _process_running(pid):
+                unverified.append(name)
+            continue
+        if (
+            not expected_path
+            or _normalized(actual_path) != _normalized(expected_path)
+        ):
+            continue
+        expected_created = entry.get("creation_time")
+        if (
+            isinstance(expected_created, bool)
+            or not isinstance(expected_created, int)
+            or expected_created <= 0
+        ):
+            unverified.append(name)
+            continue
+        if _process_creation_time(pid) is None:
+            unverified.append(name)
+    return unverified
+
+
+def _clear_state_if_same(expected: dict[str, Any]) -> bool:
+    if _read_state() != expected:
+        return False
+    try:
+        STATE_PATH.unlink()
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _state_uses_control_port(
+    state: dict[str, Any] | None, control_port: int
+) -> bool:
+    if not isinstance(state, dict):
+        return False
+    try:
+        return int(state.get("control_port", -1)) == control_port
+    except (TypeError, ValueError):
+        return False
+
+
+def _state_is_benchmark_session(state: dict[str, Any]) -> bool:
+    if state.get("benchmark") is True:
+        return True
+    launch = state.get("launch")
+    return isinstance(launch, dict) and (
+        launch.get("benchmark") is True
+        or launch.get("benchmark_enabled") is True
+    )
+
+
 def status_with_state(*, port: int = 27961, timeout: float = 2.0) -> dict[str, Any]:
     status = send_request("status", port=port, timeout=timeout)
     state = _read_state()
-    if state and int(state.get("control_port", -1)) == port:
+    client_entry = state.get("client") if isinstance(state, dict) else None
+    if (
+        _state_uses_control_port(state, port)
+        and state.get("phase") == "ready"
+        and isinstance(client_entry, dict)
+        and client_entry.get("owned") is True
+        and _entry_matches(client_entry)
+    ):
         launch = state.get("launch", {})
         if isinstance(launch, dict):
             requested = str(launch.get("requested_renderer", "gpu"))
@@ -1024,7 +1408,7 @@ def status_with_state(*, port: int = 27961, timeout: float = 2.0) -> dict[str, A
     return status
 
 
-def ensure_client(
+def _ensure_client_unlocked(
     *,
     renderer: str = "gpu",
     allow_fallback: bool = False,
@@ -1037,6 +1421,8 @@ def ensure_client(
 ) -> dict[str, Any]:
     if renderer not in {"gpu", "fallback"}:
         raise LaunchError("renderer must be 'gpu' or 'fallback'")
+    if timeout <= 0:
+        raise LaunchError("startup timeout must be greater than zero")
     if renderer == "fallback" and not allow_fallback:
         # The renderer spelling itself is the PowerShell opt-in; normalize it
         # to the same explicit flag used by MCP callers.
@@ -1049,21 +1435,31 @@ def ensure_client(
         else resolve_vulkan_selection() if renderer == "gpu"
         else None
     )
+    deadline = time.monotonic() + timeout
     try:
-        raw = send_request("status", port=control_port, timeout=min(timeout, 2.0))
+        raw = send_request(
+            "status", port=control_port, timeout=max(0.001, min(timeout, 2.0))
+        )
     except ControlError:
         raw = None
     if raw is not None:
+        if raw.get("benchmark_enabled") is True and not benchmark:
+            raise LaunchError(
+                "the active development-control client is reserved for benchmarking; "
+                "only status inspection is safe until that session ends"
+            )
         if build_dir is not None:
             state = _read_state()
             client_entry = state.get("client") if state else None
             server_entry = state.get("server") if state else None
             client_matches = isinstance(client_entry, dict) and (
                 Path(str(client_entry.get("path", ""))).resolve() == client_exe.resolve()
+                and _entry_matches(client_entry)
             )
             server_matches = not manage_server or (
                 isinstance(server_entry, dict) and
                 Path(str(server_entry.get("path", ""))).resolve() == server_exe.resolve()
+                and _entry_matches(server_entry)
             )
             if not client_matches or not server_matches:
                 raise LaunchError(
@@ -1071,16 +1467,16 @@ def ensure_client(
                     f"benchmark build directory '{launch_build_dir}'; stop it before benchmarking"
                 )
         try:
-            verified = verify_control_status(
-                raw, requested_renderer=renderer, selection=selection, allow_fallback=allow_fallback
+            verified = _wait_for_ready_status(
+                initial_status=raw,
+                deadline=deadline,
+                control_port=control_port,
+                renderer=renderer,
+                selection=selection,
+                allow_fallback=allow_fallback,
+                benchmark=benchmark,
             )
-            if benchmark and not raw.get("benchmark_enabled", False):
-                raise LaunchError("the existing development-control client was not launched with --benchmark")
         except LaunchError as error:
-            state = _read_state()
-            cleanup_owned(state)
-            if state and STATE_PATH.exists():
-                STATE_PATH.unlink()
             stderr = _tail(STATE_DIR / "client.stderr.log")
             icd = "none" if selection is None else (
                 f"{selection.get('icd_path')} sha256={selection.get('icd_sha256')}"
@@ -1088,17 +1484,70 @@ def ensure_client(
             raise LaunchError(
                 f"{error}\nSelected ICD: {icd}\nVulkan/client errors:\n{stderr or '(none recorded)'}"
             ) from error
-        state = _read_state() or {
-            "server": {"pid": 0, "owned": False, "path": ""},
-            "client": {"pid": 0, "owned": False, "path": ""},
-            "server_port": server_port,
-            "control_port": control_port,
-        }
-        state["launch"] = verified
-        _write_state(state)
+        old_state = _read_state()
+        client_entry = old_state.get("client") if old_state else None
+        state_is_verified = (
+            isinstance(old_state, dict)
+            and _state_uses_control_port(old_state, control_port)
+            and isinstance(client_entry, dict)
+            and client_entry.get("owned") is True
+            and _entry_matches(client_entry)
+        )
+        if state_is_verified:
+            old_state["phase"] = "ready"
+            old_state["launch"] = verified
+            _write_state(old_state)
+            verified["process_state_updated"] = True
+            verified["process_state_verification"] = "verified-owned-client"
+        else:
+            # A socket reply proves the endpoint, not process ownership.
+            # Keep absent, stale, and unrelated launcher state unchanged.
+            verified["process_state_updated"] = False
+            verified["process_state_verification"] = "unverified-attachment"
         verified["client_executable"] = str(client_exe)
         verified["build_directory"] = str(launch_build_dir)
         return verified
+
+    saved_state = _read_state()
+    if isinstance(saved_state, dict):
+        matching = _matching_owned_processes(saved_state)
+        unverified = _unverified_live_owned_processes(saved_state)
+        if unverified:
+            raise LaunchError(
+                "launcher state contains live owned process entries whose identity "
+                f"cannot be verified: {', '.join(unverified)}; state was preserved"
+            )
+        if matching:
+            if _state_is_benchmark_session(saved_state):
+                raise LaunchError(
+                    "saved launcher state tracks a live benchmark session, "
+                    "but its status probe failed; state and processes were "
+                    "preserved"
+                )
+            if not _state_uses_control_port(saved_state, control_port):
+                raise LaunchError(
+                    "launcher state tracks live owned processes for another control "
+                    f"port: {', '.join(matching)}; state was preserved"
+                )
+            cleanup_owned(saved_state)
+            remaining = _matching_owned_processes(saved_state)
+            unverified_after_cleanup = _unverified_live_owned_processes(
+                saved_state
+            )
+            if remaining or unverified_after_cleanup:
+                detail = remaining + [
+                    f"{name} (unverified)"
+                    for name in unverified_after_cleanup
+                ]
+                raise LaunchError(
+                    "verified owned session did not stop completely before relaunch: "
+                    f"{', '.join(detail)}; state was preserved"
+                )
+            if not _clear_state_if_same(saved_state):
+                raise LaunchError(
+                    "launcher state changed during owned-session recovery; "
+                    "no replacement client was started"
+                )
 
     if not client_exe.is_file() or (manage_server and not server_exe.is_file()):
         required = "client and server" if manage_server else "client"
@@ -1122,62 +1571,151 @@ def ensure_client(
 
     server_entry = _existing_server_entry(server_exe)
     server_process: subprocess.Popen[str] | None = None
+    client_process: subprocess.Popen[str] | None = None
+    start_server = server_entry is None and manage_server
     if server_entry is None:
-        if manage_server:
+        server_entry = {
+            "pid": 0,
+            "owned": False,
+            "path": str(server_exe),
+            "creation_time": None,
+            "pending_launch": bool(manage_server),
+        }
+    client_entry: dict[str, Any] = {
+        "pid": 0,
+        "owned": False,
+        "path": str(client_exe),
+        "creation_time": None,
+        "pending_launch": True,
+    }
+    pending_state = {
+        "server": server_entry,
+        "client": client_entry,
+        "server_port": server_port,
+        "control_port": control_port,
+        "benchmark": benchmark,
+        "phase": "starting",
+    }
+    last_recorded_state: dict[str, Any] | None = None
+
+    def checkpoint_starting_state() -> None:
+        nonlocal last_recorded_state
+        snapshot = copy.deepcopy(pending_state)
+        _write_state(snapshot)
+        last_recorded_state = snapshot
+
+    try:
+        # Write intent before each spawn, then replace it with exact PID,
+        # executable, and creation-time data before moving to the next child.
+        checkpoint_starting_state()
+        if start_server:
             server_process = _launch_process(
                 server_exe, [str(server_port)], STATE_DIR / "server.stdout.log",
                 STATE_DIR / "server.stderr.log", environment, launch_build_dir,
             )
-            server_entry = {"pid": server_process.pid, "owned": True, "path": str(server_exe)}
-        else:
-            # The separate server batch owns this process. Record that boundary
-            # so rejection and stop paths can never terminate it.
-            server_entry = {"pid": 0, "owned": False, "path": str(server_exe)}
-    client_arguments = ["127.0.0.1", str(server_port), "--dev-control", "--control-port", str(control_port)]
-    if benchmark:
-        client_arguments.append("--benchmark")
-    client_process = _launch_process(
-        client_exe, client_arguments, STATE_DIR / "client.stdout.log",
-        STATE_DIR / "client.stderr.log", environment, launch_build_dir,
-    )
-    pending_state = {
-        "server": server_entry,
-        "client": {"pid": client_process.pid, "owned": True, "path": str(client_exe)},
-        "server_port": server_port,
-        "control_port": control_port,
-        "benchmark": benchmark,
-    }
-    deadline = time.monotonic() + timeout
-    raw = None
-    while time.monotonic() < deadline:
-        if client_process.poll() is not None:
-            break
-        try:
-            raw = send_request("status", port=control_port, timeout=min(2.0, max(0.25, deadline - time.monotonic())))
-            break
-        except ControlError:
-            time.sleep(0.25)
-    try:
-        if raw is None:
-            raise LaunchError("development-control client did not answer before the startup deadline")
-        verified = verify_control_status(
-            raw, requested_renderer=renderer, selection=selection, allow_fallback=allow_fallback
+            server_entry = _owned_process_entry(server_process, server_exe)
+            pending_state["server"] = server_entry
+            checkpoint_starting_state()
+        client_arguments = [
+            "127.0.0.1", str(server_port), "--dev-control",
+            "--control-port", str(control_port),
+        ]
+        if benchmark:
+            client_arguments.append("--benchmark")
+        client_process = _launch_process(
+            client_exe, client_arguments, STATE_DIR / "client.stdout.log",
+            STATE_DIR / "client.stderr.log", environment, launch_build_dir,
         )
-        if benchmark and not raw.get("benchmark_enabled", False):
-            raise LaunchError("client started without the required --benchmark option")
+        client_entry = _owned_process_entry(client_process, client_exe)
+        pending_state["client"] = client_entry
+        checkpoint_starting_state()
+    except (LaunchError, OSError) as error:
+        _stop_spawned_process(client_process)
+        _stop_spawned_process(server_process)
+        fresh_state = {
+            "client": client_entry,
+            "server": (
+                server_entry if server_process is not None
+                else {"pid": 0, "owned": False, "path": str(server_exe)}
+            ),
+        }
+        if (
+            last_recorded_state is not None
+            and not _has_matching_owned_process(fresh_state)
+        ):
+            _clear_state_if_same(last_recorded_state)
+        raise LaunchError(f"failed to start verified LG Duel processes: {error}") from error
+    try:
+        verified = _wait_for_ready_status(
+            initial_status=None,
+            deadline=deadline,
+            control_port=control_port,
+            renderer=renderer,
+            selection=selection,
+            allow_fallback=allow_fallback,
+            benchmark=benchmark,
+            client_process=client_process,
+        )
     except LaunchError as error:
-        cleanup_owned(pending_state)
+        fresh_state = {
+            "client": client_entry,
+            "server": (
+                server_entry if server_process is not None
+                else {"pid": 0, "owned": False, "path": str(server_exe)}
+            ),
+        }
+        cleanup_owned(fresh_state)
+        if (
+            last_recorded_state is not None
+            and not _has_matching_owned_process(fresh_state)
+        ):
+            _clear_state_if_same(last_recorded_state)
         stderr = _tail(STATE_DIR / "client.stderr.log")
         icd = "none" if selection is None else f"{selection.get('icd_path')} sha256={selection.get('icd_sha256')}"
         raise LaunchError(f"{error}\nSelected ICD: {icd}\nVulkan/client errors:\n{stderr or '(none recorded)'}") from error
+    pending_state["phase"] = "ready"
     pending_state["launch"] = verified
-    _write_state(pending_state)
+    try:
+        _write_state(pending_state)
+    except OSError as error:
+        _stop_spawned_process(client_process)
+        _stop_spawned_process(server_process)
+        if (
+            last_recorded_state is not None
+            and not _has_matching_owned_process(pending_state)
+        ):
+            _clear_state_if_same(last_recorded_state)
+        raise LaunchError(f"could not record ready process state: {error}") from error
     verified["client_executable"] = str(client_exe)
     verified["build_directory"] = str(launch_build_dir)
     return verified
 
 
-def stop_owned() -> dict[str, Any]:
+def ensure_client(
+    *,
+    renderer: str = "gpu",
+    allow_fallback: bool = False,
+    benchmark: bool = False,
+    manage_server: bool = True,
+    server_port: int = 27960,
+    control_port: int = 27961,
+    timeout: float = 20.0,
+    build_dir: Path | None = None,
+) -> dict[str, Any]:
+    with _lifecycle_lock():
+        return _ensure_client_unlocked(
+            renderer=renderer,
+            allow_fallback=allow_fallback,
+            benchmark=benchmark,
+            manage_server=manage_server,
+            server_port=server_port,
+            control_port=control_port,
+            timeout=timeout,
+            build_dir=build_dir,
+        )
+
+
+def _stop_owned_unlocked() -> dict[str, Any]:
     state = _read_state()
     stopped = cleanup_owned(state)
     remaining = []
@@ -1190,17 +1728,38 @@ def stop_owned() -> dict[str, Any]:
                 and _entry_matches(entry)
             ):
                 remaining.append(name)
-    if not remaining and STATE_PATH.exists():
-        STATE_PATH.unlink()
+    unverified = (
+        _unverified_live_owned_processes(state)
+        if isinstance(state, dict)
+        else []
+    )
+    if (
+        isinstance(state, dict)
+        and not remaining
+        and not unverified
+        and STATE_PATH.exists()
+    ):
+        state_clear_failed = not _clear_state_if_same(state)
+    else:
+        state_clear_failed = False
+    state_preserved = bool(remaining or unverified or state_clear_failed)
     return {
         "stopped": stopped,
-        "left_owned_running": bool(remaining),
-        "left_unowned_running": bool(remaining),
+        "left_owned_running": bool(remaining or unverified),
+        "left_unowned_running": False,
         "remaining": remaining,
+        "unverified_owned": unverified,
+        "state_preserved": state_preserved,
+        "state_clear_failed": state_clear_failed,
     }
 
 
-def restart_owned(
+def stop_owned() -> dict[str, Any]:
+    with _lifecycle_lock():
+        return _stop_owned_unlocked()
+
+
+def _restart_owned_unlocked(
     *, renderer: str = "gpu", allow_fallback: bool = False, timeout: float = 20.0
 ) -> dict[str, Any]:
     state = _read_state()
@@ -1235,6 +1794,17 @@ def restart_owned(
         timeout=timeout,
     )
     return {"stopped": stopped, "status": status}
+
+
+def restart_owned(
+    *, renderer: str = "gpu", allow_fallback: bool = False, timeout: float = 20.0
+) -> dict[str, Any]:
+    with _lifecycle_lock():
+        return _restart_owned_unlocked(
+            renderer=renderer,
+            allow_fallback=allow_fallback,
+            timeout=timeout,
+        )
 
 
 def build_parser() -> argparse.ArgumentParser:

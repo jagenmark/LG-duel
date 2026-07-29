@@ -78,6 +78,9 @@ run the command directly; do not focus the game and inject F10:
 python .\scripts\lg_control.py --port 28061 --timeout 5 exec-console settings
 ```
 
+F11 is bound to the `misc` console command. It opens the tools and debug menu.
+The default config does not bind a quit key.
+
 Use `exec-console toggleconsole` only when testing the console UI itself. It
 does not make key injection safer or needed.
 
@@ -337,10 +340,72 @@ and camera, `lg_exec_console`, `lg_get_cvar`, `lg_set_cvar`, `lg_send_input`,
 `lg_wait_frames`, `lg_set_player_view`, `lg_set_player_weapon`, collision view,
 screenshot, map-view capture, and benchmark tools. Each has
 a closed typed JSON schema. Results include text plus `structuredContent`;
-captures also return existing PNGs as MCP `image/png` content. Visual MCP tools
+captures also return existing PNGs as MCP `image/png` content when their total
+encoded size fits the 1 MiB reply budget. A larger capture still succeeds and
+returns its checked path, byte size, and `inline_image_omitted: size_limit`
+instead of blocking the MCP stream with a large base64 value. Visual MCP tools
 start or attach through the shared verified GPU launcher. Screenshot and
 multi-view capture cannot silently reuse an SDL_Renderer, D3D11, SwiftShader,
 or other fallback client. Explicit fallback requires `allow_fallback: true`.
+
+The launcher reports success only after control protocol 1, the client and
+server, the network connection, a named map, and a positive map revision are
+ready. Normal control calls refuse to attach to a benchmark client, so captures,
+input, and console commands cannot disturb an active run. Saved launcher state
+uses atomic writes, a `starting` or `ready` phase, and process creation times.
+A short file lock serializes start, restart, stop, and state repair. A second
+change returns `lifecycle_busy`. Broken state blocks these changes instead of
+being treated as no state. A stale or unverifiable process record never grants
+permission to stop a PID. If a status probe fails while saved live state marks
+a benchmark session, the launcher preserves both the state and its processes.
+Cleanup signals all verified owned processes, waits up to five seconds once,
+then forces survivors and waits up to two seconds once. If the processes stop
+but the saved state file cannot be removed, `lg_stop` returns
+`state_clear_failed: true` and `state_preserved: true`.
+
+Normal visual MCP keeps server port `27960`, control port `27961`, and state in
+`build/dev-control`. Benchmark MCP defaults to server port `28960`, control port
+`28961`, and state in `build/benchmark-control/28960-28961`. A different valid
+pair gets a different folder named `<server-port>-<control-port>`. Benchmark
+tools reject equal, invalid, busy, or conflicting ports before launch. They
+also reject an existing or broken state file instead of attaching to it. An
+atomic pair claim blocks two benchmark runners from starting on the same pair.
+
+`lg_run_benchmark` and `lg_create_benchmark_baseline` accept typed
+`server_port` and `control_port` fields. The old `port` field remains an alias
+for `control_port`; if both appear, their values must match. An owned benchmark
+stops only the processes recorded in its pair-specific state folder before the
+tool returns. A call which sets `start_client=False` is an internal external
+session mode and never claims or stops a process. If owned cleanup fails, the
+tool marks the saved aggregate invalid before it reports the error.
+
+MCP live calls run in supervised child processes. Status has a 5-second limit,
+stop 10 seconds, start 30 seconds, restart 40 seconds, normal control and
+capture calls 90 seconds. A live scenario gets its accepted scenario timeout
+plus 60 seconds. A benchmark gets one timeout for startup, one for each of up
+to 100 runs, five seconds of per-step margin, and 60 seconds for setup and
+summary work. The accepted per-step timeout is greater than zero and no more
+than 3600 seconds. A
+worker, tool, protocol, output, or timeout failure after a state-changing
+worker starts returns `outcome: unknown`; check status or stop before trying
+that change again.
+
+The stdio reader stays active while a worker runs. Send
+`notifications/cancelled` with the active `requestId` to cancel its worker; the
+original request then returns JSON-RPC error `-32800`. Each worker runs in a
+Windows Job Object or a POSIX process group, so cancel and stop end only that
+worker and its children. A spawn-capable call does not start if this bound
+worker tree cannot be set up. A cancelled call that could have changed state
+reports `outcome: unknown`. The server permits one normal live call at a time
+and returns `server_busy` for another. An accepted `lg_stop` cancels and joins
+the normal worker, then runs in its own worker. A second concurrent stop
+returns `server_busy`.
+
+Worker stdout is capped at 4 MiB and stderr at 64 KiB. Structured tool output
+is capped at 256 KiB before MCP framing. If a result is larger, it keeps short
+status, summary, aggregate, and path fields and adds
+`structured_output_omitted: size_limit`. The whole MCP result is capped at
+2 MiB; inline images remain subject to the separate 1 MiB base64 budget.
 
 ### MCP Map Editing API
 
@@ -396,22 +461,19 @@ map text or filesystem paths. Use supervised TrenchBroom for those edits.
 - **MCP tools fail:** visual tools supervise or verify the local client through
   the shared launcher. Structured errors distinguish launch, attachment,
   renderer attestation, and control-operation failures.
-- **MCP state change waits until the host timeout:** this has reproduced on the
-  Windows validation host with `lg_load_map`, `lg_send_input`,
-  `lg_exec_console`, and `lg_stop`. The adapter call waited for its 300-second
-  host limit while the verified client still answered through the direct
-  scripts. The smallest known trigger is one wrapper state-change request
-  against an otherwise healthy verified client. Retry the state change through
-  the bounded path, for example
-  `python scripts/lg_control.py --timeout 5 --json load-map scenario_wall` or
-  `python scripts/lg_control.py --timeout 5 --json send-input --ticks 1
-  --attack`. Use `python scripts/lg_launch.py --json stop` as the stop fallback.
-  Keep using the same verified client, renderer, map, and capture checks; this
-  is a control-workflow fallback, not permission to weaken visual evidence or
-  renderer attestation.
+- **MCP call reaches its worker limit:** read the structured error and its
+  `outcome`. If a state change has an unknown outcome, check status before
+  repeating it. Use `lg_stop` to recover a launcher-owned session. If the MCP
+  process itself is unavailable, use
+  `python scripts/lg_launch.py --json stop`; this path does not probe the
+  control socket.
+- **Capture returns no inline image:** check
+  `inline_image_omitted: size_limit`, then inspect the returned local path or
+  publish it through the visual-evidence flow. The capture itself succeeded.
 
-Known limitations: requests are serial; output is PNG only; MCP uses control
-port 27961; and `eyetoeye/standard` is the only curated preset. Player input
-needs a live match and follows the same server rules as local input. Computer
-Use remains useful for unusual editor/window work, but routine movement,
-console work, camera placement, and capture do not require it.
+Known limitations: normal live requests use one worker slot; output is PNG
+only; MCP uses control port 27961; and `eyetoeye/standard` is the only curated
+preset. Cancellation cannot roll back a game change that already ran. Player
+input needs a live match and follows the same server rules as local input.
+Computer Use remains useful for unusual editor/window work, but routine
+movement, console work, camera placement, and capture do not require it.

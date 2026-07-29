@@ -18,6 +18,7 @@ FORMAT = "lg-duel-frame-timeline-analysis"
 SCHEMA_VERSION = 1
 CPU_TOTAL_KEYS = ("total_cpu_ms", "frame_ms", "cpu_ms")
 GPU_TOTAL_KEYS = ("total_gpu_ms", "gpu_ms")
+CSV_GPU_TOTAL_KEYS = ("total_gpu_ms", "gpu_ms", "gpu_primary_command_buffer_ms")
 LEGACY_META = {"frame", "elapsed_seconds", "frame_ms"}
 LEGACY_WORKLOAD_HINTS = (
     "vertices", "triangles", "draws", "ranges", "chunks", "nodes",
@@ -127,6 +128,19 @@ def _normalize_frame(row: dict[str, Any], offset: int) -> dict[str, Any]:
     gpu_parts = _mapping_numbers(
         row.get("gpu_subsystems_ms", row.get("gpu_subsystems", row.get("gpu", {})))
     )
+    raw_gpu_states = row.get(
+        "gpu_subsystem_states",
+        row.get("gpu_states", {}),
+    )
+    gpu_states = (
+        {
+            str(key): str(value)
+            for key, value in sorted(raw_gpu_states.items())
+            if value in {"available", "unavailable", "not_applicable"}
+        }
+        if isinstance(raw_gpu_states, dict)
+        else {}
+    )
     # Some producers put total_ms beside named values in the cpu/gpu object.
     if cpu is None:
         cpu = _first_number(cpu_parts, ("total_ms", "total"))
@@ -144,6 +158,7 @@ def _normalize_frame(row: dict[str, Any], offset: int) -> dict[str, Any]:
         "total_gpu_ms": gpu,
         "cpu_subsystems_ms": cpu_parts,
         "gpu_subsystems_ms": gpu_parts,
+        "gpu_subsystem_states": gpu_states,
         "workload": workload,
         "events": _events(row.get("events", row.get("event_markers", []))),
     }
@@ -199,24 +214,41 @@ def _load_csv(path: Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     for offset, row in enumerate(rows):
         normalized: dict[str, Any] = dict(row)
         cpu_parts: dict[str, float] = {}
+        gpu_parts: dict[str, float] = {}
+        gpu_states: dict[str, str] = {}
         workload: dict[str, float] = {}
         for key, raw in row.items():
             number = _number(raw)
             if number is None or key in LEGACY_META:
+                if key.endswith("_gpu_state") and raw in {
+                    "available", "unavailable", "not_applicable"
+                }:
+                    gpu_states[key[:-10]] = raw
                 continue
-            if key.endswith("_ms"):
+            if key in CSV_GPU_TOTAL_KEYS:
+                continue
+            if key.endswith("_ms") and "gpu" in key:
+                stage = key[:-3]
+                if stage.endswith("_gpu"):
+                    stage = stage[:-4]
+                gpu_parts[stage] = number
+            elif key.endswith("_ms"):
                 cpu_parts[key[:-3]] = number
             elif any(hint in key for hint in LEGACY_WORKLOAD_HINTS):
                 workload[key] = number
         normalized["total_cpu_ms"] = row.get("frame_ms")
+        normalized["total_gpu_ms"] = _first_number(row, CSV_GPU_TOTAL_KEYS)
         normalized["cpu_subsystems_ms"] = cpu_parts
+        normalized["gpu_subsystems_ms"] = gpu_parts
+        normalized["gpu_subsystem_states"] = gpu_states
         normalized["workload"] = workload
         normalized["events"] = []
         frames.append(_normalize_frame(normalized, offset))
+    has_gpu_samples = any(frame["total_gpu_ms"] is not None for frame in frames)
     return frames, {
         "format": "legacy-telemetry-csv",
         "schema_version": None,
-        "gpu_execution_timing_available": False,
+        "gpu_execution_timing_available": has_gpu_samples,
         "scenario_hash": None,
         "renderer": None,
         "resolution": None,
@@ -390,7 +422,70 @@ def analyze(frames: list[dict[str, Any]]) -> dict[str, Any]:
         })
 
     sorted_values = sorted(values)
+    gpu_values = sorted(
+        frame["total_gpu_ms"]
+        for frame in frames
+        if frame["total_gpu_ms"] is not None
+    )
+    gpu_stage_names = sorted({
+        name
+        for frame in frames
+        for name in (
+            set(frame["gpu_subsystems_ms"]) |
+            set(frame["gpu_subsystem_states"])
+        )
+    })
+    gpu_stages: dict[str, dict[str, Any]] = {}
+    for name in gpu_stage_names:
+        stage_values = sorted(
+            frame["gpu_subsystems_ms"][name]
+            for frame in frames
+            if name in frame["gpu_subsystems_ms"]
+        )
+        state_values = [
+            frame["gpu_subsystem_states"].get(name)
+            for frame in frames
+        ]
+        applicable_count = sum(
+            state in {"available", "unavailable"}
+            for state in state_values
+        )
+        unavailable_count = sum(
+            state == "unavailable"
+            for state in state_values
+        )
+        applicable_count = max(applicable_count, len(stage_values))
+        gpu_stages[name] = {
+            "sample_count": len(stage_values),
+            "applicable_count": applicable_count,
+            "unavailable_count": unavailable_count,
+            "coverage_percent": round(
+                100.0 * len(stage_values) / applicable_count,
+                6,
+            ) if applicable_count else 0.0,
+            "median_ms": round(_median(stage_values), 6) if stage_values else None,
+            "p95_ms": round(
+                stage_values[
+                    min(
+                        len(stage_values) - 1,
+                        math.ceil(0.95 * len(stage_values)) - 1,
+                    )
+                ],
+                6,
+            ) if stage_values else None,
+            "p99_ms": round(
+                stage_values[
+                    min(
+                        len(stage_values) - 1,
+                        math.ceil(0.99 * len(stage_values)) - 1,
+                    )
+                ],
+                6,
+            ) if stage_values else None,
+            "max_ms": round(max(stage_values), 6) if stage_values else None,
+        }
     percentile = lambda p: sorted_values[min(len(sorted_values) - 1, math.ceil(p * len(sorted_values)) - 1)]
+    gpu_percentile = lambda p: gpu_values[min(len(gpu_values) - 1, math.ceil(p * len(gpu_values)) - 1)]
     pattern_status = {
         "isolated_spikes": {"status": "evaluated", "minimum_frame_count": 1},
         "bursts": {"status": "evaluated", "minimum_frame_count": 2},
@@ -421,8 +516,14 @@ def analyze(frames: list[dict[str, Any]]) -> dict[str, Any]:
             "scaled_mad_ms": round(scaled_mad, 6),
             "spike_threshold_ms": round(spike_threshold, 6),
             "sustained_threshold_ms": round(sustained_threshold, 6),
-            "gpu_sample_count": sum(frame["total_gpu_ms"] is not None for frame in frames),
+            "gpu_sample_count": len(gpu_values),
+            "gpu_timing_available": bool(gpu_values),
+            "median_gpu_ms": round(_median(gpu_values), 6) if gpu_values else None,
+            "p95_gpu_ms": round(gpu_percentile(0.95), 6) if gpu_values else None,
+            "p99_gpu_ms": round(gpu_percentile(0.99), 6) if gpu_values else None,
+            "max_gpu_ms": round(max(gpu_values), 6) if gpu_values else None,
         },
+        "gpu_stages": gpu_stages,
         "spikes": spike_records,
         "patterns": {
             "isolated_spikes": isolated,
@@ -500,7 +601,12 @@ def _points(
     bottom: int,
 ) -> tuple[str, float]:
     values = [frame["total_cpu_ms"] for frame in frames]
-    maximum = max(values) * 1.08 or 1.0
+    gpu_values = [
+        frame["total_gpu_ms"]
+        for frame in frames
+        if frame["total_gpu_ms"] is not None
+    ]
+    maximum = max(values + gpu_values) * 1.08 or 1.0
     denominator = max(1, len(values) - 1)
     points = " ".join(
         f"{left + i / denominator * (width - left - right):.2f},"
@@ -526,6 +632,25 @@ def _timeline_svg(
     plot_width = width - left - right
     plot_height = height - top - bottom
     threshold_y = height - bottom - threshold / maximum * plot_height
+    gpu_segments: list[str] = []
+    current_gpu_points: list[str] = []
+    for index, frame in enumerate(frames):
+        gpu_value = frame["total_gpu_ms"]
+        if gpu_value is None:
+            if len(current_gpu_points) > 1:
+                gpu_segments.append(
+                    f'<polyline points="{" ".join(current_gpu_points)}" class="gpu-line"/>'
+                )
+            current_gpu_points = []
+            continue
+        x = left + index / max(1, len(frames) - 1) * plot_width
+        y = height - bottom - gpu_value / maximum * plot_height
+        current_gpu_points.append(f"{x:.2f},{y:.2f}")
+    if len(current_gpu_points) > 1:
+        gpu_segments.append(
+            f'<polyline points="{" ".join(current_gpu_points)}" class="gpu-line"/>'
+        )
+    has_gpu_line = bool(gpu_segments)
     grid = []
     for fraction in range(5):
         value = maximum * fraction / 4
@@ -553,13 +678,21 @@ def _timeline_svg(
             dots.append(f'<circle cx="{x:.2f}" cy="{y:.2f}" r="7" class="hit"><title>{title}</title></circle>')
     extra = ' id="timeline-svg" tabindex="0"' if interactive else ""
     label_text = f'<text x="{left}" y="22" class="demo-label">{html.escape(label)}</text>' if label else ""
-    return f"""<svg{extra} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" role="img" aria-label="CPU frame time timeline">
-<style>.plot-bg{{fill:#111827}}.axis{{stroke:#94a3b8;stroke-width:1.5}}.grid{{stroke:#334155;stroke-width:1}}.line{{fill:none;stroke:#38bdf8;stroke-width:3}}.limit{{stroke:#fbbf24;stroke-width:2;stroke-dasharray:8 5}}.spike{{fill:#fb7185;stroke:#fff1f2;stroke-width:2}}.hit{{fill:transparent;stroke:transparent}}.axis-label{{fill:#e2e8f0;font:14px system-ui,sans-serif}}.legend{{fill:#f8fafc;font:14px system-ui,sans-serif}}.demo-label{{fill:#fcd34d;font:700 14px system-ui,sans-serif}}</style>
+    gpu_legend = (
+        f'<line x1="{width - 270}" y1="{top + 52}" x2="{width - 242}" '
+        'y2="{top + 52}" class="gpu-line"/>'
+        f'<text x="{width - 232}" y="{top + 57}" class="legend">GPU command buffer</text>'
+        if has_gpu_line else ""
+    )
+    spike_legend_y = top + (77 if has_gpu_line else 52)
+    legend_height = 78 if has_gpu_line else 52
+    return f"""<svg{extra} xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {width} {height}" role="img" aria-label="CPU and GPU frame time timeline">
+<style>.plot-bg{{fill:#111827}}.axis{{stroke:#94a3b8;stroke-width:1.5}}.grid{{stroke:#334155;stroke-width:1}}.line{{fill:none;stroke:#38bdf8;stroke-width:3}}.gpu-line{{fill:none;stroke:#c084fc;stroke-width:2.5}}.limit{{stroke:#fbbf24;stroke-width:2;stroke-dasharray:8 5}}.spike{{fill:#fb7185;stroke:#fff1f2;stroke-width:2}}.hit{{fill:transparent;stroke:transparent}}.axis-label{{fill:#e2e8f0;font:14px system-ui,sans-serif}}.legend{{fill:#f8fafc;font:14px system-ui,sans-serif}}.demo-label{{fill:#fcd34d;font:700 14px system-ui,sans-serif}}</style>
 <rect width="100%" height="100%" class="plot-bg"/>{label_text}{"".join(grid)}
 <line x1="{left}" y1="{height - bottom}" x2="{width - right}" y2="{height - bottom}" class="axis"/><line x1="{left}" y1="{top}" x2="{left}" y2="{height - bottom}" class="axis"/>
 {"".join(x_ticks)}<line x1="{left}" y1="{threshold_y:.2f}" x2="{width - right}" y2="{threshold_y:.2f}" class="limit"/>
-<rect x="{width - 284}" y="{top + 12}" width="242" height="52" rx="5" fill="#1e293b" stroke="#64748b"/><line x1="{width - 270}" y1="{top + 31}" x2="{width - 242}" y2="{top + 31}" class="line"/><text x="{width - 232}" y="{top + 36}" class="legend">CPU frame time</text><circle cx="{width - 256}" cy="{top + 52}" r="5" class="spike"/><text x="{width - 242}" y="{top + 57}" class="legend">spike &gt; {threshold:.2f} ms</text>
-<text x="{left}" y="{top - 10}" class="legend">CPU frame time (ms)</text><text x="{width / 2:.2f}" y="{height - 12}" text-anchor="middle" class="legend">Measured frame index</text><polyline points="{points}" class="line"/>{"".join(dots)}</svg>"""
+<rect x="{width - 284}" y="{top + 12}" width="242" height="{legend_height}" rx="5" fill="#1e293b" stroke="#64748b"/><line x1="{width - 270}" y1="{top + 31}" x2="{width - 242}" y2="{top + 31}" class="line"/><text x="{width - 232}" y="{top + 36}" class="legend">CPU frame time</text>{gpu_legend}<circle cx="{width - 256}" cy="{spike_legend_y}" r="5" class="spike"/><text x="{width - 242}" y="{spike_legend_y + 5}" class="legend">spike &gt; {threshold:.2f} ms</text>
+<text x="{left}" y="{top - 10}" class="legend">Execution time (ms)</text><text x="{width / 2:.2f}" y="{height - 12}" text-anchor="middle" class="legend">Measured frame index</text><polyline points="{points}" class="line"/>{"".join(gpu_segments)}{"".join(dots)}</svg>"""
 
 
 def _histogram_legacy(frames: list[dict[str, Any]]) -> str:
@@ -640,6 +773,30 @@ def _pattern_rows(analysis: dict[str, Any]) -> str:
     return "".join(rows)
 
 
+def _gpu_stage_rows(analysis: dict[str, Any]) -> str:
+    rows = []
+    for name, metric in analysis["gpu_stages"].items():
+        value = lambda key: (
+            "&mdash;"
+            if metric[key] is None
+            else f"{metric[key]:.3f}"
+        )
+        rows.append(
+            f"<tr><td>{html.escape(name)}</td>"
+            f"<td>{metric['sample_count']}</td>"
+            f"<td>{metric['applicable_count']}</td>"
+            f"<td>{metric['unavailable_count']}</td>"
+            f"<td>{metric['coverage_percent']:.2f}%</td>"
+            f"<td>{value('median_ms')}</td><td>{value('p95_ms')}</td>"
+            f"<td>{value('p99_ms')}</td><td>{value('max_ms')}</td></tr>"
+        )
+    if not rows:
+        return (
+            '<tr><td colspan="9">No GPU stage samples were recorded.</td></tr>'
+        )
+    return "".join(rows)
+
+
 def _worst_rows(frames: list[dict[str, Any]], count: int = 20) -> str:
     rows = []
     for frame in sorted(frames, key=lambda item: (-item["total_cpu_ms"], item["frame"]))[:count]:
@@ -679,6 +836,16 @@ def render_html(
 ) -> str:
     summary = analysis["summary"]
     timeline = _timeline_svg(frames, analysis, interactive=True, label=source_label)
+    gpu_median = (
+        "&mdash;"
+        if summary["median_gpu_ms"] is None
+        else f'{summary["median_gpu_ms"]:.3f} ms'
+    )
+    gpu_p95 = (
+        "&mdash;"
+        if summary["p95_gpu_ms"] is None
+        else f'{summary["p95_gpu_ms"]:.3f} ms'
+    )
     notice = (
         f'<p class="notice"><strong>{html.escape(source_label)}</strong></p>'
         if source_label else ""
@@ -697,9 +864,14 @@ code{{color:#fcd34d}}button{{margin:8px 0;padding:8px 12px;border:1px solid #93c
 <div class="card">Median CPU<br><strong>{summary['median_cpu_ms']:.3f} ms</strong></div>
 <div class="card">P95 CPU<br><strong>{summary['p95_cpu_ms']:.3f} ms</strong></div>
 <div class="card">Worst CPU<br><strong>{summary['max_cpu_ms']:.3f} ms</strong></div>
-<div class="card">GPU samples<br><strong>{summary['gpu_sample_count']}</strong></div></div>
+<div class="card">Median GPU<br><strong>{gpu_median}</strong></div>
+<div class="card">P95 GPU<br><strong>{gpu_p95}</strong></div>
+<div class="card">GPU coverage<br><strong>{summary['gpu_sample_count']} / {summary['frame_count']}</strong></div></div>
 <h2>Timeline</h2><button id="reset">Reset timeline</button><div class="chart">{timeline}</div>
 <h2>Frame-time distribution</h2><div class="chart">{_histogram(frames, label=source_label)}</div>
+<h2>GPU stage timing</h2>
+<p class="note">Stages may overlap and do not sum to the command-buffer total. Empty data stays unavailable, not zero.</p>
+<table><thead><tr><th>Stage</th><th>Samples</th><th>Applicable</th><th>Unavailable</th><th>Coverage</th><th>Median ms</th><th>P95 ms</th><th>P99 ms</th><th>Max ms</th></tr></thead><tbody>{_gpu_stage_rows(analysis)}</tbody></table>
 <h2>Pattern summary</h2><table><thead><tr><th>Pattern</th><th>Status</th><th>Groups</th><th>Top confidence</th></tr></thead><tbody>{_pattern_rows(analysis)}</tbody></table>
 <p class="note">The report records all cutoffs and rules in <code>timeline-analysis.json</code>. Named subsystem values show correlation only, not cause.</p>
 <h2>Worst frames</h2><table><thead><tr><th>Frame</th><th>Elapsed s</th><th>CPU ms</th><th>GPU ms</th><th>Largest CPU share</th><th>Events</th></tr></thead><tbody>{_worst_rows(frames)}</tbody></table>

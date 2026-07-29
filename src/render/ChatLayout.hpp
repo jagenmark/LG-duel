@@ -13,6 +13,7 @@ struct ChatLayoutRow {
   std::string text;
   float x = 0.0F;
   float y = 0.0F;
+  std::size_t textOffset = 0U;
   std::size_t messageIndex = 0;
   bool continuation = false;
 };
@@ -38,6 +39,7 @@ struct ChatInputRow {
 struct ChatTextLayout {
   std::vector<ChatLayoutRow> rows;
   std::vector<ChatInputRow> inputRows;
+  std::string historyText;
   ChatInputLayout input;
   float characterWidth = 0.0F;
   float lineHeight = 0.0F;
@@ -68,5 +70,12 @@ struct ChatTextLayout {
   const std::string& input,
   std::size_t cursor
 );
+
+[[nodiscard]] std::size_t chatHistoryTextOffsetAt(const ChatTextLayout &layout,
+                                                  float x, float y);
+
+[[nodiscard]] std::string chatHistorySelectedText(const ChatTextLayout &layout,
+                                                  std::size_t anchor,
+                                                  std::size_t focus);
 
 } // namespace lg

@@ -1,5 +1,7 @@
 #include "render/ConsoleLayout.hpp"
 
+#include "app/TextInput.hpp"
+
 #include <algorithm>
 #include <cmath>
 #include <iterator>
@@ -11,6 +13,13 @@ constexpr float kGlyphSize = 8.0F;
 constexpr float kConsoleTextScale = 2.0F;
 constexpr float kConsoleLineHeight = 20.0F;
 constexpr float kConsoleMarginX = 10.0F;
+
+struct WrappedPromptRow {
+  std::string text;
+  std::size_t inputBegin = 0U;
+  std::size_t inputEnd = 0U;
+  std::size_t contentColumn = 0U;
+};
 
 [[nodiscard]] std::vector<std::string> wrapConsoleText(
   const std::string& text,
@@ -60,24 +69,67 @@ constexpr float kConsoleMarginX = 10.0F;
   return lines;
 }
 
-void appendLayoutLine(
-  ConsoleTextLayout& layout,
-  std::string text,
-  float x,
-  float y,
-  bool prompt
-) {
+[[nodiscard]] std::vector<WrappedPromptRow>
+wrapConsolePrompt(const std::string &input, std::size_t maxCharacters) {
+  constexpr std::string_view prompt = "] ";
+  const std::size_t promptColumns = utf8GlyphCount(prompt);
+  std::vector<WrappedPromptRow> rows;
+  std::size_t offset = 0U;
+  bool first = true;
+  while (offset < input.size() || first) {
+    const std::size_t contentColumn = first ? promptColumns : 0U;
+    const std::size_t availableColumns = std::max<std::size_t>(
+        1U, maxCharacters > contentColumn ? maxCharacters - contentColumn : 1U);
+    std::size_t lineEnd = offset;
+    std::size_t lastSpace = std::string::npos;
+    std::size_t columns = 0U;
+    while (lineEnd < input.size() && columns < availableColumns) {
+      const std::size_t next = nextUtf8Cursor(input, lineEnd);
+      if (input[lineEnd] == ' ') {
+        lastSpace = lineEnd;
+      }
+      lineEnd = next;
+      ++columns;
+    }
+    std::size_t breakEnd = lineEnd;
+    if (lineEnd < input.size() && lastSpace != std::string::npos &&
+        lastSpace > offset) {
+      breakEnd = lastSpace;
+    }
+    rows.push_back(WrappedPromptRow{
+        (first ? std::string(prompt) : std::string{}) +
+            input.substr(offset, breakEnd - offset),
+        offset,
+        breakEnd,
+        contentColumn,
+    });
+    offset = breakEnd;
+    while (offset < input.size() && input[offset] == ' ') {
+      offset = nextUtf8Cursor(input, offset);
+    }
+    first = false;
+  }
+  return rows;
+}
+
+void appendLayoutLine(ConsoleTextLayout &layout, std::string text, float x,
+                      float y, bool prompt, std::size_t inputBegin = 0U,
+                      std::size_t inputEnd = 0U,
+                      std::size_t contentColumn = 0U) {
   if (!layout.text.empty()) {
     layout.text.push_back('\n');
   }
   const std::size_t textOffset = layout.text.size();
   layout.text += text;
   layout.lines.push_back(ConsoleLayoutLine{
-    std::move(text),
-    x,
-    y,
-    textOffset,
-    prompt,
+      std::move(text),
+      x,
+      y,
+      textOffset,
+      inputBegin,
+      inputEnd,
+      contentColumn,
+      prompt,
   });
 }
 
@@ -115,8 +167,8 @@ ConsoleTextLayout buildConsoleTextLayout(
     );
   }
 
-  const std::vector<std::string> wrappedPrompt =
-    wrapConsoleText("] " + console.input, maxCharacters);
+  const std::vector<WrappedPromptRow> wrappedPrompt =
+      wrapConsolePrompt(console.input, maxCharacters);
   const float promptY =
     layout.consoleHeight - 24.0F -
     static_cast<float>(wrappedPrompt.size() - 1U) * layout.lineHeight;
@@ -142,8 +194,9 @@ ConsoleTextLayout buildConsoleTextLayout(
   }
 
   y = promptY;
-  for (const std::string& line : wrappedPrompt) {
-    appendLayoutLine(layout, line, kConsoleMarginX, y, true);
+  for (const WrappedPromptRow &line : wrappedPrompt) {
+    appendLayoutLine(layout, line.text, kConsoleMarginX, y, true,
+                     line.inputBegin, line.inputEnd, line.contentColumn);
     y += layout.lineHeight;
   }
 
@@ -189,6 +242,78 @@ std::string consoleSelectedText(
     return {};
   }
   return layout.text.substr(begin, end - begin);
+}
+
+std::size_t consoleInputOffsetAt(const ConsoleTextLayout &layout,
+                                 const std::string &input, float x, float y) {
+  const ConsoleLayoutLine *firstPrompt = nullptr;
+  const ConsoleLayoutLine *lastPrompt = nullptr;
+  for (const ConsoleLayoutLine &line : layout.lines) {
+    if (!line.prompt) {
+      continue;
+    }
+    if (firstPrompt == nullptr) {
+      firstPrompt = &line;
+    }
+    lastPrompt = &line;
+  }
+  if (firstPrompt == nullptr || lastPrompt == nullptr) {
+    return 0U;
+  }
+  const ConsoleLayoutLine *chosenLine = firstPrompt;
+  if (y >= lastPrompt->y + layout.lineHeight) {
+    chosenLine = lastPrompt;
+  } else {
+    for (const ConsoleLayoutLine &line : layout.lines) {
+      if (line.prompt && y < line.y + layout.lineHeight) {
+        chosenLine = &line;
+        break;
+      }
+    }
+  }
+  const float relativeX = std::max(0.0F, x - chosenLine->x);
+  const auto column = static_cast<std::size_t>(
+      std::floor(relativeX / std::max(1.0F, layout.characterWidth) + 0.5F));
+  if (column <= chosenLine->contentColumn) {
+    return chosenLine->inputBegin;
+  }
+  std::size_t offset = chosenLine->inputBegin;
+  std::size_t glyph = 0U;
+  while (offset < chosenLine->inputEnd &&
+         glyph < column - chosenLine->contentColumn) {
+    offset = std::min(nextUtf8Cursor(input, offset), chosenLine->inputEnd);
+    ++glyph;
+  }
+  return offset;
+}
+
+ScreenPoint consoleInputCursorPosition(const ConsoleTextLayout &layout,
+                                       const std::string &input,
+                                       std::size_t cursor) {
+  cursor = clampUtf8Cursor(input, cursor);
+  const ConsoleLayoutLine *chosenLine = nullptr;
+  for (const ConsoleLayoutLine &line : layout.lines) {
+    if (!line.prompt) {
+      continue;
+    }
+    chosenLine = &line;
+    if (cursor >= line.inputBegin && cursor <= line.inputEnd) {
+      break;
+    }
+  }
+  if (chosenLine == nullptr) {
+    return {kConsoleMarginX, 0.0F};
+  }
+  const std::size_t offset =
+      std::clamp(cursor, chosenLine->inputBegin, chosenLine->inputEnd);
+  const float column = static_cast<float>(
+      chosenLine->contentColumn +
+      utf8GlyphCount(input.substr(chosenLine->inputBegin,
+                                  offset - chosenLine->inputBegin)));
+  return {
+      chosenLine->x + column * layout.characterWidth,
+      chosenLine->y,
+  };
 }
 
 } // namespace lg

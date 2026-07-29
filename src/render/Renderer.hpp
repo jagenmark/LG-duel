@@ -1,21 +1,21 @@
 #pragma once
 
-#include "render/PlayerPresentation.hpp"
-#include "render/ViewModelPresentation.hpp"
 #include "render/GpuTimestampTiming.hpp"
 
 #include "app/HudPresentation.hpp"
-#include "render/DrawList2D.hpp"
-#include "render/ConsoleCat.hpp"
-#include "sim/Arena.hpp"
-#include "sim/Combat.hpp"
 #include "net/NetProtocol.hpp"
 #include "net/NetTransport.hpp"
+#include "render/ConsoleCat.hpp"
+#include "render/DrawList2D.hpp"
+#include "render/PlayerPresentation.hpp"
+#include "render/ViewModelPresentation.hpp"
+#include "sim/Arena.hpp"
+#include "sim/Combat.hpp"
 #include "sim/PlayerState.hpp"
 
 #include <algorithm>
-#include <chrono>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <optional>
@@ -302,6 +302,9 @@ struct ConsoleRenderState {
   bool hasSelection = false;
   std::size_t selectionAnchor = 0;
   std::size_t selectionFocus = 0;
+  bool inputHasSelection = false;
+  std::size_t inputSelectionAnchor = 0;
+  std::size_t inputSelectionFocus = 0;
   std::size_t scrollRows = 0;
   ConsoleCatPose cat;
 };
@@ -377,6 +380,9 @@ struct HudRenderState {
   bool chatHasSelection = false;
   std::size_t chatSelectionAnchor = 0;
   std::size_t chatSelectionFocus = 0;
+  bool chatHistoryHasSelection = false;
+  std::size_t chatHistorySelectionAnchor = 0;
+  std::size_t chatHistorySelectionFocus = 0;
   bool chatInputOpen = false;
   bool chatHistoryExpanded = false;
   std::size_t chatScrollRows = 0;
@@ -391,6 +397,12 @@ struct HudRenderState {
   int settingsHoveredRow = -1;
   int settingsPressedRow = -1;
   std::string settingsFooter;
+  bool miscMenuOpen = false;
+  std::vector<SettingsMenuItem> miscMenuItems;
+  std::size_t miscMenuScrollRows = 0;
+  int miscMenuHoveredRow = -1;
+  int miscMenuPressedRow = -1;
+  std::string miscMenuFooter;
   bool showOpponentHealthBar = false;
   std::int32_t healthAmount = 100;
   DamageNumberPresentation damageNumbers;

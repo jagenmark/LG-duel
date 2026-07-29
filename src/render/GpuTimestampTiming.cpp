@@ -47,10 +47,24 @@ namespace {
 ) {
   GpuFrameTimingResult result;
   result.benchmarkFrameIndex = slot.benchmarkFrameIndex;
-  result.outlineApplicable = slot.outlineApplicable;
+  result.passApplicable = slot.passApplicable;
+  result.outlineApplicable =
+    slot.passApplicable[static_cast<std::size_t>(GpuTimedPass::OutlineTotal)];
   result.readbackLatencyFrames =
     clampedLatency(slot.submitPollIndex, currentPollIndex);
   return result;
+}
+
+[[nodiscard]] constexpr std::uint32_t passStartQuery(GpuTimedPass pass) {
+  return 1U + static_cast<std::uint32_t>(pass) * 2U;
+}
+
+[[nodiscard]] constexpr std::uint32_t passEndQuery(GpuTimedPass pass) {
+  return passStartQuery(pass) + 1U;
+}
+
+[[nodiscard]] constexpr std::uint32_t frameEndQuery() {
+  return GpuTimingRing::kQueriesPerSlot - 1U;
 }
 
 }  // namespace
@@ -100,7 +114,9 @@ std::optional<std::size_t> GpuTimingRing::begin(
     candidate = {};
     candidate.state = GpuTimingSlotState::Recording;
     candidate.benchmarkFrameIndex = benchmarkFrameIndex;
-    candidate.outlineApplicable = outlineApplicable;
+    candidate.passApplicable[
+      static_cast<std::size_t>(GpuTimedPass::OutlineTotal)
+    ] = outlineApplicable;
     nextSlot_ = (index + 1U) % slots_.size();
     return index;
   }
@@ -123,13 +139,21 @@ bool GpuTimingRing::markSubmitted(
 }
 
 bool GpuTimingRing::markOutlineApplicable(std::size_t slotIndex) {
+  return markPassApplicable(slotIndex, GpuTimedPass::OutlineTotal);
+}
+
+bool GpuTimingRing::markPassApplicable(
+  std::size_t slotIndex,
+  GpuTimedPass pass
+) {
   if (
     slotIndex >= slots_.size() ||
-    slots_[slotIndex].state != GpuTimingSlotState::Recording
+    slots_[slotIndex].state != GpuTimingSlotState::Recording ||
+    pass == GpuTimedPass::Count
   ) {
     return false;
   }
-  slots_[slotIndex].outlineApplicable = true;
+  slots_[slotIndex].passApplicable[static_cast<std::size_t>(pass)] = true;
   return true;
 }
 
@@ -150,25 +174,47 @@ bool GpuTimingRing::markAvailable(
   GpuFrameTimingResult result = baseResult(slot, currentPollIndex);
   result.gpuPrimaryCommandBufferMilliseconds = gpuTimestampMilliseconds(
     timestamps[0],
-    timestamps[3],
+    timestamps[frameEndQuery()],
     validBits,
     periodNanoseconds
   );
-  if (slot.outlineApplicable) {
-    result.outlineGpuMilliseconds = gpuTimestampMilliseconds(
-      timestamps[1],
-      timestamps[2],
+  for (std::size_t passIndex = 0;
+       passIndex < kGpuTimedPassCount;
+       ++passIndex) {
+    if (!result.passApplicable[passIndex]) {
+      continue;
+    }
+    const auto pass = static_cast<GpuTimedPass>(passIndex);
+    result.passMilliseconds[passIndex] = gpuTimestampMilliseconds(
+      timestamps[passStartQuery(pass)],
+      timestamps[passEndQuery(pass)],
       validBits,
       periodNanoseconds
     );
   }
+  result.outlineGpuMilliseconds =
+    result.passMilliseconds[
+      static_cast<std::size_t>(GpuTimedPass::OutlineTotal)
+    ];
   if (!result.gpuPrimaryCommandBufferMilliseconds.has_value()) {
     result.unavailableReason = "invalid_timestamp_info";
-  } else if (
-    slot.outlineApplicable &&
-    !result.outlineGpuMilliseconds.has_value()
-  ) {
-    result.unavailableReason = "invalid_outline_timestamp";
+  } else {
+    for (std::size_t passIndex = 0;
+         passIndex < kGpuTimedPassCount;
+         ++passIndex) {
+      if (
+        result.passApplicable[passIndex] &&
+        !result.passMilliseconds[passIndex].has_value()
+      ) {
+        result.unavailableReason =
+          "invalid_" +
+          std::string(gpuTimedPassName(
+            static_cast<GpuTimedPass>(passIndex)
+          )) +
+          "_timestamp";
+        break;
+      }
+    }
   }
   slot.result = std::move(result);
   slot.state = GpuTimingSlotState::Available;
@@ -232,9 +278,10 @@ struct GpuTimestampTiming::Impl {
   std::vector<GpuFrameTimingResult> results;
   std::vector<GpuFrameTimingResult> takenResults;
   std::optional<std::size_t> recordingSlot;
+  std::optional<std::size_t> unavailableResultIndex;
   std::uint64_t pollIndex = 0;
-  bool outlineStarted = false;
-  bool outlineEnded = false;
+  std::array<bool, kGpuTimedPassCount> passStarted = {};
+  std::array<bool, kGpuTimedPassCount> passEnded = {};
   bool frameEnded = false;
   bool fatalError = false;
 #if LG_DUEL_HAS_SDL3 && LG_DUEL_SDL_GPU_TIMESTAMP_EXT
@@ -320,6 +367,7 @@ void GpuTimestampTiming::shutdown(void* devicePointer) {
   (void)devicePointer;
 #endif
   impl_->recordingSlot.reset();
+  impl_->unavailableResultIndex.reset();
   impl_->ring.reset();
 }
 
@@ -355,16 +403,20 @@ void GpuTimestampTiming::poll(void* devicePointer) {
     SDL_LGGPUTimestampResult queryResult =
       error.empty() ? readOne(0U) : SDL_LG_GPU_TIMESTAMP_ERROR;
     if (error.empty() && queryResult == SDL_LG_GPU_TIMESTAMP_AVAILABLE) {
-      queryResult = readOne(3U);
+      queryResult = readOne(frameEndQuery());
     }
-    if (
-      error.empty() &&
-      queryResult == SDL_LG_GPU_TIMESTAMP_AVAILABLE &&
-      impl_->ring.slot(index).outlineApplicable
-    ) {
-      queryResult = readOne(1U);
+    for (std::size_t passIndex = 0;
+         error.empty() &&
+         queryResult == SDL_LG_GPU_TIMESTAMP_AVAILABLE &&
+         passIndex < kGpuTimedPassCount;
+         ++passIndex) {
+      if (!impl_->ring.slot(index).passApplicable[passIndex]) {
+        continue;
+      }
+      const auto pass = static_cast<GpuTimedPass>(passIndex);
+      queryResult = readOne(passStartQuery(pass));
       if (queryResult == SDL_LG_GPU_TIMESTAMP_AVAILABLE) {
-        queryResult = readOne(2U);
+        queryResult = readOne(passEndQuery(pass));
       }
     }
     if (error.empty() && queryResult == SDL_LG_GPU_TIMESTAMP_NOT_READY) {
@@ -409,24 +461,36 @@ bool GpuTimestampTiming::beginFrame(
   std::uint64_t benchmarkFrameIndex,
   bool outlineApplicable
 ) {
+  impl_->recordingSlot.reset();
+  impl_->unavailableResultIndex.reset();
+  impl_->passStarted = {};
+  impl_->passEnded = {};
+  impl_->frameEnded = false;
+  const auto beginUnavailableResult = [&](std::string reason) {
+    GpuFrameTimingResult result;
+    result.benchmarkFrameIndex = benchmarkFrameIndex;
+    result.outlineApplicable = outlineApplicable;
+    result.passApplicable[
+      static_cast<std::size_t>(GpuTimedPass::OutlineTotal)
+    ] = outlineApplicable;
+    result.unavailableReason = std::move(reason);
+    impl_->results.push_back(std::move(result));
+    impl_->unavailableResultIndex = impl_->results.size() - 1U;
+  };
   if (!impl_->metadata.available || impl_->fatalError) {
-    (void)benchmarkFrameIndex;
-    (void)outlineApplicable;
+    beginUnavailableResult(
+      impl_->metadata.unavailableReason.empty()
+        ? "gpu_timing_unavailable"
+        : impl_->metadata.unavailableReason
+    );
     return false;
   }
   impl_->recordingSlot =
     impl_->ring.begin(benchmarkFrameIndex, outlineApplicable);
   if (!impl_->recordingSlot.has_value()) {
-    GpuFrameTimingResult result;
-    result.benchmarkFrameIndex = benchmarkFrameIndex;
-    result.outlineApplicable = outlineApplicable;
-    result.unavailableReason = "ring_full";
-    impl_->results.push_back(std::move(result));
+    beginUnavailableResult("ring_full");
     return false;
   }
-  impl_->outlineStarted = false;
-  impl_->outlineEnded = false;
-  impl_->frameEnded = false;
 #if LG_DUEL_HAS_SDL3 && LG_DUEL_SDL_GPU_TIMESTAMP_EXT
   auto* commandBuffer =
     static_cast<SDL_GPUCommandBuffer*>(commandBufferPointer);
@@ -465,17 +529,50 @@ void GpuTimestampTiming::publishUnavailableFrame(
   GpuFrameTimingResult result;
   result.benchmarkFrameIndex = benchmarkFrameIndex;
   result.outlineApplicable = outlineApplicable;
+  result.passApplicable[
+    static_cast<std::size_t>(GpuTimedPass::OutlineTotal)
+  ] = outlineApplicable;
   result.unavailableReason = std::move(reason);
   impl_->results.push_back(std::move(result));
 }
 
 void GpuTimestampTiming::beginOutline(void* commandBufferPointer) {
+  beginPass(commandBufferPointer, GpuTimedPass::OutlineTotal);
+}
+
+void GpuTimestampTiming::endOutline(void* commandBufferPointer) {
+  endPass(commandBufferPointer, GpuTimedPass::OutlineTotal);
+}
+
+void GpuTimestampTiming::beginPass(
+  void* commandBufferPointer,
+  GpuTimedPass pass
+) {
+  if (pass == GpuTimedPass::Count) {
+    return;
+  }
+  const std::size_t passIndex = static_cast<std::size_t>(pass);
+  if (
+    impl_->unavailableResultIndex.has_value() &&
+    *impl_->unavailableResultIndex < impl_->results.size()
+  ) {
+    GpuFrameTimingResult& result =
+      impl_->results[*impl_->unavailableResultIndex];
+    result.passApplicable[passIndex] = true;
+    if (pass == GpuTimedPass::OutlineTotal) {
+      result.outlineApplicable = true;
+    }
+    return;
+  }
   if (!impl_->recordingSlot.has_value()) {
     return;
   }
-  impl_->outlineStarted = true;
+  if (impl_->passStarted[passIndex]) {
+    return;
+  }
+  impl_->passStarted[passIndex] = true;
   const std::size_t slotIndex = *impl_->recordingSlot;
-  (void)impl_->ring.markOutlineApplicable(slotIndex);
+  (void)impl_->ring.markPassApplicable(slotIndex, pass);
 #if LG_DUEL_HAS_SDL3 && LG_DUEL_SDL_GPU_TIMESTAMP_EXT
   if (
     impl_->slotErrors[slotIndex].empty() &&
@@ -483,12 +580,13 @@ void GpuTimestampTiming::beginOutline(void* commandBufferPointer) {
       static_cast<SDL_GPUCommandBuffer*>(commandBufferPointer),
       impl_->pool,
       static_cast<Uint32>(
-        slotIndex * GpuTimingRing::kQueriesPerSlot + 1U
+        slotIndex * GpuTimingRing::kQueriesPerSlot + passStartQuery(pass)
       ),
       SDL_LG_GPU_TIMESTAMP_TOP_OF_PIPE
     )
   ) {
-    impl_->slotErrors[slotIndex] = "outline_timestamp_start_failed";
+    impl_->slotErrors[slotIndex] =
+      std::string(gpuTimedPassName(pass)) + "_timestamp_start_failed";
     impl_->fatalError = true;
   }
 #else
@@ -496,11 +594,18 @@ void GpuTimestampTiming::beginOutline(void* commandBufferPointer) {
 #endif
 }
 
-void GpuTimestampTiming::endOutline(void* commandBufferPointer) {
-  if (!impl_->outlineStarted || !impl_->recordingSlot.has_value()) {
+void GpuTimestampTiming::endPass(
+  void* commandBufferPointer,
+  GpuTimedPass pass
+) {
+  if (!impl_->recordingSlot.has_value() || pass == GpuTimedPass::Count) {
     return;
   }
-  impl_->outlineEnded = impl_->outlineStarted;
+  const std::size_t passIndex = static_cast<std::size_t>(pass);
+  if (!impl_->passStarted[passIndex] || impl_->passEnded[passIndex]) {
+    return;
+  }
+  impl_->passEnded[passIndex] = true;
 #if LG_DUEL_HAS_SDL3 && LG_DUEL_SDL_GPU_TIMESTAMP_EXT
   const std::size_t slotIndex = *impl_->recordingSlot;
   if (
@@ -509,12 +614,13 @@ void GpuTimestampTiming::endOutline(void* commandBufferPointer) {
       static_cast<SDL_GPUCommandBuffer*>(commandBufferPointer),
       impl_->pool,
       static_cast<Uint32>(
-        slotIndex * GpuTimingRing::kQueriesPerSlot + 2U
+        slotIndex * GpuTimingRing::kQueriesPerSlot + passEndQuery(pass)
       ),
       SDL_LG_GPU_TIMESTAMP_BOTTOM_OF_PIPE
     )
   ) {
-    impl_->slotErrors[slotIndex] = "outline_timestamp_end_failed";
+    impl_->slotErrors[slotIndex] =
+      std::string(gpuTimedPassName(pass)) + "_timestamp_end_failed";
     impl_->fatalError = true;
   }
 #else
@@ -526,8 +632,12 @@ void GpuTimestampTiming::endFrame(void* commandBufferPointer) {
   if (!impl_->recordingSlot.has_value() || impl_->frameEnded) {
     return;
   }
-  if (impl_->outlineStarted && !impl_->outlineEnded) {
-    endOutline(commandBufferPointer);
+  for (std::size_t passIndex = 0;
+       passIndex < kGpuTimedPassCount;
+       ++passIndex) {
+    if (impl_->passStarted[passIndex] && !impl_->passEnded[passIndex]) {
+      endPass(commandBufferPointer, static_cast<GpuTimedPass>(passIndex));
+    }
   }
   impl_->frameEnded = true;
 #if LG_DUEL_HAS_SDL3 && LG_DUEL_SDL_GPU_TIMESTAMP_EXT
@@ -538,7 +648,7 @@ void GpuTimestampTiming::endFrame(void* commandBufferPointer) {
       static_cast<SDL_GPUCommandBuffer*>(commandBufferPointer),
       impl_->pool,
       static_cast<Uint32>(
-        slotIndex * GpuTimingRing::kQueriesPerSlot + 3U
+        slotIndex * GpuTimingRing::kQueriesPerSlot + frameEndQuery()
       ),
       SDL_LG_GPU_TIMESTAMP_BOTTOM_OF_PIPE
     )
@@ -634,9 +744,11 @@ bool GpuTimestampTiming::hasPending() const {
 void GpuTimestampTiming::resetResults() {
   impl_->results.clear();
   impl_->takenResults.clear();
+  impl_->unavailableResultIndex.reset();
 }
 
 std::span<const GpuFrameTimingResult> GpuTimestampTiming::takeResults() {
+  impl_->unavailableResultIndex.reset();
   impl_->takenResults.clear();
   impl_->takenResults.swap(impl_->results);
   impl_->results.clear();

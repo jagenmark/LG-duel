@@ -1,9 +1,11 @@
 #pragma once
 
 #include "dev/DevJson.hpp"
+#include "render/GpuTimestampTiming.hpp"
 #include "shared/Math.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -106,10 +108,14 @@ struct FrameSample {
   double dynamicCommandEncodingMilliseconds = 0.0;
   double uiMilliseconds = 0.0;
   std::optional<double> gpuPrimaryCommandBufferMilliseconds;
+  std::array<bool, kGpuTimedPassCount> gpuPassTimingApplicable = {};
+  std::array<std::optional<double>, kGpuTimedPassCount>
+    gpuPassMilliseconds = {};
   bool outlineGpuTimingApplicable = false;
   std::optional<double> outlineGpuMilliseconds;
   bool gpuTimingResultReceived = false;
   std::uint32_t gpuTimingReadbackLatencyFrames = 0;
+  std::string gpuTimingUnavailableReason;
   std::uint32_t uploadedVertices = 0;
   std::uint32_t renderedTriangles = 0;
   std::uint32_t worldDraws = 0;
@@ -133,9 +139,12 @@ struct FrameSample {
 struct GpuFrameTiming {
   std::uint64_t benchmarkFrameIndex = 0;
   std::optional<double> gpuPrimaryCommandBufferMilliseconds;
+  std::array<bool, kGpuTimedPassCount> passApplicable = {};
+  std::array<std::optional<double>, kGpuTimedPassCount> passMilliseconds = {};
   bool outlineApplicable = false;
   std::optional<double> outlineGpuMilliseconds;
   std::uint32_t readbackLatencyFrames = 0;
+  std::string unavailableReason;
 };
 
 struct SimulationTickSample {

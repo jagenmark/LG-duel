@@ -32,6 +32,8 @@ def send_request(
     timeout: float = 60.0,
     **parameters: Any,
 ) -> dict[str, Any]:
+    if timeout <= 0:
+        raise ControlError("control request timeout must be greater than zero")
     request = {
         "id": str(uuid.uuid4()),
         "control_protocol": 1,
@@ -39,19 +41,34 @@ def send_request(
         **{key: value for key, value in parameters.items() if value is not None},
     }
     encoded = (json.dumps(request, separators=(",", ":")) + "\n").encode("utf-8")
+    deadline = time.monotonic() + timeout
+
+    def remaining_time() -> float:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise socket.timeout
+        return remaining
+
     try:
-        with socket.create_connection((host, port), timeout=min(timeout, 5.0)) as connection:
-            connection.settimeout(timeout)
+        with socket.create_connection(
+            (host, port), timeout=min(remaining_time(), 5.0)
+        ) as connection:
+            connection.settimeout(remaining_time())
             connection.sendall(encoded)
             chunks: list[bytes] = []
             total = 0
             while True:
+                connection.settimeout(remaining_time())
                 chunk = connection.recv(65536)
                 if not chunk:
                     raise ControlError("game closed the control connection without a response")
                 newline = chunk.find(b"\n")
                 if newline >= 0:
-                    chunks.append(chunk[:newline])
+                    chunk = chunk[:newline]
+                    total += len(chunk)
+                    if total > 4 * 1024 * 1024:
+                        raise ControlError("control response exceeded 4 MiB")
+                    chunks.append(chunk)
                     break
                 chunks.append(chunk)
                 total += len(chunk)

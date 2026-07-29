@@ -168,6 +168,14 @@ class PerformancePolicyTests(unittest.TestCase):
         self.assertIn("environment.compile_time_options", headless["comparability"]["fatal"])
         self.assertNotIn("environment.sdl_configuration", headless["comparability"]["fatal"])
         self.assertIn("environment.sdl_configuration", gpu["comparability"]["fatal"])
+        self.assertIn(
+            "environment.gpu_timing_instrumentation_version",
+            gpu["comparability"]["fatal"],
+        )
+        self.assertIn(
+            "environment.gpu_timing_instrumentation_version",
+            competitive["comparability"]["fatal"],
+        )
         self.assertIn("environment.observed_resolution", gpu["comparability"]["fatal"])
         self.assertIn("environment.vulkan_icd_manifest_records", gpu["comparability"]["fatal"])
         self.assertNotIn("environment.executable_sha256", gpu["comparability"]["fatal"])

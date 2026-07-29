@@ -3,10 +3,11 @@
 #include "app/ClientAudio.hpp"
 #include "app/ClientChat.hpp"
 #include "app/ClientCvars.hpp"
-#include "app/GraphicsProfiles.hpp"
 #include "app/ConsoleInput.hpp"
 #include "app/DeathCamera.hpp"
+#include "app/GraphicsProfiles.hpp"
 #include "app/HudPresentation.hpp"
+#include "app/MiscMenu.hpp"
 #include "app/PerfTelemetry.hpp"
 #include "app/Scoreboard.hpp"
 #include "app/TextInput.hpp"
@@ -21,11 +22,12 @@
 #include "input/InputBindings.hpp"
 #include "input/MouseAim.hpp"
 #include "net/NetCodec.hpp"
-#include "render/ConsoleLayout.hpp"
 #include "render/ChatLayout.hpp"
 #include "render/CombatEffects.hpp"
+#include "render/ConsoleLayout.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/ImpactMaterials.hpp"
+#include "render/OptionMenuLayout.hpp"
 #include "render/Renderer.hpp"
 #include "render/Scene3D.hpp"
 #include "render/WeaponPresentation.hpp"
@@ -36,8 +38,8 @@
 #include "sim/Arena.hpp"
 #include "sim/Combat.hpp"
 #include "sim/GameplayCvars.hpp"
-#include "sim/Movement.hpp"
 #include "sim/MapRegistry.hpp"
+#include "sim/Movement.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
 #include "sim/WeaponCatalog.hpp"
@@ -48,13 +50,13 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
-#include <cctype>
-#include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <fstream>
@@ -299,12 +301,14 @@ void syncGameplayCvarsFromSnapshot(
   return event.key == SDLK_C && (event.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
 }
 
-void pasteClipboardTextIntoConsole(std::string& input, std::size_t& cursorIndex) {
+void pasteClipboardTextIntoConsole(std::string &input, std::size_t &cursorIndex,
+                                   TextSelection &selection) {
   char* clipboardText = SDL_GetClipboardText();
   if (clipboardText == nullptr) {
     return;
   }
-  appendConsolePasteText(input, cursorIndex, clipboardText);
+  replaceSelectionOrInsert(input, cursorIndex, selection, clipboardText,
+                           TextInputFilter::Console);
   SDL_free(clipboardText);
 }
 
@@ -2054,6 +2058,8 @@ struct ClientConsoleState {
   bool selecting = false;
   std::size_t selectionAnchor = 0;
   std::size_t selectionFocus = 0;
+  TextSelection inputSelection;
+  bool selectingInput = false;
   std::size_t scrollRows = 0;
   ConsoleCatController cat;
 };
@@ -2070,6 +2076,10 @@ struct ClientChatState {
   std::size_t cursorIndex = 0;
   TextSelection selection;
   bool selecting = false;
+  bool hasHistorySelection = false;
+  bool selectingHistory = false;
+  std::size_t historySelectionAnchor = 0U;
+  std::size_t historySelectionFocus = 0U;
   std::string pendingMessage;
   std::deque<Message> history;
   std::uint32_t lastSequence = 0;
@@ -2111,6 +2121,8 @@ struct SettingsMenuState {
   std::size_t scrollRows = 0;
   int hoveredRow = -1;
   int pressedRow = -1;
+  bool scrollbarDragging = false;
+  float scrollbarGrabOffsetY = 0.0F;
   VideoSettings pendingVideo = {};
   int pendingMaxFps = 0;
   int pendingProfile = 1;
@@ -2160,6 +2172,16 @@ struct SettingsMenuState {
   bool originalCasings = true;
   float originalImpactParticles = 1.0F;
   int originalDecalBudget = 128;
+};
+
+struct MiscMenuState {
+  bool open = false;
+  int selectedRow = 0;
+  std::size_t scrollRows = 0U;
+  int hoveredRow = -1;
+  int pressedRow = -1;
+  bool scrollbarDragging = false;
+  float scrollbarGrabOffsetY = 0.0F;
 };
 
 struct LingeringWeaponFire {
@@ -2968,14 +2990,22 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.scrollRows = 0U;
 }
 
-void keepSettingsSelectionVisible(SettingsMenuState& menu) {
-  // The renderer reserves enough room for 14 rows at its smallest panel.
-  constexpr std::size_t kVisibleRows = 14U;
-  const std::size_t selected = static_cast<std::size_t>(menu.selectedRow);
-  if (selected < menu.scrollRows) menu.scrollRows = selected;
-  if (selected >= menu.scrollRows + kVisibleRows) {
-    menu.scrollRows = selected - kVisibleRows + 1U;
+void keepOptionMenuSelectionVisible(int selectedRow, std::size_t &scrollRows,
+                                    std::size_t visibleRows,
+                                    std::size_t itemCount) {
+  visibleRows = std::max<std::size_t>(1U, visibleRows);
+  const std::size_t maxScroll =
+      itemCount > visibleRows ? itemCount - visibleRows : 0U;
+  scrollRows = std::min(scrollRows, maxScroll);
+  const std::size_t selected =
+      static_cast<std::size_t>(std::max(0, selectedRow));
+  if (selected < scrollRows) {
+    scrollRows = selected;
   }
+  if (selected >= scrollRows + visibleRows) {
+    scrollRows = selected - visibleRows + 1U;
+  }
+  scrollRows = std::min(scrollRows, maxScroll);
 }
 
 void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
@@ -3401,26 +3431,70 @@ void populateSettingsMenuRenderState(
       true
     ),
   };
-  switch (menu.selectedRow) {
-  case 21:
-    hud.settingsFooter = "Smooths edges: Off, 2x MSAA, or 4x MSAA.";
-    break;
-  case 22:
-    hud.settingsFooter = "Sets the quality of shadows cast by the sun.";
-    break;
-  case 23:
-    hud.settingsFooter = "Adds short grounding shadows to players and props.";
-    break;
-  case 24:
-    hud.settingsFooter = "Sets world surface detail: Basic, Enhanced, or High.";
-    break;
-  case 25:
-    hud.settingsFooter = "Sets the edge light used to make players stand out.";
-    break;
-  default:
-    hud.settingsFooter =
-      "Profiles use 100% scale. Up/Down select   Left/Right change   Enter apply   Esc close";
-    break;
+  static constexpr std::array<std::string_view, kSettingsRowCount>
+      settingHelp = {{
+          "Chooses windowed, borderless fullscreen, or exclusive fullscreen.",
+          "Chooses which monitor displays the game.",
+          "Sets the render output resolution.",
+          "Sets the fullscreen refresh rate or follows the desktop.",
+          "Chooses how completed frames reach the display.",
+          "Caps the frame rate or leaves it unlimited.",
+          "Loads a full graphics preset as the current draft.",
+          "Scales the 3D scene before it is shown at output resolution.",
+          "Chooses nearest, bilinear, or trilinear texture filtering.",
+          "Sharpens textures viewed at an angle.",
+          "Offsets which texture detail level the renderer selects.",
+          "Skips player models outside the camera view.",
+          "Skips world chunks outside the camera view.",
+          "Turns player outlines on or off.",
+          "Chooses the compatibility or native outline path.",
+          "Shows or hides the animated console cat.",
+          "Sets combat particles and short-lived light detail.",
+          "Sets the overall brightness before the final color pass.",
+          "Sets the strength of the atmosphere and color grade.",
+          "Adds glow around bright effects.",
+          "Sets how strong the bright-effect glow appears.",
+          "Smooths edges: Off, 2x MSAA, or 4x MSAA.",
+          "Sets the quality of shadows cast by the sun.",
+          "Adds short grounding shadows to players and props.",
+          "Sets world surface detail: Basic, Enhanced, or High.",
+          "Sets the edge light used to make players stand out.",
+          "Shows or hides spent weapon casings.",
+          "Sets the amount of impact sparks and debris.",
+          "Sets the maximum number of bullet marks kept in the world.",
+          "Resets this draft to the default graphics profile.",
+          "Applies every changed setting in this graphics draft.",
+          "Closes the menu and restores the last applied settings.",
+      }};
+  const std::size_t selectedRow = static_cast<std::size_t>(
+      std::clamp(menu.selectedRow, 0, kSettingsRowCount - 1));
+  hud.settingsFooter = std::string(settingHelp[selectedRow]);
+}
+
+void populateMiscMenuRenderState(HudRenderState &hud, const MiscMenuState &menu,
+                                 const ConsoleSystem &console) {
+  if (!menu.open) {
+    return;
+  }
+  hud.miscMenuOpen = true;
+  hud.miscMenuScrollRows = menu.scrollRows;
+  hud.miscMenuHoveredRow = menu.hoveredRow;
+  hud.miscMenuPressedRow = menu.pressedRow;
+  const std::vector<MiscMenuItem> items = miscMenuItems(console);
+  hud.miscMenuItems.reserve(items.size());
+  for (std::size_t index = 0U; index < items.size(); ++index) {
+    hud.miscMenuItems.push_back(HudRenderState::SettingsMenuItem{
+        items[index].label,
+        items[index].value,
+        menu.selectedRow == static_cast<int>(index),
+        false,
+        items[index].command,
+    });
+  }
+  if (menu.selectedRow >= 0 &&
+      static_cast<std::size_t>(menu.selectedRow) < items.size()) {
+    hud.miscMenuFooter =
+        items[static_cast<std::size_t>(menu.selectedRow)].description;
   }
 }
 
@@ -3865,6 +3939,9 @@ ConsoleRenderState consoleRenderState(const ClientConsoleState& state) {
   renderState.hasSelection = state.hasSelection;
   renderState.selectionAnchor = state.selectionAnchor;
   renderState.selectionFocus = state.selectionFocus;
+  renderState.inputHasSelection = hasSelection(state.inputSelection);
+  renderState.inputSelectionAnchor = state.inputSelection.anchor;
+  renderState.inputSelectionFocus = state.inputSelection.focus;
   renderState.scrollRows = state.scrollRows;
   renderState.cat = state.cat.pose();
   return renderState;
@@ -3875,6 +3952,15 @@ void clearConsoleSelection(ClientConsoleState& state) {
   state.selecting = false;
   state.selectionAnchor = 0;
   state.selectionFocus = 0;
+  clearSelection(state.inputSelection);
+  state.selectingInput = false;
+}
+
+void clearConsoleOutputSelection(ClientConsoleState &state) {
+  state.hasSelection = false;
+  state.selecting = false;
+  state.selectionAnchor = 0U;
+  state.selectionFocus = 0U;
 }
 
 ConsoleTextLayout consoleLayoutForWindow(
@@ -3891,10 +3977,21 @@ ConsoleTextLayout consoleLayoutForWindow(
   );
 }
 
-std::string consoleClipboardTextForWindow(
-  SDL_Window* window,
-  const ClientConsoleState& state
-) {
+OptionMenuLayout optionMenuLayoutForWindow(SDL_Window *window,
+                                           std::size_t itemCount,
+                                           std::size_t scrollRows) {
+  int viewportWidth = 0;
+  int viewportHeight = 0;
+  SDL_GetWindowSize(window, &viewportWidth, &viewportHeight);
+  return buildOptionMenuLayout(viewportWidth, viewportHeight, itemCount,
+                               scrollRows);
+}
+
+std::string consoleClipboardTextForWindow(SDL_Window *window,
+                                          const ClientConsoleState &state) {
+  if (hasSelection(state.inputSelection)) {
+    return selectedText(state.input, state.inputSelection);
+  }
   if (state.hasSelection && state.selectionAnchor != state.selectionFocus) {
     return consoleSelectedText(
       consoleLayoutForWindow(window, state),
@@ -3921,6 +4018,9 @@ HudRenderState chatHudRenderState(const ClientChatState& state) {
   hud.chatHasSelection = hasSelection(state.selection);
   hud.chatSelectionAnchor = state.selection.anchor;
   hud.chatSelectionFocus = state.selection.focus;
+  hud.chatHistoryHasSelection = state.hasHistorySelection;
+  hud.chatHistorySelectionAnchor = state.historySelectionAnchor;
+  hud.chatHistorySelectionFocus = state.historySelectionFocus;
   hud.chatScrollRows = state.scrollRows;
   return hud;
 }
@@ -3937,18 +4037,38 @@ void clearChatSelection(ClientChatState& state) {
   state.selecting = false;
 }
 
-std::string chatClipboardText(const ClientChatState& state) {
+void clearChatHistorySelection(ClientChatState &state) {
+  state.hasHistorySelection = false;
+  state.selectingHistory = false;
+  state.historySelectionAnchor = 0U;
+  state.historySelectionFocus = 0U;
+}
+
+void clearChatSelections(ClientChatState &state) {
+  clearChatSelection(state);
+  clearChatHistorySelection(state);
+}
+
+std::string chatClipboardText(SDL_Window *window,
+                              const ClientChatState &state) {
+  if (state.hasHistorySelection &&
+      state.historySelectionAnchor != state.historySelectionFocus) {
+    return chatHistorySelectedText(chatLayoutForWindow(window, state),
+                                   state.historySelectionAnchor,
+                                   state.historySelectionFocus);
+  }
   if (hasSelection(state.selection)) {
     return selectedText(state.input, state.selection);
   }
   return state.input;
 }
 
-void pasteClipboardTextIntoChat(ClientChatState& state) {
+void pasteClipboardTextIntoChat(ClientChatState &state) {
   char* clipboardText = SDL_GetClipboardText();
   if (clipboardText == nullptr) {
     return;
   }
+  clearChatHistorySelection(state);
   replaceSelectionOrInsert(
     state.input,
     state.cursorIndex,
@@ -3967,12 +4087,28 @@ void beginChatSelection(
   float y
 ) {
   const ChatTextLayout layout = chatLayoutForWindow(window, state);
-  const std::size_t offset = chatInputOffsetAt(layout, state.input, x, y);
-  state.cursorIndex = offset;
-  state.selection.active = true;
-  state.selection.anchor = offset;
-  state.selection.focus = offset;
-  state.selecting = true;
+  if (!layout.inputRows.empty() && y >= layout.inputRows.front().y &&
+      y < layout.inputRows.back().y + layout.input.lineHeight) {
+    clearChatHistorySelection(state);
+    const std::size_t offset = chatInputOffsetAt(layout, state.input, x, y);
+    state.cursorIndex = offset;
+    state.selection.active = true;
+    state.selection.anchor = offset;
+    state.selection.focus = offset;
+    state.selecting = true;
+    return;
+  }
+  if (!layout.rows.empty() && y >= layout.rows.front().y &&
+      y < layout.rows.back().y + layout.lineHeight) {
+    clearChatSelection(state);
+    const std::size_t offset = chatHistoryTextOffsetAt(layout, x, y);
+    state.hasHistorySelection = true;
+    state.selectingHistory = true;
+    state.historySelectionAnchor = offset;
+    state.historySelectionFocus = offset;
+    return;
+  }
+  clearChatSelections(state);
 }
 
 void updateChatSelection(
@@ -3981,12 +4117,13 @@ void updateChatSelection(
   float x,
   float y
 ) {
-  if (!state.selecting) {
-    return;
-  }
   const ChatTextLayout layout = chatLayoutForWindow(window, state);
-  state.selection.focus = chatInputOffsetAt(layout, state.input, x, y);
-  state.cursorIndex = state.selection.focus;
+  if (state.selecting) {
+    state.selection.focus = chatInputOffsetAt(layout, state.input, x, y);
+    state.cursorIndex = state.selection.focus;
+  } else if (state.selectingHistory) {
+    state.historySelectionFocus = chatHistoryTextOffsetAt(layout, x, y);
+  }
 }
 
 void beginConsoleSelection(
@@ -3996,6 +4133,23 @@ void beginConsoleSelection(
   float y
 ) {
   const ConsoleTextLayout layout = consoleLayoutForWindow(window, state);
+  bool inPrompt = false;
+  for (const ConsoleLayoutLine &line : layout.lines) {
+    inPrompt = inPrompt ||
+               (line.prompt && y >= line.y && y < line.y + layout.lineHeight);
+  }
+  if (inPrompt) {
+    clearConsoleSelection(state);
+    const std::size_t offset = consoleInputOffsetAt(layout, state.input, x, y);
+    state.cursorIndex = offset;
+    state.inputSelection.active = true;
+    state.inputSelection.anchor = offset;
+    state.inputSelection.focus = offset;
+    state.selectingInput = true;
+    return;
+  }
+  clearSelection(state.inputSelection);
+  state.selectingInput = false;
   const std::size_t offset = consoleTextOffsetAt(layout, x, y);
   state.hasSelection = true;
   state.selecting = true;
@@ -4009,11 +4163,14 @@ void updateConsoleSelection(
   float x,
   float y
 ) {
-  if (!state.selecting) {
-    return;
+  const ConsoleTextLayout layout = consoleLayoutForWindow(window, state);
+  if (state.selectingInput) {
+    state.inputSelection.focus =
+        consoleInputOffsetAt(layout, state.input, x, y);
+    state.cursorIndex = state.inputSelection.focus;
+  } else if (state.selecting) {
+    state.selectionFocus = consoleTextOffsetAt(layout, x, y);
   }
-  state.selectionFocus =
-    consoleTextOffsetAt(consoleLayoutForWindow(window, state), x, y);
 }
 
 std::string keyName(SDL_Scancode scancode) {
@@ -4091,7 +4248,7 @@ void installDefaultBindings(InputBindings& bindings) {
   (void)bindings.bind("z", "+showchat");
   (void)bindings.bind("tab", "+scores");
   (void)bindings.bind("f10", "settings");
-  (void)bindings.bind("f12", "quit");
+  (void)bindings.bind("f11", "misc");
 }
 
 std::string gameModeName(GameMode gameMode) {
@@ -4549,6 +4706,7 @@ int GameApp::run() const {
   bool writeConfigRequested = false;
   bool toggleConsoleRequested = false;
   bool settingsMenuRequested = false;
+  bool miscMenuRequested = false;
   bool openChatRequested = false;
   bool showChatRequested = false;
   bool requestGameModePending = false;
@@ -5232,6 +5390,12 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+      "misc", "Open the tools and debug menu.",
+      [&miscMenuRequested](const std::vector<std::string> &) {
+        miscMenuRequested = true;
+        return std::string{};
+      });
+  console.registerCommand(
     "messagemode",
     "Open team-wide chat input.",
     [&openChatRequested](const std::vector<std::string>&) {
@@ -5313,51 +5477,49 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
-    "actionlist",
-    "List bindable gameplay actions using Quake 3 command names.",
-    [](const std::vector<std::string>&) {
-      return std::string(
-        "+forward\n"
-        "+back\n"
-        "+moveleft\n"
-        "+moveright\n"
-        "+moveup\n"
-        "+movedown\n"
-        "+duck\n"
-        "+crouch\n"
-        "+speed\n"
-        "+sneak\n"
-        "+attack\n"
-        "+dash\n"
-        "+scores\n"
-        "+showchat\n"
-        "+zoom\n"
-        "weapon\n"
-        "map\n"
-        "player\n"
-        "resetmatch\n"
-        "ready\n"
-        "mcguffin_throw\n"
-        "gamemode\n"
-        "team\n"
-        "bot_add\n"
-        "bot_kick\n"
-        "bot_attack\n"
-        "bot_weapon\n"
-        "bot_dodge\n"
-        "bot_dodge_min_ms\n"
-        "bot_dodge_max_ms\n"
-        "bot_stare\n"
-        "bot_standstill\n"
+      "actionlist",
+      "List bindable gameplay actions using Quake 3 command names.",
+      [](const std::vector<std::string> &) {
+        return std::string("+forward\n"
+                           "+back\n"
+                           "+moveleft\n"
+                           "+moveright\n"
+                           "+moveup\n"
+                           "+movedown\n"
+                           "+duck\n"
+                           "+crouch\n"
+                           "+speed\n"
+                           "+sneak\n"
+                           "+attack\n"
+                           "+dash\n"
+                           "+scores\n"
+                           "+showchat\n"
+                           "+zoom\n"
+                           "weapon\n"
+                           "map\n"
+                           "player\n"
+                           "resetmatch\n"
+                           "ready\n"
+                           "mcguffin_throw\n"
+                           "gamemode\n"
+                           "team\n"
+                           "bot_add\n"
+                           "bot_kick\n"
+                           "bot_attack\n"
+                           "bot_weapon\n"
+                           "bot_dodge\n"
+                           "bot_dodge_min_ms\n"
+                           "bot_dodge_max_ms\n"
+                           "bot_stare\n"
+                           "bot_standstill\n"
 
-        "settings\n"
-        "messagemode\n"
-        "showchat\n"
-        "toggleconsole\n"
-        "quit"
-      );
-    }
-  );
+                           "settings\n"
+                           "misc\n"
+                           "messagemode\n"
+                           "showchat\n"
+                           "toggleconsole\n"
+                           "quit");
+      });
   console.registerCommand(
     "net_stats",
     "Print current connection diagnostics.",
@@ -5514,6 +5676,17 @@ int GameApp::run() const {
     }
     (void)console.execute("set cl_config_version 16");
   }
+  if (console.getInt("cl_config_version") < 17) {
+    const std::string f11Binding = bindings.binding("f11");
+    if (f11Binding.empty()) {
+      (void)bindings.bind("f11", "misc");
+    }
+    const std::string f12Binding = bindings.binding("f12");
+    if (f12Binding == "+quit" || f12Binding == "quit") {
+      (void)bindings.unbind("f12");
+    }
+    (void)console.execute("set cl_config_version 17");
+  }
   if (ownedLiveScenario) {
     // Owned live runs use a fixed window size so capture checks do not inherit
     // the user's archived video settings.
@@ -5524,6 +5697,7 @@ int GameApp::run() const {
   (void)session.connect(serverHost_, serverPort_);
   ClientConsoleState consoleState;
   SettingsMenuState settingsMenu;
+  MiscMenuState miscMenu;
   appendConsoleOutput(
     consoleState,
     "LG Duel console. Type actionlist, bindlist, cmdlist, or cvarlist."
@@ -5597,7 +5771,7 @@ int GameApp::run() const {
       if (open) {
         chatState.cursorIndex = chatState.input.size();
         chatState.scrollRows = 0U;
-        clearChatSelection(chatState);
+        clearChatSelections(chatState);
       }
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
@@ -5609,28 +5783,61 @@ int GameApp::run() const {
         SDL_SetWindowRelativeMouseMode(window, true);
       }
     };
-  const auto setSettingsOpen =
-    [&bindings, &console, &settingsMenu, &input, window](bool open) {
-      if (settingsMenu.open == open) {
-        return;
-      }
-      for (const std::string& command : bindings.releaseAll()) {
-        (void)console.execute(command);
-      }
-      settingsMenu.open = open;
-      input.mouseDeltaX = 0.0F;
-      input.mouseDeltaY = 0.0F;
-      if (open) {
-        syncSettingsMenuFromConsole(settingsMenu, console);
-        SDL_SetWindowRelativeMouseMode(window, false);
-        SDL_ShowCursor();
-      } else {
-        settingsMenu.hoveredRow = -1;
-        settingsMenu.pressedRow = -1;
-        SDL_SetWindowRelativeMouseMode(window, true);
-        SDL_HideCursor();
-      }
-    };
+  const auto setSettingsOpen = [&bindings, &console, &settingsMenu, &input,
+                                window](bool open) {
+    if (settingsMenu.open == open) {
+      return;
+    }
+    for (const std::string &command : bindings.releaseAll()) {
+      (void)console.execute(command);
+    }
+    settingsMenu.open = open;
+    input.mouseDeltaX = 0.0F;
+    input.mouseDeltaY = 0.0F;
+    if (open) {
+      syncSettingsMenuFromConsole(settingsMenu, console);
+      SDL_SetWindowRelativeMouseMode(window, false);
+      SDL_ShowCursor();
+    } else {
+      settingsMenu.hoveredRow = -1;
+      settingsMenu.pressedRow = -1;
+      settingsMenu.scrollbarDragging = false;
+      SDL_SetWindowRelativeMouseMode(window, true);
+      SDL_HideCursor();
+    }
+  };
+  const auto setMiscMenuOpen = [&bindings, &console, &miscMenu, &input,
+                                window](bool open) {
+    if (miscMenu.open == open) {
+      return;
+    }
+    for (const std::string &command : bindings.releaseAll()) {
+      (void)console.execute(command);
+    }
+    miscMenu.open = open;
+    input.mouseDeltaX = 0.0F;
+    input.mouseDeltaY = 0.0F;
+    if (open) {
+      miscMenu.selectedRow = std::clamp(
+          miscMenu.selectedRow, 0, static_cast<int>(MiscMenuRow::Count) - 1);
+      miscMenu.scrollRows = 0U;
+      SDL_SetWindowRelativeMouseMode(window, false);
+      SDL_ShowCursor();
+    } else {
+      miscMenu.hoveredRow = -1;
+      miscMenu.pressedRow = -1;
+      miscMenu.scrollbarDragging = false;
+      SDL_SetWindowRelativeMouseMode(window, true);
+      SDL_HideCursor();
+    }
+  };
+  const auto applyMiscMenuToggle = [&miscMenuRequested, &setMiscMenuOpen,
+                                    &miscMenu]() {
+    if (miscMenuRequested) {
+      miscMenuRequested = false;
+      setMiscMenuOpen(!miscMenu.open);
+    }
+  };
   const auto applySettingsMenuToggle =
     [&settingsMenuRequested, &setSettingsOpen, &settingsMenu]() {
       if (settingsMenuRequested) {
@@ -5869,7 +6076,8 @@ int GameApp::run() const {
     status.object["vulkan_icd_sha256"] =
       dev::JsonValue::stringValue(std::string(renderer.vulkanIcdSha256()));
     // The client exposes observed device identity and the launch selection.
-    // Only the external launcher can compare both and mark the session verified.
+    // Only the external launcher can compare both and mark the session
+    // verified.
     status.object["gpu_verification_state"] = dev::JsonValue::stringValue(
       renderer.backendName() == "SDL_GPU/vulkan"
         ? "pending-launcher-verification"
@@ -6234,8 +6442,9 @@ int GameApp::run() const {
         activeControlOperation.reset();
         break;
       case dev::ControlOperation::SetNetworkSimulation: {
-        // A typed control setting remains in force across frames and reconnects.
-        // It does not pass through console text or change archived user settings.
+        // A typed control setting remains in force across frames and
+        // reconnects. It does not pass through console text or change archived
+        // user settings.
         developerNetworkSimulation = request.networkSimulation;
         session.setNetworkSimulationConfig(*developerNetworkSimulation);
         developerControl.complete(
@@ -6279,7 +6488,8 @@ int GameApp::run() const {
           break;
         }
         // Keep automation on the same bounded CVAR path as the in-game console.
-        // This operation only changes presentation; authoritative traces are untouched.
+        // This operation only changes presentation; authoritative traces are
+        // untouched.
         const std::string consoleResult = console.execute(
           "set r_show_collision " + std::to_string(request.collisionDebugMode)
         );
@@ -6817,9 +7027,12 @@ int GameApp::run() const {
                 .benchmarkFrameIndex = timing.benchmarkFrameIndex,
                 .gpuPrimaryCommandBufferMilliseconds =
                   timing.gpuPrimaryCommandBufferMilliseconds,
+                .passApplicable = timing.passApplicable,
+                .passMilliseconds = timing.passMilliseconds,
                 .outlineApplicable = timing.outlineApplicable,
                 .outlineGpuMilliseconds = timing.outlineGpuMilliseconds,
                 .readbackLatencyFrames = timing.readbackLatencyFrames,
+                .unavailableReason = timing.unavailableReason,
               }
             );
           }
@@ -6844,9 +7057,12 @@ int GameApp::run() const {
                 .benchmarkFrameIndex = timing.benchmarkFrameIndex,
                 .gpuPrimaryCommandBufferMilliseconds =
                   timing.gpuPrimaryCommandBufferMilliseconds,
+                .passApplicable = timing.passApplicable,
+                .passMilliseconds = timing.passMilliseconds,
                 .outlineApplicable = timing.outlineApplicable,
                 .outlineGpuMilliseconds = timing.outlineGpuMilliseconds,
                 .readbackLatencyFrames = timing.readbackLatencyFrames,
+                .unavailableReason = timing.unavailableReason,
               }
             );
           }
@@ -6897,7 +7113,8 @@ int GameApp::run() const {
         activeControlOperation->stage ==
           ActiveControlOperation::Stage::WaitingForClientTick) {
       ActiveControlOperation& active = *activeControlOperation;
-      // This tick is local fixed-step progress and does not imply server progress.
+      // This tick is local fixed-step progress and does not imply server
+      // progress.
       if (clientTick >= active.queued.request.minimumTick) {
         dev::JsonValue result = dev::JsonValue::objectValue();
         result.object["min_tick"] =
@@ -7036,28 +7253,30 @@ int GameApp::run() const {
             break;
           }
           if ((event.key.key == SDLK_A) && (event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0) {
+            clearChatHistorySelection(chatState);
             selectAll(chatState.input, chatState.selection);
             chatState.cursorIndex = chatState.input.size();
           } else if (isClipboardPasteKey(event.key)) {
             pasteClipboardTextIntoChat(chatState);
           } else if (isClipboardCopyKey(event.key)) {
-            copyTextToClipboard(chatClipboardText(chatState));
+            copyTextToClipboard(chatClipboardText(window, chatState));
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             chatState.input.clear();
             chatState.cursorIndex = 0U;
-            clearChatSelection(chatState);
+            clearChatSelections(chatState);
             setChatOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
+            clearChatHistorySelection(chatState);
             backspaceSelectionOrText(
               chatState.input,
               chatState.cursorIndex,
               chatState.selection
             );
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
-            clearChatSelection(chatState);
+            clearChatSelections(chatState);
             moveCursorLeft(chatState.input, chatState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
-            clearChatSelection(chatState);
+            clearChatSelections(chatState);
             moveCursorRight(chatState.input, chatState.cursorIndex);
           } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
             if (!chatState.input.empty()) {
@@ -7065,7 +7284,7 @@ int GameApp::run() const {
             }
             chatState.input.clear();
             chatState.cursorIndex = 0U;
-            clearChatSelection(chatState);
+            clearChatSelections(chatState);
             setChatOpen(false);
           }
           break;
@@ -7084,11 +7303,19 @@ int GameApp::run() const {
             settingsMenu.selectedRow =
               (settingsMenu.selectedRow + kSettingsRowCount - 1) %
               kSettingsRowCount;
-            keepSettingsSelectionVisible(settingsMenu);
+            const OptionMenuLayout layout = optionMenuLayoutForWindow(
+                window, kSettingsRowCount, settingsMenu.scrollRows);
+            keepOptionMenuSelectionVisible(
+                settingsMenu.selectedRow, settingsMenu.scrollRows,
+                layout.visibleRows, kSettingsRowCount);
           } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
             settingsMenu.selectedRow =
               (settingsMenu.selectedRow + 1) % kSettingsRowCount;
-            keepSettingsSelectionVisible(settingsMenu);
+            const OptionMenuLayout layout = optionMenuLayoutForWindow(
+                window, kSettingsRowCount, settingsMenu.scrollRows);
+            keepOptionMenuSelectionVisible(
+                settingsMenu.selectedRow, settingsMenu.scrollRows,
+                layout.visibleRows, kSettingsRowCount);
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             adjustSettingsMenuValue(settingsMenu, -1);
           } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
@@ -7102,6 +7329,49 @@ int GameApp::run() const {
               setSettingsOpen(false);
             } else {
               adjustSettingsMenuValue(settingsMenu, 1);
+            }
+          }
+          break;
+        }
+        if (miscMenu.open) {
+          if (!pressed) {
+            break;
+          }
+          constexpr int rowCount = static_cast<int>(MiscMenuRow::Count);
+          if (bindings.binding(key) == "misc") {
+            setMiscMenuOpen(false);
+          } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
+            setMiscMenuOpen(false);
+          } else if (event.key.scancode == SDL_SCANCODE_UP) {
+            miscMenu.selectedRow =
+                (miscMenu.selectedRow + rowCount - 1) % rowCount;
+            const OptionMenuLayout layout = optionMenuLayoutForWindow(
+                window, static_cast<std::size_t>(rowCount),
+                miscMenu.scrollRows);
+            keepOptionMenuSelectionVisible(
+                miscMenu.selectedRow, miscMenu.scrollRows, layout.visibleRows,
+                static_cast<std::size_t>(rowCount));
+          } else if (event.key.scancode == SDL_SCANCODE_DOWN) {
+            miscMenu.selectedRow = (miscMenu.selectedRow + 1) % rowCount;
+            const OptionMenuLayout layout = optionMenuLayoutForWindow(
+                window, static_cast<std::size_t>(rowCount),
+                miscMenu.scrollRows);
+            keepOptionMenuSelectionVisible(
+                miscMenu.selectedRow, miscMenu.scrollRows, layout.visibleRows,
+                static_cast<std::size_t>(rowCount));
+          } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
+            (void)adjustMiscMenuValue(
+                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), -1);
+          } else if (event.key.scancode == SDL_SCANCODE_RIGHT) {
+            (void)adjustMiscMenuValue(
+                console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1);
+          } else if (event.key.scancode == SDL_SCANCODE_RETURN) {
+            if (static_cast<MiscMenuRow>(miscMenu.selectedRow) ==
+                MiscMenuRow::Close) {
+              setMiscMenuOpen(false);
+            } else {
+              (void)adjustMiscMenuValue(
+                  console, static_cast<MiscMenuRow>(miscMenu.selectedRow), 1);
             }
           }
           break;
@@ -7120,17 +7390,29 @@ int GameApp::run() const {
             applyConsoleToggle();
             break;
           }
-          if (isClipboardPasteKey(event.key)) {
+          if (event.key.key == SDLK_A &&
+              (event.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0) {
             clearConsoleSelection(consoleState);
-            pasteClipboardTextIntoConsole(consoleState.input, consoleState.cursorIndex);
+            selectAll(consoleState.input, consoleState.inputSelection);
+            consoleState.cursorIndex = consoleState.input.size();
+          } else if (isClipboardPasteKey(event.key)) {
+            consoleState.hasSelection = false;
+            consoleState.selecting = false;
+            pasteClipboardTextIntoConsole(consoleState.input,
+                                          consoleState.cursorIndex,
+                                          consoleState.inputSelection);
           } else if (isClipboardCopyKey(event.key)) {
-            copyTextToClipboard(consoleClipboardTextForWindow(window, consoleState));
+            copyTextToClipboard(
+                consoleClipboardTextForWindow(window, consoleState));
           } else if (event.key.scancode == SDL_SCANCODE_ESCAPE) {
             setConsoleOpen(false);
           } else if (event.key.scancode == SDL_SCANCODE_BACKSPACE) {
             if (!consoleState.input.empty()) {
-              clearConsoleSelection(consoleState);
-              backspaceConsoleInput(consoleState.input, consoleState.cursorIndex);
+              consoleState.hasSelection = false;
+              consoleState.selecting = false;
+              backspaceSelectionOrText(consoleState.input,
+                                       consoleState.cursorIndex,
+                                       consoleState.inputSelection);
             }
           } else if (event.key.scancode == SDL_SCANCODE_LEFT) {
             clearConsoleSelection(consoleState);
@@ -7152,14 +7434,16 @@ int GameApp::run() const {
               consoleState.input.clear();
               consoleState.cursorIndex = 0U;
             }
-          } else if (event.key.scancode == SDL_SCANCODE_UP && !consoleState.history.empty()) {
+          } else if (event.key.scancode == SDL_SCANCODE_UP &&
+                     !consoleState.history.empty()) {
             if (consoleState.historyIndex > 0) {
               --consoleState.historyIndex;
             }
             clearConsoleSelection(consoleState);
             consoleState.input = consoleState.history[consoleState.historyIndex];
             consoleState.cursorIndex = consoleState.input.size();
-          } else if (event.key.scancode == SDL_SCANCODE_DOWN && !consoleState.history.empty()) {
+          } else if (event.key.scancode == SDL_SCANCODE_DOWN &&
+                     !consoleState.history.empty()) {
             if (consoleState.historyIndex + 1 < consoleState.history.size()) {
               ++consoleState.historyIndex;
               clearConsoleSelection(consoleState);
@@ -7213,7 +7497,9 @@ int GameApp::run() const {
         executeBindingCommands(bindings.handleKey(key, pressed));
         applyConsoleToggle();
         applySettingsMenuToggle();
-        if (openChatRequested && !consoleState.open && !settingsMenu.open) {
+        applyMiscMenuToggle();
+        if (openChatRequested && !consoleState.open && !settingsMenu.open &&
+            !miscMenu.open) {
           openChatRequested = false;
           setChatOpen(true);
         }
@@ -7232,14 +7518,14 @@ int GameApp::run() const {
         } else if (consoleState.open) {
           suppressNextTextInput = false;
           consoleState.scrollRows = 0U;
-          clearConsoleSelection(consoleState);
-          insertConsoleText(
-            consoleState.input,
-            consoleState.cursorIndex,
-            event.text.text
-          );
+          consoleState.hasSelection = false;
+          consoleState.selecting = false;
+          replaceSelectionOrInsert(consoleState.input, consoleState.cursorIndex,
+                                   consoleState.inputSelection, event.text.text,
+                                   TextInputFilter::Console);
         } else if (chatState.inputOpen) {
           suppressNextTextInput = false;
+          clearChatHistorySelection(chatState);
           replaceSelectionOrInsert(
             chatState.input,
             chatState.cursorIndex,
@@ -7248,7 +7534,7 @@ int GameApp::run() const {
             TextInputFilter::Chat,
             kMaxChatMessageBytes
           );
-        } else if (settingsMenu.open) {
+        } else if (settingsMenu.open || miscMenu.open) {
           suppressNextTextInput = false;
         } else {
           suppressNextTextInput = false;
@@ -7274,7 +7560,10 @@ int GameApp::run() const {
               event.button.y
             );
             consoleState.selecting = false;
-            if (consoleState.selectionAnchor == consoleState.selectionFocus) {
+            consoleState.selectingInput = false;
+            if (consoleState.selectionAnchor == consoleState.selectionFocus &&
+                consoleState.inputSelection.anchor ==
+                    consoleState.inputSelection.focus) {
               clearConsoleSelection(consoleState);
             }
           }
@@ -7294,40 +7583,47 @@ int GameApp::run() const {
               event.button.y
             );
             chatState.selecting = false;
-            if (chatState.selection.anchor == chatState.selection.focus) {
-              clearChatSelection(chatState);
+            chatState.selectingHistory = false;
+            if (chatState.selection.anchor == chatState.selection.focus &&
+                chatState.historySelectionAnchor ==
+                    chatState.historySelectionFocus) {
+              clearChatSelections(chatState);
             }
           }
         } else if (settingsMenu.open) {
           if (event.button.button != SDL_BUTTON_LEFT) {
             break;
           }
-          int windowWidth = 0;
-          int windowHeight = 0;
-          SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-          const float panelWidth = std::min(
-            std::max(320.0F, static_cast<float>(windowWidth) - 48.0F),
-            static_cast<float>(windowWidth) * 0.75F
-          );
-          const float panelHeight = std::min(
-            std::max(260.0F, static_cast<float>(windowHeight) - 48.0F),
-            static_cast<float>(windowHeight) * 0.75F
-          );
-          const float panelY = (static_cast<float>(windowHeight) - panelHeight) * 0.45F;
-          const float firstRowY = panelY + 78.0F;
-          constexpr float rowHeight = 38.0F;
-          const float footerY = panelY + panelHeight - 30.0F;
-          const bool inRows = event.button.y >= firstRowY && event.button.y < footerY;
-          const int row = inRows
-            ? static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
-                (event.button.y - firstRowY) / rowHeight))
-            : -1;
+          const OptionMenuLayout layout = optionMenuLayoutForWindow(
+              window, kSettingsRowCount, settingsMenu.scrollRows);
+          if (pressed && optionMenuPointInScrollbarTrack(layout, event.button.x,
+                                                         event.button.y)) {
+            settingsMenu.pressedRow = -1;
+            settingsMenu.hoveredRow = -1;
+            settingsMenu.scrollbarDragging = true;
+            settingsMenu.scrollbarGrabOffsetY =
+                optionMenuPointInScrollbarThumb(layout, event.button.x,
+                                                event.button.y)
+                    ? event.button.y - layout.scrollbarThumbY
+                    : layout.scrollbarThumbHeight * 0.5F;
+            settingsMenu.scrollRows = optionMenuScrollForThumbPointer(
+                layout, event.button.y, settingsMenu.scrollbarGrabOffsetY);
+            break;
+          }
+          if (settingsMenu.scrollbarDragging) {
+            settingsMenu.scrollRows = optionMenuScrollForThumbPointer(
+                layout, event.button.y, settingsMenu.scrollbarGrabOffsetY);
+            if (!pressed) {
+              settingsMenu.scrollbarDragging = false;
+            }
+            break;
+          }
+          const int row = optionMenuRowAt(layout, settingsMenu.scrollRows,
+                                          kSettingsRowCount, event.button.y);
           if (pressed) {
-            settingsMenu.pressedRow =
-              row >= 0 && row < kSettingsRowCount ? row : -1;
+            settingsMenu.pressedRow = row;
             if (settingsMenu.pressedRow >= 0) {
               settingsMenu.selectedRow = settingsMenu.pressedRow;
-              keepSettingsSelectionVisible(settingsMenu);
             }
           } else if (settingsMenu.pressedRow >= 0 && settingsMenu.pressedRow == row) {
             const int clickedRow = settingsMenu.pressedRow;
@@ -7339,18 +7635,72 @@ int GameApp::run() const {
             } else if (clickedRow == kSettingsCloseRow) {
               setSettingsOpen(false);
             } else {
-              const float panelX = (static_cast<float>(windowWidth) - panelWidth) * 0.5F;
-              const float arrowX = panelX + panelWidth - 28.0F - 9.0F * 18.0F;
+              const float arrowX =
+                  layout.panelX + layout.panelWidth - 28.0F - 9.0F * 18.0F;
               adjustSettingsMenuValue(settingsMenu, event.button.x < arrowX + 36.0F ? -1 : 1);
             }
           } else {
             settingsMenu.pressedRow = -1;
           }
           break;
+        } else if (miscMenu.open) {
+          if (event.button.button != SDL_BUTTON_LEFT) {
+            break;
+          }
+          constexpr std::size_t itemCount =
+              static_cast<std::size_t>(MiscMenuRow::Count);
+          const OptionMenuLayout layout =
+              optionMenuLayoutForWindow(window, itemCount, miscMenu.scrollRows);
+          if (pressed && optionMenuPointInScrollbarTrack(layout, event.button.x,
+                                                         event.button.y)) {
+            miscMenu.pressedRow = -1;
+            miscMenu.hoveredRow = -1;
+            miscMenu.scrollbarDragging = true;
+            miscMenu.scrollbarGrabOffsetY =
+                optionMenuPointInScrollbarThumb(layout, event.button.x,
+                                                event.button.y)
+                    ? event.button.y - layout.scrollbarThumbY
+                    : layout.scrollbarThumbHeight * 0.5F;
+            miscMenu.scrollRows = optionMenuScrollForThumbPointer(
+                layout, event.button.y, miscMenu.scrollbarGrabOffsetY);
+            break;
+          }
+          if (miscMenu.scrollbarDragging) {
+            miscMenu.scrollRows = optionMenuScrollForThumbPointer(
+                layout, event.button.y, miscMenu.scrollbarGrabOffsetY);
+            if (!pressed) {
+              miscMenu.scrollbarDragging = false;
+            }
+            break;
+          }
+          const int row = optionMenuRowAt(layout, miscMenu.scrollRows,
+                                          itemCount, event.button.y);
+          if (pressed) {
+            miscMenu.pressedRow = row;
+            if (row >= 0) {
+              miscMenu.selectedRow = row;
+            }
+          } else if (miscMenu.pressedRow >= 0 && miscMenu.pressedRow == row) {
+            const int clickedRow = miscMenu.pressedRow;
+            miscMenu.pressedRow = -1;
+            if (static_cast<MiscMenuRow>(clickedRow) == MiscMenuRow::Close) {
+              setMiscMenuOpen(false);
+            } else {
+              const float arrowX =
+                  layout.panelX + layout.panelWidth - 28.0F - 9.0F * 18.0F;
+              (void)adjustMiscMenuValue(
+                  console, static_cast<MiscMenuRow>(clickedRow),
+                  event.button.x < arrowX + 36.0F ? -1 : 1);
+            }
+          } else {
+            miscMenu.pressedRow = -1;
+          }
+          break;
         } else if (!consoleState.open && !chatState.inputOpen) {
           executeBindingCommands(bindings.handleKey(key, pressed));
           applyConsoleToggle();
           applySettingsMenuToggle();
+          applyMiscMenuToggle();
         } else if (!pressed) {
           executeBindingCommands(bindings.handleKey(key, false));
         }
@@ -7360,22 +7710,38 @@ int GameApp::run() const {
         if (settingsMenu.open) {
           input.mouseDeltaX = 0.0F;
           input.mouseDeltaY = 0.0F;
-          int windowWidth = 0;
-          int windowHeight = 0;
-          SDL_GetWindowSize(window, &windowWidth, &windowHeight);
-          const float panelHeight = std::min(
-            std::max(260.0F, static_cast<float>(windowHeight) - 48.0F),
-            static_cast<float>(windowHeight) * 0.75F
-          );
-          const float panelY = (static_cast<float>(windowHeight) - panelHeight) * 0.45F;
-          const float firstRowY = panelY + 78.0F;
-          const float footerY = panelY + panelHeight - 30.0F;
-          if (event.motion.y >= firstRowY && event.motion.y < footerY) {
-            const int row = static_cast<int>(settingsMenu.scrollRows + static_cast<std::size_t>(
-              (event.motion.y - firstRowY) / 38.0F));
-            settingsMenu.hoveredRow = row < kSettingsRowCount ? row : -1;
-          } else {
+          const OptionMenuLayout layout = optionMenuLayoutForWindow(
+              window, kSettingsRowCount, settingsMenu.scrollRows);
+          if (settingsMenu.scrollbarDragging) {
+            settingsMenu.scrollRows = optionMenuScrollForThumbPointer(
+                layout, event.motion.y, settingsMenu.scrollbarGrabOffsetY);
             settingsMenu.hoveredRow = -1;
+          } else {
+            settingsMenu.hoveredRow =
+                optionMenuPointInScrollbarTrack(layout, event.motion.x,
+                                                event.motion.y)
+                    ? -1
+                    : optionMenuRowAt(layout, settingsMenu.scrollRows,
+                                      kSettingsRowCount, event.motion.y);
+          }
+        } else if (miscMenu.open) {
+          input.mouseDeltaX = 0.0F;
+          input.mouseDeltaY = 0.0F;
+          constexpr std::size_t itemCount =
+              static_cast<std::size_t>(MiscMenuRow::Count);
+          const OptionMenuLayout layout =
+              optionMenuLayoutForWindow(window, itemCount, miscMenu.scrollRows);
+          if (miscMenu.scrollbarDragging) {
+            miscMenu.scrollRows = optionMenuScrollForThumbPointer(
+                layout, event.motion.y, miscMenu.scrollbarGrabOffsetY);
+            miscMenu.hoveredRow = -1;
+          } else {
+            miscMenu.hoveredRow =
+                optionMenuPointInScrollbarTrack(layout, event.motion.x,
+                                                event.motion.y)
+                    ? -1
+                    : optionMenuRowAt(layout, miscMenu.scrollRows, itemCount,
+                                      event.motion.y);
           }
         } else if (consoleState.open) {
           updateConsoleSelection(
@@ -7398,16 +7764,17 @@ int GameApp::run() const {
         break;
       case SDL_EVENT_MOUSE_WHEEL:
         if (settingsMenu.open) {
-          constexpr std::size_t settingsWheelRows = 3U;
-          constexpr std::size_t visibleRows = 14U;
-          const std::size_t maxScroll =
-            static_cast<std::size_t>(kSettingsRowCount) - visibleRows;
-          if (event.wheel.y > 0.0F) {
-            settingsMenu.scrollRows = std::min(settingsMenu.scrollRows + settingsWheelRows, maxScroll);
-          } else if (event.wheel.y < 0.0F) {
-            settingsMenu.scrollRows = settingsMenu.scrollRows > settingsWheelRows
-              ? settingsMenu.scrollRows - settingsWheelRows : 0U;
-          }
+          const OptionMenuLayout layout = optionMenuLayoutForWindow(
+              window, kSettingsRowCount, settingsMenu.scrollRows);
+          settingsMenu.scrollRows = optionMenuScrollForWheel(
+              layout, settingsMenu.scrollRows, event.wheel.y);
+        } else if (miscMenu.open) {
+          constexpr std::size_t itemCount =
+              static_cast<std::size_t>(MiscMenuRow::Count);
+          const OptionMenuLayout layout =
+              optionMenuLayoutForWindow(window, itemCount, miscMenu.scrollRows);
+          miscMenu.scrollRows = optionMenuScrollForWheel(
+              layout, miscMenu.scrollRows, event.wheel.y);
         } else if (consoleState.open) {
           constexpr std::size_t consoleWheelRows = 3U;
           if (event.wheel.y > 0.0F) {
@@ -7439,12 +7806,22 @@ int GameApp::run() const {
               ? chatState.scrollRows - chatWheelRows
               : 0U;
           }
+          clearChatHistorySelection(chatState);
         }
+        break;
+      case SDL_EVENT_WINDOW_RESIZED:
+      case SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED:
+        clearConsoleOutputSelection(consoleState);
+        clearChatHistorySelection(chatState);
         break;
       case SDL_EVENT_WINDOW_FOCUS_LOST:
         executeBindingCommands(bindings.releaseAll());
         consoleState.selecting = false;
+        consoleState.selectingInput = false;
         chatState.selecting = false;
+        chatState.selectingHistory = false;
+        settingsMenu.scrollbarDragging = false;
+        miscMenu.scrollbarDragging = false;
         input.mouseDeltaX = 0.0F;
         input.mouseDeltaY = 0.0F;
         break;
@@ -7484,7 +7861,22 @@ int GameApp::run() const {
       if (chatState.inputOpen) {
         setChatOpen(false);
       }
+      if (miscMenu.open) {
+        setMiscMenuOpen(false);
+      }
       applySettingsMenuToggle();
+    }
+    if (miscMenuRequested) {
+      if (consoleState.open) {
+        setConsoleOpen(false);
+      }
+      if (chatState.inputOpen) {
+        setChatOpen(false);
+      }
+      if (settingsMenu.open) {
+        setSettingsOpen(false);
+      }
+      applyMiscMenuToggle();
     }
     const ClientGame* chatGame = session.game();
     if (chatGame != chatState.sourceGame) {
@@ -7492,11 +7884,13 @@ int GameApp::run() const {
       chatState.history.clear();
       chatState.lastSequence = 0U;
       chatState.scrollRows = 0U;
+      clearChatHistorySelection(chatState);
     }
     if (chatGame != nullptr && !chatGame->chatHistory().empty()) {
       const auto& serverHistory = chatGame->chatHistory();
       const std::uint32_t latestSequence = serverHistory.back().sequence;
       if (latestSequence != chatState.lastSequence) {
+        clearChatHistorySelection(chatState);
         chatState.history.clear();
         for (const ChatMessage& message : serverHistory) {
           chatState.history.push_back(ClientChatState::Message{
@@ -7564,10 +7958,11 @@ int GameApp::run() const {
     }
     const bool usePresentationView = true;
     const bool gameInputControlsView =
-      usePresentationView && !consoleState.open && !chatState.inputOpen &&
-      !settingsMenu.open && !wasTeammateSpectating;
-    const bool wantsRelativeMouse =
-      !consoleState.open && !chatState.inputOpen && !settingsMenu.open;
+        usePresentationView && !consoleState.open && !chatState.inputOpen &&
+        !settingsMenu.open && !miscMenu.open && !wasTeammateSpectating;
+    const bool wantsRelativeMouse = !consoleState.open &&
+                                    !chatState.inputOpen &&
+                                    !settingsMenu.open && !miscMenu.open;
 
     if (wantsRelativeMouse != relativeMouseModeEnabled) {
       SDL_SetWindowRelativeMouseMode(window, wantsRelativeMouse);
@@ -7580,7 +7975,8 @@ int GameApp::run() const {
       previousFrameUsedPresentationView = usePresentationView;
     } else if (currentPresentationGame != presentationViewGame) {
       // A new ClientGame represents a new connection/prediction timeline; do
-      // not carry view initialization or mouse state across that authority reset.
+      // not carry view initialization or mouse state across that authority
+      // reset.
       presentationView = {};
       playerPresentationStates = {};
       viewModelPresentation.reset();
@@ -7751,8 +8147,9 @@ int GameApp::run() const {
       if (activeControlOperation.has_value() &&
           activeControlOperation->queued.request.operation == dev::ControlOperation::SendInput &&
           activeControlOperation->stage == ActiveControlOperation::Stage::PlayerInput) {
-        // Remote input uses the normal command path and excludes physical input for
-        // this tick. The server still checks movement, fire rate, hits, and damage.
+        // Remote input uses the normal command path and excludes physical input
+        // for this tick. The server still checks movement, fire rate, hits, and
+        // damage.
         controlInputCommand = true;
         requestedControlInput = &activeControlOperation->queued.request.playerInput;
         controlInputRelease = activeControlOperation->inputTicksRemaining == 0U;
@@ -9165,7 +9562,8 @@ int GameApp::run() const {
       : std::nullopt;
     if (developmentCameraEnabled) {
       // The development camera replaces presentation state only. The client
-      // continues to send ordinary commands and the server remains authoritative.
+      // continues to send ordinary commands and the server remains
+      // authoritative.
       renderPlayer = {};
       renderPlayer.position =
         developmentCamera.position - Vec3{0.0F, 0.0F, 0.65F};
@@ -10000,7 +10398,11 @@ int GameApp::run() const {
     hud.chatHasSelection = hasSelection(chatState.selection);
     hud.chatSelectionAnchor = chatState.selection.anchor;
     hud.chatSelectionFocus = chatState.selection.focus;
+    hud.chatHistoryHasSelection = chatState.hasHistorySelection;
+    hud.chatHistorySelectionAnchor = chatState.historySelectionAnchor;
+    hud.chatHistorySelectionFocus = chatState.historySelectionFocus;
     populateSettingsMenuRenderState(hud, settingsMenu);
+    populateMiscMenuRenderState(hud, miscMenu, console);
     if (currentRenderSettings.showCollision != 0) {
       static constexpr std::array<std::string_view, 6> collisionModeLabels = {{
         "off",
@@ -10293,6 +10695,8 @@ int GameApp::run() const {
         hud.topLeftLines.clear();
         hud.settingsOpen = false;
         hud.settingsItems.clear();
+        hud.miscMenuOpen = false;
+        hud.miscMenuItems.clear();
       }
     }
     if (frameCaptureRequest.has_value()) {
@@ -10303,6 +10707,8 @@ int GameApp::run() const {
         hud.topLeftLines.clear();
         hud.settingsOpen = false;
         hud.settingsItems.clear();
+        hud.miscMenuOpen = false;
+        hud.miscMenuItems.clear();
       }
     }
     renderer.render(

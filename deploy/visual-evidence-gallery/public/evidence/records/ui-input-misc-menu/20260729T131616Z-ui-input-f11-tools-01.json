@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260729T131616Z-ui-input-f11-tools-01",
+  "captured_at": "2026-07-29T13:16:16Z",
+  "captured_by": "root-codex",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Shows the new misc menu with weapon position, debug views, counters, performance tools, netgraph, and readable help text.",
+  "image": "20260729T131616Z-ui-input-f11-tools-01.png",
+  "review": {
+    "notes": "The F11 menu is clear and legible, and the weapon labels are Center, Right, and Left.",
+    "reviewed_at": "2026-07-29T13:19:34Z",
+    "reviewer": "ui_input_review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "635e4353c5d69a8c21ffdf0ad97d169e0b5e29bd6a8adacdd0733294066b36e2",
+  "size_bytes": 9217968,
+  "task_id": "ui-input-misc-menu",
+  "title": "F11 tools and debug menu"
+}

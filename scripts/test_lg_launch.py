@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
+import sys
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -14,6 +17,16 @@ from lg_launch import LaunchError
 
 
 class LaunchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.real_lifecycle_lock = lg_launch._lifecycle_lock
+        lifecycle_patch = mock.patch.object(
+            lg_launch,
+            "_lifecycle_lock",
+            side_effect=lambda: contextlib.nullcontext(),
+        )
+        lifecycle_patch.start()
+        self.addCleanup(lifecycle_patch.stop)
+
     def selection(self) -> dict:
         return {
             "source": "test-verified-benchmark",
@@ -30,6 +43,12 @@ class LaunchTests(unittest.TestCase):
 
     def status(self, renderer: str = lg_launch.GPU_RENDERER) -> dict:
         return {
+            "control_protocol": 1,
+            "client_running": True,
+            "server_running": True,
+            "connected": True,
+            "map": "eyetoeye",
+            "map_revision": 1,
             "renderer": renderer,
             "gpu_name": "Intel Test GPU",
             "graphics_driver_version": "101.9999",
@@ -42,14 +61,158 @@ class LaunchTests(unittest.TestCase):
 
     def test_verified_gpu_startup_attaches_and_records_attestation(self) -> None:
         written = []
+        state = {
+            "phase": "starting",
+            "control_port": 27961,
+            "client": {
+                "pid": 10, "owned": True, "path": "client.exe",
+                "creation_time": 1001,
+            },
+            "server": {"pid": 0, "owned": False, "path": ""},
+        }
         with mock.patch.object(lg_launch, "resolve_vulkan_selection", return_value=self.selection()), \
              mock.patch.object(lg_launch, "send_request", return_value=self.status()), \
-             mock.patch.object(lg_launch, "_read_state", return_value=None), \
+             mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             mock.patch.object(lg_launch, "_entry_matches", return_value=True), \
              mock.patch.object(lg_launch, "_write_state", side_effect=written.append):
             result = lg_launch.ensure_client(renderer="gpu")
         self.assertTrue(result["gpu_verified"])
         self.assertEqual(result["gpu_verification_state"], "verified")
+        self.assertTrue(result["process_state_updated"])
         self.assertEqual(written[0]["launch"]["actual_renderer"], lg_launch.GPU_RENDERER)
+
+    def test_active_unverified_attachment_preserves_unrelated_state(self) -> None:
+        old_state = {
+            "phase": "ready",
+            "control_port": 28061,
+            "client": {
+                "pid": 77, "owned": True, "path": "other-client.exe",
+                "creation_time": 7001,
+            },
+            "launch": {"marker": "other-session"},
+        }
+        before = json.loads(json.dumps(old_state))
+        with mock.patch.object(
+            lg_launch, "send_request",
+            return_value=self.status("SDL_Renderer/direct3d11"),
+        ), mock.patch.object(
+            lg_launch, "_read_state", return_value=old_state
+        ), mock.patch.object(
+            lg_launch, "_write_state"
+        ) as write:
+            result = lg_launch.ensure_client(
+                renderer="fallback", allow_fallback=True
+            )
+        self.assertFalse(result["process_state_updated"])
+        self.assertEqual(
+            result["process_state_verification"], "unverified-attachment"
+        )
+        self.assertEqual(old_state, before)
+        write.assert_not_called()
+
+    def test_normal_control_does_not_attach_to_benchmark_session(self) -> None:
+        status = self.status()
+        status["benchmark_enabled"] = True
+        with mock.patch.object(
+            lg_launch, "send_request", return_value=status
+        ), mock.patch.object(
+            lg_launch, "_read_state"
+        ) as read_state, mock.patch.object(
+            lg_launch, "_write_state"
+        ) as write_state:
+            with self.assertRaisesRegex(
+                LaunchError, "reserved for benchmarking"
+            ):
+                lg_launch.ensure_client(renderer="gpu")
+        read_state.assert_not_called()
+        write_state.assert_not_called()
+
+    def test_failed_probe_preserves_saved_live_benchmark_session(self) -> None:
+        state = {
+            "phase": "ready",
+            "benchmark": True,
+            "control_port": 27961,
+            "client": {
+                "pid": 101,
+                "owned": True,
+                "path": "client.exe",
+                "creation_time": 1001,
+            },
+            "server": {
+                "pid": 202,
+                "owned": True,
+                "path": "server.exe",
+                "creation_time": 2002,
+            },
+        }
+        with mock.patch.object(
+            lg_launch, "resolve_vulkan_selection",
+            return_value=self.selection(),
+        ), mock.patch.object(
+            lg_launch, "send_request", side_effect=ControlError("offline")
+        ), mock.patch.object(
+            lg_launch, "_read_state", return_value=state
+        ), mock.patch.object(
+            lg_launch, "_matching_owned_processes",
+            return_value=["client", "server"],
+        ), mock.patch.object(
+            lg_launch, "_unverified_live_owned_processes", return_value=[]
+        ), mock.patch.object(
+            lg_launch, "cleanup_owned"
+        ) as cleanup, mock.patch.object(
+            lg_launch, "_launch_process"
+        ) as launch, mock.patch.object(
+            lg_launch, "_write_state"
+        ) as write:
+            with self.assertRaisesRegex(
+                LaunchError, "live benchmark session"
+            ):
+                lg_launch.ensure_client(renderer="gpu")
+        cleanup.assert_not_called()
+        launch.assert_not_called()
+        write.assert_not_called()
+
+    def test_readiness_polls_empty_renderer_and_attestation(self) -> None:
+        incomplete = self.status()
+        incomplete.update({
+            "renderer": "",
+            "gpu_name": "",
+            "graphics_driver_version": "",
+            "vulkan_api_version": "",
+            "vulkan_icd_path": "",
+            "vulkan_icd_sha256": "",
+            "software_renderer": None,
+        })
+        with mock.patch.object(
+            lg_launch, "send_request", return_value=self.status()
+        ) as sender:
+            result = lg_launch._wait_for_ready_status(
+                initial_status=incomplete,
+                deadline=lg_launch.time.monotonic() + 1.0,
+                control_port=27961,
+                renderer="gpu",
+                selection=self.selection(),
+                allow_fallback=False,
+                benchmark=False,
+            )
+        self.assertTrue(result["gpu_verified"])
+        sender.assert_called_once()
+
+    def test_readiness_fails_promptly_on_named_wrong_renderer(self) -> None:
+        wrong = self.status("SDL_Renderer/direct3d11")
+        wrong["connected"] = False
+        with mock.patch.object(lg_launch, "send_request") as sender:
+            with self.assertRaisesRegex(LaunchError, "GPU renderer required"):
+                lg_launch._wait_for_ready_status(
+                    initial_status=wrong,
+                    deadline=lg_launch.time.monotonic() + 1.0,
+                    control_port=27961,
+                    renderer="gpu",
+                    selection=self.selection(),
+                    allow_fallback=False,
+                    benchmark=False,
+                )
+        sender.assert_not_called()
 
     def test_status_keeps_default_loader_environment_empty(self) -> None:
         launch = {
@@ -62,9 +225,15 @@ class LaunchTests(unittest.TestCase):
                 "library_path": r"C:\verified\igvk64.dll",
             }],
         }
-        state = {"control_port": 27961, "launch": launch}
+        state = {
+            "phase": "ready",
+            "control_port": 27961,
+            "client": {"pid": 10, "owned": True, "path": "client.exe"},
+            "launch": launch,
+        }
         with mock.patch.object(lg_launch, "send_request", return_value=self.status()), \
-             mock.patch.object(lg_launch, "_read_state", return_value=state):
+             mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             mock.patch.object(lg_launch, "_entry_matches", return_value=True):
             result = lg_launch.status_with_state()
         self.assertEqual(result["vulkan_driver_environment"], {})
         self.assertEqual(
@@ -94,23 +263,45 @@ class LaunchTests(unittest.TestCase):
                      lg_launch, "send_request",
                      side_effect=[ControlError("offline"), self.status()],
                  ), \
+                 mock.patch.object(lg_launch, "_read_state", return_value=None), \
                  mock.patch.object(lg_launch, "_existing_server_entry", return_value=None), \
                  mock.patch.object(
                      lg_launch, "_launch_process",
                      side_effect=[FakeProcess(301), FakeProcess(302)],
                  ) as launch, \
-                 mock.patch.object(lg_launch, "_write_state", side_effect=written.append):
+                 mock.patch.object(
+                     lg_launch, "_process_creation_time",
+                     side_effect=[1001, 1002],
+                 ), \
+                 mock.patch.object(
+                     lg_launch, "_write_state",
+                     side_effect=lambda value: written.append(
+                         json.loads(json.dumps(value))
+                     ),
+                 ):
                 result = lg_launch.ensure_client(renderer="gpu", timeout=1, build_dir=build)
         self.assertTrue(result["gpu_verified"])
         self.assertEqual(launch.call_count, 2)
         self.assertTrue(all(call.args[5] == build.resolve() for call in launch.call_args_list))
         self.assertEqual(result["build_directory"], str(build.resolve()))
+        self.assertFalse(written[0]["server"]["owned"])
+        self.assertTrue(written[0]["server"]["pending_launch"])
+        self.assertFalse(written[0]["client"]["owned"])
+        self.assertTrue(written[0]["client"]["pending_launch"])
         self.assertEqual(
-            written[0]["server"],
-            {"pid": 301, "owned": True, "path": expected_server_path},
+            written[1]["server"],
+            {
+                "pid": 301, "owned": True, "path": expected_server_path,
+                "creation_time": 1001,
+            },
         )
-        self.assertEqual(written[0]["client"]["pid"], 302)
-        self.assertTrue(written[0]["client"]["owned"])
+        self.assertFalse(written[1]["client"]["owned"])
+        self.assertEqual(written[2]["client"]["pid"], 302)
+        self.assertEqual(written[0]["phase"], "starting")
+        self.assertEqual(written[1]["phase"], "starting")
+        self.assertEqual(written[2]["phase"], "starting")
+        self.assertEqual(written[-1]["phase"], "ready")
+        self.assertTrue(written[2]["client"]["owned"])
 
     def test_benchmark_launch_removes_vulkan_driver_overrides(self) -> None:
         class FakeProcess:
@@ -142,11 +333,15 @@ class LaunchTests(unittest.TestCase):
             ), mock.patch.object(
                 lg_launch, "send_request", side_effect=[ControlError("offline"), status]
             ), mock.patch.object(
+                lg_launch, "_read_state", return_value=None
+            ), mock.patch.object(
                 lg_launch, "_existing_server_entry", return_value=None
             ), mock.patch.object(
                 lg_launch, "_launch_process",
                 side_effect=[FakeProcess(301), FakeProcess(302)],
             ) as launch, mock.patch.object(
+                lg_launch, "_process_creation_time", side_effect=[1001, 1002]
+            ), mock.patch.object(
                 lg_launch, "_write_state"
             ):
                 lg_launch.ensure_client(
@@ -178,15 +373,18 @@ class LaunchTests(unittest.TestCase):
                      lg_launch, "send_request",
                      side_effect=[ControlError("offline"), self.status()],
                  ), \
+                 mock.patch.object(lg_launch, "_read_state", return_value=None), \
                  mock.patch.object(lg_launch, "_existing_server_entry", return_value=None), \
                  mock.patch.object(lg_launch, "_launch_process", return_value=FakeProcess()) as launch, \
+                 mock.patch.object(lg_launch, "_process_creation_time", return_value=1002), \
                  mock.patch.object(lg_launch, "_write_state", side_effect=written.append):
                 result = lg_launch.ensure_client(renderer="gpu", manage_server=False, timeout=1)
         self.assertTrue(result["gpu_verified"])
         launch.assert_called_once()
         self.assertFalse(written[0]["server"]["owned"])
         self.assertEqual(written[0]["server"]["pid"], 0)
-        self.assertTrue(written[0]["client"]["owned"])
+        self.assertTrue(written[0]["client"]["pending_launch"])
+        self.assertTrue(written[1]["client"]["owned"])
 
     def test_vulkan_failure_includes_selected_icd(self) -> None:
         failed = subprocess.CompletedProcess(
@@ -357,7 +555,7 @@ GPU0:
              mock.patch.object(lg_launch, "_launch_process") as launch:
             with self.assertRaisesRegex(LaunchError, r"GPU renderer required[\s\S]*Selected ICD"):
                 lg_launch.ensure_client(renderer="gpu")
-        cleanup.assert_called_once_with(state)
+        cleanup.assert_not_called()
         launch.assert_not_called()
 
     def test_stale_verified_state_cannot_mask_fallback_status(self) -> None:
@@ -366,13 +564,46 @@ GPU0:
             "requested_renderer": "gpu",
             "vulkan_selection_source": "test",
         }
-        state = {"control_port": 27961, "launch": launch}
+        state = {
+            "phase": "ready",
+            "control_port": 27961,
+            "client": {"pid": 10, "owned": True, "path": "client.exe"},
+            "launch": launch,
+        }
         with mock.patch.object(lg_launch, "send_request", return_value=self.status("SDL_Renderer/direct3d11")), \
-             mock.patch.object(lg_launch, "_read_state", return_value=state):
+             mock.patch.object(lg_launch, "_read_state", return_value=state), \
+             mock.patch.object(lg_launch, "_entry_matches", return_value=True):
             result = lg_launch.status_with_state()
         self.assertEqual(result["renderer"], "SDL_Renderer/direct3d11")
         self.assertFalse(result["gpu_verified"])
         self.assertEqual(result["gpu_verification_state"], "stored-attestation-mismatch")
+
+    def test_status_does_not_trust_launch_data_for_a_stale_client_entry(self) -> None:
+        state = {
+            "phase": "ready",
+            "control_port": 27961,
+            "client": {
+                "pid": 10, "owned": True, "path": "client.exe",
+                "creation_time": 1001,
+            },
+            "launch": {
+                **self.status(),
+                "requested_renderer": "gpu",
+                "vulkan_selection_source": "test",
+            },
+        }
+        with mock.patch.object(
+            lg_launch, "send_request", return_value=self.status()
+        ), mock.patch.object(
+            lg_launch, "_read_state", return_value=state
+        ), mock.patch.object(
+            lg_launch, "_entry_matches", return_value=False
+        ):
+            result = lg_launch.status_with_state()
+        self.assertFalse(result["gpu_verified"])
+        self.assertEqual(
+            result["gpu_verification_state"], "unverified-external"
+        )
 
     def test_explicit_fallback_opt_in_is_accepted(self) -> None:
         with mock.patch.object(lg_launch, "send_request", return_value=self.status("SDL_Renderer/direct3d11")), \
@@ -382,16 +613,248 @@ GPU0:
         self.assertEqual(result["gpu_verification_state"], "explicit-fallback")
         self.assertFalse(result["gpu_verified"])
 
+    def test_existing_client_is_polled_until_protocol_and_map_are_ready(self) -> None:
+        not_ready = {
+            **self.status(),
+            "server_running": False,
+            "connected": False,
+            "map": "",
+            "map_revision": 0,
+        }
+        with mock.patch.object(
+            lg_launch, "resolve_vulkan_selection", return_value=self.selection()
+        ), mock.patch.object(
+            lg_launch, "send_request", side_effect=[not_ready, self.status()]
+        ) as sender, mock.patch.object(
+            lg_launch, "_read_state", return_value=None
+        ), mock.patch.object(
+            lg_launch, "_write_state"
+        ):
+            result = lg_launch.ensure_client(renderer="gpu", timeout=1)
+        self.assertTrue(result["gpu_verified"])
+        self.assertEqual(sender.call_count, 2)
+
+    def test_ready_wait_reports_when_client_never_replied(self) -> None:
+        with self.assertRaisesRegex(
+            LaunchError, "did not answer before the startup deadline"
+        ):
+            lg_launch._wait_for_ready_status(
+                initial_status=None,
+                deadline=lg_launch.time.monotonic() - 1,
+                control_port=27961,
+                renderer="fallback",
+                selection=None,
+                allow_fallback=True,
+                benchmark=False,
+            )
+
+    def test_failed_probe_does_not_launch_over_owned_client_when_cleanup_fails(self) -> None:
+        state = {
+            "phase": "ready",
+            "control_port": 27961,
+            "client": {
+                "pid": 101, "owned": True, "path": "client.exe",
+                "creation_time": 1001,
+            },
+            "server": {
+                "pid": 202, "owned": True, "path": "server.exe",
+                "creation_time": 2002,
+            },
+        }
+        with mock.patch.object(
+            lg_launch, "send_request", side_effect=ControlError("transient")
+        ), mock.patch.object(
+            lg_launch, "_read_state", return_value=state
+        ), mock.patch.object(
+            lg_launch, "_matching_owned_processes",
+            side_effect=[["client", "server"], ["client"]],
+        ), mock.patch.object(
+            lg_launch, "_unverified_live_owned_processes", return_value=[]
+        ), mock.patch.object(
+            lg_launch, "cleanup_owned", return_value=["server"]
+        ) as cleanup, mock.patch.object(
+            lg_launch, "_launch_process"
+        ) as launch, mock.patch.object(
+            lg_launch, "_write_state"
+        ) as write:
+            with self.assertRaisesRegex(
+                LaunchError, "did not stop completely before relaunch: client"
+            ):
+                lg_launch.ensure_client(
+                    renderer="fallback", allow_fallback=True
+                )
+        cleanup.assert_called_once_with(state)
+        launch.assert_not_called()
+        write.assert_not_called()
+
+    def test_fresh_client_that_replies_but_never_gets_ready_is_cleaned(self) -> None:
+        class FakeProcess:
+            def __init__(self, pid: int) -> None:
+                self.pid = pid
+
+            def poll(self):
+                return None
+
+        not_ready = {
+            **self.status(),
+            "server_running": False,
+            "connected": False,
+            "map": "",
+            "map_revision": 0,
+        }
+        written = []
+        with tempfile.TemporaryDirectory() as temporary:
+            build = Path(temporary) / "build"
+            state_dir = Path(temporary) / "state"
+            build.mkdir()
+            (build / "lg_duel_client.exe").touch()
+            (build / "lg_duel_server.exe").touch()
+            with mock.patch.object(
+                lg_launch, "STATE_DIR", state_dir
+            ), mock.patch.object(
+                lg_launch, "resolve_vulkan_selection", return_value=self.selection()
+            ), mock.patch.object(
+                lg_launch, "send_request",
+                side_effect=[ControlError("offline"), not_ready],
+            ), mock.patch.object(
+                lg_launch, "_existing_server_entry", return_value=None
+            ), mock.patch.object(
+                lg_launch, "_launch_process",
+                side_effect=[FakeProcess(301), FakeProcess(302)],
+            ), mock.patch.object(
+                lg_launch, "_process_creation_time",
+                side_effect=lambda pid: {301: 1001, 302: 1002}[pid],
+            ), mock.patch.object(
+                lg_launch, "_write_state", side_effect=written.append
+            ), mock.patch.object(
+                lg_launch, "_read_state", return_value=None
+            ), mock.patch.object(
+                lg_launch, "cleanup_owned", return_value=["client", "server"]
+            ) as cleanup:
+                with self.assertRaisesRegex(
+                    LaunchError, "replied but did not become ready"
+                ):
+                    lg_launch.ensure_client(
+                        renderer="gpu", timeout=0.1, build_dir=build
+                    )
+        self.assertEqual(written[0]["phase"], "starting")
+        cleaned = cleanup.call_args.args[0]
+        self.assertEqual(cleaned["client"]["creation_time"], 1002)
+        self.assertEqual(cleaned["server"]["creation_time"], 1001)
+
+    def test_atomic_state_write_replaces_complete_document(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "processes.json"
+            with mock.patch.object(lg_launch, "STATE_PATH", state_path):
+                lg_launch._write_state({"phase": "starting", "control_port": 9})
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            leftovers = list(state_path.parent.glob(".processes.json.*.tmp"))
+        self.assertEqual(saved["phase"], "starting")
+        self.assertEqual(leftovers, [])
+
+    def test_creation_mismatch_clears_stale_state_without_killing_pid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "processes.json"
+            state = {
+                "phase": "ready",
+                "client": {
+                    "pid": 101,
+                    "owned": True,
+                    "path": r"C:\game\client.exe",
+                    "creation_time": 1001,
+                },
+                "server": {
+                    "pid": 0, "owned": False, "path": "",
+                    "creation_time": None,
+                },
+            }
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            with mock.patch.object(
+                lg_launch, "STATE_PATH", state_path
+            ), mock.patch.object(
+                lg_launch, "_process_path", return_value=r"C:\game\client.exe"
+            ), mock.patch.object(
+                lg_launch, "_process_creation_time", return_value=2002
+            ), mock.patch.object(os, "kill") as kill:
+                result = lg_launch.stop_owned()
+            exists = state_path.exists()
+        self.assertEqual(result["stopped"], [])
+        self.assertFalse(result["left_owned_running"])
+        self.assertFalse(exists)
+        kill.assert_not_called()
+
+    def test_live_legacy_owned_entry_is_reported_and_preserved(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "processes.json"
+            state = {
+                "phase": "ready",
+                "control_port": 27961,
+                "client": {
+                    "pid": 101,
+                    "owned": True,
+                    "path": r"C:\game\client.exe",
+                },
+                "server": {"pid": 0, "owned": False, "path": ""},
+            }
+            state_path.write_text(json.dumps(state), encoding="utf-8")
+            with mock.patch.object(
+                lg_launch, "STATE_PATH", state_path
+            ), mock.patch.object(
+                lg_launch, "_process_path", return_value=r"C:\game\client.exe"
+            ), mock.patch.object(os, "kill") as kill:
+                result = lg_launch.stop_owned()
+            exists = state_path.exists()
+        self.assertTrue(result["left_owned_running"])
+        self.assertFalse(result["left_unowned_running"])
+        self.assertEqual(result["unverified_owned"], ["client"])
+        self.assertTrue(result["state_preserved"])
+        self.assertTrue(exists)
+        kill.assert_not_called()
+
     def test_cleanup_terminates_only_owned_matching_processes(self) -> None:
         state = {
             "client": {"pid": 101, "owned": True, "path": "client.exe"},
             "server": {"pid": 202, "owned": False, "path": "server.exe"},
         }
-        with mock.patch.object(lg_launch, "_entry_matches", side_effect=[True, False]), \
+        matches = iter([True, False])
+        with mock.patch.object(
+            lg_launch, "_entry_matches",
+            side_effect=lambda unused: next(matches, False),
+        ), \
              mock.patch.object(os, "kill") as kill:
             stopped = lg_launch.cleanup_owned(state)
         self.assertEqual(stopped, ["client"])
         kill.assert_called_once_with(101, lg_launch.signal.SIGTERM)
+
+    def test_cleanup_uses_shared_soft_and_force_deadlines(self) -> None:
+        state = {
+            "client": {"pid": 101, "owned": True, "path": "client.exe"},
+            "server": {"pid": 202, "owned": True, "path": "server.exe"},
+        }
+        matches = iter([True, True, True, True, False, False])
+        with mock.patch.object(
+            lg_launch, "_entry_matches",
+            side_effect=lambda unused: next(matches),
+        ), mock.patch.object(
+            lg_launch.time, "monotonic", side_effect=[0.0, 6.0, 6.0]
+        ), mock.patch.object(os, "kill") as kill:
+            stopped = lg_launch.cleanup_owned(state)
+        self.assertEqual(stopped, ["client", "server"])
+        self.assertEqual(
+            kill.call_args_list,
+            [
+                mock.call(101, lg_launch.signal.SIGTERM),
+                mock.call(202, lg_launch.signal.SIGTERM),
+                mock.call(
+                    101, getattr(lg_launch.signal, "SIGKILL",
+                                 lg_launch.signal.SIGTERM)
+                ),
+                mock.call(
+                    202, getattr(lg_launch.signal, "SIGKILL",
+                                 lg_launch.signal.SIGTERM)
+                ),
+            ],
+        )
 
     def test_stop_owned_keeps_state_when_one_owned_process_remains(self) -> None:
         state = {
@@ -406,8 +869,105 @@ GPU0:
              mock.patch.object(lg_launch, "STATE_PATH", state_path):
             result = lg_launch.stop_owned()
         self.assertTrue(result["left_owned_running"])
+        self.assertFalse(result["left_unowned_running"])
         self.assertEqual(result["remaining"], ["server"])
         state_path.unlink.assert_not_called()
+
+    def test_stop_owned_reports_state_clear_failure(self) -> None:
+        state = {
+            "client": {"pid": 101, "owned": True, "path": "client.exe"},
+        }
+        state_path = mock.Mock()
+        state_path.exists.return_value = True
+        with mock.patch.object(
+            lg_launch, "_read_state", return_value=state
+        ), mock.patch.object(
+            lg_launch, "cleanup_owned", return_value=["client"]
+        ), mock.patch.object(
+            lg_launch, "_entry_matches", return_value=False
+        ), mock.patch.object(
+            lg_launch, "_unverified_live_owned_processes", return_value=[]
+        ), mock.patch.object(
+            lg_launch, "_clear_state_if_same", return_value=False
+        ), mock.patch.object(
+            lg_launch, "STATE_PATH", state_path
+        ):
+            result = lg_launch.stop_owned()
+        self.assertFalse(result["left_owned_running"])
+        self.assertTrue(result["state_preserved"])
+        self.assertTrue(result["state_clear_failed"])
+
+    def test_lifecycle_lock_reports_busy_to_a_second_thread(self) -> None:
+        entered = threading.Event()
+        release = threading.Event()
+        errors = []
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "processes.json"
+
+            def hold_lock() -> None:
+                try:
+                    with self.real_lifecycle_lock(timeout=0.2):
+                        entered.set()
+                        release.wait(2)
+                except Exception as error:
+                    errors.append(error)
+
+            with mock.patch.object(lg_launch, "STATE_PATH", state_path):
+                thread = threading.Thread(target=hold_lock)
+                thread.start()
+                self.assertTrue(entered.wait(1))
+                with self.assertRaisesRegex(LaunchError, "lifecycle_busy"):
+                    with self.real_lifecycle_lock(timeout=0.05):
+                        pass
+                release.set()
+                thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+
+    def test_lifecycle_lock_reports_busy_across_processes(self) -> None:
+        child_code = (
+            "from pathlib import Path\n"
+            "import sys\n"
+            "import lg_launch\n"
+            "lg_launch.STATE_PATH = Path(sys.argv[1])\n"
+            "with lg_launch._lifecycle_lock(timeout=1.0):\n"
+            "    print('locked', flush=True)\n"
+            "    sys.stdin.readline()\n"
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "processes.json"
+            child = subprocess.Popen(
+                [sys.executable, "-c", child_code, str(state_path)],
+                cwd=Path(lg_launch.__file__).resolve().parent,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                encoding="utf-8",
+            )
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "locked")
+                with mock.patch.object(lg_launch, "STATE_PATH", state_path):
+                    with self.assertRaisesRegex(
+                        LaunchError, "lifecycle_busy"
+                    ):
+                        with self.real_lifecycle_lock(timeout=0.05):
+                            pass
+            finally:
+                stdout, stderr = child.communicate("\n", timeout=5)
+            self.assertEqual(child.returncode, 0, stdout + stderr)
+
+    def test_lifecycle_lock_preserves_corrupt_state(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_path = Path(temporary) / "processes.json"
+            state_path.write_text("{broken", encoding="utf-8")
+            with mock.patch.object(lg_launch, "STATE_PATH", state_path):
+                with self.assertRaisesRegex(LaunchError, "corrupt"):
+                    with self.real_lifecycle_lock():
+                        self.fail("corrupt state must block lifecycle writes")
+            self.assertEqual(
+                state_path.read_text(encoding="utf-8"), "{broken"
+            )
 
     def test_restart_requires_an_owned_matching_client(self) -> None:
         state = {"client": {"pid": 101, "owned": False, "path": "client.exe"}}
