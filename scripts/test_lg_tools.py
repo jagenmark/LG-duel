@@ -1174,6 +1174,111 @@ class LgToolTests(unittest.TestCase):
             self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
             self.assertEqual(1, package.count(f"{shader_name}.spv"), shader_name)
 
+    def test_sky_assets_stay_client_only(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+        package = (root / "scripts" / "package-windows.ps1").read_text(
+            encoding="utf-8"
+        )
+        client_assets = cmake[
+            cmake.index("add_custom_command(\n  TARGET lg_duel_client")
+            : cmake.index("add_executable(lg_duel_server")
+        ]
+        shared_assets = cmake[
+            cmake.index("add_custom_target(lg_duel_runtime_assets ALL")
+            : cmake.index("add_dependencies(lg_duel_client")
+        ]
+
+        for shader_name in ("sky.vert", "sky.frag", "sky_direct.frag"):
+            self.assertEqual(
+                2,
+                client_assets.count(f"{shader_name}.spv"),
+                shader_name,
+            )
+            self.assertEqual(1, package.count(f"{shader_name}.spv"))
+            self.assertNotIn(shader_name, shared_assets)
+        self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/assets/sky"', client_assets)
+        self.assertNotIn("assets/sky", shared_assets)
+        for sky_name in ("aurora", "crimson-sunset"):
+            for face in ("posx", "negx", "posy", "negy", "posz", "negz"):
+                self.assertEqual(
+                    1,
+                    package.count(f"sky/{sky_name}/{face}.png"),
+                )
+
+        shader_dir = root / "assets" / "shaders"
+        vertex_shader = (shader_dir / "sky.vert").read_text(encoding="utf-8")
+        self.assertIn("vec4 right;", vertex_shader)
+        self.assertIn("vec4 up;", vertex_shader)
+        self.assertIn("vec4 forward;", vertex_shader)
+        self.assertIn("vec4 projection;", vertex_shader)
+        self.assertNotIn("camera.position", vertex_shader)
+        for shader_name in ("sky.vert", "sky.frag", "sky_direct.frag"):
+            self.assertEqual(
+                b"\x03\x02#\x07",
+                (shader_dir / f"{shader_name}.spv").read_bytes()[:4],
+            )
+
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        pipeline_start = renderer.index("createGpuSkyPipeline(")
+        pipeline_end = renderer.index(
+            "[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipeline(",
+            pipeline_start,
+        )
+        pipeline = renderer[pipeline_start:pipeline_end]
+        self.assertIn("colorTarget.blend_state.enable_blend = false;", pipeline)
+        self.assertIn(
+            "createInfo.multisample_state.sample_count = sampleCount;",
+            pipeline,
+        )
+        self.assertIn(
+            "createInfo.depth_stencil_state.enable_depth_test = false;",
+            pipeline,
+        )
+        self.assertIn(
+            "createInfo.depth_stencil_state.enable_depth_write = false;",
+            pipeline,
+        )
+        pass_start = renderer.index(
+            "SDL_GPURenderPass* worldPass = SDL_BeginGPURenderPass("
+        )
+        sky_draw = renderer.index(
+            "SDL_DrawGPUPrimitives(worldPass, 3, 1, 0, 0);",
+            pass_start,
+        )
+        first_world_uniform = renderer.index(
+            "struct alignas(16) SceneLightUniform",
+            pass_start,
+        )
+        self.assertLess(sky_draw, first_world_uniform)
+        diagnostics_update = renderer.index(
+            "diagnostics.skyDrawCalls = 1;",
+            sky_draw,
+        )
+        self.assertLess(diagnostics_update, first_world_uniform)
+        self.assertIn(
+            "diagnostics.skyLoadedTextures = 1;",
+            renderer[diagnostics_update:first_world_uniform],
+        )
+        app = (root / "src" / "app" / "GameApp.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"renderer_sky_draw_calls"', app)
+        self.assertIn('"renderer_sky_loaded_textures"', app)
+        fingerprint_start = renderer.index(
+            "arenaStaticWorldFingerprint(const Arena& arena)"
+        )
+        fingerprint_end = renderer.index(
+            "pointShadowCacheFingerprint(",
+            fingerprint_start,
+        )
+        self.assertIn(
+            "arenaSkySurfaceFingerprint(arena)",
+            renderer[fingerprint_start:fingerprint_end],
+        )
+
     def test_empty_overlay_skips_swapchain_render_pass(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(

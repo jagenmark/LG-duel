@@ -209,6 +209,11 @@ if (-not (Test-Path $shaderSource)) {
   throw "The compiled shader directory was not found beside lg_duel_client.exe."
 }
 Copy-Item $shaderSource (Join-Path $outputPath "shaders") -Recurse
+$skySource = Join-Path (Split-Path -Parent $client) "sky"
+if (-not (Test-Path $skySource)) {
+  throw "The runtime sky directory was not found beside lg_duel_client.exe."
+}
+Copy-Item $skySource (Join-Path $outputPath "sky") -Recurse
 $audioSource = Join-Path (Split-Path -Parent $client) "assets/audio"
 if (-not (Test-Path $audioSource)) {
   throw "The runtime audio directory was not found beside lg_duel_client.exe."
@@ -250,6 +255,9 @@ $requiredFiles = @(
   "shaders/world3d.vert.spv",
   "shaders/world3d.frag.spv",
   "shaders/world3d_direct.frag.spv",
+  "shaders/sky.vert.spv",
+  "shaders/sky.frag.spv",
+  "shaders/sky_direct.frag.spv",
   "shaders/world_surface.vert.spv",
   "shaders/world_surface.frag.spv",
   "shaders/world_surface_direct.frag.spv",
@@ -279,6 +287,18 @@ $requiredFiles = @(
   "assets/fonts/bahnschrift.ttf",
   "assets/models/lg_duelist_male_v3/art/exports/lg_duelist_male.glb",
   "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb",
+  "sky/aurora/posx.png",
+  "sky/aurora/negx.png",
+  "sky/aurora/posy.png",
+  "sky/aurora/negy.png",
+  "sky/aurora/posz.png",
+  "sky/aurora/negz.png",
+  "sky/crimson-sunset/posx.png",
+  "sky/crimson-sunset/negx.png",
+  "sky/crimson-sunset/posy.png",
+  "sky/crimson-sunset/negy.png",
+  "sky/crimson-sunset/posz.png",
+  "sky/crimson-sunset/negz.png",
   "maps/eyetoeye.map",
   "Play LG Duel.bat",
   "Host LG Duel Server.bat",

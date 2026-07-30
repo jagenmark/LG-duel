@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260730T204601Z-skybox-overkill-corner-03",
+  "captured_at": "2026-07-30T20:46:01Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed outside-map camera toward a cube corner at 1280x720, FOV 90, Default profile, bloom off, and verified SDL_GPU/Vulkan. This checks cube continuity only; it does not prove playable-route sky openings.",
+  "image": "20260730T204601Z-skybox-overkill-corner-03.png",
+  "review": {
+    "notes": "No visible pinch, gap, hard line, filter error, or grade break at the tested cube corner. This supports only the tested cube-corner claim.",
+    "reviewed_at": "2026-07-30T20:49:54Z",
+    "reviewer": "sky-visual-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "79b44729cc5a72a7ff4d7e11bbe58d4b7c016c1f311ec2de5d6453037d17c1f8",
+  "size_bytes": 3687468,
+  "task_id": "repo-native-skybox",
+  "title": "Overkill crimson cube corner"
+}

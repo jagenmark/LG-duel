@@ -52,6 +52,8 @@ The Python conversion stage:
 - emits only validated classic static brushes and clean supported entities;
 - maps Q3 visuals to separately available Tiny3 placeholders by default, or
   to original checked-in LG materials through explicit adaptation roles;
+- keeps `common/sky` only for brushes whose every source face uses a
+  `skies/` shader; mixed brushes keep the normal mapped wall material;
 - omits all-`sfx/hellfog` atmospheric brushes before material adaptation so
   they produce neither render nor collision geometry;
 - preserves `common/weapclip` as weapon-clip provenance, while `common/clip`
@@ -74,7 +76,8 @@ The Python conversion stage:
 retains all 32 source deathmatch spawns in their source order, reconstructs the important arches, bridge curves, and
 teleporter pad, restores and marks the authored teleport route, supplies reviewed
 sun/static lighting in place of unavailable BSP lightmaps, and maps broad source
-shader families onto four original LG-Duel texture roles. Adaptation choices and
+shader families onto four original LG-Duel texture roles. It also selects the
+`crimson-sunset` client sky. Adaptation choices and
 their resulting geometry counts are preserved in the generated reports.
 Its `brush_policy` defaults to `allow` and may address a static brush only by
 the stable `(source_entity_index, source_brush_index)` locator. Reviewed rules

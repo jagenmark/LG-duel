@@ -1,6 +1,7 @@
 #include "sim/Arena.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -144,6 +145,35 @@ int main() {
     failures += expect(loaded.ok, "eyetoeye should load from the local map registry");
     const lg::Arena& arena = loaded.arena;
     failures += expect(arena.wallCount > 0, "eyetoeye should load static geometry");
+    failures += expect(
+      arena.skyId == lg::SkyId::None,
+      "eyetoeye should keep the legacy clear colour"
+    );
+    bool eyeHasSkyFace = false;
+    for (std::size_t index = 0; index < arena.wallCount; ++index) {
+      eyeHasSkyFace = eyeHasSkyFace || std::any_of(
+        arena.walls[index].faceSurfaceKinds.begin(),
+        arena.walls[index].faceSurfaceKinds.end(),
+        [](lg::ArenaSurfaceKind kind) {
+          return kind == lg::ArenaSurfaceKind::Sky;
+        }
+      );
+    }
+    for (std::size_t index = 0; index < arena.brushCount; ++index) {
+      for (
+        std::uint8_t faceIndex = 0;
+        faceIndex < arena.brushes[index].faceCount;
+        ++faceIndex
+      ) {
+        eyeHasSkyFace = eyeHasSkyFace ||
+          arena.brushes[index].faces[faceIndex].surfaceKind ==
+            lg::ArenaSurfaceKind::Sky;
+      }
+    }
+    failures += expect(
+      !eyeHasSkyFace,
+      "eyetoeye should keep its prior geometry output with no sky faces"
+    );
     constexpr std::uint64_t expectedCollisionGeometryFingerprint =
       0xa738db490b895daeULL;
     const std::uint64_t actualCollisionGeometryFingerprint =
@@ -160,6 +190,25 @@ int main() {
     failures += expect(
       loaded.descriptor.contentHash == lg::hashArena(arena),
       "eyetoeye descriptor hash should match loaded arena"
+    );
+    lg::Arena defaultSkyCopy = arena;
+    defaultSkyCopy.skyId = lg::SkyId::None;
+    failures += expect(
+      lg::hashArena(defaultSkyCopy) == loaded.descriptor.contentHash,
+      "default sky data should not add a hash domain"
+    );
+    lg::Arena skyChanged = arena;
+    skyChanged.skyId = lg::SkyId::Aurora;
+    failures += expect(
+      lg::hashArena(skyChanged) != loaded.descriptor.contentHash,
+      "non-default sky selection should affect the map hash"
+    );
+    skyChanged = arena;
+    skyChanged.walls[0].faceSurfaceKinds[0] =
+      lg::ArenaSurfaceKind::Sky;
+    failures += expect(
+      lg::hashArena(skyChanged) != loaded.descriptor.contentHash,
+      "non-default sky face flags should affect the map hash"
     );
     lg::Arena visuallyChanged = arena;
     visuallyChanged.walls[0].faceMaterialIds[0] ^= 0x1U;
@@ -433,6 +482,10 @@ int main() {
       loaded.ok && loaded.descriptor.contentHash == lg::hashArena(loaded.arena),
       "generated overkill import descriptor should bind to parsed arena content"
     );
+    failures += expect(
+      loaded.ok && loaded.arena.skyId == lg::SkyId::CrimsonSunset,
+      "overkill should select the crimson-sunset sky"
+    );
 
     const auto findWall = [&loaded](std::uint32_t sourceBrushIndex) -> const lg::ArenaWall* {
       for (std::size_t index = 0; index < loaded.arena.wallCount; ++index) {
@@ -461,6 +514,96 @@ int main() {
       }
       return nullptr;
     };
+    const auto wallIsAllSky = [](const lg::ArenaWall& wall) {
+      return std::all_of(
+        wall.faceSurfaceKinds.begin(),
+        wall.faceSurfaceKinds.end(),
+        [](lg::ArenaSurfaceKind kind) {
+          return kind == lg::ArenaSurfaceKind::Sky;
+        }
+      );
+    };
+    const auto brushIsAllSky = [](const lg::ArenaBrush& brush) {
+      if (brush.faceCount == 0U) {
+        return false;
+      }
+      for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+        if (
+          brush.faces[index].surfaceKind != lg::ArenaSurfaceKind::Sky
+        ) {
+          return false;
+        }
+      }
+      return true;
+    };
+    const auto wallHasAnySky = [](const lg::ArenaWall& wall) {
+      return std::any_of(
+        wall.faceSurfaceKinds.begin(),
+        wall.faceSurfaceKinds.end(),
+        [](lg::ArenaSurfaceKind kind) {
+          return kind == lg::ArenaSurfaceKind::Sky;
+        }
+      );
+    };
+    const auto brushHasAnySky = [](const lg::ArenaBrush& brush) {
+      for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+        if (
+          brush.faces[index].surfaceKind == lg::ArenaSurfaceKind::Sky
+        ) {
+          return true;
+        }
+      }
+      return false;
+    };
+    constexpr std::array<std::uint32_t, 36> skySourceBrushes = {{
+      252U, 253U, 257U, 262U, 263U, 264U, 361U, 362U,
+      975U, 976U, 977U, 978U, 979U, 1154U, 1188U, 1251U,
+      1284U, 1296U, 1297U, 1302U, 1303U, 1305U, 1306U, 1308U,
+      1315U, 1316U, 1317U, 1319U, 1352U, 1353U, 1386U, 1547U,
+      1548U, 1549U, 1550U, 1551U,
+    }};
+    for (const std::uint32_t locator : skySourceBrushes) {
+      const lg::ArenaWall* wall = findWall(locator);
+      const lg::ArenaBrush* brush = findBrush(locator);
+      failures += expect(
+        (wall != nullptr && wallIsAllSky(*wall)) ||
+          (brush != nullptr && brushIsAllSky(*brush)),
+        "each proven all-skies Overkill locator should mark every face"
+      );
+    }
+    std::size_t allSkySourceBrushCount = 0;
+    std::size_t anySkySourceBrushCount = 0;
+    for (std::size_t index = 0; index < loaded.arena.wallCount; ++index) {
+      if (wallIsAllSky(loaded.arena.walls[index])) {
+        ++allSkySourceBrushCount;
+      }
+      if (wallHasAnySky(loaded.arena.walls[index])) {
+        ++anySkySourceBrushCount;
+      }
+    }
+    for (std::size_t index = 0; index < loaded.arena.brushCount; ++index) {
+      if (brushIsAllSky(loaded.arena.brushes[index])) {
+        ++allSkySourceBrushCount;
+      }
+      if (brushHasAnySky(loaded.arena.brushes[index])) {
+        ++anySkySourceBrushCount;
+      }
+    }
+    failures += expect(
+      allSkySourceBrushCount == skySourceBrushes.size(),
+      "overkill should have exactly the 36 proven all-sky source brushes"
+    );
+    failures += expect(
+      anySkySourceBrushCount == skySourceBrushes.size(),
+      "overkill should have no partly converted sky brush"
+    );
+    const lg::ArenaWall* mixedSkyWall = findWall(1213U);
+    const lg::ArenaBrush* mixedSkyBrush = findBrush(1213U);
+    failures += expect(
+      (mixedSkyWall == nullptr || !wallHasAnySky(*mixedSkyWall)) &&
+        (mixedSkyBrush == nullptr || !brushHasAnySky(*mixedSkyBrush)),
+      "mixed source brush 0:1213 must keep every normal material face"
+    );
     for (const std::uint32_t sourceBrushIndex : {1926U, 1927U, 1928U}) {
       failures += expect(
         findVisualBrush(sourceBrushIndex) != nullptr && findBrush(sourceBrushIndex) != nullptr,
@@ -572,6 +715,44 @@ int main() {
     failures += expect(
       lipRoutesPass,
       "held diagonal movement should pass both sides of each doorway after low lips are removed"
+    );
+  }
+
+  {
+    const lg::LocalMapLoadResult loaded =
+      lg::loadLocalMap("thunderstruck");
+    std::size_t skyFaceCount = 0;
+    if (loaded.ok) {
+      for (std::size_t index = 0; index < loaded.arena.wallCount; ++index) {
+        for (
+          lg::ArenaSurfaceKind kind :
+          loaded.arena.walls[index].faceSurfaceKinds
+        ) {
+          skyFaceCount += kind == lg::ArenaSurfaceKind::Sky ? 1U : 0U;
+        }
+      }
+      for (std::size_t index = 0; index < loaded.arena.brushCount; ++index) {
+        const lg::ArenaBrush& brush = loaded.arena.brushes[index];
+        for (
+          std::uint8_t faceIndex = 0;
+          faceIndex < brush.faceCount;
+          ++faceIndex
+        ) {
+          skyFaceCount +=
+            brush.faces[faceIndex].surfaceKind ==
+                lg::ArenaSurfaceKind::Sky
+              ? 1U
+              : 0U;
+        }
+      }
+    }
+    failures += expect(
+      loaded.ok && loaded.arena.skyId == lg::SkyId::Aurora,
+      "thunderstruck should select the aurora sky"
+    );
+    failures += expect(
+      skyFaceCount == 0U,
+      "thunderstruck should not tag any source face as sky"
     );
   }
 

@@ -7,7 +7,7 @@ Status: **convertible**
 - q3map2: NetRadiant-custom 20260114, `2.5.17n-git-68ecbed`, setup `scripts/setup-q3map2.ps1`, archive SHA-256 `25c2e14e2b0bd7a9897b2f943c8821458873c8713973f9c3d68d49f26fe79e35`
 - Raw map: `overkill.raw.map` (2440317 bytes, SHA-256 `30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc`)
 - BSP: `overkill.bsp`, IBSP v47, 6863428 bytes, SHA-256 `ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133`
-- Generated candidate: 1729588 bytes, SHA-256 `c8221d86af6adff2bcba11568ed7bbc5854c6a91d7df78b2b92e80564a438c8e`
+- Generated candidate: 1724089 bytes, SHA-256 `a64d55fc8efc70e04020ab1fc4a049992e946e57b5597bf9844818f4c629649a`
 - BSP world bounds: min `[-1664.0, -4120.0, -1640.0]`, max `[3000.000244140625, 2368.0, 1824.0]`
 - AAS: `overkill.aas`, EAAS v5, BSP checksum `-1989511671`, 867588 bytes, SHA-256 `e53625957ad4e2dd2cb9987c6b24f74b6635d2c5308c7764339dd4b22bc60b92`
 - Adaptation binding: schema v3, verified `True`, BSP `ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133`, raw `30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc`
@@ -165,7 +165,7 @@ Status: **convertible**
 |---|---:|---:|---|
 | walls | 1251 | 2048 | OK |
 | convex_brushes | 994 | 1024 | OK |
-| lights | 6 | 96 | OK |
+| lights | 11 | 96 | OK |
 | jump_pads | 5 | 48 | OK |
 | health_pickups | 16 | 32 | OK |
 | spawns | 32 | 32 | OK |

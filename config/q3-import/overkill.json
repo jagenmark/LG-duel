@@ -3,6 +3,7 @@
   "source_bsp_sha256": "ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133",
   "raw_decompile_sha256": "30184ddbeb78028d63b4658c97591672e1000c7646b8b00967f914e1e42e5efc",
   "name": "overkill-lg-duel",
+  "sky": "crimson-sunset",
   "brush_policy": {
     "default_action": "allow",
     "rules": [
@@ -263,6 +264,11 @@
     {"origin": [640, -1350, 680], "color": [255, 205, 150], "intensity": 0.75, "radius": 1400},
     {"origin": [-1100, -100, 560], "color": [196, 220, 255], "intensity": 0.7, "radius": 1200},
     {"origin": [1050, 650, 600], "color": [255, 216, 164], "intensity": 0.7, "radius": 1200},
-    {"origin": [1184, 2080, 520], "color": [255, 174, 82], "intensity": 0.9, "radius": 900}
+    {"origin": [1184, 2080, 520], "color": [255, 174, 82], "intensity": 0.9, "radius": 900},
+    {"origin": [0, -360, 440], "color": [168, 202, 255], "intensity": 1.1, "radius": 1600},
+    {"origin": [640, 360, 760], "color": [176, 208, 255], "intensity": 1.05, "radius": 1600},
+    {"origin": [640, -1040, 440], "color": [185, 210, 255], "intensity": 1.0, "radius": 1500},
+    {"origin": [-1300, -920, 400], "color": [190, 216, 255], "intensity": 1.1, "radius": 1200},
+    {"origin": [1184, 1760, 360], "color": [190, 214, 255], "intensity": 0.75, "radius": 1000}
   ]
 }

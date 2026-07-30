@@ -191,6 +191,54 @@ class ConversionTests(unittest.TestCase):
         self.assertNotIn("common/nodrop", output)
         self.assertIn("remain common/weapclip", report["conversion"]["collision_material_policy"])
 
+    def test_only_wholly_sky_brushes_keep_common_sky(self):
+        adaptation = {
+            "materials": {"wall": "Fixture/Wall"},
+            "material_roles": {"wall": ["*"]},
+        }
+        all_sky = q3.parse_map(
+            entity("worldspawn", brushes=cube("textures/skies/blue"))
+        )[0].brushes[0]
+        mixed_text = cube("skies/blue").replace(
+            "skies/blue", "common/caulk", 1
+        )
+        mixed = q3.parse_map(
+            entity("worldspawn", brushes=mixed_text)
+        )[0].brushes[0]
+
+        sky_lines = q3._emit_brush(all_sky, adaptation=adaptation)
+        mixed_lines = q3._emit_brush(mixed, adaptation=adaptation)
+
+        self.assertEqual(sum(" common/sky " in line for line in sky_lines), 6)
+        self.assertFalse(any(" common/sky " in line for line in mixed_lines))
+        self.assertEqual(
+            sum(" Fixture/Wall " in line for line in mixed_lines),
+            6,
+        )
+
+    def test_adaptation_can_set_one_allow_listed_sky(self):
+        raw = entity("worldspawn", brushes=cube())
+        adaptation = self.adaptation_v2(raw)
+        adaptation["sky"] = "crimson-sunset"
+        output, report = q3.convert(
+            raw,
+            "sky.map",
+            self.bsp,
+            adaptation=adaptation,
+        )
+        self.assertEqual(1, output.count('"lg_sky" "crimson-sunset"'))
+        self.assertEqual(
+            "crimson-sunset",
+            report["conversion"]["adaptation"]["sky"],
+        )
+
+        adaptation["sky"] = "../outside"
+        with self.assertRaisesRegex(
+            q3.ConversionError,
+            "adaptation sky must be",
+        ):
+            q3.convert(raw, "sky.map", self.bsp, adaptation=adaptation)
+
     def test_v2_adaptation_rejects_source_hash_mismatches(self):
         raw = entity("worldspawn", brushes=cube())
         for field in ("source_bsp_sha256", "raw_decompile_sha256"):
@@ -356,7 +404,7 @@ class ConversionTests(unittest.TestCase):
             "lights": [{
                 "origin": [4, 4, 16],
                 "color": [255, 226, 184],
-                "intensity": 0.8,
+                "intensity": 1.0,
                 "radius": 256,
             }],
         }
@@ -365,6 +413,7 @@ class ConversionTests(unittest.TestCase):
         self.assertIn("Overkill/Wall", output)
         self.assertIn("Overkill/Accent", output)
         self.assertIn('"classname" "light_sun"', output)
+        self.assertIn('"intensity" "1.0"', output)
         self.assertEqual(1, report["gameplay"]["converted"]["sun_lights"])
         self.assertEqual(1, report["gameplay"]["converted"]["lights"])
         self.assertEqual(1, report["conversion"]["reconstructed_patches"])
@@ -611,6 +660,7 @@ class MetadataAndCliTests(unittest.TestCase):
             (repository / "config" / "q3-import" / "overkill.json").read_text(encoding="utf-8")
         )
         self.assertEqual(3, adaptation["schema_version"])
+        self.assertEqual("crimson-sunset", adaptation["sky"])
         render_only = {
             rule["source_patch_index"]
             for rule in adaptation["patch_rules"]
@@ -644,7 +694,17 @@ class MetadataAndCliTests(unittest.TestCase):
         }
         self.assertEqual({(0, 1926), (0, 1927), (0, 1928)}, collision_visuals)
 
-        generated = (repository / "maps" / "overkill_import.map").read_text(encoding="utf-8")
+        generated_path = repository / "maps" / "overkill_import.map"
+        generated_bytes = generated_path.read_bytes()
+        generated = generated_bytes.decode("utf-8")
+        import_report = json.loads(
+            (repository / "reports" / "q3" / "overkill-import.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        candidate = import_report["outputs"]["candidate_map"]
+        self.assertEqual(len(generated_bytes), candidate["size"])
+        self.assertEqual(q3._sha256(generated_bytes), candidate["sha256"])
         self.assertEqual(83, generated.count('"lg_geometry_role" "render_only"'))
         self.assertEqual(3, generated.count('"lg_adaptation_visual_id"'))
         self.assertEqual(3, generated.count('"lg_adaptation_derived_id"'))

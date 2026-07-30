@@ -5,6 +5,7 @@
 #include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -146,6 +147,124 @@ int main() {
     failures += expect(nearlyEqual(result.arena.walls[0].min.x, -0.025F), "wall min should use Quake-to-LG scale");
     failures += expect(nearlyEqual(result.arena.walls[0].max.z, 0.025F), "wall max should use Quake-to-LG scale");
     failures += expect(result.arena.walls[0].materialId != 0U, "wall material should be preserved");
+  }
+
+  {
+    const lg::ArenaLoadResult missing = lg::loadArenaFromMapText(
+      basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1))
+    );
+    const lg::ArenaLoadResult aurora = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-1, -1, 0, 1, 1, 1),
+        "\"lg_sky\" \"aurora\"\n"
+      )
+    );
+    const lg::ArenaLoadResult crimson = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-1, -1, 0, 1, 1, 1),
+        "\"lg_sky\" \"crimson-sunset\"\n"
+      )
+    );
+    const lg::ArenaLoadResult disabled = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-1, -1, 0, 1, 1, 1),
+        "\"lg_sky\" \"off\"\n"
+      )
+    );
+    const lg::ArenaLoadResult unknown = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-1, -1, 0, 1, 1, 1),
+        "\"lg_sky\" \"Aurora-ish\"\n"
+      )
+    );
+    failures += expect(
+      missing.ok && missing.arena.skyId == lg::SkyId::None,
+      "missing lg_sky should keep the legacy clear colour"
+    );
+    failures += expect(
+      aurora.ok && aurora.arena.skyId == lg::SkyId::Aurora,
+      "aurora should select the allow-listed sky"
+    );
+    failures += expect(
+      crimson.ok && crimson.arena.skyId == lg::SkyId::CrimsonSunset,
+      "crimson-sunset should select the allow-listed sky"
+    );
+    failures += expect(
+      disabled.ok && disabled.arena.skyId == lg::SkyId::None &&
+        unknown.ok && unknown.arena.skyId == lg::SkyId::None,
+      "off and unknown sky names should safely select none"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult common = lg::loadArenaFromMapText(
+      basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1, "common/sky"))
+    );
+    const lg::ArenaLoadResult textured = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-1, -1, 0, 1, 1, 1, "textures/common/sky")
+      )
+    );
+    const lg::ArenaLoadResult nearMatch = lg::loadArenaFromMapText(
+      basicMap(cuboidBrush(-1, -1, 0, 1, 1, 1, "common/skybox"))
+    );
+    failures += expect(
+      common.ok && std::all_of(
+        common.arena.walls[0].faceSurfaceKinds.begin(),
+        common.arena.walls[0].faceSurfaceKinds.end(),
+        [](lg::ArenaSurfaceKind kind) {
+          return kind == lg::ArenaSurfaceKind::Sky;
+        }
+      ),
+      "common/sky should mark every matching face as sky"
+    );
+    failures += expect(
+      textured.ok && std::all_of(
+        textured.arena.walls[0].faceSurfaceKinds.begin(),
+        textured.arena.walls[0].faceSurfaceKinds.end(),
+        [](lg::ArenaSurfaceKind kind) {
+          return kind == lg::ArenaSurfaceKind::Sky;
+        }
+      ),
+      "textures/common/sky should normalize to the exact sky token"
+    );
+    failures += expect(
+      nearMatch.ok && std::none_of(
+        nearMatch.arena.walls[0].faceSurfaceKinds.begin(),
+        nearMatch.arena.walls[0].faceSurfaceKinds.end(),
+        [](lg::ArenaSurfaceKind kind) {
+          return kind == lg::ArenaSurfaceKind::Sky;
+        }
+      ),
+      "near-match material names must not become sky"
+    );
+  }
+
+  {
+    std::string skyBrush = inwardWoundDodecagonalPrismBrush();
+    for (std::size_t offset = skyBrush.find("stone");
+         offset != std::string::npos;
+         offset = skyBrush.find("stone", offset + 10U)) {
+      skyBrush.replace(offset, 5U, "common/sky");
+    }
+    const lg::ArenaLoadResult result =
+      lg::loadArenaFromMapText(basicMap(skyBrush));
+    bool allSky = result.ok && result.arena.brushCount == 1U;
+    if (allSky) {
+      for (
+        std::uint8_t index = 0;
+        index < result.arena.brushes[0].faceCount;
+        ++index
+      ) {
+        allSky = allSky &&
+          result.arena.brushes[0].faces[index].surfaceKind ==
+            lg::ArenaSurfaceKind::Sky;
+      }
+    }
+    failures += expect(
+      allSky,
+      "convex common/sky faces should keep their sky flag"
+    );
   }
 
   {

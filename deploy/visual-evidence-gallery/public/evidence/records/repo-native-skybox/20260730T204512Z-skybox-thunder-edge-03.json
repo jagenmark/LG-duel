@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260730T204512Z-skybox-thunder-edge-03",
+  "captured_at": "2026-07-30T20:45:12Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed outside-map camera across a cube edge at 1280x720, FOV 90, Default profile, bloom off, and verified SDL_GPU/Vulkan. This checks cube continuity only; it does not prove playable-route sky openings.",
+  "image": "20260730T204512Z-skybox-thunder-edge-03.png",
+  "review": {
+    "notes": "No visible line, color jump, doubled cloud, or horizon break. The lower blue half stays subdued. This supports only the tested cube-edge claim.",
+    "reviewed_at": "2026-07-30T20:49:54Z",
+    "reviewer": "sky-visual-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "6965a0cdc8eb338c79c4362790a53aa029ebdc21fede65ee35b78ba341ba07a4",
+  "size_bytes": 3687468,
+  "task_id": "repo-native-skybox",
+  "title": "Thunderstruck aurora cube edge"
+}

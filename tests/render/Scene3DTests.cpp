@@ -1717,6 +1717,46 @@ int main() {
   }
 
   {
+    lg::Arena skyArena;
+    skyArena.wallCount = 1;
+    skyArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    skyArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    skyArena.walls[0].materialId = lg::arenaMaterialId("test/wall");
+    const lg::Scene3D completeWall =
+      lg::buildStaticWorldScene(skyArena);
+    skyArena.walls[0].faceSurfaceKinds[3] =
+      lg::ArenaSurfaceKind::Sky;
+    const lg::Scene3D wallWithSky =
+      lg::buildStaticWorldScene(skyArena);
+    failures += expect(
+      completeWall.vertices.size() == wallWithSky.vertices.size() + 6U,
+      "one sky wall face should emit no static world triangles"
+    );
+
+    skyArena.wallCount = 0;
+    skyArena.brushCount = 1;
+    lg::ArenaBrush& brush = skyArena.brushes[0];
+    brush.vertexCount = 3;
+    brush.vertices[0] = {0.0F, 0.0F, 0.0F};
+    brush.vertices[1] = {1.0F, 0.0F, 0.0F};
+    brush.vertices[2] = {0.0F, 1.0F, 0.0F};
+    brush.faceCount = 1;
+    brush.faces[0].vertexCount = 3;
+    brush.faces[0].vertices = {0U, 1U, 2U};
+    brush.faces[0].normal = {0.0F, 0.0F, 1.0F};
+    brush.faces[0].materialId = lg::arenaMaterialId("test/brush");
+    const lg::Scene3D completeBrush =
+      lg::buildStaticWorldScene(skyArena);
+    brush.faces[0].surfaceKind = lg::ArenaSurfaceKind::Sky;
+    const lg::Scene3D brushWithSky =
+      lg::buildStaticWorldScene(skyArena);
+    failures += expect(
+      completeBrush.vertices.size() == brushWithSky.vertices.size() + 3U,
+      "one sky convex face should enter no static world mesh"
+    );
+  }
+
+  {
     lg::Arena visualArena;
     const lg::Scene3D baselineStaticScene = lg::buildStaticWorldScene(visualArena);
     visualArena.visualWallCount = 1;

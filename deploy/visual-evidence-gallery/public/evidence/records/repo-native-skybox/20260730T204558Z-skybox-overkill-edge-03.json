@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260730T204558Z-skybox-overkill-edge-03",
+  "captured_at": "2026-07-30T20:45:58Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed outside-map camera across a cube edge at 1280x720, FOV 90, Default profile, bloom off, and verified SDL_GPU/Vulkan. This checks cube continuity only; it does not prove playable-route sky openings.",
+  "image": "20260730T204558Z-skybox-overkill-edge-03.png",
+  "review": {
+    "notes": "No visible seam, exposure shift, or break in the bright horizon band. Highlights do not clip with bloom off. This supports only the tested cube-edge claim.",
+    "reviewed_at": "2026-07-30T20:49:54Z",
+    "reviewer": "sky-visual-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "04df6b3acb32353d698c2817d08d16dcef105521f0219f3de66ff3156b0a93cc",
+  "size_bytes": 3687468,
+  "task_id": "repo-native-skybox",
+  "title": "Overkill crimson cube edge"
+}

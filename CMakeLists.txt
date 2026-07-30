@@ -138,6 +138,15 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world3d_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world3d_direct.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/sky.vert.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/sky.vert.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/sky.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/sky.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/sky_direct.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/sky_direct.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/world_surface.vert.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/world_surface.vert.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -245,6 +254,9 @@ add_custom_command(
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/scene_composite_no_bloom.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/scene_composite_no_bloom.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_directory
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/sky"
+    "$<TARGET_FILE_DIR:lg_duel_client>/sky"
 )
 
 if(WIN32 AND TARGET SDL3::SDL3)

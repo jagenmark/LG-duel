@@ -830,6 +830,8 @@ struct RendererFrameDiagnostics {
   std::uint32_t worldDuplicateTrianglesCulled = 0;
   std::uint32_t worldVertexCount = 0;
   std::uint32_t worldDrawCalls = 0;
+  std::uint32_t skyDrawCalls = 0;
+  std::uint32_t skyLoadedTextures = 0;
   std::uint32_t worldSubmittedRanges = 0;
   std::uint32_t worldTotalChunks = 0;
   std::uint32_t worldVisibleChunks = 0;
@@ -1095,6 +1097,8 @@ private:
   void* gpuPipelineBloomBlur_ = nullptr;
   void* gpuPipelineSceneComposite_ = nullptr;
   void* gpuPipelineSceneCompositeNoBloom_ = nullptr;
+  void* gpuPipelineSky_ = nullptr;
+  void* gpuPipelineDirectSky_ = nullptr;
   void* gpuPipelineDirectWorldSurface_ = nullptr;
   void* gpuPipelineDirectWorld_ = nullptr;
   void* gpuPipelineDirectInstancedMesh_ = nullptr;
@@ -1104,6 +1108,7 @@ private:
   void* gpuVertexBuffer_ = nullptr;
   void* gpuTransferBuffer_ = nullptr;
   void* gpuSimpleResources_ = nullptr;
+  void* gpuSkyResources_ = nullptr;
   void* gpuGltfPlayerResources_ = nullptr;
   void* gpuFontAtlas_ = nullptr;
   void* gpuFontSampler_ = nullptr;

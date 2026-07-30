@@ -385,6 +385,23 @@ if(Python3_Interpreter_FOUND)
     NAME lg_duel_q3_import_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_import_q3_map.py
   )
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import PIL"
+    RESULT_VARIABLE LG_DUEL_PILLOW_IMPORT_RESULT
+    OUTPUT_QUIET
+    ERROR_QUIET
+  )
+  if(LG_DUEL_PILLOW_IMPORT_RESULT EQUAL 0)
+    add_test(
+      NAME lg_duel_sky_converter_python_tests
+      COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/tools/test_convert_sky_panorama.py
+    )
+  else()
+    message(
+      STATUS
+      "Pillow not found; skipping sky panorama converter tests"
+    )
+  endif()
   add_test(
     NAME lg_duel_asset_pipeline_python_tests
     COMMAND ${Python3_EXECUTABLE} ${PROJECT_SOURCE_DIR}/scripts/test_asset_pipeline.py
@@ -562,6 +579,16 @@ target_compile_features(lg_duel_perspective_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_perspective_tests)
 
 add_test(NAME lg_duel_perspective_tests COMMAND lg_duel_perspective_tests)
+
+add_executable(lg_duel_sky_tests
+  render/SkyTests.cpp
+)
+
+target_link_libraries(lg_duel_sky_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_sky_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_sky_tests)
+
+add_test(NAME lg_duel_sky_tests COMMAND lg_duel_sky_tests)
 
 add_executable(lg_duel_gpu_timestamp_timing_tests
   render/GpuTimestampTimingTests.cpp
