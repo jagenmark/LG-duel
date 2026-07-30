@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260729T131531Z-ui-input-f10-top-01",
+  "captured_at": "2026-07-29T13:15:31Z",
+  "captured_by": "root-codex",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Shows an older graphics setting with the larger selected-row help text and the right-side scrollbar.",
+  "image": "20260729T131531Z-ui-input-f10-top-01.png",
+  "review": {
+    "notes": "The F10 menu is clear and legible. Its distinct help text fits at 2.0 scale.",
+    "reviewed_at": "2026-07-29T13:19:34Z",
+    "reviewer": "ui_input_review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "a5bce923bbd3492f51cac69d421f86f6a2234b9057d386099c14c1e6412fdc57",
+  "size_bytes": 9217968,
+  "task_id": "ui-input-misc-menu",
+  "title": "F10 graphics menu with help text"
+}

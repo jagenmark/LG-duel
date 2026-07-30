@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import io
+import json
 import socket
+import subprocess
+import sys
+import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -40,6 +46,563 @@ class LgToolTests(unittest.TestCase):
         probe.close()
         with self.assertRaisesRegex(lg_control.ControlError, "--dev-control"):
             lg_control.send_request("status", port=port, timeout=0.25)
+
+    def test_control_timeout_is_one_total_deadline(self) -> None:
+        class FakeConnection:
+            def __init__(self) -> None:
+                self.timeouts = []
+                self.recv_calls = 0
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *unused):
+                return False
+
+            def settimeout(self, timeout):
+                self.timeouts.append(timeout)
+
+            def sendall(self, unused):
+                return None
+
+            def recv(self, unused):
+                self.recv_calls += 1
+                return b'{"ok":'
+
+        connection = FakeConnection()
+        with mock.patch.object(
+            lg_control.socket, "create_connection", return_value=connection
+        ), mock.patch.object(
+            lg_control.time, "monotonic",
+            side_effect=[0.0, 0.0, 0.4, 0.9, 1.1],
+        ):
+            with self.assertRaisesRegex(
+                lg_control.ControlError, "timed out after 1 second"
+            ):
+                lg_control.send_request("status", timeout=1.0)
+        self.assertEqual(connection.recv_calls, 1)
+        self.assertAlmostEqual(connection.timeouts[-1], 0.1)
+
+    def test_large_mcp_image_is_omitted_before_read_and_next_call_works(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "large.png"
+            image_size = 9_217_968
+            path.write_bytes(
+                b"\x89PNG\r\n\x1a\n" + b"x" * (image_size - 8)
+            )
+            capture = {"path": str(path), "map": "eyetoeye"}
+            status = {"connected": True}
+            with mock.patch.object(
+                lg_mcp_server,
+                "run_tool_supervised",
+                side_effect=[(capture, None), (status, None)],
+            ):
+                first = lg_mcp_server.handle({
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {
+                        "name": "lg_capture_screenshot", "arguments": {},
+                    },
+                })
+                second = lg_mcp_server.handle({
+                    "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                    "params": {"name": "lg_status", "arguments": {}},
+                })
+        first_result = first["result"]
+        self.assertFalse(first_result["isError"])
+        self.assertEqual(len(first_result["content"]), 1)
+        structured = first_result["structuredContent"]
+        self.assertEqual(structured["path"], str(path))
+        self.assertEqual(structured["inline_image_omitted"], "size_limit")
+        self.assertEqual(
+            structured["inline_image_size_bytes"], image_size
+        )
+        self.assertTrue(second["result"]["structuredContent"]["connected"])
+
+    def test_mcp_image_budget_is_shared_across_all_views(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = [
+                Path(temporary) / "first.png",
+                Path(temporary) / "second.png",
+            ]
+            for path in paths:
+                path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 600_000)
+            payload = lg_mcp_server.tool_result({
+                "views": [{"path": str(path)} for path in paths],
+            })
+        images = [
+            item for item in payload["content"] if item["type"] == "image"
+        ]
+        views = payload["structuredContent"]["views"]
+        self.assertEqual(len(images), 1)
+        self.assertNotIn("inline_image_omitted", views[0])
+        self.assertEqual(views[1]["inline_image_omitted"], "size_limit")
+        self.assertLessEqual(len(images[0]["data"]), 1024 * 1024)
+
+    def test_oversized_structured_output_keeps_summary_and_paths(self) -> None:
+        result = {
+            "status": "complete",
+            "artifact_path": r"C:\results\summary.json",
+            "aggregate": {"mean_fps": 120.5, "p99_ms": 12.0},
+            "runs": [{
+                "result_directory": rf"C:\results\run-{index}",
+                "samples": ["x" * 4096] * 20,
+            } for index in range(20)],
+        }
+        payload = lg_mcp_server.tool_result(result)
+        structured = payload["structuredContent"]
+        self.assertEqual(
+            structured["structured_output_omitted"], "size_limit"
+        )
+        self.assertEqual(
+            structured["artifact_path"], r"C:\results\summary.json"
+        )
+        self.assertEqual(structured["aggregate"]["mean_fps"], 120.5)
+        preserved = structured["structured_output_preserved_paths"]
+        self.assertTrue(any(
+            item["value"] == r"C:\results\run-0"
+            for item in preserved
+        ))
+        self.assertLessEqual(
+            len(json.dumps(payload).encode("utf-8")),
+            lg_mcp_server.MCP_RESULT_BUDGET,
+        )
+
+    def test_non_ascii_result_uses_the_wire_encoding_for_its_cap(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "inline.png"
+            path.write_bytes(
+                b"\x89PNG\r\n\x1a\n" + b"x" * (750_000 - 8)
+            )
+            payload = lg_mcp_server.tool_result({
+                "path": str(path),
+                "note": "\u00e9" * 120_000,
+            })
+        wire = json.dumps(
+            payload,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        self.assertLessEqual(
+            len(wire),
+            lg_mcp_server.MCP_RESULT_BUDGET,
+        )
+        self.assertEqual(lg_mcp_server._json_size(payload), len(wire))
+
+    def test_worker_stdout_limit_returns_bounded_unknown_error(self) -> None:
+        class NoisyWorker:
+            returncode = 0
+
+            def communicate(self, unused=None, timeout=None):
+                return "x" * (lg_mcp_server.WORKER_STDOUT_BUDGET + 1), ""
+
+            def kill(self):
+                return None
+
+        worker = NoisyWorker()
+        with mock.patch.object(
+            lg_mcp_server.subprocess, "Popen", return_value=worker
+        ), mock.patch.object(
+            lg_mcp_server,
+            "_create_worker_tree",
+            return_value=lg_mcp_server.WorkerTree(worker),
+        ):
+            result, error = lg_mcp_server.run_tool_supervised(
+                "lg_set_camera", {}
+            )
+        self.assertIsNone(result)
+        self.assertEqual(
+            error["structuredContent"]["error"]["code"],
+            "worker_output_limit",
+        )
+        self.assertEqual(error["structuredContent"]["outcome"], "unknown")
+
+    def test_worker_compacts_valid_oversized_result_before_serializing(self) -> None:
+        request = b'{"name":"lg_run_benchmark","arguments":{}}\n'
+        worker_input = mock.Mock()
+        worker_input.buffer = io.BytesIO(request)
+        worker_output = io.StringIO()
+        result = {
+            "artifact_path": r"C:\results\aggregate.json",
+            "summary": {"mean_fps": 120.5},
+            "runs": ["x" * 4096] * 200,
+        }
+        with mock.patch.object(
+            lg_mcp_server, "invoke_tool", return_value=result
+        ), mock.patch.object(
+            lg_mcp_server.sys, "stdin", worker_input
+        ), mock.patch.object(
+            lg_mcp_server.sys, "stdout", worker_output
+        ):
+            self.assertEqual(lg_mcp_server._worker_main(), 0)
+        response = json.loads(worker_output.getvalue())
+        structured = response["result"]
+        self.assertEqual(
+            structured["structured_output_omitted"], "size_limit"
+        )
+        self.assertEqual(
+            structured["artifact_path"], r"C:\results\aggregate.json"
+        )
+        self.assertEqual(structured["summary"]["mean_fps"], 120.5)
+        self.assertLess(
+            len(worker_output.getvalue().encode("utf-8")),
+            lg_mcp_server.WORKER_STDOUT_BUDGET,
+        )
+
+    def test_worker_timeout_is_structured_and_does_not_block_stop(self) -> None:
+        class TimedOutWorker:
+            returncode = None
+
+            def __init__(self) -> None:
+                self.killed = False
+
+            def communicate(self, unused=None, timeout=None):
+                if not self.killed:
+                    raise subprocess.TimeoutExpired("worker", timeout)
+                self.returncode = -9
+                return "", ""
+
+            def kill(self):
+                self.killed = True
+
+        class StopWorker:
+            returncode = 0
+
+            def communicate(self, unused=None, timeout=None):
+                return json.dumps({
+                    "ok": True, "result": {"stopped": ["client"]},
+                }), ""
+
+        def contained(worker):
+            return lg_mcp_server.WorkerTree(worker)
+
+        with mock.patch.object(
+            lg_mcp_server.subprocess,
+            "Popen",
+            side_effect=[TimedOutWorker(), StopWorker()],
+        ), mock.patch.object(
+            lg_mcp_server, "_create_worker_tree", side_effect=contained
+        ):
+            timed_out = lg_mcp_server.handle({
+                "jsonrpc": "2.0", "id": 5, "method": "tools/call",
+                "params": {
+                    "name": "lg_set_camera",
+                    "arguments": {
+                        "position": [0, 0, 0], "yaw": 0, "pitch": 0,
+                    },
+                },
+            })
+            stopped = lg_mcp_server.handle({
+                "jsonrpc": "2.0", "id": 6, "method": "tools/call",
+                "params": {"name": "lg_stop", "arguments": {}},
+            })
+        timeout_result = timed_out["result"]
+        self.assertTrue(timeout_result["isError"])
+        self.assertEqual(
+            timeout_result["structuredContent"]["error"]["code"],
+            "worker_timeout",
+        )
+        self.assertEqual(
+            timeout_result["structuredContent"]["outcome"], "unknown"
+        )
+        self.assertEqual(
+            timeout_result["structuredContent"]["timeout_seconds"], 90.0
+        )
+        self.assertEqual(
+            stopped["result"]["structuredContent"]["stopped"], ["client"]
+        )
+
+    def test_stdio_cancellation_kills_worker_and_returns_cancelled_error(self) -> None:
+        started = threading.Event()
+        killed = threading.Event()
+        response_ready = threading.Event()
+        responses = []
+
+        class BlockingWorker:
+            returncode = None
+
+            def communicate(self, unused=None, timeout=None):
+                started.set()
+                if not killed.wait(2):
+                    raise subprocess.TimeoutExpired("worker", timeout)
+                self.returncode = -9
+                return "", ""
+
+            def kill(self):
+                killed.set()
+
+        def write(response):
+            responses.append(response)
+            response_ready.set()
+
+        dispatcher = lg_mcp_server.McpStdioDispatcher(write)
+        with mock.patch.object(
+            lg_mcp_server.subprocess, "Popen", return_value=BlockingWorker()
+        ), mock.patch.object(
+            lg_mcp_server,
+            "_create_worker_tree",
+            side_effect=lambda worker: lg_mcp_server.WorkerTree(worker),
+        ):
+            dispatcher.dispatch({
+                "jsonrpc": "2.0", "id": 10, "method": "tools/call",
+                "params": {
+                    "name": "lg_map_add_cuboid",
+                    "arguments": {},
+                },
+            })
+            self.assertTrue(started.wait(1))
+            dispatcher.dispatch({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {"requestId": 10, "reason": "test cancel"},
+            })
+            self.assertTrue(response_ready.wait(2))
+            dispatcher.finish()
+        self.assertTrue(killed.is_set())
+        self.assertEqual(len(responses), 1)
+        self.assertEqual(responses[0]["error"]["code"], -32800)
+        self.assertEqual(responses[0]["error"]["data"]["outcome"], "unknown")
+        self.assertEqual(
+            responses[0]["error"]["data"]["reason"], "test cancel"
+        )
+
+    def test_stdio_stop_overtakes_normal_call_and_other_calls_get_busy(self) -> None:
+        normal_started = threading.Event()
+        normal_cancelled = threading.Event()
+        stop_response = threading.Event()
+        responses = []
+
+        def run(name, arguments, cancellation=None):
+            if name == "lg_stop":
+                return {"stopped": ["client"]}, None
+            normal_started.set()
+            while not cancellation.cancelled:
+                normal_cancelled.wait(0.01)
+            normal_cancelled.set()
+            return {"operation": name}, None
+
+        def write(response):
+            responses.append(response)
+            if response.get("id") == 13:
+                stop_response.set()
+
+        dispatcher = lg_mcp_server.McpStdioDispatcher(write)
+        with mock.patch.object(lg_mcp_server, "run_tool_supervised", side_effect=run):
+            dispatcher.dispatch({
+                "jsonrpc": "2.0", "id": 11, "method": "tools/call",
+                "params": {
+                    "name": "lg_set_camera",
+                    "arguments": {
+                        "position": [0, 0, 0], "yaw": 0, "pitch": 0,
+                    },
+                },
+            })
+            self.assertTrue(normal_started.wait(1))
+            dispatcher.dispatch({
+                "jsonrpc": "2.0", "id": 12, "method": "tools/call",
+                "params": {"name": "lg_status", "arguments": {}},
+            })
+            dispatcher.dispatch({
+                "jsonrpc": "2.0", "id": 13, "method": "tools/call",
+                "params": {"name": "lg_stop", "arguments": {}},
+            })
+            self.assertTrue(stop_response.wait(1))
+            dispatcher.finish()
+
+        by_id = {response["id"]: response for response in responses}
+        self.assertTrue(normal_cancelled.is_set())
+        self.assertEqual(
+            by_id[12]["result"]["structuredContent"]["error"]["code"],
+            "server_busy",
+        )
+        self.assertEqual(
+            by_id[13]["result"]["structuredContent"]["stopped"], ["client"]
+        )
+        self.assertEqual(by_id[11]["error"]["code"], -32800)
+        self.assertEqual(
+            by_id[11]["error"]["data"]["reason"], "superseded by lg_stop"
+        )
+
+    def test_start_cancellation_stops_contained_worker_tree_promptly(self) -> None:
+        started = threading.Event()
+        response_ready = threading.Event()
+        killed = threading.Event()
+        responses = []
+
+        class BlockingStartWorker:
+            returncode = None
+
+            def communicate(self, unused=None, timeout=None):
+                started.set()
+                if not killed.wait(2):
+                    raise subprocess.TimeoutExpired("worker", timeout)
+                self.returncode = -9
+                return "", ""
+
+            def kill(self):
+                killed.set()
+
+        def write(response):
+            responses.append(response)
+            response_ready.set()
+
+        dispatcher = lg_mcp_server.McpStdioDispatcher(write)
+        with mock.patch.object(
+            lg_mcp_server.subprocess,
+            "Popen",
+            return_value=BlockingStartWorker(),
+        ), mock.patch.object(
+            lg_mcp_server,
+            "_create_worker_tree",
+            side_effect=lambda worker: lg_mcp_server.WorkerTree(worker),
+        ):
+            dispatcher.dispatch({
+                "jsonrpc": "2.0", "id": 14, "method": "tools/call",
+                "params": {"name": "lg_start", "arguments": {}},
+            })
+            self.assertTrue(started.wait(1))
+            dispatcher.dispatch({
+                "jsonrpc": "2.0",
+                "method": "notifications/cancelled",
+                "params": {"requestId": 14},
+            })
+            self.assertTrue(killed.wait(1))
+            self.assertTrue(response_ready.wait(1))
+            dispatcher.finish()
+        self.assertEqual(responses[0]["error"]["code"], -32800)
+        self.assertEqual(responses[0]["error"]["data"]["outcome"], "unknown")
+
+    def test_worker_tree_terminates_only_its_posix_process_group(self) -> None:
+        worker = mock.Mock(pid=4321)
+        tree = lg_mcp_server.WorkerTree(worker, process_group=True)
+        with mock.patch.object(
+            lg_mcp_server.os, "killpg", create=True
+        ) as kill_group:
+            tree.terminate()
+        kill_group.assert_called_once_with(
+            4321,
+            getattr(
+                lg_mcp_server.signal,
+                "SIGKILL",
+                lg_mcp_server.signal.SIGTERM,
+            ),
+        )
+        worker.kill.assert_not_called()
+
+    def test_supervisor_deadline_scales_with_valid_benchmark_request(self) -> None:
+        self.assertEqual(
+            lg_mcp_server.tool_timeout(
+                "lg_run_benchmark",
+                {"repetitions": 10, "timeout": 300},
+            ),
+            3415.0,
+        )
+        self.assertEqual(
+            lg_mcp_server.tool_timeout(
+                "lg_run_live_scenario", {"timeout": 600}
+            ),
+            660.0,
+        )
+
+    def test_state_changing_worker_errors_report_unknown_outcome(self) -> None:
+        changing = lg_mcp_server._error_payload(
+            "lg_start", code="tool_error", message="failed after spawn"
+        )
+        read_only = lg_mcp_server._error_payload(
+            "lg_status", code="worker_exit", message="worker failed"
+        )
+        never_started = lg_mcp_server._error_payload(
+            "lg_start", code="worker_tree_unavailable", message="no tree"
+        )
+        self.assertEqual(
+            changing["structuredContent"]["outcome"], "unknown"
+        )
+        self.assertEqual(
+            read_only["structuredContent"]["outcome"], "not_completed"
+        )
+        self.assertEqual(
+            never_started["structuredContent"]["outcome"], "not_completed"
+        )
+
+    def test_spawn_capable_tool_fails_closed_without_worker_tree(self) -> None:
+        class Worker:
+            returncode = None
+
+            def __init__(self) -> None:
+                self.killed = False
+
+            def kill(self):
+                self.killed = True
+
+        worker = Worker()
+        with mock.patch.object(
+            lg_mcp_server.subprocess, "Popen", return_value=worker
+        ), mock.patch.object(
+            lg_mcp_server,
+            "_create_worker_tree",
+            return_value=lg_mcp_server.WorkerTree(
+                worker, contained=False
+            ),
+        ):
+            result, error = lg_mcp_server.run_tool_supervised(
+                "lg_start", {}
+            )
+        self.assertIsNone(result)
+        self.assertTrue(worker.killed)
+        self.assertEqual(
+            error["structuredContent"]["error"]["code"],
+            "worker_tree_unavailable",
+        )
+        self.assertEqual(error["structuredContent"]["outcome"], "not_completed")
+
+    def test_large_error_text_is_bounded_with_an_omission_marker(self) -> None:
+        payload = lg_mcp_server._error_payload(
+            "lg_start",
+            code="tool_error",
+            message="x" * (lg_mcp_server.MCP_RESULT_BUDGET + 1),
+        )
+        self.assertEqual(
+            payload["structuredContent"]["error"]["message_omitted"],
+            "size_limit",
+        )
+        self.assertLess(
+            len(json.dumps(payload).encode("utf-8")),
+            lg_mcp_server.MCP_RESULT_BUDGET,
+        )
+
+    def test_raw_stdio_mcp_survives_worker_error(self) -> None:
+        server_path = Path(lg_mcp_server.__file__).resolve()
+        requests = [
+            {"jsonrpc": "2.0", "id": 20, "method": "initialize", "params": {}},
+            {
+                "jsonrpc": "2.0", "id": 21, "method": "tools/call",
+                "params": {"name": "lg_not_a_tool", "arguments": {}},
+            },
+            {"jsonrpc": "2.0", "id": 22, "method": "ping"},
+        ]
+        wire = "".join(
+            json.dumps(request, separators=(",", ":")) + "\n"
+            for request in requests
+        )
+        process = subprocess.Popen(
+            [sys.executable, str(server_path)],
+            cwd=server_path.parents[1],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+        )
+        stdout, stderr = process.communicate(wire, timeout=15)
+        responses = [json.loads(line) for line in stdout.splitlines()]
+        by_id = {response["id"]: response for response in responses}
+        self.assertEqual(process.returncode, 0, stderr)
+        self.assertEqual(set(by_id), {20, 21, 22})
+        self.assertTrue(by_id[21]["result"]["isError"])
+        self.assertEqual(
+            by_id[21]["result"]["structuredContent"]["error"]["code"],
+            "tool_error",
+        )
+        self.assertEqual(by_id[22]["result"], {})
 
     def test_mcp_tools_have_closed_typed_schemas(self) -> None:
         names = {tool["name"] for tool in lg_mcp_server.TOOLS}
@@ -175,7 +738,18 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(tools["lg_list_benchmarks"]["properties"], {})
         self.assertEqual(
             set(tools["lg_run_benchmark"]["properties"]),
-            {"scenario", "repetitions", "port", "timeout", "build_mode"},
+            {
+                "scenario", "repetitions", "server_port", "control_port",
+                "port", "timeout", "build_mode",
+            },
+        )
+        self.assertEqual(
+            tools["lg_run_benchmark"]["properties"]["server_port"]["default"],
+            28960,
+        )
+        self.assertEqual(
+            tools["lg_run_benchmark"]["properties"]["control_port"]["default"],
+            28961,
         )
         self.assertEqual(set(tools["lg_compare_benchmarks"]["required"]), {"baseline", "result"})
         self.assertEqual(set(tools["lg_get_benchmark_result"]["properties"]), {"result", "detailed"})
@@ -184,9 +758,30 @@ class LgToolTests(unittest.TestCase):
     def test_benchmark_mcp_routes_explicit_debug_mode(self) -> None:
         with mock.patch("lg_mcp_server.run_benchmark", return_value={"runs": []}) as runner:
             lg_mcp_server.invoke_tool(
-                "lg_run_benchmark", {"scenario": "eyetoeye-static-baseline", "build_mode": "debug"}
+                "lg_run_benchmark",
+                {
+                    "scenario": "eyetoeye-static-baseline",
+                    "build_mode": "debug",
+                    "server_port": 30060,
+                    "control_port": 30061,
+                },
             )
         self.assertEqual(runner.call_args.kwargs["build_mode"], "debug")
+        self.assertEqual(runner.call_args.kwargs["server_port"], 30060)
+        self.assertEqual(runner.call_args.kwargs["control_port"], 30061)
+        self.assertIsNone(runner.call_args.kwargs["port"])
+
+    def test_benchmark_mcp_routes_legacy_control_port_alias(self) -> None:
+        with mock.patch(
+            "lg_mcp_server.run_benchmark", return_value={"runs": []}
+        ) as runner:
+            lg_mcp_server.invoke_tool(
+                "lg_run_benchmark",
+                {"scenario": "eyetoeye-static-baseline", "port": 30061},
+            )
+        self.assertEqual(runner.call_args.kwargs["server_port"], 28960)
+        self.assertIsNone(runner.call_args.kwargs["control_port"])
+        self.assertEqual(runner.call_args.kwargs["port"], 30061)
 
     def test_live_scenario_mcp_routes_without_shell(self) -> None:
         with mock.patch("lg_mcp_server.run_live_scenario", return_value={"status": "passed"}) as runner:

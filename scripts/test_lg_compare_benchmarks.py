@@ -12,6 +12,7 @@ from unittest import mock
 
 import lg_benchmark
 import lg_compare_benchmarks as compare
+import lg_launch
 import lg_performance_policy
 
 
@@ -104,6 +105,30 @@ class CompareBenchmarkTests(unittest.TestCase):
         ])
         self.assertEqual(args.suite, "trusted_gpu_competitive")
         self.assertEqual(args.profile, "trusted_gpu_competitive")
+
+    def test_benchmark_scope_uses_result_owned_pair_state_and_restores(self) -> None:
+        original_state = lg_launch.STATE_DIR
+        original_root = lg_benchmark.BENCHMARK_STATE_ROOT
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source"
+            build = root / "build"
+            results = root / "results"
+            with compare._benchmark_scope(source, build, results):
+                self.assertEqual(
+                    lg_benchmark.BENCHMARK_STATE_ROOT,
+                    results / "_launcher",
+                )
+                with lg_benchmark.benchmark_launcher_scope(
+                    *compare.GPU_PORTS["baseline"]
+                ) as state:
+                    self.assertEqual(
+                        state, results / "_launcher" / "29060-29061"
+                    )
+                    self.assertEqual(lg_launch.STATE_DIR, state)
+                self.assertEqual(lg_launch.STATE_DIR, results / "_launcher")
+        self.assertEqual(lg_launch.STATE_DIR, original_state)
+        self.assertEqual(lg_benchmark.BENCHMARK_STATE_ROOT, original_root)
 
     def aggregate(
         self,

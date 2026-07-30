@@ -4,6 +4,12 @@ LG Duel benchmarks are repeatable, opt-in developer artifacts for finding render
 
 Descriptors live in `config/benchmarks/`. Results, screenshots, and comparison baselines belong under `build/benchmarks/<scenario>/<run_group>/<run_id>/` and are ignored by Git. Do not commit a result as a universal performance claim: drivers, power policy, compositor state, and selected backend all matter.
 
+All benchmark scenarios default to `s_volume 0`. The Python runner and native
+scenario parser apply and record that default, so sound mixing does not add
+noise to CPU results. A descriptor may set another value when audio cost is the
+subject of the benchmark; the scenario hash and saved cvar contract then record
+that override.
+
 ## Graphics profile baseline
 
 Benchmarks default to the named `Default` graphics profile at `render_scale: 1.0`
@@ -61,7 +67,7 @@ Each result must label every metric with its scope.
 | Simulation-tick subsystems | One sample per client fixed prediction tick for inclusive tick simulation plus its nested network, movement/collision, and trace spans. A render frame may contain zero or multiple tick samples. |
 | Derived | Mean, p50, p95, p99, maximum, FPS conversion, run-to-run deltas, and regression verdicts calculated from direct samples. |
 | Backend-specific CPU timing | Renderer diagnostics such as scene build, dynamic upload preparation, swapchain acquire, draw issue, submit, total render, and diagnostics counts. These remain CPU-side observations and retain backend/present-mode labels. |
-| GPU execution timing | A GPU timestamp interval covering measured commands in LG Duel's primary per-frame SDL GPU command buffer, from the first measured GPU command through the final measured GPU command. |
+| GPU execution timing | A total GPU timestamp interval plus named stage intervals for shadow, main scene, view model, bloom, scene composite, outline mask, outline dilation, outline composite, and UI overlay. |
 | Unavailable | GPU allocation cost, GPU memory use, general GPU use, and presentation latency. CPU submit/acquire timing is not a substitute for GPU execution time. |
 
 The main GPU interval excludes CPU scene build and command encoding, swapchain
@@ -73,6 +79,11 @@ The outline interval covers the compatibility clear and depth work when that
 work runs, then the outline mask, dilation, and composite work. It excludes all
 other GPU work. Each frame states whether the outline interval applies. A
 missing value stays empty; it never becomes zero.
+
+Named stage intervals time the GPU commands for that stage. Some stages do not
+run on every profile or frame. The outline total contains its three nested
+stages, while uploads and gaps remain only in the primary interval, so stage
+values must not be added and treated as the primary total.
 
 GPU timestamps arrive several frames after submission. The renderer tags each
 measured command buffer with its exact benchmark frame id. The benchmark polls
@@ -101,8 +112,10 @@ Version 1 uses nearest rank: sort samples ascending and select the one-based ran
 exposes median, p95, and p99 for every subsystem under
 `subsystem_timings.render_frame` and `subsystem_timings.simulation_tick`.
 GPU values use the same nearest-rank rule under `gpu_execution_timings`.
-`telemetry.csv` stores `gpu_primary_command_buffer_ms`, `outline_gpu_ms`, and
-`outline_gpu_state`; unavailable numbers use empty cells.
+`telemetry.csv` keeps `gpu_primary_command_buffer_ms`, `outline_gpu_ms`, and
+`outline_gpu_state`, then adds one value and state pair for every named GPU
+stage. It also records result receipt, readback delay, and a per-frame failure
+reason. Unavailable numbers use empty cells.
 All spans use `steady_clock`; the extra clock reads are enabled only during the
 measured benchmark stage. Renderer spans are CPU command construction and API
 submission time, never GPU execution time.
@@ -115,9 +128,10 @@ polluting the measured tail.
 Native runs may also write `frame-timeline.json` (schema version `1`). This is
 the stable per-frame artifact: each frame has a `frame_index`, elapsed time,
 total CPU time, optional total GPU time, named CPU/GPU values, workload
-counters, and an `event_markers` array. GPU values are `null` or absent when the
-backend cannot provide execution timing; CPU submit or swapchain time must not
-be relabelled as GPU time. Fixed simulation ticks are kept as event markers
+counters, GPU stage states, readback data, and an `event_markers` array. GPU
+values are `null` when the backend or one query cannot provide execution
+timing; CPU submit or swapchain time must not be relabelled as GPU time. Fixed
+simulation ticks are kept as event markers
 (with their tick index and name when available), so one render frame can show
 zero, one, or several tick events.
 
@@ -179,6 +193,10 @@ cases add to the retained controls:
 - `eyetoeye-readability-pan-competitive`: same path and actor contract for Competitive.
 - `eyetoeye-static-baseline`: low-action cached-world control.
 - `eyetoeye-duel-like`: normal two-participant Lightning-Gun bot duel request.
+- `eyetoeye-match-load`: two-player live combat with local Lightning Gun fire,
+  one moving and dodging Rocket Launcher bot, full combat effects, and a fixed
+  camera. Use repeated runs and inspect its recorded workload counts; it is
+  developer data, not a pass/fail gate.
 - `eyetoeye-bot-animation`: six-player bot movement/animation request using Machine Gun bot models plus `bot_add`, `bot_weapon`, `bot_dodge`, `bot_stare`, and `bot_standstill`; it is a retained comparison workload, not the 16-player capacity ceiling.
 - `machine-gun-visual-slice`: supported bounded authoritative effect load. One local and one remote Machine Gun may fire; pools and cvars cap the presentation load. It remains a live-combat workload, so repeated artifacts matter.
 - `eyetoeye-projectile-effects`: a clearly labelled presentation-only fixture. Current bots select only the Lightning Gun and the native runner does not inject synthetic rockets, grenades, plasma, or explosions, so it is deliberately invalid at execution (`supported_workload: false`) rather than silently measuring a different workload. Use the headless `trace-projectile` workload for current quantitative projectile-query evidence.
@@ -209,10 +227,28 @@ flag. The PowerShell wrapper owns the supported CLI contract:
 ```powershell
 .\scripts\lg-benchmark.ps1 list
 .\scripts\lg-benchmark.ps1 run --scenario eyetoeye-static-baseline --repetitions 5 --json
+.\scripts\lg-benchmark.ps1 run --scenario eyetoeye-match-load --graphics-profile Low --repetitions 5 --json
 .\scripts\lg-benchmark.ps1 baseline-create --scenario eyetoeye-static-baseline --name gpu-driver-current --repetitions 5
 .\scripts\lg-benchmark.ps1 compare --baseline gpu-driver-current --result build/benchmarks/eyetoeye-static-baseline/<run-group> --threshold-percent 5 --tail-threshold-percent 8
 .\scripts\lg-benchmark.ps1 report --result build/benchmarks/eyetoeye-static-baseline/<run-group> --detailed
 ```
+
+Rendered benchmarks use their own local session. The defaults are UDP server
+port `28960`, TCP control port `28961`, and launcher state at
+`build/benchmark-control/28960-28961`. Normal visual control stays on
+`27960/27961` with `build/dev-control`. Set another pair with
+`--server-port` and `--control-port`; the runner derives a state folder from
+both values. The old `--port` option is an alias for `--control-port`. If both
+are set, they must match.
+
+The runner checks both ports without sending data to them. It rejects a busy
+port, equal ports, bad port values, and an existing or broken state file. An
+atomic claim in the pair's state folder blocks two benchmark runners from
+sharing that pair. An owned run stops only the client and server in its
+benchmark state before it returns, including error paths. Failed cleanup marks
+the saved aggregate invalid. An attached test run never claims or stops the
+external session. Results record both ports and the derived state folder under
+`environment` and in each native run's `run_conditions`.
 
 Use `--build-mode debug` on `run`, `sim-run`, or `baseline-create` only when a
 Debug measurement is intentional. Debug mode selects `build/default`; Release
@@ -352,7 +388,15 @@ ceiling.
 
 `movement-collision` drives the real shared 125 Hz `simulateMovement` path from fixed spawn states and commands. `trace-projectile` separately measures long `traceWorld` rays and short projectile-style swept segments. Both hash all returned state, repeat the identical workload, and invalidate a result if replay checksums differ. `--force-linear` disables the derived collision index for a paired same-binary broadphase comparison; it is a diagnostic implementation selector and is recorded in native JSON.
 
-Use `--port`, `--timeout`, or `--json` when the wrapper needs those global options. The exact executable/build directory is preset dependent; use wrapper help rather than assuming a packaged game contains it. MCP exposes the same opt-in work as thin adapter tools: `lg_list_benchmarks`, `lg_run_benchmark`, `lg_compare_benchmarks`, `lg_get_benchmark_result`, and `lg_create_benchmark_baseline`. It returns structured results and requested PNGs, not a hand-written summary.
+Use `--server-port`, `--control-port`, `--timeout`, or `--json` when the
+wrapper needs those global options. `--port` remains a control-port alias. The
+exact executable/build directory is preset dependent; use wrapper help rather
+than assuming a packaged game contains it. MCP exposes the same opt-in work as
+thin adapter tools: `lg_list_benchmarks`, `lg_run_benchmark`,
+`lg_compare_benchmarks`, `lg_get_benchmark_result`, and
+`lg_create_benchmark_baseline`. The two run tools expose the same typed port
+pair and alias rule. They return structured results and requested PNGs, not a
+hand-written summary.
 
 A run warms selected map, renderer resources, and fixed scenario state; then resets scenario time/state for every repetition and collects only the declared measured interval. Screenshots, PNG encoding, filesystem writes, process start-up, map loading, baseline reading, and comparison output are outside timing samples. Results retain raw samples and a per-run summary so a future percentile implementation can be audited.
 
@@ -388,7 +432,13 @@ Static-world improvements should show in the GPU-required static baseline; dynam
 
 ## Troubleshooting
 
-- **Benchmark control unavailable:** build the client, stop any ordinary development-control client on the chosen port, and let the wrapper relaunch it with `--benchmark`.
+- **Benchmark control unavailable:** build the client, check the chosen
+  `28960/28961` pair or your explicit pair, and remove no state by hand while
+  an owned process still runs. The normal `27960/27961` visual session does not
+  need to stop.
+- **Benchmark state already in use or corrupt:** inspect the pair-specific
+  `build/benchmark-control/<server>-<control>/` logs and process record. The
+  runner fails closed and does not stop or overwrite that session.
 - **GPU requirement failed:** record the fallback/error and fix the selected SDL_GPU backend/driver before comparing results.
 - **Vulkan loader has no valid default ICD:** repair the driver install so `vulkaninfo --summary` can find the Intel ICD through the loader's normal driver search. Benchmark child processes remove `VK_DRIVER_FILES` and `VK_ICD_FILENAMES`.
 - **Map or textures differ:** rerun from the same repository/build output and inspect map content hash and screenshot. Imported-map texture coverage can differ from compact `eyetoeye`.

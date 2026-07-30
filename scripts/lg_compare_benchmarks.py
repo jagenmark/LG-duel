@@ -36,6 +36,10 @@ SUITES = ("pr_headless", *GPU_SUITES)
 PROFILES = ("pr_headless", *GPU_SUITES)
 SUCCESS_STATUSES = {"PASS", "WARN", "INCONCLUSIVE", "UNAVAILABLE"}
 REF_PATTERN = re.compile(r"^[A-Za-z0-9_./~^@+-]{1,240}$")
+GPU_PORTS = {
+    "baseline": (29060, 29061),
+    "candidate": (29160, 29161),
+}
 
 
 class CompareError(RuntimeError):
@@ -499,6 +503,7 @@ def _benchmark_scope(source: Path, build: Path, results: Path) -> Iterator[None]
         "SCENARIO_ROOT": source / "config" / "benchmarks",
         "RESULT_ROOT": results,
         "BASELINE_ROOT": results / "baselines",
+        "BENCHMARK_STATE_ROOT": results / "_launcher",
         "BUILD_MODES": {
             "release": {"directory": build, "preset": "comparison-release"},
             "debug": {"directory": build, "preset": "comparison-release"},
@@ -562,55 +567,52 @@ def _run_gpu(
             except OSError:
                 shutil.copy2(native, launcher_name)
     with _benchmark_scope(source, build, results):
+        server_port, control_port = GPU_PORTS[side]
         for scenario in scenarios:
             manifest["stage"] = f"{side}-run-{scenario}"
             _write_manifest(output, manifest)
-            cleanup_failures = 0
             result: dict[str, Any] | None = None
-            run_error: BaseException | None = None
             try:
                 result = lg_benchmark.run_benchmark(
                     scenario,
                     repetitions=repetitions,
+                    server_port=server_port,
+                    control_port=control_port,
                     timeout=RUN_TIMEOUT,
                     start_client=True,
                     build_mode="release",
                 )
             except BaseException as error:
-                run_error = error
-            finally:
-                try:
-                    cleanup = lg_launch.stop_owned()
-                    if (
-                        cleanup.get("left_owned_running") is True
-                        or cleanup.get("left_unowned_running") is True
-                    ):
-                        cleanup_failures = 1
-                except Exception:
-                    cleanup_failures = 1
-            if run_error is not None:
                 manifest["commands"].append(
                     {
                         "name": f"{side}-benchmark-{scenario}",
-                        "argv": ["lg_benchmark.run_benchmark", scenario],
+                        "argv": [
+                            "lg_benchmark.run_benchmark", scenario,
+                            "--server-port", str(server_port),
+                            "--control-port", str(control_port),
+                        ],
                         "cwd": _portable_arg(str(source), output),
                         "return_code": None,
-                        "error": f"{type(run_error).__name__}: {run_error}",
+                        "error": f"{type(error).__name__}: {error}",
                     }
                 )
                 _write_manifest(output, manifest)
-                raise run_error
+                raise
             if result is None:
                 raise CompareError(f"{side} benchmark returned no result")
             manifest["commands"].append(
                 {
                     "name": f"{side}-benchmark-{scenario}",
-                    "argv": ["lg_benchmark.run_benchmark", scenario],
+                    "argv": [
+                        "lg_benchmark.run_benchmark", scenario,
+                        "--server-port", str(server_port),
+                        "--control-port", str(control_port),
+                    ],
                     "cwd": _portable_arg(str(source), output),
                     "return_code": 0,
                 }
             )
-            evidence = {**protocol, "cleanup_failures": cleanup_failures}
+            evidence = {**protocol, "cleanup_failures": 0}
             _rewrite_aggregate(result, evidence)
             manifest["runs"].append(
                 {
@@ -624,8 +626,6 @@ def _run_gpu(
                 }
             )
             _write_manifest(output, manifest)
-            if cleanup_failures:
-                raise CompareError(f"{side} benchmark launcher cleanup failed")
 
 
 def _load_bounded_results(

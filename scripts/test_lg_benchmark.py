@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import copy
 import json
+import socket
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import lg_benchmark
+import lg_launch
 from lg_benchmark import BenchmarkError
 from lg_launch import LaunchError
 
@@ -77,6 +81,19 @@ class BenchmarkTests(unittest.TestCase):
         changed = copy.deepcopy(validated)
         changed["fov"] += 1
         self.assertNotEqual(lg_benchmark.scenario_hash(validated), lg_benchmark.scenario_hash(changed))
+
+    def test_benchmarks_default_to_muted_audio_and_keep_explicit_overrides(self) -> None:
+        scenario = self.scenario()
+        scenario["cvars"].pop("s_volume", None)
+        self.assertEqual(
+            lg_benchmark.validate_scenario(scenario)["cvars"]["s_volume"],
+            0,
+        )
+        scenario["cvars"]["s_volume"] = 0.5
+        self.assertEqual(
+            lg_benchmark.validate_scenario(scenario)["cvars"]["s_volume"],
+            0.5,
+        )
 
     def test_percentile_aggregate_outliers_and_stability(self) -> None:
         self.assertEqual(lg_benchmark.percentile([1, 2, 3, 4, 5], 95), 5)
@@ -252,20 +269,262 @@ class BenchmarkTests(unittest.TestCase):
     def test_benchmark_cli_defaults_to_release_with_debug_opt_in(self) -> None:
         parser = lg_benchmark.build_parser()
         release = parser.parse_args(["run", "--scenario", "eyetoeye-static-baseline"])
+        low = parser.parse_args([
+            "run", "--scenario", "eyetoeye-static-baseline",
+            "--graphics-profile", "Low",
+        ])
         debug = parser.parse_args([
             "sim-run", "--workload", "movement-collision", "--build-mode", "debug",
         ])
         self.assertEqual(release.build_mode, "release")
+        self.assertEqual(low.graphics_profile, "Low")
         self.assertEqual(debug.build_mode, "debug")
+        self.assertEqual(release.server_port, 28960)
+        self.assertIsNone(release.control_port)
+        self.assertIsNone(release.port)
         self.assertEqual(lg_benchmark.benchmark_build("release")[0], lg_benchmark.REPO_ROOT / "build" / "perf")
 
     def test_release_client_uses_perf_build_directory(self) -> None:
         with mock.patch.object(lg_benchmark, "ensure_client", return_value={}) as ensure:
-            lg_benchmark._start_client(27961, 10, "release")
+            lg_benchmark._start_client(28960, 28961, 10, "release")
         ensure.assert_called_once_with(
-            renderer="gpu", benchmark=True, control_port=27961, timeout=10,
+            renderer="gpu", benchmark=True, server_port=28960,
+            control_port=28961, timeout=10,
             build_dir=lg_benchmark.REPO_ROOT / "build" / "perf",
         )
+
+    def test_benchmark_port_defaults_alias_and_validation(self) -> None:
+        self.assertEqual(
+            lg_benchmark.resolve_benchmark_ports(), (28960, 28961)
+        )
+        self.assertEqual(
+            lg_benchmark.resolve_benchmark_ports(port=30061),
+            (28960, 30061),
+        )
+        self.assertEqual(
+            lg_benchmark.resolve_benchmark_ports(
+                server_port=30060, control_port=30061, port=30061
+            ),
+            (30060, 30061),
+        )
+        for kwargs in (
+            {"server_port": 0},
+            {"control_port": 65536},
+            {"server_port": 30060, "control_port": 30060},
+            {"control_port": 30061, "port": 30062},
+        ):
+            with self.subTest(kwargs=kwargs), self.assertRaises(BenchmarkError):
+                lg_benchmark.resolve_benchmark_ports(**kwargs)
+
+    def test_benchmark_state_directory_is_derived_from_both_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            lg_benchmark, "BENCHMARK_STATE_ROOT", Path(temporary)
+        ):
+            first = lg_benchmark.benchmark_state_directory(30060, 30061)
+            second = lg_benchmark.benchmark_state_directory(30160, 30161)
+        self.assertEqual(first.name, "30060-30061")
+        self.assertEqual(second.name, "30160-30161")
+        self.assertNotEqual(first, second)
+
+    def test_benchmark_launcher_scope_restores_globals_and_nests(self) -> None:
+        original = {
+            "STATE_DIR": lg_launch.STATE_DIR,
+            "STATE_PATH": lg_launch.STATE_PATH,
+            "LOCAL_VULKAN_CONFIGS": lg_launch.LOCAL_VULKAN_CONFIGS,
+            "BENCHMARK_ROOT": lg_launch.BENCHMARK_ROOT,
+        }
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            lg_benchmark, "BENCHMARK_STATE_ROOT", Path(temporary)
+        ):
+            with lg_benchmark.benchmark_launcher_scope(30060, 30061) as outer:
+                self.assertEqual(lg_launch.STATE_DIR, outer)
+                self.assertEqual(lg_launch.STATE_PATH, outer / "processes.json")
+                self.assertEqual(
+                    lg_launch.LOCAL_VULKAN_CONFIGS[0], outer / "vulkan.json"
+                )
+                with lg_benchmark.benchmark_launcher_scope(30160, 30161) as inner:
+                    self.assertEqual(lg_launch.STATE_DIR, inner)
+                self.assertEqual(lg_launch.STATE_DIR, outer)
+        for key, value in original.items():
+            self.assertEqual(getattr(lg_launch, key), value)
+
+    def test_owned_run_cleans_scoped_session_and_records_ports(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result_dir = root / "result"
+            result_dir.mkdir()
+            fake_result = {"result_directory": str(result_dir)}
+            cleanup = {
+                "stopped": ["client", "server"],
+                "left_owned_running": False,
+                "left_unowned_running": False,
+                "state_preserved": False,
+            }
+            with mock.patch.object(
+                lg_benchmark, "BENCHMARK_STATE_ROOT", root / "state"
+            ), mock.patch.object(
+                lg_benchmark, "_assert_benchmark_ports_available"
+            ), mock.patch.object(
+                lg_benchmark, "_start_client", return_value={"renderer": "SDL_GPU/vulkan"}
+            ) as start, mock.patch.object(
+                lg_benchmark, "_run_benchmark_with_session", return_value=fake_result
+            ) as body, mock.patch.object(
+                lg_launch, "stop_owned", return_value=cleanup
+            ) as stop:
+                result = lg_benchmark.run_benchmark(
+                    "test-scenario",
+                    server_port=30060,
+                    control_port=30061,
+                )
+        start.assert_called_once_with(30060, 30061, 180.0, "release")
+        self.assertEqual(body.call_args.kwargs["server_port"], 30060)
+        self.assertEqual(body.call_args.kwargs["control_port"], 30061)
+        self.assertEqual(
+            body.call_args.kwargs["state_dir"].name, "30060-30061"
+        )
+        stop.assert_called_once_with()
+        self.assertEqual(result["launcher_cleanup"], cleanup)
+
+    def test_owned_run_preserves_main_error_and_notes_cleanup_failure(self) -> None:
+        original = RuntimeError("benchmark body failed")
+        with tempfile.TemporaryDirectory() as temporary, mock.patch.object(
+            lg_benchmark, "BENCHMARK_STATE_ROOT", Path(temporary)
+        ), mock.patch.object(
+            lg_benchmark, "_assert_benchmark_ports_available"
+        ), mock.patch.object(
+            lg_benchmark, "_start_client", return_value={}
+        ), mock.patch.object(
+            lg_benchmark, "_run_benchmark_with_session", side_effect=original
+        ), mock.patch.object(
+            lg_launch, "stop_owned", side_effect=LaunchError("stop failed")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "benchmark body failed") as caught:
+                lg_benchmark.run_benchmark("test-scenario")
+        self.assertIs(caught.exception, original)
+        self.assertTrue(
+            any("cleanup also failed" in note for note in original.__notes__)
+        )
+
+    def test_session_claim_blocks_second_caller_and_releases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_dir = Path(temporary) / "28960-28961"
+            with lg_benchmark.claim_benchmark_session(state_dir):
+                with self.assertRaisesRegex(BenchmarkError, "already claimed"):
+                    with lg_benchmark.claim_benchmark_session(state_dir):
+                        self.fail("a second caller acquired the same session")
+            with lg_benchmark.claim_benchmark_session(state_dir):
+                self.assertTrue((state_dir / "benchmark-session.lock").exists())
+            self.assertTrue((state_dir / "benchmark-session.lock").exists())
+
+    def test_session_claim_releases_when_owner_process_exits(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            state_dir = Path(temporary) / "28960-28961"
+            code = (
+                "import os,sys\n"
+                "from pathlib import Path\n"
+                "import lg_benchmark\n"
+                "claim=lg_benchmark.claim_benchmark_session(Path(sys.argv[1]))\n"
+                "claim.__enter__()\n"
+                "os._exit(0)\n"
+            )
+            completed = subprocess.run(
+                [sys.executable, "-c", code, str(state_dir)],
+                cwd=Path(__file__).parent,
+                check=False,
+                timeout=10,
+            )
+            self.assertEqual(completed.returncode, 0)
+            with lg_benchmark.claim_benchmark_session(state_dir):
+                self.assertTrue((state_dir / "benchmark-session.lock").exists())
+
+    def test_cleanup_failure_marks_written_artifact_invalid(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            result_dir = root / "result"
+            result_dir.mkdir()
+            fake_result = {
+                "result_directory": str(result_dir),
+                "aggregate": {"valid": True, "stable": True},
+            }
+            cleanup = {
+                "stopped": [],
+                "left_owned_running": True,
+                "left_unowned_running": False,
+                "state_preserved": True,
+            }
+            with mock.patch.object(
+                lg_benchmark, "BENCHMARK_STATE_ROOT", root / "state"
+            ), mock.patch.object(
+                lg_benchmark, "_assert_benchmark_ports_available"
+            ), mock.patch.object(
+                lg_benchmark, "_start_client", return_value={}
+            ), mock.patch.object(
+                lg_benchmark, "_run_benchmark_with_session",
+                return_value=fake_result,
+            ), mock.patch.object(
+                lg_launch, "stop_owned", return_value=cleanup
+            ), mock.patch.object(
+                lg_benchmark, "render_report", return_value="invalid\n"
+            ):
+                with self.assertRaisesRegex(
+                    BenchmarkError, "cleanup was incomplete"
+                ):
+                    lg_benchmark.run_benchmark("test-scenario")
+            saved = json.loads(
+                (result_dir / "aggregate.json").read_text(encoding="utf-8")
+            )
+            self.assertFalse(saved["aggregate"]["valid"])
+            self.assertFalse(saved["aggregate"]["stable"])
+            self.assertEqual(saved["launcher_cleanup"], cleanup)
+            self.assertIn("cleanup was incomplete", saved["launcher_cleanup_error"])
+
+    def test_external_run_never_scopes_or_cleans_launcher(self) -> None:
+        expected = {"result_directory": "external"}
+        with mock.patch.object(
+            lg_benchmark, "_run_benchmark_with_session", return_value=expected
+        ) as body, mock.patch.object(lg_launch, "stop_owned") as stop:
+            result = lg_benchmark.run_benchmark(
+                "test-scenario",
+                server_port=30060,
+                control_port=30061,
+                start_client=False,
+            )
+        self.assertIs(result, expected)
+        self.assertEqual(body.call_args.kwargs["status"], {})
+        self.assertFalse(body.call_args.kwargs["start_client"])
+        stop.assert_not_called()
+
+    def test_busy_or_corrupt_benchmark_state_fails_before_start(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / "28960-28961"
+            state.mkdir()
+            state_path = state / "processes.json"
+            state_path.write_text('{"phase":"ready"}', encoding="utf-8")
+            with mock.patch.object(
+                lg_benchmark, "BENCHMARK_STATE_ROOT", root
+            ), mock.patch.object(lg_benchmark, "_start_client") as start:
+                with self.assertRaisesRegex(BenchmarkError, "already in use"):
+                    lg_benchmark.run_benchmark("test-scenario")
+            start.assert_not_called()
+            state_path.write_text("{broken", encoding="utf-8")
+            with mock.patch.object(
+                lg_benchmark, "BENCHMARK_STATE_ROOT", root
+            ), mock.patch.object(lg_benchmark, "_start_client") as start:
+                with self.assertRaisesRegex(BenchmarkError, "corrupt"):
+                    lg_benchmark.run_benchmark("test-scenario")
+            start.assert_not_called()
+
+    def test_busy_control_port_fails_without_connecting(self) -> None:
+        busy = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        busy.bind(("127.0.0.1", 0))
+        port = busy.getsockname()[1]
+        busy.listen(1)
+        try:
+            with self.assertRaisesRegex(BenchmarkError, "busy or unavailable"):
+                lg_benchmark._assert_benchmark_ports_available(28960, port)
+        finally:
+            busy.close()
 
     def test_result_schema_generation_and_request_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -295,12 +554,25 @@ class BenchmarkTests(unittest.TestCase):
             self.assertTrue((Path(result["result_directory"]) / "aggregate.json").is_file())
             self.assertEqual(len(calls), 2)
             self.assertEqual(calls[0][0], "run_benchmark")
-            self.assertEqual(calls[0][1]["scenario"], value)
+            self.assertEqual(calls[0][1]["port"], 28961)
+            self.assertEqual(
+                calls[0][1]["scenario"],
+                lg_benchmark.validate_scenario(value),
+            )
+            self.assertEqual(calls[0][1]["scenario"]["cvars"]["s_volume"], 0)
             self.assertRegex(calls[0][1]["scenario_hash"], r"^[0-9a-f]{64}$")
             self.assertIn("run_group", calls[0][1])
             self.assertIn("graphics_contract", result["settings"])
+            self.assertEqual(result["settings"]["presentation_cvars"]["s_volume"], 0)
             self.assertEqual(result["settings"]["graphics_contract"]["profile"], "Default")
             self.assertEqual(result["settings"]["graphics_contract"]["render_scale"], "1.000000")
+            self.assertEqual(result["environment"]["benchmark_server_port"], 28960)
+            self.assertEqual(result["environment"]["benchmark_control_port"], 28961)
+            self.assertTrue(
+                result["environment"]["benchmark_state_directory"].endswith(
+                    "28960-28961"
+                )
+            )
 
     def test_optional_render_pass_diagnostics_are_preserved(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -330,7 +602,7 @@ class BenchmarkTests(unittest.TestCase):
             lg_benchmark, "ensure_client", side_effect=LaunchError("startup timed out while waiting for Vulkan")
         ):
             with self.assertRaisesRegex(BenchmarkError, "startup timed out"):
-                lg_benchmark._start_client(27961, 1)
+                lg_benchmark._start_client(28960, 28961, 1)
 
 
 if __name__ == "__main__":

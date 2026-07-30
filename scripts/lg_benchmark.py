@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import csv
 import datetime as dt
 import hashlib
@@ -13,13 +14,18 @@ import os
 import platform
 import re
 import shutil
+import socket
 import statistics
 import subprocess
 import sys
+import threading
+import webbrowser
 from pathlib import Path
-from typing import Any, Callable, Iterable
+from typing import Any, Callable, Iterable, Iterator
 
 from lg_control import ControlError, send_request
+import lg_frame_timeline_report
+import lg_launch
 from lg_launch import LaunchError, ensure_client
 
 
@@ -27,10 +33,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SCENARIO_ROOT = REPO_ROOT / "config" / "benchmarks"
 RESULT_ROOT = REPO_ROOT / "build" / "benchmarks"
 BASELINE_ROOT = RESULT_ROOT / "baselines"
+BENCHMARK_STATE_ROOT = REPO_ROOT / "build" / "benchmark-control"
 RESULT_SCHEMA_VERSION = 1
-DEFAULT_PORT = 27961
+DEFAULT_SERVER_PORT = 28960
+DEFAULT_CONTROL_PORT = 28961
+# Kept as the old public name for callers which used it as a control port.
+DEFAULT_PORT = DEFAULT_CONTROL_PORT
 DEFAULT_TIMEOUT = 180.0
 DEFAULT_STABLE_CV_PERCENT = 3.0
+FRAME_TIMELINE_REPORT_DIR = "frame-timeline-report"
 SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,79}$")
 NATIVE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 BUILD_MODES = {
@@ -44,6 +55,7 @@ SDL_CONFIGURATION_OPTIONS = {
     "LG_DUEL_SDL3_SOURCE_DIR",
     "LG_DUEL_USE_PATCHED_SDL3",
 }
+_BENCHMARK_SCOPE_LOCK = threading.RLock()
 
 GRAPHICS_CONTRACT_CVARS = {
     "r_antialiasing": "anti_aliasing",
@@ -59,6 +71,139 @@ GRAPHICS_CONTRACT_CVARS = {
 
 class BenchmarkError(RuntimeError):
     """An actionable benchmark input, execution, or artifact error."""
+
+
+def _valid_port(value: Any, label: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 65535:
+        raise BenchmarkError(f"{label} must be an integer from 1 through 65535")
+    return value
+
+
+def resolve_benchmark_ports(
+    *,
+    server_port: int = DEFAULT_SERVER_PORT,
+    control_port: int | None = None,
+    port: int | None = None,
+) -> tuple[int, int]:
+    """Resolve the old control-port alias and reject unsafe port pairs."""
+    server_port = _valid_port(server_port, "server port")
+    if control_port is not None and port is not None and control_port != port:
+        raise BenchmarkError(
+            "control_port and the legacy port alias must match when both are set"
+        )
+    selected_control = (
+        control_port
+        if control_port is not None
+        else port if port is not None else DEFAULT_CONTROL_PORT
+    )
+    selected_control = _valid_port(selected_control, "control port")
+    if server_port == selected_control:
+        raise BenchmarkError("server port and control port must differ")
+    return server_port, selected_control
+
+
+def benchmark_state_directory(server_port: int, control_port: int) -> Path:
+    server_port, control_port = resolve_benchmark_ports(
+        server_port=server_port, control_port=control_port
+    )
+    return BENCHMARK_STATE_ROOT / f"{server_port}-{control_port}"
+
+
+@contextlib.contextmanager
+def claim_benchmark_session(state_dir: Path) -> Iterator[None]:
+    """Claim one benchmark port-pair state root across local processes."""
+    state_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = state_dir / "benchmark-session.lock"
+    lock_file = lock_path.open("a+b")
+    locked = False
+    try:
+        if lock_file.seek(0, os.SEEK_END) == 0:
+            lock_file.write(b"\0")
+            lock_file.flush()
+        locked = lg_launch._try_file_lock(lock_file)
+        if not locked:
+            raise BenchmarkError(
+                f"benchmark session is already claimed at {lock_path}; "
+                "no process was changed"
+            )
+        yield
+    finally:
+        if locked:
+            try:
+                lg_launch._unlock_file(lock_file)
+            except OSError:
+                pass
+        lock_file.close()
+
+
+@contextlib.contextmanager
+def benchmark_launcher_scope(
+    server_port: int, control_port: int
+) -> Iterator[Path]:
+    """Point launcher state at one derived benchmark port-pair directory."""
+    state_dir = benchmark_state_directory(server_port, control_port)
+    keys = ("STATE_DIR", "STATE_PATH", "LOCAL_VULKAN_CONFIGS", "BENCHMARK_ROOT")
+    with _BENCHMARK_SCOPE_LOCK:
+        previous = {key: getattr(lg_launch, key) for key in keys}
+        local_configs = [state_dir / "vulkan.json"]
+        local_configs.extend(Path(path) for path in previous["LOCAL_VULKAN_CONFIGS"])
+        deduped_configs = tuple(dict.fromkeys(local_configs))
+        try:
+            lg_launch.STATE_DIR = state_dir
+            lg_launch.STATE_PATH = state_dir / "processes.json"
+            lg_launch.LOCAL_VULKAN_CONFIGS = deduped_configs
+            lg_launch.BENCHMARK_ROOT = RESULT_ROOT
+            yield state_dir
+        finally:
+            for key, value in previous.items():
+                setattr(lg_launch, key, value)
+
+
+def _assert_benchmark_state_available(state_dir: Path) -> None:
+    state_path = state_dir / "processes.json"
+    if not state_path.exists():
+        return
+    try:
+        document = json.loads(state_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise BenchmarkError(
+            f"benchmark state is corrupt at {state_path}; no process was changed"
+        ) from error
+    if not isinstance(document, dict):
+        raise BenchmarkError(
+            f"benchmark state is corrupt at {state_path}; no process was changed"
+        )
+    raise BenchmarkError(
+        f"benchmark state is already in use at {state_path}; "
+        "finish or recover that port pair before starting another run"
+    )
+
+
+def _bind_probe(port: int, socket_type: int, label: str) -> socket.socket:
+    probe = socket.socket(socket.AF_INET, socket_type)
+    try:
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        probe.bind(("127.0.0.1", port))
+        return probe
+    except OSError as error:
+        probe.close()
+        raise BenchmarkError(
+            f"benchmark {label} port 127.0.0.1:{port} is busy or unavailable; "
+            "no connection was sent to the existing endpoint"
+        ) from error
+
+
+def _assert_benchmark_ports_available(
+    server_port: int, control_port: int
+) -> None:
+    probes: list[socket.socket] = []
+    try:
+        probes.append(_bind_probe(server_port, socket.SOCK_DGRAM, "server"))
+        probes.append(_bind_probe(control_port, socket.SOCK_STREAM, "control"))
+    finally:
+        for probe in probes:
+            probe.close()
 
 
 def benchmark_build(build_mode: str) -> tuple[Path, str]:
@@ -286,9 +431,11 @@ def validate_scenario(document: Any, *, source: Path | None = None) -> dict[str,
     if "residual_nondeterminism" in obj and (not isinstance(obj["residual_nondeterminism"], list) or not all(isinstance(x, str) for x in obj["residual_nondeterminism"])):
         raise BenchmarkError("scenario.residual_nondeterminism must be a string array")
 
-    # Preserve the catalog descriptor exactly: the same object is hashed, sent to
-    # the native parser, and embedded in artifacts, avoiding cross-language drift.
-    return json.loads(json.dumps(obj, ensure_ascii=False, allow_nan=False))
+    # Normalize benchmark-wide defaults before hashing, sending, and embedding
+    # the descriptor so every artifact records the exact applied contract.
+    normalized = json.loads(json.dumps(obj, ensure_ascii=False, allow_nan=False))
+    normalized["cvars"].setdefault("s_volume", 0)
+    return normalized
 
 
 def canonical_json(value: Any) -> bytes:
@@ -633,11 +780,19 @@ def build_run_request(scenario: dict[str, Any], digest: str, run_id: str, run_gr
     return {"scenario": scenario, "scenario_hash": digest, "run_id": run_id, "run_group": run_group}
 
 
-def _start_client(port: int, timeout: float, build_mode: str = "release") -> dict[str, Any]:
+def _start_client(
+    server_port: int,
+    control_port: int,
+    timeout: float,
+    build_mode: str = "release",
+) -> dict[str, Any]:
     build_dir, preset = benchmark_build(build_mode)
     try:
         return ensure_client(
-            renderer="gpu", benchmark=True, control_port=port,
+            renderer="gpu",
+            benchmark=True,
+            server_port=server_port,
+            control_port=control_port,
             timeout=min(timeout, 30.0), build_dir=build_dir,
         )
     except LaunchError as error:
@@ -808,16 +963,82 @@ def render_report(result: dict[str, Any]) -> str:
         lines.append(f"| {name} | {stats.get('median', 0):.4g} | {stats.get('p95', 0):.4g} | {stats.get('p99', 0):.4g} | {stats.get('max', 0):.4g} | {stats.get('cv_percent', 0):.2f}% |")
     if aggregate.get("outlier_runs"):
         lines += ["", f"Tukey outlier run(s), retained in all statistics: {aggregate['outlier_runs']}."]
+    timeline_reports = result.get("frame_timeline_reports", [])
+    available_reports = [
+        entry for entry in timeline_reports
+        if isinstance(entry, dict) and entry.get("status") == "available"
+    ]
+    if available_reports:
+        lines += ["", "## Frame timeline reports", ""]
+        for entry in available_reports:
+            lines.append(f"- {entry['run_id']}: `{entry['html_path']}`")
     return "\n".join(lines) + "\n"
 
 
-def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
-                  timeout: float = DEFAULT_TIMEOUT, request_sender: Callable[..., dict[str, Any]] = send_request,
-                  start_client: bool = True, build_mode: str = "release") -> dict[str, Any]:
+def _frame_timeline_report_path(result_dir: Path, run_id: str) -> Path:
+    validate_native_name(run_id, "run id")
+    return result_dir / FRAME_TIMELINE_REPORT_DIR / run_id
+
+
+def _write_frame_timeline_report(result_dir: Path, run_id: str) -> dict[str, Any]:
+    """Create a report from one completed native run without changing its raw data."""
+    run_dir = result_dir / run_id
+    output = _frame_timeline_report_path(result_dir, run_id)
+    try:
+        artifact = lg_frame_timeline_report.write_report(run_dir, output)
+    except (lg_frame_timeline_report.ReportError, OSError) as error:
+        return {
+            "run_id": run_id,
+            "status": "unavailable",
+            "reason": str(error),
+        }
+    summary = artifact["analysis"]["summary"]
+    return {
+        "run_id": run_id,
+        "status": "available",
+        "html_path": str(output / "frame-timeline.html"),
+        "svg_path": str(output / "frame-timeline.svg"),
+        "analysis_path": str(output / "timeline-analysis.json"),
+        "gpu_execution_timing_available": bool(
+            artifact["source"].get("gpu_execution_timing_available")
+        ),
+        "gpu_sample_count": int(summary["gpu_sample_count"]),
+    }
+
+
+def _write_frame_timeline_reports(result_dir: Path, runs: Iterable[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [
+        _write_frame_timeline_report(result_dir, str(run["run_id"]))
+        for run in runs
+        if isinstance(run.get("run_id"), str)
+    ]
+
+
+def _run_benchmark_with_session(
+    scenario_name: str,
+    *,
+    repetitions: int,
+    server_port: int,
+    control_port: int,
+    timeout: float,
+    request_sender: Callable[..., dict[str, Any]],
+    start_client: bool,
+    build_mode: str,
+    graphics_profile: str | None,
+    status: dict[str, Any],
+    state_dir: Path,
+) -> dict[str, Any]:
     repetitions = _positive_int(repetitions, "repetitions")
     build_dir, _ = benchmark_build(build_mode)
     scenario, scenario_path, digest = load_scenario(scenario_name)
-    status = _start_client(port, timeout, build_mode) if start_client else {}
+    if graphics_profile is not None:
+        if graphics_profile not in {"Low", "Default", "Competitive", "High"}:
+            raise BenchmarkError(
+                "graphics profile must be Low, Default, Competitive, or High"
+            )
+        scenario = dict(scenario)
+        scenario["graphics_profile"] = graphics_profile
+        digest = scenario_hash(scenario)
     requested_backend = scenario["backend_requirement"].lower()
     actual_renderer = str(status.get("renderer", ""))
     if requested_backend == "gpu" and status and (
@@ -845,6 +1066,9 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     environment["server_tick_rate"] = source_fixed_tick_rate(REPO_ROOT)
     environment["build_mode"] = build_mode
     environment["build_directory"] = str(build_dir)
+    environment["benchmark_server_port"] = server_port
+    environment["benchmark_control_port"] = control_port
+    environment["benchmark_state_directory"] = str(state_dir)
     client_executable = build_dir / "lg_duel_client.exe"
     if client_executable.is_file():
         environment["executable"] = str(client_executable)
@@ -854,7 +1078,7 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
         "environment": environment,
         "scenario_hash": digest,
         "scenario_path": str(scenario_path),
-        "launch_mode": "attached" if not start_client else "owned-or-attached",
+        "launch_mode": "external" if not start_client else "owned",
     }
     runs: list[dict[str, Any]] = []
     graphics_contracts: list[dict[str, Any]] = []
@@ -864,7 +1088,9 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
         run_dir.mkdir()
         payload = build_run_request(scenario, digest, run_id, run_group)
         try:
-            response = request_sender("run_benchmark", port=port, timeout=timeout, **payload)
+            response = request_sender(
+                "run_benchmark", port=control_port, timeout=timeout, **payload
+            )
         except ControlError as error:
             raise BenchmarkError(f"{run_id} failed: {error}; partial artifacts remain at {result_dir}") from error
         normalized = _normalize_native_result(response, run_dir, run_id)
@@ -885,6 +1111,9 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
     observed_native = runs[0].get("native", {}) if runs else {}
     environment["observed_resolution"] = observed_native.get("actual_resolution")
     environment["selected_present_mode"] = observed_native.get("selected_present_mode")
+    environment["gpu_timing_instrumentation_version"] = observed_native.get(
+        "gpu_timing_instrumentation_version"
+    )
     map_content_hash = observed_native.get("map_content_hash")
     graphics_contract = graphics_contracts[0]
     if any(contract != graphics_contract for contract in graphics_contracts[1:]):
@@ -903,9 +1132,117 @@ def run_benchmark(scenario_name: str, *, repetitions: int = 3, port: int = DEFAU
             "graphics_contract": graphics_contract,
         }, "map_content_hash": map_content_hash, "runs": runs, "aggregate": aggregate,
     }
+    result["frame_timeline_reports"] = _write_frame_timeline_reports(
+        result_dir,
+        runs,
+    )
     _write_json(result_dir / "aggregate.json", result)
     (result_dir / "report.md").write_text(render_report(result), encoding="utf-8")
     return result
+
+
+def _cleanup_benchmark_session() -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        cleanup = lg_launch.stop_owned()
+    except Exception as error:
+        return None, f"{type(error).__name__}: {error}"
+    if (
+        cleanup.get("left_owned_running") is True
+        or cleanup.get("left_unowned_running") is True
+        or cleanup.get("state_preserved") is True
+    ):
+        return cleanup, f"launcher cleanup was incomplete: {cleanup}"
+    return cleanup, None
+
+
+def _mark_cleanup_failure(
+    result: dict[str, Any],
+    cleanup: dict[str, Any] | None,
+    cleanup_error: str,
+) -> None:
+    result["launcher_cleanup"] = cleanup
+    result["launcher_cleanup_error"] = cleanup_error
+    aggregate = result.get("aggregate")
+    if isinstance(aggregate, dict):
+        aggregate["valid"] = False
+        aggregate["stable"] = False
+    result_directory = result.get("result_directory")
+    if not isinstance(result_directory, str):
+        return
+    result_path = Path(result_directory) / "aggregate.json"
+    _write_json(result_path, result)
+    (Path(result_directory) / "report.md").write_text(
+        render_report(result), encoding="utf-8"
+    )
+
+
+def run_benchmark(
+    scenario_name: str,
+    *,
+    repetitions: int = 3,
+    server_port: int = DEFAULT_SERVER_PORT,
+    control_port: int | None = None,
+    port: int | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    request_sender: Callable[..., dict[str, Any]] = send_request,
+    start_client: bool = True,
+    build_mode: str = "release",
+    graphics_profile: str | None = None,
+) -> dict[str, Any]:
+    """Run a benchmark without sharing normal visual-control ownership state."""
+    server_port, control_port = resolve_benchmark_ports(
+        server_port=server_port, control_port=control_port, port=port
+    )
+    state_dir = benchmark_state_directory(server_port, control_port)
+    if not start_client:
+        return _run_benchmark_with_session(
+            scenario_name,
+            repetitions=repetitions,
+            server_port=server_port,
+            control_port=control_port,
+            timeout=timeout,
+            request_sender=request_sender,
+            start_client=False,
+            build_mode=build_mode,
+            graphics_profile=graphics_profile,
+            status={},
+            state_dir=state_dir,
+        )
+
+    with benchmark_launcher_scope(server_port, control_port) as state_dir:
+        with claim_benchmark_session(state_dir):
+            _assert_benchmark_state_available(state_dir)
+            _assert_benchmark_ports_available(server_port, control_port)
+            try:
+                status = _start_client(
+                    server_port, control_port, timeout, build_mode
+                )
+                result = _run_benchmark_with_session(
+                    scenario_name,
+                    repetitions=repetitions,
+                    server_port=server_port,
+                    control_port=control_port,
+                    timeout=timeout,
+                    request_sender=request_sender,
+                    start_client=True,
+                    build_mode=build_mode,
+                    graphics_profile=graphics_profile,
+                    status=status,
+                    state_dir=state_dir,
+                )
+            except BaseException as error:
+                _, cleanup_error = _cleanup_benchmark_session()
+                if cleanup_error:
+                    error.add_note(f"benchmark cleanup also failed: {cleanup_error}")
+                raise
+
+            cleanup, cleanup_error = _cleanup_benchmark_session()
+            if cleanup_error:
+                _mark_cleanup_failure(result, cleanup, cleanup_error)
+                raise BenchmarkError(cleanup_error)
+            result["launcher_cleanup"] = cleanup
+            _write_json(Path(result["result_directory"]) / "aggregate.json", result)
+            return result
 
 
 def run_simulation_benchmark(
@@ -1078,15 +1415,29 @@ def load_result(reference: str | Path, *, baseline: bool = False, detailed: bool
     return {key: value for key, value in result.items() if key not in {"runs"}}
 
 
-def create_baseline(scenario_name: str, name: str, *, repetitions: int = 3, port: int = DEFAULT_PORT,
-                    timeout: float = DEFAULT_TIMEOUT, result: dict[str, Any] | None = None,
-                    build_mode: str = "release") -> dict[str, Any]:
+def create_baseline(
+    scenario_name: str,
+    name: str,
+    *,
+    repetitions: int = 3,
+    server_port: int = DEFAULT_SERVER_PORT,
+    control_port: int | None = None,
+    port: int | None = None,
+    timeout: float = DEFAULT_TIMEOUT,
+    result: dict[str, Any] | None = None,
+    build_mode: str = "release",
+) -> dict[str, Any]:
     validate_safe_name(name, "baseline name")
     target = BASELINE_ROOT / name
     if target.exists():
         raise BenchmarkError(f"baseline '{name}' already exists")
     result = result or run_benchmark(
-        scenario_name, repetitions=repetitions, port=port, timeout=timeout,
+        scenario_name,
+        repetitions=repetitions,
+        server_port=server_port,
+        control_port=control_port,
+        port=port,
+        timeout=timeout,
         build_mode=build_mode,
     )
     target.mkdir(parents=True)
@@ -1213,7 +1564,18 @@ def human_output(value: dict[str, Any]) -> str:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--port", type=int, default=DEFAULT_PORT)
+    parser.add_argument(
+        "--server-port", type=int, default=DEFAULT_SERVER_PORT,
+        help=f"dedicated benchmark game-server UDP port (default: {DEFAULT_SERVER_PORT})",
+    )
+    parser.add_argument(
+        "--control-port", type=int,
+        help=f"dedicated benchmark control TCP port (default: {DEFAULT_CONTROL_PORT})",
+    )
+    parser.add_argument(
+        "--port", type=int,
+        help="legacy alias for --control-port; values must match if both are set",
+    )
     parser.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     parser.add_argument("--json", action="store_true")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -1221,6 +1583,10 @@ def build_parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run")
     run.add_argument("--scenario", required=True)
     run.add_argument("--repetitions", type=int, default=3)
+    run.add_argument(
+        "--graphics-profile",
+        choices=("Low", "Default", "Competitive", "High"),
+    )
     run.add_argument("--build-mode", choices=tuple(BUILD_MODES), default="release")
     sim_run = commands.add_parser("sim-run")
     sim_run.add_argument("--workload", required=True, choices=("movement-collision", "trace-projectile"))
@@ -1252,8 +1618,14 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         return list_scenarios(), 0
     if args.command == "run":
         result = run_benchmark(
-            args.scenario, repetitions=args.repetitions, port=args.port,
-            timeout=args.timeout, build_mode=args.build_mode,
+            args.scenario,
+            repetitions=args.repetitions,
+            server_port=args.server_port,
+            control_port=args.control_port,
+            port=args.port,
+            timeout=args.timeout,
+            build_mode=args.build_mode,
+            graphics_profile=args.graphics_profile,
         )
         return result, 0 if result["aggregate"]["valid"] else 3
     if args.command == "sim-run":
@@ -1266,8 +1638,14 @@ def execute(args: argparse.Namespace) -> tuple[dict[str, Any], int]:
         return result, 0 if result["aggregate"]["valid"] else 3
     if args.command == "baseline-create":
         return create_baseline(
-            args.scenario, args.name, repetitions=args.repetitions, port=args.port,
-            timeout=args.timeout, build_mode=args.build_mode,
+            args.scenario,
+            args.name,
+            repetitions=args.repetitions,
+            server_port=args.server_port,
+            control_port=args.control_port,
+            port=args.port,
+            timeout=args.timeout,
+            build_mode=args.build_mode,
         ), 0
     if args.command == "compare":
         result = compare_results(args.baseline, args.result, threshold_percent=args.threshold_percent,

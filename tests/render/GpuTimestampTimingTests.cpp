@@ -57,17 +57,28 @@ int main() {
       ring.slot(*slot).state == lg::GpuTimingSlotState::Recording,
     "begin should move a free slot to recording"
   );
+  if (slot.has_value()) {
+    for (std::size_t passIndex = 0;
+         passIndex < lg::kGpuTimedPassCount;
+         ++passIndex) {
+      failures += expect(
+        ring.markPassApplicable(
+          *slot,
+          static_cast<lg::GpuTimedPass>(passIndex)
+        ),
+        "each GPU stage should become applicable while recording"
+      );
+    }
+  }
   failures += expect(
     slot.has_value() && ring.markSubmitted(*slot, 10U) &&
       ring.slot(*slot).state == lg::GpuTimingSlotState::Submitted,
     "submission should retain the frame association"
   );
-  const std::array<std::uint64_t, lg::GpuTimingRing::kQueriesPerSlot> stamps = {
-    100U,
-    120U,
-    160U,
-    200U,
-  };
+  std::array<std::uint64_t, lg::GpuTimingRing::kQueriesPerSlot> stamps = {};
+  for (std::size_t index = 0; index < stamps.size(); ++index) {
+    stamps[index] = 100U + index * 10U;
+  }
   failures += expect(
     slot.has_value() &&
       ring.markAvailable(*slot, stamps, 64U, 1000.0, 13U) &&
@@ -80,12 +91,24 @@ int main() {
       result->benchmarkFrameIndex == 91U &&
       result->outlineApplicable &&
       result->gpuPrimaryCommandBufferMilliseconds.has_value() &&
-      near(*result->gpuPrimaryCommandBufferMilliseconds, 0.1) &&
+      near(*result->gpuPrimaryCommandBufferMilliseconds, 0.21) &&
       result->outlineGpuMilliseconds.has_value() &&
-      near(*result->outlineGpuMilliseconds, 0.04) &&
+      near(*result->outlineGpuMilliseconds, 0.01) &&
       result->readbackLatencyFrames == 3U,
     "delayed results should keep their original frame ID and latency"
   );
+  if (result.has_value()) {
+    for (std::size_t passIndex = 0;
+         passIndex < lg::kGpuTimedPassCount;
+         ++passIndex) {
+      failures += expect(
+        result->passApplicable[passIndex] &&
+          result->passMilliseconds[passIndex].has_value() &&
+          near(*result->passMilliseconds[passIndex], 0.01),
+        "readback should retain each applicable GPU stage"
+      );
+    }
+  }
   failures += expect(
     slot.has_value() &&
       ring.slot(*slot).state == lg::GpuTimingSlotState::Consumed &&
@@ -116,6 +139,34 @@ int main() {
   failures += expect(
     !ring.recycle(occupied.front()),
     "a submitted query range must not be recycled"
+  );
+
+  lg::GpuTimestampTiming unavailableTiming;
+  failures += expect(
+    !unavailableTiming.beginFrame(nullptr, 2000U, false),
+    "disabled GPU timing should not start timestamp recording"
+  );
+  unavailableTiming.beginPass(nullptr, lg::GpuTimedPass::MainScene);
+  unavailableTiming.beginPass(nullptr, lg::GpuTimedPass::UiOverlay);
+  unavailableTiming.beginOutline(nullptr);
+  const auto unavailableResults = unavailableTiming.takeResults();
+  failures += expect(
+    unavailableResults.size() == 1U &&
+      unavailableResults.front().benchmarkFrameIndex == 2000U &&
+      unavailableResults.front().unavailableReason == "not_initialized" &&
+      unavailableResults.front().passApplicable[
+        static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+      ] &&
+      unavailableResults.front().passApplicable[
+        static_cast<std::size_t>(lg::GpuTimedPass::UiOverlay)
+      ] &&
+      unavailableResults.front().passApplicable[
+        static_cast<std::size_t>(lg::GpuTimedPass::OutlineTotal)
+      ] &&
+      !unavailableResults.front().passApplicable[
+        static_cast<std::size_t>(lg::GpuTimedPass::SunShadow)
+      ],
+    "unavailable timing should retain which GPU passes rendered"
   );
 
   if (failures == 0) {

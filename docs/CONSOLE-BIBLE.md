@@ -538,6 +538,8 @@ the newest message.
 | `writeconfig` | inga | Skriver arkiverade cvars och bindings till `client.cfg`. |
 | `toggleconsole` | inga | Öppnar/stänger konsolen. |
 | `actionlist` | inga | Listar bindbara gameplay-actions. |
+| `settings` | none | Opens the graphics menu. Default bind: `F10`. |
+| `misc` | none | Opens the tools and debug menu. Default bind: `F11`. |
 | `mcguffin_throw` | none | Throws the carried McGuffin using the authoritative server tuning. Default bind: `G`. |
 | `spectate_next` | none | Follows the next eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse1 performs the same contextual action without changing its normal `+attack` bind. |
 | `spectate_prev` | none | Follows the previous eligible player. Death spectating is restricted to living teammates; dedicated spectators cycle every living active player. Mouse2 performs the same contextual action without changing its normal `+zoom` bind. |
@@ -554,6 +556,13 @@ the newest message.
 | `Tab` | Autocomplete på aktuellt ord. En träff fylls i; flera träffar listas. |
 | `Escape` | Stänger konsolen utan att köra eller rensa kommandoraden. |
 | Tangent bunden till `toggleconsole` | Stänger konsolen. Default är `section`. |
+
+Mouse drag selects visible console text. A drag in the input row selects
+editable input text. `Ctrl+A` selects the full input. `Ctrl+C` copies the
+selection, and `Ctrl+V` replaces an input selection.
+
+Chat uses the same input selection keys. Mouse drag can also select visible chat
+history while chat input is open.
 
 ## 5. Bindings och actions
 
@@ -636,7 +645,11 @@ knappen släpps.
 | `T` | `messagemode` |
 | `Z` | `+showchat` |
 | `Tab` | `+scores` |
-| `Escape` | `quit` |
+| `F10` | `settings` |
+| `F11` | `misc` |
+
+The default config has no quit key. Run `quit` in the console or add a custom
+bind if you want one.
 
 ## 6. Dedikerad server
 

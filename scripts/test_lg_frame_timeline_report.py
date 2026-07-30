@@ -147,6 +147,69 @@ class FrameTimelineReportTests(unittest.TestCase):
         page = report.render_html(frames, analysis, None)
         self.assertIn("original=[0,0,1200,420]", page)
 
+    def test_native_gpu_totals_and_stages_reach_analysis_and_html(self) -> None:
+        path = self.write_json("gpu.json", [4.0, 5.0, 6.0])
+        value = json.loads(path.read_text(encoding="utf-8"))
+        value["gpu_execution_timing_available"] = True
+        for index, frame in enumerate(value["frames"]):
+            frame["total_gpu_ms"] = 2.0 + index
+            frame["gpu_timing_available"] = True
+            frame["gpu_subsystems_ms"] = {
+                "main_scene": 1.0 + index * 0.1,
+                "scene_composite": 0.2,
+            }
+            frame["gpu_subsystem_states"] = {
+                "main_scene": "available",
+                "scene_composite": "available",
+                "bloom": "not_applicable",
+            }
+        path.write_text(json.dumps(value), encoding="utf-8")
+        frames, meta, _ = report.load_input(path)
+        analysis = report.analyze(frames)
+        self.assertTrue(meta["gpu_execution_timing_available"])
+        self.assertEqual(3, analysis["summary"]["gpu_sample_count"])
+        self.assertEqual(3.0, analysis["summary"]["median_gpu_ms"])
+        self.assertEqual(3, analysis["gpu_stages"]["main_scene"]["sample_count"])
+        self.assertEqual(100.0, analysis["gpu_stages"]["main_scene"]["coverage_percent"])
+        self.assertEqual(0, analysis["gpu_stages"]["bloom"]["applicable_count"])
+        page = report.render_html(frames, analysis, None)
+        self.assertIn("GPU command buffer", page)
+        self.assertIn("GPU stage timing", page)
+        self.assertIn("main_scene", page)
+
+    def test_csv_gpu_stage_values_pair_with_their_state_columns(self) -> None:
+        path = self.root / "telemetry.csv"
+        with path.open("w", newline="", encoding="utf-8") as stream:
+            writer = csv.DictWriter(stream, fieldnames=[
+                "frame", "elapsed_seconds", "frame_ms",
+                "gpu_primary_command_buffer_ms",
+                "main_scene_gpu_ms", "main_scene_gpu_state",
+                "bloom_gpu_ms", "bloom_gpu_state",
+            ])
+            writer.writeheader()
+            for index in range(2):
+                writer.writerow({
+                    "frame": index,
+                    "elapsed_seconds": index / 60,
+                    "frame_ms": 2.0,
+                    "gpu_primary_command_buffer_ms": 0.8,
+                    "main_scene_gpu_ms": 0.5,
+                    "main_scene_gpu_state": "available",
+                    "bloom_gpu_ms": "",
+                    "bloom_gpu_state": "not_applicable",
+                })
+        frames, _, _ = report.load_input(path)
+        self.assertEqual({"main_scene": 0.5}, frames[0]["gpu_subsystems_ms"])
+        self.assertEqual(
+            {"main_scene": "available", "bloom": "not_applicable"},
+            frames[0]["gpu_subsystem_states"],
+        )
+        analysis = report.analyze(frames)
+        self.assertNotIn("main_scene_gpu", analysis["gpu_stages"])
+        self.assertEqual(2, analysis["gpu_stages"]["main_scene"]["sample_count"])
+        self.assertEqual(2, analysis["gpu_stages"]["main_scene"]["applicable_count"])
+        self.assertEqual(0, analysis["gpu_stages"]["bloom"]["applicable_count"])
+
     def test_cli_with_baseline_writes_comparison(self) -> None:
         candidate = self.write_json("candidate.json", [12.0] * 20)
         baseline = self.write_json("baseline.json", [10.0] * 20)

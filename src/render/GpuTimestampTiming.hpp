@@ -6,9 +6,57 @@
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace lg {
+
+enum class GpuTimedPass : std::uint8_t {
+  SunShadow,
+  MainScene,
+  ViewModel,
+  Bloom,
+  SceneComposite,
+  OutlineMask,
+  OutlineDilation,
+  OutlineComposite,
+  UiOverlay,
+  OutlineTotal,
+  Count,
+};
+
+inline constexpr std::size_t kGpuTimedPassCount =
+  static_cast<std::size_t>(GpuTimedPass::Count);
+
+[[nodiscard]] constexpr std::string_view gpuTimedPassName(
+  GpuTimedPass pass
+) {
+  switch (pass) {
+  case GpuTimedPass::SunShadow:
+    return "sun_shadow";
+  case GpuTimedPass::MainScene:
+    return "main_scene";
+  case GpuTimedPass::ViewModel:
+    return "view_model";
+  case GpuTimedPass::Bloom:
+    return "bloom";
+  case GpuTimedPass::SceneComposite:
+    return "scene_composite";
+  case GpuTimedPass::OutlineMask:
+    return "outline_mask_stage";
+  case GpuTimedPass::OutlineDilation:
+    return "outline_dilation";
+  case GpuTimedPass::OutlineComposite:
+    return "outline_composite";
+  case GpuTimedPass::UiOverlay:
+    return "ui_overlay";
+  case GpuTimedPass::OutlineTotal:
+    return "outline_total";
+  case GpuTimedPass::Count:
+    break;
+  }
+  return "unknown";
+}
 
 struct GpuTimingAvailability {
   bool available = false;
@@ -16,7 +64,7 @@ struct GpuTimingAvailability {
   std::string unavailableReason = "not_initialized";
   std::uint32_t timestampValidBits = 0;
   double timestampPeriodNanoseconds = 0.0;
-  std::string instrumentationVersion = "lg_gpu_timestamp_v1";
+  std::string instrumentationVersion = "lg_gpu_timestamp_v2";
   std::string sdlBaseRevision = "unknown";
   std::string sdlPatchIdentity = "unknown";
 };
@@ -24,6 +72,8 @@ struct GpuTimingAvailability {
 struct GpuFrameTimingResult {
   std::uint64_t benchmarkFrameIndex = 0;
   std::optional<double> gpuPrimaryCommandBufferMilliseconds;
+  std::array<bool, kGpuTimedPassCount> passApplicable = {};
+  std::array<std::optional<double>, kGpuTimedPassCount> passMilliseconds = {};
   bool outlineApplicable = false;
   std::optional<double> outlineGpuMilliseconds;
   std::uint32_t readbackLatencyFrames = 0;
@@ -54,12 +104,13 @@ enum class GpuTimingSlotState : std::uint8_t {
 class GpuTimingRing {
 public:
   static constexpr std::size_t kSlotCount = 8;
-  static constexpr std::uint32_t kQueriesPerSlot = 4;
+  static constexpr std::uint32_t kQueriesPerSlot =
+    2U + static_cast<std::uint32_t>(kGpuTimedPassCount) * 2U;
 
   struct Slot {
     GpuTimingSlotState state = GpuTimingSlotState::Free;
     std::uint64_t benchmarkFrameIndex = 0;
-    bool outlineApplicable = false;
+    std::array<bool, kGpuTimedPassCount> passApplicable = {};
     std::uint64_t submitPollIndex = 0;
     GpuFrameTimingResult result = {};
   };
@@ -71,6 +122,10 @@ public:
   [[nodiscard]] bool markSubmitted(
     std::size_t slotIndex,
     std::uint64_t submitPollIndex
+  );
+  [[nodiscard]] bool markPassApplicable(
+    std::size_t slotIndex,
+    GpuTimedPass pass
   );
   [[nodiscard]] bool markOutlineApplicable(std::size_t slotIndex);
   [[nodiscard]] bool markAvailable(
@@ -122,6 +177,8 @@ public:
     bool outlineApplicable,
     std::string reason
   );
+  void beginPass(void* commandBuffer, GpuTimedPass pass);
+  void endPass(void* commandBuffer, GpuTimedPass pass);
   void beginOutline(void* commandBuffer);
   void endOutline(void* commandBuffer);
   void endFrame(void* commandBuffer);

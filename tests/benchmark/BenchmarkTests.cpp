@@ -113,6 +113,10 @@ int main() {
   const lg::benchmark::ParseResult valid = parse(validScenario);
   failures += expect(valid.ok, "documented benchmark scenario should parse");
   failures += expect(
+    valid.ok && valid.scenario.cvars.at("s_volume") == "0",
+    "benchmark scenarios should mute master sound by default"
+  );
+  failures += expect(
     valid.ok && valid.scenario.actors.weapon == lg::Weapon::RocketLauncher,
     "benchmark bot weapon should parse through the shared weapon catalog"
   );
@@ -152,6 +156,17 @@ int main() {
   failures += expect(
     bloomControl.ok && bloomControl.scenario.cvars.contains("r_bloom"),
     "benchmark scenarios should allow a fixed bloom setting"
+  );
+  const lg::benchmark::ParseResult mutedAudio = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"muted-audio","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"s_volume":0}
+  })");
+  failures += expect(
+    mutedAudio.ok && mutedAudio.scenario.cvars.at("s_volume") == "0",
+    "benchmark scenarios should allow a fixed master sound volume"
   );
   const lg::benchmark::ParseResult unsupportedFixture = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
@@ -235,6 +250,7 @@ int main() {
         .outlineApplicable = true,
         .outlineGpuMilliseconds = 0.4,
         .readbackLatencyFrames = 3,
+        .unavailableReason = "",
       }
     ) &&
       !measuredOnly[0].gpuPrimaryCommandBufferMilliseconds.has_value() &&
@@ -253,11 +269,15 @@ int main() {
         .outlineApplicable = false,
         .outlineGpuMilliseconds = std::nullopt,
         .readbackLatencyFrames = 0,
+        .unavailableReason = "",
       }
     ),
     "a GPU result for an unknown frame should not attach to another sample"
   );
   measuredOnly[2].outlineGpuTimingApplicable = true;
+  measuredOnly[2].gpuPassTimingApplicable[
+    static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+  ] = true;
   failures += expect(
     lg::benchmark::applyGpuFrameTiming(
       measuredOnly,
@@ -267,11 +287,15 @@ int main() {
         .outlineApplicable = false,
         .outlineGpuMilliseconds = std::nullopt,
         .readbackLatencyFrames = 0,
+        .unavailableReason = "ring_full",
       }
     ) &&
       measuredOnly[2].outlineGpuTimingApplicable &&
+      measuredOnly[2].gpuPassTimingApplicable[
+        static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+      ] &&
       !measuredOnly[2].outlineGpuMilliseconds.has_value(),
-    "missing GPU timing should preserve outline work applicability"
+    "missing GPU timing should preserve all known pass applicability"
   );
   failures += expect(
     lg::benchmark::summarize(measuredOnly).count == 3U,
@@ -332,6 +356,10 @@ int main() {
       ? secondTimelineFrame->find("total_gpu_ms") : nullptr;
     const lg::dev::JsonValue* gpuSubsystems = secondTimelineFrame != nullptr
       ? secondTimelineFrame->find("gpu_subsystems_ms") : nullptr;
+    const lg::dev::JsonValue* gpuSubsystemStates =
+      secondTimelineFrame != nullptr
+        ? secondTimelineFrame->find("gpu_subsystem_states")
+        : nullptr;
     const lg::dev::JsonValue* cpuSubsystems = secondTimelineFrame != nullptr
       ? secondTimelineFrame->find("cpu_subsystems_ms") : nullptr;
     const lg::dev::JsonValue* workload = secondTimelineFrame != nullptr
@@ -357,8 +385,12 @@ int main() {
         !secondTimelineFrame->find("gpu_timing_available")->boolean &&
         gpuSubsystems != nullptr &&
         gpuSubsystems->type == lg::dev::JsonValue::Type::Object &&
-        gpuSubsystems->object.empty(),
-      "frame timeline should keep CPU totals and explicit unavailable GPU values"
+        gpuSubsystems->find("main_scene")->type ==
+          lg::dev::JsonValue::Type::Null &&
+        gpuSubsystemStates != nullptr &&
+        gpuSubsystemStates->find("main_scene")->string ==
+          "not_applicable",
+      "frame timeline should keep CPU totals and explicit GPU states"
     );
     failures += expect(
       cpuSubsystems != nullptr &&
@@ -422,7 +454,19 @@ int main() {
     gpuSamples[3].gpuPrimaryCommandBufferMilliseconds = 3.0;
     gpuSamples[0].outlineGpuTimingApplicable = true;
     gpuSamples[0].outlineGpuMilliseconds = 0.25;
+    gpuSamples[0].gpuPassTimingApplicable[
+      static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+    ] = true;
+    gpuSamples[0].gpuPassMilliseconds[
+      static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+    ] = 0.6;
     gpuSamples[1].outlineGpuTimingApplicable = true;
+    gpuSamples[1].gpuPassTimingApplicable[
+      static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+    ] = true;
+    gpuSamples[1].gpuPassMilliseconds[
+      static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+    ] = 0.9;
     gpuSamples[2].outlineGpuTimingApplicable = false;
     gpuSamples[3].outlineGpuTimingApplicable = true;
     gpuSamples[3].outlineGpuMilliseconds = 0.75;
@@ -435,12 +479,47 @@ int main() {
       ? gpuTimings->find("gpu_primary_command_buffer") : nullptr;
     const lg::dev::JsonValue* outline = gpuTimings != nullptr
       ? gpuTimings->find("outline") : nullptr;
+    const lg::dev::JsonValue* mainScene = gpuTimings != nullptr
+      ? gpuTimings->find("main_scene") : nullptr;
     failures += expect(
       primary != nullptr && primary->find("count")->number == 3.0 &&
         primary->find("median_ms")->number == 3.0 &&
         outline != nullptr && outline->find("count")->number == 2.0 &&
-        outline->find("median_ms")->number == 0.25,
-      "GPU aggregates should use only valid optional values and nearest rank"
+        outline->find("median_ms")->number == 0.25 &&
+        mainScene != nullptr &&
+        mainScene->find("applicable_count")->number == 2.0 &&
+        mainScene->find("count")->number == 2.0 &&
+        mainScene->find("median_ms")->number == 0.6,
+      "GPU aggregates should retain total, compatibility, and stage timings"
+    );
+    context.gpuTimingAvailable = true;
+    context.gpuTimingBackend = "vulkan";
+    context.gpuTimingUnavailableReason.clear();
+    const lg::dev::JsonValue gpuTimeline = lg::benchmark::frameTimelineJson(
+      valid.scenario,
+      context,
+      gpuSamples,
+      {}
+    );
+    const lg::dev::JsonValue* gpuTimelineFrames = gpuTimeline.find("frames");
+    const lg::dev::JsonValue* firstGpuFrame =
+      gpuTimelineFrames != nullptr && !gpuTimelineFrames->array.empty()
+        ? &gpuTimelineFrames->array[0]
+        : nullptr;
+    const lg::dev::JsonValue* firstGpuSubsystems =
+      firstGpuFrame != nullptr
+        ? firstGpuFrame->find("gpu_subsystems_ms")
+        : nullptr;
+    failures += expect(
+      gpuTimeline.find("gpu_execution_timing_available") != nullptr &&
+        gpuTimeline.find("gpu_execution_timing_available")->boolean &&
+        gpuTimeline.find("gpu_timing")->find("sample_count")->number == 3.0 &&
+        firstGpuFrame != nullptr &&
+        firstGpuFrame->find("total_gpu_ms")->number == 1.0 &&
+        firstGpuFrame->find("gpu_timing_available")->boolean &&
+        firstGpuSubsystems != nullptr &&
+        firstGpuSubsystems->find("main_scene")->number == 0.6,
+      "frame timeline should serialize matched total and stage GPU timing"
     );
     failures += expect(result.find("\"expected_actors\":true") != std::string::npos, "result actor validity should use snapshot actor count");
     context.actualActorCount = 3;
@@ -456,7 +535,16 @@ int main() {
       ("lg-duel-benchmark-telemetry-" + std::to_string(
         std::chrono::steady_clock::now().time_since_epoch().count()
       ));
+    samples[0].gpuPrimaryCommandBufferMilliseconds = 1.25;
     samples[0].outlineGpuTimingApplicable = true;
+    samples[0].gpuPassTimingApplicable[
+      static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+    ] = true;
+    samples[0].gpuPassMilliseconds[
+      static_cast<std::size_t>(lg::GpuTimedPass::MainScene)
+    ] = 0.75;
+    samples[0].gpuTimingResultReceived = true;
+    samples[0].gpuTimingReadbackLatencyFrames = 2;
     std::filesystem::path resultDirectory;
     std::string artifactError;
     failures += expect(
@@ -493,6 +581,11 @@ int main() {
         frameTelemetry.find(
           "gpu_primary_command_buffer_ms,outline_gpu_ms,outline_gpu_state"
         ) != std::string::npos &&
+        frameTelemetry.find(
+          "main_scene_gpu_ms,main_scene_gpu_state"
+        ) != std::string::npos &&
+        frameTelemetry.find("gpu_timing_readback_latency_frames") !=
+          std::string::npos &&
         frameTelemetry.find(
           "effects,lights,particles,transparent_effects,"
         ) != std::string::npos &&

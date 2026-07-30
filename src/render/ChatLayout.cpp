@@ -154,11 +154,12 @@ ChatTextLayout buildChatTextLayout(
     std::vector<WrappedRow> wrapped = wrapText(prefix, line.message, rowColumns);
     for (std::size_t rowIndex = 0; rowIndex < wrapped.size(); ++rowIndex) {
       rows.push_back(ChatLayoutRow{
-        std::move(wrapped[rowIndex].text),
-        kChatX,
-        0.0F,
-        messageIndex,
-        rowIndex > 0U,
+          std::move(wrapped[rowIndex].text),
+          kChatX,
+          0.0F,
+          0U,
+          messageIndex,
+          rowIndex > 0U,
       });
     }
   }
@@ -232,6 +233,11 @@ ChatTextLayout buildChatTextLayout(
   float y = historyBottom - static_cast<float>(visibleCount) * layout.lineHeight;
   for (std::size_t index = firstRow; index < endRow; ++index) {
     rows[index].y = y;
+    if (!layout.historyText.empty()) {
+      layout.historyText.push_back('\n');
+    }
+    rows[index].textOffset = layout.historyText.size();
+    layout.historyText += rows[index].text;
     layout.rows.push_back(std::move(rows[index]));
     y += layout.lineHeight;
   }
@@ -303,6 +309,41 @@ ScreenPoint chatInputCursorPosition(
     chosenRow->x + column * layout.input.characterWidth,
     chosenRow->y,
   };
+}
+
+std::size_t chatHistoryTextOffsetAt(const ChatTextLayout &layout, float x,
+                                    float y) {
+  if (layout.rows.empty()) {
+    return 0U;
+  }
+  const ChatLayoutRow *chosenRow = &layout.rows.front();
+  if (y >= layout.rows.back().y + layout.lineHeight) {
+    chosenRow = &layout.rows.back();
+  } else {
+    for (const ChatLayoutRow &row : layout.rows) {
+      if (y < row.y + layout.lineHeight) {
+        chosenRow = &row;
+        break;
+      }
+    }
+  }
+  const float relativeX = std::max(0.0F, x - chosenRow->x);
+  const auto column = static_cast<std::size_t>(
+      std::floor(relativeX / std::max(1.0F, layout.characterWidth) + 0.5F));
+  return chosenRow->textOffset + byteOffsetForGlyphs(chosenRow->text, 0U,
+                                                     chosenRow->text.size(),
+                                                     column);
+}
+
+std::string chatHistorySelectedText(const ChatTextLayout &layout,
+                                    std::size_t anchor, std::size_t focus) {
+  const std::size_t begin = std::min(anchor, focus);
+  const std::size_t end =
+      std::min(std::max(anchor, focus), layout.historyText.size());
+  if (begin >= end) {
+    return {};
+  }
+  return layout.historyText.substr(begin, end - begin);
 }
 
 } // namespace lg
