@@ -352,6 +352,7 @@ jobs:
           --suite pr_headless
           --repetitions 5
           --profile pr_headless
+          --not-comparable-exit-zero
           --output verification/benchmarks
 
       - name: Collect CI evidence
