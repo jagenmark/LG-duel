@@ -14,6 +14,16 @@
 
 See `docs/VISUAL-EVIDENCE.md` for the record format, review flow, setup, and commands.
 
+## Parallel task isolation
+
+- Read-only audits, reviews, diagnoses, and plans may use the shared checkout.
+- Any task that will edit files must use its own worktree based on a clean, explicit commit.
+- If a read-only task turns into an implementation task, stop and move it to a worktree before editing.
+- Name one integration task. That task alone owns the main/shared checkout, staging, the combined branch, pushes, and the combined pull request.
+- Parallel runtime work must use separate sessions, ports, processes, build folders, and output paths.
+- Give shared default clients and state-changing MCP resources one named owner.
+- If a task needs uncommitted work from another task, wait for a checkpoint commit and base its worktree on that commit.
+
 ## Automatic Task Integration
 
 Task workers should end a reviewed, committed worktree task with this line:

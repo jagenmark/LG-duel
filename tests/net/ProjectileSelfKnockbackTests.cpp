@@ -216,9 +216,9 @@ int runGrenadeBrushSideBounceCase() {
     bounced =
       snapshot.grenadeBounceAudioEvents[0].active ||
       (
-        snapshot.rockets[0].active &&
-        snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
-        snapshot.rockets[0].velocity.x < -1.0F
+        server.projectiles()[0].active &&
+        server.projectiles()[0].weapon == lg::Weapon::GrenadeLauncher &&
+        server.projectiles()[0].velocity.x < -1.0F
       );
     if (bounced) {
       break;
@@ -227,9 +227,9 @@ int runGrenadeBrushSideBounceCase() {
 
   failures += expect(bounced, "grenade should bounce from a triangular brush side");
   failures += expect(
-    snapshot.rockets[0].active &&
-      snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
-      snapshot.rockets[0].velocity.x < -1.0F,
+    server.projectiles()[0].active &&
+      server.projectiles()[0].weapon == lg::Weapon::GrenadeLauncher &&
+      server.projectiles()[0].velocity.x < -1.0F,
     "brush-side grenade bounce should reflect horizontal velocity away from the brush"
   );
   failures += expect(

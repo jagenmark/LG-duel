@@ -10,6 +10,7 @@
 #include "render/BakedSniperRifleModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/WeaponPresentation.hpp"
+#include "sim/ArenaBroadphase.hpp"
 
 #include <algorithm>
 #include <array>
@@ -35,8 +36,11 @@ constexpr float kQuarterTurnRadians = 1.57079632679F;
 constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
-constexpr float kStaticLightAmbient = 0.18F;
 constexpr float kStaticLightMax = 2.0F;
+constexpr std::size_t kMaxRocketProjectileLights = 4U;
+constexpr Vec3 kRocketProjectileLightColor = {1.0F, 0.48F, 0.20F};
+constexpr float kRocketProjectileLightIntensity = 1.15F;
+constexpr float kRocketProjectileLightRadius = 2.2F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
 constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
@@ -51,6 +55,14 @@ constexpr float kSniperRifleViewModelWidthScale = 1.30F;
 constexpr float kSniperRifleViewModelHeightScale = 1.15F;
 constexpr float kRocketLauncherViewModelForwardOffset = -0.16F;
 constexpr float kRocketLauncherViewModelUpOffset = -0.15F;
+constexpr int kPlayerContactShadowSegments = 16;
+constexpr std::size_t kPlayerContactShadowVerticesPerPlayer =
+  static_cast<std::size_t>(kPlayerContactShadowSegments) * 3U;
+constexpr float kPlayerContactShadowSurfaceOffset = 0.008F;
+constexpr float kPlayerContactShadowTraceDistance = 1.5F;
+constexpr std::uint8_t kPlayerContactShadowAlpha = 82U;
+constexpr std::uint8_t kPlayerContactShadowWithSunAlpha = 56U;
+constexpr float kDefaultFloorZ = 0.0F;
 
 // Centered unit cube, local coordinates [-0.5, 0.5] on every axis. Player
 // cuboids use per-instance basis columns scaled to the desired full extents.
@@ -714,29 +726,218 @@ void addIcePoolDisk(Scene3D& scene, const IcePool& pool) {
   }
 }
 
+[[nodiscard]] bool pointInTriangle(
+  Vec3 point,
+  Vec3 first,
+  Vec3 second,
+  Vec3 third
+) {
+  constexpr float kEpsilon = 0.002F;
+  const Vec3 edgeA = second - first;
+  const Vec3 edgeB = third - first;
+  const Vec3 toPoint = point - first;
+  const float aa = dot(edgeA, edgeA);
+  const float ab = dot(edgeA, edgeB);
+  const float bb = dot(edgeB, edgeB);
+  const float pa = dot(toPoint, edgeA);
+  const float pb = dot(toPoint, edgeB);
+  const float denominator = (aa * bb) - (ab * ab);
+  if (std::fabs(denominator) <= 0.000001F) {
+    return false;
+  }
+  const float firstAmount = ((bb * pa) - (ab * pb)) / denominator;
+  const float secondAmount = ((aa * pb) - (ab * pa)) / denominator;
+  return firstAmount >= -kEpsilon &&
+    secondAmount >= -kEpsilon &&
+    firstAmount + secondAmount <= 1.0F + kEpsilon;
+}
+
+[[nodiscard]] bool wallReceivesContactShadow(
+  const ArenaWall& wall,
+  Vec3 contactPoint,
+  Vec3 groundNormal
+) {
+  constexpr float kEpsilon = 0.002F;
+  return groundNormal.z > 0.999F &&
+    std::fabs(contactPoint.z - wall.max.z) <= kEpsilon &&
+    contactPoint.x >= wall.min.x - kEpsilon &&
+    contactPoint.x <= wall.max.x + kEpsilon &&
+    contactPoint.y >= wall.min.y - kEpsilon &&
+    contactPoint.y <= wall.max.y + kEpsilon;
+}
+
+[[nodiscard]] bool brushReceivesContactShadow(
+  const ArenaBrush& brush,
+  Vec3 contactPoint,
+  Vec3 groundNormal
+) {
+  constexpr float kPlaneEpsilon = 0.002F;
+  if (
+    contactPoint.x < brush.min.x - kPlaneEpsilon ||
+    contactPoint.x > brush.max.x + kPlaneEpsilon ||
+    contactPoint.y < brush.min.y - kPlaneEpsilon ||
+    contactPoint.y > brush.max.y + kPlaneEpsilon ||
+    contactPoint.z < brush.min.z - kPlaneEpsilon ||
+    contactPoint.z > brush.max.z + kPlaneEpsilon
+  ) {
+    return false;
+  }
+  for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
+    const ArenaBrushFace& face = brush.faces[faceIndex];
+    if (
+      face.vertexCount < 3U ||
+      face.normal.z <= 0.0F ||
+      dot(face.normal, groundNormal) < 0.999F ||
+      std::fabs(dot(face.normal, contactPoint) - face.distance) >
+        kPlaneEpsilon
+    ) {
+      continue;
+    }
+    const Vec3 origin = brush.vertices[face.vertices[0]];
+    for (std::uint8_t vertex = 1U; vertex + 1U < face.vertexCount; ++vertex) {
+      if (
+        pointInTriangle(
+          contactPoint,
+          origin,
+          brush.vertices[face.vertices[vertex]],
+          brush.vertices[face.vertices[vertex + 1U]]
+        )
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] bool surfaceReceivesContactShadow(
+  const Arena& arena,
+  Vec3 contactPoint,
+  Vec3 groundNormal
+) {
+  constexpr float kQueryEpsilon = 0.01F;
+  if (
+    arena.renderDefaultFloor &&
+    groundNormal.z > 0.999F &&
+    std::fabs(contactPoint.z - kDefaultFloorZ) <= kQueryEpsilon &&
+    contactPoint.x >= arena.min.x - kQueryEpsilon &&
+    contactPoint.x <= arena.max.x + kQueryEpsilon &&
+    contactPoint.y >= arena.min.y - kQueryEpsilon &&
+    contactPoint.y <= arena.max.y + kQueryEpsilon
+  ) {
+    return true;
+  }
+
+  ArenaBroadphaseCandidates candidates;
+  const Vec3 queryExtent = {
+    kQueryEpsilon,
+    kQueryEpsilon,
+    kQueryEpsilon,
+  };
+  const bool indexed = queryArenaCollisionIndex(
+    arena,
+    contactPoint - queryExtent,
+    contactPoint + queryExtent,
+    candidates
+  );
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (
+      (!indexed || candidates.walls.test(index)) &&
+      arena.walls[index].renderable &&
+      wallReceivesContactShadow(
+        arena.walls[index],
+        contactPoint,
+        groundNormal
+      )
+    ) {
+      return true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (
+      (!indexed || candidates.brushes.test(index)) &&
+      arena.brushes[index].renderable &&
+      brushReceivesContactShadow(
+        arena.brushes[index],
+        contactPoint,
+        groundNormal
+      )
+    ) {
+      return true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    if (
+      wallReceivesContactShadow(
+        arena.visualWalls[index],
+        contactPoint,
+        groundNormal
+      )
+    ) {
+      return true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+    if (
+      brushReceivesContactShadow(
+        arena.visualBrushes[index],
+        contactPoint,
+        groundNormal
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 void addPlayerContactShadow(
   Scene3D& scene,
   const Arena& arena,
   const PlayerState& player
 ) {
-  if (!player.onGround) {
+  if (player.bounds.radius <= 0.0F || player.bounds.halfHeight <= 0.0F) {
     return;
   }
 
-  constexpr int kSegments = 16;
-  constexpr float kSurfaceOffset = 0.008F;
-  constexpr float kGroundProbeDistance = 0.08F;
   const CollisionResult groundProbe = slidePlayerArenaMove(
     arena,
     player,
     player.position,
-    {0.0F, 0.0F, -kGroundProbeDistance},
+    {0.0F, 0.0F, -kPlayerContactShadowTraceDistance},
     1.0F
   );
-  const Vec3 groundNormal = groundProbe.groundPlane
-    ? normalize(groundProbe.groundNormal)
-    : Vec3{0.0F, 0.0F, 1.0F};
-  Vec3 contactPoint = player.position;
+  if (!groundProbe.groundPlane) {
+    return;
+  }
+
+  const float groundHeight = std::clamp(
+    player.position.z - groundProbe.position.z,
+    0.0F,
+    kPlayerContactShadowTraceDistance
+  );
+  const float heightAmount =
+    groundHeight / kPlayerContactShadowTraceDistance;
+  const float smoothHeightAmount =
+    heightAmount * heightAmount * (3.0F - (2.0F * heightAmount));
+  const float opacity = 1.0F - smoothHeightAmount;
+  if (opacity <= 0.0F) {
+    return;
+  }
+
+  const std::uint8_t baseAlpha =
+    scene.lights.shadow.mapSize > 0U
+      ? kPlayerContactShadowWithSunAlpha
+      : kPlayerContactShadowAlpha;
+  const std::uint8_t centerAlpha = static_cast<std::uint8_t>(
+    std::clamp(
+      std::lround(static_cast<float>(baseAlpha) * opacity),
+      1L,
+      255L
+    )
+  );
+  const Vec3 groundNormal = normalize(groundProbe.groundNormal);
+  Vec3 contactPoint = groundProbe.position;
   const float horizontalNormalLength =
     std::hypot(groundNormal.x, groundNormal.y);
   if (horizontalNormalLength > 0.0001F) {
@@ -746,19 +947,25 @@ void addPlayerContactShadow(
       player.bounds.radius * groundNormal.y / horizontalNormalLength;
   }
   contactPoint.z -= player.bounds.halfHeight;
-  const Vec3 center = contactPoint + groundNormal * kSurfaceOffset;
+  if (!surfaceReceivesContactShadow(arena, contactPoint, groundNormal)) {
+    return;
+  }
+  const Vec3 center =
+    contactPoint + groundNormal * kPlayerContactShadowSurfaceOffset;
   Vec3 forward = yawForward(player.viewYawRadians);
   forward = normalize(forward - groundNormal * dot(forward, groundNormal));
   const Vec3 side = normalize(cross(groundNormal, forward));
   const float forwardRadius = player.bounds.radius * 0.78F;
   const float sideRadius = player.bounds.radius * 0.62F;
-  const RenderColor centerColor = {8, 11, 16, 82};
+  const RenderColor centerColor = {8, 11, 16, centerAlpha};
   const RenderColor edgeColor = {8, 11, 16, 0};
-  for (int index = 0; index < kSegments; ++index) {
+  for (int index = 0; index < kPlayerContactShadowSegments; ++index) {
     const float firstAngle =
-      static_cast<float>(index) * kTwoPi / static_cast<float>(kSegments);
+      static_cast<float>(index) * kTwoPi /
+      static_cast<float>(kPlayerContactShadowSegments);
     const float secondAngle =
-      static_cast<float>(index + 1) * kTwoPi / static_cast<float>(kSegments);
+      static_cast<float>(index + 1) * kTwoPi /
+      static_cast<float>(kPlayerContactShadowSegments);
     const Vec3 first =
       center +
       forward * (std::cos(firstAngle) * forwardRadius) +
@@ -897,12 +1104,18 @@ void addSphereApprox(
   RenderColor base
 ) {
   Vec3 lightColor = {
-    static_cast<float>(base.red) * kStaticLightAmbient,
-    static_cast<float>(base.green) * kStaticLightAmbient,
-    static_cast<float>(base.blue) * kStaticLightAmbient,
+    static_cast<float>(base.red) *
+      arena.ambientLight.color.x * arena.ambientLight.intensity,
+    static_cast<float>(base.green) *
+      arena.ambientLight.color.y * arena.ambientLight.intensity,
+    static_cast<float>(base.blue) *
+      arena.ambientLight.color.z * arena.ambientLight.intensity,
   };
   for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
     const ArenaStaticLight& light = arena.staticLights[index];
+    if (!staticLightBakesIntoWorld(light)) {
+      continue;
+    }
     const Vec3 toLight = light.position - position;
     const float distance = length(toLight);
     if (distance <= 0.0001F || distance >= light.radius) {
@@ -1067,7 +1280,6 @@ void addFloorQuad(
 }
 
 void addFloorTreatment(Scene3D& scene, const Arena& arena) {
-  constexpr float baseZ = 0.0F;
   constexpr float gridZ = 0.006F;
   constexpr float gridWidth = 0.012F;
   const float maxArenaRange = std::max(
@@ -1082,7 +1294,7 @@ void addFloorTreatment(Scene3D& scene, const Arena& arena) {
     arena.min.y,
     arena.max.x,
     arena.max.y,
-    baseZ,
+    kDefaultFloorZ,
     {42, 48, 55, 255}
   );
 
@@ -3029,6 +3241,278 @@ constexpr float kRemotePlayerVisualCullMargin = 0.35F;
 
 } // namespace
 
+float pointLightFlickerFactor(
+  std::uint32_t seed,
+  float frequencyHz,
+  float minFactor,
+  float maxFactor,
+  double timeSeconds
+) {
+  const float low = std::max(0.0F, std::min(minFactor, maxFactor));
+  const float high = std::max(low, std::max(minFactor, maxFactor));
+  if (
+    !std::isfinite(frequencyHz) ||
+    frequencyHz <= 0.0F ||
+    !std::isfinite(timeSeconds) ||
+    high <= low
+  ) {
+    return low;
+  }
+
+  const auto hashUnit = [seed](std::uint32_t step) {
+    // Mix the seed before the time step. A plain XOR lets adjacent seeds
+    // exchange the two samples around a half step and yield the same blend.
+    std::uint32_t value = seed + 0x9e3779b9U;
+    value ^= step + 0x85ebca6bU + (value << 6U) + (value >> 2U);
+    value ^= value >> 16U;
+    value *= 0x7feb352dU;
+    value ^= value >> 15U;
+    value *= 0x846ca68bU;
+    value ^= value >> 16U;
+    return static_cast<float>(value & 0x00ffffffU) /
+      static_cast<float>(0x01000000U);
+  };
+
+  constexpr double kWrappedNoiseSteps = 1048576.0;
+  double phase = std::fmod(
+    timeSeconds * static_cast<double>(frequencyHz),
+    kWrappedNoiseSteps
+  );
+  if (phase < 0.0) {
+    phase += kWrappedNoiseSteps;
+  }
+  const std::uint32_t step = static_cast<std::uint32_t>(std::floor(phase));
+  float fraction = static_cast<float>(phase - std::floor(phase));
+  // Smooth value noise avoids the hard frame-to-frame jumps of a new random
+  // value while remaining a pure function of time and the authored seed.
+  fraction = fraction * fraction * (3.0F - 2.0F * fraction);
+  const float noise = hashUnit(step) +
+    (hashUnit(step + 1U) - hashUnit(step)) * fraction;
+  return low + (high - low) * noise;
+}
+
+std::vector<LivePointLight> selectLivePointLights(
+  std::span<const LivePointLight> candidates,
+  const PerspectiveCamera& camera,
+  std::size_t capacity,
+  PointLightSelectionStats* stats
+) {
+  struct RankedLight {
+    LivePointLight light = {};
+    float influence = 0.0F;
+    float distanceToInfluence = 0.0F;
+    bool close = false;
+    std::size_t inputIndex = 0;
+  };
+
+  PointLightSelectionStats localStats;
+  std::vector<RankedLight> ranked;
+  ranked.reserve(candidates.size());
+  constexpr float kCloseLightDistance = 3.0F;
+  for (std::size_t index = 0; index < candidates.size(); ++index) {
+    const LivePointLight& light = candidates[index];
+    if (light.authored) {
+      ++localStats.authored;
+    }
+    if (
+      !std::isfinite(light.intensity) ||
+      !std::isfinite(light.selectionIntensity) ||
+      !std::isfinite(light.radius) ||
+      light.selectionIntensity <= 0.0F ||
+      light.radius <= 0.0F
+    ) {
+      continue;
+    }
+    const float centerDistance = length(light.position - camera.position);
+    const float distanceToInfluence =
+      std::max(0.0F, centerDistance - light.radius);
+    const bool close = distanceToInfluence <= kCloseLightDistance;
+    const bool inFrustum = sphereIntersectsPerspectiveFrustum(
+      camera,
+      light.position,
+      light.radius
+    );
+    if (!close && !inFrustum) {
+      ++localStats.frustumCulled;
+      continue;
+    }
+    const float safeDistance = std::max(centerDistance, 0.5F);
+    const float influence =
+      light.selectionIntensity * light.radius * light.radius /
+      (safeDistance * safeDistance);
+    ranked.push_back({
+      light,
+      influence,
+      distanceToInfluence,
+      close,
+      index,
+    });
+  }
+
+  localStats.candidates = static_cast<std::uint32_t>(ranked.size());
+  std::stable_sort(
+    ranked.begin(),
+    ranked.end(),
+    [](const RankedLight& left, const RankedLight& right) {
+      // Combat lights already passed their own effect cull and have a short
+      // life. Keep them ahead of map lights so a busy room cannot hide a shot.
+      if (left.light.temporary != right.light.temporary) {
+        return left.light.temporary;
+      }
+      // A nearby light can affect a doorway even when its center is behind the
+      // camera. Whole-sphere culling plus this band keeps that light.
+      if (left.close != right.close) {
+        return left.close;
+      }
+      if (left.light.priority != right.light.priority) {
+        return left.light.priority > right.light.priority;
+      }
+      if (left.influence != right.influence) {
+        return left.influence > right.influence;
+      }
+      if (left.distanceToInfluence != right.distanceToInfluence) {
+        return left.distanceToInfluence < right.distanceToInfluence;
+      }
+      if (left.light.sourceIndex != right.light.sourceIndex) {
+        return left.light.sourceIndex < right.light.sourceIndex;
+      }
+      return left.inputIndex < right.inputIndex;
+    }
+  );
+
+  const std::size_t selectedCount = std::min(capacity, ranked.size());
+  std::vector<LivePointLight> selected;
+  selected.reserve(selectedCount);
+  for (std::size_t index = 0; index < selectedCount; ++index) {
+    LivePointLight light = ranked[index].light;
+    // Distance attenuation already reaches zero at the edge of the sphere.
+    // Keep this field explicit so a later frame-to-frame selector can add
+    // hysteresis without changing the GPU layout.
+    light.selectionFade = 1.0F;
+    selected.push_back(light);
+    if (ranked[index].close) {
+      ++localStats.closeRetained;
+    }
+    if (light.flickering) {
+      ++localStats.flickering;
+    }
+    if (light.castsShadows) {
+      ++localStats.shadowed;
+    }
+  }
+  localStats.selected = static_cast<std::uint32_t>(selected.size());
+  localStats.dropped =
+    localStats.candidates - localStats.selected;
+  if (stats != nullptr) {
+    *stats = localStats;
+  }
+  return selected;
+}
+
+std::vector<LivePointLight> selectPointShadowLights(
+  std::span<const LivePointLight> liveLights,
+  const PerspectiveCamera& camera,
+  std::size_t capacity
+) {
+  struct RankedShadow {
+    LivePointLight light = {};
+    float baseWeight = 0.0F;
+    float cameraInfluence = 0.0F;
+    float distanceToInfluence = 0.0F;
+  };
+
+  std::vector<RankedShadow> ranked;
+  ranked.reserve(liveLights.size());
+  for (const LivePointLight& light : liveLights) {
+    if (
+      !light.authored ||
+      !light.castsShadows ||
+      !std::isfinite(light.selectionIntensity) ||
+      !std::isfinite(light.radius) ||
+      light.selectionIntensity <= 0.0F ||
+      light.radius <= 0.0F
+    ) {
+      continue;
+    }
+    const float centerDistance = length(light.position - camera.position);
+    const float safeDistance = std::max(centerDistance, 0.5F);
+    const float baseWeight =
+      light.selectionIntensity * light.radius * light.radius;
+    ranked.push_back({
+      light,
+      baseWeight,
+      baseWeight / (safeDistance * safeDistance),
+      std::max(0.0F, centerDistance - light.radius),
+    });
+  }
+  std::stable_sort(
+    ranked.begin(),
+    ranked.end(),
+    [](const RankedShadow& left, const RankedShadow& right) {
+      if (left.light.priority != right.light.priority) {
+        return left.light.priority > right.light.priority;
+      }
+      if (left.baseWeight != right.baseWeight) {
+        return left.baseWeight > right.baseWeight;
+      }
+      if (left.cameraInfluence != right.cameraInfluence) {
+        return left.cameraInfluence > right.cameraInfluence;
+      }
+      if (left.distanceToInfluence != right.distanceToInfluence) {
+        return left.distanceToInfluence < right.distanceToInfluence;
+      }
+      return left.light.sourceIndex < right.light.sourceIndex;
+    }
+  );
+
+  const std::size_t selectedCount = std::min(capacity, ranked.size());
+  std::vector<LivePointLight> selected;
+  selected.reserve(selectedCount);
+  for (std::size_t index = 0; index < selectedCount; ++index) {
+    selected.push_back(ranked[index].light);
+  }
+  return selected;
+}
+
+PointShadowFace pointShadowFace(Vec3 direction) {
+  const Vec3 absolute = {
+    std::fabs(direction.x),
+    std::fabs(direction.y),
+    std::fabs(direction.z),
+  };
+  if (absolute.x >= absolute.y && absolute.x >= absolute.z) {
+    return direction.x >= 0.0F
+      ? PointShadowFace::PositiveX
+      : PointShadowFace::NegativeX;
+  }
+  if (absolute.y >= absolute.z) {
+    return direction.y >= 0.0F
+      ? PointShadowFace::PositiveY
+      : PointShadowFace::NegativeY;
+  }
+  return direction.z >= 0.0F
+    ? PointShadowFace::PositiveZ
+    : PointShadowFace::NegativeZ;
+}
+
+PointShadowFaceProjection pointShadowFaceProjection(PointShadowFace face) {
+  switch (face) {
+  case PointShadowFace::PositiveX:
+    return {face, {0.0F, -1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 0.0F, 0.0F}};
+  case PointShadowFace::NegativeX:
+    return {face, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {-1.0F, 0.0F, 0.0F}};
+  case PointShadowFace::PositiveY:
+    return {face, {1.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.0F, 1.0F, 0.0F}};
+  case PointShadowFace::NegativeY:
+    return {face, {-1.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.0F, -1.0F, 0.0F}};
+  case PointShadowFace::PositiveZ:
+    return {face, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}};
+  case PointShadowFace::NegativeZ:
+    return {face, {-1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, -1.0F}};
+  }
+  return {};
+}
+
 SunShadowProjection buildSunShadowProjection(
   const PerspectiveCamera& camera,
   Vec3 sunDirection,
@@ -4792,6 +5276,7 @@ void addProjectileInstances(
   Scene3D& scene,
   const RocketProjectileSnapshot& projectile,
   std::size_t projectileIndex,
+  std::size_t firstRocketProjectileLight,
   const PlayerState& player,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const RenderSettings& settings
@@ -4840,6 +5325,47 @@ void addProjectileInstances(
   }
 
   ++scene.projectileStats.projectilesRendered;
+  const Vec3 projectileForward = rocket
+    ? projectileVelocityForward(projectile.velocity)
+    : yawForward(rotation);
+  const Vec3 hotCorePosition =
+    position - projectileForward * hotCoreOffset;
+  if (
+    rocket &&
+    settings.combatEffectsQuality >= 2 &&
+    settings.materialQuality >= 2
+  ) {
+    const TemporaryLight projectileLight = {
+      hotCorePosition,
+      kRocketProjectileLightColor,
+      kRocketProjectileLightIntensity,
+      kRocketProjectileLightRadius,
+    };
+    const std::size_t projectileLightCount =
+      scene.temporaryLights.size() - firstRocketProjectileLight;
+    if (projectileLightCount < kMaxRocketProjectileLights) {
+      scene.temporaryLights.push_back(projectileLight);
+      ++scene.transientVfxStats.activeTemporaryLights;
+    } else {
+      const auto firstProjectileLight =
+        scene.temporaryLights.begin() + firstRocketProjectileLight;
+      const auto farthestProjectileLight = std::max_element(
+        firstProjectileLight,
+        scene.temporaryLights.end(),
+        [&scene](const TemporaryLight& left, const TemporaryLight& right) {
+          return distanceSquared(left.position, scene.camera.position) <
+            distanceSquared(right.position, scene.camera.position);
+        }
+      );
+      if (
+        farthestProjectileLight != scene.temporaryLights.end() &&
+        distanceSquared(projectileLight.position, scene.camera.position) <
+          distanceSquared(farthestProjectileLight->position, scene.camera.position)
+      ) {
+        *farthestProjectileLight = projectileLight;
+      }
+    }
+  }
   if (descriptor->coreMesh != MeshHandle::Invalid) {
     appendSimpleInstance(
       scene,
@@ -4861,9 +5387,6 @@ void addProjectileInstances(
     countProjectileCoreInstance(scene.projectileStats, descriptor->type);
   }
   if (descriptor->glowBillboard != BillboardHandle::Invalid) {
-    const Vec3 projectileForward = rocket
-      ? projectileVelocityForward(projectile.velocity)
-      : yawForward(rotation);
     const Vec3 glowPosition = rocket
       ? position - projectileForward * exhaustOffset
       : position;
@@ -4890,8 +5413,6 @@ void addProjectileInstances(
     );
     ++scene.projectileStats.projectileGlowInstances;
     if (hotCoreScale > 0.0F) {
-      const Vec3 hotCorePosition =
-        position - projectileForward * hotCoreOffset;
       appendSimpleInstance(
         scene,
         {
@@ -5144,7 +5665,12 @@ Scene3D buildPerspectiveScene(
   scene.lights.sunColor = arena.sunLight.color;
   scene.lights.sunIntensity =
     arena.sunLight.enabled ? arena.sunLight.intensity : 0.0F;
-  scene.lights.fillIntensity = kStaticLightAmbient;
+  scene.lights.fillColor = {
+    0.30F * arena.ambientLight.color.x,
+    0.36F * arena.ambientLight.color.y,
+    0.46F * arena.ambientLight.color.z,
+  };
+  scene.lights.fillIntensity = arena.ambientLight.intensity;
   scene.lights.exposure = std::clamp(settings.toneMapExposure, 0.25F, 4.0F);
   scene.lights.gradeQuality =
     std::clamp(settings.atmosphereGradeQuality, 0, 3);
@@ -5158,6 +5684,11 @@ Scene3D buildPerspectiveScene(
       )
     : SunShadowProjection{};
   scene.vertices.reserve(4096);
+  if (settings.drawRemotePlayers && settings.contactShadowsEnabled) {
+    scene.contactShadowVertices.reserve(
+      kDuelPlayerCount * kPlayerContactShadowVerticesPerPlayer
+    );
+  }
   scene.translucentVertices.reserve(256);
   scene.outlineMaskDraws.reserve(kDuelPlayerCount);
   scene.gltfPlayerModelInstances.reserve(kDuelPlayerCount);
@@ -5555,6 +6086,8 @@ Scene3D buildPerspectiveScene(
   }
   addTransientTracerInstances(scene, transientTracers, settings);
   addTransientEffectInstances(scene, transientEffects, settings);
+  const std::size_t firstRocketProjectileLight =
+    scene.temporaryLights.size();
   for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {
     const RocketProjectileSnapshot& projectile = rockets[projectileIndex];
     if (!projectile.active) {
@@ -5566,6 +6099,7 @@ Scene3D buildPerspectiveScene(
       scene,
       projectile,
       projectileIndex,
+      firstRocketProjectileLight,
       player,
       remotePlayers,
       settings
@@ -5578,6 +6112,66 @@ Scene3D buildPerspectiveScene(
   finalizeStaticMeshBatches(scene);
   finalizeGltfPlayerModelBatches(scene, gltfPlayerModel);
   finalizeProjectileInstanceStats(scene);
+
+  std::vector<LivePointLight> lightCandidates;
+  lightCandidates.reserve(
+    arena.staticLightCount + scene.temporaryLights.size()
+  );
+  if (settings.pointLightQuality > 0) {
+    for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+      const ArenaStaticLight& authored = arena.staticLights[index];
+      const float flickerFactor = authored.flickerEnabled
+        ? pointLightFlickerFactor(
+            authored.flickerSeed,
+            authored.flickerFrequencyHz,
+            authored.flickerMinFactor,
+            authored.flickerMaxFactor,
+            settings.presentationTimeSeconds
+          )
+        : 1.0F;
+      lightCandidates.push_back({
+        authored.position,
+        authored.color,
+        authored.intensity * flickerFactor,
+        authored.intensity,
+        authored.radius,
+        authored.sourceRadius,
+        1.0F,
+        authored.priority,
+        static_cast<std::uint16_t>(index),
+        true,
+        !staticLightBakesIntoWorld(authored),
+        authored.castsShadows,
+        authored.flickerEnabled,
+        false,
+      });
+    }
+  }
+  for (std::size_t index = 0; index < scene.temporaryLights.size(); ++index) {
+    const TemporaryLight& temporary = scene.temporaryLights[index];
+    lightCandidates.push_back({
+      temporary.position,
+      temporary.color,
+      temporary.intensity,
+      temporary.intensity,
+      temporary.radius,
+      0.0F,
+      1.0F,
+      1000,
+      static_cast<std::uint16_t>(index),
+      false,
+      true,
+      false,
+      false,
+      true,
+    });
+  }
+  scene.livePointLights = selectLivePointLights(
+    lightCandidates,
+    scene.camera,
+    livePointLightCapacity(settings.pointLightQuality),
+    &scene.pointLightStats
+  );
 
   return scene;
 }
@@ -5632,7 +6226,9 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
       << " sunIntensity=" << arena.sunLight.intensity
       << " sunColor=" << arena.sunLight.color.x << ','
       << arena.sunLight.color.y << ',' << arena.sunLight.color.z
-      << " ambient=" << kStaticLightAmbient
+      << " ambientIntensity=" << arena.ambientLight.intensity
+      << " ambientColor=" << arena.ambientLight.color.x << ','
+      << arena.ambientLight.color.y << ',' << arena.ambientLight.color.z
       << " buildMs=" << buildMs
       << '\n';
   }

@@ -19,6 +19,56 @@ constexpr std::size_t kHeaderBytes = 12;
   return weapon <= kLastWeapon;
 }
 
+[[nodiscard]] bool isProjectileWeapon(Weapon weapon) {
+  return weapon == Weapon::RocketLauncher ||
+    weapon == Weapon::GrenadeLauncher ||
+    weapon == Weapon::PlasmaGun;
+}
+
+constexpr std::uint32_t kMaxProjectilePresentationTicks = 7500U;
+
+[[nodiscard]] bool isValidProjectilePresentationTuning(
+  const ProjectilePresentationTuning& tuning
+) {
+  return
+    tuning.rocketLifetimeTicks > 0U &&
+    tuning.rocketLifetimeTicks <= kMaxProjectilePresentationTicks &&
+    tuning.grenadeFuseTicks > 0U &&
+    tuning.grenadeFuseTicks <= kMaxProjectilePresentationTicks &&
+    tuning.plasmaLifetimeTicks > 0U &&
+    tuning.plasmaLifetimeTicks <= kMaxProjectilePresentationTicks &&
+    std::isfinite(tuning.grenadeGravity) &&
+    tuning.grenadeGravity >= 0.0F &&
+    tuning.grenadeGravity <= 500.0F &&
+    std::isfinite(tuning.grenadeBounceDamping) &&
+    tuning.grenadeBounceDamping >= 0.0F &&
+    tuning.grenadeBounceDamping <= 1.5F &&
+    std::isfinite(tuning.grenadeRestSpeed) &&
+    tuning.grenadeRestSpeed >= 0.0F &&
+    tuning.grenadeRestSpeed <= 20.0F;
+}
+
+[[nodiscard]] bool isValidProjectileUpdate(
+  const ProjectileUpdate& update
+) {
+  return
+    update.slot < kMaxRocketProjectiles &&
+    update.sequence != 0U &&
+    update.kind <= ProjectileUpdateKind::Remove &&
+    isProjectileWeapon(update.weapon) &&
+    std::isfinite(update.position.x) &&
+    std::isfinite(update.position.y) &&
+    std::isfinite(update.position.z) &&
+    std::isfinite(update.velocity.x) &&
+    std::isfinite(update.velocity.y) &&
+    std::isfinite(update.velocity.z) &&
+    std::isfinite(update.radius) &&
+    update.radius >= 0.0F &&
+    update.radius <= 5.0F &&
+    update.ageTicks <= kMaxProjectilePresentationTicks &&
+    (!update.resting || update.weapon == Weapon::GrenadeLauncher);
+}
+
 [[nodiscard]] bool isValidWeaponSwitchingMode(WeaponSwitchingMode mode) {
   return mode <= WeaponSwitchingMode::Crazy;
 }
@@ -1205,6 +1255,7 @@ bool writeRocketExplosion(Writer& writer, const RocketExplosionResult& result) {
     writer.writeI32(result.ownerDamageApplied) &&
     writer.writeI32(result.opponentDamageApplied) &&
     writer.writeU32(result.sequence) &&
+    writer.writeU32(result.projectileSequence) &&
     writer.writeU8(static_cast<std::uint8_t>(result.weapon)));
 }
 
@@ -1224,6 +1275,7 @@ bool readRocketExplosion(Reader& reader, RocketExplosionResult& result) {
     !reader.readI32(ownerDamageApplied) ||
     !reader.readI32(opponentDamageApplied) ||
     !reader.readU32(result.sequence) ||
+    !reader.readU32(result.projectileSequence) ||
     !reader.readU8(weapon)
   ) {
     return false;
@@ -1354,61 +1406,6 @@ bool readLocalHitFeedbackEvent(
   event.damageApplied = damageApplied;
   event.weapon = static_cast<Weapon>(weapon);
   return true;
-}
-
-bool writeRocketProjectile(
-  Writer& writer,
-  const RocketProjectileSnapshot& projectile
-) {
-  if (projectile.weapon > kLastWeapon) {
-    return false;
-  }
-  if (!writer.writeBool(projectile.active)) {
-    return false;
-  }
-  if (!projectile.active) {
-    return true;
-  }
-  if (!(
-    writer.writeU8(projectile.owner) &&
-    writer.writeU8(static_cast<std::uint8_t>(projectile.weapon)) &&
-    writeVec3(writer, projectile.position) &&
-    writeVec3(writer, projectile.velocity)
-  )) {
-    return false;
-  }
-  return !projectile.active || writer.writeFloat(projectile.radius);
-}
-
-bool readRocketProjectile(
-  Reader& reader,
-  RocketProjectileSnapshot& projectile
-) {
-  std::uint8_t weapon = 0;
-  if (!reader.readBool(projectile.active)) {
-    return false;
-  }
-  if (!projectile.active) {
-    return true;
-  }
-  if (!(
-    reader.readU8(projectile.owner) &&
-    reader.readU8(weapon) &&
-    readVec3(reader, projectile.position) &&
-    readVec3(reader, projectile.velocity)
-  )) {
-    return false;
-  }
-  projectile.radius = 0.0F;
-  if (projectile.active && !reader.readFloat(projectile.radius)) {
-    return false;
-  }
-  return
-    projectile.owner < kDuelPlayerCount &&
-    weapon <= static_cast<std::uint8_t>(kLastWeapon) &&
-    projectile.radius >= 0.0F &&
-    projectile.radius <= 5.0F &&
-    (projectile.weapon = static_cast<Weapon>(weapon), true);
 }
 
 bool writeIcePool(Writer& writer, const IcePool& pool) {
@@ -1565,7 +1562,7 @@ bool inspectPacketType(const WirePacket& wire, PacketType& type) {
     reserved != 0 ||
     payloadBytes != wire.size() - kHeaderBytes ||
     encodedType < static_cast<std::uint8_t>(PacketType::ConnectRequest) ||
-    encodedType > static_cast<std::uint8_t>(PacketType::CombatStats)
+    encodedType > static_cast<std::uint8_t>(PacketType::ProjectileUpdates)
   ) {
     return false;
   }
@@ -1736,6 +1733,8 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !isValidGameMode(snapshot.gameMode) ||
     !isValidMapName(snapshot.map.mapName) ||
     snapshot.map.contentHash == 0 ||
+    snapshot.mapRevision == 0U ||
+    snapshot.projectileRevision == 0U ||
     !isValidWeaponSwitchingMode(snapshot.weaponSwitchingMode) ||
     !isValidBotAttackMode(snapshot.botAttackMode) ||
     !isValidWeapon(snapshot.botWeapon) ||
@@ -1745,6 +1744,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !isValidTeam(snapshot.mcguffinRedBaseOwner) ||
     !isValidTeam(snapshot.mcguffinBlueBaseOwner) ||
     !isValidMcGuffinConfig(snapshot.mcguffinConfig) ||
+    !isValidProjectilePresentationTuning(snapshot.projectilePresentation) ||
     !std::all_of(
       snapshot.teams.begin(),
       snapshot.teams.end(),
@@ -1786,6 +1786,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     !writer.writeU32(snapshot.acknowledgedCommandDatagramSequence) ||
     !writer.writeU32(snapshot.commandDatagramAckBits) ||
     !writer.writeU32(snapshot.mapRevision) ||
+    !writer.writeU32(snapshot.projectileRevision) ||
     !writer.writeString(snapshot.map.mapName, kMaxMapNameBytes) ||
     !writer.writeU32(snapshot.map.contentHash)
   ) {
@@ -1870,9 +1871,7 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
       }
     }
   }
-  if (!writeSparseArray(writer, snapshot.rockets,
-        [](const auto& value) { return value.active; }, writeRocketProjectile) ||
-      !writeSparseArray(writer, snapshot.icePools,
+  if (!writeSparseArray(writer, snapshot.icePools,
         [](const auto& value) { return value.active; }, writeIcePool)) {
     return false;
   }
@@ -2028,6 +2027,12 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
     writer.writeFloat(snapshot.icePoolTuning.slopeGravityScale) &&
     writer.writeFloat(snapshot.icePoolTuning.controlScale) &&
     writer.writeFloat(snapshot.icePoolTuning.mergeDistance) &&
+    writer.writeU32(snapshot.projectilePresentation.rocketLifetimeTicks) &&
+    writer.writeU32(snapshot.projectilePresentation.grenadeFuseTicks) &&
+    writer.writeU32(snapshot.projectilePresentation.plasmaLifetimeTicks) &&
+    writer.writeFloat(snapshot.projectilePresentation.grenadeGravity) &&
+    writer.writeFloat(snapshot.projectilePresentation.grenadeBounceDamping) &&
+    writer.writeFloat(snapshot.projectilePresentation.grenadeRestSpeed) &&
     writer.writeBool(snapshot.weaponAmmo.infiniteAmmo) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) &&
     writer.writeI32(snapshot.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) &&
@@ -2078,6 +2083,55 @@ bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire) {
   return compactSnapshotWire(wire);
 }
 
+bool encodeBoundedGameplaySnapshot(
+  const ServerSnapshot& snapshot,
+  WirePacket& wire
+) {
+  if (encodeServerSnapshot(snapshot, wire)) return true;
+
+  ServerSnapshot bounded = snapshot;
+
+  // Rewind geometry and movement sounds only affect presentation. Drop them
+  // first so player health, damage, and other authoritative state still reach
+  // every gameplay transport after a large same-tick event burst.
+  for (LightningGunResult& result : bounded.lightningGuns) {
+    result.hasRewindDebug = false;
+  }
+  bounded.footstepAudioEvents.fill({});
+  bounded.grenadeBounceAudioEvents.fill({});
+  if (encodeServerSnapshot(bounded, wire)) return true;
+
+  // Hit feedback is recipient-specific only when the transport tags its
+  // recipient. Loopback and simulated snapshots have no such tag, so preserve
+  // every window there and move to the next fallback tier.
+  if (bounded.hasLocalClientState) {
+    for (std::size_t player = 0; player < kDuelPlayerCount; ++player) {
+      if (
+        bounded.localSpectator ||
+        player != bounded.localPlayerIndex
+      ) {
+        bounded.localHitFeedbackEvents[player].fill({});
+      }
+    }
+    if (encodeServerSnapshot(bounded, wire)) return true;
+  }
+
+  // Recurring beams cost less to lose than one-shot feedback. Keep hit
+  // confirmations and frag events until lower-priority visuals are gone.
+  bounded.lightningGuns.fill({});
+  if (encodeServerSnapshot(bounded, wire)) return true;
+
+  // The next snapshot is self-contained, so transient fire and blast visuals
+  // may be cut before player, projectile, objective, or score state.
+  bounded.weaponFires.fill({});
+  bounded.rocketExplosions.fill({});
+  if (encodeServerSnapshot(bounded, wire)) return true;
+
+  bounded.fragEvents.fill({});
+  for (auto& events : bounded.localHitFeedbackEvents) events.fill({});
+  return encodeServerSnapshot(bounded, wire);
+}
+
 bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
   WirePacket expandedWire;
   if (!expandSnapshotWire(wire, expandedWire)) return false;
@@ -2094,10 +2148,13 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readU32(decoded.acknowledgedCommandDatagramSequence) ||
     !reader.readU32(decoded.commandDatagramAckBits) ||
     !reader.readU32(decoded.mapRevision) ||
+    !reader.readU32(decoded.projectileRevision) ||
     !reader.readString(decoded.map.mapName, kMaxMapNameBytes) ||
     !reader.readU32(decoded.map.contentHash) ||
     !isValidMapName(decoded.map.mapName) ||
     decoded.map.contentHash == 0 ||
+    decoded.mapRevision == 0U ||
+    decoded.projectileRevision == 0U ||
     (decoded.hasLocalClientState && !decoded.localSpectator &&
      decoded.localPlayerIndex >= kDuelPlayerCount) ||
     decoded.spectatorCount > kMaxSpectatorClients
@@ -2175,8 +2232,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
       }
     }
   }
-  if (!readSparseArray(reader, decoded.rockets, readRocketProjectile) ||
-      !readSparseArray(reader, decoded.icePools, readIcePool)) {
+  if (!readSparseArray(reader, decoded.icePools, readIcePool)) {
     return false;
   }
   for (bool& available : decoded.healthPickupAvailable) {
@@ -2372,6 +2428,12 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     !reader.readFloat(decoded.icePoolTuning.slopeGravityScale) ||
     !reader.readFloat(decoded.icePoolTuning.controlScale) ||
     !reader.readFloat(decoded.icePoolTuning.mergeDistance) ||
+    !reader.readU32(decoded.projectilePresentation.rocketLifetimeTicks) ||
+    !reader.readU32(decoded.projectilePresentation.grenadeFuseTicks) ||
+    !reader.readU32(decoded.projectilePresentation.plasmaLifetimeTicks) ||
+    !reader.readFloat(decoded.projectilePresentation.grenadeGravity) ||
+    !reader.readFloat(decoded.projectilePresentation.grenadeBounceDamping) ||
+    !reader.readFloat(decoded.projectilePresentation.grenadeRestSpeed) ||
     !reader.readBool(decoded.weaponAmmo.infiniteAmmo) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::LightningGun)]) ||
     !reader.readI32(decoded.weaponAmmo.spawnAmmo[weaponIndex(Weapon::Railgun)]) ||
@@ -2489,6 +2551,7 @@ bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot) {
     decoded.icePoolTuning.controlScale > 1.0F ||
     decoded.icePoolTuning.mergeDistance < 0.0F ||
     decoded.icePoolTuning.mergeDistance > 100.0F ||
+    !isValidProjectilePresentationTuning(decoded.projectilePresentation) ||
     !std::all_of(
       decoded.weaponAmmo.spawnAmmo.begin(),
       decoded.weaponAmmo.spawnAmmo.end(),
@@ -2738,6 +2801,119 @@ bool decodeCombatStatsPacket(
     if (!readRoundCombatStats(reader, decoded.match[index])) return false;
   }
   if (reader.remaining() != 0) return false;
+  packet = decoded;
+  return true;
+}
+
+bool encodeProjectileUpdatePacket(
+  const ProjectileUpdatePacket& packet,
+  WirePacket& wire
+) {
+  if (
+    packet.mapRevision == 0U ||
+    packet.projectileRevision == 0U ||
+    packet.updateCount > kMaxProjectileUpdatesPerPacket
+  ) {
+    wire.clear();
+    return false;
+  }
+
+  std::array<bool, kMaxRocketProjectiles> seenSlots = {};
+  Writer writer(wire);
+  if (
+    !writeHeader(writer, PacketType::ProjectileUpdates) ||
+    !writer.writeU32(packet.serverTick) ||
+    !writer.writeU32(packet.mapRevision) ||
+    !writer.writeU32(packet.projectileRevision) ||
+    !writer.writeU8(packet.updateCount)
+  ) {
+    wire.clear();
+    return false;
+  }
+  for (std::size_t index = 0; index < packet.updateCount; ++index) {
+    const ProjectileUpdate& update = packet.updates[index];
+    if (
+      !isValidProjectileUpdate(update) ||
+      seenSlots[update.slot] ||
+      !writer.writeU16(update.slot) ||
+      !writer.writeU32(update.sequence) ||
+      !writer.writeU8(static_cast<std::uint8_t>(update.kind)) ||
+      !writer.writeU8(static_cast<std::uint8_t>(update.weapon)) ||
+      !writeVec3(writer, update.position) ||
+      !writeVec3(writer, update.velocity) ||
+      !writer.writeFloat(update.radius) ||
+      !writer.writeU32(update.ageTicks) ||
+      !writer.writeBool(update.resting)
+    ) {
+      wire.clear();
+      return false;
+    }
+    seenSlots[update.slot] = true;
+  }
+  if (
+    !finishPacket(writer) ||
+    writer.size() > kMaxUdpApplicationDatagramBytes
+  ) {
+    wire.clear();
+    return false;
+  }
+  return true;
+}
+
+bool decodeProjectileUpdatePacket(
+  const WirePacket& wire,
+  ProjectileUpdatePacket& packet
+) {
+  if (wire.size() > kMaxUdpApplicationDatagramBytes) {
+    return false;
+  }
+
+  Reader reader(wire);
+  ProjectileUpdatePacket decoded;
+  if (
+    !readHeader(reader, PacketType::ProjectileUpdates, wire.size()) ||
+    !reader.readU32(decoded.serverTick) ||
+    !reader.readU32(decoded.mapRevision) ||
+    !reader.readU32(decoded.projectileRevision) ||
+    !reader.readU8(decoded.updateCount) ||
+    decoded.mapRevision == 0U ||
+    decoded.projectileRevision == 0U ||
+    decoded.updateCount > kMaxProjectileUpdatesPerPacket
+  ) {
+    return false;
+  }
+
+  std::array<bool, kMaxRocketProjectiles> seenSlots = {};
+  for (std::size_t index = 0; index < decoded.updateCount; ++index) {
+    ProjectileUpdate& update = decoded.updates[index];
+    std::uint8_t kind = 0;
+    std::uint8_t weapon = 0;
+    if (
+      !reader.readU16(update.slot) ||
+      !reader.readU32(update.sequence) ||
+      !reader.readU8(kind) ||
+      !reader.readU8(weapon) ||
+      !readVec3(reader, update.position) ||
+      !readVec3(reader, update.velocity) ||
+      !reader.readFloat(update.radius) ||
+      !reader.readU32(update.ageTicks) ||
+      !reader.readBool(update.resting)
+    ) {
+      return false;
+    }
+    update.kind = static_cast<ProjectileUpdateKind>(kind);
+    update.weapon = static_cast<Weapon>(weapon);
+    if (
+      !isValidProjectileUpdate(update) ||
+      seenSlots[update.slot]
+    ) {
+      return false;
+    }
+    seenSlots[update.slot] = true;
+  }
+  if (reader.remaining() != 0U) {
+    return false;
+  }
   packet = decoded;
   return true;
 }

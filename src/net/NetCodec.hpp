@@ -9,7 +9,7 @@
 namespace lg {
 
 inline constexpr std::uint32_t kProtocolMagic = 0x4C474455U;
-inline constexpr std::uint16_t kProtocolVersion = 56;
+inline constexpr std::uint16_t kProtocolVersion = 57;
 inline constexpr std::size_t kMaxPacketBytes = 65535;
 inline constexpr std::size_t kMaxUdpApplicationDatagramBytes = 1200;
 
@@ -25,6 +25,7 @@ enum class PacketType : std::uint8_t {
   ChatHistory = 9,
   ChatHistoryAck = 10,
   CombatStats = 11,
+  ProjectileUpdates = 12,
 };
 
 using WirePacket = std::vector<std::uint8_t>;
@@ -44,6 +45,14 @@ using WirePacket = std::vector<std::uint8_t>;
 [[nodiscard]] bool decodeCommandBundle(const WirePacket& wire, CommandBundle& bundle);
 
 [[nodiscard]] bool encodeServerSnapshot(const ServerSnapshot& snapshot, WirePacket& wire);
+// Gameplay transports use this path so the same low-priority fields are
+// dropped in the same order when a valid snapshot exceeds one UDP datagram.
+// The input stays unchanged. encodeServerSnapshot remains the strict, lossless
+// codec entry point.
+[[nodiscard]] bool encodeBoundedGameplaySnapshot(
+  const ServerSnapshot& snapshot,
+  WirePacket& wire
+);
 [[nodiscard]] bool decodeServerSnapshot(const WirePacket& wire, ServerSnapshot& snapshot);
 
 [[nodiscard]] bool encodePingPacket(PacketType type, const PingPacket& packet, WirePacket& wire);
@@ -85,6 +94,14 @@ using WirePacket = std::vector<std::uint8_t>;
 [[nodiscard]] bool decodeCombatStatsPacket(
   const WirePacket& wire,
   CombatStatsPacket& packet
+);
+[[nodiscard]] bool encodeProjectileUpdatePacket(
+  const ProjectileUpdatePacket& packet,
+  WirePacket& wire
+);
+[[nodiscard]] bool decodeProjectileUpdatePacket(
+  const WirePacket& wire,
+  ProjectileUpdatePacket& packet
 );
 
 } // namespace lg

@@ -103,7 +103,8 @@ namespace {
 
 [[nodiscard]] bool allowedCvar(std::string_view name) {
   static const std::set<std::string_view> allowed = {
-    "cl_fov", "cl_interp", "cl_interp_adaptive", "cl_interp_min", "cl_interp_max",
+    "cl_fov", "cl_late_mouse_sample", "cl_interp", "cl_interp_adaptive",
+    "cl_interp_min", "cl_interp_max",
     "cl_interp_extrapolate", "cl_local_render_prediction", "r_maxfps", "r_msaa",
     "r_render_scale", "r_texture_filter", "r_texture_anisotropy", "r_texture_lod_bias",
     "r_draw_remote_players", "r_draw_remote_weapons", "r_draw_player_outlines",
@@ -557,6 +558,38 @@ dev::JsonValue resultJson(
   subsystemTimings.object["render_frame"] = std::move(renderFrameTimings);
   subsystemTimings.object["simulation_tick"] = std::move(simulationTickTimings);
   root.object["subsystem_timings"] = std::move(subsystemTimings);
+  dev::JsonValue lateMouseSample = dev::JsonValue::objectValue();
+  lateMouseSample.object["callback_ms"] = timingMetric(
+    samples,
+    [](const FrameSample& s) { return s.lateMouseSampleMilliseconds; }
+  );
+  lateMouseSample.object["sample_to_submit_ms"] = timingMetric(
+    samples,
+    [](const FrameSample& s) {
+      return s.mouseSampleToSubmitMilliseconds;
+    }
+  );
+  lateMouseSample.object["phase_gain_ms"] = timingMetric(
+    samples,
+    [](const FrameSample& s) {
+      return s.mouseSamplePhaseGainMilliseconds;
+    }
+  );
+  lateMouseSample.object["enabled_count"] = dev::JsonValue::numberValue(
+    static_cast<double>(std::count_if(
+      samples.begin(),
+      samples.end(),
+      [](const FrameSample& s) { return s.lateMouseSampleEnabled; }
+    ))
+  );
+  lateMouseSample.object["applied_count"] = dev::JsonValue::numberValue(
+    static_cast<double>(std::count_if(
+      samples.begin(),
+      samples.end(),
+      [](const FrameSample& s) { return s.lateMouseSampleApplied; }
+    ))
+  );
+  root.object["late_mouse_sample"] = std::move(lateMouseSample);
   const auto optionalTimingMetric = [](const auto& source, auto select) {
     std::vector<double> values;
     values.reserve(source.size());
@@ -716,6 +749,9 @@ dev::JsonValue frameTimelineJson(
   );
   schema.object["cpu_subsystems_ms"] = dev::JsonValue::stringValue(
     "named CPU spans in milliseconds; values are not required to sum to total_cpu_ms"
+  );
+  schema.object["late_mouse_sample"] = dev::JsonValue::stringValue(
+    "late mouse callback cost, sample-to-submit span, phase gain, and enabled/applied flags; spans are not additive CPU subsystems"
   );
   schema.object["gpu_subsystems_ms"] = dev::JsonValue::stringValue(
     "named GPU stage spans in milliseconds; values may overlap and do not sum to total_gpu_ms"
@@ -891,6 +927,18 @@ dev::JsonValue frameTimelineJson(
       dev::JsonValue::numberValue(sample.dynamicCommandEncodingMilliseconds);
     cpu.object["ui"] = dev::JsonValue::numberValue(sample.uiMilliseconds);
     frame.object["cpu_subsystems_ms"] = std::move(cpu);
+    dev::JsonValue lateMouseSample = dev::JsonValue::objectValue();
+    lateMouseSample.object["callback_ms"] =
+      dev::JsonValue::numberValue(sample.lateMouseSampleMilliseconds);
+    lateMouseSample.object["sample_to_submit_ms"] =
+      dev::JsonValue::numberValue(sample.mouseSampleToSubmitMilliseconds);
+    lateMouseSample.object["phase_gain_ms"] =
+      dev::JsonValue::numberValue(sample.mouseSamplePhaseGainMilliseconds);
+    lateMouseSample.object["enabled"] =
+      dev::JsonValue::booleanValue(sample.lateMouseSampleEnabled);
+    lateMouseSample.object["applied"] =
+      dev::JsonValue::booleanValue(sample.lateMouseSampleApplied);
+    frame.object["late_mouse_sample"] = std::move(lateMouseSample);
     dev::JsonValue gpu = dev::JsonValue::objectValue();
     dev::JsonValue gpuStates = dev::JsonValue::objectValue();
     for (std::size_t passIndex = 0;
@@ -1001,6 +1049,9 @@ bool writeArtifacts(
     "movement_collision_ms,traces_ms,interpolation_ms,animation_ms,"
     "world_visibility_ms,render_instance_construction_ms,"
     "world_command_encoding_ms,dynamic_command_encoding_ms,ui_ms,"
+    "late_mouse_sample_ms,mouse_sample_to_submit_ms,"
+    "mouse_sample_phase_gain_ms,late_mouse_sample_enabled,"
+    "late_mouse_sample_applied,"
     "gpu_primary_command_buffer_ms,outline_gpu_ms,outline_gpu_state,"
     "uploaded_vertices,rendered_triangles,world_draws,world_submitted_triangles,"
     "world_submitted_ranges,world_total_chunks,world_visible_chunks,"
@@ -1037,6 +1088,11 @@ bool writeArtifacts(
       << ',' << s.renderInstanceConstructionMilliseconds
       << ',' << s.worldCommandEncodingMilliseconds
       << ',' << s.dynamicCommandEncodingMilliseconds << ',' << s.uiMilliseconds
+      << ',' << s.lateMouseSampleMilliseconds
+      << ',' << s.mouseSampleToSubmitMilliseconds
+      << ',' << s.mouseSamplePhaseGainMilliseconds
+      << ',' << (s.lateMouseSampleEnabled ? 1 : 0)
+      << ',' << (s.lateMouseSampleApplied ? 1 : 0)
       << ',';
     if (s.gpuPrimaryCommandBufferMilliseconds) {
       telemetry << *s.gpuPrimaryCommandBufferMilliseconds;

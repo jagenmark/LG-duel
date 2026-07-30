@@ -157,6 +157,18 @@ int main() {
     bloomControl.ok && bloomControl.scenario.cvars.contains("r_bloom"),
     "benchmark scenarios should allow a fixed bloom setting"
   );
+  const lg::benchmark::ParseResult lateMouseControl = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"late-mouse-control","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"cl_late_mouse_sample":0}
+  })");
+  failures += expect(
+    lateMouseControl.ok &&
+      lateMouseControl.scenario.cvars.at("cl_late_mouse_sample") == "0",
+    "benchmark scenarios should allow a late mouse sampling A/B setting"
+  );
   const lg::benchmark::ParseResult mutedAudio = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
     "name":"muted-audio","map":"eyetoeye","resolution":[1280,720],
@@ -227,6 +239,11 @@ int main() {
   samples[1].lightCount = 2;
   samples[1].particleCount = 4;
   samples[1].transparentEffectCount = 7;
+  samples[1].lateMouseSampleMilliseconds = 0.25;
+  samples[1].mouseSampleToSubmitMilliseconds = 0.5;
+  samples[1].mouseSamplePhaseGainMilliseconds = 1.5;
+  samples[1].lateMouseSampleEnabled = true;
+  samples[1].lateMouseSampleApplied = true;
   std::vector<lg::benchmark::SimulationTickSample> tickSamples(100);
   for (std::size_t index = 0; index < tickSamples.size(); ++index) {
     tickSamples[index].index = index;
@@ -332,6 +349,8 @@ int main() {
       ? subsystem->find("simulation_tick") : nullptr;
     const lg::dev::JsonValue* simulation = simulationTick != nullptr
       ? simulationTick->find("simulation") : nullptr;
+    const lg::dev::JsonValue* lateMouseSample =
+      resultValue.find("late_mouse_sample");
     failures += expect(
       network != nullptr && network->find("median_ms") != nullptr &&
         network->find("median_ms")->number == 500.0 &&
@@ -345,6 +364,18 @@ int main() {
         simulation->find("p95_ms")->number == 95.0 &&
         simulation->find("p99_ms")->number == 99.0,
       "simulation-tick timings should aggregate independently from render frames"
+    );
+    failures += expect(
+      lateMouseSample != nullptr &&
+        lateMouseSample->find("callback_ms") != nullptr &&
+        lateMouseSample->find("callback_ms")->find("count")->number == 1000.0 &&
+        lateMouseSample->find("sample_to_submit_ms") != nullptr &&
+        lateMouseSample->find("phase_gain_ms") != nullptr &&
+        lateMouseSample->find("enabled_count")->number == 1.0 &&
+        lateMouseSample->find("applied_count")->number == 1.0 &&
+        renderFrame != nullptr &&
+        renderFrame->find("phase_gain") == nullptr,
+      "late mouse values should have their own summaries and frame counts"
     );
     const lg::dev::JsonValue* timelineFrames = timelineValue.find("frames");
     const lg::dev::JsonValue* secondTimelineFrame =
@@ -366,6 +397,10 @@ int main() {
       ? secondTimelineFrame->find("workload_counters") : nullptr;
     const lg::dev::JsonValue* markers = secondTimelineFrame != nullptr
       ? secondTimelineFrame->find("event_markers") : nullptr;
+    const lg::dev::JsonValue* timelineLateMouse =
+      secondTimelineFrame != nullptr
+        ? secondTimelineFrame->find("late_mouse_sample")
+        : nullptr;
     failures += expect(
       timelineValue.find("format") != nullptr &&
         timelineValue.find("format")->string == "lg-duel-frame-timeline" &&
@@ -406,6 +441,17 @@ int main() {
         workload->find("transparent_effects") != nullptr &&
         workload->find("transparent_effects")->number == 7.0,
       "frame timeline should retain named CPU timings and workload counters"
+    );
+    failures += expect(
+      timelineLateMouse != nullptr &&
+        timelineLateMouse->find("callback_ms")->number == 0.25 &&
+        timelineLateMouse->find("sample_to_submit_ms")->number == 0.5 &&
+        timelineLateMouse->find("phase_gain_ms")->number == 1.5 &&
+        timelineLateMouse->find("enabled")->boolean &&
+        timelineLateMouse->find("applied")->boolean &&
+        cpuSubsystems != nullptr &&
+        cpuSubsystems->find("phase_gain") == nullptr,
+      "frame timeline should keep late mouse timing outside CPU subsystems"
     );
     failures += expect(
       markers != nullptr &&
@@ -578,6 +624,11 @@ int main() {
     failures += expect(
       frameTelemetry.find("network_processing_ms") != std::string::npos &&
         frameTelemetry.find("dynamic_command_encoding_ms") != std::string::npos &&
+        frameTelemetry.find(
+          "late_mouse_sample_ms,mouse_sample_to_submit_ms,"
+          "mouse_sample_phase_gain_ms,late_mouse_sample_enabled,"
+          "late_mouse_sample_applied"
+        ) != std::string::npos &&
         frameTelemetry.find(
           "gpu_primary_command_buffer_ms,outline_gpu_ms,outline_gpu_state"
         ) != std::string::npos &&

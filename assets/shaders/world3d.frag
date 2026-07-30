@@ -11,8 +11,10 @@ layout(location = 0) out vec4 outColor;
 layout(set = 2, binding = 0) uniform sampler2D worldAtlas;
 layout(set = 3, binding = 0, std140) uniform SceneLightData {
   vec4 parameters;
-  vec4 positionRadius[8];
-  vec4 colorIntensity[8];
+  vec4 positionRadius[32];
+  vec4 colorIntensity[32];
+  vec4 lightParameters[32];
+  vec4 pointShadowParameters;
   vec4 sunDirectionIntensity;
   vec4 sunColor;
   vec4 fillColorIntensity;
@@ -40,15 +42,25 @@ void main() {
   int materialQuality =
     clamp(int(sceneLights.parameters.w + 0.5), 0, 2);
   if (materialQuality > 0) {
-    int count = clamp(int(sceneLights.parameters.x + 0.5), 0, 8);
+    int count = clamp(int(sceneLights.parameters.x + 0.5), 0, 32);
     for (int index = 0; index < count; ++index) {
       vec3 offset = sceneLights.positionRadius[index].xyz - worldPosition;
       float radius = max(sceneLights.positionRadius[index].w, 0.001);
       float distanceToLight = length(offset);
-      float attenuation = clamp(1.0 - distanceToLight / radius, 0.0, 1.0);
+      float sourceRadius = clamp(
+        sceneLights.lightParameters[index].x,
+        0.0,
+        radius
+      );
+      float attenuation = clamp(
+        (radius - distanceToLight) / max(radius - sourceRadius, 0.001),
+        0.0,
+        1.0
+      );
       attenuation *= attenuation;
       linearColor += sceneLights.colorIntensity[index].rgb *
-        sceneLights.colorIntensity[index].w * attenuation;
+        sceneLights.colorIntensity[index].w * attenuation *
+        sceneLights.lightParameters[index].w;
     }
   }
   int atmosphereQuality =

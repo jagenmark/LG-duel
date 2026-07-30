@@ -47,6 +47,71 @@ bool finiteVec3(lg::Vec3 value) {
     std::isfinite(value.z);
 }
 
+lg::Vec3 crossProduct(lg::Vec3 lhs, lg::Vec3 rhs) {
+  return {
+    (lhs.y * rhs.z) - (lhs.z * rhs.y),
+    (lhs.z * rhs.x) - (lhs.x * rhs.z),
+    (lhs.x * rhs.y) - (lhs.y * rhs.x),
+  };
+}
+
+float contactShadowMaxRadius(const lg::Scene3D& scene) {
+  if (scene.contactShadowVertices.empty()) {
+    return 0.0F;
+  }
+  const lg::Vec3 center = scene.contactShadowVertices.front().position;
+  float radius = 0.0F;
+  for (const lg::Vertex3D& vertex : scene.contactShadowVertices) {
+    radius = std::max(radius, lg::length(vertex.position - center));
+  }
+  return radius;
+}
+
+lg::ArenaBrush slopedTopBrush(
+  float minX,
+  float maxX,
+  float zAtMinX,
+  float zAtMaxX
+) {
+  lg::ArenaBrush brush;
+  const float maxZ = std::max(zAtMinX, zAtMaxX);
+  brush.min = {minX, -4.0F, 0.0F};
+  brush.max = {maxX, 4.0F, maxZ};
+  brush.vertexCount = 8;
+  brush.vertices[0] = {minX, -4.0F, 0.0F};
+  brush.vertices[1] = {maxX, -4.0F, 0.0F};
+  brush.vertices[2] = {maxX, 4.0F, 0.0F};
+  brush.vertices[3] = {minX, 4.0F, 0.0F};
+  brush.vertices[4] = {minX, -4.0F, zAtMinX};
+  brush.vertices[5] = {maxX, -4.0F, zAtMaxX};
+  brush.vertices[6] = {maxX, 4.0F, zAtMaxX};
+  brush.vertices[7] = {minX, 4.0F, zAtMinX};
+  brush.faceCount = 6;
+  brush.faces[0] = {{-1.0F, 0.0F, 0.0F}, -minX};
+  brush.faces[0].vertices = {0, 3, 7, 4};
+  brush.faces[0].vertexCount = 4;
+  brush.faces[1] = {{1.0F, 0.0F, 0.0F}, maxX};
+  brush.faces[1].vertices = {1, 5, 6, 2};
+  brush.faces[1].vertexCount = 4;
+  brush.faces[2] = {{0.0F, -1.0F, 0.0F}, 4.0F};
+  brush.faces[2].vertices = {0, 4, 5, 1};
+  brush.faces[2].vertexCount = 4;
+  brush.faces[3] = {{0.0F, 1.0F, 0.0F}, 4.0F};
+  brush.faces[3].vertices = {3, 2, 6, 7};
+  brush.faces[3].vertexCount = 4;
+  brush.faces[4] = {{0.0F, 0.0F, -1.0F}, 0.0F};
+  brush.faces[4].vertices = {0, 1, 2, 3};
+  brush.faces[4].vertexCount = 4;
+  const float slope = (zAtMaxX - zAtMinX) / (maxX - minX);
+  const lg::Vec3 topNormal = lg::normalize({-slope, 0.0F, 1.0F});
+  brush.faces[5].normal = topNormal;
+  brush.faces[5].distance =
+    (topNormal.x * minX) + (topNormal.z * zAtMinX);
+  brush.faces[5].vertices = {4, 5, 6, 7};
+  brush.faces[5].vertexCount = 4;
+  return brush;
+}
+
 const lg::SimpleRenderInstance* findSimpleMesh(
   const lg::Scene3D& scene,
   lg::MeshHandle mesh
@@ -326,12 +391,181 @@ int main() {
       lg::sunShadowMapSize(2) == 2048U,
     "sun shadow quality should map to off, 1024, and 2048"
   );
+  failures += expect(
+    lg::livePointLightCapacity(0) == 8U &&
+      lg::livePointLightCapacity(1) == 16U &&
+      lg::livePointLightCapacity(2) == 32U,
+    "point-light quality should retain combat slots and scale authored capacity"
+  );
+  const float flickerAtStart = lg::pointLightFlickerFactor(
+    17U, 6.0F, 0.65F, 1.15F, 4.25
+  );
+  failures += expect(
+    nearlyEqual(
+      flickerAtStart,
+      lg::pointLightFlickerFactor(17U, 6.0F, 0.65F, 1.15F, 4.25)
+    ) &&
+      flickerAtStart >= 0.65F &&
+      flickerAtStart <= 1.15F &&
+      !nearlyEqual(
+        flickerAtStart,
+        lg::pointLightFlickerFactor(18U, 6.0F, 0.65F, 1.15F, 4.25)
+      ),
+    "point-light flicker should be bounded, seeded, and deterministic"
+  );
+  failures += expect(
+    lg::pointShadowFace({4.0F, 1.0F, -2.0F}) ==
+        lg::PointShadowFace::PositiveX &&
+      lg::pointShadowFace({-1.0F, -5.0F, 2.0F}) ==
+        lg::PointShadowFace::NegativeY &&
+      lg::pointShadowFace({1.0F, 2.0F, 6.0F}) ==
+        lg::PointShadowFace::PositiveZ &&
+      lg::pointShadowLayer(1U, lg::PointShadowFace::NegativeZ) == 11U,
+    "point-shadow face and array-layer mapping should stay stable"
+  );
+  lg::PerspectiveCamera lightCamera;
+  lightCamera.position = {};
+  lightCamera.forward = {1.0F, 0.0F, 0.0F};
+  lightCamera.right = {0.0F, -1.0F, 0.0F};
+  lightCamera.up = {0.0F, 0.0F, 1.0F};
+  lightCamera.focalLength = 1.0F;
+  lightCamera.aspectRatio = 1.0F;
+  const std::array<lg::LivePointLight, 3> rankedLights = {{
+    {
+      {-1.0F, 0.0F, 0.0F}, {1.0F, 0.2F, 0.1F}, 1.0F, 1.0F, 2.5F,
+      0.0F, 1.0F, 0, 2U, true, true, true, true, false,
+    },
+    {
+      {12.0F, 0.0F, 0.0F}, {0.1F, 1.0F, 0.2F}, 1.0F, 1.0F, 2.0F,
+      0.0F, 1.0F, 50, 1U, true, false, false, false, false,
+    },
+    {
+      {8.0F, 0.0F, 0.0F}, {0.2F, 0.1F, 1.0F}, 1.0F, 1.0F, 2.0F,
+      0.0F, 1.0F, 0, 0U, true, false, false, false, false,
+    },
+  }};
+  lg::PointLightSelectionStats rankedStats;
+  const std::vector<lg::LivePointLight> selectedRankedLights =
+    lg::selectLivePointLights(
+      rankedLights,
+      lightCamera,
+      2U,
+      &rankedStats
+    );
+  failures += expect(
+    selectedRankedLights.size() == 2U &&
+      selectedRankedLights[0].sourceIndex == 2U &&
+      selectedRankedLights[1].sourceIndex == 1U &&
+      rankedStats.closeRetained == 1U &&
+      rankedStats.dropped == 1U,
+    "point-light selection should retain a close behind-camera influence sphere"
+  );
+  const std::vector<lg::LivePointLight> closePointShadow =
+    lg::selectPointShadowLights(
+      std::span<const lg::LivePointLight>(
+        selectedRankedLights.data(),
+        1U
+      ),
+      lightCamera,
+      1U
+    );
+  failures += expect(
+    closePointShadow.size() == 1U &&
+      closePointShadow[0].sourceIndex == 2U,
+    "a close behind-camera caster should remain eligible for a shadow slot"
+  );
+  const std::array<lg::LivePointLight, 2> tieLights = {{
+    {
+      {8.0F, 1.0F, 0.0F}, {}, 1.0F, 1.0F, 2.0F, 0.0F, 1.0F,
+      4, 9U, true, false, false, false, false,
+    },
+    {
+      {8.0F, -1.0F, 0.0F}, {}, 1.0F, 1.0F, 2.0F, 0.0F, 1.0F,
+      4, 3U, true, false, false, false, false,
+    },
+  }};
+  const std::vector<lg::LivePointLight> selectedTieLight =
+    lg::selectLivePointLights(tieLights, lightCamera, 1U);
+  failures += expect(
+    selectedTieLight.size() == 1U && selectedTieLight[0].sourceIndex == 3U,
+    "point-light rank ties should use the stable authored source index"
+  );
+  const std::array<lg::LivePointLight, 2> visibilityCasters = {{
+    {
+      {-10.0F, 0.0F, 0.0F}, {}, 1.0F, 1.0F, 1.0F, 0.0F, 1.0F,
+      100, 4U, true, true, true, false, false,
+    },
+    {
+      {8.0F, 0.0F, 0.0F}, {}, 1.0F, 1.0F, 2.0F, 0.0F, 1.0F,
+      0, 7U, true, true, true, false, false,
+    },
+  }};
+  const std::vector<lg::LivePointLight> visibleCaster =
+    lg::selectLivePointLights(visibilityCasters, lightCamera, 2U);
+  const std::vector<lg::LivePointLight> visiblePointShadow =
+    lg::selectPointShadowLights(visibleCaster, lightCamera, 1U);
+  failures += expect(
+    visibleCaster.size() == 1U &&
+      visiblePointShadow.size() == 1U &&
+      visiblePointShadow[0].sourceIndex == 7U,
+    "an off-screen high-priority caster should not take a visible shadow slot"
+  );
+  const std::array<lg::LivePointLight, 2> flickerFrameA = {{
+    {
+      {8.0F, 0.0F, 0.0F}, {}, 0.1F, 2.0F, 2.0F, 0.0F, 1.0F,
+      0, 5U, true, true, true, true, false,
+    },
+    {
+      {8.0F, 1.0F, 0.0F}, {}, 4.0F, 1.0F, 2.0F, 0.0F, 1.0F,
+      0, 6U, true, true, true, true, false,
+    },
+  }};
+  std::array<lg::LivePointLight, 2> flickerFrameB = flickerFrameA;
+  flickerFrameB[0].intensity = 4.0F;
+  flickerFrameB[1].intensity = 0.1F;
+  const std::vector<lg::LivePointLight> flickerSelectedA =
+    lg::selectLivePointLights(flickerFrameA, lightCamera, 1U);
+  const std::vector<lg::LivePointLight> flickerSelectedB =
+    lg::selectLivePointLights(flickerFrameB, lightCamera, 1U);
+  const std::vector<lg::LivePointLight> flickerShadowA =
+    lg::selectPointShadowLights(flickerSelectedA, lightCamera, 1U);
+  const std::vector<lg::LivePointLight> flickerShadowB =
+    lg::selectPointShadowLights(flickerSelectedB, lightCamera, 1U);
+  failures += expect(
+    flickerSelectedA.size() == 1U &&
+      flickerSelectedB.size() == 1U &&
+      flickerShadowA.size() == 1U &&
+      flickerShadowB.size() == 1U &&
+      flickerSelectedA[0].sourceIndex == 5U &&
+      flickerSelectedB[0].sourceIndex == 5U &&
+      flickerShadowA[0].sourceIndex == 5U &&
+      flickerShadowB[0].sourceIndex == 5U,
+    "runtime flicker intensity should not change live or shadow selection"
+  );
+  lg::ArenaStaticLight bakedPointLight;
+  lg::ArenaStaticLight flickeringPointLight;
+  flickeringPointLight.flickerEnabled = true;
+  lg::ArenaStaticLight shadowedPointLight;
+  shadowedPointLight.castsShadows = true;
+  failures += expect(
+    lg::staticLightBakesIntoWorld(bakedPointLight) &&
+      !lg::staticLightBakesIntoWorld(flickeringPointLight) &&
+      !lg::staticLightBakesIntoWorld(shadowedPointLight),
+    "flickering and shadowed lights must stay out of static world vertex light"
+  );
   constexpr lg::FragmentResourceLayout instancedColorLayout =
     lg::instancedColorFragmentLayout();
   failures += expect(
-    instancedColorLayout.samplers == 0U &&
+    instancedColorLayout.samplers == 1U &&
       instancedColorLayout.uniformBuffers == 1U,
-    "instanced color pipelines should declare their scene light uniform"
+    "instanced color pipelines should declare point shadow and scene light resources"
+  );
+  constexpr lg::FragmentResourceLayout untexturedLightLayout =
+    lg::untexturedSceneLightFragmentLayout();
+  failures += expect(
+    untexturedLightLayout.samplers == 0U &&
+      untexturedLightLayout.uniformBuffers == 1U,
+    "glow and bloom source pipelines should declare no sampler and one scene light uniform"
   );
   constexpr lg::FragmentResourceLayout sceneCompositeLayout =
     lg::sceneCompositeFragmentLayout();
@@ -418,6 +652,25 @@ int main() {
       fullShadowPass.renderShadowPass &&
       !fullShadowPass.useClearedFallback,
     "disabled shadows should use the cleared fallback without a frame pass"
+  );
+  constexpr lg::PointShadowPassPlan noPointShadowPass =
+    lg::buildPointShadowPassPlan(0, 4U, false);
+  constexpr lg::PointShadowPassPlan lowPointShadowPass =
+    lg::buildPointShadowPassPlan(1, 4U, false);
+  constexpr lg::PointShadowPassPlan cachedHighPointShadowPass =
+    lg::buildPointShadowPassPlan(2, 4U, true);
+  failures += expect(
+    noPointShadowPass.useClearedFallback &&
+      noPointShadowPass.lightCount == 0U &&
+      lowPointShadowPass.textureSize == 256U &&
+      lowPointShadowPass.lightCount == 1U &&
+      lowPointShadowPass.layerCount == 6U &&
+      lowPointShadowPass.renderCache &&
+      cachedHighPointShadowPass.textureSize == 512U &&
+      cachedHighPointShadowPass.lightCount == 2U &&
+      cachedHighPointShadowPass.layerCount == 12U &&
+      !cachedHighPointShadowPass.renderCache,
+    "point-shadow quality should map to a bounded cached depth-array plan"
   );
   failures += expect(
     lg::classifyWorldMaterial("textures/metal/steel_plate").kind ==
@@ -781,6 +1034,8 @@ int main() {
   sharedLightArena.sunLight.direction = {0.25F, -0.40F, -0.88F};
   sharedLightArena.sunLight.color = {0.82F, 0.90F, 1.0F};
   sharedLightArena.sunLight.intensity = 0.64F;
+  sharedLightArena.ambientLight.color = {0.75F, 0.85F, 1.0F};
+  sharedLightArena.ambientLight.intensity = 0.38F;
   lg::RenderSettings sharedLightSettings = settings;
   sharedLightSettings.materialQuality = 2;
   const lg::Scene3D sharedLightScene = lg::buildPerspectiveScene(
@@ -791,7 +1046,10 @@ int main() {
   failures += expect(
     nearlyEqual(sharedLightScene.lights.sunIntensity, 0.64F) &&
       nearlyEqual(sharedLightScene.lights.sunColor.x, 0.82F) &&
-      sharedLightScene.lights.fillIntensity > 0.0F &&
+      nearlyEqual(sharedLightScene.lights.fillColor.x, 0.225F) &&
+      nearlyEqual(sharedLightScene.lights.fillColor.y, 0.306F) &&
+      nearlyEqual(sharedLightScene.lights.fillColor.z, 0.46F) &&
+      nearlyEqual(sharedLightScene.lights.fillIntensity, 0.38F) &&
       sharedLightScene.lights.materialQuality == 2,
     "world, player, and weapon passes should share one scene light record"
   );
@@ -810,6 +1068,239 @@ int main() {
   failures += expect(
     noContactShadowScene.contactShadowVertices.empty(),
     "disabled contact shadows should not emit blob geometry"
+  );
+
+  lg::PlayerState midHeightOpponent = opponent;
+  midHeightOpponent.position.z += 0.75F;
+  midHeightOpponent.onGround = false;
+  midHeightOpponent.movementMode = lg::MovementMode::Airborne;
+  const lg::Scene3D midHeightShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, midHeightOpponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  lg::PlayerState nearCutoffOpponent = midHeightOpponent;
+  nearCutoffOpponent.position.z = opponent.position.z + 1.49F;
+  const lg::Scene3D nearCutoffShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, nearCutoffOpponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  lg::PlayerState cutoffOpponent = midHeightOpponent;
+  cutoffOpponent.position.z = opponent.position.z + 1.5F;
+  const lg::Scene3D cutoffShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, cutoffOpponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  failures += expect(
+    midHeightShadowScene.contactShadowVertices.size() == 48U &&
+      nearCutoffShadowScene.contactShadowVertices.size() == 48U &&
+      midHeightShadowScene.contactShadowVertices.front().color.alpha <
+        baseScene.contactShadowVertices.front().color.alpha &&
+      midHeightShadowScene.contactShadowVertices.front().color.alpha == 41U &&
+      nearCutoffShadowScene.contactShadowVertices.front().color.alpha > 0U &&
+      nearCutoffShadowScene.contactShadowVertices.front().color.alpha <
+        midHeightShadowScene.contactShadowVertices.front().color.alpha &&
+      nearlyEqual(
+        contactShadowMaxRadius(baseScene),
+        contactShadowMaxRadius(midHeightShadowScene)
+      ) &&
+      nearlyEqual(
+        contactShadowMaxRadius(baseScene),
+        contactShadowMaxRadius(nearCutoffShadowScene)
+      ) &&
+      cutoffShadowScene.contactShadowVertices.empty(),
+    "airborne contact shadows should keep their hitbox radius, fade smoothly, and stop at the 1.5-unit cutoff"
+  );
+
+  lg::PlayerState noGroundOpponent = opponent;
+  noGroundOpponent.position.z = 4.0F;
+  noGroundOpponent.onGround = true;
+  const lg::Scene3D noGroundShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, noGroundOpponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  failures += expect(
+    noGroundShadowScene.contactShadowVertices.empty(),
+    "a stale grounded flag without a receiving surface in range should not emit a shadow"
+  );
+
+  lg::Arena hiddenFloorArena = arena;
+  hiddenFloorArena.renderDefaultFloor = false;
+  const lg::Scene3D hiddenFloorShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, hiddenFloorArena, player, opponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  lg::Arena playerClipFloorArena = hiddenFloorArena;
+  playerClipFloorArena.min.z = -4.0F;
+  playerClipFloorArena.wallCount = 1;
+  playerClipFloorArena.walls[0].min = {3.0F, 1.0F, -1.0F};
+  playerClipFloorArena.walls[0].max = {5.0F, 3.0F, 0.0F};
+  playerClipFloorArena.walls[0].collisionKind =
+    lg::ArenaCollisionKind::PlayerClip;
+  playerClipFloorArena.walls[0].renderable = false;
+  const lg::Scene3D playerClipFloorShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, playerClipFloorArena, player, opponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  lg::Arena slopedPlayerClipArena = arena;
+  slopedPlayerClipArena.min.z = -4.0F;
+  slopedPlayerClipArena.brushCount = 1;
+  slopedPlayerClipArena.brushes[0] =
+    slopedTopBrush(2.0F, 6.0F, -0.5F, 0.5F);
+  slopedPlayerClipArena.brushes[0].collisionKind =
+    lg::ArenaCollisionKind::PlayerClip;
+  slopedPlayerClipArena.brushes[0].renderable = false;
+  const lg::ArenaBrushFace& playerClipSlopeTop =
+    slopedPlayerClipArena.brushes[0].faces[5];
+  lg::PlayerState slopedPlayerClipOpponent = opponent;
+  const float playerClipSlopeSupport =
+    slopedPlayerClipOpponent.bounds.radius *
+      std::hypot(
+        playerClipSlopeTop.normal.x,
+        playerClipSlopeTop.normal.y
+      ) +
+    slopedPlayerClipOpponent.bounds.halfHeight *
+      std::fabs(playerClipSlopeTop.normal.z);
+  slopedPlayerClipOpponent.position.z =
+    (
+      playerClipSlopeTop.distance +
+      playerClipSlopeSupport -
+      (playerClipSlopeTop.normal.x * slopedPlayerClipOpponent.position.x) -
+      (playerClipSlopeTop.normal.y * slopedPlayerClipOpponent.position.y)
+    ) / playerClipSlopeTop.normal.z;
+  const lg::Scene3D slopedPlayerClipShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, slopedPlayerClipArena, player,
+    slopedPlayerClipOpponent, inactiveBeam, inactiveBeam, weaponFires,
+    rocketExplosions, rockets, settings
+  );
+  failures += expect(
+    hiddenFloorShadowScene.contactShadowVertices.empty() &&
+      playerClipFloorShadowScene.contactShadowVertices.empty() &&
+      slopedPlayerClipShadowScene.contactShadowVertices.empty(),
+    "arena bounds and flat or sloped non-rendered playerclip should not receive contact shadows"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> hiddenShadowPlayers = {};
+  hiddenShadowPlayers[1].player = opponent;
+  hiddenShadowPlayers[1].visible = false;
+  const lg::Scene3D hiddenShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, hiddenShadowPlayers, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, settings
+  );
+  failures += expect(
+    hiddenShadowScene.contactShadowVertices.empty(),
+    "hidden remote players should not emit contact shadows"
+  );
+
+  lg::Arena slopeArena = arena;
+  slopeArena.brushCount = 1;
+  slopeArena.brushes[0] = slopedTopBrush(2.0F, 6.0F, 0.5F, 1.5F);
+  const lg::ArenaBrushFace& slopeTop = slopeArena.brushes[0].faces[5];
+  lg::PlayerState slopeOpponent = opponent;
+  const float slopePlanarSupport =
+    slopeOpponent.bounds.radius *
+    std::hypot(slopeTop.normal.x, slopeTop.normal.y);
+  const float slopeExpandedDistance =
+    slopeTop.distance +
+    slopePlanarSupport +
+    (slopeOpponent.bounds.halfHeight * std::fabs(slopeTop.normal.z));
+  slopeOpponent.position.z =
+    (
+      slopeExpandedDistance -
+      (slopeTop.normal.x * slopeOpponent.position.x) -
+      (slopeTop.normal.y * slopeOpponent.position.y)
+    ) / slopeTop.normal.z;
+  const lg::Scene3D slopeShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, slopeArena, player, slopeOpponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  const bool slopeVerticesOnPlane =
+    slopeShadowScene.contactShadowVertices.size() == 48U &&
+    std::all_of(
+      slopeShadowScene.contactShadowVertices.begin(),
+      slopeShadowScene.contactShadowVertices.end(),
+      [&](const lg::Vertex3D& vertex) {
+        const lg::Vec3 surfacePoint =
+          vertex.position - (slopeTop.normal * 0.008F);
+        return nearlyEqual(
+          lg::dot(slopeTop.normal, surfacePoint),
+          slopeTop.distance,
+          0.002F
+        );
+      }
+    );
+  const bool slopeWindingMatchesSurface =
+    slopeShadowScene.contactShadowVertices.size() >= 3U &&
+    lg::dot(
+      lg::normalize(crossProduct(
+        slopeShadowScene.contactShadowVertices[1].position -
+          slopeShadowScene.contactShadowVertices[0].position,
+        slopeShadowScene.contactShadowVertices[2].position -
+          slopeShadowScene.contactShadowVertices[0].position
+      )),
+      slopeTop.normal
+    ) > 0.99F;
+  failures += expect(
+    slopeVerticesOnPlane && slopeWindingMatchesSurface,
+    "a grounded slope shadow should follow the hit plane and keep the surface-facing winding"
+  );
+
+  lg::PlayerState wideOpponent = opponent;
+  wideOpponent.bounds.radius *= 1.5F;
+  const lg::Scene3D wideShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, wideOpponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, settings
+  );
+  failures += expect(
+    wideShadowScene.contactShadowVertices.size() == 48U &&
+      contactShadowMaxRadius(wideShadowScene) >
+        contactShadowMaxRadius(baseScene) * 1.49F,
+    "contact-shadow size should follow the player's collision radius"
+  );
+
+  lg::Arena sunShadowArena = arena;
+  sunShadowArena.sunLight.enabled = true;
+  lg::RenderSettings sunShadowSettings = settings;
+  sunShadowSettings.sunShadowQuality = 2;
+  const lg::Scene3D sunAndContactShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, sunShadowArena, player, opponent, inactiveBeam,
+    inactiveBeam, weaponFires, rocketExplosions, rockets, sunShadowSettings
+  );
+  failures += expect(
+    sunAndContactShadowScene.lights.shadow.mapSize == 2048U &&
+      sunAndContactShadowScene.gltfPlayerModelStats.shadowCasterInstances == 1U &&
+      sunAndContactShadowScene.gltfPlayerModelStats.shadowCasterDrawCalls > 0U &&
+      sunAndContactShadowScene.contactShadowVertices.size() == 48U &&
+      sunAndContactShadowScene.contactShadowVertices.front().color.alpha <
+        baseScene.contactShadowVertices.front().color.alpha &&
+      nearlyEqual(
+        contactShadowMaxRadius(sunAndContactShadowScene),
+        contactShadowMaxRadius(baseScene)
+      ),
+    "true glTF sun shadows should remain active while the fixed-size contact oval uses lower alpha"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> cappedShadowPlayers = {};
+  for (std::size_t index = 0; index < cappedShadowPlayers.size(); ++index) {
+    cappedShadowPlayers[index].player = opponent;
+    cappedShadowPlayers[index].visible = true;
+  }
+  lg::RenderSettings cappedShadowSettings = settings;
+  cappedShadowSettings.playerModel = 0;
+  cappedShadowSettings.drawRemoteWeapons = false;
+  cappedShadowSettings.drawPlayerOutlines = false;
+  cappedShadowSettings.frustumCullRemotePlayers = false;
+  const lg::Scene3D cappedShadowScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, cappedShadowPlayers, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, cappedShadowSettings
+  );
+  constexpr std::size_t kExpectedCappedShadowVertices =
+    lg::kDuelPlayerCount * 16U * 3U;
+  failures += expect(
+    cappedShadowScene.contactShadowVertices.size() ==
+        kExpectedCappedShadowVertices &&
+      cappedShadowScene.contactShadowVertices.capacity() >=
+        kExpectedCappedShadowVertices,
+    "the fixed remote-player cap should bound contact shadows to one reserved 768-vertex buffer"
   );
 
   lg::RenderSettings workerSettings = settings;
@@ -1468,6 +1959,37 @@ int main() {
   }
 
   {
+    lg::Arena ambientArena;
+    ambientArena.wallCount = 1;
+    ambientArena.walls[0].min = {0.0F, 0.0F, 0.0F};
+    ambientArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    ambientArena.walls[0].materialId =
+      lg::arenaMaterialId("ambient_static_wall");
+    ambientArena.ambientLight.color = {0.5F, 0.75F, 1.0F};
+    ambientArena.ambientLight.intensity = 0.4F;
+    const lg::Scene3D ambientScene = lg::buildStaticWorldScene(ambientArena);
+    bool foundExpectedTopColor = false;
+    for (const lg::Vertex3D& vertex : ambientScene.vertices) {
+      if (
+        vertex.materialId == ambientArena.walls[0].materialId &&
+        nearlyEqual(vertex.position.z, ambientArena.walls[0].max.z)
+      ) {
+        foundExpectedTopColor =
+          vertex.color.red == 51 &&
+          vertex.color.green == 76 &&
+          vertex.color.blue == 102;
+        if (foundExpectedTopColor) {
+          break;
+        }
+      }
+    }
+    failures += expect(
+      foundExpectedTopColor,
+      "map ambient color and intensity should tint static world vertices"
+    );
+  }
+
+  {
     lg::Arena litArena;
     litArena.wallCount = 1;
     litArena.walls[0].min = {0.0F, 0.0F, 0.0F};
@@ -1481,8 +2003,7 @@ int main() {
     const lg::Scene3D litScene = lg::buildStaticWorldScene(litArena);
     int minTopRed = 255;
     int maxTopRed = 0;
-    int maxTopGreen = 0;
-    int maxTopBlue = 0;
+    bool foundTintedTopVertex = false;
     for (const lg::Vertex3D& vertex : litScene.vertices) {
       if (
         vertex.materialId == litArena.walls[0].materialId &&
@@ -1490,8 +2011,11 @@ int main() {
       ) {
         minTopRed = std::min(minTopRed, static_cast<int>(vertex.color.red));
         maxTopRed = std::max(maxTopRed, static_cast<int>(vertex.color.red));
-        maxTopGreen = std::max(maxTopGreen, static_cast<int>(vertex.color.green));
-        maxTopBlue = std::max(maxTopBlue, static_cast<int>(vertex.color.blue));
+        foundTintedTopVertex = foundTintedTopVertex ||
+          (
+            vertex.color.red > vertex.color.green &&
+            vertex.color.green > vertex.color.blue
+          );
       }
     }
     failures += expect(
@@ -1499,7 +2023,7 @@ int main() {
       "static lights should create per-vertex brightness variation"
     );
     failures += expect(
-      maxTopRed > maxTopGreen && maxTopGreen > maxTopBlue,
+      foundTintedTopVertex,
       "static lights should tint world vertices with light color"
     );
   }
@@ -4300,8 +4824,10 @@ int main() {
       rocketProjectileScene.projectileStats.opaqueProjectileBatches == 1 &&
       rocketProjectileScene.projectileStats.additiveProjectileBatches == 1 &&
       rocketProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
-      rocketProjectileScene.simpleInstances.size() == 3U,
-    "full quality rocket should produce one opaque core and two bounded exhaust layers"
+      rocketProjectileScene.simpleInstances.size() == 3U &&
+      rocketProjectileScene.temporaryLights.size() == 1U &&
+      rocketProjectileScene.transientVfxStats.activeTemporaryLights == 1U,
+    "full quality rocket should produce one core, two exhaust layers, and one local light"
   );
   const lg::SimpleRenderInstance* rocketCore = findSimpleMesh(
     rocketProjectileScene,
@@ -4313,6 +4839,27 @@ int main() {
       rocketCore->position.x <
       rocketProjectiles[0].position.x - 0.35F,
     "remote rocket opaque core should render from the rocket launcher barrel"
+  );
+  failures += expect(
+    rocketCore != nullptr &&
+      rocketProjectileScene.temporaryLights.size() == 1U &&
+      std::fabs(
+        rocketProjectileScene.temporaryLights[0].position.x -
+          (rocketCore->position.x - 0.328F)
+      ) < 0.001F &&
+      std::fabs(
+        rocketProjectileScene.temporaryLights[0].position.y -
+          rocketCore->position.y
+      ) < 0.001F &&
+      std::fabs(
+        rocketProjectileScene.temporaryLights[0].position.z -
+          rocketCore->position.z
+      ) < 0.001F &&
+      rocketProjectileScene.temporaryLights[0].intensity > 1.14F &&
+      rocketProjectileScene.temporaryLights[0].intensity < 1.16F &&
+      rocketProjectileScene.temporaryLights[0].radius > 2.19F &&
+      rocketProjectileScene.temporaryLights[0].radius < 2.21F,
+    "rocket local light should stay on the rendered hot exhaust core"
   );
   failures += expect(
     rocketProjectileScene.simpleBatches.size() == 2U &&
@@ -4348,6 +4895,19 @@ int main() {
     rocketProjectiles,
     mediumRocketProjectileSettings
   );
+  lg::RenderSettings mediumMaterialRocketProjectileSettings = settings;
+  mediumMaterialRocketProjectileSettings.materialQuality = 1;
+  const lg::Scene3D mediumMaterialRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rocketProjectiles,
+    mediumMaterialRocketProjectileSettings
+  );
   lg::RenderSettings noBloomRocketProjectileSettings = settings;
   noBloomRocketProjectileSettings.bloomEnabled = false;
   const lg::Scene3D noBloomRocketProjectileScene = lg::buildPerspectiveScene(
@@ -4368,6 +4928,9 @@ int main() {
       mediumRocketProjectileScene.projectileStats.rocketInstances == 1U &&
       mediumRocketProjectileScene.projectileStats.projectileGlowInstances == 2U &&
       mediumRocketProjectileScene.simpleInstances.size() == 3U &&
+      lowRocketProjectileScene.temporaryLights.empty() &&
+      mediumRocketProjectileScene.temporaryLights.empty() &&
+      mediumMaterialRocketProjectileScene.temporaryLights.empty() &&
       largestBillboardScale(
         lowRocketProjectileScene,
         lg::BillboardHandle::RocketFlame
@@ -4546,8 +5109,9 @@ int main() {
       grenadeProjectileScene.projectileStats.legacyProjectileDynamicVertices == 0 &&
       grenadeProjectileScene.simpleInstances.size() == 1U &&
       grenadeProjectileScene.simpleInstances[0].mesh == lg::MeshHandle::GrenadeProjectile &&
-      grenadeProjectileScene.simpleInstances[0].pass == lg::RenderPass::OpaqueWorld,
-    "active grenade projectile should produce one opaque grenade instance and no glow"
+      grenadeProjectileScene.simpleInstances[0].pass == lg::RenderPass::OpaqueWorld &&
+      grenadeProjectileScene.temporaryLights.empty(),
+    "active grenade projectile should produce one opaque instance with no glow or local light"
   );
 
   grenadeProjectiles[0].velocity = {};
@@ -4595,6 +5159,7 @@ int main() {
   failures += expect(
     culledRocketProjectileScene.projectileStats.projectilesFrustumCulled == 1 &&
       culledRocketProjectileScene.simpleInstances.empty() &&
+      culledRocketProjectileScene.temporaryLights.empty() &&
       culledGrenadeProjectileScene.projectileStats.projectilesFrustumCulled == 1 &&
       culledGrenadeProjectileScene.simpleInstances.empty(),
     "frustum culling should exclude off-screen rocket and grenade projectiles"
@@ -4620,8 +5185,46 @@ int main() {
       multiRocketProjectileScene.projectileStats.projectileMeshDrawCalls == 1 &&
       multiRocketProjectileScene.projectileStats.projectileGlowDrawCalls == 1 &&
       multiRocketProjectileScene.simpleBatches.size() == 2U &&
-      multiRocketProjectileScene.simpleInstances.size() == 6U,
-    "multiple rockets should batch opaque cores and both exhaust layers into two draws"
+      multiRocketProjectileScene.simpleInstances.size() == 6U &&
+      multiRocketProjectileScene.temporaryLights.size() == 2U,
+    "multiple rockets should batch their visuals and each add a local light"
+  );
+  std::array<lg::RocketProjectileSnapshot, lg::kMaxRocketProjectiles>
+    cappedLightRocketProjectiles = {};
+  for (std::size_t index = 0; index < 5U; ++index) {
+    cappedLightRocketProjectiles[index].active = true;
+    cappedLightRocketProjectiles[index].owner = 1;
+    cappedLightRocketProjectiles[index].weapon = lg::Weapon::RocketLauncher;
+    cappedLightRocketProjectiles[index].position =
+      player.position + lg::Vec3{
+        7.0F - static_cast<float>(index),
+        0.0F,
+        0.65F,
+      };
+    cappedLightRocketProjectiles[index].velocity = {30.0F, 0.0F, 0.0F};
+  }
+  const lg::Scene3D cappedLightRocketProjectileScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    shotgunRemotePlayers,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    cappedLightRocketProjectiles,
+    settings
+  );
+  failures += expect(
+    cappedLightRocketProjectileScene.temporaryLights.size() == 4U &&
+      cappedLightRocketProjectileScene.transientVfxStats.activeTemporaryLights == 4U &&
+      std::all_of(
+        cappedLightRocketProjectileScene.temporaryLights.begin(),
+        cappedLightRocketProjectileScene.temporaryLights.end(),
+        [&player](const lg::TemporaryLight& light) {
+          return light.position.x < player.position.x + 6.0F;
+        }
+      ),
+    "rocket local lights should cap at the four nearest rendered projectiles"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> rocketFireOnly = {};

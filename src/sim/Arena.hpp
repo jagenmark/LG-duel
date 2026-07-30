@@ -93,6 +93,23 @@ struct ArenaStaticLight {
   Vec3 color = {1.0F, 1.0F, 1.0F};
   float intensity = 1.0F;
   float radius = 8.0F;
+  // A zero source radius keeps the authored light as an ideal point source.
+  // The renderer may use a larger value to soften cached point-light shadows.
+  float sourceRadius = 0.0F;
+  // The renderer ranks this signed author hint when its finite shadow budget
+  // cannot keep every eligible light.
+  std::int16_t priority = 0;
+  bool castsShadows = false;
+  bool flickerEnabled = false;
+  std::uint32_t flickerSeed = 0;
+  float flickerFrequencyHz = 0.0F;
+  float flickerMinFactor = 1.0F;
+  float flickerMaxFactor = 1.0F;
+};
+
+struct ArenaAmbientLight {
+  Vec3 color = {1.0F, 1.0F, 1.0F};
+  float intensity = 0.30F;
 };
 
 struct ArenaSunLight {
@@ -212,6 +229,7 @@ struct Arena {
   std::size_t visualBrushCount = 0;
   std::array<ArenaStaticLight, kStaticLightCount> staticLights = {};
   std::size_t staticLightCount = 0;
+  ArenaAmbientLight ambientLight = {};
   ArenaSunLight sunLight = {};
   std::array<ArenaJumpPad, kJumpPadCount> jumpPads = {};
   std::size_t jumpPadCount = 0;

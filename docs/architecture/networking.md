@@ -4,11 +4,28 @@ Networking is UDP-oriented and snapshot based. Packet structures live in `src/ne
 
 ## Packets And Protocol
 
-`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`56` at this writing), `kMaxPacketBytes`, the 1,200-byte UDP application-datagram ceiling, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, malformed sparse masks, invalid compression back-references, inconsistent expansion lengths, and trailing bytes.
+`NetCodec.hpp` defines `kProtocolMagic`, `kProtocolVersion` (`57` at this writing), `kMaxPacketBytes`, the 1,200-byte UDP application-datagram ceiling, and `PacketType`. Every packet has a fixed header: magic, version, type, flags, payload byte count, and reserved field. The codec rejects wrong versions, invalid enum values, non-finite floats, out-of-range tuning values, invalid strings, malformed sparse masks, invalid compression back-references, inconsistent expansion lengths, and trailing bytes.
 
-Snapshot and combat-stat payloads use a deterministic, stateless 4 KiB-window compressor when it reduces their size. Compression is lossless: authoritative player state, command acknowledgements, ammo, and slot indices retain their exact wire values. Snapshot encoding, UDP receive, and the UDP send boundary enforce 1,200 bytes, so the application never depends on IP fragmentation. An event-heavy snapshot is retried in fixed priority order without rewind diagnostics, movement audio, recipient-irrelevant hit-feedback windows, recurring beam visuals, and finally lower-priority transient combat visuals; player, projectile, objective, score, and match state are never discarded to make room. If that authoritative core still cannot fit, encoding fails closed and the transport reports an error instead of sending a partial or fragmented core.
+Snapshot and combat-stat payloads use a deterministic, stateless 4 KiB-window compressor when it reduces their size. Compression is lossless: authoritative player state, command acknowledgements, ammo, and slot indices retain their exact wire values. Snapshot encoding, UDP receive, and the UDP send boundary enforce 1,200 bytes, so the application never depends on IP fragmentation. An event-heavy snapshot is retried in fixed priority order without rewind diagnostics, movement audio, recipient-irrelevant hit-feedback windows, recurring beam visuals, and finally lower-priority transient combat visuals. Player, objective, score, and match state are never discarded to make room. If that authoritative core still cannot fit, encoding fails closed and the transport reports an error instead of sending a partial or fragmented core.
 
-Supported packet types are connect request/accept, command, command bundle, snapshot, combat statistics, ping/pong, disconnect, chat history, and chat-history acknowledgement. `CommandBundle` carries up to 12 compact commands (about 96 ms at 125 Hz), shares client identity and cumulative action edges once, and is trimmed from the oldest command when a rare control payload would exceed the 1,200-byte datagram budget. Attack, jump, dash, reset, ready, and McGuffin-throw edges are deduplicated server-side; attack and throw edges retain their original aim.
+Full live projectile arrays do not belong in gameplay snapshots. The server
+sends bounded projectile update packets for spawns, removals, and periodic
+correction batches. Each record carries a stable 16-bit slot, sequence, update
+kind, and the state needed for client display. Clients move the display copy
+locally; server collision, damage, and explosion events remain authoritative.
+Revisions clear old projectiles after resets or map changes. An adaptive
+round-robin budget aims to refresh the active set in 24 ticks, while new spawns
+and removals take priority. A packet holds at most 28 records and 1,173 bytes;
+a rare event burst may use more than one bounded packet.
+
+Supported packet types are connect request/accept, command, command bundle,
+snapshot, projectile updates, combat statistics, ping/pong, disconnect, chat
+history, and chat-history acknowledgement. `CommandBundle` carries up to 12
+compact commands (about 96 ms at 125 Hz), shares client identity and cumulative
+action edges once, and is trimmed from the oldest command when a rare control
+payload would exceed the 1,200-byte datagram budget. Attack, jump, dash, reset,
+ready, and McGuffin-throw edges are deduplicated server-side; attack and throw
+edges retain their original aim.
 
 ## Connections, Players, And Spectators
 
@@ -33,9 +50,9 @@ The optional client-carried `g_*` tuning path is a temporary development afforda
 
 ## Snapshot Ownership
 
-`ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire events, projectile/explosion events, freeze-gun ice pools, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, map revision, and optional arena data. Chat history is authoritative server state but uses its separate acknowledged packet stream.
+`ServerSnapshot` is authoritative for player states, selected weapons, lightning results, weapon fire and explosion events, freeze-gun ice pools, footsteps, frags, scores, teams, match phase/rules, cvar-derived gameplay tuning, map revision, and optional arena data. Bounded projectile update packets carry display state for live projectiles. Chat history is authoritative server state but uses its separate acknowledged packet stream.
 
-Inactive fixed-capacity event and projectile slots are represented by multiword occupancy masks; unused high bits are invalid rather than aliases for future slots. The per-player local-hit-feedback window is likewise a multiword mask and covers all four events for all sixteen players. Gameplay snapshots do not carry scoreboard combat aggregates over UDP. Instead, every command repeats whether that client currently has the scoreboard open; a closed-to-open transition sends four independently bounded four-player statistics pages immediately, followed by 5 Hz refreshes only to that client while the scoreboard remains open. The client stages pages by server tick and publishes a new aggregate only after all sixteen player rows arrive, so diverse valid counters never require fragmentation or leave a partially updated scoreboard. Gameplay configuration has its own revision: snapshots carry that revision, commands acknowledge the latest configuration installed by the client, and the server repeats the full configuration block per client until the matching acknowledgement arrives. A client never applies a lean snapshot for an unknown configuration revision.
+Inactive fixed-capacity event slots are represented by multiword occupancy masks; unused high bits are invalid rather than aliases for future slots. The per-player local-hit-feedback window is likewise a multiword mask and covers all four events for all sixteen players. Gameplay snapshots do not carry scoreboard combat aggregates over UDP. Instead, every command repeats whether that client currently has the scoreboard open; a closed-to-open transition sends four independently bounded four-player statistics pages immediately, followed by 5 Hz refreshes only to that client while the scoreboard remains open. The client stages pages by server tick and publishes a new aggregate only after all sixteen player rows arrive, so diverse valid counters never require fragmentation or leave a partially updated scoreboard. Gameplay configuration has its own revision: snapshots carry that revision, commands acknowledge the latest configuration installed by the client, and the server repeats the full configuration block per client until the matching acknowledgement arrives. A client never applies a lean snapshot for an unknown configuration revision.
 
 Arena data is intentionally revision-gated. `ClientGame::receiveSnapshots()` ignores snapshots with a new `mapRevision` unless `hasArena` is true. When an arena is received, the client caches it locally and clears `snapshot_.arena` before storing the snapshot to avoid carrying large static data in normal client state.
 

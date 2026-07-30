@@ -1,0 +1,146 @@
+// Game: Generic
+// Format: Standard
+// Small indoor fixture for point-light, flicker, and cached-shadow review.
+// Spawn 0 faces the doorway, warm torch, pillar, and cool light.
+// entity 0
+{
+"classname" "worldspawn"
+"lg_bounds_min" "-640 -512 -128"
+"lg_bounds_max" "640 512 384"
+"lg_ambient_intensity" "0.14"
+"lg_ambient_color" "255 255 255"
+// floor
+{
+( -544 -416 -32 ) ( -544 -415 -32 ) ( -544 -416 -31 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -416 -32 ) ( -544 -416 -31 ) ( -543 -416 -32 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -416 -32 ) ( -543 -416 -32 ) ( -544 -415 -32 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 0 ) ( 544 416 1 ) ( 544 417 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 0 ) ( 545 416 0 ) ( 544 416 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 0 ) ( 544 417 0 ) ( 545 416 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// ceiling
+{
+( -544 -416 256 ) ( -544 -415 256 ) ( -544 -416 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -416 256 ) ( -544 -416 257 ) ( -543 -416 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -416 256 ) ( -543 -416 256 ) ( -544 -415 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 288 ) ( 544 416 289 ) ( 544 417 288 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 288 ) ( 545 416 288 ) ( 544 416 289 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 288 ) ( 544 417 288 ) ( 545 416 288 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// south wall
+{
+( -544 -416 0 ) ( -544 -415 0 ) ( -544 -416 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -416 0 ) ( -544 -416 1 ) ( -543 -416 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -416 0 ) ( -543 -416 0 ) ( -544 -415 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 -384 256 ) ( 544 -384 257 ) ( 544 -383 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 -384 256 ) ( 545 -384 256 ) ( 544 -384 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 -384 256 ) ( 544 -383 256 ) ( 545 -384 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// north wall
+{
+( -544 384 0 ) ( -544 385 0 ) ( -544 384 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 384 0 ) ( -544 384 1 ) ( -543 384 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 384 0 ) ( -543 384 0 ) ( -544 385 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 256 ) ( 544 416 257 ) ( 544 417 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 256 ) ( 545 416 256 ) ( 544 416 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 416 256 ) ( 544 417 256 ) ( 545 416 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// west wall
+{
+( -544 -384 0 ) ( -544 -383 0 ) ( -544 -384 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -384 0 ) ( -544 -384 1 ) ( -543 -384 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -544 -384 0 ) ( -543 -384 0 ) ( -544 -383 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -512 384 256 ) ( -512 384 257 ) ( -512 385 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -512 384 256 ) ( -511 384 256 ) ( -512 384 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -512 384 256 ) ( -512 385 256 ) ( -511 384 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// east wall
+{
+( 512 -384 0 ) ( 512 -383 0 ) ( 512 -384 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 512 -384 0 ) ( 512 -384 1 ) ( 513 -384 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 512 -384 0 ) ( 513 -384 0 ) ( 512 -383 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 384 256 ) ( 544 384 257 ) ( 544 385 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 384 256 ) ( 545 384 256 ) ( 544 384 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 544 384 256 ) ( 544 385 256 ) ( 545 384 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// doorway partition, south side
+{
+( -12 -384 0 ) ( -12 -383 0 ) ( -12 -384 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -12 -384 0 ) ( -12 -384 1 ) ( -11 -384 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -12 -384 0 ) ( -11 -384 0 ) ( -12 -383 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 -72 256 ) ( 12 -72 257 ) ( 12 -71 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 -72 256 ) ( 13 -72 256 ) ( 12 -72 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 -72 256 ) ( 12 -71 256 ) ( 13 -72 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// doorway partition, north side
+{
+( -12 72 0 ) ( -12 73 0 ) ( -12 72 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -12 72 0 ) ( -12 72 1 ) ( -11 72 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -12 72 0 ) ( -11 72 0 ) ( -12 73 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 384 256 ) ( 12 384 257 ) ( 12 385 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 384 256 ) ( 13 384 256 ) ( 12 384 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 384 256 ) ( 12 385 256 ) ( 13 384 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// doorway lintel
+{
+( -12 -72 144 ) ( -12 -71 144 ) ( -12 -72 145 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -12 -72 144 ) ( -12 -72 145 ) ( -11 -72 144 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( -12 -72 144 ) ( -11 -72 144 ) ( -12 -71 144 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 72 256 ) ( 12 72 257 ) ( 12 73 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 72 256 ) ( 13 72 256 ) ( 12 72 257 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 12 72 256 ) ( 12 73 256 ) ( 13 72 256 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+// square pillar beyond the doorway
+{
+( 180 -32 0 ) ( 180 -31 0 ) ( 180 -32 1 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 180 -32 0 ) ( 180 -32 1 ) ( 181 -32 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 180 -32 0 ) ( 181 -32 0 ) ( 180 -31 0 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 244 32 208 ) ( 244 32 209 ) ( 244 33 208 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 244 32 208 ) ( 245 32 208 ) ( 244 32 209 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+( 244 32 208 ) ( 244 33 208 ) ( 245 32 208 ) Base/Metal/Mat_Metal_Brushed_01-128x128 0 0 0 1 1
+}
+}
+// entity 1: review spawn, aimed through the doorway at both light zones
+{
+"classname" "lg_spawn"
+"origin" "-360 -150 32"
+"angle" "18"
+}
+// entity 2: safe duel spawn in the far room
+{
+"classname" "lg_spawn"
+"origin" "360 -180 32"
+"angle" "160"
+}
+// entity 3: warm torch at the doorway; its light should move but its cached shadow should not
+{
+"classname" "light"
+"origin" "-72 -104 104"
+"light" "560"
+"radius" "220"
+"_color" "255 154 72"
+"casts_shadows" "1"
+"source_radius" "10"
+"priority" "100"
+"flicker" "1"
+"flicker_seed" "1337"
+"flicker_frequency" "7.5"
+"flicker_min" "0.72"
+"flicker_max" "1.16"
+}
+// entity 4: cool steady light; the pillar should cast a clear fixed shadow
+{
+"classname" "light_point"
+"origin" "300 112 120"
+"light" "500"
+"radius" "300"
+"_color" "112 170 255"
+"casts_shadows" "1"
+"source_radius" "8"
+"priority" "80"
+"flicker" "0"
+"flicker_seed" "2027"
+"flicker_frequency" "0"
+"flicker_min" "1"
+"flicker_max" "1"
+}

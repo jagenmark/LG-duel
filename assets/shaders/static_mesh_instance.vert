@@ -3,6 +3,7 @@
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
 layout(location = 2) in vec2 inTexCoord;
+layout(location = 7) in vec3 inNormal;
 
 layout(location = 3) in vec4 instanceModelRow0;
 layout(location = 4) in vec4 instanceModelRow1;
@@ -11,6 +12,8 @@ layout(location = 6) in vec4 instanceColor;
 
 layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out float viewDistance;
+layout(location = 2) out vec3 worldPositionOut;
+layout(location = 3) out vec3 worldNormal;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -50,6 +53,15 @@ void main() {
   );
   gl_Position = projectWorld(worldPosition);
   vertexColor = inColor * instanceColor;
+  vec3 localNormal = length(inNormal) > 0.001
+    ? inNormal
+    : normalize(inPosition);
+  worldNormal = normalize(vec3(
+    dot(instanceModelRow0.xyz, localNormal),
+    dot(instanceModelRow1.xyz, localNormal),
+    dot(instanceModelRow2.xyz, localNormal)
+  ));
+  worldPositionOut = worldPosition;
   viewDistance = max(
     dot(worldPosition - camera.position.xyz, camera.forward.xyz),
     0.0

@@ -10,10 +10,13 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform samplerCube weaponEnvironment;
 layout(set = 2, binding = 1) uniform sampler2DShadow sunShadowMap;
+layout(set = 2, binding = 2) uniform sampler2DArrayShadow pointShadowMap;
 layout(set = 3, binding = 0, std140) uniform SceneLightData {
   vec4 parameters;
-  vec4 positionRadius[8];
-  vec4 colorIntensity[8];
+  vec4 positionRadius[32];
+  vec4 colorIntensity[32];
+  vec4 lightParameters[32];
+  vec4 pointShadowParameters;
   vec4 sunDirectionIntensity;
   vec4 sunColor;
   vec4 fillColorIntensity;
@@ -62,6 +65,86 @@ float sunShadowVisibility(vec3 position, vec3 normal) {
     return 1.0;
   }
   return texture(sunShadowMap, vec3(uv, receiverDepth));
+}
+
+float pointShadowVisibility(int index, vec3 position, vec3 normal) {
+  int shadowSlot = int(sceneLights.lightParameters[index].z + 0.5) - 1;
+  if (
+    sceneLights.postParameters.w >= 0.5 ||
+    shadowSlot < 0 ||
+    sceneLights.pointShadowParameters.x < 1.0
+  ) {
+    return 1.0;
+  }
+  float radius = max(sceneLights.positionRadius[index].w, 0.05);
+  float sourceRadius = clamp(sceneLights.lightParameters[index].x, 0.0, radius);
+  vec3 receiver = position + normalize(normal) *
+    max(0.012, sourceRadius * 0.12);
+  vec3 direction = receiver - sceneLights.positionRadius[index].xyz;
+  vec3 a = abs(direction);
+  float major = max(a.x, max(a.y, a.z));
+  if (major <= 0.001 || major >= radius) {
+    return 1.0;
+  }
+  int face;
+  vec2 projected;
+  if (a.x >= a.y && a.x >= a.z) {
+    if (direction.x >= 0.0) {
+      face = 0; projected = vec2(-direction.y, -direction.z);
+    } else {
+      face = 1; projected = vec2(direction.y, -direction.z);
+    }
+  } else if (a.y >= a.z) {
+    if (direction.y >= 0.0) {
+      face = 2; projected = vec2(direction.x, -direction.z);
+    } else {
+      face = 3; projected = vec2(-direction.x, -direction.z);
+    }
+  } else if (direction.z >= 0.0) {
+    face = 4; projected = vec2(direction.x, -direction.y);
+  } else {
+    face = 5; projected = vec2(-direction.x, -direction.y);
+  }
+  vec2 uv = projected / major * 0.5 + 0.5;
+  float nearPlane = clamp(
+    max(0.025, sourceRadius * 0.25),
+    0.025,
+    max(0.025, radius * 0.25)
+  );
+  float receiverDepth =
+    radius / max(radius - nearPlane, 0.001) -
+    (nearPlane * radius) /
+      max(radius - nearPlane, 0.001) / major -
+    sceneLights.pointShadowParameters.z -
+    (sourceRadius / radius) * 0.0015;
+  float layer = float(shadowSlot * 6 + face);
+  float mapSize = sceneLights.pointShadowParameters.x;
+  float softness = clamp(sourceRadius / radius, 0.0, 1.0);
+  if (softness <= 0.0001) {
+    return texture(pointShadowMap, vec4(uv, layer, receiverDepth));
+  }
+  float kernelTexels = mapSize < 512.0
+    ? min(0.5 + softness * 0.75, 1.0)
+    : min(0.65 + softness * 1.35, 2.0);
+  vec2 texel = vec2(kernelTexels / mapSize);
+  float visibility = 0.0;
+  visibility += texture(
+    pointShadowMap,
+    vec4(uv + vec2(-texel.x, -texel.y), layer, receiverDepth)
+  );
+  visibility += texture(
+    pointShadowMap,
+    vec4(uv + vec2(texel.x, -texel.y), layer, receiverDepth)
+  );
+  visibility += texture(
+    pointShadowMap,
+    vec4(uv + vec2(-texel.x, texel.y), layer, receiverDepth)
+  );
+  visibility += texture(
+    pointShadowMap,
+    vec4(uv + texel, layer, receiverDepth)
+  );
+  return visibility * 0.25;
 }
 
 vec3 directSpecular(
@@ -121,17 +204,28 @@ void main() {
       ) * sunRadiance * sunNDotL * sunVisibility * qualityScale;
     }
 
-    int lightCount = clamp(int(sceneLights.parameters.x + 0.5), 0, 8);
+    int lightCount = clamp(int(sceneLights.parameters.x + 0.5), 0, 32);
     for (int index = 0; index < lightCount; ++index) {
       vec3 offset = sceneLights.positionRadius[index].xyz - worldPosition;
       float radius = max(sceneLights.positionRadius[index].w, 0.001);
       float distanceToLight = length(offset);
       vec3 lightDirection = offset / max(distanceToLight, 0.001);
-      float attenuation = clamp(1.0 - distanceToLight / radius, 0.0, 1.0);
+      float sourceRadius = clamp(
+        sceneLights.lightParameters[index].x,
+        0.0,
+        radius
+      );
+      float attenuation = clamp(
+        (radius - distanceToLight) / max(radius - sourceRadius, 0.001),
+        0.0,
+        1.0
+      );
       attenuation *= attenuation;
       float nDotL = max(dot(n, lightDirection), 0.0);
       vec3 radiance = sceneLights.colorIntensity[index].rgb *
-        sceneLights.colorIntensity[index].w * attenuation;
+        sceneLights.colorIntensity[index].w * attenuation *
+        sceneLights.lightParameters[index].w *
+        pointShadowVisibility(index, worldPosition, n);
       color += albedo * radiance * nDotL * (1.0 - metallic * 0.72);
       if (materialQuality == 2 && nDotL > 0.0) {
         color += directSpecular(

@@ -7,6 +7,7 @@
 #include "sim/Arena.hpp"
 #include "sim/Movement.hpp"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
@@ -87,11 +88,23 @@ public:
   [[nodiscard]] bool hasConnectionError() const;
   [[nodiscard]] const std::string& connectionError() const;
   [[nodiscard]] const std::deque<ChatMessage>& chatHistory() const;
+  [[nodiscard]] const std::array<
+    RocketProjectileSnapshot,
+    kMaxRocketProjectiles
+  >& projectiles() const;
   [[nodiscard]] std::size_t localPlayerIndex() const;
   [[nodiscard]] std::size_t localClientIndex() const;
   [[nodiscard]] bool spectator() const;
 
 private:
+  void clearProjectiles();
+  void receiveProjectileUpdates();
+  void advanceProjectiles(float elapsedSeconds);
+  void removeExplodedProjectile(
+    std::size_t owner,
+    const RocketExplosionResult& explosion
+  );
+
   NetTransport& transport_;
   std::size_t localPlayerIndex_ = 0;
   std::size_t commandClientIndex_ = 0;
@@ -117,6 +130,24 @@ private:
   bool hasPendingMovementTuning_ = false;
   bool hasSnapshot_ = false;
   std::deque<ChatMessage> chatHistory_;
+  std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> projectiles_ = {};
+  std::array<std::uint32_t, kMaxRocketProjectiles> projectileSequences_ = {};
+  std::array<std::uint32_t, kMaxRocketProjectiles> projectileUpdateTicks_ = {};
+  std::array<float, kMaxRocketProjectiles> projectileAgesSeconds_ = {};
+  std::array<bool, kMaxRocketProjectiles> projectileResting_ = {};
+  std::array<bool, kMaxRocketProjectiles> projectileSlotsInitialized_ = {};
+  std::array<bool, kMaxRocketProjectiles> projectileTerminal_ = {};
+  struct ExplodedProjectileKey {
+    std::uint8_t owner = 0;
+    std::uint32_t sequence = 0;
+    bool valid = false;
+  };
+  std::array<ExplodedProjectileKey, kMaxRocketProjectiles>
+    explodedProjectileKeys_ = {};
+  std::array<std::uint32_t, kMaxPlayers> processedExplosionSequences_ = {};
+  std::size_t nextExplodedProjectileKey_ = 0;
+  std::uint32_t projectileRevision_ = 0;
+  bool hasProjectileRevision_ = false;
 };
 
 } // namespace lg

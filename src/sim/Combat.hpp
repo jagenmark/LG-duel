@@ -1,6 +1,7 @@
 #pragma once
 
 #include "shared/Math.hpp"
+#include "shared/Constants.hpp"
 #include "sim/Arena.hpp"
 #include "sim/PlayerState.hpp"
 #include "sim/UserCommand.hpp"
@@ -11,7 +12,9 @@
 
 namespace lg {
 
-inline constexpr std::size_t kMaxRocketProjectiles = 8;
+inline constexpr std::size_t kProjectileSlotsPerPlayer = 32;
+inline constexpr std::size_t kMaxRocketProjectiles =
+  kMaxPlayers * kProjectileSlotsPerPlayer;
 inline constexpr std::uint8_t kShotgunPelletCount = 20;
 inline constexpr float kSniperAdsSeconds = 0.2F;
 
@@ -174,6 +177,7 @@ struct WeaponAmmoConfig {
 struct RocketProjectile {
   bool active = false;
   std::uint8_t owner = 0;
+  std::uint32_t sequence = 0;
   Weapon weapon = Weapon::RocketLauncher;
   Vec3 position = {};
   Vec3 previousPosition = {};
@@ -200,6 +204,7 @@ struct RocketExplosionResult {
   int ownerDamageApplied = 0;
   int opponentDamageApplied = 0;
   std::uint32_t sequence = 0;
+  std::uint32_t projectileSequence = 0;
   bool active = false;
   Weapon weapon = Weapon::RocketLauncher;
 };

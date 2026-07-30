@@ -2,6 +2,7 @@
 
 #include "shared/Constants.hpp"
 #include "shared/Sequence.hpp"
+#include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 
 #include <algorithm>
@@ -11,6 +12,24 @@
 #include <utility>
 
 namespace lg {
+namespace {
+
+constexpr float kProjectileCollisionEpsilon = 0.0001F;
+
+[[nodiscard]] std::uint32_t projectileLifetimeTicks(
+  Weapon weapon,
+  const ProjectilePresentationTuning& tuning
+) {
+  if (weapon == Weapon::GrenadeLauncher) {
+    return tuning.grenadeFuseTicks;
+  }
+  if (weapon == Weapon::PlasmaGun) {
+    return tuning.plasmaLifetimeTicks;
+  }
+  return tuning.rocketLifetimeTicks;
+}
+
+} // namespace
 
 ClientGame::ClientGame(
   NetTransport& transport,
@@ -253,7 +272,19 @@ void ClientGame::receiveSnapshots() {
           snapshot_.players[localPlayerIndex_].position
         ) > 32.0F)
       );
+      if (
+        mapChanged ||
+        !hasProjectileRevision_ ||
+        received.projectileRevision != projectileRevision_
+      ) {
+        clearProjectiles();
+        projectileRevision_ = received.projectileRevision;
+        hasProjectileRevision_ = true;
+      }
       snapshot_ = received;
+      for (std::size_t owner = 0; owner < received.rocketExplosions.size(); ++owner) {
+        removeExplodedProjectile(owner, received.rocketExplosions[owner]);
+      }
       if (
         !spectator_ &&
         hasPendingMovementTuning_ &&
@@ -302,6 +333,7 @@ void ClientGame::receiveSnapshots() {
       ++staleSnapshotsIgnored_;
     }
   }
+  receiveProjectileUpdates();
   ChatHistoryChunk chatChunk;
   while (transport_.receiveChatHistory(chatChunk)) {
     while (
@@ -347,8 +379,238 @@ void ClientGame::receiveSnapshots() {
   snapshotDiagnostics_ = diagnostics;
 }
 
+void ClientGame::clearProjectiles() {
+  projectiles_ = {};
+  projectileSequences_ = {};
+  projectileUpdateTicks_ = {};
+  projectileAgesSeconds_ = {};
+  projectileResting_ = {};
+  projectileSlotsInitialized_ = {};
+  projectileTerminal_ = {};
+  explodedProjectileKeys_ = {};
+  processedExplosionSequences_ = {};
+  nextExplodedProjectileKey_ = 0;
+  projectileRevision_ = 0;
+  hasProjectileRevision_ = false;
+}
+
+void ClientGame::removeExplodedProjectile(
+  std::size_t owner,
+  const RocketExplosionResult& explosion
+) {
+  if (
+    !explosion.active ||
+    explosion.sequence == 0U ||
+    explosion.projectileSequence == 0U ||
+    owner >= kMaxPlayers
+  ) {
+    return;
+  }
+  if (
+    processedExplosionSequences_[owner] != 0U &&
+    !isSequenceNewer(
+      explosion.sequence,
+      processedExplosionSequences_[owner]
+    )
+  ) {
+    return;
+  }
+  processedExplosionSequences_[owner] = explosion.sequence;
+  const std::size_t firstSlot = owner * kProjectileSlotsPerPlayer;
+  const std::size_t lastSlot = firstSlot + kProjectileSlotsPerPlayer;
+  for (std::size_t slot = firstSlot; slot < lastSlot; ++slot) {
+    if (
+      projectiles_[slot].active &&
+      projectileSequences_[slot] == explosion.projectileSequence
+    ) {
+      projectiles_[slot] = {};
+      projectileUpdateTicks_[slot] = snapshot_.serverTick;
+      projectileResting_[slot] = false;
+      projectileTerminal_[slot] = true;
+    }
+  }
+  ExplodedProjectileKey& key =
+    explodedProjectileKeys_[nextExplodedProjectileKey_];
+  key.owner = static_cast<std::uint8_t>(owner);
+  key.sequence = explosion.projectileSequence;
+  key.valid = true;
+  nextExplodedProjectileKey_ =
+    (nextExplodedProjectileKey_ + 1U) % explodedProjectileKeys_.size();
+}
+
+void ClientGame::receiveProjectileUpdates() {
+  ProjectileUpdatePacket packet;
+  while (transport_.receiveProjectileUpdates(packet)) {
+    if (
+      !hasProjectileRevision_ ||
+      packet.mapRevision != mapRevision_ ||
+      packet.projectileRevision != projectileRevision_
+    ) {
+      continue;
+    }
+    const std::size_t updateCount = std::min(
+      static_cast<std::size_t>(packet.updateCount),
+      packet.updates.size()
+    );
+    for (std::size_t index = 0; index < updateCount; ++index) {
+      const ProjectileUpdate& update = packet.updates[index];
+      if (update.slot >= projectiles_.size() || update.sequence == 0U) {
+        continue;
+      }
+      const std::size_t slot = update.slot;
+      const std::size_t owner = slot / kProjectileSlotsPerPlayer;
+      const bool exploded = std::any_of(
+        explodedProjectileKeys_.begin(),
+        explodedProjectileKeys_.end(),
+        [owner, &update](const ExplodedProjectileKey& key) {
+          return
+            key.valid &&
+            key.owner == owner &&
+            key.sequence == update.sequence;
+        }
+      );
+      if (exploded) {
+        continue;
+      }
+      if (projectileSlotsInitialized_[slot]) {
+        if (
+          update.sequence != projectileSequences_[slot] &&
+          !isSequenceNewer(update.sequence, projectileSequences_[slot])
+        ) {
+          continue;
+        }
+        if (
+          update.sequence == projectileSequences_[slot] &&
+          packet.serverTick != projectileUpdateTicks_[slot] &&
+          !isSequenceNewer(packet.serverTick, projectileUpdateTicks_[slot])
+        ) {
+          continue;
+        }
+      }
+      const bool sameSequence =
+        projectileSlotsInitialized_[slot] &&
+        update.sequence == projectileSequences_[slot];
+      if (
+        update.kind != ProjectileUpdateKind::Remove &&
+        sameSequence &&
+        projectileTerminal_[slot]
+      ) {
+        continue;
+      }
+      projectileSlotsInitialized_[slot] = true;
+      projectileSequences_[slot] = update.sequence;
+      projectileUpdateTicks_[slot] = packet.serverTick;
+      if (update.kind == ProjectileUpdateKind::Remove) {
+        projectiles_[slot] = {};
+        projectileAgesSeconds_[slot] = 0.0F;
+        projectileResting_[slot] = false;
+        projectileTerminal_[slot] = true;
+        continue;
+      }
+      RocketProjectileSnapshot& projectile = projectiles_[slot];
+      projectile.active = true;
+      projectile.owner = static_cast<std::uint8_t>(owner);
+      projectile.weapon = update.weapon;
+      projectile.position = update.position;
+      projectile.velocity = update.velocity;
+      projectile.radius = update.radius;
+      projectileAgesSeconds_[slot] =
+        static_cast<float>(update.ageTicks) * kFixedTickSeconds;
+      projectileResting_[slot] = update.resting;
+      projectileTerminal_[slot] = false;
+    }
+  }
+}
+
+void ClientGame::advanceProjectiles(float elapsedSeconds) {
+  if (!(elapsedSeconds > 0.0F)) {
+    return;
+  }
+  const ProjectilePresentationTuning& tuning = snapshot_.projectilePresentation;
+  for (std::size_t slot = 0; slot < projectiles_.size(); ++slot) {
+    RocketProjectileSnapshot& projectile = projectiles_[slot];
+    if (!projectile.active) {
+      continue;
+    }
+    float remaining = elapsedSeconds;
+    while (remaining > 0.0F && projectile.active) {
+      const float step = std::min(remaining, kFixedTickSeconds);
+      remaining -= step;
+      projectileAgesSeconds_[slot] += step;
+      const float lifetime =
+        static_cast<float>(projectileLifetimeTicks(projectile.weapon, tuning)) *
+        kFixedTickSeconds;
+      if (projectileAgesSeconds_[slot] + 0.000001F >= lifetime) {
+        projectile = {};
+        projectileResting_[slot] = false;
+        projectileTerminal_[slot] = true;
+        break;
+      }
+      if (
+        projectile.weapon == Weapon::GrenadeLauncher &&
+        projectileResting_[slot]
+      ) {
+        continue;
+      }
+      if (projectile.weapon == Weapon::GrenadeLauncher) {
+        projectile.velocity.z -= tuning.grenadeGravity * step;
+      }
+      const Vec3 displacement = projectile.velocity * step;
+      const float distance = length(displacement);
+      if (
+        projectile.weapon != Weapon::GrenadeLauncher ||
+        distance <= kProjectileCollisionEpsilon
+      ) {
+        projectile.position += displacement;
+        continue;
+      }
+      const WorldTrace trace = traceWorld(
+        arena_,
+        projectile.position,
+        displacement / distance,
+        distance
+      );
+      if (
+        !trace.hit ||
+        trace.distance >= distance - kProjectileCollisionEpsilon
+      ) {
+        projectile.position += displacement;
+        continue;
+      }
+      Vec3 normal = trace.normal;
+      if (dot(projectile.velocity, normal) > 0.0F) {
+        normal *= -1.0F;
+      }
+      const float normalVelocity = dot(projectile.velocity, normal);
+      if (normalVelocity < 0.0F) {
+        projectile.velocity =
+          (projectile.velocity - normal * (2.0F * normalVelocity)) *
+          tuning.grenadeBounceDamping;
+      } else {
+        projectile.velocity *= tuning.grenadeBounceDamping;
+      }
+      projectile.position =
+        trace.end + normal * (2.0F * kProjectileCollisionEpsilon);
+      if (
+        normal.z > 0.5F &&
+        length(projectile.velocity) <= tuning.grenadeRestSpeed
+      ) {
+        projectile.velocity = {};
+        projectileResting_[slot] = true;
+      }
+    }
+  }
+}
+
 const std::deque<ChatMessage>& ClientGame::chatHistory() const {
   return chatHistory_;
+}
+
+const std::array<
+  RocketProjectileSnapshot,
+  kMaxRocketProjectiles
+>& ClientGame::projectiles() const {
+  return projectiles_;
 }
 
 void ClientGame::advanceInterpolation(
@@ -371,6 +633,7 @@ void ClientGame::advanceInterpolation(
   } else {
     interpolation_.advance(elapsedSeconds, interpolationDelaySeconds);
   }
+  advanceProjectiles(elapsedSeconds);
 }
 
 bool ClientGame::hasSnapshot() const {

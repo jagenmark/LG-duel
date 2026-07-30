@@ -103,9 +103,10 @@ struct ScenarioPlayerState {
 };
 
 struct ScenarioProjectileState {
-  std::uint8_t slot = 0;
+  std::uint16_t slot = 0;
   bool active = false;
   std::uint8_t owner = 0;
+  std::uint32_t sequence = 0;
   Weapon weapon = Weapon::RocketLauncher;
   Vec3 position = {};
   Vec3 previousPosition = {};
@@ -145,6 +146,7 @@ struct ScenarioMatchState {
 struct ScenarioState {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 0;
+  std::uint32_t projectileRevision = 1;
   std::string mapName;
   std::uint32_t mapContentHash = 0;
   std::array<ScenarioPlayerState, kDuelPlayerCount> players = {};
@@ -164,10 +166,12 @@ struct ScenarioState {
   std::uint32_t mcguffinThrowPickupLockoutTicks = 0;
   std::uint32_t botRandomState = 0;
   std::uint32_t spawnRandomState = 0;
+  std::array<std::uint32_t, kDuelPlayerCount> projectileSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> rocketExplosionSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> localHitFeedbackSequences = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences = {};
+  std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences = {};
   std::array<std::uint32_t, Arena::kTeamSpawnCount> spawnLastUsedTicks = {};
   std::array<bool, Arena::kTeamSpawnCount> spawnWasUsed = {};

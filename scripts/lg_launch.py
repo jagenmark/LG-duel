@@ -1161,6 +1161,14 @@ def _readiness_issues(status: dict[str, Any]) -> list[str]:
     return issues
 
 
+def _process_exit_detail(return_code: int) -> str:
+    if return_code < 0:
+        return f"signal {-return_code} (return code {return_code})"
+    if return_code > 0xFF:
+        return f"status 0x{return_code & 0xFFFFFFFF:08X} ({return_code})"
+    return f"exit code {return_code}"
+
+
 def _wait_for_ready_status(
     *,
     initial_status: dict[str, Any] | None,
@@ -1174,6 +1182,7 @@ def _wait_for_ready_status(
 ) -> dict[str, Any]:
     saw_response = False
     last_issues: list[str] = []
+    client_exit_code: int | None = None
 
     def check(raw: dict[str, Any]) -> dict[str, Any] | None:
         nonlocal saw_response, last_issues
@@ -1234,8 +1243,10 @@ def _wait_for_ready_status(
             return verified
 
     while time.monotonic() < deadline:
-        if client_process is not None and client_process.poll() is not None:
-            break
+        if client_process is not None:
+            client_exit_code = client_process.poll()
+            if client_exit_code is not None:
+                break
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
@@ -1255,6 +1266,20 @@ def _wait_for_ready_status(
         if remaining > 0:
             time.sleep(min(0.25, remaining))
 
+    if client_exit_code is None and client_process is not None:
+        client_exit_code = client_process.poll()
+    if client_exit_code is not None:
+        detail = _process_exit_detail(client_exit_code)
+        if saw_response:
+            readiness = (
+                ", ".join(last_issues)
+                or "readiness fields stayed incomplete"
+            )
+            detail += f"; last readiness issues: {readiness}"
+        raise LaunchError(
+            "development-control client exited before becoming ready with "
+            f"{detail}"
+        )
     if saw_response:
         detail = ", ".join(last_issues) or "readiness fields stayed incomplete"
         raise LaunchError(

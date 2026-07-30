@@ -16,6 +16,11 @@ struct PerfSample {
   float worldDrawIssueMilliseconds = 0.0F;
   float submitMilliseconds = 0.0F;
   float totalRenderMilliseconds = 0.0F;
+  float lateMouseSampleMilliseconds = 0.0F;
+  float mouseSampleToSubmitMilliseconds = 0.0F;
+  float mouseSamplePhaseGainMilliseconds = 0.0F;
+  bool lateMouseSampleEnabled = false;
+  bool lateMouseSampleApplied = false;
   std::uint32_t dynamicOpaqueVertices = 0;
   std::uint32_t dynamicTranslucentVertices = 0;
   std::uint32_t totalUploadedVertices = 0;
@@ -149,6 +154,9 @@ struct PerfWindowSummary {
   PerfMetricSummary worldVisibilityQuery = {};
   PerfMetricSummary submit = {};
   PerfMetricSummary totalRender = {};
+  PerfMetricSummary lateMouseSample = {};
+  PerfMetricSummary mouseSampleToSubmit = {};
+  PerfMetricSummary mouseSamplePhaseGain = {};
   PerfMetricSummary snapshotDecode = {};
   PerfMetricSummary snapshotApply = {};
   PerfSample latest = {};

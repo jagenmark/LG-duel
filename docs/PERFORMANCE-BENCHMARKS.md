@@ -116,9 +116,27 @@ GPU values use the same nearest-rank rule under `gpu_execution_timings`.
 `outline_gpu_state`, then adds one value and state pair for every named GPU
 stage. It also records result receipt, readback delay, and a per-frame failure
 reason. Unavailable numbers use empty cells.
-All spans use `steady_clock`; the extra clock reads are enabled only during the
-measured benchmark stage. Renderer spans are CPU command construction and API
-submission time, never GPU execution time.
+All spans use `steady_clock`. Benchmark-only clock reads run only during the
+measured stage. Late mouse timing also feeds the live performance display, so
+its clock reads run on each frame where the callback runs. Renderer spans are
+CPU command construction and API submission time, never GPU execution time.
+
+Late mouse sampling has its own fields because its values describe different
+parts of one input path. `late_mouse_sample_ms` is the CPU cost of the late
+mouse callback. `mouse_sample_to_submit_ms` is the time from that sample to
+render submission. `mouse_sample_phase_gain_ms` is how much later the late
+sample ran than the normal frame input sample. The last two values overlap
+other frame work, and phase gain is not CPU cost. Do not add any of these
+values to the named CPU spans.
+
+`result.json` stores their median, p95, and p99 summaries plus enabled and
+applied frame counts under `late_mouse_sample`. For an A/B run, set
+`cl_late_mouse_sample 0` in one scenario and `cl_late_mouse_sample 1` in the
+other while keeping the rest of the scenario and system state fixed. These
+numbers describe app callback timing and sample placement only. They do not
+measure mouse device latency, event delivery latency, GPU queue delay, scanout,
+or display response, so they are not end-to-end input latency.
+
 Second-based runs reserve for up to 4,096 render samples per second before
 measurement; exceeding that safety ceiling aborts instead of reallocating and
 polluting the measured tail.
@@ -128,7 +146,10 @@ polluting the measured tail.
 Native runs may also write `frame-timeline.json` (schema version `1`). This is
 the stable per-frame artifact: each frame has a `frame_index`, elapsed time,
 total CPU time, optional total GPU time, named CPU/GPU values, workload
-counters, GPU stage states, readback data, and an `event_markers` array. GPU
+counters, GPU stage states, readback data, a sibling `late_mouse_sample`
+object, and an `event_markers` array. The late mouse object keeps callback
+cost, sample-to-submit time, phase gain, and enabled/applied flags together
+without treating them as additive CPU subsystems. GPU
 values are `null` when the backend or one query cannot provide execution
 timing; CPU submit or swapchain time must not be relabelled as GPU time. Fixed
 simulation ticks are kept as event markers
@@ -354,6 +375,10 @@ The policy uses these results:
 - `UNAVAILABLE`: an optional metric, such as outline GPU timing, is absent. The
   primary GPU median is required by both trusted GPU enforcement profiles.
 - `SKIPPED`: a metric does not apply to that scenario.
+
+The PR smoke job keeps `NOT_COMPARABLE` in its report but does not block the PR
+for that status. It uses `--not-comparable-exit-zero`; `FAIL` and tool errors
+still block the job. Manual and full benchmark runs remain strict by default.
 
 Most timing rules require a regression to exceed both their absolute and
 relative limits. The required GPU medians instead use hard relative caps:

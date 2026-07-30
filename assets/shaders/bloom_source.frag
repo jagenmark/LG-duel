@@ -7,8 +7,10 @@ layout(location = 0) out vec4 outColor;
 
 layout(set = 3, binding = 0, std140) uniform SceneLightData {
   vec4 parameters;
-  vec4 positionRadius[8];
-  vec4 colorIntensity[8];
+  vec4 positionRadius[32];
+  vec4 colorIntensity[32];
+  vec4 lightParameters[32];
+  vec4 pointShadowParameters;
   vec4 sunDirectionIntensity;
   vec4 sunColor;
   vec4 fillColorIntensity;

@@ -23,7 +23,7 @@ bool LoopbackTransport::receiveCommand(CommandPacket& packet) {
 
 void LoopbackTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   WirePacket wire;
-  if (encodeServerSnapshot(snapshot, wire)) {
+  if (encodeBoundedGameplaySnapshot(snapshot, wire)) {
     snapshots_.push_back(wire);
   }
 }
@@ -36,6 +36,26 @@ bool LoopbackTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   const WirePacket wire = snapshots_.front();
   snapshots_.pop_front();
   return decodeServerSnapshot(wire, snapshot);
+}
+
+void LoopbackTransport::sendProjectileUpdates(
+  const ProjectileUpdatePacket& packet
+) {
+  WirePacket wire;
+  if (encodeProjectileUpdatePacket(packet, wire)) {
+    projectileUpdates_.push_back(std::move(wire));
+  }
+}
+
+bool LoopbackTransport::receiveProjectileUpdates(
+  ProjectileUpdatePacket& packet
+) {
+  if (projectileUpdates_.empty()) {
+    return false;
+  }
+  const WirePacket wire = std::move(projectileUpdates_.front());
+  projectileUpdates_.pop_front();
+  return decodeProjectileUpdatePacket(wire, packet);
 }
 
 void LoopbackTransport::publishChatHistory(const ChatHistory& history) {

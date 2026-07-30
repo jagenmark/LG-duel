@@ -7,6 +7,7 @@
 #include <charconv>
 #include <cctype>
 #include <cmath>
+#include <cstdint>
 #include <limits>
 #include <sstream>
 #include <string>
@@ -22,6 +23,14 @@ constexpr float kBoundsPadding = 1.0F;
 constexpr float kQuakeToLgScale = 1.0F / 40.0F;
 constexpr float kDefaultLightIntensity = 1.0F;
 constexpr float kDefaultLightRadiusQuakeUnits = 320.0F;
+constexpr float kMaxLightIntensity = 16.0F;
+constexpr float kMaxLightRadiusQuakeUnits = 4096.0F;
+constexpr float kMaxLightSourceRadiusQuakeUnits = 1024.0F;
+constexpr std::int32_t kMinLightPriority = -1000;
+constexpr std::int32_t kMaxLightPriority = 1000;
+constexpr float kDefaultLightFlickerFrequencyHz = 8.0F;
+constexpr float kMaxLightFlickerFrequencyHz = 30.0F;
+constexpr float kMaxLightFlickerFactor = 4.0F;
 constexpr float kDegreesToRadians = 0.01745329252F;
 constexpr Vec3 kDefaultSunDirection = {0.25916052F, -0.43193421F, -0.86386842F};
 constexpr Vec3 kDefaultSunColor = {1.0F, 0.94117647F, 0.78431374F};
@@ -59,6 +68,40 @@ struct TargetPosition {
   const char* end = begin + text.size();
   const auto result = std::from_chars(begin, end, value);
   return result.ec == std::errc{} && result.ptr == end;
+}
+
+[[nodiscard]] bool parseInt32(std::string_view text, std::int32_t& value) {
+  const char* begin = text.data();
+  const char* end = begin + text.size();
+  const auto result = std::from_chars(begin, end, value);
+  return result.ec == std::errc{} && result.ptr == end;
+}
+
+[[nodiscard]] bool parseBool(std::string_view text, bool& value) {
+  std::string normalized(text);
+  std::transform(
+    normalized.begin(),
+    normalized.end(),
+    normalized.begin(),
+    [](unsigned char character) {
+      return static_cast<char>(std::tolower(character));
+    }
+  );
+  if (
+    normalized == "1" || normalized == "true" || normalized == "yes" ||
+    normalized == "on"
+  ) {
+    value = true;
+    return true;
+  }
+  if (
+    normalized == "0" || normalized == "false" || normalized == "no" ||
+    normalized == "off"
+  ) {
+    value = false;
+    return true;
+  }
+  return false;
 }
 
 [[nodiscard]] bool isSha256Hex(std::string_view value) {
@@ -1273,6 +1316,126 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   return false;
 }
 
+[[nodiscard]] bool parseLightBool(
+  const MapEntity& entity,
+  std::string_view key,
+  bool& value,
+  std::string& error
+) {
+  const std::string* text = entity.property(key);
+  if (text == nullptr) {
+    return true;
+  }
+  if (!parseBool(*text, value)) {
+    error = "line " + std::to_string(entity.line) + ": light " +
+      std::string(key) + " must be one of 0, 1, false, true, no, yes, off, or on";
+    return false;
+  }
+  return true;
+}
+
+[[nodiscard]] bool parseStaticLightOptions(
+  const MapEntity& entity,
+  ArenaStaticLight& light,
+  float radiusQuakeUnits,
+  std::string& error
+) {
+  if (!parseLightBool(entity, "casts_shadows", light.castsShadows, error)) {
+    return false;
+  }
+
+  float sourceRadiusQuakeUnits = 0.0F;
+  if (const std::string* text = entity.property("source_radius")) {
+    if (!parseFloat(*text, sourceRadiusQuakeUnits) ||
+      sourceRadiusQuakeUnits < 0.0F ||
+      sourceRadiusQuakeUnits > kMaxLightSourceRadiusQuakeUnits) {
+      error = "line " + std::to_string(entity.line) +
+        ": light source_radius must be a finite float from 0 to " +
+        std::to_string(static_cast<int>(kMaxLightSourceRadiusQuakeUnits));
+      return false;
+    }
+    if (sourceRadiusQuakeUnits > radiusQuakeUnits) {
+      error = "line " + std::to_string(entity.line) +
+        ": light source_radius must not exceed radius";
+      return false;
+    }
+  }
+  light.sourceRadius = sourceRadiusQuakeUnits * kQuakeToLgScale;
+
+  if (const std::string* text = entity.property("priority")) {
+    std::int32_t priority = 0;
+    if (!parseInt32(*text, priority) ||
+      priority < kMinLightPriority || priority > kMaxLightPriority) {
+      error = "line " + std::to_string(entity.line) + ": light priority must be an integer from " +
+        std::to_string(kMinLightPriority) + " to " + std::to_string(kMaxLightPriority);
+      return false;
+    }
+    light.priority = static_cast<std::int16_t>(priority);
+  }
+
+  if (!parseLightBool(entity, "flicker", light.flickerEnabled, error)) {
+    return false;
+  }
+  if (const std::string* text = entity.property("flicker_seed")) {
+    if (!parseUint32(*text, light.flickerSeed)) {
+      error = "line " + std::to_string(entity.line) +
+        ": light flicker_seed must be an unsigned 32-bit integer";
+      return false;
+    }
+  }
+
+  const std::string* frequencyText = entity.property("flicker_frequency");
+  if (light.flickerEnabled) {
+    light.flickerFrequencyHz = kDefaultLightFlickerFrequencyHz;
+  }
+  if (frequencyText != nullptr) {
+    if (!parseFloat(*frequencyText, light.flickerFrequencyHz) ||
+      light.flickerFrequencyHz < 0.0F ||
+      light.flickerFrequencyHz > kMaxLightFlickerFrequencyHz) {
+      error = "line " + std::to_string(entity.line) +
+        ": light flicker_frequency must be a finite float from 0 to " +
+        std::to_string(static_cast<int>(kMaxLightFlickerFrequencyHz));
+      return false;
+    }
+  }
+  if (light.flickerEnabled && light.flickerFrequencyHz <= 0.0F) {
+    error = "line " + std::to_string(entity.line) +
+      ": light flicker_frequency must be positive when flicker is enabled";
+    return false;
+  }
+  if (!light.flickerEnabled && light.flickerFrequencyHz > 0.0F) {
+    error = "line " + std::to_string(entity.line) +
+      ": light flicker_frequency may be positive only when flicker is enabled";
+    return false;
+  }
+
+  const auto parseFlickerFactor = [&](std::string_view key, float& value) {
+    const std::string* text = entity.property(key);
+    if (text == nullptr) {
+      return true;
+    }
+    if (!parseFloat(*text, value) || value < 0.0F || value > kMaxLightFlickerFactor) {
+      error = "line " + std::to_string(entity.line) + ": light " + std::string(key) +
+        " must be a finite float from 0 to " +
+        std::to_string(static_cast<int>(kMaxLightFlickerFactor));
+      return false;
+    }
+    return true;
+  };
+  if (
+    !parseFlickerFactor("flicker_min", light.flickerMinFactor) ||
+    !parseFlickerFactor("flicker_max", light.flickerMaxFactor)
+  ) {
+    return false;
+  }
+  if (light.flickerMinFactor > light.flickerMaxFactor) {
+    error = "line " + std::to_string(entity.line) +
+      ": light flicker_min must not exceed flicker_max";
+    return false;
+  }
+  return true;
+}
+
 [[nodiscard]] bool convertLightEntity(
   const MapEntity& entity,
   ArenaStaticLight& light,
@@ -1310,6 +1473,19 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
   }
   float radiusQuakeUnits = light.radius / kQuakeToLgScale;
   if (!parsePositiveFloat(entity, "radius", radiusQuakeUnits, error)) {
+    return false;
+  }
+  if (light.intensity > kMaxLightIntensity) {
+    error = "line " + std::to_string(entity.line) + ": light intensity must not exceed " +
+      std::to_string(static_cast<int>(kMaxLightIntensity));
+    return false;
+  }
+  if (radiusQuakeUnits > kMaxLightRadiusQuakeUnits) {
+    error = "line " + std::to_string(entity.line) + ": light radius must not exceed " +
+      std::to_string(static_cast<int>(kMaxLightRadiusQuakeUnits));
+    return false;
+  }
+  if (!parseStaticLightOptions(entity, light, radiusQuakeUnits, error)) {
     return false;
   }
   light.radius = radiusQuakeUnits * kQuakeToLgScale;
@@ -1600,6 +1776,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   std::vector<ArenaTeleport> teleports;
   std::vector<ArenaHealthPickup> healthPickups;
   std::vector<TargetPosition> targetPositions;
+  ArenaAmbientLight ambientLight;
   ArenaSunLight sunLight;
   ArenaMcGuffinLayout mcguffin;
   bool hasSunLight = false;
@@ -1663,6 +1840,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     HealthPickupType healthPickupType = HealthPickupType::Small;
 
     if (*classname == "worldspawn") {
+      std::string error;
       if (const std::string* value = entity.property("lg_bounds_min")) {
         if (!parseSpaceVec3(*value, boundsMin)) {
           return {{}, false, "line " + std::to_string(entity.line) + ": lg_bounds_min must be 'x y z'"};
@@ -1677,7 +1855,22 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
         boundsMax = scaleQuakeUnits(boundsMax);
         hasBoundsMax = true;
       }
-      std::string error;
+      if (const std::string* value = entity.property("lg_ambient_intensity")) {
+        if (!parseFloat(*value, ambientLight.intensity) ||
+            ambientLight.intensity < 0.0F) {
+          return {{}, false, "line " + std::to_string(entity.line) +
+            ": lg_ambient_intensity must be a non-negative finite float"};
+        }
+      }
+      if (const std::string* value = entity.property("lg_ambient_color")) {
+        if (!parseSpaceVec3(*value, ambientLight.color)) {
+          return {{}, false, "line " + std::to_string(entity.line) +
+            ": lg_ambient_color must be 'r g b'"};
+        }
+        if (!normalizeColor(ambientLight.color, error, entity)) {
+          return {{}, false, error};
+        }
+      }
       if (!convertSolidBrushes(
             entity, *classname, false, walls, brushes, visualWalls, visualBrushes, error
           )) {
@@ -2028,6 +2221,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     for (std::size_t index = 0; index < result.arena.staticLightCount; ++index) {
       result.arena.staticLights[index] = staticLights[index];
     }
+    result.arena.ambientLight = ambientLight;
     result.arena.sunLight = sunLight;
     result.arena.jumpPadCount = jumpPads.size();
     for (std::size_t index = 0; index < result.arena.jumpPadCount; ++index) {

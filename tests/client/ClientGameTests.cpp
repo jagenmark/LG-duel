@@ -181,6 +181,234 @@ int main() {
   {
     lg::LoopbackTransport transport;
     lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot snapshot;
+    snapshot.serverTick = 10;
+    snapshot.projectileRevision = 4;
+    snapshot.players[0] = groundedPlayer();
+    snapshot.projectilePresentation.plasmaLifetimeTicks = 3;
+    snapshot.projectilePresentation.grenadeGravity = 0.0F;
+    snapshot.projectilePresentation.grenadeBounceDamping = 0.5F;
+    snapshot.projectilePresentation.grenadeRestSpeed = 0.0F;
+    queueSnapshot(transport, snapshot);
+
+    lg::ProjectileUpdatePacket updatePacket;
+    updatePacket.serverTick = 10;
+    updatePacket.mapRevision = snapshot.mapRevision;
+    updatePacket.projectileRevision = 4;
+    updatePacket.updateCount = 3;
+    updatePacket.updates[0].slot =
+      static_cast<std::uint16_t>(lg::kProjectileSlotsPerPlayer + 1U);
+    updatePacket.updates[0].sequence = 7;
+    updatePacket.updates[0].weapon = lg::Weapon::RocketLauncher;
+    updatePacket.updates[0].position = {1.0F, 0.0F, 1.0F};
+    updatePacket.updates[0].velocity = {10.0F, 0.0F, 0.0F};
+    updatePacket.updates[1].slot = 2;
+    updatePacket.updates[1].sequence = 8;
+    updatePacket.updates[1].weapon = lg::Weapon::PlasmaGun;
+    updatePacket.updates[1].position = {0.0F, 0.0F, 1.0F};
+    updatePacket.updates[1].ageTicks = 2;
+    updatePacket.updates[2].slot = 4;
+    updatePacket.updates[2].sequence = 9;
+    updatePacket.updates[2].weapon = lg::Weapon::GrenadeLauncher;
+    updatePacket.updates[2].position = {
+      0.0F,
+      0.0F,
+      testMap().arena.min.z + 0.001F,
+    };
+    updatePacket.updates[2].velocity = {0.0F, 0.0F, -1.0F};
+    transport.sendProjectileUpdates(updatePacket);
+    client.receiveSnapshots();
+
+    const std::size_t rocketSlot = lg::kProjectileSlotsPerPlayer + 1U;
+    failures += expect(
+      client.projectiles()[rocketSlot].active &&
+        client.projectiles()[rocketSlot].owner == 1U,
+      "projectile slots should map to their reserved player owner"
+    );
+    client.advanceInterpolation(lg::kFixedTickSeconds, 0.024F);
+    failures += expect(
+      client.projectiles()[rocketSlot].position.x > 1.0F,
+      "rocket presentation should advance between server updates"
+    );
+    failures += expect(
+      !client.projectiles()[2].active,
+      "projectile presentation should expire at its configured lifetime"
+    );
+    lg::ProjectileUpdatePacket expiredCorrection = updatePacket;
+    expiredCorrection.serverTick = 11;
+    expiredCorrection.updateCount = 1;
+    expiredCorrection.updates[0] = updatePacket.updates[1];
+    expiredCorrection.updates[0].kind = lg::ProjectileUpdateKind::Correct;
+    expiredCorrection.updates[0].ageTicks = 1;
+    transport.sendProjectileUpdates(expiredCorrection);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[2].active,
+      "a delayed correction should not restore a locally expired projectile"
+    );
+    failures += expect(
+      client.projectiles()[4].velocity.z > 0.0F,
+      "grenade presentation should bounce against arena collision"
+    );
+
+    lg::ProjectileUpdatePacket correction = updatePacket;
+    correction.serverTick = 12;
+    correction.updateCount = 1;
+    correction.updates[0].position.x = 5.0F;
+    transport.sendProjectileUpdates(correction);
+    lg::ProjectileUpdatePacket stale = correction;
+    stale.serverTick = 11;
+    stale.updates[0].position.x = -5.0F;
+    transport.sendProjectileUpdates(stale);
+    client.receiveSnapshots();
+    failures += expect(
+      nearlyEqual(client.projectiles()[rocketSlot].position.x, 5.0F),
+      "a retained older projectile update should not undo a newer correction"
+    );
+
+    lg::ProjectileUpdatePacket wrapped = correction;
+    wrapped.serverTick = UINT32_MAX - 1U;
+    wrapped.updates[0].slot = 5;
+    wrapped.updates[0].sequence = 10;
+    wrapped.updates[0].position.x = 1.0F;
+    transport.sendProjectileUpdates(wrapped);
+    wrapped.serverTick = 1;
+    wrapped.updates[0].position.x = 2.0F;
+    transport.sendProjectileUpdates(wrapped);
+    wrapped.serverTick = UINT32_MAX;
+    wrapped.updates[0].position.x = -2.0F;
+    transport.sendProjectileUpdates(wrapped);
+    client.receiveSnapshots();
+    failures += expect(
+      nearlyEqual(client.projectiles()[5].position.x, 2.0F),
+      "projectile correction ticks should compare safely across wrap"
+    );
+
+    lg::ProjectileUpdatePacket newRevision = correction;
+    newRevision.serverTick = 13;
+    newRevision.projectileRevision = 5;
+    newRevision.updates[0].slot = 3;
+    newRevision.updates[0].sequence = 9;
+    transport.sendProjectileUpdates(newRevision);
+    client.receiveSnapshots();
+    failures += expect(
+      client.projectiles()[rocketSlot].active &&
+        !client.projectiles()[3].active,
+      "a projectile packet must not reset state before its snapshot generation"
+    );
+
+    snapshot.serverTick = 13;
+    snapshot.projectileRevision = 5;
+    queueSnapshot(transport, snapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[rocketSlot].active,
+      "a snapshot projectile revision should clear the old presentation timeline"
+    );
+
+    correction.serverTick = 14;
+    transport.sendProjectileUpdates(correction);
+    newRevision.serverTick = 14;
+    transport.sendProjectileUpdates(newRevision);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[rocketSlot].active &&
+        client.projectiles()[3].active,
+      "packets from an older generation should stay rejected after reset"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
+    lg::ServerSnapshot snapshot;
+    snapshot.serverTick = 20;
+    snapshot.projectileRevision = 2;
+    snapshot.players[0] = groundedPlayer();
+    queueSnapshot(transport, snapshot);
+
+    lg::ProjectileUpdatePacket packet;
+    packet.serverTick = 20;
+    packet.mapRevision = snapshot.mapRevision;
+    packet.projectileRevision = 2;
+    packet.updateCount = 1;
+    packet.updates[0].slot =
+      static_cast<std::uint16_t>(2U * lg::kProjectileSlotsPerPlayer);
+    packet.updates[0].sequence = 44;
+    packet.updates[0].kind = lg::ProjectileUpdateKind::Spawn;
+    transport.sendProjectileUpdates(packet);
+    client.receiveSnapshots();
+
+    lg::ProjectileUpdatePacket remove = packet;
+    remove.serverTick = 22;
+    remove.updates[0].kind = lg::ProjectileUpdateKind::Remove;
+    transport.sendProjectileUpdates(remove);
+    lg::ProjectileUpdatePacket olderCorrection = packet;
+    olderCorrection.serverTick = 21;
+    olderCorrection.updates[0].kind = lg::ProjectileUpdateKind::Correct;
+    olderCorrection.updates[0].position.x = -10.0F;
+    transport.sendProjectileUpdates(olderCorrection);
+    client.receiveSnapshots();
+    const std::size_t slot = 2U * lg::kProjectileSlotsPerPlayer;
+    failures += expect(
+      !client.projectiles()[slot].active,
+      "an explicit remove should win over a reordered older correction"
+    );
+
+    olderCorrection.serverTick = 23;
+    transport.sendProjectileUpdates(olderCorrection);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[slot].active,
+      "a terminal record should reject later corrections for the same launch"
+    );
+
+    snapshot.serverTick = 24;
+    snapshot.projectileRevision = 3;
+    queueSnapshot(transport, snapshot);
+    client.receiveSnapshots();
+    packet.serverTick = 24;
+    packet.projectileRevision = 3;
+    transport.sendProjectileUpdates(packet);
+    client.receiveSnapshots();
+    failures += expect(
+      client.projectiles()[slot].active,
+      "a new projectile generation should clear prior terminal records"
+    );
+
+    packet.serverTick = 25;
+    packet.updates[0].sequence = 45;
+    transport.sendProjectileUpdates(packet);
+    client.receiveSnapshots();
+    failures += expect(
+      client.projectiles()[slot].active,
+      "a newer launch sequence should replace a terminal slot"
+    );
+
+    snapshot.serverTick = 26;
+    snapshot.rocketExplosions[2].active = true;
+    snapshot.rocketExplosions[2].sequence = 1;
+    snapshot.rocketExplosions[2].projectileSequence = 45;
+    queueSnapshot(transport, snapshot);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[slot].active,
+      "an explosion should remove the exact owner and launch sequence"
+    );
+
+    packet.serverTick = 27;
+    packet.updates[0].kind = lg::ProjectileUpdateKind::Correct;
+    transport.sendProjectileUpdates(packet);
+    client.receiveSnapshots();
+    failures += expect(
+      !client.projectiles()[slot].active,
+      "a late update should not restore an exploded projectile"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ClientGame client(transport, 0);
     lg::ServerSnapshot initialSnapshot;
     initialSnapshot.players[0] = groundedPlayer();
     queueSnapshot(transport, initialSnapshot);

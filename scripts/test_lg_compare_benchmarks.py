@@ -92,6 +92,7 @@ class CompareBenchmarkTests(unittest.TestCase):
             "profile": "pr_headless",
             "policy": str(self.policy),
             "output": str(output),
+            "not_comparable_exit_zero": False,
         }
         values.update(changes)
         return Namespace(**values)
@@ -638,6 +639,16 @@ class CompareBenchmarkTests(unittest.TestCase):
                 ]
             )
             self.assertEqual(code, 1)
+            code = compare.main(
+                [
+                    "--baseline-results", str(baseline),
+                    "--candidate-results", str(failed),
+                    "--profile", "pr_headless",
+                    "--output", str(root / "failed-output-allowed"),
+                    "--not-comparable-exit-zero",
+                ]
+            )
+            self.assertEqual(code, 1)
             changed = self.result_dir(
                 root, "changed", commit="b" * 40, changed_hash=True
             )
@@ -652,10 +663,28 @@ class CompareBenchmarkTests(unittest.TestCase):
             self.assertEqual(code, 1)
             code = compare.main(
                 [
+                    "--baseline-results", str(baseline),
+                    "--candidate-results", str(changed),
+                    "--profile", "pr_headless",
+                    "--output", str(root / "changed-output-allowed"),
+                    "--not-comparable-exit-zero",
+                ]
+            )
+            self.assertEqual(code, 0)
+            for name in ("comparison.json", "manifest.json"):
+                document = json.loads(
+                    (root / "changed-output-allowed" / name).read_text(
+                        encoding="utf-8"
+                    )
+                )
+                self.assertEqual(document["status"], "NOT_COMPARABLE")
+            code = compare.main(
+                [
                     "--baseline-results", str(root / "missing"),
                     "--candidate-results", str(changed),
                     "--profile", "pr_headless",
                     "--output", str(root / "error-output"),
+                    "--not-comparable-exit-zero",
                 ]
             )
             self.assertEqual(code, 2)

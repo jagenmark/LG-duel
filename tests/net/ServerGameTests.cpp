@@ -2,10 +2,12 @@
 #include "net/LoopbackTransport.hpp"
 #include "server/ServerGame.hpp"
 #include "shared/Constants.hpp"
+#include "shared/Sequence.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/MovementModes.hpp"
 #include "sim/UserCommand.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -35,6 +37,17 @@ lg::ServerSnapshot latestSnapshot(lg::LoopbackTransport& transport) {
   lg::ServerSnapshot latest;
   lg::ServerSnapshot received;
   while (transport.receiveSnapshot(received)) {
+    latest = received;
+  }
+  return latest;
+}
+
+lg::ProjectileUpdatePacket latestProjectileUpdates(
+  lg::LoopbackTransport& transport
+) {
+  lg::ProjectileUpdatePacket latest;
+  lg::ProjectileUpdatePacket received;
+  while (transport.receiveProjectileUpdates(received)) {
     latest = received;
   }
   return latest;
@@ -236,6 +249,11 @@ std::string tinyQuakeMap() {
 
 int main() {
   int failures = 0;
+
+  failures += expect(
+    lg::nextNonZeroSequence(std::numeric_limits<std::uint32_t>::max()) == 1U,
+    "nonzero event sequences should skip zero when they wrap"
+  );
 
   {
     lg::LoopbackTransport transport;
@@ -2076,6 +2094,7 @@ int main() {
     lg::LoopbackTransport transport;
     lg::ServerGame server(transport);
     latestSnapshot(transport);
+    latestProjectileUpdates(transport);
 
     lg::UserCommand plasma;
     plasma.sequence = 77;
@@ -2094,10 +2113,30 @@ int main() {
       "plasma gun should fire a weapon event"
     );
     failures += expect(
-      snapshot.rockets[0].active &&
-        snapshot.rockets[0].weapon == lg::Weapon::PlasmaGun &&
-        snapshot.rockets[0].velocity.x > 0.0F,
+      server.projectiles()[0].active &&
+        server.projectiles()[0].weapon == lg::Weapon::PlasmaGun &&
+        server.projectiles()[0].velocity.x > 0.0F,
       "plasma gun should replicate fast straight projectile state"
+    );
+    const lg::ProjectileUpdatePacket projectilePacket =
+      latestProjectileUpdates(transport);
+    failures += expect(
+      projectilePacket.updateCount <= lg::kMaxProjectileUpdatesPerPacket,
+      "projectile updates should stay within the packet bound"
+    );
+    failures += expect(
+      projectilePacket.updateCount > 0U &&
+        projectilePacket.updates[0].kind == lg::ProjectileUpdateKind::Spawn &&
+        projectilePacket.updates[0].slot == 0U &&
+        projectilePacket.updates[0].sequence ==
+          server.projectiles()[0].sequence &&
+        projectilePacket.updates[0].weapon == lg::Weapon::PlasmaGun,
+      "projectile updates should put a new spawn first"
+    );
+    failures += expect(
+      projectilePacket.mapRevision == snapshot.mapRevision &&
+        projectilePacket.projectileRevision > 0U,
+      "projectile updates should carry map and projectile revisions"
     );
 
     plasma.sequence = 78;
@@ -2105,7 +2144,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     std::size_t activePlasma = 0;
-    for (const lg::RocketProjectileSnapshot& projectile : snapshot.rockets) {
+    for (const lg::RocketProjectile& projectile : server.projectiles()) {
       if (
         projectile.active &&
         projectile.weapon == lg::Weapon::PlasmaGun
@@ -2116,6 +2155,315 @@ int main() {
     failures += expect(
       activePlasma == 1,
       "plasma gun cooldown should block immediate second plasma shot"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-1000.0F, -1000.0F, 0.0F};
+    arena.max = {1000.0F, 1000.0F, 100.0F};
+    arena.spawnPositions[0] = {-200.0F, -200.0F, 0.0F};
+    arena.spawnPositions[1] = {200.0F, 200.0F, 0.0F};
+    server.setArena(arena);
+    lg::BalanceConfig balance;
+    balance.plasmaGun.speed = 1.0F;
+    balance.plasmaGun.maxLifetimeTicks =
+      static_cast<std::uint32_t>(lg::kProjectileSlotsPerPlayer);
+    balance.plasmaGun.cooldownTicks = 1;
+    server.applyBalanceConfig(balance);
+    latestSnapshot(transport);
+
+    bool sustainedEveryShot = true;
+    lg::UserCommand plasma;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    plasma.viewYawRadians = 0.0F;
+    for (std::uint32_t tick = 1; tick <= 96U; ++tick) {
+      plasma.sequence = tick;
+      transport.sendCommand(lg::CommandPacket{0, plasma, false});
+      server.tick(lg::kFixedTickSeconds);
+      sustainedEveryShot =
+        sustainedEveryShot && latestSnapshot(transport).weaponFires[0].fired;
+    }
+    failures += expect(
+      sustainedEveryShot,
+      "a solo plasma gun should sustain its full configured rate and lifetime"
+    );
+    const std::size_t activeOwned = static_cast<std::size_t>(std::count_if(
+      server.projectiles().begin(),
+      server.projectiles().begin() + lg::kProjectileSlotsPerPlayer,
+      [](const lg::RocketProjectile& projectile) {
+        return projectile.active && projectile.owner == 0U;
+      }
+    ));
+    failures += expect(
+      activeOwned < lg::kProjectileSlotsPerPlayer,
+      "expired plasma shots should free owner slots before the partition caps"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-1000.0F, -1000.0F, 0.0F};
+    arena.max = {1000.0F, 1000.0F, 100.0F};
+    arena.spawnPositions[0] = {-200.0F, -200.0F, 0.0F};
+    arena.spawnPositions[1] = {200.0F, 200.0F, 0.0F};
+    server.setArena(arena);
+    lg::BalanceConfig balance;
+    balance.plasmaGun.speed = 1.0F;
+    balance.plasmaGun.maxLifetimeTicks = 1000;
+    balance.plasmaGun.cooldownTicks = 1;
+    server.applyBalanceConfig(balance);
+    latestSnapshot(transport);
+
+    lg::UserCommand plasma;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    plasma.viewYawRadians = 0.0F;
+    for (std::uint32_t shot = 1;
+         shot <= lg::kProjectileSlotsPerPlayer;
+         ++shot) {
+      plasma.sequence = shot;
+      transport.sendCommand(lg::CommandPacket{0, plasma, false});
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+    }
+
+    plasma.sequence++;
+    transport.sendCommand(lg::CommandPacket{0, plasma, false});
+    lg::UserCommand otherPlasma = plasma;
+    otherPlasma.viewYawRadians = kPi;
+    transport.sendCommand(lg::CommandPacket{1, otherPlasma, false});
+    server.tick(lg::kFixedTickSeconds);
+    const lg::ServerSnapshot partitionSnapshot = latestSnapshot(transport);
+    const std::size_t firstOwnerActive = static_cast<std::size_t>(std::count_if(
+      server.projectiles().begin(),
+      server.projectiles().begin() + lg::kProjectileSlotsPerPlayer,
+      [](const lg::RocketProjectile& projectile) {
+        return projectile.active && projectile.owner == 0U;
+      }
+    ));
+    failures += expect(
+      firstOwnerActive == lg::kProjectileSlotsPerPlayer &&
+        partitionSnapshot.weaponFires[1].fired,
+      "a full owner partition should remain capped while another owner fires"
+    );
+    failures += expect(
+      server.projectiles()[lg::kProjectileSlotsPerPlayer].active &&
+        server.projectiles()[lg::kProjectileSlotsPerPlayer].owner == 1U,
+      "one player's full projectile partition should not starve another player"
+    );
+    failures += expect(
+      partitionSnapshot.weaponFires[1].visualSeed ==
+          server.projectiles()[lg::kProjectileSlotsPerPlayer].sequence &&
+        partitionSnapshot.weaponFires[1].visualSeed != 0U,
+      "projectile fire visuals should use the stable nonzero owner sequence"
+    );
+    const lg::ScenarioState capturedProjectiles =
+      server.captureScenarioState();
+    failures += expect(
+      capturedProjectiles.projectileRevision ==
+          partitionSnapshot.projectileRevision &&
+        capturedProjectiles.projectileSequences[1] ==
+          server.projectiles()[lg::kProjectileSlotsPerPlayer].sequence &&
+        capturedProjectiles
+            .projectiles[lg::kProjectileSlotsPerPlayer]
+            .sequence ==
+          server.projectiles()[lg::kProjectileSlotsPerPlayer].sequence,
+      "scenario capture should preserve projectile revision and sequence identity"
+    );
+
+    lg::UserCommand idle;
+    idle.weapon = lg::Weapon::PlasmaGun;
+    idle.sequence = plasma.sequence + 1U;
+    transport.sendCommand(lg::CommandPacket{0, idle, false});
+    transport.sendCommand(lg::CommandPacket{1, idle, false});
+    latestProjectileUpdates(transport);
+    std::array<bool, lg::kProjectileSlotsPerPlayer> corrected = {};
+    for (int tick = 0; tick < 24; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+      lg::ProjectileUpdatePacket updates;
+      while (transport.receiveProjectileUpdates(updates)) {
+        for (std::size_t index = 0; index < updates.updateCount; ++index) {
+          const lg::ProjectileUpdate& update = updates.updates[index];
+          if (
+            update.kind == lg::ProjectileUpdateKind::Correct &&
+            update.slot < corrected.size()
+          ) {
+            corrected[update.slot] = true;
+          }
+        }
+      }
+    }
+    failures += expect(
+      std::all_of(corrected.begin(), corrected.end(), [](bool seen) {
+        return seen;
+      }),
+      "adaptive corrections should refresh a full owner partition within 24 ticks"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-5.0F, -10.0F, 0.0F};
+    arena.max = {5.0F, 10.0F, 20.0F};
+    arena.spawnPositions[0] = {-2.0F, 0.0F, 0.0F};
+    arena.spawnPositions[1] = {2.0F, 0.0F, 0.0F};
+    server.setArena(arena);
+    latestSnapshot(transport);
+    latestProjectileUpdates(transport);
+
+    lg::UserCommand outward;
+    outward.sequence = 1;
+    outward.attack = true;
+    outward.weapon = lg::Weapon::PlasmaGun;
+    outward.viewYawRadians = kPi;
+    transport.sendCommand(lg::CommandPacket{0, outward, false});
+    outward.viewYawRadians = 0.0F;
+    transport.sendCommand(lg::CommandPacket{1, outward, false});
+
+    bool sawTwoRemovals = false;
+    for (int tick = 0; tick < 12 && !sawTwoRemovals; ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+      lg::ProjectileUpdatePacket updates;
+      while (transport.receiveProjectileUpdates(updates)) {
+        std::size_t removes = 0;
+        for (std::size_t index = 0; index < updates.updateCount; ++index) {
+          const lg::ProjectileUpdate& update = updates.updates[index];
+          removes +=
+            update.kind == lg::ProjectileUpdateKind::Remove &&
+            update.sequence != 0U;
+        }
+        sawTwoRemovals = sawTwoRemovals || removes >= 2U;
+      }
+    }
+    failures += expect(
+      sawTwoRemovals,
+      "two same-tick projectile impacts should publish two terminal removals"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::BalanceConfig balance;
+    balance.plasmaGun.speed = 1000.0F;
+    server.applyBalanceConfig(balance);
+    latestSnapshot(transport);
+    latestProjectileUpdates(transport);
+
+    lg::UserCommand down;
+    down.sequence = 1;
+    down.attack = true;
+    down.weapon = lg::Weapon::PlasmaGun;
+    down.planarAim = false;
+    down.viewPitchRadians = -kPi * 0.5F;
+    transport.sendCommand(lg::CommandPacket{0, down, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+    const lg::ProjectileUpdatePacket terminal =
+      latestProjectileUpdates(transport);
+    failures += expect(
+      terminal.updateCount == 1U &&
+        terminal.updates[0].kind == lg::ProjectileUpdateKind::Remove &&
+        terminal.updates[0].sequence != 0U,
+      "a projectile spawned and removed in one tick should encode one terminal record"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    lg::Arena arena;
+    arena.min = {-1000.0F, -1000.0F, 0.0F};
+    arena.max = {1000.0F, 1000.0F, 100.0F};
+    arena.spawnPositions[0] = {-200.0F, -200.0F, 0.0F};
+    arena.spawnPositions[1] = {200.0F, 200.0F, 0.0F};
+    server.setArena(arena);
+    lg::BalanceConfig longLife;
+    longLife.plasmaGun.speed = 1.0F;
+    longLife.plasmaGun.maxLifetimeTicks = 1000;
+    longLife.plasmaGun.cooldownTicks = 1;
+    server.applyBalanceConfig(longLife);
+    latestSnapshot(transport);
+
+    lg::UserCommand plasma;
+    plasma.attack = true;
+    plasma.weapon = lg::Weapon::PlasmaGun;
+    for (std::uint32_t shot = 1;
+         shot <= lg::kProjectileSlotsPerPlayer;
+         ++shot) {
+      plasma.sequence = shot;
+      transport.sendCommand(lg::CommandPacket{0, plasma, false});
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+    }
+    latestProjectileUpdates(transport);
+
+    lg::BalanceConfig expireNow = longLife;
+    expireNow.plasmaGun.maxLifetimeTicks = 1;
+    server.applyBalanceConfig(expireNow);
+    lg::UserCommand idle;
+    idle.sequence = plasma.sequence + 1U;
+    idle.weapon = lg::Weapon::PlasmaGun;
+    transport.sendCommand(lg::CommandPacket{0, idle, false});
+    server.tick(lg::kFixedTickSeconds);
+    latestSnapshot(transport);
+
+    std::array<std::uint8_t, lg::kProjectileSlotsPerPlayer> removalSends = {};
+    lg::ProjectileUpdatePacket updates;
+    while (transport.receiveProjectileUpdates(updates)) {
+      failures += expect(
+        updates.updateCount <= lg::kMaxProjectileUpdatesPerPacket,
+        "terminal bursts should remain split into bounded packets"
+      );
+      for (std::size_t index = 0; index < updates.updateCount; ++index) {
+        const lg::ProjectileUpdate& update = updates.updates[index];
+        if (
+          update.kind == lg::ProjectileUpdateKind::Remove &&
+          update.slot < removalSends.size()
+        ) {
+          ++removalSends[update.slot];
+        }
+      }
+    }
+    failures += expect(
+      std::all_of(removalSends.begin(), removalSends.end(), [](std::uint8_t sends) {
+        return sends == 1U;
+      }),
+      "a 32-removal burst should send every terminal record once at creation"
+    );
+
+    for (std::uint32_t tick = 0;
+         tick < 8U;
+         ++tick) {
+      server.tick(lg::kFixedTickSeconds);
+      latestSnapshot(transport);
+      while (transport.receiveProjectileUpdates(updates)) {
+        for (std::size_t index = 0; index < updates.updateCount; ++index) {
+          const lg::ProjectileUpdate& update = updates.updates[index];
+          if (
+            update.kind == lg::ProjectileUpdateKind::Remove &&
+            update.slot < removalSends.size()
+          ) {
+            ++removalSends[update.slot];
+          }
+        }
+      }
+    }
+    failures += expect(
+      std::all_of(removalSends.begin(), removalSends.end(), [](std::uint8_t sends) {
+        return sends >= 2U;
+      }),
+      "every record in a 32-removal burst should replay before expiry"
     );
   }
 
@@ -2313,8 +2661,8 @@ int main() {
       "grenade launcher should fire a weapon event"
     );
     failures += expect(
-      snapshot.rockets[0].active &&
-        snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher,
+      server.projectiles()[0].active &&
+        server.projectiles()[0].weapon == lg::Weapon::GrenadeLauncher,
       "grenade launcher should replicate projectile state with configured hitbox"
     );
     for (int tick = 0; tick < 8; ++tick) {
@@ -2332,7 +2680,7 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);
     std::size_t activeGrenades = 0;
-    for (const lg::RocketProjectileSnapshot& projectile : snapshot.rockets) {
+    for (const lg::RocketProjectile& projectile : server.projectiles()) {
       if (
         projectile.active &&
         projectile.weapon == lg::Weapon::GrenadeLauncher
@@ -2408,9 +2756,9 @@ int main() {
       snapshot = latestSnapshot(transport);
       bounced = bounced ||
         (
-          snapshot.rockets[0].active &&
-          snapshot.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
-          snapshot.rockets[0].velocity.z > 0.0F
+          server.projectiles()[0].active &&
+          server.projectiles()[0].weapon == lg::Weapon::GrenadeLauncher &&
+          server.projectiles()[0].velocity.z > 0.0F
         );
       exploded = exploded || snapshot.rocketExplosions[0].active;
       emittedBounceAudio = emittedBounceAudio ||
@@ -3052,7 +3400,7 @@ int main() {
       "a forward-moving player should not take damage from an overlapping newly fired rocket"
     );
     failures += expect(
-      snapshot.rockets[0].active,
+      server.projectiles()[0].active,
       "rocket should remain active after separating from its forward-moving owner"
     );
   }
@@ -3122,7 +3470,12 @@ int main() {
     server.tick(lg::kFixedTickSeconds);
     lg::ServerSnapshot snapshot = latestSnapshot(transport);
     failures += expect(snapshot.weaponFires[0].fired, "rocket launcher should fire a weapon event");
-    failures += expect(snapshot.rockets[0].active, "rocket projectile should replicate after firing");
+    failures += expect(
+      server.projectiles()[0].active,
+      "rocket projectile should remain active after firing"
+    );
+    const std::uint32_t firedProjectileSequence =
+      server.projectiles()[0].sequence;
 
     bool exploded = false;
     bool damaged = false;
@@ -3135,6 +3488,11 @@ int main() {
         failures += expect(
           snapshot.rocketExplosions[0].opponentDamageApplied > 0,
           "rocket explosion should report opponent damage for audio feedback"
+        );
+        failures += expect(
+          snapshot.rocketExplosions[0].projectileSequence ==
+            firedProjectileSequence,
+          "rocket explosion should name the projectile sequence that ended"
         );
         break;
       }

@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <iostream>
+#include <limits>
 #include <memory>
 #include <string_view>
 #include <thread>
@@ -82,6 +83,105 @@ int main() {
   if (failures != 0) {
     return 1;
   }
+
+  lg::ProjectileUpdatePacket projectileSource;
+  projectileSource.serverTick = 77U;
+  projectileSource.mapRevision = server.snapshot().mapRevision;
+  projectileSource.projectileRevision =
+    server.snapshot().projectileRevision;
+  projectileSource.updateCount = 2U;
+  projectileSource.updates[0].slot = 31U;
+  projectileSource.updates[0].sequence = 101U;
+  projectileSource.updates[0].kind = lg::ProjectileUpdateKind::Spawn;
+  projectileSource.updates[0].weapon = lg::Weapon::RocketLauncher;
+  projectileSource.updates[0].position = {1.0F, 2.0F, 3.0F};
+  projectileSource.updates[0].velocity = {4.0F, 5.0F, 6.0F};
+  projectileSource.updates[0].ageTicks = 8U;
+  projectileSource.updates[1].slot =
+    static_cast<std::uint16_t>(lg::kMaxRocketProjectiles - 1U);
+  projectileSource.updates[1].sequence = 102U;
+  projectileSource.updates[1].kind = lg::ProjectileUpdateKind::Remove;
+  projectileSource.updates[1].weapon = lg::Weapon::GrenadeLauncher;
+  projectileSource.updates[1].position = {-1.0F, -2.0F, 0.5F};
+  projectileSource.updates[1].velocity = {0.0F, 0.0F, 0.0F};
+  projectileSource.updates[1].radius = 0.15F;
+  projectileSource.updates[1].ageTicks = 90U;
+  projectileSource.updates[1].resting = true;
+  serverTransport.sendProjectileUpdates(projectileSource);
+  firstTransport.update();
+  secondTransport.update();
+
+  lg::ProjectileUpdatePacket firstProjectilePacket;
+  lg::ProjectileUpdatePacket secondProjectilePacket;
+  failures += expect(
+    firstTransport.receiveProjectileUpdates(firstProjectilePacket) &&
+      secondTransport.receiveProjectileUpdates(secondProjectilePacket),
+    "UDP server should send projectile updates to every active client"
+  );
+  failures += expect(
+    firstProjectilePacket.serverTick == projectileSource.serverTick &&
+      firstProjectilePacket.projectileRevision ==
+        projectileSource.projectileRevision &&
+      firstProjectilePacket.updateCount == projectileSource.updateCount &&
+      firstProjectilePacket.updates[0].slot == 31U &&
+      firstProjectilePacket.updates[1].slot ==
+        lg::kMaxRocketProjectiles - 1U &&
+      firstProjectilePacket.updates[1].kind ==
+        lg::ProjectileUpdateKind::Remove &&
+      firstProjectilePacket.updates[1].resting &&
+      secondProjectilePacket.updates[0].sequence == 101U,
+    "UDP projectile update fields should survive server-to-client transport"
+  );
+  firstTransport.sendProjectileUpdates(projectileSource);
+  serverTransport.update();
+  failures += expect(
+    !serverTransport.receiveProjectileUpdates(firstProjectilePacket),
+    "UDP clients must not send projectile-authoritative state to the server"
+  );
+
+  lg::ProjectileUpdatePacket queuedProjectilePacket = projectileSource;
+  queuedProjectilePacket.updateCount = 0U;
+  constexpr std::uint32_t kQueueTestFirstTick = 1000U;
+  for (
+    std::size_t index = 0;
+    index < lg::kMaxQueuedProjectileUpdatePackets + 16U;
+    ++index
+  ) {
+    queuedProjectilePacket.serverTick =
+      kQueueTestFirstTick + static_cast<std::uint32_t>(index);
+    serverTransport.sendProjectileUpdates(queuedProjectilePacket);
+  }
+  firstTransport.update();
+  secondTransport.update();
+  std::size_t queuedPacketCount = 0U;
+  std::uint32_t oldestQueuedTick = 0U;
+  while (firstTransport.receiveProjectileUpdates(firstProjectilePacket)) {
+    if (queuedPacketCount == 0U) {
+      oldestQueuedTick = firstProjectilePacket.serverTick;
+    }
+    ++queuedPacketCount;
+  }
+  while (secondTransport.receiveProjectileUpdates(secondProjectilePacket)) {}
+  failures += expect(
+    queuedPacketCount == lg::kMaxQueuedProjectileUpdatePackets &&
+      oldestQueuedTick == kQueueTestFirstTick + 16U,
+    "UDP projectile receive queue should keep only its newest bounded window"
+  );
+
+  lg::ProjectileUpdatePacket staleProjectilePacket = queuedProjectilePacket;
+  staleProjectilePacket.serverTick = kQueueTestFirstTick + 100U;
+  staleProjectilePacket.projectileRevision =
+    projectileSource.projectileRevision == 1U
+      ? std::numeric_limits<std::uint32_t>::max()
+      : projectileSource.projectileRevision - 1U;
+  serverTransport.sendProjectileUpdates(staleProjectilePacket);
+  firstTransport.update();
+  secondTransport.update();
+  failures += expect(
+    !firstTransport.receiveProjectileUpdates(firstProjectilePacket),
+    "UDP client should reject projectile packets from an old generation"
+  );
+  while (secondTransport.receiveProjectileUpdates(secondProjectilePacket)) {}
 
   lg::ClientGame firstClient(firstTransport, firstTransport.playerIndex());
   lg::ClientGame secondClient(secondTransport, secondTransport.playerIndex());

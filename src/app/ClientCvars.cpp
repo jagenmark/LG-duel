@@ -18,6 +18,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_mouseAccelPower", "Quake Live mouse acceleration power curve.", 2.0F, archivedClient, 1.0F, 10.0F, "2"});
   console.registerCvar({"cl_mouseAccelOffset", "Quake Live mouse speed threshold before acceleration applies.", 0.0F, archivedClient, 0.0F, 1000.0F, "0"});
   console.registerCvar({"cl_mouseSensCap", "Quake Live accelerated sensitivity cap; zero disables the cap.", 0.0F, archivedClient, 0.0F, 100.0F, "0"});
+  console.registerCvar({"cl_late_mouse_sample", "Sample mouse input after swapchain acquire and before view-dependent render work.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sniper_fov", "Field of view for Sniper Rifle ADS.", 45.0F, archivedClient, 20.0F, 140.0F});
@@ -134,6 +135,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_bloom_threshold", "Brightness threshold for effect bloom.", 1.15F, archivedClient, 0.5F, 4.0F});
   console.registerCvar({"r_antialiasing", "Anti-aliasing quality: 0 off, 1 2x MSAA, 2 4x MSAA.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_sun_shadows", "Sun-shadow quality: 0 off, 1 low, 2 high.", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_point_lights", "Live point-light quality: 0 baked and combat only, 1 16 lights, 2 32 lights.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_point_shadows", "Cached point-shadow quality: 0 off, 1 one 256px light, 2 two 512px lights.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_contact_shadows", "Enable contact shadows on players and props.", true, archivedClient, {}, {}});
   console.registerCvar({"r_material_quality", "Material quality: 0 basic, 1 enhanced, 2 high.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_player_rim", "Player rim-light quality: 0 off, 1 low, 2 high.", 1, archivedClient, 0.0F, 2.0F});

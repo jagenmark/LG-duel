@@ -5,7 +5,9 @@
 #include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 
+#include <array>
 #include <cmath>
+#include <cstdint>
 #include <iostream>
 #include <string>
 #include <string_view>
@@ -59,10 +61,11 @@ std::string cuboidBrush(
     "}\n";
 }
 
-std::string basicMap(std::string brush) {
+std::string basicMap(std::string brush, std::string worldProperties = {}) {
   return
     "{\n"
     "\"classname\" \"worldspawn\"\n" +
+    worldProperties +
     brush +
     "}\n"
     "{\n"
@@ -593,6 +596,43 @@ int main() {
   }
 
   {
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-16, -16, 0, 16, 16, 16),
+        "\"lg_ambient_intensity\" \"0.42\"\n"
+        "\"lg_ambient_color\" \"128 192 255\"\n"
+      )
+    );
+    failures += expect(result.ok, "worldspawn ambient light should convert");
+    failures += expect(
+      nearlyEqual(result.arena.ambientLight.intensity, 0.42F) &&
+        nearlyEqual(result.arena.ambientLight.color.x, 128.0F / 255.0F) &&
+        nearlyEqual(result.arena.ambientLight.color.y, 192.0F / 255.0F) &&
+        nearlyEqual(result.arena.ambientLight.color.z, 1.0F),
+      "worldspawn ambient intensity and 0..255 color should be preserved"
+    );
+  }
+
+  {
+    const lg::ArenaLoadResult negativeIntensity = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-16, -16, 0, 16, 16, 16),
+        "\"lg_ambient_intensity\" \"-0.1\"\n"
+      )
+    );
+    const lg::ArenaLoadResult invalidColor = lg::loadArenaFromMapText(
+      basicMap(
+        cuboidBrush(-16, -16, 0, 16, 16, 16),
+        "\"lg_ambient_color\" \"300 0 0\"\n"
+      )
+    );
+    failures += expect(
+      !negativeIntensity.ok && !invalidColor.ok,
+      "worldspawn ambient light should reject negative intensity and invalid color"
+    );
+  }
+
+  {
     const std::string text =
       basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
       "{\n"
@@ -620,6 +660,89 @@ int main() {
       nearlyEqual(result.arena.staticLights[0].color.y, 0.5F) &&
         nearlyEqual(result.arena.staticLights[1].color.z, 1.0F),
       "light colors should be preserved"
+    );
+    failures += expect(
+      !result.arena.staticLights[0].castsShadows &&
+        nearlyEqual(result.arena.staticLights[0].sourceRadius, 0.0F) &&
+        result.arena.staticLights[0].priority == 0 &&
+        !result.arena.staticLights[0].flickerEnabled &&
+        result.arena.staticLights[0].flickerSeed == 0U &&
+        nearlyEqual(result.arena.staticLights[0].flickerFrequencyHz, 0.0F) &&
+        nearlyEqual(result.arena.staticLights[0].flickerMinFactor, 1.0F) &&
+        nearlyEqual(result.arena.staticLights[0].flickerMaxFactor, 1.0F),
+      "old light maps should retain neutral shadow and flicker defaults"
+    );
+  }
+
+  {
+    const std::string text =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light_point\"\n"
+      "\"origin\" \"80 0 120\"\n"
+      "\"radius\" \"400\"\n"
+      "\"casts_shadows\" \"YeS\"\n"
+      "\"source_radius\" \"40\"\n"
+      "\"priority\" \"-17\"\n"
+      "\"flicker\" \"on\"\n"
+      "\"flicker_seed\" \"4294967295\"\n"
+      "\"flicker_frequency\" \"12.5\"\n"
+      "\"flicker_min\" \"0.4\"\n"
+      "\"flicker_max\" \"1.7\"\n"
+      "}\n";
+    const lg::ArenaLoadResult result = lg::loadArenaFromMapText(text);
+    failures += expect(result.ok, "authored point-light shadow and flicker settings should convert");
+    if (result.ok && result.arena.staticLightCount == 1U) {
+      const lg::ArenaStaticLight& light = result.arena.staticLights[0];
+      failures += expect(
+        light.castsShadows && nearlyEqual(light.sourceRadius, 1.0F) &&
+          light.priority == -17 && light.flickerEnabled &&
+          light.flickerSeed == UINT32_MAX && nearlyEqual(light.flickerFrequencyHz, 12.5F) &&
+          nearlyEqual(light.flickerMinFactor, 0.4F) && nearlyEqual(light.flickerMaxFactor, 1.7F),
+        "point-light shadow and flicker settings should preserve typed values"
+      );
+    }
+  }
+
+  {
+    const std::string lightPrefix =
+      basicMap(cuboidBrush(-16, -16, 0, 16, 16, 16)) +
+      "{\n"
+      "\"classname\" \"light\"\n"
+      "\"origin\" \"0 0 160\"\n";
+    const std::array<std::pair<std::string_view, std::string_view>, 12> invalidSettings = {{
+      {"\"casts_shadows\" \"maybe\"\n", "casts_shadows"},
+      {"\"source_radius\" \"-1\"\n", "source_radius"},
+      {"\"source_radius\" \"401\"\n", "source_radius"},
+      {"\"source_radius\" \"1025\"\n", "source_radius"},
+      {"\"priority\" \"-1001\"\n", "priority"},
+      {"\"priority\" \"1001\"\n", "priority"},
+      {"\"flicker\" \"2\"\n", "flicker"},
+      {"\"flicker_seed\" \"-1\"\n", "flicker_seed"},
+      {"\"flicker\" \"1\"\n\"flicker_frequency\" \"0\"\n", "flicker_frequency"},
+      {"\"flicker_frequency\" \"1\"\n", "flicker_frequency"},
+      {"\"flicker\" \"1\"\n\"flicker_min\" \"1.1\"\n\"flicker_max\" \"1\"\n", "flicker_min"},
+      {"\"flicker\" \"1\"\n\"flicker_max\" \"4.1\"\n", "flicker_max"},
+    }};
+    for (const auto& [setting, expectedKey] : invalidSettings) {
+      const lg::ArenaLoadResult result = lg::loadArenaFromMapText(
+        lightPrefix + std::string(setting) + "}\n"
+      );
+      failures += expect(
+        !result.ok && result.error.find(expectedKey) != std::string::npos,
+        "invalid point-light shadow and flicker settings should fail with their field name"
+      );
+    }
+
+    const lg::ArenaLoadResult oversizedIntensity = lg::loadArenaFromMapText(
+      lightPrefix + "\"intensity\" \"16.1\"\n}\n"
+    );
+    const lg::ArenaLoadResult oversizedRadius = lg::loadArenaFromMapText(
+      lightPrefix + "\"radius\" \"4097\"\n}\n"
+    );
+    failures += expect(
+      !oversizedIntensity.ok && !oversizedRadius.ok,
+      "point-light intensity and radius should obey their hard safety caps"
     );
   }
 
@@ -1009,6 +1132,62 @@ int main() {
       result = lg::loadArenaFromFile("../../maps/dev_cuboids.map");
     }
     failures += expect(result.ok, "sample dev_cuboids.map should load");
+  }
+
+  {
+    lg::ArenaLoadResult result = lg::loadArenaFromFile("maps/dev_point_lights.map");
+    if (!result.ok) {
+      result = lg::loadArenaFromFile("../maps/dev_point_lights.map");
+    }
+    if (!result.ok) {
+      result = lg::loadArenaFromFile("../../maps/dev_point_lights.map");
+    }
+    failures += expect(
+      result.ok && result.arena.wallCount == 10U &&
+        result.arena.spawnCount == 2U && result.arena.staticLightCount == 2U,
+      "dev_point_lights.map should load its closed room, spawns, and two review lights"
+    );
+    if (result.ok && result.arena.staticLightCount == 2U) {
+      const lg::ArenaStaticLight& warm = result.arena.staticLights[0];
+      const lg::ArenaStaticLight& cool = result.arena.staticLights[1];
+      failures += expect(
+        warm.castsShadows && warm.flickerEnabled && warm.priority == 100 &&
+          nearlyEqual(warm.radius, 5.5F) &&
+          cool.castsShadows && !cool.flickerEnabled && cool.priority == 80 &&
+          nearlyEqual(result.arena.ambientLight.intensity, 0.14F) &&
+          !result.arena.sunLight.enabled,
+        "point-light review fixture should retain its shadow, flicker, and ambient setup"
+      );
+
+      const lg::ArenaWall* pillar = nullptr;
+      for (std::size_t index = 0; index < result.arena.wallCount; ++index) {
+        const lg::ArenaWall& wall = result.arena.walls[index];
+        if (
+          nearlyEqual(wall.min.x, 4.5F) && nearlyEqual(wall.max.x, 6.1F) &&
+          nearlyEqual(wall.min.y, -0.8F) && nearlyEqual(wall.max.y, 0.8F)
+        ) {
+          pillar = &wall;
+          break;
+        }
+      }
+      failures += expect(pillar != nullptr, "point-light review fixture should retain its cool-light pillar");
+      if (pillar != nullptr) {
+        const auto squaredDistanceToWall = [](lg::Vec3 point, const lg::ArenaWall& wall) {
+          const float dx = point.x < wall.min.x ? wall.min.x - point.x :
+            (point.x > wall.max.x ? point.x - wall.max.x : 0.0F);
+          const float dy = point.y < wall.min.y ? wall.min.y - point.y :
+            (point.y > wall.max.y ? point.y - wall.max.y : 0.0F);
+          const float dz = point.z < wall.min.z ? wall.min.z - point.z :
+            (point.z > wall.max.z ? point.z - wall.max.z : 0.0F);
+          return dx * dx + dy * dy + dz * dz;
+        };
+        failures += expect(
+          squaredDistanceToWall(warm.position, *pillar) > warm.radius * warm.radius &&
+            squaredDistanceToWall(cool.position, *pillar) < cool.radius * cool.radius,
+          "cool-light pillar should sit outside warm flicker range and inside cool light range"
+        );
+      }
+    }
   }
 
   {

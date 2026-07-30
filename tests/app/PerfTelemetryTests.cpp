@@ -23,6 +23,11 @@ lg::PerfSample sample(float frameMilliseconds) {
   sample.frameMilliseconds = frameMilliseconds;
   sample.sceneBuildMilliseconds = frameMilliseconds * 0.1F;
   sample.gpuVertexUploadMilliseconds = frameMilliseconds * 0.01F;
+  sample.lateMouseSampleMilliseconds = frameMilliseconds * 0.02F;
+  sample.mouseSampleToSubmitMilliseconds = frameMilliseconds * 0.03F;
+  sample.mouseSamplePhaseGainMilliseconds = frameMilliseconds * 0.04F;
+  sample.lateMouseSampleEnabled = true;
+  sample.lateMouseSampleApplied = true;
   sample.snapshot.snapshotDecodeMilliseconds = frameMilliseconds * 0.001F;
   sample.snapshot.snapshotApplyMilliseconds = frameMilliseconds * 0.002F;
   return sample;
@@ -50,7 +55,12 @@ int main() {
       nearlyEqual(one.frame.p50, 2.0F) &&
       nearlyEqual(one.frame.p95, 2.0F) &&
       nearlyEqual(one.frame.p99, 2.0F) &&
-      nearlyEqual(one.frame.max, 2.0F),
+      nearlyEqual(one.frame.max, 2.0F) &&
+      nearlyEqual(one.lateMouseSample.average, 0.04F) &&
+      nearlyEqual(one.mouseSampleToSubmit.average, 0.06F) &&
+      nearlyEqual(one.mouseSamplePhaseGain.average, 0.08F) &&
+      one.latest.lateMouseSampleEnabled &&
+      one.latest.lateMouseSampleApplied,
     "one performance sample should produce stable percentile values"
   );
 

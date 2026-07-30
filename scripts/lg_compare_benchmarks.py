@@ -1120,7 +1120,15 @@ def execute(
         manifest["error"] = "one or more owned temp resources could not be removed"
         _write_manifest(output, manifest)
         raise CompareError(manifest["error"])
-    return 0 if manifest["status"] in SUCCESS_STATUSES else 1
+    status = manifest["status"]
+    if status in SUCCESS_STATUSES:
+        return 0
+    if (
+        status == "NOT_COMPARABLE"
+        and getattr(args, "not_comparable_exit_zero", False)
+    ):
+        return 0
+    return 1
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -1134,6 +1142,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--profile", choices=PROFILES, required=True)
     parser.add_argument("--policy", default=str(DEFAULT_POLICY))
     parser.add_argument("--output", required=True)
+    parser.add_argument(
+        "--not-comparable-exit-zero",
+        action="store_true",
+        help=(
+            "return success for a completed NOT_COMPARABLE report; "
+            "FAIL and tool errors still fail"
+        ),
+    )
     return parser
 
 

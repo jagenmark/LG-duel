@@ -215,6 +215,97 @@ struct TemporaryLight {
   float radius = 0.0F;
 };
 
+inline constexpr std::size_t kMaxLivePointLights = 32U;
+inline constexpr std::size_t kMaxPointShadowLights = 2U;
+
+struct LivePointLight {
+  Vec3 position = {};
+  Vec3 color = {1.0F, 1.0F, 1.0F};
+  float intensity = 0.0F;
+  float selectionIntensity = 0.0F;
+  float radius = 0.0F;
+  float sourceRadius = 0.0F;
+  float selectionFade = 1.0F;
+  std::int16_t priority = 0;
+  std::uint16_t sourceIndex = 0;
+  bool authored = false;
+  bool affectsStaticWorld = true;
+  bool castsShadows = false;
+  bool flickering = false;
+  bool temporary = false;
+};
+
+struct PointLightSelectionStats {
+  std::uint32_t authored = 0;
+  std::uint32_t candidates = 0;
+  std::uint32_t frustumCulled = 0;
+  std::uint32_t selected = 0;
+  std::uint32_t dropped = 0;
+  std::uint32_t flickering = 0;
+  std::uint32_t shadowed = 0;
+  std::uint32_t closeRetained = 0;
+};
+
+[[nodiscard]] constexpr std::size_t livePointLightCapacity(int quality) {
+  return quality <= 0 ? 8U : quality == 1 ? 16U : kMaxLivePointLights;
+}
+
+[[nodiscard]] constexpr bool staticLightBakesIntoWorld(
+  const ArenaStaticLight& light
+) {
+  return !light.castsShadows && !light.flickerEnabled;
+}
+
+[[nodiscard]] float pointLightFlickerFactor(
+  std::uint32_t seed,
+  float frequencyHz,
+  float minFactor,
+  float maxFactor,
+  double timeSeconds
+);
+
+[[nodiscard]] std::vector<LivePointLight> selectLivePointLights(
+  std::span<const LivePointLight> candidates,
+  const PerspectiveCamera& camera,
+  std::size_t capacity,
+  PointLightSelectionStats* stats = nullptr
+);
+
+[[nodiscard]] std::vector<LivePointLight> selectPointShadowLights(
+  std::span<const LivePointLight> liveLights,
+  const PerspectiveCamera& camera,
+  std::size_t capacity
+);
+
+enum class PointShadowFace : std::uint8_t {
+  PositiveX = 0,
+  NegativeX,
+  PositiveY,
+  NegativeY,
+  PositiveZ,
+  NegativeZ,
+};
+
+struct PointShadowFaceProjection {
+  PointShadowFace face = PointShadowFace::PositiveX;
+  Vec3 right = {0.0F, -1.0F, 0.0F};
+  Vec3 up = {0.0F, 0.0F, 1.0F};
+  Vec3 forward = {1.0F, 0.0F, 0.0F};
+};
+
+[[nodiscard]] PointShadowFace pointShadowFace(Vec3 direction);
+[[nodiscard]] PointShadowFaceProjection pointShadowFaceProjection(
+  PointShadowFace face
+);
+[[nodiscard]] constexpr std::uint32_t pointShadowLayer(
+  std::size_t shadowSlot,
+  PointShadowFace face
+) {
+  return static_cast<std::uint32_t>(
+    shadowSlot * 6U + static_cast<std::size_t>(face)
+  );
+}
+
 struct SunShadowProjection {
   Vec3 origin = {};
   Vec3 right = {1.0F, 0.0F, 0.0F};
@@ -857,6 +948,8 @@ struct Scene3D {
   std::vector<SimpleRenderInstance> simpleInstances;
   std::vector<SimpleRenderBatch> simpleBatches;
   std::vector<TemporaryLight> temporaryLights;
+  std::vector<LivePointLight> livePointLights;
+  PointLightSelectionStats pointLightStats = {};
   ProjectileRenderStats projectileStats = {};
   RemoteWeaponRenderStats remoteWeaponStats = {};
   PlayerBoxRenderStats playerBoxStats = {};

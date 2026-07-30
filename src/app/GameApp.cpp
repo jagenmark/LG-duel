@@ -1436,6 +1436,95 @@ struct PresentationViewState {
   bool initialized = false;
 };
 
+#if LG_DUEL_HAS_SDL3
+[[nodiscard]] std::uint64_t steadyClockNanoseconds() {
+  return static_cast<std::uint64_t>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()
+    ).count()
+  );
+}
+
+struct LateMouseSampleContext {
+  SDL_Window* window = nullptr;
+  PresentationViewState* presentationView = nullptr;
+  MouseAimSettings aimSettings = {};
+  float earlyMouseDeltaX = 0.0F;
+  float earlyMouseDeltaY = 0.0F;
+  float frameSeconds = 0.0F;
+  std::uint64_t earlySampleNanoseconds = 0;
+  float viewPitchBeforeEarlySample = 0.0F;
+  float* pendingViewModelMouseDeltaX = nullptr;
+  float* pendingViewModelMouseDeltaY = nullptr;
+  bool applyToView = false;
+};
+
+[[nodiscard]] LateViewSample sampleLateMouseView(void* rawContext) {
+  auto* context = static_cast<LateMouseSampleContext*>(rawContext);
+  if (context == nullptr || context->window == nullptr) {
+    return {};
+  }
+
+  SDL_PumpEvents();
+  float lateMouseDeltaX = 0.0F;
+  float lateMouseDeltaY = 0.0F;
+  (void)SDL_GetRelativeMouseState(
+    &lateMouseDeltaX,
+    &lateMouseDeltaY
+  );
+  // Keep pumped motion queued. The next gameplay event pass ignores its
+  // relative counts, while menus and text fields still need its position.
+
+  LateViewSample sample;
+  const bool windowFocused =
+    (SDL_GetWindowFlags(context->window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+  if (
+    context->applyToView &&
+    windowFocused &&
+    context->presentationView != nullptr &&
+    context->presentationView->initialized
+  ) {
+    const MouseAimDelta correction = quakeLiveLateMouseAimCorrection(
+      context->earlyMouseDeltaX,
+      context->earlyMouseDeltaY,
+      lateMouseDeltaX,
+      lateMouseDeltaY,
+      context->frameSeconds,
+      context->aimSettings,
+      context->viewPitchBeforeEarlySample,
+      -kMaxPitchRadians,
+      kMaxPitchRadians
+    );
+    context->presentationView->yawRadians -= correction.yawRadians;
+    context->presentationView->pitchRadians = clamp(
+      context->presentationView->pitchRadians - correction.pitchRadians,
+      -kMaxPitchRadians,
+      kMaxPitchRadians
+    );
+    if (context->pendingViewModelMouseDeltaX != nullptr) {
+      *context->pendingViewModelMouseDeltaX += lateMouseDeltaX;
+    }
+    if (context->pendingViewModelMouseDeltaY != nullptr) {
+      *context->pendingViewModelMouseDeltaY += lateMouseDeltaY;
+    }
+    sample.hasView = true;
+    sample.yawRadians = context->presentationView->yawRadians;
+    sample.pitchRadians = context->presentationView->pitchRadians;
+  }
+
+  sample.sampleCompletedNanoseconds = steadyClockNanoseconds();
+  if (
+    context->earlySampleNanoseconds != 0 &&
+    sample.sampleCompletedNanoseconds >= context->earlySampleNanoseconds
+  ) {
+    sample.samplePhaseGainMilliseconds = static_cast<float>(
+      sample.sampleCompletedNanoseconds - context->earlySampleNanoseconds
+    ) / 1'000'000.0F;
+  }
+  return sample;
+}
+#endif
+
 struct FrameTimeSummary {
   float averageMilliseconds = 0.0F;
   float p50Milliseconds = 0.0F;
@@ -1508,6 +1597,16 @@ struct FrameTimeHistory {
   sample.submitMilliseconds = renderDiagnostics.submitMilliseconds;
   sample.totalRenderMilliseconds =
     renderDiagnostics.totalRenderMilliseconds;
+  sample.lateMouseSampleMilliseconds =
+    renderDiagnostics.lateMouseSampleMilliseconds;
+  sample.mouseSampleToSubmitMilliseconds =
+    renderDiagnostics.mouseSampleToSubmitMilliseconds;
+  sample.mouseSamplePhaseGainMilliseconds =
+    renderDiagnostics.mouseSamplePhaseGainMilliseconds;
+  sample.lateMouseSampleEnabled =
+    renderDiagnostics.lateMouseSampleEnabled;
+  sample.lateMouseSampleApplied =
+    renderDiagnostics.lateMouseSampleApplied;
   sample.dynamicOpaqueVertices = renderDiagnostics.dynamicOpaqueVertices;
   sample.dynamicTranslucentVertices =
     renderDiagnostics.dynamicTranslucentVertices;
@@ -1734,6 +1833,20 @@ void appendPerfHudLines(
   appendMetric("draw:", summary.worldDrawIssue);
   appendMetric("submit:", summary.submit);
   appendMetric("render:", summary.totalRender);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "mouse late: %s/%s | callback avg/p95 %.3f/%.3f | to-submit %.2f/%.2f | phase %.2f/%.2f ms",
+    latest.lateMouseSampleEnabled ? "on" : "off",
+    latest.lateMouseSampleApplied ? "applied" : "not-applied",
+    summary.lateMouseSample.average,
+    summary.lateMouseSample.p95,
+    summary.mouseSampleToSubmit.average,
+    summary.mouseSampleToSubmit.p95,
+    summary.mouseSamplePhaseGain.average,
+    summary.mouseSamplePhaseGain.p95
+  );
+  hud.topLeftLines.emplace_back(text);
   std::snprintf(
     text,
     sizeof(text),
@@ -2110,10 +2223,10 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 29;
-constexpr int kSettingsApplyRow = 30;
-constexpr int kSettingsCloseRow = 31;
-constexpr int kSettingsRowCount = 32;
+constexpr int kSettingsResetRow = 31;
+constexpr int kSettingsApplyRow = 32;
+constexpr int kSettingsCloseRow = 33;
+constexpr int kSettingsRowCount = 34;
 
 struct SettingsMenuState {
   bool open = false;
@@ -2142,6 +2255,8 @@ struct SettingsMenuState {
   float pendingBloomIntensity = 0.18F;
   int pendingAntiAliasing = 1;
   int pendingSunShadows = 2;
+  int pendingPointLights = 1;
+  int pendingPointShadows = 1;
   bool pendingContactShadows = true;
   int pendingMaterialQuality = 1;
   int pendingPlayerRim = 1;
@@ -2166,6 +2281,8 @@ struct SettingsMenuState {
   float originalBloomIntensity = 0.18F;
   int originalAntiAliasing = 1;
   int originalSunShadows = 2;
+  int originalPointLights = 1;
+  int originalPointShadows = 1;
   bool originalContactShadows = true;
   int originalMaterialQuality = 1;
   int originalPlayerRim = 1;
@@ -2850,6 +2967,8 @@ bool applyVideoSettings(
     menu.pendingBloomIntensity != menu.originalBloomIntensity ||
     menu.pendingAntiAliasing != menu.originalAntiAliasing ||
     menu.pendingSunShadows != menu.originalSunShadows ||
+    menu.pendingPointLights != menu.originalPointLights ||
+    menu.pendingPointShadows != menu.originalPointShadows ||
     menu.pendingContactShadows != menu.originalContactShadows ||
     menu.pendingMaterialQuality != menu.originalMaterialQuality ||
     menu.pendingPlayerRim != menu.originalPlayerRim ||
@@ -2887,6 +3006,8 @@ bool applyVideoSettings(
         ) < 0.001F &&
         std::to_string(menu.pendingAntiAliasing) == value("r_antialiasing") &&
         std::to_string(menu.pendingSunShadows) == value("r_sun_shadows") &&
+        std::to_string(menu.pendingPointLights) == value("r_point_lights") &&
+        std::to_string(menu.pendingPointShadows) == value("r_point_shadows") &&
         (menu.pendingContactShadows ? "1" : "0") == value("r_contact_shadows") &&
         std::to_string(menu.pendingMaterialQuality) == value("r_material_quality") &&
         std::to_string(menu.pendingPlayerRim) == value("r_player_rim") &&
@@ -2929,6 +3050,10 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
     std::stoi(std::string(value("r_antialiasing")));
   menu.pendingSunShadows =
     std::stoi(std::string(value("r_sun_shadows")));
+  menu.pendingPointLights =
+    std::stoi(std::string(value("r_point_lights")));
+  menu.pendingPointShadows =
+    std::stoi(std::string(value("r_point_shadows")));
   menu.pendingContactShadows = value("r_contact_shadows") == "1";
   menu.pendingMaterialQuality =
     std::stoi(std::string(value("r_material_quality")));
@@ -2959,6 +3084,8 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
   menu.pendingAntiAliasing = console.getInt("r_antialiasing");
   menu.pendingSunShadows = console.getInt("r_sun_shadows");
+  menu.pendingPointLights = console.getInt("r_point_lights");
+  menu.pendingPointShadows = console.getInt("r_point_shadows");
   menu.pendingContactShadows = console.getBool("r_contact_shadows");
   menu.pendingMaterialQuality = console.getInt("r_material_quality");
   menu.pendingPlayerRim = console.getInt("r_player_rim");
@@ -2979,6 +3106,8 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
   menu.originalAntiAliasing = menu.pendingAntiAliasing;
   menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalPointLights = menu.pendingPointLights;
+  menu.originalPointShadows = menu.pendingPointShadows;
   menu.originalContactShadows = menu.pendingContactShadows;
   menu.originalMaterialQuality = menu.pendingMaterialQuality;
   menu.originalPlayerRim = menu.pendingPlayerRim;
@@ -3108,22 +3237,28 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
   case 22:
     menu.pendingSunShadows = (menu.pendingSunShadows + direction + 3) % 3;
     return;
-  case 23: menu.pendingContactShadows = !menu.pendingContactShadows; return;
+  case 23:
+    menu.pendingPointLights = (menu.pendingPointLights + direction + 3) % 3;
+    return;
   case 24:
+    menu.pendingPointShadows = (menu.pendingPointShadows + direction + 3) % 3;
+    return;
+  case 25: menu.pendingContactShadows = !menu.pendingContactShadows; return;
+  case 26:
     menu.pendingMaterialQuality = (menu.pendingMaterialQuality + direction + 3) % 3;
     return;
-  case 25:
+  case 27:
     menu.pendingPlayerRim = (menu.pendingPlayerRim + direction + 3) % 3;
     return;
-  case 26: menu.pendingCasings = !menu.pendingCasings; return;
-  case 27:
+  case 28: menu.pendingCasings = !menu.pendingCasings; return;
+  case 29:
     menu.pendingImpactParticles = std::clamp(
       menu.pendingImpactParticles + 0.25F * static_cast<float>(direction),
       0.0F,
       2.0F
     );
     return;
-  case 28: {
+  case 30: {
     const std::vector<int> values = {0, 32, 48, 64, 96, 128, 192, 256};
     const int index = optionIndex(
       values,
@@ -3179,6 +3314,12 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
     "set r_sun_shadows " + std::to_string(menu.pendingSunShadows)
   );
   (void)console.execute(
+    "set r_point_lights " + std::to_string(menu.pendingPointLights)
+  );
+  (void)console.execute(
+    "set r_point_shadows " + std::to_string(menu.pendingPointShadows)
+  );
+  (void)console.execute(
     "set r_contact_shadows " + std::to_string(menu.pendingContactShadows ? 1 : 0)
   );
   (void)console.execute(
@@ -3205,6 +3346,8 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
   menu.originalAntiAliasing = menu.pendingAntiAliasing;
   menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalPointLights = menu.pendingPointLights;
+  menu.originalPointShadows = menu.pendingPointShadows;
   menu.originalContactShadows = menu.pendingContactShadows;
   menu.originalMaterialQuality = menu.pendingMaterialQuality;
   menu.originalPlayerRim = menu.pendingPlayerRim;
@@ -3361,13 +3504,31 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(
       menu,
       23,
+      "Live point lights",
+      menu.pendingPointLights == 0
+        ? "Combat only"
+        : menu.pendingPointLights == 1 ? "16 lights" : "32 lights",
+      menu.pendingPointLights != menu.originalPointLights
+    ),
+    settingsMenuItem(
+      menu,
+      24,
+      "Cached point shadows",
+      menu.pendingPointShadows == 0
+        ? "Off"
+        : menu.pendingPointShadows == 1 ? "1 light / 256" : "2 lights / 512",
+      menu.pendingPointShadows != menu.originalPointShadows
+    ),
+    settingsMenuItem(
+      menu,
+      25,
       "Contact shadows",
       menu.pendingContactShadows ? "On" : "Off",
       menu.pendingContactShadows != menu.originalContactShadows
     ),
     settingsMenuItem(
       menu,
-      24,
+      26,
       "Material quality",
       menu.pendingMaterialQuality == 0
         ? "Basic"
@@ -3376,7 +3537,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      25,
+      27,
       "Player rim light",
       menu.pendingPlayerRim == 0
         ? "Off"
@@ -3385,14 +3546,14 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      26,
+      28,
       "Cartridge casings",
       menu.pendingCasings ? "On" : "Off",
       menu.pendingCasings != menu.originalCasings
     ),
     settingsMenuItem(
       menu,
-      27,
+      29,
       "Impact-particle density",
       std::to_string(
         static_cast<int>(std::lround(menu.pendingImpactParticles * 100.0F))
@@ -3401,7 +3562,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      28,
+      30,
       "Bullet decal budget",
       std::to_string(menu.pendingDecalBudget),
       menu.pendingDecalBudget != menu.originalDecalBudget
@@ -3709,6 +3870,8 @@ RenderSettings renderSettings(
   settings.bloomThreshold = console.getFloat("r_bloom_threshold");
   settings.antiAliasingQuality = console.getInt("r_antialiasing");
   settings.sunShadowQuality = console.getInt("r_sun_shadows");
+  settings.pointLightQuality = console.getInt("r_point_lights");
+  settings.pointShadowQuality = console.getInt("r_point_shadows");
   settings.contactShadowsEnabled = console.getBool("r_contact_shadows");
   settings.materialQuality = console.getInt("r_material_quality");
   settings.playerRimQuality = console.getInt("r_player_rim");
@@ -5868,6 +6031,9 @@ int GameApp::run() const {
   FrameTimeSummary displayedFrameTimes;
   PerfTelemetry perfTelemetry;
   PresentationViewState presentationView;
+  bool lateMouseSamplingWasEnabled = false;
+  float pendingLateViewModelMouseDeltaX = 0.0F;
+  float pendingLateViewModelMouseDeltaY = 0.0F;
   std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
   ViewModelPresentationController viewModelPresentation;
   ClientGame* presentationViewGame = nullptr;
@@ -5926,7 +6092,8 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastDamageNumberFeedbackSequence = {};
   bool damageNumberStateInitialized = false;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
-  std::array<std::uint32_t, kMaxRocketProjectiles> lastPlayedGrenadeBounceAudioSequences = {};
+  std::array<std::uint32_t, kDuelPlayerCount>
+    lastPlayedGrenadeBounceAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
   bool hasLocalRailFireTick = false;
   bool localRailReadySoundPlayed = true;
@@ -6943,6 +7110,14 @@ int GameApp::run() const {
           sample.drawIssueMilliseconds = render.worldDrawIssueMilliseconds;
           sample.submitMilliseconds = render.submitMilliseconds;
           sample.renderCpuMilliseconds = render.totalRenderMilliseconds;
+          sample.lateMouseSampleMilliseconds =
+            render.lateMouseSampleMilliseconds;
+          sample.mouseSampleToSubmitMilliseconds =
+            render.mouseSampleToSubmitMilliseconds;
+          sample.mouseSamplePhaseGainMilliseconds =
+            render.mouseSamplePhaseGainMilliseconds;
+          sample.lateMouseSampleEnabled = render.lateMouseSampleEnabled;
+          sample.lateMouseSampleApplied = render.lateMouseSampleApplied;
           sample.snapshotDecodeMilliseconds = snapshot.snapshotDecodeMilliseconds;
           sample.snapshotApplyMilliseconds = snapshot.snapshotApplyMilliseconds;
           sample.networkProcessingMilliseconds =
@@ -7236,6 +7411,27 @@ int GameApp::run() const {
       displayedFrameTimes = outerFrameTimes.summarize();
       frameStatsAccumulatorSeconds = 0.0F;
     }
+
+    const bool lateMouseSamplingEnabled =
+      console.getBool("cl_late_mouse_sample");
+    const bool lateMouseSamplingJustDisabled =
+      !lateMouseSamplingEnabled && lateMouseSamplingWasEnabled;
+    if (lateMouseSamplingEnabled && !lateMouseSamplingWasEnabled) {
+      // Clear counts gathered while the event path owned mouse input. Queued
+      // motion is still drained below, but this frame reads fresh relative
+      // counts as one early sample.
+      float ignoredMouseDeltaX = 0.0F;
+      float ignoredMouseDeltaY = 0.0F;
+      (void)SDL_GetRelativeMouseState(
+        &ignoredMouseDeltaX,
+        &ignoredMouseDeltaY
+      );
+    }
+    if (!lateMouseSamplingEnabled) {
+      pendingLateViewModelMouseDeltaX = 0.0F;
+      pendingLateViewModelMouseDeltaY = 0.0F;
+    }
+    lateMouseSamplingWasEnabled = lateMouseSamplingEnabled;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -7757,7 +7953,10 @@ int GameApp::run() const {
             event.motion.x,
             event.motion.y
           );
-        } else {
+        } else if (
+          !lateMouseSamplingEnabled &&
+          !lateMouseSamplingJustDisabled
+        ) {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
         }
@@ -7824,6 +8023,8 @@ int GameApp::run() const {
         miscMenu.scrollbarDragging = false;
         input.mouseDeltaX = 0.0F;
         input.mouseDeltaY = 0.0F;
+        pendingLateViewModelMouseDeltaX = 0.0F;
+        pendingLateViewModelMouseDeltaY = 0.0F;
         break;
       default:
         break;
@@ -7957,9 +8158,19 @@ int GameApp::run() const {
       lastPresentModeInt = console.getInt("r_present_mode");
     }
     const bool usePresentationView = true;
-    const bool gameInputControlsView =
+    const bool baseGameInputControlsView =
         usePresentationView && !consoleState.open && !chatState.inputOpen &&
         !settingsMenu.open && !miscMenu.open && !wasTeammateSpectating;
+    const bool windowHasInputFocus =
+      (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool lateMouseInputControlsView =
+      baseGameInputControlsView &&
+      windowHasInputFocus &&
+      !session.spectator() &&
+      !developmentCameraEnabled;
+    const bool gameInputControlsView = lateMouseSamplingEnabled
+      ? lateMouseInputControlsView
+      : baseGameInputControlsView;
     const bool wantsRelativeMouse = !consoleState.open &&
                                     !chatState.inputOpen &&
                                     !settingsMenu.open && !miscMenu.open;
@@ -7968,10 +8179,31 @@ int GameApp::run() const {
       SDL_SetWindowRelativeMouseMode(window, wantsRelativeMouse);
       relativeMouseModeEnabled = wantsRelativeMouse;
     }
+    std::uint64_t earlyMouseSampleNanoseconds = 0;
+    if (lateMouseSamplingEnabled || lateMouseSamplingJustDisabled) {
+      float relativeMouseDeltaX = 0.0F;
+      float relativeMouseDeltaY = 0.0F;
+      (void)SDL_GetRelativeMouseState(
+        &relativeMouseDeltaX,
+        &relativeMouseDeltaY
+      );
+      if (lateMouseSamplingEnabled) {
+        earlyMouseSampleNanoseconds = steadyClockNanoseconds();
+      }
+      if (gameInputControlsView && relativeMouseModeEnabled) {
+        input.mouseDeltaX = relativeMouseDeltaX;
+        input.mouseDeltaY = relativeMouseDeltaY;
+      } else {
+        input.mouseDeltaX = 0.0F;
+        input.mouseDeltaY = 0.0F;
+      }
+    }
     ClientGame* currentPresentationGame = session.game();
     if (currentPresentationGame == nullptr) {
       presentationView = {};
       presentationViewGame = nullptr;
+      pendingLateViewModelMouseDeltaX = 0.0F;
+      pendingLateViewModelMouseDeltaY = 0.0F;
       previousFrameUsedPresentationView = usePresentationView;
     } else if (currentPresentationGame != presentationViewGame) {
       // A new ClientGame represents a new connection/prediction timeline; do
@@ -7980,6 +8212,8 @@ int GameApp::run() const {
       presentationView = {};
       playerPresentationStates = {};
       viewModelPresentation.reset();
+      pendingLateViewModelMouseDeltaX = 0.0F;
+      pendingLateViewModelMouseDeltaY = 0.0F;
       presentationViewGame = currentPresentationGame;
     }
     const bool enteredPresentationView =
@@ -8001,21 +8235,34 @@ int GameApp::run() const {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
     }
-    const float viewModelMouseDeltaX = gameInputControlsView ? input.mouseDeltaX : 0.0F;
-    const float viewModelMouseDeltaY = gameInputControlsView ? input.mouseDeltaY : 0.0F;
+    const float earlyMouseDeltaX =
+      gameInputControlsView ? input.mouseDeltaX : 0.0F;
+    const float earlyMouseDeltaY =
+      gameInputControlsView ? input.mouseDeltaY : 0.0F;
+    const float viewModelMouseDeltaX = gameInputControlsView
+      ? earlyMouseDeltaX + pendingLateViewModelMouseDeltaX
+      : 0.0F;
+    const float viewModelMouseDeltaY = gameInputControlsView
+      ? earlyMouseDeltaY + pendingLateViewModelMouseDeltaY
+      : 0.0F;
+    pendingLateViewModelMouseDeltaX = 0.0F;
+    pendingLateViewModelMouseDeltaY = 0.0F;
+    const MouseAimSettings frameMouseAimSettings =
+      mouseAimSettingsFromConsole(
+        console,
+        zoomPressCount > 0,
+        selectedWeapon == Weapon::Railgun,
+        selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+      );
+    const float viewPitchBeforeEarlyMouseSample =
+      presentationView.pitchRadians;
+    bool earlyMouseViewApplied = false;
     if (gameInputControlsView && presentationView.initialized) {
-      const MouseAimSettings mouseAimSettings =
-        mouseAimSettingsFromConsole(
-          console,
-          zoomPressCount > 0,
-          selectedWeapon == Weapon::Railgun,
-          selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
-        );
       const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
-        input.mouseDeltaX,
-        input.mouseDeltaY,
+        earlyMouseDeltaX,
+        earlyMouseDeltaY,
         outerFrameElapsed.count(),
-        mouseAimSettings
+        frameMouseAimSettings
       );
       presentationView.yawRadians -= mouseAimDelta.yawRadians;
       presentationView.pitchRadians = clamp(
@@ -8023,6 +8270,7 @@ int GameApp::run() const {
         -kMaxPitchRadians,
         kMaxPitchRadians
       );
+      earlyMouseViewApplied = true;
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
     }
@@ -9410,7 +9658,7 @@ int GameApp::run() const {
         renderSnapshot.lightningGuns[cameraPlayerIndex];
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
-      renderRockets = renderSnapshot.rockets;
+      renderRockets = renderClient->projectiles();
       renderIcePools = renderSnapshot.icePools;
       const LocalHitFeedbackBatch hitFeedback = session.spectator()
         ? LocalHitFeedbackBatch{}
@@ -9791,6 +10039,7 @@ int GameApp::run() const {
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
     const double presentationSeconds =
       std::chrono::duration<double>(now.time_since_epoch()).count();
+    currentRenderSettings.presentationTimeSeconds = presentationSeconds;
     currentRenderSettings.beamPhaseRadians =
       static_cast<float>(std::fmod(presentationSeconds, 1.0)) *
       kBeamPulseRadiansPerSecond;
@@ -10711,6 +10960,28 @@ int GameApp::run() const {
         hud.miscMenuItems.clear();
       }
     }
+    LateMouseSampleContext lateMouseSampleContext = {
+      window,
+      &presentationView,
+      frameMouseAimSettings,
+      earlyMouseDeltaX,
+      earlyMouseDeltaY,
+      outerFrameElapsed.count(),
+      earlyMouseSampleNanoseconds,
+      viewPitchBeforeEarlyMouseSample,
+      &pendingLateViewModelMouseDeltaX,
+      &pendingLateViewModelMouseDeltaY,
+      earlyMouseViewApplied &&
+        relativeMouseModeEnabled &&
+        presentationViewGame != nullptr &&
+        presentationViewGame == session.game() &&
+        !session.spectator() &&
+        !developmentCameraEnabled &&
+        deathCamera.mode != DeathCameraMode::Teammate,
+    };
+    const LateViewSampler lateViewSampler = lateMouseSamplingEnabled
+      ? LateViewSampler{&lateMouseSampleContext, sampleLateMouseView}
+      : LateViewSampler{};
     renderer.render(
       renderArena,
       renderPlayer,
@@ -10727,6 +10998,7 @@ int GameApp::run() const {
       currentRenderSettings,
       hud,
       renderedConsole,
+      lateViewSampler,
       frameCaptureRequest.has_value() ? &*frameCaptureRequest : nullptr,
       frameCaptureRequest.has_value() ? &frameCaptureResult : nullptr
     );

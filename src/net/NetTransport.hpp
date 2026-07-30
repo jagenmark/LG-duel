@@ -66,6 +66,10 @@ public:
 
   virtual void sendSnapshot(const ServerSnapshot& snapshot) = 0;
   [[nodiscard]] virtual bool receiveSnapshot(ServerSnapshot& snapshot) = 0;
+  virtual void sendProjectileUpdates(const ProjectileUpdatePacket&) {}
+  [[nodiscard]] virtual bool receiveProjectileUpdates(ProjectileUpdatePacket&) {
+    return false;
+  }
   virtual void publishChatHistory(const ChatHistory&) {}
   [[nodiscard]] virtual bool receiveChatHistory(ChatHistoryChunk&) { return false; }
   [[nodiscard]] virtual SnapshotDiagnostics snapshotDiagnostics() const {
