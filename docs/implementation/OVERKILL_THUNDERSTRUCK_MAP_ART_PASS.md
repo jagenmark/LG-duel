@@ -34,8 +34,9 @@ of the visible roof shell. Nine deep-roof faces use the darker grey brick.
 World brushes 134 and 135 keep their plaster.
 
 Six point lights now mark the main routes with warm, cool, or neutral light.
-Their origins do not move. One cool sun uses direction `0.25 -0.45 -1` and
-intensity `0.45`.
+Their origins do not move. The two key route lights cast soft local shadows;
+the other four stay baked and unshadowed. World fill is `0.42`. One cool sun
+uses direction `0.25 -0.45 -1` and intensity `0.85`.
 
 ## Checks
 
