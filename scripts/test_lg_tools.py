@@ -337,6 +337,10 @@ class LgToolTests(unittest.TestCase):
         dispatcher = lg_mcp_server.McpStdioDispatcher(write)
         with mock.patch.object(
             lg_mcp_server.subprocess, "Popen", return_value=BlockingWorker()
+        ), mock.patch.object(
+            lg_mcp_server,
+            "_create_worker_tree",
+            side_effect=lambda worker: lg_mcp_server.WorkerTree(worker),
         ):
             dispatcher.dispatch({
                 "jsonrpc": "2.0", "id": 10, "method": "tools/call",

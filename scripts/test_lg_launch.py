@@ -116,6 +116,8 @@ class LaunchTests(unittest.TestCase):
         with mock.patch.object(
             lg_launch, "send_request", return_value=status
         ), mock.patch.object(
+            lg_launch, "resolve_vulkan_selection"
+        ) as resolve_vulkan, mock.patch.object(
             lg_launch, "_read_state"
         ) as read_state, mock.patch.object(
             lg_launch, "_write_state"
@@ -124,6 +126,7 @@ class LaunchTests(unittest.TestCase):
                 LaunchError, "reserved for benchmarking"
             ):
                 lg_launch.ensure_client(renderer="gpu")
+        resolve_vulkan.assert_not_called()
         read_state.assert_not_called()
         write_state.assert_not_called()
 

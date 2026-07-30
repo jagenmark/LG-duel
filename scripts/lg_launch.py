@@ -1430,11 +1430,6 @@ def _ensure_client_unlocked(
     launch_build_dir = (build_dir or BUILD_DIR).resolve()
     client_exe = launch_build_dir / "lg_duel_client.exe"
     server_exe = launch_build_dir / "lg_duel_server.exe"
-    selection = (
-        _probe_default_vulkan() if renderer == "gpu" and benchmark
-        else resolve_vulkan_selection() if renderer == "gpu"
-        else None
-    )
     deadline = time.monotonic() + timeout
     try:
         raw = send_request(
@@ -1448,6 +1443,12 @@ def _ensure_client_unlocked(
                 "the active development-control client is reserved for benchmarking; "
                 "only status inspection is safe until that session ends"
             )
+    selection = (
+        _probe_default_vulkan() if renderer == "gpu" and benchmark
+        else resolve_vulkan_selection() if renderer == "gpu"
+        else None
+    )
+    if raw is not None:
         if build_dir is not None:
             state = _read_state()
             client_entry = state.get("client") if state else None
