@@ -143,6 +143,7 @@ void hashStats(StableHash& hash, const RoundCombatStats& stats) {
 
 void hashScenarioState(StableHash& hash, const ScenarioState& state) {
   hash.scalar(state.serverTick); hash.scalar(state.mapRevision);
+  hash.scalar(state.projectileRevision);
   hash.text(state.mapName); hash.scalar(state.mapContentHash);
   for (const ScenarioPlayerState& player : state.players) {
     hash.scalar(player.slot); hash.scalar(player.connected);
@@ -186,7 +187,8 @@ void hashScenarioState(StableHash& hash, const ScenarioState& state) {
   }
   for (const ScenarioProjectileState& projectile : state.projectiles) {
     hash.scalar(projectile.slot); hash.scalar(projectile.active);
-    hash.scalar(projectile.owner); hash.scalar(projectile.weapon);
+    hash.scalar(projectile.owner); hash.scalar(projectile.sequence);
+    hash.scalar(projectile.weapon);
     hashVec(hash, projectile.position);
     hashVec(hash, projectile.previousPosition);
     hashVec(hash, projectile.velocity);
@@ -232,6 +234,8 @@ void hashScenarioState(StableHash& hash, const ScenarioState& state) {
   hash.scalar(state.mcguffinRoundLiveTicks);
   hash.scalar(state.mcguffinThrowPickupLockoutTicks);
   hash.scalar(state.botRandomState); hash.scalar(state.spawnRandomState);
+  for (const auto sequence : state.projectileSequences)
+    hash.scalar(sequence);
   for (const auto sequence : state.rocketExplosionSequences)
     hash.scalar(sequence);
   for (const auto sequence : state.fragEventSequences)
@@ -239,6 +243,8 @@ void hashScenarioState(StableHash& hash, const ScenarioState& state) {
   for (const auto sequence : state.localHitFeedbackSequences)
     hash.scalar(sequence);
   for (const auto sequence : state.footstepSequences)
+    hash.scalar(sequence);
+  for (const auto sequence : state.grenadeBounceEventSequences)
     hash.scalar(sequence);
   for (const auto sequence : state.grenadeBounceSequences)
     hash.scalar(sequence);
@@ -266,6 +272,7 @@ dev::JsonValue projectileJson(const ScenarioProjectileState& projectile) {
   value.object["slot"] = dev::JsonValue::numberValue(projectile.slot);
   value.object["active"] = dev::JsonValue::booleanValue(projectile.active);
   value.object["owner"] = dev::JsonValue::numberValue(projectile.owner);
+  value.object["sequence"] = dev::JsonValue::numberValue(projectile.sequence);
   value.object["weapon"] =
     dev::JsonValue::stringValue(std::string(weaponName(projectile.weapon)));
   value.object["position"] = vectorJson(projectile.position);
@@ -798,6 +805,8 @@ dev::JsonValue scenarioStateJson(const ScenarioState& state) {
   dev::JsonValue root = dev::JsonValue::objectValue();
   root.object["server_tick"] = dev::JsonValue::numberValue(state.serverTick);
   root.object["map_revision"] = dev::JsonValue::numberValue(state.mapRevision);
+  root.object["projectile_revision"] =
+    dev::JsonValue::numberValue(state.projectileRevision);
   root.object["map"] = dev::JsonValue::stringValue(state.mapName);
   root.object["map_content_hash"] =
     dev::JsonValue::numberValue(state.mapContentHash);

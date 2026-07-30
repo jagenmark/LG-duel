@@ -26,7 +26,7 @@ from lg_live_scenario import LiveScenarioError, run_live_scenario
 from lg_map_edit import MapEditError, MapEditor
 
 
-SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.2.0"}
+SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.5.0"}
 PROTOCOL_VERSION = "2025-06-18"
 MAP_EDITOR = MapEditor()
 INLINE_IMAGE_BUDGET = 1024 * 1024
@@ -52,6 +52,9 @@ READ_ONLY_TOOLS = {
     "lg_get_benchmark_result",
     "lg_map_list",
     "lg_map_get",
+    "lg_map_list_point_lights",
+    "lg_map_list_teleports",
+    "lg_map_get_world_lighting",
     "lg_map_validate",
 }
 DEFERRED_CANCELLATION_TOOLS = {
@@ -440,16 +443,155 @@ VEC3_SCHEMA = {
     "maxItems": 3,
 }
 DRY_RUN_SCHEMA = {"type": "boolean", "default": False}
+COLOR_SCHEMA = {
+    "type": "array",
+    "items": {"type": "number", "minimum": 0, "maximum": 255},
+    "minItems": 3,
+    "maxItems": 3,
+}
+LIGHT_FIELDS_SCHEMA = {
+    "origin": VEC3_SCHEMA,
+    "color": COLOR_SCHEMA,
+    "intensity": {"type": "number", "exclusiveMinimum": 0, "maximum": 16},
+    "radius": {"type": "number", "exclusiveMinimum": 0, "maximum": 4096},
+    "casts_shadows": {"type": "boolean", "default": False},
+    "source_radius": {"type": "number", "minimum": 0, "maximum": 1024, "default": 0},
+    "priority": {"type": "integer", "minimum": -1000, "maximum": 1000, "default": 0},
+    "flicker_enabled": {"type": "boolean", "default": False},
+    "flicker_seed": {
+        "type": "integer", "minimum": 0, "maximum": 4294967295, "default": 0
+    },
+    "flicker_frequency": {
+        "type": "number", "minimum": 0.1, "maximum": 30
+    },
+    "flicker_min": {"type": "number", "minimum": 0, "maximum": 4, "default": 1},
+    "flicker_max": {"type": "number", "minimum": 0, "maximum": 4, "default": 1},
+}
+WORLD_LIGHT_FIELDS_SCHEMA = {
+    "ambient_color": COLOR_SCHEMA,
+    "ambient_intensity": {"type": "number", "minimum": 0},
+    "sun_enabled": {"type": "boolean"},
+    "sun_id": OBJECT_ID_SCHEMA,
+    "sun_direction": VEC3_SCHEMA,
+    "sun_color": COLOR_SCHEMA,
+    "sun_intensity": {"type": "number", "minimum": 0},
+}
+TELEPORT_FIELDS_SCHEMA = {
+    "min": VEC3_SCHEMA,
+    "max": VEC3_SCHEMA,
+    "destination": VEC3_SCHEMA,
+    "exit_yaw": {"type": "number", "minimum": -40000, "maximum": 40000},
+}
+
+
+def _batch_operation_schema(
+    op: str, properties: dict[str, Any], required: list[str]
+) -> dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "op": {"type": "string", "const": op},
+            **properties,
+        },
+        "required": ["op", *required],
+        "additionalProperties": False,
+    }
+
+
+BATCH_OPERATION_SCHEMA = {
+    "oneOf": [
+        _batch_operation_schema(
+            "add_point_light",
+            {"id": OBJECT_ID_SCHEMA, **LIGHT_FIELDS_SCHEMA},
+            ["id", "origin", "color", "intensity", "radius"],
+        ),
+        _batch_operation_schema(
+            "update_point_light",
+            {"id": OBJECT_ID_SCHEMA, **LIGHT_FIELDS_SCHEMA},
+            ["id"],
+        ),
+        _batch_operation_schema(
+            "remove_point_light", {"id": OBJECT_ID_SCHEMA}, ["id"]
+        ),
+        _batch_operation_schema(
+            "set_world_lighting", WORLD_LIGHT_FIELDS_SCHEMA, []
+        ),
+        _batch_operation_schema(
+            "add_teleport",
+            {"id": OBJECT_ID_SCHEMA, **TELEPORT_FIELDS_SCHEMA},
+            ["id", "min", "max", "destination", "exit_yaw"],
+        ),
+        _batch_operation_schema(
+            "update_teleport",
+            {"id": OBJECT_ID_SCHEMA, **TELEPORT_FIELDS_SCHEMA},
+            ["id"],
+        ),
+        _batch_operation_schema(
+            "remove_teleport", {"id": OBJECT_ID_SCHEMA}, ["id"]
+        ),
+        _batch_operation_schema(
+            "add_cuboid",
+            {
+                "id": OBJECT_ID_SCHEMA, "min": VEC3_SCHEMA, "max": VEC3_SCHEMA,
+                "material": {"type": "string", "minLength": 1, "maxLength": 192},
+            },
+            ["id", "min", "max", "material"],
+        ),
+        _batch_operation_schema(
+            "copy_cuboid",
+            {
+                "source_id": OBJECT_ID_SCHEMA, "new_id": OBJECT_ID_SCHEMA,
+                "offset": VEC3_SCHEMA,
+            },
+            ["source_id", "new_id", "offset"],
+        ),
+        _batch_operation_schema(
+            "translate_cuboid",
+            {"id": OBJECT_ID_SCHEMA, "offset": VEC3_SCHEMA},
+            ["id", "offset"],
+        ),
+        _batch_operation_schema(
+            "resize_cuboid",
+            {"id": OBJECT_ID_SCHEMA, "min": VEC3_SCHEMA, "max": VEC3_SCHEMA},
+            ["id", "min", "max"],
+        ),
+        _batch_operation_schema(
+            "delete_cuboid", {"id": OBJECT_ID_SCHEMA}, ["id"]
+        ),
+        _batch_operation_schema(
+            "set_material",
+            {
+                "id": OBJECT_ID_SCHEMA,
+                "material": {"type": "string", "minLength": 1, "maxLength": 192},
+            },
+            ["id", "material"],
+        ),
+        _batch_operation_schema(
+            "set_entity_properties",
+            {
+                "entity_id": OBJECT_ID_SCHEMA, "origin": VEC3_SCHEMA,
+                "angle": {
+                    "type": "number", "minimum": -40000, "maximum": 40000
+                },
+                "yaw": {
+                    "type": "number", "minimum": -40000, "maximum": 40000
+                },
+                "bounds_min": VEC3_SCHEMA, "bounds_max": VEC3_SCHEMA,
+            },
+            ["entity_id"],
+        ),
+    ]
+}
 
 TOOLS.extend([
     {
         "name": "lg_map_list",
-        "description": "List source maps, exact revisions, and MCP-managed object IDs.",
+        "description": "List source maps, exact revisions, edit modes, and typed object IDs.",
         "inputSchema": {"type": "object", "properties": {}, "additionalProperties": False},
     },
     {
         "name": "lg_map_get",
-        "description": "Get the typed structure and exact revision of one MCP-managed map.",
+        "description": "Get typed editable structure and the exact revision of one project map.",
         "inputSchema": {
             "type": "object",
             "properties": {"map": MAP_NAME_SCHEMA},
@@ -591,6 +733,171 @@ TOOLS.extend([
         },
     },
     {
+        "name": "lg_map_list_point_lights",
+        "description": "List API-owned typed point lights and the exact revision of one project map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"map": MAP_NAME_SCHEMA},
+            "required": ["map"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_add_point_light",
+        "description": "Add one typed point light with a stable ID to a project map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                **LIGHT_FIELDS_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": [
+                "map", "id", "origin", "color", "intensity", "radius",
+                "expected_revision",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_update_point_light",
+        "description": "Update selected typed fields on one API-owned point light.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                **LIGHT_FIELDS_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_remove_point_light",
+        "description": "Remove one API-owned point light by stable ID.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_list_teleports",
+        "description": "List API-owned typed teleports and the exact revision of one project map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"map": MAP_NAME_SCHEMA},
+            "required": ["map"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_add_teleport",
+        "description": "Add one API-owned trigger volume and linked exit.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                **TELEPORT_FIELDS_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": [
+                "map", "id", "min", "max", "destination", "exit_yaw",
+                "expected_revision",
+            ],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_update_teleport",
+        "description": "Update selected fields on one API-owned teleport.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                **TELEPORT_FIELDS_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_remove_teleport",
+        "description": "Remove one API-owned teleport and its generated linked exit.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "id": OBJECT_ID_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "id", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_get_world_lighting",
+        "description": "Get ambient and optional sun settings for one project map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {"map": MAP_NAME_SCHEMA},
+            "required": ["map"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_set_world_lighting",
+        "description": "Set typed world ambient fields and optional sun settings.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                **WORLD_LIGHT_FIELDS_SCHEMA,
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "lg_map_apply_batch",
+        "description": "Apply up to 128 typed geometry, entity, and lighting operations as one atomic map write.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "map": MAP_NAME_SCHEMA,
+                "operations": {
+                    "type": "array",
+                    "items": BATCH_OPERATION_SCHEMA,
+                    "minItems": 1,
+                    "maxItems": 128,
+                },
+                "expected_revision": REVISION_SCHEMA,
+                "dry_run": DRY_RUN_SCHEMA,
+            },
+            "required": ["map", "operations", "expected_revision"],
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "lg_map_validate",
         "description": "Run structural checks and the built LG Duel map validator on one managed source map.",
         "inputSchema": {
@@ -689,6 +996,75 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         return MAP_EDITOR.set_entity_properties(
             arguments["map"], arguments["entity_id"], arguments["expected_revision"],
             **{field: arguments[field] for field in fields if field in arguments},
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_list_point_lights":
+        return MAP_EDITOR.list_point_lights(arguments["map"])
+    if name == "lg_map_add_point_light":
+        fields = tuple(LIGHT_FIELDS_SCHEMA)
+        return MAP_EDITOR.add_point_light(
+            arguments["map"], arguments["id"], arguments["origin"],
+            arguments["color"], arguments["intensity"], arguments["radius"],
+            arguments["expected_revision"],
+            **{
+                field: arguments[field] for field in fields
+                if field not in {"origin", "color", "intensity", "radius"}
+                and field in arguments
+            },
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_update_point_light":
+        return MAP_EDITOR.update_point_light(
+            arguments["map"], arguments["id"], arguments["expected_revision"],
+            **{
+                field: arguments[field] for field in LIGHT_FIELDS_SCHEMA
+                if field in arguments
+            },
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_remove_point_light":
+        return MAP_EDITOR.remove_point_light(
+            arguments["map"], arguments["id"], arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_list_teleports":
+        return MAP_EDITOR.list_teleports(arguments["map"])
+    if name == "lg_map_add_teleport":
+        return MAP_EDITOR.add_teleport(
+            arguments["map"], arguments["id"], arguments["min"],
+            arguments["max"], arguments["destination"], arguments["exit_yaw"],
+            arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_update_teleport":
+        return MAP_EDITOR.update_teleport(
+            arguments["map"], arguments["id"], arguments["expected_revision"],
+            **{
+                field: arguments[field] for field in TELEPORT_FIELDS_SCHEMA
+                if field in arguments
+            },
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_remove_teleport":
+        return MAP_EDITOR.remove_teleport(
+            arguments["map"], arguments["id"], arguments["expected_revision"],
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_get_world_lighting":
+        return MAP_EDITOR.get_world_lighting(arguments["map"])
+    if name == "lg_map_set_world_lighting":
+        return MAP_EDITOR.set_world_lighting(
+            arguments["map"], arguments["expected_revision"],
+            **{
+                field: arguments[field] for field in WORLD_LIGHT_FIELDS_SCHEMA
+                if field in arguments
+            },
+            dry_run=bool(arguments.get("dry_run", False)),
+        )
+    if name == "lg_map_apply_batch":
+        return MAP_EDITOR.apply_batch(
+            arguments["map"], arguments["operations"],
+            arguments["expected_revision"],
             dry_run=bool(arguments.get("dry_run", False)),
         )
     if name == "lg_map_validate":

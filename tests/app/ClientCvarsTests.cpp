@@ -45,6 +45,8 @@ int main() {
         hasValue("r_bloom_intensity") &&
         hasValue("r_antialiasing") &&
         hasValue("r_sun_shadows") &&
+        hasValue("r_point_lights") &&
+        hasValue("r_point_shadows") &&
         hasValue("r_contact_shadows") &&
         hasValue("r_material_quality") &&
         hasValue("r_player_rim") &&
@@ -84,6 +86,14 @@ int main() {
       profileValue(lg::kGraphicsProfiles[1], "r_sun_shadows") == "0" &&
       profileValue(lg::kGraphicsProfiles[2], "r_sun_shadows") == "0" &&
       profileValue(lg::kGraphicsProfiles[3], "r_sun_shadows") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_point_lights") == "1" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_point_lights") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_point_lights") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_point_lights") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_point_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_point_shadows") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_point_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_point_shadows") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_contact_shadows") == "1" &&
       profileValue(lg::kGraphicsProfiles[1], "r_contact_shadows") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_contact_shadows") == "0" &&
@@ -108,6 +118,8 @@ int main() {
   failures += expect(
     console.getInt("r_antialiasing") == 1 &&
       console.getInt("r_sun_shadows") == 2 &&
+      console.getInt("r_point_lights") == 1 &&
+      console.getInt("r_point_shadows") == 1 &&
       console.getBool("r_contact_shadows") &&
       console.getInt("r_material_quality") == 1 &&
       console.getInt("r_player_rim") == 1 &&
@@ -115,6 +127,10 @@ int main() {
         "value out of range for r_antialiasing" &&
       console.execute("r_sun_shadows -1") ==
         "value out of range for r_sun_shadows" &&
+      console.execute("r_point_lights 3") ==
+        "value out of range for r_point_lights" &&
+      console.execute("r_point_shadows -1") ==
+        "value out of range for r_point_shadows" &&
       console.execute("r_material_quality 3") ==
         "value out of range for r_material_quality" &&
       console.execute("r_player_rim 3") ==
@@ -123,9 +139,11 @@ int main() {
   );
   const std::vector<std::string> graphicsArchivedConfig =
     console.archivedConfigLines();
-  constexpr std::array<std::string_view, 5> graphicsArchivedLines{{
+  constexpr std::array<std::string_view, 7> graphicsArchivedLines{{
     "set r_antialiasing 1",
     "set r_sun_shadows 2",
+    "set r_point_lights 1",
+    "set r_point_shadows 1",
     "set r_contact_shadows 1",
     "set r_material_quality 1",
     "set r_player_rim 1",

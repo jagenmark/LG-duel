@@ -12,6 +12,10 @@
 
 namespace lg {
 
+// A full 512-slot correction sweep needs at most 19 datagrams. Keeping over
+// three sweeps absorbs short client stalls without allowing an unbounded queue.
+inline constexpr std::size_t kMaxQueuedProjectileUpdatePackets = 64;
+
 class UdpServerTransport final : public NetTransport {
 public:
   explicit UdpServerTransport(std::uint16_t port);
@@ -27,6 +31,8 @@ public:
   [[nodiscard]] bool receiveCommand(CommandPacket& packet) override;
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  void sendProjectileUpdates(const ProjectileUpdatePacket& packet) override;
+  [[nodiscard]] bool receiveProjectileUpdates(ProjectileUpdatePacket& packet) override;
   void publishChatHistory(const ChatHistory& history) override;
   [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
 
@@ -59,6 +65,8 @@ public:
   [[nodiscard]] bool receiveCommand(CommandPacket& packet) override;
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  void sendProjectileUpdates(const ProjectileUpdatePacket& packet) override;
+  [[nodiscard]] bool receiveProjectileUpdates(ProjectileUpdatePacket& packet) override;
   void publishChatHistory(const ChatHistory& history) override;
   [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
   [[nodiscard]] SnapshotDiagnostics snapshotDiagnostics() const override;

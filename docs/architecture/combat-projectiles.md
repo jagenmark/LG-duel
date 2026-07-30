@@ -12,13 +12,22 @@ Server-side targeting first traces the world, then tests candidate players up to
 
 ## Projectile Weapons
 
-Rockets, grenades, and plasma share `RocketProjectile` storage (`kMaxRocketProjectiles`). `spawnProjectile()` allocates a free slot; `simulateRockets()` advances active projectiles each tick.
+Rockets, grenades, and plasma share bounded `RocketProjectile` storage. Each
+player owns `kProjectileSlotsPerPlayer` slots, so another player cannot block
+their shots by filling a global pool. `spawnProjectile()` allocates only from
+the attacker's slot range; `simulateRockets()` advances active projectiles each
+tick.
 
 - Rocket Launcher: straight projectile, explodes on world/player hit or lifetime expiry.
 - Grenade Launcher: gravity, bounce damping, optional resting state, fuse, direct-hit radius from config, bounce audio events, and explosion on fuse.
 - Plasma Gun: fast projectile with shorter lifetime and smaller splash/direct tuning.
 
-Projectiles snapshot as `RocketProjectileSnapshot` with active flag, owner, weapon, position, velocity, and radius. Visual mesh choice is renderer-side.
+The server keeps full projectile state and remains authoritative for movement,
+hits, damage, and removal. It sends new and periodic bounded
+`ProjectileUpdatePacket` spawn, correction, and removal records outside the
+main gameplay snapshot. Clients move those records locally for display and use
+keyed removals, explosion events, lifetime expiry, map changes, and projectile
+revisions to remove or correct them. Visual mesh choice remains renderer-side.
 
 ## Damage, Knockback, And Healing
 
@@ -33,7 +42,8 @@ Combat visuals/audio are snapshot events, not independent gameplay systems: `Wea
 ## Invariants And Footguns
 
 - Cooldowns are authoritative server counters; client display should not decide whether a shot happened.
-- Projectile slots are bounded. Do not add unbounded active projectile/event lists.
+- Projectile slots are bounded per player. Do not replace the owner ranges with
+  a shared pool that lets one player block another.
 - Owner collision for projectiles arms only after the projectile leaves the owner cylinder, avoiding immediate self-hit on spawn.
 - Grenade direct hits can be disabled by `projectile_hitbox_radius = 0`.
 - Playerclip currently blocks projectile world traces because trace masks are not separated yet.

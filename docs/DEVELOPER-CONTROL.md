@@ -417,16 +417,59 @@ map from the known `initial` template. `lg_map_add_cuboid`,
 objects created by this API. `lg_map_set_material` changes all faces of a
 managed cuboid to an allowed material. `lg_map_set_entity_properties` only
 changes supported template entity fields (origin, angle/yaw, and typed bounds).
+`lg_map_set_world_lighting` sets map ambient color and strength and can add,
+edit, or remove the one sun. `lg_map_add_point_light`,
+`lg_map_update_point_light`, and `lg_map_remove_point_light` manage local
+lights. `lg_map_list_point_lights` and `lg_map_get_world_lighting` return typed
+lighting state and the map revision.
+`lg_map_add_teleport`, `lg_map_update_teleport`, and
+`lg_map_remove_teleport` manage teleport trigger bounds, exit points, and exit
+yaw. `lg_map_list_teleports` returns all managed teleports and the map revision.
+Each teleport has one public stable ID. The writer makes its
+`trigger_teleport`, linked `target_position`, internal `lg_agent_id` values, and
+target name. Callers cannot supply raw target links. Trigger brushes always use
+`common/trigger`. Bounds and exit points use TrenchBroom map units, must stay
+inside world bounds, and the map can hold at most 16 teleports.
+
+Lighting API colors use `0..255` channels. Canonical map text writes them as
+normalized `0..1` values, so an API channel value of `1` stays distinct from
+`255`. Positions, radius, and source radius use TrenchBroom map units.
+Point-light intensity must be greater than 0 and at most 16; radius must be
+greater than 0 and at most 4096. Each light can set a shadow flag, source radius,
+priority from `-1000..1000`, and fixed-seed flicker. Flicker frequency is
+`0.1..30` Hz when on; if left out it defaults to 8 Hz. Its min and max strength
+factors use `0..4`. A managed map can hold at most 96 point lights. The API
+writes the runtime keys `casts_shadows`, `source_radius`, `priority`, `flicker`,
+`flicker_seed`, `flicker_frequency`, `flicker_min`, and `flicker_max`.
+
+`lg_map_apply_batch` applies up to 128 closed, typed operations. Canonical
+managed maps support cuboids, template entities, world light, point lights, and
+teleports. Hand-authored maps support world light, point lights, and teleports.
+The tool checks all steps against a private working copy, then makes one source
+write and returns one rollback token. One bad step, a stale revision, or a cap
+breach leaves the map unchanged.
 
 The API reads and writes only the repository `maps/` source area and the fixed
 runtime mirror `build/default/maps/`; callers cannot provide other paths or raw
-map text. Each write uses canonical serialization, an exact content revision,
-and an `expected_revision` precondition. Pass `dry_run: true` to validate and
-preview the structural/text diff without writing. A successful write returns a
-rollback token; `lg_map_rollback` restores those exact prior bytes only when its
-revision precondition still matches. Writes validate bounds, limits, materials,
-entities, and brush faces before an atomic replace, so stale or failed writes do
-not replace the source map.
+map text. Each write uses an exact content revision and an `expected_revision`
+precondition. Canonical managed maps use full canonical serialization.
+Hand-authored maps use brace-, quote-, and comment-aware span patches. Ambient
+light patches worldspawn values. Sun edits may add, replace, or remove the one
+`light_sun` entity. New typed point lights and teleports append tagged
+entities. Later updates replace only the matching typed entity spans. All other
+text, entities, comments, brushes, and line endings stay intact. Pass
+`dry_run: true` to validate and preview the structural/text diff without
+writing. A successful write returns a rollback token; `lg_map_rollback`
+restores the exact prior bytes only when its revision precondition still
+matches. Writes check structure, bounds, limits, IDs, and typed fields before
+an atomic replace.
+
+New API-created maps use managed format v2. On its first successful write, the
+API upgrades an exact canonical v1 managed map to v2 and adds the default white
+0.3 ambient state. The rollback token restores the exact v1 bytes.
+Hand-authored project maps do not need adoption and never gain a managed state
+marker. `lg_map_get` reports `editing_mode: direct_non_lossy`, lists tagged
+objects, and reports counts of unowned point lights and teleports.
 
 Use `lg_map_validate` before loading. `lg_map_validate_sync_reload` then runs
 validation, syncs the source to `build/default/maps/`, loads or reloads it, and
@@ -437,10 +480,17 @@ Recommended agent check: validate, validate-sync-reload, wait for frames and
 capture a screenshot or map views, enable collision debug, then check movement
 and projectile behavior with the existing input and weapon tools.
 
-Unsupported cases include non-axis-aligned or general convex brushes,
-face-level projection or material differences, triggers or new entities,
-imported or hand-edited maps outside the managed template flow, and arbitrary
-map text or filesystem paths. Use supervised TrenchBroom for those edits.
+On hand-authored maps, existing untagged point lights and teleports stay
+read-only because position or entity order is not a stable edit key. The API
+reports their counts and preserves their bytes. A mapper may adopt an
+importer-compatible point light by adding a safe, unique `lg_agent_id` in
+TrenchBroom. A legacy teleport cannot be adopted by a tag alone: the typed pair
+needs its own trigger and target IDs plus link data. Recreate it with
+`lg_map_add_teleport`. Hand maps also do not support cuboid, material, spawn, or
+world-bound mutations through the API. Non-axis-aligned brushes, face-level
+projection changes, other trigger and point classes, arbitrary map text, and
+arbitrary filesystem paths remain outside the typed tools. Use supervised
+TrenchBroom for those edits.
 
 ## Troubleshooting And Limitations
 

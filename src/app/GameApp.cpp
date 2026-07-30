@@ -2110,10 +2110,10 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 29;
-constexpr int kSettingsApplyRow = 30;
-constexpr int kSettingsCloseRow = 31;
-constexpr int kSettingsRowCount = 32;
+constexpr int kSettingsResetRow = 31;
+constexpr int kSettingsApplyRow = 32;
+constexpr int kSettingsCloseRow = 33;
+constexpr int kSettingsRowCount = 34;
 
 struct SettingsMenuState {
   bool open = false;
@@ -2142,6 +2142,8 @@ struct SettingsMenuState {
   float pendingBloomIntensity = 0.18F;
   int pendingAntiAliasing = 1;
   int pendingSunShadows = 2;
+  int pendingPointLights = 1;
+  int pendingPointShadows = 1;
   bool pendingContactShadows = true;
   int pendingMaterialQuality = 1;
   int pendingPlayerRim = 1;
@@ -2166,6 +2168,8 @@ struct SettingsMenuState {
   float originalBloomIntensity = 0.18F;
   int originalAntiAliasing = 1;
   int originalSunShadows = 2;
+  int originalPointLights = 1;
+  int originalPointShadows = 1;
   bool originalContactShadows = true;
   int originalMaterialQuality = 1;
   int originalPlayerRim = 1;
@@ -2850,6 +2854,8 @@ bool applyVideoSettings(
     menu.pendingBloomIntensity != menu.originalBloomIntensity ||
     menu.pendingAntiAliasing != menu.originalAntiAliasing ||
     menu.pendingSunShadows != menu.originalSunShadows ||
+    menu.pendingPointLights != menu.originalPointLights ||
+    menu.pendingPointShadows != menu.originalPointShadows ||
     menu.pendingContactShadows != menu.originalContactShadows ||
     menu.pendingMaterialQuality != menu.originalMaterialQuality ||
     menu.pendingPlayerRim != menu.originalPlayerRim ||
@@ -2887,6 +2893,8 @@ bool applyVideoSettings(
         ) < 0.001F &&
         std::to_string(menu.pendingAntiAliasing) == value("r_antialiasing") &&
         std::to_string(menu.pendingSunShadows) == value("r_sun_shadows") &&
+        std::to_string(menu.pendingPointLights) == value("r_point_lights") &&
+        std::to_string(menu.pendingPointShadows) == value("r_point_shadows") &&
         (menu.pendingContactShadows ? "1" : "0") == value("r_contact_shadows") &&
         std::to_string(menu.pendingMaterialQuality) == value("r_material_quality") &&
         std::to_string(menu.pendingPlayerRim) == value("r_player_rim") &&
@@ -2929,6 +2937,10 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
     std::stoi(std::string(value("r_antialiasing")));
   menu.pendingSunShadows =
     std::stoi(std::string(value("r_sun_shadows")));
+  menu.pendingPointLights =
+    std::stoi(std::string(value("r_point_lights")));
+  menu.pendingPointShadows =
+    std::stoi(std::string(value("r_point_shadows")));
   menu.pendingContactShadows = value("r_contact_shadows") == "1";
   menu.pendingMaterialQuality =
     std::stoi(std::string(value("r_material_quality")));
@@ -2959,6 +2971,8 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
   menu.pendingAntiAliasing = console.getInt("r_antialiasing");
   menu.pendingSunShadows = console.getInt("r_sun_shadows");
+  menu.pendingPointLights = console.getInt("r_point_lights");
+  menu.pendingPointShadows = console.getInt("r_point_shadows");
   menu.pendingContactShadows = console.getBool("r_contact_shadows");
   menu.pendingMaterialQuality = console.getInt("r_material_quality");
   menu.pendingPlayerRim = console.getInt("r_player_rim");
@@ -2979,6 +2993,8 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
   menu.originalAntiAliasing = menu.pendingAntiAliasing;
   menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalPointLights = menu.pendingPointLights;
+  menu.originalPointShadows = menu.pendingPointShadows;
   menu.originalContactShadows = menu.pendingContactShadows;
   menu.originalMaterialQuality = menu.pendingMaterialQuality;
   menu.originalPlayerRim = menu.pendingPlayerRim;
@@ -3108,22 +3124,28 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
   case 22:
     menu.pendingSunShadows = (menu.pendingSunShadows + direction + 3) % 3;
     return;
-  case 23: menu.pendingContactShadows = !menu.pendingContactShadows; return;
+  case 23:
+    menu.pendingPointLights = (menu.pendingPointLights + direction + 3) % 3;
+    return;
   case 24:
+    menu.pendingPointShadows = (menu.pendingPointShadows + direction + 3) % 3;
+    return;
+  case 25: menu.pendingContactShadows = !menu.pendingContactShadows; return;
+  case 26:
     menu.pendingMaterialQuality = (menu.pendingMaterialQuality + direction + 3) % 3;
     return;
-  case 25:
+  case 27:
     menu.pendingPlayerRim = (menu.pendingPlayerRim + direction + 3) % 3;
     return;
-  case 26: menu.pendingCasings = !menu.pendingCasings; return;
-  case 27:
+  case 28: menu.pendingCasings = !menu.pendingCasings; return;
+  case 29:
     menu.pendingImpactParticles = std::clamp(
       menu.pendingImpactParticles + 0.25F * static_cast<float>(direction),
       0.0F,
       2.0F
     );
     return;
-  case 28: {
+  case 30: {
     const std::vector<int> values = {0, 32, 48, 64, 96, 128, 192, 256};
     const int index = optionIndex(
       values,
@@ -3179,6 +3201,12 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
     "set r_sun_shadows " + std::to_string(menu.pendingSunShadows)
   );
   (void)console.execute(
+    "set r_point_lights " + std::to_string(menu.pendingPointLights)
+  );
+  (void)console.execute(
+    "set r_point_shadows " + std::to_string(menu.pendingPointShadows)
+  );
+  (void)console.execute(
     "set r_contact_shadows " + std::to_string(menu.pendingContactShadows ? 1 : 0)
   );
   (void)console.execute(
@@ -3205,6 +3233,8 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
   menu.originalAntiAliasing = menu.pendingAntiAliasing;
   menu.originalSunShadows = menu.pendingSunShadows;
+  menu.originalPointLights = menu.pendingPointLights;
+  menu.originalPointShadows = menu.pendingPointShadows;
   menu.originalContactShadows = menu.pendingContactShadows;
   menu.originalMaterialQuality = menu.pendingMaterialQuality;
   menu.originalPlayerRim = menu.pendingPlayerRim;
@@ -3361,13 +3391,31 @@ void populateSettingsMenuRenderState(
     settingsMenuItem(
       menu,
       23,
+      "Live point lights",
+      menu.pendingPointLights == 0
+        ? "Combat only"
+        : menu.pendingPointLights == 1 ? "16 lights" : "32 lights",
+      menu.pendingPointLights != menu.originalPointLights
+    ),
+    settingsMenuItem(
+      menu,
+      24,
+      "Cached point shadows",
+      menu.pendingPointShadows == 0
+        ? "Off"
+        : menu.pendingPointShadows == 1 ? "1 light / 256" : "2 lights / 512",
+      menu.pendingPointShadows != menu.originalPointShadows
+    ),
+    settingsMenuItem(
+      menu,
+      25,
       "Contact shadows",
       menu.pendingContactShadows ? "On" : "Off",
       menu.pendingContactShadows != menu.originalContactShadows
     ),
     settingsMenuItem(
       menu,
-      24,
+      26,
       "Material quality",
       menu.pendingMaterialQuality == 0
         ? "Basic"
@@ -3376,7 +3424,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      25,
+      27,
       "Player rim light",
       menu.pendingPlayerRim == 0
         ? "Off"
@@ -3385,14 +3433,14 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      26,
+      28,
       "Cartridge casings",
       menu.pendingCasings ? "On" : "Off",
       menu.pendingCasings != menu.originalCasings
     ),
     settingsMenuItem(
       menu,
-      27,
+      29,
       "Impact-particle density",
       std::to_string(
         static_cast<int>(std::lround(menu.pendingImpactParticles * 100.0F))
@@ -3401,7 +3449,7 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
-      28,
+      30,
       "Bullet decal budget",
       std::to_string(menu.pendingDecalBudget),
       menu.pendingDecalBudget != menu.originalDecalBudget
@@ -3709,6 +3757,8 @@ RenderSettings renderSettings(
   settings.bloomThreshold = console.getFloat("r_bloom_threshold");
   settings.antiAliasingQuality = console.getInt("r_antialiasing");
   settings.sunShadowQuality = console.getInt("r_sun_shadows");
+  settings.pointLightQuality = console.getInt("r_point_lights");
+  settings.pointShadowQuality = console.getInt("r_point_shadows");
   settings.contactShadowsEnabled = console.getBool("r_contact_shadows");
   settings.materialQuality = console.getInt("r_material_quality");
   settings.playerRimQuality = console.getInt("r_player_rim");
@@ -5926,7 +5976,8 @@ int GameApp::run() const {
   std::array<bool, kDuelPlayerCount> hasLastDamageNumberFeedbackSequence = {};
   bool damageNumberStateInitialized = false;
   std::array<std::uint32_t, kDuelPlayerCount> lastPlayedFootstepAudioSequences = {};
-  std::array<std::uint32_t, kMaxRocketProjectiles> lastPlayedGrenadeBounceAudioSequences = {};
+  std::array<std::uint32_t, kDuelPlayerCount>
+    lastPlayedGrenadeBounceAudioSequences = {};
   std::uint32_t lastLocalRailFireTick = 0;
   bool hasLocalRailFireTick = false;
   bool localRailReadySoundPlayed = true;
@@ -9410,7 +9461,7 @@ int GameApp::run() const {
         renderSnapshot.lightningGuns[cameraPlayerIndex];
       renderWeaponFires = renderSnapshot.weaponFires;
       renderRocketExplosions = renderSnapshot.rocketExplosions;
-      renderRockets = renderSnapshot.rockets;
+      renderRockets = renderClient->projectiles();
       renderIcePools = renderSnapshot.icePools;
       const LocalHitFeedbackBatch hitFeedback = session.spectator()
         ? LocalHitFeedbackBatch{}
@@ -9791,6 +9842,7 @@ int GameApp::run() const {
     constexpr float kBeamPulseRadiansPerSecond = 31.4159265359F;
     const double presentationSeconds =
       std::chrono::duration<double>(now.time_since_epoch()).count();
+    currentRenderSettings.presentationTimeSeconds = presentationSeconds;
     currentRenderSettings.beamPhaseRadians =
       static_cast<float>(std::fmod(presentationSeconds, 1.0)) *
       kBeamPulseRadiansPerSecond;

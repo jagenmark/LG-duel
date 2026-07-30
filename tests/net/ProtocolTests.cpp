@@ -1,4 +1,5 @@
 #include "net/NetCodec.hpp"
+#include "net/LoopbackTransport.hpp"
 #include "sim/MovementModes.hpp"
 
 #include <cmath>
@@ -61,6 +62,184 @@ int main() {
       "ping should decode"
     );
     failures += expect(decodedPing.token == 88, "ping token should round trip");
+  }
+
+  {
+    lg::ProjectileUpdatePacket source;
+    source.serverTick = 9001U;
+    source.mapRevision = 17U;
+    source.projectileRevision = 23U;
+    source.updateCount =
+      static_cast<std::uint8_t>(lg::kMaxProjectileUpdatesPerPacket);
+    for (std::size_t index = 0; index < source.updateCount; ++index) {
+      lg::ProjectileUpdate& update = source.updates[index];
+      update.slot = static_cast<std::uint16_t>(index);
+      update.sequence = static_cast<std::uint32_t>(100U + index);
+      update.kind = index % 3U == 0U
+        ? lg::ProjectileUpdateKind::Spawn
+        : index % 3U == 1U
+          ? lg::ProjectileUpdateKind::Correct
+          : lg::ProjectileUpdateKind::Remove;
+      update.weapon = index % 3U == 0U
+        ? lg::Weapon::RocketLauncher
+        : index % 3U == 1U
+          ? lg::Weapon::GrenadeLauncher
+          : lg::Weapon::PlasmaGun;
+      update.position = {
+        static_cast<float>(index),
+        -static_cast<float>(index),
+        0.25F,
+      };
+      update.velocity = {1.0F, 2.0F, 3.0F};
+      update.radius = update.weapon == lg::Weapon::GrenadeLauncher
+        ? 0.15F : 0.0F;
+      update.ageTicks = static_cast<std::uint32_t>(index * 3U);
+      update.resting =
+        update.weapon == lg::Weapon::GrenadeLauncher && index == 1U;
+    }
+    source.updates[source.updateCount - 1U].slot =
+      static_cast<std::uint16_t>(lg::kMaxRocketProjectiles - 1U);
+
+    lg::WirePacket wire;
+    lg::ProjectileUpdatePacket decoded;
+    lg::PacketType type;
+    failures += expect(
+      lg::encodeProjectileUpdatePacket(source, wire),
+      "maximum projectile update packet should encode"
+    );
+    failures += expect(
+      wire.size() == 1173U &&
+        wire.size() <= lg::kMaxUdpApplicationDatagramBytes,
+      "maximum projectile update packet should use its fixed bounded wire size"
+    );
+    failures += expect(
+      lg::inspectPacketType(wire, type) &&
+        type == lg::PacketType::ProjectileUpdates,
+      "projectile update packet type should inspect"
+    );
+    failures += expect(
+      lg::decodeProjectileUpdatePacket(wire, decoded),
+      "projectile update packet should decode"
+    );
+    failures += expect(
+      decoded.serverTick == source.serverTick &&
+        decoded.mapRevision == source.mapRevision &&
+        decoded.projectileRevision == source.projectileRevision &&
+        decoded.updateCount == source.updateCount &&
+        decoded.updates[1].resting &&
+        decoded.updates[1].weapon == lg::Weapon::GrenadeLauncher &&
+        decoded.updates[2].kind == lg::ProjectileUpdateKind::Remove &&
+        decoded.updates[source.updateCount - 1U].slot ==
+          lg::kMaxRocketProjectiles - 1U,
+      "projectile update fields should round trip"
+    );
+
+    lg::LoopbackTransport loopback;
+    loopback.sendProjectileUpdates(source);
+    failures += expect(
+      loopback.receiveProjectileUpdates(decoded) &&
+        decoded.updateCount == source.updateCount &&
+        decoded.updates[2].kind == lg::ProjectileUpdateKind::Remove,
+      "loopback transport should preserve projectile update packets"
+    );
+
+    lg::ProjectileUpdatePacket empty = source;
+    empty.updateCount = 0U;
+    failures += expect(
+      lg::encodeProjectileUpdatePacket(empty, wire) &&
+        lg::decodeProjectileUpdatePacket(wire, decoded) &&
+        decoded.updateCount == 0U,
+      "an empty projectile revision should round trip"
+    );
+
+    lg::ProjectileUpdatePacket invalid = source;
+    invalid.updateCount = 1U;
+    invalid.updates[0].slot =
+      static_cast<std::uint16_t>(lg::kMaxRocketProjectiles);
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire) && wire.empty(),
+      "out-of-range projectile slots should not encode"
+    );
+    invalid = source;
+    invalid.updateCount = 1U;
+    invalid.updates[0].sequence = 0U;
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire),
+      "zero projectile sequences should not encode"
+    );
+    invalid = source;
+    invalid.updateCount = 1U;
+    invalid.updates[0].kind =
+      static_cast<lg::ProjectileUpdateKind>(255);
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire),
+      "invalid projectile update kinds should not encode"
+    );
+    invalid = source;
+    invalid.updateCount = 1U;
+    invalid.updates[0].weapon = lg::Weapon::Railgun;
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire),
+      "non-projectile weapons should not encode as projectile updates"
+    );
+    invalid = source;
+    invalid.updateCount = 1U;
+    invalid.updates[0].position.x =
+      std::numeric_limits<float>::infinity();
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire),
+      "non-finite projectile state should not encode"
+    );
+    invalid = source;
+    invalid.updateCount = 2U;
+    invalid.updates[1].slot = invalid.updates[0].slot;
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire),
+      "duplicate projectile slots should not encode"
+    );
+    invalid = source;
+    invalid.updateCount = 1U;
+    invalid.updates[0].resting = true;
+    failures += expect(
+      !lg::encodeProjectileUpdatePacket(invalid, wire),
+      "only grenades may encode as resting projectiles"
+    );
+
+    lg::ProjectileUpdatePacket one = source;
+    one.updateCount = 1U;
+    failures += expect(
+      lg::encodeProjectileUpdatePacket(one, wire),
+      "single projectile update should encode for malformed fixtures"
+    );
+    lg::WirePacket malformed = wire;
+    malformed[31] = 255U;
+    failures += expect(
+      !lg::decodeProjectileUpdatePacket(malformed, decoded),
+      "decoder should reject invalid projectile update kinds"
+    );
+    malformed = wire;
+    malformed[32] = static_cast<std::uint8_t>(lg::Weapon::Railgun);
+    failures += expect(
+      !lg::decodeProjectileUpdatePacket(malformed, decoded),
+      "decoder should reject non-projectile weapon values"
+    );
+    malformed = wire;
+    malformed[65] = 2U;
+    failures += expect(
+      !lg::decodeProjectileUpdatePacket(malformed, decoded),
+      "decoder should reject non-canonical projectile booleans"
+    );
+    malformed = wire;
+    malformed.pop_back();
+    failures += expect(
+      !lg::decodeProjectileUpdatePacket(malformed, decoded),
+      "decoder should reject truncated projectile packets"
+    );
+    malformed.resize(lg::kMaxUdpApplicationDatagramBytes + 1U, 0U);
+    failures += expect(
+      !lg::decodeProjectileUpdatePacket(malformed, decoded),
+      "decoder should reject projectile packets above the UDP cap"
+    );
   }
 
   {
@@ -505,6 +684,7 @@ int main() {
     source.acknowledgedCommandDatagramSequence = 88;
     source.commandDatagramAckBits = 0xA5A55A5AU;
     source.mapRevision = 77;
+    source.projectileRevision = 79;
     source.map = testMapDescriptor();
     source.acknowledgedCommand = {12, 34};
     source.hasAcknowledgedCommand = {true, false};
@@ -599,6 +779,7 @@ int main() {
     source.rocketExplosions[0].ownerDamageApplied = 12;
     source.rocketExplosions[0].opponentDamageApplied = 80;
     source.rocketExplosions[0].sequence = 42;
+    source.rocketExplosions[0].projectileSequence = 73;
     source.fragEvents[0].active = true;
     source.fragEvents[0].sequence = 55;
     source.fragEvents[0].targetPlayerIndex = 1;
@@ -622,12 +803,6 @@ int main() {
     source.grenadeBounceAudioEvents[0].active = true;
     source.grenadeBounceAudioEvents[0].sequence = 9;
     source.grenadeBounceAudioEvents[0].position = {4.5F, -2.0F, 0.75F};
-    source.rockets[0].active = true;
-    source.rockets[0].owner = 1;
-    source.rockets[0].weapon = lg::Weapon::GrenadeLauncher;
-    source.rockets[0].position = {5.0F, 6.0F, 1.2F};
-    source.rockets[0].velocity = {7.0F, 8.0F, 9.0F};
-    source.rockets[0].radius = 0.25F;
     source.icePools[0].active = true;
     source.icePools[0].center = {1.0F, 2.0F, 0.0F};
     source.icePools[0].normal = {0.0F, 0.0F, 1.0F};
@@ -709,6 +884,12 @@ int main() {
     source.icePoolTuning.slopeGravityScale = 1.25F;
     source.icePoolTuning.controlScale = 0.25F;
     source.icePoolTuning.mergeDistance = 1.4F;
+    source.projectilePresentation.rocketLifetimeTicks = 625U;
+    source.projectilePresentation.grenadeFuseTicks = 250U;
+    source.projectilePresentation.plasmaLifetimeTicks = 150U;
+    source.projectilePresentation.grenadeGravity = 12.0F;
+    source.projectilePresentation.grenadeBounceDamping = 0.7F;
+    source.projectilePresentation.grenadeRestSpeed = 0.8F;
     source.weaponAmmo.infiniteAmmo = false;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::LightningGun)] = 150;
     source.weaponAmmo.spawnAmmo[lg::weaponIndex(lg::Weapon::Railgun)] = 10;
@@ -748,6 +929,10 @@ int main() {
     failures += expect(lg::decodeServerSnapshot(wire, decoded), "snapshot should decode");
     failures += expect(decoded.serverTick == 1234, "snapshot tick should round trip");
     failures += expect(decoded.mapRevision == 77, "snapshot map revision should round trip");
+    failures += expect(
+      decoded.projectileRevision == 79,
+      "snapshot projectile generation should round trip"
+    );
     failures += expect(
       decoded.map.mapName == source.map.mapName &&
         decoded.map.contentHash == source.map.contentHash,
@@ -867,6 +1052,7 @@ int main() {
         decoded.rocketExplosions[0].ownerDamageApplied == 12 &&
         decoded.rocketExplosions[0].opponentDamageApplied == 80 &&
         decoded.rocketExplosions[0].sequence == 42 &&
+        decoded.rocketExplosions[0].projectileSequence == 73 &&
         decoded.footstepAudioEvents[1].active &&
         decoded.footstepAudioEvents[1].jumping &&
         decoded.footstepAudioEvents[1].landing &&
@@ -878,14 +1064,8 @@ int main() {
         decoded.fragEvents[0].active &&
         decoded.fragEvents[0].sequence == 55 &&
         decoded.fragEvents[0].targetPlayerIndex == 1 &&
-        decoded.fragEvents[0].weapon == lg::Weapon::Railgun &&
-        decoded.rockets[0].active &&
-        decoded.rockets[0].owner == 1 &&
-        decoded.rockets[0].weapon == lg::Weapon::GrenadeLauncher &&
-        nearlyEqual(decoded.rockets[0].position.z, 1.2F) &&
-        nearlyEqual(decoded.rockets[0].velocity.z, 9.0F) &&
-        nearlyEqual(decoded.rockets[0].radius, 0.25F),
-      "rocket, explosion, footstep audio, and frag event state should round trip"
+        decoded.fragEvents[0].weapon == lg::Weapon::Railgun,
+      "explosion, footstep audio, grenade audio, and frag events should round trip"
     );
     failures += expect(
       decoded.icePools[0].active &&
@@ -972,6 +1152,15 @@ int main() {
       nearlyEqual(decoded.icePoolTuning.slopeGravityScale, 1.25F) &&
       nearlyEqual(decoded.icePoolTuning.controlScale, 0.25F) &&
       nearlyEqual(decoded.icePoolTuning.mergeDistance, 1.4F) &&
+      decoded.projectilePresentation.rocketLifetimeTicks == 625U &&
+      decoded.projectilePresentation.grenadeFuseTicks == 250U &&
+      decoded.projectilePresentation.plasmaLifetimeTicks == 150U &&
+      nearlyEqual(decoded.projectilePresentation.grenadeGravity, 12.0F) &&
+      nearlyEqual(
+        decoded.projectilePresentation.grenadeBounceDamping,
+        0.7F
+      ) &&
+      nearlyEqual(decoded.projectilePresentation.grenadeRestSpeed, 0.8F) &&
       !decoded.weaponAmmo.infiniteAmmo &&
       decoded.weaponAmmo.spawnAmmo == source.weaponAmmo.spawnAmmo &&
       nearlyEqual(decoded.vampirism, 2.0F) &&
@@ -1198,6 +1387,128 @@ int main() {
       "an incompressible event burst should fail instead of exceeding 1200 bytes"
     );
 
+    lg::ServerSnapshot twoBeamBurst = sixteenPlayerSnapshot;
+    twoBeamBurst.players[0].health = 94;
+    twoBeamBurst.players[1].health = 94;
+    for (std::size_t player = 0; player < 2U; ++player) {
+      auto& beam = twoBeamBurst.lightningGuns[player];
+      beam.active = true;
+      beam.hit = true;
+      beam.targetPlayerIndex = static_cast<std::uint8_t>(1U - player);
+      beam.damageApplied = 6;
+      beam.start = {
+        static_cast<float>(player * 41U + 3U),
+        static_cast<float>(player * 43U + 5U),
+        static_cast<float>(player * 47U + 7U),
+      };
+      beam.end = {
+        beam.start.x + 101.25F,
+        beam.start.y + 203.5F,
+        beam.start.z + 307.75F,
+      };
+      beam.hasRewindDebug = true;
+      beam.rewindTargetTick = static_cast<std::uint32_t>(900U + player);
+      beam.currentTargetPosition = {
+        beam.start.x + 11.5F,
+        beam.start.y + 13.75F,
+        beam.start.z + 17.25F,
+      };
+      beam.rewoundTargetPosition = {
+        beam.end.x - 19.5F,
+        beam.end.y - 23.75F,
+        beam.end.z - 29.25F,
+      };
+    }
+    for (std::size_t player = 0; player < lg::kDuelPlayerCount; ++player) {
+      auto& footstep = twoBeamBurst.footstepAudioEvents[player];
+      footstep.active = true;
+      footstep.sequence = static_cast<std::uint32_t>(3000U + player);
+      footstep.position = {
+        static_cast<float>(player * 31U + 1U),
+        static_cast<float>(player * 37U + 2U),
+        static_cast<float>(player * 41U + 3U),
+      };
+      auto& bounce = twoBeamBurst.grenadeBounceAudioEvents[player];
+      bounce.active = true;
+      bounce.sequence = static_cast<std::uint32_t>(4000U + player);
+      bounce.position = {
+        static_cast<float>(player * 43U + 4U),
+        static_cast<float>(player * 47U + 5U),
+        static_cast<float>(player * 53U + 6U),
+      };
+    }
+    failures += expect(
+      !lg::encodeServerSnapshot(twoBeamBurst, wire) && wire.empty(),
+      "two beams plus low-priority debug events should exceed one datagram"
+    );
+    lg::WirePacket boundedTwoBeamWire;
+    lg::ServerSnapshot decodedTwoBeam;
+    failures += expect(
+      lg::encodeBoundedGameplaySnapshot(twoBeamBurst, boundedTwoBeamWire) &&
+        boundedTwoBeamWire.size() <= lg::kMaxUdpApplicationDatagramBytes &&
+        lg::decodeServerSnapshot(boundedTwoBeamWire, decodedTwoBeam) &&
+        decodedTwoBeam.players[0].health == 94 &&
+        decodedTwoBeam.players[1].health == 94 &&
+        decodedTwoBeam.lightningGuns[0].active &&
+        decodedTwoBeam.lightningGuns[1].active &&
+        decodedTwoBeam.lightningGuns[0].damageApplied == 6 &&
+        decodedTwoBeam.lightningGuns[1].damageApplied == 6 &&
+        !decodedTwoBeam.lightningGuns[0].hasRewindDebug &&
+        !decodedTwoBeam.lightningGuns[1].hasRewindDebug &&
+        twoBeamBurst.lightningGuns[0].hasRewindDebug &&
+        twoBeamBurst.lightningGuns[1].hasRewindDebug,
+      "bounded gameplay encoding should keep two-beam health and damage while "
+      "dropping rewind debug without changing its input"
+    );
+
+    lg::ServerSnapshot recipientlessBurst = unboundedBurst;
+    for (auto& events : recipientlessBurst.localHitFeedbackEvents) {
+      events.fill({});
+    }
+    for (std::size_t player = 0; player < 4U; ++player) {
+      for (
+        std::size_t event = 0;
+        event < lg::kLocalHitFeedbackEventWindow;
+        ++event
+      ) {
+        auto& feedback =
+          recipientlessBurst.localHitFeedbackEvents[player][event];
+        feedback.active = true;
+        feedback.sequence = static_cast<std::uint32_t>(
+          7001U + player * lg::kLocalHitFeedbackEventWindow + event
+        );
+        feedback.targetPlayerIndex =
+          static_cast<std::uint8_t>((player + 1U) % 4U);
+        feedback.damageApplied = 6;
+        feedback.weapon = lg::Weapon::LightningGun;
+      }
+    }
+    auto& preservedFeedback =
+      recipientlessBurst.localHitFeedbackEvents[0][0];
+    recipientlessBurst.hasLocalClientState = false;
+    recipientlessBurst.localPlayerIndex = lg::kNoAssignedPlayer;
+    lg::WirePacket recipientlessWire;
+    lg::ServerSnapshot decodedRecipientless;
+    failures += expect(
+      lg::encodeBoundedGameplaySnapshot(
+        recipientlessBurst,
+        recipientlessWire
+      ) &&
+        recipientlessWire.size() <=
+          lg::kMaxUdpApplicationDatagramBytes &&
+        lg::decodeServerSnapshot(
+          recipientlessWire,
+          decodedRecipientless
+        ) &&
+        !decodedRecipientless.lightningGuns[0].active &&
+        decodedRecipientless.localHitFeedbackEvents[0][0].active &&
+        decodedRecipientless.localHitFeedbackEvents[0][0].sequence ==
+          preservedFeedback.sequence &&
+        decodedRecipientless.localHitFeedbackEvents[0][0].damageApplied ==
+          preservedFeedback.damageApplied,
+      "recipient-free bounded encoding should drop beams before hit feedback"
+    );
+
     failures += expect(
       lg::encodeServerSnapshot(sixteenPlayerSnapshot, wire) && wire[7] == 1U,
       "sixteen-player fixture should exercise compressed snapshot framing"
@@ -1307,6 +1618,13 @@ int main() {
     );
 
     invalid = source;
+    invalid.projectileRevision = 0U;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "zero snapshot projectile generation should not encode"
+    );
+
+    invalid = source;
     invalid.footstepAudioEvents[0].active = true;
     invalid.footstepAudioEvents[0].position.x =
       std::numeric_limits<float>::infinity();
@@ -1321,6 +1639,21 @@ int main() {
     failures += expect(
       !lg::encodeServerSnapshot(invalid, wire),
       "non-finite grenade bounce audio event should not encode"
+    );
+
+    invalid = source;
+    invalid.projectilePresentation.grenadeBounceDamping = 2.0F;
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "out-of-range projectile presentation tuning should not encode"
+    );
+
+    invalid = source;
+    invalid.projectilePresentation.grenadeGravity =
+      std::numeric_limits<float>::quiet_NaN();
+    failures += expect(
+      !lg::encodeServerSnapshot(invalid, wire),
+      "non-finite projectile presentation tuning should not encode"
     );
 
     invalid = source;

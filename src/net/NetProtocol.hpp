@@ -35,6 +35,7 @@ inline constexpr float kMaxLightningKnockback = 100000.0F;
 inline constexpr float kMaxRocketKnockback = 1000.0F;
 inline constexpr float kMinLightningFireHz = 1.0F;
 inline constexpr float kMaxLightningFireHz = 125.0F;
+inline constexpr std::size_t kMaxProjectileUpdatesPerPacket = 28;
 
 enum class MatchPhase : std::uint8_t {
   WaitingForPlayers = 0,
@@ -285,6 +286,41 @@ struct LocalHitFeedbackEvent {
   Weapon weapon = Weapon::LightningGun;
 };
 
+struct ProjectilePresentationTuning {
+  std::uint32_t rocketLifetimeTicks = 500;
+  std::uint32_t grenadeFuseTicks = 313;
+  std::uint32_t plasmaLifetimeTicks = 125;
+  float grenadeGravity = 9.8F;
+  float grenadeBounceDamping = 0.65F;
+  float grenadeRestSpeed = 1.5F;
+};
+
+enum class ProjectileUpdateKind : std::uint8_t {
+  Spawn = 0,
+  Correct = 1,
+  Remove = 2,
+};
+
+struct ProjectileUpdate {
+  std::uint16_t slot = 0;
+  std::uint32_t sequence = 0;
+  ProjectileUpdateKind kind = ProjectileUpdateKind::Correct;
+  Weapon weapon = Weapon::RocketLauncher;
+  Vec3 position = {};
+  Vec3 velocity = {};
+  float radius = 0.0F;
+  std::uint32_t ageTicks = 0;
+  bool resting = false;
+};
+
+struct ProjectileUpdatePacket {
+  std::uint32_t serverTick = 0;
+  std::uint32_t mapRevision = 1;
+  std::uint32_t projectileRevision = 1;
+  std::uint8_t updateCount = 0;
+  std::array<ProjectileUpdate, kMaxProjectileUpdatesPerPacket> updates = {};
+};
+
 struct ServerSnapshot {
   std::uint32_t serverTick = 0;
   // This recipient-only state describes the connection's current body
@@ -297,6 +333,9 @@ struct ServerSnapshot {
   std::uint32_t acknowledgedCommandDatagramSequence = 0;
   std::uint32_t commandDatagramAckBits = 0;
   std::uint32_t mapRevision = 1;
+  // This changes only on an explicit full projectile clear. Delta packets in
+  // the same generation keep it stable across spawn/correct/remove updates.
+  std::uint32_t projectileRevision = 1;
   MapDescriptor map = {};
   std::array<std::uint32_t, kDuelPlayerCount> acknowledgedCommand = {};
   std::array<bool, kDuelPlayerCount> hasAcknowledgedCommand = {};
@@ -308,13 +347,12 @@ struct ServerSnapshot {
   std::array<WeaponFireResult, kDuelPlayerCount> weaponFires = {};
   std::array<RocketExplosionResult, kDuelPlayerCount> rocketExplosions = {};
   std::array<FootstepAudioEvent, kDuelPlayerCount> footstepAudioEvents = {};
-  std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> grenadeBounceAudioEvents = {};
+  std::array<GrenadeBounceAudioEvent, kDuelPlayerCount> grenadeBounceAudioEvents = {};
   std::array<FragEvent, kDuelPlayerCount> fragEvents = {};
   std::array<
     std::array<LocalHitFeedbackEvent, kLocalHitFeedbackEventWindow>,
     kDuelPlayerCount
   > localHitFeedbackEvents = {};
-  std::array<RocketProjectileSnapshot, kMaxRocketProjectiles> rockets = {};
   IcePoolArray icePools = {};
   std::array<bool, Arena::kHealthPickupCount> healthPickupAvailable = {};
   std::array<std::uint32_t, kDuelPlayerCount> respawnTicksRemaining = {};
@@ -349,6 +387,7 @@ struct ServerSnapshot {
   std::int32_t knockbackTimeMs = 100;
   WeaponDamageTuning weaponDamage = {};
   IcePoolTuning icePoolTuning = {};
+  ProjectilePresentationTuning projectilePresentation = {};
   float vampirism = 0.0F;
   std::uint8_t selfDamagePercent = 100;
   std::int32_t healthAmount = 100;

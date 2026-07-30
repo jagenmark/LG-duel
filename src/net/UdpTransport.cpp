@@ -52,6 +52,7 @@ void copySnapshotConfiguration(ServerSnapshot& destination,
   destination.knockbackTimeMs = source.knockbackTimeMs;
   destination.weaponDamage = source.weaponDamage;
   destination.icePoolTuning = source.icePoolTuning;
+  destination.projectilePresentation = source.projectilePresentation;
   destination.weaponAmmo = source.weaponAmmo;
   destination.vampirism = source.vampirism;
   destination.selfDamagePercent = source.selfDamagePercent;
@@ -72,47 +73,6 @@ WirePacket configurationSignature(const ServerSnapshot& snapshot) {
   return signature;
 }
 
-[[nodiscard]] bool encodeBoundedGameplaySnapshot(
-  ServerSnapshot& snapshot,
-  WirePacket& wire
-) {
-  if (encodeServerSnapshot(snapshot, wire)) return true;
-
-  // Rewind geometry and movement sounds are presentation-only. They are the
-  // first deterministic casualties of a pathological same-tick event burst.
-  for (LightningGunResult& result : snapshot.lightningGuns) {
-    result.hasRewindDebug = false;
-  }
-  snapshot.footstepAudioEvents.fill({});
-  snapshot.grenadeBounceAudioEvents.fill({});
-  if (encodeServerSnapshot(snapshot, wire)) return true;
-
-  // Hit feedback is recipient-specific; other players' windows have no value
-  // to this client and must not displace its own authoritative core state.
-  for (std::size_t player = 0; player < kDuelPlayerCount; ++player) {
-    if (player != snapshot.localPlayerIndex) {
-      snapshot.localHitFeedbackEvents[player].fill({});
-    }
-  }
-  if (encodeServerSnapshot(snapshot, wire)) return true;
-
-  // Recurring beams are cheaper to lose than one-shot authoritative feedback.
-  // Preserve hit confirmations and frag events until every lower-priority
-  // presentation path has already been removed.
-  snapshot.lightningGuns.fill({});
-  if (encodeServerSnapshot(snapshot, wire)) return true;
-
-  // Preserve player/projectile/objective state before remaining transient
-  // visuals. The next snapshot remains self-contained even when this burst is
-  // not rendered.
-  snapshot.weaponFires.fill({});
-  snapshot.rocketExplosions.fill({});
-  if (encodeServerSnapshot(snapshot, wire)) return true;
-
-  snapshot.fragEvents.fill({});
-  for (auto& events : snapshot.localHitFeedbackEvents) events.fill({});
-  return encodeServerSnapshot(snapshot, wire);
-}
 using Clock = std::chrono::steady_clock;
 constexpr auto kHandshakeRetry = std::chrono::milliseconds(500);
 constexpr auto kPingInterval = std::chrono::seconds(1);
@@ -810,6 +770,25 @@ void UdpServerTransport::publishChatHistory(const ChatHistory& history) {
   impl_->chatHistory = history;
 }
 
+void UdpServerTransport::sendProjectileUpdates(
+  const ProjectileUpdatePacket& packet
+) {
+  WirePacket wire;
+  if (!encodeProjectileUpdatePacket(packet, wire)) {
+    impl_->error = "invalid or oversized projectile update packet";
+    return;
+  }
+  for (const Impl::ClientSlot& client : impl_->clients) {
+    if (client.active) {
+      (void)sendWire(impl_->socket, client.endpoint, wire);
+    }
+  }
+}
+
+bool UdpServerTransport::receiveProjectileUpdates(ProjectileUpdatePacket&) {
+  return false;
+}
+
 bool UdpServerTransport::receiveChatHistory(ChatHistoryChunk&) {
   return false;
 }
@@ -1050,6 +1029,60 @@ struct UdpClientTransport::Impl {
     }
   }
 
+  bool acceptProjectileGeneration(
+    std::uint32_t mapRevision,
+    std::uint32_t projectileRevision
+  ) {
+    if (mapRevision == 0U || projectileRevision == 0U) {
+      return false;
+    }
+    if (latestProjectileMapRevision == 0U) {
+      latestProjectileMapRevision = mapRevision;
+      latestProjectileRevision = projectileRevision;
+      return true;
+    }
+    if (mapRevision != latestProjectileMapRevision) {
+      if (!isSequenceNewer(mapRevision, latestProjectileMapRevision)) {
+        return false;
+      }
+      projectileUpdates.clear();
+      latestProjectileMapRevision = mapRevision;
+      latestProjectileRevision = projectileRevision;
+      return true;
+    }
+    if (projectileRevision == latestProjectileRevision) {
+      return true;
+    }
+    if (!isSequenceNewer(projectileRevision, latestProjectileRevision)) {
+      return false;
+    }
+    projectileUpdates.clear();
+    latestProjectileRevision = projectileRevision;
+    return true;
+  }
+
+  void observeSnapshotProjectileGeneration(const ServerSnapshot& snapshot) {
+    if (latestProjectileMapRevision == 0U ||
+        isSequenceNewer(
+          snapshot.mapRevision,
+          latestProjectileMapRevision
+        )) {
+      projectileUpdates.clear();
+      latestProjectileMapRevision = snapshot.mapRevision;
+      latestProjectileRevision = snapshot.projectileRevision;
+      return;
+    }
+    if (snapshot.mapRevision == latestProjectileMapRevision &&
+        snapshot.projectileRevision != latestProjectileRevision &&
+        isSequenceNewer(
+          snapshot.projectileRevision,
+          latestProjectileRevision
+        )) {
+      projectileUpdates.clear();
+      latestProjectileRevision = snapshot.projectileRevision;
+    }
+  }
+
   void dispatchWire(const WirePacket& wire, Clock::time_point now) {
     PacketType type;
     if (!inspectPacketType(wire, type)) {
@@ -1060,6 +1093,7 @@ struct UdpClientTransport::Impl {
       auto snapshot = std::make_unique<ServerSnapshot>();
       const auto decodeStart = Clock::now();
       if (decodeServerSnapshot(wire, *snapshot)) {
+        observeSnapshotProjectileGeneration(*snapshot);
         const auto decodeEnd = Clock::now();
         ++snapshotDiagnostics.snapshotPacketsDecoded;
         snapshotDiagnostics.snapshotDecodeMilliseconds =
@@ -1071,6 +1105,24 @@ struct UdpClientTransport::Impl {
         snapshots.push_back(wire);
         recordSnapshot(*snapshot, wire.size(), now);
         snapshotDiagnostics.snapshotQueueDepth = snapshots.size();
+        lastServerPacket = now;
+      }
+    } else if (type == PacketType::ProjectileUpdates && connected) {
+      ProjectileUpdatePacket packet;
+      if (
+        decodeProjectileUpdatePacket(wire, packet) &&
+        acceptProjectileGeneration(
+          packet.mapRevision,
+          packet.projectileRevision
+        )
+      ) {
+        if (
+          projectileUpdates.size() ==
+          kMaxQueuedProjectileUpdatePackets
+        ) {
+          projectileUpdates.pop_front();
+        }
+        projectileUpdates.push_back(wire);
         lastServerPacket = now;
       }
     } else if (type == PacketType::ChatHistory && connected) {
@@ -1197,6 +1249,11 @@ struct UdpClientTransport::Impl {
           timedOut = false;
           assignedClient = accept.clientIndex;
           assignedPlayer = accept.playerIndex;
+          snapshots.clear();
+          projectileUpdates.clear();
+          chatHistory.clear();
+          latestProjectileMapRevision = 0U;
+          latestProjectileRevision = 0U;
           configurationRevision = 0;
           hasCombatStats = false;
           combatStatsServerTick = 0;
@@ -1240,6 +1297,11 @@ struct UdpClientTransport::Impl {
       connected = false;
       timedOut = true;
       commandHistory.clear();
+      snapshots.clear();
+      projectileUpdates.clear();
+      chatHistory.clear();
+      latestProjectileMapRevision = 0U;
+      latestProjectileRevision = 0U;
       configurationRevision = 0;
       hasCombatStats = false;
       combatStatsServerTick = 0;
@@ -1260,6 +1322,7 @@ struct UdpClientTransport::Impl {
   SocketHandle socket = kInvalidSocket;
   Endpoint server = {};
   std::deque<WirePacket> snapshots;
+  std::deque<WirePacket> projectileUpdates;
   std::deque<WirePacket> chatHistory;
   SnapshotDiagnostics snapshotDiagnostics = {};
   NetworkTelemetry telemetry = {};
@@ -1273,6 +1336,8 @@ struct UdpClientTransport::Impl {
   std::uint64_t telemetryLateSnapshots = 0;
   std::uint32_t firstSnapshotTick = 0;
   std::uint32_t latestSnapshotTick = 0;
+  std::uint32_t latestProjectileMapRevision = 0;
+  std::uint32_t latestProjectileRevision = 0;
   bool hasSnapshotTick = false;
   bool hasSnapshotArrival = false;
   float snapshotJitterMilliseconds = 0.0F;
@@ -1377,6 +1442,9 @@ void UdpClientTransport::disconnect() {
   impl_->timedOut = false;
   impl_->commandHistory.clear();
   impl_->snapshots.clear();
+  impl_->projectileUpdates.clear();
+  impl_->latestProjectileMapRevision = 0U;
+  impl_->latestProjectileRevision = 0U;
   impl_->configurationRevision = 0;
   impl_->hasCombatStats = false;
   impl_->combatStatsServerTick = 0;
@@ -1465,6 +1533,22 @@ bool UdpClientTransport::receiveCommand(CommandPacket&) {
 }
 
 void UdpClientTransport::sendSnapshot(const ServerSnapshot&) {}
+
+void UdpClientTransport::sendProjectileUpdates(
+  const ProjectileUpdatePacket&
+) {}
+
+bool UdpClientTransport::receiveProjectileUpdates(
+  ProjectileUpdatePacket& packet
+) {
+  impl_->pump();
+  if (impl_->projectileUpdates.empty()) {
+    return false;
+  }
+  const WirePacket wire = std::move(impl_->projectileUpdates.front());
+  impl_->projectileUpdates.pop_front();
+  return decodeProjectileUpdatePacket(wire, packet);
+}
 
 bool UdpClientTransport::receiveSnapshot(ServerSnapshot& snapshot) {
   impl_->pump();

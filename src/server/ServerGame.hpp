@@ -94,6 +94,8 @@ public:
   [[nodiscard]] ScenarioState captureScenarioState() const;
 
   [[nodiscard]] const ServerSnapshot& snapshot() const;
+  [[nodiscard]] const std::array<RocketProjectile, kMaxRocketProjectiles>&
+    projectiles() const;
   [[nodiscard]] const Arena& arena() const;
   [[nodiscard]] const std::string& mapDirectory() const;
   [[nodiscard]] const std::string& spawnDebugString() const;
@@ -121,6 +123,13 @@ private:
     float aimErrorPitchRadians = 0.0F;
     float nextAimErrorRefreshSeconds = 0.0F;
     bool initialized = false;
+  };
+
+  struct RecentProjectileRemoval {
+    ProjectileUpdate update = {};
+    std::uint32_t serverTick = 0;
+    bool sentOnce = false;
+    bool replayedOnce = false;
   };
 
   void receiveCommands();
@@ -210,7 +219,9 @@ private:
     Weapon weapon,
     bool headshot
   );
+  void clearProjectiles();
   void publishSnapshot();
+  void publishProjectileUpdates();
 
   NetTransport& transport_;
   Arena arena_ = {};
@@ -279,8 +290,8 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> recentRocketExplosionTicks_ = {};
   std::array<FootstepAudioEvent, kDuelPlayerCount> recentFootstepAudioEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFootstepAudioEventTicks_ = {};
-  std::array<GrenadeBounceAudioEvent, kMaxRocketProjectiles> recentGrenadeBounceAudioEvents_ = {};
-  std::array<std::uint32_t, kMaxRocketProjectiles> recentGrenadeBounceAudioEventTicks_ = {};
+  std::array<GrenadeBounceAudioEvent, kDuelPlayerCount> recentGrenadeBounceAudioEvents_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recentGrenadeBounceAudioEventTicks_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> fragEventSequences_ = {};
   std::array<FragEvent, kDuelPlayerCount> recentFragEvents_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> recentFragEventTicks_ = {};
@@ -296,7 +307,14 @@ private:
   std::array<std::uint32_t, kDuelPlayerCount> localHitFeedbackSequences_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> footstepSequences_ = {};
   std::array<RocketProjectile, kMaxRocketProjectiles> rockets_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> projectileSequences_ = {};
   std::array<std::uint32_t, kMaxRocketProjectiles> grenadeBounceSequences_ = {};
+  std::array<std::uint32_t, kDuelPlayerCount> grenadeBounceEventSequences_ = {};
+  std::array<ProjectileUpdate, kDuelPlayerCount> spawnedProjectileUpdates_ = {};
+  std::size_t spawnedProjectileCount_ = 0;
+  std::deque<RecentProjectileRemoval> recentProjectileRemovals_ = {};
+  std::size_t projectileCorrectionCursor_ = 0;
+  std::uint32_t projectileRevision_ = 1;
   std::array<UserCommand, kDuelPlayerCount> commands_ = {};
   std::array<std::uint32_t, kDuelPlayerCount> viewedServerTicks_ = {};
   std::array<bool, kDuelPlayerCount> hasCommand_ = {};

@@ -622,6 +622,7 @@ void ServerGame::tick(float fixedDt) {
   jumpEdgeThisTick_.fill(false);
   dashEdgeThisTick_.fill(false);
   attackEdgeThisTick_.fill(false);
+  spawnedProjectileCount_ = 0;
   receiveCommands();
   updateMatchState();
   updateBotCommands(fixedDt);
@@ -631,7 +632,6 @@ void ServerGame::tick(float fixedDt) {
   snapshot_.grenadeBounceAudioEvents = {};
   snapshot_.fragEvents = {};
   snapshot_.localHitFeedbackEvents = {};
-  snapshot_.rockets = {};
   // Event fields describe occurrences, not durable state. They are rebuilt for
   // this tick and restored near publication only for packet-loss tolerance.
   for (std::uint32_t& cooldown : railgunCooldownTicks_) {
@@ -1422,9 +1422,10 @@ void ServerGame::resetMatch() {
   recentFragEventTicks_ = {};
   footstepStates_ = {};
   footstepSequences_ = {};
-  rockets_ = {};
+  clearProjectiles();
   snapshot_.icePools = {};
   grenadeBounceSequences_ = {};
+  grenadeBounceEventSequences_ = {};
   fractionalVampirismHealing_ = {};
   commands_ = {};
   viewedServerTicks_ = {};
@@ -1592,8 +1593,7 @@ void ServerGame::respawnRound() {
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
   botCombatStates_ = {};
-  rockets_ = {};
-  snapshot_.rockets = {};
+  clearProjectiles();
   if (snapshot_.gameMode == GameMode::McGuffin) {
     // Base ownership changes between rounds and must be established before
     // players select physical spawn groups for their new lives.
@@ -2927,9 +2927,12 @@ bool ServerGame::spawnProjectile(
   const UserCommand& command,
   Weapon weapon
 ) {
-  // Projectile slots are authoritative fixed-capacity state. A full pool rejects
-  // the shot instead of allocating or evicting an in-flight projectile mid-match.
-  for (RocketProjectile& rocket : rockets_) {
+  // Each player owns one fixed partition. A busy attacker can fill only their
+  // own slots and cannot reject another player's shot.
+  const std::size_t firstSlot = attackerIndex * kProjectileSlotsPerPlayer;
+  const std::size_t endSlot = firstSlot + kProjectileSlotsPerPlayer;
+  for (std::size_t slot = firstSlot; slot < endSlot; ++slot) {
+    RocketProjectile& rocket = rockets_[slot];
     if (rocket.active) {
       continue;
     }
@@ -2951,6 +2954,12 @@ bool ServerGame::spawnProjectile(
 
     rocket.active = true;
     rocket.owner = static_cast<std::uint8_t>(attackerIndex);
+    std::uint32_t& ownerSequence = projectileSequences_[attackerIndex];
+    ++ownerSequence;
+    if (ownerSequence == 0U) {
+      ++ownerSequence;
+    }
+    rocket.sequence = ownerSequence;
     rocket.weapon = weapon;
     rocket.position = weaponMuzzlePosition(attacker, eyeHeight);
     rocket.previousPosition = rocket.position;
@@ -2969,9 +2978,20 @@ bool ServerGame::spawnProjectile(
     WeaponFireResult& fire = snapshot_.weaponFires[attackerIndex];
     fire.fired = true;
     fire.weapon = weapon;
-    fire.visualSeed = command.sequence;
+    fire.visualSeed = rocket.sequence;
     fire.start = rocket.position;
     fire.end = rocket.position + (direction * 1.2F);
+    ProjectileUpdate& spawned =
+      spawnedProjectileUpdates_[spawnedProjectileCount_++];
+    spawned.kind = ProjectileUpdateKind::Spawn;
+    spawned.slot = static_cast<std::uint16_t>(slot);
+    spawned.sequence = rocket.sequence;
+    spawned.weapon = rocket.weapon;
+    spawned.position = rocket.position;
+    spawned.velocity = rocket.velocity;
+    spawned.radius = rocket.projectileRadius;
+    spawned.ageTicks = rocket.ageTicks;
+    spawned.resting = rocket.resting;
     recordWeaponAccuracy(snapshot_, attackerIndex, weapon, 1U, 0U);
     return true;
   }
@@ -3105,9 +3125,13 @@ void ServerGame::simulateRockets(float fixedDt) {
             }
             if (impactSpeed >= grenadeLauncherTuning_.bounceSoundMinSpeed) {
               GrenadeBounceAudioEvent& bounce =
-                snapshot_.grenadeBounceAudioEvents[projectileIndex];
+                snapshot_.grenadeBounceAudioEvents[rocket.owner];
               bounce.active = true;
-              bounce.sequence = ++grenadeBounceSequences_[projectileIndex];
+              ++grenadeBounceSequences_[projectileIndex];
+              bounce.sequence = ++grenadeBounceEventSequences_[rocket.owner];
+              if (bounce.sequence == 0U) {
+                bounce.sequence = ++grenadeBounceEventSequences_[rocket.owner];
+              }
               bounce.position = explosionPosition;
             }
             rocket.position =
@@ -3194,10 +3218,29 @@ void ServerGame::simulateRockets(float fixedDt) {
     }
 
     rocket.active = false;
+    ProjectileUpdate removed;
+    removed.kind = ProjectileUpdateKind::Remove;
+    removed.slot = static_cast<std::uint16_t>(projectileIndex);
+    removed.sequence = rocket.sequence;
+    removed.weapon = rocket.weapon;
+    removed.position = explosionPosition;
+    removed.velocity = rocket.velocity;
+    removed.radius = rocket.projectileRadius;
+    removed.ageTicks = rocket.ageTicks;
+    removed.resting = rocket.resting;
+    recentProjectileRemovals_.push_back({
+      removed,
+      snapshot_.serverTick + 1U,
+      false,
+      false,
+    });
     RocketExplosionResult& explosion = snapshot_.rocketExplosions[rocket.owner];
     explosion.active = true;
     explosion.weapon = rocket.weapon;
-    explosion.sequence = ++rocketExplosionSequences_[rocket.owner];
+    rocketExplosionSequences_[rocket.owner] =
+      nextNonZeroSequence(rocketExplosionSequences_[rocket.owner]);
+    explosion.sequence = rocketExplosionSequences_[rocket.owner];
+    explosion.projectileSequence = rocket.sequence;
     explosion.position = explosionPosition;
     const float radius = grenade
       ? grenadeLauncherTuning_.radius
@@ -3287,16 +3330,6 @@ void ServerGame::simulateRockets(float fixedDt) {
     }
   }
 
-  for (std::size_t index = 0; index < rockets_.size(); ++index) {
-    // Publish only presentation-relevant projectile state. Collision flags,
-    // lifetime, and fuse state remain private to the authoritative server.
-    snapshot_.rockets[index].active = rockets_[index].active;
-    snapshot_.rockets[index].owner = rockets_[index].owner;
-    snapshot_.rockets[index].weapon = rockets_[index].weapon;
-    snapshot_.rockets[index].position = rockets_[index].position;
-    snapshot_.rockets[index].velocity = rockets_[index].velocity;
-    snapshot_.rockets[index].radius = rockets_[index].projectileRadius;
-  }
 }
 
 void ServerGame::updateFootstepAudioEvents() {
@@ -4389,8 +4422,7 @@ bool ServerGame::applyScenarioSetup(
   plasmaGunCooldownTicks_ = {};
   weaponPulloutTicks_ = {};
 
-  rockets_ = {};
-  snapshot_.rockets = {};
+  clearProjectiles();
   snapshot_.icePools = {};
   resetHealthPickups();
 
@@ -4413,8 +4445,10 @@ bool ServerGame::applyScenarioSetup(
   recentFragEventTicks_ = {};
   recentLocalHitFeedbackEvents_ = {};
   recentLocalHitFeedbackEventTicks_ = {};
+  projectileSequences_ = {};
   rocketExplosionSequences_ = {};
   grenadeBounceSequences_ = {};
+  grenadeBounceEventSequences_ = {};
   fragEventSequences_ = {};
   localHitFeedbackSequences_ = {};
   footstepSequences_ = {};
@@ -4482,6 +4516,7 @@ ScenarioState ServerGame::captureScenarioState() const {
   ScenarioState state;
   state.serverTick = snapshot_.serverTick;
   state.mapRevision = snapshot_.mapRevision;
+  state.projectileRevision = projectileRevision_;
   state.mapName = snapshot_.map.mapName;
   state.mapContentHash = snapshot_.map.contentHash;
   for (std::size_t index = 0; index < state.players.size(); ++index) {
@@ -4536,9 +4571,10 @@ ScenarioState ServerGame::captureScenarioState() const {
   for (std::size_t index = 0; index < state.projectiles.size(); ++index) {
     const RocketProjectile& source = rockets_[index];
     ScenarioProjectileState& target = state.projectiles[index];
-    target.slot = static_cast<std::uint8_t>(index);
+    target.slot = static_cast<std::uint16_t>(index);
     target.active = source.active;
     target.owner = source.owner;
+    target.sequence = source.sequence;
     target.weapon = source.weapon;
     target.position = source.position;
     target.previousPosition = source.previousPosition;
@@ -4580,10 +4616,12 @@ ScenarioState ServerGame::captureScenarioState() const {
     mcguffinThrowPickupLockoutTicks_;
   state.botRandomState = botRandomState_;
   state.spawnRandomState = spawnRandomState_;
+  state.projectileSequences = projectileSequences_;
   state.rocketExplosionSequences = rocketExplosionSequences_;
   state.fragEventSequences = fragEventSequences_;
   state.localHitFeedbackSequences = localHitFeedbackSequences_;
   state.footstepSequences = footstepSequences_;
+  state.grenadeBounceEventSequences = grenadeBounceEventSequences_;
   state.grenadeBounceSequences = grenadeBounceSequences_;
   state.spawnLastUsedTicks = spawnLastUsedTicks_;
   state.spawnWasUsed = spawnWasUsed_;
@@ -4598,6 +4636,11 @@ ScenarioState ServerGame::captureScenarioState() const {
 
 const ServerSnapshot& ServerGame::snapshot() const {
   return snapshot_;
+}
+
+const std::array<RocketProjectile, kMaxRocketProjectiles>&
+ServerGame::projectiles() const {
+  return rockets_;
 }
 
 const Arena& ServerGame::arena() const {
@@ -5057,8 +5100,190 @@ void ServerGame::publishSnapshot() {
   snapshot_.botDodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   snapshot_.botAttackMode = botAttackMode_;
   snapshot_.botWeapon = botWeapon_;
+  snapshot_.projectileRevision = projectileRevision_;
+  snapshot_.projectilePresentation.rocketLifetimeTicks =
+    rocketLauncherTuning_.maxLifetimeTicks;
+  snapshot_.projectilePresentation.grenadeFuseTicks =
+    grenadeLauncherTuning_.fuseTicks;
+  snapshot_.projectilePresentation.plasmaLifetimeTicks =
+    plasmaGunTuning_.maxLifetimeTicks;
+  snapshot_.projectilePresentation.grenadeGravity =
+    grenadeLauncherTuning_.gravity;
+  snapshot_.projectilePresentation.grenadeBounceDamping =
+    grenadeLauncherTuning_.bounceDamping;
+  snapshot_.projectilePresentation.grenadeRestSpeed =
+    grenadeLauncherTuning_.restSpeed;
   transport_.publishChatHistory(chatHistory_);
   transport_.sendSnapshot(snapshot_);
+  publishProjectileUpdates();
+}
+
+void ServerGame::clearProjectiles() {
+  rockets_ = {};
+  spawnedProjectileCount_ = 0;
+  recentProjectileRemovals_.clear();
+  projectileCorrectionCursor_ = 0;
+  ++projectileRevision_;
+  if (projectileRevision_ == 0U) {
+    projectileRevision_ = 1U;
+  }
+}
+
+void ServerGame::publishProjectileUpdates() {
+  while (
+    !recentProjectileRemovals_.empty() &&
+    snapshot_.serverTick - recentProjectileRemovals_.front().serverTick >
+      kTransientCombatEventTicks
+  ) {
+    recentProjectileRemovals_.pop_front();
+  }
+
+  ProjectileUpdatePacket packet;
+  packet.serverTick = snapshot_.serverTick;
+  packet.mapRevision = snapshot_.mapRevision;
+  packet.projectileRevision = projectileRevision_;
+  std::array<bool, kMaxRocketProjectiles> packetSlots = {};
+  std::array<bool, kMaxRocketProjectiles> eventSlots = {};
+
+  const auto sendPacket = [&]() {
+    if (packet.updateCount == 0U) {
+      return;
+    }
+    transport_.sendProjectileUpdates(packet);
+    packet.updateCount = 0;
+    packet.updates = {};
+    packetSlots = {};
+  };
+  const auto appendPriority = [&](const ProjectileUpdate& update) {
+    if (
+      packet.updateCount >= kMaxProjectileUpdatesPerPacket ||
+      packetSlots[update.slot]
+    ) {
+      sendPacket();
+    }
+    packet.updates[packet.updateCount++] = update;
+    packetSlots[update.slot] = true;
+    eventSlots[update.slot] = true;
+    return true;
+  };
+  const auto appendCorrection = [&](const ProjectileUpdate& update) {
+    if (
+      packet.updateCount >= kMaxProjectileUpdatesPerPacket ||
+      packetSlots[update.slot]
+    ) {
+      return false;
+    }
+    packet.updates[packet.updateCount++] = update;
+    packetSlots[update.slot] = true;
+    return true;
+  };
+  const auto correctionForSlot = [this](std::size_t slot) {
+    const RocketProjectile& source = rockets_[slot];
+    ProjectileUpdate target;
+    target.kind = ProjectileUpdateKind::Correct;
+    target.slot = static_cast<std::uint16_t>(slot);
+    target.sequence = source.sequence;
+    target.weapon = source.weapon;
+    target.position = source.position;
+    target.velocity = source.velocity;
+    target.radius = source.projectileRadius;
+    target.ageTicks = source.ageTicks;
+    target.resting = source.resting;
+    return target;
+  };
+
+  for (std::size_t index = 0; index < spawnedProjectileCount_; ++index) {
+    const ProjectileUpdate& update = spawnedProjectileUpdates_[index];
+    const bool removedThisTick = std::any_of(
+      recentProjectileRemovals_.begin(),
+      recentProjectileRemovals_.end(),
+      [&](const RecentProjectileRemoval& removal) {
+        return
+          removal.serverTick == snapshot_.serverTick &&
+          removal.update.slot == update.slot &&
+          removal.update.sequence == update.sequence;
+      }
+    );
+    if (!removedThisTick) {
+      appendPriority(update);
+    }
+  }
+
+  // New terminal records must all go out once. Flush bounded packets as needed
+  // rather than letting an early burst hide later removals until they expire.
+  for (RecentProjectileRemoval& removal : recentProjectileRemovals_) {
+    if (!removal.sentOnce) {
+      appendPriority(removal.update);
+      removal.sentOnce = true;
+    }
+  }
+
+  // Give every terminal record a second send before its retention deadline.
+  // Oldest records go first. As the deadline nears, the budget grows and may
+  // flush more bounded packets rather than dropping late records unseen.
+  std::size_t unreplayedCount = 0;
+  std::uint32_t minimumTicksRemaining = kTransientCombatEventTicks;
+  for (const RecentProjectileRemoval& removal : recentProjectileRemovals_) {
+    if (
+      removal.replayedOnce ||
+      removal.serverTick >= snapshot_.serverTick
+    ) {
+      continue;
+    }
+    ++unreplayedCount;
+    const std::uint32_t age = snapshot_.serverTick - removal.serverTick;
+    minimumTicksRemaining = std::min(
+      minimumTicksRemaining,
+      kTransientCombatEventTicks - age + 1U
+    );
+  }
+  const std::size_t removalReplayBudget = unreplayedCount == 0U
+    ? 0U
+    : (unreplayedCount + minimumTicksRemaining - 1U) /
+      minimumTicksRemaining;
+  std::size_t removalsReplayed = 0;
+  for (RecentProjectileRemoval& removal : recentProjectileRemovals_) {
+    if (
+      removalsReplayed >= removalReplayBudget ||
+      removal.replayedOnce ||
+      removal.serverTick >= snapshot_.serverTick
+    ) {
+      continue;
+    }
+    appendPriority(removal.update);
+    removal.replayedOnce = true;
+    ++removalsReplayed;
+  }
+
+  const std::size_t activeCount = static_cast<std::size_t>(std::count_if(
+    rockets_.begin(),
+    rockets_.end(),
+    [](const RocketProjectile& projectile) { return projectile.active; }
+  ));
+  const std::size_t correctionBudget =
+    activeCount == 0U ? 0U : (activeCount + 23U) / 24U;
+  std::size_t correctionsAdded = 0;
+  if (correctionBudget > 0U &&
+      packet.updateCount < kMaxProjectileUpdatesPerPacket) {
+    const std::size_t correctionStart = projectileCorrectionCursor_;
+    do {
+      const std::size_t slot = projectileCorrectionCursor_;
+      projectileCorrectionCursor_ =
+        (projectileCorrectionCursor_ + 1U) % rockets_.size();
+      if (rockets_[slot].active && !eventSlots[slot]) {
+        if (!appendCorrection(correctionForSlot(slot))) {
+          break;
+        }
+        ++correctionsAdded;
+      }
+    } while (
+      correctionsAdded < correctionBudget &&
+      packet.updateCount < kMaxProjectileUpdatesPerPacket &&
+      projectileCorrectionCursor_ != correctionStart
+    );
+  }
+
+  sendPacket();
 }
 
 } // namespace lg

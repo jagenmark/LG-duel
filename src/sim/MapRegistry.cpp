@@ -217,7 +217,17 @@ std::uint32_t hashArena(const Arena& arena) {
     hashVec3(hash, light.color);
     hashFloat(hash, light.intensity);
     hashFloat(hash, light.radius);
+    hashFloat(hash, light.sourceRadius);
+    hashU32(hash, static_cast<std::uint32_t>(static_cast<std::int32_t>(light.priority)));
+    hashU32(hash, light.castsShadows ? 1U : 0U);
+    hashU32(hash, light.flickerEnabled ? 1U : 0U);
+    hashU32(hash, light.flickerSeed);
+    hashFloat(hash, light.flickerFrequencyHz);
+    hashFloat(hash, light.flickerMinFactor);
+    hashFloat(hash, light.flickerMaxFactor);
   }
+  hashVec3(hash, arena.ambientLight.color);
+  hashFloat(hash, arena.ambientLight.intensity);
   hashU32(hash, arena.sunLight.enabled ? 1U : 0U);
   hashVec3(hash, arena.sunLight.direction);
   hashVec3(hash, arena.sunLight.color);

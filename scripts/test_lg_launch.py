@@ -651,6 +651,53 @@ GPU0:
                 benchmark=False,
             )
 
+    def test_ready_wait_reports_early_client_crash_instead_of_timeout(self) -> None:
+        client = mock.Mock()
+        client.poll.return_value = 0xC0000005
+        with mock.patch.object(lg_launch, "send_request") as sender:
+            with self.assertRaisesRegex(
+                LaunchError,
+                r"client exited before becoming ready with "
+                r"status 0xC0000005 \(3221225477\)",
+            ):
+                lg_launch._wait_for_ready_status(
+                    initial_status=None,
+                    deadline=lg_launch.time.monotonic() + 120,
+                    control_port=27961,
+                    renderer="fallback",
+                    selection=None,
+                    allow_fallback=True,
+                    benchmark=False,
+                    client_process=client,
+                )
+        sender.assert_not_called()
+
+    def test_ready_wait_keeps_last_status_when_client_exits(self) -> None:
+        client = mock.Mock()
+        client.poll.return_value = 1
+        not_ready = {
+            **self.status(),
+            "connected": False,
+            "map": "",
+            "map_revision": 0,
+        }
+        with self.assertRaisesRegex(
+            LaunchError,
+            r"exit code 1; last readiness issues: "
+            r"connected is not true, map is empty, "
+            r"map_revision is not a positive integer",
+        ):
+            lg_launch._wait_for_ready_status(
+                initial_status=not_ready,
+                deadline=lg_launch.time.monotonic() + 120,
+                control_port=27961,
+                renderer="gpu",
+                selection=self.selection(),
+                allow_fallback=False,
+                benchmark=False,
+                client_process=client,
+            )
+
     def test_failed_probe_does_not_launch_over_owned_client_when_cleanup_fails(self) -> None:
         state = {
             "phase": "ready",

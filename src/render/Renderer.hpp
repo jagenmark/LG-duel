@@ -115,6 +115,7 @@ struct RenderSettings {
   float beamWidth = 2.0F;
   float beamPulse = 0.0F;
   float beamPhaseRadians = 0.0F;
+  double presentationTimeSeconds = 0.0;
   float freezeGunFiringAmount = 0.0F;
   float freezeGunActivationFlashAmount = 0.0F;
   float freezeGunCoolantPulse = 0.0F;
@@ -260,8 +261,12 @@ struct RenderSettings {
   int atmosphereGradeQuality = 2;
   // GPU-only quality controls. SDL_Renderer keeps its current output.
   // AA: 0 = 1x, 1 = 2x, 2 = 4x. Sun shadows: 0 = off, 1/2 = 1024/2048.
+  // Point lights: 0 = baked and combat only, 1 = 16 live, 2 = 32 live.
+  // Point shadows: 0 = off, 1 = one 256 face set, 2 = two 512 face sets.
   int antiAliasingQuality = 0;
   int sunShadowQuality = 0;
+  int pointLightQuality = 1;
+  int pointShadowQuality = 0;
   int materialQuality = 2;
   int playerRimQuality = 2;
   bool casingsEnabled = true;
@@ -670,6 +675,11 @@ struct FragmentResourceLayout {
 
 [[nodiscard]] constexpr FragmentResourceLayout
 instancedColorFragmentLayout() {
+  return {1U, 1U};
+}
+
+[[nodiscard]] constexpr FragmentResourceLayout
+untexturedSceneLightFragmentLayout() {
   return {0U, 1U};
 }
 
@@ -725,6 +735,34 @@ struct SunShadowPassPlan {
   bool renderShadowPass = false;
   bool useClearedFallback = true;
 };
+
+struct PointShadowPassPlan {
+  std::uint32_t textureSize = 1;
+  std::uint32_t lightCount = 0;
+  std::uint32_t layerCount = 1;
+  bool renderCache = false;
+  bool useClearedFallback = true;
+};
+
+[[nodiscard]] constexpr PointShadowPassPlan buildPointShadowPassPlan(
+  int quality,
+  std::uint32_t eligibleLightCount,
+  bool cacheMatches
+) {
+  const std::uint32_t budget =
+    quality <= 0 ? 0U : quality == 1 ? 1U : 2U;
+  const std::uint32_t lightCount =
+    std::min(budget, eligibleLightCount);
+  const std::uint32_t textureSize =
+    quality <= 0 ? 1U : quality == 1 ? 256U : 512U;
+  return {
+    textureSize,
+    lightCount,
+    std::max(1U, lightCount * 6U),
+    lightCount > 0U && !cacheMatches,
+    lightCount == 0U,
+  };
+}
 
 [[nodiscard]] constexpr SunShadowPassPlan buildSunShadowPassPlan(
   std::uint32_t mapSize
@@ -919,6 +957,12 @@ struct RendererFrameDiagnostics {
   std::uint32_t legacyWireframeExplosionDraws = 0;
   std::uint32_t legacyMachineGunShotgunVisualDraws = 0;
   std::uint32_t activeTemporaryLights = 0;
+  std::uint32_t authoredPointLights = 0;
+  std::uint32_t pointLightCandidates = 0;
+  std::uint32_t selectedPointLights = 0;
+  std::uint32_t droppedPointLights = 0;
+  std::uint32_t flickeringPointLights = 0;
+  std::uint32_t shadowedPointLights = 0;
   std::uint32_t activeCasings = 0;
   std::uint32_t activeImpactParticles = 0;
   std::uint32_t activeBulletDecals = 0;
@@ -1027,6 +1071,7 @@ private:
   void* gpuPipelineSunShadowStatic_ = nullptr;
   void* gpuPipelineSunShadowMaterial_ = nullptr;
   void* gpuPipelineSunShadowGltf_ = nullptr;
+  void* gpuPipelinePointShadowWorld_ = nullptr;
   void* gpuPipelineBloomSource_ = nullptr;
   void* gpuPipelineBloomBlur_ = nullptr;
   void* gpuPipelineSceneComposite_ = nullptr;
@@ -1061,6 +1106,9 @@ private:
   void* gpuSunShadowTexture_ = nullptr;
   void* gpuSunShadowFallbackTexture_ = nullptr;
   void* gpuSunShadowSampler_ = nullptr;
+  void* gpuPointShadowTexture_ = nullptr;
+  void* gpuPointShadowFallbackTexture_ = nullptr;
+  void* gpuPointShadowSampler_ = nullptr;
   std::uint32_t gpuDepthFormat_ = 0;
   std::uint32_t gpuDepthWidth_ = 0;
   std::uint32_t gpuDepthHeight_ = 0;
@@ -1083,6 +1131,9 @@ private:
   std::uint32_t gpuOutlineDepthWidth_ = 0;
   std::uint32_t gpuOutlineDepthHeight_ = 0;
   std::uint32_t gpuSunShadowSize_ = 0;
+  std::uint32_t gpuPointShadowSize_ = 0;
+  std::uint32_t gpuPointShadowLightCount_ = 0;
+  std::uint64_t gpuPointShadowCacheKey_ = 0;
   void* window_ = nullptr;
   std::string backendName_ = "uninitialized";
   std::string requestedBackendName_ = "fallback";

@@ -1129,7 +1129,24 @@ void collectTextureMaterialFiles(
     hash = hashCombine(hash, hashFloat(light.color.z));
     hash = hashCombine(hash, hashFloat(light.intensity));
     hash = hashCombine(hash, hashFloat(light.radius));
+    hash = hashCombine(hash, hashFloat(light.sourceRadius));
+    hash = hashCombine(
+      hash,
+      static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(light.priority) + 1000
+      )
+    );
+    hash = hashCombine(hash, light.castsShadows ? 1U : 0U);
+    hash = hashCombine(hash, light.flickerEnabled ? 1U : 0U);
+    hash = hashCombine(hash, light.flickerSeed);
+    hash = hashCombine(hash, hashFloat(light.flickerFrequencyHz));
+    hash = hashCombine(hash, hashFloat(light.flickerMinFactor));
+    hash = hashCombine(hash, hashFloat(light.flickerMaxFactor));
   }
+  hash = hashCombine(hash, hashFloat(arena.ambientLight.color.x));
+  hash = hashCombine(hash, hashFloat(arena.ambientLight.color.y));
+  hash = hashCombine(hash, hashFloat(arena.ambientLight.color.z));
+  hash = hashCombine(hash, hashFloat(arena.ambientLight.intensity));
   hash = hashCombine(hash, arena.sunLight.enabled ? 1U : 0U);
   hash = hashCombine(hash, hashFloat(arena.sunLight.direction.x));
   hash = hashCombine(hash, hashFloat(arena.sunLight.direction.y));
@@ -1138,6 +1155,37 @@ void collectTextureMaterialFiles(
   hash = hashCombine(hash, hashFloat(arena.sunLight.color.y));
   hash = hashCombine(hash, hashFloat(arena.sunLight.color.z));
   hash = hashCombine(hash, hashFloat(arena.sunLight.intensity));
+  return hash;
+}
+
+[[nodiscard]] std::uint64_t pointShadowCacheFingerprint(
+  const Arena& arena,
+  std::span<const LivePointLight> lights,
+  std::uint32_t textureSize
+) {
+  std::uint64_t hash = arenaStaticWorldFingerprint(arena);
+  const auto hashFloat = [](float value) {
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return static_cast<std::uint64_t>(bits);
+  };
+  hash = hashCombine(hash, textureSize);
+  hash = hashCombine(hash, lights.size());
+  for (const LivePointLight& light : lights) {
+    hash = hashCombine(hash, light.sourceIndex);
+    hash = hashCombine(hash, hashFloat(light.position.x));
+    hash = hashCombine(hash, hashFloat(light.position.y));
+    hash = hashCombine(hash, hashFloat(light.position.z));
+    hash = hashCombine(hash, hashFloat(light.radius));
+    hash = hashCombine(hash, hashFloat(light.sourceRadius));
+    hash = hashCombine(
+      hash,
+      static_cast<std::uint64_t>(
+        static_cast<std::int64_t>(light.priority) + 1000
+      )
+    );
+  }
   return hash;
 }
 
@@ -2177,7 +2225,7 @@ void collectTextureMaterialFiles(
       0,
     },
   }};
-  const std::array<SDL_GPUVertexAttribute, 9> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 10> vertexAttributes = {{
     {
       0,
       0,
@@ -2231,6 +2279,12 @@ void collectTextureMaterialFiles(
       1,
       SDL_GPU_VERTEXELEMENTFORMAT_FLOAT,
       offsetof(GpuSimpleInstance, visualPhase),
+    },
+    {
+      9,
+      0,
+      SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+      offsetof(GpuVertex, normal),
     },
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
@@ -2320,7 +2374,7 @@ void collectTextureMaterialFiles(
     {0, sizeof(GpuVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
     {1, sizeof(GpuStaticInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
   }};
-  const std::array<SDL_GPUVertexAttribute, 7> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 8> vertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, x)},
     {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuVertex, red)},
     {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, u)},
@@ -2328,6 +2382,7 @@ void collectTextureMaterialFiles(
     {4, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row1)},
     {5, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row2)},
     {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, red)},
+    {7, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, normal)},
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = colorFormat == SDL_GPU_TEXTUREFORMAT_INVALID
@@ -2376,7 +2431,7 @@ void collectTextureMaterialFiles(
   SDL_GPUTextureFormat colorFormat = SDL_GPU_TEXTUREFORMAT_INVALID,
   bool depthOnly = false,
   const char* fragmentShaderPath = "material_weapon.frag.spv",
-  FragmentResourceLayout fragmentLayout = {2U, 1U}
+  FragmentResourceLayout fragmentLayout = {3U, 1U}
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device, "material_mesh_instance.vert.spv", SDL_GPU_SHADERSTAGE_VERTEX, 0, 1
@@ -2528,7 +2583,7 @@ void collectTextureMaterialFiles(
   SDL_GPUTextureFormat colorFormat = SDL_GPU_TEXTUREFORMAT_INVALID,
   bool depthOnly = false,
   const char* fragmentShaderPath = "gltf_player_model.frag.spv",
-  FragmentResourceLayout fragmentLayout = {1U, 1U}
+  FragmentResourceLayout fragmentLayout = {2U, 1U}
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -2842,7 +2897,7 @@ void destroyGpuSceneColorPipelines(
     depthFormat,
     SDL_GPU_COMPAREOP_LESS,
     "world_surface.frag.spv",
-    2,
+    3,
     SDL_GPU_SAMPLECOUNT_1,
     colorFormat,
     2,
@@ -2916,7 +2971,10 @@ void destroyGpuSceneColorPipelines(
     true,
     depthFormat,
     SDL_GPU_SAMPLECOUNT_1,
-    colorFormat
+    colorFormat,
+    true,
+    false,
+    untexturedSceneLightFragmentLayout()
   );
   pipelines.bloomSource = createGpuInstancedPipeline3D(
     device,
@@ -2928,7 +2986,9 @@ void destroyGpuSceneColorPipelines(
     depthFormat,
     SDL_GPU_SAMPLECOUNT_1,
     colorFormat,
-    true
+    true,
+    false,
+    untexturedSceneLightFragmentLayout()
   );
   pipelines.bloomBlur = createGpuPostProcessPipeline(
     device,
@@ -3079,6 +3139,74 @@ void destroyGpuSceneColorPipelines(
   createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
   createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_FRONT;
   createInfo.rasterizer_state.front_face = SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.rasterizer_state.depth_bias_constant_factor = 1.25F;
+  createInfo.rasterizer_state.depth_bias_slope_factor = 1.75F;
+  createInfo.rasterizer_state.enable_depth_bias = true;
+  createInfo.rasterizer_state.enable_depth_clip = true;
+  createInfo.multisample_state.sample_count = SDL_GPU_SAMPLECOUNT_1;
+  createInfo.depth_stencil_state.compare_op = SDL_GPU_COMPAREOP_LESS;
+  createInfo.depth_stencil_state.enable_depth_test = true;
+  createInfo.depth_stencil_state.enable_depth_write = true;
+  createInfo.target_info.depth_stencil_format = depthFormat;
+  createInfo.target_info.has_depth_stencil_target = true;
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
+}
+
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPointShadowPipeline(
+  SDL_GPUDevice* device,
+  SDL_GPUTextureFormat depthFormat
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    "point_shadow_world.vert.spv",
+    SDL_GPU_SHADERSTAGE_VERTEX,
+    0,
+    1
+  );
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    "sun_shadow.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT
+  );
+  if (vertexShader == nullptr || fragmentShader == nullptr) {
+    if (vertexShader != nullptr) {
+      SDL_ReleaseGPUShader(device, vertexShader);
+    }
+    if (fragmentShader != nullptr) {
+      SDL_ReleaseGPUShader(device, fragmentShader);
+    }
+    return nullptr;
+  }
+  const SDL_GPUVertexBufferDescription description = {
+    0,
+    sizeof(GpuVertex),
+    SDL_GPU_VERTEXINPUTRATE_VERTEX,
+    0,
+  };
+  const SDL_GPUVertexAttribute attribute = {
+    0,
+    0,
+    SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+    offsetof(GpuVertex, x),
+  };
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.vertex_input_state.vertex_buffer_descriptions = &description;
+  createInfo.vertex_input_state.num_vertex_buffers = 1U;
+  createInfo.vertex_input_state.vertex_attributes = &attribute;
+  createInfo.vertex_input_state.num_vertex_attributes = 1U;
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  // Map brush winding can differ by imported source. A depth-only cache is
+  // cheap enough at two lights to keep both sides and avoid missing walls.
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
   createInfo.rasterizer_state.depth_bias_constant_factor = 1.25F;
   createInfo.rasterizer_state.depth_bias_slope_factor = 1.75F;
   createInfo.rasterizer_state.enable_depth_bias = true;
@@ -5362,7 +5490,8 @@ void drawStaticMeshBatches(
   GpuSimpleResources* resources,
   const Scene3D& scene,
   RenderPass passFilter,
-  bool bindMaterialEnvironment = true
+  bool bindMaterialEnvironment = true,
+  const SDL_GPUTextureSamplerBinding* simplePointShadowBinding = nullptr
 ) {
   if (
     resources == nullptr ||
@@ -5390,6 +5519,13 @@ void drawStaticMeshBatches(
         resources->weaponEnvironmentSampler,
       };
       SDL_BindGPUFragmentSamplers(pass, 0, &environmentBinding, 1);
+    } else if (!mesh->materialLit && simplePointShadowBinding != nullptr) {
+      SDL_BindGPUFragmentSamplers(
+        pass,
+        0,
+        simplePointShadowBinding,
+        1
+      );
     }
     const std::array<SDL_GPUBufferBinding, 2> bindings = {{
       {mesh->vertexBuffer, 0},
@@ -6031,6 +6167,92 @@ void copyGltfPlayerModelDiagnostics(
   return texture;
 }
 
+[[nodiscard]] SDL_GPUTexture* ensurePointShadowTexture(
+  SDL_GPUDevice* device,
+  SDL_GPUTexture* texture,
+  Uint32& textureSize,
+  Uint32& lightCount,
+  Uint32 requestedSize,
+  Uint32 requestedLightCount,
+  SDL_GPUTextureFormat depthFormat
+) {
+  const Uint32 size = std::max(1U, requestedSize);
+  const Uint32 count = std::min<Uint32>(
+    static_cast<Uint32>(kMaxPointShadowLights),
+    requestedLightCount
+  );
+  if (
+    texture != nullptr &&
+    textureSize == size &&
+    lightCount == count
+  ) {
+    return texture;
+  }
+  if (texture != nullptr) {
+    SDL_ReleaseGPUTexture(device, texture);
+  }
+  const SDL_GPUTextureCreateInfo createInfo = {
+    SDL_GPU_TEXTURETYPE_2D_ARRAY,
+    depthFormat,
+    SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET |
+      SDL_GPU_TEXTUREUSAGE_SAMPLER,
+    size,
+    size,
+    std::max(1U, count * 6U),
+    1,
+    SDL_GPU_SAMPLECOUNT_1,
+    0,
+  };
+  textureSize = size;
+  lightCount = count;
+  return SDL_CreateGPUTexture(device, &createInfo);
+}
+
+[[nodiscard]] SDL_GPUTexture* createClearedPointShadowFallbackTexture(
+  SDL_GPUDevice* device,
+  SDL_GPUTextureFormat depthFormat
+) {
+  Uint32 size = 0;
+  Uint32 lights = 0;
+  SDL_GPUTexture* texture = ensurePointShadowTexture(
+    device,
+    nullptr,
+    size,
+    lights,
+    1U,
+    0U,
+    depthFormat
+  );
+  SDL_GPUCommandBuffer* commandBuffer = texture != nullptr
+    ? SDL_AcquireGPUCommandBuffer(device)
+    : nullptr;
+  SDL_GPUDepthStencilTargetInfo target = {};
+  target.texture = texture;
+  target.clear_depth = 1.0F;
+  target.load_op = SDL_GPU_LOADOP_CLEAR;
+  target.store_op = SDL_GPU_STOREOP_STORE;
+  target.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+  target.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+  SDL_GPURenderPass* pass = commandBuffer != nullptr
+    ? SDL_BeginGPURenderPass(commandBuffer, nullptr, 0, &target)
+    : nullptr;
+  if (pass == nullptr) {
+    if (commandBuffer != nullptr) {
+      (void)SDL_CancelGPUCommandBuffer(commandBuffer);
+    }
+    if (texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, texture);
+    }
+    return nullptr;
+  }
+  SDL_EndGPURenderPass(pass);
+  if (!SDL_SubmitGPUCommandBuffer(commandBuffer)) {
+    SDL_ReleaseGPUTexture(device, texture);
+    return nullptr;
+  }
+  return texture;
+}
+
 [[nodiscard]] SDL_GPUTexture* ensureOutlineMaskTexture(
   SDL_GPUDevice* device,
   SDL_GPUTexture* texture,
@@ -6635,6 +6857,7 @@ void appendCommandBatches(
   SDL_GPUGraphicsPipeline* sunShadowStaticPipeline,
   SDL_GPUGraphicsPipeline* sunShadowMaterialPipeline,
   SDL_GPUGraphicsPipeline* sunShadowGltfPipeline,
+  SDL_GPUGraphicsPipeline* pointShadowWorldPipeline,
   SDL_GPUGraphicsPipeline* bloomSourcePipeline,
   SDL_GPUGraphicsPipeline* bloomBlurPipeline,
   SDL_GPUGraphicsPipeline* sceneCompositePipeline,
@@ -6659,8 +6882,11 @@ void appendCommandBatches(
   SDL_GPUTexture*& outlineDepthTexture,
   SDL_GPUTexture*& sunShadowTexture,
   SDL_GPUTexture* sunShadowFallbackTexture,
+  SDL_GPUTexture*& pointShadowTexture,
+  SDL_GPUTexture* pointShadowFallbackTexture,
   SDL_GPUSampler* outlineMaskSampler,
   SDL_GPUSampler* sunShadowSampler,
+  SDL_GPUSampler* pointShadowSampler,
   SDL_GPUSampler* postProcessSampler,
   Uint32& depthWidth,
   Uint32& depthHeight,
@@ -6681,6 +6907,9 @@ void appendCommandBatches(
   Uint32& outlineDepthWidth,
   Uint32& outlineDepthHeight,
   Uint32& sunShadowSize,
+  Uint32& pointShadowSize,
+  Uint32& pointShadowLightCount,
+  std::uint64_t& pointShadowCacheKey,
   SDL_GPUTextureFormat depthFormat,
   SDL_GPUTextureFormat sceneColorFormat,
   SDL_GPUSampleCount sampleCount,
@@ -6847,10 +7076,18 @@ void appendCommandBatches(
   diagnostics.legacyWireframeExplosionDraws = 0;
   diagnostics.legacyMachineGunShotgunVisualDraws = 0;
   diagnostics.activeTemporaryLights = 0;
+  diagnostics.authoredPointLights = 0;
+  diagnostics.pointLightCandidates = 0;
+  diagnostics.selectedPointLights = 0;
+  diagnostics.droppedPointLights = 0;
+  diagnostics.flickeringPointLights = 0;
+  diagnostics.shadowedPointLights = 0;
   diagnostics.activeCasings = 0;
   diagnostics.activeImpactParticles = 0;
   diagnostics.activeBulletDecals = 0;
   diagnostics.transparentEffectsSubmitted = 0;
+  bool pointShadowCacheRendered = false;
+  std::uint64_t pendingPointShadowCacheKey = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -7045,6 +7282,17 @@ void appendCommandBatches(
       perspectiveScene.transientVfxStats.legacyMachineGunShotgunVisualDraws;
     diagnostics.activeTemporaryLights =
       perspectiveScene.transientVfxStats.activeTemporaryLights;
+    diagnostics.authoredPointLights =
+      perspectiveScene.pointLightStats.authored;
+    diagnostics.pointLightCandidates =
+      perspectiveScene.pointLightStats.candidates;
+    diagnostics.selectedPointLights =
+      perspectiveScene.pointLightStats.selected;
+    diagnostics.droppedPointLights =
+      perspectiveScene.pointLightStats.dropped;
+    diagnostics.flickeringPointLights =
+      perspectiveScene.pointLightStats.flickering;
+    diagnostics.shadowedPointLights = 0;
     diagnostics.activeCasings =
       perspectiveScene.transientVfxStats.activeCasings;
     diagnostics.activeImpactParticles =
@@ -7328,7 +7576,8 @@ void appendCommandBatches(
       !bloomEffective,
       perspectiveScene.lights.shadow.mapSize == 0U,
       perspectiveScene.lights.materialQuality == 0 &&
-        perspectiveScene.lights.playerRimQuality == 1,
+        perspectiveScene.lights.playerRimQuality == 1 &&
+        settings.pointLightQuality <= 0,
       settings.playerOutlineMode == PlayerOutlineMode::Disabled ||
         settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace,
       perspectiveScene.contactShadowVertices.empty(),
@@ -7492,6 +7741,174 @@ void appendCommandBatches(
     if (settings.benchmarkTimingEnabled) {
       threeDimensionalEncodingStart = RenderClock::now();
     }
+    std::vector<LivePointLight> pointShadowLights =
+      selectPointShadowLights(
+        perspectiveScene.livePointLights,
+        perspectiveScene.camera,
+        kMaxPointShadowLights
+      );
+    const PointShadowPassPlan pointShadowBudget = buildPointShadowPassPlan(
+      settings.pointShadowQuality,
+      static_cast<std::uint32_t>(pointShadowLights.size()),
+      false
+    );
+    if (pointShadowLights.size() > pointShadowBudget.lightCount) {
+      pointShadowLights.resize(pointShadowBudget.lightCount);
+    }
+    const std::uint64_t desiredPointShadowCacheKey =
+      pointShadowCacheFingerprint(
+        arena,
+        pointShadowLights,
+        pointShadowBudget.textureSize
+      );
+    const bool pointShadowCacheMatches =
+      pointShadowTexture != nullptr &&
+      pointShadowSize == pointShadowBudget.textureSize &&
+      pointShadowLightCount == pointShadowLights.size() &&
+      pointShadowCacheKey == desiredPointShadowCacheKey;
+    PointShadowPassPlan pointShadowPlan = buildPointShadowPassPlan(
+      settings.pointShadowQuality,
+      static_cast<std::uint32_t>(pointShadowLights.size()),
+      pointShadowCacheMatches
+    );
+    SDL_GPUTexture* sampledPointShadowTexture =
+      pointShadowFallbackTexture;
+    const bool pointShadowResourcesReady =
+      hasStaticWorld &&
+      pointShadowWorldPipeline != nullptr &&
+      pointShadowSampler != nullptr &&
+      pointShadowFallbackTexture != nullptr;
+    if (pointShadowPlan.lightCount > 0U && pointShadowResourcesReady) {
+      if (
+        pointShadowSize != pointShadowPlan.textureSize ||
+        pointShadowLightCount != pointShadowPlan.lightCount
+      ) {
+        pointShadowCacheKey = 0;
+      }
+      pointShadowTexture = ensurePointShadowTexture(
+        device,
+        pointShadowTexture,
+        pointShadowSize,
+        pointShadowLightCount,
+        pointShadowPlan.textureSize,
+        pointShadowPlan.lightCount,
+        depthFormat
+      );
+      if (pointShadowTexture != nullptr) {
+        sampledPointShadowTexture = pointShadowTexture;
+      } else {
+        pointShadowLights.clear();
+        pointShadowPlan = buildPointShadowPassPlan(0, 0U, false);
+      }
+    } else {
+      pointShadowLights.clear();
+      pointShadowPlan = buildPointShadowPassPlan(0, 0U, false);
+    }
+
+    if (
+      pointShadowPlan.renderCache &&
+      sampledPointShadowTexture == pointShadowTexture
+    ) {
+      bool cachePassComplete = true;
+      const SDL_GPUBufferBinding worldBinding = {
+        worldMesh->vertexBuffer,
+        0,
+      };
+      for (
+        std::size_t shadowSlot = 0;
+        shadowSlot < pointShadowLights.size() && cachePassComplete;
+        ++shadowSlot
+      ) {
+        const LivePointLight& light = pointShadowLights[shadowSlot];
+        const float nearPlane = std::clamp(
+          std::max(0.025F, light.sourceRadius * 0.25F),
+          0.025F,
+          std::max(0.025F, light.radius * 0.25F)
+        );
+        for (std::size_t faceIndex = 0; faceIndex < 6U; ++faceIndex) {
+          const PointShadowFace face =
+            static_cast<PointShadowFace>(faceIndex);
+          const PointShadowFaceProjection projection =
+            pointShadowFaceProjection(face);
+          SDL_GPUDepthStencilTargetInfo target = {};
+          target.texture = pointShadowTexture;
+          target.clear_depth = 1.0F;
+          target.load_op = SDL_GPU_LOADOP_CLEAR;
+          target.store_op = SDL_GPU_STOREOP_STORE;
+          target.stencil_load_op = SDL_GPU_LOADOP_DONT_CARE;
+          target.stencil_store_op = SDL_GPU_STOREOP_DONT_CARE;
+          target.cycle = false;
+          target.layer = static_cast<Uint8>(
+            pointShadowLayer(shadowSlot, face)
+          );
+          SDL_GPURenderPass* pointShadowPass = SDL_BeginGPURenderPass(
+            commandBuffer,
+            nullptr,
+            0,
+            &target
+          );
+          if (pointShadowPass == nullptr) {
+            cachePassComplete = false;
+            break;
+          }
+          struct alignas(16) PointShadowCameraUniform {
+            float origin[4] = {};
+            float right[4] = {};
+            float up[4] = {};
+            float forward[4] = {};
+            float parameters[4] = {};
+          };
+          const PointShadowCameraUniform uniform = {
+            {light.position.x, light.position.y, light.position.z, 0.0F},
+            {projection.right.x, projection.right.y, projection.right.z, 0.0F},
+            {projection.up.x, projection.up.y, projection.up.z, 0.0F},
+            {
+              projection.forward.x,
+              projection.forward.y,
+              projection.forward.z,
+              0.0F,
+            },
+            {nearPlane, light.radius, 0.0F, 0.0F},
+          };
+          SDL_PushGPUVertexUniformData(
+            commandBuffer,
+            0,
+            &uniform,
+            sizeof(uniform)
+          );
+          SDL_BindGPUGraphicsPipeline(
+            pointShadowPass,
+            pointShadowWorldPipeline
+          );
+          SDL_BindGPUVertexBuffers(
+            pointShadowPass,
+            0,
+            &worldBinding,
+            1
+          );
+          for (const StaticWorldBatch& batch : worldMesh->batches) {
+            SDL_DrawGPUPrimitives(
+              pointShadowPass,
+              batch.vertexCount,
+              1,
+              batch.firstVertex,
+              0
+            );
+          }
+          SDL_EndGPURenderPass(pointShadowPass);
+        }
+      }
+      if (cachePassComplete) {
+        pointShadowCacheRendered = true;
+        pendingPointShadowCacheKey = desiredPointShadowCacheKey;
+      } else {
+        sampledPointShadowTexture = pointShadowFallbackTexture;
+        pointShadowLights.clear();
+      }
+    }
+    diagnostics.shadowedPointLights =
+      static_cast<std::uint32_t>(pointShadowLights.size());
+
     const SunShadowProjection& shadowProjection =
       perspectiveScene.lights.shadow;
     const SunShadowPassPlan shadowPlan =
@@ -7716,8 +8133,10 @@ void appendCommandBatches(
     }
       struct alignas(16) SceneLightUniform {
         float parameters[4] = {};
-        float positionRadius[8][4] = {};
-        float colorIntensity[8][4] = {};
+        float positionRadius[kMaxLivePointLights][4] = {};
+        float colorIntensity[kMaxLivePointLights][4] = {};
+        float lightParameters[kMaxLivePointLights][4] = {};
+        float pointShadowParameters[4] = {};
         float sunDirectionIntensity[4] = {};
         float sunColor[4] = {};
         float fillColorIntensity[4] = {};
@@ -7736,12 +8155,10 @@ void appendCommandBatches(
       SceneLightUniform sceneLightUniform;
       DirectLightUniform directLightUniform;
       const std::size_t lightCount =
-        settings.combatEffectsQuality > 0
-          ? std::min<std::size_t>(
-              perspectiveScene.temporaryLights.size(),
-              8U
-            )
-          : 0U;
+        std::min<std::size_t>(
+          perspectiveScene.livePointLights.size(),
+          kMaxLivePointLights
+        );
       sceneLightUniform.parameters[0] = static_cast<float>(lightCount);
       sceneLightUniform.parameters[1] = perspectiveScene.lights.exposure;
       sceneLightUniform.parameters[2] =
@@ -7749,7 +8166,7 @@ void appendCommandBatches(
       sceneLightUniform.parameters[3] =
         static_cast<float>(perspectiveScene.lights.materialQuality);
       for (std::size_t index = 0; index < lightCount; ++index) {
-        const TemporaryLight& light = perspectiveScene.temporaryLights[index];
+        const LivePointLight& light = perspectiveScene.livePointLights[index];
         sceneLightUniform.positionRadius[index][0] = light.position.x;
         sceneLightUniform.positionRadius[index][1] = light.position.y;
         sceneLightUniform.positionRadius[index][2] = light.position.z;
@@ -7758,7 +8175,32 @@ void appendCommandBatches(
         sceneLightUniform.colorIntensity[index][1] = light.color.y;
         sceneLightUniform.colorIntensity[index][2] = light.color.z;
         sceneLightUniform.colorIntensity[index][3] = light.intensity;
+        sceneLightUniform.lightParameters[index][0] = light.sourceRadius;
+        sceneLightUniform.lightParameters[index][1] =
+          light.affectsStaticWorld ? 1.0F : 0.0F;
+        for (
+          std::size_t shadowSlot = 0;
+          shadowSlot < pointShadowLights.size();
+          ++shadowSlot
+        ) {
+          if (
+            light.authored &&
+            light.sourceIndex == pointShadowLights[shadowSlot].sourceIndex
+          ) {
+            sceneLightUniform.lightParameters[index][2] =
+              static_cast<float>(shadowSlot + 1U);
+            break;
+          }
+        }
+        sceneLightUniform.lightParameters[index][3] = light.selectionFade;
       }
+      sceneLightUniform.pointShadowParameters[0] =
+        pointShadowLights.empty()
+          ? 0.0F
+          : static_cast<float>(pointShadowPlan.textureSize);
+      sceneLightUniform.pointShadowParameters[1] =
+        static_cast<float>(pointShadowLights.size());
+      sceneLightUniform.pointShadowParameters[2] = 0.0015F;
       const SceneLightData& lights = perspectiveScene.lights;
       sceneLightUniform.sunDirectionIntensity[0] = lights.sunDirection.x;
       sceneLightUniform.sunDirectionIntensity[1] = lights.sunDirection.y;
@@ -7881,16 +8323,26 @@ void appendCommandBatches(
           worldPass,
           directPresent ? directWorldSurfacePipeline : pipelineWorldSurface
         );
-        const SDL_GPUTextureSamplerBinding shadowBinding = {
-          sampledSunShadowTexture,
-          sunShadowSampler,
+        const std::array<SDL_GPUTextureSamplerBinding, 2> shadowBindings = {{
+          {
+            sampledSunShadowTexture,
+            sunShadowSampler,
+          },
+          {
+            sampledPointShadowTexture,
+            pointShadowSampler,
+          },
+        }};
+        const SDL_GPUTextureSamplerBinding pointShadowBinding = {
+          sampledPointShadowTexture,
+          pointShadowSampler,
         };
         if (!directPresent) {
           SDL_BindGPUFragmentSamplers(
             worldPass,
             1,
-            &shadowBinding,
-            1
+            shadowBindings.data(),
+            static_cast<Uint32>(shadowBindings.size())
           );
         }
         if (hasStaticWorld) {
@@ -7984,14 +8436,15 @@ void appendCommandBatches(
           simpleResources,
           perspectiveScene,
           RenderPass::OpaqueWorld,
-          !directPresent
+          !directPresent,
+          directPresent ? nullptr : &pointShadowBinding
         );
         if (!directPresent) {
           SDL_BindGPUFragmentSamplers(
             worldPass,
             0,
-            &shadowBinding,
-            1
+            shadowBindings.data(),
+            static_cast<Uint32>(shadowBindings.size())
           );
         }
         drawGltfPlayerModelBatches(
@@ -8002,6 +8455,12 @@ void appendCommandBatches(
         );
         if (!directPresent) {
           pushActiveLightUniform();
+          SDL_BindGPUFragmentSamplers(
+            worldPass,
+            0,
+            &pointShadowBinding,
+            1
+          );
         }
         drawSimpleInstanceBatches(
           worldPass,
@@ -8152,16 +8611,22 @@ void appendCommandBatches(
           sizeof(viewModelLights)
         );
       }
-      const SDL_GPUTextureSamplerBinding viewModelShadowBinding = {
-        sampledSunShadowTexture,
-        sunShadowSampler,
-      };
+      const std::array<SDL_GPUTextureSamplerBinding, 2>
+        viewModelShadowBindings = {{
+          {sampledSunShadowTexture, sunShadowSampler},
+          {sampledPointShadowTexture, pointShadowSampler},
+        }};
+      const SDL_GPUTextureSamplerBinding
+        viewModelPointShadowBinding = {
+          sampledPointShadowTexture,
+          pointShadowSampler,
+        };
       if (!directPresent) {
         SDL_BindGPUFragmentSamplers(
           viewModelPass,
           1,
-          &viewModelShadowBinding,
-          1
+          viewModelShadowBindings.data(),
+          static_cast<Uint32>(viewModelShadowBindings.size())
         );
       }
       drawStaticMeshBatches(
@@ -8173,7 +8638,8 @@ void appendCommandBatches(
         simpleResources,
         perspectiveScene,
         RenderPass::ViewModel,
-        !directPresent
+        !directPresent,
+        directPresent ? nullptr : &viewModelPointShadowBinding
       );
       SDL_EndGPURenderPass(viewModelPass);
       gpuTiming.endPass(commandBuffer, GpuTimedPass::ViewModel);
@@ -9115,6 +9581,9 @@ void appendCommandBatches(
   const bool submitted = submitCommandBuffer(
     captureTransfer != nullptr ? &captureFence : nullptr
   );
+  if (submitted && pointShadowCacheRendered) {
+    pointShadowCacheKey = pendingPointShadowCacheKey;
+  }
   if (captureTransfer != nullptr && captureFence != nullptr && captureResult != nullptr) {
     SDL_GPUFence* fences[] = {captureFence};
     if (!SDL_WaitForGPUFences(device, true, fences, 1)) {
@@ -10218,6 +10687,13 @@ bool Renderer::initialize(void* window) {
           createGpuSunShadowPipeline(device, depthFormat, 2);
         SDL_GPUGraphicsPipeline* sunShadowGltfPipeline =
           createGpuGltfSunShadowPipeline(device, depthFormat);
+        SDL_GPUGraphicsPipeline* pointShadowWorldPipeline =
+          createGpuPointShadowPipeline(device, depthFormat);
+        if (pointShadowWorldPipeline == nullptr) {
+          std::cerr
+            << "SDL_GPU point-shadow pipeline setup failed; point shadows "
+            << "are disabled for this renderer\n";
+        }
         GpuSimpleResources* simpleResources = createGpuSimpleResources(device);
         GpuGltfPlayerResources* gltfPlayerResources =
           createGpuGltfPlayerResources(device, duelistMaleModel());
@@ -10286,8 +10762,12 @@ bool Renderer::initialize(void* window) {
         shadowSamplerInfo.enable_compare = true;
         SDL_GPUSampler* sunShadowSampler =
           SDL_CreateGPUSampler(device, &shadowSamplerInfo);
+        SDL_GPUSampler* pointShadowSampler =
+          SDL_CreateGPUSampler(device, &shadowSamplerInfo);
         SDL_GPUTexture* sunShadowFallbackTexture =
           createClearedSunShadowFallbackTexture(device, depthFormat);
+        SDL_GPUTexture* pointShadowFallbackTexture =
+          createClearedPointShadowFallbackTexture(device, depthFormat);
         if (
           pipeline != nullptr &&
           pipelineWorldSurface != nullptr &&
@@ -10336,6 +10816,8 @@ bool Renderer::initialize(void* window) {
           postProcessSampler != nullptr &&
           sunShadowSampler != nullptr &&
           sunShadowFallbackTexture != nullptr &&
+          pointShadowSampler != nullptr &&
+          pointShadowFallbackTexture != nullptr &&
           SDL_SetGPUAllowedFramesInFlight(device, 1)
         ) {
           gpuDevice_ = device;
@@ -10383,6 +10865,7 @@ bool Renderer::initialize(void* window) {
           gpuPipelineSunShadowStatic_ = sunShadowStaticPipeline;
           gpuPipelineSunShadowMaterial_ = sunShadowMaterialPipeline;
           gpuPipelineSunShadowGltf_ = sunShadowGltfPipeline;
+          gpuPipelinePointShadowWorld_ = pointShadowWorldPipeline;
           gpuDepthFormat_ = static_cast<std::uint32_t>(depthFormat);
           gpuSceneColorFormat_ =
             static_cast<std::uint32_t>(sceneColorFormat);
@@ -10396,6 +10879,8 @@ bool Renderer::initialize(void* window) {
           gpuPostProcessSampler_ = postProcessSampler;
           gpuSunShadowSampler_ = sunShadowSampler;
           gpuSunShadowFallbackTexture_ = sunShadowFallbackTexture;
+          gpuPointShadowSampler_ = pointShadowSampler;
+          gpuPointShadowFallbackTexture_ = pointShadowFallbackTexture;
           gpuWorldTextureAtlas_ = nullptr;
           auto* vertexScratch = new std::vector<GpuVertex>();
           vertexScratch->reserve(kMaxGpuVertices);
@@ -10452,8 +10937,14 @@ bool Renderer::initialize(void* window) {
         if (sunShadowSampler != nullptr) {
           SDL_ReleaseGPUSampler(device, sunShadowSampler);
         }
+        if (pointShadowSampler != nullptr) {
+          SDL_ReleaseGPUSampler(device, pointShadowSampler);
+        }
         if (sunShadowFallbackTexture != nullptr) {
           SDL_ReleaseGPUTexture(device, sunShadowFallbackTexture);
+        }
+        if (pointShadowFallbackTexture != nullptr) {
+          SDL_ReleaseGPUTexture(device, pointShadowFallbackTexture);
         }
         if (fontAtlasSet != nullptr) {
           destroyFontAtlasSet(device, fontAtlasSet);
@@ -10570,6 +11061,9 @@ bool Renderer::initialize(void* window) {
         }
         if (sunShadowGltfPipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, sunShadowGltfPipeline);
+        }
+        if (pointShadowWorldPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, pointShadowWorldPipeline);
         }
         SDL_ReleaseWindowFromGPUDevice(
           device,
@@ -10732,7 +11226,7 @@ void Renderer::render(
         depthFormat,
         SDL_GPU_COMPAREOP_LESS,
         "world_surface.frag.spv",
-        2,
+        3,
         desiredSampleCount,
         colorFormat,
         2,
@@ -10772,7 +11266,10 @@ void Renderer::render(
           false,
           depthFormat,
           desiredSampleCount,
-          colorFormat
+          colorFormat,
+          true,
+          false,
+          {1U, 1U}
         );
       SDL_GPUGraphicsPipeline* replacementStatic =
         createGpuStaticMeshPipeline3D(
@@ -10809,7 +11306,10 @@ void Renderer::render(
           true,
           depthFormat,
           desiredSampleCount,
-          colorFormat
+          colorFormat,
+          true,
+          false,
+          untexturedSceneLightFragmentLayout()
         );
       const std::array<SDL_GPUGraphicsPipeline*, 8> replacements = {{
         replacementWorldSurface,
@@ -10923,6 +11423,8 @@ void Renderer::render(
       static_cast<SDL_GPUTexture*>(gpuOutlineDepthTexture_);
     auto* sunShadowTexture =
       static_cast<SDL_GPUTexture*>(gpuSunShadowTexture_);
+    auto* pointShadowTexture =
+      static_cast<SDL_GPUTexture*>(gpuPointShadowTexture_);
     auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
     const GltfSkinnedModel* requestedPlayerModel = settings.playerModel == 2
       ? &workerPlayerModel()
@@ -11001,6 +11503,7 @@ void Renderer::render(
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSunShadowStatic_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSunShadowMaterial_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSunShadowGltf_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelinePointShadowWorld_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineBloomSource_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineBloomBlur_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSceneComposite_),
@@ -11027,8 +11530,11 @@ void Renderer::render(
           outlineDepthTexture,
           sunShadowTexture,
           static_cast<SDL_GPUTexture*>(gpuSunShadowFallbackTexture_),
+          pointShadowTexture,
+          static_cast<SDL_GPUTexture*>(gpuPointShadowFallbackTexture_),
           static_cast<SDL_GPUSampler*>(gpuOutlineMaskSampler_),
           static_cast<SDL_GPUSampler*>(gpuSunShadowSampler_),
+          static_cast<SDL_GPUSampler*>(gpuPointShadowSampler_),
           static_cast<SDL_GPUSampler*>(gpuPostProcessSampler_),
           gpuDepthWidth_,
           gpuDepthHeight_,
@@ -11049,6 +11555,9 @@ void Renderer::render(
           gpuOutlineDepthWidth_,
           gpuOutlineDepthHeight_,
           gpuSunShadowSize_,
+          gpuPointShadowSize_,
+          gpuPointShadowLightCount_,
+          gpuPointShadowCacheKey_,
           static_cast<SDL_GPUTextureFormat>(gpuDepthFormat_),
           static_cast<SDL_GPUTextureFormat>(gpuSceneColorFormat_),
           sampleCountFor(gpuSampleCount_),
@@ -11091,6 +11600,7 @@ void Renderer::render(
     gpuOutlineDilationTexture_ = outlineDilationTexture;
     gpuOutlineDepthTexture_ = outlineDepthTexture;
     gpuSunShadowTexture_ = sunShadowTexture;
+    gpuPointShadowTexture_ = pointShadowTexture;
     if (
       const GpuFrameTimingResult* timing =
         gpuTimestampTiming_.latestResult();
@@ -11261,6 +11771,12 @@ void Renderer::render(
   lastFrameDiagnostics_.legacyWireframeExplosionDraws = 0;
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
   lastFrameDiagnostics_.activeTemporaryLights = 0;
+  lastFrameDiagnostics_.authoredPointLights = 0;
+  lastFrameDiagnostics_.pointLightCandidates = 0;
+  lastFrameDiagnostics_.selectedPointLights = 0;
+  lastFrameDiagnostics_.droppedPointLights = 0;
+  lastFrameDiagnostics_.flickeringPointLights = 0;
+  lastFrameDiagnostics_.shadowedPointLights = 0;
   lastFrameDiagnostics_.activeCasings = 0;
   lastFrameDiagnostics_.activeImpactParticles = 0;
   lastFrameDiagnostics_.activeBulletDecals = 0;
@@ -11414,6 +11930,17 @@ void Renderer::render(
   lastFrameDiagnostics_.legacyMachineGunShotgunVisualDraws = 0;
   lastFrameDiagnostics_.activeTemporaryLights =
     perspectiveScene.transientVfxStats.activeTemporaryLights;
+  lastFrameDiagnostics_.authoredPointLights =
+    perspectiveScene.pointLightStats.authored;
+  lastFrameDiagnostics_.pointLightCandidates =
+    perspectiveScene.pointLightStats.candidates;
+  lastFrameDiagnostics_.selectedPointLights =
+    perspectiveScene.pointLightStats.selected;
+  lastFrameDiagnostics_.droppedPointLights =
+    perspectiveScene.pointLightStats.dropped;
+  lastFrameDiagnostics_.flickeringPointLights =
+    perspectiveScene.pointLightStats.flickering;
+  lastFrameDiagnostics_.shadowedPointLights = 0;
   lastFrameDiagnostics_.activeCasings =
     perspectiveScene.transientVfxStats.activeCasings;
   lastFrameDiagnostics_.activeImpactParticles =
@@ -11741,6 +12268,23 @@ void Renderer::shutdown() {
       );
       gpuSunShadowFallbackTexture_ = nullptr;
     }
+    if (gpuPointShadowTexture_ != nullptr) {
+      SDL_ReleaseGPUTexture(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUTexture*>(gpuPointShadowTexture_)
+      );
+      gpuPointShadowTexture_ = nullptr;
+      gpuPointShadowSize_ = 0;
+      gpuPointShadowLightCount_ = 0;
+      gpuPointShadowCacheKey_ = 0;
+    }
+    if (gpuPointShadowFallbackTexture_ != nullptr) {
+      SDL_ReleaseGPUTexture(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUTexture*>(gpuPointShadowFallbackTexture_)
+      );
+      gpuPointShadowFallbackTexture_ = nullptr;
+    }
     gpuDepthFormat_ = 0;
     if (gpuOutlineMaskTexture_ != nullptr) {
       SDL_ReleaseGPUTexture(
@@ -11801,6 +12345,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUSampler*>(gpuSunShadowSampler_)
       );
       gpuSunShadowSampler_ = nullptr;
+    }
+    if (gpuPointShadowSampler_ != nullptr) {
+      SDL_ReleaseGPUSampler(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUSampler*>(gpuPointShadowSampler_)
+      );
+      gpuPointShadowSampler_ = nullptr;
     }
     if (gpuFontAtlas_ != nullptr) {
       destroyFontAtlasSet(
@@ -11934,6 +12485,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSunShadowGltf_)
       );
       gpuPipelineSunShadowGltf_ = nullptr;
+    }
+    if (gpuPipelinePointShadowWorld_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelinePointShadowWorld_)
+      );
+      gpuPipelinePointShadowWorld_ = nullptr;
     }
     if (gpuPipelineGltfPlayerModel_ != nullptr) {
       SDL_ReleaseGPUGraphicsPipeline(

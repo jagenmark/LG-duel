@@ -173,6 +173,62 @@ int main() {
       lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
       "map hash should include texture projections used by the renderer"
     );
+    visuallyChanged = arena;
+    visuallyChanged.ambientLight.intensity += 0.1F;
+    failures += expect(
+      lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+      "map hash should include map ambient lighting"
+    );
+    if (arena.staticLightCount > 0U) {
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].sourceRadius += 0.1F;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light source radius"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].priority = 1;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light shadow priority"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].castsShadows = true;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light shadow enablement"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].flickerEnabled = true;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light flicker enablement"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].flickerSeed = 1U;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light flicker seeds"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].flickerFrequencyHz = 1.0F;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light flicker frequency"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].flickerMinFactor = 0.5F;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light flicker minimum"
+      );
+      visuallyChanged = arena;
+      visuallyChanged.staticLights[0].flickerMaxFactor = 1.5F;
+      failures += expect(
+        lg::hashArena(visuallyChanged) != loaded.descriptor.contentHash,
+        "map hash should include point-light flicker maximum"
+      );
+    }
     lg::Arena auditMetadataChanged = arena;
     auditMetadataChanged.walls[0].collisionKind = lg::ArenaCollisionKind::PlayerClip;
     failures += expect(

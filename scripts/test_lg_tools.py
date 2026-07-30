@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import re
 import socket
 import subprocess
 import sys
@@ -16,6 +17,37 @@ import lg_mcp_server
 
 
 class LgToolTests(unittest.TestCase):
+    def test_map_editor_generated_state_is_ignored(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        ignore_lines = (root / ".gitignore").read_text(
+            encoding="utf-8"
+        ).splitlines()
+        self.assertIn("/maps/.lg-map-api/", ignore_lines)
+
+    def test_runtime_map_entity_classes_have_docs_and_fgd_declarations(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        converter = (root / "src" / "map" / "MapToArena.cpp").read_text(
+            encoding="utf-8"
+        )
+        classes = set(re.findall(
+            r'(?:\*\s*)?classname\s*(?:==|!=)\s*"([^"]+)"',
+            converter,
+        ))
+        self.assertTrue(classes)
+        docs = (root / "docs" / "architecture" / "maps-assets.md").read_text(
+            encoding="utf-8"
+        )
+        fgd = (
+            root / "tools" / "trenchbroom" / "LG Duel" / "lgduel.fgd"
+        ).read_text(encoding="utf-8")
+        for classname in sorted(classes):
+            with self.subTest(classname=classname):
+                self.assertIn(classname, docs)
+                self.assertRegex(
+                    fgd,
+                    rf"(?m)=\s*{re.escape(classname)}\s*(?::|\[|$)",
+                )
+
     def test_position_validation(self) -> None:
         self.assertEqual(lg_control.parse_position("12,8,4"), [12.0, 8.0, 4.0])
         self.assertEqual(lg_control.parse_position(["12", "8", "4"]), [12.0, 8.0, 4.0])
@@ -620,6 +652,12 @@ class LgToolTests(unittest.TestCase):
                 "lg_map_delete_cuboid", "lg_map_set_material",
                 "lg_map_set_entity_properties", "lg_map_validate", "lg_map_rollback",
                 "lg_map_validate_sync_reload",
+                "lg_map_list_point_lights", "lg_map_add_point_light",
+                "lg_map_update_point_light", "lg_map_remove_point_light",
+                "lg_map_get_world_lighting", "lg_map_set_world_lighting",
+                "lg_map_apply_batch",
+                "lg_map_list_teleports", "lg_map_add_teleport",
+                "lg_map_update_teleport", "lg_map_remove_teleport",
             },
         )
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in lg_mcp_server.TOOLS))
@@ -628,7 +666,7 @@ class LgToolTests(unittest.TestCase):
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})
         self.assertEqual(initialized["result"]["serverInfo"]["name"], "lg-duel-dev-control")
         listed = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
-        self.assertEqual(len(listed["result"]["tools"]), 37)
+        self.assertEqual(len(listed["result"]["tools"]), 48)
 
     def test_map_edit_tools_require_revisions_and_route_typed_values(self) -> None:
         tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
@@ -636,6 +674,11 @@ class LgToolTests(unittest.TestCase):
             "lg_map_add_cuboid", "lg_map_copy_cuboid", "lg_map_translate_cuboid",
             "lg_map_resize_cuboid", "lg_map_delete_cuboid", "lg_map_set_material",
             "lg_map_set_entity_properties",
+            "lg_map_add_point_light", "lg_map_update_point_light",
+            "lg_map_remove_point_light", "lg_map_set_world_lighting",
+            "lg_map_apply_batch",
+            "lg_map_add_teleport", "lg_map_update_teleport",
+            "lg_map_remove_teleport",
         }
         self.assertTrue(
             all("expected_revision" in tools[name]["required"] for name in mutation_names)
@@ -655,6 +698,110 @@ class LgToolTests(unittest.TestCase):
         add.assert_called_once_with(
             "agent_test", "floor", [-64, -64, -16], [64, 64, 0],
             "common/clip", "a" * 64, dry_run=True,
+        )
+
+    def test_map_lighting_schemas_and_routing_are_typed(self) -> None:
+        tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
+        add = tools["lg_map_add_point_light"]
+        self.assertEqual(add["properties"]["priority"]["minimum"], -1000)
+        self.assertEqual(add["properties"]["intensity"]["maximum"], 16)
+        self.assertEqual(add["properties"]["radius"]["maximum"], 4096)
+        self.assertEqual(add["properties"]["source_radius"]["maximum"], 1024)
+        self.assertEqual(add["properties"]["flicker_seed"]["maximum"], 4294967295)
+        self.assertEqual(add["properties"]["flicker_frequency"]["minimum"], 0.1)
+        self.assertEqual(add["properties"]["flicker_frequency"]["maximum"], 30)
+        batch = tools["lg_map_apply_batch"]["properties"]["operations"]
+        self.assertEqual(batch["maxItems"], 128)
+        self.assertEqual(len(batch["items"]["oneOf"]), 14)
+        self.assertTrue(
+            all(
+                option["additionalProperties"] is False
+                for option in batch["items"]["oneOf"]
+            )
+        )
+
+        payload = {
+            "map": "agent_test", "id": "torch-a", "origin": [1, 2, 3],
+            "color": [255, 160, 64], "intensity": 2.5, "radius": 320,
+            "casts_shadows": True, "source_radius": 12, "priority": 20,
+            "flicker_enabled": True, "flicker_seed": 7,
+            "flicker_frequency": 6, "flicker_min": 0.8,
+            "flicker_max": 1.2, "expected_revision": "b" * 64,
+            "dry_run": True,
+        }
+        with mock.patch.object(
+            lg_mcp_server.MAP_EDITOR, "add_point_light",
+            return_value={"applied": False},
+        ) as add_light:
+            self.assertEqual(
+                lg_mcp_server.invoke_tool("lg_map_add_point_light", payload),
+                {"applied": False},
+            )
+        add_light.assert_called_once_with(
+            "agent_test", "torch-a", [1, 2, 3], [255, 160, 64], 2.5, 320,
+            "b" * 64, casts_shadows=True, source_radius=12, priority=20,
+            flicker_enabled=True, flicker_seed=7, flicker_frequency=6,
+            flicker_min=0.8, flicker_max=1.2, dry_run=True,
+        )
+
+        operations = [{
+            "op": "set_world_lighting", "ambient_intensity": 0.4
+        }]
+        with mock.patch.object(
+            lg_mcp_server.MAP_EDITOR, "apply_batch",
+            return_value={"applied": True},
+        ) as apply_batch:
+            result = lg_mcp_server.invoke_tool("lg_map_apply_batch", {
+                "map": "agent_test", "operations": operations,
+                "expected_revision": "c" * 64,
+            })
+        self.assertEqual(result, {"applied": True})
+        apply_batch.assert_called_once_with(
+            "agent_test", operations, "c" * 64, dry_run=False
+        )
+
+    def test_map_teleport_schemas_and_routing_are_typed(self) -> None:
+        tools = {tool["name"]: tool["inputSchema"] for tool in lg_mcp_server.TOOLS}
+        add = tools["lg_map_add_teleport"]
+        self.assertEqual(
+            add["required"],
+            [
+                "map", "id", "min", "max", "destination", "exit_yaw",
+                "expected_revision",
+            ],
+        )
+        self.assertFalse(add["additionalProperties"])
+        self.assertEqual(
+            add["properties"]["exit_yaw"]["minimum"], -40000
+        )
+        batch_options = tools["lg_map_apply_batch"]["properties"][
+            "operations"
+        ]["items"]["oneOf"]
+        teleport_ops = {
+            option["properties"]["op"]["const"]
+            for option in batch_options
+            if "teleport" in option["properties"]["op"]["const"]
+        }
+        self.assertEqual(
+            teleport_ops,
+            {"add_teleport", "update_teleport", "remove_teleport"},
+        )
+
+        payload = {
+            "map": "agent_test", "id": "gate-a",
+            "min": [-16, -16, 0], "max": [16, 16, 32],
+            "destination": [128, 0, 16], "exit_yaw": 90,
+            "expected_revision": "d" * 64, "dry_run": True,
+        }
+        with mock.patch.object(
+            lg_mcp_server.MAP_EDITOR, "add_teleport",
+            return_value={"applied": False},
+        ) as add_teleport:
+            result = lg_mcp_server.invoke_tool("lg_map_add_teleport", payload)
+        self.assertEqual(result, {"applied": False})
+        add_teleport.assert_called_once_with(
+            "agent_test", "gate-a", [-16, -16, 0], [16, 16, 32],
+            [128, 0, 16], 90, "d" * 64, dry_run=True,
         )
 
     def test_player_control_schemas_are_bounded(self) -> None:
@@ -843,7 +990,7 @@ class LgToolTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("pow(max(inColor.rgb, vec3(0.0)), vec3(2.2))", vertex_shader)
         self.assertIn("max(vertexColor.rgb, vec3(0.00169355))", shader)
-        self.assertIn('"world_surface.frag.spv",\n    2', renderer)
+        self.assertIn('"world_surface.frag.spv",\n    3', renderer)
 
     def test_material_quality_zero_gates_fragment_light_loops(self) -> None:
         root = Path(__file__).resolve().parents[1]

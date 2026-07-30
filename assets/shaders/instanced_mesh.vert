@@ -10,9 +10,12 @@ layout(location = 5) in float instanceRotationRadians;
 layout(location = 6) in float instancePitchRadians;
 layout(location = 7) in vec4 instanceColor;
 layout(location = 8) in float instancePhase;
+layout(location = 9) in vec3 inNormal;
 
 layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out float viewDistance;
+layout(location = 2) out vec3 worldPositionOut;
+layout(location = 3) out vec3 worldNormal;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -54,6 +57,13 @@ void main() {
   vec3 worldPosition = instancePosition + rotated;
   gl_Position = projectWorld(worldPosition);
   vertexColor = inColor * instanceColor;
+  vec3 localNormal = length(inNormal) > 0.001
+    ? inNormal
+    : normalize(inPosition);
+  worldNormal = normalize(
+    forward * localNormal.x + side * localNormal.y + up * localNormal.z
+  );
+  worldPositionOut = worldPosition;
   viewDistance = max(
     dot(worldPosition - camera.position.xyz, camera.forward.xyz),
     0.0

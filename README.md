@@ -177,16 +177,32 @@ Spawn entities need an `origin` key like `"160 -120 40"` and may include
 `angle` or `yaw` in degrees. Optional worldspawn keys `lg_bounds_min` and
 `lg_bounds_max` can set arena bounds in the same Quake/TrenchBroom units;
 otherwise bounds are computed from converted boxes and spawns with padding.
+Worldspawn may also set map-wide fill light with `lg_ambient_intensity`
+(default `0.30`) and `lg_ambient_color` as either a normalized or `0..255`
+RGB triple. This fill affects static map surfaces, players, and weapons.
 Static point lights may use `classname` `light` or `light_point` with an
 `origin`. The importer accepts Quake-style `light` intensity, optional
 `radius`, `_color`/`color` as `0..1` RGB triples, and `_light` as either an
 intensity or `r g b intensity`. Light positions and radii are converted from
-TrenchBroom units at the same `1/40` scale and are baked into static world
-vertex colors in the first-person renderer. Outdoor maps may also define one
-invisible `light_sun` entity with `direction` as the direction light rays
-travel, for example `0 0 -1` for downward light. `light_sun` supports
+TrenchBroom units at the same `1/40` scale. Steady unshadowed lights bake into
+static world colors and also light nearby actors through the live-light path.
+Lights can add `casts_shadows`, `source_radius`, signed `priority`, and
+fixed-seed `flicker` fields. Flickering and shadow-casting lights stay live so
+they do not get an unshadowed baked copy. Point-shadow maps cache the static
+world; moving actors receive those shadows but do not invalidate or cast into
+the cache. `r_point_lights` controls the live-light count and
+`r_point_shadows` controls the cached shadow count and size.
+
+Outdoor maps may also define one invisible `light_sun` entity with `direction`
+as the direction light rays travel, for example `0 0 -1` for downward light.
+`light_sun` supports
 `intensity`, `color`/`_color`, and `angle` plus `pitch` as a fallback when
 `direction` is omitted.
+
+Teleport volumes use `trigger_teleport` brushes whose `target` names a
+`target_position`. The target supplies the exit position and facing. The
+managed map tools expose teleports as one typed object, so callers do not write
+raw target links.
 
 Brush texture names are preserved as material ids and replicated to clients.
 Referenced textures must exist under `textures/`; for example a TrenchBroom
@@ -197,5 +213,5 @@ prototype treatment is no longer used.
 
 The repository includes a TrenchBroom game setup in
 `tools/trenchbroom/LG Duel/`. Install or copy that folder into TrenchBroom's
-games directory to get the `lg_spawn` point entity and LG Duel worldspawn keys
-in the editor.
+games directory to get the runtime-supported spawn, trigger, pickup, light,
+teleport, and McGuffin entities plus LG Duel worldspawn keys in the editor.

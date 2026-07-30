@@ -134,6 +134,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_bloom_threshold", "Brightness threshold for effect bloom.", 1.15F, archivedClient, 0.5F, 4.0F});
   console.registerCvar({"r_antialiasing", "Anti-aliasing quality: 0 off, 1 2x MSAA, 2 4x MSAA.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_sun_shadows", "Sun-shadow quality: 0 off, 1 low, 2 high.", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_point_lights", "Live point-light quality: 0 baked and combat only, 1 16 lights, 2 32 lights.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_point_shadows", "Cached point-shadow quality: 0 off, 1 one 256px light, 2 two 512px lights.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_contact_shadows", "Enable contact shadows on players and props.", true, archivedClient, {}, {}});
   console.registerCvar({"r_material_quality", "Material quality: 0 basic, 1 enhanced, 2 high.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_player_rim", "Player rim-light quality: 0 off, 1 low, 2 high.", 1, archivedClient, 0.0F, 2.0F});

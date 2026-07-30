@@ -2,6 +2,8 @@
 [
   lg_bounds_min(string) : "Arena bounds min" : "" : "Optional x y z bounds in TrenchBroom units."
   lg_bounds_max(string) : "Arena bounds max" : "" : "Optional x y z bounds in TrenchBroom units."
+  lg_ambient_intensity(float) : "Ambient light intensity" : 0.30 : "Map-wide fill light. Use point lights for local sources."
+  lg_ambient_color(color255) : "Ambient light color" : "255 255 255" : "Map-wide fill-light color."
 ]
 
 @SolidClass = func_group : "LG Duel brush group. Use common/playerclip or common/weapclip on every face for classified invisible collision. Both currently block all traces."
@@ -17,9 +19,43 @@
   pitch(integer) : "Pitch fallback" : 90 : "Optional fallback pitch in degrees."
 ]
 
+@SolidClass = trigger_teleport : "Teleport trigger volume"
+[
+  target(target_destination) : "Teleport exit target" : "" : "Required target_position targetname. Each brush becomes one non-solid teleport volume."
+]
+
+@SolidClass = trigger_mcguffin_base : "McGuffin team base volume"
+[
+  team(choices) : "Base team" : "red" : "Required. Place exactly one non-degenerate cuboid brush for each team." =
+  [
+    "red" : "Red"
+    "blue" : "Blue"
+  ]
+]
+
 @PointClass base(Angles) size(-16 -16 0, 16 16 56) color(0 220 80) = lg_spawn : "LG Duel player spawn"
 [
   yaw(integer) : "Yaw override" : 0 : "Optional spawn yaw in degrees. The importer also accepts angle from the Angles base class."
+]
+
+@PointClass base(Angles) size(-16 -16 0, 16 16 56) color(128 80 255) = info_player_team : "Team-mode player spawn"
+[
+  team(choices) : "Legacy team" : "" : "Required when Spawn group is empty. It maps red to red_base and blue to blue_base." =
+  [
+    "red" : "Red"
+    "blue" : "Blue"
+  ]
+  spawn_group(choices) : "Physical base group" : "" : "Preferred. Select red_base or blue_base; these name map sides, not permanent teams." =
+  [
+    "red_base" : "Red base"
+    "blue_base" : "Blue base"
+  ]
+  yaw(integer) : "Yaw override" : 0 : "Optional spawn yaw in degrees. The importer also accepts angle from the Angles base class."
+]
+
+@PointClass size(-12 -12 -12, 12 12 12) color(255 255 255) = info_mcguffin_spawn : "Neutral McGuffin spawn"
+[
+  origin(string) : "Origin" : "" : "Required x y z position in TrenchBroom units. One is allowed per map."
 ]
 
 @PointClass size(-10 -10 -10, 10 10 10) color(255 255 255) = item_health_small : "Small health pickup"
@@ -32,17 +68,43 @@
   origin(string) : "Origin" : "" : "x y z position in TrenchBroom units."
 ]
 
-@PointClass size(-8 -8 -8, 8 8 8) color(80 180 255) = target_position : "Jumppad landing target"
+@PointClass base(Angles) size(-8 -8 -8, 8 8 8) color(80 180 255) = target_position : "Jumppad landing or teleport exit"
 [
-  targetname(target_source) : "Target name" : ""
-  origin(string) : "Origin" : "" : "x y z position in TrenchBroom units."
+  targetname(target_source) : "Target name" : "" : "Required unique name. trigger_jumppad and trigger_teleport use this value."
+  origin(string) : "Origin" : "" : "Required x y z position in TrenchBroom units."
+  yaw(integer) : "Yaw override" : 0 : "Optional exit yaw in degrees. The importer also accepts angle from the Angles base class; teleports use it for exit velocity."
 ]
 
-@PointClass size(-8 -8 -8, 8 8 8) color(255 220 96) = light_point : "Static point light"
+@BaseClass = lg_static_point_light : "LG Duel static point light properties"
 [
-  light(integer) : "Intensity" : 300 : "Quake-style intensity. 300 is the default LG Duel brightness."
-  radius(integer) : "Radius" : 320 : "Light falloff radius in TrenchBroom units."
+  intensity(float) : "Normalized intensity" : 1 : "Preferred normalized intensity, greater than 0 and at most 16. This takes precedence over the legacy light field."
+  light(integer) : "Legacy Quake intensity" : 300 : "Legacy raw intensity, greater than 0 and at most 4800. The importer divides it by 300; use Normalized intensity for new lights."
+  radius(integer) : "Radius" : 320 : "Light falloff radius in TrenchBroom units, from above 0 to 4096."
   _color(color255) : "Color" : "255 255 255" : "Static light color."
+  casts_shadows(choices) : "Cast shadows" : 0 : "Use a cached point shadow only for a small, high-priority set of lights." =
+  [
+    0 : "No"
+    1 : "Yes"
+  ]
+  source_radius(float) : "Source radius" : 0 : "Source size in TrenchBroom units, from 0 to 1024. 0 keeps a sharp point source; it must not exceed Radius."
+  priority(integer) : "Shadow priority" : 0 : "Signed shadow rank from -1000 to 1000. Higher values win the limited cached-shadow budget."
+  flicker(choices) : "Flicker" : 0 : "Enable deterministic intensity flicker." =
+  [
+    0 : "Off"
+    1 : "On"
+  ]
+  flicker_seed(integer) : "Flicker seed" : 0 : "Unsigned deterministic seed, from 0 to 4294967295."
+  flicker_frequency(float) : "Flicker frequency" : 0 : "Cycles per second, 0 to 30. Set a positive value only when Flicker is on; on lights default to 8."
+  flicker_min(float) : "Flicker minimum" : 1 : "Minimum intensity factor, from 0 to 4."
+  flicker_max(float) : "Flicker maximum" : 1 : "Maximum intensity factor, from 0 to 4 and not less than Flicker minimum."
+]
+
+@PointClass base(lg_static_point_light) size(-8 -8 -8, 8 8 8) color(255 220 96) = light : "Static point light"
+[
+]
+
+@PointClass base(lg_static_point_light) size(-8 -8 -8, 8 8 8) color(255 220 96) = light_point : "Static point light"
+[
 ]
 
 @PointClass color(255 240 180) size(-12 -12 -12, 12 12 12) = light_sun : "directional sun light"

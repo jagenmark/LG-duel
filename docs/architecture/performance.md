@@ -40,11 +40,20 @@ Packet encode/decode:
 ## Scaling Assumptions
 
 - Players are capped by `kMaxPlayers`/`kDuelPlayerCount`.
-- Active projectiles are capped by `kMaxRocketProjectiles`.
+- Active projectiles are capped at 32 slots per player. The server keeps the
+  full fixed pool, while each network update carries only a bounded batch.
 - Arena geometry and gameplay trigger counts are fixed-size in `Arena`.
 - Packaged static geometry builds an immutable flattened BVH at map-load time. Movement/world-trace queries use conservative candidates but replay narrow phases in authored order; unfinalized arenas retain the linear fallback.
 - Scene geometry scales with visible players, active projectiles/effects, and arena geometry. Static world cost should be paid on arena change, not each frame on the GPU path.
-- Network cost scales mostly with fixed snapshot fields, player count, projectile count, transient event windows, and only occasionally arena payload size.
+- Network cost scales mostly with fixed snapshot fields, player count, bounded
+  projectile update batches, transient event windows, and only occasionally
+  arena payload size.
+- At the full 512-projectile bound, the 24-tick correction target sends up to
+  22 correction records per tick: about 116 KB/s to one client or 1.9 MB/s
+  across 16 clients before UDP/IP headers. A solo 25-shot plasma load needs
+  two correction records per tick, about 13 KB/s. Spawn and removal bursts add
+  short bounded packets; normal gameplay snapshots keep their separate
+  1,200-byte limit.
 
 ## Rendering Budgets
 

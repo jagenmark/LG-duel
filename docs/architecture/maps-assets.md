@@ -1,6 +1,10 @@
 # Maps And Assets
 
-Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, fixed-size cuboid walls, convex brushes, fixed-size jumppad triggers, static lights, optional sun light, and spawn positions. Solid geometry is used for server collision/combat traces and client rendering; jumppad triggers are gameplay-only.
+Map data ends as an `Arena` from `src/sim/Arena.hpp`: bounds, ambient
+lighting, fixed-size cuboid walls, convex brushes, spawns, jumppads, teleports,
+health pickups, static lights, an optional sun, and optional McGuffin map data.
+Solid geometry is used for server collision/combat traces and client rendering.
+Gameplay trigger volumes do not render.
 
 ## Loading Pipeline
 
@@ -16,9 +20,22 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
 - `trigger_jumppad` brush entities become non-solid, non-rendered `ArenaJumpPad` trigger AABBs. Visible pad surfaces should be ordinary `worldspawn` or `func_group` geometry; the trigger brush can use `common/trigger` or `textures/common/trigger` for editor visibility only.
 - `item_health_small` and `item_health_large` point entities become static `ArenaHealthPickup` entries. Server snapshots replicate only their fixed availability bits.
 - `worldspawn`/`func_group` brushes using `common/playerclip` or `textures/common/playerclip` on every face become collision-only solids. They stay in `ArenaWall`/`ArenaBrush` for collision and traces, but `renderable=false` keeps them out of static world rendering and lighting. Mixed playerclip/non-playerclip brushes are rejected; apply playerclip to the whole brush.
-- `target_position` point entities provide optional jumppad landing targets by `targetname`.
-- `light`/`light_point` and `light_sun` become static lighting data.
-- `trigger_teleport` is currently ignored.
+- `target_position` point entities provide jumppad landing targets and teleport
+  exits by `targetname`.
+- One `info_mcguffin_spawn` supplies the neutral McGuffin spawn. One
+  `trigger_mcguffin_base` brush per team supplies the Red and Blue base
+  volumes. See `docs/MCGUFFIN-SPEC.md` for the full map contract.
+- `worldspawn` can set `lg_ambient_color` and `lg_ambient_intensity` for
+  map-wide fill light.
+- `light`/`light_point` become static local lights. Managed lights can also set
+  shadow casting, source radius, priority, and fixed-seed flicker. A flickering
+  light changes its strength, not its static shadow shape.
+- One optional `light_sun` becomes the map sun.
+- `trigger_teleport` brush entities become non-solid teleport volumes. Their
+  `target` must name a `target_position`, which supplies the exit point and
+  authored exit angle.
+- Other entity classes do not produce runtime map data. Add a class to this
+  list when support lands so mapper and tool scope stays tied to the loader.
 
 Server map requests flow through `ServerGame::loadRequestedMap()`. Names are restricted to simple stems/extensions, resolved under `mapDirectory_`, and attempted as `.map` when no extension is given. Successful loads call `setArena()`, bump `mapRevision_`, reset the match, and force clients to receive updated arena data.
 
@@ -27,6 +44,22 @@ runtime map locally for early parse/conversion errors, queues the existing map
 command, and acknowledges success only after receiving the requested map with
 a newer authoritative revision. `scripts/watch-maps.ps1` remains the
 source-to-`build/default/maps` synchronizer.
+
+Managed map format v2 stores teleports as one typed object with a stable ID,
+trigger bounds, exit origin, and exit yaw. Its writer makes the linked
+`trigger_teleport` brush and `target_position`, fixed `common/trigger`
+material, internal IDs, and target name. This keeps raw link strings out of the
+public agent API. Managed batch edits check the full map before one atomic
+write.
+
+Typed lighting and teleport tools also work on hand-authored project maps.
+Ambient edits patch worldspawn values. Sun edits may add, replace, or remove the
+one `light_sun`. Other edits replace API-owned entity spans; they do not add a
+managed state marker or rewrite other map text. A mapper may adopt an
+importer-compatible point light with a unique `lg_agent_id`. A legacy teleport
+cannot be adopted by a tag alone because the typed pair needs internal trigger
+and target IDs plus link data; recreate it with `lg_map_add_teleport`. Geometry
+and spawn edits on hand maps remain TrenchBroom work.
 
 ## Collision Vs Render Data
 
@@ -49,12 +82,12 @@ Materials are hashed/stable ids from material paths. Renderer texture loading ex
 
 - Valve 220 texture axes are explicitly rejected by `MapParser`.
 - Convex brush limits are fixed: `ArenaBrush::kMaxFaces`, `kMaxVertices`, and per-face max vertices.
-- Arena counts are fixed: 256 walls, 256 brushes, 48 jumppads, 32 health pickups, 96 static lights.
+- Arena counts are fixed: 2048 walls, 1024 brushes, 48 jumppads, 16 teleports,
+  32 health pickups, and 96 static lights.
 - Multiple `light_sun` entities are not supported.
 - Legacy Duel/CA spawn yaw remains unused. Authored team-spawn yaw is stored and
   applied by the authoritative team spawn selector.
 - Jumppads do not use brush/entity rotation as launch authority. Launch priority is target-based ballistic, explicit direction and speed, angle/pitch and speed, then straight up.
-- Teleport triggers are parsed as ignored entities, not gameplay.
 - Playerclip currently blocks players, hitscan/world traces, rockets, grenades, and plasma. The collision/trace API does not yet carry cheap content masks to distinguish players from projectiles.
 
 ## Footguns

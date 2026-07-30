@@ -7,13 +7,13 @@
 1. `receivedCommandThisTick_` is cleared and `receiveCommands()` drains the transport.
 2. `updateMatchState()` advances waiting, ready, countdown, live, round-end, and match-end phases.
 3. `updateBotCommands()` fills commands for bot-controlled participant slots.
-4. One-tick snapshot event arrays are cleared: weapon fires, explosions, footsteps, grenade bounces, frags, local hit feedback, and projectile snapshots.
+4. One-tick snapshot event arrays are cleared: weapon fires, explosions, footsteps, grenade bounces, frags, and local hit feedback.
 5. Weapon cooldowns and pullout timers are decremented.
 6. For each player, the selected weapon is updated and `simulateMovement()` runs for living players, including bounded jumppad trigger checks after arena collision.
 7. Player/player collision is resolved, then player/arena collision is resolved, then footstep events are generated.
 8. Hitscan/lightning targeting uses a copy of pre-damage `combatPlayers`; optional lag compensation selects a stored `HistoryFrame`.
 9. Hitscan weapon results are generated, cooldowns are set, and damage/knockback is applied through `applyDamageAndKnockback()`.
-10. `simulateRockets()` advances rockets, grenades, and plasma projectiles, handles impacts/bounces/fuse/lifetime, applies splash/direct damage, and writes projectile snapshots.
+10. `simulateRockets()` advances rockets, grenades, and plasma projectiles, handles impacts/bounces/fuse/lifetime, applies splash/direct damage, and prepares bounded projectile display updates.
 11. Live match timers and time-limit ending are updated.
 12. `rememberTransientCombatEvents()` stores fresh events, `restoreTransientCombatEvents()` replays recent events for a short receive window, `serverTick` increments, `recordHistory()` stores players, and `publishSnapshot()` sends the snapshot.
 

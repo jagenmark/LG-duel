@@ -253,6 +253,7 @@ $requiredFiles = @(
   "shaders/world_surface.vert.spv",
   "shaders/world_surface.frag.spv",
   "shaders/world_surface_direct.frag.spv",
+  "shaders/point_shadow_world.vert.spv",
   "shaders/gltf_player_model.frag.spv",
   "shaders/gltf_player_model_direct.frag.spv",
   "shaders/material_weapon_direct.frag.spv",

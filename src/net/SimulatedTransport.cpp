@@ -37,7 +37,7 @@ bool SimulatedTransport::receiveCommand(CommandPacket& packet) {
 
 void SimulatedTransport::sendSnapshot(const ServerSnapshot& snapshot) {
   WirePacket wire;
-  if (encodeServerSnapshot(snapshot, wire)) {
+  if (encodeBoundedGameplaySnapshot(snapshot, wire)) {
     schedule(wire, config_.snapshots, snapshots_);
   }
 }

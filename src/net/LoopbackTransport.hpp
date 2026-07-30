@@ -14,12 +14,15 @@ public:
 
   void sendSnapshot(const ServerSnapshot& snapshot) override;
   [[nodiscard]] bool receiveSnapshot(ServerSnapshot& snapshot) override;
+  void sendProjectileUpdates(const ProjectileUpdatePacket& packet) override;
+  [[nodiscard]] bool receiveProjectileUpdates(ProjectileUpdatePacket& packet) override;
   void publishChatHistory(const ChatHistory& history) override;
   [[nodiscard]] bool receiveChatHistory(ChatHistoryChunk& chunk) override;
 
 private:
   std::deque<WirePacket> commands_;
   std::deque<WirePacket> snapshots_;
+  std::deque<WirePacket> projectileUpdates_;
   std::deque<WirePacket> chatHistory_;
   std::uint32_t publishedChatSequence_ = 0;
 };
