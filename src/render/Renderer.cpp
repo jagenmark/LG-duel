@@ -135,6 +135,66 @@ using RenderClock = std::chrono::steady_clock;
   return std::chrono::duration<float, std::milli>(end - start).count();
 }
 
+[[nodiscard]] std::uint64_t clockNanoseconds(
+  RenderClock::time_point time
+) {
+  return static_cast<std::uint64_t>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(
+      time.time_since_epoch()
+    ).count()
+  );
+}
+
+[[nodiscard]] std::uint64_t sampleLateView(
+  LateViewSampler sampler,
+  PlayerState& player,
+  RendererFrameDiagnostics& diagnostics
+) {
+  diagnostics.lateMouseSampleEnabled = sampler.sample != nullptr;
+  if (sampler.sample == nullptr) {
+    return 0;
+  }
+
+  const auto sampleStart = RenderClock::now();
+  const LateViewSample sample = sampler.sample(sampler.context);
+  const auto sampleEnd = RenderClock::now();
+  diagnostics.lateMouseSampleMilliseconds =
+    millisecondsBetween(sampleStart, sampleEnd);
+  diagnostics.mouseSamplePhaseGainMilliseconds =
+    std::isfinite(sample.samplePhaseGainMilliseconds)
+    ? std::max(0.0F, sample.samplePhaseGainMilliseconds)
+    : 0.0F;
+  if (
+    sample.hasView &&
+    std::isfinite(sample.yawRadians) &&
+    std::isfinite(sample.pitchRadians)
+  ) {
+    player.viewYawRadians = sample.yawRadians;
+    player.viewPitchRadians = sample.pitchRadians;
+    diagnostics.lateMouseSampleApplied = true;
+  }
+  return sample.sampleCompletedNanoseconds != 0
+    ? sample.sampleCompletedNanoseconds
+    : clockNanoseconds(sampleEnd);
+}
+
+void recordMouseSampleToSubmit(
+  std::uint64_t sampleCompletedNanoseconds,
+  RendererFrameDiagnostics& diagnostics
+) {
+  if (sampleCompletedNanoseconds == 0) {
+    return;
+  }
+  const std::uint64_t submitNanoseconds =
+    clockNanoseconds(RenderClock::now());
+  if (submitNanoseconds < sampleCompletedNanoseconds) {
+    return;
+  }
+  diagnostics.mouseSampleToSubmitMilliseconds =
+    static_cast<float>(submitNanoseconds - sampleCompletedNanoseconds) /
+    1'000'000.0F;
+}
+
 [[nodiscard]] float secondsBetween(
   RenderClock::time_point start,
   RenderClock::time_point end
@@ -6917,6 +6977,7 @@ void appendCommandBatches(
   SDL_Window* window,
   const Arena& arena,
   const PlayerState& player,
+  LateViewSampler lateViewSampler,
   const std::array<RemotePlayerView, kDuelPlayerCount>& remotePlayers,
   const LightningGunResult& localLightningGun,
   const std::array<WeaponFireResult, kDuelPlayerCount>& weaponFires,
@@ -6937,6 +6998,11 @@ void appendCommandBatches(
   FrameCaptureResult* captureResult
 ) {
   diagnostics.swapchainAcquireMilliseconds = 0.0F;
+  diagnostics.lateMouseSampleMilliseconds = 0.0F;
+  diagnostics.mouseSampleToSubmitMilliseconds = 0.0F;
+  diagnostics.mouseSamplePhaseGainMilliseconds = 0.0F;
+  diagnostics.lateMouseSampleEnabled = lateViewSampler.sample != nullptr;
+  diagnostics.lateMouseSampleApplied = false;
   diagnostics.renderInstanceConstructionMilliseconds = 0.0F;
   diagnostics.worldVisibilityMilliseconds = 0.0F;
   diagnostics.worldCommandEncodingMilliseconds = 0.0F;
@@ -7088,6 +7154,7 @@ void appendCommandBatches(
   diagnostics.transparentEffectsSubmitted = 0;
   bool pointShadowCacheRendered = false;
   std::uint64_t pendingPointShadowCacheKey = 0;
+  std::uint64_t lateSampleCompletedNanoseconds = 0;
   SDL_GPUCommandBuffer* commandBuffer =
     SDL_AcquireGPUCommandBuffer(device);
   if (commandBuffer == nullptr) {
@@ -7096,6 +7163,10 @@ void appendCommandBatches(
   bool timingActive = false;
   bool timingOwnedSubmittedFence = false;
   const auto submitCommandBuffer = [&](SDL_GPUFence** outputFence = nullptr) {
+    recordMouseSampleToSubmit(
+      lateSampleCompletedNanoseconds,
+      diagnostics
+    );
     if (timingActive) {
       gpuTiming.endFrame(commandBuffer);
       SDL_GPUFence* fence =
@@ -7142,6 +7213,12 @@ void appendCommandBatches(
   auto uploadStart = buildStart;
 
   if (swapchainTexture != nullptr && outputWidth > 0 && outputHeight > 0) {
+    PlayerState sampledPlayer = player;
+    lateSampleCompletedNanoseconds = sampleLateView(
+      lateViewSampler,
+      sampledPlayer,
+      diagnostics
+    );
     Scene3D perspectiveScene;
     vertices.clear();
     std::vector<OverlayDrawBatch> overlayBatches;
@@ -7153,7 +7230,7 @@ void appendCommandBatches(
     perspectiveScene = buildPerspectiveScene(
       static_cast<float>(outputWidth) / static_cast<float>(outputHeight),
       arena,
-      player,
+      sampledPlayer,
       remotePlayers,
       localLightningGun,
       weaponFires,
@@ -7386,7 +7463,7 @@ void appendCommandBatches(
         ProjectedPoint projectedMuzzle;
         if (projectPerspectivePoint(
               muzzleCamera,
-              firstPersonFreezeGunMuzzlePosition(player, settings),
+              firstPersonFreezeGunMuzzlePosition(sampledPlayer, settings),
               projectedMuzzle
             )) {
           freezeGunMuzzle = {
@@ -7417,7 +7494,7 @@ void appendCommandBatches(
     const DrawList2D ui = buildScreenUi(
       static_cast<int>(outputWidth),
       static_cast<int>(outputHeight),
-      player,
+      sampledPlayer,
       settings,
       hud,
       console
@@ -11133,11 +11210,18 @@ void Renderer::render(
   const RenderSettings& settings,
   const HudRenderState& hud,
   const ConsoleRenderState& console,
+  LateViewSampler lateViewSampler,
   const FrameCaptureRequest* captureRequest,
   FrameCaptureResult* captureResult
 ) {
 #if LG_DUEL_HAS_SDL3
   const auto renderStart = RenderClock::now();
+  lastFrameDiagnostics_.lateMouseSampleMilliseconds = 0.0F;
+  lastFrameDiagnostics_.mouseSampleToSubmitMilliseconds = 0.0F;
+  lastFrameDiagnostics_.mouseSamplePhaseGainMilliseconds = 0.0F;
+  lastFrameDiagnostics_.lateMouseSampleEnabled =
+    lateViewSampler.sample != nullptr;
+  lastFrameDiagnostics_.lateMouseSampleApplied = false;
   float stepSmoothingDt = 0.0F;
   if (previousCameraStepUpdate_ != RenderClock::time_point{}) {
     stepSmoothingDt = std::clamp(
@@ -11565,6 +11649,7 @@ void Renderer::render(
           static_cast<SDL_Window*>(window_),
           arena,
           player,
+          lateViewSampler,
           remotePlayers,
           localLightningGun,
           weaponFires,
@@ -11620,6 +11705,12 @@ void Renderer::render(
   }
 
   lastFrameDiagnostics_.swapchainAcquireMilliseconds = 0.0F;
+  lastFrameDiagnostics_.lateMouseSampleMilliseconds = 0.0F;
+  lastFrameDiagnostics_.mouseSampleToSubmitMilliseconds = 0.0F;
+  lastFrameDiagnostics_.mouseSamplePhaseGainMilliseconds = 0.0F;
+  lastFrameDiagnostics_.lateMouseSampleEnabled =
+    lateViewSampler.sample != nullptr;
+  lastFrameDiagnostics_.lateMouseSampleApplied = false;
   lastFrameDiagnostics_.renderInstanceConstructionMilliseconds = 0.0F;
   lastFrameDiagnostics_.worldVisibilityMilliseconds = 0.0F;
   lastFrameDiagnostics_.worldCommandEncodingMilliseconds = 0.0F;
@@ -11791,6 +11882,12 @@ void Renderer::render(
   int width = 0;
   int height = 0;
   SDL_GetCurrentRenderOutputSize(renderer, &width, &height);
+  PlayerState sampledPlayer = player;
+  const std::uint64_t lateSampleCompletedNanoseconds = sampleLateView(
+    lateViewSampler,
+    sampledPlayer,
+    lastFrameDiagnostics_
+  );
 
   SDL_SetRenderDrawColor(renderer, 12, 14, 18, 255);
   SDL_RenderClear(renderer);
@@ -11798,7 +11895,7 @@ void Renderer::render(
   const Scene3D perspectiveScene = buildPerspectiveScene(
     static_cast<float>(width) / static_cast<float>(std::max(1, height)),
     arena,
-    player,
+    sampledPlayer,
     remotePlayers,
     localLightningGun,
     weaponFires,
@@ -11983,7 +12080,7 @@ void Renderer::render(
     width,
     height,
     arena,
-    player,
+    sampledPlayer,
     remotePlayers,
     perspectiveScene.remoteRenderVisible,
     localLightningGun,
@@ -11994,7 +12091,7 @@ void Renderer::render(
     settings
   );
   const PerspectiveCamera camera = playerPerspectiveCamera(
-    player,
+    sampledPlayer,
     static_cast<float>(width) / static_cast<float>(std::max(1, height)),
     settings.fieldOfView
   );
@@ -12064,6 +12161,10 @@ void Renderer::render(
       }
     }
   }
+  recordMouseSampleToSubmit(
+    lateSampleCompletedNanoseconds,
+    lastFrameDiagnostics_
+  );
   SDL_RenderPresent(renderer);
   lastFrameDiagnostics_.totalRenderMilliseconds =
     millisecondsBetween(renderStart, RenderClock::now());
@@ -12075,6 +12176,7 @@ void Renderer::render(
   (void)settings;
   (void)hud;
   (void)console;
+  (void)lateViewSampler;
   (void)captureRequest;
   (void)captureResult;
 #endif

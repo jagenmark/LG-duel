@@ -807,6 +807,11 @@ struct PointShadowPassPlan {
 
 struct RendererFrameDiagnostics {
   float swapchainAcquireMilliseconds = 0.0F;
+  float lateMouseSampleMilliseconds = 0.0F;
+  float mouseSampleToSubmitMilliseconds = 0.0F;
+  float mouseSamplePhaseGainMilliseconds = 0.0F;
+  bool lateMouseSampleEnabled = false;
+  bool lateMouseSampleApplied = false;
   // Coarse CPU-side frame stages; GPU execution is not included.
   float renderInstanceConstructionMilliseconds = 0.0F;
   float worldVisibilityMilliseconds = 0.0F;
@@ -985,6 +990,19 @@ struct FrameCaptureResult {
   std::uint32_t height = 0;
 };
 
+struct LateViewSample {
+  bool hasView = false;
+  float yawRadians = 0.0F;
+  float pitchRadians = 0.0F;
+  std::uint64_t sampleCompletedNanoseconds = 0;
+  float samplePhaseGainMilliseconds = 0.0F;
+};
+
+struct LateViewSampler {
+  void* context = nullptr;
+  LateViewSample (*sample)(void*) = nullptr;
+};
+
 enum class PresentMode : int {
   Fifo = 0,
   Mailbox = 1,
@@ -1015,6 +1033,7 @@ public:
     const RenderSettings& settings,
     const HudRenderState& hud,
     const ConsoleRenderState& console,
+    LateViewSampler lateViewSampler = {},
     const FrameCaptureRequest* captureRequest = nullptr,
     FrameCaptureResult* captureResult = nullptr
   );

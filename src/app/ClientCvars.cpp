@@ -18,6 +18,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"cl_mouseAccelPower", "Quake Live mouse acceleration power curve.", 2.0F, archivedClient, 1.0F, 10.0F, "2"});
   console.registerCvar({"cl_mouseAccelOffset", "Quake Live mouse speed threshold before acceleration applies.", 0.0F, archivedClient, 0.0F, 1000.0F, "0"});
   console.registerCvar({"cl_mouseSensCap", "Quake Live accelerated sensitivity cap; zero disables the cap.", 0.0F, archivedClient, 0.0F, 100.0F, "0"});
+  console.registerCvar({"cl_late_mouse_sample", "Sample mouse input after swapchain acquire and before view-dependent render work.", true, archivedClient, {}, {}});
   console.registerCvar({"cl_fov", "First-person vertical field of view in degrees.", 90.0F, archivedClient, 45.0F, 140.0F});
   console.registerCvar({"cl_zoom_fov", "Field of view while +zoom is held.", 45.0F, archivedClient, 20.0F, 140.0F});
   console.registerCvar({"cl_zoom_sniper_fov", "Field of view for Sniper Rifle ADS.", 45.0F, archivedClient, 20.0F, 140.0F});

@@ -1436,6 +1436,95 @@ struct PresentationViewState {
   bool initialized = false;
 };
 
+#if LG_DUEL_HAS_SDL3
+[[nodiscard]] std::uint64_t steadyClockNanoseconds() {
+  return static_cast<std::uint64_t>(
+    std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now().time_since_epoch()
+    ).count()
+  );
+}
+
+struct LateMouseSampleContext {
+  SDL_Window* window = nullptr;
+  PresentationViewState* presentationView = nullptr;
+  MouseAimSettings aimSettings = {};
+  float earlyMouseDeltaX = 0.0F;
+  float earlyMouseDeltaY = 0.0F;
+  float frameSeconds = 0.0F;
+  std::uint64_t earlySampleNanoseconds = 0;
+  float viewPitchBeforeEarlySample = 0.0F;
+  float* pendingViewModelMouseDeltaX = nullptr;
+  float* pendingViewModelMouseDeltaY = nullptr;
+  bool applyToView = false;
+};
+
+[[nodiscard]] LateViewSample sampleLateMouseView(void* rawContext) {
+  auto* context = static_cast<LateMouseSampleContext*>(rawContext);
+  if (context == nullptr || context->window == nullptr) {
+    return {};
+  }
+
+  SDL_PumpEvents();
+  float lateMouseDeltaX = 0.0F;
+  float lateMouseDeltaY = 0.0F;
+  (void)SDL_GetRelativeMouseState(
+    &lateMouseDeltaX,
+    &lateMouseDeltaY
+  );
+  // Keep pumped motion queued. The next gameplay event pass ignores its
+  // relative counts, while menus and text fields still need its position.
+
+  LateViewSample sample;
+  const bool windowFocused =
+    (SDL_GetWindowFlags(context->window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+  if (
+    context->applyToView &&
+    windowFocused &&
+    context->presentationView != nullptr &&
+    context->presentationView->initialized
+  ) {
+    const MouseAimDelta correction = quakeLiveLateMouseAimCorrection(
+      context->earlyMouseDeltaX,
+      context->earlyMouseDeltaY,
+      lateMouseDeltaX,
+      lateMouseDeltaY,
+      context->frameSeconds,
+      context->aimSettings,
+      context->viewPitchBeforeEarlySample,
+      -kMaxPitchRadians,
+      kMaxPitchRadians
+    );
+    context->presentationView->yawRadians -= correction.yawRadians;
+    context->presentationView->pitchRadians = clamp(
+      context->presentationView->pitchRadians - correction.pitchRadians,
+      -kMaxPitchRadians,
+      kMaxPitchRadians
+    );
+    if (context->pendingViewModelMouseDeltaX != nullptr) {
+      *context->pendingViewModelMouseDeltaX += lateMouseDeltaX;
+    }
+    if (context->pendingViewModelMouseDeltaY != nullptr) {
+      *context->pendingViewModelMouseDeltaY += lateMouseDeltaY;
+    }
+    sample.hasView = true;
+    sample.yawRadians = context->presentationView->yawRadians;
+    sample.pitchRadians = context->presentationView->pitchRadians;
+  }
+
+  sample.sampleCompletedNanoseconds = steadyClockNanoseconds();
+  if (
+    context->earlySampleNanoseconds != 0 &&
+    sample.sampleCompletedNanoseconds >= context->earlySampleNanoseconds
+  ) {
+    sample.samplePhaseGainMilliseconds = static_cast<float>(
+      sample.sampleCompletedNanoseconds - context->earlySampleNanoseconds
+    ) / 1'000'000.0F;
+  }
+  return sample;
+}
+#endif
+
 struct FrameTimeSummary {
   float averageMilliseconds = 0.0F;
   float p50Milliseconds = 0.0F;
@@ -1508,6 +1597,16 @@ struct FrameTimeHistory {
   sample.submitMilliseconds = renderDiagnostics.submitMilliseconds;
   sample.totalRenderMilliseconds =
     renderDiagnostics.totalRenderMilliseconds;
+  sample.lateMouseSampleMilliseconds =
+    renderDiagnostics.lateMouseSampleMilliseconds;
+  sample.mouseSampleToSubmitMilliseconds =
+    renderDiagnostics.mouseSampleToSubmitMilliseconds;
+  sample.mouseSamplePhaseGainMilliseconds =
+    renderDiagnostics.mouseSamplePhaseGainMilliseconds;
+  sample.lateMouseSampleEnabled =
+    renderDiagnostics.lateMouseSampleEnabled;
+  sample.lateMouseSampleApplied =
+    renderDiagnostics.lateMouseSampleApplied;
   sample.dynamicOpaqueVertices = renderDiagnostics.dynamicOpaqueVertices;
   sample.dynamicTranslucentVertices =
     renderDiagnostics.dynamicTranslucentVertices;
@@ -1734,6 +1833,20 @@ void appendPerfHudLines(
   appendMetric("draw:", summary.worldDrawIssue);
   appendMetric("submit:", summary.submit);
   appendMetric("render:", summary.totalRender);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "mouse late: %s/%s | callback avg/p95 %.3f/%.3f | to-submit %.2f/%.2f | phase %.2f/%.2f ms",
+    latest.lateMouseSampleEnabled ? "on" : "off",
+    latest.lateMouseSampleApplied ? "applied" : "not-applied",
+    summary.lateMouseSample.average,
+    summary.lateMouseSample.p95,
+    summary.mouseSampleToSubmit.average,
+    summary.mouseSampleToSubmit.p95,
+    summary.mouseSamplePhaseGain.average,
+    summary.mouseSamplePhaseGain.p95
+  );
+  hud.topLeftLines.emplace_back(text);
   std::snprintf(
     text,
     sizeof(text),
@@ -5918,6 +6031,9 @@ int GameApp::run() const {
   FrameTimeSummary displayedFrameTimes;
   PerfTelemetry perfTelemetry;
   PresentationViewState presentationView;
+  bool lateMouseSamplingWasEnabled = false;
+  float pendingLateViewModelMouseDeltaX = 0.0F;
+  float pendingLateViewModelMouseDeltaY = 0.0F;
   std::array<PlayerPresentationState, kDuelPlayerCount> playerPresentationStates = {};
   ViewModelPresentationController viewModelPresentation;
   ClientGame* presentationViewGame = nullptr;
@@ -6994,6 +7110,14 @@ int GameApp::run() const {
           sample.drawIssueMilliseconds = render.worldDrawIssueMilliseconds;
           sample.submitMilliseconds = render.submitMilliseconds;
           sample.renderCpuMilliseconds = render.totalRenderMilliseconds;
+          sample.lateMouseSampleMilliseconds =
+            render.lateMouseSampleMilliseconds;
+          sample.mouseSampleToSubmitMilliseconds =
+            render.mouseSampleToSubmitMilliseconds;
+          sample.mouseSamplePhaseGainMilliseconds =
+            render.mouseSamplePhaseGainMilliseconds;
+          sample.lateMouseSampleEnabled = render.lateMouseSampleEnabled;
+          sample.lateMouseSampleApplied = render.lateMouseSampleApplied;
           sample.snapshotDecodeMilliseconds = snapshot.snapshotDecodeMilliseconds;
           sample.snapshotApplyMilliseconds = snapshot.snapshotApplyMilliseconds;
           sample.networkProcessingMilliseconds =
@@ -7287,6 +7411,27 @@ int GameApp::run() const {
       displayedFrameTimes = outerFrameTimes.summarize();
       frameStatsAccumulatorSeconds = 0.0F;
     }
+
+    const bool lateMouseSamplingEnabled =
+      console.getBool("cl_late_mouse_sample");
+    const bool lateMouseSamplingJustDisabled =
+      !lateMouseSamplingEnabled && lateMouseSamplingWasEnabled;
+    if (lateMouseSamplingEnabled && !lateMouseSamplingWasEnabled) {
+      // Clear counts gathered while the event path owned mouse input. Queued
+      // motion is still drained below, but this frame reads fresh relative
+      // counts as one early sample.
+      float ignoredMouseDeltaX = 0.0F;
+      float ignoredMouseDeltaY = 0.0F;
+      (void)SDL_GetRelativeMouseState(
+        &ignoredMouseDeltaX,
+        &ignoredMouseDeltaY
+      );
+    }
+    if (!lateMouseSamplingEnabled) {
+      pendingLateViewModelMouseDeltaX = 0.0F;
+      pendingLateViewModelMouseDeltaY = 0.0F;
+    }
+    lateMouseSamplingWasEnabled = lateMouseSamplingEnabled;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -7808,7 +7953,10 @@ int GameApp::run() const {
             event.motion.x,
             event.motion.y
           );
-        } else {
+        } else if (
+          !lateMouseSamplingEnabled &&
+          !lateMouseSamplingJustDisabled
+        ) {
           input.mouseDeltaX += event.motion.xrel;
           input.mouseDeltaY += event.motion.yrel;
         }
@@ -7875,6 +8023,8 @@ int GameApp::run() const {
         miscMenu.scrollbarDragging = false;
         input.mouseDeltaX = 0.0F;
         input.mouseDeltaY = 0.0F;
+        pendingLateViewModelMouseDeltaX = 0.0F;
+        pendingLateViewModelMouseDeltaY = 0.0F;
         break;
       default:
         break;
@@ -8008,9 +8158,19 @@ int GameApp::run() const {
       lastPresentModeInt = console.getInt("r_present_mode");
     }
     const bool usePresentationView = true;
-    const bool gameInputControlsView =
+    const bool baseGameInputControlsView =
         usePresentationView && !consoleState.open && !chatState.inputOpen &&
         !settingsMenu.open && !miscMenu.open && !wasTeammateSpectating;
+    const bool windowHasInputFocus =
+      (SDL_GetWindowFlags(window) & SDL_WINDOW_INPUT_FOCUS) != 0;
+    const bool lateMouseInputControlsView =
+      baseGameInputControlsView &&
+      windowHasInputFocus &&
+      !session.spectator() &&
+      !developmentCameraEnabled;
+    const bool gameInputControlsView = lateMouseSamplingEnabled
+      ? lateMouseInputControlsView
+      : baseGameInputControlsView;
     const bool wantsRelativeMouse = !consoleState.open &&
                                     !chatState.inputOpen &&
                                     !settingsMenu.open && !miscMenu.open;
@@ -8019,10 +8179,31 @@ int GameApp::run() const {
       SDL_SetWindowRelativeMouseMode(window, wantsRelativeMouse);
       relativeMouseModeEnabled = wantsRelativeMouse;
     }
+    std::uint64_t earlyMouseSampleNanoseconds = 0;
+    if (lateMouseSamplingEnabled || lateMouseSamplingJustDisabled) {
+      float relativeMouseDeltaX = 0.0F;
+      float relativeMouseDeltaY = 0.0F;
+      (void)SDL_GetRelativeMouseState(
+        &relativeMouseDeltaX,
+        &relativeMouseDeltaY
+      );
+      if (lateMouseSamplingEnabled) {
+        earlyMouseSampleNanoseconds = steadyClockNanoseconds();
+      }
+      if (gameInputControlsView && relativeMouseModeEnabled) {
+        input.mouseDeltaX = relativeMouseDeltaX;
+        input.mouseDeltaY = relativeMouseDeltaY;
+      } else {
+        input.mouseDeltaX = 0.0F;
+        input.mouseDeltaY = 0.0F;
+      }
+    }
     ClientGame* currentPresentationGame = session.game();
     if (currentPresentationGame == nullptr) {
       presentationView = {};
       presentationViewGame = nullptr;
+      pendingLateViewModelMouseDeltaX = 0.0F;
+      pendingLateViewModelMouseDeltaY = 0.0F;
       previousFrameUsedPresentationView = usePresentationView;
     } else if (currentPresentationGame != presentationViewGame) {
       // A new ClientGame represents a new connection/prediction timeline; do
@@ -8031,6 +8212,8 @@ int GameApp::run() const {
       presentationView = {};
       playerPresentationStates = {};
       viewModelPresentation.reset();
+      pendingLateViewModelMouseDeltaX = 0.0F;
+      pendingLateViewModelMouseDeltaY = 0.0F;
       presentationViewGame = currentPresentationGame;
     }
     const bool enteredPresentationView =
@@ -8052,21 +8235,34 @@ int GameApp::run() const {
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
     }
-    const float viewModelMouseDeltaX = gameInputControlsView ? input.mouseDeltaX : 0.0F;
-    const float viewModelMouseDeltaY = gameInputControlsView ? input.mouseDeltaY : 0.0F;
+    const float earlyMouseDeltaX =
+      gameInputControlsView ? input.mouseDeltaX : 0.0F;
+    const float earlyMouseDeltaY =
+      gameInputControlsView ? input.mouseDeltaY : 0.0F;
+    const float viewModelMouseDeltaX = gameInputControlsView
+      ? earlyMouseDeltaX + pendingLateViewModelMouseDeltaX
+      : 0.0F;
+    const float viewModelMouseDeltaY = gameInputControlsView
+      ? earlyMouseDeltaY + pendingLateViewModelMouseDeltaY
+      : 0.0F;
+    pendingLateViewModelMouseDeltaX = 0.0F;
+    pendingLateViewModelMouseDeltaY = 0.0F;
+    const MouseAimSettings frameMouseAimSettings =
+      mouseAimSettingsFromConsole(
+        console,
+        zoomPressCount > 0,
+        selectedWeapon == Weapon::Railgun,
+        selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
+      );
+    const float viewPitchBeforeEarlyMouseSample =
+      presentationView.pitchRadians;
+    bool earlyMouseViewApplied = false;
     if (gameInputControlsView && presentationView.initialized) {
-      const MouseAimSettings mouseAimSettings =
-        mouseAimSettingsFromConsole(
-          console,
-          zoomPressCount > 0,
-          selectedWeapon == Weapon::Railgun,
-          selectedWeapon == Weapon::Railgun ? sniperAdsAmount : 1.0F
-        );
       const MouseAimDelta mouseAimDelta = quakeLiveMouseAimDelta(
-        input.mouseDeltaX,
-        input.mouseDeltaY,
+        earlyMouseDeltaX,
+        earlyMouseDeltaY,
         outerFrameElapsed.count(),
-        mouseAimSettings
+        frameMouseAimSettings
       );
       presentationView.yawRadians -= mouseAimDelta.yawRadians;
       presentationView.pitchRadians = clamp(
@@ -8074,6 +8270,7 @@ int GameApp::run() const {
         -kMaxPitchRadians,
         kMaxPitchRadians
       );
+      earlyMouseViewApplied = true;
       input.mouseDeltaX = 0.0F;
       input.mouseDeltaY = 0.0F;
     }
@@ -10763,6 +10960,28 @@ int GameApp::run() const {
         hud.miscMenuItems.clear();
       }
     }
+    LateMouseSampleContext lateMouseSampleContext = {
+      window,
+      &presentationView,
+      frameMouseAimSettings,
+      earlyMouseDeltaX,
+      earlyMouseDeltaY,
+      outerFrameElapsed.count(),
+      earlyMouseSampleNanoseconds,
+      viewPitchBeforeEarlyMouseSample,
+      &pendingLateViewModelMouseDeltaX,
+      &pendingLateViewModelMouseDeltaY,
+      earlyMouseViewApplied &&
+        relativeMouseModeEnabled &&
+        presentationViewGame != nullptr &&
+        presentationViewGame == session.game() &&
+        !session.spectator() &&
+        !developmentCameraEnabled &&
+        deathCamera.mode != DeathCameraMode::Teammate,
+    };
+    const LateViewSampler lateViewSampler = lateMouseSamplingEnabled
+      ? LateViewSampler{&lateMouseSampleContext, sampleLateMouseView}
+      : LateViewSampler{};
     renderer.render(
       renderArena,
       renderPlayer,
@@ -10779,6 +10998,7 @@ int GameApp::run() const {
       currentRenderSettings,
       hud,
       renderedConsole,
+      lateViewSampler,
       frameCaptureRequest.has_value() ? &*frameCaptureRequest : nullptr,
       frameCaptureRequest.has_value() ? &frameCaptureResult : nullptr
     );

@@ -107,6 +107,11 @@ struct FrameSample {
   double worldCommandEncodingMilliseconds = 0.0;
   double dynamicCommandEncodingMilliseconds = 0.0;
   double uiMilliseconds = 0.0;
+  double lateMouseSampleMilliseconds = 0.0;
+  double mouseSampleToSubmitMilliseconds = 0.0;
+  double mouseSamplePhaseGainMilliseconds = 0.0;
+  bool lateMouseSampleEnabled = false;
+  bool lateMouseSampleApplied = false;
   std::optional<double> gpuPrimaryCommandBufferMilliseconds;
   std::array<bool, kGpuTimedPassCount> gpuPassTimingApplicable = {};
   std::array<std::optional<double>, kGpuTimedPassCount>

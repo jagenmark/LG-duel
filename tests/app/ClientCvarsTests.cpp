@@ -27,6 +27,20 @@ int main() {
   lg::ConsoleSystem console;
   lg::registerClientCvars(console);
 
+  const std::vector<std::string> initialArchivedConfig =
+    console.archivedConfigLines();
+  failures += expect(
+    console.execute("cl_late_mouse_sample") ==
+        "cl_late_mouse_sample = 1 (default 1)" &&
+      console.getBool("cl_late_mouse_sample") &&
+      std::find(
+        initialArchivedConfig.begin(),
+        initialArchivedConfig.end(),
+        "set cl_late_mouse_sample 1"
+      ) != initialArchivedConfig.end(),
+    "late mouse sampling should default on and persist in client config"
+  );
+
   for (const lg::GraphicsProfileDefinition& profile : lg::kGraphicsProfiles) {
     const auto hasValue = [&](std::string_view cvar) {
       return std::any_of(

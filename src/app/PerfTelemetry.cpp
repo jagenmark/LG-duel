@@ -78,6 +78,21 @@ PerfWindowSummary PerfTelemetry::summarize() {
   summary.totalRender = summarizeMetric(
     [](const PerfSample& sample) { return sample.totalRenderMilliseconds; }
   );
+  summary.lateMouseSample = summarizeMetric(
+    [](const PerfSample& sample) {
+      return sample.lateMouseSampleMilliseconds;
+    }
+  );
+  summary.mouseSampleToSubmit = summarizeMetric(
+    [](const PerfSample& sample) {
+      return sample.mouseSampleToSubmitMilliseconds;
+    }
+  );
+  summary.mouseSamplePhaseGain = summarizeMetric(
+    [](const PerfSample& sample) {
+      return sample.mouseSamplePhaseGainMilliseconds;
+    }
+  );
   summary.snapshotDecode = summarizeMetric(
     [](const PerfSample& sample) {
       return sample.snapshot.snapshotDecodeMilliseconds;

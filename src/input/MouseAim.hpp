@@ -86,6 +86,49 @@ struct MouseAimDelta {
   };
 }
 
+[[nodiscard]] inline MouseAimDelta quakeLiveLateMouseAimCorrection(
+  float earlyMouseDeltaX,
+  float earlyMouseDeltaY,
+  float lateMouseDeltaX,
+  float lateMouseDeltaY,
+  float frameSeconds,
+  const MouseAimSettings& settings,
+  float viewPitchBeforeEarlySample,
+  float minimumPitchRadians,
+  float maximumPitchRadians
+) {
+  const MouseAimDelta early = quakeLiveMouseAimDelta(
+    earlyMouseDeltaX,
+    earlyMouseDeltaY,
+    frameSeconds,
+    settings
+  );
+  const MouseAimDelta combined = quakeLiveMouseAimDelta(
+    earlyMouseDeltaX + lateMouseDeltaX,
+    earlyMouseDeltaY + lateMouseDeltaY,
+    frameSeconds,
+    settings
+  );
+  const float earlyPitchRadians = std::fmax(
+    minimumPitchRadians,
+    std::fmin(
+      maximumPitchRadians,
+      viewPitchBeforeEarlySample - early.pitchRadians
+    )
+  );
+  const float combinedPitchRadians = std::fmax(
+    minimumPitchRadians,
+    std::fmin(
+      maximumPitchRadians,
+      viewPitchBeforeEarlySample - combined.pitchRadians
+    )
+  );
+  return {
+    combined.yawRadians - early.yawRadians,
+    earlyPitchRadians - combinedPitchRadians,
+  };
+}
+
 [[nodiscard]] constexpr float relativeMouseYaw(
   float currentYawRadians,
   float mouseDeltaX,

@@ -101,6 +101,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_mouseAccelPower` | float | `2` | `1..10` | QL `cl_mouseAccelPower 2` | Arkiv | Exponenten i QL-formeln. `2` ger klassisk linjär ökning av effektiv känslighet med mushastighet. |
 | `cl_mouseAccelOffset` | float | `0` | `0..1000` | QL `cl_mouseAccelOffset 0` | Arkiv | Mushastighet i counts/ms innan acceleration börjar. Hastigheter under offset behåller baskänsligheten. |
 | `cl_mouseSensCap` | float | `0` | `0..100` | QL `cl_mouseSensCap 0` | Arkiv | Tak för accelererad känslighet. `0` betyder inget tak. |
+| `cl_late_mouse_sample` | bool | `1` | `0..1` | Ingen direkt | Arkiv | Läser musen igen efter swapchain-acquire och före vyberoende renderarbete. `0` stänger av den sena läsningen för A/B-test. Mätt kostnad, tid till submit och fasvinst är apptider, inte fördröjning för hela kedjan från mus till skärm. |
 | `cl_fov` | float | `90` | `45..140` | Q3/QL FOV-baseline `90` | Arkiv | First-person field of view. |
 | `cl_zoom_fov` | float | `45` | `20..140` | Q3 `cg_zoomfov 22.5`, men projektet använder egen baseline | Arkiv | Field of view medan allmän `+zoom` hålls. Påverkar inte Sniper Rifle ADS. |
 | `cl_zoom_sniper_fov` | float | `45` | `20..140` | Projektets tidigare Sniper Rifle baseline | Arkiv | Field of view för Sniper Rifle ADS. Oberoende av `cl_zoom_fov`; scope-masken ändrar inte form eller plats. |

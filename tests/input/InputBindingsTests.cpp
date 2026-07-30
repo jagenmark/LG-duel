@@ -78,6 +78,68 @@ int main() {
     nearlyEqual(delta.yawRadians, 2.0F * lg::kBaseMouseSensitivityRadians * 4.02F),
     "accelerated yaw delta should use the QL-scale effective sensitivity"
   );
+  const lg::MouseAimDelta earlyDelta =
+    lg::quakeLiveMouseAimDelta(4.0F, 3.0F, 0.008F, mouseAim);
+  const lg::MouseAimDelta combinedDelta =
+    lg::quakeLiveMouseAimDelta(6.0F, 4.0F, 0.008F, mouseAim);
+  const lg::MouseAimDelta lateCorrection =
+    lg::quakeLiveLateMouseAimCorrection(
+      4.0F,
+      3.0F,
+      2.0F,
+      1.0F,
+      0.008F,
+      mouseAim,
+      0.0F,
+      -1.5F,
+      1.5F
+    );
+  failures += expect(
+    nearlyEqual(
+      earlyDelta.yawRadians + lateCorrection.yawRadians,
+      combinedDelta.yawRadians
+    ) &&
+      nearlyEqual(
+        earlyDelta.pitchRadians + lateCorrection.pitchRadians,
+        combinedDelta.pitchRadians
+      ),
+    "late mouse correction should match one accelerated combined sample"
+  );
+  lg::MouseAimSettings unacceleratedMouseAim;
+  const float maximumPitchRadians = 1.0F;
+  const float pitchPerCount =
+    lg::kBaseMouseSensitivityRadians * unacceleratedMouseAim.sensitivity;
+  const float pitchBeforeEarlySample = maximumPitchRadians - pitchPerCount;
+  const lg::MouseAimDelta clampedLateCorrection =
+    lg::quakeLiveLateMouseAimCorrection(
+      0.0F,
+      -10.0F,
+      0.0F,
+      9.0F,
+      0.008F,
+      unacceleratedMouseAim,
+      pitchBeforeEarlySample,
+      -maximumPitchRadians,
+      maximumPitchRadians
+    );
+  const lg::MouseAimDelta clampedEarlyDelta =
+    lg::quakeLiveMouseAimDelta(
+      0.0F,
+      -10.0F,
+      0.008F,
+      unacceleratedMouseAim
+    );
+  const float clampedEarlyPitch = std::fmin(
+    maximumPitchRadians,
+    pitchBeforeEarlySample - clampedEarlyDelta.pitchRadians
+  );
+  failures += expect(
+    nearlyEqual(
+      clampedEarlyPitch - clampedLateCorrection.pitchRadians,
+      maximumPitchRadians
+    ),
+    "late mouse correction should match a combined sample at the pitch limit"
+  );
   lg::InputBindings bindings;
 
   failures += expect(bindings.bind("A", "+moveleft"), "binding should accept a key");
