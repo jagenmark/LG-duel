@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260731T121714Z-sun-shadow-guard-static-after-02",
+  "captured_at": "2026-07-31T12:17:14Z",
+  "captured_by": "graphics-optimization-benchmark",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed 1280x720 EyeToEye static-baseline view on the Default profile after guarding back-facing sun-shadow lookups.",
+  "image": "20260731T121714Z-sun-shadow-guard-static-after-02.png",
+  "review": {
+    "notes": "Independent review found no geometry, lighting, readability, aliasing, texture, or artifact change. The matched before image is byte-identical.",
+    "reviewed_at": "2026-07-31T12:19:00Z",
+    "reviewer": "visual_guard_reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "e5f5a3889801fb51d965c3396e2ee7d96df3cd5533c8ee37bd0830d8446003b6",
+  "size_bytes": 3687468,
+  "task_id": "graphics-optimization",
+  "title": "Sun-shadow lookup guard after: EyeToEye static view"
+}
