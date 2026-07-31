@@ -133,6 +133,21 @@ THUNDERSTRUCK_LIGHTS = {
     "-472 -1048 -770": ("255 220 180", "0.45", "1000"),
 }
 
+THUNDERSTRUCK_AMBIENT_INTENSITY = "0.42"
+THUNDERSTRUCK_SUN_INTENSITY = "0.85"
+THUNDERSTRUCK_SHADOW_LIGHTS = {
+    "56 -48 -976": {
+        "casts_shadows": "1",
+        "source_radius": "64",
+        "priority": "20",
+    },
+    "-216 -392 -882": {
+        "casts_shadows": "1",
+        "source_radius": "64",
+        "priority": "20",
+    },
+}
+
 
 def split_lines(text: str) -> list[str]:
     return text.replace("\r\n", "\n").splitlines()
@@ -178,13 +193,19 @@ def replace_light_entity(
 ) -> list[str]:
     opening = next(index for index in range(start, end) if lines[index] == "{")
     closing = max(index for index in range(start, end) if lines[index] == "}")
-    order = ("classname", "origin", "direction", "color", "intensity", "radius")
+    order = (
+        "classname", "origin", "direction", "color", "intensity", "radius",
+        "casts_shadows", "source_radius", "priority",
+    )
     body = [f'"{key}" "{desired[key]}"' for key in order if key in desired]
     return lines[: opening + 1] + body + lines[closing:]
 
 
 def light_entity_lines(desired: dict[str, str]) -> list[str]:
-    order = ("classname", "origin", "direction", "color", "intensity", "radius")
+    order = (
+        "classname", "origin", "direction", "color", "intensity", "radius",
+        "casts_shadows", "source_radius", "priority",
+    )
     return ["{", *(f'"{key}" "{desired[key]}"' for key in order if key in desired), "}"]
 
 
@@ -299,6 +320,23 @@ def transform_thunderstruck_lights(text: str) -> str:
     lines = split_lines(text)
     found: set[str] = set()
     insert_at = None
+    ambient_insert_at = None
+    for start, end in entity_ranges(lines):
+        props = properties(lines, start, end)
+        if props.get("classname") != "worldspawn":
+            continue
+        for index in range(start + 1, end):
+            match = PROPERTY_RE.match(lines[index])
+            if match and match.group(1) == "lg_bounds_max":
+                ambient_insert_at = index + 1
+                break
+        break
+    if ambient_insert_at is None:
+        raise AssertionError("Thunderstruck worldspawn bounds insertion point not found")
+    lines.insert(
+        ambient_insert_at,
+        f'"lg_ambient_intensity" "{THUNDERSTRUCK_AMBIENT_INTENSITY}"',
+    )
     for start, end in reversed(entity_ranges(lines)):
         props = properties(lines, start, end)
         origin = props.get("origin")
@@ -312,6 +350,7 @@ def transform_thunderstruck_lights(text: str) -> str:
             "intensity": intensity,
             "radius": radius,
         }
+        desired.update(THUNDERSTRUCK_SHADOW_LIGHTS.get(origin, {}))
         found.add(origin)
         lines = replace_light_entity(lines, start, end, desired)
     if found != set(THUNDERSTRUCK_LIGHTS):
@@ -334,7 +373,7 @@ def transform_thunderstruck_lights(text: str) -> str:
         '"classname" "light_sun"',
         '"direction" "0.25 -0.45 -1"',
         '"color" "235 240 246"',
-        '"intensity" "0.45"',
+        f'"intensity" "{THUNDERSTRUCK_SUN_INTENSITY}"',
         "}",
     ]
     lines[insert_at:insert_at] = sun

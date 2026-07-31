@@ -6,6 +6,7 @@
 "lg_sky" "aurora"
 "lg_bounds_min" "-10000 -10000 -10000"
 "lg_bounds_max" "10000 10000 11000"
+"lg_ambient_intensity" "0.42"
 // brush 0
 {
 ( -64 -120 -1310 ) ( -64 -119 -1310 ) ( -64 -120 -1309.0764705882352 ) Tiny/Bricks/Bricks_25-128x128 0 0 0 1 1
@@ -1962,6 +1963,9 @@
 "color" "255 226 196"
 "intensity" "0.45"
 "radius" "720"
+"casts_shadows" "1"
+"source_radius" "64"
+"priority" "20"
 }
 // entity 8
 {
@@ -2011,6 +2015,9 @@
 "color" "245 235 218"
 "intensity" "0.40"
 "radius" "900"
+"casts_shadows" "1"
+"source_radius" "64"
+"priority" "20"
 }
 // entity 15
 {
@@ -2025,7 +2032,7 @@
 "classname" "light_sun"
 "direction" "0.25 -0.45 -1"
 "color" "235 240 246"
-"intensity" "0.45"
+"intensity" "0.85"
 }
 // entity 16
 {
