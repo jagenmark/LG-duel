@@ -515,6 +515,76 @@
             520
           ],
           "radius": 900
+        },
+        {
+          "color": [
+            168,
+            202,
+            255
+          ],
+          "intensity": 1.1,
+          "origin": [
+            0,
+            -360,
+            440
+          ],
+          "radius": 1600
+        },
+        {
+          "color": [
+            176,
+            208,
+            255
+          ],
+          "intensity": 1.05,
+          "origin": [
+            640,
+            360,
+            760
+          ],
+          "radius": 1600
+        },
+        {
+          "color": [
+            185,
+            210,
+            255
+          ],
+          "intensity": 1.0,
+          "origin": [
+            640,
+            -1040,
+            440
+          ],
+          "radius": 1500
+        },
+        {
+          "color": [
+            190,
+            216,
+            255
+          ],
+          "intensity": 1.1,
+          "origin": [
+            -1300,
+            -920,
+            400
+          ],
+          "radius": 1200
+        },
+        {
+          "color": [
+            190,
+            214,
+            255
+          ],
+          "intensity": 0.75,
+          "origin": [
+            1184,
+            1760,
+            360
+          ],
+          "radius": 1000
         }
       ],
       "marker_boxes": [
@@ -1019,6 +1089,7 @@
           408
         ]
       ],
+      "sky": "crimson-sunset",
       "source_bsp_sha256": "ee3c8d361b148db8399d15369e3a47c128c4b5f91a1956757be5b0b5e68b7133",
       "source_file": "overkill.json",
       "sun": {
@@ -35928,10 +35999,10 @@
     "placeholder_materials": [],
     "projected_counts": {
       "convex_brushes": 994,
-      "entities": 2070,
+      "entities": 2075,
       "health_pickups": 16,
       "jump_pads": 5,
-      "lights": 6,
+      "lights": 11,
       "spawns": 32,
       "teleports": 1,
       "walls": 1251
@@ -36061,7 +36132,7 @@
     "converted": {
       "health_pickups": 16,
       "jump_pads": 5,
-      "lights": 6,
+      "lights": 11,
       "spawns": 32,
       "sun_lights": 1,
       "target_positions": 6,
@@ -36298,8 +36369,8 @@
   "outputs": {
     "candidate_map": {
       "name": "overkill_import.map",
-      "sha256": "c8221d86af6adff2bcba11568ed7bbc5854c6a91d7df78b2b92e80564a438c8e",
-      "size": 1729588
+      "sha256": "a64d55fc8efc70e04020ab1fc4a049992e946e57b5597bf9844818f4c629649a",
+      "size": 1724089
     }
   },
   "schema_version": 2,

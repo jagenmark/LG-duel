@@ -162,6 +162,24 @@ struct TargetPosition {
   return isPlayerClipMaterial(material) || isWeaponClipMaterial(material);
 }
 
+[[nodiscard]] ArenaSurfaceKind surfaceKindForMaterial(
+  std::string_view material
+) {
+  return normalizedMaterialName(material) == "common/sky"
+    ? ArenaSurfaceKind::Sky
+    : ArenaSurfaceKind::Default;
+}
+
+[[nodiscard]] SkyId parseSkyId(std::string_view value) {
+  if (value == "aurora") {
+    return SkyId::Aurora;
+  }
+  if (value == "crimson-sunset") {
+    return SkyId::CrimsonSunset;
+  }
+  return SkyId::None;
+}
+
 [[nodiscard]] bool brushHasCollisionOnlyMaterial(const MapBrush& brush) {
   return std::any_of(
     brush.faces.begin(),
@@ -725,6 +743,8 @@ void clearRenderableMaterial(ArenaBrush& brush) {
       : 1U;
     const std::size_t faceIndex = cuboidSceneFaceIndex(axis, side);
     wall.faceMaterialIds[faceIndex] = arenaMaterialId(face.material);
+    wall.faceSurfaceKinds[faceIndex] =
+      surfaceKindForMaterial(face.material);
     Vec3 normal = {};
     if (axis == 0) {
       normal.x = side == 0U ? -1.0F : 1.0F;
@@ -1000,6 +1020,7 @@ void sortFaceVertices(ArenaBrush& brush, ArenaBrushFace& face) {
     face.distance = distance;
     face.materialId = arenaMaterialId(mapFace.material);
     face.textureProjection = textureProjectionForFace(normal, mapFace);
+    face.surfaceKind = surfaceKindForMaterial(mapFace.material);
     if (arenaBrush.materialId == 0U && face.materialId != 0U) {
       arenaBrush.materialId = face.materialId;
     }
@@ -1788,6 +1809,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
   Vec3 boundsMin = {};
   Vec3 boundsMax = {};
   bool sourceBoundImport = false;
+  SkyId skyId = SkyId::None;
 
   // A source-bound import is auditable only if every emitted source brush can
   // be traced back to the exact decompile. Ordinary hand-authored maps remain
@@ -1841,6 +1863,11 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
 
     if (*classname == "worldspawn") {
       std::string error;
+      if (const std::string* value = entity.property("lg_sky")) {
+        // Sky selection is presentation-only. Unknown values keep the legacy
+        // clear colour so old and hand-edited maps remain loadable.
+        skyId = parseSkyId(*value);
+      }
       if (const std::string* value = entity.property("lg_bounds_min")) {
         if (!parseSpaceVec3(*value, boundsMin)) {
           return {{}, false, "line " + std::to_string(entity.line) + ": lg_bounds_min must be 'x y z'"};
@@ -2200,6 +2227,8 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
       result.arena.walls[index].faceMaterialIds = walls[index].faceMaterialIds;
       result.arena.walls[index].faceTextureProjections =
         walls[index].faceTextureProjections;
+      result.arena.walls[index].faceSurfaceKinds =
+        walls[index].faceSurfaceKinds;
       result.arena.walls[index].collisionKind = walls[index].collisionKind;
       result.arena.walls[index].sourceEntityIndex = walls[index].sourceEntityIndex;
       result.arena.walls[index].sourceBrushIndex = walls[index].sourceBrushIndex;
@@ -2223,6 +2252,7 @@ ArenaLoadResult convertMapDocumentToArena(const MapDocument& document) {
     }
     result.arena.ambientLight = ambientLight;
     result.arena.sunLight = sunLight;
+    result.arena.skyId = skyId;
     result.arena.jumpPadCount = jumpPads.size();
     for (std::size_t index = 0; index < result.arena.jumpPadCount; ++index) {
       result.arena.jumpPads[index] = jumpPads[index];

@@ -1,6 +1,7 @@
 #include "sim/MapRegistry.hpp"
 #include "sim/ArenaBroadphase.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cctype>
 #include <filesystem>
@@ -44,6 +45,79 @@ void hashTextureProjection(std::uint32_t& hash, const TextureProjection& project
   hashFloat(hash, projection.uScale);
   hashFloat(hash, projection.vScale);
   hashU32(hash, projection.valid ? 1U : 0U);
+}
+
+[[nodiscard]] bool hasSkyHashExtension(const Arena& arena) {
+  if (arena.skyId != SkyId::None) {
+    return true;
+  }
+  const auto wallHasSky = [](const ArenaWall& wall) {
+    return std::any_of(
+      wall.faceSurfaceKinds.begin(),
+      wall.faceSurfaceKinds.end(),
+      [](ArenaSurfaceKind kind) { return kind != ArenaSurfaceKind::Default; }
+    );
+  };
+  const auto brushHasSky = [](const ArenaBrush& brush) {
+    for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+      if (brush.faces[index].surfaceKind != ArenaSurfaceKind::Default) {
+        return true;
+      }
+    }
+    return false;
+  };
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (wallHasSky(arena.walls[index])) {
+      return true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (brushHasSky(arena.brushes[index])) {
+      return true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    if (wallHasSky(arena.visualWalls[index])) {
+      return true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+    if (brushHasSky(arena.visualBrushes[index])) {
+      return true;
+    }
+  }
+  return false;
+}
+
+void hashSkyExtension(std::uint32_t& hash, const Arena& arena) {
+  // This suffix preserves every legacy no-sky map hash byte for byte.
+  hashU32(hash, 0x534B5931U); // SKY1
+  hashU32(hash, static_cast<std::uint32_t>(arena.skyId));
+  const auto hashWall = [&hash](const ArenaWall& wall) {
+    for (ArenaSurfaceKind kind : wall.faceSurfaceKinds) {
+      hashU32(hash, static_cast<std::uint32_t>(kind));
+    }
+  };
+  const auto hashBrush = [&hash](const ArenaBrush& brush) {
+    for (std::uint8_t index = 0; index < brush.faceCount; ++index) {
+      hashU32(
+        hash,
+        static_cast<std::uint32_t>(brush.faces[index].surfaceKind)
+      );
+    }
+  };
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    hashWall(arena.walls[index]);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    hashBrush(arena.brushes[index]);
+  }
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    hashWall(arena.visualWalls[index]);
+  }
+  for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+    hashBrush(arena.visualBrushes[index]);
+  }
 }
 
 std::filesystem::path resolveMapDirectory(const std::string& mapDirectory) {
@@ -256,6 +330,9 @@ std::uint32_t hashArena(const Arena& arena) {
     const ArenaHealthPickup& pickup = arena.healthPickups[index];
     hashVec3(hash, pickup.position);
     hashU32(hash, static_cast<std::uint32_t>(pickup.type));
+  }
+  if (hasSkyHashExtension(arena)) {
+    hashSkyExtension(hash, arena);
   }
   return hash == 0U ? 1U : hash;
 }

@@ -11015,6 +11015,10 @@ int GameApp::run() const {
         dev::JsonValue::numberValue(
           captureRender.explosionInstancesSubmitted
         );
+      captureFrameState.object["renderer_sky_draw_calls"] =
+        dev::JsonValue::numberValue(captureRender.skyDrawCalls);
+      captureFrameState.object["renderer_sky_loaded_textures"] =
+        dev::JsonValue::numberValue(captureRender.skyLoadedTextures);
       const std::filesystem::path& completedCapturePath = phaseFrameCapture
         ? armedPhaseCapture->path
         : activeControlOperation->pendingCapturePath;

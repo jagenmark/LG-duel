@@ -27,6 +27,12 @@ Runtime maps are restricted Quake/TrenchBroom `.map` files parsed by `loadArenaF
   volumes. See `docs/MCGUFFIN-SPEC.md` for the full map contract.
 - `worldspawn` can set `lg_ambient_color` and `lg_ambient_intensity` for
   map-wide fill light.
+- `worldspawn` can set the optional `lg_sky` key. Accepted values are
+  `aurora` and `crimson-sunset`. Missing values, `none`, `off`, and unknown
+  values select no sky.
+- A face whose normalized material name is exactly `common/sky` or
+  `textures/common/sky` is a sky opening. It keeps all solid, trace, and map
+  data, but static scene building skips that face. Similar names do not count.
 - `light`/`light_point` become static local lights. Managed lights can also set
   shadow casting, source radius, priority, and fixed-seed flicker. A flickering
   light changes its strength, not its static shadow shape.
@@ -63,13 +69,30 @@ and spawn edits on hand maps remain TrenchBroom work.
 
 ## Collision Vs Render Data
 
-Collision and traces use `ArenaWall` AABBs and `ArenaBrush` convex planes/vertices. Rendering uses the same structures plus material ids, face material ids, texture projections, light data, and a `renderable` bit. Playerclip solids keep collision data but skip render geometry. `ArenaJumpPad` data is not solid, is not rendered, and is checked only by movement. There is no separate server-only collision asset yet, so avoid adding render-only heavyweight data to `Arena` unless it is revision-gated and justified.
+Collision and traces use `ArenaWall` AABBs and `ArenaBrush` convex
+planes/vertices. Rendering uses the same structures plus material ids, face
+material ids, texture projections, light data, a `renderable` bit, and a small
+per-face surface kind. A sky face stays solid for movement and combat but does
+not add static mesh triangles. Playerclip solids keep collision data but skip
+render geometry. `ArenaJumpPad` data is not solid, is not rendered, and is
+checked only by movement. There is no separate server-only collision asset
+yet, so avoid adding render-only large data to `Arena` unless it has a clear
+version and need.
 
 ## Units, Materials, And Textures
 
 Quake map units convert to LG units with `1 / 40`. Texture projection stores Quake-space axes/offsets/scales and rendering multiplies LG positions back by 40 for UV generation.
 
 Materials are hashed/stable ids from material paths. Renderer texture loading expects PNGs under `textures`, with aliases both including and excluding `.png`. Windows packages copy only texture PNGs referenced by at least one map face, so new map materials must resolve under `textures`. Packaged builds also rely on shaders under `assets/shaders` and audio/model assets under `assets`.
+
+The Q3 importer keeps `common/sky` only when every face in a source brush uses
+a `skies/` material. A mixed brush uses the normal imported wall material on
+all faces. This keeps a mixed visual brush closed.
+
+Sky source panoramas, face rules, hashes, and rebuild commands are in
+`assets/sky/README.md`. The source panoramas never ship. Only the client build
+and Windows client package copy the cube faces and sky shaders. The server and
+headless checks do not need them.
 
 `textures/common/playerclip.png` is an editor-only visible tool texture. Mapper workflow for smoothing stairs:
 

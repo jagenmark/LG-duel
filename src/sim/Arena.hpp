@@ -33,6 +33,17 @@ enum class ArenaCollisionKind : std::uint8_t {
   WeaponClip = 2,
 };
 
+enum class SkyId : std::uint8_t {
+  None = 0,
+  Aurora = 1,
+  CrimsonSunset = 2,
+};
+
+enum class ArenaSurfaceKind : std::uint8_t {
+  Default = 0,
+  Sky = 1,
+};
+
 struct TextureProjection {
   Vec3 uAxis = {};
   Vec3 vAxis = {};
@@ -50,6 +61,7 @@ struct ArenaWall {
   std::uint32_t materialId = 0;
   std::array<std::uint32_t, 6> faceMaterialIds = {};
   std::array<TextureProjection, 6> faceTextureProjections = {};
+  std::array<ArenaSurfaceKind, 6> faceSurfaceKinds = {};
   ArenaCollisionKind collisionKind = ArenaCollisionKind::VisibleSolid;
   std::uint32_t sourceEntityIndex = kInvalidSourceGeometryIndex;
   std::uint32_t sourceBrushIndex = kInvalidSourceGeometryIndex;
@@ -65,6 +77,7 @@ struct ArenaBrushFace {
   float distance = 0.0F;
   std::uint32_t materialId = 0;
   TextureProjection textureProjection = {};
+  ArenaSurfaceKind surfaceKind = ArenaSurfaceKind::Default;
   std::array<std::uint8_t, kMaxVertices> vertices = {};
   std::uint8_t vertexCount = 0;
 };
@@ -215,6 +228,7 @@ struct Arena {
   // Hand-made test maps use the plain ground grid. Source-bound imports own
   // every visible floor and must not receive a second face at world z = 0.
   bool renderDefaultFloor = true;
+  SkyId skyId = SkyId::None;
   // Active prefixes preserve authored order. Geometry is heap-backed to keep
   // Arena small on the stack, but collision still scales linearly with counts.
   BoundedArenaStorage<ArenaWall, kWallCount> walls = {};

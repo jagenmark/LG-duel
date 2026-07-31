@@ -1163,6 +1163,9 @@ void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
     0.62F, 1.0F, 0.76F, 0.88F, 0.70F, 0.82F,
   };
   for (std::size_t index = 0; index < faces.size(); ++index) {
+    if (wall.faceSurfaceKinds[index] == ArenaSurfaceKind::Sky) {
+      continue;
+    }
     const auto& face = faces[index];
     const int faceAxis = index < 2 ? 2 : index < 4 ? 1 : 0;
     const std::uint32_t materialId = index < wall.faceMaterialIds.size() &&
@@ -1208,7 +1211,10 @@ void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
 void addArenaBrush(Scene3D& scene, const Arena& arena, const ArenaBrush& brush) {
   for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
     const ArenaBrushFace& face = brush.faces[faceIndex];
-    if (face.vertexCount < 3) {
+    if (
+      face.vertexCount < 3 ||
+      face.surfaceKind == ArenaSurfaceKind::Sky
+    ) {
       continue;
     }
     const std::uint32_t materialId = face.materialId != 0U ? face.materialId : brush.materialId;

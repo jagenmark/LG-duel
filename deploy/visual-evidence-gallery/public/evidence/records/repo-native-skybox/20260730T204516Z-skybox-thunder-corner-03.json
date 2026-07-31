@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260730T204516Z-skybox-thunder-corner-03",
+  "captured_at": "2026-07-30T20:45:16Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed outside-map camera toward a cube corner at 1280x720, FOV 90, Default profile, bloom off, and verified SDL_GPU/Vulkan. This checks cube continuity only; it does not prove playable-route sky openings.",
+  "image": "20260730T204516Z-skybox-thunder-corner-03.png",
+  "review": {
+    "notes": "No visible pinch, star burst, fold, sampling gap, or tonal break at the tested three-way corner. This supports only the tested cube-corner claim.",
+    "reviewed_at": "2026-07-30T20:49:54Z",
+    "reviewer": "sky-visual-review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "d9082dda6c17de660edbef2eae2c7ff52443fcf31e540cbaa71bc97e5f36dfb1",
+  "size_bytes": 3687468,
+  "task_id": "repo-native-skybox",
+  "title": "Thunderstruck aurora cube corner"
+}

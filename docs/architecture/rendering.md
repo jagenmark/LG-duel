@@ -8,6 +8,11 @@ Rendering is presentation-only. The renderer consumes arena data, predicted/inte
 
 3D scene geometry is built in `src/render/Scene3D.*`. `buildStaticWorldScene()` creates arena floor/bounds/renderable walls/renderable brushes with material ids, UVs, and static light coloring. Collision-only playerclip solids remain in arena data but are skipped before static lighting and vertex emission. `buildPerspectiveScene()` creates the first-person camera scene: dynamic players, weapons, beams, hitscan traces, projectile visuals, explosions, and optional lag-compensation bounds.
 
+Faces marked as sky openings keep their collision planes but do not add
+triangles to any static world mesh output. This rule covers the main world
+pass, depth, shadows, visibility chunks, material batches, and wire data made
+from that static scene.
+
 Screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`, `BitmapFont.*`, and the retained 2D draw-list/overlay pipeline.
 
 ## GPU And Fallback Paths
@@ -17,6 +22,24 @@ Screen-space UI uses `src/render/ScreenUi.*`, `ConsoleLayout.*`, `ChatLayout.*`,
 The SDL_GPU path caches static world geometry in `StaticWorldMesh`, keyed by `arenaStaticWorldFingerprint()`. It builds a renderer-owned BVH over immutable triangle chunks and packs those chunks material-major without changing collision or gameplay authority. Experimental `r_world_frustum_cull 1` queries that BVH, but adaptively retains full material batches unless triangle savings justify extra ranges. It remains opt-in until the measured flythrough beats the `0` control path. Dynamic 3D vertices are rebuilt/uploaded per frame into a bounded scratch path, followed by a 2D overlay pass for HUD, console, chat, scoreboard, settings, crosshair, and screen-space combat UI.
 
 The SDL_Renderer fallback draws immediate geometry and does not have the same static-world GPU cache. It is simpler but less representative of the intended high-performance 3D path.
+
+## GPU Sky
+
+An arena may pick one client sky cube. SDL_GPU draws it as a full-screen
+triangle at the start of the main world pass. The ray data has camera right,
+up, forward, focal length, and aspect ratio. It has no camera position, so
+moving the camera cannot move the sky. The sky pipeline has no vertex buffer,
+blend, depth test, depth write, shadow input, or world light input.
+
+The HDR path writes linear sky color into the scene target before later tone
+mapping. The direct path uses its display curve in the sky shader. The HDR
+pipeline uses the active main-pass sample count, including MSAA rebuilds.
+
+The renderer loads a selected cube only on first use and keeps one load state
+per sky id. It reuses a loaded texture across map changes. It also remembers a
+failed load, so a missing or bad asset does not cause file work each frame. A
+failed load leaves the normal clear color in place and does not stop the
+client.
 
 Opt-in developer captures use the real final render target. SDL_Renderer reads
 pixels immediately before present. SDL_GPU schedules a swapchain-to-download

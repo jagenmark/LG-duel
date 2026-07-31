@@ -1097,6 +1097,15 @@ def _format_number(value: float) -> str:
     return format(value, ".9g")
 
 
+def _format_light_intensity(value: int | float) -> str:
+    formatted = _format_number(float(value))
+    if isinstance(value, float) and value.is_integer():
+        # JSON keeps 1 and 1.0 as int and float. Keep that authored spelling
+        # for lights already reviewed in the checked-in map.
+        return formatted + ".0"
+    return formatted
+
+
 def _quote(value: str) -> str:
     return value.replace("\\", "\\\\").replace('"', '\\"')
 
@@ -1110,12 +1119,17 @@ def _emit_brush(
 ) -> list[str]:
     lines = ["{"]
     materials_by_role = adaptation.get("materials", {}) if adaptation else {}
+    all_sky = bool(brush.faces) and all(
+        _normalize_material(face.material).startswith("skies/")
+        for face in brush.faces
+    )
     for face in brush.faces:
         points = " ".join("( " + " ".join(_format_number(value) for value in point) + " )" for point in face.points)
         material = (
             "common/trigger" if trigger else
             "common/playerclip" if classification == "playerclip" else
             "common/weapclip" if classification == "weapclip" else
+            "common/sky" if all_sky else
             str(materials_by_role[material_role]) if material_role else
             _adapted_material(face.material, adaptation)
         )
@@ -1155,6 +1169,11 @@ def convert(
 ) -> tuple[str, dict[str, object]]:
     raw_sha256 = _sha256(raw_text.encode("utf-8"))
     _validate_adaptation_binding(adaptation, raw_sha256, bsp)
+    sky = adaptation.get("sky") if adaptation else None
+    if sky is not None and sky not in {"aurora", "crimson-sunset"}:
+        raise ConversionError(
+            "adaptation sky must be 'aurora' or 'crimson-sunset'"
+        )
     entities = parse_map(raw_text)
     classnames = collections.Counter(entity.get("classname") or "<missing>" for entity in entities)
     materials = _material_counter(entities)
@@ -1490,7 +1509,7 @@ def convert(
                 ("classname", "light"),
                 ("origin", " ".join(_format_number(float(value)) for value in origin)),
                 ("color", " ".join(_format_number(float(value)) for value in color)),
-                ("intensity", _format_number(float(intensity))),
+                ("intensity", _format_light_intensity(intensity)),
                 ("radius", _format_number(float(radius))),
             ], [], False))
             converted_counts["lights"] += 1
@@ -1539,6 +1558,7 @@ def convert(
         bounds_min, bounds_max = (-4096.0,) * 3, (4096.0,) * 3
     world_properties = [
         ("classname", "worldspawn"),
+        *([("lg_sky", str(sky))] if sky is not None else []),
         ("lg_bounds_min", " ".join(_format_number(value - 40.0) for value in bounds_min)),
         ("lg_bounds_max", " ".join(_format_number(value + 40.0) for value in bounds_max)),
         ("lg_source_bsp_sha256", str(bsp.get("sha256", ""))),

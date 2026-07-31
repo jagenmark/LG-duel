@@ -5,6 +5,7 @@
 #include "render/BitmapFont.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/Scene3D.hpp"
+#include "render/Sky.hpp"
 #include "render/ScreenUi.hpp"
 #include "render/Perspective.hpp"
 #include "render/WorldVisibility.hpp"
@@ -544,6 +545,12 @@ struct GpuSimpleResources {
   SDL_GPUSampler* weaponEnvironmentSampler = nullptr;
 };
 
+struct GpuSkyResources {
+  SkyAssetLoadCache cache;
+  std::array<SDL_GPUTexture*, 3> textures = {};
+  SDL_GPUSampler* sampler = nullptr;
+};
+
 void destroyTextureAtlas(SDL_GPUDevice* device, TextureAtlas* atlas) {
   if (atlas == nullptr) {
     return;
@@ -631,6 +638,24 @@ void destroyGpuSimpleResources(SDL_GPUDevice* device, GpuSimpleResources* resour
   }
   destroyGpuInstanceBuffer(device, resources->instances);
   destroyGpuStaticInstanceBuffer(device, resources->staticInstances);
+  delete resources;
+}
+
+void destroyGpuSkyResources(
+  SDL_GPUDevice* device,
+  GpuSkyResources* resources
+) {
+  if (resources == nullptr) {
+    return;
+  }
+  for (SDL_GPUTexture* texture : resources->textures) {
+    if (texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, texture);
+    }
+  }
+  if (resources->sampler != nullptr) {
+    SDL_ReleaseGPUSampler(device, resources->sampler);
+  }
   delete resources;
 }
 
@@ -1073,6 +1098,7 @@ void collectTextureMaterialFiles(
   hash = hashCombine(hash, arena.brushCount);
   hash = hashCombine(hash, arena.visualWallCount);
   hash = hashCombine(hash, arena.visualBrushCount);
+  hash = hashCombine(hash, arenaSkySurfaceFingerprint(arena));
   hash = hashCombine(hash, arena.staticLightCount);
   hash = hashCombine(hash, arena.renderDefaultFloor ? 1U : 0U);
   const auto hashFloat = [](float value) {
@@ -1489,6 +1515,195 @@ void collectTextureMaterialFiles(
   return true;
 }
 
+[[nodiscard]] std::string_view skyAssetName(SkyId sky) {
+  switch (sky) {
+  case SkyId::Aurora: return "aurora";
+  case SkyId::CrimsonSunset: return "crimson-sunset";
+  case SkyId::None: break;
+  }
+  return {};
+}
+
+[[nodiscard]] SDL_GPUTexture* loadSkyCubemap(
+  SDL_GPUDevice* device,
+  SkyId sky
+) {
+  constexpr Uint32 kFaceSize = 512U;
+  constexpr Uint32 kFaceCount = 6U;
+  constexpr std::size_t kFaceBytes =
+    static_cast<std::size_t>(kFaceSize) * kFaceSize * 4U;
+  constexpr std::array<std::string_view, kFaceCount> kFaceNames = {{
+    "posx.png", "negx.png", "posy.png",
+    "negy.png", "posz.png", "negz.png",
+  }};
+  const std::string_view assetName = skyAssetName(sky);
+  if (assetName.empty()) {
+    return nullptr;
+  }
+
+  std::vector<std::uint8_t> pixels(kFaceBytes * kFaceCount);
+  for (std::size_t face = 0; face < kFaceNames.size(); ++face) {
+    const std::filesystem::path path =
+      std::filesystem::path(basePath()) /
+      "sky" /
+      assetName /
+      kFaceNames[face];
+    SDL_Surface* loaded = SDL_LoadPNG(path.string().c_str());
+    if (loaded == nullptr) {
+      return nullptr;
+    }
+    SDL_Surface* converted =
+      SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
+    SDL_DestroySurface(loaded);
+    if (
+      converted == nullptr ||
+      converted->w != static_cast<int>(kFaceSize) ||
+      converted->h != static_cast<int>(kFaceSize)
+    ) {
+      if (converted != nullptr) {
+        SDL_DestroySurface(converted);
+      }
+      return nullptr;
+    }
+    const auto* source =
+      static_cast<const std::uint8_t*>(converted->pixels);
+    auto* destination = pixels.data() + face * kFaceBytes;
+    for (Uint32 y = 0; y < kFaceSize; ++y) {
+      std::memcpy(
+        destination + static_cast<std::size_t>(y) * kFaceSize * 4U,
+        source + static_cast<std::size_t>(y) * converted->pitch,
+        static_cast<std::size_t>(kFaceSize) * 4U
+      );
+    }
+    SDL_DestroySurface(converted);
+  }
+
+  const SDL_GPUTextureCreateInfo textureInfo = {
+    SDL_GPU_TEXTURETYPE_CUBE,
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+    SDL_GPU_TEXTUREUSAGE_SAMPLER,
+    kFaceSize,
+    kFaceSize,
+    kFaceCount,
+    1U,
+    SDL_GPU_SAMPLECOUNT_1,
+    0,
+  };
+  SDL_GPUTexture* texture = SDL_CreateGPUTexture(device, &textureInfo);
+  const SDL_GPUTransferBufferCreateInfo transferInfo = {
+    SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+    static_cast<Uint32>(pixels.size()),
+    0,
+  };
+  SDL_GPUTransferBuffer* transfer =
+    SDL_CreateGPUTransferBuffer(device, &transferInfo);
+  void* mapped = transfer != nullptr
+    ? SDL_MapGPUTransferBuffer(device, transfer, false)
+    : nullptr;
+  if (texture == nullptr || mapped == nullptr) {
+    if (transfer != nullptr) {
+      SDL_ReleaseGPUTransferBuffer(device, transfer);
+    }
+    if (texture != nullptr) {
+      SDL_ReleaseGPUTexture(device, texture);
+    }
+    return nullptr;
+  }
+  std::memcpy(mapped, pixels.data(), pixels.size());
+  SDL_UnmapGPUTransferBuffer(device, transfer);
+
+  SDL_GPUCommandBuffer* commandBuffer =
+    SDL_AcquireGPUCommandBuffer(device);
+  SDL_GPUCopyPass* copyPass = commandBuffer != nullptr
+    ? SDL_BeginGPUCopyPass(commandBuffer)
+    : nullptr;
+  if (copyPass == nullptr) {
+    if (commandBuffer != nullptr) {
+      (void)SDL_CancelGPUCommandBuffer(commandBuffer);
+    }
+    SDL_ReleaseGPUTransferBuffer(device, transfer);
+    SDL_ReleaseGPUTexture(device, texture);
+    return nullptr;
+  }
+  for (Uint32 face = 0; face < kFaceCount; ++face) {
+    const SDL_GPUTextureTransferInfo source = {
+      transfer,
+      face * static_cast<Uint32>(kFaceBytes),
+      kFaceSize,
+      kFaceSize,
+    };
+    const SDL_GPUTextureRegion destination = {
+      texture,
+      0,
+      face,
+      0,
+      0,
+      0,
+      kFaceSize,
+      kFaceSize,
+      1,
+    };
+    SDL_UploadToGPUTexture(copyPass, &source, &destination, false);
+  }
+  SDL_EndGPUCopyPass(copyPass);
+  const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
+  SDL_ReleaseGPUTransferBuffer(device, transfer);
+  if (!submitted) {
+    SDL_ReleaseGPUTexture(device, texture);
+    return nullptr;
+  }
+  return texture;
+}
+
+[[nodiscard]] SDL_GPUSampler* createSkySampler(SDL_GPUDevice* device) {
+  const SDL_GPUSamplerCreateInfo samplerInfo = {
+    SDL_GPU_FILTER_LINEAR,
+    SDL_GPU_FILTER_LINEAR,
+    SDL_GPU_SAMPLERMIPMAPMODE_NEAREST,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    0.0F,
+    1.0F,
+    SDL_GPU_COMPAREOP_ALWAYS,
+    0.0F,
+    0.0F,
+    false,
+    false,
+    0,
+    0,
+    0,
+  };
+  return SDL_CreateGPUSampler(device, &samplerInfo);
+}
+
+void ensureSkyLoaded(
+  SDL_GPUDevice* device,
+  GpuSkyResources& resources,
+  SkyId sky
+) {
+  if (!resources.cache.shouldAttempt(sky)) {
+    return;
+  }
+  SDL_GPUTexture* texture = loadSkyCubemap(device, sky);
+  if (texture != nullptr && resources.sampler == nullptr) {
+    resources.sampler = createSkySampler(device);
+  }
+  const bool loaded = texture != nullptr && resources.sampler != nullptr;
+  if (!loaded && texture != nullptr) {
+    SDL_ReleaseGPUTexture(device, texture);
+    texture = nullptr;
+  }
+  if (loaded) {
+    resources.textures[static_cast<std::size_t>(sky)] = texture;
+  } else {
+    std::cerr
+      << "SDL_GPU sky '" << skyAssetName(sky)
+      << "' failed to load; keeping the existing clear colour\n";
+  }
+  resources.cache.record(sky, loaded);
+}
+
 [[nodiscard]] WorldTexture createFallbackWorldTexture(
   SDL_GPUDevice* device,
   bool missingMaterial
@@ -1703,6 +1918,59 @@ void collectTextureMaterialFiles(
   SDL_GPUShader* shader = SDL_CreateGPUShader(device, &createInfo);
   SDL_free(code);
   return shader;
+}
+
+[[nodiscard]] SDL_GPUGraphicsPipeline* createGpuSkyPipeline(
+  SDL_GPUDevice* device,
+  SDL_GPUTextureFormat colorFormat,
+  SDL_GPUTextureFormat depthFormat,
+  SDL_GPUSampleCount sampleCount,
+  bool directPresent
+) {
+  SDL_GPUShader* vertexShader = loadGpuShader(
+    device,
+    "sky.vert.spv",
+    SDL_GPU_SHADERSTAGE_VERTEX,
+    0,
+    1
+  );
+  if (vertexShader == nullptr) {
+    return nullptr;
+  }
+  SDL_GPUShader* fragmentShader = loadGpuShader(
+    device,
+    directPresent ? "sky_direct.frag.spv" : "sky.frag.spv",
+    SDL_GPU_SHADERSTAGE_FRAGMENT,
+    1
+  );
+  if (fragmentShader == nullptr) {
+    SDL_ReleaseGPUShader(device, vertexShader);
+    return nullptr;
+  }
+
+  SDL_GPUColorTargetDescription colorTarget = {};
+  colorTarget.format = colorFormat;
+  colorTarget.blend_state.enable_blend = false;
+  SDL_GPUGraphicsPipelineCreateInfo createInfo = {};
+  createInfo.vertex_shader = vertexShader;
+  createInfo.fragment_shader = fragmentShader;
+  createInfo.primitive_type = SDL_GPU_PRIMITIVETYPE_TRIANGLELIST;
+  createInfo.rasterizer_state.fill_mode = SDL_GPU_FILLMODE_FILL;
+  createInfo.rasterizer_state.cull_mode = SDL_GPU_CULLMODE_NONE;
+  createInfo.rasterizer_state.front_face =
+    SDL_GPU_FRONTFACE_COUNTER_CLOCKWISE;
+  createInfo.multisample_state.sample_count = sampleCount;
+  createInfo.depth_stencil_state.enable_depth_test = false;
+  createInfo.depth_stencil_state.enable_depth_write = false;
+  createInfo.target_info.color_target_descriptions = &colorTarget;
+  createInfo.target_info.num_color_targets = 1;
+  createInfo.target_info.depth_stencil_format = depthFormat;
+  createInfo.target_info.has_depth_stencil_target = true;
+  SDL_GPUGraphicsPipeline* pipeline =
+    SDL_CreateGPUGraphicsPipeline(device, &createInfo);
+  SDL_ReleaseGPUShader(device, fragmentShader);
+  SDL_ReleaseGPUShader(device, vertexShader);
+  return pipeline;
 }
 
 [[nodiscard]] SDL_GPUGraphicsPipeline* createGpuPipeline(
@@ -6922,6 +7190,10 @@ void appendCommandBatches(
   SDL_GPUGraphicsPipeline* bloomBlurPipeline,
   SDL_GPUGraphicsPipeline* sceneCompositePipeline,
   SDL_GPUGraphicsPipeline* sceneCompositeNoBloomPipeline,
+  SDL_GPUGraphicsPipeline* skyPipeline,
+  SDL_GPUGraphicsPipeline* directSkyPipeline,
+  SDL_GPUTexture* skyTexture,
+  SDL_GPUSampler* skySampler,
   SDL_GPUBuffer* vertexBuffer,
   SDL_GPUTransferBuffer* transferBuffer,
   GpuSimpleResources* simpleResources,
@@ -7019,6 +7291,8 @@ void appendCommandBatches(
   diagnostics.worldDuplicateTrianglesCulled = 0;
   diagnostics.worldVertexCount = 0;
   diagnostics.worldDrawCalls = 0;
+  diagnostics.skyDrawCalls = 0;
+  diagnostics.skyLoadedTextures = 0;
   diagnostics.worldSubmittedRanges = 0;
   diagnostics.worldTotalChunks = 0;
   diagnostics.worldVisibleChunks = 0;
@@ -8208,6 +8482,61 @@ void appendCommandBatches(
       (void)submitCommandBuffer();
       return false;
     }
+      SDL_GPUGraphicsPipeline* activeSkyPipeline =
+        directPresent ? directSkyPipeline : skyPipeline;
+      if (
+        activeSkyPipeline != nullptr &&
+        skyTexture != nullptr &&
+        skySampler != nullptr
+      ) {
+        struct alignas(16) SkyCameraUniform {
+          float right[4];
+          float up[4];
+          float forward[4];
+          float projection[4];
+        };
+        const SkyCameraUniform skyCameraUniform = {
+          {
+            worldCamera.right.x,
+            worldCamera.right.y,
+            worldCamera.right.z,
+            0.0F,
+          },
+          {
+            worldCamera.up.x,
+            worldCamera.up.y,
+            worldCamera.up.z,
+            0.0F,
+          },
+          {
+            worldCamera.forward.x,
+            worldCamera.forward.y,
+            worldCamera.forward.z,
+            0.0F,
+          },
+          {
+            worldCamera.focalLength,
+            worldCamera.aspectRatio,
+            0.0F,
+            0.0F,
+          },
+        };
+        SDL_PushGPUVertexUniformData(
+          commandBuffer,
+          0,
+          &skyCameraUniform,
+          sizeof(skyCameraUniform)
+        );
+        SDL_BindGPUGraphicsPipeline(worldPass, activeSkyPipeline);
+        const SDL_GPUTextureSamplerBinding skyBinding = {
+          skyTexture,
+          skySampler,
+        };
+        SDL_BindGPUFragmentSamplers(worldPass, 0, &skyBinding, 1);
+        SDL_DrawGPUPrimitives(worldPass, 3, 1, 0, 0);
+        diagnostics.skyDrawCalls = 1;
+        diagnostics.skyLoadedTextures = 1;
+      }
       struct alignas(16) SceneLightUniform {
         float parameters[4] = {};
         float positionRadius[kMaxLivePointLights][4] = {};
@@ -10619,6 +10948,26 @@ bool Renderer::initialize(void* window) {
             << "SDL_GPU direct-present pipeline setup failed; using "
             << "scene composite\n";
         }
+        SDL_GPUGraphicsPipeline* skyPipeline = createGpuSkyPipeline(
+          device,
+          sceneColorFormat,
+          depthFormat,
+          SDL_GPU_SAMPLECOUNT_1,
+          false
+        );
+        SDL_GPUGraphicsPipeline* directSkyPipeline =
+          createGpuSkyPipeline(
+            device,
+            swapchainFormat,
+            depthFormat,
+            SDL_GPU_SAMPLECOUNT_1,
+            true
+          );
+        if (skyPipeline == nullptr || directSkyPipeline == nullptr) {
+          std::cerr
+            << "SDL_GPU sky pipeline setup failed; maps will keep the "
+            << "existing clear colour\n";
+        }
         SDL_GPUGraphicsPipeline* pipeline3D = scenePipelines.world;
         SDL_GPUGraphicsPipeline* pipelineWorldSurface =
           scenePipelines.worldSurface;
@@ -10925,6 +11274,8 @@ bool Renderer::initialize(void* window) {
           gpuPipelineSceneComposite_ = sceneCompositePipeline;
           gpuPipelineSceneCompositeNoBloom_ =
             sceneCompositeNoBloomPipeline;
+          gpuPipelineSky_ = skyPipeline;
+          gpuPipelineDirectSky_ = directSkyPipeline;
           gpuPipelineOutlineClear_ = pipelineOutlineClear;
           gpuPipelineOutlineColorClear_ = pipelineOutlineColorClear;
           gpuPipelineOutlineMask_ = pipelineOutlineMask;
@@ -10949,6 +11300,7 @@ bool Renderer::initialize(void* window) {
           gpuVertexBuffer_ = vertexBuffer;
           gpuTransferBuffer_ = transferBuffer;
           gpuSimpleResources_ = simpleResources;
+          gpuSkyResources_ = new GpuSkyResources();
           gpuGltfPlayerResources_ = gltfPlayerResources;
           gpuFontAtlas_ = fontAtlasSet;
           gpuFontSampler_ = fontSampler;
@@ -11032,6 +11384,12 @@ bool Renderer::initialize(void* window) {
         destroyGpuSimpleResources(device, simpleResources);
         destroyGpuGltfPlayerResources(device, gltfPlayerResources);
         destroyGpuDirectPresentPipelines(device, directPipelines);
+        if (skyPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, skyPipeline);
+        }
+        if (directSkyPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, directSkyPipeline);
+        }
         if (pipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, pipeline);
         }
@@ -11395,6 +11753,13 @@ void Renderer::render(
           false,
           untexturedSceneLightFragmentLayout()
         );
+      SDL_GPUGraphicsPipeline* replacementSky = createGpuSkyPipeline(
+        gpuDevice,
+        colorFormat,
+        depthFormat,
+        desiredSampleCount,
+        false
+      );
       const std::array<SDL_GPUGraphicsPipeline*, 8> replacements = {{
         replacementWorldSurface,
         replacement3D,
@@ -11428,6 +11793,13 @@ void Renderer::render(
           );
           *destinations[index] = replacements[index];
         }
+        if (gpuPipelineSky_ != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(
+            gpuDevice,
+            static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSky_)
+          );
+        }
+        gpuPipelineSky_ = replacementSky;
         if (gpuDepthTexture_ != nullptr) {
           SDL_ReleaseGPUTexture(
             gpuDevice,
@@ -11452,6 +11824,9 @@ void Renderer::render(
           if (pipeline != nullptr) {
             SDL_ReleaseGPUGraphicsPipeline(gpuDevice, pipeline);
           }
+        }
+        if (replacementSky != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(gpuDevice, replacementSky);
         }
       }
     }
@@ -11541,6 +11916,27 @@ void Renderer::render(
         );
       }
     }
+    auto* skyResources =
+      static_cast<GpuSkyResources*>(gpuSkyResources_);
+    if (
+      skyResources != nullptr &&
+      arena.skyId != SkyId::None &&
+      (gpuPipelineSky_ != nullptr || gpuPipelineDirectSky_ != nullptr)
+    ) {
+      ensureSkyLoaded(gpuDevice, *skyResources, arena.skyId);
+    }
+    SDL_GPUTexture* activeSkyTexture = nullptr;
+    SDL_GPUSampler* activeSkySampler = nullptr;
+    const std::size_t skyIndex = static_cast<std::size_t>(arena.skyId);
+    if (
+      skyResources != nullptr &&
+      skyIndex < skyResources->textures.size() &&
+      skyResources->cache.state(arena.skyId) ==
+        SkyAssetLoadState::Loaded
+    ) {
+      activeSkyTexture = skyResources->textures[skyIndex];
+      activeSkySampler = skyResources->sampler;
+    }
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
@@ -11594,6 +11990,10 @@ void Renderer::render(
         static_cast<SDL_GPUGraphicsPipeline*>(
           gpuPipelineSceneCompositeNoBloom_
         ),
+          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineSky_),
+          static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineDirectSky_),
+          activeSkyTexture,
+          activeSkySampler,
           static_cast<SDL_GPUBuffer*>(gpuVertexBuffer_),
           static_cast<SDL_GPUTransferBuffer*>(gpuTransferBuffer_),
           static_cast<GpuSimpleResources*>(gpuSimpleResources_),
@@ -11727,6 +12127,8 @@ void Renderer::render(
   lastFrameDiagnostics_.worldDuplicateTrianglesCulled = 0;
   lastFrameDiagnostics_.worldVertexCount = 0;
   lastFrameDiagnostics_.worldDrawCalls = 0;
+  lastFrameDiagnostics_.skyDrawCalls = 0;
+  lastFrameDiagnostics_.skyLoadedTextures = 0;
   lastFrameDiagnostics_.worldSubmittedRanges = 0;
   lastFrameDiagnostics_.worldTotalChunks = 0;
   lastFrameDiagnostics_.worldVisibleChunks = 0;
@@ -12472,6 +12874,11 @@ void Renderer::shutdown() {
       static_cast<GpuSimpleResources*>(gpuSimpleResources_)
     );
     gpuSimpleResources_ = nullptr;
+    destroyGpuSkyResources(
+      static_cast<SDL_GPUDevice*>(gpuDevice_),
+      static_cast<GpuSkyResources*>(gpuSkyResources_)
+    );
+    gpuSkyResources_ = nullptr;
     destroyGpuGltfPlayerResources(
       static_cast<SDL_GPUDevice*>(gpuDevice_),
       static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_)
@@ -12609,6 +13016,7 @@ void Renderer::shutdown() {
            &gpuPipelineDirectStaticMesh_,
            &gpuPipelineDirectMaterialMesh_,
            &gpuPipelineDirectGltfPlayer_,
+           &gpuPipelineDirectSky_,
          }) {
       if (*pipeline != nullptr) {
         SDL_ReleaseGPUGraphicsPipeline(
@@ -12645,6 +13053,7 @@ void Renderer::shutdown() {
            &gpuPipelineBloomBlur_,
            &gpuPipelineSceneComposite_,
            &gpuPipelineSceneCompositeNoBloom_,
+           &gpuPipelineSky_,
          }) {
       if (*pipeline != nullptr) {
         SDL_ReleaseGPUGraphicsPipeline(

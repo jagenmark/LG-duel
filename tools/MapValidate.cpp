@@ -2,6 +2,7 @@
 #include "sim/Arena.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -34,9 +35,25 @@ namespace {
   return extension == ".png" || extension == ".bmp" || extension == ".jpg";
 }
 
-[[nodiscard]] bool isCollisionOnlyMaterial(std::string_view material) {
+[[nodiscard]] bool needsNoRuntimeTexture(std::string material) {
+  std::replace(material.begin(), material.end(), '\\', '/');
+  while (!material.empty() && material.front() == '/') {
+    material.erase(material.begin());
+  }
+  std::transform(
+    material.begin(),
+    material.end(),
+    material.begin(),
+    [](unsigned char character) {
+      return static_cast<char>(std::tolower(character));
+    }
+  );
+  constexpr std::string_view prefix = "textures/";
+  if (material.rfind(prefix, 0) == 0) {
+    material.erase(0, prefix.size());
+  }
   return material == "common/clip" || material == "common/playerclip" ||
-    material == "common/weapclip";
+    material == "common/weapclip" || material == "common/sky";
 }
 
 [[nodiscard]] int validateMapTextures(
@@ -65,10 +82,10 @@ namespace {
         if (face.material.empty()) {
           continue;
         }
-        const std::string material = normalizedTextureMaterial(face.material);
-        if (isCollisionOnlyMaterial(material)) {
+        if (needsNoRuntimeTexture(face.material)) {
           continue;
         }
+        const std::string material = normalizedTextureMaterial(face.material);
         std::filesystem::path texturePath =
           textureRoot / material;
         if (!hasTextureExtension(texturePath)) {
