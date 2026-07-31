@@ -1010,6 +1010,22 @@ class LgToolTests(unittest.TestCase):
             )
             self.assertLess(quality_gate, local_light_loop, shader_name)
 
+    def test_static_world_light_loop_skips_baked_lights_before_work(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader = (root / "assets" / "shaders" / "world_surface.frag").read_text(
+            encoding="utf-8"
+        )
+        loop = shader.index("for (int index = 0; index <")
+        guard = shader.index(
+            "float liveWorldScale = sceneLights.lightParameters[index].y",
+            loop,
+        )
+        offset = shader.index("vec3 offset =", guard)
+        self.assertLess(loop, guard)
+        self.assertLess(guard, offset)
+        self.assertIn("if (liveWorldScale <= 0.0) {", shader[guard:offset])
+        self.assertIn("continue;", shader[guard:offset])
+
     def test_competitive_direct_shaders_compile_out_expensive_paths(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"

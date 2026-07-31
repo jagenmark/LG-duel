@@ -222,6 +222,14 @@ void main() {
 
     int lightCount = clamp(int(sceneLights.parameters.x + 0.5), 0, 32);
     for (int index = 0; index < lightCount; ++index) {
+      // Lights without a live world contribution are kept for dynamic model
+      // lighting, but their baked world result is already in vertexColor.
+      // Skip all per-fragment work before distance, shadow, and specular math.
+      float liveWorldScale = sceneLights.lightParameters[index].y *
+        sceneLights.lightParameters[index].w;
+      if (liveWorldScale <= 0.0) {
+        continue;
+      }
       vec3 offset = sceneLights.positionRadius[index].xyz - worldPosition;
       float radius = max(sceneLights.positionRadius[index].w, 0.001);
       float lightDistance = length(offset);
@@ -238,8 +246,6 @@ void main() {
       );
       attenuation *= attenuation;
       float localNDotL = max(dot(n, lightDirection), 0.0);
-      float liveWorldScale = sceneLights.lightParameters[index].y *
-        sceneLights.lightParameters[index].w;
       float pointVisibility = pointShadowVisibility(
         index,
         worldPosition,
