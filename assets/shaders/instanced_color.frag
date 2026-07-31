@@ -139,6 +139,9 @@ void main() {
     );
     attenuation *= attenuation;
     float nDotL = max(dot(n, offset / max(lightDistance, 0.001)), 0.0);
+    if (nDotL <= 0.0) {
+      continue;
+    }
     vec3 radiance = sceneLights.colorIntensity[index].rgb *
       sceneLights.colorIntensity[index].w * attenuation *
       sceneLights.lightParameters[index].w *

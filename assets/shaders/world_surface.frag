@@ -254,6 +254,9 @@ void main() {
       );
       attenuation *= attenuation;
       float localNDotL = max(dot(n, lightDirection), 0.0);
+      if (localNDotL <= 0.0) {
+        continue;
+      }
       float pointVisibility = pointShadowVisibility(
         index,
         worldPosition,

@@ -1074,6 +1074,32 @@ class LgToolTests(unittest.TestCase):
                 shader_name,
             )
 
+    def test_point_light_facing_guards_skip_unused_shadow_work(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        facing_names = {
+            "world_surface.frag": "localNDotL",
+            "gltf_player_model.frag": "nDotL",
+            "material_weapon.frag": "nDotL",
+            "instanced_color.frag": "nDotL",
+        }
+        for shader_name, facing_name in facing_names.items():
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            loop = shader.index("for (int index = 0; index <")
+            facing = shader.index(f"float {facing_name} =", loop)
+            guard = shader.index(f"if ({facing_name} <= 0.0) {{", facing)
+            shadow = shader.find("pointShadowVisibility(", guard)
+            radiance = shader.index("vec3 radiance", guard)
+            self.assertLess(loop, facing, shader_name)
+            self.assertLess(facing, guard, shader_name)
+            self.assertGreater(shadow, guard, shader_name)
+            self.assertLess(guard, radiance, shader_name)
+            self.assertIn("continue;", shader[guard:radiance], shader_name)
+
+        world3d = (shader_dir / "world3d.frag").read_text(encoding="utf-8")
+        self.assertNotIn("if (nDotL <= 0.0)", world3d)
+        self.assertIn("linearColor += sceneLights.colorIntensity[index].rgb", world3d)
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
