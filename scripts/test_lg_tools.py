@@ -1145,6 +1145,18 @@ class LgToolTests(unittest.TestCase):
         self.assertIn('true,\n          "outline_mask_world.vert.spv"', call)
         self.assertTrue((root / "assets" / "shaders" / "outline_mask_world.vert.spv").is_file())
 
+    def test_static_sun_shadow_cache_rejects_dynamic_casters(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("sunShadowCacheFingerprint(", renderer)
+        static_only = renderer.index("const bool staticSunShadowOnly")
+        cache = renderer.index("const bool sunShadowCacheMatches", static_only)
+        self.assertIn("perspectiveScene.staticMeshBatches", renderer[static_only:cache])
+        self.assertIn("perspectiveScene.gltfPlayerModelBatches.empty()", renderer[static_only:cache])
+        self.assertIn("!sunShadowCacheMatches", renderer[cache:])
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(

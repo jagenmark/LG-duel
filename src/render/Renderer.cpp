@@ -1276,6 +1276,35 @@ void collectTextureMaterialFiles(
   return hash;
 }
 
+[[nodiscard]] std::uint64_t sunShadowCacheFingerprint(
+  std::uint64_t staticWorldFingerprint,
+  const SunShadowProjection& projection
+) {
+  const auto hashFloat = [](float value) {
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return static_cast<std::uint64_t>(bits);
+  };
+  std::uint64_t hash = staticWorldFingerprint;
+  for (const Vec3 value : {
+         projection.origin,
+         projection.right,
+         projection.up,
+         projection.forward,
+       }) {
+    hash = hashCombine(hash, hashFloat(value.x));
+    hash = hashCombine(hash, hashFloat(value.y));
+    hash = hashCombine(hash, hashFloat(value.z));
+  }
+  hash = hashCombine(hash, hashFloat(projection.halfExtent));
+  hash = hashCombine(hash, hashFloat(projection.farPlane));
+  hash = hashCombine(hash, projection.mapSize);
+  hash = hashCombine(hash, hashFloat(projection.normalBias));
+  hash = hashCombine(hash, hashFloat(projection.depthBias));
+  return hash;
+}
+
 [[nodiscard]] SDL_GPUTexture* uploadRgbaTexture(
   SDL_GPUDevice* device,
   const std::uint8_t* pixels,
@@ -7248,6 +7277,7 @@ void appendCommandBatches(
   Uint32& outlineDepthWidth,
   Uint32& outlineDepthHeight,
   Uint32& sunShadowSize,
+  std::uint64_t& sunShadowCacheKey,
   Uint32& pointShadowSize,
   Uint32& pointShadowLightCount,
   std::uint64_t& pointShadowCacheKey,
@@ -8280,7 +8310,30 @@ void appendCommandBatches(
       buildSunShadowPassPlan(shadowProjection.mapSize);
     SDL_GPUTexture* sampledSunShadowTexture =
       shadowPlan.useClearedFallback ? sunShadowFallbackTexture : nullptr;
+    const bool staticSunShadowOnly = hasStaticWorld &&
+      std::none_of(
+        perspectiveScene.staticMeshBatches.begin(),
+        perspectiveScene.staticMeshBatches.end(),
+        [](const StaticMeshBatch& batch) {
+          return batch.instanceCount > 0U &&
+            batch.pass == RenderPass::OpaqueWorld;
+        }
+      ) && perspectiveScene.gltfPlayerModelBatches.empty();
+    const std::uint64_t desiredSunShadowCacheKey =
+      staticSunShadowOnly && shadowPlan.renderShadowPass
+        ? sunShadowCacheFingerprint(
+            worldMesh->arenaFingerprint,
+            shadowProjection
+          )
+        : 0U;
+    const bool sunShadowCacheMatches =
+      staticSunShadowOnly &&
+      shadowPlan.renderShadowPass &&
+      sunShadowTexture != nullptr &&
+      sunShadowSize == shadowPlan.textureSize &&
+      sunShadowCacheKey == desiredSunShadowCacheKey;
     if (shadowPlan.renderShadowPass) {
+      SDL_GPUTexture* previousSunShadowTexture = sunShadowTexture;
       sunShadowTexture = ensureSunShadowTexture(
         device,
         sunShadowTexture,
@@ -8288,6 +8341,9 @@ void appendCommandBatches(
         shadowPlan.textureSize,
         depthFormat
       );
+      if (sunShadowTexture != previousSunShadowTexture) {
+        sunShadowCacheKey = 0U;
+      }
       sampledSunShadowTexture = sunShadowTexture;
     }
     if (
@@ -8297,7 +8353,7 @@ void appendCommandBatches(
       (void)submitCommandBuffer();
       return false;
     }
-    if (shadowPlan.renderShadowPass) {
+    if (shadowPlan.renderShadowPass && !sunShadowCacheMatches) {
       gpuTiming.beginPass(commandBuffer, GpuTimedPass::SunShadow);
       SDL_GPUDepthStencilTargetInfo shadowDepthTarget = {};
       shadowDepthTarget.texture = sampledSunShadowTexture;
@@ -8395,6 +8451,11 @@ void appendCommandBatches(
       );
       SDL_EndGPURenderPass(shadowPass);
       gpuTiming.endPass(commandBuffer, GpuTimedPass::SunShadow);
+      sunShadowCacheKey = staticSunShadowOnly
+        ? desiredSunShadowCacheKey
+        : 0U;
+    } else if (!staticSunShadowOnly || !shadowPlan.renderShadowPass) {
+      sunShadowCacheKey = 0U;
     }
 
     SDL_GPUColorTargetInfo colorTarget = {};
@@ -12052,6 +12113,7 @@ void Renderer::render(
           gpuOutlineDepthWidth_,
           gpuOutlineDepthHeight_,
           gpuSunShadowSize_,
+          gpuSunShadowCacheKey_,
           gpuPointShadowSize_,
           gpuPointShadowLightCount_,
           gpuPointShadowCacheKey_,
@@ -12777,6 +12839,7 @@ void Renderer::shutdown() {
       );
       gpuSunShadowTexture_ = nullptr;
       gpuSunShadowSize_ = 0;
+      gpuSunShadowCacheKey_ = 0;
     }
     if (gpuSunShadowFallbackTexture_ != nullptr) {
       SDL_ReleaseGPUTexture(

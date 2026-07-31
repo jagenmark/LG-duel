@@ -1158,6 +1158,7 @@ private:
   std::uint32_t gpuOutlineDepthWidth_ = 0;
   std::uint32_t gpuOutlineDepthHeight_ = 0;
   std::uint32_t gpuSunShadowSize_ = 0;
+  std::uint64_t gpuSunShadowCacheKey_ = 0;
   std::uint32_t gpuPointShadowSize_ = 0;
   std::uint32_t gpuPointShadowLightCount_ = 0;
   std::uint64_t gpuPointShadowCacheKey_ = 0;
