@@ -8101,12 +8101,14 @@ void appendCommandBatches(
     if (settings.benchmarkTimingEnabled) {
       threeDimensionalEncodingStart = RenderClock::now();
     }
-    std::vector<LivePointLight> pointShadowLights =
-      selectPointShadowLights(
+    std::vector<LivePointLight> pointShadowLights;
+    if (settings.pointShadowQuality > 0) {
+      pointShadowLights = selectPointShadowLights(
         perspectiveScene.livePointLights,
         perspectiveScene.camera,
         kMaxPointShadowLights
       );
+    }
     const PointShadowPassPlan pointShadowBudget = buildPointShadowPassPlan(
       settings.pointShadowQuality,
       static_cast<std::uint32_t>(pointShadowLights.size()),
