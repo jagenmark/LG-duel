@@ -1100,6 +1100,23 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("if (nDotL <= 0.0)", world3d)
         self.assertIn("linearColor += sceneLights.colorIntensity[index].rgb", world3d)
 
+    def test_sun_shadow_lookup_skips_back_facing_fragments(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        for shader_name, value_name in {
+            "world_surface.frag": "sunVisibility",
+            "gltf_player_model.frag": "shadow",
+            "material_weapon.frag": "sunVisibility",
+        }.items():
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            facing = shader.index("float sunNDotL = max(dot(n, sunDirection), 0.0);")
+            lookup = shader.index("sunShadowVisibility(worldPosition, n)", facing)
+            assignment = shader.index(f"float {value_name} =", facing)
+            assignment_end = shader.index(";", lookup) + 1
+            self.assertLess(assignment, lookup, shader_name)
+            self.assertIn("sunNDotL > 0.0", shader[assignment:assignment_end], shader_name)
+            self.assertIn(": 1.0;", shader[assignment:assignment_end], shader_name)
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
