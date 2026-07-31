@@ -285,6 +285,9 @@ struct RenderSettings {
   bool worldFrustumCull = false;
   bool benchmarkTimingEnabled = false;
   std::optional<std::uint64_t> benchmarkGpuFrameIndex;
+  // The client map revision changes when the authoritative arena is replaced.
+  // A zero value keeps direct renderer tests on the content-hash fallback.
+  std::uint32_t mapRevision = 0;
   // 0 off, 1 all, 2 visible solids, 3 playerclip, 4 weapclip, 5 triggers.
   // This is presentation-only and never changes authoritative trace masks.
   int showCollision = 0;
@@ -1155,6 +1158,7 @@ private:
   std::uint32_t gpuOutlineDepthWidth_ = 0;
   std::uint32_t gpuOutlineDepthHeight_ = 0;
   std::uint32_t gpuSunShadowSize_ = 0;
+  std::uint64_t gpuSunShadowCacheKey_ = 0;
   std::uint32_t gpuPointShadowSize_ = 0;
   std::uint32_t gpuPointShadowLightCount_ = 0;
   std::uint64_t gpuPointShadowCacheKey_ = 0;

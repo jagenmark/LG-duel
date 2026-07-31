@@ -6121,7 +6121,8 @@ Scene3D buildPerspectiveScene(
 
   std::vector<LivePointLight> lightCandidates;
   lightCandidates.reserve(
-    arena.staticLightCount + scene.temporaryLights.size()
+    (settings.pointLightQuality > 0 ? arena.staticLightCount : 0U) +
+    scene.temporaryLights.size()
   );
   if (settings.pointLightQuality > 0) {
     for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
@@ -6172,12 +6173,17 @@ Scene3D buildPerspectiveScene(
       true,
     });
   }
-  scene.livePointLights = selectLivePointLights(
-    lightCandidates,
-    scene.camera,
-    livePointLightCapacity(settings.pointLightQuality),
-    &scene.pointLightStats
-  );
+  if (lightCandidates.empty()) {
+    scene.livePointLights.clear();
+    scene.pointLightStats = {};
+  } else {
+    scene.livePointLights = selectLivePointLights(
+      lightCandidates,
+      scene.camera,
+      livePointLightCapacity(settings.pointLightQuality),
+      &scene.pointLightStats
+    );
+  }
 
   return scene;
 }

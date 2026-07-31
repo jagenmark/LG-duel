@@ -400,6 +400,7 @@ struct StaticWorldMesh {
   WorldVisibilityQueryScratch visibilityScratch;
   bool useCulledBatches = false;
   std::uint64_t arenaFingerprint = 0;
+  std::uint32_t arenaRevision = 0;
   std::uint32_t sourceTriangles = 0;
   std::uint32_t duplicateTrianglesCulled = 0;
   std::uint32_t vertexCount = 0;
@@ -1272,6 +1273,35 @@ void collectTextureMaterialFiles(
       )
     );
   }
+  return hash;
+}
+
+[[nodiscard]] std::uint64_t sunShadowCacheFingerprint(
+  std::uint64_t staticWorldFingerprint,
+  const SunShadowProjection& projection
+) {
+  const auto hashFloat = [](float value) {
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    std::uint32_t bits = 0;
+    std::memcpy(&bits, &value, sizeof(bits));
+    return static_cast<std::uint64_t>(bits);
+  };
+  std::uint64_t hash = staticWorldFingerprint;
+  for (const Vec3 value : {
+         projection.origin,
+         projection.right,
+         projection.up,
+         projection.forward,
+       }) {
+    hash = hashCombine(hash, hashFloat(value.x));
+    hash = hashCombine(hash, hashFloat(value.y));
+    hash = hashCombine(hash, hashFloat(value.z));
+  }
+  hash = hashCombine(hash, hashFloat(projection.halfExtent));
+  hash = hashCombine(hash, hashFloat(projection.farPlane));
+  hash = hashCombine(hash, projection.mapSize);
+  hash = hashCombine(hash, hashFloat(projection.normalBias));
+  hash = hashCombine(hash, hashFloat(projection.depthBias));
   return hash;
 }
 
@@ -4474,6 +4504,7 @@ void appendScene3D(
     cullDuplicateStaticWorldTriangles(worldScene);
   auto mesh = new StaticWorldMesh();
   mesh->arenaFingerprint = arenaStaticWorldFingerprint(arena);
+  mesh->arenaRevision = settings.mapRevision;
   mesh->sourceTriangles = sourceTriangles;
   mesh->duplicateTrianglesCulled = duplicateTrianglesCulled;
   mesh->vertexCount = static_cast<std::uint32_t>(worldScene.vertices.size());
@@ -4689,8 +4720,15 @@ void appendScene3D(
   const Arena& arena,
   const RenderSettings& settings
 ) {
-  const std::uint64_t fingerprint = arenaStaticWorldFingerprint(arena);
+  const bool revisionCacheHit =
+    mesh != nullptr &&
+    settings.mapRevision != 0U &&
+    mesh->arenaRevision == settings.mapRevision;
+  const std::uint64_t fingerprint = revisionCacheHit
+    ? mesh->arenaFingerprint
+    : arenaStaticWorldFingerprint(arena);
   if (mesh != nullptr && mesh->arenaFingerprint == fingerprint) {
+    mesh->arenaRevision = settings.mapRevision;
     (void)updateStaticWorldSampler(device, mesh, settings);
     return mesh;
   }
@@ -4739,13 +4777,13 @@ void updateStaticWorldVisibility(
     }
   }
 
-  std::uint64_t fullTriangles = 0U;
-  for (const StaticWorldBatch& batch : mesh.batches) {
-    fullTriangles += batch.vertexCount / 3U;
-  }
   std::uint64_t visibleTriangles = 0U;
   for (const StaticWorldBatch& batch : mesh.visibleBatches) {
     visibleTriangles += batch.vertexCount / 3U;
+  }
+  std::uint64_t fullTriangles = 0U;
+  for (const StaticWorldBatch& batch : mesh.batches) {
+    fullTriangles += batch.vertexCount / 3U;
   }
   const std::uint64_t savedTriangles = fullTriangles - visibleTriangles;
   const std::uint64_t rangeInflation = mesh.visibleBatches.size() > mesh.batches.size()
@@ -7239,6 +7277,7 @@ void appendCommandBatches(
   Uint32& outlineDepthWidth,
   Uint32& outlineDepthHeight,
   Uint32& sunShadowSize,
+  std::uint64_t& sunShadowCacheKey,
   Uint32& pointShadowSize,
   Uint32& pointShadowLightCount,
   std::uint64_t& pointShadowCacheKey,
@@ -8092,12 +8131,14 @@ void appendCommandBatches(
     if (settings.benchmarkTimingEnabled) {
       threeDimensionalEncodingStart = RenderClock::now();
     }
-    std::vector<LivePointLight> pointShadowLights =
-      selectPointShadowLights(
+    std::vector<LivePointLight> pointShadowLights;
+    if (settings.pointShadowQuality > 0) {
+      pointShadowLights = selectPointShadowLights(
         perspectiveScene.livePointLights,
         perspectiveScene.camera,
         kMaxPointShadowLights
       );
+    }
     const PointShadowPassPlan pointShadowBudget = buildPointShadowPassPlan(
       settings.pointShadowQuality,
       static_cast<std::uint32_t>(pointShadowLights.size()),
@@ -8269,7 +8310,30 @@ void appendCommandBatches(
       buildSunShadowPassPlan(shadowProjection.mapSize);
     SDL_GPUTexture* sampledSunShadowTexture =
       shadowPlan.useClearedFallback ? sunShadowFallbackTexture : nullptr;
+    const bool staticSunShadowOnly = hasStaticWorld &&
+      std::none_of(
+        perspectiveScene.staticMeshBatches.begin(),
+        perspectiveScene.staticMeshBatches.end(),
+        [](const StaticMeshBatch& batch) {
+          return batch.instanceCount > 0U &&
+            batch.pass == RenderPass::OpaqueWorld;
+        }
+      ) && perspectiveScene.gltfPlayerModelBatches.empty();
+    const std::uint64_t desiredSunShadowCacheKey =
+      staticSunShadowOnly && shadowPlan.renderShadowPass
+        ? sunShadowCacheFingerprint(
+            worldMesh->arenaFingerprint,
+            shadowProjection
+          )
+        : 0U;
+    const bool sunShadowCacheMatches =
+      staticSunShadowOnly &&
+      shadowPlan.renderShadowPass &&
+      sunShadowTexture != nullptr &&
+      sunShadowSize == shadowPlan.textureSize &&
+      sunShadowCacheKey == desiredSunShadowCacheKey;
     if (shadowPlan.renderShadowPass) {
+      SDL_GPUTexture* previousSunShadowTexture = sunShadowTexture;
       sunShadowTexture = ensureSunShadowTexture(
         device,
         sunShadowTexture,
@@ -8277,6 +8341,9 @@ void appendCommandBatches(
         shadowPlan.textureSize,
         depthFormat
       );
+      if (sunShadowTexture != previousSunShadowTexture) {
+        sunShadowCacheKey = 0U;
+      }
       sampledSunShadowTexture = sunShadowTexture;
     }
     if (
@@ -8286,7 +8353,7 @@ void appendCommandBatches(
       (void)submitCommandBuffer();
       return false;
     }
-    if (shadowPlan.renderShadowPass) {
+    if (shadowPlan.renderShadowPass && !sunShadowCacheMatches) {
       gpuTiming.beginPass(commandBuffer, GpuTimedPass::SunShadow);
       SDL_GPUDepthStencilTargetInfo shadowDepthTarget = {};
       shadowDepthTarget.texture = sampledSunShadowTexture;
@@ -8384,6 +8451,11 @@ void appendCommandBatches(
       );
       SDL_EndGPURenderPass(shadowPass);
       gpuTiming.endPass(commandBuffer, GpuTimedPass::SunShadow);
+      sunShadowCacheKey = staticSunShadowOnly
+        ? desiredSunShadowCacheKey
+        : 0U;
+    } else if (!staticSunShadowOnly || !shadowPlan.renderShadowPass) {
+      sunShadowCacheKey = 0U;
     }
 
     SDL_GPUColorTargetInfo colorTarget = {};
@@ -8773,7 +8845,6 @@ void appendCommandBatches(
               millisecondsBetween(staticWorldStart, RenderClock::now());
           }
         }
-        pushActiveLightUniform();
         SDL_BindGPUGraphicsPipeline(
           worldPass,
           directPresent ? directWorldPipeline : pipeline3D
@@ -8863,7 +8934,6 @@ void appendCommandBatches(
           perspectiveScene
         );
         if (!directPresent) {
-          pushActiveLightUniform();
           SDL_BindGPUFragmentSamplers(
             worldPass,
             0,
@@ -11001,7 +11071,8 @@ bool Renderer::initialize(void* window) {
           SDL_GPU_SAMPLECOUNT_1,
           SDL_GPU_TEXTUREFORMAT_INVALID,
           1,
-          true
+          true,
+          "outline_mask_world.vert.spv"
         );
         SDL_GPUGraphicsPipeline* depthInstancedPipeline =
           createGpuInstancedPipeline3D(
@@ -12042,6 +12113,7 @@ void Renderer::render(
           gpuOutlineDepthWidth_,
           gpuOutlineDepthHeight_,
           gpuSunShadowSize_,
+          gpuSunShadowCacheKey_,
           gpuPointShadowSize_,
           gpuPointShadowLightCount_,
           gpuPointShadowCacheKey_,
@@ -12767,6 +12839,7 @@ void Renderer::shutdown() {
       );
       gpuSunShadowTexture_ = nullptr;
       gpuSunShadowSize_ = 0;
+      gpuSunShadowCacheKey_ = 0;
     }
     if (gpuSunShadowFallbackTexture_ != nullptr) {
       SDL_ReleaseGPUTexture(

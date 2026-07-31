@@ -153,7 +153,9 @@ void main() {
   vec3 v = normalize(viewDirection);
   vec3 sunDirection = normalize(-sceneLights.sunDirectionIntensity.xyz);
   float sunNDotL = max(dot(n, sunDirection), 0.0);
-  float shadow = sunShadowVisibility(worldPosition, n);
+  float shadow = sunNDotL > 0.0
+    ? sunShadowVisibility(worldPosition, n)
+    : 1.0;
   vec3 sunRadiance = sceneLights.sunColor.rgb *
     max(sceneLights.sunDirectionIntensity.w, 0.0);
   vec3 fillRadiance = sceneLights.fillColorIntensity.rgb *

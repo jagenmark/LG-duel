@@ -1100,6 +1100,103 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("if (nDotL <= 0.0)", world3d)
         self.assertIn("linearColor += sceneLights.colorIntensity[index].rgb", world3d)
 
+    def test_sun_shadow_lookup_skips_back_facing_fragments(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        for shader_name, value_name in {
+            "world_surface.frag": "sunVisibility",
+            "gltf_player_model.frag": "shadow",
+            "material_weapon.frag": "sunVisibility",
+        }.items():
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            facing = shader.index("float sunNDotL = max(dot(n, sunDirection), 0.0);")
+            lookup = shader.index("sunShadowVisibility(worldPosition, n)", facing)
+            assignment = shader.index(f"float {value_name} =", facing)
+            assignment_end = shader.index(";", lookup) + 1
+            self.assertLess(assignment, lookup, shader_name)
+            self.assertIn("sunNDotL > 0.0", shader[assignment:assignment_end], shader_name)
+            self.assertIn(": 1.0;", shader[assignment:assignment_end], shader_name)
+
+    def test_world_shader_interfaces_drop_dead_varyings(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        world3d_vert = (shader_dir / "world3d.vert").read_text(encoding="utf-8")
+        world3d_frag = (shader_dir / "world3d.frag").read_text(encoding="utf-8")
+        surface_vert = (shader_dir / "world_surface.vert").read_text(encoding="utf-8")
+        surface_frag = (shader_dir / "world_surface.frag").read_text(encoding="utf-8")
+        for shader in (world3d_vert, world3d_frag):
+            self.assertNotIn("worldNormal", shader)
+            self.assertNotIn("materialSlot", shader)
+        self.assertNotIn("flat out uint materialSlot", surface_vert)
+        self.assertNotIn("flat in uint materialSlot", surface_frag)
+        self.assertIn("worldNormal = inNormal", surface_vert)
+        self.assertIn("layout(location = 4) in vec3 worldNormal", surface_frag)
+
+    def test_depth_world_pipeline_uses_position_only_vertex_shader(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        depth_call = renderer.index(
+            "SDL_GPUGraphicsPipeline* depthWorldPipeline = createGpuPipeline3D"
+        )
+        call_end = renderer.index("SDL_GPUGraphicsPipeline* depthInstancedPipeline", depth_call)
+        call = renderer[depth_call:call_end]
+        self.assertIn('true,\n          "outline_mask_world.vert.spv"', call)
+        self.assertTrue((root / "assets" / "shaders" / "outline_mask_world.vert.spv").is_file())
+
+    def test_static_sun_shadow_cache_rejects_dynamic_casters(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("sunShadowCacheFingerprint(", renderer)
+        static_only = renderer.index("const bool staticSunShadowOnly")
+        cache = renderer.index("const bool sunShadowCacheMatches", static_only)
+        self.assertIn("perspectiveScene.staticMeshBatches", renderer[static_only:cache])
+        self.assertIn("perspectiveScene.gltfPlayerModelBatches.empty()", renderer[static_only:cache])
+        self.assertIn("!sunShadowCacheMatches", renderer[cache:])
+
+    def test_static_world_fingerprint_cache_uses_authoritative_map_revision(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        game_app = (root / "src" / "app" / "GameApp.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("settings.mapRevision", renderer)
+        self.assertIn("mesh->arenaRevision == settings.mapRevision", renderer)
+        self.assertIn("arenaStaticWorldFingerprint(arena)", renderer)
+        self.assertIn("currentRenderSettings.mapRevision = currentMapRevision()", game_app)
+
+    def test_point_shadow_selection_is_gated_when_quality_is_off(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        selection = renderer.index("std::vector<LivePointLight> pointShadowLights")
+        budget = renderer.index("const PointShadowPassPlan pointShadowBudget", selection)
+        self.assertIn("if (settings.pointShadowQuality > 0)", renderer[selection:budget])
+        self.assertIn("selectPointShadowLights(", renderer[selection:budget])
+
+    def test_empty_point_light_candidates_skip_selection_without_dropping_combat_lights(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        scene = (root / "src" / "render" / "Scene3D.cpp").read_text(
+            encoding="utf-8"
+        )
+        reserve = scene.index("lightCandidates.reserve(")
+        selection = scene.index("scene.livePointLights = selectLivePointLights(")
+        self.assertIn(
+            "settings.pointLightQuality > 0 ? arena.staticLightCount : 0U",
+            scene[reserve:selection],
+        )
+        self.assertIn("if (lightCandidates.empty())", scene[selection - 180:selection + 220])
+        self.assertIn(
+            "scene.temporaryLights.size()",
+            scene[reserve:selection],
+        )
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(

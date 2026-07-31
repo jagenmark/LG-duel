@@ -6,7 +6,6 @@ layout(location = 1) in vec2 texCoord;
 layout(location = 2) in vec3 worldPosition;
 layout(location = 3) in float viewDistance;
 layout(location = 4) in vec3 worldNormal;
-layout(location = 5) flat in uint materialSlot;
 layout(location = 6) in vec3 viewDirection;
 layout(location = 0) out vec4 outColor;
 
@@ -205,7 +204,9 @@ void main() {
   vec3 n = normalize(worldNormal);
   vec3 sunDirection = normalize(-sceneLights.sunDirectionIntensity.xyz);
   float sunNDotL = max(dot(n, sunDirection), 0.0);
-  float sunVisibility = sunShadowVisibility(worldPosition, n);
+  float sunVisibility = sunNDotL > 0.0
+    ? sunShadowVisibility(worldPosition, n)
+    : 1.0;
   vec3 sunRadiance = sceneLights.sunColor.rgb *
     max(sceneLights.sunDirectionIntensity.w, 0.0);
   sceneColor += directAlbedo * sunRadiance * sunNDotL * sunVisibility;
