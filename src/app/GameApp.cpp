@@ -9808,6 +9808,7 @@ int GameApp::run() const {
           activeControlOperation->benchmarkPhaseFrames
         )
       : std::nullopt;
+    currentRenderSettings.mapRevision = currentMapRevision();
     if (developmentCameraEnabled) {
       // The development camera replaces presentation state only. The client
       // continues to send ordinary commands and the server remains

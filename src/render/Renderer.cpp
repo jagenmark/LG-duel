@@ -400,6 +400,7 @@ struct StaticWorldMesh {
   WorldVisibilityQueryScratch visibilityScratch;
   bool useCulledBatches = false;
   std::uint64_t arenaFingerprint = 0;
+  std::uint32_t arenaRevision = 0;
   std::uint32_t sourceTriangles = 0;
   std::uint32_t duplicateTrianglesCulled = 0;
   std::uint32_t vertexCount = 0;
@@ -4474,6 +4475,7 @@ void appendScene3D(
     cullDuplicateStaticWorldTriangles(worldScene);
   auto mesh = new StaticWorldMesh();
   mesh->arenaFingerprint = arenaStaticWorldFingerprint(arena);
+  mesh->arenaRevision = settings.mapRevision;
   mesh->sourceTriangles = sourceTriangles;
   mesh->duplicateTrianglesCulled = duplicateTrianglesCulled;
   mesh->vertexCount = static_cast<std::uint32_t>(worldScene.vertices.size());
@@ -4689,8 +4691,15 @@ void appendScene3D(
   const Arena& arena,
   const RenderSettings& settings
 ) {
-  const std::uint64_t fingerprint = arenaStaticWorldFingerprint(arena);
+  const bool revisionCacheHit =
+    mesh != nullptr &&
+    settings.mapRevision != 0U &&
+    mesh->arenaRevision == settings.mapRevision;
+  const std::uint64_t fingerprint = revisionCacheHit
+    ? mesh->arenaFingerprint
+    : arenaStaticWorldFingerprint(arena);
   if (mesh != nullptr && mesh->arenaFingerprint == fingerprint) {
+    mesh->arenaRevision = settings.mapRevision;
     (void)updateStaticWorldSampler(device, mesh, settings);
     return mesh;
   }
@@ -4739,13 +4748,13 @@ void updateStaticWorldVisibility(
     }
   }
 
-  std::uint64_t fullTriangles = 0U;
-  for (const StaticWorldBatch& batch : mesh.batches) {
-    fullTriangles += batch.vertexCount / 3U;
-  }
   std::uint64_t visibleTriangles = 0U;
   for (const StaticWorldBatch& batch : mesh.visibleBatches) {
     visibleTriangles += batch.vertexCount / 3U;
+  }
+  std::uint64_t fullTriangles = 0U;
+  for (const StaticWorldBatch& batch : mesh.batches) {
+    fullTriangles += batch.vertexCount / 3U;
   }
   const std::uint64_t savedTriangles = fullTriangles - visibleTriangles;
   const std::uint64_t rangeInflation = mesh.visibleBatches.size() > mesh.batches.size()
