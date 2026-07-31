@@ -1180,6 +1180,23 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("if (settings.pointShadowQuality > 0)", renderer[selection:budget])
         self.assertIn("selectPointShadowLights(", renderer[selection:budget])
 
+    def test_empty_point_light_candidates_skip_selection_without_dropping_combat_lights(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        scene = (root / "src" / "render" / "Scene3D.cpp").read_text(
+            encoding="utf-8"
+        )
+        reserve = scene.index("lightCandidates.reserve(")
+        selection = scene.index("scene.livePointLights = selectLivePointLights(")
+        self.assertIn(
+            "settings.pointLightQuality > 0 ? arena.staticLightCount : 0U",
+            scene[reserve:selection],
+        )
+        self.assertIn("if (lightCandidates.empty())", scene[selection - 180:selection + 220])
+        self.assertIn(
+            "scene.temporaryLights.size()",
+            scene[reserve:selection],
+        )
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
