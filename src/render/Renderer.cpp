@@ -11010,7 +11010,8 @@ bool Renderer::initialize(void* window) {
           SDL_GPU_SAMPLECOUNT_1,
           SDL_GPU_TEXTUREFORMAT_INVALID,
           1,
-          true
+          true,
+          "outline_mask_world.vert.spv"
         );
         SDL_GPUGraphicsPipeline* depthInstancedPipeline =
           createGpuInstancedPipeline3D(

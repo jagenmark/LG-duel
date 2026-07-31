@@ -1132,6 +1132,19 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("worldNormal = inNormal", surface_vert)
         self.assertIn("layout(location = 4) in vec3 worldNormal", surface_frag)
 
+    def test_depth_world_pipeline_uses_position_only_vertex_shader(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        depth_call = renderer.index(
+            "SDL_GPUGraphicsPipeline* depthWorldPipeline = createGpuPipeline3D"
+        )
+        call_end = renderer.index("SDL_GPUGraphicsPipeline* depthInstancedPipeline", depth_call)
+        call = renderer[depth_call:call_end]
+        self.assertIn('true,\n          "outline_mask_world.vert.spv"', call)
+        self.assertTrue((root / "assets" / "shaders" / "outline_mask_world.vert.spv").is_file())
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
