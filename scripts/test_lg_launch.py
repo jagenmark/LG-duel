@@ -752,6 +752,15 @@ GPU0:
             "map": "",
             "map_revision": 0,
         }
+        request_count = 0
+
+        def status_probe(*_args, **_kwargs):
+            nonlocal request_count
+            request_count += 1
+            if request_count == 1:
+                raise ControlError("offline")
+            return not_ready
+
         written = []
         with tempfile.TemporaryDirectory() as temporary:
             build = Path(temporary) / "build"
@@ -764,8 +773,7 @@ GPU0:
             ), mock.patch.object(
                 lg_launch, "resolve_vulkan_selection", return_value=self.selection()
             ), mock.patch.object(
-                lg_launch, "send_request",
-                side_effect=[ControlError("offline"), not_ready],
+                lg_launch, "send_request", side_effect=status_probe
             ), mock.patch.object(
                 lg_launch, "_existing_server_entry", return_value=None
             ), mock.patch.object(
