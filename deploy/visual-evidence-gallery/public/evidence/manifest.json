@@ -1,40 +1,6 @@
 {
   "captures": [
     {
-      "capture_id": "20260731T121714Z-sun-shadow-guard-static-after-02",
-      "captured_at": "2026-07-31T12:17:14Z",
-      "captured_by": "graphics-optimization-benchmark",
-      "description": "Fixed 1280x720 EyeToEye static-baseline view on the Default profile after guarding back-facing sun-shadow lookups.",
-      "full_size_url": "/evidence/assets/graphics-optimization/20260731T121714Z-sun-shadow-guard-static-after-02.png",
-      "preview_url": "/evidence/assets/graphics-optimization/20260731T121714Z-sun-shadow-guard-static-after-02.png",
-      "record_url": "/evidence/records/graphics-optimization/20260731T121714Z-sun-shadow-guard-static-after-02.json",
-      "review_notes": "Independent review found no geometry, lighting, readability, aliasing, texture, or artifact change. The matched before image is byte-identical.",
-      "review_status": "pass",
-      "reviewed_at": "2026-07-31T12:19:00Z",
-      "reviewer": "visual_guard_reviewer",
-      "sha256": "e5f5a3889801fb51d965c3396e2ee7d96df3cd5533c8ee37bd0830d8446003b6",
-      "size_bytes": 3687468,
-      "task_id": "graphics-optimization",
-      "title": "Sun-shadow lookup guard after: EyeToEye static view"
-    },
-    {
-      "capture_id": "20260731T121522Z-sun-shadow-guard-static-before-01",
-      "captured_at": "2026-07-31T12:15:22Z",
-      "captured_by": "graphics-optimization-benchmark",
-      "description": "Fixed 1280x720 EyeToEye static-baseline view on the Default profile before guarding back-facing sun-shadow lookups.",
-      "full_size_url": "/evidence/assets/graphics-optimization/20260731T121522Z-sun-shadow-guard-static-before-01.png",
-      "preview_url": "/evidence/assets/graphics-optimization/20260731T121522Z-sun-shadow-guard-static-before-01.png",
-      "record_url": "/evidence/records/graphics-optimization/20260731T121522Z-sun-shadow-guard-static-before-01.json",
-      "review_notes": "Independent review found no geometry, lighting, readability, aliasing, texture, or artifact change. The matched after image is byte-identical.",
-      "review_status": "pass",
-      "reviewed_at": "2026-07-31T12:19:00Z",
-      "reviewer": "visual_guard_reviewer",
-      "sha256": "e5f5a3889801fb51d965c3396e2ee7d96df3cd5533c8ee37bd0830d8446003b6",
-      "size_bytes": 3687468,
-      "task_id": "graphics-optimization",
-      "title": "Sun-shadow lookup guard before: EyeToEye static view"
-    },
-    {
       "capture_id": "20260730T204601Z-skybox-overkill-corner-03",
       "captured_at": "2026-07-30T20:46:01Z",
       "captured_by": "codex-root",
