@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260731T102452Z-world-light-guard-east-after-05",
+  "captured_at": "2026-07-31T10:22:18Z",
+  "captured_by": "graphics-optimization-benchmark",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "EyeToEye readability-pan Default profile, after the baked-world light guard.",
+  "image": "20260731T102452Z-world-light-guard-east-after-05.png",
+  "review": {
+    "notes": "Matched before/after east captures are byte-identical; the reviewer found no visual regression.",
+    "reviewed_at": "2026-07-31T10:26:12Z",
+    "reviewer": "graphics_optimization_audit",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "479cd1896fdded98d0c4be060ac722c8d1704931cc16d6703483ad8a32b525ce",
+  "size_bytes": 3687468,
+  "task_id": "graphics-optimization",
+  "title": "World-light guard after: east view"
+}
