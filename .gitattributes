@@ -1,0 +1,3 @@
+# Keep checked-in map and import-report bytes stable across Windows and Unix.
+maps/*.map text eol=lf
+reports/q3/* text eol=lf
