@@ -1245,11 +1245,11 @@ void collectTextureMaterialFiles(
 }
 
 [[nodiscard]] std::uint64_t pointShadowCacheFingerprint(
-  const Arena& arena,
+  std::uint64_t staticWorldFingerprint,
   std::span<const LivePointLight> lights,
   std::uint32_t textureSize
 ) {
-  std::uint64_t hash = arenaStaticWorldFingerprint(arena);
+  std::uint64_t hash = staticWorldFingerprint;
   const auto hashFloat = [](float value) {
     static_assert(sizeof(float) == sizeof(std::uint32_t));
     std::uint32_t bits = 0;
@@ -8106,13 +8106,21 @@ void appendCommandBatches(
     if (pointShadowLights.size() > pointShadowBudget.lightCount) {
       pointShadowLights.resize(pointShadowBudget.lightCount);
     }
-    const std::uint64_t desiredPointShadowCacheKey =
-      pointShadowCacheFingerprint(
-        arena,
+    const bool pointShadowResourcesReady =
+      hasStaticWorld &&
+      pointShadowWorldPipeline != nullptr &&
+      pointShadowSampler != nullptr &&
+      pointShadowFallbackTexture != nullptr;
+    std::uint64_t desiredPointShadowCacheKey = 0;
+    if (pointShadowBudget.lightCount > 0U && pointShadowResourcesReady) {
+      desiredPointShadowCacheKey = pointShadowCacheFingerprint(
+        worldMesh->arenaFingerprint,
         pointShadowLights,
         pointShadowBudget.textureSize
       );
+    }
     const bool pointShadowCacheMatches =
+      pointShadowResourcesReady &&
       pointShadowTexture != nullptr &&
       pointShadowSize == pointShadowBudget.textureSize &&
       pointShadowLightCount == pointShadowLights.size() &&
@@ -8124,11 +8132,6 @@ void appendCommandBatches(
     );
     SDL_GPUTexture* sampledPointShadowTexture =
       pointShadowFallbackTexture;
-    const bool pointShadowResourcesReady =
-      hasStaticWorld &&
-      pointShadowWorldPipeline != nullptr &&
-      pointShadowSampler != nullptr &&
-      pointShadowFallbackTexture != nullptr;
     if (pointShadowPlan.lightCount > 0U && pointShadowResourcesReady) {
       if (
         pointShadowSize != pointShadowPlan.textureSize ||

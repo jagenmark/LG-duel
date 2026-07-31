@@ -1,4 +1,5 @@
 #version 450
+#extension GL_EXT_texture_shadow_lod : require
 
 layout(location = 0) in vec4 vertexColor;
 layout(location = 1) in vec2 texCoord;
@@ -157,28 +158,32 @@ float pointShadowVisibility(int index, vec3 position, vec3 normal) {
   float mapSize = sceneLights.pointShadowParameters.x;
   float softness = clamp(sourceRadius / radius, 0.0, 1.0);
   if (softness <= 0.0001) {
-    return texture(pointShadowMap, vec4(uv, layer, receiverDepth));
+    return textureLod(pointShadowMap, vec4(uv, layer, receiverDepth), 0.0);
   }
   float kernelTexels = mapSize < 512.0
     ? min(0.5 + softness * 0.75, 1.0)
     : min(0.65 + softness * 1.35, 2.0);
   vec2 texel = vec2(kernelTexels / mapSize);
   float visibility = 0.0;
-  visibility += texture(
+  visibility += textureLod(
     pointShadowMap,
-    vec4(uv + vec2(-texel.x, -texel.y), layer, receiverDepth)
+    vec4(uv + vec2(-texel.x, -texel.y), layer, receiverDepth),
+    0.0
   );
-  visibility += texture(
+  visibility += textureLod(
     pointShadowMap,
-    vec4(uv + vec2(texel.x, -texel.y), layer, receiverDepth)
+    vec4(uv + vec2(texel.x, -texel.y), layer, receiverDepth),
+    0.0
   );
-  visibility += texture(
+  visibility += textureLod(
     pointShadowMap,
-    vec4(uv + vec2(-texel.x, texel.y), layer, receiverDepth)
+    vec4(uv + vec2(-texel.x, texel.y), layer, receiverDepth),
+    0.0
   );
-  visibility += texture(
+  visibility += textureLod(
     pointShadowMap,
-    vec4(uv + texel, layer, receiverDepth)
+    vec4(uv + texel, layer, receiverDepth),
+    0.0
   );
   return visibility * 0.25;
 }
@@ -222,9 +227,20 @@ void main() {
 
     int lightCount = clamp(int(sceneLights.parameters.x + 0.5), 0, 32);
     for (int index = 0; index < lightCount; ++index) {
+      // Lights without a live world contribution are kept for dynamic model
+      // lighting, but their baked world result is already in vertexColor.
+      // Skip all per-fragment work before distance, shadow, and specular math.
+      float liveWorldScale = sceneLights.lightParameters[index].y *
+        sceneLights.lightParameters[index].w;
+      if (liveWorldScale <= 0.0) {
+        continue;
+      }
       vec3 offset = sceneLights.positionRadius[index].xyz - worldPosition;
       float radius = max(sceneLights.positionRadius[index].w, 0.001);
       float lightDistance = length(offset);
+      if (lightDistance >= radius) {
+        continue;
+      }
       vec3 lightDirection = offset / max(lightDistance, 0.001);
       float sourceRadius = clamp(
         sceneLights.lightParameters[index].x,
@@ -238,8 +254,9 @@ void main() {
       );
       attenuation *= attenuation;
       float localNDotL = max(dot(n, lightDirection), 0.0);
-      float liveWorldScale = sceneLights.lightParameters[index].y *
-        sceneLights.lightParameters[index].w;
+      if (localNDotL <= 0.0) {
+        continue;
+      }
       float pointVisibility = pointShadowVisibility(
         index,
         worldPosition,

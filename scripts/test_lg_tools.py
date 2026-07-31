@@ -1010,6 +1010,122 @@ class LgToolTests(unittest.TestCase):
             )
             self.assertLess(quality_gate, local_light_loop, shader_name)
 
+    def test_static_world_light_loop_skips_baked_lights_before_work(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader = (root / "assets" / "shaders" / "world_surface.frag").read_text(
+            encoding="utf-8"
+        )
+        loop = shader.index("for (int index = 0; index <")
+        guard = shader.index(
+            "float liveWorldScale = sceneLights.lightParameters[index].y",
+            loop,
+        )
+        offset = shader.index("vec3 offset =", guard)
+        self.assertLess(loop, guard)
+        self.assertLess(guard, offset)
+        self.assertIn("if (liveWorldScale <= 0.0) {", shader[guard:offset])
+        self.assertIn("continue;", shader[guard:offset])
+
+    def test_point_light_radius_guards_skip_work_and_use_explicit_shadow_lods(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        distance_names = {
+            "world_surface.frag": "lightDistance",
+            "world3d.frag": "distanceToLight",
+            "gltf_player_model.frag": "distanceToLight",
+            "material_weapon.frag": "distanceToLight",
+            "instanced_color.frag": "lightDistance",
+        }
+        for shader_name, distance_name in distance_names.items():
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            loop = shader.index("for (int index = 0; index <")
+            distance = shader.index(
+                f"float {distance_name} = length(offset);",
+                loop,
+            )
+            guard = shader.index(
+                f"if ({distance_name} >= radius) {{",
+                distance,
+            )
+            source_radius = shader.index("float sourceRadius", guard)
+            self.assertLess(loop, distance, shader_name)
+            self.assertLess(distance, guard, shader_name)
+            self.assertLess(guard, source_radius, shader_name)
+            self.assertIn("continue;", shader[guard:source_radius], shader_name)
+
+        for shader_name in (
+            "world_surface.frag",
+            "gltf_player_model.frag",
+            "material_weapon.frag",
+            "instanced_color.frag",
+        ):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertNotIn("texture(pointShadowMap", shader, shader_name)
+            self.assertIn(
+                "#extension GL_EXT_texture_shadow_lod : require",
+                shader,
+                shader_name,
+            )
+            self.assertGreaterEqual(
+                shader.count("textureLod(\n    pointShadowMap"),
+                4,
+                shader_name,
+            )
+
+    def test_point_light_facing_guards_skip_unused_shadow_work(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        facing_names = {
+            "world_surface.frag": "localNDotL",
+            "gltf_player_model.frag": "nDotL",
+            "material_weapon.frag": "nDotL",
+            "instanced_color.frag": "nDotL",
+        }
+        for shader_name, facing_name in facing_names.items():
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            loop = shader.index("for (int index = 0; index <")
+            facing = shader.index(f"float {facing_name} =", loop)
+            guard = shader.index(f"if ({facing_name} <= 0.0) {{", facing)
+            shadow = shader.find("pointShadowVisibility(", guard)
+            radiance = shader.index("vec3 radiance", guard)
+            self.assertLess(loop, facing, shader_name)
+            self.assertLess(facing, guard, shader_name)
+            self.assertGreater(shadow, guard, shader_name)
+            self.assertLess(guard, radiance, shader_name)
+            self.assertIn("continue;", shader[guard:radiance], shader_name)
+
+        world3d = (shader_dir / "world3d.frag").read_text(encoding="utf-8")
+        self.assertNotIn("if (nDotL <= 0.0)", world3d)
+        self.assertIn("linearColor += sceneLights.colorIntensity[index].rgb", world3d)
+
+    def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        function = renderer.index("pointShadowCacheFingerprint(")
+        function_end = renderer.index("SDL_GPUTexture* uploadRgbaTexture", function)
+        signature = renderer[function:function_end]
+        self.assertIn("std::uint64_t staticWorldFingerprint", signature)
+        self.assertIn("std::uint64_t hash = staticWorldFingerprint;", signature)
+        draw = renderer.index("std::vector<LivePointLight> pointShadowLights")
+        resources = renderer.index(
+            "const bool pointShadowResourcesReady",
+            draw,
+        )
+        key = renderer.index("std::uint64_t desiredPointShadowCacheKey", draw)
+        call = renderer.index("pointShadowCacheFingerprint(", key)
+        call_end = renderer.index("const bool pointShadowCacheMatches", call)
+        self.assertLess(resources, key)
+        self.assertIn(
+            "pointShadowBudget.lightCount > 0U && pointShadowResourcesReady",
+            renderer[key:call_end],
+        )
+        self.assertIn("worldMesh->arenaFingerprint", renderer[key:call_end])
+        self.assertNotIn("pointShadowCacheFingerprint(\n        arena", renderer[key:call_end])
+
     def test_competitive_direct_shaders_compile_out_expensive_paths(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"
