@@ -1074,6 +1074,32 @@ class LgToolTests(unittest.TestCase):
                 shader_name,
             )
 
+    def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        function = renderer.index("pointShadowCacheFingerprint(")
+        function_end = renderer.index("SDL_GPUTexture* uploadRgbaTexture", function)
+        signature = renderer[function:function_end]
+        self.assertIn("std::uint64_t staticWorldFingerprint", signature)
+        self.assertIn("std::uint64_t hash = staticWorldFingerprint;", signature)
+        draw = renderer.index("std::vector<LivePointLight> pointShadowLights")
+        resources = renderer.index(
+            "const bool pointShadowResourcesReady",
+            draw,
+        )
+        key = renderer.index("std::uint64_t desiredPointShadowCacheKey", draw)
+        call = renderer.index("pointShadowCacheFingerprint(", key)
+        call_end = renderer.index("const bool pointShadowCacheMatches", call)
+        self.assertLess(resources, key)
+        self.assertIn(
+            "pointShadowBudget.lightCount > 0U && pointShadowResourcesReady",
+            renderer[key:call_end],
+        )
+        self.assertIn("worldMesh->arenaFingerprint", renderer[key:call_end])
+        self.assertNotIn("pointShadowCacheFingerprint(\n        arena", renderer[key:call_end])
+
     def test_competitive_direct_shaders_compile_out_expensive_paths(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"
