@@ -47,6 +47,9 @@ void main() {
       vec3 offset = sceneLights.positionRadius[index].xyz - worldPosition;
       float radius = max(sceneLights.positionRadius[index].w, 0.001);
       float distanceToLight = length(offset);
+      if (distanceToLight >= radius) {
+        continue;
+      }
       float sourceRadius = clamp(
         sceneLights.lightParameters[index].x,
         0.0,

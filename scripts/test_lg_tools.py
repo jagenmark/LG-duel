@@ -1026,6 +1026,54 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("if (liveWorldScale <= 0.0) {", shader[guard:offset])
         self.assertIn("continue;", shader[guard:offset])
 
+    def test_point_light_radius_guards_skip_work_and_use_explicit_shadow_lods(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        distance_names = {
+            "world_surface.frag": "lightDistance",
+            "world3d.frag": "distanceToLight",
+            "gltf_player_model.frag": "distanceToLight",
+            "material_weapon.frag": "distanceToLight",
+            "instanced_color.frag": "lightDistance",
+        }
+        for shader_name, distance_name in distance_names.items():
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            loop = shader.index("for (int index = 0; index <")
+            distance = shader.index(
+                f"float {distance_name} = length(offset);",
+                loop,
+            )
+            guard = shader.index(
+                f"if ({distance_name} >= radius) {{",
+                distance,
+            )
+            source_radius = shader.index("float sourceRadius", guard)
+            self.assertLess(loop, distance, shader_name)
+            self.assertLess(distance, guard, shader_name)
+            self.assertLess(guard, source_radius, shader_name)
+            self.assertIn("continue;", shader[guard:source_radius], shader_name)
+
+        for shader_name in (
+            "world_surface.frag",
+            "gltf_player_model.frag",
+            "material_weapon.frag",
+            "instanced_color.frag",
+        ):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertNotIn("texture(pointShadowMap", shader, shader_name)
+            self.assertIn(
+                "#extension GL_EXT_texture_shadow_lod : require",
+                shader,
+                shader_name,
+            )
+            self.assertGreaterEqual(
+                shader.count("textureLod(\n    pointShadowMap"),
+                4,
+                shader_name,
+            )
+
     def test_competitive_direct_shaders_compile_out_expensive_paths(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"
