@@ -6,7 +6,6 @@ layout(location = 1) in vec2 texCoord;
 layout(location = 2) in vec3 worldPosition;
 layout(location = 3) in float viewDistance;
 layout(location = 4) in vec3 worldNormal;
-layout(location = 5) flat in uint materialSlot;
 layout(location = 6) in vec3 viewDirection;
 layout(location = 0) out vec4 outColor;
 

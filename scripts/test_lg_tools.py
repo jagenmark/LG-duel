@@ -1117,6 +1117,21 @@ class LgToolTests(unittest.TestCase):
             self.assertIn("sunNDotL > 0.0", shader[assignment:assignment_end], shader_name)
             self.assertIn(": 1.0;", shader[assignment:assignment_end], shader_name)
 
+    def test_world_shader_interfaces_drop_dead_varyings(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        world3d_vert = (shader_dir / "world3d.vert").read_text(encoding="utf-8")
+        world3d_frag = (shader_dir / "world3d.frag").read_text(encoding="utf-8")
+        surface_vert = (shader_dir / "world_surface.vert").read_text(encoding="utf-8")
+        surface_frag = (shader_dir / "world_surface.frag").read_text(encoding="utf-8")
+        for shader in (world3d_vert, world3d_frag):
+            self.assertNotIn("worldNormal", shader)
+            self.assertNotIn("materialSlot", shader)
+        self.assertNotIn("flat out uint materialSlot", surface_vert)
+        self.assertNotIn("flat in uint materialSlot", surface_frag)
+        self.assertIn("worldNormal = inNormal", surface_vert)
+        self.assertIn("layout(location = 4) in vec3 worldNormal", surface_frag)
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
