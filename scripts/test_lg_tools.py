@@ -1157,6 +1157,29 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("perspectiveScene.gltfPlayerModelBatches.empty()", renderer[static_only:cache])
         self.assertIn("!sunShadowCacheMatches", renderer[cache:])
 
+    def test_static_world_fingerprint_cache_uses_authoritative_map_revision(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        game_app = (root / "src" / "app" / "GameApp.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("settings.mapRevision", renderer)
+        self.assertIn("mesh->arenaRevision == settings.mapRevision", renderer)
+        self.assertIn("arenaStaticWorldFingerprint(arena)", renderer)
+        self.assertIn("currentRenderSettings.mapRevision = currentMapRevision()", game_app)
+
+    def test_point_shadow_selection_is_gated_when_quality_is_off(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        selection = renderer.index("std::vector<LivePointLight> pointShadowLights")
+        budget = renderer.index("const PointShadowPassPlan pointShadowBudget", selection)
+        self.assertIn("if (settings.pointShadowQuality > 0)", renderer[selection:budget])
+        self.assertIn("selectPointShadowLights(", renderer[selection:budget])
+
     def test_point_shadow_cache_reuses_validated_world_fingerprint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
