@@ -8784,7 +8784,6 @@ void appendCommandBatches(
               millisecondsBetween(staticWorldStart, RenderClock::now());
           }
         }
-        pushActiveLightUniform();
         SDL_BindGPUGraphicsPipeline(
           worldPass,
           directPresent ? directWorldPipeline : pipeline3D
@@ -8874,7 +8873,6 @@ void appendCommandBatches(
           perspectiveScene
         );
         if (!directPresent) {
-          pushActiveLightUniform();
           SDL_BindGPUFragmentSamplers(
             worldPass,
             0,
