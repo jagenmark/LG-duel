@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -130,6 +131,25 @@ int main() {
       !revolverFrozen.followMuzzle && revolverFrozen.active &&
       !revolverExpired.active && nearlyEqual(revolverExpired.alpha, 0.0F),
     "revolver tracer should follow for 55 ms, freeze, and expire at 110 ms"
+  );
+
+  const lg::SniperSmokeTracerPresentation sniperStart =
+    lg::sniperSmokeTracerPresentation(0.0F);
+  const lg::SniperSmokeTracerPresentation sniperMiddle =
+    lg::sniperSmokeTracerPresentation(0.0425F);
+  const lg::SniperSmokeTracerPresentation sniperExpired =
+    lg::sniperSmokeTracerPresentation(lg::kSniperSmokeTracerLifetimeSeconds);
+  const lg::SniperSmokeTracerPresentation sniperInvalid =
+    lg::sniperSmokeTracerPresentation(std::numeric_limits<float>::quiet_NaN());
+  failures += expect(
+    nearlyEqual(lg::kSniperSmokeTracerLifetimeSeconds, 0.085F) &&
+      nearlyEqual(lg::kSniperSmokeTracerMaximumLength, 2.40F) &&
+      sniperStart.active && nearlyEqual(sniperStart.alpha, 1.0F) &&
+      sniperMiddle.active && sniperMiddle.alpha > 0.0F &&
+      sniperMiddle.alpha < sniperStart.alpha &&
+      !sniperExpired.active && nearlyEqual(sniperExpired.alpha, 0.0F) &&
+      !sniperInvalid.active && nearlyEqual(sniperInvalid.alpha, 0.0F),
+    "sniper smoke tracer should have a fixed short lifetime, bounded length, and deterministic fade"
   );
 
   lg::RocketLauncherFiringResponseState rocketResponse;
