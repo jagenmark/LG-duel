@@ -6202,7 +6202,11 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
   if (arena.renderDefaultFloor) {
     addFloorTreatment(scene, arena);
   }
-  addArenaBoundaryWalls(scene, arena);
+  // The boundary enclosure is only a legacy fallback for maps without a
+  // sky. Its ceiling otherwise covers the cubemap after the sky pass.
+  if (arena.skyId == SkyId::None) {
+    addArenaBoundaryWalls(scene, arena);
+  }
   addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
   for (std::size_t index = 0; index < arena.wallCount; ++index) {

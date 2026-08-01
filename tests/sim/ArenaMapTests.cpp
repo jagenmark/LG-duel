@@ -146,8 +146,8 @@ int main() {
     const lg::Arena& arena = loaded.arena;
     failures += expect(arena.wallCount > 0, "eyetoeye should load static geometry");
     failures += expect(
-      arena.skyId == lg::SkyId::None,
-      "eyetoeye should keep the legacy clear colour"
+      arena.skyId == lg::SkyId::CrimsonSunset,
+      "eyetoeye should select the crimson-sunset sky"
     );
     bool eyeHasSkyFace = false;
     for (std::size_t index = 0; index < arena.wallCount; ++index) {
@@ -191,11 +191,11 @@ int main() {
       loaded.descriptor.contentHash == lg::hashArena(arena),
       "eyetoeye descriptor hash should match loaded arena"
     );
-    lg::Arena defaultSkyCopy = arena;
-    defaultSkyCopy.skyId = lg::SkyId::None;
+    lg::Arena noSkyCopy = arena;
+    noSkyCopy.skyId = lg::SkyId::None;
     failures += expect(
-      lg::hashArena(defaultSkyCopy) == loaded.descriptor.contentHash,
-      "default sky data should not add a hash domain"
+      lg::hashArena(noSkyCopy) != loaded.descriptor.contentHash,
+      "removing eyetoeye's sky selection should change the map hash"
     );
     lg::Arena skyChanged = arena;
     skyChanged.skyId = lg::SkyId::Aurora;

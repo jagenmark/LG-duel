@@ -3,6 +3,7 @@
 // entity 0
 {
 "classname" "worldspawn"
+"lg_sky" "crimson-sunset"
 "lg_bounds_max" "5000 5000 5000"
 "lg_bounds_min" "-5000 -5000 -5000"
 // brush 0

@@ -1718,6 +1718,15 @@ int main() {
 
   {
     lg::Arena skyArena;
+    const lg::Scene3D boundaryScene = lg::buildStaticWorldScene(skyArena);
+    skyArena.skyId = lg::SkyId::Aurora;
+    const lg::Scene3D skyBoundaryScene =
+      lg::buildStaticWorldScene(skyArena);
+    failures += expect(
+      boundaryScene.vertices.size() == skyBoundaryScene.vertices.size() + 30U,
+      "a selected sky should omit the five fallback boundary surfaces"
+    );
+
     skyArena.wallCount = 1;
     skyArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     skyArena.walls[0].max = {1.0F, 1.0F, 1.0F};
