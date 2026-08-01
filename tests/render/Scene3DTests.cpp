@@ -1334,6 +1334,29 @@ int main() {
       ),
     "Worker two-handed pose should expose a finite animated weapon socket"
   );
+  lg::GltfSkinnedModel::PoseScratch workerRestScratch;
+  lg::GltfSkinnedModel::PoseScratch workerDeathScratch;
+  std::vector<std::array<float, 16>> workerRestPalette;
+  std::vector<std::array<float, 16>> workerDeathPalette;
+  const bool workerRestSampled = lg::workerPlayerModel().appendBonePalette(
+    {}, workerRestPalette, workerRestScratch
+  );
+  const bool workerDeathSampled = lg::workerPlayerModel().appendBonePalette(
+    {{"Death", 1.1F, 1.0F}}, workerDeathPalette, workerDeathScratch
+  );
+  const bool workerDeathAvailable = std::find(
+    lg::workerPlayerModel().animationNames().begin(),
+    lg::workerPlayerModel().animationNames().end(),
+    "Death"
+  ) != lg::workerPlayerModel().animationNames().end();
+  failures += expect(
+    workerDeathAvailable &&
+      workerRestSampled &&
+      workerDeathSampled &&
+      workerDeathPalette.size() == lg::workerPlayerModel().jointCount() &&
+      maxPaletteDelta(workerRestPalette, workerDeathPalette) > 0.001F,
+    "Worker death pose should use the exact exported Death animation"
+  );
 
   lg::RenderSettings noWeaponSettings = settings;
   noWeaponSettings.drawRemoteWeapons = false;

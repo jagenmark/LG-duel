@@ -9605,10 +9605,6 @@ int GameApp::run() const {
           playerPresentationStates[playerIndex] = {};
           continue;
         }
-        if (renderSnapshot.players[playerIndex].health <= 0) {
-          playerPresentationStates[playerIndex] = {};
-          continue;
-        }
         const bool teammate = !session.spectator() && playerPresentedAsTeammate(
           renderSnapshot, localPlayerIndex, playerIndex
         );
