@@ -35,6 +35,7 @@ public:
   void playFrag(float volume);
   void playPainGrunt(float volume, float pan = 0.0F);
   void playRailFire(float volume, float pan = 0.0F);
+  void playRevolverFire(float volume, float pan = 0.0F);
   void playRailReady(float volume);
   void playRocketFire(float volume, float pan = 0.0F);
   void playMachineGunFire(float volume, float pan = 0.0F);
@@ -104,6 +105,7 @@ private:
   LoadedClip fragClip_;
   LoadedClip painGruntClip_;
   LoadedClip railgunFireClip_;
+  LoadedClip revolverFireClip_;
   LoadedClip railgunReadyClip_;
   LoadedClip rocketLauncherFireClip_;
   LoadedClip rocketExplosionClip_;

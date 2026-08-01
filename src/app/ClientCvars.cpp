@@ -79,7 +79,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"s_gl_bounce_volume", "Grenade bounce sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_pg_fire_volume", "Plasma gun fire sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_hit_volume", "Hit confirmation sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
-  console.registerCvar({"s_frag_volume", "Frag/kill sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
+  console.registerCvar({"s_frag_volume", "Frag/kill sound volume multiplier.", 1.5F, CvarFlag::Client, 0.0F, 2.0F});
   console.registerCvar({"s_pain_volume", "Pain grunt sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_footstep_volume", "Footstep sound volume multiplier.", 0.45F, CvarFlag::Client, 0.0F, 1.0F});
   console.registerCvar({"s_round_win_volume", "Round win sound volume multiplier.", 1.0F, CvarFlag::Client, 0.0F, 1.0F});

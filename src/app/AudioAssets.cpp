@@ -274,6 +274,8 @@ const char* audioCueFileName(AudioCue cue) {
     return "frag.wav";
   case AudioCue::RailgunFire:
     return "rg_fire_discharge.wav";
+  case AudioCue::RevolverFire:
+    return "revolver_fire.wav";
   case AudioCue::RailgunReady:
     return "rg_ready_chime.wav";
   case AudioCue::RocketLauncherFire:

@@ -132,6 +132,10 @@ void ClientAudio::playRailFire(float volume, float pan) {
   queueClip(railgunFireClip_, volume, pan);
 }
 
+void ClientAudio::playRevolverFire(float volume, float pan) {
+  queueClip(revolverFireClip_, volume, pan);
+}
+
 void ClientAudio::playRailReady(float volume) {
   queueClip(railgunReadyClip_, volume, 0.0F);
 }
@@ -261,6 +265,7 @@ void ClientAudio::loadCueAssets(const std::filesystem::path& assetBasePath) {
   fragClip_ = loadCueClip(assetBasePath, AudioCue::Frag);
   painGruntClip_ = loadCueClip(assetBasePath, AudioCue::PainGrunt);
   railgunFireClip_ = loadCueClip(assetBasePath, AudioCue::RailgunFire);
+  revolverFireClip_ = loadCueClip(assetBasePath, AudioCue::RevolverFire);
   railgunReadyClip_ = loadCueClip(assetBasePath, AudioCue::RailgunReady);
   rocketLauncherFireClip_ =
     loadCueClip(assetBasePath, AudioCue::RocketLauncherFire);
