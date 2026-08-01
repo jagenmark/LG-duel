@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OVERKILL = ROOT / "maps" / "overkill_import.map"
 THUNDERSTRUCK = ROOT / "maps" / "thunderstruck.map"
-DEFAULT_BASE = "13c1c75"
+DEFAULT_BASE = "471937bda917bd2c48fc9bececae8f2126009535"
 
 FACE_RE = re.compile(
     r"^(\( [^)]+ \) \( [^)]+ \) \( [^)]+ \) )(\S+)( .*)$"
@@ -42,44 +42,44 @@ OVERKILL_LIGHTS = {
         "color": "255 226 184",
         "intensity": "0.85",
     },
-    "-80 80 680": {
+    "-80 80 712": {
         "classname": "light",
-        "origin": "-80 80 680",
+        "origin": "-80 80 712",
         "color": "255 218 170",
         "intensity": "0.8",
         "radius": "1400",
     },
-    "640 1050 1050": {
+    "640 1050 1082": {
         "classname": "light",
-        "origin": "640 1050 1050",
+        "origin": "640 1050 1082",
         "color": "188 214 255",
         "intensity": "0.75",
         "radius": "1300",
     },
-    "640 -1350 680": {
+    "640 -1350 712": {
         "classname": "light",
-        "origin": "640 -1350 680",
+        "origin": "640 -1350 712",
         "color": "255 205 150",
         "intensity": "0.75",
         "radius": "1400",
     },
-    "-1100 -100 560": {
+    "-1100 -100 592": {
         "classname": "light",
-        "origin": "-1100 -100 560",
+        "origin": "-1100 -100 592",
         "color": "196 220 255",
         "intensity": "0.7",
         "radius": "1200",
     },
-    "1050 650 600": {
+    "1050 650 632": {
         "classname": "light",
-        "origin": "1050 650 600",
+        "origin": "1050 650 632",
         "color": "255 216 164",
         "intensity": "0.7",
         "radius": "1200",
     },
-    "1184 2080 520": {
+    "1184 2080 552": {
         "classname": "light",
-        "origin": "1184 2080 520",
+        "origin": "1184 2080 552",
         "color": "255 174 82",
         "intensity": "0.9",
         "radius": "900",
@@ -89,35 +89,35 @@ OVERKILL_LIGHTS = {
 OVERKILL_FILL_LIGHTS = (
     {
         "classname": "light",
-        "origin": "0 -360 440",
+        "origin": "0 -360 472",
         "color": "168 202 255",
         "intensity": "1.1",
         "radius": "1600",
     },
     {
         "classname": "light",
-        "origin": "640 360 760",
+        "origin": "640 360 792",
         "color": "176 208 255",
         "intensity": "1.05",
         "radius": "1600",
     },
     {
         "classname": "light",
-        "origin": "640 -1040 440",
+        "origin": "640 -1040 472",
         "color": "185 210 255",
         "intensity": "1.0",
         "radius": "1500",
     },
     {
         "classname": "light",
-        "origin": "-1300 -920 400",
+        "origin": "-1300 -920 432",
         "color": "190 216 255",
         "intensity": "1.1",
         "radius": "1200",
     },
     {
         "classname": "light",
-        "origin": "1184 1760 360",
+        "origin": "1184 1760 392",
         "color": "190 214 255",
         "intensity": "0.75",
         "radius": "1000",
@@ -125,23 +125,23 @@ OVERKILL_FILL_LIGHTS = (
 )
 
 THUNDERSTRUCK_LIGHTS = {
-    "56 -48 -976": ("255 226 196", "0.45", "720"),
-    "-720 16 -888": ("235 240 246", "0.35", "800"),
-    "-172 -720 -200": ("235 240 246", "0.30", "2400"),
-    "456 -1032 -1010": ("255 220 180", "0.50", "900"),
-    "-216 -392 -882": ("245 235 218", "0.40", "900"),
-    "-472 -1048 -770": ("255 220 180", "0.45", "1000"),
+    "56 -48 -944": ("255 226 196", "0.45", "720"),
+    "-720 16 -856": ("235 240 246", "0.35", "800"),
+    "-172 -720 -168": ("235 240 246", "0.30", "2400"),
+    "456 -1032 -978": ("255 220 180", "0.50", "900"),
+    "-216 -392 -850": ("245 235 218", "0.40", "900"),
+    "-472 -1048 -738": ("255 220 180", "0.45", "1000"),
 }
 
 THUNDERSTRUCK_AMBIENT_INTENSITY = "0.42"
 THUNDERSTRUCK_SUN_INTENSITY = "0.85"
 THUNDERSTRUCK_SHADOW_LIGHTS = {
-    "56 -48 -976": {
+    "56 -48 -944": {
         "casts_shadows": "1",
         "source_radius": "64",
         "priority": "20",
     },
-    "-216 -392 -882": {
+    "-216 -392 -850": {
         "casts_shadows": "1",
         "source_radius": "64",
         "priority": "20",
@@ -409,7 +409,7 @@ def gameplay_origins(text: str) -> list[str]:
     result: list[str] = []
     for start, end in entity_ranges(lines):
         props = properties(lines, start, end)
-        if props.get("classname") in {"light", "light_sun"}:
+        if props.get("classname") in {"light", "light_point", "light_sun"}:
             continue
         if origin := props.get("origin"):
             result.append(origin)
@@ -430,31 +430,187 @@ def unresolved_textures(text: str) -> list[str]:
     return sorted(missing)
 
 
+LIGHT_EXPECTATIONS = {
+    "thunderstruck": [
+        ("56 -48 -944", "1.10", "560", True, "10", "100"),
+        ("-720 16 -856", "0.75", "720", False, "0", "0"),
+        ("-172 -720 -168", "0.65", "1500", False, "0", "0"),
+        ("456 -1032 -978", "1.05", "650", False, "0", "0"),
+        ("-216 -392 -850", "1.00", "560", True, "10", "90"),
+        ("-472 -1048 -738", "0.90", "720", False, "0", "0"),
+    ],
+    "overkill": [
+        ("-80 80 712", "1.25", "760", True, "10", "100"),
+        ("640 1050 1082", "1.00", "850", False, "0", "0"),
+        ("640 -1350 712", "1.00", "900", False, "0", "0"),
+        ("-1100 -100 592", "0.95", "820", False, "0", "0"),
+        ("1050 650 632", "1.00", "820", False, "0", "0"),
+        ("1184 2080 552", "1.35", "620", True, "10", "90"),
+        ("0 -360 472", "1.30", "950", False, "0", "0"),
+        ("640 360 792", "1.25", "950", False, "0", "0"),
+        ("640 -1040 472", "1.25", "900", False, "0", "0"),
+        ("-1300 -920 432", "1.30", "800", False, "0", "0"),
+        ("1184 1760 392", "1.00", "720", False, "0", "0"),
+    ],
+}
+
+FIXTURE_PREFIXES = {
+    "thunderstruck": [
+        ("thunderstruck-central", "56 -48 -944"),
+        ("thunderstruck-west", "-720 16 -856"),
+        ("thunderstruck-upper", "-172 -720 -168"),
+        ("thunderstruck-south", "456 -1032 -978"),
+        ("thunderstruck-mid", "-216 -392 -850"),
+        ("thunderstruck-east", "-472 -1048 -738"),
+    ],
+    "overkill": [
+        ("overkill-west", "-80 80 712"),
+        ("overkill-north", "640 1050 1082"),
+        ("overkill-south", "640 -1350 712"),
+        ("overkill-northwest", "-1100 -100 592"),
+        ("overkill-east", "1050 650 632"),
+        ("overkill-teleport", "1184 2080 552"),
+        ("overkill-center-west", "0 -360 472"),
+        ("overkill-center", "640 360 792"),
+        ("overkill-center-south", "640 -1040 472"),
+        ("overkill-southwest", "-1300 -920 432"),
+        ("overkill-exit", "1184 1760 392"),
+    ],
+}
+
+
+def entity_properties(text: str) -> list[tuple[dict[str, str], list[str]]]:
+    lines = split_lines(text)
+    result: list[tuple[dict[str, str], list[str]]] = []
+    for start, end in entity_ranges(lines):
+        result.append((
+            properties(lines, start, end),
+            lines[start:end],
+        ))
+    return result
+
+
+def verify_lights(
+    text: str,
+    expected: list[tuple[str, str, str, bool, str, str]],
+) -> None:
+    entities = entity_properties(text)
+    by_origin: dict[str, list[dict[str, str]]] = {}
+    for props, _ in entities:
+        if props.get("classname") in {"light", "light_point"}:
+            by_origin.setdefault(props.get("origin", ""), []).append(props)
+    for origin, intensity, radius, shadows, source_radius, priority in expected:
+        matches = by_origin.get(origin, [])
+        if len(matches) != 1:
+            raise AssertionError(
+                f"expected one authored point light at {origin}, found {len(matches)}"
+            )
+        props = matches[0]
+        if (
+            props.get("intensity") != intensity or
+            props.get("radius") != radius or
+            (props.get("casts_shadows", "0") == "1") != shadows or
+            props.get("source_radius", "0") != source_radius or
+            props.get("priority", "0") != priority
+        ):
+            raise AssertionError(f"light at {origin} does not match explicit light tuning")
+
+
+def verify_fixtures(
+    text: str,
+    name: str,
+    expected: list[tuple[str, str]],
+) -> int:
+    expected_origins = {origin for _, origin in expected}
+    expected_ids = {
+        f"{prefix}-{part}"
+        for prefix, _ in expected
+        for part in ("housing", "lens")
+    }
+    entities = entity_properties(text)
+    seen_ids: set[str] = set()
+    source_locators: set[tuple[str, str]] = set()
+    fixture_count = 0
+    for props, lines in entities:
+        visual_id = props.get("lg_adaptation_visual_id", "")
+        if visual_id not in expected_ids:
+            continue
+        if (
+            props.get("classname") != "func_group" or
+            props.get("lg_geometry_role") != "render_only"
+        ):
+            raise AssertionError(f"{name} fixture {visual_id} is not render-only")
+        if visual_id in seen_ids:
+            raise AssertionError(f"duplicate {name} fixture id: {visual_id}")
+        seen_ids.add(visual_id)
+        origin = props.get("lg_light_origin", "")
+        if origin not in expected_origins:
+            raise AssertionError(f"{name} fixture {visual_id} has no authored light")
+        locator = (
+            props.get("lg_source_entity_index", ""),
+            props.get("lg_source_brush_index", ""),
+        )
+        if "" in locator or locator in source_locators:
+            raise AssertionError(f"duplicate or missing source locator on {visual_id}")
+        source_locators.add(locator)
+        materials = {
+            match.group(2)
+            for line in lines
+            if (match := FACE_RE.match(line))
+        }
+        if visual_id.endswith("-housing"):
+            required = "Overkill/Overkill_Oxidized_Trim-128x128"
+        else:
+            required = "Overkill/Overkill_Amber_Route-128x128"
+        if required not in materials:
+            raise AssertionError(f"{name} fixture {visual_id} has no {required} face")
+        fixture_count += 1
+    if seen_ids != expected_ids:
+        raise AssertionError(
+            f"{name} fixtures differ from the authored light list: "
+            f"missing={sorted(expected_ids - seen_ids)} "
+            f"extra={sorted(seen_ids - expected_ids)}"
+        )
+    return fixture_count
+
+
 def verify(base: str) -> dict[str, int]:
     overkill_base = git_text(OVERKILL, base)
     thunder_base = git_text(THUNDERSTRUCK, base)
-    expected_overkill = transform_overkill(overkill_base)
-    expected_thunder, counts = transform_thunderstruck(thunder_base)
     actual_overkill = OVERKILL.read_text(encoding="utf-8")
     actual_thunder = THUNDERSTRUCK.read_text(encoding="utf-8")
 
-    if split_lines(actual_overkill) != split_lines(expected_overkill):
-        raise AssertionError("Overkill differs from the exact approved light pass")
-    if split_lines(actual_thunder) != split_lines(expected_thunder):
-        raise AssertionError("Thunderstruck differs from the exact approved art pass")
-    if plane_points(overkill_base) != plane_points(actual_overkill):
-        raise AssertionError("Overkill plane points changed")
-    if plane_points(thunder_base) != plane_points(actual_thunder):
-        raise AssertionError("Thunderstruck plane points changed")
-    if gameplay_origins(overkill_base) != gameplay_origins(actual_overkill):
-        raise AssertionError("Overkill gameplay origins changed")
-    if gameplay_origins(thunder_base) != gameplay_origins(actual_thunder):
-        raise AssertionError("Thunderstruck gameplay origins changed")
+    for name, original, actual in (
+        ("Overkill", overkill_base, actual_overkill),
+        ("Thunderstruck", thunder_base, actual_thunder),
+    ):
+        original_planes = plane_points(original)
+        actual_planes = plane_points(actual)
+        if actual_planes[:len(original_planes)] != original_planes:
+            raise AssertionError(f"{name} source plane points changed")
+        if gameplay_origins(original) != gameplay_origins(actual):
+            raise AssertionError(f"{name} gameplay origins changed")
+
+    verify_lights(actual_thunder, LIGHT_EXPECTATIONS["thunderstruck"])
+    verify_lights(actual_overkill, LIGHT_EXPECTATIONS["overkill"])
+    thunder_fixtures = verify_fixtures(
+        actual_thunder,
+        "Thunderstruck",
+        FIXTURE_PREFIXES["thunderstruck"],
+    )
+    overkill_fixtures = verify_fixtures(
+        actual_overkill,
+        "Overkill",
+        FIXTURE_PREFIXES["overkill"],
+    )
 
     missing = unresolved_textures(actual_overkill) + unresolved_textures(actual_thunder)
     if missing:
         raise AssertionError(f"unresolved non-common textures: {sorted(set(missing))}")
-    return counts
+    return {
+        "thunder_fixtures": thunder_fixtures,
+        "overkill_fixtures": overkill_fixtures,
+    }
 
 
 def main() -> int:
@@ -467,10 +623,10 @@ def main() -> int:
     args = parser.parse_args()
     counts = verify(args.base)
     print(
-        "map art pass verified: "
-        f"{sum(counts.values())} Thunderstruck faces "
-        f"({counts}), {len(OVERKILL_LIGHTS) + len(OVERKILL_FILL_LIGHTS)} "
-        "Overkill lights, 6 Thunderstruck point lights, 1 sun"
+        "explicit map lighting verified: "
+        f"{counts['thunder_fixtures']} Thunderstruck fixture brushes, "
+        f"{counts['overkill_fixtures']} Overkill fixture brushes, "
+        "6 Thunderstruck point lights, 11 Overkill point lights"
     )
     return 0
 

@@ -484,6 +484,12 @@ constexpr BillboardAsset kExplosionHaloAsset = {
   RenderPass::AdditiveGlow,
 };
 
+constexpr BillboardAsset kLightSourceAsset = {
+  BillboardHandle::LightSource,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
 constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   ProjectileVisualType::Plasma,
   MeshHandle::PlasmaCore,
@@ -4301,6 +4307,8 @@ const BillboardAsset* billboardAsset(BillboardHandle handle) {
     return &kExplosionFlashAsset;
   case BillboardHandle::ExplosionHalo:
     return &kExplosionHaloAsset;
+  case BillboardHandle::LightSource:
+    return &kLightSourceAsset;
   case BillboardHandle::Invalid:
     break;
   }
@@ -4463,6 +4471,80 @@ namespace {
 
 void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) {
   scene.simpleInstances.push_back(instance);
+}
+
+void appendAuthoredLightSourceGlows(Scene3D& scene, const Arena& arena) {
+  for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+    const ArenaStaticLight& light = arena.staticLights[index];
+    if (
+      !std::isfinite(light.intensity) ||
+      !std::isfinite(light.radius) ||
+      light.intensity <= 0.0F ||
+      light.radius <= 0.0F
+    ) {
+      continue;
+    }
+    const float coreScale = std::clamp(
+      0.18F + light.intensity * 0.025F,
+      0.18F,
+      0.24F
+    );
+    const float haloScale = coreScale * 2.2F;
+    if (
+      !sphereIntersectsPerspectiveFrustum(
+        scene.camera,
+        light.position,
+        haloScale
+      )
+    ) {
+      continue;
+    }
+    const auto channel = [](float value) {
+      return static_cast<std::uint8_t>(std::clamp(
+        std::lround(std::clamp(value, 0.0F, 1.0F) * 255.0F),
+        0L,
+        255L
+      ));
+    };
+    const RenderColor color = {
+      channel(light.color.x),
+      channel(light.color.y),
+      channel(light.color.z),
+      255,
+    };
+    RenderColor haloColor = color;
+    haloColor.alpha = 76;
+    appendSimpleInstance(
+      scene,
+      {
+        MeshHandle::Invalid,
+        BillboardHandle::LightSource,
+        RenderPass::AdditiveGlow,
+        light.position,
+        {coreScale, coreScale, coreScale},
+        static_cast<float>((index * 7U) & 15U) * (kTwoPi / 16.0F),
+        0.0F,
+        color,
+        static_cast<float>(index) * 0.17F,
+        {light.position, coreScale},
+      }
+    );
+    appendSimpleInstance(
+      scene,
+      {
+        MeshHandle::Invalid,
+        BillboardHandle::LightSource,
+        RenderPass::AdditiveGlow,
+        light.position,
+        {haloScale, haloScale, haloScale},
+        static_cast<float>((index * 11U + 3U) & 15U) * (kTwoPi / 16.0F),
+        0.0F,
+        haloColor,
+        static_cast<float>(index) * 0.23F + 0.11F,
+        {light.position, haloScale},
+      }
+    );
+  }
 }
 
 [[nodiscard]] bool finiteVec3(Vec3 value) {
@@ -5736,6 +5818,9 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
       }
     }
     if (batch.billboard != BillboardHandle::Invalid) {
+      if (batch.billboard == BillboardHandle::LightSource) {
+        continue;
+      }
       if (
         batch.billboard == BillboardHandle::ExplosionFlash ||
         batch.billboard == BillboardHandle::ExplosionHalo
@@ -5778,7 +5863,7 @@ WorldMaterialTraits classifyWorldMaterial(std::string_view materialPath) {
   if (containsAny({
         "energy", "element", "teleport", "plasma", "light", "amber", "route",
       })) {
-    return {WorldMaterialKind::Energy, 0.42F, 0.0F, 0.22F, 0.18F};
+    return {WorldMaterialKind::Energy, 0.42F, 0.0F, 0.22F, 0.30F};
   }
   if (containsAny({"oxid", "rust", "corrode"})) {
     return {WorldMaterialKind::OxidizedMetal, 0.72F, 0.42F, 0.28F, 0.0F};
@@ -6320,6 +6405,7 @@ Scene3D buildPerspectiveScene(
   }
   addTransientTracerInstances(scene, transientTracers, settings);
   addTransientEffectInstances(scene, transientEffects, settings);
+  appendAuthoredLightSourceGlows(scene, arena);
   const std::size_t firstRocketProjectileLight =
     scene.temporaryLights.size();
   for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {

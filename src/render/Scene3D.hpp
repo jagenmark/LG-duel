@@ -87,6 +87,7 @@ enum class BillboardHandle : std::uint16_t {
   RocketFlame,
   ExplosionFlash,
   ExplosionHalo,
+  LightSource,
 };
 
 struct BoundingSphere {
