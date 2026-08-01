@@ -163,7 +163,7 @@ void writeStereoPcm24ExtensibleWav(const std::filesystem::path& path) {
 } // namespace
 
 int main() {
-  const std::array<std::pair<lg::AudioCue, const char*>, 25> runtimeCueNames{{
+  const std::array<std::pair<lg::AudioCue, const char*>, 26> runtimeCueNames{{
     {lg::AudioCue::LightningGunFireLoop, "lg_fire_selected_low_drone.wav"},
     {lg::AudioCue::HitConfirmLight, "hit_confirm_light.wav"},
     {lg::AudioCue::HitConfirmMedium, "hit_confirm_medium.wav"},
@@ -171,6 +171,7 @@ int main() {
     {lg::AudioCue::PainGrunt, "pain_grunt.wav"},
     {lg::AudioCue::Frag, "frag.wav"},
     {lg::AudioCue::RailgunFire, "rg_fire_discharge.wav"},
+    {lg::AudioCue::RevolverFire, "revolver_fire.wav"},
     {lg::AudioCue::RailgunReady, "rg_ready_chime.wav"},
     {lg::AudioCue::RocketLauncherFire, "rl_fire_launch.wav"},
     {lg::AudioCue::RocketExplosion, "rl_explosion_pop.wav"},
@@ -199,7 +200,7 @@ int main() {
 
   const auto repoRoot = findRepoRoot(std::filesystem::current_path());
   expect(repoRoot.has_value(), "test should find repository root");
-  const std::array<std::pair<lg::AudioCue, const char*>, 24> runtimeLoadCues{{
+  const std::array<std::pair<lg::AudioCue, const char*>, 25> runtimeLoadCues{{
     {lg::AudioCue::LightningGunFireLoop, "lg_fire_selected_low_drone.wav"},
     {lg::AudioCue::HitConfirmLight, "hit_confirm_light.wav"},
     {lg::AudioCue::HitConfirmMedium, "hit_confirm_medium.wav"},
@@ -207,6 +208,7 @@ int main() {
     {lg::AudioCue::PainGrunt, "pain_grunt.wav"},
     {lg::AudioCue::Frag, "frag.wav"},
     {lg::AudioCue::RailgunFire, "rg_fire_discharge.wav"},
+    {lg::AudioCue::RevolverFire, "revolver_fire.wav"},
     {lg::AudioCue::RailgunReady, "rg_ready_chime.wav"},
     {lg::AudioCue::RocketLauncherFire, "rl_fire_launch.wav"},
     {lg::AudioCue::RocketExplosion, "rl_explosion_pop.wav"},

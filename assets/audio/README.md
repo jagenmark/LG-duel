@@ -36,6 +36,7 @@ decreases in authoritative snapshots.
 ## Weapon Fire And Explosion
 
 - `rg_fire_discharge.wav`: railgun fire discharge.
+- `revolver_fire.wav`: revolver fire report.
 - `rg_ready_chime.wav`: railgun cooldown-ready notification.
 - `rl_fire_launch.wav`: rocket launcher fire cue.
 - `rl_explosion_pop.wav`: rocket explosion cue.

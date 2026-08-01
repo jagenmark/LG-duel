@@ -9200,9 +9200,7 @@ int GameApp::run() const {
                   localRailReadySoundPlayed = false;
                 }
               } else if (fireAudio.cue == WeaponFireAudioCue::Revolver) {
-                // The Revolver may use the same sound asset without joining
-                // the Sniper Rifle's ready-chime and cooldown state.
-                audio.playRailFire(weaponFireAudio.volume, weaponFireAudio.pan);
+                audio.playRevolverFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::RocketLauncher) {
                 audio.playRocketFire(weaponFireAudio.volume, weaponFireAudio.pan);
               } else if (fireAudio.cue == WeaponFireAudioCue::MachineGun) {
