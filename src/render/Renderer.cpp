@@ -5046,11 +5046,12 @@ template <typename Vertex>
     { 1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 1.0F, 1.0F},
     {-1.0F,  1.0F, 0.0F, 255, 255, 255, 255, 0.0F, 1.0F},
   }};
-  const std::array<BillboardHandle, 4> projectileBillboardHandles = {{
+  const std::array<BillboardHandle, 5> projectileBillboardHandles = {{
     BillboardHandle::PlasmaGlow,
     BillboardHandle::RocketFlame,
     BillboardHandle::ExplosionFlash,
     BillboardHandle::ExplosionHalo,
+    BillboardHandle::LightSource,
   }};
   resources->projectileBillboards.reserve(projectileBillboardHandles.size());
   for (BillboardHandle handle : projectileBillboardHandles) {

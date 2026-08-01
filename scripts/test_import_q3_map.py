@@ -705,8 +705,8 @@ class MetadataAndCliTests(unittest.TestCase):
         candidate = import_report["outputs"]["candidate_map"]
         self.assertEqual(len(generated_bytes), candidate["size"])
         self.assertEqual(q3._sha256(generated_bytes), candidate["sha256"])
-        self.assertEqual(83, generated.count('"lg_geometry_role" "render_only"'))
-        self.assertEqual(3, generated.count('"lg_adaptation_visual_id"'))
+        self.assertEqual(105, generated.count('"lg_geometry_role" "render_only"'))
+        self.assertEqual(25, generated.count('"lg_adaptation_visual_id"'))
         self.assertEqual(3, generated.count('"lg_adaptation_derived_id"'))
 
 
