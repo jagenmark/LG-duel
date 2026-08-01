@@ -247,6 +247,15 @@ struct RenderSettings {
     values.fill(1.0F);
     return values;
   }();
+  // The app supplies the short-lived rail tracer envelope. It does not alter
+  // the authoritative fire event or any renderer quality setting.
+  std::array<float, kDuelPlayerCount> sniperSmokeTracerAlpha = [] {
+    std::array<float, kDuelPlayerCount> values = {};
+    values.fill(1.0F);
+    return values;
+  }();
+  std::array<Vec3, kDuelPlayerCount> sniperSmokeTracerDirections = {};
+  std::array<float, kDuelPlayerCount> sniperSmokeTracerTraceLengths = {};
   bool showOwnWeapons = true;
   int weaponPosition = 0;
   bool shotgunWeaponModelStart = false;

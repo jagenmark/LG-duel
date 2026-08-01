@@ -8,6 +8,7 @@
 #include "render/Sky.hpp"
 #include "render/ScreenUi.hpp"
 #include "render/Perspective.hpp"
+#include "render/WeaponPresentation.hpp"
 #include "render/WorldVisibility.hpp"
 
 #if LG_DUEL_HAS_SDL3
@@ -10898,11 +10899,56 @@ void drawPerspectiveWorld(
   }
   drawBeam(localLightningGun, true);
 
-  for (const WeaponFireResult& fire : weaponFires) {
+  for (std::size_t fireIndex = 0; fireIndex < weaponFires.size(); ++fireIndex) {
+    const WeaponFireResult& fire = weaponFires[fireIndex];
     if (!fire.fired) {
       continue;
     }
-    if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
+    if (fire.weapon == Weapon::Railgun) {
+      Vec3 trace = fireIndex < settings.sniperSmokeTracerDirections.size()
+        ? settings.sniperSmokeTracerDirections[fireIndex]
+        : Vec3{};
+      float traceLength = fireIndex < settings.sniperSmokeTracerTraceLengths.size()
+        ? settings.sniperSmokeTracerTraceLengths[fireIndex]
+        : 0.0F;
+      if (length(trace) <= 0.0001F || traceLength <= 0.0001F) {
+        trace = fire.end - fire.start;
+        traceLength = length(trace);
+      }
+      if (length(trace) <= 0.0001F || traceLength <= 0.0001F) {
+        continue;
+      }
+      const float alpha = fireIndex < settings.sniperSmokeTracerAlpha.size()
+        ? std::clamp(settings.sniperSmokeTracerAlpha[fireIndex], 0.0F, 1.0F)
+        : 1.0F;
+      if (alpha <= 0.0F) {
+        continue;
+      }
+      const Vec3 smokeEnd = fire.start + normalize(trace) * std::min(
+        traceLength,
+        kSniperSmokeTracerMaximumLength
+      );
+      // The SDL fallback has no translucent mesh path. Keep a short neutral
+      // smoke cue so it matches the GPU path's limits without a glow beam.
+      SDL_SetRenderDrawColor(
+        renderer,
+        164,
+        170,
+        170,
+        static_cast<Uint8>(std::round(150.0F * alpha))
+      );
+      drawThickPerspectiveLine(
+        renderer,
+        camera,
+        width,
+        height,
+        fire.start,
+        smokeEnd,
+        1.5F
+      );
+      continue;
+    }
+    if (fire.weapon == Weapon::Revolver) {
       SDL_SetRenderDrawColor(
         renderer,
         fire.hit ? 255 : 128,
