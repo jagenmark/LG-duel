@@ -53,7 +53,7 @@ struct PerfSample {
   std::uint32_t normalPlayerBodyDynamicVertices = 0;
   std::uint32_t geometryOutlineDynamicVertices = 0;
   std::uint32_t outlinedPlayers = 0;
-  int outlineStyle = 1;
+  int outlineStyle = 0;
   std::uint32_t outlineMaskWidth = 0;
   std::uint32_t outlineMaskHeight = 0;
   std::uint32_t outlineWorkWidth = 0;
@@ -73,6 +73,7 @@ struct PerfSample {
   std::uint32_t outlinePasses = 0;
   bool outlineCompositeEnabled = false;
   bool geometryOutlineFallbackUsed = false;
+  std::uint8_t nativeOutlineFallbackReason = 0;
   std::uint32_t remoteWeaponCandidates = 0;
   std::uint32_t remoteWeaponsFrustumCulled = 0;
   std::uint32_t remoteWeaponInstances = 0;

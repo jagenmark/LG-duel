@@ -521,6 +521,45 @@ struct GltfPlayerModelInstance {
   bool outlined = false;
 };
 
+// GLTF player model rows are built from an orthogonal right/up/forward basis
+// with independent horizontal and vertical scales. A normal therefore needs
+// the reciprocal scale on each basis column, not the position transform.
+[[nodiscard]] inline Vec3 transformGltfPlayerModelNormal(
+  const GltfPlayerModelInstance& instance,
+  Vec3 localNormal
+) {
+  constexpr float kMinimumScaleSquared = 0.00000001F;
+  const Vec3 rightColumn = {
+    instance.modelRow0.x,
+    instance.modelRow1.x,
+    instance.modelRow2.x,
+  };
+  const Vec3 upColumn = {
+    instance.modelRow0.y,
+    instance.modelRow1.y,
+    instance.modelRow2.y,
+  };
+  const Vec3 forwardColumn = {
+    instance.modelRow0.z,
+    instance.modelRow1.z,
+    instance.modelRow2.z,
+  };
+  const Vec3 transformed =
+    rightColumn * (localNormal.x / std::max(
+      dot(rightColumn, rightColumn),
+      kMinimumScaleSquared
+    )) +
+    upColumn * (localNormal.y / std::max(
+      dot(upColumn, upColumn),
+      kMinimumScaleSquared
+    )) +
+    forwardColumn * (localNormal.z / std::max(
+      dot(forwardColumn, forwardColumn),
+      kMinimumScaleSquared
+    ));
+  return normalize(transformed);
+}
+
 struct GltfPlayerModelBatch {
   std::uint32_t primitiveIndex = 0;
   std::uint32_t firstInstance = 0;

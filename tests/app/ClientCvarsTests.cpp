@@ -5,9 +5,13 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -20,6 +24,24 @@ int expect(bool condition, std::string_view message) {
   return 1;
 }
 
+std::unordered_map<std::string, std::string> defaultClientConfigValues() {
+  std::ifstream file(
+    std::string(LG_DUEL_SOURCE_DIR) + "/config/default_client.cfg"
+  );
+  std::unordered_map<std::string, std::string> values;
+  std::string line;
+  while (std::getline(file, line)) {
+    std::istringstream input(line);
+    std::string command;
+    std::string name;
+    std::string value;
+    if (input >> command >> name >> value && command == "set") {
+      values.emplace(std::move(name), std::move(value));
+    }
+  }
+  return values;
+}
+
 } // namespace
 
 int main() {
@@ -29,6 +51,38 @@ int main() {
 
   const std::vector<std::string> initialArchivedConfig =
     console.archivedConfigLines();
+  const auto profileValue = [](
+                              const lg::GraphicsProfileDefinition& profile,
+                              std::string_view cvar
+                            ) {
+    const auto value = std::find_if(
+      profile.values.begin(),
+      profile.values.end(),
+      [cvar](const lg::GraphicsProfileValue& entry) {
+        return entry.cvar == cvar;
+      }
+    );
+    return value == profile.values.end() ? std::string_view{} : value->value;
+  };
+  const lg::GraphicsProfileDefinition& defaultProfile =
+    lg::graphicsProfileDefinition(lg::GraphicsProfile::Default);
+  const auto defaultConfig = defaultClientConfigValues();
+  bool defaultConfigMatchesProfile = !defaultConfig.empty();
+  bool codeDefaultsMatchProfile = true;
+  for (const lg::GraphicsProfileValue& value : defaultProfile.values) {
+    const auto configured = defaultConfig.find(std::string(value.cvar));
+    defaultConfigMatchesProfile = defaultConfigMatchesProfile &&
+      configured != defaultConfig.end() && configured->second == value.value;
+    const std::string archived = "set " + std::string(value.cvar) + " " +
+      std::string(value.value);
+    codeDefaultsMatchProfile = codeDefaultsMatchProfile &&
+      std::find(initialArchivedConfig.begin(), initialArchivedConfig.end(), archived) !=
+        initialArchivedConfig.end();
+  }
+  failures += expect(
+    defaultConfigMatchesProfile && codeDefaultsMatchProfile,
+    "fresh config and registered graphics defaults should exactly match Default"
+  );
   failures += expect(
     console.execute("cl_late_mouse_sample") ==
         "cl_late_mouse_sample = 1 (default 1)" &&
@@ -70,19 +124,6 @@ int main() {
       "each F10 graphics profile should define every high-level visual quality setting"
     );
   }
-  const auto profileValue = [](
-                              const lg::GraphicsProfileDefinition& profile,
-                              std::string_view cvar
-                            ) {
-    const auto value = std::find_if(
-      profile.values.begin(),
-      profile.values.end(),
-      [cvar](const lg::GraphicsProfileValue& entry) {
-        return entry.cvar == cvar;
-      }
-    );
-    return value == profile.values.end() ? std::string_view{} : value->value;
-  };
   failures += expect(
     profileValue(lg::kGraphicsProfiles[0], "r_atmosphere_grade") == "1" &&
       profileValue(lg::kGraphicsProfiles[1], "r_atmosphere_grade") == "2" &&
@@ -93,12 +134,12 @@ int main() {
 
   failures += expect(
     profileValue(lg::kGraphicsProfiles[0], "r_antialiasing") == "0" &&
-      profileValue(lg::kGraphicsProfiles[1], "r_antialiasing") == "0" &&
-      profileValue(lg::kGraphicsProfiles[2], "r_antialiasing") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_antialiasing") == "1" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_antialiasing") == "1" &&
       profileValue(lg::kGraphicsProfiles[3], "r_antialiasing") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_sun_shadows") == "0" &&
-      profileValue(lg::kGraphicsProfiles[1], "r_sun_shadows") == "0" &&
-      profileValue(lg::kGraphicsProfiles[2], "r_sun_shadows") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_sun_shadows") == "2" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_sun_shadows") == "1" &&
       profileValue(lg::kGraphicsProfiles[3], "r_sun_shadows") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_point_lights") == "1" &&
       profileValue(lg::kGraphicsProfiles[1], "r_point_lights") == "1" &&
@@ -120,6 +161,9 @@ int main() {
       profileValue(lg::kGraphicsProfiles[1], "r_player_rim") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_player_rim") == "1" &&
       profileValue(lg::kGraphicsProfiles[3], "r_player_rim") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_draw_player_outlines") == "0" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_player_outline_mode") == "0" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_player_outline_style") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_bloom") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_bloom") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_draw_player_outlines") == "1" &&
@@ -127,6 +171,15 @@ int main() {
       profileValue(lg::kGraphicsProfiles[2], "r_draw_player_outlines") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_player_outline_mode") == "2",
     "profiles should map budgeted effects while keeping default and competitive readability"
+  );
+
+  failures += expect(
+    lg::graphicsProfileName(lg::GraphicsProfile::Default) == "Default" &&
+      lg::graphicsProfileName(static_cast<lg::GraphicsProfile>(-1)) ==
+        "Default" &&
+      lg::graphicsProfileDefinition(static_cast<lg::GraphicsProfile>(4)).profile ==
+        lg::GraphicsProfile::Default,
+    "invalid graphics profile values should fall back to Default"
   );
 
   failures += expect(
@@ -710,7 +763,7 @@ int main() {
   );
   failures += expect(
     console.execute("r_player_outline_mode") ==
-        "r_player_outline_mode = 1 (default 1)" &&
+        "r_player_outline_mode = 2 (default 2)" &&
       console.execute("r_player_outline_mode 0") == "r_player_outline_mode = 0" &&
       console.execute("r_player_outline_mode 2") == "r_player_outline_mode = 2" &&
       console.execute("r_player_outline_mode 3") ==

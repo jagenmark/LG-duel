@@ -299,6 +299,7 @@ the Revolver.
 | Cvar | Typ | Default | Giltigt | Q3/QL-referens | Funktion |
 |---|---:|---:|---|---|---|
 | `r_vsync` | bool | `1` | bool | Q3 `r_swapInterval 0` | GPU: mailbox/vsync när på, immediate när av om plattformen stöder det. Projektet har alltså motsatt standard mot Q3. |
+| `r_render_scale` | float | `1` | `0.5..1.5` | None | Internal render scale. The Default profile uses native scale `1`. |
 | `r_frustum_cull` | bool | `1` | bool | Ingen direkt | CPU-side konservativ frustum-culling av remote player-kroppar, vapen, geometri-outline och flytande healthbars i 3D. |
 | `r_world_frustum_cull` | bool | `0` | bool | None directly | Experimental GPU-only conservative BVH frustum culling for cached static-world chunks. It remains opt-in because the current direct-draw path does not yet beat full material batches across the Overkill flythrough; `0` preserves the five-batch control path. |
 | `r_show_collision` | int | `0` | `0..5` | Q3 `r_showtris` and editor filters, conceptually | GPU-only collision audit overlay. `0`: off. `1`: all categories. `2`: visible solids (blue). `3`: playerclip (green). `4`: weapclip (orange). `5`: jump-pad, teleport, and McGuffin-base triggers (purple). The explicit SDL_Renderer fallback reports an effective mode of `0`; typed control rejects activation there. Playerclip and weapclip remain behaviorally identical until authoritative trace masks are separated. |
@@ -315,10 +316,12 @@ the Revolver.
 | `r_bloom` | bool | `1` | bool | None | Enables the compact bloom response on bright effect sprites. It does not process HUD pixels. |
 | `r_bloom_intensity` | float | `0.18` | `0..1` | None | Strength of the compact bright-effect bloom response. |
 | `r_bloom_threshold` | float | `1.15` | `0.5..4` | None | Brightness threshold for compact effect bloom. Ordinary scene surfaces do not enter this path. |
-| `r_antialiasing` | int | `1` | `0..2` | None | Anti-aliasing quality. `0`: off, `1`: 2x MSAA, `2`: 4x MSAA. |
-| `r_sun_shadows` | int | `2` | `0..2` | None | Sun-shadow quality. `0`: off, `1`: low, `2`: high. |
+| `r_antialiasing` | int | `1` | `0..2` | None | Anti-aliasing quality. `0`: off, `1`: 2x MSAA, `2`: 4x MSAA. The Default profile uses `1`. |
+| `r_sun_shadows` | int | `2` | `0..2` | None | Sun-shadow quality. `0`: off, `1`: low, `2`: high. The Default profile uses `2`. |
+| `r_point_lights` | int | `1` | `0..2` | None | Live authored point-light budget. `0` disables authored lights but keeps the bounded temporary combat-light pool; `1` enables the normal budget; `2` enables the high budget. It does not control material highlights. |
+| `r_point_shadows` | int | `1` | `0..2` | None | Point-shadow quality for selected live lights. `0` disables their shadows, `1` uses the normal budget, and `2` uses the high budget. |
 | `r_contact_shadows` | bool | `1` | bool | None | Enables contact shadows on players and props. |
-| `r_material_quality` | int | `1` | `0..2` | None | Material quality. `0`: basic, `1`: enhanced, `2`: high. |
+| `r_material_quality` | int | `1` | `0..2` | None | Material response quality. `0` keeps Lambert diffuse light but omits specular and other enhanced response; `1` and `2` add the bounded enhanced paths. |
 | `r_player_rim` | int | `1` | `0..2` | None | Player rim-light quality. `0`: off, `1`: low, `2`: high. |
 | `r_casings` | bool | `1` | bool | None | Enables local, presentation-only cartridge casings. |
 | `r_casing_count` | float | `1` | `0..1` | None | Seeded per-shot casing spawn ratio. `0` disables spawning; `1` attempts one casing for each machine-gun shot. |
@@ -389,12 +392,12 @@ Beamens minimala pulsanimation är presentationsstyrd: fasta endpoints, cirka
 | `r_enemy_g` | int | `82` | `0..255` | Ingen exakt 1:1-default | Modellens grönkanal. |
 | `r_enemy_b` | int | `92` | `0..255` | Ingen exakt 1:1-default | Modellens blåkanal. |
 | `r_enemy_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
-| `r_player_outline_mode` | int | `1` | `0..2` | None | Top-level player outline mode. `0`: off. `1`: keep the path chosen by `r_player_outline_style`. `2`: force the native output-resolution screen-space path. |
+| `r_player_outline_mode` | int | `2` | `0..2` | None | Top-level player outline mode. `0`: off. `1`: keep the path chosen by `r_player_outline_style`. `2`: force the native output-resolution screen-space path; this is the Default-profile path. |
 | `r_player_outline_style` | int | `0` | `0..1` | None | Compatibility path selector used by mode `1`. `0`: legacy geometry-expanded fallback. `1`: SDL_GPU half-resolution screen-space mask/dilation/composite path. |
 | `r_player_outline_width` | float | `1.5` | `0..3` | None | Native mode `2` width for enemy and teammate outlines, in final output pixels. |
 | `r_player_outline_debug_mask` | bool | `0` | bool | None | In native mode `2`, show the raw source group mask instead of the outer contour. This is a temporary view and is not archived. |
 | `r_enemy_outline` | bool | `1` | bool | Ingen direkt | Draw enemy model outline in first-person 3D. |
-| `r_enemy_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
+| `r_enemy_outline_width` | float | `3` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_enemy_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Enemy outline opacity. |
 | `r_enemy_outline_r` | int | `255` | `0..255` | Ingen direkt | Enemy outline red channel. |
 | `r_enemy_outline_g` | int | `220` | `0..255` | Ingen direkt | Enemy outline green channel. |
@@ -439,7 +442,7 @@ separat träfffärg eller tillhörande `r_teammate_hit_*`-cvars.
 | `r_teammate_b` | int | `224` | `0..255` | Ingen direkt | Modellens blå kanal. |
 | `r_teammate_alpha` | float | `1` | `0..1` | Ingen direkt | Modellens opacity. |
 | `r_teammate_outline` | bool | `1` | bool | Ingen direkt | Draw teammate model outline in first-person 3D. |
-| `r_teammate_outline_width` | float | `0.045` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
+| `r_teammate_outline_width` | float | `3` | `0..6` | Ingen direkt | Outline width in final display pixels for screen-space style `1`; legacy style `0` keeps approximate geometry fallback scaling. Intended normal range `1..6`. |
 | `r_teammate_outline_alpha` | float | `1` | `0..1` | Ingen direkt | Teammate outline opacity. |
 | `r_teammate_outline_r` | int | `128` | `0..255` | Ingen direkt | Teammate outline red channel. |
 | `r_teammate_outline_g` | int | `240` | `0..255` | Ingen direkt | Teammate outline green channel. |

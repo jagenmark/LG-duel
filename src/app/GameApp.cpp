@@ -1651,6 +1651,9 @@ struct FrameTimeHistory {
   sample.outlineCompositeEnabled = renderDiagnostics.outlineCompositeEnabled;
   sample.geometryOutlineFallbackUsed =
     renderDiagnostics.geometryOutlineFallbackUsed;
+  sample.nativeOutlineFallbackReason = static_cast<std::uint8_t>(
+    renderDiagnostics.nativeOutlineFallbackReason
+  );
   sample.remoteWeaponCandidates = renderDiagnostics.remoteWeaponCandidates;
   sample.remoteWeaponsFrustumCulled =
     renderDiagnostics.remoteWeaponsFrustumCulled;
@@ -1766,6 +1769,17 @@ void appendPerfHudLines(
     summary.gpuVertexUpload.average,
     summary.swapchainAcquire.average,
     summary.totalRender.average
+  );
+  hud.topLeftLines.emplace_back(text);
+  std::snprintf(
+    text,
+    sizeof(text),
+    "native outline fallback %s",
+    nativeOutlineFallbackReasonName(
+      static_cast<NativeOutlineFallbackReason>(
+        latest.nativeOutlineFallbackReason
+      )
+    )
   );
   hud.topLeftLines.emplace_back(text);
   std::snprintf(
@@ -2226,7 +2240,8 @@ struct SettingsMenuState {
   bool pendingFrustumCull = true;
   bool pendingWorldFrustumCull = false;
   bool pendingPlayerOutlines = true;
-  int pendingOutlineMode = 1;
+  int pendingOutlineMode = 2;
+  int pendingOutlineStyle = 0;
   bool pendingShowConsoleCat = true;
   int pendingCombatEffects = 2;
   float pendingToneMapExposure = 1.0F;
@@ -2252,7 +2267,8 @@ struct SettingsMenuState {
   bool originalFrustumCull = true;
   bool originalWorldFrustumCull = false;
   bool originalPlayerOutlines = true;
-  int originalOutlineMode = 1;
+  int originalOutlineMode = 2;
+  int originalOutlineStyle = 0;
   bool originalShowConsoleCat = true;
   int originalCombatEffects = 2;
   float originalToneMapExposure = 1.0F;
@@ -2939,6 +2955,7 @@ bool applyVideoSettings(
     menu.pendingWorldFrustumCull != menu.originalWorldFrustumCull ||
     menu.pendingPlayerOutlines != menu.originalPlayerOutlines ||
     menu.pendingOutlineMode != menu.originalOutlineMode ||
+    menu.pendingOutlineStyle != menu.originalOutlineStyle ||
     menu.pendingShowConsoleCat != menu.originalShowConsoleCat ||
     menu.pendingCombatEffects != menu.originalCombatEffects ||
     menu.pendingToneMapExposure != menu.originalToneMapExposure ||
@@ -2972,6 +2989,7 @@ bool applyVideoSettings(
         (menu.pendingWorldFrustumCull ? "1" : "0") == value("r_world_frustum_cull") &&
         (menu.pendingPlayerOutlines ? "1" : "0") == value("r_draw_player_outlines") &&
         std::to_string(menu.pendingOutlineMode) == value("r_player_outline_mode") &&
+        std::to_string(menu.pendingOutlineStyle) == value("r_player_outline_style") &&
         std::to_string(menu.pendingCombatEffects) == value("r_combat_effects") &&
         std::abs(
           menu.pendingToneMapExposure -
@@ -3018,6 +3036,9 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingWorldFrustumCull = value("r_world_frustum_cull") == "1";
   menu.pendingPlayerOutlines = value("r_draw_player_outlines") == "1";
   menu.pendingOutlineMode = std::stoi(std::string(value("r_player_outline_mode")));
+  menu.pendingOutlineStyle = std::stoi(
+    std::string(value("r_player_outline_style"))
+  );
   menu.pendingCombatEffects = std::stoi(std::string(value("r_combat_effects")));
   menu.pendingToneMapExposure =
     std::stof(std::string(value("r_tonemap_exposure")));
@@ -3056,6 +3077,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingWorldFrustumCull = console.getBool("r_world_frustum_cull");
   menu.pendingPlayerOutlines = console.getBool("r_draw_player_outlines");
   menu.pendingOutlineMode = console.getInt("r_player_outline_mode");
+  menu.pendingOutlineStyle = console.getInt("r_player_outline_style");
   menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
   menu.pendingCombatEffects = console.getInt("r_combat_effects");
   menu.pendingToneMapExposure = console.getFloat("r_tonemap_exposure");
@@ -3077,7 +3099,9 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter;
   menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias;
   menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull;
-  menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalPlayerOutlines = menu.pendingPlayerOutlines;
+  menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalOutlineStyle = menu.pendingOutlineStyle;
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
@@ -3272,6 +3296,9 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   (void)console.execute("set r_draw_player_outlines " + std::to_string(menu.pendingPlayerOutlines));
   (void)console.execute("set r_player_outline_mode " + std::to_string(menu.pendingOutlineMode));
   (void)console.execute(
+    "set r_player_outline_style " + std::to_string(menu.pendingOutlineStyle)
+  );
+  (void)console.execute(
     "set cl_show_console_cat " + std::to_string(menu.pendingShowConsoleCat ? 1 : 0)
   );
   (void)console.execute(
@@ -3317,7 +3344,7 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   );
   menu.originalVideo = menu.pendingVideo;
   menu.originalMaxFps = menu.pendingMaxFps;
-  menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode;
+  menu.originalRenderScale = menu.pendingRenderScale; menu.originalTextureFilter = menu.pendingTextureFilter; menu.originalAnisotropy = menu.pendingAnisotropy; menu.originalLodBias = menu.pendingLodBias; menu.originalFrustumCull = menu.pendingFrustumCull; menu.originalWorldFrustumCull = menu.pendingWorldFrustumCull; menu.originalPlayerOutlines = menu.pendingPlayerOutlines; menu.originalOutlineMode = menu.pendingOutlineMode; menu.originalOutlineStyle = menu.pendingOutlineStyle;
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;

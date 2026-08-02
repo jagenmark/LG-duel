@@ -193,8 +193,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Duelist GLB, 2 Worker GLB.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_enemy_outline", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
-  console.registerCvar({"r_player_outline_mode", "Player outlines: 0 off, 1 compatibility style, 2 native-resolution screen-space.", 1, archivedClient, 0.0F, 2.0F});
-  console.registerCvar({"r_player_outline_style", "Player outline style: 0 legacy geometry fallback, 1 screen-space mask.", 1, archivedClient, 0.0F, 1.0F});
+  console.registerCvar({"r_player_outline_mode", "Player outlines: 0 off, 1 compatibility style, 2 native-resolution screen-space (default).", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_player_outline_style", "Compatibility outline style: 0 legacy geometry fallback, 1 half-resolution screen-space mask.", 0, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_player_outline_width", "Native screen-space player outline width in final display pixels.", 1.5F, archivedClient, 0.0F, 3.0F});
   console.registerCvar({"r_player_outline_debug_mask", "Show the native player outline source group mask.", false, CvarFlag::None, {}, {}});
   console.registerCvar({"r_enemy_outline_width", "Enemy outline width in final display pixels (1-6 px intended).", 3.0F, archivedClient, 0.0F, 6.0F});

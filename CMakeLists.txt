@@ -11,6 +11,15 @@ include(CTest)
 include(cmake/CompilerWarnings.cmake)
 include(cmake/Dependencies.cmake)
 
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
+add_custom_target(lg_duel_verify_shaders
+  COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_shaders.py" --check
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Verifying checked-in GLSL and SPIR-V match"
+)
+
 function(lg_duel_set_windows_stack target)
   if(MSVC)
     target_link_options(${target} PRIVATE /STACK:67108864)
@@ -508,5 +517,11 @@ add_custom_target(lg_duel_validate_maps ALL
 add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)
 
 if(BUILD_TESTING)
+  add_test(
+    NAME lg_duel_shader_binaries_current
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_shaders.py" --check
+  )
+  set_tests_properties(lg_duel_shader_binaries_current PROPERTIES LABELS shaders)
   add_subdirectory(tests)
 endif()
