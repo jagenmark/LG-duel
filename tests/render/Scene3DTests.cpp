@@ -1,5 +1,6 @@
 #include "render/GltfSkinnedModel.hpp"
 #include "render/Scene3D.hpp"
+#include "render/WeaponPresentation.hpp"
 #include "sim/Arena.hpp"
 #include "sim/WeaponCatalog.hpp"
 
@@ -1333,6 +1334,29 @@ int main() {
         [](float value) { return std::isfinite(value); }
       ),
     "Worker two-handed pose should expose a finite animated weapon socket"
+  );
+  lg::GltfSkinnedModel::PoseScratch workerRestScratch;
+  lg::GltfSkinnedModel::PoseScratch workerDeathScratch;
+  std::vector<std::array<float, 16>> workerRestPalette;
+  std::vector<std::array<float, 16>> workerDeathPalette;
+  const bool workerRestSampled = lg::workerPlayerModel().appendBonePalette(
+    {}, workerRestPalette, workerRestScratch
+  );
+  const bool workerDeathSampled = lg::workerPlayerModel().appendBonePalette(
+    {{"Death", 1.1F, 1.0F}}, workerDeathPalette, workerDeathScratch
+  );
+  const bool workerDeathAvailable = std::find(
+    lg::workerPlayerModel().animationNames().begin(),
+    lg::workerPlayerModel().animationNames().end(),
+    "Death"
+  ) != lg::workerPlayerModel().animationNames().end();
+  failures += expect(
+    workerDeathAvailable &&
+      workerRestSampled &&
+      workerDeathSampled &&
+      workerDeathPalette.size() == lg::workerPlayerModel().jointCount() &&
+      maxPaletteDelta(workerRestPalette, workerDeathPalette) > 0.001F,
+    "Worker death pose should use the exact exported Death animation"
   );
 
   lg::RenderSettings noWeaponSettings = settings;
@@ -4006,6 +4030,52 @@ int main() {
       localSniperScene.viewModelStats.dynamicVertices == 0,
     "first-person sniper should use its larger, thicker view-only mesh"
   );
+  const lg::Vec3 localSniperMuzzle =
+    lg::firstPersonSniperRifleMuzzlePosition(player, localSniperSettings);
+  lg::RenderSettings swayedSniperSettings = localSniperSettings;
+  swayedSniperSettings.viewModelPresentation.translation = {0.06F, -0.04F, 0.03F};
+  swayedSniperSettings.viewModelPresentation.rotationRadians = {0.08F, -0.06F, 0.03F};
+  swayedSniperSettings.viewModelPresentation.cameraTranslation =
+    {0.025F, -0.015F, 0.010F};
+  const lg::Scene3D swayedSniperScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    swayedSniperSettings
+  );
+  lg::StaticMeshInstance swayedSniperViewModel = {};
+  bool hasSwayedSniperViewModel = false;
+  for (const lg::StaticMeshInstance& instance : swayedSniperScene.staticMeshInstances) {
+    if (
+      instance.mesh == lg::MeshHandle::RemoteRailgun &&
+      instance.pass == lg::RenderPass::ViewModel
+    ) {
+      swayedSniperViewModel = instance;
+      hasSwayedSniperViewModel = true;
+      break;
+    }
+  }
+  const lg::Vec3 swayedSniperMuzzle =
+    lg::firstPersonSniperRifleMuzzlePosition(player, swayedSniperSettings);
+  failures += expect(
+    lg::length(
+      transformPoint(sniperViewModel, lg::sniperRifleMuzzleSocket()) -
+      localSniperMuzzle
+    ) < 0.001F &&
+      hasSwayedSniperViewModel &&
+      lg::length(
+        transformPoint(swayedSniperViewModel, lg::sniperRifleMuzzleSocket()) -
+        swayedSniperMuzzle
+      ) < 0.001F &&
+      lg::length(swayedSniperMuzzle - localSniperMuzzle) > 0.01F,
+    "local sniper tracer origin should match the live authored socket through sway and recoil motion"
+  );
 
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
@@ -4292,6 +4362,61 @@ int main() {
         workerRocketRenderedMuzzles[1] - workerRocketRenderedMuzzles[0]
       ) > 0.001F,
     "Worker rocket muzzle effects should match its animated rendered weapon socket across frames"
+  );
+
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    workerRailRemotePlayers = workerRocketRemotePlayers;
+  workerRailRemotePlayers[1].selectedWeapon = lg::Weapon::Railgun;
+  std::array<lg::Vec3, 2> workerRailRenderedMuzzles = {};
+  bool workerRailSocketMatches = true;
+  for (std::size_t frameIndex = 0;
+       frameIndex < kWorkerRocketFrameTimes.size();
+       ++frameIndex) {
+    workerRailRemotePlayers[1].presentation.poseLayers[0].timeSeconds =
+      kWorkerRocketFrameTimes[frameIndex];
+    const lg::Scene3D workerRailScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      workerRailRemotePlayers,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      workerRocketSettings
+    );
+    lg::StaticMeshInstance renderedRail = {};
+    bool foundRenderedRail = false;
+    for (const lg::StaticMeshInstance& instance : workerRailScene.staticMeshInstances) {
+      if (
+        instance.mesh == lg::MeshHandle::RemoteRailgun &&
+        instance.pass == lg::RenderPass::OpaqueWorld
+      ) {
+        renderedRail = instance;
+        foundRenderedRail = true;
+        break;
+      }
+    }
+    workerRailRenderedMuzzles[frameIndex] = transformPoint(
+      renderedRail,
+      lg::sniperRifleMuzzleSocket()
+    );
+    workerRailSocketMatches =
+      workerRailSocketMatches &&
+      foundRenderedRail &&
+      lg::length(
+        lg::remoteSniperRifleMuzzlePosition(
+          workerRailRemotePlayers[1],
+          workerRocketSettings
+        ) - workerRailRenderedMuzzles[frameIndex]
+      ) < 0.001F;
+  }
+  failures += expect(
+    workerRailSocketMatches &&
+      lg::length(
+        workerRailRenderedMuzzles[1] - workerRailRenderedMuzzles[0]
+      ) > 0.001F,
+    "remote sniper tracer origin should match the live held-weapon socket across Worker poses"
   );
 
   lg::RenderSettings localPlasmaGunSettings = settings;
@@ -4594,6 +4719,208 @@ int main() {
       maxVertexX(remoteRailMuzzleScene) <
         remoteRailFires[1].start.x - 0.2F,
     "remote railgun beam should start from the third-person weapon muzzle"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRailSmokeFires = {};
+  const lg::Vec3 localRailSmokeStart =
+    lg::firstPersonSniperRifleMuzzlePosition(player, localSniperSettings);
+  localRailSmokeFires[0].fired = true;
+  localRailSmokeFires[0].weapon = lg::Weapon::Railgun;
+  localRailSmokeFires[0].visualSeed = 117U;
+  localRailSmokeFires[0].start = localRailSmokeStart;
+  localRailSmokeFires[0].end = localRailSmokeStart + lg::Vec3{8.0F, 0.0F, 0.0F};
+  std::array<lg::RemotePlayerView, lg::kDuelPlayerCount> noRailRemotes = {};
+  lg::RenderSettings highRailSmokeSettings = localSniperSettings;
+  highRailSmokeSettings.combatEffectsQuality = 2;
+  const lg::Scene3D highRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    localRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    highRailSmokeSettings
+  );
+  float maxRailSmokeDistance = 0.0F;
+  std::uint8_t maximumRailSmokeAlpha = 0U;
+  bool hasTransparentTail = false;
+  bool hasNeutralGreySmoke = false;
+  for (const lg::Vertex3D& vertex : highRailSmokeScene.translucentVertices) {
+    maxRailSmokeDistance = std::max(
+      maxRailSmokeDistance,
+      lg::length(vertex.position - localRailSmokeStart)
+    );
+    maximumRailSmokeAlpha = std::max(maximumRailSmokeAlpha, vertex.color.alpha);
+    hasTransparentTail = hasTransparentTail || vertex.color.alpha == 0U;
+    hasNeutralGreySmoke = hasNeutralGreySmoke ||
+      (
+        vertex.color.red >= 120U &&
+        std::abs(
+          static_cast<int>(vertex.color.blue) -
+          static_cast<int>(vertex.color.red)
+        ) <= 12
+      );
+  }
+  failures += expect(
+    highRailSmokeScene.transientVfxStats.activeSniperSmokeTracers == 1U &&
+      highRailSmokeScene.transientVfxStats.sniperSmokeTracerDynamicVertices == 24U &&
+      highRailSmokeScene.translucentVertices.size() == 24U &&
+      maxRailSmokeDistance <= lg::kSniperSmokeTracerMaximumLength + 0.05F &&
+      maximumRailSmokeAlpha >= 200U && hasTransparentTail && hasNeutralGreySmoke,
+    "sniper smoke should keep a short neutral-grey root-to-transparent trace"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> cameraRailSmokeFires = {};
+  cameraRailSmokeFires[0] = localRailSmokeFires[0];
+  cameraRailSmokeFires[0].start = {-8.0F, -8.0F, -8.0F};
+  cameraRailSmokeFires[0].end = {8.0F, 8.0F, 8.0F};
+  const float cameraStepOffset = 0.075F;
+  lg::RenderSettings cameraRailSmokeSettings = swayedSniperSettings;
+  cameraRailSmokeSettings.frustumCullRemotePlayers = false;
+  const lg::Scene3D cameraRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    cameraRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    cameraRailSmokeSettings,
+    cameraStepOffset
+  );
+  const lg::Vec3 expectedCameraRailMuzzle =
+    lg::firstPersonSniperRifleMuzzlePosition(player, cameraRailSmokeSettings) +
+    lg::Vec3{0.0F, 0.0F, cameraStepOffset};
+  float nearestCameraRailVertex = std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : cameraRailSmokeScene.translucentVertices) {
+    nearestCameraRailVertex = std::min(
+      nearestCameraRailVertex,
+      lg::length(vertex.position - expectedCameraRailMuzzle)
+    );
+  }
+  failures += expect(
+    cameraRailSmokeScene.transientVfxStats.activeSniperSmokeTracers == 1U &&
+      nearestCameraRailVertex < 0.05F,
+    "local sniper smoke should track the rendered camera and viewmodel socket"
+  );
+
+  lg::RenderSettings fadedRailSmokeSettings = highRailSmokeSettings;
+  fadedRailSmokeSettings.sniperSmokeTracerAlpha[0] = 0.40F;
+  const lg::Scene3D fadedRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    localRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    fadedRailSmokeSettings
+  );
+  std::uint8_t fadedMaximumAlpha = 0U;
+  for (const lg::Vertex3D& vertex : fadedRailSmokeScene.translucentVertices) {
+    fadedMaximumAlpha = std::max(fadedMaximumAlpha, vertex.color.alpha);
+  }
+  lg::RenderSettings lowRailSmokeSettings = highRailSmokeSettings;
+  lowRailSmokeSettings.combatEffectsQuality = 0;
+  lowRailSmokeSettings.bloomEnabled = false;
+  const lg::Scene3D lowRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    localRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    lowRailSmokeSettings
+  );
+  failures += expect(
+    fadedRailSmokeScene.transientVfxStats.sniperSmokeTracerDynamicVertices == 24U &&
+      fadedMaximumAlpha > 0U && fadedMaximumAlpha < maximumRailSmokeAlpha &&
+      lowRailSmokeScene.transientVfxStats.activeSniperSmokeTracers == 1U &&
+      lowRailSmokeScene.transientVfxStats.sniperSmokeTracerDynamicVertices == 12U &&
+      lowRailSmokeScene.translucentVertices.size() == 12U,
+    "sniper smoke should fade smoothly and retain one clear low-quality trace without bloom"
+  );
+
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> culledRailSmokeFires = {};
+  // Use a non-local event so the renderer does not replace its test origin
+  // with the local viewmodel socket.
+  culledRailSmokeFires[1] = localRailSmokeFires[0];
+  culledRailSmokeFires[1].start = player.position + lg::Vec3{-100.0F, 0.0F, 0.0F};
+  culledRailSmokeFires[1].end =
+    culledRailSmokeFires[1].start + lg::Vec3{-8.0F, 0.0F, 0.0F};
+  const lg::Scene3D culledRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    culledRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    highRailSmokeSettings
+  );
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> cappedRailSmokeFires = {};
+  for (std::size_t index = 0; index < cappedRailSmokeFires.size(); ++index) {
+    cappedRailSmokeFires[index] = localRailSmokeFires[0];
+    cappedRailSmokeFires[index].visualSeed = 117U + static_cast<std::uint32_t>(index);
+  }
+  const lg::Scene3D cappedRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    cappedRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    highRailSmokeSettings
+  );
+  const lg::Scene3D repeatedRailSmokeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noRailRemotes,
+    inactiveBeam,
+    cappedRailSmokeFires,
+    rocketExplosions,
+    rockets,
+    highRailSmokeSettings
+  );
+  const bool deterministicRailSmoke =
+    cappedRailSmokeScene.translucentVertices.size() ==
+      repeatedRailSmokeScene.translucentVertices.size() &&
+    std::equal(
+      cappedRailSmokeScene.translucentVertices.begin(),
+      cappedRailSmokeScene.translucentVertices.end(),
+      repeatedRailSmokeScene.translucentVertices.begin(),
+      [](const lg::Vertex3D& lhs, const lg::Vertex3D& rhs) {
+        return lhs.position.x == rhs.position.x &&
+          lhs.position.y == rhs.position.y &&
+          lhs.position.z == rhs.position.z &&
+          sameColor(lhs.color, rhs.color);
+      }
+    );
+  failures += expect(
+    culledRailSmokeScene.transientVfxStats.activeSniperSmokeTracers == 1U &&
+      culledRailSmokeScene.transientVfxStats.sniperSmokeTracerFrustumCulled == 1U &&
+      culledRailSmokeScene.translucentVertices.empty() &&
+      cappedRailSmokeScene.transientVfxStats.activeSniperSmokeTracers ==
+        lg::kDuelPlayerCount &&
+      cappedRailSmokeScene.transientVfxStats.sniperSmokeTracerDynamicVertices ==
+        lg::kDuelPlayerCount * 24U &&
+      cappedRailSmokeScene.translucentVertices.size() ==
+        lg::kDuelPlayerCount * 24U &&
+      deterministicRailSmoke,
+    "sniper smoke should cull offscreen work, stay within the fixed fire cap, and use deterministic contiguous translucent geometry"
   );
 
   std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> remoteRevolverFires = {};

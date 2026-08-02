@@ -484,6 +484,12 @@ constexpr BillboardAsset kExplosionHaloAsset = {
   RenderPass::AdditiveGlow,
 };
 
+constexpr BillboardAsset kLightSourceAsset = {
+  BillboardHandle::LightSource,
+  {{}, 1.0F},
+  RenderPass::AdditiveGlow,
+};
+
 constexpr ProjectileVisualDescriptor kPlasmaProjectileVisual = {
   ProjectileVisualType::Plasma,
   MeshHandle::PlasmaCore,
@@ -2928,6 +2934,168 @@ void addSegment(
   );
 }
 
+void addTranslucentGradientTriangle(
+  Scene3D& scene,
+  Vec3 first,
+  Vec3 second,
+  Vec3 third,
+  RenderColor firstColor,
+  RenderColor secondColor,
+  RenderColor thirdColor
+) {
+  const Vec3 normal = normalize(cross(second - first, third - first));
+  scene.translucentVertices.push_back({first, firstColor, 0.0F, 0.0F, 0U, normal, 0U});
+  scene.translucentVertices.push_back({second, secondColor, 0.0F, 0.0F, 0U, normal, 0U});
+  scene.translucentVertices.push_back({third, thirdColor, 0.0F, 0.0F, 0U, normal, 0U});
+}
+
+void addGradientSegment(
+  Scene3D& scene,
+  Vec3 start,
+  Vec3 end,
+  float width,
+  RenderColor rootColor,
+  RenderColor tipColor
+) {
+  const Vec3 direction = normalize(end - start);
+  if (length(direction) <= 0.0001F) {
+    return;
+  }
+  Vec3 side = normalize(cross(direction, {0.0F, 0.0F, 1.0F}));
+  if (length(side) <= 0.0001F) {
+    side = {1.0F, 0.0F, 0.0F};
+  }
+  const Vec3 up = normalize(cross(side, direction));
+  const float halfWidth = std::max(width, 0.002F) * 0.5F;
+  side *= halfWidth;
+  const Vec3 vertical = up * halfWidth;
+  const std::array<Vec3, 4> startCorners = {{
+    start + side + vertical,
+    start - side + vertical,
+    start - side - vertical,
+    start + side - vertical,
+  }};
+  const std::array<Vec3, 4> endCorners = {{
+    end + side + vertical,
+    end - side + vertical,
+    end - side - vertical,
+    end + side - vertical,
+  }};
+  // Two opposite strips keep the trace visible within the same compact
+  // 12-vertex budget used by the transient tracer mesh.
+  constexpr std::array<std::array<std::size_t, 2>, 2> kStripCorners = {{
+    {{0U, 1U}},
+    {{2U, 3U}},
+  }};
+  for (const std::array<std::size_t, 2>& strip : kStripCorners) {
+    const std::size_t index = strip[0];
+    const std::size_t next = strip[1];
+    addTranslucentGradientTriangle(
+      scene,
+      startCorners[index],
+      endCorners[index],
+      endCorners[next],
+      rootColor,
+      tipColor,
+      tipColor
+    );
+    addTranslucentGradientTriangle(
+      scene,
+      startCorners[index],
+      endCorners[next],
+      startCorners[next],
+      rootColor,
+      tipColor,
+      rootColor
+    );
+  }
+}
+
+void addSniperSmokeTracer(
+  Scene3D& scene,
+  Vec3 start,
+  Vec3 fallbackEnd,
+  Vec3 authoritativeDirection,
+  float authoritativeTraceLength,
+  float alpha,
+  const RenderSettings& settings
+) {
+  Vec3 trace = authoritativeDirection;
+  float traceLength = authoritativeTraceLength;
+  if (
+    !std::isfinite(traceLength) ||
+    traceLength <= 0.0001F ||
+    length(trace) <= 0.0001F
+  ) {
+    trace = fallbackEnd - start;
+    traceLength = length(trace);
+  }
+  if (
+    !std::isfinite(traceLength) ||
+    traceLength <= 0.0001F ||
+    !std::isfinite(alpha) ||
+    alpha <= 0.0F
+  ) {
+    return;
+  }
+  const float visibleLength = std::min(
+    traceLength,
+    kSniperSmokeTracerMaximumLength
+  );
+  const Vec3 direction = normalize(trace);
+  const Vec3 end = start + direction * visibleLength;
+  const Vec3 center = (start + end) * 0.5F;
+  constexpr float kSmokeCullRadius = 0.075F;
+  if (
+    settings.frustumCullRemotePlayers &&
+    !sphereIntersectsPerspectiveFrustum(
+      scene.camera,
+      center,
+      visibleLength * 0.5F + kSmokeCullRadius
+    )
+  ) {
+    ++scene.transientVfxStats.sniperSmokeTracerFrustumCulled;
+    return;
+  }
+  const auto opacity = [alpha](float base) {
+    return static_cast<std::uint8_t>(std::clamp(
+      base * std::clamp(alpha, 0.0F, 1.0F),
+      0.0F,
+      255.0F
+    ));
+  };
+  // A non-additive grey-white root gives a clear firing cue. The tail fades
+  // through neutral grey instead of drawing the old bright full-length beam.
+  addGradientSegment(
+    scene,
+    start,
+    end,
+    0.036F,
+    {222, 225, 223, opacity(210.0F)},
+    {126, 132, 133, 0}
+  );
+  scene.transientVfxStats.sniperSmokeTracerDynamicVertices += 12U;
+  if (settings.combatEffectsQuality >= 2) {
+    // Full quality adds one soft, bounded secondary smoke shape. It shares
+    // the same translucent batch and has no glow or light source.
+    const float smokeStartDistance = std::min(0.07F, visibleLength * 0.35F);
+    const float smokeEndDistance = visibleLength * 0.72F;
+    if (smokeEndDistance > smokeStartDistance + 0.0001F) {
+      const Vec3 smokeStart = start + direction * smokeStartDistance;
+      const Vec3 smokeEnd = start + direction * smokeEndDistance;
+      addGradientSegment(
+        scene,
+        smokeStart,
+        smokeEnd,
+        0.070F,
+        {150, 156, 157, opacity(48.0F)},
+        {108, 114, 115, 0}
+      );
+      scene.transientVfxStats.sniperSmokeTracerDynamicVertices += 12U;
+    }
+  }
+}
+
 void addFreezeBeamParticles(
   Scene3D& scene,
   Vec3 start,
@@ -3041,14 +3209,10 @@ void addWireBox(
   Weapon weapon,
   const RenderSettings& settings
 ) {
-  const bool leanEnabled = remote.teammate
-    ? settings.teammateLeanEnabled
-    : settings.enemyLeanEnabled;
-  const float leanScale = remote.teammate
-    ? settings.teammateLeanScale
-    : settings.enemyLeanScale;
-  WeaponModelFrame frame =
-    weaponModelFrame(remote.player, leanEnabled, leanScale);
+  // Sample the same held-weapon frame as the world model. In particular, the
+  // worker model's weapon socket follows its current pose instead of a
+  // guessed body-space point.
+  WeaponModelFrame frame = remoteRenderedWeaponFrame(remote, settings);
   frame.scale *= thirdPersonWeaponVisualScale(weapon);
   if (weapon == Weapon::Revolver) {
     frame = revolverGripAlignedFrame(frame);
@@ -3938,6 +4102,61 @@ Vec3 sniperRifleMuzzleSocket() {
   return kSniperRifleMuzzleSocket;
 }
 
+namespace {
+
+[[nodiscard]] Vec3 viewModelCameraMotion(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  return
+    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
+      settings.viewModelPresentation.cameraTranslation.x +
+    yawRight(player.viewYawRadians) *
+      settings.viewModelPresentation.cameraTranslation.y +
+    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
+      settings.viewModelPresentation.cameraTranslation.z;
+}
+
+[[nodiscard]] Vec3 sniperRifleMuzzlePositionForViewModelPlayer(
+  const PlayerState& viewModelPlayer,
+  const RenderSettings& settings
+) {
+  WeaponModelFrame frame = firstPersonWeaponModelFrame(
+    viewModelPlayer,
+    settings.weaponPosition,
+    settings.viewModelPresentation
+  );
+  frame.scale *= kSniperRifleViewModelScale;
+  frame.hand -= frame.basis.forward * 0.05F;
+  frame.hand -= frame.basis.up * 0.03F;
+  frame = sniperRifleGripAlignedFrame(frame);
+  return weaponLocalPoint(
+    frame,
+    kSniperRifleMuzzleSocket.x,
+    kSniperRifleMuzzleSocket.y * kSniperRifleViewModelWidthScale,
+    kSniperRifleMuzzleSocket.z * kSniperRifleViewModelHeightScale
+  );
+}
+
+} // namespace
+
+Vec3 firstPersonSniperRifleMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
+  // This matches the rendered mesh's authored socket after view motion.
+  return sniperRifleMuzzlePositionForViewModelPlayer(viewModelPlayer, settings);
+}
+
+Vec3 remoteSniperRifleMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+) {
+  return remoteHitscanMuzzlePosition(remote, Weapon::Railgun, settings);
+}
+
 Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
@@ -4088,6 +4307,8 @@ const BillboardAsset* billboardAsset(BillboardHandle handle) {
     return &kExplosionFlashAsset;
   case BillboardHandle::ExplosionHalo:
     return &kExplosionHaloAsset;
+  case BillboardHandle::LightSource:
+    return &kLightSourceAsset;
   case BillboardHandle::Invalid:
     break;
   }
@@ -4250,6 +4471,80 @@ namespace {
 
 void appendSimpleInstance(Scene3D& scene, const SimpleRenderInstance& instance) {
   scene.simpleInstances.push_back(instance);
+}
+
+void appendAuthoredLightSourceGlows(Scene3D& scene, const Arena& arena) {
+  for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
+    const ArenaStaticLight& light = arena.staticLights[index];
+    if (
+      !std::isfinite(light.intensity) ||
+      !std::isfinite(light.radius) ||
+      light.intensity <= 0.0F ||
+      light.radius <= 0.0F
+    ) {
+      continue;
+    }
+    const float coreScale = std::clamp(
+      0.18F + light.intensity * 0.025F,
+      0.18F,
+      0.24F
+    );
+    const float haloScale = coreScale * 2.2F;
+    if (
+      !sphereIntersectsPerspectiveFrustum(
+        scene.camera,
+        light.position,
+        haloScale
+      )
+    ) {
+      continue;
+    }
+    const auto channel = [](float value) {
+      return static_cast<std::uint8_t>(std::clamp(
+        std::lround(std::clamp(value, 0.0F, 1.0F) * 255.0F),
+        0L,
+        255L
+      ));
+    };
+    const RenderColor color = {
+      channel(light.color.x),
+      channel(light.color.y),
+      channel(light.color.z),
+      255,
+    };
+    RenderColor haloColor = color;
+    haloColor.alpha = 76;
+    appendSimpleInstance(
+      scene,
+      {
+        MeshHandle::Invalid,
+        BillboardHandle::LightSource,
+        RenderPass::AdditiveGlow,
+        light.position,
+        {coreScale, coreScale, coreScale},
+        static_cast<float>((index * 7U) & 15U) * (kTwoPi / 16.0F),
+        0.0F,
+        color,
+        static_cast<float>(index) * 0.17F,
+        {light.position, coreScale},
+      }
+    );
+    appendSimpleInstance(
+      scene,
+      {
+        MeshHandle::Invalid,
+        BillboardHandle::LightSource,
+        RenderPass::AdditiveGlow,
+        light.position,
+        {haloScale, haloScale, haloScale},
+        static_cast<float>((index * 11U + 3U) & 15U) * (kTwoPi / 16.0F),
+        0.0F,
+        haloColor,
+        static_cast<float>(index) * 0.23F + 0.11F,
+        {light.position, haloScale},
+      }
+    );
+  }
 }
 
 [[nodiscard]] bool finiteVec3(Vec3 value) {
@@ -5523,6 +5818,9 @@ void finalizeProjectileInstanceStats(Scene3D& scene) {
       }
     }
     if (batch.billboard != BillboardHandle::Invalid) {
+      if (batch.billboard == BillboardHandle::LightSource) {
+        continue;
+      }
       if (
         batch.billboard == BillboardHandle::ExplosionFlash ||
         batch.billboard == BillboardHandle::ExplosionHalo
@@ -5565,7 +5863,7 @@ WorldMaterialTraits classifyWorldMaterial(std::string_view materialPath) {
   if (containsAny({
         "energy", "element", "teleport", "plasma", "light", "amber", "route",
       })) {
-    return {WorldMaterialKind::Energy, 0.42F, 0.0F, 0.22F, 0.18F};
+    return {WorldMaterialKind::Energy, 0.42F, 0.0F, 0.22F, 0.30F};
   }
   if (containsAny({"oxid", "rust", "corrode"})) {
     return {WorldMaterialKind::OxidizedMetal, 0.72F, 0.42F, 0.28F, 0.0F};
@@ -5649,13 +5947,7 @@ Scene3D buildPerspectiveScene(
   constexpr CollisionBounds defaultBounds = {};
   const float eyeHeight =
     0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
-  const Vec3 cameraMotion =
-    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
-      settings.viewModelPresentation.cameraTranslation.x +
-    yawRight(player.viewYawRadians) *
-      settings.viewModelPresentation.cameraTranslation.y +
-    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
-      settings.viewModelPresentation.cameraTranslation.z;
+  const Vec3 cameraMotion = viewModelCameraMotion(player, settings);
   const Vec3 cameraPosition = player.position + cameraMotion +
     Vec3{0.0F, 0.0F, eyeHeight + cameraVerticalOffset};
 
@@ -6061,8 +6353,21 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
-      const Vec3 visualStart =
-        fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
+      const bool localRailFire =
+        fire.weapon == Weapon::Railgun &&
+        fireIndex == static_cast<std::size_t>(settings.localPlayerIndex) &&
+        settings.showOwnWeapons;
+      const Vec3 visualStart = localRailFire
+        ? [&]() {
+            PlayerState viewModelPlayer = player;
+            viewModelPlayer.position.z += cameraVerticalOffset;
+            viewModelPlayer.position += cameraMotion;
+            return sniperRifleMuzzlePositionForViewModelPlayer(
+              viewModelPlayer,
+              settings
+            );
+          }()
+        : fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
           ? remoteHitscanMuzzlePosition(
               remotePlayers[fireIndex],
               fire.weapon,
@@ -6078,20 +6383,29 @@ Scene3D buildPerspectiveScene(
         addSegment(scene, visualStart, fire.end, fire.hit ? 0.036F : 0.028F, outer);
         addSegment(scene, visualStart, fire.end, fire.hit ? 0.014F : 0.010F, core);
       } else {
-        addSegment(
+        ++scene.transientVfxStats.activeSniperSmokeTracers;
+        const float alpha = fireIndex < settings.sniperSmokeTracerAlpha.size()
+          ? std::clamp(settings.sniperSmokeTracerAlpha[fireIndex], 0.0F, 1.0F)
+          : 1.0F;
+        addSniperSmokeTracer(
           scene,
           visualStart,
           fire.end,
-          fire.hit ? 0.045F : 0.03F,
-          fire.hit
-            ? RenderColor{255, 248, 180, 255}
-            : RenderColor{128, 230, 255, 235}
+          fireIndex < settings.sniperSmokeTracerDirections.size()
+            ? settings.sniperSmokeTracerDirections[fireIndex]
+            : Vec3{},
+          fireIndex < settings.sniperSmokeTracerTraceLengths.size()
+            ? settings.sniperSmokeTracerTraceLengths[fireIndex]
+            : 0.0F,
+          alpha,
+          settings
         );
       }
     }
   }
   addTransientTracerInstances(scene, transientTracers, settings);
   addTransientEffectInstances(scene, transientEffects, settings);
+  appendAuthoredLightSourceGlows(scene, arena);
   const std::size_t firstRocketProjectileLight =
     scene.temporaryLights.size();
   for (std::size_t projectileIndex = 0; projectileIndex < rockets.size(); ++projectileIndex) {

@@ -393,8 +393,8 @@ int main() {
       "generated overkill import should preserve its validated convex-brush count"
     );
     failures += expect(
-      loaded.ok && loaded.arena.visualWallCount == 0 && loaded.arena.visualBrushCount == 83,
-      "reviewed doorway patches and teleporter frame should load as render-only convex geometry"
+      loaded.ok && loaded.arena.visualWallCount == 22 && loaded.arena.visualBrushCount == 83,
+      "reviewed doorway patches, teleporter frame, and explicit light fixtures should load as render-only geometry"
     );
     failures += expect(
       loaded.ok &&
@@ -429,17 +429,17 @@ int main() {
       );
       if (arena.staticLightCount == 11U) {
         constexpr std::array<lg::Vec3, 11> expectedPositions = {{
-          {-2.0F, 2.0F, 17.0F},
-          {16.0F, 26.25F, 26.25F},
-          {16.0F, -33.75F, 17.0F},
-          {-27.5F, -2.5F, 14.0F},
-          {26.25F, 16.25F, 15.0F},
-          {29.6F, 52.0F, 13.0F},
-          {0.0F, -9.0F, 11.0F},
-          {16.0F, 9.0F, 19.0F},
-          {16.0F, -26.0F, 11.0F},
-          {-32.5F, -23.0F, 10.0F},
-          {29.6F, 44.0F, 9.0F},
+          {-2.0F, 2.0F, 17.8F},
+          {16.0F, 26.25F, 27.05F},
+          {16.0F, -33.75F, 17.8F},
+          {-27.5F, -2.5F, 14.8F},
+          {26.25F, 16.25F, 15.8F},
+          {29.6F, 52.0F, 13.8F},
+          {0.0F, -9.0F, 11.8F},
+          {16.0F, 9.0F, 19.8F},
+          {16.0F, -26.0F, 11.8F},
+          {-32.5F, -23.0F, 10.8F},
+          {29.6F, 44.0F, 9.8F},
         }};
         constexpr std::array<lg::Vec3, 11> expectedColors = {{
           {1.0F, 218.0F / 255.0F, 170.0F / 255.0F},
@@ -455,12 +455,12 @@ int main() {
           {190.0F / 255.0F, 214.0F / 255.0F, 1.0F},
         }};
         constexpr std::array<float, 11> expectedIntensities = {
-          0.8F, 0.75F, 0.75F, 0.7F, 0.7F, 0.9F,
-          1.1F, 1.05F, 1.0F, 1.1F, 0.75F,
+          1.25F, 1.0F, 1.0F, 0.95F, 1.0F, 1.35F,
+          1.3F, 1.25F, 1.25F, 1.3F, 1.0F,
         };
         constexpr std::array<float, 11> expectedRadii = {
-          35.0F, 32.5F, 35.0F, 30.0F, 30.0F, 22.5F,
-          40.0F, 40.0F, 37.5F, 30.0F, 25.0F,
+          19.0F, 21.25F, 22.5F, 20.5F, 20.5F, 15.5F,
+          23.75F, 23.75F, 22.5F, 20.0F, 18.0F,
         };
         for (std::size_t index = 0; index < expectedPositions.size(); ++index) {
           const lg::ArenaStaticLight& light = arena.staticLights[index];
@@ -472,7 +472,10 @@ int main() {
               nearlyEqual(light.color.y, expectedColors[index].y) &&
               nearlyEqual(light.color.z, expectedColors[index].z) &&
               nearlyEqual(light.intensity, expectedIntensities[index]) &&
-              nearlyEqual(light.radius, expectedRadii[index]),
+              nearlyEqual(light.radius, expectedRadii[index]) &&
+              light.castsShadows == (index == 0U || index == 5U) &&
+              nearlyEqual(light.sourceRadius, (index == 0U || index == 5U) ? 0.25F : 0.0F) &&
+              light.priority == (index == 0U ? 100 : index == 5U ? 90 : 0),
             "overkill point lights should match the reviewed art pass"
           );
         }
@@ -750,6 +753,36 @@ int main() {
       loaded.ok && loaded.arena.skyId == lg::SkyId::Aurora,
       "thunderstruck should select the aurora sky"
     );
+    failures += expect(
+      loaded.ok &&
+        loaded.arena.staticLightCount == 6 &&
+        loaded.arena.visualWallCount == 12 &&
+        loaded.arena.visualBrushCount == 0,
+      "thunderstruck should load one housing and one amber lens for each authored point light"
+    );
+    if (loaded.ok) {
+      std::size_t fixtureBrushCount = 0;
+      std::size_t amberLensCount = 0;
+      std::size_t shadowLightCount = 0;
+      const std::uint32_t amber =
+        lg::arenaMaterialId("Overkill/Overkill_Amber_Route-128x128");
+      for (std::size_t index = 0; index < loaded.arena.visualWallCount; ++index) {
+        const lg::ArenaWall& wall = loaded.arena.visualWalls[index];
+        if (wall.sourceEntityIndex != 900U) {
+          continue;
+        }
+        ++fixtureBrushCount;
+        amberLensCount += wall.materialId == amber ? 1U : 0U;
+      }
+      for (std::size_t index = 0; index < loaded.arena.staticLightCount; ++index) {
+        const lg::ArenaStaticLight& light = loaded.arena.staticLights[index];
+        shadowLightCount += light.castsShadows ? 1U : 0U;
+      }
+      failures += expect(
+        fixtureBrushCount == 12U && amberLensCount == 6U && shadowLightCount == 2U,
+        "thunderstruck light fixtures should stay render-only and its two key lights should cast shadows"
+      );
+    }
     failures += expect(
       skyFaceCount == 0U,
       "thunderstruck should not tag any source face as sky"

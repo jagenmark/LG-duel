@@ -1959,29 +1959,29 @@
 // entity 7
 {
 "classname" "light_point"
-"origin" "56 -48 -976"
+"origin" "56 -48 -944"
 "color" "255 226 196"
-"intensity" "0.45"
-"radius" "720"
+"intensity" "1.10"
+"radius" "560"
 "casts_shadows" "1"
-"source_radius" "64"
-"priority" "20"
+"source_radius" "10"
+"priority" "100"
 }
 // entity 8
 {
 "classname" "light_point"
-"origin" "-720 16 -888"
+"origin" "-720 16 -856"
 "color" "235 240 246"
-"intensity" "0.35"
-"radius" "800"
+"intensity" "0.75"
+"radius" "720"
 }
 // entity 9
 {
 "classname" "light_point"
-"origin" "-172 -720 -200"
+"origin" "-172 -720 -168"
 "color" "235 240 246"
-"intensity" "0.30"
-"radius" "2400"
+"intensity" "0.65"
+"radius" "1500"
 }
 // entity 10
 {
@@ -2003,29 +2003,29 @@
 // entity 13
 {
 "classname" "light_point"
-"origin" "456 -1032 -1010"
+"origin" "456 -1032 -978"
 "color" "255 220 180"
-"intensity" "0.50"
-"radius" "900"
+"intensity" "1.05"
+"radius" "650"
 }
 // entity 14
 {
 "classname" "light_point"
-"origin" "-216 -392 -882"
+"origin" "-216 -392 -850"
 "color" "245 235 218"
-"intensity" "0.40"
-"radius" "900"
+"intensity" "1.00"
+"radius" "560"
 "casts_shadows" "1"
-"source_radius" "64"
-"priority" "20"
+"source_radius" "10"
+"priority" "90"
 }
 // entity 15
 {
 "classname" "light_point"
-"origin" "-472 -1048 -770"
+"origin" "-472 -1048 -738"
 "color" "255 220 180"
-"intensity" "0.45"
-"radius" "1000"
+"intensity" "0.90"
+"radius" "720"
 }
 // art light_sun
 {
@@ -2262,5 +2262,209 @@
 ( -288 -1328 -996 ) ( -287 -1328 -996 ) ( -288 -1328 -995 ) common/playerclip -123 16 0 1 1
 ( -116.11428571428569 -1376 -768 ) ( -128 -1364.7272727272725 -760 ) ( -136 -1361.5454545454545 -776 ) common/playerclip -123 16 0 1 1
 ( -96 -1368 -980 ) ( -96 -1368 -979 ) ( -96 -1367 -980 ) common/playerclip 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1000"
+"lg_adaptation_visual_id" "thunderstruck-central-housing"
+"lg_light_origin" "56 -48 -944"
+// brush 0
+{
+( 24 -80 -1000 ) ( 88 -80 -1000 ) ( 88 -16 -1000 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 24 -80 -980 ) ( 88 -16 -980 ) ( 88 -80 -980 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 24 -80 -1000 ) ( 24 -16 -1000 ) ( 24 -16 -980 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 88 -80 -1000 ) ( 88 -16 -980 ) ( 88 -16 -1000 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 24 -80 -1000 ) ( 88 -80 -980 ) ( 88 -80 -1000 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 24 -16 -1000 ) ( 88 -16 -1000 ) ( 88 -16 -980 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1001"
+"lg_adaptation_visual_id" "thunderstruck-central-lens"
+"lg_light_origin" "56 -48 -944"
+// brush 0
+{
+( 32 -72 -980 ) ( 80 -72 -980 ) ( 80 -24 -980 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 -72 -972 ) ( 80 -24 -972 ) ( 80 -72 -972 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 -72 -980 ) ( 32 -24 -980 ) ( 32 -24 -972 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 80 -72 -980 ) ( 80 -24 -972 ) ( 80 -24 -980 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 -72 -980 ) ( 80 -72 -972 ) ( 80 -72 -980 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 32 -24 -980 ) ( 80 -24 -980 ) ( 80 -24 -972 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1002"
+"lg_adaptation_visual_id" "thunderstruck-west-housing"
+"lg_light_origin" "-720 16 -856"
+// brush 0
+{
+( -752 -16 -912 ) ( -688 -16 -912 ) ( -688 48 -912 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -752 -16 -892 ) ( -688 48 -892 ) ( -688 -16 -892 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -752 -16 -912 ) ( -752 48 -912 ) ( -752 48 -892 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -688 -16 -912 ) ( -688 48 -892 ) ( -688 48 -912 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -752 -16 -912 ) ( -688 -16 -892 ) ( -688 -16 -912 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -752 48 -912 ) ( -688 48 -912 ) ( -688 48 -892 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1003"
+"lg_adaptation_visual_id" "thunderstruck-west-lens"
+"lg_light_origin" "-720 16 -856"
+// brush 0
+{
+( -744 -8 -892 ) ( -696 -8 -892 ) ( -696 40 -892 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -744 -8 -884 ) ( -696 40 -884 ) ( -696 -8 -884 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -744 -8 -892 ) ( -744 40 -892 ) ( -744 40 -884 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -696 -8 -892 ) ( -696 40 -884 ) ( -696 40 -892 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -744 -8 -892 ) ( -696 -8 -884 ) ( -696 -8 -892 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -744 40 -892 ) ( -696 40 -892 ) ( -696 40 -884 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1004"
+"lg_adaptation_visual_id" "thunderstruck-upper-housing"
+"lg_light_origin" "-172 -720 -168"
+// brush 0
+{
+( -204 -752 -224 ) ( -140 -752 -224 ) ( -140 -688 -224 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -204 -752 -204 ) ( -140 -688 -204 ) ( -140 -752 -204 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -204 -752 -224 ) ( -204 -688 -224 ) ( -204 -688 -204 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -140 -752 -224 ) ( -140 -688 -204 ) ( -140 -688 -224 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -204 -752 -224 ) ( -140 -752 -204 ) ( -140 -752 -224 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -204 -688 -224 ) ( -140 -688 -224 ) ( -140 -688 -204 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1005"
+"lg_adaptation_visual_id" "thunderstruck-upper-lens"
+"lg_light_origin" "-172 -720 -168"
+// brush 0
+{
+( -196 -744 -204 ) ( -148 -744 -204 ) ( -148 -696 -204 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -196 -744 -196 ) ( -148 -696 -196 ) ( -148 -744 -196 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -196 -744 -204 ) ( -196 -696 -204 ) ( -196 -696 -196 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -148 -744 -204 ) ( -148 -696 -196 ) ( -148 -696 -204 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -196 -744 -204 ) ( -148 -744 -196 ) ( -148 -744 -204 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -196 -696 -204 ) ( -148 -696 -204 ) ( -148 -696 -196 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1006"
+"lg_adaptation_visual_id" "thunderstruck-south-housing"
+"lg_light_origin" "456 -1032 -978"
+// brush 0
+{
+( 424 -1064 -1034 ) ( 488 -1064 -1034 ) ( 488 -1000 -1034 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 424 -1064 -1014 ) ( 488 -1000 -1014 ) ( 488 -1064 -1014 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 424 -1064 -1034 ) ( 424 -1000 -1034 ) ( 424 -1000 -1014 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 488 -1064 -1034 ) ( 488 -1000 -1014 ) ( 488 -1000 -1034 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 424 -1064 -1034 ) ( 488 -1064 -1014 ) ( 488 -1064 -1034 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( 424 -1000 -1034 ) ( 488 -1000 -1034 ) ( 488 -1000 -1014 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1007"
+"lg_adaptation_visual_id" "thunderstruck-south-lens"
+"lg_light_origin" "456 -1032 -978"
+// brush 0
+{
+( 432 -1056 -1014 ) ( 480 -1056 -1014 ) ( 480 -1008 -1014 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 432 -1056 -1006 ) ( 480 -1008 -1006 ) ( 480 -1056 -1006 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 432 -1056 -1014 ) ( 432 -1008 -1014 ) ( 432 -1008 -1006 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 480 -1056 -1014 ) ( 480 -1008 -1006 ) ( 480 -1008 -1014 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 432 -1056 -1014 ) ( 480 -1056 -1006 ) ( 480 -1056 -1014 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( 432 -1008 -1014 ) ( 480 -1008 -1014 ) ( 480 -1008 -1006 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1008"
+"lg_adaptation_visual_id" "thunderstruck-mid-housing"
+"lg_light_origin" "-216 -392 -850"
+// brush 0
+{
+( -248 -424 -906 ) ( -184 -424 -906 ) ( -184 -360 -906 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -248 -424 -886 ) ( -184 -360 -886 ) ( -184 -424 -886 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -248 -424 -906 ) ( -248 -360 -906 ) ( -248 -360 -886 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -184 -424 -906 ) ( -184 -360 -886 ) ( -184 -360 -906 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -248 -424 -906 ) ( -184 -424 -886 ) ( -184 -424 -906 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -248 -360 -906 ) ( -184 -360 -906 ) ( -184 -360 -886 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1009"
+"lg_adaptation_visual_id" "thunderstruck-mid-lens"
+"lg_light_origin" "-216 -392 -850"
+// brush 0
+{
+( -240 -416 -886 ) ( -192 -416 -886 ) ( -192 -368 -886 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -240 -416 -878 ) ( -192 -368 -878 ) ( -192 -416 -878 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -240 -416 -886 ) ( -240 -368 -886 ) ( -240 -368 -878 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -192 -416 -886 ) ( -192 -368 -878 ) ( -192 -368 -886 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -240 -416 -886 ) ( -192 -416 -878 ) ( -192 -416 -886 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -240 -368 -886 ) ( -192 -368 -886 ) ( -192 -368 -878 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1010"
+"lg_adaptation_visual_id" "thunderstruck-east-housing"
+"lg_light_origin" "-472 -1048 -738"
+// brush 0
+{
+( -504 -1080 -794 ) ( -440 -1080 -794 ) ( -440 -1016 -794 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -504 -1080 -774 ) ( -440 -1016 -774 ) ( -440 -1080 -774 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -504 -1080 -794 ) ( -504 -1016 -794 ) ( -504 -1016 -774 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -440 -1080 -794 ) ( -440 -1016 -774 ) ( -440 -1016 -794 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -504 -1080 -794 ) ( -440 -1080 -774 ) ( -440 -1080 -794 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+( -504 -1016 -794 ) ( -440 -1016 -794 ) ( -440 -1016 -774 ) Overkill/Overkill_Oxidized_Trim-128x128 0 0 0 1 1
+}
+}
+{
+"classname" "func_group"
+"lg_geometry_role" "render_only"
+"lg_source_entity_index" "900"
+"lg_source_brush_index" "1011"
+"lg_adaptation_visual_id" "thunderstruck-east-lens"
+"lg_light_origin" "-472 -1048 -738"
+// brush 0
+{
+( -496 -1072 -774 ) ( -448 -1072 -774 ) ( -448 -1024 -774 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -496 -1072 -766 ) ( -448 -1024 -766 ) ( -448 -1072 -766 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -496 -1072 -774 ) ( -496 -1024 -774 ) ( -496 -1024 -766 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -448 -1072 -774 ) ( -448 -1024 -766 ) ( -448 -1024 -774 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -496 -1072 -774 ) ( -448 -1072 -766 ) ( -448 -1072 -774 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
+( -496 -1024 -774 ) ( -448 -1024 -774 ) ( -448 -1024 -766 ) Overkill/Overkill_Amber_Route-128x128 0 0 0 1 1
 }
 }

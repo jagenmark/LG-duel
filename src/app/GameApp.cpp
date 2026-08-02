@@ -82,7 +82,6 @@ constexpr float kRadiansToDegrees = 57.2957795131F;
 constexpr float kQ3RunRoll = 0.005F;
 constexpr float kQuakeUnitsPerProjectUnit = 40.0F;
 constexpr std::uint32_t kClientRailgunCooldownTicks = 188;
-constexpr float kRailgunBeamLingerSeconds = 0.5F;
 constexpr float kTwoPi = 6.28318530718F;
 constexpr std::size_t kMaxTransientTracers = 128;
 constexpr std::size_t kMaxTransientEffects = 192;
@@ -362,25 +361,6 @@ void copyTextToClipboard(std::string_view text) {
     return -0.30F;
   }
   return 0.0F;
-}
-
-[[nodiscard]] Vec3 viewmodelMuzzlePosition(
-  const PlayerState& player,
-  Weapon weapon,
-  int weaponPosition
-) {
-  constexpr CollisionBounds defaultBounds = {};
-  const float eyeHeight =
-    0.65F * (player.bounds.halfHeight / defaultBounds.halfHeight);
-  const Vec3 eyePosition =
-    player.position + Vec3{0.0F, 0.0F, eyeHeight};
-  const bool revolver = weapon == Weapon::Revolver;
-  return eyePosition +
-    cameraForward(player.viewYawRadians, player.viewPitchRadians) *
-      (revolver ? 0.75F : 0.55F) -
-    cameraUp(player.viewYawRadians, player.viewPitchRadians) *
-      (revolver ? 0.318F : 0.32F) +
-    yawRight(player.viewYawRadians) * firstPersonWeaponSideOffset(weaponPosition);
 }
 
 [[nodiscard]] Vec3 hiddenWeaponVisualOrigin(const PlayerState& player) {
@@ -9603,10 +9583,6 @@ int GameApp::run() const {
           playerPresentationStates[playerIndex] = {};
           continue;
         }
-        if (renderSnapshot.players[playerIndex].health <= 0) {
-          playerPresentationStates[playerIndex] = {};
-          continue;
-        }
         const bool teammate = !session.spectator() && playerPresentedAsTeammate(
           renderSnapshot, localPlayerIndex, playerIndex
         );
@@ -9898,31 +9874,42 @@ int GameApp::run() const {
         const WeaponFireResult sourceFire = currentFire;
         const bool localPerspectiveRail =
           playerIndex == renderLocalPlayerIndex;
+        // Server snapshots retain a fire event longer than the compact smoke
+        // cue. Event identity, not current visibility, decides whether to
+        // restart it after the cue expires.
         const bool newRailEvent =
-          !lingeringRailBeam.active ||
           !sameWeaponFireEvent(sourceFire, lingeringRailBeam.sourceFire);
         if (newRailEvent) {
           if (localPerspectiveRail) {
-            currentFire.start = currentRenderSettings.showOwnWeapons
-              ? viewmodelMuzzlePosition(
-                  renderPlayer,
-                  currentFire.weapon,
-                  currentRenderSettings.weaponPosition
-                )
-              : hiddenWeaponVisualOrigin(renderPlayer);
+            if (!currentRenderSettings.showOwnWeapons) {
+              currentFire.start = hiddenWeaponVisualOrigin(renderPlayer);
+            } else if (currentFire.weapon == Weapon::Railgun) {
+              currentFire.start = firstPersonSniperRifleMuzzlePosition(
+                renderPlayer,
+                currentRenderSettings
+              );
+            } else {
+              currentFire.start = firstPersonRevolverMuzzlePosition(
+                renderPlayer,
+                currentRenderSettings
+              );
+            }
           } else {
-            const bool revolver = currentFire.weapon == Weapon::Revolver;
-            const Vec3 revolverMuzzle = revolverMuzzleSocket();
-            currentFire.start = remoteWeaponPresentationPoint(
-              sourceFire.start,
-              renderRemotePlayers,
-              playerIndex,
-              currentFire.weapon,
-              currentRenderSettings,
-              revolver ? revolverMuzzle.x : 0.78F,
-              revolver ? revolverMuzzle.y : 0.0F,
-              revolver ? revolverMuzzle.z : 0.09F
-            );
+            currentFire.start =
+              currentFire.weapon == Weapon::Railgun &&
+                playerIndex < renderRemotePlayers.size() &&
+                renderRemotePlayers[playerIndex].visible
+              ? remoteSniperRifleMuzzlePosition(
+                  renderRemotePlayers[playerIndex],
+                  currentRenderSettings
+                )
+              : revolverMuzzleSource(
+                  sourceFire,
+                  renderPlayer,
+                  renderRemotePlayers,
+                  playerIndex,
+                  currentRenderSettings
+                );
           }
           if (sourceFire.weapon == Weapon::Revolver) {
             revolverCylinderSteps[playerIndex] = static_cast<std::uint8_t>(
@@ -9935,13 +9922,21 @@ int GameApp::run() const {
           lingeringRailBeam.startedAt = now;
           const float lingerSeconds = sourceFire.weapon == Weapon::Revolver
             ? kRevolverTracerLifetimeSeconds
-            : kRailgunBeamLingerSeconds;
+            : kSniperSmokeTracerLifetimeSeconds;
           lingeringRailBeam.expiresAt =
             now + std::chrono::duration_cast<Clock::duration>(
               std::chrono::duration<float>(lingerSeconds)
             );
-        } else {
+        } else if (
+          lingeringRailBeam.active &&
+          now < lingeringRailBeam.expiresAt
+        ) {
           currentFire = lingeringRailBeam.fire;
+        } else {
+          // The server deliberately retains fire events for snapshot delivery.
+          // Do not replay that same event after this shorter visual cue ends.
+          lingeringRailBeam.active = false;
+          currentFire.fired = false;
         }
       } else if (
         !currentFire.fired &&
@@ -9949,12 +9944,55 @@ int GameApp::run() const {
         now < lingeringRailBeam.expiresAt
       ) {
         currentFire = lingeringRailBeam.fire;
-      } else {
-        if (lingeringRailBeam.active && now >= lingeringRailBeam.expiresAt) {
-          lingeringRailBeam.active = false;
+      } else if (lingeringRailBeam.active && now >= lingeringRailBeam.expiresAt) {
+        lingeringRailBeam.active = false;
         }
-      }
-      if (
+        if (
+          lingeringRailBeam.active &&
+          lingeringRailBeam.fire.weapon == Weapon::Railgun &&
+          now < lingeringRailBeam.expiresAt
+        ) {
+          // The cue follows the rendered socket and uses the server trace's
+          // direction and length. It never affects hits, damage, or state.
+          const Vec3 liveStart = playerIndex == renderLocalPlayerIndex
+            ? (
+              currentRenderSettings.showOwnWeapons
+                ? firstPersonSniperRifleMuzzlePosition(
+                    renderPlayer,
+                    currentRenderSettings
+                  )
+                : hiddenWeaponVisualOrigin(renderPlayer)
+            )
+            : (
+              playerIndex < renderRemotePlayers.size() &&
+                renderRemotePlayers[playerIndex].visible
+                ? remoteSniperRifleMuzzlePosition(
+                    renderRemotePlayers[playerIndex],
+                    currentRenderSettings
+                  )
+                : lingeringRailBeam.sourceFire.start
+            );
+          lingeringRailBeam.fire.start = liveStart;
+          currentFire.start = liveStart;
+          const float ageSeconds = std::chrono::duration<float>(
+            now - lingeringRailBeam.startedAt
+          ).count();
+          const Vec3 authoritativeTrace =
+            lingeringRailBeam.sourceFire.end - lingeringRailBeam.sourceFire.start;
+          const float authoritativeTraceLength = length(authoritativeTrace);
+          currentRenderSettings.sniperSmokeTracerAlpha[playerIndex] =
+            sniperSmokeTracerPresentation(ageSeconds).alpha;
+          if (
+            std::isfinite(authoritativeTraceLength) &&
+            authoritativeTraceLength > 0.0001F
+          ) {
+            currentRenderSettings.sniperSmokeTracerDirections[playerIndex] =
+              normalize(authoritativeTrace);
+            currentRenderSettings.sniperSmokeTracerTraceLengths[playerIndex] =
+              authoritativeTraceLength;
+          }
+        }
+        if (
         lingeringRailBeam.active &&
         lingeringRailBeam.fire.weapon == Weapon::Revolver &&
         now < lingeringRailBeam.expiresAt
