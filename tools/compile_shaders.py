@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import ctypes
+import ctypes.util
 import os
 import re
 import sys
@@ -23,22 +24,37 @@ SHADER_DIR = ROOT / "assets" / "shaders"
 INCLUDE_PATTERN = re.compile(r'^\s*#include\s+"([^"\\]+)"\s*$')
 
 
-def shaderc_library() -> Path:
+def shaderc_sdk_candidates(sdk_root: Path) -> tuple[Path, ...]:
+    """Return shaderc library paths used by the supported SDK layouts."""
+    return (
+        sdk_root / "Bin" / "shaderc_shared.dll",
+        sdk_root / "Lib" / "shaderc_shared.dll",
+        sdk_root / "lib" / "libshaderc_shared.so",
+        sdk_root / "lib" / "libshaderc_shared.so.1",
+        sdk_root / "lib" / "libshaderc_shared.dylib",
+    )
+
+
+def shaderc_library() -> Path | str:
     candidates: list[Path] = []
     sdk = os.environ.get("VULKAN_SDK")
     if sdk:
-        candidates.append(Path(sdk) / "Bin" / "shaderc_shared.dll")
-    candidates.extend(
+        candidates.extend(shaderc_sdk_candidates(Path(sdk)))
+    candidates.extend(sorted(
         Path("C:/Program Files/Blender Foundation").glob(
             "Blender */blender.shared/shaderc_shared.dll"
-        )
-    )
-    for candidate in sorted(candidates, reverse=True):
+        ),
+        reverse=True,
+    ))
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
+    system_library = ctypes.util.find_library("shaderc_shared")
+    if system_library:
+        return system_library
     raise RuntimeError(
-        "shaderc_shared.dll was not found. Install the Vulkan SDK or Blender "
-        "with shaderc, then rerun tools/compile_shaders.py."
+        "shaderc shared library was not found. Install the Vulkan SDK, "
+        "system shaderc, or Blender, then rerun tools/compile_shaders.py."
     )
 
 
