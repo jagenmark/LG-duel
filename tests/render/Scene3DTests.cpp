@@ -431,6 +431,23 @@ int main() {
   lightCamera.up = {0.0F, 0.0F, 1.0F};
   lightCamera.focalLength = 1.0F;
   lightCamera.aspectRatio = 1.0F;
+  const std::array<lg::LivePointLight, 1> combatOnlyLights = {{
+    {
+      {2.0F, 0.0F, 1.0F}, {1.0F, 0.35F, 0.10F}, 1.0F, 1.0F, 3.0F,
+      0.0F, 1.0F, 4, 99U, false, true, false, false, true,
+    },
+  }};
+  const std::vector<lg::LivePointLight> selectedCombatOnlyLights =
+    lg::selectLivePointLights(
+      combatOnlyLights,
+      lightCamera,
+      lg::livePointLightCapacity(0)
+    );
+  failures += expect(
+    selectedCombatOnlyLights.size() == 1U &&
+      selectedCombatOnlyLights[0].temporary,
+    "point-light quality zero should retain selected temporary combat lights"
+  );
   const std::array<lg::LivePointLight, 3> rankedLights = {{
     {
       {-1.0F, 0.0F, 0.0F}, {1.0F, 0.2F, 0.1F}, 1.0F, 1.0F, 2.5F,
@@ -766,7 +783,55 @@ int main() {
       compatibilityOutline.passCount == 6U,
     "native MSAA outlines should rebuild one-sample depth"
   );
+  constexpr lg::PlayerOutlinePathPlan nativeOutlinePath =
+    lg::buildPlayerOutlinePathPlan(
+      lg::PlayerOutlineMode::NativeScreenSpace,
+      lg::PlayerOutlineStyle::Geometry,
+      true,
+      true,
+      true
+    );
+  constexpr lg::PlayerOutlinePathPlan nativeFallbackPath =
+    lg::buildPlayerOutlinePathPlan(
+      lg::PlayerOutlineMode::NativeScreenSpace,
+      lg::PlayerOutlineStyle::ScreenSpace,
+      true,
+      false,
+      true
+    );
+  constexpr lg::PlayerOutlinePathPlan backendFallbackPath =
+    lg::buildPlayerOutlinePathPlan(
+      lg::PlayerOutlineMode::NativeScreenSpace,
+      lg::PlayerOutlineStyle::Geometry,
+      false,
+      false,
+      true
+    );
+  constexpr lg::PlayerOutlinePathPlan unavailableOutlinePath =
+    lg::buildPlayerOutlinePathPlan(
+      lg::PlayerOutlineMode::NativeScreenSpace,
+      lg::PlayerOutlineStyle::Geometry,
+      true,
+      false,
+      false
+    );
+  failures += expect(
+    nativeOutlinePath.mode == lg::PlayerOutlineMode::NativeScreenSpace &&
+      nativeOutlinePath.fallbackReason == lg::NativeOutlineFallbackReason::None &&
+      nativeFallbackPath.mode == lg::PlayerOutlineMode::Compatibility &&
+      nativeFallbackPath.style == lg::PlayerOutlineStyle::Geometry &&
+      nativeFallbackPath.fallbackReason ==
+        lg::NativeOutlineFallbackReason::NativeResourcesUnavailable &&
+      backendFallbackPath.mode == lg::PlayerOutlineMode::Compatibility &&
+      backendFallbackPath.fallbackReason ==
+        lg::NativeOutlineFallbackReason::BackendUnavailable &&
+      unavailableOutlinePath.mode == lg::PlayerOutlineMode::Disabled &&
+      unavailableOutlinePath.fallbackReason ==
+        lg::NativeOutlineFallbackReason::CompatibilityResourcesUnavailable,
+    "native outlines should keep the requested path or report an explicit safe fallback"
+  );
   const lg::DirectPresentInputs directInputs = {
+    true,
     true,
     true,
     true,
@@ -817,6 +882,10 @@ int main() {
     std::pair{
       &lg::DirectPresentInputs::competitiveQuality,
       lg::DirectPresentFallbackReason::QualityContract,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::livePointLightsEmpty,
+      lg::DirectPresentFallbackReason::LivePointLights,
     },
     std::pair{
       &lg::DirectPresentInputs::outlineModeSupported,
@@ -935,6 +1004,57 @@ int main() {
     ),
     "sun shadow projection should stay fixed for sub-texel camera motion"
   );
+  {
+    const float angle = 0.61F;
+    const lg::Vec3 right = {std::cos(angle), std::sin(angle), 0.0F};
+    const lg::Vec3 up = {0.0F, 0.0F, 1.0F};
+    const lg::Vec3 forward = {-std::sin(angle), std::cos(angle), 0.0F};
+    constexpr float horizontalScale = 2.4F;
+    constexpr float verticalScale = 0.55F;
+    lg::GltfPlayerModelInstance instance;
+    instance.modelRow0 = {
+      right.x * horizontalScale,
+      up.x * verticalScale,
+      forward.x * horizontalScale,
+    };
+    instance.modelRow1 = {
+      right.y * horizontalScale,
+      up.y * verticalScale,
+      forward.y * horizontalScale,
+    };
+    instance.modelRow2 = {
+      right.z * horizontalScale,
+      up.z * verticalScale,
+      forward.z * horizontalScale,
+    };
+    // This is also the rigid fallback layout: no bone palette or skin flag is
+    // needed for the instance transform itself.
+    instance.skinned = false;
+    const lg::Vec3 localNormal = lg::normalize({0.39F, 0.62F, -0.68F});
+    const lg::Vec3 localTangent = lg::normalize(
+      crossProduct(localNormal, {0.71F, -0.22F, 0.66F})
+    );
+    const auto transformPositionVector = [&instance](lg::Vec3 vector) {
+      return lg::Vec3{
+        lg::dot(instance.modelRow0, vector),
+        lg::dot(instance.modelRow1, vector),
+        lg::dot(instance.modelRow2, vector),
+      };
+    };
+    const lg::Vec3 worldTangent = transformPositionVector(localTangent);
+    const lg::Vec3 oldPositionMatrixNormal = lg::normalize(
+      transformPositionVector(localNormal)
+    );
+    const lg::Vec3 correctedNormal = lg::transformGltfPlayerModelNormal(
+      instance,
+      localNormal
+    );
+    failures += expect(
+      std::fabs(lg::dot(correctedNormal, worldTangent)) < 0.0001F &&
+        std::fabs(lg::dot(oldPositionMatrixNormal, worldTangent)) > 0.1F,
+      "non-uniform GLTF player scaling must use the inverse-transpose normal basis"
+    );
+  }
   lg::Arena faceArena;
   faceArena.renderDefaultFloor = false;
   faceArena.wallCount = 1;
@@ -978,12 +1098,27 @@ int main() {
   opponent.position = {4.0F, 2.0F, 0.9F};
   opponent.movementMode = lg::MovementMode::Grounded;
   opponent.onGround = true;
-  lg::RenderSettings settings;
-  settings.enemyOutlineRed = 31;
-  settings.enemyOutlineGreen = 227;
-  settings.enemyOutlineBlue = 19;
-  settings.playerModel = 1;
-  settings.contactShadowsEnabled = true;
+  lg::RenderSettings defaultOutlineSettings;
+  defaultOutlineSettings.enemyOutlineRed = 31;
+  defaultOutlineSettings.enemyOutlineGreen = 227;
+  defaultOutlineSettings.enemyOutlineBlue = 19;
+  defaultOutlineSettings.playerModel = 1;
+  defaultOutlineSettings.contactShadowsEnabled = true;
+  failures += expect(
+    defaultOutlineSettings.playerOutlineMode ==
+        lg::PlayerOutlineMode::NativeScreenSpace &&
+      lg::usesScreenSpacePlayerOutlines(
+        defaultOutlineSettings.playerOutlineMode,
+        defaultOutlineSettings.playerOutlineStyle
+      ),
+    "default player outline settings should select the native screen-space path"
+  );
+
+  // Keep the established compatibility-path assertions below explicit.  The
+  // native path has separate checks for its extra weapon silhouette.
+  lg::RenderSettings settings = defaultOutlineSettings;
+  settings.playerOutlineMode = lg::PlayerOutlineMode::Compatibility;
+  settings.playerOutlineStyle = lg::PlayerOutlineStyle::ScreenSpace;
   lg::LightningGunResult inactiveBeam;
   const std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> weaponFires = {};
   const std::array<lg::RocketExplosionResult, lg::kDuelPlayerCount> rocketExplosions = {};
@@ -1001,6 +1136,18 @@ int main() {
     rockets,
     settings
   );
+  const lg::Scene3D defaultNativeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    defaultOutlineSettings
+  );
   failures += expect(
     !baseScene.gltfPlayerModelInstances.empty() ||
       !baseScene.staticMeshInstances.empty() ||
@@ -1008,9 +1155,21 @@ int main() {
     "perspective scene should emit renderable geometry or GPU model instances"
   );
   failures += expect(
-    settings.playerOutlineStyle == lg::PlayerOutlineStyle::ScreenSpace &&
-      !lg::usesGeometryPlayerOutlineFallback(settings.playerOutlineStyle),
-    "SDL_GPU outline settings should prefer screen-space outlines over geometry fallback"
+    settings.playerOutlineMode == lg::PlayerOutlineMode::Compatibility &&
+      settings.playerOutlineStyle == lg::PlayerOutlineStyle::ScreenSpace &&
+      lg::usesScreenSpacePlayerOutlines(
+        settings.playerOutlineMode,
+        settings.playerOutlineStyle
+      ),
+    "compatibility screen-space outlines should remain selectable"
+  );
+  failures += expect(
+    defaultNativeScene.playerOutlinesBuilt == 1U &&
+      defaultNativeScene.outlineMaskDraws.size() >
+        baseScene.outlineMaskDraws.size() &&
+      !defaultNativeScene.geometryOutlineFallbackUsed &&
+      defaultNativeScene.geometryOutlineDynamicVertices == 0U,
+    "default native outlines should submit masks without compatibility geometry"
   );
   failures += expect(
     baseScene.visibleRemotePlayers == 1 &&
@@ -2515,6 +2674,7 @@ int main() {
   );
 
   lg::RenderSettings legacyOutlineSettings = settings;
+  legacyOutlineSettings.playerOutlineMode = lg::PlayerOutlineMode::Compatibility;
   legacyOutlineSettings.playerOutlineStyle = lg::PlayerOutlineStyle::Geometry;
   const lg::Scene3D legacyOutlineScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
@@ -3679,6 +3839,41 @@ int main() {
   failures += expect(
     combatEffectsSubmitted,
     "typed combat effects should reach their bounded scene render paths"
+  );
+  lg::Arena combatOnlyLightArena = arena;
+  combatOnlyLightArena.staticLightCount = 1U;
+  combatOnlyLightArena.staticLights[0].position = {3.0F, 0.0F, 2.0F};
+  combatOnlyLightArena.staticLights[0].color = {0.2F, 0.7F, 1.0F};
+  combatOnlyLightArena.staticLights[0].intensity = 3.0F;
+  combatOnlyLightArena.staticLights[0].radius = 6.0F;
+  lg::RenderSettings combatOnlyLightSettings = settings;
+  combatOnlyLightSettings.pointLightQuality = 0;
+  const lg::Scene3D combatOnlyLightScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    combatOnlyLightArena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>(),
+    combatEffects,
+    combatOnlyLightSettings
+  );
+  failures += expect(
+    std::none_of(
+      combatOnlyLightScene.livePointLights.begin(),
+      combatOnlyLightScene.livePointLights.end(),
+      [](const lg::LivePointLight& light) { return light.authored; }
+    ) &&
+      std::any_of(
+        combatOnlyLightScene.livePointLights.begin(),
+        combatOnlyLightScene.livePointLights.end(),
+        [](const lg::LivePointLight& light) { return light.temporary; }
+      ),
+    "point-light quality zero should remove authored live lights while retaining combat lights"
   );
 
   for (std::size_t index = 0; index < 6U; ++index) {

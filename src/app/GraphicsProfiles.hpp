@@ -16,7 +16,7 @@ struct GraphicsProfileValue {
 struct GraphicsProfileDefinition {
   GraphicsProfile profile;
   std::string_view name;
-  std::array<GraphicsProfileValue, 23> values;
+  std::array<GraphicsProfileValue, 24> values;
 };
 
 inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
@@ -25,6 +25,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_texture_anisotropy", "1"}, {"r_texture_lod_bias", "1.5"},
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "1"},
     {"r_draw_player_outlines", "0"}, {"r_player_outline_mode", "0"},
+    {"r_player_outline_style", "0"},
     {"r_combat_effects", "1"}, {"r_tonemap_exposure", "1"},
     {"r_atmosphere_grade", "1"},
     {"r_bloom", "0"}, {"r_bloom_intensity", "0.1"},
@@ -40,10 +41,11 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_texture_anisotropy", "8"}, {"r_texture_lod_bias", "0.5"},
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "0"},
     {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "2"},
+    {"r_player_outline_style", "0"},
     {"r_combat_effects", "2"}, {"r_tonemap_exposure", "1"},
     {"r_atmosphere_grade", "2"},
     {"r_bloom", "1"}, {"r_bloom_intensity", "0.18"},
-    {"r_antialiasing", "0"}, {"r_sun_shadows", "0"},
+    {"r_antialiasing", "1"}, {"r_sun_shadows", "2"},
     {"r_point_lights", "1"}, {"r_point_shadows", "1"},
     {"r_contact_shadows", "1"}, {"r_material_quality", "1"},
     {"r_player_rim", "1"},
@@ -55,10 +57,11 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_texture_anisotropy", "4"}, {"r_texture_lod_bias", "0"},
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "1"},
     {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "2"},
+    {"r_player_outline_style", "0"},
     {"r_combat_effects", "1"}, {"r_tonemap_exposure", "1"},
     {"r_atmosphere_grade", "0"},
     {"r_bloom", "0"}, {"r_bloom_intensity", "0.1"},
-    {"r_antialiasing", "0"}, {"r_sun_shadows", "0"},
+    {"r_antialiasing", "1"}, {"r_sun_shadows", "1"},
     {"r_point_lights", "0"}, {"r_point_shadows", "0"},
     {"r_contact_shadows", "0"}, {"r_material_quality", "0"},
     {"r_player_rim", "1"},
@@ -70,6 +73,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_texture_anisotropy", "16"}, {"r_texture_lod_bias", "-0.25"},
     {"r_frustum_cull", "1"}, {"r_world_frustum_cull", "0"},
     {"r_draw_player_outlines", "1"}, {"r_player_outline_mode", "2"},
+    {"r_player_outline_style", "0"},
     {"r_combat_effects", "2"}, {"r_tonemap_exposure", "1"},
     {"r_atmosphere_grade", "3"},
     {"r_bloom", "1"}, {"r_bloom_intensity", "0.24"},
@@ -83,7 +87,11 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
 }};
 
 inline constexpr const GraphicsProfileDefinition& graphicsProfileDefinition(GraphicsProfile profile) {
-  return kGraphicsProfiles[static_cast<std::size_t>(profile)];
+  const std::size_t index = static_cast<std::size_t>(profile);
+  if (index < kGraphicsProfiles.size()) {
+    return kGraphicsProfiles[index];
+  }
+  return kGraphicsProfiles[static_cast<std::size_t>(GraphicsProfile::Default)];
 }
 
 inline constexpr std::string_view graphicsProfileName(GraphicsProfile profile) {

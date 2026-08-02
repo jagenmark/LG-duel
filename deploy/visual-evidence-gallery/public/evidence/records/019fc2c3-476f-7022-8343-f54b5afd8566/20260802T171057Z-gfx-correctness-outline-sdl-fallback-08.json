@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260802T171057Z-gfx-correctness-outline-sdl-fallback-08",
+  "captured_at": "2026-08-02T17:10:57Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Explicit SDL fallback-renderer capture after a native-outline request. A yellow legacy geometry outline visibly marks the player in the fallback-style frame; renderer state is recorded by the capture controls.",
+  "image": "20260802T171057Z-gfx-correctness-outline-sdl-fallback-08.png",
+  "review": {
+    "notes": "The yellow legacy outline is clearly visible in a fallback-style frame. SDL history and the native request are not visible, so the caption records them as capture state rather than a pixel-only claim.",
+    "reviewed_at": "2026-08-02T17:23:56Z",
+    "reviewer": "WORKER visual evidence review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "1fb25285f76bbfa952d7d6399fabed8c5a21afbda8a5a3db13eff0364464e9e5",
+  "size_bytes": 9217968,
+  "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+  "title": "Legacy outline on the SDL fallback renderer"
+}

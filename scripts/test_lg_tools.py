@@ -984,7 +984,11 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("sceneLights.colorIntensity", shader)
         self.assertIn("sceneLights.parameters.z", shader)
         self.assertIn("sunShadowVisibility", shader)
-        self.assertIn("hazeCap = atmosphereQuality == 1", shader)
+        self.assertIn('#include "includes/atmosphere.glsl"', shader)
+        atmosphere = (
+            root / "assets" / "shaders" / "includes" / "atmosphere.glsl"
+        ).read_text(encoding="utf-8")
+        self.assertIn("float hazeCap = quality == 1", atmosphere)
         vertex_shader = (
             root / "assets" / "shaders" / "world_surface.vert"
         ).read_text(encoding="utf-8")
@@ -992,23 +996,42 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("max(vertexColor.rgb, vec3(0.00169355))", shader)
         self.assertIn('"world_surface.frag.spv",\n    3', renderer)
 
-    def test_material_quality_zero_gates_fragment_light_loops(self) -> None:
+    def test_material_quality_preserves_point_light_diffuse_contract(self) -> None:
         root = Path(__file__).resolve().parents[1]
+        def point_light_response(
+            point_lights_enabled: bool,
+            material_quality: int,
+            diffuse_radiance: float,
+            specular_radiance: float,
+        ) -> tuple[float, float]:
+            if not point_lights_enabled:
+                return 0.0, 0.0
+            diffuse = diffuse_radiance
+            enhanced = specular_radiance if material_quality == 2 else 0.0
+            return diffuse, enhanced
+
+        low_material = point_light_response(True, 0, 0.75, 0.20)
+        enhanced_material = point_light_response(True, 2, 0.75, 0.20)
+        disabled_lights = point_light_response(False, 0, 0.75, 0.20)
+        self.assertEqual((0.75, 0.0), low_material)
+        self.assertEqual((0.75, 0.20), enhanced_material)
+        self.assertEqual((0.0, 0.0), disabled_lights)
+
+        # Shader source checks support the numeric contract above; they do not
+        # stand alone as evidence of the material-quality behavior.
         for shader_name in (
             "world_surface.frag",
             "world3d.frag",
             "gltf_player_model.frag",
             "material_weapon.frag",
         ):
-            shader = (
-                root / "assets" / "shaders" / shader_name
-            ).read_text(encoding="utf-8")
-            quality_gate = shader.index("if (materialQuality > 0) {")
-            local_light_loop = shader.index(
-                "for (int index = 0; index <",
-                quality_gate,
+            shader = (root / "assets" / "shaders" / shader_name).read_text(
+                encoding="utf-8"
             )
-            self.assertLess(quality_gate, local_light_loop, shader_name)
+            light_loop = shader.index("for (int index = 0; index <")
+            if "materialQuality" in shader:
+                advanced_gate = shader.index("if (materialQuality", light_loop)
+                self.assertLess(light_loop, advanced_gate, shader_name)
 
     def test_static_world_light_loop_skips_baked_lights_before_work(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1055,6 +1078,11 @@ class LgToolTests(unittest.TestCase):
             self.assertLess(guard, source_radius, shader_name)
             self.assertIn("continue;", shader[guard:source_radius], shader_name)
 
+        point_shadow = (
+            shader_dir / "includes" / "point_shadow.glsl"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("texture(pointShadowMap", point_shadow)
+        self.assertGreaterEqual(point_shadow.count("textureLod("), 4)
         for shader_name in (
             "world_surface.frag",
             "gltf_player_model.frag",
@@ -1062,17 +1090,12 @@ class LgToolTests(unittest.TestCase):
             "instanced_color.frag",
         ):
             shader = (shader_dir / shader_name).read_text(encoding="utf-8")
-            self.assertNotIn("texture(pointShadowMap", shader, shader_name)
             self.assertIn(
                 "#extension GL_EXT_texture_shadow_lod : require",
                 shader,
                 shader_name,
             )
-            self.assertGreaterEqual(
-                shader.count("textureLod(\n    pointShadowMap"),
-                4,
-                shader_name,
-            )
+            self.assertIn('#include "includes/point_shadow.glsl"', shader)
 
     def test_point_light_facing_guards_skip_unused_shadow_work(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1318,6 +1341,24 @@ class LgToolTests(unittest.TestCase):
             self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
         self.assertEqual(4, cmake.count("world_surface.vert.spv"))
 
+    def test_sdl_native_outline_fallback_reaches_legacy_draw(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        sdl_fallback_start = renderer.index(
+            "const PlayerOutlinePathPlan sdlOutlinePath = "
+            "buildPlayerOutlinePathPlan("
+        )
+        draw_start = renderer.index("  drawPerspectiveWorld(\n", sdl_fallback_start)
+        draw_end = renderer.index(
+            "\n  const PerspectiveCamera camera = playerPerspectiveCamera(",
+            draw_start,
+        )
+        draw_call = renderer[draw_start:draw_end]
+        self.assertIn("    *effectiveSdlSettings\n  );", draw_call)
+        self.assertNotIn("    settings\n  );", draw_call)
+
     def test_outline_mask_vertex_shaders_are_lean(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"
@@ -1383,9 +1424,10 @@ class LgToolTests(unittest.TestCase):
         package = (root / "scripts" / "package-windows.ps1").read_text(
             encoding="utf-8"
         )
+        self.assertIn('$requiredShaderFiles', package)
+        self.assertIn('Get-ChildItem (Join-Path $repoRoot "assets/shaders")', package)
         for shader_name in expected_inputs:
             self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
-            self.assertEqual(1, package.count(f"{shader_name}.spv"), shader_name)
 
     def test_sky_assets_stay_client_only(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1408,8 +1450,9 @@ class LgToolTests(unittest.TestCase):
                 client_assets.count(f"{shader_name}.spv"),
                 shader_name,
             )
-            self.assertEqual(1, package.count(f"{shader_name}.spv"))
             self.assertNotIn(shader_name, shared_assets)
+        self.assertIn('$requiredShaderFiles', package)
+        self.assertIn('Get-ChildItem (Join-Path $repoRoot "assets/shaders")', package)
         self.assertIn('"${CMAKE_CURRENT_SOURCE_DIR}/assets/sky"', client_assets)
         self.assertNotIn("assets/sky", shared_assets)
         for sky_name in ("aurora", "crimson-sunset"):

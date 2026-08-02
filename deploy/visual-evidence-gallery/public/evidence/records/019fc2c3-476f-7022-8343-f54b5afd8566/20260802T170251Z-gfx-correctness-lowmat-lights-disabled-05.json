@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260802T170251Z-gfx-correctness-lowmat-lights-disabled-05",
+  "captured_at": "2026-08-02T17:02:51Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Matched fixed-camera reference from the same low-material fixture with point lights disabled. Compared with the lights-on capture, the scene is visibly darker and flatter; exact matching state is recorded by the fixture.",
+  "image": "20260802T170251Z-gfx-correctness-lowmat-lights-disabled-05.png",
+  "review": {
+    "notes": "The dark, flat frame works as the lights-off reference when paired with the lights-on capture. Exact state matching is not visible in this image alone.",
+    "reviewed_at": "2026-08-02T17:23:56Z",
+    "reviewer": "WORKER visual evidence review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "0aba74a04f013e8e24649c8fd6042c37883bdc57c5b3c04bff07b236b96fafb6",
+  "size_bytes": 9217968,
+  "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+  "title": "Low-material lights-off reference"
+}

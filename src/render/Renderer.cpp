@@ -5638,6 +5638,8 @@ template <typename Vertex>
     return "sun-shadow";
   case DirectPresentFallbackReason::QualityContract:
     return "quality-contract";
+  case DirectPresentFallbackReason::LivePointLights:
+    return "live-point-lights";
   case DirectPresentFallbackReason::OutlineMode:
     return "outline-mode";
   case DirectPresentFallbackReason::ContactShadows:
@@ -7302,6 +7304,7 @@ void appendCommandBatches(
   std::span<const TransientEffect> transientEffects,
   std::uint32_t newExplosionEventsConsumed,
   const RenderSettings& settings,
+  NativeOutlineFallbackReason nativeOutlineFallbackReason,
   const HudRenderState& hud,
   const ConsoleRenderState& console,
   float cameraVerticalOffset,
@@ -7378,6 +7381,7 @@ void appendCommandBatches(
   diagnostics.outlinePasses = 0;
   diagnostics.outlineCompositeEnabled = false;
   diagnostics.geometryOutlineFallbackUsed = false;
+  diagnostics.nativeOutlineFallbackReason = nativeOutlineFallbackReason;
   diagnostics.sceneColorWidth = 0;
   diagnostics.sceneColorHeight = 0;
   diagnostics.sceneColorFormat = static_cast<std::uint32_t>(sceneColorFormat);
@@ -7970,6 +7974,7 @@ void appendCommandBatches(
       perspectiveScene.lights.materialQuality == 0 &&
         perspectiveScene.lights.playerRimQuality == 1 &&
         settings.pointLightQuality <= 0,
+      perspectiveScene.livePointLights.empty(),
       settings.playerOutlineMode == PlayerOutlineMode::Disabled ||
         settings.playerOutlineMode == PlayerOutlineMode::NativeScreenSpace,
       perspectiveScene.contactShadowVertices.empty(),
@@ -12058,6 +12063,38 @@ void Renderer::render(
       activeSkyTexture = skyResources->textures[skyIndex];
       activeSkySampler = skyResources->sampler;
     }
+    const bool compatibilityOutlineResourcesAvailable =
+      gpuPipelineOutlineClear_ != nullptr &&
+      gpuPipelineOutlineColorClear_ != nullptr &&
+      gpuPipelineOutlineMask_ != nullptr &&
+      gpuPipelineStaticMeshOutlineMask_ != nullptr &&
+      gpuPipelineMaterialMeshOutlineMask_ != nullptr &&
+      gpuPipelineGltfPlayerModelOutlineMask_ != nullptr &&
+      gpuPipelineOutlineDilation_ != nullptr &&
+      gpuPipelineOutlineComposite_ != nullptr &&
+      gpuOutlineMaskSampler_ != nullptr;
+    const bool nativeOutlineResourcesAvailable =
+      compatibilityOutlineResourcesAvailable &&
+      gpuPipelineOutlineNativeDilation_ != nullptr &&
+      gpuPipelineOutlineNativeComposite_ != nullptr;
+    const PlayerOutlinePathPlan outlinePath = buildPlayerOutlinePathPlan(
+      settings.playerOutlineMode,
+      settings.playerOutlineStyle,
+      true,
+      nativeOutlineResourcesAvailable,
+      compatibilityOutlineResourcesAvailable
+    );
+    const RenderSettings* effectiveSettings = &settings;
+    RenderSettings fallbackSettings = {};
+    if (
+      outlinePath.mode != settings.playerOutlineMode ||
+      outlinePath.style != settings.playerOutlineStyle
+    ) {
+      fallbackSettings = settings;
+      fallbackSettings.playerOutlineMode = outlinePath.mode;
+      fallbackSettings.playerOutlineStyle = outlinePath.style;
+      effectiveSettings = &fallbackSettings;
+    }
     if (!renderGpuFrame(
           static_cast<SDL_GPUDevice*>(gpuDevice_),
           static_cast<SDL_GPUGraphicsPipeline*>(gpuPipeline_),
@@ -12182,7 +12219,8 @@ void Renderer::render(
           transientTracers,
           transientEffects,
           newExplosionEventsConsumed,
-          settings,
+          *effectiveSettings,
+          outlinePath.fallbackReason,
           hud,
           console,
           cameraStepOffset_,
@@ -12226,6 +12264,24 @@ void Renderer::render(
     return;
   }
 
+  const PlayerOutlinePathPlan sdlOutlinePath = buildPlayerOutlinePathPlan(
+    settings.playerOutlineMode,
+    settings.playerOutlineStyle,
+    false,
+    false,
+    true
+  );
+  const RenderSettings* effectiveSdlSettings = &settings;
+  RenderSettings sdlFallbackSettings = {};
+  if (
+    sdlOutlinePath.mode != settings.playerOutlineMode ||
+    sdlOutlinePath.style != settings.playerOutlineStyle
+  ) {
+    sdlFallbackSettings = settings;
+    sdlFallbackSettings.playerOutlineMode = sdlOutlinePath.mode;
+    sdlFallbackSettings.playerOutlineStyle = sdlOutlinePath.style;
+    effectiveSdlSettings = &sdlFallbackSettings;
+  }
   lastFrameDiagnostics_.swapchainAcquireMilliseconds = 0.0F;
   lastFrameDiagnostics_.lateMouseSampleMilliseconds = 0.0F;
   lastFrameDiagnostics_.mouseSampleToSubmitMilliseconds = 0.0F;
@@ -12276,7 +12332,8 @@ void Renderer::render(
   lastFrameDiagnostics_.normalPlayerBodyDynamicVertices = 0;
   lastFrameDiagnostics_.geometryOutlineDynamicVertices = 0;
   lastFrameDiagnostics_.outlinedPlayers = 0;
-  lastFrameDiagnostics_.outlineStyle = static_cast<int>(settings.playerOutlineStyle);
+  lastFrameDiagnostics_.outlineStyle =
+    static_cast<int>(effectiveSdlSettings->playerOutlineStyle);
   lastFrameDiagnostics_.outlineMaskWidth = 0;
   lastFrameDiagnostics_.outlineMaskHeight = 0;
   lastFrameDiagnostics_.outlineWorkWidth = 0;
@@ -12296,6 +12353,8 @@ void Renderer::render(
   lastFrameDiagnostics_.outlinePasses = 0;
   lastFrameDiagnostics_.outlineCompositeEnabled = false;
   lastFrameDiagnostics_.geometryOutlineFallbackUsed = false;
+  lastFrameDiagnostics_.nativeOutlineFallbackReason =
+    sdlOutlinePath.fallbackReason;
   lastFrameDiagnostics_.sceneColorWidth = 0;
   lastFrameDiagnostics_.sceneColorHeight = 0;
   lastFrameDiagnostics_.sceneColorFormat = 0;
@@ -12429,7 +12488,7 @@ void Renderer::render(
     transientTracers,
     transientEffects,
     icePools,
-    settings,
+    *effectiveSdlSettings,
     cameraStepOffset_
   );
   lastFrameDiagnostics_.totalUploadedVertices =
@@ -12612,7 +12671,7 @@ void Renderer::render(
     rocketExplosions,
     rockets,
     healthPickupAvailable,
-    settings
+    *effectiveSdlSettings
   );
   const PerspectiveCamera camera = playerPerspectiveCamera(
     sampledPlayer,

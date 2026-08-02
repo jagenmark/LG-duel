@@ -247,36 +247,16 @@ Copy-Item (Join-Path $repoRoot "package/windows/Host LG Duel Server.bat") $outpu
 Copy-Item (Join-Path $repoRoot "package/windows/README.txt") $outputPath
 Set-Content -Path (Join-Path $outputPath "server-address.txt") -Value "${ServerHost}:${ServerPort}" -Encoding ASCII
 
+$requiredShaderFiles = @(
+  Get-ChildItem (Join-Path $repoRoot "assets/shaders") -File -Filter "*.spv" |
+    Sort-Object Name |
+    ForEach-Object { "shaders/$($_.Name)" }
+)
+
 $requiredFiles = @(
   "lg_duel_client.exe",
   "lg_duel_server.exe",
-  "shaders/color2d.vert.spv",
-  "shaders/color2d.frag.spv",
-  "shaders/world3d.vert.spv",
-  "shaders/world3d.frag.spv",
-  "shaders/world3d_direct.frag.spv",
-  "shaders/sky.vert.spv",
-  "shaders/sky.frag.spv",
-  "shaders/sky_direct.frag.spv",
-  "shaders/world_surface.vert.spv",
-  "shaders/world_surface.frag.spv",
-  "shaders/world_surface_direct.frag.spv",
-  "shaders/point_shadow_world.vert.spv",
-  "shaders/gltf_player_model.frag.spv",
-  "shaders/gltf_player_model_direct.frag.spv",
-  "shaders/material_weapon_direct.frag.spv",
-  "shaders/instanced_color_direct.frag.spv",
-  "shaders/outline_mask.frag.spv",
-  "shaders/outline_mask_world.vert.spv",
-  "shaders/outline_mask_static.vert.spv",
-  "shaders/outline_mask_gltf.vert.spv",
-  "shaders/outline_clear.vert.spv",
-  "shaders/outline_clear.frag.spv",
-  "shaders/outline_dilate.frag.spv",
-  "shaders/outline_composite.vert.spv",
-  "shaders/outline_composite.frag.spv",
-  "shaders/outline_native_dilate.frag.spv",
-  "shaders/outline_native_composite.frag.spv",
+  $requiredShaderFiles,
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/balance.cfg",

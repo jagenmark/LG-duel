@@ -31,6 +31,13 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install pinned Vulkan SDK for shader checks
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa # v1.6.0
+        with:
+          vulkan_version: 1.4.357.0
+          cache: true
+          stripdown: true
+
       - name: Install build and SDL window-system dependencies
         run: |
           sudo apt-get update
@@ -110,6 +117,13 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+
+      - name: Install pinned Vulkan SDK for shader checks
+        uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa # v1.6.0
+        with:
+          vulkan_version: 1.4.357.0
+          cache: true
+          stripdown: true
 
       - name: Configure
         run: cmake --preset msvc

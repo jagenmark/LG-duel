@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260802T170101Z-gfx-correctness-outline-compat-screen-03",
+  "captured_at": "2026-08-02T17:01:01Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed-camera GPU capture. A yellow outline visibly marks the selected player body. The compatibility setting is recorded in the capture state and is not inferred from pixels alone.",
+  "image": "20260802T170101Z-gfx-correctness-outline-compat-screen-03.png",
+  "review": {
+    "notes": "The yellow outline clearly marks the player body. The weapon is not outlined, so the caption keeps the visible claim to the body.",
+    "reviewed_at": "2026-08-02T17:23:56Z",
+    "reviewer": "WORKER visual evidence review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "8442455a22f362e63d53d8ca3e31a9543b1659cfde2d2c7e3dfe3e472602250c",
+  "size_bytes": 9217968,
+  "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+  "title": "Player-body outline in compatibility fixture"
+}

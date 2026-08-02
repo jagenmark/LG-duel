@@ -58,6 +58,32 @@ vec3 transformBoneNormal(uint bone, vec3 normal) {
   );
 }
 
+// Instance rows store an orthogonal right/up/forward player basis with
+// independent horizontal and vertical scale. Rebuild the inverse-transpose
+// cheaply from those columns rather than inverting a matrix for every vertex.
+vec3 transformInstanceNormal(vec3 normal) {
+  vec3 rightColumn = vec3(
+    instanceModelRow0.x,
+    instanceModelRow1.x,
+    instanceModelRow2.x
+  );
+  vec3 upColumn = vec3(
+    instanceModelRow0.y,
+    instanceModelRow1.y,
+    instanceModelRow2.y
+  );
+  vec3 forwardColumn = vec3(
+    instanceModelRow0.z,
+    instanceModelRow1.z,
+    instanceModelRow2.z
+  );
+  return rightColumn * normal.x /
+      max(dot(rightColumn, rightColumn), 0.00000001) +
+    upColumn * normal.y / max(dot(upColumn, upColumn), 0.00000001) +
+    forwardColumn * normal.z /
+      max(dot(forwardColumn, forwardColumn), 0.00000001);
+}
+
 void main() {
   bool useSkin = (instanceFlags & 1u) != 0u && instanceBoneCount > 0u;
   vec3 localPosition = inPosition;
@@ -88,12 +114,7 @@ void main() {
     dot(instanceModelRow1, local),
     dot(instanceModelRow2, local)
   );
-  vec4 localNormal4 = vec4(normalize(localNormal), 0.0);
-  vec3 worldNormal = normalize(vec3(
-    dot(instanceModelRow0, localNormal4),
-    dot(instanceModelRow1, localNormal4),
-    dot(instanceModelRow2, localNormal4)
-  ));
+  vec3 worldNormal = normalize(transformInstanceNormal(normalize(localNormal)));
   vec3 offset = worldPosition - camera.position.xyz;
   float viewX = dot(offset, camera.right.xyz);
   float viewY = dot(offset, camera.up.xyz);

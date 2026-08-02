@@ -460,6 +460,9 @@ add_executable(lg_duel_client_cvars_tests
 
 target_link_libraries(lg_duel_client_cvars_tests PRIVATE lg_duel_core)
 target_compile_features(lg_duel_client_cvars_tests PRIVATE cxx_std_20)
+target_compile_definitions(lg_duel_client_cvars_tests PRIVATE
+  LG_DUEL_SOURCE_DIR="${PROJECT_SOURCE_DIR}"
+)
 lg_duel_set_warnings(lg_duel_client_cvars_tests)
 
 add_test(NAME lg_duel_client_cvars_tests COMMAND lg_duel_client_cvars_tests)

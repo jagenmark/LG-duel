@@ -37,6 +37,66 @@ enum class PlayerOutlineMode : int {
   NativeScreenSpace = 2,
 };
 
+enum class NativeOutlineFallbackReason : std::uint8_t {
+  None = 0,
+  BackendUnavailable,
+  NativeResourcesUnavailable,
+  CompatibilityResourcesUnavailable,
+};
+
+struct PlayerOutlinePathPlan {
+  PlayerOutlineMode mode = PlayerOutlineMode::Disabled;
+  PlayerOutlineStyle style = PlayerOutlineStyle::Geometry;
+  NativeOutlineFallbackReason fallbackReason =
+    NativeOutlineFallbackReason::None;
+};
+
+[[nodiscard]] constexpr PlayerOutlinePathPlan buildPlayerOutlinePathPlan(
+  PlayerOutlineMode requestedMode,
+  PlayerOutlineStyle requestedStyle,
+  bool nativeBackendAvailable,
+  bool nativeResourcesAvailable,
+  bool compatibilityResourcesAvailable
+) {
+  if (requestedMode != PlayerOutlineMode::NativeScreenSpace) {
+    return {requestedMode, requestedStyle, NativeOutlineFallbackReason::None};
+  }
+  if (nativeBackendAvailable && nativeResourcesAvailable) {
+    return {requestedMode, requestedStyle, NativeOutlineFallbackReason::None};
+  }
+  const NativeOutlineFallbackReason reason = nativeBackendAvailable
+    ? NativeOutlineFallbackReason::NativeResourcesUnavailable
+    : NativeOutlineFallbackReason::BackendUnavailable;
+  if (compatibilityResourcesAvailable) {
+    return {
+      PlayerOutlineMode::Compatibility,
+      PlayerOutlineStyle::Geometry,
+      reason,
+    };
+  }
+  return {
+    PlayerOutlineMode::Disabled,
+    PlayerOutlineStyle::Geometry,
+    NativeOutlineFallbackReason::CompatibilityResourcesUnavailable,
+  };
+}
+
+[[nodiscard]] constexpr const char* nativeOutlineFallbackReasonName(
+  NativeOutlineFallbackReason reason
+) {
+  switch (reason) {
+  case NativeOutlineFallbackReason::None:
+    return "none";
+  case NativeOutlineFallbackReason::BackendUnavailable:
+    return "backend-unavailable";
+  case NativeOutlineFallbackReason::NativeResourcesUnavailable:
+    return "native-resources-unavailable";
+  case NativeOutlineFallbackReason::CompatibilityResourcesUnavailable:
+    return "compatibility-resources-unavailable";
+  }
+  return "unknown";
+}
+
 [[nodiscard]] inline bool usesGeometryPlayerOutlineFallback(
   PlayerOutlineStyle style
 ) {
@@ -161,8 +221,8 @@ struct RenderSettings {
   float enemyAlpha = 1.0F;
   int playerModel = 0;
   bool enemyOutlineEnabled = true;
-  PlayerOutlineMode playerOutlineMode = PlayerOutlineMode::Compatibility;
-  PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::ScreenSpace;
+  PlayerOutlineMode playerOutlineMode = PlayerOutlineMode::NativeScreenSpace;
+  PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::Geometry;
   float playerOutlineWidth = 1.5F;
   bool playerOutlineDebugMask = false;
   float enemyOutlineWidth = 3.0F;
@@ -550,6 +610,7 @@ enum class DirectPresentFallbackReason : std::uint8_t {
   Bloom,
   SunShadow,
   QualityContract,
+  LivePointLights,
   OutlineMode,
   ContactShadows,
   TranslucentVertices,
@@ -571,6 +632,7 @@ struct DirectPresentInputs {
   bool bloomDisabled = false;
   bool sunShadowDisabled = false;
   bool competitiveQuality = false;
+  bool livePointLightsEmpty = false;
   bool outlineModeSupported = false;
   bool contactShadowsEmpty = false;
   bool translucentVerticesEmpty = false;
@@ -611,6 +673,9 @@ struct DirectPresentPlan {
   }
   if (!inputs.competitiveQuality) {
     return {false, DirectPresentFallbackReason::QualityContract};
+  }
+  if (!inputs.livePointLightsEmpty) {
+    return {false, DirectPresentFallbackReason::LivePointLights};
   }
   if (!inputs.outlineModeSupported) {
     return {false, DirectPresentFallbackReason::OutlineMode};
@@ -866,7 +931,7 @@ struct RendererFrameDiagnostics {
   std::uint32_t normalPlayerBodyDynamicVertices = 0;
   std::uint32_t geometryOutlineDynamicVertices = 0;
   std::uint32_t outlinedPlayers = 0;
-  int outlineStyle = 1;
+  int outlineStyle = 0;
   std::uint32_t outlineMaskWidth = 0;
   std::uint32_t outlineMaskHeight = 0;
   std::uint32_t outlineWorkWidth = 0;
@@ -886,6 +951,8 @@ struct RendererFrameDiagnostics {
   std::uint32_t outlinePasses = 0;
   bool outlineCompositeEnabled = false;
   bool geometryOutlineFallbackUsed = false;
+  NativeOutlineFallbackReason nativeOutlineFallbackReason =
+    NativeOutlineFallbackReason::None;
   std::uint32_t sceneColorWidth = 0;
   std::uint32_t sceneColorHeight = 0;
   std::uint32_t sceneColorFormat = 0;
