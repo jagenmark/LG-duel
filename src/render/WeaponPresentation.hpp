@@ -312,4 +312,33 @@ struct RevolverTracerPresentation {
   };
 }
 
+// This is presentation-only. The authoritative Railgun trace remains the
+// fire event's start/end pair; the client shows only a compact trace at the
+// live weapon socket.
+inline constexpr float kSniperSmokeTracerLifetimeSeconds = 0.085F;
+inline constexpr float kSniperSmokeTracerMaximumLength = 2.40F;
+
+struct SniperSmokeTracerPresentation {
+  float alpha = 0.0F;
+  bool active = false;
+};
+
+[[nodiscard]] inline SniperSmokeTracerPresentation sniperSmokeTracerPresentation(
+  float ageSeconds
+) {
+  if (!std::isfinite(ageSeconds)) {
+    return {};
+  }
+  const float age = std::max(ageSeconds, 0.0F);
+  const float progress = std::clamp(
+    age / kSniperSmokeTracerLifetimeSeconds,
+    0.0F,
+    1.0F
+  );
+  return {
+    std::pow(1.0F - progress, 1.55F),
+    age < kSniperSmokeTracerLifetimeSeconds,
+  };
+}
+
 } // namespace lg

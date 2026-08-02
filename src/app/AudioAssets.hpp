@@ -16,6 +16,7 @@ enum class AudioCue {
   PainGrunt,
   Frag,
   RailgunFire,
+  RevolverFire,
   RailgunReady,
   RocketLauncherFire,
   RocketExplosion,

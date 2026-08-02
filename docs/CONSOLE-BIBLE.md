@@ -145,6 +145,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `s_enable` | bool | `1` | bool | Ingen direkt | Arkiv | Slår av/på klientens ljudeffekter. |
 | `s_volume` | float | `0.35` | `0..1` | Ingen direkt | Arkiv | Volym för hit-, countdown- och round-ljud. |
 | `s_footstep_volume` | float | `0.45` | `0..1` | Ingen direkt | Arkiv | Separat fotstegsvolym. Multipliceras med `s_volume`. |
+| `s_frag_volume` | float | `1.5` | `0..2` | None | Archive | Frag/kill sound scale, multiplied by `s_volume`. |
 | `s_rg_fire_volume` | float | `1` | `0..1` | None | Archive | Sniper Rifle fire sound scale, multiplied by `s_volume`. The old `rg` cvar name stays for config compatibility. |
 | `s_rg_ready_volume` | float | `1` | `0..1` | None | Archive | Sniper Rifle ready chime scale, multiplied by `s_volume`. The old `rg` cvar name stays for config compatibility. |
 

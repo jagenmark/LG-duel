@@ -87,6 +87,7 @@ enum class BillboardHandle : std::uint16_t {
   RocketFlame,
   ExplosionFlash,
   ExplosionHalo,
+  LightSource,
 };
 
 struct BoundingSphere {
@@ -182,12 +183,15 @@ struct TransientVfxStats {
   std::uint32_t activeMachineGunMuzzleFlashes = 0;
   std::uint32_t activeRevolverMuzzleFlashes = 0;
   std::uint32_t activeRocketLauncherMuzzleFlashes = 0;
+  std::uint32_t activeSniperSmokeTracers = 0;
   std::uint32_t activeShotgunTracers = 0;
   std::uint32_t activeExplosionEffects = 0;
   std::uint32_t newExplosionEventsConsumed = 0;
   std::uint32_t tracerCandidates = 0;
   std::uint32_t tracerFrustumCulled = 0;
   std::uint32_t tracerInstancesSubmitted = 0;
+  std::uint32_t sniperSmokeTracerFrustumCulled = 0;
+  std::uint32_t sniperSmokeTracerDynamicVertices = 0;
   std::uint32_t muzzleFlashInstancesSubmitted = 0;
   std::uint32_t tracerInstanceUploadBytes = 0;
   std::uint32_t tracerBatches = 0;
@@ -1015,6 +1019,14 @@ void appendCollisionDebugGeometry(
 [[nodiscard]] Vec3 plasmaGunGripSocket();
 [[nodiscard]] Vec3 sniperRifleGripSocket();
 [[nodiscard]] Vec3 sniperRifleMuzzleSocket();
+[[nodiscard]] Vec3 firstPersonSniperRifleMuzzlePosition(
+  const PlayerState& player,
+  const RenderSettings& settings
+);
+[[nodiscard]] Vec3 remoteSniperRifleMuzzlePosition(
+  const RemotePlayerView& remote,
+  const RenderSettings& settings
+);
 [[nodiscard]] Vec3 firstPersonPlasmaGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
