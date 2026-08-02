@@ -1341,6 +1341,24 @@ class LgToolTests(unittest.TestCase):
             self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
         self.assertEqual(4, cmake.count("world_surface.vert.spv"))
 
+    def test_sdl_native_outline_fallback_reaches_legacy_draw(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        sdl_fallback_start = renderer.index(
+            "const PlayerOutlinePathPlan sdlOutlinePath = "
+            "buildPlayerOutlinePathPlan("
+        )
+        draw_start = renderer.index("  drawPerspectiveWorld(\n", sdl_fallback_start)
+        draw_end = renderer.index(
+            "\n  const PerspectiveCamera camera = playerPerspectiveCamera(",
+            draw_start,
+        )
+        draw_call = renderer[draw_start:draw_end]
+        self.assertIn("    *effectiveSdlSettings\n  );", draw_call)
+        self.assertNotIn("    settings\n  );", draw_call)
+
     def test_outline_mask_vertex_shaders_are_lean(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"

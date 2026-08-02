@@ -12670,7 +12670,7 @@ void Renderer::render(
     rocketExplosions,
     rockets,
     healthPickupAvailable,
-    settings
+    *effectiveSdlSettings
   );
   const PerspectiveCamera camera = playerPerspectiveCamera(
     sampledPlayer,
