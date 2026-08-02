@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260802T170218Z-gfx-correctness-lowmat-authored-lights-04",
+  "captured_at": "2026-08-02T17:02:18Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed-camera GPU capture from the material-quality-zero fixture with point lights enabled. Warm and cool light response is visibly present; exact settings and light sources are recorded in the fixture state.",
+  "image": "20260802T170218Z-gfx-correctness-lowmat-authored-lights-04.png",
+  "review": {
+    "notes": "Warm and cool lighting is visibly present. Exact material settings and light-source configuration are not visible, so the caption confines those facts to recorded fixture state.",
+    "reviewed_at": "2026-08-02T17:23:56Z",
+    "reviewer": "WORKER visual evidence review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "8244d73fc4353bd6b8f30132619f5a90752a00164851d7487be32cb2f127acf2",
+  "size_bytes": 9217968,
+  "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+  "title": "Point-light response in the low-material fixture"
+}

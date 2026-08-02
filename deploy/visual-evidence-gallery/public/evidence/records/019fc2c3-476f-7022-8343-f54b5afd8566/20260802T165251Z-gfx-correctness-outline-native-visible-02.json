@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260802T165251Z-gfx-correctness-outline-native-visible-02",
+  "captured_at": "2026-08-02T16:52:51Z",
+  "captured_by": "codex-root",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Fixed-camera GPU capture. A yellow outline visibly surrounds the player and railgun. The associated capture state selected the native outline mode; renderer selection is not inferred from pixels alone.",
+  "image": "20260802T165251Z-gfx-correctness-outline-native-visible-02.png",
+  "review": {
+    "notes": "Yellow outline clearly surrounds the player and weapon. The native path itself is not visible, so the caption limits the claim to the visible outline and records renderer state separately.",
+    "reviewed_at": "2026-08-02T17:23:56Z",
+    "reviewer": "WORKER visual evidence review",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "27219843d963dae366f44c16224edc5ea819a241f3c33396e2ea023c489c8f25",
+  "size_bytes": 9217968,
+  "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+  "title": "Player and weapon outline at fixed camera"
+}
