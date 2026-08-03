@@ -66,6 +66,50 @@ Material ids are produced by `arenaMaterialId()`. GPU texture loading scans the 
 
 Texture and light debug output are gated by environment variables such as `LG_DUEL_TEXTURE_DEBUG`, `LG_DUEL_TEXTURE_DEBUG_UV`, `LG_DUEL_TEXTURE_DEBUG_FORCE_MATERIAL`, and `LG_DUEL_LIGHT_DEBUG`.
 
+### Authored skinned-model materials
+
+Skinned GLB models may use a `material-manifest.json` beside the model. The
+loader validates the model filename, model-local PNG paths, image dimensions,
+colour-space intent, optional atlas cells, packed-mask contract, and material
+index/name bindings. A bad or missing manifest leaves the GLB loaded through
+the flat path. The renderer never selects the authored path by a model path or
+by a special material name.
+
+The supported subset is deliberately small: base colour factor, opaque state,
+optional sRGB albedo, optional linear packed mask, roughness, metallic,
+emissive factor, explicit flat-tint weight, and `texcoord0` or a material-cell
+atlas policy. It does not support normal maps, alpha blending, clear coat,
+sheen, transmission, or image data inside a GLB.
+
+Worker uses two shared 512 by 512 RGBA8 atlases: sRGB albedo and linear packed
+mask. Its reviewed GLB has finite but degenerate `TEXCOORD_0` values, so the
+manifest maps each approved GLB material to a padded 4 by 4 atlas cell. This
+keeps the GLB, geometry, skeleton, animations, and weapon socket unchanged.
+It also means this first slice gives each material a broad authored region,
+not a unique painted UV layout.
+
+| Quality | Albedo and mask | Team tint and highlights | Metal and environment |
+| --- | --- | --- | --- |
+| 0 | No authored samples; texture-free flat pipeline | Existing diffuse sun and point lights only | Off |
+| 1 | Sample both atlases | Authored tint plus roughness-aware restrained highlights | Metal and environment off |
+| 2 | Sample both atlases | Same tint and complete restrained response | Metal on; environment deferred |
+
+The albedo sampler uses an sRGB GPU format, so sampling performs the only
+albedo decode. Vertex base colour and team colour are converted to linear in
+the shader. The packed mask stays linear. Lighting, tint, haze, and final tone
+mapping remain in the existing linear path. The tint operation uses the
+albedo value to retain broad light/dark separation instead of multiplying the
+whole player by team colour.
+
+The packed-mask channels are R team-tint weight, G perceptual roughness, B
+metallic weight, and A reserved emissive weight. Worker keeps A at zero. The
+two atlas textures and one sampler belong to the model GPU resource: they load
+once, are shared by all Worker instances, are never uploaded per instance or
+per frame, and release with that model resource. A missing or rejected texture
+keeps the model on the flat pipeline and creates neutral white/zero-tint,
+rough, non-metal fallback textures for safe descriptor use. Shadow and outline
+passes remain texture-free.
+
 ## Performance Assumptions
 
 - Static world geometry should be rebuilt only when the arena fingerprint changes.

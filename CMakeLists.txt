@@ -237,6 +237,9 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_flat.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_flat.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_direct.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -420,6 +423,9 @@ add_custom_target(lg_duel_runtime_assets ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_flat.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_flat.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_direct.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -517,6 +523,18 @@ add_custom_target(lg_duel_validate_maps ALL
 add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)
 
 if(BUILD_TESTING)
+  add_test(
+    NAME lg_duel_worker_material_atlas_current
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_worker_material_atlas.py" --check
+  )
+  set_tests_properties(lg_duel_worker_material_atlas_current PROPERTIES LABELS assets)
+  add_test(
+    NAME lg_duel_worker_material_validate
+    COMMAND "${Python3_EXECUTABLE}"
+      "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_worker_materials.py"
+  )
+  set_tests_properties(lg_duel_worker_material_validate PROPERTIES LABELS assets)
   add_test(
     NAME lg_duel_shader_binaries_current
     COMMAND "${Python3_EXECUTABLE}"

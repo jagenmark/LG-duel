@@ -1,0 +1,15 @@
+{
+  "capture_id": "20260803T141007Z-worker-material-albedo-01",
+  "captured_at": "2026-08-03T14:10:07Z",
+  "captured_by": "codex",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Source-only 512 by 512 Worker albedo atlas with broad, clean material regions. This is not an in-engine correctness capture.",
+  "image": "20260803T141007Z-worker-material-albedo-01.png",
+  "review_status": "not_reviewed",
+  "schema_version": 1,
+  "sha256": "eb7dc39e4903f933ac02ae77b26f58a5ce8690a04a6416d110e3da4cfc65cd7d",
+  "size_bytes": 135156,
+  "task_id": "worker-authored-material",
+  "title": "Worker authored albedo atlas"
+}

@@ -476,7 +476,8 @@ struct GpuModelVertex {
   std::uint8_t blue = 255;
   std::uint8_t alpha = 255;
   std::uint8_t tintWeight = 0;
-  std::uint8_t padding[3] = {};
+  std::uint8_t albedoTextureMode = 0;
+  std::uint8_t padding[2] = {};
   std::uint16_t joints[4] = {};
   float weights[4] = {};
 };
@@ -509,7 +510,19 @@ struct GpuGltfPrimitive {
 
 struct GpuGltfPlayerResources {
   std::string sourcePath;
+  std::string materialDiagnostic;
   std::vector<GpuGltfPrimitive> primitives;
+  SDL_GPUTexture* albedoTexture = nullptr;
+  SDL_GPUTexture* packedMaskTexture = nullptr;
+  SDL_GPUSampler* materialSampler = nullptr;
+  SDL_GPUTexture* fallbackAlbedoTexture = nullptr;
+  SDL_GPUTexture* fallbackPackedMaskTexture = nullptr;
+  SDL_GPUSampler* fallbackMaterialSampler = nullptr;
+  bool materialManifestHasAuthoredTextures = false;
+  bool authoredMaterialTexturesReady = false;
+  bool materialFallbackTexturesReady = false;
+  std::uint32_t materialTextureMipLevels = 0;
+  std::uint64_t materialTextureBytes = 0;
   SDL_GPUBuffer* instanceBuffer = nullptr;
   SDL_GPUTransferBuffer* instanceTransfer = nullptr;
   Uint32 instanceCapacity = 0;
@@ -677,6 +690,30 @@ void destroyGpuGltfPlayerResources(
       SDL_ReleaseGPUBuffer(device, primitive.indexBuffer);
       primitive.indexBuffer = nullptr;
     }
+  }
+  if (resources->materialSampler != nullptr) {
+    SDL_ReleaseGPUSampler(device, resources->materialSampler);
+    resources->materialSampler = nullptr;
+  }
+  if (resources->packedMaskTexture != nullptr) {
+    SDL_ReleaseGPUTexture(device, resources->packedMaskTexture);
+    resources->packedMaskTexture = nullptr;
+  }
+  if (resources->albedoTexture != nullptr) {
+    SDL_ReleaseGPUTexture(device, resources->albedoTexture);
+    resources->albedoTexture = nullptr;
+  }
+  if (resources->fallbackMaterialSampler != nullptr) {
+    SDL_ReleaseGPUSampler(device, resources->fallbackMaterialSampler);
+    resources->fallbackMaterialSampler = nullptr;
+  }
+  if (resources->fallbackPackedMaskTexture != nullptr) {
+    SDL_ReleaseGPUTexture(device, resources->fallbackPackedMaskTexture);
+    resources->fallbackPackedMaskTexture = nullptr;
+  }
+  if (resources->fallbackAlbedoTexture != nullptr) {
+    SDL_ReleaseGPUTexture(device, resources->fallbackAlbedoTexture);
+    resources->fallbackAlbedoTexture = nullptr;
   }
   if (resources->instanceTransfer != nullptr) {
     SDL_ReleaseGPUTransferBuffer(device, resources->instanceTransfer);
@@ -1310,15 +1347,24 @@ void collectTextureMaterialFiles(
   SDL_GPUDevice* device,
   const std::uint8_t* pixels,
   int width,
-  int height
+  int height,
+  SDL_GPUTextureFormat format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
 ) {
-  if (width <= 0 || height <= 0) {
+  if (
+    width <= 0 || height <= 0 ||
+    !SDL_GPUTextureSupportsFormat(
+      device,
+      format,
+      SDL_GPU_TEXTURETYPE_2D,
+      SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET
+    )
+  ) {
     return nullptr;
   }
   const std::uint32_t mipLevels = textureMipLevelCount(width, height);
   const SDL_GPUTextureCreateInfo textureInfo = {
     SDL_GPU_TEXTURETYPE_2D,
-    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+    format,
     SDL_GPU_TEXTUREUSAGE_SAMPLER | SDL_GPU_TEXTUREUSAGE_COLOR_TARGET,
     static_cast<Uint32>(width),
     static_cast<Uint32>(height),
@@ -2942,7 +2988,7 @@ void ensureSkyLoaded(
   SDL_GPUTextureFormat colorFormat = SDL_GPU_TEXTUREFORMAT_INVALID,
   bool depthOnly = false,
   const char* fragmentShaderPath = "gltf_player_model.frag.spv",
-  FragmentResourceLayout fragmentLayout = {2U, 1U}
+  FragmentResourceLayout fragmentLayout = {4U, 1U}
 ) {
   SDL_GPUShader* vertexShader = loadGpuShader(
     device,
@@ -3060,6 +3106,7 @@ struct GpuSceneColorPipelines {
   SDL_GPUGraphicsPipeline* staticViewModel = nullptr;
   SDL_GPUGraphicsPipeline* materialViewModel = nullptr;
   SDL_GPUGraphicsPipeline* gltfPlayer = nullptr;
+  SDL_GPUGraphicsPipeline* gltfPlayerFlat = nullptr;
   SDL_GPUGraphicsPipeline* instancedGlow = nullptr;
   SDL_GPUGraphicsPipeline* bloomSource = nullptr;
   SDL_GPUGraphicsPipeline* bloomBlur = nullptr;
@@ -3201,6 +3248,7 @@ void destroyGpuDirectPresentPipelines(
     pipelines.staticViewModel != nullptr &&
     pipelines.materialViewModel != nullptr &&
     pipelines.gltfPlayer != nullptr &&
+    pipelines.gltfPlayerFlat != nullptr &&
     pipelines.instancedGlow != nullptr &&
     pipelines.bloomSource != nullptr &&
     pipelines.bloomBlur != nullptr;
@@ -3220,6 +3268,7 @@ void destroyGpuSceneColorPipelines(
          &pipelines.staticViewModel,
          &pipelines.materialViewModel,
          &pipelines.gltfPlayer,
+         &pipelines.gltfPlayerFlat,
          &pipelines.instancedGlow,
          &pipelines.bloomSource,
          &pipelines.bloomBlur,
@@ -3320,6 +3369,17 @@ void destroyGpuSceneColorPipelines(
     depthFormat,
     SDL_GPU_SAMPLECOUNT_1,
     colorFormat
+  );
+  pipelines.gltfPlayerFlat = createGpuGltfPlayerModelPipeline(
+    device,
+    window,
+    false,
+    depthFormat,
+    SDL_GPU_SAMPLECOUNT_1,
+    colorFormat,
+    false,
+    "gltf_player_model_flat.frag.spv",
+    {2U, 1U}
   );
   pipelines.instancedGlow = createGpuInstancedPipeline3D(
     device,
@@ -5172,6 +5232,187 @@ template <typename Vertex>
   return resources;
 }
 
+[[nodiscard]] SDL_GPUSampler* createGltfMaterialSampler(
+  SDL_GPUDevice* device,
+  std::uint32_t mipLevels
+) {
+  const float maxLod = mipLevels > 0U
+    ? static_cast<float>(mipLevels - 1U)
+    : 0.0F;
+  const SDL_GPUSamplerCreateInfo samplerInfo = {
+    SDL_GPU_FILTER_LINEAR,
+    SDL_GPU_FILTER_LINEAR,
+    SDL_GPU_SAMPLERMIPMAPMODE_LINEAR,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    SDL_GPU_SAMPLERADDRESSMODE_CLAMP_TO_EDGE,
+    0.0F,
+    maxLod,
+    SDL_GPU_COMPAREOP_ALWAYS,
+    0.0F,
+    maxLod,
+    false,
+    false,
+    0,
+    0,
+    0,
+  };
+  return SDL_CreateGPUSampler(device, &samplerInfo);
+}
+
+void createGltfMaterialFallbackTextures(
+  SDL_GPUDevice* device,
+  GpuGltfPlayerResources& resources
+) {
+  // These are deliberately neutral. The texture-free flat pipeline remains
+  // the visible fallback, while the resources ensure a later descriptor-only
+  // fallback cannot turn a missing material asset into black or emissive data.
+  constexpr std::array<std::uint8_t, 4> kWhiteAlbedo = {{255U, 255U, 255U, 255U}};
+  constexpr std::array<std::uint8_t, 4> kNeutralMask = {{0U, 217U, 0U, 0U}};
+  SDL_GPUTexture* albedo = uploadRgbaTexture(
+    device,
+    kWhiteAlbedo.data(),
+    1,
+    1,
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB
+  );
+  SDL_GPUTexture* mask = uploadRgbaTexture(
+    device,
+    kNeutralMask.data(),
+    1,
+    1,
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM
+  );
+  SDL_GPUSampler* sampler = albedo != nullptr && mask != nullptr
+    ? createGltfMaterialSampler(device, 1U)
+    : nullptr;
+  if (albedo == nullptr || mask == nullptr || sampler == nullptr) {
+    if (sampler != nullptr) {
+      SDL_ReleaseGPUSampler(device, sampler);
+    }
+    if (mask != nullptr) {
+      SDL_ReleaseGPUTexture(device, mask);
+    }
+    if (albedo != nullptr) {
+      SDL_ReleaseGPUTexture(device, albedo);
+    }
+    return;
+  }
+  resources.fallbackAlbedoTexture = albedo;
+  resources.fallbackPackedMaskTexture = mask;
+  resources.fallbackMaterialSampler = sampler;
+  resources.materialFallbackTexturesReady = true;
+  resources.materialTextureMipLevels = 1U;
+  resources.materialTextureBytes = 8U;
+}
+
+[[nodiscard]] SDL_GPUTexture* loadGltfMaterialTexture(
+  SDL_GPUDevice* device,
+  const GltfMaterialTexture& description,
+  SDL_GPUTextureFormat format,
+  std::string& failure
+) {
+  if (
+    description.path.empty() ||
+    std::filesystem::path(description.path).extension() != ".png" ||
+    !std::filesystem::is_regular_file(description.path)
+  ) {
+    failure = "texture file is missing or is not a PNG";
+    return nullptr;
+  }
+  SDL_Surface* loaded = SDL_LoadPNG(description.path.c_str());
+  if (loaded == nullptr) {
+    failure = "SDL could not decode the PNG";
+    return nullptr;
+  }
+  SDL_Surface* converted = SDL_ConvertSurface(loaded, SDL_PIXELFORMAT_RGBA32);
+  SDL_DestroySurface(loaded);
+  if (converted == nullptr) {
+    failure = "SDL could not convert the PNG to RGBA8";
+    return nullptr;
+  }
+  if (
+    converted->w != static_cast<int>(description.width) ||
+    converted->h != static_cast<int>(description.height)
+  ) {
+    SDL_DestroySurface(converted);
+    failure = "texture dimensions do not match the material manifest";
+    return nullptr;
+  }
+  SDL_GPUTexture* texture = uploadRgbaTexture(
+    device,
+    static_cast<const std::uint8_t*>(converted->pixels),
+    converted->w,
+    converted->h,
+    format
+  );
+  SDL_DestroySurface(converted);
+  if (texture == nullptr) {
+    failure = "the GPU rejected the material texture format or upload";
+  }
+  return texture;
+}
+
+void initializeGltfMaterialTextures(
+  SDL_GPUDevice* device,
+  const GltfSkinnedModel& model,
+  GpuGltfPlayerResources& resources
+) {
+  const GltfMaterialMetadata& metadata = model.materialMetadata();
+  resources.materialManifestHasAuthoredTextures = metadata.hasAuthoredTextures();
+  resources.materialDiagnostic = metadata.diagnostic;
+  if (!metadata.hasAuthoredTextures()) {
+    return;
+  }
+  std::string albedoFailure;
+  SDL_GPUTexture* albedo = loadGltfMaterialTexture(
+    device,
+    metadata.albedo,
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM_SRGB,
+    albedoFailure
+  );
+  std::string maskFailure;
+  SDL_GPUTexture* packedMask = loadGltfMaterialTexture(
+    device,
+    metadata.packedMask,
+    SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM,
+    maskFailure
+  );
+  const std::uint32_t mipLevels = std::max(
+    gltfTextureMipLevels(metadata.albedo.width, metadata.albedo.height),
+    gltfTextureMipLevels(metadata.packedMask.width, metadata.packedMask.height)
+  );
+  SDL_GPUSampler* sampler = albedo != nullptr && packedMask != nullptr
+    ? createGltfMaterialSampler(device, mipLevels)
+    : nullptr;
+  if (albedo == nullptr || packedMask == nullptr || sampler == nullptr) {
+    if (sampler != nullptr) {
+      SDL_ReleaseGPUSampler(device, sampler);
+    }
+    if (packedMask != nullptr) {
+      SDL_ReleaseGPUTexture(device, packedMask);
+    }
+    if (albedo != nullptr) {
+      SDL_ReleaseGPUTexture(device, albedo);
+    }
+    resources.materialDiagnostic = albedoFailure.empty()
+      ? (maskFailure.empty() ? "could not create the shared material sampler" : maskFailure)
+      : albedoFailure;
+    createGltfMaterialFallbackTextures(device, resources);
+    if (resources.materialFallbackTexturesReady) {
+      resources.materialDiagnostic += "; using neutral material fallbacks";
+    }
+    return;
+  }
+  resources.albedoTexture = albedo;
+  resources.packedMaskTexture = packedMask;
+  resources.materialSampler = sampler;
+  resources.authoredMaterialTexturesReady = true;
+  resources.materialTextureMipLevels = mipLevels;
+  resources.materialTextureBytes = gltfMaterialResourcePlan(metadata).textureBytes;
+  resources.materialDiagnostic = "loaded shared sRGB albedo and linear packed mask";
+}
+
 [[nodiscard]] GpuGltfPlayerResources* createGpuGltfPlayerResources(
   SDL_GPUDevice* device,
   const GltfSkinnedModel& model
@@ -5182,6 +5423,13 @@ template <typename Vertex>
 
   auto* resources = new GpuGltfPlayerResources();
   resources->sourcePath = std::string(model.sourcePath());
+  initializeGltfMaterialTextures(device, model, *resources);
+  std::cerr
+    << "SDL_GPU GLTF material model=" << resources->sourcePath
+    << " authoredTextures=" << (resources->authoredMaterialTexturesReady ? 1 : 0)
+    << " mipLevels=" << resources->materialTextureMipLevels
+    << " bytes=" << resources->materialTextureBytes
+    << " detail=" << resources->materialDiagnostic << '\n';
   resources->primitives.reserve(model.primitives().size());
   for (const GltfSkinnedModel::Primitive& primitive : model.primitives()) {
     if (primitive.vertices.empty() || primitive.indices.empty()) {
@@ -5206,6 +5454,7 @@ template <typename Vertex>
       vertex.blue = source.color.blue;
       vertex.alpha = source.color.alpha;
       vertex.tintWeight = source.tintWeight;
+      vertex.albedoTextureMode = source.albedoTextureMode;
       for (std::size_t index = 0; index < 4U; ++index) {
         vertex.joints[index] = source.joints[index];
         vertex.weights[index] = source.weights[index];
@@ -5950,7 +6199,8 @@ void drawGltfPlayerModelBatches(
   SDL_GPURenderPass* pass,
   SDL_GPUGraphicsPipeline* pipeline,
   GpuGltfPlayerResources* resources,
-  const Scene3D& scene
+  const Scene3D& scene,
+  bool bindAuthoredMaterialTextures = false
 ) {
   if (
     pass == nullptr ||
@@ -5965,6 +6215,24 @@ void drawGltfPlayerModelBatches(
   SDL_BindGPUGraphicsPipeline(pass, pipeline);
   SDL_GPUBuffer* storageBuffers[] = {resources->boneBuffer};
   SDL_BindGPUVertexStorageBuffers(pass, 0, storageBuffers, 1);
+  if (
+    bindAuthoredMaterialTextures &&
+    resources->authoredMaterialTexturesReady &&
+    resources->albedoTexture != nullptr &&
+    resources->packedMaskTexture != nullptr &&
+    resources->materialSampler != nullptr
+  ) {
+    const std::array<SDL_GPUTextureSamplerBinding, 2> materialBindings = {{
+      {resources->albedoTexture, resources->materialSampler},
+      {resources->packedMaskTexture, resources->materialSampler},
+    }};
+    SDL_BindGPUFragmentSamplers(
+      pass,
+      0,
+      materialBindings.data(),
+      static_cast<Uint32>(materialBindings.size())
+    );
+  }
   for (const GltfPlayerModelBatch& batch : scene.gltfPlayerModelBatches) {
     if (
       batch.primitiveIndex >= resources->primitives.size() ||
@@ -7201,6 +7469,7 @@ void appendCommandBatches(
   SDL_GPUGraphicsPipeline* staticMeshViewModelPipeline,
   SDL_GPUGraphicsPipeline* materialMeshViewModelPipeline,
   SDL_GPUGraphicsPipeline* gltfPlayerModelPipeline,
+  SDL_GPUGraphicsPipeline* gltfPlayerModelFlatPipeline,
   SDL_GPUGraphicsPipeline* directWorldSurfacePipeline,
   SDL_GPUGraphicsPipeline* directWorldPipeline,
   SDL_GPUGraphicsPipeline* directInstancedMeshPipeline,
@@ -7413,6 +7682,18 @@ void appendCommandBatches(
   diagnostics.gltfPlayerModelFrustumCulled = 0;
   diagnostics.gltfStaticMeshGpuBytes = 0;
   diagnostics.gltfStaticIndexGpuBytes = 0;
+  diagnostics.gltfMaterialTextureGpuBytes = gltfPlayerResources != nullptr
+    ? gltfPlayerResources->materialTextureBytes
+    : 0U;
+  diagnostics.gltfMaterialTextureMipLevels = gltfPlayerResources != nullptr
+    ? gltfPlayerResources->materialTextureMipLevels
+    : 0U;
+  diagnostics.gltfMaterialTextureBinds = 0;
+  diagnostics.gltfAuthoredMaterialTexturesReady = gltfPlayerResources != nullptr &&
+    gltfPlayerResources->authoredMaterialTexturesReady;
+  diagnostics.gltfMaterialFallbackUsed = gltfPlayerResources != nullptr &&
+    gltfPlayerResources->materialManifestHasAuthoredTextures &&
+    !gltfPlayerResources->authoredMaterialTexturesReady;
   diagnostics.gltfPoseUploadBytes = 0;
   diagnostics.gltfBonePaletteEntriesUploaded = 0;
   diagnostics.gltfRigidFallbackInstances = 0;
@@ -8926,19 +9207,35 @@ void appendCommandBatches(
           !directPresent,
           directPresent ? nullptr : &pointShadowBinding
         );
+        const GltfMaterialQualityPlan gltfMaterialPlan =
+          gltfMaterialQualityPlan(
+            perspectiveScene.lights.materialQuality,
+            gltfPlayerResources != nullptr &&
+              gltfPlayerResources->authoredMaterialTexturesReady
+          );
+        diagnostics.gltfMaterialTextureBinds =
+          gltfMaterialPlan.samplesAlbedo &&
+          !perspectiveScene.gltfPlayerModelBatches.empty()
+            ? 1U
+            : 0U;
         if (!directPresent) {
           SDL_BindGPUFragmentSamplers(
             worldPass,
-            0,
+            gltfMaterialPlan.samplesAlbedo ? 2U : 0U,
             shadowBindings.data(),
             static_cast<Uint32>(shadowBindings.size())
           );
         }
         drawGltfPlayerModelBatches(
           worldPass,
-          directPresent ? directGltfPlayerPipeline : gltfPlayerModelPipeline,
+          directPresent
+            ? directGltfPlayerPipeline
+            : gltfMaterialPlan.samplesAlbedo
+              ? gltfPlayerModelPipeline
+              : gltfPlayerModelFlatPipeline,
           gltfPlayerResources,
-          perspectiveScene
+          perspectiveScene,
+          gltfMaterialPlan.samplesAlbedo
         );
         if (!directPresent) {
           SDL_BindGPUFragmentSamplers(
@@ -11110,6 +11407,8 @@ bool Renderer::initialize(void* window) {
           scenePipelines.materialViewModel;
         SDL_GPUGraphicsPipeline* gltfPlayerModelPipeline =
           scenePipelines.gltfPlayer;
+        SDL_GPUGraphicsPipeline* gltfPlayerModelFlatPipeline =
+          scenePipelines.gltfPlayerFlat;
         SDL_GPUGraphicsPipeline* instancedGlowPipeline =
           scenePipelines.instancedGlow;
         SDL_GPUGraphicsPipeline* depthWorldPipeline = createGpuPipeline3D(
@@ -11331,6 +11630,7 @@ bool Renderer::initialize(void* window) {
           staticMeshViewModelPipeline != nullptr &&
           materialMeshViewModelPipeline != nullptr &&
           gltfPlayerModelPipeline != nullptr &&
+          gltfPlayerModelFlatPipeline != nullptr &&
           depthWorldPipeline != nullptr &&
           depthInstancedPipeline != nullptr &&
           depthStaticPipeline != nullptr &&
@@ -11383,6 +11683,7 @@ bool Renderer::initialize(void* window) {
           gpuPipelineStaticMeshViewModel_ = staticMeshViewModelPipeline;
           gpuPipelineMaterialMeshViewModel_ = materialMeshViewModelPipeline;
           gpuPipelineGltfPlayerModel_ = gltfPlayerModelPipeline;
+          gpuPipelineGltfPlayerModelFlat_ = gltfPlayerModelFlatPipeline;
           gpuPipelineDirectWorldSurface_ = directPipelines.worldSurface;
           gpuPipelineDirectWorld_ = directPipelines.world;
           gpuPipelineDirectInstancedMesh_ = directPipelines.instancedMesh;
@@ -11545,6 +11846,9 @@ bool Renderer::initialize(void* window) {
         }
         if (gltfPlayerModelPipeline != nullptr) {
           SDL_ReleaseGPUGraphicsPipeline(device, gltfPlayerModelPipeline);
+        }
+        if (gltfPlayerModelFlatPipeline != nullptr) {
+          SDL_ReleaseGPUGraphicsPipeline(device, gltfPlayerModelFlatPipeline);
         }
         for (SDL_GPUGraphicsPipeline* depthPipeline : {
                depthWorldPipeline,
@@ -11864,6 +12168,18 @@ void Renderer::render(
           desiredSampleCount,
           colorFormat
         );
+      SDL_GPUGraphicsPipeline* replacementGltfFlat =
+        createGpuGltfPlayerModelPipeline(
+          gpuDevice,
+          gpuWindow,
+          false,
+          depthFormat,
+          desiredSampleCount,
+          colorFormat,
+          false,
+          "gltf_player_model_flat.frag.spv",
+          {2U, 1U}
+        );
       SDL_GPUGraphicsPipeline* replacementGlow =
         createGpuInstancedPipeline3D(
           gpuDevice,
@@ -11886,7 +12202,7 @@ void Renderer::render(
         desiredSampleCount,
         false
       );
-      const std::array<SDL_GPUGraphicsPipeline*, 8> replacements = {{
+      const std::array<SDL_GPUGraphicsPipeline*, 9> replacements = {{
         replacementWorldSurface,
         replacement3D,
         replacement3DTranslucent,
@@ -11894,6 +12210,7 @@ void Renderer::render(
         replacementStatic,
         replacementMaterial,
         replacementGltf,
+        replacementGltfFlat,
         replacementGlow,
       }};
       const bool replacementsReady = std::all_of(
@@ -11902,7 +12219,7 @@ void Renderer::render(
         [](SDL_GPUGraphicsPipeline* pipeline) { return pipeline != nullptr; }
       );
       if (replacementsReady) {
-        const std::array<void**, 8> destinations = {{
+        const std::array<void**, 9> destinations = {{
           &gpuPipelineWorldSurface_,
           &gpuPipeline3D_,
           &gpuPipeline3DTranslucent_,
@@ -11910,6 +12227,7 @@ void Renderer::render(
           &gpuPipelineStaticMesh_,
           &gpuPipelineMaterialMesh_,
           &gpuPipelineGltfPlayerModel_,
+          &gpuPipelineGltfPlayerModelFlat_,
           &gpuPipelineInstancedGlow_,
         }};
         for (std::size_t index = 0; index < destinations.size(); ++index) {
@@ -12109,6 +12427,7 @@ void Renderer::render(
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineStaticMeshViewModel_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineMaterialMeshViewModel_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineGltfPlayerModel_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineGltfPlayerModelFlat_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineDirectWorldSurface_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineDirectWorld_),
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineDirectInstancedMesh_),
@@ -12386,6 +12705,11 @@ void Renderer::render(
   lastFrameDiagnostics_.gltfPlayerModelFrustumCulled = 0;
   lastFrameDiagnostics_.gltfStaticMeshGpuBytes = 0;
   lastFrameDiagnostics_.gltfStaticIndexGpuBytes = 0;
+  lastFrameDiagnostics_.gltfMaterialTextureGpuBytes = 0;
+  lastFrameDiagnostics_.gltfMaterialTextureMipLevels = 0;
+  lastFrameDiagnostics_.gltfMaterialTextureBinds = 0;
+  lastFrameDiagnostics_.gltfAuthoredMaterialTexturesReady = false;
+  lastFrameDiagnostics_.gltfMaterialFallbackUsed = false;
   lastFrameDiagnostics_.gltfPoseUploadBytes = 0;
   lastFrameDiagnostics_.gltfBonePaletteEntriesUploaded = 0;
   lastFrameDiagnostics_.gltfRigidFallbackInstances = 0;
@@ -13190,6 +13514,13 @@ void Renderer::shutdown() {
         static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineGltfPlayerModel_)
       );
       gpuPipelineGltfPlayerModel_ = nullptr;
+    }
+    if (gpuPipelineGltfPlayerModelFlat_ != nullptr) {
+      SDL_ReleaseGPUGraphicsPipeline(
+        static_cast<SDL_GPUDevice*>(gpuDevice_),
+        static_cast<SDL_GPUGraphicsPipeline*>(gpuPipelineGltfPlayerModelFlat_)
+      );
+      gpuPipelineGltfPlayerModelFlat_ = nullptr;
     }
     for (void** pipeline : {
            &gpuPipelineDirectWorldSurface_,

@@ -18,6 +18,23 @@
       "title": "Non-uniform player model under sun lighting"
     },
     {
+      "capture_id": "20260803T141007Z-worker-material-albedo-01",
+      "captured_at": "2026-08-03T14:10:07Z",
+      "captured_by": "codex",
+      "description": "Source-only 512 by 512 Worker albedo atlas with broad, clean material regions. This is not an in-engine correctness capture.",
+      "full_size_url": "/evidence/assets/worker-authored-material/20260803T141007Z-worker-material-albedo-01.png",
+      "preview_url": "/evidence/assets/worker-authored-material/20260803T141007Z-worker-material-albedo-01.png",
+      "record_url": "/evidence/records/worker-authored-material/20260803T141007Z-worker-material-albedo-01.json",
+      "review_notes": null,
+      "review_status": "not_reviewed",
+      "reviewed_at": null,
+      "reviewer": null,
+      "sha256": "eb7dc39e4903f933ac02ae77b26f58a5ce8690a04a6416d110e3da4cfc65cd7d",
+      "size_bytes": 135156,
+      "task_id": "worker-authored-material",
+      "title": "Worker authored albedo atlas"
+    },
+    {
       "capture_id": "20260802T171057Z-gfx-correctness-outline-sdl-fallback-08",
       "captured_at": "2026-08-02T17:10:57Z",
       "captured_by": "codex-root",

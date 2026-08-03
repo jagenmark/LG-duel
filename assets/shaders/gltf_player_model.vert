@@ -23,6 +23,8 @@ layout(location = 4) out vec3 worldNormalOut;
 layout(location = 5) out float viewDistance;
 layout(location = 6) flat out uint rimQuality;
 layout(location = 7) out vec3 viewDirection;
+layout(location = 8) out vec2 materialTexCoord;
+layout(location = 9) out float albedoTextureMode;
 
 layout(set = 0, binding = 0, std430) readonly buffer BoneRows {
   vec4 rows[];
@@ -137,4 +139,6 @@ void main() {
   viewDistance = max(viewZ, 0.0);
   rimQuality = uint(clamp(int(camera.position.w + 0.5), 0, 2));
   viewDirection = camera.position.xyz - worldPosition;
+  materialTexCoord = inTexCoord;
+  albedoTextureMode = clamp(inTintMask.y, 0.0, 1.0);
 }
