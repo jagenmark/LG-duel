@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cassert>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -1895,6 +1896,7 @@ void addGltfPlayerModelInstance(
     basis.up.z * verticalScale,
     basis.forward.z * horizontalScale,
   };
+  assert(gltfPlayerModelBasisIsOrthogonal(instance));
   instance.modelTranslation = translation;
   instance.color = color;
   instance.localBounds = model.localBounds();

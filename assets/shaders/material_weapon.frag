@@ -34,6 +34,7 @@ const float PI = 3.14159265359;
 #include "includes/direct_display.glsl"
 #include "includes/sun_shadow.glsl"
 #include "includes/point_shadow.glsl"
+#include "includes/point_light_response.glsl"
 #include "includes/atmosphere.glsl"
 
 vec3 directSpecular(
@@ -123,7 +124,11 @@ void main() {
       sceneLights.colorIntensity[index].w * attenuation *
       sceneLights.lightParameters[index].w *
       pointShadowVisibility(index, worldPosition, n);
-    color += albedo * radiance * nDotL * (1.0 - metallic * 0.72);
+    color += pointLightDiffuseResponse(
+      albedo * (1.0 - metallic * 0.72),
+      radiance,
+      nDotL
+    );
     if (materialQuality == 2) {
       color += directSpecular(
         n, v, lightDirection, albedo, metallic, roughness

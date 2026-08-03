@@ -33,6 +33,7 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 #include "includes/direct_display.glsl"
 #include "includes/sun_shadow.glsl"
 #include "includes/point_shadow.glsl"
+#include "includes/point_light_response.glsl"
 #include "includes/atmosphere.glsl"
 
 void main() {
@@ -89,7 +90,7 @@ void main() {
       sceneLights.colorIntensity[index].w * attenuation *
       sceneLights.lightParameters[index].w *
       pointShadowVisibility(index, worldPosition, n);
-    color += albedo * radiance * nDotL;
+    color += pointLightDiffuseResponse(albedo, radiance, nDotL);
     if (materialQuality == 2) {
       vec3 halfDirection = normalize(lightDirection + v);
       float highlight = pow(max(dot(n, halfDirection), 0.0), 24.0);

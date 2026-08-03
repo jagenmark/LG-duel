@@ -1,6 +1,23 @@
 {
   "captures": [
     {
+      "capture_id": "20260803T100343Z-gfx-followup-normal-scale-01",
+      "captured_at": "2026-08-03T10:03:43Z",
+      "captured_by": "codex-gfx-followup-capture",
+      "description": "Hardware-GPU capture of the Duelist GLB with g_playersize_xy 2.5, g_playersize_z 0.55, material quality 2, and point lights off. The side view shows the wide, short body with the directional sun material pass; rim fill and outlines are off.",
+      "full_size_url": "/evidence/assets/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.png",
+      "preview_url": "/evidence/assets/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.png",
+      "record_url": "/evidence/records/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.json",
+      "review_notes": "The capture clearly shows a wide, short 3D player with distinct light and shade across its head, limbs, shoulders, and weapon. No sensitive data is visible.",
+      "review_status": "pass",
+      "reviewed_at": "2026-08-03T10:06:15Z",
+      "reviewer": "review-normal-evidence",
+      "sha256": "0115533ba5b9e7ae267dd3a4a9f235144e998e78f0a2915ca98185ee8f6ce2fb",
+      "size_bytes": 9217968,
+      "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+      "title": "Non-uniform player model under sun lighting"
+    },
+    {
       "capture_id": "20260802T171057Z-gfx-correctness-outline-sdl-fallback-08",
       "captured_at": "2026-08-02T17:10:57Z",
       "captured_by": "codex-root",

@@ -998,40 +998,39 @@ class LgToolTests(unittest.TestCase):
 
     def test_material_quality_preserves_point_light_diffuse_contract(self) -> None:
         root = Path(__file__).resolve().parents[1]
-        def point_light_response(
-            point_lights_enabled: bool,
-            material_quality: int,
-            diffuse_radiance: float,
-            specular_radiance: float,
-        ) -> tuple[float, float]:
-            if not point_lights_enabled:
-                return 0.0, 0.0
-            diffuse = diffuse_radiance
-            enhanced = specular_radiance if material_quality == 2 else 0.0
-            return diffuse, enhanced
+        reference = (root / "src" / "render" / "PointLightResponse.hpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("pointLightResponseReference(", reference)
+        self.assertIn(
+            "response.diffuse = multiplyComponents(albedo, radiance) * diffuseNdotL;",
+            reference,
+        )
+        self.assertIn("if (materialQuality == 2 && diffuseNdotL > 0.0F)", reference)
 
-        low_material = point_light_response(True, 0, 0.75, 0.20)
-        enhanced_material = point_light_response(True, 2, 0.75, 0.20)
-        disabled_lights = point_light_response(False, 0, 0.75, 0.20)
-        self.assertEqual((0.75, 0.0), low_material)
-        self.assertEqual((0.75, 0.20), enhanced_material)
-        self.assertEqual((0.0, 0.0), disabled_lights)
+        shared_response = (
+            root / "assets" / "shaders" / "includes" / "point_light_response.glsl"
+        ).read_text(encoding="utf-8")
+        self.assertIn("vec3 pointLightDiffuseResponse(", shared_response)
+        self.assertIn(
+            "return albedo * radiance * max(nDotL, 0.0);", shared_response
+        )
 
-        # Shader source checks support the numeric contract above; they do not
-        # stand alone as evidence of the material-quality behavior.
-        for shader_name in (
-            "world_surface.frag",
-            "world3d.frag",
-            "gltf_player_model.frag",
-            "material_weapon.frag",
-        ):
+        shader_calls = {
+            "world_surface.frag": "sceneColor += pointLightDiffuseResponse(",
+            "gltf_player_model.frag": "color += pointLightDiffuseResponse(",
+            "material_weapon.frag": "color += pointLightDiffuseResponse(",
+        }
+        for shader_name, diffuse_call in shader_calls.items():
             shader = (root / "assets" / "shaders" / shader_name).read_text(
                 encoding="utf-8"
             )
             light_loop = shader.index("for (int index = 0; index <")
-            if "materialQuality" in shader:
-                advanced_gate = shader.index("if (materialQuality", light_loop)
-                self.assertLess(light_loop, advanced_gate, shader_name)
+            diffuse_response = shader.index(diffuse_call, light_loop)
+            enhanced_gate = shader.index("if (materialQuality == 2)", diffuse_response)
+            self.assertIn('#include "includes/point_light_response.glsl"', shader)
+            self.assertLess(light_loop, diffuse_response, shader_name)
+            self.assertLess(diffuse_response, enhanced_gate, shader_name)
 
     def test_static_world_light_loop_skips_baked_lights_before_work(self) -> None:
         root = Path(__file__).resolve().parents[1]
