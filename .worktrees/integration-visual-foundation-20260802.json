@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "feature": "visual-foundation",
+  "base": "b1f54b740a93c1a31bfe784a8901fe9961b2d47d",
+  "integrationBranch": "integration/visual-foundation-20260802",
+  "worktreePath": "C:/Users/gosee/AppData/Local/Temp/LG-duel-integration-visual-foundation-20260802",
+  "reportPath": "reports/integration/visual-foundation-20260802.generated.md",
+  "groups": [
+    {
+      "name": "visual-foundation",
+      "items": [
+        {
+          "type": "commit",
+          "ref": "166dc10ddb22ccdb374e82b624efeea58b11320a"
+        },
+        {
+          "type": "commit",
+          "ref": "46ca03a6c44a7fba7e045e595bd190fe4c6a25c0"
+        }
+      ],
+      "validation": []
+    },
+    {
+      "name": "renderer-materials",
+      "items": [
+        {
+          "type": "commit",
+          "ref": "8adc5974725b46599d3f1c36ed47f30a4bbf59f0"
+        }
+      ],
+      "validation": []
+    },
+    {
+      "name": "review-repair",
+      "items": [
+        {
+          "type": "commit",
+          "ref": "474987cf2324a28e79ce18c6f3a602f294b9a494"
+        }
+      ],
+      "validation": []
+    },
+    {
+      "name": "final-repair",
+      "items": [
+        {
+          "type": "commit",
+          "ref": "edbe28b03e223d9405e381ffc45b2715a01b5256"
+        }
+      ],
+      "validation": []
+    }
+  ]
+}
