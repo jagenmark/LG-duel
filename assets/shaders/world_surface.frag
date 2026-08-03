@@ -35,6 +35,7 @@ layout(set = 3, binding = 1, std140) uniform WorldMaterialData {
 #include "includes/direct_display.glsl"
 #include "includes/sun_shadow.glsl"
 #include "includes/point_shadow.glsl"
+#include "includes/point_light_response.glsl"
 #include "includes/atmosphere.glsl"
 
 void main() {
@@ -111,7 +112,11 @@ void main() {
     vec3 radiance = sceneLights.colorIntensity[index].rgb *
       sceneLights.colorIntensity[index].w * attenuation * liveWorldScale *
       pointVisibility;
-    sceneColor += directAlbedo * radiance * localNDotL;
+    sceneColor += pointLightDiffuseResponse(
+      directAlbedo,
+      radiance,
+      localNDotL
+    );
     if (materialQuality == 2) {
       vec3 halfDirection = normalize(lightDirection + v);
       float exponent = mix(10.0, 72.0, 1.0 - roughness);

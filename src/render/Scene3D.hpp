@@ -522,6 +522,57 @@ struct GltfPlayerModelInstance {
   bool outlined = false;
 };
 
+struct GltfPlayerModelBasisColumns {
+  Vec3 right = {};
+  Vec3 up = {};
+  Vec3 forward = {};
+};
+
+[[nodiscard]] inline GltfPlayerModelBasisColumns gltfPlayerModelBasisColumns(
+  const GltfPlayerModelInstance& instance
+) {
+  return {
+    {
+      instance.modelRow0.x,
+      instance.modelRow1.x,
+      instance.modelRow2.x,
+    },
+    {
+      instance.modelRow0.y,
+      instance.modelRow1.y,
+      instance.modelRow2.y,
+    },
+    {
+      instance.modelRow0.z,
+      instance.modelRow1.z,
+      instance.modelRow2.z,
+    },
+  };
+}
+
+[[nodiscard]] inline bool gltfPlayerModelBasisIsOrthogonal(
+  const GltfPlayerModelInstance& instance,
+  float maximumNormalizedDot = 0.0001F
+) {
+  const GltfPlayerModelBasisColumns columns = gltfPlayerModelBasisColumns(instance);
+  const float rightLength = length(columns.right);
+  const float upLength = length(columns.up);
+  const float forwardLength = length(columns.forward);
+  if (
+    rightLength <= 0.00001F ||
+    upLength <= 0.00001F ||
+    forwardLength <= 0.00001F
+  ) {
+    return false;
+  }
+  const Vec3 right = columns.right / rightLength;
+  const Vec3 up = columns.up / upLength;
+  const Vec3 forward = columns.forward / forwardLength;
+  return std::fabs(dot(right, up)) <= maximumNormalizedDot &&
+    std::fabs(dot(right, forward)) <= maximumNormalizedDot &&
+    std::fabs(dot(up, forward)) <= maximumNormalizedDot;
+}
+
 // GLTF player model rows are built from an orthogonal right/up/forward basis
 // with independent horizontal and vertical scales. A normal therefore needs
 // the reciprocal scale on each basis column, not the position transform.
@@ -530,32 +581,18 @@ struct GltfPlayerModelInstance {
   Vec3 localNormal
 ) {
   constexpr float kMinimumScaleSquared = 0.00000001F;
-  const Vec3 rightColumn = {
-    instance.modelRow0.x,
-    instance.modelRow1.x,
-    instance.modelRow2.x,
-  };
-  const Vec3 upColumn = {
-    instance.modelRow0.y,
-    instance.modelRow1.y,
-    instance.modelRow2.y,
-  };
-  const Vec3 forwardColumn = {
-    instance.modelRow0.z,
-    instance.modelRow1.z,
-    instance.modelRow2.z,
-  };
+  const GltfPlayerModelBasisColumns columns = gltfPlayerModelBasisColumns(instance);
   const Vec3 transformed =
-    rightColumn * (localNormal.x / std::max(
-      dot(rightColumn, rightColumn),
+    columns.right * (localNormal.x / std::max(
+      dot(columns.right, columns.right),
       kMinimumScaleSquared
     )) +
-    upColumn * (localNormal.y / std::max(
-      dot(upColumn, upColumn),
+    columns.up * (localNormal.y / std::max(
+      dot(columns.up, columns.up),
       kMinimumScaleSquared
     )) +
-    forwardColumn * (localNormal.z / std::max(
-      dot(forwardColumn, forwardColumn),
+    columns.forward * (localNormal.z / std::max(
+      dot(columns.forward, columns.forward),
       kMinimumScaleSquared
     ));
   return normalize(transformed);

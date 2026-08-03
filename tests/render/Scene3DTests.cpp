@@ -1,4 +1,5 @@
 #include "render/GltfSkinnedModel.hpp"
+#include "render/PointLightResponse.hpp"
 #include "render/Scene3D.hpp"
 #include "render/WeaponPresentation.hpp"
 #include "sim/Arena.hpp"
@@ -1004,6 +1005,48 @@ int main() {
     ),
     "sun shadow projection should stay fixed for sub-texel camera motion"
   );
+  {
+    const lg::Vec3 albedo = {0.35F, 0.60F, 0.80F};
+    const lg::Vec3 radiance = {0.90F, 0.40F, 0.20F};
+    const lg::PointLightResponse lowMaterial = lg::pointLightResponseReference(
+      true,
+      0,
+      albedo,
+      radiance,
+      0.75F,
+      0.80F
+    );
+    const lg::PointLightResponse enhancedMaterial =
+      lg::pointLightResponseReference(
+        true,
+        2,
+        albedo,
+        radiance,
+        0.75F,
+        0.80F
+      );
+    const lg::PointLightResponse disabledLights = lg::pointLightResponseReference(
+      false,
+      0,
+      albedo,
+      radiance,
+      0.75F,
+      0.80F
+    );
+    failures += expect(
+      nearlyEqual(lowMaterial.diffuse.x, 0.23625F) &&
+        nearlyEqual(lowMaterial.diffuse.y, 0.18F) &&
+        nearlyEqual(lowMaterial.diffuse.z, 0.12F) &&
+        nearlyEqual(lowMaterial.diffuse.x, enhancedMaterial.diffuse.x) &&
+        nearlyEqual(lowMaterial.diffuse.y, enhancedMaterial.diffuse.y) &&
+        nearlyEqual(lowMaterial.diffuse.z, enhancedMaterial.diffuse.z) &&
+        lg::length(lowMaterial.enhanced) <= 0.00001F &&
+        lg::length(enhancedMaterial.enhanced) > 0.00001F &&
+        lg::length(disabledLights.diffuse) <= 0.00001F &&
+        lg::length(disabledLights.enhanced) <= 0.00001F,
+      "point-light diffuse must not depend on material quality while enhanced highlights do"
+    );
+  }
   {
     const float angle = 0.61F;
     const lg::Vec3 right = {std::cos(angle), std::sin(angle), 0.0F};
@@ -2519,6 +2562,43 @@ int main() {
         baseScene.gltfPlayerModelStats.bodyBatches,
     "opponent should use the GPU-skinned GLB duelist mesh path"
   );
+  {
+    lg::PlayerState nonUniformOpponent = opponent;
+    nonUniformOpponent.bounds.radius *= 1.60F;
+    nonUniformOpponent.bounds.halfHeight *= 0.55F;
+    const lg::Scene3D nonUniformPlayerScene = lg::buildPerspectiveScene(
+      16.0F / 9.0F,
+      arena,
+      player,
+      nonUniformOpponent,
+      inactiveBeam,
+      inactiveBeam,
+      weaponFires,
+      rocketExplosions,
+      rockets,
+      settings
+    );
+    bool actualBuilderKeepsBasisOrthogonal = false;
+    if (!nonUniformPlayerScene.gltfPlayerModelInstances.empty()) {
+      const lg::GltfPlayerModelInstance& instance =
+        nonUniformPlayerScene.gltfPlayerModelInstances.front();
+      const lg::GltfPlayerModelBasisColumns columns =
+        lg::gltfPlayerModelBasisColumns(instance);
+      const lg::Vec3 right = lg::normalize(columns.right);
+      const lg::Vec3 up = lg::normalize(columns.up);
+      const lg::Vec3 forward = lg::normalize(columns.forward);
+      actualBuilderKeepsBasisOrthogonal =
+        lg::gltfPlayerModelBasisIsOrthogonal(instance) &&
+        std::fabs(lg::dot(right, up)) < 0.0001F &&
+        std::fabs(lg::dot(right, forward)) < 0.0001F &&
+        std::fabs(lg::dot(up, forward)) < 0.0001F &&
+        std::fabs(lg::length(columns.right) - lg::length(columns.up)) > 0.1F;
+    }
+    failures += expect(
+      actualBuilderKeepsBasisOrthogonal,
+      "actual GLTF player-instance builder must retain an orthogonal basis under non-uniform scale"
+    );
+  }
   lg::RenderSettings legacyModelSettings = settings;
   legacyModelSettings.playerModel = 0;
   const lg::Scene3D legacyModelScene = lg::buildPerspectiveScene(
