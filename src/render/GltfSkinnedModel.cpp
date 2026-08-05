@@ -1,6 +1,7 @@
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -604,13 +605,161 @@ void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
   return file ? text : std::string{};
 }
 
+[[nodiscard]] std::uint32_t rotateRight(std::uint32_t value, unsigned int bits) {
+  return (value >> bits) | (value << (32U - bits));
+}
+
+void hashSha256Block(
+  const std::uint8_t* block,
+  std::array<std::uint32_t, 8>& state
+) {
+  constexpr std::array<std::uint32_t, 64> constants = {
+    0x428A2F98U, 0x71374491U, 0xB5C0FBCFU, 0xE9B5DBA5U,
+    0x3956C25BU, 0x59F111F1U, 0x923F82A4U, 0xAB1C5ED5U,
+    0xD807AA98U, 0x12835B01U, 0x243185BEU, 0x550C7DC3U,
+    0x72BE5D74U, 0x80DEB1FEU, 0x9BDC06A7U, 0xC19BF174U,
+    0xE49B69C1U, 0xEFBE4786U, 0x0FC19DC6U, 0x240CA1CCU,
+    0x2DE92C6FU, 0x4A7484AAU, 0x5CB0A9DCU, 0x76F988DAU,
+    0x983E5152U, 0xA831C66DU, 0xB00327C8U, 0xBF597FC7U,
+    0xC6E00BF3U, 0xD5A79147U, 0x06CA6351U, 0x14292967U,
+    0x27B70A85U, 0x2E1B2138U, 0x4D2C6DFCU, 0x53380D13U,
+    0x650A7354U, 0x766A0ABBU, 0x81C2C92EU, 0x92722C85U,
+    0xA2BFE8A1U, 0xA81A664BU, 0xC24B8B70U, 0xC76C51A3U,
+    0xD192E819U, 0xD6990624U, 0xF40E3585U, 0x106AA070U,
+    0x19A4C116U, 0x1E376C08U, 0x2748774CU, 0x34B0BCB5U,
+    0x391C0CB3U, 0x4ED8AA4AU, 0x5B9CCA4FU, 0x682E6FF3U,
+    0x748F82EEU, 0x78A5636FU, 0x84C87814U, 0x8CC70208U,
+    0x90BEFFFAU, 0xA4506CEBU, 0xBEF9A3F7U, 0xC67178F2U,
+  };
+  std::array<std::uint32_t, 64> words = {};
+  for (std::size_t index = 0; index < 16U; ++index) {
+    const std::size_t offset = index * 4U;
+    words[index] = (static_cast<std::uint32_t>(block[offset]) << 24U) |
+      (static_cast<std::uint32_t>(block[offset + 1U]) << 16U) |
+      (static_cast<std::uint32_t>(block[offset + 2U]) << 8U) |
+      static_cast<std::uint32_t>(block[offset + 3U]);
+  }
+  for (std::size_t index = 16U; index < words.size(); ++index) {
+    const std::uint32_t first = rotateRight(words[index - 15U], 7U) ^
+      rotateRight(words[index - 15U], 18U) ^ (words[index - 15U] >> 3U);
+    const std::uint32_t second = rotateRight(words[index - 2U], 17U) ^
+      rotateRight(words[index - 2U], 19U) ^ (words[index - 2U] >> 10U);
+    words[index] = words[index - 16U] + first + words[index - 7U] + second;
+  }
+
+  std::uint32_t a = state[0];
+  std::uint32_t b = state[1];
+  std::uint32_t c = state[2];
+  std::uint32_t d = state[3];
+  std::uint32_t e = state[4];
+  std::uint32_t f = state[5];
+  std::uint32_t g = state[6];
+  std::uint32_t h = state[7];
+  for (std::size_t index = 0; index < words.size(); ++index) {
+    const std::uint32_t sigma1 = rotateRight(e, 6U) ^ rotateRight(e, 11U) ^
+      rotateRight(e, 25U);
+    const std::uint32_t choice = (e & f) ^ ((~e) & g);
+    const std::uint32_t temporary1 = h + sigma1 + choice + constants[index] + words[index];
+    const std::uint32_t sigma0 = rotateRight(a, 2U) ^ rotateRight(a, 13U) ^
+      rotateRight(a, 22U);
+    const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+    const std::uint32_t temporary2 = sigma0 + majority;
+    h = g;
+    g = f;
+    f = e;
+    e = d + temporary1;
+    d = c;
+    c = b;
+    b = a;
+    a = temporary1 + temporary2;
+  }
+  state[0] += a;
+  state[1] += b;
+  state[2] += c;
+  state[3] += d;
+  state[4] += e;
+  state[5] += f;
+  state[6] += g;
+  state[7] += h;
+}
+
+[[nodiscard]] std::string sha256Hex(const std::vector<std::uint8_t>& bytes) {
+  std::array<std::uint32_t, 8> state = {
+    0x6A09E667U, 0xBB67AE85U, 0x3C6EF372U, 0xA54FF53AU,
+    0x510E527FU, 0x9B05688CU, 0x1F83D9ABU, 0x5BE0CD19U,
+  };
+  constexpr std::size_t blockSize = 64U;
+  const std::size_t fullBytes = bytes.size() - (bytes.size() % blockSize);
+  for (std::size_t offset = 0; offset < fullBytes; offset += blockSize) {
+    hashSha256Block(bytes.data() + offset, state);
+  }
+
+  std::array<std::uint8_t, blockSize> tail = {};
+  const std::size_t remaining = bytes.size() - fullBytes;
+  for (std::size_t index = 0; index < remaining; ++index) {
+    tail[index] = bytes[fullBytes + index];
+  }
+  tail[remaining] = 0x80U;
+  if (remaining >= 56U) {
+    hashSha256Block(tail.data(), state);
+    tail.fill(0U);
+  }
+  const std::uint64_t bitLength = static_cast<std::uint64_t>(bytes.size()) * 8U;
+  for (std::size_t index = 0; index < 8U; ++index) {
+    tail[63U - index] = static_cast<std::uint8_t>(bitLength >> (index * 8U));
+  }
+  hashSha256Block(tail.data(), state);
+
+  constexpr std::string_view hex = "0123456789abcdef";
+  std::string result(64U, '0');
+  for (std::size_t index = 0; index < state.size(); ++index) {
+    for (std::size_t byte = 0; byte < 4U; ++byte) {
+      const std::uint32_t shift = static_cast<std::uint32_t>((3U - byte) * 8U);
+      const std::uint8_t value = static_cast<std::uint8_t>(state[index] >> shift);
+      result[(index * 4U + byte) * 2U] = hex[value >> 4U];
+      result[(index * 4U + byte) * 2U + 1U] = hex[value & 0x0FU];
+    }
+  }
+  return result;
+}
+
+[[nodiscard]] bool validSha256Hex(std::string_view value) {
+  return value.size() == 64U && std::all_of(
+    value.begin(),
+    value.end(),
+    [](char character) {
+      return (character >= '0' && character <= '9') ||
+        (character >= 'a' && character <= 'f') ||
+        (character >= 'A' && character <= 'F');
+    }
+  );
+}
+
+[[nodiscard]] bool sha256Matches(
+  std::string_view expected,
+  std::string_view actual
+) {
+  return expected.size() == actual.size() && std::equal(
+    expected.begin(), expected.end(), actual.begin(),
+    [](char expectedCharacter, char actualCharacter) {
+      if (expectedCharacter >= 'A' && expectedCharacter <= 'F') {
+        expectedCharacter = static_cast<char>(
+          expectedCharacter + ('a' - 'A')
+        );
+      }
+      return expectedCharacter == actualCharacter;
+    }
+  );
+}
+
 [[nodiscard]] bool powerOfTwo(std::uint32_t value) {
   return value > 0U && (value & (value - 1U)) == 0U;
 }
 
 [[nodiscard]] GltfMaterialMetadata loadMaterialMetadata(
   std::string_view modelPath,
-  const std::vector<std::string>& materialNames
+  const std::vector<std::string>& materialNames,
+  std::string_view modelSha256
 ) {
   GltfMaterialMetadata result;
   const std::filesystem::path modelFile{std::string(modelPath)};
@@ -650,6 +799,15 @@ void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
       expectedModel != modelFile.filename().string()
     ) {
       fail("material manifest model name does not match the GLB");
+      return result;
+    }
+    const std::string expectedSha256 = stringMember(root, "model_sha256");
+    if (!validSha256Hex(expectedSha256)) {
+      fail("material manifest requires a valid model_sha256");
+      return result;
+    }
+    if (!sha256Matches(expectedSha256, modelSha256)) {
+      fail("material manifest model_sha256 does not match the GLB");
       return result;
     }
 
@@ -823,6 +981,12 @@ void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
     }
   );
   return found == metadata.bindings.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool legacyDuelistClothMaterial(std::string_view materialName) {
+  // The pre-manifest Duelist marks its flat team-tinted cloth by name.
+  return materialName == "MAT_ClothPrimary" ||
+    materialName == "MAT_ClothAccent";
 }
 
 [[nodiscard]] GltfSkinnedModel::Matrix4 identityMatrix() {
@@ -1245,7 +1409,7 @@ bool GltfSkinnedModel::load(std::string_view path) {
     for (const JsonValue& material : materials.array) {
       materialNames_.push_back(stringMember(material, "name"));
     }
-    materialMetadata_ = loadMaterialMetadata(path, materialNames_);
+    materialMetadata_ = loadMaterialMetadata(path, materialNames_, sha256Hex(bytes));
     std::vector<bool> meshHasSkinNode(meshes.array.size(), false);
     for (const Node& node : nodes_) {
       if (
@@ -1279,6 +1443,14 @@ bool GltfSkinnedModel::load(std::string_view path) {
           materialMetadata_,
           materialIndex
         );
+        const std::uint8_t fallbackTintWeight =
+          !materialMetadata_.valid() &&
+            legacyDuelistClothMaterial(stringMember(material, "name"))
+          ? 255U
+          : 0U;
+        const std::uint8_t tintWeight = binding != nullptr
+          ? binding->flatTintWeight
+          : fallbackTintWeight;
 
         const std::vector<float> positions =
           readAccessorFloats(root, binaryChunk, positionAccessor);
@@ -1298,7 +1470,7 @@ bool GltfSkinnedModel::load(std::string_view path) {
 
         Primitive primitive;
         primitive.color = materialColor(material, materialMetadata_.forceOpaque);
-        primitive.tintable = binding != nullptr && binding->flatTintWeight > 0U;
+        primitive.tintable = tintWeight > 0U;
         primitive.materialIndex = materialIndex;
         const JsonValue& pbr = member(material, "pbrMetallicRoughness");
         primitive.roughnessFactor = std::clamp(
@@ -1333,7 +1505,7 @@ bool GltfSkinnedModel::load(std::string_view path) {
             ? binding->atlasV
             : uv[1];
           vertex.color = primitive.color;
-          vertex.tintWeight = binding != nullptr ? binding->flatTintWeight : 0U;
+          vertex.tintWeight = tintWeight;
           vertex.albedoTextureMode = materialMetadata_.hasAuthoredTextures()
             ? gpuAlbedoTextureMode(materialMetadata_.albedoMode)
             : 0U;

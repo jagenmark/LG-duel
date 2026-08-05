@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -16,6 +17,9 @@ int expect(bool condition, const std::string& message) {
   }
   return 0;
 }
+
+constexpr std::string_view workerModelSha256 =
+  "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60";
 
 const lg::GltfMaterialBinding* bindingFor(
   const lg::GltfMaterialMetadata& metadata,
@@ -45,13 +49,29 @@ const lg::GltfSkinnedModel::Primitive* primitiveFor(
   return found == model.primitives().end() ? nullptr : &*found;
 }
 
+bool hasDuelistFlatTeamTint(const lg::GltfSkinnedModel& model) {
+  const lg::GltfSkinnedModel::Primitive* primary = primitiveFor(model, 3);
+  const lg::GltfSkinnedModel::Primitive* accent = primitiveFor(model, 4);
+  const auto isTinted = [](const lg::GltfSkinnedModel::Primitive* primitive) {
+    return primitive != nullptr && std::all_of(
+      primitive->vertices.begin(), primitive->vertices.end(),
+      [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+        return vertex.tintWeight == 255U && vertex.albedoTextureMode == 0U;
+      }
+    );
+  };
+  return isTinted(primary) && isTinted(accent);
+}
+
 std::string manifestWithTextures(
   const std::string& albedoPath,
-  const std::string& maskPath
+  const std::string& maskPath,
+  std::string_view modelSha256 = workerModelSha256
 ) {
   return R"({
   "schema_version": 1,
   "model": "worker.glb",
+  "model_sha256": ")" + std::string(modelSha256) + R"(",
   "opaque": true,
   "uv_mode": "texcoord0",
   "albedo_mode": "replace",
@@ -159,26 +179,12 @@ int main() {
 
   const lg::GltfSkinnedModel& duelist = lg::duelistMaleModel();
   const lg::GltfMaterialMetadata& duelistMetadata = duelist.materialMetadata();
-  const lg::GltfSkinnedModel::Primitive* duelistPrimary = primitiveFor(duelist, 3);
-  const lg::GltfSkinnedModel::Primitive* duelistAccent = primitiveFor(duelist, 4);
   failures += expect(
     duelist.loaded() && duelistMetadata.valid() &&
       !duelistMetadata.hasAuthoredTextures() &&
-      duelistPrimary != nullptr && duelistAccent != nullptr &&
-      std::all_of(
-        duelistPrimary->vertices.begin(), duelistPrimary->vertices.end(),
-        [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
-          return vertex.tintWeight == 255U && vertex.albedoTextureMode == 0U;
-        }
-      ) &&
-      std::all_of(
-        duelistAccent->vertices.begin(), duelistAccent->vertices.end(),
-        [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
-          return vertex.tintWeight == 255U && vertex.albedoTextureMode == 0U;
-        }
-      ) &&
+      hasDuelistFlatTeamTint(duelist) &&
       lg::gltfMaterialQualityPlan(2, false).flatFallback,
-    "texture-less Duelist should retain explicit flat-material tint metadata"
+    "texture-less Duelist should retain flat-material team tint"
   );
 
   const std::filesystem::path fixtureRoot =
@@ -215,6 +221,38 @@ int main() {
           }
         ),
       "a model without material metadata should retain the flat path"
+    );
+    failures += expect(
+      writeText(
+        fixtureManifest,
+        R"({"schema_version":1,"model":"worker.glb","materials":[]})"
+      ),
+      "material manifest test fixture should write a missing-hash manifest"
+    );
+    lg::GltfSkinnedModel missingHash;
+    failures += expect(
+      missingHash.load(fixtureModel.string()) &&
+        missingHash.materialMetadata().status == lg::GltfMaterialManifestStatus::Invalid &&
+        !missingHash.materialMetadata().hasAuthoredTextures(),
+      "a missing model_sha256 should reject material metadata safely"
+    );
+    failures += expect(
+      writeText(
+        fixtureManifest,
+        manifestWithTextures(
+          "missing-albedo.png",
+          "missing-mask.png",
+          "0000000000000000000000000000000000000000000000000000000000000000"
+        )
+      ),
+      "material manifest test fixture should write a wrong-hash manifest"
+    );
+    lg::GltfSkinnedModel wrongHash;
+    failures += expect(
+      wrongHash.load(fixtureModel.string()) &&
+        wrongHash.materialMetadata().status == lg::GltfMaterialManifestStatus::Invalid &&
+        !wrongHash.materialMetadata().hasAuthoredTextures(),
+      "a model_sha256 mismatch should reject material metadata safely"
     );
     failures += expect(
       writeText(fixtureManifest, manifestWithTextures("missing-albedo.png", "missing-mask.png")),
@@ -264,7 +302,7 @@ int main() {
     failures += expect(
       writeText(
         fixtureManifest,
-        R"({"schema_version":1,"model":"worker.glb","materials":[{"index":99,"name":"bad"}]})"
+        R"({"schema_version":1,"model":"worker.glb","model_sha256":"b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60","materials":[{"index":99,"name":"bad"}]})"
       ),
       "material manifest test fixture should write an invalid-index manifest"
     );
@@ -277,5 +315,45 @@ int main() {
     );
   }
   std::filesystem::remove_all(fixtureRoot, error);
+
+  const std::filesystem::path duelistFixtureRoot =
+    std::filesystem::current_path() / "gltf-duelist-material-manifest-fixture";
+  error.clear();
+  std::filesystem::remove_all(duelistFixtureRoot, error);
+  std::filesystem::create_directories(duelistFixtureRoot, error);
+  const std::filesystem::path duelistFixtureModel = duelistFixtureRoot / "duelist.glb";
+  const std::filesystem::path duelistSource =
+    std::filesystem::absolute(std::filesystem::path(duelist.sourcePath()));
+  std::filesystem::copy_file(
+    duelistSource,
+    duelistFixtureModel,
+    std::filesystem::copy_options::overwrite_existing,
+    error
+  );
+  failures += expect(!error, "material manifest test fixture should copy the Duelist GLB");
+  if (!error) {
+    lg::GltfSkinnedModel noDuelistMetadata;
+    failures += expect(
+      noDuelistMetadata.load(duelistFixtureModel.string()) &&
+        noDuelistMetadata.materialMetadata().status == lg::GltfMaterialManifestStatus::NotFound &&
+        hasDuelistFlatTeamTint(noDuelistMetadata),
+      "Duelist should retain flat team tint without a local manifest"
+    );
+    failures += expect(
+      writeText(
+        duelistFixtureRoot / "material-manifest.json",
+        R"({"schema_version":1,"model":"duelist.glb","model_sha256":"not-a-valid-sha256","materials":[]})"
+      ),
+      "material manifest test fixture should write an invalid Duelist manifest"
+    );
+    lg::GltfSkinnedModel invalidDuelistMetadata;
+    failures += expect(
+      invalidDuelistMetadata.load(duelistFixtureModel.string()) &&
+        invalidDuelistMetadata.materialMetadata().status == lg::GltfMaterialManifestStatus::Invalid &&
+        hasDuelistFlatTeamTint(invalidDuelistMetadata),
+      "Duelist should retain flat team tint when a local manifest is invalid"
+    );
+  }
+  std::filesystem::remove_all(duelistFixtureRoot, error);
   return failures == 0 ? 0 : 1;
 }

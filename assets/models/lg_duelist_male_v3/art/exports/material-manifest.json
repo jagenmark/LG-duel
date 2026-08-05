@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "model": "lg_duelist_male.glb",
+  "model_sha256": "f92661582b8b0a880acd12765f91d3152e2e29f62b66702d7cadb863a0dc13d0",
   "opaque": true,
   "require_material_coverage": false,
   "materials": [
