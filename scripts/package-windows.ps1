@@ -275,8 +275,8 @@ $requiredShaderFiles = @(
 
 $requiredFiles = @(
   "lg_duel_client.exe",
-  "lg_duel_server.exe",
-  $requiredShaderFiles,
+  "lg_duel_server.exe";
+  $requiredShaderFiles;
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/balance.cfg",
