@@ -562,6 +562,10 @@ target_compile_features(lg_duel_audio_assets_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_audio_assets_tests)
 
 add_test(NAME lg_duel_audio_assets_tests COMMAND lg_duel_audio_assets_tests)
+set_tests_properties(
+  lg_duel_audio_assets_tests
+  PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
 
 add_executable(lg_duel_client_session_tests
   client/ClientSessionTests.cpp
