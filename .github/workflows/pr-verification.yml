@@ -31,6 +31,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install pinned image-validation dependency
+        run: python -m pip install --disable-pip-version-check "Pillow==11.3.0"
+
       - name: Install pinned Vulkan SDK for shader checks
         uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa # v1.6.0
         with:
@@ -47,7 +50,7 @@ jobs:
             libgl1-mesa-dev libgles2-mesa-dev libdrm-dev libgbm-dev
 
       - name: Configure
-        run: cmake --preset default
+        run: cmake --preset default -DLG_DUEL_REQUIRE_PILLOW=ON -DPython3_EXECUTABLE="$(command -v python)"
 
       - name: Build
         run: cmake --build --preset default --parallel 2
@@ -118,6 +121,9 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install pinned image-validation dependency
+        run: python -m pip install --disable-pip-version-check "Pillow==11.3.0"
+
       - name: Install pinned Vulkan SDK for shader checks
         uses: jakoch/install-vulkan-sdk-action@37effcfa045411f8bfbbda26df2fd1b3bf3436fa # v1.6.0
         with:
@@ -126,7 +132,10 @@ jobs:
           stripdown: true
 
       - name: Configure
-        run: cmake --preset msvc
+        shell: pwsh
+        run: |
+          $python = (Get-Command python).Source
+          cmake --preset msvc -DLG_DUEL_REQUIRE_PILLOW=ON "-DPython3_EXECUTABLE=$python"
 
       - name: Build
         run: cmake --build --preset msvc --parallel 2

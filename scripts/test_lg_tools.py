@@ -17,6 +17,38 @@ import lg_mcp_server
 
 
 class LgToolTests(unittest.TestCase):
+    def test_pr_workflow_requires_pillow_for_worker_material_checks(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn("LG_DUEL_REQUIRE_PILLOW", cmake)
+        self.assertRegex(
+            cmake,
+            r"elseif\(LG_DUEL_REQUIRE_PILLOW\)\s+message\(\s+FATAL_ERROR",
+        )
+        self.assertIn("Pillow not found; skipping Worker material atlas tests", cmake)
+
+        workflow = (root / ".github" / "workflows" / "pr-verification.yml").read_text(
+            encoding="utf-8"
+        )
+        for job_name, preset in (
+            ("linux-build-and-tests", "default"),
+            ("windows-build-and-tests", "msvc"),
+        ):
+            with self.subTest(job=job_name):
+                job = re.search(
+                    rf"(?ms)^  {re.escape(job_name)}:\n(.*?)(?=^  [\w-]+:|\Z)",
+                    workflow,
+                )
+                self.assertIsNotNone(job)
+                job_body = job.group(1)
+                install = 'python -m pip install --disable-pip-version-check "Pillow==11.3.0"'
+                configure = f"cmake --preset {preset}"
+                self.assertIn(install, job_body)
+                self.assertIn(configure, job_body)
+                self.assertIn("-DLG_DUEL_REQUIRE_PILLOW=ON", job_body)
+                self.assertIn("-DPython3_EXECUTABLE=", job_body)
+                self.assertLess(job_body.index(install), job_body.index(configure))
+
     def test_map_editor_generated_state_is_ignored(self) -> None:
         root = Path(__file__).resolve().parents[1]
         ignore_lines = (root / ".gitignore").read_text(

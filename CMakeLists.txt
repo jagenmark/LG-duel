@@ -13,6 +13,12 @@ include(cmake/Dependencies.cmake)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+option(
+  LG_DUEL_REQUIRE_PILLOW
+  "Fail configuration when Worker material tests cannot import Pillow"
+  OFF
+)
+
 add_custom_target(lg_duel_verify_shaders
   COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_shaders.py" --check
@@ -542,6 +548,11 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_worker_materials.py"
     )
     set_tests_properties(lg_duel_worker_material_validate PROPERTIES LABELS assets)
+  elseif(LG_DUEL_REQUIRE_PILLOW)
+    message(
+      FATAL_ERROR
+      "Pillow is required by LG_DUEL_REQUIRE_PILLOW=ON. Install it with \"${Python3_EXECUTABLE}\" -m pip install Pillow."
+    )
   else()
     message(STATUS "Pillow not found; skipping Worker material atlas tests")
   endif()
