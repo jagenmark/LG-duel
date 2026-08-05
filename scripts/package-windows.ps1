@@ -37,6 +37,23 @@ function Normalize-TextureMaterial {
   return $normalized
 }
 
+function Test-MapMaterialRequiresTexture {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Material
+  )
+
+  # Keep this list aligned with the map importer. Sky uses the packaged sky
+  # cube, while clip brushes are collision-only.
+  $normalized = Normalize-TextureMaterial $Material
+  return $normalized -notin @(
+    "common/sky",
+    "common/playerclip",
+    "common/clip",
+    "common/weapclip"
+  )
+}
+
 function Get-MapTextureMaterials {
   param(
     [Parameter(Mandatory = $true)]
@@ -50,7 +67,10 @@ function Get-MapTextureMaterials {
     ForEach-Object {
       Select-String -Path $_.FullName -Pattern $facePattern | ForEach-Object {
         $material = Normalize-TextureMaterial $_.Matches[0].Groups[1].Value
-        if (-not [string]::IsNullOrWhiteSpace($material)) {
+        if (
+          -not [string]::IsNullOrWhiteSpace($material) -and
+          (Test-MapMaterialRequiresTexture $material)
+        ) {
           [void]$materials.Add($material)
         }
       }
