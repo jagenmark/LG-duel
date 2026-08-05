@@ -15,10 +15,10 @@ layout(location = 0) out vec4 outColor;
 
 // The atlas is an sRGB texture. Hardware converts it to linear when sampled.
 // The packed mask is UNORM/linear and must never receive an sRGB conversion.
-layout(set = 0, binding = 0) uniform sampler2D albedoAtlas;
-layout(set = 0, binding = 1) uniform sampler2D packedMaterialMask;
-layout(set = 2, binding = 0) uniform sampler2DShadow sunShadowMap;
-layout(set = 2, binding = 1) uniform sampler2DArrayShadow pointShadowMap;
+layout(set = 2, binding = 0) uniform sampler2D albedoAtlas;
+layout(set = 2, binding = 1) uniform sampler2D packedMaterialMask;
+layout(set = 2, binding = 2) uniform sampler2DShadow sunShadowMap;
+layout(set = 2, binding = 3) uniform sampler2DArrayShadow pointShadowMap;
 layout(set = 3, binding = 0, std140) uniform SceneLightData {
   vec4 parameters;
   vec4 positionRadius[32];
