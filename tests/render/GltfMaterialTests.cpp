@@ -302,29 +302,24 @@ int main() {
       "material manifest test fixture should write a partial material-cell manifest"
     );
     lg::GltfSkinnedModel partialMaterialCells;
-    const lg::GltfSkinnedModel::Primitive* partialYellow = nullptr;
-    const lg::GltfSkinnedModel::Primitive* partialVest = nullptr;
     failures += expect(
       partialMaterialCells.load(fixtureModel.string()) &&
-        partialMaterialCells.materialMetadata().valid() &&
-        partialMaterialCells.materialMetadata().materialCells &&
-        (partialYellow = primitiveFor(partialMaterialCells, 1)) != nullptr &&
-        (partialVest = primitiveFor(partialMaterialCells, 2)) != nullptr &&
+        partialMaterialCells.materialMetadata().status ==
+          lg::GltfMaterialManifestStatus::Invalid &&
+        !partialMaterialCells.materialMetadata().hasAuthoredTextures() &&
         std::all_of(
-          partialYellow->vertices.begin(), partialYellow->vertices.end(),
-          [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
-            return std::abs(vertex.u - 0.375F) < 0.0001F &&
-              std::abs(vertex.v - 0.125F) < 0.0001F &&
-              vertex.albedoTextureMode == 255U;
-          }
-        ) &&
-        std::all_of(
-          partialVest->vertices.begin(), partialVest->vertices.end(),
-          [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
-            return vertex.albedoTextureMode == 0U;
+          partialMaterialCells.primitives().begin(),
+          partialMaterialCells.primitives().end(),
+          [](const lg::GltfSkinnedModel::Primitive& primitive) {
+            return std::all_of(
+              primitive.vertices.begin(), primitive.vertices.end(),
+              [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+                return vertex.albedoTextureMode == 0U;
+              }
+            );
           }
         ),
-      "unbound material-cell materials should retain the flat path"
+      "partial material-cell manifests should reject authored texture sampling"
     );
     failures += expect(
       writeText(fixtureManifest, manifestWithTextures("../escape.png", "missing-mask.png")),

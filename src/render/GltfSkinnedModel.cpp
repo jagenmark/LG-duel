@@ -908,7 +908,10 @@ void hashSha256Block(
       }
     }
 
-    const bool requireCoverage = boolMember(root, "require_material_coverage", false);
+    // A material-cell atlas supplies every texture input to the shader, so a
+    // partial map could leave a GLB material sampling old texture coordinates.
+    const bool requireCoverage = result.materialCells ||
+      boolMember(root, "require_material_coverage", false);
     std::vector<bool> seen(materialNames.size(), false);
     const JsonValue& bindings = member(root, "materials");
     if (bindings.type != JsonValue::Type::Array) {
