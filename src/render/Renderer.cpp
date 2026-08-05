@@ -885,16 +885,12 @@ void destroyGpuGltfPlayerResources(
 }
 
 [[nodiscard]] std::uint32_t textureMipLevelCount(int width, int height) {
-  int size = std::max(width, height);
-  if (size <= 0) {
+  if (width <= 0 || height <= 0) {
     return 1U;
   }
-  std::uint32_t levels = 1U;
-  while (size > 1) {
-    size /= 2;
-    ++levels;
-  }
-  return levels;
+  return gltfTextureMipLevels(
+    static_cast<std::uint32_t>(width), static_cast<std::uint32_t>(height)
+  );
 }
 
 [[nodiscard]] int normalizedTextureFilter(int filter) {

@@ -170,6 +170,10 @@ int main() {
       workerQuality2.metallicResponse &&
       !workerQuality2.environmentResponse &&
       lg::gltfTextureMipLevels(512U, 512U) == 10U &&
+      lg::gltfTextureMipLevels(512U, 256U) == 10U &&
+      lg::gltfRgbaMipBytes(512U, 256U) == 699052U &&
+      lg::gltfTextureMipLevels(512U, 1U) == 10U &&
+      lg::gltfRgbaMipBytes(512U, 1U) == 4092U &&
       workerResources.sharedTextureAllocations == 2U &&
       workerResources.textureBytes == 2796200U &&
       workerResources.perInstanceTextureAllocations == 0U &&
@@ -268,6 +272,59 @@ int main() {
           missingTextures.materialMetadata().authoredTextureFilesAvailable()
         ).flatFallback,
       "missing Worker material textures should retain a safe flat fallback"
+    );
+    failures += expect(
+      writeText(
+        fixtureManifest,
+        R"({
+  "schema_version": 1,
+  "model": "worker.glb",
+  "model_sha256": "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60",
+  "uv_mode": "material_cell",
+  "atlas": {"columns": 4, "rows": 4},
+  "albedo_mode": "replace",
+  "mip_policy": "runtime_generate",
+  "textures": {
+    "albedo": {"path": "missing-albedo.png", "color_space": "srgb", "width": 512, "height": 512},
+    "packed_mask": {"path": "missing-mask.png", "color_space": "linear", "width": 512, "height": 512}
+  },
+  "packed_mask_contract": {
+    "r": "team_tint_weight",
+    "g": "perceptual_roughness",
+    "b": "metallic_weight",
+    "a": "emissive_weight_reserved_zero"
+  },
+  "materials": [
+    {"index": 1, "name": "Worker_Yellow", "cell": [1, 0]}
+  ]
+})"
+      ),
+      "material manifest test fixture should write a partial material-cell manifest"
+    );
+    lg::GltfSkinnedModel partialMaterialCells;
+    const lg::GltfSkinnedModel::Primitive* partialYellow = nullptr;
+    const lg::GltfSkinnedModel::Primitive* partialVest = nullptr;
+    failures += expect(
+      partialMaterialCells.load(fixtureModel.string()) &&
+        partialMaterialCells.materialMetadata().valid() &&
+        partialMaterialCells.materialMetadata().materialCells &&
+        (partialYellow = primitiveFor(partialMaterialCells, 1)) != nullptr &&
+        (partialVest = primitiveFor(partialMaterialCells, 2)) != nullptr &&
+        std::all_of(
+          partialYellow->vertices.begin(), partialYellow->vertices.end(),
+          [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+            return std::abs(vertex.u - 0.375F) < 0.0001F &&
+              std::abs(vertex.v - 0.125F) < 0.0001F &&
+              vertex.albedoTextureMode == 255U;
+          }
+        ) &&
+        std::all_of(
+          partialVest->vertices.begin(), partialVest->vertices.end(),
+          [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+            return vertex.albedoTextureMode == 0U;
+          }
+        ),
+      "unbound material-cell materials should retain the flat path"
     );
     failures += expect(
       writeText(fixtureManifest, manifestWithTextures("../escape.png", "missing-mask.png")),

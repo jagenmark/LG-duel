@@ -104,26 +104,44 @@ struct GltfMaterialQualityPlan {
   std::uint32_t width,
   std::uint32_t height
 ) {
-  std::uint32_t levels = 0;
-  while (width > 0U && height > 0U) {
-    ++levels;
-    width = width > 1U ? width / 2U : 0U;
-    height = height > 1U ? height / 2U : 0U;
+  if (width == 0U || height == 0U) {
+    return 0U;
   }
-  return levels;
+  std::uint32_t levels = 0U;
+  while (true) {
+    ++levels;
+    if (width == 1U && height == 1U) {
+      return levels;
+    }
+    if (width > 1U) {
+      width /= 2U;
+    }
+    if (height > 1U) {
+      height /= 2U;
+    }
+  }
 }
 
 [[nodiscard]] constexpr std::uint64_t gltfRgbaMipBytes(
   std::uint32_t width,
   std::uint32_t height
 ) {
-  std::uint64_t bytes = 0;
-  while (width > 0U && height > 0U) {
-    bytes += static_cast<std::uint64_t>(width) * height * 4U;
-    width = width > 1U ? width / 2U : 0U;
-    height = height > 1U ? height / 2U : 0U;
+  if (width == 0U || height == 0U) {
+    return 0U;
   }
-  return bytes;
+  std::uint64_t bytes = 0;
+  while (true) {
+    bytes += static_cast<std::uint64_t>(width) * height * 4U;
+    if (width == 1U && height == 1U) {
+      return bytes;
+    }
+    if (width > 1U) {
+      width /= 2U;
+    }
+    if (height > 1U) {
+      height /= 2U;
+    }
+  }
 }
 
 struct GltfMaterialResourcePlan {

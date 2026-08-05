@@ -1506,7 +1506,9 @@ bool GltfSkinnedModel::load(std::string_view path) {
             : uv[1];
           vertex.color = primitive.color;
           vertex.tintWeight = tintWeight;
-          vertex.albedoTextureMode = materialMetadata_.hasAuthoredTextures()
+          const bool samplesAuthoredTexture = materialMetadata_.hasAuthoredTextures() &&
+            (!materialMetadata_.materialCells || binding != nullptr);
+          vertex.albedoTextureMode = samplesAuthoredTexture
             ? gpuAlbedoTextureMode(materialMetadata_.albedoMode)
             : 0U;
           std::array<float, 4> rawWeights = {};
