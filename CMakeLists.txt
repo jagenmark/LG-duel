@@ -523,18 +523,28 @@ add_custom_target(lg_duel_validate_maps ALL
 add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)
 
 if(BUILD_TESTING)
-  add_test(
-    NAME lg_duel_worker_material_atlas_current
-    COMMAND "${Python3_EXECUTABLE}"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_worker_material_atlas.py" --check
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import PIL"
+    RESULT_VARIABLE LG_DUEL_PILLOW_IMPORT_RESULT
+    OUTPUT_QUIET
+    ERROR_QUIET
   )
-  set_tests_properties(lg_duel_worker_material_atlas_current PROPERTIES LABELS assets)
-  add_test(
-    NAME lg_duel_worker_material_validate
-    COMMAND "${Python3_EXECUTABLE}"
-      "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_worker_materials.py"
-  )
-  set_tests_properties(lg_duel_worker_material_validate PROPERTIES LABELS assets)
+  if(LG_DUEL_PILLOW_IMPORT_RESULT EQUAL 0)
+    add_test(
+      NAME lg_duel_worker_material_atlas_current
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_worker_material_atlas.py" --check
+    )
+    set_tests_properties(lg_duel_worker_material_atlas_current PROPERTIES LABELS assets)
+    add_test(
+      NAME lg_duel_worker_material_validate
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_worker_materials.py"
+    )
+    set_tests_properties(lg_duel_worker_material_validate PROPERTIES LABELS assets)
+  else()
+    message(STATUS "Pillow not found; skipping Worker material atlas tests")
+  endif()
   add_test(
     NAME lg_duel_shader_binaries_current
     COMMAND "${Python3_EXECUTABLE}"
