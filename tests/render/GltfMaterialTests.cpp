@@ -2,11 +2,15 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -20,6 +24,8 @@ int expect(bool condition, const std::string& message) {
 
 constexpr std::string_view workerModelSha256 =
   "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60";
+constexpr std::string_view workerMissingFirstMaterialSha256 =
+  "c0bf9a28f3c38ab40f91c2f7b45b87381ad153bd1e74cbc0ed020677413d22fa";
 
 const lg::GltfMaterialBinding* bindingFor(
   const lg::GltfMaterialMetadata& metadata,
@@ -93,6 +99,64 @@ std::string manifestWithTextures(
 bool writeText(const std::filesystem::path& path, const std::string& text) {
   std::ofstream output(path, std::ios::binary);
   output << text;
+  return static_cast<bool>(output);
+}
+
+std::string readText(const std::filesystem::path& path) {
+  std::ifstream input(path, std::ios::binary);
+  return {
+    std::istreambuf_iterator<char>(input),
+    std::istreambuf_iterator<char>()
+  };
+}
+
+bool writeWorkerGlbWithoutFirstMaterial(
+  const std::filesystem::path& source,
+  const std::filesystem::path& destination
+) {
+  std::ifstream input(source, std::ios::binary);
+  if (!input) {
+    return false;
+  }
+  std::vector<std::uint8_t> bytes;
+  char byte = '\0';
+  while (input.get(byte)) {
+    bytes.push_back(static_cast<std::uint8_t>(
+      static_cast<unsigned char>(byte)
+    ));
+  }
+  if (
+    bytes.size() < 20U ||
+    bytes[16U] != 0x4AU || bytes[17U] != 0x53U ||
+    bytes[18U] != 0x4FU || bytes[19U] != 0x4EU
+  ) {
+    return false;
+  }
+  const std::size_t jsonLength = static_cast<std::size_t>(bytes[12U]) |
+    (static_cast<std::size_t>(bytes[13U]) << 8U) |
+    (static_cast<std::size_t>(bytes[14U]) << 16U) |
+    (static_cast<std::size_t>(bytes[15U]) << 24U);
+  if (jsonLength > bytes.size() - 20U) {
+    return false;
+  }
+  constexpr std::string_view firstMaterial = "\"material\":0";
+  const auto jsonBegin = bytes.begin() + 20;
+  const auto jsonEnd = jsonBegin + static_cast<std::ptrdiff_t>(jsonLength);
+  const auto found = std::search(
+    jsonBegin,
+    jsonEnd,
+    firstMaterial.begin(),
+    firstMaterial.end()
+  );
+  if (found == jsonEnd || std::next(found) == jsonEnd) {
+    return false;
+  }
+  *std::next(found) = static_cast<std::uint8_t>('x');
+  std::ofstream output(destination, std::ios::binary);
+  output.write(
+    reinterpret_cast<const char*>(bytes.data()),
+    static_cast<std::streamsize>(bytes.size())
+  );
   return static_cast<bool>(output);
 }
 
@@ -367,6 +431,64 @@ int main() {
     );
   }
   std::filesystem::remove_all(fixtureRoot, error);
+
+  const std::filesystem::path missingMaterialFixtureRoot =
+    std::filesystem::current_path() / "gltf-missing-material-fixture";
+  error.clear();
+  std::filesystem::remove_all(missingMaterialFixtureRoot, error);
+  std::filesystem::create_directories(missingMaterialFixtureRoot, error);
+  const std::filesystem::path missingMaterialFixtureModel =
+    missingMaterialFixtureRoot / "quaternius_worker.glb";
+  const std::filesystem::path missingMaterialFixtureManifest =
+    missingMaterialFixtureRoot / "material-manifest.json";
+  std::string missingMaterialManifest = readText(
+    std::filesystem::absolute(std::filesystem::path(workerMetadata.manifestPath))
+  );
+  const std::size_t workerHashPosition = missingMaterialManifest.find(
+    workerModelSha256
+  );
+  const bool hasWorkerHash = workerHashPosition != std::string::npos;
+  if (hasWorkerHash) {
+    missingMaterialManifest.replace(
+      workerHashPosition,
+      workerModelSha256.size(),
+      workerMissingFirstMaterialSha256
+    );
+  }
+  const bool wroteMissingMaterialFixture =
+    !error && hasWorkerHash &&
+    writeWorkerGlbWithoutFirstMaterial(workerSource, missingMaterialFixtureModel) &&
+    writeText(missingMaterialFixtureManifest, missingMaterialManifest);
+  failures += expect(
+    wroteMissingMaterialFixture,
+    "material manifest test fixture should remove a Worker primitive material"
+  );
+  if (wroteMissingMaterialFixture) {
+    lg::GltfSkinnedModel missingPrimitiveMaterial;
+    failures += expect(
+      missingPrimitiveMaterial.load(missingMaterialFixtureModel.string()) &&
+        missingPrimitiveMaterial.materialMetadata().status ==
+          lg::GltfMaterialManifestStatus::Invalid &&
+        missingPrimitiveMaterial.materialMetadata().diagnostic ==
+          "material-cell manifest requires every renderable primitive to bind a material" &&
+        !missingPrimitiveMaterial.materialMetadata().hasAuthoredTextures() &&
+        primitiveFor(missingPrimitiveMaterial, -1) != nullptr &&
+        std::all_of(
+          missingPrimitiveMaterial.primitives().begin(),
+          missingPrimitiveMaterial.primitives().end(),
+          [](const lg::GltfSkinnedModel::Primitive& primitive) {
+            return std::all_of(
+              primitive.vertices.begin(), primitive.vertices.end(),
+              [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+                return vertex.albedoTextureMode == 0U;
+              }
+            );
+          }
+        ),
+      "material-cell metadata should reject unbound Worker primitives and use flat vertices"
+    );
+  }
+  std::filesystem::remove_all(missingMaterialFixtureRoot, error);
 
   const std::filesystem::path duelistFixtureRoot =
     std::filesystem::current_path() / "gltf-duelist-material-manifest-fixture";

@@ -759,7 +759,8 @@ void hashSha256Block(
 [[nodiscard]] GltfMaterialMetadata loadMaterialMetadata(
   std::string_view modelPath,
   const std::vector<std::string>& materialNames,
-  std::string_view modelSha256
+  std::string_view modelSha256,
+  bool hasRenderablePrimitiveWithoutMaterial
 ) {
   GltfMaterialMetadata result;
   const std::filesystem::path modelFile{std::string(modelPath)};
@@ -909,9 +910,13 @@ void hashSha256Block(
     }
 
     // A material-cell atlas supplies every texture input to the shader, so a
-    // partial map could leave a GLB material sampling old texture coordinates.
+    // partial map or unbound renderable primitive could sample old coordinates.
     const bool requireCoverage = result.materialCells ||
       boolMember(root, "require_material_coverage", false);
+    if (result.materialCells && hasRenderablePrimitiveWithoutMaterial) {
+      fail("material-cell manifest requires every renderable primitive to bind a material");
+      return result;
+    }
     std::vector<bool> seen(materialNames.size(), false);
     const JsonValue& bindings = member(root, "materials");
     if (bindings.type != JsonValue::Type::Array) {
@@ -1412,7 +1417,6 @@ bool GltfSkinnedModel::load(std::string_view path) {
     for (const JsonValue& material : materials.array) {
       materialNames_.push_back(stringMember(material, "name"));
     }
-    materialMetadata_ = loadMaterialMetadata(path, materialNames_, sha256Hex(bytes));
     std::vector<bool> meshHasSkinNode(meshes.array.size(), false);
     for (const Node& node : nodes_) {
       if (
@@ -1423,6 +1427,33 @@ bool GltfSkinnedModel::load(std::string_view path) {
         meshHasSkinNode[static_cast<std::size_t>(node.mesh)] = true;
       }
     }
+    bool hasRenderablePrimitiveWithoutMaterial = false;
+    for (std::size_t meshIndex = 0; meshIndex < meshes.array.size(); ++meshIndex) {
+      if (!meshHasSkinNode.empty() && !meshHasSkinNode[meshIndex]) {
+        continue;
+      }
+      const JsonValue& primitives = member(meshes.array[meshIndex], "primitives");
+      for (const JsonValue& primitiveJson : primitives.array) {
+        const int materialIndex = intMember(primitiveJson, "material");
+        if (
+          intMember(primitiveJson, "mode", 4) == 4 &&
+          (materialIndex < 0 ||
+            static_cast<std::size_t>(materialIndex) >= materialNames_.size())
+        ) {
+          hasRenderablePrimitiveWithoutMaterial = true;
+          break;
+        }
+      }
+      if (hasRenderablePrimitiveWithoutMaterial) {
+        break;
+      }
+    }
+    materialMetadata_ = loadMaterialMetadata(
+      path,
+      materialNames_,
+      sha256Hex(bytes),
+      hasRenderablePrimitiveWithoutMaterial
+    );
     for (std::size_t meshIndex = 0; meshIndex < meshes.array.size(); ++meshIndex) {
       if (!meshHasSkinNode.empty() && !meshHasSkinNode[meshIndex]) {
         continue;
