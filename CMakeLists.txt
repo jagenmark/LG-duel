@@ -543,6 +543,12 @@ if(BUILD_TESTING)
     )
     set_tests_properties(lg_duel_worker_material_atlas_current PROPERTIES LABELS assets)
     add_test(
+      NAME lg_duel_worker_material_atlas_python_tests
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_generate_worker_material_atlas.py"
+    )
+    set_tests_properties(lg_duel_worker_material_atlas_python_tests PROPERTIES LABELS assets)
+    add_test(
       NAME lg_duel_worker_material_validate
       COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_worker_materials.py"

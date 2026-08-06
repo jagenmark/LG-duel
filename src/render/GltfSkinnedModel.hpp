@@ -151,7 +151,7 @@ struct GltfMaterialResourcePlan {
   std::uint64_t perFrameTextureUploadBytes = 0;
 };
 
-[[nodiscard]] constexpr GltfMaterialResourcePlan gltfMaterialResourcePlan(
+[[nodiscard]] inline GltfMaterialResourcePlan gltfMaterialResourcePlan(
   const GltfMaterialMetadata& metadata
 ) {
   if (!metadata.hasAuthoredTextures()) {

@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import io
 from pathlib import Path
 
 from PIL import Image, ImageStat
@@ -119,13 +118,22 @@ def make_mask() -> Image.Image:
 
 
 def image_hash(image: Image.Image) -> str:
-    output = io.BytesIO()
-    image.save(output, format="PNG", optimize=False)
-    return hashlib.sha256(output.getvalue()).hexdigest()
+    """Hash the pixels and image shape, independent of PNG compression."""
+    canonical = image.convert("RGBA")
+    digest = hashlib.sha256()
+    digest.update(image.mode.encode("ascii"))
+    digest.update(b"\0")
+    digest.update(str(image.width).encode("ascii"))
+    digest.update(b"x")
+    digest.update(str(image.height).encode("ascii"))
+    digest.update(b"\0")
+    digest.update(canonical.tobytes())
+    return digest.hexdigest()
 
 
-def file_hash(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+def file_image_hash(path: Path) -> str:
+    with Image.open(path) as image:
+        return image_hash(image)
 
 
 def build() -> None:
@@ -145,8 +153,8 @@ def main() -> int:
             print("missing generated Worker material atlas")
             return 1
         if (
-            file_hash(ALBEDO) != image_hash(make_albedo()) or
-            file_hash(MASK) != image_hash(make_mask())
+            file_image_hash(ALBEDO) != image_hash(make_albedo()) or
+            file_image_hash(MASK) != image_hash(make_mask())
         ):
             print("Worker material atlas is stale; run tools/generate_worker_material_atlas.py")
             return 1
