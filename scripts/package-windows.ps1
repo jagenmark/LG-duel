@@ -40,13 +40,13 @@ function Normalize-TextureMaterial {
 function Test-MapMaterialRequiresTexture {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$Material
+    [string]$NormalizedMaterial
   )
 
-  # Keep this list aligned with the map importer. Sky uses the packaged sky
-  # cube, while clip brushes are collision-only.
-  $normalized = Normalize-TextureMaterial $Material
-  return $normalized -notin @(
+  # Get-MapTextureMaterials has already normalized this token once, matching
+  # the importer. Sky uses the packaged sky cube, while clip brushes are
+  # collision-only.
+  return $NormalizedMaterial -notin @(
     "common/sky",
     "common/playerclip",
     "common/clip",
