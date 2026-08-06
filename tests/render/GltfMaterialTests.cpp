@@ -473,12 +473,63 @@ int main() {
         model.load(fixtureModel.string()) &&
         model.materialMetadata().status == lg::GltfMaterialManifestStatus::Invalid &&
         !model.materialMetadata().hasAuthoredTextures() &&
+        model.materialMetadata().albedo.path.empty() &&
+        model.materialMetadata().packedMask.path.empty() &&
         hasFlatAlbedoVertices(model);
     };
     failures += expect(
       retargetedFixtureManifest &&
         rejectsToFlatFallback(validWorkerManifest + "\ntrailing"),
       "trailing text after a material manifest should reject metadata and use flat vertices"
+    );
+
+    std::string unsupportedStringEscape = validWorkerManifest;
+    const bool changedUnsupportedStringEscape = replaceOnce(
+      unsupportedStringEscape,
+      R"("albedo_mode": "replace")",
+      R"("albedo_mode": "re\place")"
+    );
+    failures += expect(
+      changedUnsupportedStringEscape &&
+        rejectsToFlatFallback(unsupportedStringEscape),
+      "unsupported material manifest string escapes should reject metadata and use flat vertices"
+    );
+
+    std::string rawStringControl = validWorkerManifest;
+    const std::string rawControlAlbedoMode =
+      std::string("\"albedo_mode\": \"re") +
+      static_cast<char>(0x01) + "place\"";
+    const bool changedRawStringControl = replaceOnce(
+      rawStringControl,
+      R"("albedo_mode": "replace")",
+      rawControlAlbedoMode
+    );
+    failures += expect(
+      changedRawStringControl && rejectsToFlatFallback(rawStringControl),
+      "raw control characters in material manifest strings should reject metadata and use flat vertices"
+    );
+
+    std::string unterminatedString = validWorkerManifest;
+    const std::size_t finalStringQuote = unterminatedString.find_last_of('"');
+    const bool removedFinalStringQuote =
+      finalStringQuote != std::string::npos;
+    if (removedFinalStringQuote) {
+      unterminatedString.erase(finalStringQuote, 1U);
+    }
+    failures += expect(
+      removedFinalStringQuote && rejectsToFlatFallback(unterminatedString),
+      "unterminated material manifest strings should reject metadata and use flat vertices"
+    );
+
+    std::string unicodeStringEscape = validWorkerManifest;
+    const bool changedUnicodeStringEscape = replaceOnce(
+      unicodeStringEscape,
+      R"("albedo_mode": "replace")",
+      R"("albedo_mode": "\u0072eplace")"
+    );
+    failures += expect(
+      changedUnicodeStringEscape && rejectsToFlatFallback(unicodeStringEscape),
+      "unicode material manifest string escapes should reject metadata and use flat vertices"
     );
 
     std::string finalTrailingComma = validWorkerManifest;

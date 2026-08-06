@@ -169,12 +169,18 @@ private:
       throw std::runtime_error("expected json string");
     }
     std::string result;
-    while (peek() != '\0') {
-      const char character = take();
+    while (offset_ < text_.size()) {
+      const unsigned char character = static_cast<unsigned char>(take());
       if (character == '"') {
-        break;
+        return result;
+      }
+      if (character < 0x20U) {
+        throw std::runtime_error("unescaped control character in json string");
       }
       if (character == '\\') {
+        if (offset_ == text_.size()) {
+          throw std::runtime_error("incomplete json string escape");
+        }
         const char escaped = take();
         switch (escaped) {
         case '"':
@@ -197,15 +203,16 @@ private:
         case 't':
           result.push_back('\t');
           break;
+        case 'u':
+          throw std::runtime_error("unicode json string escapes are not supported");
         default:
-          result.push_back(escaped);
-          break;
+          throw std::runtime_error("unsupported json string escape");
         }
       } else {
-        result.push_back(character);
+        result.push_back(static_cast<char>(character));
       }
     }
-    return result;
+    throw std::runtime_error("unterminated json string");
   }
 
   JsonValue parseNumber() {
