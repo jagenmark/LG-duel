@@ -13,6 +13,12 @@ include(cmake/Dependencies.cmake)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
+option(
+  LG_DUEL_REQUIRE_PILLOW
+  "Fail configuration when Worker material tests cannot import Pillow"
+  OFF
+)
+
 add_custom_target(lg_duel_verify_shaders
   COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_SOURCE_DIR}/tools/compile_shaders.py" --check
@@ -237,6 +243,9 @@ add_custom_command(
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_flat.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_flat.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_direct.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -420,6 +429,9 @@ add_custom_target(lg_duel_runtime_assets ALL
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_flat.frag.spv"
+    "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_flat.frag.spv"
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/shaders/gltf_player_model_direct.frag.spv"
     "$<TARGET_FILE_DIR:lg_duel_client>/shaders/gltf_player_model_direct.frag.spv"
   COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -517,6 +529,39 @@ add_custom_target(lg_duel_validate_maps ALL
 add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)
 
 if(BUILD_TESTING)
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import PIL"
+    RESULT_VARIABLE LG_DUEL_PILLOW_IMPORT_RESULT
+    OUTPUT_QUIET
+    ERROR_QUIET
+  )
+  if(LG_DUEL_PILLOW_IMPORT_RESULT EQUAL 0)
+    add_test(
+      NAME lg_duel_worker_material_atlas_current
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/generate_worker_material_atlas.py" --check
+    )
+    set_tests_properties(lg_duel_worker_material_atlas_current PROPERTIES LABELS assets)
+    add_test(
+      NAME lg_duel_worker_material_atlas_python_tests
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/scripts/test_generate_worker_material_atlas.py"
+    )
+    set_tests_properties(lg_duel_worker_material_atlas_python_tests PROPERTIES LABELS assets)
+    add_test(
+      NAME lg_duel_worker_material_validate
+      COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tools/validate_worker_materials.py"
+    )
+    set_tests_properties(lg_duel_worker_material_validate PROPERTIES LABELS assets)
+  elseif(LG_DUEL_REQUIRE_PILLOW)
+    message(
+      FATAL_ERROR
+      "Pillow is required by LG_DUEL_REQUIRE_PILLOW=ON. Install it with \"${Python3_EXECUTABLE}\" -m pip install Pillow."
+    )
+  else()
+    message(STATUS "Pillow not found; skipping Worker material atlas tests")
+  endif()
   add_test(
     NAME lg_duel_shader_binaries_current
     COMMAND "${Python3_EXECUTABLE}"

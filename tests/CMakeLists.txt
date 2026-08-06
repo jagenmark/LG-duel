@@ -562,6 +562,10 @@ target_compile_features(lg_duel_audio_assets_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_audio_assets_tests)
 
 add_test(NAME lg_duel_audio_assets_tests COMMAND lg_duel_audio_assets_tests)
+set_tests_properties(
+  lg_duel_audio_assets_tests
+  PROPERTIES WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)
 
 add_executable(lg_duel_client_session_tests
   client/ClientSessionTests.cpp
@@ -652,6 +656,18 @@ target_compile_features(lg_duel_scene_3d_tests PRIVATE cxx_std_20)
 lg_duel_set_warnings(lg_duel_scene_3d_tests)
 
 add_test(NAME lg_duel_scene_3d_tests COMMAND lg_duel_scene_3d_tests)
+
+add_executable(lg_duel_gltf_material_tests
+  render/GltfMaterialTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/GltfSkinnedModel.cpp
+)
+
+add_dependencies(lg_duel_gltf_material_tests lg_duel_runtime_assets)
+target_link_libraries(lg_duel_gltf_material_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_gltf_material_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_gltf_material_tests)
+
+add_test(NAME lg_duel_gltf_material_tests COMMAND lg_duel_gltf_material_tests)
 
 add_executable(lg_duel_player_presentation_tests
   render/PlayerPresentationTests.cpp

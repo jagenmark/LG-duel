@@ -1,10 +1,13 @@
 #include "render/GltfSkinnedModel.hpp"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -41,6 +44,9 @@ public:
   JsonValue parse() {
     JsonValue value = parseValue();
     skipWhitespace();
+    if (offset_ != text_.size()) {
+      throw std::runtime_error("unexpected trailing json content");
+    }
     return value;
   }
 
@@ -110,7 +116,7 @@ private:
       (void)take();
       return value;
     }
-    while (peek() != '\0') {
+    while (true) {
       const std::string key = parseString();
       skipWhitespace();
       if (take() != ':') {
@@ -120,14 +126,16 @@ private:
       skipWhitespace();
       const char separator = take();
       if (separator == '}') {
-        break;
+        return value;
       }
       if (separator != ',') {
         throw std::runtime_error("invalid json object separator");
       }
       skipWhitespace();
+      if (peek() == '}' || peek() == '\0') {
+        throw std::runtime_error("invalid json object trailing comma");
+      }
     }
-    return value;
   }
 
   JsonValue parseArray() {
@@ -139,19 +147,21 @@ private:
       (void)take();
       return value;
     }
-    while (peek() != '\0') {
+    while (true) {
       value.array.push_back(parseValue());
       skipWhitespace();
       const char separator = take();
       if (separator == ']') {
-        break;
+        return value;
       }
       if (separator != ',') {
         throw std::runtime_error("invalid json array separator");
       }
       skipWhitespace();
+      if (peek() == ']' || peek() == '\0') {
+        throw std::runtime_error("invalid json array trailing comma");
+      }
     }
-    return value;
   }
 
   std::string parseString() {
@@ -159,12 +169,18 @@ private:
       throw std::runtime_error("expected json string");
     }
     std::string result;
-    while (peek() != '\0') {
-      const char character = take();
+    while (offset_ < text_.size()) {
+      const unsigned char character = static_cast<unsigned char>(take());
       if (character == '"') {
-        break;
+        return result;
+      }
+      if (character < 0x20U) {
+        throw std::runtime_error("unescaped control character in json string");
       }
       if (character == '\\') {
+        if (offset_ == text_.size()) {
+          throw std::runtime_error("incomplete json string escape");
+        }
         const char escaped = take();
         switch (escaped) {
         case '"':
@@ -187,15 +203,16 @@ private:
         case 't':
           result.push_back('\t');
           break;
+        case 'u':
+          throw std::runtime_error("unicode json string escapes are not supported");
         default:
-          result.push_back(escaped);
-          break;
+          throw std::runtime_error("unsupported json string escape");
         }
       } else {
-        result.push_back(character);
+        result.push_back(static_cast<char>(character));
       }
     }
-    return result;
+    throw std::runtime_error("unterminated json string");
   }
 
   JsonValue parseNumber() {
@@ -203,11 +220,22 @@ private:
     if (peek() == '-') {
       ++offset_;
     }
-    while (std::isdigit(static_cast<unsigned char>(peek()))) {
+
+    if (peek() == '0') {
       ++offset_;
+    } else if (std::isdigit(static_cast<unsigned char>(peek()))) {
+      do {
+        ++offset_;
+      } while (std::isdigit(static_cast<unsigned char>(peek())));
+    } else {
+      throw std::runtime_error("invalid json number");
     }
+
     if (peek() == '.') {
       ++offset_;
+      if (!std::isdigit(static_cast<unsigned char>(peek()))) {
+        throw std::runtime_error("invalid json number fraction");
+      }
       while (std::isdigit(static_cast<unsigned char>(peek()))) {
         ++offset_;
       }
@@ -217,13 +245,21 @@ private:
       if (peek() == '-' || peek() == '+') {
         ++offset_;
       }
+      if (!std::isdigit(static_cast<unsigned char>(peek()))) {
+        throw std::runtime_error("invalid json number exponent");
+      }
       while (std::isdigit(static_cast<unsigned char>(peek()))) {
         ++offset_;
       }
     }
     JsonValue value;
     value.type = JsonValue::Type::Number;
-    value.number = std::stod(std::string(text_.substr(start, offset_ - start)));
+    const std::string token(text_.substr(start, offset_ - start));
+    std::size_t parsed = 0;
+    value.number = std::stod(token, &parsed);
+    if (parsed != token.size()) {
+      throw std::runtime_error("invalid json number");
+    }
     return value;
   }
 
@@ -266,6 +302,36 @@ private:
     : fallback;
 }
 
+[[nodiscard]] bool exactIntValue(const JsonValue& value, int& out) {
+  if (
+    value.type != JsonValue::Type::Number ||
+    !std::isfinite(value.number) ||
+    std::trunc(value.number) != value.number ||
+    value.number < static_cast<double>(std::numeric_limits<int>::min()) ||
+    value.number > static_cast<double>(std::numeric_limits<int>::max())
+  ) {
+    return false;
+  }
+  out = static_cast<int>(value.number);
+  return true;
+}
+
+[[nodiscard]] bool exactIntMember(
+  const JsonValue& object,
+  std::string_view name,
+  int& out
+) {
+  return exactIntValue(member(object, name), out);
+}
+
+[[nodiscard]] bool exactIntAt(
+  const JsonValue& array,
+  int index,
+  int& out
+) {
+  return exactIntValue(at(array, index), out);
+}
+
 [[nodiscard]] float floatAt(
   const JsonValue& array,
   int index,
@@ -284,6 +350,26 @@ private:
 ) {
   const JsonValue& value = member(object, name);
   return value.type == JsonValue::Type::String ? value.string : fallback;
+}
+
+[[nodiscard]] bool boolMember(
+  const JsonValue& object,
+  std::string_view name,
+  bool fallback = false
+) {
+  const JsonValue& value = member(object, name);
+  return value.type == JsonValue::Type::Bool ? value.boolean : fallback;
+}
+
+[[nodiscard]] float floatMember(
+  const JsonValue& object,
+  std::string_view name,
+  float fallback = 0.0F
+) {
+  const JsonValue& value = member(object, name);
+  return value.type == JsonValue::Type::Number
+    ? static_cast<float>(value.number)
+    : fallback;
 }
 
 [[nodiscard]] std::uint32_t readU32(
@@ -516,20 +602,477 @@ void expandBounds(GltfModelBounds& bounds, Vec3 point, bool& initialized) {
   return weights;
 }
 
-[[nodiscard]] RenderColor materialColor(const JsonValue& material) {
+[[nodiscard]] bool safeModelRelativePath(std::string_view value) {
+  if (value.empty()) {
+    return false;
+  }
+  const std::filesystem::path path{std::string(value)};
+  if (path.is_absolute() || path.has_root_name() || path.has_root_directory()) {
+    return false;
+  }
+  for (const std::filesystem::path& component : path) {
+    if (component == ".." || component == ".") {
+      return false;
+    }
+  }
+  return true;
+}
+
+[[nodiscard]] std::uint8_t normalizedByte(float value) {
+  return static_cast<std::uint8_t>(std::clamp(value * 255.0F, 0.0F, 255.0F));
+}
+
+[[nodiscard]] std::uint8_t gpuAlbedoTextureMode(
+  GltfAlbedoTextureMode mode
+) {
+  switch (mode) {
+  case GltfAlbedoTextureMode::Multiply:
+    return 128U;
+  case GltfAlbedoTextureMode::Replace:
+    return 255U;
+  case GltfAlbedoTextureMode::None:
+    return 0U;
+  }
+  return 0U;
+}
+
+[[nodiscard]] RenderColor materialColor(
+  const JsonValue& material,
+  bool forceOpaque
+) {
   const JsonValue& pbr = member(material, "pbrMetallicRoughness");
   const JsonValue& factor = member(pbr, "baseColorFactor");
+  const bool opaque = forceOpaque ||
+    stringMember(material, "alphaMode", "OPAQUE") != "BLEND";
   return {
-    static_cast<std::uint8_t>(std::clamp(floatAt(factor, 0, 1.0F) * 255.0F, 0.0F, 255.0F)),
-    static_cast<std::uint8_t>(std::clamp(floatAt(factor, 1, 1.0F) * 255.0F, 0.0F, 255.0F)),
-    static_cast<std::uint8_t>(std::clamp(floatAt(factor, 2, 1.0F) * 255.0F, 0.0F, 255.0F)),
-    static_cast<std::uint8_t>(std::clamp(floatAt(factor, 3, 1.0F) * 255.0F, 0.0F, 255.0F)),
+    normalizedByte(floatAt(factor, 0, 1.0F)),
+    normalizedByte(floatAt(factor, 1, 1.0F)),
+    normalizedByte(floatAt(factor, 2, 1.0F)),
+    opaque ? static_cast<std::uint8_t>(255U) :
+      normalizedByte(floatAt(factor, 3, 1.0F)),
   };
 }
 
-[[nodiscard]] bool materialTintable(const JsonValue& material) {
-  const std::string name = stringMember(material, "name");
-  return name == "MAT_ClothPrimary" || name == "MAT_ClothAccent";
+[[nodiscard]] std::string readTextFile(const std::filesystem::path& path) {
+  std::ifstream file(path, std::ios::binary);
+  if (!file) {
+    return {};
+  }
+  file.seekg(0, std::ios::end);
+  const std::streamoff size = file.tellg();
+  if (size < 0) {
+    return {};
+  }
+  file.seekg(0, std::ios::beg);
+  std::string text(static_cast<std::size_t>(size), '\0');
+  file.read(text.data(), size);
+  return file ? text : std::string{};
+}
+
+[[nodiscard]] std::uint32_t rotateRight(std::uint32_t value, unsigned int bits) {
+  return (value >> bits) | (value << (32U - bits));
+}
+
+void hashSha256Block(
+  const std::uint8_t* block,
+  std::array<std::uint32_t, 8>& state
+) {
+  constexpr std::array<std::uint32_t, 64> constants = {
+    0x428A2F98U, 0x71374491U, 0xB5C0FBCFU, 0xE9B5DBA5U,
+    0x3956C25BU, 0x59F111F1U, 0x923F82A4U, 0xAB1C5ED5U,
+    0xD807AA98U, 0x12835B01U, 0x243185BEU, 0x550C7DC3U,
+    0x72BE5D74U, 0x80DEB1FEU, 0x9BDC06A7U, 0xC19BF174U,
+    0xE49B69C1U, 0xEFBE4786U, 0x0FC19DC6U, 0x240CA1CCU,
+    0x2DE92C6FU, 0x4A7484AAU, 0x5CB0A9DCU, 0x76F988DAU,
+    0x983E5152U, 0xA831C66DU, 0xB00327C8U, 0xBF597FC7U,
+    0xC6E00BF3U, 0xD5A79147U, 0x06CA6351U, 0x14292967U,
+    0x27B70A85U, 0x2E1B2138U, 0x4D2C6DFCU, 0x53380D13U,
+    0x650A7354U, 0x766A0ABBU, 0x81C2C92EU, 0x92722C85U,
+    0xA2BFE8A1U, 0xA81A664BU, 0xC24B8B70U, 0xC76C51A3U,
+    0xD192E819U, 0xD6990624U, 0xF40E3585U, 0x106AA070U,
+    0x19A4C116U, 0x1E376C08U, 0x2748774CU, 0x34B0BCB5U,
+    0x391C0CB3U, 0x4ED8AA4AU, 0x5B9CCA4FU, 0x682E6FF3U,
+    0x748F82EEU, 0x78A5636FU, 0x84C87814U, 0x8CC70208U,
+    0x90BEFFFAU, 0xA4506CEBU, 0xBEF9A3F7U, 0xC67178F2U,
+  };
+  std::array<std::uint32_t, 64> words = {};
+  for (std::size_t index = 0; index < 16U; ++index) {
+    const std::size_t offset = index * 4U;
+    words[index] = (static_cast<std::uint32_t>(block[offset]) << 24U) |
+      (static_cast<std::uint32_t>(block[offset + 1U]) << 16U) |
+      (static_cast<std::uint32_t>(block[offset + 2U]) << 8U) |
+      static_cast<std::uint32_t>(block[offset + 3U]);
+  }
+  for (std::size_t index = 16U; index < words.size(); ++index) {
+    const std::uint32_t first = rotateRight(words[index - 15U], 7U) ^
+      rotateRight(words[index - 15U], 18U) ^ (words[index - 15U] >> 3U);
+    const std::uint32_t second = rotateRight(words[index - 2U], 17U) ^
+      rotateRight(words[index - 2U], 19U) ^ (words[index - 2U] >> 10U);
+    words[index] = words[index - 16U] + first + words[index - 7U] + second;
+  }
+
+  std::uint32_t a = state[0];
+  std::uint32_t b = state[1];
+  std::uint32_t c = state[2];
+  std::uint32_t d = state[3];
+  std::uint32_t e = state[4];
+  std::uint32_t f = state[5];
+  std::uint32_t g = state[6];
+  std::uint32_t h = state[7];
+  for (std::size_t index = 0; index < words.size(); ++index) {
+    const std::uint32_t sigma1 = rotateRight(e, 6U) ^ rotateRight(e, 11U) ^
+      rotateRight(e, 25U);
+    const std::uint32_t choice = (e & f) ^ ((~e) & g);
+    const std::uint32_t temporary1 = h + sigma1 + choice + constants[index] + words[index];
+    const std::uint32_t sigma0 = rotateRight(a, 2U) ^ rotateRight(a, 13U) ^
+      rotateRight(a, 22U);
+    const std::uint32_t majority = (a & b) ^ (a & c) ^ (b & c);
+    const std::uint32_t temporary2 = sigma0 + majority;
+    h = g;
+    g = f;
+    f = e;
+    e = d + temporary1;
+    d = c;
+    c = b;
+    b = a;
+    a = temporary1 + temporary2;
+  }
+  state[0] += a;
+  state[1] += b;
+  state[2] += c;
+  state[3] += d;
+  state[4] += e;
+  state[5] += f;
+  state[6] += g;
+  state[7] += h;
+}
+
+[[nodiscard]] std::string sha256Hex(const std::vector<std::uint8_t>& bytes) {
+  std::array<std::uint32_t, 8> state = {
+    0x6A09E667U, 0xBB67AE85U, 0x3C6EF372U, 0xA54FF53AU,
+    0x510E527FU, 0x9B05688CU, 0x1F83D9ABU, 0x5BE0CD19U,
+  };
+  constexpr std::size_t blockSize = 64U;
+  const std::size_t fullBytes = bytes.size() - (bytes.size() % blockSize);
+  for (std::size_t offset = 0; offset < fullBytes; offset += blockSize) {
+    hashSha256Block(bytes.data() + offset, state);
+  }
+
+  std::array<std::uint8_t, blockSize> tail = {};
+  const std::size_t remaining = bytes.size() - fullBytes;
+  for (std::size_t index = 0; index < remaining; ++index) {
+    tail[index] = bytes[fullBytes + index];
+  }
+  tail[remaining] = 0x80U;
+  if (remaining >= 56U) {
+    hashSha256Block(tail.data(), state);
+    tail.fill(0U);
+  }
+  const std::uint64_t bitLength = static_cast<std::uint64_t>(bytes.size()) * 8U;
+  for (std::size_t index = 0; index < 8U; ++index) {
+    tail[63U - index] = static_cast<std::uint8_t>(bitLength >> (index * 8U));
+  }
+  hashSha256Block(tail.data(), state);
+
+  constexpr std::string_view hex = "0123456789abcdef";
+  std::string result(64U, '0');
+  for (std::size_t index = 0; index < state.size(); ++index) {
+    for (std::size_t byte = 0; byte < 4U; ++byte) {
+      const std::uint32_t shift = static_cast<std::uint32_t>((3U - byte) * 8U);
+      const std::uint8_t value = static_cast<std::uint8_t>(state[index] >> shift);
+      result[(index * 4U + byte) * 2U] = hex[value >> 4U];
+      result[(index * 4U + byte) * 2U + 1U] = hex[value & 0x0FU];
+    }
+  }
+  return result;
+}
+
+[[nodiscard]] bool validSha256Hex(std::string_view value) {
+  return value.size() == 64U && std::all_of(
+    value.begin(),
+    value.end(),
+    [](char character) {
+      return (character >= '0' && character <= '9') ||
+        (character >= 'a' && character <= 'f') ||
+        (character >= 'A' && character <= 'F');
+    }
+  );
+}
+
+[[nodiscard]] bool sha256Matches(
+  std::string_view expected,
+  std::string_view actual
+) {
+  return expected.size() == actual.size() && std::equal(
+    expected.begin(), expected.end(), actual.begin(),
+    [](char expectedCharacter, char actualCharacter) {
+      if (expectedCharacter >= 'A' && expectedCharacter <= 'F') {
+        expectedCharacter = static_cast<char>(
+          expectedCharacter + ('a' - 'A')
+        );
+      }
+      return expectedCharacter == actualCharacter;
+    }
+  );
+}
+
+[[nodiscard]] bool powerOfTwo(std::uint32_t value) {
+  return value > 0U && (value & (value - 1U)) == 0U;
+}
+
+[[nodiscard]] GltfMaterialMetadata loadMaterialMetadata(
+  std::string_view modelPath,
+  const std::vector<std::string>& materialNames,
+  std::string_view modelSha256,
+  bool hasRenderablePrimitiveWithoutMaterial
+) {
+  GltfMaterialMetadata result;
+  const std::filesystem::path modelFile{std::string(modelPath)};
+  const std::filesystem::path modelDirectory = modelFile.parent_path();
+  const std::filesystem::path manifestPath =
+    modelDirectory / "material-manifest.json";
+  result.manifestPath = manifestPath.lexically_normal().string();
+  const std::string manifestText = readTextFile(manifestPath);
+  if (manifestText.empty()) {
+    result.diagnostic = "no model-local material manifest";
+    return result;
+  }
+
+  const auto fail = [&result](std::string_view message) {
+    result.status = GltfMaterialManifestStatus::Invalid;
+    result.diagnostic = std::string(message);
+    result.bindings.clear();
+    result.albedo = {};
+    result.packedMask = {};
+    result.albedoFilePresent = false;
+    result.packedMaskFilePresent = false;
+    result.forceOpaque = false;
+    result.materialCells = false;
+    result.albedoMode = GltfAlbedoTextureMode::None;
+    result.atlasColumns = 0;
+    result.atlasRows = 0;
+  };
+  try {
+    const JsonValue root = JsonParser(manifestText).parse();
+    int schemaVersion = 0;
+    if (
+      root.type != JsonValue::Type::Object ||
+      !exactIntMember(root, "schema_version", schemaVersion) ||
+      schemaVersion != 1
+    ) {
+      fail("material manifest requires schema_version 1");
+      return result;
+    }
+    const std::string expectedModel = stringMember(root, "model");
+    if (
+      !expectedModel.empty() &&
+      expectedModel != modelFile.filename().string()
+    ) {
+      fail("material manifest model name does not match the GLB");
+      return result;
+    }
+    const std::string expectedSha256 = stringMember(root, "model_sha256");
+    if (!validSha256Hex(expectedSha256)) {
+      fail("material manifest requires a valid model_sha256");
+      return result;
+    }
+    if (!sha256Matches(expectedSha256, modelSha256)) {
+      fail("material manifest model_sha256 does not match the GLB");
+      return result;
+    }
+
+    result.forceOpaque = boolMember(root, "opaque", false);
+    const JsonValue& textures = member(root, "textures");
+    const JsonValue& albedo = member(textures, "albedo");
+    const JsonValue& packedMask = member(textures, "packed_mask");
+    const bool declaresAlbedo = albedo.type == JsonValue::Type::Object;
+    const bool declaresMask = packedMask.type == JsonValue::Type::Object;
+    if (declaresAlbedo != declaresMask) {
+      fail("material manifest must declare both albedo and packed_mask");
+      return result;
+    }
+    if (declaresAlbedo) {
+      const auto parseTexture = [&modelDirectory](
+                                  const JsonValue& value,
+                                  GltfTextureColorSpace expectedColorSpace,
+                                  GltfMaterialTexture& out
+                                ) -> bool {
+        const std::string relativePath = stringMember(value, "path");
+        const std::string colorSpace = stringMember(value, "color_space");
+        int width = 0;
+        int height = 0;
+        if (
+          !exactIntMember(value, "width", width) ||
+          !exactIntMember(value, "height", height) ||
+          !safeModelRelativePath(relativePath) ||
+          width <= 0 || height <= 0 || width > 2048 || height > 2048 ||
+          !powerOfTwo(static_cast<std::uint32_t>(width)) ||
+          !powerOfTwo(static_cast<std::uint32_t>(height))
+        ) {
+          return false;
+        }
+        const bool hasExpectedColorSpace =
+          (expectedColorSpace == GltfTextureColorSpace::Srgb && colorSpace == "srgb") ||
+          (expectedColorSpace == GltfTextureColorSpace::Linear && colorSpace == "linear");
+        if (!hasExpectedColorSpace) {
+          return false;
+        }
+        out.path = (modelDirectory / std::filesystem::path(relativePath))
+          .lexically_normal()
+          .string();
+        out.colorSpace = expectedColorSpace;
+        out.width = static_cast<std::uint32_t>(width);
+        out.height = static_cast<std::uint32_t>(height);
+        return true;
+      };
+      if (
+        !parseTexture(albedo, GltfTextureColorSpace::Srgb, result.albedo) ||
+        !parseTexture(packedMask, GltfTextureColorSpace::Linear, result.packedMask)
+      ) {
+        fail("material texture path, dimensions, or colour space is invalid");
+        return result;
+      }
+      result.albedoFilePresent =
+        std::filesystem::is_regular_file(result.albedo.path);
+      result.packedMaskFilePresent =
+        std::filesystem::is_regular_file(result.packedMask.path);
+      const std::string contractR = stringMember(member(root, "packed_mask_contract"), "r");
+      const std::string contractG = stringMember(member(root, "packed_mask_contract"), "g");
+      const std::string contractB = stringMember(member(root, "packed_mask_contract"), "b");
+      const std::string contractA = stringMember(member(root, "packed_mask_contract"), "a");
+      if (
+        contractR != "team_tint_weight" ||
+        contractG != "perceptual_roughness" ||
+        contractB != "metallic_weight" ||
+        contractA != "emissive_weight_reserved_zero"
+      ) {
+        fail("packed mask channel contract is invalid");
+        return result;
+      }
+      const std::string uvMode = stringMember(root, "uv_mode");
+      if (uvMode == "material_cell") {
+        const JsonValue& atlas = member(root, "atlas");
+        int columns = 0;
+        int rows = 0;
+        if (
+          !exactIntMember(atlas, "columns", columns) ||
+          !exactIntMember(atlas, "rows", rows) ||
+          columns <= 0 || rows <= 0 || columns > 32 || rows > 32
+        ) {
+          fail("material-cell atlas dimensions are invalid");
+          return result;
+        }
+        result.materialCells = true;
+        result.atlasColumns = static_cast<std::uint32_t>(columns);
+        result.atlasRows = static_cast<std::uint32_t>(rows);
+      } else if (uvMode != "texcoord0") {
+        fail("textured material manifest needs uv_mode material_cell or texcoord0");
+        return result;
+      }
+      const std::string albedoMode = stringMember(root, "albedo_mode", "multiply");
+      result.albedoMode = albedoMode == "replace"
+        ? GltfAlbedoTextureMode::Replace
+        : albedoMode == "multiply" ? GltfAlbedoTextureMode::Multiply
+        : GltfAlbedoTextureMode::None;
+      if (result.albedoMode == GltfAlbedoTextureMode::None) {
+        fail("textured material manifest has an invalid albedo_mode");
+        return result;
+      }
+      if (stringMember(root, "mip_policy") != "runtime_generate") {
+        fail("textured material manifest must use runtime_generate mip_policy");
+        return result;
+      }
+    }
+
+    // A material-cell atlas supplies every texture input to the shader, so a
+    // partial map or unbound renderable primitive could sample old coordinates.
+    const bool requireCoverage = result.materialCells ||
+      boolMember(root, "require_material_coverage", false);
+    if (result.materialCells && hasRenderablePrimitiveWithoutMaterial) {
+      fail("material-cell manifest requires every renderable primitive to bind a material");
+      return result;
+    }
+    std::vector<bool> seen(materialNames.size(), false);
+    const JsonValue& bindings = member(root, "materials");
+    if (bindings.type != JsonValue::Type::Array) {
+      fail("material manifest needs a materials array");
+      return result;
+    }
+    for (const JsonValue& value : bindings.array) {
+      int index = -1;
+      const std::string expectedName = stringMember(value, "name");
+      const float tintWeight = floatMember(value, "flat_tint_weight", 0.0F);
+      if (
+        value.type != JsonValue::Type::Object ||
+        !exactIntMember(value, "index", index) ||
+        index < 0 || static_cast<std::size_t>(index) >= materialNames.size() ||
+        expectedName.empty() ||
+        materialNames[static_cast<std::size_t>(index)] != expectedName ||
+        seen[static_cast<std::size_t>(index)] ||
+        !std::isfinite(tintWeight) || tintWeight < 0.0F || tintWeight > 1.0F
+      ) {
+        fail("material manifest has an invalid material binding");
+        return result;
+      }
+      GltfMaterialBinding binding;
+      binding.materialIndex = index;
+      binding.expectedName = expectedName;
+      binding.flatTintWeight = normalizedByte(tintWeight);
+      if (result.materialCells) {
+        const JsonValue& cell = member(value, "cell");
+        int column = -1;
+        int row = -1;
+        if (
+          !exactIntAt(cell, 0, column) ||
+          !exactIntAt(cell, 1, row) ||
+          column < 0 || row < 0 ||
+          static_cast<std::uint32_t>(column) >= result.atlasColumns ||
+          static_cast<std::uint32_t>(row) >= result.atlasRows
+        ) {
+          fail("material manifest has an invalid atlas cell");
+          return result;
+        }
+        binding.atlasU = (static_cast<float>(column) + 0.5F) /
+          static_cast<float>(result.atlasColumns);
+        binding.atlasV = (static_cast<float>(row) + 0.5F) /
+          static_cast<float>(result.atlasRows);
+      }
+      seen[static_cast<std::size_t>(index)] = true;
+      result.bindings.push_back(std::move(binding));
+    }
+    if (
+      requireCoverage &&
+      std::any_of(seen.begin(), seen.end(), [](bool value) { return !value; })
+    ) {
+      fail("material manifest does not cover every GLB material");
+      return result;
+    }
+    result.status = GltfMaterialManifestStatus::Valid;
+    result.diagnostic = "valid model-local material manifest";
+  } catch (...) {
+    fail("material manifest is malformed");
+  }
+  return result;
+}
+
+[[nodiscard]] const GltfMaterialBinding* materialBinding(
+  const GltfMaterialMetadata& metadata,
+  int materialIndex
+) {
+  const auto found = std::find_if(
+    metadata.bindings.begin(),
+    metadata.bindings.end(),
+    [materialIndex](const GltfMaterialBinding& binding) {
+      return binding.materialIndex == materialIndex;
+    }
+  );
+  return found == metadata.bindings.end() ? nullptr : &*found;
+}
+
+[[nodiscard]] bool legacyDuelistClothMaterial(std::string_view materialName) {
+  // The pre-manifest Duelist marks its flat team-tinted cloth by name.
+  return materialName == "MAT_ClothPrimary" ||
+    materialName == "MAT_ClothAccent";
 }
 
 [[nodiscard]] GltfSkinnedModel::Matrix4 identityMatrix() {
@@ -947,6 +1490,11 @@ bool GltfSkinnedModel::load(std::string_view path) {
     bool localBoundsInitialized = false;
     const JsonValue& meshes = member(root, "meshes");
     const JsonValue& materials = member(root, "materials");
+    materialNames_.clear();
+    materialNames_.reserve(materials.array.size());
+    for (const JsonValue& material : materials.array) {
+      materialNames_.push_back(stringMember(material, "name"));
+    }
     std::vector<bool> meshHasSkinNode(meshes.array.size(), false);
     for (const Node& node : nodes_) {
       if (
@@ -957,6 +1505,33 @@ bool GltfSkinnedModel::load(std::string_view path) {
         meshHasSkinNode[static_cast<std::size_t>(node.mesh)] = true;
       }
     }
+    bool hasRenderablePrimitiveWithoutMaterial = false;
+    for (std::size_t meshIndex = 0; meshIndex < meshes.array.size(); ++meshIndex) {
+      if (!meshHasSkinNode.empty() && !meshHasSkinNode[meshIndex]) {
+        continue;
+      }
+      const JsonValue& primitives = member(meshes.array[meshIndex], "primitives");
+      for (const JsonValue& primitiveJson : primitives.array) {
+        const int materialIndex = intMember(primitiveJson, "material");
+        if (
+          intMember(primitiveJson, "mode", 4) == 4 &&
+          (materialIndex < 0 ||
+            static_cast<std::size_t>(materialIndex) >= materialNames_.size())
+        ) {
+          hasRenderablePrimitiveWithoutMaterial = true;
+          break;
+        }
+      }
+      if (hasRenderablePrimitiveWithoutMaterial) {
+        break;
+      }
+    }
+    materialMetadata_ = loadMaterialMetadata(
+      path,
+      materialNames_,
+      sha256Hex(bytes),
+      hasRenderablePrimitiveWithoutMaterial
+    );
     for (std::size_t meshIndex = 0; meshIndex < meshes.array.size(); ++meshIndex) {
       if (!meshHasSkinNode.empty() && !meshHasSkinNode[meshIndex]) {
         continue;
@@ -976,6 +1551,18 @@ bool GltfSkinnedModel::load(std::string_view path) {
         const int indicesAccessor = intMember(primitiveJson, "indices");
         const int materialIndex = intMember(primitiveJson, "material");
         const JsonValue& material = at(materials, materialIndex);
+        const GltfMaterialBinding* binding = materialBinding(
+          materialMetadata_,
+          materialIndex
+        );
+        const std::uint8_t fallbackTintWeight =
+          !materialMetadata_.valid() &&
+            legacyDuelistClothMaterial(stringMember(material, "name"))
+          ? 255U
+          : 0U;
+        const std::uint8_t tintWeight = binding != nullptr
+          ? binding->flatTintWeight
+          : fallbackTintWeight;
 
         const std::vector<float> positions =
           readAccessorFloats(root, binaryChunk, positionAccessor);
@@ -994,9 +1581,27 @@ bool GltfSkinnedModel::load(std::string_view path) {
           readAccessorU32(root, binaryChunk, indicesAccessor);
 
         Primitive primitive;
-        primitive.color = materialColor(material);
-        primitive.tintable = materialTintable(material);
+        primitive.color = materialColor(material, materialMetadata_.forceOpaque);
+        primitive.tintable = tintWeight > 0U;
         primitive.materialIndex = materialIndex;
+        const JsonValue& pbr = member(material, "pbrMetallicRoughness");
+        primitive.roughnessFactor = std::clamp(
+          floatMember(pbr, "roughnessFactor", 1.0F),
+          0.0F,
+          1.0F
+        );
+        primitive.metallicFactor = std::clamp(
+          floatMember(pbr, "metallicFactor", 0.0F),
+          0.0F,
+          1.0F
+        );
+        const JsonValue& emissive = member(material, "emissiveFactor");
+        primitive.emissiveFactor = {
+          std::clamp(floatAt(emissive, 0, 0.0F), 0.0F, 1.0F),
+          std::clamp(floatAt(emissive, 1, 0.0F), 0.0F, 1.0F),
+          std::clamp(floatAt(emissive, 2, 0.0F), 0.0F, 1.0F),
+        };
+        primitive.opaque = primitive.color.alpha == 255U;
         const std::size_t vertexCount = positions.size() / 3U;
         primitive.vertices.reserve(vertexCount);
         bool primitiveBoundsInitialized = false;
@@ -1005,10 +1610,19 @@ bool GltfSkinnedModel::load(std::string_view path) {
           vertex.position = vec3FromFloats(positions, vertexIndex);
           vertex.normal = normalize(vec3FromFloatsOr(normals, vertexIndex, {0.0F, 0.0F, 1.0F}));
           const auto uv = vec2FromFloatsOr(texCoords, vertexIndex, {0.0F, 0.0F});
-          vertex.u = uv[0];
-          vertex.v = uv[1];
+          vertex.u = materialMetadata_.materialCells && binding != nullptr
+            ? binding->atlasU
+            : uv[0];
+          vertex.v = materialMetadata_.materialCells && binding != nullptr
+            ? binding->atlasV
+            : uv[1];
           vertex.color = primitive.color;
-          vertex.tintWeight = primitive.tintable ? 255U : 0U;
+          vertex.tintWeight = tintWeight;
+          const bool samplesAuthoredTexture = materialMetadata_.hasAuthoredTextures() &&
+            (!materialMetadata_.materialCells || binding != nullptr);
+          vertex.albedoTextureMode = samplesAuthoredTexture
+            ? gpuAlbedoTextureMode(materialMetadata_.albedoMode)
+            : 0U;
           std::array<float, 4> rawWeights = {};
           for (std::size_t jointIndex = 0; jointIndex < 4U; ++jointIndex) {
             const std::size_t sourceIndex = vertexIndex * 4U + jointIndex;
@@ -1148,6 +1762,14 @@ std::string_view GltfSkinnedModel::sourcePath() const {
 
 const std::vector<std::string>& GltfSkinnedModel::animationNames() const {
   return animationNames_;
+}
+
+const std::vector<std::string>& GltfSkinnedModel::materialNames() const {
+  return materialNames_;
+}
+
+const GltfMaterialMetadata& GltfSkinnedModel::materialMetadata() const {
+  return materialMetadata_;
 }
 
 const std::vector<GltfSkinnedModel::Primitive>& GltfSkinnedModel::primitives() const {

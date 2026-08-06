@@ -12,11 +12,44 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import import_q3_map
 import lg_control
 import lg_mcp_server
 
 
 class LgToolTests(unittest.TestCase):
+    def test_pr_workflow_requires_pillow_for_worker_material_checks(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
+        self.assertIn("LG_DUEL_REQUIRE_PILLOW", cmake)
+        self.assertRegex(
+            cmake,
+            r"elseif\(LG_DUEL_REQUIRE_PILLOW\)\s+message\(\s+FATAL_ERROR",
+        )
+        self.assertIn("Pillow not found; skipping Worker material atlas tests", cmake)
+
+        workflow = (root / ".github" / "workflows" / "pr-verification.yml").read_text(
+            encoding="utf-8"
+        )
+        for job_name, preset in (
+            ("linux-build-and-tests", "default"),
+            ("windows-build-and-tests", "msvc"),
+        ):
+            with self.subTest(job=job_name):
+                job = re.search(
+                    rf"(?ms)^  {re.escape(job_name)}:\n(.*?)(?=^  [\w-]+:|\Z)",
+                    workflow,
+                )
+                self.assertIsNotNone(job)
+                job_body = job.group(1)
+                install = 'python -m pip install --disable-pip-version-check "Pillow==11.3.0"'
+                configure = f"cmake --preset {preset}"
+                self.assertIn(install, job_body)
+                self.assertIn(configure, job_body)
+                self.assertIn("-DLG_DUEL_REQUIRE_PILLOW=ON", job_body)
+                self.assertIn("-DPython3_EXECUTABLE=", job_body)
+                self.assertLess(job_body.index(install), job_body.index(configure))
+
     def test_map_editor_generated_state_is_ignored(self) -> None:
         root = Path(__file__).resolve().parents[1]
         ignore_lines = (root / ".gitignore").read_text(
@@ -1427,6 +1460,42 @@ class LgToolTests(unittest.TestCase):
         self.assertIn('Get-ChildItem (Join-Path $repoRoot "assets/shaders")', package)
         for shader_name in expected_inputs:
             self.assertEqual(4, cmake.count(f"{shader_name}.spv"), shader_name)
+
+    def test_package_texture_filter_uses_importer_one_pass_normalization(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        package = (root / "scripts" / "package-windows.ps1").read_text(
+            encoding="utf-8"
+        )
+        filter_start = package.index("function Test-MapMaterialRequiresTexture")
+        filter_end = package.index("function Get-MapTextureMaterials", filter_start)
+        material_filter = package[filter_start:filter_end]
+        reader_start = filter_end
+        reader_end = package.index("function Resolve-TextureMaterialPath", reader_start)
+        material_reader = package[reader_start:reader_end]
+
+        # The reader owns token normalization. Repeating it in the filter
+        # would turn the importer's once-normalized /common/sky into common/sky.
+        self.assertIn("$material = Normalize-TextureMaterial", material_reader)
+        self.assertIn("(Test-MapMaterialRequiresTexture $material)", material_reader)
+        self.assertNotIn("Normalize-TextureMaterial", material_filter)
+        self.assertIn("return $NormalizedMaterial -notin @(", material_filter)
+
+        excluded_materials = set(
+            re.findall(r'^\s+"([^"]+)",?$', material_filter, re.MULTILINE)
+        )
+        self.assertSetEqual(
+            {"common/sky", "common/playerclip", "common/clip", "common/weapclip"},
+            excluded_materials,
+        )
+
+        def requires_texture(raw_material: str) -> bool:
+            normalized = import_q3_map._normalize_material(raw_material)
+            return normalized not in excluded_materials
+
+        self.assertTrue(requires_texture("textures//common/sky"))
+        for material in excluded_materials:
+            with self.subTest(material=material):
+                self.assertFalse(requires_texture(material))
 
     def test_sky_assets_stay_client_only(self) -> None:
         root = Path(__file__).resolve().parents[1]

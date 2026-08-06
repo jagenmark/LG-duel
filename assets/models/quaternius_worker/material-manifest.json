@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "model": "quaternius_worker.glb",
+  "model_sha256": "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60",
+  "opaque": true,
+  "uv_mode": "material_cell",
+  "albedo_mode": "replace",
+  "mip_policy": "runtime_generate",
+  "atlas": {
+    "columns": 4,
+    "rows": 4,
+    "padding_texels": 8
+  },
+  "textures": {
+    "albedo": {
+      "path": "materials/worker_albedo.png",
+      "color_space": "srgb",
+      "width": 512,
+      "height": 512
+    },
+    "packed_mask": {
+      "path": "materials/worker_material_mask.png",
+      "color_space": "linear",
+      "width": 512,
+      "height": 512
+    }
+  },
+  "packed_mask_contract": {
+    "r": "team_tint_weight",
+    "g": "perceptual_roughness",
+    "b": "metallic_weight",
+    "a": "emissive_weight_reserved_zero"
+  },
+  "require_material_coverage": true,
+  "materials": [
+    {"index": 0, "name": "Skin", "cell": [0, 0], "flat_tint_weight": 0.0},
+    {"index": 1, "name": "Worker_Yellow", "cell": [1, 0], "flat_tint_weight": 0.0},
+    {"index": 2, "name": "Worker_Vest", "cell": [2, 0], "flat_tint_weight": 0.0},
+    {"index": 3, "name": "LightBrown", "cell": [3, 0], "flat_tint_weight": 0.0},
+    {"index": 4, "name": "Grey", "cell": [0, 1], "flat_tint_weight": 0.0},
+    {"index": 5, "name": "Black", "cell": [1, 1], "flat_tint_weight": 0.0},
+    {"index": 6, "name": "Skin.001", "cell": [0, 0], "flat_tint_weight": 0.0},
+    {"index": 7, "name": "Eyebrows", "cell": [2, 1], "flat_tint_weight": 0.0},
+    {"index": 8, "name": "Worker_Yellow.001", "cell": [1, 0], "flat_tint_weight": 0.0},
+    {"index": 9, "name": "Moustache", "cell": [2, 1], "flat_tint_weight": 0.0},
+    {"index": 10, "name": "Eye", "cell": [3, 1], "flat_tint_weight": 0.0},
+    {"index": 11, "name": "Brown", "cell": [0, 2], "flat_tint_weight": 0.0},
+    {"index": 12, "name": "Brown2", "cell": [1, 2], "flat_tint_weight": 0.0}
+  ]
+}

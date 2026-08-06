@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "model": "lg_duelist_male.glb",
+  "model_sha256": "f92661582b8b0a880acd12765f91d3152e2e29f62b66702d7cadb863a0dc13d0",
+  "opaque": true,
+  "require_material_coverage": false,
+  "materials": [
+    {"index": 3, "name": "MAT_ClothPrimary", "flat_tint_weight": 1.0},
+    {"index": 4, "name": "MAT_ClothAccent", "flat_tint_weight": 1.0}
+  ]
+}

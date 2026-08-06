@@ -1672,6 +1672,16 @@ struct FrameTimeHistory {
     renderDiagnostics.gltfStaticMeshGpuBytes;
   sample.gltfStaticIndexGpuBytes =
     renderDiagnostics.gltfStaticIndexGpuBytes;
+  sample.gltfMaterialTextureGpuBytes =
+    renderDiagnostics.gltfMaterialTextureGpuBytes;
+  sample.gltfMaterialTextureMipLevels =
+    renderDiagnostics.gltfMaterialTextureMipLevels;
+  sample.gltfMaterialTextureBinds =
+    renderDiagnostics.gltfMaterialTextureBinds;
+  sample.gltfAuthoredMaterialTexturesReady =
+    renderDiagnostics.gltfAuthoredMaterialTexturesReady;
+  sample.gltfMaterialFallbackUsed =
+    renderDiagnostics.gltfMaterialFallbackUsed;
   sample.gltfPoseUploadBytes =
     renderDiagnostics.gltfPoseUploadBytes;
   sample.gltfBonePaletteEntriesUploaded =
@@ -10477,7 +10487,17 @@ int GameApp::run() const {
           std::to_string(diagnostics.gltfStaticMeshGpuBytes) +
           " B | index " +
           std::to_string(diagnostics.gltfStaticIndexGpuBytes) +
-          " B | pose " +
+          " B | material " +
+          std::to_string(diagnostics.gltfMaterialTextureGpuBytes) +
+          " B" +
+          " | material mips " +
+          std::to_string(diagnostics.gltfMaterialTextureMipLevels) +
+          " | material binds " +
+          std::to_string(diagnostics.gltfMaterialTextureBinds) +
+          " | authored " +
+          (diagnostics.gltfAuthoredMaterialTexturesReady ? "ready" : "flat") +
+          (diagnostics.gltfMaterialFallbackUsed ? " fallback" : "") +
+          " | pose " +
           std::to_string(diagnostics.gltfPoseUploadBytes) +
           " B | bones " +
           std::to_string(diagnostics.gltfBonePaletteEntriesUploaded)

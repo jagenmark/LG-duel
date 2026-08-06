@@ -37,6 +37,23 @@ function Normalize-TextureMaterial {
   return $normalized
 }
 
+function Test-MapMaterialRequiresTexture {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$NormalizedMaterial
+  )
+
+  # Get-MapTextureMaterials has already normalized this token once, matching
+  # the importer. Sky uses the packaged sky cube, while clip brushes are
+  # collision-only.
+  return $NormalizedMaterial -notin @(
+    "common/sky",
+    "common/playerclip",
+    "common/clip",
+    "common/weapclip"
+  )
+}
+
 function Get-MapTextureMaterials {
   param(
     [Parameter(Mandatory = $true)]
@@ -50,7 +67,10 @@ function Get-MapTextureMaterials {
     ForEach-Object {
       Select-String -Path $_.FullName -Pattern $facePattern | ForEach-Object {
         $material = Normalize-TextureMaterial $_.Matches[0].Groups[1].Value
-        if (-not [string]::IsNullOrWhiteSpace($material)) {
+        if (
+          -not [string]::IsNullOrWhiteSpace($material) -and
+          (Test-MapMaterialRequiresTexture $material)
+        ) {
           [void]$materials.Add($material)
         }
       }
@@ -255,8 +275,8 @@ $requiredShaderFiles = @(
 
 $requiredFiles = @(
   "lg_duel_client.exe",
-  "lg_duel_server.exe",
-  $requiredShaderFiles,
+  "lg_duel_server.exe";
+  $requiredShaderFiles;
   "SDL3.dll",
   "SDL3-LICENSE.txt",
   "config/balance.cfg",
@@ -266,7 +286,12 @@ $requiredFiles = @(
   "config/README.md",
   "assets/fonts/bahnschrift.ttf",
   "assets/models/lg_duelist_male_v3/art/exports/lg_duelist_male.glb",
+  "assets/models/lg_duelist_male_v3/art/exports/material-manifest.json",
   "assets/models/lg_duelist_male_v2/art/exports/lg_duelist_male.glb",
+  "assets/models/quaternius_worker/quaternius_worker.glb",
+  "assets/models/quaternius_worker/material-manifest.json",
+  "assets/models/quaternius_worker/materials/worker_albedo.png",
+  "assets/models/quaternius_worker/materials/worker_material_mask.png",
   "sky/aurora/posx.png",
   "sky/aurora/negx.png",
   "sky/aurora/posy.png",

@@ -85,6 +85,11 @@ struct PerfSample {
   std::uint32_t gltfPlayerModelFrustumCulled = 0;
   std::uint32_t gltfStaticMeshGpuBytes = 0;
   std::uint32_t gltfStaticIndexGpuBytes = 0;
+  std::uint64_t gltfMaterialTextureGpuBytes = 0;
+  std::uint32_t gltfMaterialTextureMipLevels = 0;
+  std::uint32_t gltfMaterialTextureBinds = 0;
+  bool gltfAuthoredMaterialTexturesReady = false;
+  bool gltfMaterialFallbackUsed = false;
   std::uint32_t gltfPoseUploadBytes = 0;
   std::uint32_t gltfBonePaletteEntriesUploaded = 0;
   std::uint32_t gltfRigidFallbackInstances = 0;
