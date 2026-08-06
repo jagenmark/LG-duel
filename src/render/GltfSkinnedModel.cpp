@@ -43,6 +43,9 @@ public:
   JsonValue parse() {
     JsonValue value = parseValue();
     skipWhitespace();
+    if (offset_ != text_.size()) {
+      throw std::runtime_error("unexpected trailing json content");
+    }
     return value;
   }
 
@@ -266,6 +269,36 @@ private:
   return value.type == JsonValue::Type::Number
     ? static_cast<int>(value.number)
     : fallback;
+}
+
+[[nodiscard]] bool exactIntValue(const JsonValue& value, int& out) {
+  if (
+    value.type != JsonValue::Type::Number ||
+    !std::isfinite(value.number) ||
+    std::trunc(value.number) != value.number ||
+    value.number < static_cast<double>(std::numeric_limits<int>::min()) ||
+    value.number > static_cast<double>(std::numeric_limits<int>::max())
+  ) {
+    return false;
+  }
+  out = static_cast<int>(value.number);
+  return true;
+}
+
+[[nodiscard]] bool exactIntMember(
+  const JsonValue& object,
+  std::string_view name,
+  int& out
+) {
+  return exactIntValue(member(object, name), out);
+}
+
+[[nodiscard]] bool exactIntAt(
+  const JsonValue& array,
+  int index,
+  int& out
+) {
+  return exactIntValue(at(array, index), out);
 }
 
 [[nodiscard]] float floatAt(
@@ -790,7 +823,12 @@ void hashSha256Block(
   };
   try {
     const JsonValue root = JsonParser(manifestText).parse();
-    if (root.type != JsonValue::Type::Object || intMember(root, "schema_version") != 1) {
+    int schemaVersion = 0;
+    if (
+      root.type != JsonValue::Type::Object ||
+      !exactIntMember(root, "schema_version", schemaVersion) ||
+      schemaVersion != 1
+    ) {
       fail("material manifest requires schema_version 1");
       return result;
     }
@@ -830,9 +868,11 @@ void hashSha256Block(
                                 ) -> bool {
         const std::string relativePath = stringMember(value, "path");
         const std::string colorSpace = stringMember(value, "color_space");
-        const int width = intMember(value, "width", 0);
-        const int height = intMember(value, "height", 0);
+        int width = 0;
+        int height = 0;
         if (
+          !exactIntMember(value, "width", width) ||
+          !exactIntMember(value, "height", height) ||
           !safeModelRelativePath(relativePath) ||
           width <= 0 || height <= 0 || width > 2048 || height > 2048 ||
           !powerOfTwo(static_cast<std::uint32_t>(width)) ||
@@ -881,9 +921,13 @@ void hashSha256Block(
       const std::string uvMode = stringMember(root, "uv_mode");
       if (uvMode == "material_cell") {
         const JsonValue& atlas = member(root, "atlas");
-        const int columns = intMember(atlas, "columns", 0);
-        const int rows = intMember(atlas, "rows", 0);
-        if (columns <= 0 || rows <= 0 || columns > 32 || rows > 32) {
+        int columns = 0;
+        int rows = 0;
+        if (
+          !exactIntMember(atlas, "columns", columns) ||
+          !exactIntMember(atlas, "rows", rows) ||
+          columns <= 0 || rows <= 0 || columns > 32 || rows > 32
+        ) {
           fail("material-cell atlas dimensions are invalid");
           return result;
         }
@@ -924,11 +968,12 @@ void hashSha256Block(
       return result;
     }
     for (const JsonValue& value : bindings.array) {
-      const int index = intMember(value, "index");
+      int index = -1;
       const std::string expectedName = stringMember(value, "name");
       const float tintWeight = floatMember(value, "flat_tint_weight", 0.0F);
       if (
         value.type != JsonValue::Type::Object ||
+        !exactIntMember(value, "index", index) ||
         index < 0 || static_cast<std::size_t>(index) >= materialNames.size() ||
         expectedName.empty() ||
         materialNames[static_cast<std::size_t>(index)] != expectedName ||
@@ -944,9 +989,11 @@ void hashSha256Block(
       binding.flatTintWeight = normalizedByte(tintWeight);
       if (result.materialCells) {
         const JsonValue& cell = member(value, "cell");
-        const int column = static_cast<int>(floatAt(cell, 0, -1.0F));
-        const int row = static_cast<int>(floatAt(cell, 1, -1.0F));
+        int column = -1;
+        int row = -1;
         if (
+          !exactIntAt(cell, 0, column) ||
+          !exactIntAt(cell, 1, row) ||
           column < 0 || row < 0 ||
           static_cast<std::uint32_t>(column) >= result.atlasColumns ||
           static_cast<std::uint32_t>(row) >= result.atlasRows

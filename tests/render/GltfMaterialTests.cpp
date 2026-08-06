@@ -110,6 +110,33 @@ std::string readText(const std::filesystem::path& path) {
   };
 }
 
+bool replaceOnce(
+  std::string& text,
+  std::string_view needle,
+  std::string_view replacement
+) {
+  const std::size_t position = text.find(needle);
+  if (position == std::string::npos) {
+    return false;
+  }
+  text.replace(position, needle.size(), replacement);
+  return true;
+}
+
+bool hasFlatAlbedoVertices(const lg::GltfSkinnedModel& model) {
+  return std::all_of(
+    model.primitives().begin(), model.primitives().end(),
+    [](const lg::GltfSkinnedModel::Primitive& primitive) {
+      return std::all_of(
+        primitive.vertices.begin(), primitive.vertices.end(),
+        [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+          return vertex.albedoTextureMode == 0U;
+        }
+      );
+    }
+  );
+}
+
 bool writeWorkerGlbWithoutFirstMaterial(
   const std::filesystem::path& source,
   const std::filesystem::path& destination
@@ -428,6 +455,72 @@ int main() {
         invalidIndex.materialMetadata().status == lg::GltfMaterialManifestStatus::Invalid &&
         invalidIndex.primitives().size() == worker.primitives().size(),
       "invalid material indices should reject metadata without hiding the model"
+    );
+
+    std::string validWorkerManifest = readText(
+      std::filesystem::absolute(std::filesystem::path(workerMetadata.manifestPath))
+    );
+    const bool retargetedFixtureManifest = replaceOnce(
+      validWorkerManifest,
+      R"("model": "quaternius_worker.glb")",
+      R"("model": "worker.glb")"
+    );
+    const auto rejectsToFlatFallback = [&fixtureManifest, &fixtureModel](
+                                        const std::string& manifest
+                                      ) {
+      lg::GltfSkinnedModel model;
+      return writeText(fixtureManifest, manifest) &&
+        model.load(fixtureModel.string()) &&
+        model.materialMetadata().status == lg::GltfMaterialManifestStatus::Invalid &&
+        !model.materialMetadata().hasAuthoredTextures() &&
+        hasFlatAlbedoVertices(model);
+    };
+    failures += expect(
+      retargetedFixtureManifest &&
+        rejectsToFlatFallback(validWorkerManifest + "\ntrailing"),
+      "trailing text after a material manifest should reject metadata and use flat vertices"
+    );
+
+    std::string fractionalSchema = validWorkerManifest;
+    const bool changedFractionalSchema = replaceOnce(
+      fractionalSchema, R"("schema_version": 1)", R"("schema_version": 1.5)"
+    );
+    failures += expect(
+      changedFractionalSchema && rejectsToFlatFallback(fractionalSchema),
+      "fractional material manifest schema versions should reject metadata and use flat vertices"
+    );
+
+    std::string fractionalIndex = validWorkerManifest;
+    const bool changedFractionalIndex = replaceOnce(
+      fractionalIndex,
+      R"({"index": 1, "name": "Worker_Yellow")",
+      R"({"index": 1.5, "name": "Worker_Yellow")"
+    );
+    failures += expect(
+      changedFractionalIndex && rejectsToFlatFallback(fractionalIndex),
+      "fractional material indices should reject metadata and use flat vertices"
+    );
+
+    std::string fractionalCell = validWorkerManifest;
+    const bool changedFractionalCell = replaceOnce(
+      fractionalCell,
+      R"({"index": 0, "name": "Skin", "cell": [0, 0])",
+      R"({"index": 0, "name": "Skin", "cell": [-0.5, 0])"
+    );
+    failures += expect(
+      changedFractionalCell && rejectsToFlatFallback(fractionalCell),
+      "fractional material cells should reject metadata and use flat vertices"
+    );
+
+    std::string outOfRangeIndex = validWorkerManifest;
+    const bool changedOutOfRangeIndex = replaceOnce(
+      outOfRangeIndex,
+      R"({"index": 1, "name": "Worker_Yellow")",
+      R"({"index": 2147483648, "name": "Worker_Yellow")"
+    );
+    failures += expect(
+      changedOutOfRangeIndex && rejectsToFlatFallback(outOfRangeIndex),
+      "out-of-range material indices should reject metadata and use flat vertices"
     );
   }
   std::filesystem::remove_all(fixtureRoot, error);
