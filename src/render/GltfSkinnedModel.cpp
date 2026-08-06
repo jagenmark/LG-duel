@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -115,7 +116,7 @@ private:
       (void)take();
       return value;
     }
-    while (peek() != '\0') {
+    while (true) {
       const std::string key = parseString();
       skipWhitespace();
       if (take() != ':') {
@@ -125,14 +126,16 @@ private:
       skipWhitespace();
       const char separator = take();
       if (separator == '}') {
-        break;
+        return value;
       }
       if (separator != ',') {
         throw std::runtime_error("invalid json object separator");
       }
       skipWhitespace();
+      if (peek() == '}' || peek() == '\0') {
+        throw std::runtime_error("invalid json object trailing comma");
+      }
     }
-    return value;
   }
 
   JsonValue parseArray() {
@@ -144,19 +147,21 @@ private:
       (void)take();
       return value;
     }
-    while (peek() != '\0') {
+    while (true) {
       value.array.push_back(parseValue());
       skipWhitespace();
       const char separator = take();
       if (separator == ']') {
-        break;
+        return value;
       }
       if (separator != ',') {
         throw std::runtime_error("invalid json array separator");
       }
       skipWhitespace();
+      if (peek() == ']' || peek() == '\0') {
+        throw std::runtime_error("invalid json array trailing comma");
+      }
     }
-    return value;
   }
 
   std::string parseString() {
@@ -208,11 +213,22 @@ private:
     if (peek() == '-') {
       ++offset_;
     }
-    while (std::isdigit(static_cast<unsigned char>(peek()))) {
+
+    if (peek() == '0') {
       ++offset_;
+    } else if (std::isdigit(static_cast<unsigned char>(peek()))) {
+      do {
+        ++offset_;
+      } while (std::isdigit(static_cast<unsigned char>(peek())));
+    } else {
+      throw std::runtime_error("invalid json number");
     }
+
     if (peek() == '.') {
       ++offset_;
+      if (!std::isdigit(static_cast<unsigned char>(peek()))) {
+        throw std::runtime_error("invalid json number fraction");
+      }
       while (std::isdigit(static_cast<unsigned char>(peek()))) {
         ++offset_;
       }
@@ -222,13 +238,21 @@ private:
       if (peek() == '-' || peek() == '+') {
         ++offset_;
       }
+      if (!std::isdigit(static_cast<unsigned char>(peek()))) {
+        throw std::runtime_error("invalid json number exponent");
+      }
       while (std::isdigit(static_cast<unsigned char>(peek()))) {
         ++offset_;
       }
     }
     JsonValue value;
     value.type = JsonValue::Type::Number;
-    value.number = std::stod(std::string(text_.substr(start, offset_ - start)));
+    const std::string token(text_.substr(start, offset_ - start));
+    std::size_t parsed = 0;
+    value.number = std::stod(token, &parsed);
+    if (parsed != token.size()) {
+      throw std::runtime_error("invalid json number");
+    }
     return value;
   }
 

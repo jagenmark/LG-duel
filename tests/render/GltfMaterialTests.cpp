@@ -481,6 +481,42 @@ int main() {
       "trailing text after a material manifest should reject metadata and use flat vertices"
     );
 
+    std::string finalTrailingComma = validWorkerManifest;
+    const std::size_t finalClosingObject = finalTrailingComma.find_last_of('}');
+    const bool addedFinalTrailingComma =
+      finalClosingObject != std::string::npos;
+    if (addedFinalTrailingComma) {
+      finalTrailingComma.insert(finalClosingObject, 1U, ',');
+    }
+    failures += expect(
+      addedFinalTrailingComma && rejectsToFlatFallback(finalTrailingComma),
+      "a final material manifest trailing comma should reject metadata and use flat vertices"
+    );
+
+    std::string finalCommaWithoutClose = validWorkerManifest;
+    const std::size_t finalObjectWithoutClose = finalCommaWithoutClose.find_last_of('}');
+    const bool removedFinalClose =
+      finalObjectWithoutClose != std::string::npos;
+    if (removedFinalClose) {
+      finalCommaWithoutClose.replace(finalObjectWithoutClose, 1U, ",");
+    }
+    failures += expect(
+      removedFinalClose && rejectsToFlatFallback(finalCommaWithoutClose),
+      "a final material manifest comma without a closing object should reject metadata and use flat vertices"
+    );
+
+    std::string incompleteSchemaExponent = validWorkerManifest;
+    const bool changedIncompleteSchemaExponent = replaceOnce(
+      incompleteSchemaExponent,
+      R"("schema_version": 1)",
+      R"("schema_version": 1e)"
+    );
+    failures += expect(
+      changedIncompleteSchemaExponent &&
+        rejectsToFlatFallback(incompleteSchemaExponent),
+      "an incomplete material manifest schema exponent should reject metadata and use flat vertices"
+    );
+
     std::string fractionalSchema = validWorkerManifest;
     const bool changedFractionalSchema = replaceOnce(
       fractionalSchema, R"("schema_version": 1)", R"("schema_version": 1.5)"
