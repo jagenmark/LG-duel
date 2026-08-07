@@ -446,10 +446,26 @@ class LiveScenarioTests(unittest.TestCase):
             lg_live_scenario._parse_client_cvar_override("r_bloom=0"),
             ("r_bloom", "0"),
         )
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_player_model=2"),
+            ("r_player_model", "2"),
+        )
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_material_quality=0"),
+            ("r_material_quality", "0"),
+        )
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override(
+                "r_player_outline_mode=2"
+            ),
+            ("r_player_outline_mode", "2"),
+        )
         with self.assertRaises(argparse.ArgumentTypeError):
             lg_live_scenario._parse_client_cvar_override("g_rl_damage=1")
         with self.assertRaises(argparse.ArgumentTypeError):
             lg_live_scenario._parse_client_cvar_override("r_bloom=2")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            lg_live_scenario._parse_client_cvar_override("r_player_model=3")
         with self.assertRaisesRegex(
             lg_live_scenario.LiveScenarioStageError,
             "duplicate",

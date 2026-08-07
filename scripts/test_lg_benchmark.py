@@ -34,20 +34,21 @@ class BenchmarkTests(unittest.TestCase):
         self.assertTrue(all(entry["valid"] for entry in listed["scenarios"]))
 
     def test_worker_material_quality_descriptors_differ_only_by_quality(self) -> None:
-        scenarios = [
-            lg_benchmark.load_scenario(f"worker-material-q{quality}")[0]
-            for quality in range(3)
-        ]
-        reference = copy.deepcopy(scenarios[0])
-        reference["name"] = "worker-material-quality"
-        reference["cvars"].pop("r_material_quality")
-        for quality, scenario in enumerate(scenarios):
-            self.assertEqual(scenario["cvars"]["r_material_quality"], quality)
-            self.assertEqual(scenario["cvars"]["r_player_model"], 2)
-            comparable = copy.deepcopy(scenario)
-            comparable["name"] = "worker-material-quality"
-            comparable["cvars"].pop("r_material_quality")
-            self.assertEqual(comparable, reference)
+        for prefix in ("worker-material-q", "worker-material-review-q"):
+            scenarios = [
+                lg_benchmark.load_scenario(f"{prefix}{quality}")[0]
+                for quality in range(3)
+            ]
+            reference = copy.deepcopy(scenarios[0])
+            reference["name"] = "worker-material-quality"
+            reference["cvars"].pop("r_material_quality")
+            for quality, scenario in enumerate(scenarios):
+                self.assertEqual(scenario["cvars"]["r_material_quality"], quality)
+                self.assertEqual(scenario["cvars"]["r_player_model"], 2)
+                comparable = copy.deepcopy(scenario)
+                comparable["name"] = "worker-material-quality"
+                comparable["cvars"].pop("r_material_quality")
+                self.assertEqual(comparable, reference)
 
     def test_graphics_contract_requires_native_effective_cvars(self) -> None:
         effective = {
