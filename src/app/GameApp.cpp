@@ -6953,24 +6953,8 @@ int GameApp::run() const {
         active.previousBotDodge = botDodgeEnabled;
         active.previousBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
         active.previousBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
-        const std::map<std::string, std::string, std::less<>> overrides = [&]() {
-          std::map<std::string, std::string, std::less<>> values = scenario.cvars;
-          values["vid_width"] = std::to_string(scenario.width);
-          values["vid_height"] = std::to_string(scenario.height);
-          values["vid_fullscreen"] = std::to_string(scenario.fullscreen);
-          values["r_vsync"] = std::to_string(scenario.vsync);
-          values["r_present_mode"] = scenario.vsync != 0 ? "0" : "2";
-          values["r_maxfps"] = std::to_string(scenario.frameCap);
-          values["cl_fov"] = std::to_string(scenario.fieldOfView);
-          for (const GraphicsProfileDefinition& profile : kGraphicsProfiles) {
-            if (profile.name == scenario.graphicsProfile) {
-              for (const GraphicsProfileValue& value : profile.values) values[std::string(value.cvar)] = std::string(value.value);
-              break;
-            }
-          }
-          values["r_render_scale"] = std::to_string(scenario.renderScale);
-          return values;
-        }();
+        const std::map<std::string, std::string, std::less<>> overrides =
+          benchmark::benchmarkCvarOverrides(scenario);
         for (const auto& [name, value] : overrides) {
           active.restoredCvars.emplace(name, console.valueString(name));
           (void)console.execute("set " + name + " " + value);

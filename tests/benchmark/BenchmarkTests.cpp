@@ -147,6 +147,33 @@ int main() {
       std::fabs(graphicsProfile.scenario.renderScale - 1.25F) < 0.001F,
     "benchmark graphics profile and render scale should parse"
   );
+  for (int materialQuality = 0; materialQuality <= 2; ++materialQuality) {
+    lg::benchmark::Scenario materialQualityScenario;
+    materialQualityScenario.graphicsProfile = "Default";
+    materialQualityScenario.renderScale = 1.25F;
+    materialQualityScenario.cvars["r_material_quality"] =
+      std::to_string(materialQuality);
+    materialQualityScenario.cvars["r_bloom"] = "0";
+    materialQualityScenario.cvars["r_render_scale"] = "0.5";
+    const auto overrides =
+      lg::benchmark::benchmarkCvarOverrides(materialQualityScenario);
+    failures += expect(
+      overrides.at("r_material_quality") == std::to_string(materialQuality) &&
+        overrides.at("r_bloom") == "0" &&
+        overrides.at("r_render_scale") == "1.250000",
+      "benchmark descriptor cvars should override a profile except render scale"
+    );
+  }
+  lg::benchmark::Scenario profileOnlyScenario;
+  profileOnlyScenario.graphicsProfile = "High";
+  const auto profileOnlyOverrides =
+    lg::benchmark::benchmarkCvarOverrides(profileOnlyScenario);
+  failures += expect(
+    profileOnlyOverrides.at("r_material_quality") == "2" &&
+      profileOnlyOverrides.at("r_bloom") == "1" &&
+      profileOnlyOverrides.at("r_render_scale") == "1.000000",
+    "profile-only benchmark scenarios should retain graphics profile values"
+  );
   const lg::benchmark::ParseResult bloomControl = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
     "name":"bloom-control","map":"eyetoeye","resolution":[1280,720],

@@ -312,6 +312,32 @@ ParseResult parseScenario(const dev::JsonValue& root) {
   return {std::move(scenario), true, {}};
 }
 
+std::map<std::string, std::string, std::less<>> benchmarkCvarOverrides(
+  const Scenario& scenario
+) {
+  std::map<std::string, std::string, std::less<>> values;
+  values["vid_width"] = std::to_string(scenario.width);
+  values["vid_height"] = std::to_string(scenario.height);
+  values["vid_fullscreen"] = std::to_string(scenario.fullscreen);
+  values["r_vsync"] = std::to_string(scenario.vsync);
+  values["r_present_mode"] = scenario.vsync != 0 ? "0" : "2";
+  values["r_maxfps"] = std::to_string(scenario.frameCap);
+  values["cl_fov"] = std::to_string(scenario.fieldOfView);
+  if (const GraphicsProfileDefinition* profile =
+        graphicsProfileByName(scenario.graphicsProfile);
+      profile != nullptr) {
+    for (const GraphicsProfileValue& value : profile->values) {
+      values[std::string(value.cvar)] = std::string(value.value);
+    }
+  }
+  for (const auto& [name, value] : scenario.cvars) {
+    values[name] = value;
+  }
+  // The explicit descriptor field is the benchmark's single scale contract.
+  values["r_render_scale"] = std::to_string(scenario.renderScale);
+  return values;
+}
+
 bool isSafeRunId(std::string_view value) {
   return !value.empty() && value.size() <= 64U && std::all_of(value.begin(), value.end(), [](unsigned char c) { return std::isalnum(c) != 0 || c == '_' || c == '-'; });
 }

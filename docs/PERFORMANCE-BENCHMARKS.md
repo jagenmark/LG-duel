@@ -18,6 +18,10 @@ use 100%. A manual scale is valid from 50% to 150%. Values above 100% are
 `Extreme / benchmark-only` and are not recommended for normal play. Native results
 record both values and note that captures need the same profile and scale.
 
+Descriptor cvars override matching profile values. `render_scale` remains the
+separate top-level descriptor field and wins over a duplicate cvar, so each
+artifact has one explicit requested scale.
+
 ## Graphics benchmark contract
 
 Every GPU artifact records the requested profile and scale, plus the effective
