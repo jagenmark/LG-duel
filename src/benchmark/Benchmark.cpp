@@ -112,6 +112,7 @@ namespace {
     "r_player_outline_debug_mask", "r_enemy_outline_width",
     "r_teammate_outline_width", "r_player_outline_scale", "r_show_weapon", "r_show_weapons",
     "r_frustum_cull", "r_world_frustum_cull", "r_player_model", "r_bloom",
+    "r_material_quality",
     "r_combat_effects",
     "s_enable", "s_volume", "vid_fullscreen", "vid_width", "vid_height", "r_vsync",
     "r_present_mode"

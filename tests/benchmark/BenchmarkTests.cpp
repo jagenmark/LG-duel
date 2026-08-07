@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -156,6 +157,34 @@ int main() {
   failures += expect(
     bloomControl.ok && bloomControl.scenario.cvars.contains("r_bloom"),
     "benchmark scenarios should allow a fixed bloom setting"
+  );
+  for (int materialQuality = 0; materialQuality <= 2; ++materialQuality) {
+    const lg::benchmark::ParseResult materialQualityControl = parse(
+      R"({"schema_version":1,"expected_benchmark_version":1,
+      "name":"material-quality-control","map":"eyetoeye","resolution":[1280,720],
+      "warmup_frames":2,"measured_frames":4,
+      "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+      "cvars":{"r_material_quality":)" + std::to_string(materialQuality) + R"(}})"
+    );
+    failures += expect(
+      materialQualityControl.ok &&
+        materialQualityControl.scenario.cvars.at("r_material_quality") ==
+          std::to_string(materialQuality),
+      "benchmark scenarios should allow material quality values from zero through two"
+    );
+  }
+  const lg::benchmark::ParseResult gameplayCvar = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"gameplay-cvar","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"g_gravity":1}
+  })");
+  failures += expect(
+    !gameplayCvar.ok &&
+      gameplayCvar.error ==
+        "benchmark cvar is not presentation-allowlisted: g_gravity",
+    "benchmark scenarios should reject unrelated gameplay cvars"
   );
   const lg::benchmark::ParseResult lateMouseControl = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
