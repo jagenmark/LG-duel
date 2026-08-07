@@ -11323,6 +11323,8 @@ int GameApp::run() const {
             dev::JsonValue::stringValue(console.valueString(name));
         }
         response.object["effective_cvars"] = std::move(effectiveCvars);
+        response.object["render_pass_diagnostics"] =
+          benchmarkRenderPassDiagnostics(renderer.lastFrameDiagnostics());
         developerControl.complete(
           active.queued.token,
           dev::successResponse(request.id, std::move(response))

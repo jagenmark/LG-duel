@@ -1,5 +1,8 @@
 #include "app/PerfTelemetry.hpp"
 
+#include "dev/DevJson.hpp"
+#include "render/Renderer.hpp"
+
 #include <algorithm>
 #include <cmath>
 
@@ -125,6 +128,82 @@ PerfMetricSummary PerfTelemetry::summarizeMetric(SampleSelector selector) {
     percentile(sorted_, sampleCount_, 0.99F),
     sorted_[sampleCount_ - 1U],
   };
+}
+
+dev::JsonValue benchmarkRenderPassDiagnostics(
+  const RendererFrameDiagnostics& diagnostics
+) {
+  dev::JsonValue world = dev::JsonValue::objectValue();
+  world.object["draw_calls"] =
+    dev::JsonValue::numberValue(diagnostics.worldDrawCalls);
+  world.object["sky_draw_calls"] =
+    dev::JsonValue::numberValue(diagnostics.skyDrawCalls);
+
+  dev::JsonValue gltf = dev::JsonValue::objectValue();
+  gltf.object["player_instances"] =
+    dev::JsonValue::numberValue(diagnostics.gltfPlayerModelInstances);
+  gltf.object["frustum_culled"] =
+    dev::JsonValue::numberValue(diagnostics.gltfPlayerModelFrustumCulled);
+  gltf.object["static_mesh_gpu_bytes"] =
+    dev::JsonValue::numberValue(diagnostics.gltfStaticMeshGpuBytes);
+  gltf.object["static_index_gpu_bytes"] =
+    dev::JsonValue::numberValue(diagnostics.gltfStaticIndexGpuBytes);
+  gltf.object["material_texture_gpu_bytes"] =
+    dev::JsonValue::numberValue(
+      static_cast<double>(diagnostics.gltfMaterialTextureGpuBytes)
+    );
+  gltf.object["material_texture_mip_levels"] =
+    dev::JsonValue::numberValue(diagnostics.gltfMaterialTextureMipLevels);
+  gltf.object["material_texture_binds"] =
+    dev::JsonValue::numberValue(diagnostics.gltfMaterialTextureBinds);
+  gltf.object["authored_material_textures_ready"] =
+    dev::JsonValue::booleanValue(
+      diagnostics.gltfAuthoredMaterialTexturesReady
+    );
+  gltf.object["material_fallback_used"] =
+    dev::JsonValue::booleanValue(diagnostics.gltfMaterialFallbackUsed);
+  gltf.object["pose_upload_bytes"] =
+    dev::JsonValue::numberValue(diagnostics.gltfPoseUploadBytes);
+  gltf.object["bone_palette_entries_uploaded"] =
+    dev::JsonValue::numberValue(
+      diagnostics.gltfBonePaletteEntriesUploaded
+    );
+  gltf.object["rigid_fallback_instances"] =
+    dev::JsonValue::numberValue(diagnostics.gltfRigidFallbackInstances);
+  gltf.object["gpu_skinned_instances"] =
+    dev::JsonValue::numberValue(diagnostics.gltfGpuSkinnedInstances);
+  gltf.object["body_batches"] =
+    dev::JsonValue::numberValue(diagnostics.gltfBodyBatches);
+  gltf.object["body_draw_calls"] =
+    dev::JsonValue::numberValue(diagnostics.gltfBodyDrawCalls);
+  gltf.object["shadow_caster_instances"] =
+    dev::JsonValue::numberValue(diagnostics.gltfShadowCasterInstances);
+  gltf.object["shadow_caster_draw_calls"] =
+    dev::JsonValue::numberValue(diagnostics.gltfShadowCasterDrawCalls);
+  gltf.object["outline_mask_batches"] =
+    dev::JsonValue::numberValue(diagnostics.gltfOutlineMaskBatches);
+  gltf.object["outline_mask_draw_calls"] =
+    dev::JsonValue::numberValue(diagnostics.gltfOutlineMaskDrawCalls);
+  gltf.object["legacy_cpu_skinned_vertex_upload_bytes"] =
+    dev::JsonValue::numberValue(
+      diagnostics.legacyCpuSkinnedGltfVertexUploadBytes
+    );
+
+  dev::JsonValue directPresent = dev::JsonValue::objectValue();
+  directPresent.object["eligible"] =
+    dev::JsonValue::booleanValue(diagnostics.directPresentEligible);
+  directPresent.object["used"] =
+    dev::JsonValue::booleanValue(diagnostics.directPresentUsed);
+  directPresent.object["fallback_reason"] =
+    dev::JsonValue::stringValue(diagnostics.directPresentFallbackReason);
+  directPresent.object["format"] =
+    dev::JsonValue::stringValue(diagnostics.directPresentFormat);
+
+  dev::JsonValue root = dev::JsonValue::objectValue();
+  root.object["world"] = std::move(world);
+  root.object["gltf"] = std::move(gltf);
+  root.object["direct_present"] = std::move(directPresent);
+  return root;
 }
 
 } // namespace lg
