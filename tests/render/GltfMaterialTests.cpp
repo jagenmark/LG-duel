@@ -23,9 +23,9 @@ int expect(bool condition, const std::string& message) {
 }
 
 constexpr std::string_view workerModelSha256 =
-  "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60";
+  "368445c36b4c7da7bdec8f677cfecb6c5a34d575caac59ff4b721a5cd85f22db";
 constexpr std::string_view workerMissingFirstMaterialSha256 =
-  "c0bf9a28f3c38ab40f91c2f7b45b87381ad153bd1e74cbc0ed020677413d22fa";
+  "cabb29210c4b3024701bdbae22e6107e2a4726342f00b91e6aa52ca5c438e3f7";
 
 const lg::GltfMaterialBinding* bindingFor(
   const lg::GltfMaterialMetadata& metadata,
@@ -396,7 +396,7 @@ int main() {
         R"({
   "schema_version": 1,
   "model": "worker.glb",
-  "model_sha256": "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60",
+  "model_sha256": "368445c36b4c7da7bdec8f677cfecb6c5a34d575caac59ff4b721a5cd85f22db",
   "uv_mode": "material_cell",
   "atlas": {"columns": 4, "rows": 4},
   "albedo_mode": "replace",
@@ -471,7 +471,7 @@ int main() {
     failures += expect(
       writeText(
         fixtureManifest,
-        R"({"schema_version":1,"model":"worker.glb","model_sha256":"b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60","materials":[{"index":99,"name":"bad"}]})"
+        R"({"schema_version":1,"model":"worker.glb","model_sha256":"368445c36b4c7da7bdec8f677cfecb6c5a34d575caac59ff4b721a5cd85f22db","materials":[{"index":99,"name":"bad"}]})"
       ),
       "material manifest test fixture should write an invalid-index manifest"
     );

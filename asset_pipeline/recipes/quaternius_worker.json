@@ -47,8 +47,6 @@
       "STOP_FORWARD": "IDLE",
       "DUCKING": "IDLE",
       "CROUCH_WALK": "RUN",
-      "JUMP": "Roll",
-      "FALL": "Roll",
       "LAND_LIGHT": "IDLE",
       "LAND_HEAVY": "HitRecieve"
     },
@@ -59,6 +57,14 @@
       "hand_offset": [0.18, 0.0, 0.015],
       "pole_offset": [0.35, -0.45, -0.05],
       "wrist_roll_degrees": 90.0
+    },
+    "gameplay_jump": {
+      "source": "Idle_Gun_TwoHanded",
+      "name": "JUMP",
+      "fall_name": "FALL",
+      "frames": [1, 5, 10, 16, 22],
+      "fall_frames": [1, 25],
+      "hip_offsets": [0.0, -0.32, 0.0, 0.0, 0.0]
     },
     "attachment_points": {
       "weapon_socket": "Wrist.R"
@@ -81,7 +87,8 @@
       {"name": "run", "action": "RUN", "frame": 12},
       {"name": "strafe-left", "action": "STRAFE_LEFT", "frame": 12},
       {"name": "run-back", "action": "RUN_BACK", "frame": 12},
-      {"name": "jump", "action": "JUMP", "frame": 18},
+      {"name": "jump-crouch", "action": "JUMP", "frame": 5},
+      {"name": "jump", "action": "JUMP", "frame": 16},
       {"name": "fall", "action": "FALL", "frame": 30},
       {"name": "crouch-walk", "action": "CROUCH_WALK", "frame": 12},
       {"name": "land", "action": "LAND_HEAVY", "frame": 10}
