@@ -117,6 +117,7 @@ int main() {
         hasValue("r_point_shadows") &&
         hasValue("r_contact_shadows") &&
         hasValue("r_material_quality") &&
+        hasValue("r_ambient_grounding") &&
         hasValue("r_player_rim") &&
         hasValue("r_casings") &&
         hasValue("r_impact_particles") &&
@@ -157,6 +158,10 @@ int main() {
       profileValue(lg::kGraphicsProfiles[1], "r_material_quality") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_material_quality") == "0" &&
       profileValue(lg::kGraphicsProfiles[3], "r_material_quality") == "2" &&
+      profileValue(lg::kGraphicsProfiles[0], "r_ambient_grounding") == "0" &&
+      profileValue(lg::kGraphicsProfiles[1], "r_ambient_grounding") == "2" &&
+      profileValue(lg::kGraphicsProfiles[2], "r_ambient_grounding") == "1" &&
+      profileValue(lg::kGraphicsProfiles[3], "r_ambient_grounding") == "2" &&
       profileValue(lg::kGraphicsProfiles[0], "r_player_rim") == "0" &&
       profileValue(lg::kGraphicsProfiles[1], "r_player_rim") == "1" &&
       profileValue(lg::kGraphicsProfiles[2], "r_player_rim") == "1" &&
@@ -189,6 +194,8 @@ int main() {
       console.getInt("r_point_shadows") == 1 &&
       console.getBool("r_contact_shadows") &&
       console.getInt("r_material_quality") == 1 &&
+      console.getInt("r_ambient_grounding") == 2 &&
+      console.getInt("r_ambient_debug") == 0 &&
       console.getInt("r_player_rim") == 1 &&
       console.execute("r_antialiasing 3") ==
         "value out of range for r_antialiasing" &&
@@ -200,19 +207,24 @@ int main() {
         "value out of range for r_point_shadows" &&
       console.execute("r_material_quality 3") ==
         "value out of range for r_material_quality" &&
+      console.execute("r_ambient_grounding 3") ==
+        "value out of range for r_ambient_grounding" &&
+      console.execute("r_ambient_debug -1") ==
+        "value out of range for r_ambient_debug" &&
       console.execute("r_player_rim 3") ==
         "value out of range for r_player_rim",
     "new graphics cvars should expose saved defaults and reject bad quality values"
   );
   const std::vector<std::string> graphicsArchivedConfig =
     console.archivedConfigLines();
-  constexpr std::array<std::string_view, 7> graphicsArchivedLines{{
+  constexpr std::array<std::string_view, 8> graphicsArchivedLines{{
     "set r_antialiasing 1",
     "set r_sun_shadows 2",
     "set r_point_lights 1",
     "set r_point_shadows 1",
     "set r_contact_shadows 1",
     "set r_material_quality 1",
+    "set r_ambient_grounding 2",
     "set r_player_rim 1",
   }};
   failures += expect(

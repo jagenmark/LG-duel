@@ -3,6 +3,7 @@
 layout(location = 0) in vec3 worldNormal;
 layout(location = 2) in vec4 baseColor;
 layout(location = 3) in vec2 material;
+layout(location = 6) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 3, binding = 0, std140) uniform DirectLightData {
@@ -17,10 +18,14 @@ void main() {
   vec3 n = normalize(worldNormal);
   vec3 albedo = pow(max(baseColor.rgb, vec3(0.0)), vec3(2.2));
   float metallic = clamp(material.x, 0.0, 1.0);
+  if (ambientData.y > 0.5) {
+    outColor = vec4(directDisplay(vec3(ambientData.x)), 1.0);
+    return;
+  }
   vec3 fillRadiance = directLights.fillColorIntensity.rgb *
     max(directLights.fillColorIntensity.w, 0.0);
   float skyFill = n.z * 0.5 + 0.5;
-  vec3 color = albedo * (
+  vec3 color = albedo * ambientData.x * (
     vec3(0.16) + fillRadiance * (0.35 + 0.65 * skyFill)
   );
   vec3 sunDirection =

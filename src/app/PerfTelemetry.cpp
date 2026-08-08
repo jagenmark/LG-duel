@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 
 namespace lg {
 namespace {
@@ -138,6 +139,33 @@ dev::JsonValue benchmarkRenderPassDiagnostics(
     dev::JsonValue::numberValue(diagnostics.worldDrawCalls);
   world.object["sky_draw_calls"] =
     dev::JsonValue::numberValue(diagnostics.skyDrawCalls);
+  dev::JsonValue ambient = dev::JsonValue::objectValue();
+  ambient.object["quality"] =
+    dev::JsonValue::numberValue(diagnostics.ambientGroundingQuality);
+  ambient.object["static_rays"] =
+    dev::JsonValue::numberValue(diagnostics.ambientStaticRays);
+  ambient.object["static_samples"] =
+    dev::JsonValue::numberValue(diagnostics.ambientStaticSamples);
+  ambient.object["static_cache_hits"] =
+    dev::JsonValue::numberValue(diagnostics.ambientStaticCacheHits);
+  ambient.object["static_minimum"] =
+    dev::JsonValue::numberValue(diagnostics.ambientStaticMinimum);
+  ambient.object["static_maximum"] =
+    dev::JsonValue::numberValue(diagnostics.ambientStaticMaximum);
+  ambient.object["probe_count"] =
+    dev::JsonValue::numberValue(diagnostics.ambientProbeCount);
+  ambient.object["probe_rays"] =
+    dev::JsonValue::numberValue(diagnostics.ambientProbeRays);
+  ambient.object["probe_bytes"] =
+    dev::JsonValue::numberValue(diagnostics.ambientProbeBytes);
+  ambient.object["probe_fingerprint"] = dev::JsonValue::stringValue(
+    std::to_string(diagnostics.ambientProbeFingerprint)
+  );
+  ambient.object["probe_build_ms"] =
+    dev::JsonValue::numberValue(diagnostics.ambientProbeBuildMilliseconds);
+  ambient.object["dynamic_samples"] =
+    dev::JsonValue::numberValue(diagnostics.ambientDynamicSamples);
+  world.object["ambient"] = std::move(ambient);
 
   dev::JsonValue gltf = dev::JsonValue::objectValue();
   gltf.object["player_instances"] =

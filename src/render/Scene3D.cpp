@@ -9,6 +9,7 @@
 #include "render/BakedPlasmaGunModel.hpp"
 #include "render/BakedSniperRifleModel.hpp"
 #include "render/GltfSkinnedModel.hpp"
+#include "render/StaticAmbientProbe.hpp"
 #include "render/WeaponPresentation.hpp"
 #include "sim/ArenaBroadphase.hpp"
 
@@ -44,7 +45,7 @@ constexpr float kRocketProjectileLightIntensity = 1.15F;
 constexpr float kRocketProjectileLightRadius = 2.2F;
 constexpr float kLegacyOutlineWorldUnitsPerPixel = 0.015F;
 constexpr std::uint32_t kSimpleInstanceUploadBytes = 40U;
-constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 52U;
+constexpr std::uint32_t kStaticMeshInstanceUploadBytes = 56U;
 constexpr std::uint32_t kStaticMeshVertexUploadBytes = 24U;
 constexpr std::uint32_t kGltfPlayerModelVertexGpuBytes = 64U;
 constexpr std::uint32_t kGltfPlayerModelIndexGpuBytes = 4U;
@@ -675,17 +676,22 @@ void addTexturedTriangle(
   Vec3 third,
   std::array<std::array<float, 2>, 3> uv,
   std::array<RenderColor, 3> colors,
-  std::uint32_t materialId
+  std::uint32_t materialId,
+  std::array<std::uint8_t, 3> ambientVisibility = {255U, 255U, 255U},
+  std::uint8_t ambientDebug = 0U
 ) {
   const Vec3 faceNormal = normalize(cross(second - first, third - first));
   scene.vertices.push_back({
-    first, colors[0], uv[0][0], uv[0][1], materialId, faceNormal, materialId
+    first, colors[0], uv[0][0], uv[0][1], materialId, faceNormal, materialId,
+    ambientVisibility[0], ambientDebug
   });
   scene.vertices.push_back({
-    second, colors[1], uv[1][0], uv[1][1], materialId, faceNormal, materialId
+    second, colors[1], uv[1][0], uv[1][1], materialId, faceNormal, materialId,
+    ambientVisibility[1], ambientDebug
   });
   scene.vertices.push_back({
-    third, colors[2], uv[2][0], uv[2][1], materialId, faceNormal, materialId
+    third, colors[2], uv[2][0], uv[2][1], materialId, faceNormal, materialId,
+    ambientVisibility[2], ambientDebug
   });
 }
 
@@ -995,7 +1001,9 @@ void addTexturedQuad(
   Vec3 fourth,
   std::array<std::array<float, 2>, 4> uv,
   std::array<RenderColor, 4> colors,
-  std::uint32_t materialId
+  std::uint32_t materialId,
+  std::array<std::uint8_t, 4> ambientVisibility = {255U, 255U, 255U, 255U},
+  std::uint8_t ambientDebug = 0U
 ) {
   addTexturedTriangle(
     scene,
@@ -1004,7 +1012,9 @@ void addTexturedQuad(
     third,
     {{{uv[0][0], uv[0][1]}, {uv[1][0], uv[1][1]}, {uv[2][0], uv[2][1]}}},
     {{colors[0], colors[1], colors[2]}},
-    materialId
+    materialId,
+    {{ambientVisibility[0], ambientVisibility[1], ambientVisibility[2]}},
+    ambientDebug
   );
   addTexturedTriangle(
     scene,
@@ -1013,7 +1023,9 @@ void addTexturedQuad(
     fourth,
     {{{uv[0][0], uv[0][1]}, {uv[2][0], uv[2][1]}, {uv[3][0], uv[3][1]}}},
     {{colors[0], colors[2], colors[3]}},
-    materialId
+    materialId,
+    {{ambientVisibility[0], ambientVisibility[2], ambientVisibility[3]}},
+    ambientDebug
   );
 }
 
@@ -1108,15 +1120,17 @@ void addSphereApprox(
   const Arena& arena,
   Vec3 position,
   Vec3 normal,
-  RenderColor base
+  RenderColor base,
+  std::uint8_t ambientVisibility
 ) {
+  const float ambientScale = encodedAmbientVisibilityScale(ambientVisibility);
   Vec3 lightColor = {
     static_cast<float>(base.red) *
-      arena.ambientLight.color.x * arena.ambientLight.intensity,
+      arena.ambientLight.color.x * arena.ambientLight.intensity * ambientScale,
     static_cast<float>(base.green) *
-      arena.ambientLight.color.y * arena.ambientLight.intensity,
+      arena.ambientLight.color.y * arena.ambientLight.intensity * ambientScale,
     static_cast<float>(base.blue) *
-      arena.ambientLight.color.z * arena.ambientLight.intensity,
+      arena.ambientLight.color.z * arena.ambientLight.intensity * ambientScale,
   };
   for (std::size_t index = 0; index < arena.staticLightCount; ++index) {
     const ArenaStaticLight& light = arena.staticLights[index];
@@ -1145,7 +1159,13 @@ void addSphereApprox(
   };
 }
 
-void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
+void addWallBox(
+  Scene3D& scene,
+  const Arena& arena,
+  const ArenaWall& wall,
+  StaticAmbientBaker* ambientBaker,
+  std::uint8_t ambientDebug
+) {
   const Vec3 minimum = wall.min;
   const Vec3 maximum = wall.max;
   const std::array<Vec3, 8> corners = {{
@@ -1187,11 +1207,17 @@ void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
     }};
     const RenderColor baseColor = scaleColor({255, 255, 255, 255}, brightness[index]);
     const Vec3 normal = wallFaceNormal(index);
+    std::array<std::uint8_t, 4> ambientVisibility = {255U, 255U, 255U, 255U};
+    if (ambientBaker != nullptr) {
+      for (std::size_t vertex = 0; vertex < face.size(); ++vertex) {
+        ambientVisibility[vertex] = ambientBaker->sample(corners[face[vertex]], normal);
+      }
+    }
     const std::array<RenderColor, 4> colors = {{
-      shadeStaticVertex(arena, corners[face[0]], normal, baseColor),
-      shadeStaticVertex(arena, corners[face[1]], normal, baseColor),
-      shadeStaticVertex(arena, corners[face[2]], normal, baseColor),
-      shadeStaticVertex(arena, corners[face[3]], normal, baseColor),
+      shadeStaticVertex(arena, corners[face[0]], normal, baseColor, ambientVisibility[0]),
+      shadeStaticVertex(arena, corners[face[1]], normal, baseColor, ambientVisibility[1]),
+      shadeStaticVertex(arena, corners[face[2]], normal, baseColor, ambientVisibility[2]),
+      shadeStaticVertex(arena, corners[face[3]], normal, baseColor, ambientVisibility[3]),
     }};
     logTextureFace("ArenaWall", materialId, wall.faceTextureProjections[index], uv, faceAxis);
     addTexturedQuad(
@@ -1202,7 +1228,9 @@ void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
       corners[face[3]],
       uv,
       colors,
-      materialId
+      materialId,
+      ambientVisibility,
+      ambientDebug
     );
   }
 }
@@ -1215,7 +1243,13 @@ void addWallBox(Scene3D& scene, const Arena& arena, const ArenaWall& wall) {
   );
 }
 
-void addArenaBrush(Scene3D& scene, const Arena& arena, const ArenaBrush& brush) {
+void addArenaBrush(
+  Scene3D& scene,
+  const Arena& arena,
+  const ArenaBrush& brush,
+  StaticAmbientBaker* ambientBaker,
+  std::uint8_t ambientDebug
+) {
   for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
     const ArenaBrushFace& face = brush.faces[faceIndex];
     if (
@@ -1235,6 +1269,14 @@ void addArenaBrush(Scene3D& scene, const Arena& arena, const ArenaBrush& brush) 
     for (std::uint8_t vertex = 1; vertex + 1 < face.vertexCount; ++vertex) {
       const Vec3 second = brush.vertices[face.vertices[vertex]];
       const Vec3 third = brush.vertices[face.vertices[vertex + 1U]];
+      std::array<std::uint8_t, 3> ambientVisibility = {255U, 255U, 255U};
+      if (ambientBaker != nullptr) {
+        ambientVisibility = {{
+          ambientBaker->sample(origin, face.normal),
+          ambientBaker->sample(second, face.normal),
+          ambientBaker->sample(third, face.normal),
+        }};
+      }
       const std::array<std::array<float, 2>, 4> uv = {{
         projectedFaceUv(origin, face.textureProjection, uvAxis),
         projectedFaceUv(second, face.textureProjection, uvAxis),
@@ -1242,9 +1284,9 @@ void addArenaBrush(Scene3D& scene, const Arena& arena, const ArenaBrush& brush) 
         projectedFaceUv(third, face.textureProjection, uvAxis),
       }};
       const std::array<RenderColor, 3> colors = {{
-        shadeStaticVertex(arena, origin, face.normal, color),
-        shadeStaticVertex(arena, second, face.normal, color),
-        shadeStaticVertex(arena, third, face.normal, color),
+        shadeStaticVertex(arena, origin, face.normal, color, ambientVisibility[0]),
+        shadeStaticVertex(arena, second, face.normal, color, ambientVisibility[1]),
+        shadeStaticVertex(arena, third, face.normal, color, ambientVisibility[2]),
       }};
       logTextureFace("ArenaBrush", materialId, face.textureProjection, uv, uvAxis);
       addTexturedTriangle(
@@ -1254,28 +1296,56 @@ void addArenaBrush(Scene3D& scene, const Arena& arena, const ArenaBrush& brush) 
         third,
         {{uv[0], uv[1], uv[2]}},
         colors,
-        materialId
+        materialId,
+        ambientVisibility,
+        ambientDebug
       );
     }
   }
 }
 
-void addFloorQuad(
+void addAmbientQuad(
   Scene3D& scene,
-  float minX,
-  float minY,
-  float maxX,
-  float maxY,
-  float z,
+  StaticAmbientBaker* ambientBaker,
+  std::uint8_t ambientDebug,
+  Vec3 first,
+  Vec3 second,
+  Vec3 third,
+  Vec3 fourth,
   RenderColor color
 ) {
-  addQuad(
+  const Vec3 normal = normalize(cross(second - first, third - first));
+  const std::array<Vec3, 4> positions = {first, second, third, fourth};
+  std::array<std::uint8_t, 4> visibility = {255U, 255U, 255U, 255U};
+  std::array<RenderColor, 4> colors = {color, color, color, color};
+  for (std::size_t index = 0; index < positions.size(); ++index) {
+    if (ambientBaker != nullptr) {
+      visibility[index] = ambientBaker->sample(positions[index], normal);
+    }
+    colors[index] = scaleColor(color, encodedAmbientVisibilityScale(visibility[index]));
+  }
+  constexpr std::array<float, 2> uv = {0.0F, 0.0F};
+  addTexturedTriangle(
     scene,
-    {minX, minY, z},
-    {maxX, minY, z},
-    {maxX, maxY, z},
-    {minX, maxY, z},
-    color
+    first,
+    second,
+    third,
+    {uv, uv, uv},
+    {colors[0], colors[1], colors[2]},
+    0U,
+    {visibility[0], visibility[1], visibility[2]},
+    ambientDebug
+  );
+  addTexturedTriangle(
+    scene,
+    first,
+    third,
+    fourth,
+    {uv, uv, uv},
+    {colors[0], colors[2], colors[3]},
+    0U,
+    {visibility[0], visibility[2], visibility[3]},
+    ambientDebug
   );
 }
 
@@ -1292,7 +1362,12 @@ void addFloorQuad(
   return std::ceil(range / maxDivisions);
 }
 
-void addFloorTreatment(Scene3D& scene, const Arena& arena) {
+void addFloorTreatment(
+  Scene3D& scene,
+  const Arena& arena,
+  StaticAmbientBaker* ambientBaker,
+  std::uint8_t ambientDebug
+) {
   constexpr float gridZ = 0.006F;
   constexpr float gridWidth = 0.012F;
   const float maxArenaRange = std::max(
@@ -1301,13 +1376,14 @@ void addFloorTreatment(Scene3D& scene, const Arena& arena) {
   );
   const float gridStep = visualStepForRange(0.0F, maxArenaRange, 1.0F, 96.0F);
 
-  addFloorQuad(
+  addAmbientQuad(
     scene,
-    arena.min.x,
-    arena.min.y,
-    arena.max.x,
-    arena.max.y,
-    kDefaultFloorZ,
+    ambientBaker,
+    ambientDebug,
+    {arena.min.x, arena.min.y, kDefaultFloorZ},
+    {arena.max.x, arena.min.y, kDefaultFloorZ},
+    {arena.max.x, arena.max.y, kDefaultFloorZ},
+    {arena.min.x, arena.max.y, kDefaultFloorZ},
     {42, 48, 55, 255}
   );
 
@@ -1346,45 +1422,50 @@ void addFloorTreatment(Scene3D& scene, const Arena& arena) {
   );
 }
 
-void addArenaBoundaryWalls(Scene3D& scene, const Arena& arena) {
+void addArenaBoundaryWalls(
+  Scene3D& scene,
+  const Arena& arena,
+  StaticAmbientBaker* ambientBaker,
+  std::uint8_t ambientDebug
+) {
   constexpr RenderColor nearWall = {68, 151, 218, 255};
   constexpr RenderColor farWall = {80, 170, 235, 255};
   constexpr RenderColor sideWall = {74, 161, 226, 255};
   constexpr RenderColor ceiling = {73, 158, 226, 255};
-  addQuad(
-    scene,
+  addAmbientQuad(
+    scene, ambientBaker, ambientDebug,
     {arena.min.x, arena.min.y, arena.min.z},
     {arena.max.x, arena.min.y, arena.min.z},
     {arena.max.x, arena.min.y, arena.max.z},
     {arena.min.x, arena.min.y, arena.max.z},
     nearWall
   );
-  addQuad(
-    scene,
+  addAmbientQuad(
+    scene, ambientBaker, ambientDebug,
     {arena.max.x, arena.max.y, arena.min.z},
     {arena.min.x, arena.max.y, arena.min.z},
     {arena.min.x, arena.max.y, arena.max.z},
     {arena.max.x, arena.max.y, arena.max.z},
     farWall
   );
-  addQuad(
-    scene,
+  addAmbientQuad(
+    scene, ambientBaker, ambientDebug,
     {arena.min.x, arena.max.y, arena.min.z},
     {arena.min.x, arena.min.y, arena.min.z},
     {arena.min.x, arena.min.y, arena.max.z},
     {arena.min.x, arena.max.y, arena.max.z},
     sideWall
   );
-  addQuad(
-    scene,
+  addAmbientQuad(
+    scene, ambientBaker, ambientDebug,
     {arena.max.x, arena.min.y, arena.min.z},
     {arena.max.x, arena.max.y, arena.min.z},
     {arena.max.x, arena.max.y, arena.max.z},
     {arena.max.x, arena.min.y, arena.max.z},
     sideWall
   );
-  addQuad(
-    scene,
+  addAmbientQuad(
+    scene, ambientBaker, ambientDebug,
     {arena.min.x, arena.min.y, arena.max.z},
     {arena.max.x, arena.min.y, arena.max.z},
     {arena.max.x, arena.max.y, arena.max.z},
@@ -6504,9 +6585,17 @@ Scene3D buildPerspectiveScene(
   return scene;
 }
 
-Scene3D buildStaticWorldScene(const Arena& arena) {
+Scene3D buildStaticWorldScene(
+  const Arena& arena,
+  int ambientQuality,
+  int ambientDebug,
+  StaticAmbientBakeStats* ambientStats
+) {
   const auto buildStart = std::chrono::steady_clock::now();
   Scene3D scene;
+  StaticAmbientBaker ambientBaker(arena, ambientQuality);
+  StaticAmbientBaker* activeAmbientBaker = ambientQuality > 0 ? &ambientBaker : nullptr;
+  const std::uint8_t ambientDebugByte = ambientDebug > 0 ? 255U : 0U;
   scene.vertices.reserve(
     512U +
     arena.wallCount * 36U +
@@ -6516,12 +6605,12 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
   );
 
   if (arena.renderDefaultFloor) {
-    addFloorTreatment(scene, arena);
+    addFloorTreatment(scene, arena, activeAmbientBaker, ambientDebugByte);
   }
   // The boundary enclosure is only a legacy fallback for maps without a
   // sky. Its ceiling otherwise covers the cubemap after the sky pass.
   if (arena.skyId == SkyId::None) {
-    addArenaBoundaryWalls(scene, arena);
+    addArenaBoundaryWalls(scene, arena, activeAmbientBaker, ambientDebugByte);
   }
   addWireBox(scene, arena.min, arena.max, 0.025F, {120, 138, 156, 255});
 
@@ -6529,21 +6618,25 @@ Scene3D buildStaticWorldScene(const Arena& arena) {
     if (!arena.walls[index].renderable) {
       continue;
     }
-    addWallBox(scene, arena, arena.walls[index]);
+    addWallBox(scene, arena, arena.walls[index], activeAmbientBaker, ambientDebugByte);
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     if (!arena.brushes[index].renderable) {
       continue;
     }
-    addArenaBrush(scene, arena, arena.brushes[index]);
+    addArenaBrush(scene, arena, arena.brushes[index], activeAmbientBaker, ambientDebugByte);
   }
   // These arrays are deliberately consumed only by static-world rendering;
   // collision debug and authoritative simulation iterate the solid arrays.
   for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
-    addWallBox(scene, arena, arena.visualWalls[index]);
+    addWallBox(scene, arena, arena.visualWalls[index], activeAmbientBaker, ambientDebugByte);
   }
   for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
-    addArenaBrush(scene, arena, arena.visualBrushes[index]);
+    addArenaBrush(scene, arena, arena.visualBrushes[index], activeAmbientBaker, ambientDebugByte);
+  }
+
+  if (ambientStats != nullptr) {
+    *ambientStats = ambientBaker.stats();
   }
 
   if (lightDebugEnabled()) {

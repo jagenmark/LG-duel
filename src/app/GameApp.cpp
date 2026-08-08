@@ -3891,6 +3891,8 @@ RenderSettings renderSettings(
   settings.pointShadowQuality = console.getInt("r_point_shadows");
   settings.contactShadowsEnabled = console.getBool("r_contact_shadows");
   settings.materialQuality = console.getInt("r_material_quality");
+  settings.ambientGroundingQuality = console.getInt("r_ambient_grounding");
+  settings.ambientDebugMode = console.getInt("r_ambient_debug");
   settings.playerRimQuality = console.getInt("r_player_rim");
   settings.casingsEnabled = console.getBool("r_casings");
   settings.casingCountMultiplier = console.getFloat("r_casing_count");
@@ -11313,10 +11315,10 @@ int GameApp::run() const {
           (resultDirectory / "simulation-ticks.csv").string()
         );
         dev::JsonValue effectiveCvars = dev::JsonValue::objectValue();
-        constexpr std::array<std::string_view, 8> kBenchmarkGraphicsContractCvars{{
+        constexpr std::array<std::string_view, 9> kBenchmarkGraphicsContractCvars{{
           "r_antialiasing", "r_sun_shadows", "r_contact_shadows",
-          "r_material_quality", "r_player_rim", "r_atmosphere_grade",
-          "r_bloom", "r_render_scale",
+          "r_material_quality", "r_ambient_grounding", "r_player_rim",
+          "r_atmosphere_grade", "r_bloom", "r_render_scale",
         }};
         for (const std::string_view name : kBenchmarkGraphicsContractCvars) {
           effectiveCvars.object[std::string(name)] =

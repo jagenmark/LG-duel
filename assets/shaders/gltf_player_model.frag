@@ -11,6 +11,7 @@ layout(location = 6) flat in uint rimQuality;
 layout(location = 7) in vec3 viewDirection;
 layout(location = 8) in vec2 materialTexCoord;
 layout(location = 9) in float albedoTextureMode;
+layout(location = 10) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 // The atlas is an sRGB texture. Hardware converts it to linear when sampled.
@@ -41,12 +42,7 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 #include "includes/point_shadow.glsl"
 #include "includes/point_light_response.glsl"
 #include "includes/atmosphere.glsl"
-
-vec3 applyTeamTint(vec3 albedo, vec3 tint, float weight) {
-  float sourceValue = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
-  vec3 tinted = tint * (0.34 + 0.66 * sqrt(clamp(sourceValue, 0.0, 1.0)));
-  return mix(albedo, tinted, clamp(weight, 0.0, 1.0));
-}
+#include "includes/team_tint.glsl"
 
 vec3 restrainedSpecular(
   vec3 n,
@@ -83,6 +79,13 @@ void main() {
     tint,
     max(flatTintWeight, materialMask.r)
   );
+  if (ambientData.y > 0.5) {
+    vec3 debugColor = vec3(ambientData.x);
+    outColor = sceneLights.postParameters.x < 0.0
+      ? vec4(directDisplay(debugColor), 1.0)
+      : vec4(debugColor, 1.0);
+    return;
+  }
 
   int materialQuality = clamp(int(sceneLights.parameters.w + 0.5), 0, 2);
   float roughness = clamp(materialMask.g, 0.08, 1.0);
@@ -104,7 +107,7 @@ void main() {
     max(sceneLights.fillColorIntensity.w, 0.0);
   float skyFill = n.z * 0.5 + 0.5;
   vec3 diffuseAlbedo = albedo * (1.0 - metallic * 0.30);
-  vec3 color = diffuseAlbedo *
+  vec3 color = diffuseAlbedo * ambientData.x *
     (vec3(0.18) + fillRadiance * (0.35 + 0.65 * skyFill));
   color += diffuseAlbedo * sunRadiance * sunNDotL * shadow;
 

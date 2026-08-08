@@ -5,6 +5,7 @@ layout(location = 0) in vec4 vertexColor;
 layout(location = 1) in float viewDistance;
 layout(location = 2) in vec3 worldPosition;
 layout(location = 3) in vec3 worldNormal;
+layout(location = 4) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform sampler2DArrayShadow pointShadowMap;
@@ -31,7 +32,14 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 
 void main() {
   vec3 albedo = pow(max(vertexColor.rgb, vec3(0.0)), vec3(2.2));
-  vec3 color = albedo;
+  if (ambientData.y > 0.5) {
+    vec3 debugColor = vec3(ambientData.x);
+    outColor = sceneLights.postParameters.x < 0.0
+      ? vec4(directDisplay(debugColor), 1.0)
+      : vec4(debugColor, 1.0);
+    return;
+  }
+  vec3 color = albedo * ambientData.x;
   vec3 n = normalize(worldNormal);
   int lightCount = clamp(int(sceneLights.parameters.x + 0.5), 0, 32);
   for (int index = 0; index < lightCount; ++index) {

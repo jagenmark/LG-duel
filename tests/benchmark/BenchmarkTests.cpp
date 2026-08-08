@@ -185,6 +185,19 @@ int main() {
     bloomControl.ok && bloomControl.scenario.cvars.contains("r_bloom"),
     "benchmark scenarios should allow a fixed bloom setting"
   );
+  const lg::benchmark::ParseResult ambientControl = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"ambient-control","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"r_ambient_grounding":2,"r_ambient_debug":0}
+  })");
+  failures += expect(
+    ambientControl.ok &&
+      ambientControl.scenario.cvars.at("r_ambient_grounding") == "2" &&
+      ambientControl.scenario.cvars.at("r_ambient_debug") == "0",
+    "benchmark scenarios should allow ambient controls"
+  );
   for (int materialQuality = 0; materialQuality <= 2; ++materialQuality) {
     const lg::benchmark::ParseResult materialQualityControl = parse(
       R"({"schema_version":1,"expected_benchmark_version":1,

@@ -1029,6 +1029,30 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("max(vertexColor.rgb, vec3(0.00169355))", shader)
         self.assertIn('"world_surface.frag.spv",\n    3', renderer)
 
+    def test_worker_flat_shaders_share_luminance_team_tint(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        shared = (shader_dir / "includes" / "team_tint.glsl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("float sourceValue = dot(albedo", shared)
+        self.assertIn("vec3 tinted = tint *", shared)
+        self.assertNotIn("albedo * tint", shared)
+        for shader_name in (
+            "gltf_player_model.frag",
+            "gltf_player_model_flat.frag",
+            "gltf_player_model_direct.frag",
+        ):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertIn('#include "includes/team_tint.glsl"', shader)
+            self.assertIn("applyTeamTint(", shader)
+        for shader_name in (
+            "gltf_player_model_flat.frag",
+            "gltf_player_model_direct.frag",
+        ):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertNotIn("base * tint", shader)
+
     def test_material_quality_preserves_point_light_diffuse_contract(self) -> None:
         root = Path(__file__).resolve().parents[1]
         reference = (root / "src" / "render" / "PointLightResponse.hpp").read_text(

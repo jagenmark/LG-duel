@@ -16,6 +16,7 @@ layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out float viewDistance;
 layout(location = 2) out vec3 worldPositionOut;
 layout(location = 3) out vec3 worldNormal;
+layout(location = 4) out vec2 ambientData;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
   vec4 position;
@@ -68,4 +69,5 @@ void main() {
     dot(worldPosition - camera.position.xyz, camera.forward.xyz),
     0.0
   );
+  ambientData = vec2(1.0, 0.0);
 }

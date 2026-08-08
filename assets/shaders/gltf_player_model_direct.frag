@@ -5,6 +5,7 @@ layout(location = 1) in vec4 teamTint;
 layout(location = 2) in float tintWeight;
 layout(location = 4) in vec3 worldNormal;
 layout(location = 7) in vec3 viewDirection;
+layout(location = 10) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 3, binding = 0, std140) uniform DirectLightData {
@@ -14,11 +15,16 @@ layout(set = 3, binding = 0, std140) uniform DirectLightData {
 } directLights;
 
 #include "includes/direct_display.glsl"
+#include "includes/team_tint.glsl"
 
 void main() {
   vec3 base = pow(max(baseColor.rgb, vec3(0.0)), vec3(2.2));
   vec3 tint = pow(max(teamTint.rgb, vec3(0.0)), vec3(2.2));
-  vec3 albedo = mix(base, base * tint, clamp(tintWeight, 0.0, 1.0));
+  vec3 albedo = applyTeamTint(base, tint, tintWeight);
+  if (ambientData.y > 0.5) {
+    outColor = vec4(directDisplay(vec3(ambientData.x)), 1.0);
+    return;
+  }
   vec3 n = normalize(worldNormal);
   vec3 v = normalize(viewDirection);
   vec3 sunDirection =
@@ -29,7 +35,7 @@ void main() {
   vec3 fillRadiance = directLights.fillColorIntensity.rgb *
     max(directLights.fillColorIntensity.w, 0.0);
   float skyFill = n.z * 0.5 + 0.5;
-  vec3 color = albedo * (
+  vec3 color = albedo * ambientData.x * (
     vec3(0.18) + fillRadiance * (0.35 + 0.65 * skyFill)
   );
   color += albedo * sunRadiance * sunNDotL;

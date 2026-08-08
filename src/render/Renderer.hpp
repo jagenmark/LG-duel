@@ -337,6 +337,8 @@ struct RenderSettings {
   int pointLightQuality = 1;
   int pointShadowQuality = 0;
   int materialQuality = 2;
+  int ambientGroundingQuality = 2;
+  int ambientDebugMode = 0;
   int playerRimQuality = 2;
   bool casingsEnabled = true;
   float casingCountMultiplier = 1.0F;
@@ -915,6 +917,18 @@ struct RendererFrameDiagnostics {
   std::uint32_t worldCulledChunks = 0;
   std::uint32_t worldVisibilityTestedNodes = 0;
   float worldVisibilityQueryMilliseconds = 0.0F;
+  int ambientGroundingQuality = 0;
+  std::uint32_t ambientStaticRays = 0;
+  std::uint32_t ambientStaticSamples = 0;
+  std::uint32_t ambientStaticCacheHits = 0;
+  std::uint8_t ambientStaticMinimum = 255;
+  std::uint8_t ambientStaticMaximum = 255;
+  std::uint32_t ambientProbeCount = 0;
+  std::uint32_t ambientProbeRays = 0;
+  std::uint32_t ambientProbeBytes = 0;
+  std::uint64_t ambientProbeFingerprint = 0;
+  float ambientProbeBuildMilliseconds = 0.0F;
+  std::uint32_t ambientDynamicSamples = 0;
   std::uint32_t gpuDepthBits = 0;
   std::uint32_t worldLoadedTextures = 0;
   std::uint32_t worldMissingTextures = 0;

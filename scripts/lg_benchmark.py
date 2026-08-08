@@ -62,6 +62,7 @@ GRAPHICS_CONTRACT_CVARS = {
     "r_sun_shadows": "sun_shadow_quality",
     "r_contact_shadows": "contact_shadows",
     "r_material_quality": "material_quality",
+    "r_ambient_grounding": "ambient_grounding",
     "r_player_rim": "rim_quality",
     "r_atmosphere_grade": "atmosphere_grade",
     "r_bloom": "bloom",

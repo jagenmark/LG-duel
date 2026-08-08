@@ -23,6 +23,8 @@ struct Vertex3D {
   std::uint32_t materialId = 0;
   Vec3 normal = {};
   std::uint32_t materialSlot = 0;
+  std::uint8_t ambientVisibility = 255;
+  std::uint8_t ambientDebug = 0;
 };
 
 // Material meshes retain authored normals and compact PBR parameters instead
@@ -1243,6 +1245,13 @@ void appendCollisionDebugGeometry(
   const RenderSettings& settings
 );
 
-[[nodiscard]] Scene3D buildStaticWorldScene(const Arena& arena);
+struct StaticAmbientBakeStats;
+
+[[nodiscard]] Scene3D buildStaticWorldScene(
+  const Arena& arena,
+  int ambientQuality = 0,
+  int ambientDebug = 0,
+  StaticAmbientBakeStats* ambientStats = nullptr
+);
 
 } // namespace lg

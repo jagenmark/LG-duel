@@ -4,12 +4,14 @@ layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec4 inColor;
 layout(location = 2) in vec2 inTexCoord;
 layout(location = 3) in vec3 inNormal;
+layout(location = 4) in uint inMaterialData;
 
 layout(location = 0) out vec4 vertexColor;
 layout(location = 1) out vec2 texCoord;
 layout(location = 2) out vec3 worldPosition;
 layout(location = 3) out float viewDistance;
 layout(location = 4) out vec3 worldNormal;
+layout(location = 5) out vec2 ambientData;
 layout(location = 6) out vec3 viewDirection;
 
 layout(set = 1, binding = 0, std140) uniform CameraData {
@@ -47,4 +49,8 @@ void main() {
   viewDistance = max(viewZ, 0.0);
   worldNormal = inNormal;
   viewDirection = camera.position.xyz - inPosition;
+  ambientData = vec2(
+    float((inMaterialData >> 16u) & 255u),
+    float((inMaterialData >> 24u) & 255u)
+  ) / 255.0;
 }

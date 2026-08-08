@@ -240,6 +240,16 @@ struct WorldTrace {
   float maxDistance
 );
 
+// Renderer-side static lighting uses this untimed trace. It ignores arena
+// bounds, clip geometry, non-rendered solids, and sky faces so an open sky
+// stays open without adding noise to gameplay trace timing.
+[[nodiscard]] WorldTrace traceStaticAmbientWorld(
+  const Arena& arena,
+  Vec3 origin,
+  Vec3 direction,
+  float maxDistance
+);
+
 [[nodiscard]] Vec3 shotgunPelletDirection(
   Vec3 forward,
   Vec3 right,

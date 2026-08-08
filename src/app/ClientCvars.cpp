@@ -139,6 +139,8 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_point_shadows", "Cached point-shadow quality: 0 off, 1 one 256px light, 2 two 512px lights.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_contact_shadows", "Enable contact shadows on players and props.", true, archivedClient, {}, {}});
   console.registerCvar({"r_material_quality", "Material quality: 0 basic, 1 enhanced, 2 high.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_ambient_grounding", "Static ambient grounding: 0 off, 1 low, 2 high.", 2, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_ambient_debug", "Ambient visibility debug: 0 off, 1 world, 2 world and dynamic objects.", 0, CvarFlag::None, 0.0F, 2.0F});
   console.registerCvar({"r_player_rim", "Player rim-light quality: 0 off, 1 low, 2 high.", 1, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_casings", "Enable local visual cartridge casings.", true, archivedClient, {}, {}});
   console.registerCvar({"r_casing_count", "Machine-gun casing count multiplier.", 1.0F, archivedClient, 0.0F, 1.0F});
