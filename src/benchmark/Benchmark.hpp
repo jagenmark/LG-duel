@@ -206,6 +206,9 @@ struct ResultContext {
 };
 
 [[nodiscard]] ParseResult parseScenario(const dev::JsonValue& value);
+[[nodiscard]] std::map<std::string, std::string, std::less<>> benchmarkCvarOverrides(
+  const Scenario& scenario
+);
 [[nodiscard]] bool isSafeRunId(std::string_view value);
 [[nodiscard]] bool isSafeScenarioHash(std::string_view value);
 [[nodiscard]] CameraPose cameraAt(const Scenario& scenario, double measuredSeconds);

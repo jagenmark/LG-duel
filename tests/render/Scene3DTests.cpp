@@ -1922,6 +1922,23 @@ int main() {
   }
 
   {
+    lg::Arena fallbackAmbientArena;
+    fallbackAmbientArena.min = {-2.0F, -2.0F, 0.0F};
+    fallbackAmbientArena.max = {2.0F, 2.0F, 2.0F};
+    fallbackAmbientArena.spawnCount = 1U;
+    fallbackAmbientArena.spawnPositions[0] = {0.0F, 0.0F, 0.0F};
+    const lg::Scene3D fallbackAmbientScene = lg::buildStaticWorldScene(fallbackAmbientArena, 2, 1);
+    const bool foundGroundedDebugFloor = std::any_of(fallbackAmbientScene.vertices.begin(),
+      fallbackAmbientScene.vertices.end(),
+      [](const lg::Vertex3D& vertex) {
+        return nearlyEqual(vertex.position.z, 0.0F) && vertex.ambientDebug == 255U &&
+               vertex.ambientVisibility < 255U;
+      });
+    failures += expect(foundGroundedDebugFloor,
+      "generated fallback floor should carry ambient visibility and debug data");
+  }
+
+  {
     lg::Arena clipArena;
     const lg::Scene3D baselineStaticScene = lg::buildStaticWorldScene(clipArena);
     clipArena.wallCount = 1;
@@ -2629,7 +2646,7 @@ int main() {
     playerBoxInstanceCount(legacyModelScene) == 7U &&
       legacyModelScene.playerBoxStats.visiblePlayers == 1 &&
       legacyModelScene.playerBoxStats.instancesSubmitted == 7 &&
-      legacyModelScene.playerBoxStats.instanceUploadBytes == 7U * 52U &&
+      legacyModelScene.playerBoxStats.instanceUploadBytes == 7U * 56U &&
       legacyModelScene.playerBoxStats.sharedCubeStaticGpuBytes == 36U * 24U &&
       legacyModelScene.normalPlayerBodyDynamicVertices == 0 &&
       legacyModelScene.playerBoxStats.legacyCpuGeneratedVertices == 0 &&

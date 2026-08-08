@@ -16,7 +16,7 @@ struct GraphicsProfileValue {
 struct GraphicsProfileDefinition {
   GraphicsProfile profile;
   std::string_view name;
-  std::array<GraphicsProfileValue, 24> values;
+  std::array<GraphicsProfileValue, 25> values;
 };
 
 inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
@@ -32,6 +32,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_antialiasing", "0"}, {"r_sun_shadows", "0"},
     {"r_point_lights", "1"}, {"r_point_shadows", "0"},
     {"r_contact_shadows", "1"}, {"r_material_quality", "0"},
+    {"r_ambient_grounding", "0"},
     {"r_player_rim", "0"},
     {"r_casings", "0"}, {"r_impact_particles", "0.5"},
     {"r_decals_max", "48"}
@@ -48,6 +49,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_antialiasing", "1"}, {"r_sun_shadows", "2"},
     {"r_point_lights", "1"}, {"r_point_shadows", "1"},
     {"r_contact_shadows", "1"}, {"r_material_quality", "1"},
+    {"r_ambient_grounding", "2"},
     {"r_player_rim", "1"},
     {"r_casings", "1"}, {"r_impact_particles", "1"},
     {"r_decals_max", "128"}
@@ -64,6 +66,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_antialiasing", "1"}, {"r_sun_shadows", "1"},
     {"r_point_lights", "0"}, {"r_point_shadows", "0"},
     {"r_contact_shadows", "0"}, {"r_material_quality", "0"},
+    {"r_ambient_grounding", "1"},
     {"r_player_rim", "1"},
     {"r_casings", "0"}, {"r_impact_particles", "0.5"},
     {"r_decals_max", "64"}
@@ -80,6 +83,7 @@ inline constexpr std::array<GraphicsProfileDefinition, 4> kGraphicsProfiles{{
     {"r_antialiasing", "2"}, {"r_sun_shadows", "2"},
     {"r_point_lights", "2"}, {"r_point_shadows", "2"},
     {"r_contact_shadows", "1"}, {"r_material_quality", "2"},
+    {"r_ambient_grounding", "2"},
     {"r_player_rim", "2"},
     {"r_casings", "1"}, {"r_impact_particles", "1.5"},
     {"r_decals_max", "192"}

@@ -14,6 +14,7 @@ layout(location = 10) in uint instanceFirstBone;
 layout(location = 11) in uint instanceBoneCount;
 layout(location = 12) in uint instanceFlags;
 layout(location = 13) in vec4 inTintMask;
+layout(location = 14) in vec4 instanceAmbient;
 
 layout(location = 0) out vec4 baseColor;
 layout(location = 1) out vec4 teamTint;
@@ -25,6 +26,7 @@ layout(location = 6) flat out uint rimQuality;
 layout(location = 7) out vec3 viewDirection;
 layout(location = 8) out vec2 materialTexCoord;
 layout(location = 9) out float albedoTextureMode;
+layout(location = 10) out vec2 ambientData;
 
 layout(set = 0, binding = 0, std430) readonly buffer BoneRows {
   vec4 rows[];
@@ -141,4 +143,5 @@ void main() {
   viewDirection = camera.position.xyz - worldPosition;
   materialTexCoord = inTexCoord;
   albedoTextureMode = clamp(inTintMask.y, 0.0, 1.0);
+  ambientData = instanceAmbient.xy;
 }

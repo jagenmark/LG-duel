@@ -8,6 +8,12 @@
 
 namespace lg {
 
+namespace dev {
+struct JsonValue;
+}
+
+struct RendererFrameDiagnostics;
+
 struct PerfSample {
   float frameMilliseconds = 0.0F;
   float sceneBuildMilliseconds = 0.0F;
@@ -189,5 +195,9 @@ private:
   std::size_t nextSample_ = 0;
   std::size_t sampleCount_ = 0;
 };
+
+[[nodiscard]] dev::JsonValue benchmarkRenderPassDiagnostics(
+  const RendererFrameDiagnostics& diagnostics
+);
 
 } // namespace lg

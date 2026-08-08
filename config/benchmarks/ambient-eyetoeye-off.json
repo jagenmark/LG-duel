@@ -1,0 +1,43 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "ambient-eyetoeye-off",
+  "labels": ["ambient-grounding", "control", "eyetoeye", "fixed-player"],
+  "map": "eyetoeye",
+  "backend_requirement": "gpu",
+  "resolution": [1280, 720],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 0,
+  "fov": 100.0,
+  "graphics_profile": "Default",
+  "render_scale": 1.0,
+  "warmup_seconds": 3.0,
+  "measured_seconds": 8.0,
+  "camera_start": {"position": [0.0, 22.4, -12.85], "yaw": -90.0, "pitch": 0.0, "fov": 100.0},
+  "camera_path": [
+    {"progress": 0.0, "position": [0.0, 22.4, -12.85], "yaw": -90.0, "pitch": 0.0, "fov": 100.0},
+    {"progress": 0.5, "position": [22.4, 0.0, -12.85], "yaw": 180.0, "pitch": 0.0, "fov": 100.0},
+    {"progress": 1.0, "position": [0.0, -22.0, -12.85], "yaw": 90.0, "pitch": 0.0, "fov": 100.0}
+  ],
+  "player_state": {"alive": true, "weapon": "lightning_gun", "hide_hud": true, "hide_overlays": true},
+  "actors": {
+    "bots": 1,
+    "weapon": "railgun",
+    "attack_mode": "off",
+    "stare": true,
+    "standstill": true,
+    "dodge": false,
+    "expected_count": 2,
+    "commands": ["bot_weapon railgun", "bot_add 1", "bot_attack off", "bot_stare 1", "bot_standstill 1", "bot_dodge 0"]
+  },
+  "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
+  "cvars": {"r_frustum_cull": 1, "r_show_weapons": 1, "r_player_model": 2, "r_draw_player_outlines": 1, "r_ambient_grounding": 0, "r_ambient_debug": 0},
+  "screenshots": [
+    {"name": "north-control", "progress": 0.0},
+    {"name": "east-control", "progress": 0.5},
+    {"name": "south-control", "progress": 1.0}
+  ],
+  "residual_nondeterminism": ["The fixed camera path and stationary Worker are repeatable; captures occur after timed sampling."]
+}

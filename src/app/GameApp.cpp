@@ -3891,6 +3891,8 @@ RenderSettings renderSettings(
   settings.pointShadowQuality = console.getInt("r_point_shadows");
   settings.contactShadowsEnabled = console.getBool("r_contact_shadows");
   settings.materialQuality = console.getInt("r_material_quality");
+  settings.ambientGroundingQuality = console.getInt("r_ambient_grounding");
+  settings.ambientDebugMode = console.getInt("r_ambient_debug");
   settings.playerRimQuality = console.getInt("r_player_rim");
   settings.casingsEnabled = console.getBool("r_casings");
   settings.casingCountMultiplier = console.getFloat("r_casing_count");
@@ -6953,24 +6955,8 @@ int GameApp::run() const {
         active.previousBotDodge = botDodgeEnabled;
         active.previousBotDodgeMinIntervalMs = botDodgeMinIntervalMs;
         active.previousBotDodgeMaxIntervalMs = botDodgeMaxIntervalMs;
-        const std::map<std::string, std::string, std::less<>> overrides = [&]() {
-          std::map<std::string, std::string, std::less<>> values = scenario.cvars;
-          values["vid_width"] = std::to_string(scenario.width);
-          values["vid_height"] = std::to_string(scenario.height);
-          values["vid_fullscreen"] = std::to_string(scenario.fullscreen);
-          values["r_vsync"] = std::to_string(scenario.vsync);
-          values["r_present_mode"] = scenario.vsync != 0 ? "0" : "2";
-          values["r_maxfps"] = std::to_string(scenario.frameCap);
-          values["cl_fov"] = std::to_string(scenario.fieldOfView);
-          for (const GraphicsProfileDefinition& profile : kGraphicsProfiles) {
-            if (profile.name == scenario.graphicsProfile) {
-              for (const GraphicsProfileValue& value : profile.values) values[std::string(value.cvar)] = std::string(value.value);
-              break;
-            }
-          }
-          values["r_render_scale"] = std::to_string(scenario.renderScale);
-          return values;
-        }();
+        const std::map<std::string, std::string, std::less<>> overrides =
+          benchmark::benchmarkCvarOverrides(scenario);
         for (const auto& [name, value] : overrides) {
           active.restoredCvars.emplace(name, console.valueString(name));
           (void)console.execute("set " + name + " " + value);
@@ -11329,16 +11315,18 @@ int GameApp::run() const {
           (resultDirectory / "simulation-ticks.csv").string()
         );
         dev::JsonValue effectiveCvars = dev::JsonValue::objectValue();
-        constexpr std::array<std::string_view, 8> kBenchmarkGraphicsContractCvars{{
+        constexpr std::array<std::string_view, 9> kBenchmarkGraphicsContractCvars{{
           "r_antialiasing", "r_sun_shadows", "r_contact_shadows",
-          "r_material_quality", "r_player_rim", "r_atmosphere_grade",
-          "r_bloom", "r_render_scale",
+          "r_material_quality", "r_ambient_grounding", "r_player_rim",
+          "r_atmosphere_grade", "r_bloom", "r_render_scale",
         }};
         for (const std::string_view name : kBenchmarkGraphicsContractCvars) {
           effectiveCvars.object[std::string(name)] =
             dev::JsonValue::stringValue(console.valueString(name));
         }
         response.object["effective_cvars"] = std::move(effectiveCvars);
+        response.object["render_pass_diagnostics"] =
+          benchmarkRenderPassDiagnostics(renderer.lastFrameDiagnostics());
         developerControl.complete(
           active.queued.token,
           dev::successResponse(request.id, std::move(response))

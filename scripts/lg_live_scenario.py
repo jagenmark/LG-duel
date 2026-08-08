@@ -34,6 +34,13 @@ CAPTURE_RUNTIME_PADDING_TICKS = 188
 CLIENT_CVAR_OVERRIDE_RULES = {
     "r_combat_effects": {"0", "1", "2"},
     "r_bloom": {"0", "1"},
+    "r_player_model": {"0", "1", "2"},
+    "r_material_quality": {"0", "1", "2"},
+    "r_ambient_grounding": {"0", "1", "2"},
+    "r_ambient_debug": {"0", "1", "2"},
+    "r_draw_player_outlines": {"0", "1"},
+    "r_player_outline_mode": {"0", "1", "2"},
+    "r_show_weapons": {"0", "1"},
 }
 
 

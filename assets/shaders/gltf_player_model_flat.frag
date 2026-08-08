@@ -9,6 +9,7 @@ layout(location = 4) in vec3 worldNormal;
 layout(location = 5) in float viewDistance;
 layout(location = 6) flat in uint rimQuality;
 layout(location = 7) in vec3 viewDirection;
+layout(location = 10) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform sampler2DShadow sunShadowMap;
@@ -35,11 +36,19 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 #include "includes/point_shadow.glsl"
 #include "includes/point_light_response.glsl"
 #include "includes/atmosphere.glsl"
+#include "includes/team_tint.glsl"
 
 void main() {
   vec3 base = pow(max(baseColor.rgb, vec3(0.0)), vec3(2.2));
   vec3 tint = pow(max(teamTint.rgb, vec3(0.0)), vec3(2.2));
-  vec3 albedo = mix(base, base * tint, clamp(tintWeight, 0.0, 1.0));
+  vec3 albedo = applyTeamTint(base, tint, tintWeight);
+  if (ambientData.y > 0.5) {
+    vec3 debugColor = vec3(ambientData.x);
+    outColor = sceneLights.postParameters.x < 0.0
+      ? vec4(directDisplay(debugColor), 1.0)
+      : vec4(debugColor, 1.0);
+    return;
+  }
   vec3 n = normalize(worldNormal);
   vec3 v = normalize(viewDirection);
   vec3 sunDirection = normalize(-sceneLights.sunDirectionIntensity.xyz);
@@ -52,7 +61,8 @@ void main() {
   vec3 fillRadiance = sceneLights.fillColorIntensity.rgb *
     max(sceneLights.fillColorIntensity.w, 0.0);
   float skyFill = n.z * 0.5 + 0.5;
-  vec3 color = albedo * (vec3(0.18) + fillRadiance * (0.35 + 0.65 * skyFill));
+  vec3 color = albedo * ambientData.x *
+    (vec3(0.18) + fillRadiance * (0.35 + 0.65 * skyFill));
   color += albedo * sunRadiance * sunNDotL * shadow;
 
   int materialQuality = clamp(int(sceneLights.parameters.w + 0.5), 0, 2);

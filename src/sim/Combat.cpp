@@ -483,6 +483,157 @@ WorldTrace traceWorld(
   return trace;
 }
 
+WorldTrace traceStaticAmbientWorld(
+  const Arena& arena, Vec3 origin, Vec3 direction, float maxDistance) {
+  WorldTrace trace;
+  trace.start = origin;
+  trace.distance = maxDistance;
+  constexpr float kBroadphaseEpsilon = 0.001F;
+  const Vec3 segmentEnd = origin + (direction * maxDistance);
+  ArenaBroadphaseCandidates candidates;
+  const bool indexed = queryArenaCollisionIndex(arena,
+    {
+      std::min(origin.x, segmentEnd.x) - kBroadphaseEpsilon,
+      std::min(origin.y, segmentEnd.y) - kBroadphaseEpsilon,
+      std::min(origin.z, segmentEnd.z) - kBroadphaseEpsilon,
+    },
+    {
+      std::max(origin.x, segmentEnd.x) + kBroadphaseEpsilon,
+      std::max(origin.y, segmentEnd.y) + kBroadphaseEpsilon,
+      std::max(origin.z, segmentEnd.z) + kBroadphaseEpsilon,
+    },
+    candidates);
+  const auto considerWall = [&](const ArenaWall& wall, std::uint32_t sourceIndex) {
+    if (!wall.renderable || wall.collisionKind != ArenaCollisionKind::VisibleSolid) {
+      return;
+    }
+    const TraceHit hit = wallHit(wall, origin, direction);
+    if (!hit.hit || hit.distance > trace.distance ||
+        (hit.faceIndex < wall.faceSurfaceKinds.size() &&
+          wall.faceSurfaceKinds[hit.faceIndex] == ArenaSurfaceKind::Sky)) {
+      return;
+    }
+    trace.distance = hit.distance;
+    trace.normal = hit.normal;
+    trace.materialId = hit.faceIndex < wall.faceMaterialIds.size() &&
+                             wall.faceMaterialIds[hit.faceIndex] != 0U
+                           ? wall.faceMaterialIds[hit.faceIndex]
+                           : wall.materialId;
+    trace.sourceIndex = sourceIndex;
+    trace.faceIndex = hit.faceIndex;
+    trace.source = WorldTraceSource::Wall;
+    trace.hit = true;
+  };
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    if (!indexed || candidates.walls.test(index)) {
+      considerWall(arena.walls[index], static_cast<std::uint32_t>(index));
+    }
+  }
+  const auto considerBrush = [&](const ArenaBrush& brush, std::uint32_t sourceIndex) {
+    if (!brush.renderable || brush.collisionKind != ArenaCollisionKind::VisibleSolid) {
+      return;
+    }
+    const float boundsDistance = brushBoundsHitDistance(brush, origin, direction);
+    if (boundsDistance > trace.distance + kTraceEpsilon) {
+      return;
+    }
+    const TraceHit hit = brushHit(brush, origin, direction);
+    if (!hit.hit || hit.distance > trace.distance ||
+        (hit.faceIndex < brush.faceCount &&
+          brush.faces[hit.faceIndex].surfaceKind == ArenaSurfaceKind::Sky)) {
+      return;
+    }
+    trace.distance = hit.distance;
+    trace.normal = hit.normal;
+    trace.materialId = hit.faceIndex < brush.faceCount &&
+                             brush.faces[hit.faceIndex].materialId != 0U
+                           ? brush.faces[hit.faceIndex].materialId
+                           : brush.materialId;
+    trace.sourceIndex = sourceIndex;
+    trace.faceIndex = hit.faceIndex;
+    trace.source = WorldTraceSource::Brush;
+    trace.hit = true;
+  };
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    if (!indexed || candidates.brushes.test(index)) {
+      considerBrush(arena.brushes[index], static_cast<std::uint32_t>(index));
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualWallCount; ++index) {
+    const ArenaWall& wall = arena.visualWalls[index];
+    const TraceHit hit = wallHit(wall, origin, direction);
+    if (hit.hit && hit.distance <= trace.distance &&
+        !(hit.faceIndex < wall.faceSurfaceKinds.size() &&
+          wall.faceSurfaceKinds[hit.faceIndex] == ArenaSurfaceKind::Sky)) {
+      trace.distance = hit.distance;
+      trace.normal = hit.normal;
+      trace.materialId = hit.faceIndex < wall.faceMaterialIds.size() &&
+                               wall.faceMaterialIds[hit.faceIndex] != 0U
+                             ? wall.faceMaterialIds[hit.faceIndex]
+                             : wall.materialId;
+      trace.sourceIndex = static_cast<std::uint32_t>(index);
+      trace.faceIndex = hit.faceIndex;
+      trace.source = WorldTraceSource::Wall;
+      trace.hit = true;
+    }
+  }
+  for (std::size_t index = 0; index < arena.visualBrushCount; ++index) {
+    const ArenaBrush& brush = arena.visualBrushes[index];
+    const float boundsDistance = brushBoundsHitDistance(brush, origin, direction);
+    if (boundsDistance > trace.distance + kTraceEpsilon) {
+      continue;
+    }
+    const TraceHit hit = brushHit(brush, origin, direction);
+    if (!hit.hit || hit.distance > trace.distance ||
+        (hit.faceIndex < brush.faceCount &&
+          brush.faces[hit.faceIndex].surfaceKind == ArenaSurfaceKind::Sky)) {
+      continue;
+    }
+    trace.distance = hit.distance;
+    trace.normal = hit.normal;
+    trace.materialId = hit.faceIndex < brush.faceCount &&
+                             brush.faces[hit.faceIndex].materialId != 0U
+                           ? brush.faces[hit.faceIndex].materialId
+                           : brush.materialId;
+    trace.sourceIndex = static_cast<std::uint32_t>(index);
+    trace.faceIndex = hit.faceIndex;
+    trace.source = WorldTraceSource::Brush;
+    trace.hit = true;
+  }
+  const auto considerGeneratedBox = [&](Vec3 minimum, Vec3 maximum, std::uint32_t sourceIndex) {
+    const TraceHit hit = wallHit(ArenaWall{minimum, maximum}, origin, direction);
+    if (!hit.hit || hit.distance > trace.distance) {
+      return;
+    }
+    trace.distance = hit.distance;
+    trace.normal = hit.normal;
+    trace.materialId = 0U;
+    trace.sourceIndex = sourceIndex;
+    trace.faceIndex = hit.faceIndex;
+    trace.source = WorldTraceSource::Wall;
+    trace.hit = true;
+  };
+  constexpr float kGeneratedSurfaceThickness = 0.002F;
+  if (arena.renderDefaultFloor) {
+    considerGeneratedBox({arena.min.x, arena.min.y, -kGeneratedSurfaceThickness},
+      {arena.max.x, arena.max.y, 0.0F}, 0xfffffff0U);
+  }
+  if (arena.skyId == SkyId::None) {
+    considerGeneratedBox({arena.min.x - kGeneratedSurfaceThickness, arena.min.y, arena.min.z},
+      {arena.min.x, arena.max.y, arena.max.z}, 0xfffffff1U);
+    considerGeneratedBox({arena.max.x, arena.min.y, arena.min.z},
+      {arena.max.x + kGeneratedSurfaceThickness, arena.max.y, arena.max.z}, 0xfffffff2U);
+    considerGeneratedBox({arena.min.x, arena.min.y - kGeneratedSurfaceThickness, arena.min.z},
+      {arena.max.x, arena.min.y, arena.max.z}, 0xfffffff3U);
+    considerGeneratedBox({arena.min.x, arena.max.y, arena.min.z},
+      {arena.max.x, arena.max.y + kGeneratedSurfaceThickness, arena.max.z}, 0xfffffff4U);
+    considerGeneratedBox({arena.min.x, arena.min.y, arena.max.z},
+      {arena.max.x, arena.max.y, arena.max.z + kGeneratedSurfaceThickness}, 0xfffffff5U);
+  }
+  trace.end = origin + (direction * trace.distance);
+  return trace;
+}
+
 Vec3 shotgunPelletDirection(
   Vec3 forward,
   Vec3 right,

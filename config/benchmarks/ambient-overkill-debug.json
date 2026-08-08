@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "benchmark_version": 1,
+  "expected_benchmark_version": 1,
+  "name": "ambient-overkill-debug",
+  "labels": ["ambient-grounding", "debug", "overkill-import"],
+  "map": "overkill_import",
+  "backend_requirement": "gpu",
+  "resolution": [1280, 720],
+  "fullscreen": false,
+  "vsync": false,
+  "frame_cap": 0,
+  "fov": 90.0,
+  "graphics_profile": "Default",
+  "render_scale": 1.0,
+  "warmup_seconds": 2.0,
+  "measured_seconds": 3.0,
+  "camera_start": {"position": [-2.0, -3.8, 9.5], "yaw": 270.0, "pitch": -8.0, "fov": 90.0},
+  "camera_path": [
+    {"progress": 0.0, "position": [-2.0, -3.8, 9.5], "yaw": 270.0, "pitch": -8.0, "fov": 90.0},
+    {"progress": 1.0, "position": [16.0, 33.6, 25.5], "yaw": 90.0, "pitch": -6.0, "fov": 85.0}
+  ],
+  "player_state": {"alive": true, "weapon": "lightning_gun", "hide_hud": true, "hide_overlays": true},
+  "actors": {"bots": 0, "attack_mode": "off", "stare": false, "standstill": true, "dodge": false, "expected_count": 1, "commands": []},
+  "effects": {"projectiles": "none", "tracers": "none", "explosions": "none"},
+  "cvars": {"r_frustum_cull": 1, "r_world_frustum_cull": 1, "r_ambient_grounding": 2, "r_ambient_debug": 1},
+  "screenshots": [
+    {"name": "lower-visibility", "progress": 0.0},
+    {"name": "upper-visibility", "progress": 1.0}
+  ],
+  "residual_nondeterminism": []
+}

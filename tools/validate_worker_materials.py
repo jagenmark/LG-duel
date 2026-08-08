@@ -37,6 +37,11 @@ EXPECTED_MATERIALS = [
     "Brown",
     "Brown2",
 ]
+EXPECTED_FLAT_TINT_WEIGHTS = {
+    "Worker_Yellow": 0.92,
+    "Worker_Vest": 1.0,
+    "Worker_Yellow.001": 0.92,
+}
 EXPECTED_MASK_CELLS = {
     (0, 0): (0, 158, 0, 0),
     (1, 0): (235, 209, 0, 0),
@@ -244,7 +249,14 @@ def validate_manifest_and_images() -> None:
     require(len(bindings) == 13 and manifest.get("require_material_coverage") is True, "Worker material coverage changed")
     require([binding.get("index") for binding in bindings] == list(range(13)), "Worker material binding order changed")
     require([binding.get("name") for binding in bindings] == EXPECTED_MATERIALS, "Worker material binding names changed")
-    require(all(binding.get("flat_tint_weight") == 0.0 for binding in bindings), "Worker team tint must come from the shared mask")
+    require(
+        {
+            binding.get("name"): binding.get("flat_tint_weight")
+            for binding in bindings
+            if binding.get("flat_tint_weight") != 0.0
+        } == EXPECTED_FLAT_TINT_WEIGHTS,
+        "Worker flat tint weights changed",
+    )
     cells = [binding.get("cell") for binding in bindings]
     require(cells == [[0, 0], [1, 0], [2, 0], [3, 0], [0, 1], [1, 1], [0, 0], [2, 1], [1, 0], [2, 1], [3, 1], [0, 2], [1, 2]], "Worker material-cell mapping changed")
 

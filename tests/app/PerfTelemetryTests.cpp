@@ -1,5 +1,8 @@
 #include "app/PerfTelemetry.hpp"
 
+#include "dev/DevJson.hpp"
+#include "render/Renderer.hpp"
+
 #include <cmath>
 #include <iostream>
 #include <string_view>
@@ -85,6 +88,71 @@ int main() {
       reset.sampleCount == 0 &&
       reset.frame.max == 0.0F,
     "performance reset should clear history deterministically"
+  );
+
+  lg::RendererFrameDiagnostics renderer;
+  renderer.worldDrawCalls = 12;
+  renderer.skyDrawCalls = 2;
+  renderer.ambientGroundingQuality = 2;
+  renderer.ambientStaticRays = 10'662;
+  renderer.ambientStaticSamples = 1'777;
+  renderer.ambientStaticCacheHits = 791;
+  renderer.ambientStaticMinimum = 140;
+  renderer.ambientStaticMaximum = 255;
+  renderer.ambientProbeCount = 405;
+  renderer.ambientProbeRays = 2'430;
+  renderer.ambientProbeBytes = 405;
+  renderer.ambientProbeFingerprint = 3'448'240'832'750'486'961ULL;
+  renderer.ambientProbeBuildMilliseconds = 0.25F;
+  renderer.ambientDynamicSamples = 5;
+  renderer.gltfPlayerModelInstances = 5;
+  renderer.gltfMaterialTextureGpuBytes = 2'796'192;
+  renderer.gltfMaterialTextureMipLevels = 10;
+  renderer.gltfMaterialTextureBinds = 2;
+  renderer.gltfAuthoredMaterialTexturesReady = true;
+  renderer.gltfMaterialFallbackUsed = false;
+  renderer.gltfPoseUploadBytes = 16'384;
+  renderer.gltfBonePaletteEntriesUploaded = 256;
+  renderer.gltfGpuSkinnedInstances = 5;
+  renderer.gltfBodyBatches = 13;
+  renderer.gltfBodyDrawCalls = 13;
+  renderer.gltfOutlineMaskDrawCalls = 13;
+  renderer.directPresentEligible = true;
+  renderer.directPresentUsed = false;
+  renderer.directPresentFallbackReason = "outline-enabled";
+  renderer.directPresentFormat = "R8G8B8A8_UNORM";
+  const lg::dev::JsonValue diagnostics =
+    lg::benchmarkRenderPassDiagnostics(renderer);
+  const lg::dev::JsonValue* world = diagnostics.find("world");
+  const lg::dev::JsonValue* ambient = world != nullptr
+    ? world->find("ambient")
+    : nullptr;
+  const lg::dev::JsonValue* gltf = diagnostics.find("gltf");
+  const lg::dev::JsonValue* directPresent = diagnostics.find("direct_present");
+  failures += expect(
+    world != nullptr && ambient != nullptr && gltf != nullptr &&
+      directPresent != nullptr &&
+      lg::dev::numberMember(*world, "draw_calls") == 12.0 &&
+      lg::dev::numberMember(*ambient, "quality") == 2.0 &&
+      lg::dev::numberMember(*ambient, "static_rays") == 10'662.0 &&
+      lg::dev::numberMember(*ambient, "probe_bytes") == 405.0 &&
+      lg::dev::stringMember(*ambient, "probe_fingerprint") ==
+        "3448240832750486961" &&
+      lg::dev::numberMember(*ambient, "dynamic_samples") == 5.0 &&
+      lg::dev::numberMember(*gltf, "player_instances") == 5.0 &&
+      lg::dev::numberMember(*gltf, "material_texture_gpu_bytes") ==
+        2'796'192.0 &&
+      lg::dev::numberMember(*gltf, "material_texture_binds") == 2.0 &&
+      lg::dev::boolMember(*gltf, "authored_material_textures_ready") == true &&
+      lg::dev::boolMember(*gltf, "material_fallback_used") == false &&
+      lg::dev::numberMember(*gltf, "pose_upload_bytes") == 16'384.0 &&
+      lg::dev::numberMember(*gltf, "body_draw_calls") == 13.0 &&
+      lg::dev::boolMember(*directPresent, "eligible") == true &&
+      lg::dev::boolMember(*directPresent, "used") == false &&
+      lg::dev::stringMember(*directPresent, "fallback_reason") ==
+        "outline-enabled",
+    "benchmark diagnostics should keep stable world, ambient, GLTF, and "
+    "direct-present counters"
   );
 
   return failures == 0 ? 0 : 1;

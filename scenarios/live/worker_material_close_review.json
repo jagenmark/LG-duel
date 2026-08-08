@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "name": "worker_material_close_review",
+  "description": "Three fixed Workers show front, side, and rear material views at inspection range.",
+  "execution": {"mode": "client_server", "max_ticks": 160, "repeat": 1},
+  "world": {"map": "default", "game_mode": "duel", "seed": 2445},
+  "players": [
+    {"index": 0, "connected": true, "bot": false, "team": "none", "position": [-3.5, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "railgun"},
+    {"index": 1, "connected": true, "bot": true, "team": "none", "position": [-0.75, -0.9, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 180, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "machine_gun"},
+    {"index": 2, "connected": true, "bot": true, "team": "none", "position": [-0.75, 0, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 90, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "railgun"},
+    {"index": 3, "connected": true, "bot": true, "team": "none", "position": [-0.75, 0.9, 0.9], "velocity": [0, 0, 0], "view_yaw_degrees": 0, "view_pitch_degrees": 0, "health": 100, "alive": true, "selected_weapon": "lightning_gun"}
+  ],
+  "timeline": [{"at_tick": 0, "player": 0, "duration_ticks": 1, "one_tick_edges": [], "input": {"forward": 0, "right": 0, "attack": false}}],
+  "captures": [{"name": "worker-close-views", "at_server_tick": 8, "wait_rendered_frames": 4}],
+  "assertions": [
+    {"type": "client_connected", "classification": "CLIENT_BOUNDED", "at_completion": true, "expected": true},
+    {"type": "renderer_backend", "classification": "RENDERER_ATTESTED", "at_completion": true, "backend": "SDL_GPU/vulkan"},
+    {"type": "screenshot_checkpoint", "classification": "VISUAL_REVIEW", "at_completion": true, "capture": "worker-close-views", "width": 1280, "height": 720}
+  ]
+}

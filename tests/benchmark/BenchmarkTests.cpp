@@ -8,6 +8,7 @@
 #include <fstream>
 #include <iostream>
 #include <iterator>
+#include <string>
 #include <string_view>
 
 namespace {
@@ -146,6 +147,33 @@ int main() {
       std::fabs(graphicsProfile.scenario.renderScale - 1.25F) < 0.001F,
     "benchmark graphics profile and render scale should parse"
   );
+  for (int materialQuality = 0; materialQuality <= 2; ++materialQuality) {
+    lg::benchmark::Scenario materialQualityScenario;
+    materialQualityScenario.graphicsProfile = "Default";
+    materialQualityScenario.renderScale = 1.25F;
+    materialQualityScenario.cvars["r_material_quality"] =
+      std::to_string(materialQuality);
+    materialQualityScenario.cvars["r_bloom"] = "0";
+    materialQualityScenario.cvars["r_render_scale"] = "0.5";
+    const auto overrides =
+      lg::benchmark::benchmarkCvarOverrides(materialQualityScenario);
+    failures += expect(
+      overrides.at("r_material_quality") == std::to_string(materialQuality) &&
+        overrides.at("r_bloom") == "0" &&
+        overrides.at("r_render_scale") == "1.250000",
+      "benchmark descriptor cvars should override a profile except render scale"
+    );
+  }
+  lg::benchmark::Scenario profileOnlyScenario;
+  profileOnlyScenario.graphicsProfile = "High";
+  const auto profileOnlyOverrides =
+    lg::benchmark::benchmarkCvarOverrides(profileOnlyScenario);
+  failures += expect(
+    profileOnlyOverrides.at("r_material_quality") == "2" &&
+      profileOnlyOverrides.at("r_bloom") == "1" &&
+      profileOnlyOverrides.at("r_render_scale") == "1.000000",
+    "profile-only benchmark scenarios should retain graphics profile values"
+  );
   const lg::benchmark::ParseResult bloomControl = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,
     "name":"bloom-control","map":"eyetoeye","resolution":[1280,720],
@@ -156,6 +184,47 @@ int main() {
   failures += expect(
     bloomControl.ok && bloomControl.scenario.cvars.contains("r_bloom"),
     "benchmark scenarios should allow a fixed bloom setting"
+  );
+  const lg::benchmark::ParseResult ambientControl = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"ambient-control","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"r_ambient_grounding":2,"r_ambient_debug":0}
+  })");
+  failures += expect(
+    ambientControl.ok &&
+      ambientControl.scenario.cvars.at("r_ambient_grounding") == "2" &&
+      ambientControl.scenario.cvars.at("r_ambient_debug") == "0",
+    "benchmark scenarios should allow ambient controls"
+  );
+  for (int materialQuality = 0; materialQuality <= 2; ++materialQuality) {
+    const lg::benchmark::ParseResult materialQualityControl = parse(
+      R"({"schema_version":1,"expected_benchmark_version":1,
+      "name":"material-quality-control","map":"eyetoeye","resolution":[1280,720],
+      "warmup_frames":2,"measured_frames":4,
+      "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+      "cvars":{"r_material_quality":)" + std::to_string(materialQuality) + R"(}})"
+    );
+    failures += expect(
+      materialQualityControl.ok &&
+        materialQualityControl.scenario.cvars.at("r_material_quality") ==
+          std::to_string(materialQuality),
+      "benchmark scenarios should allow material quality values from zero through two"
+    );
+  }
+  const lg::benchmark::ParseResult gameplayCvar = parse(R"({
+    "schema_version":1,"expected_benchmark_version":1,
+    "name":"gameplay-cvar","map":"eyetoeye","resolution":[1280,720],
+    "warmup_frames":2,"measured_frames":4,
+    "camera_start":{"position":[0,0,2],"yaw":0,"pitch":0},
+    "cvars":{"g_gravity":1}
+  })");
+  failures += expect(
+    !gameplayCvar.ok &&
+      gameplayCvar.error ==
+        "benchmark cvar is not presentation-allowlisted: g_gravity",
+    "benchmark scenarios should reject unrelated gameplay cvars"
   );
   const lg::benchmark::ParseResult lateMouseControl = parse(R"({
     "schema_version":1,"expected_benchmark_version":1,

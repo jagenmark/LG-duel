@@ -33,10 +33,28 @@ class BenchmarkTests(unittest.TestCase):
         self.assertGreaterEqual(listed["count"], 5)
         self.assertTrue(all(entry["valid"] for entry in listed["scenarios"]))
 
+    def test_worker_material_quality_descriptors_differ_only_by_quality(self) -> None:
+        for prefix in ("worker-material-q", "worker-material-review-q"):
+            scenarios = [
+                lg_benchmark.load_scenario(f"{prefix}{quality}")[0]
+                for quality in range(3)
+            ]
+            reference = copy.deepcopy(scenarios[0])
+            reference["name"] = "worker-material-quality"
+            reference["cvars"].pop("r_material_quality")
+            for quality, scenario in enumerate(scenarios):
+                self.assertEqual(scenario["cvars"]["r_material_quality"], quality)
+                self.assertEqual(scenario["cvars"]["r_player_model"], 2)
+                comparable = copy.deepcopy(scenario)
+                comparable["name"] = "worker-material-quality"
+                comparable["cvars"].pop("r_material_quality")
+                self.assertEqual(comparable, reference)
+
     def test_graphics_contract_requires_native_effective_cvars(self) -> None:
         effective = {
             "r_antialiasing": "1", "r_sun_shadows": "2",
             "r_contact_shadows": "1", "r_material_quality": "1",
+            "r_ambient_grounding": "2",
             "r_player_rim": "1", "r_atmosphere_grade": "2",
             "r_bloom": "1", "r_render_scale": "1.250000",
         }
@@ -46,6 +64,7 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual(contract["profile"], "Default")
         self.assertEqual(contract["anti_aliasing"], "1")
         self.assertEqual(contract["sun_shadow_quality"], "2")
+        self.assertEqual(contract["ambient_grounding"], "2")
         self.assertEqual(contract["render_scale"], "1.250000")
         incomplete = dict(effective)
         del incomplete["r_bloom"]
@@ -543,6 +562,7 @@ class BenchmarkTests(unittest.TestCase):
                         "effective_cvars": {
                             "r_antialiasing": "1", "r_sun_shadows": "2",
                             "r_contact_shadows": "1", "r_material_quality": "1",
+                            "r_ambient_grounding": "2",
                             "r_player_rim": "1", "r_atmosphere_grade": "2",
                             "r_bloom": "1", "r_render_scale": "1.000000",
                         }}
@@ -565,6 +585,7 @@ class BenchmarkTests(unittest.TestCase):
             self.assertIn("graphics_contract", result["settings"])
             self.assertEqual(result["settings"]["presentation_cvars"]["s_volume"], 0)
             self.assertEqual(result["settings"]["graphics_contract"]["profile"], "Default")
+            self.assertEqual(result["settings"]["graphics_contract"]["ambient_grounding"], "2")
             self.assertEqual(result["settings"]["graphics_contract"]["render_scale"], "1.000000")
             self.assertEqual(result["environment"]["benchmark_server_port"], 28960)
             self.assertEqual(result["environment"]["benchmark_control_port"], 28961)

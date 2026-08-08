@@ -6,6 +6,7 @@ layout(location = 1) in vec2 texCoord;
 layout(location = 2) in vec3 worldPosition;
 layout(location = 3) in float viewDistance;
 layout(location = 4) in vec3 worldNormal;
+layout(location = 5) in vec2 ambientData;
 layout(location = 6) in vec3 viewDirection;
 layout(location = 0) out vec4 outColor;
 
@@ -41,6 +42,13 @@ layout(set = 3, binding = 1, std140) uniform WorldMaterialData {
 void main() {
   vec4 sampled = texture(worldAtlas, texCoord);
   vec3 albedo = pow(max(sampled.rgb, vec3(0.0)), vec3(2.2));
+  if (ambientData.y > 0.5) {
+    vec3 debugColor = vec3(ambientData.x);
+    outColor = sceneLights.postParameters.x < 0.0
+      ? vec4(directDisplay(debugColor), 1.0)
+      : vec4(debugColor, 1.0);
+    return;
+  }
   int materialQuality = clamp(int(sceneLights.parameters.w + 0.5), 0, 2);
 
   vec3 bakedLight = max(vertexColor.rgb, vec3(0.00169355));

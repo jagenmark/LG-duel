@@ -7,6 +7,7 @@ layout(location = 2) in vec4 baseColor;
 layout(location = 3) in vec2 material;
 layout(location = 4) in vec3 worldPosition;
 layout(location = 5) in float viewDistance;
+layout(location = 6) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform samplerCube weaponEnvironment;
@@ -68,11 +69,18 @@ void main() {
   float metallic = clamp(material.x, 0.0, 1.0);
   vec3 albedo = pow(max(baseColor.rgb, vec3(0.0)), vec3(2.2));
   int materialQuality = clamp(int(sceneLights.parameters.w + 0.5), 0, 2);
+  if (ambientData.y > 0.5) {
+    vec3 debugColor = vec3(ambientData.x);
+    outColor = sceneLights.postParameters.x < 0.0
+      ? vec4(directDisplay(debugColor), 1.0)
+      : vec4(debugColor, 1.0);
+    return;
+  }
 
   vec3 fillRadiance = sceneLights.fillColorIntensity.rgb *
     max(sceneLights.fillColorIntensity.w, 0.0);
   float skyFill = n.z * 0.5 + 0.5;
-  vec3 color = albedo * (vec3(0.16) + fillRadiance *
+  vec3 color = albedo * ambientData.x * (vec3(0.16) + fillRadiance *
     (0.35 + 0.65 * skyFill));
 
   vec3 sunDirection = normalize(-sceneLights.sunDirectionIntensity.xyz);

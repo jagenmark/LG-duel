@@ -3,6 +3,7 @@
 layout(location = 0) in vec4 vertexColor;
 layout(location = 1) in vec2 texCoord;
 layout(location = 4) in vec3 worldNormal;
+layout(location = 5) in vec2 ambientData;
 layout(location = 0) out vec4 outColor;
 
 layout(set = 2, binding = 0) uniform sampler2D worldAtlas;
@@ -17,6 +18,10 @@ layout(set = 3, binding = 1, std140) uniform WorldMaterialData {
 #include "includes/direct_display.glsl"
 
 void main() {
+  if (ambientData.y > 0.5) {
+    outColor = vec4(directDisplay(vec3(ambientData.x)), 1.0);
+    return;
+  }
   vec3 albedo = pow(
     max(texture(worldAtlas, texCoord).rgb, vec3(0.0)),
     vec3(2.2)

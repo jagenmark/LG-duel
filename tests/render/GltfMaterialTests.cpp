@@ -195,8 +195,10 @@ int main() {
   const lg::GltfMaterialMetadata& workerMetadata = worker.materialMetadata();
   const lg::GltfMaterialBinding* yellow = bindingFor(workerMetadata, 1);
   const lg::GltfMaterialBinding* vest = bindingFor(workerMetadata, 2);
+  const lg::GltfMaterialBinding* yellowDuplicate = bindingFor(workerMetadata, 8);
   const lg::GltfSkinnedModel::Primitive* yellowPrimitive = primitiveFor(worker, 1);
   const lg::GltfSkinnedModel::Primitive* vestPrimitive = primitiveFor(worker, 2);
+  const lg::GltfSkinnedModel::Primitive* yellowDuplicatePrimitive = primitiveFor(worker, 8);
   failures += expect(
     worker.loaded() &&
       worker.materialNames().size() == 13U &&
@@ -218,20 +220,33 @@ int main() {
       ),
     "Worker should discover a valid local sRGB albedo and linear packed mask"
   );
+  // Manifest weights are floats; the model loader truncates 0.92 * 255 to 234.
   failures += expect(
-    yellow != nullptr && vest != nullptr &&
+    yellow != nullptr && vest != nullptr && yellowDuplicate != nullptr &&
       yellow->expectedName == "Worker_Yellow" &&
       vest->expectedName == "Worker_Vest" &&
+      yellowDuplicate->expectedName == "Worker_Yellow.001" &&
+      yellow->flatTintWeight == 234U &&
+      vest->flatTintWeight == 255U &&
+      yellowDuplicate->flatTintWeight == 234U &&
+      std::all_of(
+        workerMetadata.bindings.begin(), workerMetadata.bindings.end(),
+        [](const lg::GltfMaterialBinding& binding) {
+          return binding.materialIndex == 1 || binding.materialIndex == 2 ||
+            binding.materialIndex == 8 || binding.flatTintWeight == 0U;
+        }
+      ) &&
       std::abs(yellow->atlasU - 0.375F) < 0.0001F &&
       std::abs(vest->atlasU - 0.625F) < 0.0001F &&
       yellowPrimitive != nullptr && vestPrimitive != nullptr &&
-      !yellowPrimitive->vertices.empty() && !vestPrimitive->vertices.empty() &&
+      yellowDuplicatePrimitive != nullptr && !yellowPrimitive->vertices.empty() &&
+      !vestPrimitive->vertices.empty() && !yellowDuplicatePrimitive->vertices.empty() &&
       std::all_of(
         yellowPrimitive->vertices.begin(), yellowPrimitive->vertices.end(),
         [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
           return std::abs(vertex.u - 0.375F) < 0.0001F &&
             std::abs(vertex.v - 0.125F) < 0.0001F &&
-            vertex.tintWeight == 0U && vertex.albedoTextureMode == 255U;
+            vertex.tintWeight == 234U && vertex.albedoTextureMode == 255U;
         }
       ) &&
       std::all_of(
@@ -239,10 +254,19 @@ int main() {
         [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
           return std::abs(vertex.u - 0.625F) < 0.0001F &&
             std::abs(vertex.v - 0.125F) < 0.0001F &&
-            vertex.tintWeight == 0U && vertex.albedoTextureMode == 255U;
+            vertex.tintWeight == 255U && vertex.albedoTextureMode == 255U;
+        }
+      ) &&
+      std::all_of(
+        yellowDuplicatePrimitive->vertices.begin(),
+        yellowDuplicatePrimitive->vertices.end(),
+        [](const lg::GltfSkinnedModel::GpuVertex& vertex) {
+          return std::abs(vertex.u - 0.375F) < 0.0001F &&
+            std::abs(vertex.v - 0.125F) < 0.0001F &&
+            vertex.tintWeight == 234U && vertex.albedoTextureMode == 255U;
         }
       ),
-    "Worker material cells should drive the authored texture path without name-based tinting"
+    "Worker metadata should set only the approved flat tint bytes without renderer name rules"
   );
   const lg::GltfMaterialQualityPlan workerQuality0 =
     lg::gltfMaterialQualityPlan(0, workerMetadata.authoredTextureFilesAvailable());
@@ -255,6 +279,8 @@ int main() {
   failures += expect(
     workerQuality0.flatFallback &&
       !workerQuality0.samplesAlbedo && !workerQuality0.samplesPackedMask &&
+      !workerQuality0.appliesAuthoredTeamTint && !workerQuality0.roughnessHighlights &&
+      !workerQuality0.metallicResponse && !workerQuality0.environmentResponse &&
       workerQuality1.samplesAlbedo && workerQuality1.samplesPackedMask &&
       workerQuality1.appliesAuthoredTeamTint && workerQuality1.roughnessHighlights &&
       !workerQuality1.metallicResponse && workerQuality2.samplesAlbedo &&

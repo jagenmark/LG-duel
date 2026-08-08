@@ -625,6 +625,20 @@ lg_duel_set_warnings(lg_duel_world_visibility_tests)
 
 add_test(NAME lg_duel_world_visibility_tests COMMAND lg_duel_world_visibility_tests)
 
+add_executable(lg_duel_static_ambient_probe_tests
+  render/StaticAmbientProbeTests.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/StaticAmbientProbe.cpp
+)
+
+target_link_libraries(lg_duel_static_ambient_probe_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_static_ambient_probe_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_static_ambient_probe_tests)
+
+add_test(
+  NAME lg_duel_static_ambient_probe_tests
+  COMMAND lg_duel_static_ambient_probe_tests
+)
+
 add_executable(lg_duel_screen_ui_tests
   render/ScreenUiTests.cpp
   ${PROJECT_SOURCE_DIR}/src/app/TextInput.cpp
@@ -645,6 +659,7 @@ add_executable(lg_duel_scene_3d_tests
   render/Scene3DTests.cpp
   ${PROJECT_SOURCE_DIR}/src/render/GltfSkinnedModel.cpp
   ${PROJECT_SOURCE_DIR}/src/render/Scene3D.cpp
+  ${PROJECT_SOURCE_DIR}/src/render/StaticAmbientProbe.cpp
 )
 
 # Scene tests load the same runtime GLB selected by the client, so a focused

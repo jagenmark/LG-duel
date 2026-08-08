@@ -5,6 +5,7 @@
 #include "render/BitmapFont.hpp"
 #include "render/GltfSkinnedModel.hpp"
 #include "render/Scene3D.hpp"
+#include "render/StaticAmbientProbe.hpp"
 #include "render/Sky.hpp"
 #include "render/ScreenUi.hpp"
 #include "render/Perspective.hpp"
@@ -399,6 +400,8 @@ struct StaticWorldMesh {
   std::vector<StaticWorldBatch> visibleBatches;
   WorldVisibility visibility;
   WorldVisibilityQueryScratch visibilityScratch;
+  StaticAmbientProbeGrid ambientProbeGrid;
+  StaticAmbientBakeStats ambientBakeStats = {};
   bool useCulledBatches = false;
   std::uint64_t arenaFingerprint = 0;
   std::uint32_t arenaRevision = 0;
@@ -409,6 +412,8 @@ struct StaticWorldMesh {
   std::uint32_t loadedTextures = 0;
   std::uint32_t missingTextures = 0;
   std::uint32_t buildCount = 0;
+  int ambientQuality = 0;
+  int ambientDebugMode = 0;
   bool opaqueVertices = true;
   int samplerTextureFilter = -1;
   int samplerTextureAnisotropy = -1;
@@ -463,9 +468,12 @@ struct GpuStaticInstance {
   std::uint8_t green = 255;
   std::uint8_t blue = 255;
   std::uint8_t alpha = 255;
+  std::uint8_t ambientVisibility = 255;
+  std::uint8_t ambientDebug = 0;
+  std::uint8_t padding[2] = {};
 };
 
-static_assert(sizeof(GpuStaticInstance) == 52);
+static_assert(sizeof(GpuStaticInstance) == 56);
 
 struct GpuModelVertex {
   float position[3] = {};
@@ -495,7 +503,9 @@ struct GpuGltfPlayerInstance {
   std::uint32_t firstBone = 0;
   std::uint32_t boneCount = 0;
   std::uint32_t flags = 0;
-  std::uint32_t padding[2] = {};
+  std::uint8_t ambientVisibility = 255;
+  std::uint8_t ambientDebug = 0;
+  std::uint8_t padding[6] = {};
 };
 
 static_assert(sizeof(GpuGltfPlayerInstance) == 72);
@@ -1133,6 +1143,8 @@ void collectTextureMaterialFiles(
   hash = hashCombine(hash, arena.brushCount);
   hash = hashCombine(hash, arena.visualWallCount);
   hash = hashCombine(hash, arena.visualBrushCount);
+  hash = hashCombine(hash, visualAmbientOccluderFingerprint(arena));
+  hash = hashCombine(hash, ambientProbeInputFingerprint(arena));
   hash = hashCombine(hash, arenaSkySurfaceFingerprint(arena));
   hash = hashCombine(hash, arena.staticLightCount);
   hash = hashCombine(hash, arena.renderDefaultFloor ? 1U : 0U);
@@ -1156,9 +1168,16 @@ void collectTextureMaterialFiles(
     projectionHash = hashCombine(projectionHash, hashFloat(projection.uScale));
     return hashCombine(projectionHash, hashFloat(projection.vScale));
   };
+  hash = hashCombine(hash, hashFloat(arena.min.x));
+  hash = hashCombine(hash, hashFloat(arena.min.y));
+  hash = hashCombine(hash, hashFloat(arena.min.z));
+  hash = hashCombine(hash, hashFloat(arena.max.x));
+  hash = hashCombine(hash, hashFloat(arena.max.y));
+  hash = hashCombine(hash, hashFloat(arena.max.z));
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
     hash = hashCombine(hash, wall.renderable ? 1U : 0U);
+    hash = hashCombine(hash, static_cast<std::uint8_t>(wall.collisionKind));
     hash = hashCombine(hash, hashFloat(wall.min.x));
     hash = hashCombine(hash, hashFloat(wall.min.y));
     hash = hashCombine(hash, hashFloat(wall.min.z));
@@ -1168,6 +1187,10 @@ void collectTextureMaterialFiles(
     hash = hashCombine(hash, wall.materialId);
     for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
       hash = hashCombine(hash, wall.faceMaterialIds[faceIndex]);
+      hash = hashCombine(
+        hash,
+        static_cast<std::uint8_t>(wall.faceSurfaceKinds[faceIndex])
+      );
       const TextureProjection& projection = wall.faceTextureProjections[faceIndex];
       hash = hashCombine(hash, projection.valid ? 1U : 0U);
       hash = hashCombine(hash, hashFloat(projection.uAxis.x));
@@ -1185,10 +1208,16 @@ void collectTextureMaterialFiles(
   for (std::size_t brushIndex = 0; brushIndex < arena.brushCount; ++brushIndex) {
     const ArenaBrush& brush = arena.brushes[brushIndex];
     hash = hashCombine(hash, brush.renderable ? 1U : 0U);
+    hash = hashCombine(hash, static_cast<std::uint8_t>(brush.collisionKind));
     hash = hashCombine(hash, brush.faceCount);
     for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
       const ArenaBrushFace& face = brush.faces[faceIndex];
       hash = hashCombine(hash, face.materialId);
+      hash = hashCombine(hash, static_cast<std::uint8_t>(face.surfaceKind));
+      hash = hashCombine(hash, hashFloat(face.normal.x));
+      hash = hashCombine(hash, hashFloat(face.normal.y));
+      hash = hashCombine(hash, hashFloat(face.normal.z));
+      hash = hashCombine(hash, hashFloat(face.distance));
       hash = hashCombine(hash, face.vertexCount);
       for (std::uint8_t vertexIndex = 0; vertexIndex < face.vertexCount; ++vertexIndex) {
         const Vec3 vertex = brush.vertices[face.vertices[vertexIndex]];
@@ -1210,6 +1239,10 @@ void collectTextureMaterialFiles(
     hash = hashCombine(hash, wall.materialId);
     for (std::size_t faceIndex = 0; faceIndex < wall.faceMaterialIds.size(); ++faceIndex) {
       hash = hashCombine(hash, wall.faceMaterialIds[faceIndex]);
+      hash = hashCombine(
+        hash,
+        static_cast<std::uint8_t>(wall.faceSurfaceKinds[faceIndex])
+      );
       const TextureProjection& projection = wall.faceTextureProjections[faceIndex];
       hash = hashCombine(hash, projection.valid ? 1U : 0U);
       hash = hashCombine(hash, hashFloat(projection.uAxis.x));
@@ -1230,6 +1263,11 @@ void collectTextureMaterialFiles(
     for (std::uint8_t faceIndex = 0; faceIndex < brush.faceCount; ++faceIndex) {
       const ArenaBrushFace& face = brush.faces[faceIndex];
       hash = hashCombine(hash, face.materialId);
+      hash = hashCombine(hash, static_cast<std::uint8_t>(face.surfaceKind));
+      hash = hashCombine(hash, hashFloat(face.normal.x));
+      hash = hashCombine(hash, hashFloat(face.normal.y));
+      hash = hashCombine(hash, hashFloat(face.normal.z));
+      hash = hashCombine(hash, hashFloat(face.distance));
       hash = hashCombine(hash, face.vertexCount);
       for (std::uint8_t vertexIndex = 0; vertexIndex < face.vertexCount; ++vertexIndex) {
         const Vec3 vertex = brush.vertices[face.vertices[vertexIndex]];
@@ -2775,7 +2813,7 @@ void ensureSkyLoaded(
     {0, sizeof(GpuVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
     {1, sizeof(GpuStaticInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
   }};
-  const std::array<SDL_GPUVertexAttribute, 8> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 9> vertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, x)},
     {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuVertex, red)},
     {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuVertex, u)},
@@ -2784,6 +2822,7 @@ void ensureSkyLoaded(
     {5, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row2)},
     {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, red)},
     {7, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuVertex, normal)},
+    {8, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, ambientVisibility)},
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = colorFormat == SDL_GPU_TEXTUREFORMAT_INVALID
@@ -2855,7 +2894,7 @@ void ensureSkyLoaded(
     {0, sizeof(GpuMaterialVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
     {1, sizeof(GpuStaticInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
   }};
-  const std::array<SDL_GPUVertexAttribute, 8> attributes = {{
+  const std::array<SDL_GPUVertexAttribute, 9> attributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuMaterialVertex, position)},
     {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuMaterialVertex, normal)},
     {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuMaterialVertex, red)},
@@ -2864,6 +2903,7 @@ void ensureSkyLoaded(
     {5, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row1)},
     {6, 1, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4, offsetof(GpuStaticInstance, row2)},
     {7, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, red)},
+    {8, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuStaticInstance, ambientVisibility)},
   }};
   SDL_GPUColorTargetDescription colorTarget = {};
   colorTarget.format = colorFormat == SDL_GPU_TEXTUREFORMAT_INVALID
@@ -3017,7 +3057,7 @@ void ensureSkyLoaded(
     {0, sizeof(GpuModelVertex), SDL_GPU_VERTEXINPUTRATE_VERTEX, 0},
     {1, sizeof(GpuGltfPlayerInstance), SDL_GPU_VERTEXINPUTRATE_INSTANCE, 0},
   }};
-  const std::array<SDL_GPUVertexAttribute, 14> vertexAttributes = {{
+  const std::array<SDL_GPUVertexAttribute, 15> vertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuModelVertex, position)},
     {1, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuModelVertex, normal)},
     {2, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2, offsetof(GpuModelVertex, texCoord)},
@@ -3032,6 +3072,7 @@ void ensureSkyLoaded(
     {11, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, boneCount)},
     {12, 1, SDL_GPU_VERTEXELEMENTFORMAT_UINT, offsetof(GpuGltfPlayerInstance, flags)},
     {13, 0, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuModelVertex, tintWeight)},
+    {14, 1, SDL_GPU_VERTEXELEMENTFORMAT_UBYTE4_NORM, offsetof(GpuGltfPlayerInstance, ambientVisibility)},
   }};
   const std::array<SDL_GPUVertexAttribute, 9> outlineVertexAttributes = {{
     {0, 0, SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3, offsetof(GpuModelVertex, position)},
@@ -4275,7 +4316,9 @@ void destroyFontAtlasSet(SDL_GPUDevice* device, FontAtlasSet* fontAtlasSet) {
     u,
     v,
     {vertex.normal.x, vertex.normal.y, vertex.normal.z},
-    vertex.materialSlot,
+    (vertex.materialSlot & 0x0000FFFFU) |
+      (static_cast<std::uint32_t>(vertex.ambientVisibility) << 16U) |
+      (static_cast<std::uint32_t>(vertex.ambientDebug) << 24U),
   };
 }
 
@@ -4554,7 +4597,13 @@ void appendScene3D(
   const RenderSettings& settings
 ) {
   const auto buildStart = RenderClock::now();
-  Scene3D worldScene = buildStaticWorldScene(arena);
+  StaticAmbientBakeStats ambientBakeStats;
+  Scene3D worldScene = buildStaticWorldScene(
+    arena,
+    settings.ambientGroundingQuality,
+    settings.ambientDebugMode,
+    &ambientBakeStats
+  );
   const std::uint32_t sourceTriangles =
     static_cast<std::uint32_t>(worldScene.vertices.size() / 3U);
   const std::uint32_t duplicateTrianglesCulled =
@@ -4562,6 +4611,13 @@ void appendScene3D(
   auto mesh = new StaticWorldMesh();
   mesh->arenaFingerprint = arenaStaticWorldFingerprint(arena);
   mesh->arenaRevision = settings.mapRevision;
+  mesh->ambientQuality = settings.ambientGroundingQuality;
+  mesh->ambientDebugMode = settings.ambientDebugMode;
+  mesh->ambientBakeStats = ambientBakeStats;
+  mesh->ambientProbeGrid = bakeStaticAmbientProbeGrid(
+    arena,
+    settings.ambientGroundingQuality
+  );
   mesh->sourceTriangles = sourceTriangles;
   mesh->duplicateTrianglesCulled = duplicateTrianglesCulled;
   mesh->vertexCount = static_cast<std::uint32_t>(worldScene.vertices.size());
@@ -4780,11 +4836,18 @@ void appendScene3D(
   const bool revisionCacheHit =
     mesh != nullptr &&
     settings.mapRevision != 0U &&
-    mesh->arenaRevision == settings.mapRevision;
+    mesh->arenaRevision == settings.mapRevision &&
+    mesh->ambientQuality == settings.ambientGroundingQuality &&
+    mesh->ambientDebugMode == settings.ambientDebugMode;
   const std::uint64_t fingerprint = revisionCacheHit
     ? mesh->arenaFingerprint
     : arenaStaticWorldFingerprint(arena);
-  if (mesh != nullptr && mesh->arenaFingerprint == fingerprint) {
+  if (
+    mesh != nullptr &&
+    mesh->arenaFingerprint == fingerprint &&
+    mesh->ambientQuality == settings.ambientGroundingQuality &&
+    mesh->ambientDebugMode == settings.ambientDebugMode
+  ) {
     mesh->arenaRevision = settings.mapRevision;
     (void)updateStaticWorldSampler(device, mesh, settings);
     return mesh;
@@ -5615,11 +5678,24 @@ void initializeGltfMaterialTextures(
   SDL_GPUDevice* device,
   SDL_GPUCommandBuffer* commandBuffer,
   GpuStaticInstanceBuffer& buffer,
-  const Scene3D& scene
+  const Scene3D& scene,
+  const StaticAmbientProbeGrid* ambientProbeGrid,
+  int ambientDebugMode,
+  std::uint32_t* sampledInstances
 ) {
   buffer.staging.clear();
   buffer.staging.reserve(scene.staticMeshInstances.size());
   for (const StaticMeshInstance& instance : scene.staticMeshInstances) {
+    const bool grounded =
+      instance.pass == RenderPass::OpaqueWorld &&
+      ambientProbeGrid != nullptr &&
+      ambientProbeGrid->enabled();
+    const std::uint8_t ambientVisibility = grounded
+      ? sampleStaticAmbientProbe(*ambientProbeGrid, instance.modelTranslation)
+      : 255U;
+    if (grounded && sampledInstances != nullptr) {
+      ++*sampledInstances;
+    }
     buffer.staging.push_back({
       {
         instance.modelRow0.x,
@@ -5643,6 +5719,11 @@ void initializeGltfMaterialTextures(
       instance.color.green,
       instance.color.blue,
       instance.color.alpha,
+      ambientVisibility,
+      static_cast<std::uint8_t>(
+        ambientDebugMode >= 2 && grounded ? 255U : 0U
+      ),
+      {0U, 0U},
     });
   }
   if (buffer.staging.empty()) {
@@ -5757,11 +5838,22 @@ void initializeGltfMaterialTextures(
   SDL_GPUDevice* device,
   SDL_GPUCommandBuffer* commandBuffer,
   GpuGltfPlayerResources& resources,
-  const Scene3D& scene
+  const Scene3D& scene,
+  const StaticAmbientProbeGrid* ambientProbeGrid,
+  int ambientDebugMode,
+  std::uint32_t* sampledInstances
 ) {
   resources.instanceStaging.clear();
   resources.instanceStaging.reserve(scene.gltfPlayerModelInstances.size());
   for (const GltfPlayerModelInstance& instance : scene.gltfPlayerModelInstances) {
+    const bool grounded =
+      ambientProbeGrid != nullptr && ambientProbeGrid->enabled();
+    const std::uint8_t ambientVisibility = grounded
+      ? sampleStaticAmbientProbe(*ambientProbeGrid, instance.modelTranslation)
+      : 255U;
+    if (grounded && sampledInstances != nullptr) {
+      ++*sampledInstances;
+    }
     resources.instanceStaging.push_back({
       {
         instance.modelRow0.x,
@@ -5788,7 +5880,11 @@ void initializeGltfMaterialTextures(
       instance.firstBone,
       instance.boneCount,
       instance.skinned ? 1U : 0U,
-      {0U, 0U},
+      ambientVisibility,
+      static_cast<std::uint8_t>(
+        ambientDebugMode >= 2 && grounded ? 255U : 0U
+      ),
+      {0U, 0U, 0U, 0U, 0U, 0U},
     });
   }
   if (!resources.instanceStaging.empty()) {
@@ -7608,6 +7704,18 @@ void appendCommandBatches(
   diagnostics.worldCulledChunks = 0;
   diagnostics.worldVisibilityTestedNodes = 0;
   diagnostics.worldVisibilityQueryMilliseconds = 0.0F;
+  diagnostics.ambientGroundingQuality = settings.ambientGroundingQuality;
+  diagnostics.ambientStaticRays = 0;
+  diagnostics.ambientStaticSamples = 0;
+  diagnostics.ambientStaticCacheHits = 0;
+  diagnostics.ambientStaticMinimum = 255U;
+  diagnostics.ambientStaticMaximum = 255U;
+  diagnostics.ambientProbeCount = 0;
+  diagnostics.ambientProbeRays = 0;
+  diagnostics.ambientProbeBytes = 0;
+  diagnostics.ambientProbeFingerprint = 0;
+  diagnostics.ambientProbeBuildMilliseconds = 0.0F;
+  diagnostics.ambientDynamicSamples = 0;
   diagnostics.gpuDepthBits = gpuDepthFormatBits(depthFormat);
   diagnostics.worldLoadedTextures = 0;
   diagnostics.worldMissingTextures = 0;
@@ -8144,6 +8252,13 @@ void appendCommandBatches(
       );
     }
 
+    StaticWorldMesh* worldMesh =
+      ensureStaticWorldMesh(device, staticWorld, arena, settings);
+    const StaticAmbientProbeGrid* ambientProbeGrid =
+      worldMesh != nullptr && worldMesh->ambientProbeGrid.enabled()
+      ? &worldMesh->ambientProbeGrid
+      : nullptr;
+
     if (!vertices.empty()) {
       const auto uploadStart = RenderClock::now();
       void* mapped =
@@ -8190,21 +8305,25 @@ void appendCommandBatches(
           device,
           commandBuffer,
           simpleResources->staticInstances,
-          perspectiveScene
+          perspectiveScene,
+          ambientProbeGrid,
+          settings.ambientDebugMode,
+          &diagnostics.ambientDynamicSamples
       ) ||
       gltfPlayerResources == nullptr ||
       !uploadGltfPlayerFrameData(
           device,
           commandBuffer,
           *gltfPlayerResources,
-          perspectiveScene
+          perspectiveScene,
+          ambientProbeGrid,
+          settings.ambientDebugMode,
+          &diagnostics.ambientDynamicSamples
       )
     ) {
       (void)submitCommandBuffer();
       return false;
     }
-    StaticWorldMesh* worldMesh =
-      ensureStaticWorldMesh(device, staticWorld, arena, settings);
     if (worldMesh != nullptr) {
       RenderClock::time_point visibilityStart = {};
       if (settings.benchmarkTimingEnabled || settings.worldFrustumCull) {
@@ -9070,6 +9189,25 @@ void appendCommandBatches(
           diagnostics.worldAppliedTextureAnisotropy =
             worldMesh->samplerAppliedTextureAnisotropy;
           diagnostics.worldTextureLodBias = worldMesh->samplerTextureLodBias;
+          diagnostics.ambientGroundingQuality = worldMesh->ambientQuality;
+          diagnostics.ambientStaticRays = worldMesh->ambientBakeStats.raysCast;
+          diagnostics.ambientStaticSamples =
+            worldMesh->ambientBakeStats.uniqueSamples;
+          diagnostics.ambientStaticCacheHits =
+            worldMesh->ambientBakeStats.cacheHits;
+          diagnostics.ambientStaticMinimum =
+            worldMesh->ambientBakeStats.minimumVisibility;
+          diagnostics.ambientStaticMaximum =
+            worldMesh->ambientBakeStats.maximumVisibility;
+          diagnostics.ambientProbeCount = static_cast<std::uint32_t>(
+            worldMesh->ambientProbeGrid.visibility.size()
+          );
+          diagnostics.ambientProbeRays = worldMesh->ambientProbeGrid.raysCast;
+          diagnostics.ambientProbeBytes = worldMesh->ambientProbeGrid.byteSize();
+          diagnostics.ambientProbeFingerprint =
+            worldMesh->ambientProbeGrid.fingerprint;
+          diagnostics.ambientProbeBuildMilliseconds =
+            worldMesh->ambientProbeGrid.buildMilliseconds;
           for (const WorldTexture& texture : worldMesh->textures) {
             diagnostics.worldMaxTextureMipLevels = std::max(
               diagnostics.worldMaxTextureMipLevels,
