@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safely stage one image for the private LG Duel Sites gallery."""
+"""Validate and upload one image to the private LG Duel evidence gallery."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ import json
 import mimetypes
 import os
 import re
-import shutil
+import secrets
 import sys
-import tempfile
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,10 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config" / "visual-evidence-gallery.json"
-STAGE_ROOT = ROOT / "deploy" / "visual-evidence-gallery" / "public" / "evidence"
+TOKEN_ENV = "LG_VISUAL_EVIDENCE_UPLOAD_TOKEN"
+TOKEN_PATH = Path.home() / ".codex" / "secrets" / "lg-duel-visual-evidence-upload-token"
+SITES_TOKEN_ENV = "LG_VISUAL_EVIDENCE_SITES_TOKEN"
+SITES_TOKEN_PATH = Path.home() / ".codex" / "secrets" / "lg-duel-visual-evidence-sites-token"
 CAPTURE_ID = re.compile(r"^\d{8}T\d{6}Z-[a-z0-9]+(?:-[a-z0-9]+)*-\d{2}$")
 TASK_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
@@ -59,27 +63,6 @@ def _utc_timestamp(value: str, field: str) -> str:
     if parsed.tzinfo is None or parsed.utcoffset() != timezone.utc.utcoffset(parsed):
         raise ValidationError(f"{field} must use UTC")
     return parsed.isoformat().replace("+00:00", "Z")
-
-
-def _atomic_json(path: Path, value: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "w", encoding="utf-8", dir=path.parent, prefix="." + path.name + ".", delete=False
-    ) as handle:
-        handle.write(json.dumps(value, indent=2, sort_keys=True) + "\n")
-        temporary = Path(handle.name)
-    os.replace(temporary, path)
-
-
-def _atomic_copy(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.NamedTemporaryFile(
-        "wb", dir=destination.parent, prefix="." + destination.name + ".", delete=False
-    ) as handle:
-        with source.open("rb") as source_handle:
-            shutil.copyfileobj(source_handle, handle)
-        temporary = Path(handle.name)
-    os.replace(temporary, destination)
 
 
 def sha256_file(path: Path) -> str:
@@ -166,72 +149,109 @@ def validate_metadata(
     checked["size_bytes"] = size_bytes
     checked["content_type"] = mime_type
     checked["review_status"] = review_status
+    checked["retain_original"] = bool(record.get("retain_original")) or review_status == "pass"
     if review is not None:
         checked["review"] = dict(review)
     return checked, image_path, config
 
 
-def stage_capture(
+def _secret_token(environment_name: str, path: Path, label: str) -> str:
+    token = os.environ.get(environment_name, "").strip()
+    if token:
+        return token
+    try:
+        token = path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise ValidationError(
+            f"{label} is missing; set {environment_name} or configure {path}"
+        ) from error
+    if not token:
+        raise ValidationError(f"{label} file is empty: {path}")
+    return token
+
+
+def upload_token() -> str:
+    return _secret_token(TOKEN_ENV, TOKEN_PATH, "upload token")
+
+
+def sites_token() -> str:
+    return _secret_token(SITES_TOKEN_ENV, SITES_TOKEN_PATH, "private Sites token")
+
+
+def _multipart_body(
+    metadata: dict[str, Any], image_path: Path, content_type: str
+) -> tuple[bytes, str]:
+    boundary = "lgduel-" + secrets.token_hex(16)
+    metadata_bytes = json.dumps(metadata, sort_keys=True).encode("utf-8")
+    image_bytes = image_path.read_bytes()
+    chunks = [
+        f"--{boundary}\r\n".encode(),
+        b'Content-Disposition: form-data; name="metadata"\r\n',
+        b"Content-Type: application/json; charset=utf-8\r\n\r\n",
+        metadata_bytes,
+        b"\r\n",
+        f"--{boundary}\r\n".encode(),
+        (
+            'Content-Disposition: form-data; name="image"; '
+            f'filename="{image_path.name}"\r\n'
+        ).encode(),
+        f"Content-Type: {content_type}\r\n\r\n".encode(),
+        image_bytes,
+        b"\r\n",
+        f"--{boundary}--\r\n".encode(),
+    ]
+    return b"".join(chunks), boundary
+
+
+def _open(request: urllib.request.Request):
+    return urllib.request.urlopen(request, timeout=90)
+
+
+def upload_capture(
     metadata: dict[str, Any],
     image_path: Path,
-    stage_root: Path = STAGE_ROOT,
+    config: dict[str, Any],
+    token: str,
+    private_sites_token: str,
 ) -> dict[str, Any]:
-    task_id = metadata["task_id"]
-    capture_id = metadata["capture_id"]
-    asset_path = stage_root / "assets" / task_id / f"{capture_id}{image_path.suffix.lower()}"
-    record_path = stage_root / "records" / task_id / f"{capture_id}.json"
-    manifest_path = stage_root / "manifest.json"
-    if asset_path.exists() and sha256_file(asset_path) != metadata["sha256"]:
-        raise ValidationError("the staged capture id already has different image bytes")
-    if record_path.exists():
-        prior = _read_json(record_path)
-        if prior.get("sha256") != metadata["sha256"]:
-            raise ValidationError("the staged capture id already has different metadata")
-
-    _atomic_copy(image_path, asset_path)
-    _atomic_json(record_path, metadata)
-    manifest = _read_json(manifest_path) if manifest_path.exists() else {
-        "schema_version": 1,
-        "captures": [],
-    }
-    if manifest.get("schema_version") != 1 or not isinstance(manifest.get("captures"), list):
-        raise ValidationError("staged gallery manifest is invalid")
-    relative_asset = "/" + asset_path.relative_to(stage_root.parent).as_posix()
-    relative_record = "/" + record_path.relative_to(stage_root.parent).as_posix()
-    review = metadata.get("review") if isinstance(metadata.get("review"), dict) else {}
-    entry = {
-        "capture_id": capture_id,
-        "task_id": task_id,
-        "title": metadata["title"],
-        "description": metadata["description"],
-        "captured_at": metadata["captured_at"],
-        "captured_by": metadata["captured_by"],
-        "review_status": metadata["review_status"],
-        "reviewer": review.get("reviewer"),
-        "reviewed_at": review.get("reviewed_at"),
-        "review_notes": review.get("notes"),
-        "sha256": metadata["sha256"],
-        "size_bytes": metadata["size_bytes"],
-        "preview_url": relative_asset,
-        "full_size_url": relative_asset,
-        "record_url": relative_record,
-    }
-    captures = [
-        item for item in manifest["captures"]
-        if isinstance(item, dict) and item.get("capture_id") != capture_id
-    ]
-    captures.append(entry)
-    captures.sort(
-        key=lambda item: (str(item.get("captured_at", "")), str(item.get("capture_id", ""))),
-        reverse=True,
+    origin = config.get("gallery_origin")
+    if not isinstance(origin, str) or not origin.startswith("https://"):
+        raise ValidationError("gallery config must contain an https gallery_origin")
+    upload_path = config.get("upload_path", "/api/evidence")
+    if not isinstance(upload_path, str) or not upload_path.startswith("/"):
+        raise ValidationError("gallery config upload_path must be an absolute path")
+    body, boundary = _multipart_body(metadata, image_path, metadata["content_type"])
+    request = urllib.request.Request(
+        origin.rstrip("/") + upload_path,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "OAI-Sites-Authorization": f"Bearer {private_sites_token}",
+            "Content-Type": f"multipart/form-data; boundary={boundary}",
+            "Accept": "application/json",
+        },
     )
-    _atomic_json(manifest_path, {"schema_version": 1, "captures": captures})
-    return entry
+    try:
+        with _open(request) as response:
+            result = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as error:
+        detail = error.read().decode("utf-8", errors="replace")
+        try:
+            message = json.loads(detail).get("error", detail)
+        except json.JSONDecodeError:
+            message = detail
+        raise ValidationError(f"gallery upload failed ({error.code}): {message}") from error
+    except (OSError, json.JSONDecodeError) as error:
+        raise ValidationError(f"gallery upload failed: {error}") from error
+    if not isinstance(result, dict) or not isinstance(result.get("capture"), dict):
+        raise ValidationError("gallery returned an invalid upload response")
+    return result
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Check and stage an image for the private Sites gallery."
+        description="Check and upload an image to the private Sites gallery."
     )
     parser.add_argument("metadata", type=Path)
     parser.add_argument("--dry-run", action="store_true")
@@ -251,20 +271,21 @@ def main(argv: list[str] | None = None) -> int:
                 "size_bytes": checked["size_bytes"],
             }
         else:
-            entry = stage_capture(checked, image_path)
-            origin = config.get("gallery_origin")
-            if isinstance(origin, str) and origin.startswith("https://"):
-                preview = origin.rstrip("/") + entry["preview_url"]
-                full_size = origin.rstrip("/") + entry["full_size_url"]
-            else:
-                preview = entry["preview_url"]
-                full_size = entry["full_size_url"]
+            result = upload_capture(
+                checked, image_path, config, upload_token(), sites_token()
+            )
+            capture = result["capture"]
+            origin = str(config["gallery_origin"]).rstrip("/")
             result = {
-                "status": "staged_for_private_publish",
+                "status": result.get("status", "uploaded"),
                 "capture_id": checked["capture_id"],
-                "preview_url": preview,
-                "full_size_url": full_size,
-                "review_status": entry["review_status"],
+                "preview_url": origin + str(capture["preview_url"]),
+                "full_size_url": origin + str(capture["full_size_url"]),
+                "original_url": (
+                    origin + str(capture["original_url"])
+                    if capture.get("original_url") else None
+                ),
+                "review_status": capture["review_status"],
             }
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0

@@ -17,6 +17,7 @@ type Capture = {
   size_bytes: number;
   preview_url: string;
   full_size_url: string;
+  original_url?: string | null;
 };
 
 function formatDate(value: string) {
@@ -38,7 +39,7 @@ export function Gallery() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch("/evidence/manifest.json", { signal: controller.signal })
+    fetch("/api/evidence", { signal: controller.signal, cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error("The gallery could not load.");
         return (await response.json()) as { captures: Capture[] };
@@ -100,7 +101,7 @@ export function Gallery() {
               href={capture.full_size_url}
               aria-label={`Open full-size image: ${capture.title}`}
             >
-              {/* The stored original is also the preview; CSS caps its shown size. */}
+              {/* Review links always use the compact derivative. */}
               <img src={capture.preview_url} alt={capture.description} loading="lazy" />
               <span className="open-label">Open full size</span>
             </a>
@@ -131,7 +132,8 @@ export function Gallery() {
                 <p className="review-note">“{capture.review_notes}”</p>
               ) : null}
               <div className="capture-actions">
-                <a href={capture.full_size_url}>Full-size original</a>
+                <a href={capture.full_size_url}>Compact review image</a>
+                {capture.original_url ? <a href={capture.original_url}>Original</a> : null}
                 <span title={capture.sha256}>SHA-256 {capture.sha256.slice(0, 10)}…</span>
               </div>
             </div>

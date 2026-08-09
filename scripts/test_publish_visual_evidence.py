@@ -86,24 +86,65 @@ class PublishVisualEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(publish.ValidationError, "does not match"):
             publish.validate_metadata(self.metadata, self.config)
 
-    def test_stage_adds_asset_record_and_manifest_entry(self) -> None:
+    def test_upload_posts_metadata_and_image_in_one_request(self) -> None:
         checked, image, _ = publish.validate_metadata(self.metadata, self.config)
-        stage = self.root / "stage" / "evidence"
-        entry = publish.stage_capture(checked, image, stage)
-        manifest = json.loads((stage / "manifest.json").read_text(encoding="utf-8"))
-        self.assertEqual(manifest["captures"], [entry])
-        self.assertTrue((stage / "assets" / "LGD-42" / self.image.name).is_file())
-        self.assertTrue(
-            (stage / "records" / "LGD-42" / "20260726T120000Z-ui-menu-01.json").is_file()
+        config = {
+            "gallery_origin": "https://gallery.example",
+            "upload_path": "/api/evidence",
+        }
+
+        class FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return json.dumps({
+                    "status": "uploaded",
+                    "capture": {
+                        "capture_id": checked["capture_id"],
+                        "preview_url": "/api/evidence/capture/review",
+                        "full_size_url": "/api/evidence/capture/review",
+                        "original_url": None,
+                        "review_status": "not_reviewed",
+                    },
+                }).encode()
+
+        with mock.patch.object(publish, "_open", return_value=FakeResponse()) as opened:
+            result = publish.upload_capture(
+                checked, image, config, "secret-token", "sites-token"
+            )
+
+        self.assertEqual(result["status"], "uploaded")
+        request = opened.call_args.args[0]
+        self.assertEqual(request.full_url, "https://gallery.example/api/evidence")
+        self.assertEqual(request.get_header("Authorization"), "Bearer secret-token")
+        self.assertEqual(
+            request.get_header("Oai-sites-authorization"), "Bearer sites-token"
         )
+        self.assertIn(checked["capture_id"].encode(), request.data)
+        self.assertIn(PNG, request.data)
+
+    def test_passing_review_retains_original(self) -> None:
+        self.record["review"] = {
+            "reviewer": "review-agent",
+            "reviewed_at": "2026-07-26T12:05:00Z",
+            "verdict": "pass",
+            "notes": "The capture proves the task.",
+        }
+        self._write()
+        checked, _, _ = publish.validate_metadata(self.metadata, self.config)
+        self.assertTrue(checked["retain_original"])
 
     def test_dry_run_never_stages(self) -> None:
-        with mock.patch.object(publish, "stage_capture") as stage:
+        with mock.patch.object(publish, "upload_capture") as upload:
             code = publish.main(
                 [str(self.metadata), "--config", str(self.config), "--dry-run"]
             )
         self.assertEqual(code, 0)
-        stage.assert_not_called()
+        upload.assert_not_called()
 
 
 if __name__ == "__main__":

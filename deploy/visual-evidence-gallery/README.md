@@ -1,10 +1,10 @@
 # LG Duel visual gallery
 
-This is one private static Sites page. It reads `public/evidence/manifest.json` and shows each staged image with a short caption and a full-size link.
+This is one private Sites page. It reads live evidence metadata from D1, image bytes from R2, and merges older checked-in records from `public/evidence/manifest.json`.
 
-Do not add a database, upload route, or sign-in code. Sites owner-only access protects the page.
+Sites owner-only access protects the page. The upload route also checks a separate worker token before it writes D1 or R2.
 
-Use `scripts/publish_visual_evidence.py` from the repository root to check and stage an image, then build and privately deploy this site. See `docs/VISUAL-EVIDENCE.md`.
+Use `scripts/publish_visual_evidence.py` from the repository root to check and upload an image in one command. Evidence uploads appear at once and never require a site build or deploy. See `docs/VISUAL-EVIDENCE.md`.
 
 Local checks:
 
