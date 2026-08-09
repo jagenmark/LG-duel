@@ -36,6 +36,10 @@ bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
     lhs.alpha == rhs.alpha;
 }
 
+float decodedLightChannel(std::uint8_t channel) {
+  return std::pow(static_cast<float>(channel) / 255.0F, 2.2F);
+}
+
 bool isEnemyModelColor(lg::RenderColor color) {
   return color.red >= 110 &&
     color.green <= 170 &&
@@ -2252,32 +2256,61 @@ int main() {
 
   {
     lg::Arena ambientArena;
-    ambientArena.wallCount = 1;
+    ambientArena.wallCount = 2;
     ambientArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     ambientArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    const std::uint32_t topMaterial =
+      lg::arenaMaterialId("ambient_static_top");
+    const std::uint32_t sideMaterial =
+      lg::arenaMaterialId("ambient_static_side");
     ambientArena.walls[0].materialId =
       lg::arenaMaterialId("ambient_static_wall");
+    ambientArena.walls[0].faceMaterialIds[1] = topMaterial;
+    ambientArena.walls[0].faceMaterialIds[3] = sideMaterial;
+    ambientArena.walls[1].min = {-1.0F, -1.0F, 2.0F};
+    ambientArena.walls[1].max = {2.0F, 2.0F, 2.2F};
     ambientArena.ambientLight.color = {0.5F, 0.75F, 1.0F};
-    ambientArena.ambientLight.intensity = 0.4F;
-    const lg::Scene3D ambientScene = lg::buildStaticWorldScene(ambientArena);
-    bool foundExpectedTopColor = false;
+    ambientArena.ambientLight.intensity = 0.3F;
+    const lg::Scene3D ambientScene =
+      lg::buildStaticWorldScene(ambientArena, 2);
+    bool foundTopVertex = false;
+    bool foundSideVertex = false;
+    bool foundOccludedTopVertex = false;
+    bool decodedTopLightMatches = true;
+    bool decodedSideLightMatches = true;
     for (const lg::Vertex3D& vertex : ambientScene.vertices) {
-      if (
-        vertex.materialId == ambientArena.walls[0].materialId &&
-        nearlyEqual(vertex.position.z, ambientArena.walls[0].max.z)
-      ) {
-        foundExpectedTopColor =
-          vertex.color.red == 51 &&
-          vertex.color.green == 76 &&
-          vertex.color.blue == 102;
-        if (foundExpectedTopColor) {
-          break;
-        }
+      if (vertex.materialId == topMaterial) {
+        foundTopVertex = true;
+        foundOccludedTopVertex = foundOccludedTopVertex ||
+          vertex.ambientVisibility < 255U;
+        const float visibility =
+          static_cast<float>(vertex.ambientVisibility) / 255.0F;
+        decodedTopLightMatches = decodedTopLightMatches &&
+          nearlyEqual(decodedLightChannel(vertex.color.red), 0.15F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.green), 0.225F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.blue), 0.30F * visibility, 0.005F);
+      }
+      if (vertex.materialId == sideMaterial) {
+        foundSideVertex = true;
+        const float visibility =
+          static_cast<float>(vertex.ambientVisibility) / 255.0F;
+        decodedSideLightMatches = decodedSideLightMatches &&
+          nearlyEqual(decodedLightChannel(vertex.color.red), 0.15F * 0.88F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.green), 0.225F * 0.88F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.blue), 0.30F * 0.88F * visibility, 0.005F);
       }
     }
     failures += expect(
-      foundExpectedTopColor,
-      "map ambient color and intensity should tint static world vertices"
+      foundTopVertex && decodedTopLightMatches,
+      "decoded static world light should match linear ambient and visibility"
+    );
+    failures += expect(
+      foundSideVertex && decodedSideLightMatches,
+      "static world light encoding should preserve per-face shade"
+    );
+    failures += expect(
+      foundOccludedTopVertex,
+      "static world light encoding should retain baked ambient occlusion"
     );
   }
 
@@ -2287,18 +2320,24 @@ int main() {
     litArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     litArena.walls[0].max = {4.0F, 4.0F, 1.0F};
     litArena.walls[0].materialId = lg::arenaMaterialId("lit_static_wall");
+    const std::uint32_t topMaterial =
+      lg::arenaMaterialId("lit_static_top");
+    litArena.walls[0].faceMaterialIds[1] = topMaterial;
+    litArena.ambientLight.color = {1.0F, 1.0F, 1.0F};
+    litArena.ambientLight.intensity = 0.3F;
     litArena.staticLightCount = 1;
-    litArena.staticLights[0].position = {0.2F, 0.2F, 3.0F};
+    litArena.staticLights[0].position = {0.0F, 0.0F, 3.0F};
     litArena.staticLights[0].color = {1.0F, 0.65F, 0.35F};
-    litArena.staticLights[0].intensity = 2.5F;
-    litArena.staticLights[0].radius = 7.0F;
+    litArena.staticLights[0].intensity = 0.9F;
+    litArena.staticLights[0].radius = 6.0F;
     const lg::Scene3D litScene = lg::buildStaticWorldScene(litArena);
     int minTopRed = 255;
     int maxTopRed = 0;
     bool foundTintedTopVertex = false;
+    bool foundDecodedPointLight = false;
     for (const lg::Vertex3D& vertex : litScene.vertices) {
       if (
-        vertex.materialId == litArena.walls[0].materialId &&
+        vertex.materialId == topMaterial &&
         nearlyEqual(vertex.position.z, litArena.walls[0].max.z)
       ) {
         minTopRed = std::min(minTopRed, static_cast<int>(vertex.color.red));
@@ -2308,6 +2347,15 @@ int main() {
             vertex.color.red > vertex.color.green &&
             vertex.color.green > vertex.color.blue
           );
+        if (
+          nearlyEqual(vertex.position.x, 0.0F) &&
+          nearlyEqual(vertex.position.y, 0.0F)
+        ) {
+          foundDecodedPointLight =
+            nearlyEqual(decodedLightChannel(vertex.color.red), 0.70F, 0.005F) &&
+            nearlyEqual(decodedLightChannel(vertex.color.green), 0.56F, 0.005F) &&
+            nearlyEqual(decodedLightChannel(vertex.color.blue), 0.44F, 0.005F);
+        }
       }
     }
     failures += expect(
@@ -2317,6 +2365,10 @@ int main() {
     failures += expect(
       foundTintedTopVertex,
       "static lights should tint world vertices with light color"
+    );
+    failures += expect(
+      foundDecodedPointLight,
+      "decoded static point light should match the authored linear contribution"
     );
   }
 
