@@ -56,6 +56,19 @@ const lg::TransientEffect* findEffect(
   return found == effects.end() ? nullptr : &*found;
 }
 
+std::size_t countEffects(
+  const std::vector<lg::TransientEffect>& effects,
+  lg::TransientEffectType type
+) {
+  return static_cast<std::size_t>(std::count_if(
+    effects.begin(),
+    effects.end(),
+    [type](const lg::TransientEffect& effect) {
+      return effect.type == type;
+    }
+  ));
+}
+
 bool sameEffect(
   const lg::TransientEffect& lhs,
   const lg::TransientEffect& rhs
@@ -193,6 +206,102 @@ int main() {
     "one shotgun request should create one bounded shared surface response"
   );
 
+  lg::SurfaceImpactEffectsRequest tierImpact = shotgunImpact;
+  tierImpact.weapon = lg::SurfaceImpactWeapon::MachineGun;
+  tierImpact.surface = lg::ImpactSurfaceCategory::Stone;
+  lg::CombatEffectsTuning impactQualityZero = tuning;
+  impactQualityZero.quality = 0;
+  lg::CombatEffects qualityZeroEffects;
+  qualityZeroEffects.spawnSurfaceImpact(tierImpact, impactQualityZero);
+  lg::CombatEffectsTuning impactQualityOne = tuning;
+  impactQualityOne.quality = 1;
+  lg::CombatEffects qualityOneEffects;
+  qualityOneEffects.spawnSurfaceImpact(tierImpact, impactQualityOne);
+  std::vector<lg::TransientEffect> qualityOneActive;
+  qualityOneEffects.appendActive(qualityOneActive);
+  lg::CombatEffects qualityTwoEffects;
+  qualityTwoEffects.spawnSurfaceImpact(tierImpact, tuning);
+  std::vector<lg::TransientEffect> qualityTwoActive;
+  qualityTwoEffects.appendActive(qualityTwoActive);
+  failures += expect(
+    qualityZeroEffects.stats().surfaceImpactsSpawned == 0U &&
+      qualityZeroEffects.stats().activeParticles == 0U &&
+      qualityZeroEffects.stats().activeDecals == 0U &&
+      countEffects(
+        qualityOneActive,
+        lg::TransientEffectType::BulletImpactFlash
+      ) == 1U &&
+      countEffects(
+        qualityOneActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) == 0U &&
+      countEffects(
+        qualityOneActive,
+        lg::TransientEffectType::BulletImpactDust
+      ) == 0U &&
+      qualityOneEffects.stats().activeDecals == 1U &&
+      countEffects(
+        qualityTwoActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) > 0U &&
+      countEffects(
+        qualityTwoActive,
+        lg::TransientEffectType::BulletImpactDust
+      ) == 1U,
+    "surface tiers should progress from no work to core and decal to particles"
+  );
+
+  lg::CombatEffects energyImpactEffects;
+  tierImpact.surface = lg::ImpactSurfaceCategory::Energy;
+  energyImpactEffects.spawnSurfaceImpact(tierImpact, tuning);
+  std::vector<lg::TransientEffect> energyImpactActive;
+  energyImpactEffects.appendActive(energyImpactActive);
+  failures += expect(
+    countEffects(
+      energyImpactActive,
+      lg::TransientEffectType::BulletImpactDust
+    ) == 0U,
+    "energy surfaces should not create opaque impact dust"
+  );
+
+  lg::CombatEffects machineGunContactEffects;
+  lg::CombatEffects revolverContactEffects;
+  tierImpact.surface = lg::ImpactSurfaceCategory::GenericHard;
+  tierImpact.weapon = lg::SurfaceImpactWeapon::MachineGun;
+  machineGunContactEffects.spawnSurfaceImpact(tierImpact, impactQualityOne);
+  tierImpact.weapon = lg::SurfaceImpactWeapon::Revolver;
+  revolverContactEffects.spawnSurfaceImpact(tierImpact, impactQualityOne);
+  std::vector<lg::TransientEffect> machineGunContactActive;
+  std::vector<lg::TransientEffect> revolverContactActive;
+  machineGunContactEffects.appendActive(machineGunContactActive);
+  revolverContactEffects.appendActive(revolverContactActive);
+  const lg::TransientEffect* machineGunFlash = findEffect(
+    machineGunContactActive,
+    lg::TransientEffectType::BulletImpactFlash
+  );
+  const lg::TransientEffect* revolverFlash = findEffect(
+    revolverContactActive,
+    lg::TransientEffectType::BulletImpactFlash
+  );
+  const lg::TransientEffect* machineGunDecal = findEffect(
+    machineGunContactActive,
+    lg::TransientEffectType::BulletDecal
+  );
+  const lg::TransientEffect* revolverDecal = findEffect(
+    revolverContactActive,
+    lg::TransientEffectType::BulletDecal
+  );
+  failures += expect(
+    machineGunFlash != nullptr &&
+      revolverFlash != nullptr &&
+      machineGunDecal != nullptr &&
+      revolverDecal != nullptr &&
+      revolverFlash->initialScale > machineGunFlash->initialScale &&
+      revolverFlash->lifetimeSeconds > machineGunFlash->lifetimeSeconds &&
+      revolverDecal->initialScale > machineGunDecal->initialScale,
+    "revolver contacts should read heavier than machine-gun contacts"
+  );
+
   lg::CombatEffects precisionFirstEffects;
   lg::CombatEffects precisionRepeatEffects;
   shotgunImpact.weapon = lg::SurfaceImpactWeapon::Precision;
@@ -227,6 +336,13 @@ int main() {
   freezePulse.visualSeed = 303U;
   freezePulse.ownerIndex = 0;
   freezePulse.hitWorld = true;
+  lg::CombatEffects freezeQualityOneEffects;
+  freezeQualityOneEffects.spawnFreezeGunPulse(
+    freezePulse,
+    impactQualityOne
+  );
+  std::vector<lg::TransientEffect> freezeQualityOneActive;
+  freezeQualityOneEffects.appendActive(freezeQualityOneActive);
   freezeEffects.spawnFreezeGunPulse(freezePulse, tuning);
   std::vector<lg::TransientEffect> freezeActive;
   freezeEffects.appendActive(freezeActive);
@@ -243,12 +359,26 @@ int main() {
     }
   );
   failures += expect(
+    freezeQualityOneEffects.stats().activeLights == 0U &&
+      countEffects(
+        freezeQualityOneActive,
+        lg::TransientEffectType::BulletImpactFlash
+      ) == 2U &&
+      countEffects(
+        freezeQualityOneActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) == 0U &&
+      freezeQualityOneEffects.stats().activeDecals == 1U &&
     freezeEffects.stats().freezePulsesSpawned == 1U &&
       freezeEffects.stats().surfaceImpactsSpawned == 1U &&
       freezeLight != nullptr &&
       freezeLight->color.blue > freezeLight->color.red &&
+      countEffects(
+        freezeActive,
+        lg::TransientEffectType::BulletImpactSpark
+      ) > 0U &&
       !freezeHasSmoke,
-    "freeze pulses should use the shared light and impact pools without smoke"
+    "freeze uses cyan core and frost mark at medium quality, then adds light and particles"
   );
 
   lg::CombatEffectsTuning cappedFreeze = tuning;

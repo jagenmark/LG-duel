@@ -308,6 +308,23 @@ int testLiveSchemaParsingAndRoundTrip() {
       badRenderPhase.error.find("render_phase") != std::string::npos,
     "captures should reject unknown render phases");
 
+  const auto surfaceImpactCapture = lg::scenario::parseScenarioJson(replace(
+    replace(
+      liveJson,
+      R"("at_server_tick":4)",
+      R"("surface_impact_weapon":"freeze_gun")"
+    ),
+    R"("render_phase":"projectile")",
+    R"("render_phase":"surface_impact")"
+  ));
+  failures += expect(
+    surfaceImpactCapture.ok &&
+      surfaceImpactCapture.scenario.captures[0].surfaceImpactWeapon ==
+        std::optional<lg::Weapon>{lg::Weapon::FreezeGun} &&
+      surfaceImpactCapture.scenario.captures[0].renderPhase ==
+        std::optional<std::string>{"surface_impact"},
+    "surface captures should bind an exact local contact phase to one weapon");
+
   const auto badOccurrence = lg::scenario::parseScenarioJson(replace(
     liveJson, R"("occurrence":2)", R"("occurrence":0)"));
   failures += expect(

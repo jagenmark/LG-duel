@@ -403,6 +403,38 @@ def _phase_capture_for_rocket_attack(
     return None
 
 
+def _phase_capture_for_surface_impact(
+    captures: list[Any],
+    captured: set[str],
+    part: dict[str, Any],
+    player: int,
+) -> tuple[dict[str, Any], str] | None:
+    """Choose the exact local world-contact capture for this input."""
+    weapon = part.get("weapon")
+    if not (
+        player == 0
+        and bool(part.get("attack"))
+        and isinstance(weapon, str)
+    ):
+        return None
+    for candidate in captures:
+        wanted_weapon = (
+            candidate.get("surface_impact_weapon")
+            if isinstance(candidate, dict)
+            else None
+        )
+        if (
+            not isinstance(candidate, dict)
+            or candidate.get("name") in captured
+            or candidate.get("render_phase") != "surface_impact"
+            or not isinstance(wanted_weapon, str)
+            or wanted_weapon.replace("_", "") != weapon
+        ):
+            continue
+        return candidate, "local_surface_impact"
+    return None
+
+
 def _client_authority_distance(state: dict[str, Any]) -> float | None:
     predicted = state.get("predicted_local_player")
     authoritative = state.get("authoritative_local_player")
@@ -485,7 +517,13 @@ def _validate_capture_phase(shot: dict[str, Any]) -> None:
     phase = shot.get("render_phase")
     if phase is None:
         return
-    if phase not in {"before_fire", "muzzle", "projectile", "impact"}:
+    if phase not in {
+        "before_fire",
+        "muzzle",
+        "projectile",
+        "impact",
+        "surface_impact",
+    }:
         raise LiveScenarioStageError(
             "capture_phase",
             f"{shot.get('name')!r} has unknown render phase {phase!r}",
@@ -497,6 +535,38 @@ def _validate_capture_phase(shot: dict[str, Any]) -> None:
             "capture_phase",
             f"{shot.get('name')!r} has no capture-time frame_state",
         )
+    if phase == "surface_impact":
+        actor = shot.get("actor", 0)
+        expected_weapon = shot.get("surface_impact_weapon")
+        local_index = frame.get("local_player_index")
+        active = frame.get("local_surface_impact_active")
+        weapon = frame.get("local_surface_impact_weapon")
+        effect_count = frame.get("local_surface_contact_effect_count")
+        trigger = shot.get("trigger")
+        if (
+            actor != 0
+            or not isinstance(expected_weapon, str)
+            or local_index != actor
+            or active is not True
+            or weapon != expected_weapon
+            or not isinstance(effect_count, int)
+            or isinstance(effect_count, bool)
+            or effect_count < 1
+            or not isinstance(trigger, dict)
+            or trigger.get("capture_mode") != "prearmed_exact_render_phase"
+            or trigger.get("surface_impact_weapon") != expected_weapon
+        ):
+            raise LiveScenarioStageError(
+                "capture_phase",
+                f"{shot.get('name')!r} has no matching active local surface impact; "
+                f"frame={frame}",
+            )
+        shot["phase_evidence"] = {
+            "capture_frame": frame,
+            "surface_impact_weapon": expected_weapon,
+            "surface_contact_effect_count": effect_count,
+        }
+        return
     trigger = shot.get("trigger")
     events = trigger.get("events") if isinstance(trigger, dict) else None
     if not isinstance(events, list):
@@ -680,6 +750,7 @@ def _record_capture_result(
             "name": capture["name"],
             "source_name": source_name,
             "render_phase": capture.get("render_phase"),
+            "surface_impact_weapon": capture.get("surface_impact_weapon"),
             "actor": capture.get("actor", 0),
             "result": result,
             "render_state": result.get("frame_state"),
@@ -1169,6 +1240,15 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                     )
                     if phase_capture is not None:
                         armed_capture, armed_phase = phase_capture
+                if armed_capture is None:
+                    phase_capture = _phase_capture_for_surface_impact(
+                        scenario.get("captures", []),
+                        captured,
+                        part,
+                        int(entry.get("player", 0)),
+                    )
+                    if phase_capture is not None:
+                        armed_capture, armed_phase = phase_capture
                 if armed_capture is not None:
                     stage = "capture_arm"
                     _request(
@@ -1219,14 +1299,13 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                         else 0
                     )
                     capture_pause_ticks += captured_pause
-                    wanted = armed_capture["after_event"]
+                    wanted = armed_capture.get("after_event")
                     matching_events = [
                         event
                         for event in _events(frame_checkpoint)
                         if _event_matches(event, wanted)
-                    ]
+                    ] if isinstance(wanted, dict) else []
                     screenshots[-1]["trigger"] = {
-                        "after_event": wanted,
                         "capture_mode": "prearmed_exact_render_phase",
                         "runtime_capture_pause_ticks": captured_pause,
                         "runtime_total_capture_pause_ticks":
@@ -1244,6 +1323,11 @@ def run_live_scenario(path: str | Path, output_root: str | Path = DEFAULT_OUTPUT
                         "matched_events": matching_events[:256],
                         "events": _events(frame_checkpoint)[:256],
                     }
+                    if isinstance(wanted, dict):
+                        screenshots[-1]["trigger"]["after_event"] = wanted
+                    if armed_capture.get("render_phase") == "surface_impact":
+                        screenshots[-1]["trigger"]["surface_impact_weapon"] = \
+                            armed_capture.get("surface_impact_weapon")
                     _validate_capture_phase(screenshots[-1])
                     captured.add(armed_capture["name"])
                     stage = "schedule"

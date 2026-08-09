@@ -92,7 +92,15 @@ ImpactSurfaceCategory classifyImpactMaterialAlias(std::string_view alias) {
   }
   if (containsAny(
         normalized,
-        {"element", "energy", "teleport", "plasma", "forcefield", "tech"}
+        {
+          "element",
+          "energy",
+          "teleport",
+          "plasma",
+          "forcefield",
+          "tech",
+          "amber_route",
+        }
       )) {
     return ImpactSurfaceCategory::Energy;
   }

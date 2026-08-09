@@ -1010,6 +1010,7 @@ template <typename Integer>
           "name",
           "at_server_tick",
           "after_event",
+          "surface_impact_weapon",
           "wait_rendered_frames",
           "render_phase",
         },
@@ -1026,9 +1027,14 @@ template <typename Integer>
   }
   const dev::JsonValue* tick = value.find("at_server_tick");
   const dev::JsonValue* event = value.find("after_event");
-  if ((tick == nullptr) == (event == nullptr)) {
+  const dev::JsonValue* surfaceWeapon = value.find("surface_impact_weapon");
+  const unsigned int triggerCount =
+    (tick != nullptr ? 1U : 0U) +
+    (event != nullptr ? 1U : 0U) +
+    (surfaceWeapon != nullptr ? 1U : 0U);
+  if (triggerCount != 1U) {
     error = std::string(path) +
-      ": needs exactly one of at_server_tick or after_event";
+      ": needs exactly one of at_server_tick, after_event, or surface_impact_weapon";
     return false;
   }
   if (tick != nullptr) {
@@ -1037,7 +1043,7 @@ template <typename Integer>
           tick, std::uint32_t{0}, maxTicks, parsed,
           childPath(path, "at_server_tick"), error)) return false;
     output.atServerTick = parsed;
-  } else {
+  } else if (event != nullptr) {
     if (event->type != Type::Object) {
       error = childPath(path, "after_event") + ": must be an object";
       return false;
@@ -1047,6 +1053,23 @@ template <typename Integer>
           *event, parsed, childPath(path, "after_event"), players, error))
       return false;
     output.afterEvent = std::move(parsed);
+  } else {
+    Weapon parsed = {};
+    if (!weaponValue(
+          surfaceWeapon,
+          parsed,
+          childPath(path, "surface_impact_weapon"),
+          error)) return false;
+    if (parsed != Weapon::MachineGun &&
+        parsed != Weapon::Shotgun &&
+        parsed != Weapon::Railgun &&
+        parsed != Weapon::FreezeGun &&
+        parsed != Weapon::Revolver) {
+      error = childPath(path, "surface_impact_weapon") +
+        ": must name machine_gun, shotgun, railgun, freeze_gun, or revolver";
+      return false;
+    }
+    output.surfaceImpactWeapon = parsed;
   }
   if (const dev::JsonValue* wait = value.find("wait_rendered_frames");
       wait != nullptr &&
@@ -1065,13 +1088,21 @@ template <typename Integer>
       "muzzle",
       "projectile",
       "impact",
+      "surface_impact",
     };
     if (!kRenderPhases.contains(parsed)) {
       error = childPath(path, "render_phase") +
-        ": must be before_fire, muzzle, projectile, or impact";
+        ": must be before_fire, muzzle, projectile, impact, or surface_impact";
       return false;
     }
     output.renderPhase = std::move(parsed);
+  }
+  const bool surfacePhase =
+    output.renderPhase && *output.renderPhase == "surface_impact";
+  if (output.surfaceImpactWeapon.has_value() != surfacePhase) {
+    error = std::string(path) +
+      ": surface_impact_weapon requires render_phase surface_impact";
+    return false;
   }
   return true;
 }
@@ -1694,6 +1725,10 @@ dev::JsonValue scenarioJson(const ScenarioDefinition& scenario) {
         event.object["occurrence"] =
           dev::JsonValue::numberValue(capture.afterEvent->occurrence);
         value.object["after_event"] = std::move(event);
+      } else if (capture.surfaceImpactWeapon) {
+        value.object["surface_impact_weapon"] = dev::JsonValue::stringValue(
+          std::string(weaponName(*capture.surfaceImpactWeapon))
+        );
       }
       value.object["wait_rendered_frames"] =
         dev::JsonValue::numberValue(capture.waitRenderedFrames);

@@ -238,6 +238,7 @@ struct ScenarioCapture {
   std::string name;
   std::optional<std::uint32_t> atServerTick;
   std::optional<CaptureAfterEvent> afterEvent;
+  std::optional<Weapon> surfaceImpactWeapon;
   std::uint32_t waitRenderedFrames = 0;
   std::optional<std::string> renderPhase;
 };

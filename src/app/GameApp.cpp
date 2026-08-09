@@ -946,7 +946,8 @@ struct LocalTracerAimHistory {
 [[nodiscard]] float localTracerVisualRange(const WeaponFireResult& fire) {
   const float fireDistance = length(fire.end - fire.start);
   if (std::isfinite(fireDistance) && fireDistance > 0.001F) {
-    return fireDistance;
+    // Server cameraForward endpoints can rebuild a fraction short after client normalization.
+    return fireDistance + 0.001F;
   }
   return fire.weapon == Weapon::Shotgun ? 18.0F : 100.0F;
 }
@@ -1081,7 +1082,7 @@ void spawnShotgunTracers(
   }
 }
 
-void spawnWorldSurfaceImpact(
+[[nodiscard]] bool spawnWorldSurfaceImpact(
   CombatEffects& combatEffects,
   const Arena& arena,
   const WeaponFireResult& fire,
@@ -1090,11 +1091,11 @@ void spawnWorldSurfaceImpact(
   const CombatEffectsTuning& effectsTuning
 ) {
   if (effectsTuning.quality <= 0) {
-    return;
+    return false;
   }
   const Vec3 direction = normalize(fire.end - fire.start);
   if (length(direction) <= 0.0001F) {
-    return;
+    return false;
   }
   const WorldTrace trace = traceWorld(
     arena,
@@ -1103,7 +1104,7 @@ void spawnWorldSurfaceImpact(
     localTracerVisualRange(fire)
   );
   if (!trace.hit || fire.hit) {
-    return;
+    return false;
   }
   combatEffects.spawnSurfaceImpact(
     {
@@ -1116,9 +1117,10 @@ void spawnWorldSurfaceImpact(
     },
     effectsTuning
   );
+  return true;
 }
 
-void spawnFreezeGunPulse(
+[[nodiscard]] bool spawnFreezeGunPulse(
   CombatEffects& combatEffects,
   const Arena& arena,
   const LightningGunResult& beam,
@@ -1129,11 +1131,11 @@ void spawnFreezeGunPulse(
   const CombatEffectsTuning& effectsTuning
 ) {
   if (effectsTuning.quality <= 0) {
-    return;
+    return false;
   }
   const Vec3 direction = normalize(beam.end - beam.start);
   if (length(direction) <= 0.0001F) {
-    return;
+    return false;
   }
   const float range = length(beam.end - beam.start);
   const WorldTrace impactTrace = traceWorld(
@@ -1156,6 +1158,7 @@ void spawnFreezeGunPulse(
     },
     effectsTuning
   );
+  return impactTrace.hit && !beam.hit;
 }
 
 void spawnRocketLauncherMuzzleFlash(
@@ -1229,6 +1232,22 @@ void spawnRevolverMuzzleFlash(
   }, followLocalMuzzle, Weapon::Revolver, fire.visualSeed, playerIndex);
 }
 
+struct LocalSurfaceImpactFrame {
+  bool active = false;
+  Weapon weapon = Weapon::MachineGun;
+};
+
+[[nodiscard]] std::string_view surfaceImpactCaptureWeaponName(Weapon weapon) {
+  switch (weapon) {
+  case Weapon::MachineGun: return "machine_gun";
+  case Weapon::Shotgun: return "shotgun";
+  case Weapon::Railgun: return "railgun";
+  case Weapon::Revolver: return "revolver";
+  case Weapon::FreezeGun: return "freeze_gun";
+  default: return "unknown";
+  }
+}
+
 void consumeTracerWeaponFires(
   TransientTracerStore& store,
   CombatEffects& combatEffects,
@@ -1240,7 +1259,8 @@ void consumeTracerWeaponFires(
   const RenderSettings& settings,
   const CombatEffectsTuning& effectsTuning,
   std::span<const ImpactSurfaceMaterial> impactSurfaceMaterials,
-  bool ownsPresentedSubject
+  bool ownsPresentedSubject,
+  LocalSurfaceImpactFrame& localSurfaceImpact
 ) {
   for (std::size_t playerIndex = 0; playerIndex < weaponFires.size(); ++playerIndex) {
     const WeaponFireResult& fire = weaponFires[playerIndex];
@@ -1326,6 +1346,9 @@ void consumeTracerWeaponFires(
           },
           effectsTuning
         );
+        if (localEvent && impactTrace.hit && !fire.hit) {
+          localSurfaceImpact = {true, Weapon::MachineGun};
+        }
       }
     } else if (fire.weapon == Weapon::Shotgun) {
       const Vec3 visualStart = shotgunTracerSource(
@@ -1352,7 +1375,7 @@ void consumeTracerWeaponFires(
         localEvent,
         eventPlayer
       );
-      spawnWorldSurfaceImpact(
+      const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
         combatEffects,
         arena,
         fire,
@@ -1360,6 +1383,9 @@ void consumeTracerWeaponFires(
         impactSurfaceMaterials,
         effectsTuning
       );
+      if (localEvent && spawnedSurfaceImpact) {
+        localSurfaceImpact = {true, Weapon::Shotgun};
+      }
     } else if (fire.weapon == Weapon::RocketLauncher) {
       const Vec3 visualStart = rocketLauncherMuzzleSource(
         fire,
@@ -1407,7 +1433,7 @@ void consumeTracerWeaponFires(
         localEvent,
         eventPlayer
       );
-      spawnWorldSurfaceImpact(
+      const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
         combatEffects,
         arena,
         fire,
@@ -1415,8 +1441,11 @@ void consumeTracerWeaponFires(
         impactSurfaceMaterials,
         effectsTuning
       );
+      if (localEvent && spawnedSurfaceImpact) {
+        localSurfaceImpact = {true, Weapon::Revolver};
+      }
     } else {
-      spawnWorldSurfaceImpact(
+      const bool spawnedSurfaceImpact = spawnWorldSurfaceImpact(
         combatEffects,
         arena,
         fire,
@@ -1424,6 +1453,9 @@ void consumeTracerWeaponFires(
         impactSurfaceMaterials,
         effectsTuning
       );
+      if (localEvent && spawnedSurfaceImpact) {
+        localSurfaceImpact = {true, Weapon::Railgun};
+      }
     }
   }
 }
@@ -10931,6 +10963,7 @@ int GameApp::run() const {
     }
     transientTracerStore.update(outerFrameElapsed.count());
     combatEffects.update(outerFrameElapsed.count(), frameEffectsTuning);
+    LocalSurfaceImpactFrame localSurfaceImpact = {};
     for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
       if (!freezeGunPulseDue[playerIndex]) {
         continue;
@@ -10947,7 +10980,7 @@ int GameApp::run() const {
       const std::uint32_t visualSeed =
         0xb5297a4dU * static_cast<std::uint32_t>(playerIndex + 1U) +
         pulseSerial * 0x68e31da4U;
-      spawnFreezeGunPulse(
+      const bool spawnedWorldImpact = spawnFreezeGunPulse(
         combatEffects,
         renderArena,
         beam,
@@ -10963,6 +10996,9 @@ int GameApp::run() const {
         impactSurfaceMaterials,
         frameEffectsTuning
       );
+      if (localPlayer && spawnedWorldImpact) {
+        localSurfaceImpact = {true, Weapon::FreezeGun};
+      }
     }
     consumeTracerWeaponFires(
       transientTracerStore,
@@ -10975,7 +11011,8 @@ int GameApp::run() const {
       currentRenderSettings,
       frameEffectsTuning,
       impactSurfaceMaterials,
-      ownsPresentedSubject
+      ownsPresentedSubject,
+      localSurfaceImpact
     );
     consumeExplosionEvents(
       transientTracerStore,
@@ -11073,6 +11110,10 @@ int GameApp::run() const {
           renderRocketExplosions[renderLocalPlayerIndex].active &&
           renderRocketExplosions[renderLocalPlayerIndex].weapon ==
             Weapon::RocketLauncher
+        ) ||
+        (
+          armedPhaseCapture->phase == "local_surface_impact" &&
+          localSurfaceImpact.active
         )
       ) {
         captureHideHud = armedPhaseCapture->hideHud;
@@ -11150,6 +11191,27 @@ int GameApp::run() const {
             captureGame->interpolationDiagnostics().presentationTick
           )
         : dev::JsonValue{};
+      captureFrameState.object["local_surface_impact_active"] =
+        dev::JsonValue::booleanValue(localSurfaceImpact.active);
+      captureFrameState.object["local_surface_impact_weapon"] =
+        localSurfaceImpact.active
+        ? dev::JsonValue::stringValue(
+            std::string(surfaceImpactCaptureWeaponName(localSurfaceImpact.weapon))
+          )
+        : dev::JsonValue{};
+      const std::uint32_t localSurfaceContactEffectCount =
+        static_cast<std::uint32_t>(std::count_if(
+          activeTransientEffects.begin(),
+          activeTransientEffects.end(),
+          [](const TransientEffect& effect) {
+            return effect.type == TransientEffectType::BulletImpactFlash ||
+              effect.type == TransientEffectType::BulletImpactSpark ||
+              effect.type == TransientEffectType::BulletImpactDust ||
+              effect.type == TransientEffectType::BulletDecal;
+          }
+      ));
+      captureFrameState.object["local_surface_contact_effect_count"] =
+        dev::JsonValue::numberValue(localSurfaceContactEffectCount);
 
       const WeaponFireResult& localFire =
         renderWeaponFires[renderLocalPlayerIndex];

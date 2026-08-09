@@ -38,6 +38,9 @@ int main() {
         lg::ImpactSurfaceCategory::WoodSoft &&
       lg::classifyImpactMaterialAlias("fx/teleport_energy.png") ==
         lg::ImpactSurfaceCategory::Energy &&
+      lg::classifyImpactMaterialAlias(
+        "Overkill/Overkill_Amber_Route-128x128.png"
+      ) == lg::ImpactSurfaceCategory::Energy &&
       lg::classifyImpactMaterialAlias("props/unknown_panel.png") ==
         lg::ImpactSurfaceCategory::GenericHard,
     "checked material aliases should select each broad surface category"

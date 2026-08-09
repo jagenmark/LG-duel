@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260809T024648Z-graphics-pass-5-competitive-machine-gun-stone-10",
+  "captured_at": "2026-08-09T02:46:48Z",
+  "captured_by": "vfx-runtime",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Original GPU capture at the exact active local Machine Gun contact on the Stone panel with bloom disabled.",
+  "image": "20260809T024648Z-graphics-pass-5-competitive-machine-gun-stone-10.png",
+  "review": {
+    "notes": "The exact Competitive frame keeps the light Machine Gun trace and small Stone contact readable with Q1 effects and bloom off.",
+    "reviewed_at": "2026-08-09T03:02:16Z",
+    "reviewer": "pass5_reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "6102216149f6fd660a68ebdf3091a5c540e0d151a2a0e5a051e1f7f5890d3c56",
+  "size_bytes": 3687468,
+  "task_id": "graphics-pass-5-runtime",
+  "title": "Competitive Machine Gun Stone contact"
+}

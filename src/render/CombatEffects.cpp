@@ -237,8 +237,8 @@ struct SurfaceImpactProfile {
     return {2, 0.045F, 0.060F, 0.016F, 0.14F, 0.012F, 2.8F,
       0.032F, 0.10F, 0.026F, false, true};
   case SurfaceImpactWeapon::Revolver:
-    return {2, 0.052F, 0.070F, 0.018F, 0.15F, 0.013F, 2.5F,
-      0.036F, 0.12F, 0.030F, false, true};
+    return {3, 0.070F, 0.108F, 0.028F, 0.19F, 0.016F, 2.2F,
+      0.040F, 0.13F, 0.045F, false, true};
   case SurfaceImpactWeapon::FreezeGun:
     return {2, 0.065F, 0.092F, 0.028F, 0.17F, 0.012F, 1.35F,
       0.0F, 0.0F, 0.040F, false, true};
@@ -634,14 +634,16 @@ void CombatEffects::spawnSurfaceImpact(
     tuning.maximumParticles,
     kParticleCapacity
   );
-  const int desiredSparks = static_cast<int>(std::clamp(
-    std::round(
-      static_cast<float>(profile.baseSparkCount) *
-      std::max(0.0F, tuning.particleMultiplier)
-    ),
-    0.0F,
-    8.0F
-  ));
+  const int desiredSparks = tuning.quality >= 2
+    ? static_cast<int>(std::clamp(
+        std::round(
+          static_cast<float>(profile.baseSparkCount) *
+          std::max(0.0F, tuning.particleMultiplier)
+        ),
+        0.0F,
+        8.0F
+      ))
+    : 0;
   for (int index = 0; index < desiredSparks; ++index) {
     PoolEntry* particle =
       allocateEntry(particles_, particleLimit, nextSerial_++);
@@ -759,25 +761,27 @@ void CombatEffects::spawnFreezeGunPulse(
     request.muzzleForward,
     Vec3{1.0F, 0.0F, 0.0F}
   );
-  PoolEntry* light = allocateEntry(lights_, kLightCapacity, nextSerial_++);
-  if (light != nullptr) {
-    light->effect = {
-      TransientEffectType::MachineGunMuzzleLight,
-      request.muzzlePosition,
-      0.0F,
-      std::clamp(tuning.muzzleLightDurationSeconds * 0.58F, 0.035F, 0.085F),
-      1.0F,
-      1.0F,
-      {158, 238, 255, 255},
-      seed,
-    };
-    light->effect.intensity =
-      std::max(0.0F, tuning.muzzleLightIntensity) * 0.58F;
-    light->effect.radius = std::max(0.0F, tuning.muzzleLightRadius) * 0.62F;
-    light->effect.ownerIndex = request.ownerIndex;
-    light->attachment = MuzzleAttachment::FreezeGun;
-  } else {
-    ++effectsDropped_;
+  if (tuning.quality >= 2) {
+    PoolEntry* light = allocateEntry(lights_, kLightCapacity, nextSerial_++);
+    if (light != nullptr) {
+      light->effect = {
+        TransientEffectType::MachineGunMuzzleLight,
+        request.muzzlePosition,
+        0.0F,
+        std::clamp(tuning.muzzleLightDurationSeconds * 0.58F, 0.035F, 0.085F),
+        1.0F,
+        1.0F,
+        {158, 238, 255, 255},
+        seed,
+      };
+      light->effect.intensity =
+        std::max(0.0F, tuning.muzzleLightIntensity) * 0.58F;
+      light->effect.radius = std::max(0.0F, tuning.muzzleLightRadius) * 0.62F;
+      light->effect.ownerIndex = request.ownerIndex;
+      light->attachment = MuzzleAttachment::FreezeGun;
+    } else {
+      ++effectsDropped_;
+    }
   }
   PoolEntry* core = allocateEntry(
     particles_,

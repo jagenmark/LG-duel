@@ -234,12 +234,13 @@ ControlRequestParseResult parseControlRequest(const JsonValue& root) {
     }
     if (request.capturePhase != "local_rocket_launcher_muzzle" &&
         request.capturePhase != "local_rocket_launcher_projectile" &&
-        request.capturePhase != "local_rocket_launcher_impact") {
+        request.capturePhase != "local_rocket_launcher_impact" &&
+        request.capturePhase != "local_surface_impact") {
       return {
         {},
         false,
         "phase must name a local Rocket Launcher muzzle, projectile, "
-        "or impact frame",
+        "impact, or surface-impact frame",
       };
     }
   }
