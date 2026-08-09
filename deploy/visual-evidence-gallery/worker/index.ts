@@ -1,62 +1,40 @@
 import handler from "vinext/server/app-router-entry";
-import { evidenceReadyIndexSql, evidenceTableSql } from "../db/schema";
 
-const maxSourceBytes = 15 * 1024 * 1024;
-const maxReviewEdge = 1600;
-const reviewQuality = 82;
 const captureIdPattern = /^\d{8}T\d{6}Z-[a-z0-9]+(?:-[a-z0-9]+)*-\d{2}$/;
 const taskIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{1,79}$/;
 const sha256Pattern = /^[0-9a-f]{64}$/;
-const allowedContentTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
+const sourceTypes = new Set(["image/png", "image/jpeg", "image/webp"]);
 const reviewVerdicts = new Set(["pass", "fail", "needs_changes"]);
-
-interface D1Statement {
-  bind(...values: unknown[]): D1Statement;
-  first<T = Record<string, unknown>>(): Promise<T | null>;
-  all<T = Record<string, unknown>>(): Promise<{ results: T[] }>;
-  run(): Promise<unknown>;
-}
-
-interface D1DatabaseBinding {
-  prepare(sql: string): D1Statement;
-  batch(statements: D1Statement[]): Promise<unknown[]>;
-}
+const maxSourceBytes = 15 * 1024 * 1024;
+const maxReviewBytes = 2 * 1024 * 1024;
 
 interface StoredObject {
   body: ReadableStream;
   httpEtag?: string;
-  customMetadata?: Record<string, string>;
   writeHttpMetadata?(headers: Headers): void;
 }
 
 interface R2BucketBinding {
   get(key: string): Promise<StoredObject | null>;
+  list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
+    objects: Array<{ key: string }>;
+    truncated: boolean;
+    cursor?: string;
+  }>;
   put(
     key: string,
-    value: ArrayBuffer | ReadableStream,
+    value: ArrayBuffer | ReadableStream | string,
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
+      onlyIf?: { etagDoesNotMatch?: string };
     },
-  ): Promise<unknown>;
-}
-
-interface ImagesBinding {
-  input(stream: ReadableStream): {
-    transform(options: Record<string, unknown>): {
-      output(options: { format: string; quality: number }): Promise<{
-        response(): Response;
-      }>;
-    };
-  };
+  ): Promise<unknown | null>;
 }
 
 interface Env {
   ASSETS: { fetch(request: Request): Promise<Response> };
-  DB: D1DatabaseBinding;
   EVIDENCE: R2BucketBinding;
-  IMAGES?: ImagesBinding;
-  EVIDENCE_UPLOAD_TOKEN?: string;
 }
 
 interface ExecutionContext {
@@ -86,26 +64,10 @@ interface CaptureRecord {
   review_height?: number | null;
 }
 
-interface EvidenceRow {
-  capture_id: string;
-  task_id: string;
-  status: "pending" | "ready";
-  title: string;
-  description: string;
-  captured_at: string;
-  captured_by: string;
-  review_status: ReviewStatus;
-  reviewer: string | null;
-  reviewed_at: string | null;
-  review_notes: string | null;
-  sha256: string;
-  source_size_bytes: number;
+interface StoredCapture extends CaptureRecord {
   source_content_type: string;
+  review_sha256: string;
   review_key: string;
-  review_content_type: string | null;
-  review_size_bytes: number | null;
-  review_width: number | null;
-  review_height: number | null;
   original_key: string | null;
 }
 
@@ -120,29 +82,18 @@ interface CheckedMetadata {
   reviewer: string | null;
   reviewedAt: string | null;
   reviewNotes: string | null;
-  suppliedSha256: string | null;
+  sourceSha256: string;
+  reviewSha256: string;
+  sourceContentType: string;
+  reviewWidth: number;
+  reviewHeight: number;
   retainOriginal: boolean;
-}
-
-interface ImageSize {
-  width: number;
-  height: number;
-}
-
-interface ReviewImage {
-  bytes: ArrayBuffer;
-  contentType: string;
-  width: number;
-  height: number;
 }
 
 function json(value: unknown, status = 200): Response {
   return Response.json(value, {
     status,
-    headers: {
-      "cache-control": "no-store",
-      "x-content-type-options": "nosniff",
-    },
+    headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" },
   });
 }
 
@@ -150,11 +101,7 @@ function errorResponse(status: number, message: string): Response {
   return json({ error: message }, status);
 }
 
-function requiredText(
-  value: Record<string, unknown>,
-  key: string,
-  where = "metadata",
-): string {
+function requiredText(value: Record<string, unknown>, key: string, where = "metadata"): string {
   const field = value[key];
   if (typeof field !== "string" || !field.trim()) {
     throw new Error(`${where}.${key} must be non-empty text`);
@@ -167,10 +114,22 @@ function utcTimestamp(value: string, field: string): string {
     throw new Error(`${field} must use UTC`);
   }
   const time = Date.parse(value);
-  if (!Number.isFinite(time)) {
-    throw new Error(`${field} must be an ISO 8601 time`);
-  }
+  if (!Number.isFinite(time)) throw new Error(`${field} must be an ISO 8601 time`);
   return new Date(time).toISOString();
+}
+
+function positiveInteger(value: unknown, field: string): number {
+  if (!Number.isInteger(value) || Number(value) <= 0) {
+    throw new Error(`${field} must be a positive integer`);
+  }
+  return Number(value);
+}
+
+function checkedSha(value: unknown, field: string): string {
+  if (typeof value !== "string" || !sha256Pattern.test(value)) {
+    throw new Error(`${field} must be a lower-case SHA-256 value`);
+  }
+  return value;
 }
 
 function checkMetadata(raw: unknown): CheckedMetadata {
@@ -178,17 +137,11 @@ function checkMetadata(raw: unknown): CheckedMetadata {
     throw new Error("metadata must be a JSON object");
   }
   const value = raw as Record<string, unknown>;
-  if (value.schema_version !== 1) {
-    throw new Error("metadata.schema_version must be 1");
-  }
+  if (value.schema_version !== 1) throw new Error("metadata.schema_version must be 1");
   const captureId = requiredText(value, "capture_id");
   const taskId = requiredText(value, "task_id");
-  if (!captureIdPattern.test(captureId)) {
-    throw new Error("metadata.capture_id has an unsafe format");
-  }
-  if (!taskIdPattern.test(taskId)) {
-    throw new Error("metadata.task_id has an unsafe format");
-  }
+  if (!captureIdPattern.test(captureId)) throw new Error("metadata.capture_id has an unsafe format");
+  if (!taskIdPattern.test(taskId)) throw new Error("metadata.task_id has an unsafe format");
   if (value.contains_sensitive_data !== false) {
     throw new Error("metadata.contains_sensitive_data must be false");
   }
@@ -205,9 +158,7 @@ function checkMetadata(raw: unknown): CheckedMetadata {
     const review = value.review as Record<string, unknown>;
     reviewer = requiredText(review, "reviewer", "metadata.review");
     reviewStatus = requiredText(review, "verdict", "metadata.review").toLowerCase() as ReviewStatus;
-    if (!reviewVerdicts.has(reviewStatus)) {
-      throw new Error("metadata.review.verdict is not valid");
-    }
+    if (!reviewVerdicts.has(reviewStatus)) throw new Error("metadata.review.verdict is not valid");
     reviewNotes = requiredText(review, "notes", "metadata.review");
     reviewedAt = utcTimestamp(
       requiredText(review, "reviewed_at", "metadata.review"),
@@ -218,12 +169,8 @@ function checkMetadata(raw: unknown): CheckedMetadata {
     }
   }
 
-  const suppliedSha256 = value.sha256 === undefined
-    ? null
-    : typeof value.sha256 === "string" && sha256Pattern.test(value.sha256)
-      ? value.sha256
-      : (() => { throw new Error("metadata.sha256 must be a lower-case SHA-256 value"); })();
-
+  const sourceContentType = requiredText(value, "content_type");
+  if (!sourceTypes.has(sourceContentType)) throw new Error("metadata.content_type is not supported");
   return {
     captureId,
     taskId,
@@ -235,106 +182,13 @@ function checkMetadata(raw: unknown): CheckedMetadata {
     reviewer,
     reviewedAt,
     reviewNotes,
-    suppliedSha256,
+    sourceSha256: checkedSha(value.sha256, "metadata.sha256"),
+    reviewSha256: checkedSha(value.review_sha256, "metadata.review_sha256"),
+    sourceContentType,
+    reviewWidth: positiveInteger(value.review_width, "metadata.review_width"),
+    reviewHeight: positiveInteger(value.review_height, "metadata.review_height"),
     retainOriginal: value.retain_original === true || reviewStatus === "pass",
   };
-}
-
-function readUint24Little(bytes: Uint8Array, offset: number): number {
-  return bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16);
-}
-
-function imageSize(bytes: Uint8Array, contentType: string): ImageSize | null {
-  if (
-    contentType === "image/png" && bytes.length >= 24 &&
-    bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
-  ) {
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    return { width: view.getUint32(16), height: view.getUint32(20) };
-  }
-  if (contentType === "image/jpeg" && bytes.length >= 4) {
-    let offset = 2;
-    while (offset + 8 < bytes.length) {
-      if (bytes[offset] !== 0xff) {
-        ++offset;
-        continue;
-      }
-      const marker = bytes[offset + 1];
-      if (marker === 0xd8 || marker === 0xd9) {
-        offset += 2;
-        continue;
-      }
-      const length = (bytes[offset + 2] << 8) | bytes[offset + 3];
-      if (length < 2 || offset + 2 + length > bytes.length) break;
-      if (
-        (marker >= 0xc0 && marker <= 0xc3) ||
-        (marker >= 0xc5 && marker <= 0xc7) ||
-        (marker >= 0xc9 && marker <= 0xcb) ||
-        (marker >= 0xcd && marker <= 0xcf)
-      ) {
-        return {
-          height: (bytes[offset + 5] << 8) | bytes[offset + 6],
-          width: (bytes[offset + 7] << 8) | bytes[offset + 8],
-        };
-      }
-      offset += 2 + length;
-    }
-  }
-  if (
-    contentType === "image/webp" && bytes.length >= 30 &&
-    String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" &&
-    String.fromCharCode(...bytes.slice(8, 12)) === "WEBP"
-  ) {
-    const chunk = String.fromCharCode(...bytes.slice(12, 16));
-    if (chunk === "VP8X") {
-      return {
-        width: 1 + readUint24Little(bytes, 24),
-        height: 1 + readUint24Little(bytes, 27),
-      };
-    }
-  }
-  return null;
-}
-
-function cappedSize(size: ImageSize): ImageSize {
-  const scale = Math.min(1, maxReviewEdge / Math.max(size.width, size.height));
-  return {
-    width: Math.max(1, Math.round(size.width * scale)),
-    height: Math.max(1, Math.round(size.height * scale)),
-  };
-}
-
-async function makeReviewImage(
-  source: ArrayBuffer,
-  contentType: string,
-  images: ImagesBinding | undefined,
-): Promise<ReviewImage> {
-  const dimensions = imageSize(new Uint8Array(source), contentType);
-  if (images) {
-    const output = await images
-      .input(new Blob([source], { type: contentType }).stream())
-      .transform({ fit: "scale-down", width: maxReviewEdge, height: maxReviewEdge })
-      .output({ format: "image/webp", quality: reviewQuality });
-    const response = output.response();
-    if (!response.ok) {
-      throw new Error(`image optimisation failed with status ${response.status}`);
-    }
-    const size = dimensions ? cappedSize(dimensions) : { width: 0, height: 0 };
-    return {
-      bytes: await response.arrayBuffer(),
-      contentType: "image/webp",
-      width: size.width,
-      height: size.height,
-    };
-  }
-  if (
-    dimensions && dimensions.width <= maxReviewEdge && dimensions.height <= maxReviewEdge &&
-    (contentType === "image/jpeg" || contentType === "image/webp") &&
-    source.byteLength <= 2 * 1024 * 1024
-  ) {
-    return { bytes: source, contentType, width: dimensions.width, height: dimensions.height };
-  }
-  throw new Error("image optimisation is temporarily unavailable");
 }
 
 async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
@@ -342,57 +196,18 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return Array.from(digest, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
-async function tokenMatches(request: Request, expected: string | undefined): Promise<boolean> {
-  if (!expected) return false;
-  const header = request.headers.get("authorization") ?? "";
-  const supplied = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!supplied) return false;
-  const [left, right] = await Promise.all([
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(supplied)),
-    crypto.subtle.digest("SHA-256", new TextEncoder().encode(expected)),
-  ]);
-  const a = new Uint8Array(left);
-  const b = new Uint8Array(right);
-  let difference = a.length ^ b.length;
-  for (let index = 0; index < Math.max(a.length, b.length); ++index) {
-    difference |= (a[index] ?? 0) ^ (b[index] ?? 0);
+async function readObjectJson<T>(bucket: R2BucketBinding, key: string): Promise<T | null> {
+  const object = await bucket.get(key);
+  if (!object) return null;
+  try {
+    return JSON.parse(await new Response(object.body).text()) as T;
+  } catch {
+    return null;
   }
-  return difference === 0;
-}
-
-async function ensureSchema(db: D1DatabaseBinding): Promise<void> {
-  await db.batch([
-    db.prepare(evidenceTableSql),
-    db.prepare(evidenceReadyIndexSql),
-  ]);
-}
-
-function rowToCapture(row: EvidenceRow): CaptureRecord {
-  const base = `/api/evidence/${encodeURIComponent(row.capture_id)}`;
-  return {
-    capture_id: row.capture_id,
-    task_id: row.task_id,
-    title: row.title,
-    description: row.description,
-    captured_at: row.captured_at,
-    captured_by: row.captured_by,
-    review_status: row.review_status,
-    reviewer: row.reviewer,
-    reviewed_at: row.reviewed_at,
-    review_notes: row.review_notes,
-    sha256: row.sha256,
-    size_bytes: row.review_size_bytes ?? row.source_size_bytes,
-    preview_url: `${base}/review`,
-    full_size_url: `${base}/review`,
-    original_url: row.original_key ? `${base}/original` : null,
-    review_width: row.review_width,
-    review_height: row.review_height,
-  };
 }
 
 async function legacyManifest(request: Request, env: Env): Promise<CaptureRecord[]> {
-  const url = new URL("/evidence/manifest.json", request.url);
-  const response = await env.ASSETS.fetch(new Request(url));
+  const response = await env.ASSETS.fetch(new Request(new URL("/evidence/manifest.json", request.url)));
   if (!response.ok) return [];
   const value = await response.json() as { captures?: unknown };
   if (!Array.isArray(value.captures)) return [];
@@ -402,116 +217,48 @@ async function legacyManifest(request: Request, env: Env): Promise<CaptureRecord
   ));
 }
 
-function legacyReviewCapture(entry: CaptureRecord): CaptureRecord {
-  const original = entry.original_url ?? entry.full_size_url;
+function publicCapture(record: StoredCapture): CaptureRecord {
+  const base = `/api/evidence/${encodeURIComponent(record.capture_id)}`;
   return {
-    ...entry,
-    preview_url: `/api/evidence/legacy/${encodeURIComponent(entry.capture_id)}/review`,
-    full_size_url: `/api/evidence/legacy/${encodeURIComponent(entry.capture_id)}/review`,
-    original_url: original,
+    ...record,
+    preview_url: `${base}/review`,
+    full_size_url: `${base}/review`,
+    original_url: record.original_key ? `${base}/original` : null,
   };
 }
 
-function sameCaptureIdentity(
-  row: Pick<EvidenceRow, "task_id" | "title" | "description" | "captured_at" | "captured_by" | "source_content_type">,
-  metadata: CheckedMetadata,
-  contentType: string,
-): boolean {
-  return row.task_id === metadata.taskId &&
-    row.title === metadata.title &&
-    row.description === metadata.description &&
-    Date.parse(row.captured_at) === Date.parse(metadata.capturedAt) &&
-    row.captured_by === metadata.capturedBy &&
-    row.source_content_type === contentType;
-}
-
-function preserveLegacyReview(metadata: CheckedMetadata, legacy: CaptureRecord): CheckedMetadata {
-  if (
-    legacy.review_status === "not_reviewed" || !legacy.reviewed_at ||
-    (metadata.reviewedAt && Date.parse(metadata.reviewedAt) >= Date.parse(legacy.reviewed_at))
-  ) {
-    return metadata;
-  }
-  return {
-    ...metadata,
-    reviewStatus: legacy.review_status,
-    reviewer: legacy.reviewer,
-    reviewedAt: new Date(legacy.reviewed_at).toISOString(),
-    reviewNotes: legacy.review_notes,
-    retainOriginal: metadata.retainOriginal || legacy.review_status === "pass",
-  };
-}
-
-function reviewAdvances(row: EvidenceRow, metadata: CheckedMetadata): boolean {
-  return metadata.reviewedAt !== null &&
-    (row.reviewed_at === null || Date.parse(metadata.reviewedAt) > Date.parse(row.reviewed_at));
-}
-
-function originalNeedsRepair(row: EvidenceRow, metadata: CheckedMetadata): boolean {
-  return (metadata.retainOriginal || row.review_status === "pass") && row.original_key === null;
+async function liveCaptures(env: Env): Promise<StoredCapture[]> {
+  const keys: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await env.EVIDENCE.list({ prefix: "records/", cursor, limit: 1000 });
+    keys.push(...page.objects.map((object) => object.key).filter((key) => key.endsWith(".json")));
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  const records = await Promise.all(keys.map((key) => readObjectJson<StoredCapture>(env.EVIDENCE, key)));
+  return records.filter((record): record is StoredCapture => (
+    record !== null && captureIdPattern.test(record.capture_id) && sha256Pattern.test(record.sha256)
+  ));
 }
 
 async function listEvidence(request: Request, env: Env): Promise<Response> {
-  await ensureSchema(env.DB);
-  const [legacy, live] = await Promise.all([
-    legacyManifest(request, env),
-    env.DB.prepare(
-      "SELECT * FROM evidence_captures WHERE status = 'ready' ORDER BY captured_at DESC, capture_id DESC",
-    ).all<EvidenceRow>(),
-  ]);
+  const [legacy, live] = await Promise.all([legacyManifest(request, env), liveCaptures(env)]);
   const merged = new Map<string, CaptureRecord>();
-  for (const entry of legacy) merged.set(entry.capture_id, legacyReviewCapture(entry));
-  for (const row of live.results) merged.set(row.capture_id, rowToCapture(row));
-  const captures = Array.from(merged.values()).sort((left, right) => (
-    right.captured_at.localeCompare(left.captured_at) ||
-    right.capture_id.localeCompare(left.capture_id)
+  for (const record of legacy) merged.set(record.capture_id, record);
+  for (const record of live) merged.set(record.capture_id, publicCapture(record));
+  const captures = [...merged.values()].sort((left, right) => (
+    right.captured_at.localeCompare(left.captured_at) || right.capture_id.localeCompare(left.capture_id)
   ));
   return json({ schema_version: 1, captures });
 }
 
-async function insertPending(
-  env: Env,
-  metadata: CheckedMetadata,
-  digest: string,
-  sourceSize: number,
-  sourceContentType: string,
-  reviewKey: string,
-): Promise<void> {
-  const now = new Date().toISOString();
-  await env.DB.prepare(`
-    INSERT INTO evidence_captures (
-      capture_id, task_id, status, title, description, captured_at, captured_by,
-      review_status, reviewer, reviewed_at, review_notes, sha256,
-      source_size_bytes, source_content_type, review_key, original_key,
-      created_at, updated_at
-    ) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(capture_id) DO NOTHING
-  `).bind(
-    metadata.captureId,
-    metadata.taskId,
-    metadata.title,
-    metadata.description,
-    metadata.capturedAt,
-    metadata.capturedBy,
-    metadata.reviewStatus,
-    metadata.reviewer,
-    metadata.reviewedAt,
-    metadata.reviewNotes,
-    digest,
-    sourceSize,
-    sourceContentType,
-    reviewKey,
-    null,
-    now,
-    now,
-  ).run();
+function sourceExtension(contentType: string): string {
+  if (contentType === "image/png") return "png";
+  if (contentType === "image/webp") return "webp";
+  return "jpg";
 }
 
 async function uploadEvidence(request: Request, env: Env): Promise<Response> {
-  if (!(await tokenMatches(request, env.EVIDENCE_UPLOAD_TOKEN))) {
-    return errorResponse(401, "upload authorization failed");
-  }
-  await ensureSchema(env.DB);
   let form: FormData;
   try {
     form = await request.formData();
@@ -519,9 +266,10 @@ async function uploadEvidence(request: Request, env: Env): Promise<Response> {
     return errorResponse(400, "request must be multipart form data");
   }
   const metadataPart = form.get("metadata");
-  const imagePart = form.get("image");
-  if (typeof metadataPart !== "string" || !(imagePart instanceof File)) {
-    return errorResponse(400, "multipart fields metadata and image are required");
+  const reviewPart = form.get("review");
+  const originalPart = form.get("original");
+  if (typeof metadataPart !== "string" || !(reviewPart instanceof File)) {
+    return errorResponse(400, "multipart fields metadata and review are required");
   }
 
   let metadata: CheckedMetadata;
@@ -530,168 +278,108 @@ async function uploadEvidence(request: Request, env: Env): Promise<Response> {
   } catch (error) {
     return errorResponse(400, error instanceof Error ? error.message : "metadata is invalid");
   }
-  if (!allowedContentTypes.has(imagePart.type)) {
-    return errorResponse(400, "image must be PNG, JPEG, or WebP");
+  if (reviewPart.type !== "image/webp" || reviewPart.size <= 0 || reviewPart.size > maxReviewBytes) {
+    return errorResponse(400, `review must be a WebP image of 1..${maxReviewBytes} bytes`);
   }
-  if (imagePart.size <= 0 || imagePart.size > maxSourceBytes) {
-    return errorResponse(400, `image must be 1..${maxSourceBytes} bytes`);
+  if (metadata.retainOriginal !== (originalPart instanceof File)) {
+    return errorResponse(400, "original field does not match retain_original");
+  }
+  if (originalPart instanceof File) {
+    if (!sourceTypes.has(originalPart.type) || originalPart.type !== metadata.sourceContentType) {
+      return errorResponse(400, "original content type does not match metadata");
+    }
+    if (originalPart.size <= 0 || originalPart.size > maxSourceBytes) {
+      return errorResponse(400, `original must be 1..${maxSourceBytes} bytes`);
+    }
   }
 
-  const source = await imagePart.arrayBuffer();
-  const digest = await sha256Hex(source);
-  if (metadata.suppliedSha256 && metadata.suppliedSha256 !== digest) {
-    return errorResponse(400, "metadata.sha256 does not match the image");
+  const reviewBytes = await reviewPart.arrayBuffer();
+  if (await sha256Hex(reviewBytes) !== metadata.reviewSha256) {
+    return errorResponse(400, "metadata.review_sha256 does not match the review image");
   }
-  const legacy = (await legacyManifest(request, env)).find(
-    (entry) => entry.capture_id === metadata.captureId,
-  );
-  if (legacy) {
-    if (legacy.sha256 !== digest) {
-      return errorResponse(409, "capture id belongs to existing gallery evidence");
+  let originalBytes: ArrayBuffer | null = null;
+  if (originalPart instanceof File) {
+    originalBytes = await originalPart.arrayBuffer();
+    if (await sha256Hex(originalBytes) !== metadata.sourceSha256) {
+      return errorResponse(400, "metadata.sha256 does not match the original image");
     }
-    const legacyIdentity = {
-      task_id: legacy.task_id,
-      title: legacy.title,
-      description: legacy.description,
-      captured_at: legacy.captured_at,
-      captured_by: legacy.captured_by,
-      source_content_type: imagePart.type,
-    };
-    if (!sameCaptureIdentity(legacyIdentity, metadata, imagePart.type)) {
-      return errorResponse(409, "capture metadata differs from existing gallery evidence");
-    }
-    metadata = preserveLegacyReview(metadata, legacy);
   }
 
-  const existing = await env.DB.prepare(
-    "SELECT * FROM evidence_captures WHERE capture_id = ?",
-  ).bind(metadata.captureId).first<EvidenceRow>();
-  if (existing && existing.sha256 !== digest) {
+  if ((await legacyManifest(request, env)).some((entry) => entry.capture_id === metadata.captureId)) {
+    return errorResponse(409, "capture id belongs to read-only legacy evidence");
+  }
+  const metadataKey = `records/${metadata.captureId}.json`;
+  const existing = await readObjectJson<StoredCapture>(env.EVIDENCE, metadataKey);
+  if (existing) {
+    if (existing.sha256 === metadata.sourceSha256 && existing.review_sha256 === metadata.reviewSha256) {
+      return json({ status: "already_uploaded", capture: publicCapture(existing) });
+    }
     return errorResponse(409, "capture id already exists with different image bytes");
   }
-  if (existing && !sameCaptureIdentity(existing, metadata, imagePart.type)) {
-    return errorResponse(409, "capture metadata differs from the stored upload");
-  }
-  if (
-    existing?.status === "ready" && !reviewAdvances(existing, metadata) &&
-    !originalNeedsRepair(existing, metadata)
-  ) {
-    return json({ status: "already_uploaded", capture: rowToCapture(existing) });
-  }
 
-  let review: ReviewImage;
-  try {
-    review = await makeReviewImage(source, imagePart.type, env.IMAGES);
-  } catch (error) {
-    return errorResponse(503, error instanceof Error ? error.message : "image optimisation failed");
-  }
-  const extension = imagePart.type === "image/png"
-    ? "png"
-    : imagePart.type === "image/webp" ? "webp" : "jpg";
-  const reviewExtension = review.contentType === "image/webp" ? "webp" : "jpg";
-  const prefix = `captures/${metadata.captureId}`;
-  const reviewKey = `${prefix}/review.${reviewExtension}`;
-  await insertPending(
-    env,
-    metadata,
-    digest,
-    source.byteLength,
-    imagePart.type,
-    reviewKey,
-  );
-
-  // The insert can lose a race to another upload with the same capture id.
-  // Re-read before writing shared object keys so different bytes cannot replace it.
-  const claimed = await env.DB.prepare(
-    "SELECT * FROM evidence_captures WHERE capture_id = ?",
-  ).bind(metadata.captureId).first<EvidenceRow>();
-  if (!claimed || claimed.sha256 !== digest) {
-    return errorResponse(409, "capture id already exists with different image bytes");
-  }
-  if (!sameCaptureIdentity(claimed, metadata, imagePart.type)) {
-    return errorResponse(409, "capture metadata differs from the stored upload");
-  }
-  if (
-    claimed.status === "ready" && !reviewAdvances(claimed, metadata) &&
-    !originalNeedsRepair(claimed, metadata)
-  ) {
-    return json({ status: "already_uploaded", capture: rowToCapture(claimed) });
-  }
-  const originalKey = metadata.retainOriginal || claimed.review_status === "pass"
-    ? `${prefix}/original.${extension}`
+  const reviewKey = `objects/review/${metadata.reviewSha256}.webp`;
+  const originalKey = originalBytes
+    ? `objects/original/${metadata.sourceSha256}.${sourceExtension(metadata.sourceContentType)}`
     : null;
-
-  await env.EVIDENCE.put(reviewKey, review.bytes, {
-    httpMetadata: { contentType: review.contentType },
-    customMetadata: { sha256: digest, role: "review" },
+  await env.EVIDENCE.put(reviewKey, reviewBytes, {
+    httpMetadata: { contentType: "image/webp" },
+    customMetadata: { sha256: metadata.reviewSha256, role: "review" },
   });
-  if (originalKey) {
-    await env.EVIDENCE.put(originalKey, source, {
-      httpMetadata: { contentType: imagePart.type },
-      customMetadata: { sha256: digest, role: "original" },
+  if (originalBytes && originalKey) {
+    await env.EVIDENCE.put(originalKey, originalBytes, {
+      httpMetadata: { contentType: metadata.sourceContentType },
+      customMetadata: { sha256: metadata.sourceSha256, role: "original" },
     });
   }
-  await env.DB.prepare(`
-    UPDATE evidence_captures SET
-      status = 'ready', review_key = ?, review_content_type = ?, review_size_bytes = ?,
-      review_width = ?, review_height = ?,
-      review_status = CASE WHEN ? IS NOT NULL AND (reviewed_at IS NULL OR ? >= reviewed_at)
-        THEN ? ELSE review_status END,
-      reviewer = CASE WHEN ? IS NOT NULL AND (reviewed_at IS NULL OR ? >= reviewed_at)
-        THEN ? ELSE reviewer END,
-      review_notes = CASE WHEN ? IS NOT NULL AND (reviewed_at IS NULL OR ? >= reviewed_at)
-        THEN ? ELSE review_notes END,
-      reviewed_at = CASE WHEN ? IS NOT NULL AND (reviewed_at IS NULL OR ? >= reviewed_at)
-        THEN ? ELSE reviewed_at END,
-      original_key = COALESCE(original_key, ?), updated_at = ?
-    WHERE capture_id = ? AND sha256 = ?
-  `).bind(
-    reviewKey,
-    review.contentType,
-    review.bytes.byteLength,
-    review.width,
-    review.height,
-    metadata.reviewedAt,
-    metadata.reviewedAt,
-    metadata.reviewStatus,
-    metadata.reviewedAt,
-    metadata.reviewedAt,
-    metadata.reviewer,
-    metadata.reviewedAt,
-    metadata.reviewedAt,
-    metadata.reviewNotes,
-    metadata.reviewedAt,
-    metadata.reviewedAt,
-    metadata.reviewedAt,
-    originalKey,
-    new Date().toISOString(),
-    metadata.captureId,
-    digest,
-  ).run();
-  const ready = await env.DB.prepare(
-    "SELECT * FROM evidence_captures WHERE capture_id = ?",
-  ).bind(metadata.captureId).first<EvidenceRow>();
-  if (!ready || ready.status !== "ready") {
-    return errorResponse(500, "upload did not reach ready state");
+
+  const stored: StoredCapture = {
+    capture_id: metadata.captureId,
+    task_id: metadata.taskId,
+    title: metadata.title,
+    description: metadata.description,
+    captured_at: metadata.capturedAt,
+    captured_by: metadata.capturedBy,
+    review_status: metadata.reviewStatus,
+    reviewer: metadata.reviewer,
+    reviewed_at: metadata.reviewedAt,
+    review_notes: metadata.reviewNotes,
+    sha256: metadata.sourceSha256,
+    size_bytes: reviewBytes.byteLength,
+    preview_url: "",
+    full_size_url: "",
+    original_url: null,
+    review_width: metadata.reviewWidth,
+    review_height: metadata.reviewHeight,
+    source_content_type: metadata.sourceContentType,
+    review_sha256: metadata.reviewSha256,
+    review_key: reviewKey,
+    original_key: originalKey,
+  };
+  const claimed = await env.EVIDENCE.put(metadataKey, JSON.stringify(stored), {
+    httpMetadata: { contentType: "application/json" },
+    customMetadata: { sha256: metadata.sourceSha256, role: "metadata" },
+    onlyIf: { etagDoesNotMatch: "*" },
+  });
+  if (claimed === null) {
+    const winner = await readObjectJson<StoredCapture>(env.EVIDENCE, metadataKey);
+    if (winner?.sha256 === metadata.sourceSha256 && winner.review_sha256 === metadata.reviewSha256) {
+      return json({ status: "already_uploaded", capture: publicCapture(winner) });
+    }
+    return errorResponse(409, "capture id was claimed by another upload");
   }
-  return json({ status: "uploaded", capture: rowToCapture(ready) }, 201);
+  return json({ status: "uploaded", capture: publicCapture(stored) }, 201);
 }
 
-async function serveObject(
-  bucket: R2BucketBinding,
-  key: string,
-  fallbackType: string,
-  fallbackEtag: string,
-): Promise<Response> {
+async function serveObject(bucket: R2BucketBinding, key: string, fallbackType: string, etag: string) {
   const object = await bucket.get(key);
   if (!object) return errorResponse(404, "image not found");
   const headers = new Headers({
     "cache-control": "private, max-age=31536000, immutable",
     "content-type": fallbackType,
     "x-content-type-options": "nosniff",
+    etag: object.httpEtag ?? `"${etag}"`,
   });
   object.writeHttpMetadata?.(headers);
-  headers.set("etag", object.httpEtag ?? `"${fallbackEtag}"`);
   return new Response(object.body, { headers });
 }
 
@@ -700,64 +388,16 @@ async function serveStoredImage(
   kind: "review" | "original",
   env: Env,
 ): Promise<Response> {
-  await ensureSchema(env.DB);
-  const row = await env.DB.prepare(
-    "SELECT * FROM evidence_captures WHERE capture_id = ? AND status = 'ready'",
-  ).bind(captureId).first<EvidenceRow>();
-  if (!row) return errorResponse(404, "capture not found");
-  const key = kind === "review" ? row.review_key : row.original_key;
+  const record = await readObjectJson<StoredCapture>(env.EVIDENCE, `records/${captureId}.json`);
+  if (!record) return errorResponse(404, "capture not found");
+  const key = kind === "review" ? record.review_key : record.original_key;
   if (!key) return errorResponse(404, "original was not retained");
   return serveObject(
     env.EVIDENCE,
     key,
-    kind === "review" ? row.review_content_type ?? "image/webp" : row.source_content_type,
-    row.sha256,
+    kind === "review" ? "image/webp" : record.source_content_type,
+    kind === "review" ? record.review_sha256 : record.sha256,
   );
-}
-
-async function serveLegacyReview(
-  request: Request,
-  captureId: string,
-  env: Env,
-): Promise<Response> {
-  const key = `legacy/${captureId}/review.webp`;
-  const cached = await env.EVIDENCE.get(key);
-  if (cached) {
-    const headers = new Headers({
-      "cache-control": "private, max-age=31536000, immutable",
-      "content-type": "image/webp",
-      "x-content-type-options": "nosniff",
-    });
-    cached.writeHttpMetadata?.(headers);
-    if (cached.httpEtag) headers.set("etag", cached.httpEtag);
-    return new Response(cached.body, { headers });
-  }
-  const entry = (await legacyManifest(request, env)).find(
-    (item) => item.capture_id === captureId,
-  );
-  if (!entry || !entry.preview_url.startsWith("/evidence/assets/")) {
-    return errorResponse(404, "legacy capture not found");
-  }
-  const sourceResponse = await env.ASSETS.fetch(
-    new Request(new URL(entry.preview_url, request.url)),
-  );
-  if (!sourceResponse.ok) return errorResponse(404, "legacy image not found");
-  const contentType = (sourceResponse.headers.get("content-type") ?? "").split(";")[0];
-  if (!allowedContentTypes.has(contentType)) {
-    return errorResponse(415, "legacy image type is not supported");
-  }
-  const source = await sourceResponse.arrayBuffer();
-  let review: ReviewImage;
-  try {
-    review = await makeReviewImage(source, contentType, env.IMAGES);
-  } catch (error) {
-    return errorResponse(503, error instanceof Error ? error.message : "image optimisation failed");
-  }
-  await env.EVIDENCE.put(key, review.bytes, {
-    httpMetadata: { contentType: review.contentType },
-    customMetadata: { role: "legacy-review", source: entry.preview_url },
-  });
-  return serveObject(env.EVIDENCE, key, review.contentType, entry.sha256);
 }
 
 async function evidenceRequest(request: Request, env: Env): Promise<Response | null> {
@@ -767,17 +407,11 @@ async function evidenceRequest(request: Request, env: Env): Promise<Response | n
     if (request.method === "POST") return uploadEvidence(request, env);
     return errorResponse(405, "method not allowed");
   }
-  const liveMatch = url.pathname.match(/^\/api\/evidence\/([^/]+)\/(review|original)$/);
-  if (liveMatch && request.method === "GET") {
-    const captureId = decodeURIComponent(liveMatch[1]);
+  const match = url.pathname.match(/^\/api\/evidence\/([^/]+)\/(review|original)$/);
+  if (match && request.method === "GET") {
+    const captureId = decodeURIComponent(match[1]);
     if (!captureIdPattern.test(captureId)) return errorResponse(404, "capture not found");
-    return serveStoredImage(captureId, liveMatch[2] as "review" | "original", env);
-  }
-  const legacyMatch = url.pathname.match(/^\/api\/evidence\/legacy\/([^/]+)\/review$/);
-  if (legacyMatch && request.method === "GET") {
-    const captureId = decodeURIComponent(legacyMatch[1]);
-    if (!captureIdPattern.test(captureId)) return errorResponse(404, "capture not found");
-    return serveLegacyReview(request, captureId, env);
+    return serveStoredImage(captureId, match[2] as "review" | "original", env);
   }
   return null;
 }

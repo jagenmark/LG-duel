@@ -5,14 +5,19 @@ import json
 import sys
 import tempfile
 import unittest
+from io import BytesIO
 from pathlib import Path
 from unittest import mock
+
+from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import publish_visual_evidence as publish
 
 
-PNG = b"\x89PNG\r\n\x1a\nsmall-test-image"
+_png = BytesIO()
+Image.new("RGB", (32, 18), (25, 60, 90)).save(_png, format="PNG")
+PNG = _png.getvalue()
 
 
 class PublishVisualEvidenceTests(unittest.TestCase):
@@ -113,19 +118,26 @@ class PublishVisualEvidenceTests(unittest.TestCase):
                 }).encode()
 
         with mock.patch.object(publish, "_open", return_value=FakeResponse()) as opened:
-            result = publish.upload_capture(
-                checked, image, config, "secret-token", "sites-token"
-            )
+            result = publish.upload_capture(checked, image, config, "sites-token")
 
         self.assertEqual(result["status"], "uploaded")
         request = opened.call_args.args[0]
         self.assertEqual(request.full_url, "https://gallery.example/api/evidence")
-        self.assertEqual(request.get_header("Authorization"), "Bearer secret-token")
         self.assertEqual(
             request.get_header("Oai-sites-authorization"), "Bearer sites-token"
         )
         self.assertIn(checked["capture_id"].encode(), request.data)
-        self.assertIn(PNG, request.data)
+        self.assertIn(b'name="review"', request.data)
+        self.assertNotIn(b'name="original"', request.data)
+        self.assertIn(b"WEBP", request.data)
+
+    def test_compact_review_is_capped_and_original_is_optional(self) -> None:
+        large = Image.new("RGB", (2400, 1200), (25, 60, 90))
+        large.save(self.image, format="PNG")
+        review, width, height = publish.make_review_image(self.image)
+        self.assertEqual((width, height), (1600, 800))
+        self.assertLess(len(review), self.image.stat().st_size)
+        self.assertEqual(review[8:12], b"WEBP")
 
     def test_passing_review_retains_original(self) -> None:
         self.record["review"] = {

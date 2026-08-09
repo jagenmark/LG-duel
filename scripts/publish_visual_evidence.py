@@ -14,14 +14,15 @@ import sys
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
+from io import BytesIO
 from pathlib import Path
 from typing import Any
+
+from PIL import Image, ImageOps
 
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_PATH = ROOT / "config" / "visual-evidence-gallery.json"
-TOKEN_ENV = "LG_VISUAL_EVIDENCE_UPLOAD_TOKEN"
-TOKEN_PATH = Path.home() / ".codex" / "secrets" / "lg-duel-visual-evidence-upload-token"
 SITES_TOKEN_ENV = "LG_VISUAL_EVIDENCE_SITES_TOKEN"
 SITES_TOKEN_PATH = Path.home() / ".codex" / "secrets" / "lg-duel-visual-evidence-sites-token"
 CAPTURE_ID = re.compile(r"^\d{8}T\d{6}Z-[a-z0-9]+(?:-[a-z0-9]+)*-\d{2}$")
@@ -170,20 +171,35 @@ def _secret_token(environment_name: str, path: Path, label: str) -> str:
     return token
 
 
-def upload_token() -> str:
-    return _secret_token(TOKEN_ENV, TOKEN_PATH, "upload token")
-
-
 def sites_token() -> str:
     return _secret_token(SITES_TOKEN_ENV, SITES_TOKEN_PATH, "private Sites token")
 
 
+def make_review_image(image_path: Path) -> tuple[bytes, int, int]:
+    try:
+        with Image.open(image_path) as opened:
+            image = ImageOps.exif_transpose(opened)
+            image.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGBA" if "transparency" in image.info else "RGB")
+            output = BytesIO()
+            image.save(output, format="WEBP", quality=82, method=6)
+            review = output.getvalue()
+            width, height = image.size
+    except (OSError, ValueError) as error:
+        raise ValidationError(f"cannot create compact review image: {error}") from error
+    if not review or len(review) > 2 * 1024 * 1024:
+        raise ValidationError("compact review image must be 1..2097152 bytes")
+    return review, width, height
+
+
 def _multipart_body(
-    metadata: dict[str, Any], image_path: Path, content_type: str
+    metadata: dict[str, Any],
+    review_bytes: bytes,
+    image_path: Path,
 ) -> tuple[bytes, str]:
     boundary = "lgduel-" + secrets.token_hex(16)
     metadata_bytes = json.dumps(metadata, sort_keys=True).encode("utf-8")
-    image_bytes = image_path.read_bytes()
     chunks = [
         f"--{boundary}\r\n".encode(),
         b'Content-Disposition: form-data; name="metadata"\r\n',
@@ -192,14 +208,25 @@ def _multipart_body(
         b"\r\n",
         f"--{boundary}\r\n".encode(),
         (
-            'Content-Disposition: form-data; name="image"; '
-            f'filename="{image_path.name}"\r\n'
+            'Content-Disposition: form-data; name="review"; '
+            f'filename="{metadata["capture_id"]}-review.webp"\r\n'
         ).encode(),
-        f"Content-Type: {content_type}\r\n\r\n".encode(),
-        image_bytes,
+        b"Content-Type: image/webp\r\n\r\n",
+        review_bytes,
         b"\r\n",
-        f"--{boundary}--\r\n".encode(),
     ]
+    if metadata["retain_original"]:
+        chunks.extend([
+            f"--{boundary}\r\n".encode(),
+            (
+                'Content-Disposition: form-data; name="original"; '
+                f'filename="{image_path.name}"\r\n'
+            ).encode(),
+            f"Content-Type: {metadata['content_type']}\r\n\r\n".encode(),
+            image_path.read_bytes(),
+            b"\r\n",
+        ])
+    chunks.append(f"--{boundary}--\r\n".encode())
     return b"".join(chunks), boundary
 
 
@@ -211,7 +238,6 @@ def upload_capture(
     metadata: dict[str, Any],
     image_path: Path,
     config: dict[str, Any],
-    token: str,
     private_sites_token: str,
 ) -> dict[str, Any]:
     origin = config.get("gallery_origin")
@@ -220,13 +246,17 @@ def upload_capture(
     upload_path = config.get("upload_path", "/api/evidence")
     if not isinstance(upload_path, str) or not upload_path.startswith("/"):
         raise ValidationError("gallery config upload_path must be an absolute path")
-    body, boundary = _multipart_body(metadata, image_path, metadata["content_type"])
+    review_bytes, review_width, review_height = make_review_image(image_path)
+    upload_metadata = dict(metadata)
+    upload_metadata["review_sha256"] = hashlib.sha256(review_bytes).hexdigest()
+    upload_metadata["review_width"] = review_width
+    upload_metadata["review_height"] = review_height
+    body, boundary = _multipart_body(upload_metadata, review_bytes, image_path)
     request = urllib.request.Request(
         origin.rstrip("/") + upload_path,
         data=body,
         method="POST",
         headers={
-            "Authorization": f"Bearer {token}",
             "OAI-Sites-Authorization": f"Bearer {private_sites_token}",
             "Content-Type": f"multipart/form-data; boundary={boundary}",
             "Accept": "application/json",
@@ -271,9 +301,7 @@ def main(argv: list[str] | None = None) -> int:
                 "size_bytes": checked["size_bytes"],
             }
         else:
-            result = upload_capture(
-                checked, image_path, config, upload_token(), sites_token()
-            )
+            result = upload_capture(checked, image_path, config, sites_token())
             capture = result["capture"]
             origin = str(config["gallery_origin"]).rstrip("/")
             result = {
