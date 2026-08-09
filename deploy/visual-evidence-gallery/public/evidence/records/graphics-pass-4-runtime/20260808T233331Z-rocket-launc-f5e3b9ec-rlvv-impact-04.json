@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260808T233331Z-rocket-launc-f5e3b9ec-rlvv-impact-04",
+  "captured_at": "2026-08-08T23:33:31Z",
+  "captured_by": "vfx-runtime",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Default profile live capture armed for the exact impact phase. Runner attestation confirms the third Rocket Launcher explosion_created event at the capture frame.",
+  "image": "20260808T233331Z-rocket-launc-f5e3b9ec-rlvv-impact-04.png",
+  "review": {
+    "notes": "The exact Rocket impact shows a compact, clear core with restrained faceted expansion. Smoke, debris, and glow do not crowd the aim space, and no hard block or geometry leak is visible. This supports the unchanged Rocket path's compatibility and visual-quality claim.",
+    "reviewed_at": "2026-08-09T00:00:47Z",
+    "reviewer": "vfx-reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "af02bd4607ba934538f6a191bd9532bdd895037963b1d76cfae93fc76ed78c3d",
+  "size_bytes": 3687468,
+  "task_id": "graphics-pass-4-runtime",
+  "title": "Rocket Launcher exact impact checkpoint"
+}

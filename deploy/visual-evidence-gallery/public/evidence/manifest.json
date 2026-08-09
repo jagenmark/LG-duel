@@ -1,21 +1,21 @@
 {
   "captures": [
     {
-      "capture_id": "20260803T100343Z-gfx-followup-normal-scale-01",
-      "captured_at": "2026-08-03T10:03:43Z",
-      "captured_by": "codex-gfx-followup-capture",
-      "description": "Hardware-GPU capture of the Duelist GLB with g_playersize_xy 2.5, g_playersize_z 0.55, material quality 2, and point lights off. The side view shows the wide, short body with the directional sun material pass; rim fill and outlines are off.",
-      "full_size_url": "/evidence/assets/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.png",
-      "preview_url": "/evidence/assets/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.png",
-      "record_url": "/evidence/records/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.json",
-      "review_notes": "The capture clearly shows a wide, short 3D player with distinct light and shade across its head, limbs, shoulders, and weapon. No sensitive data is visible.",
+      "capture_id": "20260808T233331Z-rocket-launc-f5e3b9ec-rlvv-impact-04",
+      "captured_at": "2026-08-08T23:33:31Z",
+      "captured_by": "vfx-runtime",
+      "description": "Default profile live capture armed for the exact impact phase. Runner attestation confirms the third Rocket Launcher explosion_created event at the capture frame.",
+      "full_size_url": "/evidence/assets/graphics-pass-4-runtime/20260808T233331Z-rocket-launc-f5e3b9ec-rlvv-impact-04.png",
+      "preview_url": "/evidence/assets/graphics-pass-4-runtime/20260808T233331Z-rocket-launc-f5e3b9ec-rlvv-impact-04.png",
+      "record_url": "/evidence/records/graphics-pass-4-runtime/20260808T233331Z-rocket-launc-f5e3b9ec-rlvv-impact-04.json",
+      "review_notes": "The exact Rocket impact shows a compact, clear core with restrained faceted expansion. Smoke, debris, and glow do not crowd the aim space, and no hard block or geometry leak is visible. This supports the unchanged Rocket path's compatibility and visual-quality claim.",
       "review_status": "pass",
-      "reviewed_at": "2026-08-03T10:06:15Z",
-      "reviewer": "review-normal-evidence",
-      "sha256": "0115533ba5b9e7ae267dd3a4a9f235144e998e78f0a2915ca98185ee8f6ce2fb",
-      "size_bytes": 9217968,
-      "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
-      "title": "Non-uniform player model under sun lighting"
+      "reviewed_at": "2026-08-09T00:00:47Z",
+      "reviewer": "vfx-reviewer",
+      "sha256": "af02bd4607ba934538f6a191bd9532bdd895037963b1d76cfae93fc76ed78c3d",
+      "size_bytes": 3687468,
+      "task_id": "graphics-pass-4-runtime",
+      "title": "Rocket Launcher exact impact checkpoint"
     },
     {
       "capture_id": "20260803T141007Z-worker-material-albedo-01",
@@ -33,6 +33,23 @@
       "size_bytes": 135156,
       "task_id": "worker-authored-material",
       "title": "Worker authored albedo atlas"
+    },
+    {
+      "capture_id": "20260803T100343Z-gfx-followup-normal-scale-01",
+      "captured_at": "2026-08-03T10:03:43Z",
+      "captured_by": "codex-gfx-followup-capture",
+      "description": "Hardware-GPU capture of the Duelist GLB with g_playersize_xy 2.5, g_playersize_z 0.55, material quality 2, and point lights off. The side view shows the wide, short body with the directional sun material pass; rim fill and outlines are off.",
+      "full_size_url": "/evidence/assets/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.png",
+      "preview_url": "/evidence/assets/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.png",
+      "record_url": "/evidence/records/019fc2c3-476f-7022-8343-f54b5afd8566/20260803T100343Z-gfx-followup-normal-scale-01.json",
+      "review_notes": "The capture clearly shows a wide, short 3D player with distinct light and shade across its head, limbs, shoulders, and weapon. No sensitive data is visible.",
+      "review_status": "pass",
+      "reviewed_at": "2026-08-03T10:06:15Z",
+      "reviewer": "review-normal-evidence",
+      "sha256": "0115533ba5b9e7ae267dd3a4a9f235144e998e78f0a2915ca98185ee8f6ce2fb",
+      "size_bytes": 9217968,
+      "task_id": "019fc2c3-476f-7022-8343-f54b5afd8566",
+      "title": "Non-uniform player model under sun lighting"
     },
     {
       "capture_id": "20260802T171057Z-gfx-correctness-outline-sdl-fallback-08",

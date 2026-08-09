@@ -64,7 +64,9 @@ std::string normalizeImpactMaterialAlias(std::string_view alias) {
 
 ImpactSurfaceCategory classifyImpactMaterialAlias(std::string_view alias) {
   const std::string normalized = normalizeImpactMaterialAlias(alias);
-  if (containsAny(normalized, {"metal", "oxidized", "chain", "tech"})) {
+  // These terms come from the checked-in texture tree and map only broad
+  // material families. Weapon presentation never inspects texture paths.
+  if (containsAny(normalized, {"metal", "oxidized", "chain"})) {
     return ImpactSurfaceCategory::Metal;
   }
   if (containsAny(
@@ -77,13 +79,20 @@ ImpactSurfaceCategory classifyImpactMaterialAlias(std::string_view alias) {
           "basalt",
           "sandstone",
           "concrete",
+          "masonry",
+          "marble",
+          "plaster",
+          "clay",
         }
       )) {
     return ImpactSurfaceCategory::Stone;
   }
+  if (containsAny(normalized, {"wood", "timber", "plank", "cardboard"})) {
+    return ImpactSurfaceCategory::WoodSoft;
+  }
   if (containsAny(
         normalized,
-        {"element", "energy", "liquid", "teleport", "plasma"}
+        {"element", "energy", "teleport", "plasma", "forcefield", "tech"}
       )) {
     return ImpactSurfaceCategory::Energy;
   }

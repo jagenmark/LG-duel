@@ -2,7 +2,7 @@
 
 ## Scope
 
-The combat-effects path is client presentation code. It consumes already accepted `WeaponFireResult` and explosion events and never changes weapon timing, traces, damage, movement, prediction, or server state. The machine gun and Rocket Launcher use it.
+The combat-effects path is client presentation code. It consumes already accepted `WeaponFireResult`, beam state, and explosion events and never changes weapon timing, traces, damage, movement, prediction, or server state. The machine gun, shotgun, Railgun, revolver, Rocket Launcher, and Freeze Gun use it.
 
 ## Event and render flow
 
@@ -10,7 +10,7 @@ The combat-effects path is client presentation code. It consumes already accepte
 replicated or predicted WeaponFireResult
   -> fixed fire-event history keyed by player, weapon, and visual seed
   -> current weapon socket from the viewmodel or remote pose
-  -> typed MachineGunShotEffectsRequest or RocketLauncherShotEffectsRequest
+  -> typed weapon request and SurfaceImpactEffectsRequest where a world trace exists
   -> fixed CombatEffects pools and visual simulation
   -> TransientEffect render records
   -> Scene3D batches, temporary-light list, and GPU uniforms
@@ -65,7 +65,9 @@ A Rocket Launcher shot uses a short pale-yellow core inside a coral exhaust shap
 
 Bloom is not part of the readability rule. The base colours and opaque rocket remain clear when bloom is off. Rocket particles stay in the shared fixed pool and expire in at most 270 ms.
 
-The impact request supports generic hard, metal, stone, and energy categories. The first slice uses the generic hard fallback because the current world trace does not return a stable material category. Player hits do not create world decals.
+The impact request supports generic hard, metal, stone/concrete/masonry, wood/soft structural, and clear energy/technical categories. A startup table maps checked-in texture aliases to material IDs, and world traces use that table. Unknown IDs still use the generic hard fallback. Player hits do not create world decals. Shotguns submit one bounded cluster response per accepted shot; Railgun and revolver responses stay at their one exact world trace.
+
+Freeze Gun pulses use the existing replicated beam start and end plus the same client world trace. A short cold-white/cyan core and restrained blue temporary light use the shared pools; a world endpoint receives the compact cold surface response. The pulse path adds no smoke and no network event. Rocket, grenade, and plasma blasts keep their current identities because their explosion events do not carry a world normal or material ID.
 
 Temporary lights reach the static world and authored weapon material shaders through one small fixed uniform block. They do not cast shadows. The world and weapon material paths apply a fixed filmic tone map. Bright additive effect sprites use a high-threshold compact glow response; the HUD does not use that shader.
 
@@ -82,7 +84,7 @@ The SDL GPU path draws the new effect layers, lights, tone map, and compact glow
 ## Current limits
 
 - Casings have gravity and tumble but no static-world bounce in this pass.
-- World material classification remains the generic hard fallback.
+- Texture aliases outside the checked broad categories use the generic hard fallback.
 - Decals are surface-aligned quads; they do not clip against sharp mesh edges or follow moving entities.
 - The compact glow is an effect-sprite response, not a full-screen HDR blur pass.
 - Automatic exposure, contact shadows, ambient occlusion, atmospheric depth, and rim lighting remain separate work.
