@@ -35,7 +35,9 @@ function formatBytes(value: number) {
 export function Gallery() {
   const [captures, setCaptures] = useState<Capture[]>([]);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
-  const approvedCaptures = captures.filter((capture) => capture.review_status === "pass");
+  const visibleCaptures = captures.filter((capture) => (
+    capture.review_status === "pass" || capture.review_status === "not_reviewed"
+  ));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -72,29 +74,29 @@ export function Gallery() {
     );
   }
 
-  if (approvedCaptures.length === 0) {
+  if (visibleCaptures.length === 0) {
     return (
       <section className="empty">
-        <p className="eyebrow">No approved captures yet</p>
-        <h2>The first reviewed image will appear here.</h2>
-        <p>Local files stay out of this gallery until review and publication pass.</p>
+        <p className="eyebrow">No visible captures yet</p>
+        <h2>The first uploaded image will appear here.</h2>
+        <p>Passed and not-reviewed uploads appear with their review state.</p>
       </section>
     );
   }
 
   return (
-    <section className="gallery" aria-label="Approved captures">
+    <section className="gallery" aria-label="Published captures">
       <div className="section-heading">
         <div>
           <p className="eyebrow">Published evidence</p>
           <h2>
-            {approvedCaptures.length} approved {approvedCaptures.length === 1 ? "capture" : "captures"}
+            {visibleCaptures.length} published {visibleCaptures.length === 1 ? "capture" : "captures"}
           </h2>
         </div>
         <p>Newest first</p>
       </div>
       <div className="capture-grid">
-        {approvedCaptures.map((capture) => (
+        {visibleCaptures.map((capture) => (
           <article className="capture-card" key={capture.capture_id}>
             <a
               className="preview-link"
