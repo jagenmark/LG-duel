@@ -3423,8 +3423,8 @@ void addLayeredFreezeBeam(
   const float active = std::clamp(firingAmount, 0.0F, 1.0F);
 
   // The exact authoritative trace is always the brightest, straightest layer.
-  addSegment(scene, start, end, 0.020F, {238, 253, 255, 245});
-  addSegment(scene, start, end, 0.075F, {92, 211, 255, 46});
+  addSegment(scene, start, end, 0.028F, {238, 253, 255, 255});
+  addSegment(scene, start, end, 0.100F, {92, 211, 255, 72});
 
   constexpr int kSegments = 14;
   for (int strand = 0; strand < 2; ++strand) {
@@ -3439,7 +3439,7 @@ void addLayeredFreezeBeam(
         side * (std::sin(phase) * 0.035F * envelope) +
         up * (std::cos(phase * 0.73F) * 0.024F * envelope);
       const Vec3 current = start + beam * t + displacement;
-      addSegment(scene, previous, current, 0.012F, {132, 229, 255, 82});
+      addSegment(scene, previous, current, 0.016F, {132, 229, 255, 118});
       previous = current;
     }
   }
@@ -4894,7 +4894,7 @@ void addTransientTracerInstances(
     ) {
       const float styleScale = tracer.style == TracerStyle::RocketLauncherMuzzleFlash
         ? 2.45F
-        : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 3.4F : 2.8F);
+        : (tracer.style == TracerStyle::RevolverMuzzleFlash ? 2.7F : 2.8F);
       const float flashScale = std::max(0.002F, tracer.width) * styleScale *
         (machineGunMuzzleFlash ? machineGunEnvelope.coreScale : 1.0F);
       RenderColor coreColor = rocketLauncherMuzzleFlash
@@ -4937,9 +4937,9 @@ void addTransientTracerInstances(
           ? RenderColor{255, 128, 42, color.alpha}
           : RenderColor{255, 118, 62, color.alpha};
         haloColor.alpha = static_cast<std::uint8_t>(
-          static_cast<float>(haloColor.alpha) * (revolver ? 0.55F : 0.24F)
+          static_cast<float>(haloColor.alpha) * (revolver ? 0.24F : 0.24F)
         );
-        const float haloScale = flashScale * (revolver ? 1.55F : 1.62F);
+        const float haloScale = flashScale * (revolver ? 1.25F : 1.62F);
         appendSimpleInstance(
           scene,
           {
@@ -6492,6 +6492,21 @@ Scene3D buildPerspectiveScene(
       }
     }
   }
+  if (
+    localLightningGun.active &&
+    settings.showOwnWeapons &&
+    settings.localSelectedWeapon == Weapon::FreezeGun &&
+    settings.freezeGunFiringAmount > 0.001F
+  ) {
+    addLayeredFreezeBeam(
+      scene,
+      firstPersonFreezeGunMuzzlePosition(player, settings),
+      localLightningGun.end,
+      settings.beamPhaseRadians,
+      settings.freezeGunFiringAmount,
+      settings.freezeGunActivationFlashAmount
+    );
+  }
   addTransientTracerInstances(scene, transientTracers, settings);
   addTransientEffectInstances(scene, transientEffects, settings);
   appendAuthoredLightSourceGlows(scene, arena);
@@ -6517,7 +6532,6 @@ Scene3D buildPerspectiveScene(
   scene.transientVfxStats.transparentEffectsSubmitted +=
     scene.projectileStats.projectileGlowInstances;
   (void)rocketExplosions;
-  (void)localLightningGun;
   finalizeStaticMeshBatches(scene);
   finalizeGltfPlayerModelBatches(scene, gltfPlayerModel);
   finalizeProjectileInstanceStats(scene);
