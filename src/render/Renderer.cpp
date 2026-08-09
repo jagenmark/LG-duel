@@ -3237,7 +3237,7 @@ void destroyGpuDirectPresentPipelines(
     swapchainFormat,
     true,
     false,
-    {0U, 0U}
+    {0U, 1U}
   );
   pipelines.staticMesh = createGpuStaticMeshPipeline3D(
     device,
@@ -3247,7 +3247,7 @@ void destroyGpuDirectPresentPipelines(
     swapchainFormat,
     false,
     "instanced_color_direct.frag.spv",
-    {0U, 0U}
+    {0U, 1U}
   );
   pipelines.materialMesh = createGpuMaterialMeshPipeline3D(
     device,

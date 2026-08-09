@@ -484,6 +484,14 @@ class LiveScenarioTests(unittest.TestCase):
             ("r_bloom", "0"),
         )
         self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_display_gamma=0.5"),
+            ("r_display_gamma", "0.5"),
+        )
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_display_gamma=1.5"),
+            ("r_display_gamma", "1.5"),
+        )
+        self.assertEqual(
             lg_live_scenario._parse_client_cvar_override("r_player_model=2"),
             ("r_player_model", "2"),
         )
@@ -501,6 +509,8 @@ class LiveScenarioTests(unittest.TestCase):
             lg_live_scenario._parse_client_cvar_override("g_rl_damage=1")
         with self.assertRaises(argparse.ArgumentTypeError):
             lg_live_scenario._parse_client_cvar_override("r_bloom=2")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            lg_live_scenario._parse_client_cvar_override("r_display_gamma=1.0")
         with self.assertRaises(argparse.ArgumentTypeError):
             lg_live_scenario._parse_client_cvar_override("r_player_model=3")
         with self.assertRaisesRegex(

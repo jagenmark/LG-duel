@@ -1151,12 +1151,35 @@ class LgToolTests(unittest.TestCase):
             "gltf_player_model.frag",
             "gltf_player_model_flat.frag",
             "gltf_player_model_direct.frag",
+            "instanced_color.frag",
+            "instanced_color_direct.frag",
         ):
             shader = (shader_dir / shader_name).read_text(encoding="utf-8")
             self.assertIn('#include "includes/live_fill.glsl"', shader)
             self.assertIn("correctedLiveFill(fillRadiance)", shader)
             self.assertNotIn("vec3(0.16) + fillRadiance", shader)
             self.assertNotIn("vec3(0.18) + fillRadiance", shader)
+
+        instanced_direct = (shader_dir / "instanced_color_direct.frag").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("uniform DirectLightData", instanced_direct)
+        self.assertIn("directLights.fillColorIntensity", instanced_direct)
+
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        direct_pipeline_start = renderer.index(
+            "GpuDirectPresentPipelines createGpuDirectPresentPipelines"
+        )
+        direct_pipeline_end = renderer.index("return pipelines;", direct_pipeline_start)
+        direct_pipelines = renderer[direct_pipeline_start:direct_pipeline_end]
+        instanced_pipeline_end = direct_pipelines.index("pipelines.staticMesh")
+        instanced_pipeline = direct_pipelines[:instanced_pipeline_end]
+        static_pipeline_end = direct_pipelines.index("pipelines.materialMesh")
+        static_pipeline = direct_pipelines[instanced_pipeline_end:static_pipeline_end]
+        self.assertIn("{0U, 1U}", instanced_pipeline)
+        self.assertIn("{0U, 1U}", static_pipeline)
 
     def test_display_gamma_is_final_and_disables_direct_present_when_changed(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1189,7 +1212,11 @@ class LgToolTests(unittest.TestCase):
             shader = (shader_dir / shader_name).read_text(encoding="utf-8")
             self.assertIn('#include "includes/display_gamma.glsl"', shader)
             self.assertIn("displayEncode(displayColor, composite.parameters.w)", shader)
-            self.assertLess(shader.index("gradeColor("), shader.index("displayEncode("))
+            main_source = shader[shader.index("void main() {") :]
+            self.assertLess(
+                main_source.index("displayColor = gradeColor("),
+                main_source.index("outColor = vec4(displayEncode("),
+            )
 
     def test_worker_flat_shaders_share_luminance_team_tint(self) -> None:
         root = Path(__file__).resolve().parents[1]
@@ -1505,7 +1532,8 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("layout(set = 3", dynamic_world)
 
         instanced = shaders["instanced_color_direct.frag"]
-        self.assertNotIn("uniform", instanced)
+        self.assertIn("uniform DirectLightData", instanced)
+        self.assertIn("correctedLiveFill(fillRadiance)", instanced)
         self.assertNotIn("sampler", instanced)
 
         for name in (
