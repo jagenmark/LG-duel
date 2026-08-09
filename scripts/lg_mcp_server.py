@@ -33,13 +33,13 @@ from lg_live_scenario import LiveScenarioError, run_live_scenario
 from lg_map_edit import MapEditError, MapEditor
 
 
-SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.6.0"}
+SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.6.1"}
 PROTOCOL_VERSION = "2025-06-18"
 MAP_EDITOR = MapEditor()
 INLINE_IMAGE_BUDGET = 1024 * 1024
 DEFAULT_INLINE_IMAGE_FORMAT = "webp"
-DEFAULT_INLINE_IMAGE_MAX_PIXELS = 1280 * 720
-DEFAULT_INLINE_IMAGE_QUALITY = 82
+DEFAULT_INLINE_IMAGE_MAX_PIXELS = 1600 * 900
+DEFAULT_INLINE_IMAGE_QUALITY = 92
 MIN_INLINE_IMAGE_PIXELS = 320 * 180
 MAX_SOURCE_IMAGE_PIXELS = 7680 * 4320
 STRUCTURED_CONTENT_BUDGET = 256 * 1024

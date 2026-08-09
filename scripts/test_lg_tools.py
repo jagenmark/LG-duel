@@ -195,6 +195,14 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(structured["path"], str(path))
         self.assertEqual(structured["inline_image_mode"], "compact")
         self.assertEqual(structured["inline_image_format"], "webp")
+        self.assertEqual(structured["inline_image_quality"], 92)
+        self.assertEqual(
+            (
+                structured["inline_image_width"],
+                structured["inline_image_height"],
+            ),
+            (1600, 900),
+        )
         self.assertLessEqual(
             structured["inline_image_pixels"],
             lg_mcp_server.DEFAULT_INLINE_IMAGE_MAX_PIXELS,
@@ -239,6 +247,33 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("inline_image_omitted", views[0])
         self.assertEqual(views[1]["inline_image_omitted"], "size_limit")
         self.assertLessEqual(len(images[0]["data"]), 1024 * 1024)
+
+    def test_multiple_compact_images_share_the_reply_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            paths = [
+                Path(temporary) / "first.png",
+                Path(temporary) / "second.png",
+            ]
+            for index, path in enumerate(paths):
+                image = Image.new("RGB", (1280, 720), (20, 30, 45))
+                draw = ImageDraw.Draw(image)
+                for offset in range(0, 1280, 32):
+                    draw.line(
+                        (offset, 0, 1279 - offset, 719),
+                        fill=(80 + index * 40, 170, 230), width=2,
+                    )
+                image.save(path)
+            payload = lg_mcp_server.tool_result({
+                "views": [{"path": str(path)} for path in paths],
+            })
+        images = [
+            item for item in payload["content"] if item["type"] == "image"
+        ]
+        self.assertEqual(len(images), 2)
+        self.assertLessEqual(
+            sum(len(item["data"]) for item in images),
+            lg_mcp_server.INLINE_IMAGE_BUDGET,
+        )
 
     def test_full_mcp_image_mode_returns_the_saved_png_unchanged(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -758,7 +793,10 @@ class LgToolTests(unittest.TestCase):
             )
             self.assertEqual(
                 properties["inline_image_max_pixels"]["default"],
-                1280 * 720,
+                1600 * 900,
+            )
+            self.assertEqual(
+                properties["inline_image_quality"]["default"], 92
             )
 
     def test_mcp_initialize_and_list(self) -> None:
