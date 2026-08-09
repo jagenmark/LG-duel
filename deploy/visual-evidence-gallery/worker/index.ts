@@ -196,6 +196,17 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return Array.from(digest, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
+function isWebp(bytes: ArrayBuffer): boolean {
+  const value = new Uint8Array(bytes);
+  if (value.length < 20) return false;
+  const declaredSize = new DataView(value.buffer, value.byteOffset, value.byteLength).getUint32(4, true) + 8;
+  const chunk = String.fromCharCode(...value.slice(12, 16));
+  return declaredSize <= value.length &&
+    String.fromCharCode(...value.slice(0, 4)) === "RIFF" &&
+    String.fromCharCode(...value.slice(8, 12)) === "WEBP" &&
+    (chunk === "VP8 " || chunk === "VP8L" || chunk === "VP8X");
+}
+
 async function readObjectJson<T>(bucket: R2BucketBinding, key: string): Promise<T | null> {
   const object = await bucket.get(key);
   if (!object) return null;
@@ -258,6 +269,28 @@ function sourceExtension(contentType: string): string {
   return "jpg";
 }
 
+function sameStoredCapture(left: StoredCapture, right: StoredCapture): boolean {
+  return left.capture_id === right.capture_id &&
+    left.task_id === right.task_id &&
+    left.title === right.title &&
+    left.description === right.description &&
+    Date.parse(left.captured_at) === Date.parse(right.captured_at) &&
+    left.captured_by === right.captured_by &&
+    left.review_status === right.review_status &&
+    left.reviewer === right.reviewer &&
+    (left.reviewed_at === null ? right.reviewed_at === null : (
+      right.reviewed_at !== null && Date.parse(left.reviewed_at) === Date.parse(right.reviewed_at)
+    )) &&
+    left.review_notes === right.review_notes &&
+    left.sha256 === right.sha256 &&
+    left.source_content_type === right.source_content_type &&
+    left.review_sha256 === right.review_sha256 &&
+    left.review_width === right.review_width &&
+    left.review_height === right.review_height &&
+    left.review_key === right.review_key &&
+    left.original_key === right.original_key;
+}
+
 async function uploadEvidence(request: Request, env: Env): Promise<Response> {
   let form: FormData;
   try {
@@ -294,6 +327,9 @@ async function uploadEvidence(request: Request, env: Env): Promise<Response> {
   }
 
   const reviewBytes = await reviewPart.arrayBuffer();
+  if (!isWebp(reviewBytes)) {
+    return errorResponse(400, "review bytes are not a WebP image");
+  }
   if (await sha256Hex(reviewBytes) !== metadata.reviewSha256) {
     return errorResponse(400, "metadata.review_sha256 does not match the review image");
   }
@@ -309,29 +345,10 @@ async function uploadEvidence(request: Request, env: Env): Promise<Response> {
     return errorResponse(409, "capture id belongs to read-only legacy evidence");
   }
   const metadataKey = `records/${metadata.captureId}.json`;
-  const existing = await readObjectJson<StoredCapture>(env.EVIDENCE, metadataKey);
-  if (existing) {
-    if (existing.sha256 === metadata.sourceSha256 && existing.review_sha256 === metadata.reviewSha256) {
-      return json({ status: "already_uploaded", capture: publicCapture(existing) });
-    }
-    return errorResponse(409, "capture id already exists with different image bytes");
-  }
-
   const reviewKey = `objects/review/${metadata.reviewSha256}.webp`;
   const originalKey = originalBytes
     ? `objects/original/${metadata.sourceSha256}.${sourceExtension(metadata.sourceContentType)}`
     : null;
-  await env.EVIDENCE.put(reviewKey, reviewBytes, {
-    httpMetadata: { contentType: "image/webp" },
-    customMetadata: { sha256: metadata.reviewSha256, role: "review" },
-  });
-  if (originalBytes && originalKey) {
-    await env.EVIDENCE.put(originalKey, originalBytes, {
-      httpMetadata: { contentType: metadata.sourceContentType },
-      customMetadata: { sha256: metadata.sourceSha256, role: "original" },
-    });
-  }
-
   const stored: StoredCapture = {
     capture_id: metadata.captureId,
     task_id: metadata.taskId,
@@ -355,6 +372,24 @@ async function uploadEvidence(request: Request, env: Env): Promise<Response> {
     review_key: reviewKey,
     original_key: originalKey,
   };
+  const existing = await readObjectJson<StoredCapture>(env.EVIDENCE, metadataKey);
+  if (existing) {
+    if (sameStoredCapture(existing, stored)) {
+      return json({ status: "already_uploaded", capture: publicCapture(existing) });
+    }
+    return errorResponse(409, "capture id already exists with different metadata or bytes");
+  }
+
+  await env.EVIDENCE.put(reviewKey, reviewBytes, {
+    httpMetadata: { contentType: "image/webp" },
+    customMetadata: { sha256: metadata.reviewSha256, role: "review" },
+  });
+  if (originalBytes && originalKey) {
+    await env.EVIDENCE.put(originalKey, originalBytes, {
+      httpMetadata: { contentType: metadata.sourceContentType },
+      customMetadata: { sha256: metadata.sourceSha256, role: "original" },
+    });
+  }
   const claimed = await env.EVIDENCE.put(metadataKey, JSON.stringify(stored), {
     httpMetadata: { contentType: "application/json" },
     customMetadata: { sha256: metadata.sourceSha256, role: "metadata" },
@@ -362,7 +397,7 @@ async function uploadEvidence(request: Request, env: Env): Promise<Response> {
   });
   if (claimed === null) {
     const winner = await readObjectJson<StoredCapture>(env.EVIDENCE, metadataKey);
-    if (winner?.sha256 === metadata.sourceSha256 && winner.review_sha256 === metadata.reviewSha256) {
+    if (winner && sameStoredCapture(winner, stored)) {
       return json({ status: "already_uploaded", capture: publicCapture(winner) });
     }
     return errorResponse(409, "capture id was claimed by another upload");

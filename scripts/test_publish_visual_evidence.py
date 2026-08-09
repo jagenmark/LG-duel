@@ -91,6 +91,11 @@ class PublishVisualEvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(publish.ValidationError, "does not match"):
             publish.validate_metadata(self.metadata, self.config)
 
+    def test_image_bytes_must_match_the_extension(self) -> None:
+        Image.new("RGB", (8, 8), (10, 20, 30)).save(self.image, format="JPEG")
+        with self.assertRaisesRegex(publish.ValidationError, "do not match"):
+            publish.validate_metadata(self.metadata, self.config)
+
     def test_upload_posts_metadata_and_image_in_one_request(self) -> None:
         checked, image, _ = publish.validate_metadata(self.metadata, self.config)
         config = {

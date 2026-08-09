@@ -110,6 +110,17 @@ def validate_metadata(
     mime_type = mimetypes.types_map.get(suffix)
     if mime_type not in ALLOWED_TYPES:
         raise ValidationError("capture image type is not allowed")
+    try:
+        with Image.open(image_path) as opened:
+            detected_type = {
+                "PNG": "image/png",
+                "JPEG": "image/jpeg",
+                "WEBP": "image/webp",
+            }.get(opened.format)
+    except OSError as error:
+        raise ValidationError(f"capture image cannot be decoded: {error}") from error
+    if detected_type != mime_type:
+        raise ValidationError("capture image bytes do not match its file extension")
     max_bytes = config.get("max_bytes")
     if not isinstance(max_bytes, int) or max_bytes <= 0:
         raise ValidationError("gallery config max_bytes must be a positive integer")

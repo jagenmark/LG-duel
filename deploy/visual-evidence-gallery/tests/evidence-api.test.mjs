@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { File } from "node:buffer";
 import test from "node:test";
 
-const reviewBytes = new Uint8Array([82, 73, 70, 70, 12, 0, 0, 0, 87, 69, 66, 80]);
+const reviewBytes = new Uint8Array([
+  82, 73, 70, 70, 12, 0, 0, 0, 87, 69, 66, 80,
+  86, 80, 56, 88, 0, 0, 0, 0,
+]);
 const originalBytes = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
 
 async function digest(bytes) {
@@ -157,6 +160,14 @@ test("R2 upload appears in the live list without a rebuild", async () => {
   assert.equal(repeated.status, 200);
   assert.equal((await repeated.json()).status, "already_uploaded");
 
+  const laterPass = await metadata(captureId, {
+    reviewer: "review-agent",
+    reviewed_at: "2026-08-09T03:31:00Z",
+    verdict: "pass",
+    notes: "Different metadata must use a new capture id.",
+  });
+  assert.equal((await upload(worker, env, laterPass, reviewBytes, originalBytes)).status, 409);
+
   const changedReview = new Uint8Array([...reviewBytes, 1]);
   const changed = { ...record, review_sha256: await digest(changedReview) };
   assert.equal((await upload(worker, env, changed, changedReview)).status, 409);
@@ -190,7 +201,7 @@ test("a passed capture keeps its optional original", async () => {
   assert.equal((await original.arrayBuffer()).byteLength, originalBytes.byteLength);
 });
 
-test("a lost metadata claim cannot overwrite another capture", async () => {
+test("a same-image metadata race cannot overwrite another capture", async () => {
   const workerUrl = new URL("../dist/server/index.js", import.meta.url);
   workerUrl.searchParams.set("race", `${process.pid}-${Date.now()}`);
   const { default: worker } = await import(workerUrl.href);
@@ -200,8 +211,26 @@ test("a lost metadata claim cannot overwrite another capture", async () => {
   const record = await metadata(captureId);
   const competing = {
     capture_id: captureId,
-    sha256: "f".repeat(64),
-    review_sha256: "e".repeat(64),
+    task_id: "other-task",
+    title: "Other metadata",
+    description: "The same bytes do not make this the same capture record.",
+    captured_at: "2026-08-09T03:30:00.000Z",
+    captured_by: "other-agent",
+    review_status: "pass",
+    reviewer: "other-reviewer",
+    reviewed_at: "2026-08-09T03:31:00.000Z",
+    review_notes: "Competing review.",
+    sha256: record.sha256,
+    size_bytes: reviewBytes.byteLength,
+    preview_url: "",
+    full_size_url: "",
+    original_url: null,
+    review_width: 1280,
+    review_height: 720,
+    source_content_type: "image/png",
+    review_sha256: record.review_sha256,
+    review_key: `objects/review/${record.review_sha256}.webp`,
+    original_key: null,
   };
   r2.claimRace = {
     bytes: new TextEncoder().encode(JSON.stringify(competing)).buffer,
@@ -210,5 +239,6 @@ test("a lost metadata claim cannot overwrite another capture", async () => {
   const response = await upload(worker, env, record);
   assert.equal(response.status, 409);
   const stored = JSON.parse(await new Response((await r2.get(`records/${captureId}.json`)).body).text());
-  assert.equal(stored.sha256, "f".repeat(64));
+  assert.equal(stored.task_id, "other-task");
+  assert.equal(stored.sha256, record.sha256);
 });
