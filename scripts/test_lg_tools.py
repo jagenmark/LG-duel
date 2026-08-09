@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
+import math
+import random
 import re
 import socket
 import subprocess
@@ -13,8 +16,23 @@ from pathlib import Path
 from unittest import mock
 
 import import_q3_map
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageStat
 import lg_control
 import lg_mcp_server
+
+
+def write_test_screenshot(path: Path) -> Image.Image:
+    random_bytes = random.Random(7).randbytes(480 * 270 * 3)
+    image = Image.frombytes("RGB", (480, 270), random_bytes)
+    image = image.resize((1920, 1080), Image.Resampling.BICUBIC)
+    image = image.filter(ImageFilter.GaussianBlur(1.2))
+    draw = ImageDraw.Draw(image)
+    for x in range(0, image.width, 80):
+        draw.line((x, 0, x, image.height), fill=(235, 180, 70), width=2)
+    for y in range(0, image.height, 80):
+        draw.line((0, y, image.width, y), fill=(60, 180, 240), width=2)
+    image.save(path, format="PNG", optimize=True)
+    return image
 
 
 class LgToolTests(unittest.TestCase):
@@ -148,13 +166,11 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(connection.recv_calls, 1)
         self.assertAlmostEqual(connection.timeouts[-1], 0.1)
 
-    def test_large_mcp_image_is_omitted_before_read_and_next_call_works(self) -> None:
+    def test_default_mcp_image_is_compact_clear_and_next_call_works(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / "large.png"
-            image_size = 9_217_968
-            path.write_bytes(
-                b"\x89PNG\r\n\x1a\n" + b"x" * (image_size - 8)
-            )
+            source = write_test_screenshot(path)
+            source_size = path.stat().st_size
             capture = {"path": str(path), "map": "eyetoeye"}
             status = {"connected": True}
             with mock.patch.object(
@@ -174,13 +190,34 @@ class LgToolTests(unittest.TestCase):
                 })
         first_result = first["result"]
         self.assertFalse(first_result["isError"])
-        self.assertEqual(len(first_result["content"]), 1)
+        self.assertEqual(len(first_result["content"]), 2)
         structured = first_result["structuredContent"]
         self.assertEqual(structured["path"], str(path))
-        self.assertEqual(structured["inline_image_omitted"], "size_limit")
-        self.assertEqual(
-            structured["inline_image_size_bytes"], image_size
+        self.assertEqual(structured["inline_image_mode"], "compact")
+        self.assertEqual(structured["inline_image_format"], "webp")
+        self.assertLessEqual(
+            structured["inline_image_pixels"],
+            lg_mcp_server.DEFAULT_INLINE_IMAGE_MAX_PIXELS,
         )
+        self.assertLess(
+            structured["inline_image_size_bytes"], source_size * 0.25
+        )
+        self.assertEqual(
+            structured["inline_image_source_size_bytes"], source_size
+        )
+        image_content = first_result["content"][1]
+        self.assertEqual(image_content["mimeType"], "image/webp")
+        compact = Image.open(io.BytesIO(base64.b64decode(
+            image_content["data"]
+        ))).convert("RGB")
+        reference = source.resize(compact.size, Image.Resampling.LANCZOS)
+        difference = ImageStat.Stat(ImageChops.difference(
+            reference, compact
+        ))
+        combined_rms = math.sqrt(sum(
+            channel * channel for channel in difference.rms
+        ) / len(difference.rms))
+        self.assertLess(combined_rms, 20)
         self.assertTrue(second["result"]["structuredContent"]["connected"])
 
     def test_mcp_image_budget_is_shared_across_all_views(self) -> None:
@@ -193,7 +230,7 @@ class LgToolTests(unittest.TestCase):
                 path.write_bytes(b"\x89PNG\r\n\x1a\n" + b"x" * 600_000)
             payload = lg_mcp_server.tool_result({
                 "views": [{"path": str(path)} for path in paths],
-            })
+            }, image_arguments={"inline_image_mode": "full"})
         images = [
             item for item in payload["content"] if item["type"] == "image"
         ]
@@ -202,6 +239,22 @@ class LgToolTests(unittest.TestCase):
         self.assertNotIn("inline_image_omitted", views[0])
         self.assertEqual(views[1]["inline_image_omitted"], "size_limit")
         self.assertLessEqual(len(images[0]["data"]), 1024 * 1024)
+
+    def test_full_mcp_image_mode_returns_the_saved_png_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "full.png"
+            Image.new("RGB", (64, 32), (20, 80, 160)).save(path)
+            saved = path.read_bytes()
+            payload = lg_mcp_server.tool_result(
+                {"path": str(path)},
+                image_arguments={"inline_image_mode": "full"},
+            )
+        delivered = payload["content"][1]
+        self.assertEqual(delivered["mimeType"], "image/png")
+        self.assertEqual(base64.b64decode(delivered["data"]), saved)
+        self.assertEqual(
+            payload["structuredContent"]["inline_image_mode"], "full"
+        )
 
     def test_oversized_structured_output_keeps_summary_and_paths(self) -> None:
         result = {
@@ -670,7 +723,8 @@ class LgToolTests(unittest.TestCase):
         self.assertEqual(by_id[22]["result"], {})
 
     def test_mcp_tools_have_closed_typed_schemas(self) -> None:
-        names = {tool["name"] for tool in lg_mcp_server.TOOLS}
+        tools = {tool["name"]: tool for tool in lg_mcp_server.TOOLS}
+        names = set(tools)
         self.assertEqual(
             names,
             {
@@ -694,6 +748,18 @@ class LgToolTests(unittest.TestCase):
             },
         )
         self.assertTrue(all(tool["inputSchema"].get("additionalProperties") is False for tool in lg_mcp_server.TOOLS))
+        for name in {"lg_capture_screenshot", "lg_capture_map_views"}:
+            properties = tools[name]["inputSchema"]["properties"]
+            self.assertEqual(
+                properties["inline_image_mode"]["default"], "compact"
+            )
+            self.assertEqual(
+                properties["inline_image_format"]["default"], "webp"
+            )
+            self.assertEqual(
+                properties["inline_image_max_pixels"]["default"],
+                1280 * 720,
+            )
 
     def test_mcp_initialize_and_list(self) -> None:
         initialized = lg_mcp_server.handle({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}})

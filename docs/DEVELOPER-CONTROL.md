@@ -318,10 +318,11 @@ Register the repository-local stdio server with a dynamically resolved path:
 ```
 
 The setup script resolves `python.exe` and the MCP server to absolute paths,
-registers them, verifies `lg-duel` in `codex mcp list`, and prints the Windows
-host, user profile, registration scope, and exact Codex config file. This makes
-host-user registration distinct from a different shell, container, or
-`CODEX_HOME` profile.
+creates an isolated Python runtime under `build/lg-mcp-python`, installs the
+MCP image package, registers the tool, verifies `lg-duel` in `codex mcp list`,
+and prints the Windows host, user profile, registration scope, and exact Codex
+config file. This makes host-user registration distinct from a different
+shell, container, or `CODEX_HOME` profile.
 
 Equivalent command shape (use the absolute paths printed by the script):
 
@@ -340,13 +341,19 @@ and camera, `lg_exec_console`, `lg_get_cvar`, `lg_set_cvar`, `lg_send_input`,
 `lg_wait_frames`, `lg_set_player_view`, `lg_set_player_weapon`, collision view,
 screenshot, map-view capture, and benchmark tools. Each has
 a closed typed JSON schema. Results include text plus `structuredContent`;
-captures also return existing PNGs as MCP `image/png` content when their total
-encoded size fits the 1 MiB reply budget. A larger capture still succeeds and
-returns its checked path, byte size, and `inline_image_omitted: size_limit`
-instead of blocking the MCP stream with a large base64 value. Visual MCP tools
-start or attach through the shared verified GPU launcher. Screenshot and
-multi-view capture cannot silently reuse an SDL_Renderer, D3D11, SwiftShader,
-or other fallback client. Explicit fallback requires `allow_fallback: true`.
+captures return compact WebP agent copies by default. The saved PNG stays at
+full size for evidence and gallery use. The default agent copy uses quality 82
+and at most 921,600 pixels, records its source and delivered sizes and
+dimensions, and can shrink further to stay within the shared 1 MiB base64
+budget. `inline_image_format`, `inline_image_max_pixels`, and
+`inline_image_quality` tune the compact copy. Set `inline_image_mode: full` to
+send the saved PNG unchanged when it fits the reply budget. A capture that
+still cannot fit succeeds and returns its checked path, byte size, and
+`inline_image_omitted: size_limit` instead of putting a large base64 value on
+the MCP stream. Visual MCP tools start or attach through the shared verified
+GPU launcher. Screenshot and multi-view capture cannot silently reuse an
+SDL_Renderer, D3D11, SwiftShader, or other fallback client. Explicit fallback
+requires `allow_fallback: true`.
 
 The launcher reports success only after control protocol 1, the client and
 server, the network connection, a named map, and a positive map revision are
@@ -405,7 +412,9 @@ Worker stdout is capped at 4 MiB and stderr at 64 KiB. Structured tool output
 is capped at 256 KiB before MCP framing. If a result is larger, it keeps short
 status, summary, aggregate, and path fields and adds
 `structured_output_omitted: size_limit`. The whole MCP result is capped at
-2 MiB; inline images remain subject to the separate 1 MiB base64 budget.
+2 MiB; inline images remain subject to the separate 1 MiB base64 budget. The
+compact image limit applies to each reply, while the full PNG on disk keeps its
+original pixels.
 
 ### MCP Map Editing API
 
@@ -518,11 +527,13 @@ TrenchBroom for those edits.
   `python scripts/lg_launch.py --json stop`; this path does not probe the
   control socket.
 - **Capture returns no inline image:** check
-  `inline_image_omitted: size_limit`, then inspect the returned local path or
-  publish it through the visual-evidence flow. The capture itself succeeded.
+  `inline_image_omitted`. `size_limit` means the copy did not fit;
+  `encoder_unavailable` means the MCP runtime needs setup again. Inspect the
+  returned local path or publish it through the visual-evidence flow. The
+  capture itself succeeded.
 
 Known limitations: normal live requests use one worker slot; output is PNG
-only; MCP uses control port 27961; and `eyetoeye/standard` is the only curated
+on disk; MCP uses control port 27961; and `eyetoeye/standard` is the only curated
 preset. Cancellation cannot roll back a game change that already ran. Player
 input needs a live match and follows the same server rules as local input.
 Computer Use remains useful for unusual editor/window work, but routine

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import base64
 import copy
+import io
 import json
+import math
 import os
 import signal
 import subprocess
@@ -14,6 +16,11 @@ import tempfile
 import threading
 from pathlib import Path
 from typing import Any, Callable
+
+try:
+    from PIL import Image
+except ImportError:  # setup-lg-mcp.ps1 installs the runtime dependency.
+    Image = None
 
 from lg_control import ControlError, load_preset, send_request
 from lg_launch import LaunchError, ensure_client, restart_owned, status_with_state, stop_owned
@@ -26,10 +33,15 @@ from lg_live_scenario import LiveScenarioError, run_live_scenario
 from lg_map_edit import MapEditError, MapEditor
 
 
-SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.5.0"}
+SERVER_INFO = {"name": "lg-duel-dev-control", "version": "1.6.0"}
 PROTOCOL_VERSION = "2025-06-18"
 MAP_EDITOR = MapEditor()
 INLINE_IMAGE_BUDGET = 1024 * 1024
+DEFAULT_INLINE_IMAGE_FORMAT = "webp"
+DEFAULT_INLINE_IMAGE_MAX_PIXELS = 1280 * 720
+DEFAULT_INLINE_IMAGE_QUALITY = 82
+MIN_INLINE_IMAGE_PIXELS = 320 * 180
+MAX_SOURCE_IMAGE_PIXELS = 7680 * 4320
 STRUCTURED_CONTENT_BUDGET = 256 * 1024
 MCP_RESULT_BUDGET = 2 * 1024 * 1024
 WORKER_STDOUT_BUDGET = 4 * 1024 * 1024
@@ -45,6 +57,37 @@ TOOL_TIMEOUTS = {
     "lg_create_benchmark_baseline": 240.0,
 }
 DEFAULT_TOOL_TIMEOUT = 90.0
+INLINE_IMAGE_PROPERTIES = {
+    "inline_image_mode": {
+        "type": "string",
+        "enum": ["compact", "full"],
+        "default": "compact",
+        "description": (
+            "Compact sends a capped agent copy and keeps the saved PNG full size; "
+            "full sends the saved PNG unchanged when it fits the MCP limit."
+        ),
+    },
+    "inline_image_format": {
+        "type": "string",
+        "enum": ["webp", "jpeg", "png"],
+        "default": DEFAULT_INLINE_IMAGE_FORMAT,
+        "description": "Format for the compact agent copy.",
+    },
+    "inline_image_max_pixels": {
+        "type": "integer",
+        "minimum": MIN_INLINE_IMAGE_PIXELS,
+        "maximum": 3840 * 2160,
+        "default": DEFAULT_INLINE_IMAGE_MAX_PIXELS,
+        "description": "Pixel cap for the compact agent copy.",
+    },
+    "inline_image_quality": {
+        "type": "integer",
+        "minimum": 50,
+        "maximum": 95,
+        "default": DEFAULT_INLINE_IMAGE_QUALITY,
+        "description": "Lossy quality for compact WebP or JPEG copies.",
+    },
+}
 READ_ONLY_TOOLS = {
     "lg_status",
     "lg_list_benchmarks",
@@ -180,6 +223,7 @@ TOOLS: list[dict[str, Any]] = [
                 "hide_hud": {"type": "boolean", "default": True},
                 "hide_overlays": {"type": "boolean", "default": True},
                 "allow_fallback": {"type": "boolean", "default": False},
+                **INLINE_IMAGE_PROPERTIES,
             },
             "additionalProperties": False,
         },
@@ -322,6 +366,7 @@ TOOLS: list[dict[str, Any]] = [
                 "map": {"type": "string", "pattern": "^[A-Za-z0-9_-]+(?:\\.map)?$"},
                 "preset": {"type": "string", "pattern": "^[A-Za-z0-9_-]+$", "default": "standard"},
                 "allow_fallback": {"type": "boolean", "default": False},
+                **INLINE_IMAGE_PROPERTIES,
             },
             "required": ["map"], "additionalProperties": False,
         },
@@ -1219,19 +1264,48 @@ def invoke_tool(name: str, arguments: dict[str, Any]) -> dict[str, Any]:
     raise ControlError(f"unknown LG Duel tool '{name}'")
 
 
-def image_content(
-    path_text: str, remaining_budget: int
-) -> tuple[dict[str, Any] | None, dict[str, Any] | None, int]:
-    path = Path(path_text)
-    if path.suffix.lower() != ".png":
-        return None, None, 0
-    try:
-        size = path.stat().st_size
-    except OSError:
-        return None, None, 0
+def _inline_image_options(arguments: dict[str, Any] | None) -> dict[str, Any]:
+    arguments = arguments or {}
+    mode = arguments.get("inline_image_mode", "compact")
+    if mode not in {"compact", "full"}:
+        mode = "compact"
+    image_format = arguments.get(
+        "inline_image_format", DEFAULT_INLINE_IMAGE_FORMAT
+    )
+    if image_format not in {"webp", "jpeg", "png"}:
+        image_format = DEFAULT_INLINE_IMAGE_FORMAT
+
+    def bounded_int(key: str, default: int, minimum: int, maximum: int) -> int:
+        value = arguments.get(key, default)
+        if isinstance(value, bool):
+            return default
+        try:
+            return min(maximum, max(minimum, int(value)))
+        except (TypeError, ValueError):
+            return default
+
+    return {
+        "mode": mode,
+        "format": image_format,
+        "max_pixels": bounded_int(
+            "inline_image_max_pixels", DEFAULT_INLINE_IMAGE_MAX_PIXELS,
+            MIN_INLINE_IMAGE_PIXELS, 3840 * 2160,
+        ),
+        "quality": bounded_int(
+            "inline_image_quality", DEFAULT_INLINE_IMAGE_QUALITY, 50, 95
+        ),
+    }
+
+
+def _full_image_content(
+    path: Path, size: int, remaining_budget: int
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None,
+    dict[str, Any] | None, int,
+]:
     encoded_size = 4 * ((size + 2) // 3)
     if encoded_size > remaining_budget:
-        return None, {
+        return None, None, {
             "inline_image_omitted": "size_limit",
             "inline_image_size_bytes": size,
         }, 0
@@ -1239,25 +1313,168 @@ def image_content(
         with path.open("rb") as source:
             data = source.read(size + 1)
     except OSError:
-        return None, None, 0
-    # Treat a file that grew after stat as over budget without reading the rest.
+        return None, None, None, 0
     actual_encoded_size = 4 * ((len(data) + 2) // 3)
     if len(data) > size or actual_encoded_size > remaining_budget:
-        return None, {
+        return None, None, {
             "inline_image_omitted": "size_limit",
             "inline_image_size_bytes": max(size, len(data)),
         }, 0
     if not data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return None, None, 0
+        return None, None, None, 0
     return (
         {
             "type": "image",
             "data": base64.b64encode(data).decode("ascii"),
             "mimeType": "image/png",
         },
+        {
+            "inline_image_mode": "full",
+            "inline_image_format": "png",
+            "inline_image_size_bytes": len(data),
+            "inline_image_source_size_bytes": size,
+        },
         None,
         actual_encoded_size,
     )
+
+
+def _scaled_size(
+    width: int, height: int, max_pixels: int
+) -> tuple[int, int]:
+    pixels = width * height
+    if pixels <= max_pixels:
+        return width, height
+    scale = math.sqrt(max_pixels / pixels)
+    return max(1, int(width * scale)), max(1, int(height * scale))
+
+
+def _encode_compact_image(
+    image: Any, image_format: str, quality: int
+) -> bytes:
+    output = io.BytesIO()
+    if image_format == "webp":
+        image.save(output, format="WEBP", quality=quality, method=5)
+    elif image_format == "jpeg":
+        image.save(
+            output, format="JPEG", quality=quality, optimize=True,
+            progressive=True, subsampling="4:2:0",
+        )
+    else:
+        image.save(output, format="PNG", optimize=True, compress_level=9)
+    return output.getvalue()
+
+
+def _compact_image_content(
+    path: Path,
+    source_size: int,
+    remaining_budget: int,
+    options: dict[str, Any],
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None,
+    dict[str, Any] | None, int,
+]:
+    if Image is None:
+        return None, None, {
+            "inline_image_omitted": "encoder_unavailable",
+            "inline_image_size_bytes": source_size,
+        }, 0
+    image_format = options["format"]
+    mime_type = {
+        "webp": "image/webp", "jpeg": "image/jpeg", "png": "image/png",
+    }[image_format]
+    try:
+        with Image.open(path) as source:
+            width, height = source.size
+            if width * height > MAX_SOURCE_IMAGE_PIXELS:
+                return None, None, {
+                    "inline_image_omitted": "source_pixel_limit",
+                    "inline_image_size_bytes": source_size,
+                    "inline_image_source_width": width,
+                    "inline_image_source_height": height,
+                }, 0
+            source.load()
+            image = source.convert("RGB")
+    except (OSError, ValueError, Image.DecompressionBombError):
+        return None, None, {
+            "inline_image_omitted": "decode_failed",
+            "inline_image_size_bytes": source_size,
+        }, 0
+
+    source_width, source_height = image.size
+    max_pixels = options["max_pixels"]
+    quality = options["quality"]
+    encoded = b""
+    while max_pixels >= MIN_INLINE_IMAGE_PIXELS:
+        width, height = _scaled_size(
+            source_width, source_height, max_pixels
+        )
+        candidate = image
+        if candidate.size != (width, height):
+            candidate = image.resize(
+                (width, height), Image.Resampling.LANCZOS
+            )
+        try:
+            encoded = _encode_compact_image(
+                candidate, image_format, quality
+            )
+        except (KeyError, OSError, ValueError):
+            return None, None, {
+                "inline_image_omitted": "encode_failed",
+                "inline_image_size_bytes": source_size,
+            }, 0
+        encoded_size = 4 * ((len(encoded) + 2) // 3)
+        if encoded_size <= remaining_budget:
+            return (
+                {
+                    "type": "image",
+                    "data": base64.b64encode(encoded).decode("ascii"),
+                    "mimeType": mime_type,
+                },
+                {
+                    "inline_image_mode": "compact",
+                    "inline_image_format": image_format,
+                    "inline_image_width": width,
+                    "inline_image_height": height,
+                    "inline_image_pixels": width * height,
+                    "inline_image_quality": quality,
+                    "inline_image_size_bytes": len(encoded),
+                    "inline_image_source_width": source_width,
+                    "inline_image_source_height": source_height,
+                    "inline_image_source_size_bytes": source_size,
+                },
+                None,
+                encoded_size,
+            )
+        max_pixels = int(max_pixels * 0.75)
+        if image_format != "png":
+            quality = max(60, quality - 4)
+    return None, None, {
+        "inline_image_omitted": "size_limit",
+        "inline_image_size_bytes": len(encoded) or source_size,
+        "inline_image_source_size_bytes": source_size,
+    }, 0
+
+
+def image_content(
+    path_text: str,
+    remaining_budget: int,
+    options: dict[str, Any] | None = None,
+) -> tuple[
+    dict[str, Any] | None, dict[str, Any] | None,
+    dict[str, Any] | None, int,
+]:
+    path = Path(path_text)
+    if path.suffix.lower() != ".png":
+        return None, None, None, 0
+    try:
+        size = path.stat().st_size
+    except OSError:
+        return None, None, None, 0
+    options = options or _inline_image_options(None)
+    if options["mode"] == "full":
+        return _full_image_content(path, size, remaining_budget)
+    return _compact_image_content(path, size, remaining_budget, options)
 
 
 def _json_size(value: Any) -> int:
@@ -1412,18 +1629,27 @@ def _compact_structured_result(
     return compact
 
 
-def tool_result(result: dict[str, Any]) -> dict[str, Any]:
+def tool_result(
+    result: dict[str, Any],
+    *,
+    image_arguments: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     structured = _compact_structured_result(result)
     images: list[dict[str, Any]] = []
     omissions: list[dict[str, Any]] = []
     remaining = INLINE_IMAGE_BUDGET
+    image_options = _inline_image_options(image_arguments)
 
     def add_image(owner: dict[str, Any], path_text: str) -> None:
         nonlocal remaining
-        image, omission, used = image_content(path_text, remaining)
+        image, details, omission, used = image_content(
+            path_text, remaining, image_options
+        )
         if image is not None:
             images.append(image)
             remaining -= used
+        if details is not None:
+            owner.update(details)
         if omission is not None:
             owner.update(omission)
             omissions.append({"path": path_text, **omission})
@@ -1963,7 +2189,7 @@ def handle(request: dict[str, Any]) -> dict[str, Any] | None:
         payload = (
             error_payload
             if error_payload is not None
-            else tool_result(result or {})
+            else tool_result(result or {}, image_arguments=arguments)
         )
         return {"jsonrpc": "2.0", "id": request_id, "result": payload}
     return {
@@ -2144,7 +2370,9 @@ class McpStdioDispatcher:
                 payload = (
                     error_payload
                     if error_payload is not None
-                    else tool_result(result or {})
+                    else tool_result(
+                        result or {}, image_arguments=arguments
+                    )
                 )
                 response = {
                     "jsonrpc": "2.0",
