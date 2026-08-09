@@ -327,6 +327,8 @@ struct RenderSettings {
   float bloomIntensity = 0.18F;
   float bloomThreshold = 1.15F;
   float toneMapExposure = 1.0F;
+  // Final display-only control. It must not change scene-referred lighting.
+  float displayGamma = 1.0F;
   int atmosphereGradeQuality = 2;
   // GPU-only quality controls. SDL_Renderer keeps its current output.
   // AA: 0 = 1x, 1 = 2x, 2 = 4x. Sun shadows: 0 = off, 1/2 = 1024/2048.
@@ -608,6 +610,7 @@ enum class DirectPresentFallbackReason : std::uint8_t {
   None = 0,
   ColorGrade,
   Exposure,
+  DisplayGamma,
   AntiAliasing,
   Bloom,
   SunShadow,
@@ -630,6 +633,7 @@ enum class DirectPresentFallbackReason : std::uint8_t {
 struct DirectPresentInputs {
   bool neutralGrade = false;
   bool unitExposure = false;
+  bool neutralDisplayGamma = false;
   bool singleSample = false;
   bool bloomDisabled = false;
   bool sunShadowDisabled = false;
@@ -663,6 +667,9 @@ struct DirectPresentPlan {
   }
   if (!inputs.unitExposure) {
     return {false, DirectPresentFallbackReason::Exposure};
+  }
+  if (!inputs.neutralDisplayGamma) {
+    return {false, DirectPresentFallbackReason::DisplayGamma};
   }
   if (!inputs.singleSample) {
     return {false, DirectPresentFallbackReason::AntiAliasing};
@@ -716,6 +723,24 @@ struct DirectPresentPlan {
     return {false, DirectPresentFallbackReason::Pipelines};
   }
   return {true, DirectPresentFallbackReason::None};
+}
+
+inline constexpr float kNeutralDisplayGamma = 1.0F;
+inline constexpr float kMinimumDisplayGamma = 0.50F;
+inline constexpr float kMaximumDisplayGamma = 1.50F;
+
+[[nodiscard]] inline float clampedDisplayGamma(float displayGamma) {
+  return std::clamp(
+    displayGamma,
+    kMinimumDisplayGamma,
+    kMaximumDisplayGamma
+  );
+}
+
+[[nodiscard]] inline bool displayGammaIsNeutral(float displayGamma) {
+  return std::fabs(
+    clampedDisplayGamma(displayGamma) - kNeutralDisplayGamma
+  ) <= 0.000001F;
 }
 
 struct SceneClearColor {

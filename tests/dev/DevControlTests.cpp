@@ -114,6 +114,12 @@ int main() {
     "phase capture should accept an exact local Rocket flight frame"
   );
   failures += expect(
+    parseRequest(
+      R"({"operation":"arm_phase_capture","name":"freeze-contact","phase":"local_surface_impact"})"
+    ).ok,
+    "phase capture should accept an exact local surface-impact frame"
+  );
+  failures += expect(
     !parseRequest(
       R"({"operation":"arm_phase_capture","name":"rocket-muzzle","phase":"idle"})"
     ).ok &&

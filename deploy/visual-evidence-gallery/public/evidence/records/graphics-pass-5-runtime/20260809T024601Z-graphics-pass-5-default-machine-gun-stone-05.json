@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260809T024601Z-graphics-pass-5-default-machine-gun-stone-05",
+  "captured_at": "2026-08-09T02:46:01Z",
+  "captured_by": "vfx-runtime",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Original GPU capture at the exact active local Machine Gun contact on the Stone panel.",
+  "image": "20260809T024601Z-graphics-pass-5-default-machine-gun-stone-05.png",
+  "review": {
+    "notes": "The exact Default frame shows a light Machine Gun trace and small distinct Stone contact with clean centered framing and no artifact.",
+    "reviewed_at": "2026-08-09T03:02:16Z",
+    "reviewer": "pass5_reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "eb17dd599e7196925594b7635dcd905f17e43787b41a4e18805f1e3392f4c188",
+  "size_bytes": 3687468,
+  "task_id": "graphics-pass-5-runtime",
+  "title": "Default Machine Gun Stone contact"
+}

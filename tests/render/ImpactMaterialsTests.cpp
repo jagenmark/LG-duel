@@ -30,15 +30,20 @@ int main() {
     "aliases should normalize slash direction and ASCII case like arenaMaterialId"
   );
   failures += expect(
-    lg::classifyImpactMaterialAlias("walls/oxidized_chain.png") ==
+    lg::classifyImpactMaterialAlias("Base/Metal/Mat_Metal_Gray_01-128x128.png") ==
         lg::ImpactSurfaceCategory::Metal &&
-      lg::classifyImpactMaterialAlias("floors/SANDSTONE_tile.png") ==
+      lg::classifyImpactMaterialAlias("Base/Concrete/Mat_Concrete_Gray_01-128x128.png") ==
         lg::ImpactSurfaceCategory::Stone &&
+      lg::classifyImpactMaterialAlias("Circular/Square/Wood/Square_Wood_01-128x128.png") ==
+        lg::ImpactSurfaceCategory::WoodSoft &&
       lg::classifyImpactMaterialAlias("fx/teleport_energy.png") ==
         lg::ImpactSurfaceCategory::Energy &&
-      lg::classifyImpactMaterialAlias("wood/panel.png") ==
+      lg::classifyImpactMaterialAlias(
+        "Overkill/Overkill_Amber_Route-128x128.png"
+      ) == lg::ImpactSurfaceCategory::Energy &&
+      lg::classifyImpactMaterialAlias("props/unknown_panel.png") ==
         lg::ImpactSurfaceCategory::GenericHard,
-    "material path terms should select each stable surface category"
+    "checked material aliases should select each broad surface category"
   );
 
   const std::vector<std::string> duplicateAliases = {

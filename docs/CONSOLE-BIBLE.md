@@ -312,6 +312,7 @@ the Revolver.
 | `r_muzzle_light_radius` | float | `3.2` | `0..16` world units | None | Radius of each short machine-gun muzzle light. |
 | `r_muzzle_light_duration` | float | `0.13` | `0..0.25` seconds | None | Lifetime of each muzzle light. Its shaped tail bridges close machine-gun shots while the fixed pool prevents sustained-fire growth. |
 | `r_tonemap_exposure` | float | `1` | `0.25..4` | None | Fixed exposure used by the filmic world and weapon tone map. There is no automatic exposure. |
+| `r_display_gamma` | float | `1` | `0.5..1.5` | None | Archived final display gamma. It runs after tone mapping and grading, so `1` is neutral and white highlights stay white. |
 | `r_atmosphere_grade` | int | `2` | `0..3` | None | Linked static-world grade and haze quality. `0`: off, `1`: low, `2`: default, `3`: high. F10 exposes these four values without exposing the raw grade or haze constants. |
 | `r_bloom` | bool | `1` | bool | None | Enables the compact bloom response on bright effect sprites. It does not process HUD pixels. |
 | `r_bloom_intensity` | float | `0.18` | `0..1` | None | Strength of the compact bright-effect bloom response. |

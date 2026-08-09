@@ -38,7 +38,6 @@ constexpr float kQuarterTurnRadians = 1.57079632679F;
 constexpr float kDuelistMaleHeight = 1.67400002F;
 constexpr float kDuelistMaleHalfWidth = 0.42503331F;
 constexpr float kDuelistMaleDepthCenter = 0.07100000F;
-constexpr float kStaticLightMax = 2.0F;
 constexpr std::size_t kMaxRocketProjectileLights = 4U;
 constexpr Vec3 kRocketProjectileLightColor = {1.0F, 0.48F, 0.20F};
 constexpr float kRocketProjectileLightIntensity = 1.15F;
@@ -1123,7 +1122,7 @@ void addSphereApprox(
   RenderColor base,
   std::uint8_t ambientVisibility
 ) {
-  const float ambientScale = encodedAmbientVisibilityScale(ambientVisibility);
+  const float ambientScale = static_cast<float>(ambientVisibility) / 255.0F;
   Vec3 lightColor = {
     static_cast<float>(base.red) *
       arena.ambientLight.color.x * arena.ambientLight.intensity * ambientScale,
@@ -1150,11 +1149,16 @@ void addSphereApprox(
     lightColor.y += static_cast<float>(base.green) * light.color.y * contribution;
     lightColor.z += static_cast<float>(base.blue) * light.color.z * contribution;
   }
-  const float maxChannel = 255.0F * kStaticLightMax;
+  const auto encodedLightChannel = [](float value) {
+    const float linearLight = std::clamp(value / 255.0F, 0.0F, 1.0F);
+    return static_cast<std::uint8_t>(std::lround(
+      std::pow(linearLight, 1.0F / 2.2F) * 255.0F
+    ));
+  };
   return {
-    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.x, 0.0F, maxChannel), 255.0F)),
-    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.y, 0.0F, maxChannel), 255.0F)),
-    static_cast<std::uint8_t>(std::min(std::clamp(lightColor.z, 0.0F, maxChannel), 255.0F)),
+    encodedLightChannel(lightColor.x),
+    encodedLightChannel(lightColor.y),
+    encodedLightChannel(lightColor.z),
     base.alpha,
   };
 }
@@ -4263,8 +4267,10 @@ Vec3 firstPersonMachineGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -4297,8 +4303,10 @@ Vec3 firstPersonRevolverMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -6436,20 +6444,22 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
-      const bool localRailFire =
-        fire.weapon == Weapon::Railgun &&
+      const bool localHitscanFire =
         fireIndex == static_cast<std::size_t>(settings.localPlayerIndex) &&
         settings.showOwnWeapons;
-      const Vec3 visualStart = localRailFire
-        ? [&]() {
-            PlayerState viewModelPlayer = player;
-            viewModelPlayer.position.z += cameraVerticalOffset;
-            viewModelPlayer.position += cameraMotion;
-            return sniperRifleMuzzlePositionForViewModelPlayer(
-              viewModelPlayer,
-              settings
-            );
-          }()
+      const Vec3 visualStart = localHitscanFire
+        ? fire.weapon == Weapon::Railgun
+          ? [&]() {
+              PlayerState viewModelPlayer = player;
+              viewModelPlayer.position.z += cameraVerticalOffset;
+              viewModelPlayer.position += cameraMotion;
+              return sniperRifleMuzzlePositionForViewModelPlayer(
+                viewModelPlayer,
+                settings
+              );
+            }()
+          : firstPersonRevolverMuzzlePosition(player, settings) +
+              Vec3{0.0F, 0.0F, cameraVerticalOffset}
         : fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
           ? remoteHitscanMuzzlePosition(
               remotePlayers[fireIndex],

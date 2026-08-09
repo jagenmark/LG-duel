@@ -174,6 +174,35 @@ class LiveScenarioTests(unittest.TestCase):
 
         lg_live_scenario._validate_capture_phase(shot)
 
+    def test_surface_impact_phase_requires_the_matching_active_contact(self) -> None:
+        shot = {
+            "name": "freeze-contact",
+            "render_phase": "surface_impact",
+            "surface_impact_weapon": "freeze_gun",
+            "actor": 0,
+            "result": {
+                "frame_state": {
+                    "local_player_index": 0,
+                    "local_surface_impact_active": True,
+                    "local_surface_impact_weapon": "freeze_gun",
+                    "local_surface_contact_effect_count": 2,
+                }
+            },
+            "trigger": {
+                "capture_mode": "prearmed_exact_render_phase",
+                "surface_impact_weapon": "freeze_gun",
+            },
+        }
+
+        lg_live_scenario._validate_capture_phase(shot)
+
+        shot["result"]["frame_state"]["local_surface_impact_weapon"] = "railgun"
+        with self.assertRaisesRegex(
+            lg_live_scenario.LiveScenarioStageError,
+            "matching active local surface impact",
+        ):
+            lg_live_scenario._validate_capture_phase(shot)
+
     def test_capture_phase_rejects_idle_and_wrong_authority(self) -> None:
         idle_shot = {
             "name": "projectile",
@@ -384,6 +413,7 @@ class LiveScenarioTests(unittest.TestCase):
             if operation == "collect_phase_capture":
                 self.assertEqual(values["name"], armed_capture)
                 impact = armed_phase == "local_rocket_launcher_impact"
+                surface_impact = armed_phase == "local_surface_impact"
                 return {
                     "path": str(self.capture_path),
                     "width": 1,
@@ -397,6 +427,13 @@ class LiveScenarioTests(unittest.TestCase):
                         "renderer_rocket_instances": 0 if impact else 1,
                         "renderer_tracer_instances": 0 if impact else 1,
                         "renderer_explosion_instances": 2 if impact else 0,
+                        "local_surface_impact_active": surface_impact,
+                        "local_surface_impact_weapon": (
+                            "freeze_gun" if surface_impact else None
+                        ),
+                        "local_surface_contact_effect_count": (
+                            2 if surface_impact else 0
+                        ),
                     },
                 }
             return {"ok": True}
@@ -447,6 +484,14 @@ class LiveScenarioTests(unittest.TestCase):
             ("r_bloom", "0"),
         )
         self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_display_gamma=0.5"),
+            ("r_display_gamma", "0.5"),
+        )
+        self.assertEqual(
+            lg_live_scenario._parse_client_cvar_override("r_display_gamma=1.5"),
+            ("r_display_gamma", "1.5"),
+        )
+        self.assertEqual(
             lg_live_scenario._parse_client_cvar_override("r_player_model=2"),
             ("r_player_model", "2"),
         )
@@ -464,6 +509,8 @@ class LiveScenarioTests(unittest.TestCase):
             lg_live_scenario._parse_client_cvar_override("g_rl_damage=1")
         with self.assertRaises(argparse.ArgumentTypeError):
             lg_live_scenario._parse_client_cvar_override("r_bloom=2")
+        with self.assertRaises(argparse.ArgumentTypeError):
+            lg_live_scenario._parse_client_cvar_override("r_display_gamma=1.0")
         with self.assertRaises(argparse.ArgumentTypeError):
             lg_live_scenario._parse_client_cvar_override("r_player_model=3")
         with self.assertRaisesRegex(
@@ -615,6 +662,53 @@ class LiveScenarioTests(unittest.TestCase):
             "capture_screenshot",
             names[arm_index:collect_index + 1],
         )
+
+    def test_surface_capture_arms_before_freeze_input_and_collects_after(self) -> None:
+        scenario = self.scenario()
+        scenario["timeline"][0]["input"]["weapon"] = "freeze_gun"
+        scenario["captures"] = [
+            {
+                "name": "freeze-contact",
+                "surface_impact_weapon": "freeze_gun",
+                "wait_rendered_frames": 0,
+                "render_phase": "surface_impact",
+            }
+        ]
+
+        result, calls = self.run_scenario(scenario)
+        names = [name for name, _ in calls]
+        arm_index = names.index("arm_phase_capture")
+        input_index = names.index("send_input")
+        collect_index = names.index("collect_phase_capture")
+        armed_phase = calls[arm_index][1]["phase"]
+
+        self.assertEqual(result["status"], "passed")
+        self.assertEqual(armed_phase, "local_surface_impact")
+        self.assertLess(arm_index, input_index)
+        self.assertLess(input_index, collect_index)
+
+    def test_surface_capture_matches_only_its_local_weapon_input(self) -> None:
+        capture = {
+            "name": "rail-contact",
+            "surface_impact_weapon": "railgun",
+            "render_phase": "surface_impact",
+        }
+
+        self.assertIsNone(
+            lg_live_scenario._phase_capture_for_surface_impact(
+                [capture],
+                set(),
+                {"attack": True, "weapon": "shotgun"},
+                0,
+            )
+        )
+        selected = lg_live_scenario._phase_capture_for_surface_impact(
+            [capture],
+            set(),
+            {"attack": True, "weapon": "railgun"},
+            0,
+        )
+        self.assertEqual(selected, (capture, "local_surface_impact"))
 
     def test_third_impact_maps_to_third_rocket_input(self) -> None:
         capture = {

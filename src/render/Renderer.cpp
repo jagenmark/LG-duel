@@ -3237,7 +3237,7 @@ void destroyGpuDirectPresentPipelines(
     swapchainFormat,
     true,
     false,
-    {0U, 0U}
+    {0U, 1U}
   );
   pipelines.staticMesh = createGpuStaticMeshPipeline3D(
     device,
@@ -3247,7 +3247,7 @@ void destroyGpuDirectPresentPipelines(
     swapchainFormat,
     false,
     "instanced_color_direct.frag.spv",
-    {0U, 0U}
+    {0U, 1U}
   );
   pipelines.materialMesh = createGpuMaterialMeshPipeline3D(
     device,
@@ -5971,6 +5971,8 @@ void initializeGltfMaterialTextures(
     return "color-grade";
   case DirectPresentFallbackReason::Exposure:
     return "exposure";
+  case DirectPresentFallbackReason::DisplayGamma:
+    return "display-gamma";
   case DirectPresentFallbackReason::AntiAliasing:
     return "anti-aliasing";
   case DirectPresentFallbackReason::Bloom:
@@ -8364,6 +8366,7 @@ void appendCommandBatches(
     const DirectPresentInputs directInputs = {
       perspectiveScene.lights.gradeQuality == 0,
       std::abs(perspectiveScene.lights.exposure - 1.0F) <= 0.000001F,
+      displayGammaIsNeutral(settings.displayGamma),
       sampleCount == SDL_GPU_SAMPLECOUNT_1,
       !bloomEffective,
       perspectiveScene.lights.shadow.mapSize == 0U,
@@ -9808,7 +9811,7 @@ void appendCommandBatches(
       postPlan.bloomEnabled
         ? std::clamp(settings.bloomIntensity, 0.0F, 1.0F)
         : 0.0F,
-      0.0F,
+      clampedDisplayGamma(settings.displayGamma),
     }};
     SDL_PushGPUFragmentUniformData(
       commandBuffer,

@@ -27,6 +27,7 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 } sceneLights;
 
 #include "includes/direct_display.glsl"
+#include "includes/live_fill.glsl"
 #include "includes/point_shadow.glsl"
 #include "includes/atmosphere.glsl"
 
@@ -39,7 +40,9 @@ void main() {
       : vec4(debugColor, 1.0);
     return;
   }
-  vec3 color = albedo * ambientData.x;
+  vec3 fillRadiance = sceneLights.fillColorIntensity.rgb *
+    max(sceneLights.fillColorIntensity.w, 0.0);
+  vec3 color = albedo * ambientData.x * correctedLiveFill(fillRadiance);
   vec3 n = normalize(worldNormal);
   int lightCount = clamp(int(sceneLights.parameters.x + 0.5), 0, 32);
   for (int index = 0; index < lightCount; ++index) {

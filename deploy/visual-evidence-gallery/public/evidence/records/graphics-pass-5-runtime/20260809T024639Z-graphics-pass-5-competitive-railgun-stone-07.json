@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260809T024639Z-graphics-pass-5-competitive-railgun-stone-07",
+  "captured_at": "2026-08-09T02:46:39Z",
+  "captured_by": "vfx-runtime",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Original GPU capture at the exact active local Railgun contact on the Stone panel with bloom disabled.",
+  "image": "20260809T024639Z-graphics-pass-5-competitive-railgun-stone-07.png",
+  "review": {
+    "notes": "The exact Competitive frame keeps the Railgun precision trace and Stone contact readable with Q1 effects and bloom off.",
+    "reviewed_at": "2026-08-09T03:02:16Z",
+    "reviewer": "pass5_reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "b7efe4bca5c34f7cbfedcda6147c454298eba1c44813e5764165aa1ca24164a8",
+  "size_bytes": 3687468,
+  "task_id": "graphics-pass-5-runtime",
+  "title": "Competitive Railgun Stone contact"
+}

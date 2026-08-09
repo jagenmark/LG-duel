@@ -1,0 +1,21 @@
+{
+  "capture_id": "20260809T024555Z-graphics-pass-5-default-shotgun-wood-03",
+  "captured_at": "2026-08-09T02:45:55Z",
+  "captured_by": "vfx-runtime",
+  "contains_sensitive_data": false,
+  "content_type": "image/png",
+  "description": "Original GPU capture at the exact active local Shotgun contact on the Wood panel.",
+  "image": "20260809T024555Z-graphics-pass-5-default-shotgun-wood-03.png",
+  "review": {
+    "notes": "The exact Default frame shows a wider grouped warm Shotgun response on Wood with clear alignment and no clipping, washout, or artifact.",
+    "reviewed_at": "2026-08-09T03:02:16Z",
+    "reviewer": "pass5_reviewer",
+    "verdict": "pass"
+  },
+  "review_status": "pass",
+  "schema_version": 1,
+  "sha256": "14047e9ceac62a9984363a861d614289fa306cc578e6f32a1c828f205cfcc912",
+  "size_bytes": 3687468,
+  "task_id": "graphics-pass-5-runtime",
+  "title": "Default Shotgun Wood contact"
+}

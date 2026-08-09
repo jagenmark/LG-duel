@@ -36,6 +36,10 @@ bool sameColor(lg::RenderColor lhs, lg::RenderColor rhs) {
     lhs.alpha == rhs.alpha;
 }
 
+float decodedLightChannel(std::uint8_t channel) {
+  return std::pow(static_cast<float>(channel) / 255.0F, 2.2F);
+}
+
 bool isEnemyModelColor(lg::RenderColor color) {
   return color.red >= 110 &&
     color.green <= 170 &&
@@ -851,6 +855,7 @@ int main() {
     true,
     true,
     true,
+    true,
   };
   const lg::DirectPresentPlan directPlan =
     lg::buildDirectPresentPlan(directInputs);
@@ -867,6 +872,10 @@ int main() {
     std::pair{
       &lg::DirectPresentInputs::unitExposure,
       lg::DirectPresentFallbackReason::Exposure,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::neutralDisplayGamma,
+      lg::DirectPresentFallbackReason::DisplayGamma,
     },
     std::pair{
       &lg::DirectPresentInputs::singleSample,
@@ -947,6 +956,20 @@ int main() {
       "direct present should reject each unsafe input"
     );
   }
+  failures += expect(
+    lg::displayGammaIsNeutral(lg::kNeutralDisplayGamma) &&
+      !lg::displayGammaIsNeutral(lg::kMinimumDisplayGamma) &&
+      !lg::displayGammaIsNeutral(lg::kMaximumDisplayGamma) &&
+      nearlyEqual(
+        lg::clampedDisplayGamma(0.25F),
+        lg::kMinimumDisplayGamma
+      ) &&
+      nearlyEqual(
+        lg::clampedDisplayGamma(2.0F),
+        lg::kMaximumDisplayGamma
+      ),
+    "display gamma should preserve neutral direct present and clamp endpoints"
+  );
   constexpr float oneDisplayByte = 1.0F / 255.0F;
   const auto neutralClearMatches = [](
                                      float linear,
@@ -2252,32 +2275,61 @@ int main() {
 
   {
     lg::Arena ambientArena;
-    ambientArena.wallCount = 1;
+    ambientArena.wallCount = 2;
     ambientArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     ambientArena.walls[0].max = {1.0F, 1.0F, 1.0F};
+    const std::uint32_t topMaterial =
+      lg::arenaMaterialId("ambient_static_top");
+    const std::uint32_t sideMaterial =
+      lg::arenaMaterialId("ambient_static_side");
     ambientArena.walls[0].materialId =
       lg::arenaMaterialId("ambient_static_wall");
+    ambientArena.walls[0].faceMaterialIds[1] = topMaterial;
+    ambientArena.walls[0].faceMaterialIds[3] = sideMaterial;
+    ambientArena.walls[1].min = {-1.0F, -1.0F, 2.0F};
+    ambientArena.walls[1].max = {2.0F, 2.0F, 2.2F};
     ambientArena.ambientLight.color = {0.5F, 0.75F, 1.0F};
-    ambientArena.ambientLight.intensity = 0.4F;
-    const lg::Scene3D ambientScene = lg::buildStaticWorldScene(ambientArena);
-    bool foundExpectedTopColor = false;
+    ambientArena.ambientLight.intensity = 0.3F;
+    const lg::Scene3D ambientScene =
+      lg::buildStaticWorldScene(ambientArena, 2);
+    bool foundTopVertex = false;
+    bool foundSideVertex = false;
+    bool foundOccludedTopVertex = false;
+    bool decodedTopLightMatches = true;
+    bool decodedSideLightMatches = true;
     for (const lg::Vertex3D& vertex : ambientScene.vertices) {
-      if (
-        vertex.materialId == ambientArena.walls[0].materialId &&
-        nearlyEqual(vertex.position.z, ambientArena.walls[0].max.z)
-      ) {
-        foundExpectedTopColor =
-          vertex.color.red == 51 &&
-          vertex.color.green == 76 &&
-          vertex.color.blue == 102;
-        if (foundExpectedTopColor) {
-          break;
-        }
+      if (vertex.materialId == topMaterial) {
+        foundTopVertex = true;
+        foundOccludedTopVertex = foundOccludedTopVertex ||
+          vertex.ambientVisibility < 255U;
+        const float visibility =
+          static_cast<float>(vertex.ambientVisibility) / 255.0F;
+        decodedTopLightMatches = decodedTopLightMatches &&
+          nearlyEqual(decodedLightChannel(vertex.color.red), 0.15F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.green), 0.225F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.blue), 0.30F * visibility, 0.005F);
+      }
+      if (vertex.materialId == sideMaterial) {
+        foundSideVertex = true;
+        const float visibility =
+          static_cast<float>(vertex.ambientVisibility) / 255.0F;
+        decodedSideLightMatches = decodedSideLightMatches &&
+          nearlyEqual(decodedLightChannel(vertex.color.red), 0.15F * 0.88F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.green), 0.225F * 0.88F * visibility, 0.005F) &&
+          nearlyEqual(decodedLightChannel(vertex.color.blue), 0.30F * 0.88F * visibility, 0.005F);
       }
     }
     failures += expect(
-      foundExpectedTopColor,
-      "map ambient color and intensity should tint static world vertices"
+      foundTopVertex && decodedTopLightMatches,
+      "decoded static world light should match linear ambient and visibility"
+    );
+    failures += expect(
+      foundSideVertex && decodedSideLightMatches,
+      "static world light encoding should preserve per-face shade"
+    );
+    failures += expect(
+      foundOccludedTopVertex,
+      "static world light encoding should retain baked ambient occlusion"
     );
   }
 
@@ -2287,18 +2339,24 @@ int main() {
     litArena.walls[0].min = {0.0F, 0.0F, 0.0F};
     litArena.walls[0].max = {4.0F, 4.0F, 1.0F};
     litArena.walls[0].materialId = lg::arenaMaterialId("lit_static_wall");
+    const std::uint32_t topMaterial =
+      lg::arenaMaterialId("lit_static_top");
+    litArena.walls[0].faceMaterialIds[1] = topMaterial;
+    litArena.ambientLight.color = {1.0F, 1.0F, 1.0F};
+    litArena.ambientLight.intensity = 0.3F;
     litArena.staticLightCount = 1;
-    litArena.staticLights[0].position = {0.2F, 0.2F, 3.0F};
+    litArena.staticLights[0].position = {0.0F, 0.0F, 3.0F};
     litArena.staticLights[0].color = {1.0F, 0.65F, 0.35F};
-    litArena.staticLights[0].intensity = 2.5F;
-    litArena.staticLights[0].radius = 7.0F;
+    litArena.staticLights[0].intensity = 0.9F;
+    litArena.staticLights[0].radius = 6.0F;
     const lg::Scene3D litScene = lg::buildStaticWorldScene(litArena);
     int minTopRed = 255;
     int maxTopRed = 0;
     bool foundTintedTopVertex = false;
+    bool foundDecodedPointLight = false;
     for (const lg::Vertex3D& vertex : litScene.vertices) {
       if (
-        vertex.materialId == litArena.walls[0].materialId &&
+        vertex.materialId == topMaterial &&
         nearlyEqual(vertex.position.z, litArena.walls[0].max.z)
       ) {
         minTopRed = std::min(minTopRed, static_cast<int>(vertex.color.red));
@@ -2308,6 +2366,15 @@ int main() {
             vertex.color.red > vertex.color.green &&
             vertex.color.green > vertex.color.blue
           );
+        if (
+          nearlyEqual(vertex.position.x, 0.0F) &&
+          nearlyEqual(vertex.position.y, 0.0F)
+        ) {
+          foundDecodedPointLight =
+            nearlyEqual(decodedLightChannel(vertex.color.red), 0.70F, 0.005F) &&
+            nearlyEqual(decodedLightChannel(vertex.color.green), 0.56F, 0.005F) &&
+            nearlyEqual(decodedLightChannel(vertex.color.blue), 0.44F, 0.005F);
+        }
       }
     }
     failures += expect(
@@ -2317,6 +2384,10 @@ int main() {
     failures += expect(
       foundTintedTopVertex,
       "static lights should tint world vertices with light color"
+    );
+    failures += expect(
+      foundDecodedPointLight,
+      "decoded static point light should match the authored linear contribution"
     );
   }
 
@@ -4201,6 +4272,33 @@ int main() {
     authoredSocketsMatchAllWeaponPositions,
     "MG muzzle and casing origins should match their authored sockets in every weapon position"
   );
+  lg::RenderSettings swayedMachineGunSettings = localMachineGunSettings;
+  swayedMachineGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    swayedMachineGunSettings
+  );
+  const lg::StaticMeshInstance* swayedMachineGunBody = findMachineGunPart(
+    swayedMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  failures += expect(
+    swayedMachineGunBody != nullptr &&
+      lg::length(
+        transformPoint(*swayedMachineGunBody, lg::machineGunMuzzleSocket()) -
+        lg::firstPersonMachineGunMuzzlePosition(player, swayedMachineGunSettings)
+      ) < 0.001F,
+    "local MG tracer origin should track the rendered muzzle through camera motion"
+  );
   failures += expect(
     idleBody != nullptr && idleBarrels != nullptr &&
       recoilingBody != nullptr && recoilingBarrels != nullptr &&
@@ -4371,6 +4469,8 @@ int main() {
 
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
+  localRevolverSettings.viewModelPresentation.cameraTranslation =
+    {0.035F, -0.020F, 0.015F};
   const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4445,6 +4545,47 @@ int main() {
         indexedRevolverCylinder.modelRow1 - revolverCylinder.modelRow1
       ) > 0.01F,
     "first-person revolver should submit body and cylinder with recoil and one-step indexing transforms"
+  );
+  lg::RenderSettings localRevolverTracerSettings = idleRevolverSettings;
+  localRevolverTracerSettings.viewModelPresentation.cameraTranslation =
+    {0.040F, 0.025F, -0.015F};
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRevolverFires = {};
+  localRevolverFires[0].fired = true;
+  localRevolverFires[0].hit = true;
+  localRevolverFires[0].weapon = lg::Weapon::Revolver;
+  localRevolverFires[0].start = {-12.0F, -20.0F, 4.0F};
+  localRevolverFires[0].end = {-4.0F, -20.0F, 4.0F};
+  constexpr float localRevolverCameraStep = 0.075F;
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    noLocalRevolverRemotes = {};
+  const lg::Scene3D localRevolverTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noLocalRevolverRemotes,
+    inactiveBeam,
+    localRevolverFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localRevolverTracerSettings,
+    localRevolverCameraStep
+  );
+  const lg::Vec3 expectedLocalRevolverMuzzle =
+    lg::firstPersonRevolverMuzzlePosition(player, localRevolverTracerSettings) +
+    lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
+  float nearestLocalRevolverTracerVertex = std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : localRevolverTracerScene.translucentVertices) {
+    nearestLocalRevolverTracerVertex = std::min(
+      nearestLocalRevolverTracerVertex,
+      lg::length(vertex.position - expectedLocalRevolverMuzzle)
+    );
+  }
+  failures += expect(
+    nearestLocalRevolverTracerVertex < 0.05F,
+    "local revolver beam should start at the rendered muzzle, not its world fire origin"
   );
   std::array<lg::TransientTracer, 1> revolverFlash = {{
     {

@@ -196,6 +196,8 @@ void trimOldestToLimit(
     return {255, 202, 102, 225};
   case ImpactSurfaceCategory::Stone:
     return {182, 168, 142, 190};
+  case ImpactSurfaceCategory::WoodSoft:
+    return {214, 170, 104, 190};
   case ImpactSurfaceCategory::Energy:
     return {104, 214, 255, 235};
   case ImpactSurfaceCategory::GenericHard:
@@ -204,7 +206,105 @@ void trimOldestToLimit(
   return {244, 186, 94, 215};
 }
 
+struct SurfaceImpactProfile {
+  int baseSparkCount = 0;
+  float flashLifetimeSeconds = 0.05F;
+  float flashInitialScale = 0.06F;
+  float flashFinalScale = 0.02F;
+  float sparkLifetimeSeconds = 0.16F;
+  float sparkInitialScale = 0.014F;
+  float sparkSpeed = 2.0F;
+  float dustInitialScale = 0.04F;
+  float dustFinalScale = 0.14F;
+  float decalScale = 0.035F;
+  bool dust = false;
+  bool decal = true;
+};
+
+[[nodiscard]] SurfaceImpactProfile surfaceImpactProfile(
+  SurfaceImpactWeapon weapon
+) {
+  switch (weapon) {
+  case SurfaceImpactWeapon::MachineGun:
+    return {4, 0.065F, 0.082F, 0.024F, 0.20F, 0.014F, 2.2F,
+      0.045F, 0.16F, 0.036F, true, true};
+  case SurfaceImpactWeapon::Shotgun:
+    // One larger response stands in for the pellet cluster. The caller sends
+    // one request per accepted shot, never one request per pellet.
+    return {4, 0.075F, 0.115F, 0.032F, 0.18F, 0.016F, 1.9F,
+      0.070F, 0.20F, 0.058F, true, true};
+  case SurfaceImpactWeapon::Precision:
+    return {2, 0.045F, 0.060F, 0.016F, 0.14F, 0.012F, 2.8F,
+      0.032F, 0.10F, 0.026F, false, true};
+  case SurfaceImpactWeapon::Revolver:
+    return {3, 0.070F, 0.108F, 0.028F, 0.19F, 0.016F, 2.2F,
+      0.040F, 0.13F, 0.045F, false, true};
+  case SurfaceImpactWeapon::FreezeGun:
+    return {2, 0.065F, 0.092F, 0.028F, 0.17F, 0.012F, 1.35F,
+      0.0F, 0.0F, 0.040F, false, true};
+  }
+  return {};
+}
+
+[[nodiscard]] RenderColor surfaceImpactColor(
+  ImpactSurfaceCategory surface,
+  SurfaceImpactWeapon weapon
+) {
+  if (weapon == SurfaceImpactWeapon::FreezeGun) {
+    return {170, 244, 255, 235};
+  }
+  return impactColor(surface);
+}
+
+[[nodiscard]] RenderColor surfaceImpactDecalColor(
+  ImpactSurfaceCategory surface,
+  SurfaceImpactWeapon weapon
+) {
+  if (weapon == SurfaceImpactWeapon::FreezeGun) {
+    return {94, 186, 204, 118};
+  }
+  switch (surface) {
+  case ImpactSurfaceCategory::Metal:
+    return {54, 48, 38, 190};
+  case ImpactSurfaceCategory::Stone:
+    return {54, 48, 42, 180};
+  case ImpactSurfaceCategory::WoodSoft:
+    return {70, 52, 32, 172};
+  case ImpactSurfaceCategory::Energy:
+    return {58, 110, 132, 120};
+  case ImpactSurfaceCategory::GenericHard:
+    return {48, 42, 36, 190};
+  }
+  return {48, 42, 36, 190};
+}
+
 } // namespace
+
+CombatEffectPulseTimerAdvance advanceCombatEffectPulseTimer(
+  float remainingSeconds,
+  float deltaSeconds,
+  float intervalSeconds
+) {
+  const float interval = std::isfinite(intervalSeconds)
+    ? std::max(intervalSeconds, 0.001F)
+    : 0.10F;
+  const float remaining = std::isfinite(remainingSeconds)
+    ? remainingSeconds
+    : 0.0F;
+  const float delta = std::isfinite(deltaSeconds)
+    ? std::max(deltaSeconds, 0.0F)
+    : 0.0F;
+  if (remaining <= 0.0F) {
+    return {true, interval};
+  }
+  float next = remaining - delta;
+  const bool pulseDue = next <= 0.0F;
+  if (pulseDue) {
+    const float overdue = -next;
+    next = interval - std::fmod(overdue, interval);
+  }
+  return {pulseDue, next};
+}
 
 void CombatEffectEventHistory::clear() {
   weaponFires_ = {};
@@ -285,6 +385,8 @@ void CombatEffects::clear() {
   hasMuzzleAttachment_ = {};
   nextSerial_ = 1;
   shotsSpawned_ = 0;
+  surfaceImpactsSpawned_ = 0;
+  freezePulsesSpawned_ = 0;
   rocketShotsSpawned_ = 0;
   rocketExplosionsSpawned_ = 0;
   effectsDropped_ = 0;
@@ -490,8 +592,35 @@ void CombatEffects::spawnMachineGunShot(
   if (!request.hitWorld || length(request.impactNormal) <= 0.0001F) {
     return;
   }
+  spawnSurfaceImpact(
+    {
+      request.impactPosition,
+      request.impactNormal,
+      request.incomingDirection,
+      request.surface,
+      SurfaceImpactWeapon::MachineGun,
+      request.visualSeed,
+    },
+    tuning
+  );
+}
 
-  const Vec3 normal = normalize(request.impactNormal);
+void CombatEffects::spawnSurfaceImpact(
+  const SurfaceImpactEffectsRequest& request,
+  const CombatEffectsTuning& tuning
+) {
+  if (
+    tuning.quality <= 0 ||
+    !finite(request.position) ||
+    !finite(request.normal) ||
+    length(request.normal) <= 0.0001F
+  ) {
+    return;
+  }
+  ++surfaceImpactsSpawned_;
+  const SurfaceImpactProfile profile = surfaceImpactProfile(request.weapon);
+  const std::uint32_t seed = request.visualSeed;
+  const Vec3 normal = safeDirection(request.normal, Vec3{0.0F, 0.0F, 1.0F});
   Vec3 tangent = normalize(cross(normal, request.incomingDirection));
   if (length(tangent) <= 0.0001F) {
     tangent = normalize(cross(normal, Vec3{0.0F, 0.0F, 1.0F}));
@@ -500,12 +629,21 @@ void CombatEffects::spawnMachineGunShot(
     tangent = {1.0F, 0.0F, 0.0F};
   }
   const Vec3 bitangent = normalize(cross(normal, tangent));
-  const RenderColor sparkColor = impactColor(request.surface);
-  const int desiredSparks = static_cast<int>(std::clamp(
-    std::round(3.0F * std::max(0.0F, tuning.particleMultiplier)),
-    0.0F,
-    8.0F
-  ));
+  const RenderColor impact = surfaceImpactColor(request.surface, request.weapon);
+  const std::size_t particleLimit = clampedLimit(
+    tuning.maximumParticles,
+    kParticleCapacity
+  );
+  const int desiredSparks = tuning.quality >= 2
+    ? static_cast<int>(std::clamp(
+        std::round(
+          static_cast<float>(profile.baseSparkCount) *
+          std::max(0.0F, tuning.particleMultiplier)
+        ),
+        0.0F,
+        8.0F
+      ))
+    : 0;
   for (int index = 0; index < desiredSparks; ++index) {
     PoolEntry* particle =
       allocateEntry(particles_, particleLimit, nextSerial_++);
@@ -516,79 +654,169 @@ void CombatEffects::spawnMachineGunShot(
     const std::uint32_t lane = 20U + static_cast<std::uint32_t>(index) * 4U;
     particle->effect = {
       TransientEffectType::BulletImpactSpark,
-      request.impactPosition + normal * 0.008F,
+      request.position + normal * 0.008F,
       0.0F,
-      0.16F + seededUnit(seed, lane) * 0.12F,
-      0.014F,
-      0.004F,
-      sparkColor,
+      profile.sparkLifetimeSeconds + seededUnit(seed, lane) * 0.08F,
+      profile.sparkInitialScale,
+      profile.sparkInitialScale * 0.30F,
+      impact,
       seed + static_cast<std::uint32_t>(index),
     };
     particle->effect.velocity =
-      normal * (1.1F + seededUnit(seed, lane + 1U) * 2.2F) +
-      tangent * seededSigned(seed, lane + 2U) * 1.6F +
-      bitangent * seededSigned(seed, lane + 3U) * 1.6F;
+      normal * (0.8F + seededUnit(seed, lane + 1U) * profile.sparkSpeed) +
+      tangent * seededSigned(seed, lane + 2U) * profile.sparkSpeed * 0.62F +
+      bitangent * seededSigned(seed, lane + 3U) * profile.sparkSpeed * 0.62F;
   }
 
-  PoolEntry* flash =
-    allocateEntry(particles_, particleLimit, nextSerial_++);
+  PoolEntry* flash = allocateEntry(particles_, particleLimit, nextSerial_++);
   if (flash != nullptr) {
     flash->effect = {
       TransientEffectType::BulletImpactFlash,
-      request.impactPosition + normal * 0.012F,
+      request.position + normal * 0.012F,
       0.0F,
-      0.055F,
-      0.07F,
-      0.02F,
-      sparkColor,
+      profile.flashLifetimeSeconds,
+      profile.flashInitialScale,
+      profile.flashFinalScale,
+      impact,
       seed,
     };
     flash->effect.normal = normal;
+  } else {
+    ++effectsDropped_;
   }
 
-  if (tuning.quality >= 2 && request.surface != ImpactSurfaceCategory::Metal) {
-    PoolEntry* dust =
-      allocateEntry(particles_, particleLimit, nextSerial_++);
+  const bool useDust =
+    tuning.quality >= 2 &&
+    profile.dust &&
+    request.surface != ImpactSurfaceCategory::Metal &&
+    request.surface != ImpactSurfaceCategory::Energy;
+  if (useDust) {
+    PoolEntry* dust = allocateEntry(particles_, particleLimit, nextSerial_++);
     if (dust != nullptr) {
+      const RenderColor dustColor = request.surface == ImpactSurfaceCategory::Stone
+        ? RenderColor{172, 160, 138, 100}
+        : request.surface == ImpactSurfaceCategory::WoodSoft
+        ? RenderColor{154, 124, 82, 82}
+        : RenderColor{142, 132, 118, 82};
       dust->effect = {
         TransientEffectType::BulletImpactDust,
-        request.impactPosition + normal * 0.012F,
+        request.position + normal * 0.012F,
         0.0F,
-        0.34F,
-        0.045F,
-        0.16F,
-        request.surface == ImpactSurfaceCategory::Stone
-          ? RenderColor{172, 160, 138, 100}
-          : RenderColor{142, 132, 118, 82},
+        0.32F,
+        profile.dustInitialScale,
+        profile.dustFinalScale,
+        dustColor,
         seed,
       };
       dust->effect.velocity = normal * 0.42F +
         tangent * seededSigned(seed, 49U) * 0.12F;
+    } else {
+      ++effectsDropped_;
     }
   }
 
+  if (!profile.decal) {
+    return;
+  }
   PoolEntry* decal = allocateEntry(
     decals_,
     clampedLimit(tuning.maximumDecals, kDecalCapacity),
     nextSerial_++
   );
-  if (decal != nullptr) {
-    const float scale = 0.032F + seededUnit(seed, 52U) * 0.014F;
-    decal->effect = {
-      TransientEffectType::BulletDecal,
-      request.impactPosition + normal * 0.0025F,
+  if (decal == nullptr) {
+    ++effectsDropped_;
+    return;
+  }
+  const float scale = profile.decalScale * (0.88F + seededUnit(seed, 52U) * 0.34F);
+  decal->effect = {
+    TransientEffectType::BulletDecal,
+    request.position + normal * 0.0025F,
+    0.0F,
+    std::max(0.05F, tuning.decalLifetimeSeconds),
+    scale,
+    scale * 1.08F,
+    surfaceImpactDecalColor(request.surface, request.weapon),
+    seed,
+  };
+  decal->effect.normal = normal;
+  decal->effect.direction = tangent;
+  decal->effect.rotationRadians =
+    seededUnit(seed, 53U) * 2.0F * std::numbers::pi_v<float>;
+}
+
+void CombatEffects::spawnFreezeGunPulse(
+  const FreezeGunPulseEffectsRequest& request,
+  const CombatEffectsTuning& tuning
+) {
+  if (
+    tuning.quality <= 0 ||
+    request.ownerIndex >= kDuelPlayerCount ||
+    !finite(request.muzzlePosition)
+  ) {
+    return;
+  }
+  ++freezePulsesSpawned_;
+  const std::uint32_t seed = request.visualSeed;
+  const Vec3 forward = safeDirection(
+    request.muzzleForward,
+    Vec3{1.0F, 0.0F, 0.0F}
+  );
+  if (tuning.quality >= 2) {
+    PoolEntry* light = allocateEntry(lights_, kLightCapacity, nextSerial_++);
+    if (light != nullptr) {
+      light->effect = {
+        TransientEffectType::MachineGunMuzzleLight,
+        request.muzzlePosition,
+        0.0F,
+        std::clamp(tuning.muzzleLightDurationSeconds * 0.58F, 0.035F, 0.085F),
+        1.0F,
+        1.0F,
+        {158, 238, 255, 255},
+        seed,
+      };
+      light->effect.intensity =
+        std::max(0.0F, tuning.muzzleLightIntensity) * 0.58F;
+      light->effect.radius = std::max(0.0F, tuning.muzzleLightRadius) * 0.62F;
+      light->effect.ownerIndex = request.ownerIndex;
+      light->attachment = MuzzleAttachment::FreezeGun;
+    } else {
+      ++effectsDropped_;
+    }
+  }
+  PoolEntry* core = allocateEntry(
+    particles_,
+    clampedLimit(tuning.maximumParticles, kParticleCapacity),
+    nextSerial_++
+  );
+  if (core != nullptr) {
+    core->effect = {
+      TransientEffectType::BulletImpactFlash,
+      request.muzzlePosition + forward * 0.035F,
       0.0F,
-      std::max(0.05F, tuning.decalLifetimeSeconds),
-      scale,
-      scale * 1.08F,
-      {48, 42, 36, 190},
+      0.070F,
+      0.055F,
+      0.020F,
+      {214, 251, 255, 245},
       seed,
     };
-    decal->effect.normal = normal;
-    decal->effect.direction = tangent;
-    decal->effect.rotationRadians =
-      seededUnit(seed, 53U) * 2.0F * std::numbers::pi_v<float>;
+    core->effect.direction = forward;
+  } else {
+    ++effectsDropped_;
   }
+  if (!request.hitWorld) {
+    return;
+  }
+  spawnSurfaceImpact(
+    {
+      request.impactPosition,
+      request.impactNormal,
+      request.incomingDirection,
+      request.surface,
+      SurfaceImpactWeapon::FreezeGun,
+      seed,
+    },
+    tuning
+  );
 }
 
 void CombatEffects::spawnRocketLauncherShot(
@@ -796,6 +1024,8 @@ CombatEffectsStats CombatEffects::stats() const {
   result.activeParticles = static_cast<std::uint32_t>(activeCount(particles_));
   result.activeDecals = static_cast<std::uint32_t>(activeCount(decals_));
   result.shotsSpawned = shotsSpawned_;
+  result.surfaceImpactsSpawned = surfaceImpactsSpawned_;
+  result.freezePulsesSpawned = freezePulsesSpawned_;
   result.rocketShotsSpawned = rocketShotsSpawned_;
   result.rocketExplosionsSpawned = rocketExplosionsSpawned_;
   result.effectsDropped = effectsDropped_;

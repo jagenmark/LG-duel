@@ -8,5 +8,6 @@
   "description": "Shows the final menu state requested by LGD-42.",
   "image": "20260726T120000Z-main-menu-phone-01.png",
   "contains_sensitive_data": false,
+  "retain_original": false,
   "review": null
 }
