@@ -4201,6 +4201,33 @@ int main() {
     authoredSocketsMatchAllWeaponPositions,
     "MG muzzle and casing origins should match their authored sockets in every weapon position"
   );
+  lg::RenderSettings swayedMachineGunSettings = localMachineGunSettings;
+  swayedMachineGunSettings.viewModelPresentation.cameraTranslation =
+    {0.045F, -0.030F, 0.020F};
+  const lg::Scene3D swayedMachineGunScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    swayedMachineGunSettings
+  );
+  const lg::StaticMeshInstance* swayedMachineGunBody = findMachineGunPart(
+    swayedMachineGunScene,
+    lg::MeshHandle::RemoteMachineGunBody
+  );
+  failures += expect(
+    swayedMachineGunBody != nullptr &&
+      lg::length(
+        transformPoint(*swayedMachineGunBody, lg::machineGunMuzzleSocket()) -
+        lg::firstPersonMachineGunMuzzlePosition(player, swayedMachineGunSettings)
+      ) < 0.001F,
+    "local MG tracer origin should track the rendered muzzle through camera motion"
+  );
   failures += expect(
     idleBody != nullptr && idleBarrels != nullptr &&
       recoilingBody != nullptr && recoilingBarrels != nullptr &&
@@ -4371,6 +4398,8 @@ int main() {
 
   lg::RenderSettings localRevolverSettings = settings;
   localRevolverSettings.localSelectedWeapon = lg::Weapon::Revolver;
+  localRevolverSettings.viewModelPresentation.cameraTranslation =
+    {0.035F, -0.020F, 0.015F};
   const lg::Scene3D localRevolverScene = lg::buildPerspectiveScene(
     16.0F / 9.0F,
     arena,
@@ -4445,6 +4474,47 @@ int main() {
         indexedRevolverCylinder.modelRow1 - revolverCylinder.modelRow1
       ) > 0.01F,
     "first-person revolver should submit body and cylinder with recoil and one-step indexing transforms"
+  );
+  lg::RenderSettings localRevolverTracerSettings = idleRevolverSettings;
+  localRevolverTracerSettings.viewModelPresentation.cameraTranslation =
+    {0.040F, 0.025F, -0.015F};
+  std::array<lg::WeaponFireResult, lg::kDuelPlayerCount> localRevolverFires = {};
+  localRevolverFires[0].fired = true;
+  localRevolverFires[0].hit = true;
+  localRevolverFires[0].weapon = lg::Weapon::Revolver;
+  localRevolverFires[0].start = {-12.0F, -20.0F, 4.0F};
+  localRevolverFires[0].end = {-4.0F, -20.0F, 4.0F};
+  constexpr float localRevolverCameraStep = 0.075F;
+  const std::array<lg::RemotePlayerView, lg::kDuelPlayerCount>
+    noLocalRevolverRemotes = {};
+  const lg::Scene3D localRevolverTracerScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    noLocalRevolverRemotes,
+    inactiveBeam,
+    localRevolverFires,
+    rocketExplosions,
+    rockets,
+    std::span<const lg::TransientTracer>{},
+    std::span<const lg::TransientEffect>{},
+    std::span<const lg::IcePool>{},
+    localRevolverTracerSettings,
+    localRevolverCameraStep
+  );
+  const lg::Vec3 expectedLocalRevolverMuzzle =
+    lg::firstPersonRevolverMuzzlePosition(player, localRevolverTracerSettings) +
+    lg::Vec3{0.0F, 0.0F, localRevolverCameraStep};
+  float nearestLocalRevolverTracerVertex = std::numeric_limits<float>::infinity();
+  for (const lg::Vertex3D& vertex : localRevolverTracerScene.translucentVertices) {
+    nearestLocalRevolverTracerVertex = std::min(
+      nearestLocalRevolverTracerVertex,
+      lg::length(vertex.position - expectedLocalRevolverMuzzle)
+    );
+  }
+  failures += expect(
+    nearestLocalRevolverTracerVertex < 0.05F,
+    "local revolver beam should start at the rendered muzzle, not its world fire origin"
   );
   std::array<lg::TransientTracer, 1> revolverFlash = {{
     {

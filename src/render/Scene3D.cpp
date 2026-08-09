@@ -4263,8 +4263,10 @@ Vec3 firstPersonMachineGunMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -4297,8 +4299,10 @@ Vec3 firstPersonRevolverMuzzlePosition(
   const PlayerState& player,
   const RenderSettings& settings
 ) {
+  PlayerState viewModelPlayer = player;
+  viewModelPlayer.position += viewModelCameraMotion(player, settings);
   WeaponModelFrame frame = firstPersonWeaponModelFrame(
-    player,
+    viewModelPlayer,
     settings.weaponPosition,
     settings.viewModelPresentation
   );
@@ -6436,20 +6440,22 @@ Scene3D buildPerspectiveScene(
       continue;
     }
     if (fire.weapon == Weapon::Railgun || fire.weapon == Weapon::Revolver) {
-      const bool localRailFire =
-        fire.weapon == Weapon::Railgun &&
+      const bool localHitscanFire =
         fireIndex == static_cast<std::size_t>(settings.localPlayerIndex) &&
         settings.showOwnWeapons;
-      const Vec3 visualStart = localRailFire
-        ? [&]() {
-            PlayerState viewModelPlayer = player;
-            viewModelPlayer.position.z += cameraVerticalOffset;
-            viewModelPlayer.position += cameraMotion;
-            return sniperRifleMuzzlePositionForViewModelPlayer(
-              viewModelPlayer,
-              settings
-            );
-          }()
+      const Vec3 visualStart = localHitscanFire
+        ? fire.weapon == Weapon::Railgun
+          ? [&]() {
+              PlayerState viewModelPlayer = player;
+              viewModelPlayer.position.z += cameraVerticalOffset;
+              viewModelPlayer.position += cameraMotion;
+              return sniperRifleMuzzlePositionForViewModelPlayer(
+                viewModelPlayer,
+                settings
+              );
+            }()
+          : firstPersonRevolverMuzzlePosition(player, settings) +
+              Vec3{0.0F, 0.0F, cameraVerticalOffset}
         : fireIndex < remotePlayers.size() && remotePlayers[fireIndex].visible
           ? remoteHitscanMuzzlePosition(
               remotePlayers[fireIndex],
