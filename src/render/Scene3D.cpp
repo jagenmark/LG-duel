@@ -2055,7 +2055,7 @@ void addGltfPlayerModelInstance(
   const WeaponModelFrame genericFrame =
     weaponModelFrame(remote.player, leanEnabled, leanScale);
   if (
-    settings.playerModel != 2 ||
+    settings.playerModel <= 0 ||
     !settings.drawRemotePlayers
   ) {
     return genericFrame;
@@ -6084,11 +6084,9 @@ Scene3D buildPerspectiveScene(
   scene.gltfBonePalette.reserve(kDuelPlayerCount * 64U);
   appendCollisionDebugGeometry(scene, arena, settings.showCollision);
   GltfSkinnedModel::PoseScratch gltfPoseScratch;
-  const GltfSkinnedModel* gltfPlayerModel = settings.playerModel == 1
-    ? &duelistMaleModel()
-    : settings.playerModel == 2
-      ? &workerPlayerModel()
-      : nullptr;
+  const GltfSkinnedModel* gltfPlayerModel = settings.playerModel > 0
+    ? &workerPlayerModel()
+    : nullptr;
   if (gltfPlayerModel != nullptr && gltfPlayerModel->loaded()) {
     scene.gltfBonePalette.reserve(
       kDuelPlayerCount *

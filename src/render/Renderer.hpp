@@ -219,7 +219,7 @@ struct RenderSettings {
   std::uint8_t enemyGreen = 82;
   std::uint8_t enemyBlue = 92;
   float enemyAlpha = 1.0F;
-  int playerModel = 0;
+  int playerModel = 1;
   bool enemyOutlineEnabled = true;
   PlayerOutlineMode playerOutlineMode = PlayerOutlineMode::NativeScreenSpace;
   PlayerOutlineStyle playerOutlineStyle = PlayerOutlineStyle::Geometry;

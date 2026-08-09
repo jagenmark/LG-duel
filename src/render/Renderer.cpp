@@ -11684,7 +11684,7 @@ bool Renderer::initialize(void* window) {
         }
         GpuSimpleResources* simpleResources = createGpuSimpleResources(device);
         GpuGltfPlayerResources* gltfPlayerResources =
-          createGpuGltfPlayerResources(device, duelistMaleModel());
+          createGpuGltfPlayerResources(device, workerPlayerModel());
         const SDL_GPUBufferCreateInfo vertexBufferInfo = {
           SDL_GPU_BUFFERUSAGE_VERTEX,
           static_cast<Uint32>(kMaxGpuVertices * sizeof(GpuVertex)),
@@ -12466,9 +12466,7 @@ void Renderer::render(
     auto* pointShadowTexture =
       static_cast<SDL_GPUTexture*>(gpuPointShadowTexture_);
     auto* staticWorld = static_cast<StaticWorldMesh*>(gpuStaticWorld_);
-    const GltfSkinnedModel* requestedPlayerModel = settings.playerModel == 2
-      ? &workerPlayerModel()
-      : &duelistMaleModel();
+    const GltfSkinnedModel* requestedPlayerModel = &workerPlayerModel();
     auto* gltfPlayerResources =
       static_cast<GpuGltfPlayerResources*>(gpuGltfPlayerResources_);
     if (
