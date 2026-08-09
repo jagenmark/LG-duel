@@ -2386,10 +2386,10 @@ struct ResolutionOption {
   int height = 0;
 };
 
-constexpr int kSettingsResetRow = 31;
-constexpr int kSettingsApplyRow = 32;
-constexpr int kSettingsCloseRow = 33;
-constexpr int kSettingsRowCount = 34;
+constexpr int kSettingsResetRow = 32;
+constexpr int kSettingsApplyRow = 33;
+constexpr int kSettingsCloseRow = 34;
+constexpr int kSettingsRowCount = 35;
 
 struct SettingsMenuState {
   bool open = false;
@@ -2414,6 +2414,7 @@ struct SettingsMenuState {
   bool pendingShowConsoleCat = true;
   int pendingCombatEffects = 2;
   float pendingToneMapExposure = 1.0F;
+  float pendingDisplayGamma = 1.0F;
   int pendingAtmosphereGrade = 2;
   bool pendingBloom = true;
   float pendingBloomIntensity = 0.18F;
@@ -2441,6 +2442,7 @@ struct SettingsMenuState {
   bool originalShowConsoleCat = true;
   int originalCombatEffects = 2;
   float originalToneMapExposure = 1.0F;
+  float originalDisplayGamma = 1.0F;
   int originalAtmosphereGrade = 2;
   bool originalBloom = true;
   float originalBloomIntensity = 0.18F;
@@ -3128,6 +3130,7 @@ bool applyVideoSettings(
     menu.pendingShowConsoleCat != menu.originalShowConsoleCat ||
     menu.pendingCombatEffects != menu.originalCombatEffects ||
     menu.pendingToneMapExposure != menu.originalToneMapExposure ||
+    menu.pendingDisplayGamma != menu.originalDisplayGamma ||
     menu.pendingAtmosphereGrade != menu.originalAtmosphereGrade ||
     menu.pendingBloom != menu.originalBloom ||
     menu.pendingBloomIntensity != menu.originalBloomIntensity ||
@@ -3211,6 +3214,7 @@ void applyGraphicsProfile(SettingsMenuState& menu, int profile) {
   menu.pendingCombatEffects = std::stoi(std::string(value("r_combat_effects")));
   menu.pendingToneMapExposure =
     std::stof(std::string(value("r_tonemap_exposure")));
+  // Display gamma belongs to the player, not a graphics quality profile.
   menu.pendingAtmosphereGrade =
     std::stoi(std::string(value("r_atmosphere_grade")));
   menu.pendingBloom = value("r_bloom") == "1";
@@ -3250,6 +3254,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.pendingShowConsoleCat = console.getBool("cl_show_console_cat");
   menu.pendingCombatEffects = console.getInt("r_combat_effects");
   menu.pendingToneMapExposure = console.getFloat("r_tonemap_exposure");
+  menu.pendingDisplayGamma = console.getFloat("r_display_gamma");
   menu.pendingAtmosphereGrade = console.getInt("r_atmosphere_grade");
   menu.pendingBloom = console.getBool("r_bloom");
   menu.pendingBloomIntensity = console.getFloat("r_bloom_intensity");
@@ -3274,6 +3279,7 @@ void syncSettingsMenuFromConsole(SettingsMenuState& menu, const ConsoleSystem& c
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalDisplayGamma = menu.pendingDisplayGamma;
   menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
@@ -3441,6 +3447,13 @@ void adjustSettingsMenuValue(SettingsMenuState& menu, int direction) {
     menu.pendingDecalBudget = wrappedOption(values, index + direction);
     return;
   }
+  case 31:
+    menu.pendingDisplayGamma = std::clamp(
+      menu.pendingDisplayGamma + 0.05F * static_cast<float>(direction),
+      0.50F,
+      1.50F
+    );
+    return;
   default:
     return;
   }
@@ -3475,6 +3488,9 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   );
   (void)console.execute(
     "set r_tonemap_exposure " + std::to_string(menu.pendingToneMapExposure)
+  );
+  (void)console.execute(
+    "set r_display_gamma " + std::to_string(menu.pendingDisplayGamma)
   );
   (void)console.execute(
     "set r_atmosphere_grade " + std::to_string(menu.pendingAtmosphereGrade)
@@ -3517,6 +3533,7 @@ void applySettingsMenu(ConsoleSystem& console, SettingsMenuState& menu) {
   menu.originalShowConsoleCat = menu.pendingShowConsoleCat;
   menu.originalCombatEffects = menu.pendingCombatEffects;
   menu.originalToneMapExposure = menu.pendingToneMapExposure;
+  menu.originalDisplayGamma = menu.pendingDisplayGamma;
   menu.originalAtmosphereGrade = menu.pendingAtmosphereGrade;
   menu.originalBloom = menu.pendingBloom;
   menu.originalBloomIntensity = menu.pendingBloomIntensity;
@@ -3745,6 +3762,15 @@ void populateSettingsMenuRenderState(
     ),
     settingsMenuItem(
       menu,
+      31,
+      "Brightness / gamma",
+      std::to_string(
+        static_cast<int>(std::lround(menu.pendingDisplayGamma * 100.0F))
+      ) + "%",
+      menu.pendingDisplayGamma != menu.originalDisplayGamma
+    ),
+    settingsMenuItem(
+      menu,
       kSettingsResetRow,
       "Reset graphics draft",
       "Default profile",
@@ -3793,12 +3819,15 @@ void populateSettingsMenuRenderState(
           "Sets how strong the bright-effect glow appears.",
           "Smooths edges: Off, 2x MSAA, or 4x MSAA.",
           "Sets the quality of shadows cast by the sun.",
+          "Sets the budget for live map point lights.",
+          "Sets the quality of cached shadows from live map lights.",
           "Adds short grounding shadows to players and props.",
           "Sets world surface detail: Basic, Enhanced, or High.",
           "Sets the edge light used to make players stand out.",
           "Shows or hides spent weapon casings.",
           "Sets the amount of impact sparks and debris.",
           "Sets the maximum number of bullet marks kept in the world.",
+          "Adjusts final display gamma after tone mapping and grade; 100% is neutral.",
           "Resets this draft to the default graphics profile.",
           "Applies every changed setting in this graphics draft.",
           "Closes the menu and restores the last applied settings.",
@@ -4040,6 +4069,7 @@ RenderSettings renderSettings(
   settings.muzzleLightDurationSeconds =
     console.getFloat("r_muzzle_light_duration");
   settings.toneMapExposure = console.getFloat("r_tonemap_exposure");
+  settings.displayGamma = console.getFloat("r_display_gamma");
   settings.atmosphereGradeQuality = console.getInt("r_atmosphere_grade");
   settings.bloomEnabled = console.getBool("r_bloom");
   settings.bloomIntensity = console.getFloat("r_bloom_intensity");

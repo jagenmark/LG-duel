@@ -855,6 +855,7 @@ int main() {
     true,
     true,
     true,
+    true,
   };
   const lg::DirectPresentPlan directPlan =
     lg::buildDirectPresentPlan(directInputs);
@@ -871,6 +872,10 @@ int main() {
     std::pair{
       &lg::DirectPresentInputs::unitExposure,
       lg::DirectPresentFallbackReason::Exposure,
+    },
+    std::pair{
+      &lg::DirectPresentInputs::neutralDisplayGamma,
+      lg::DirectPresentFallbackReason::DisplayGamma,
     },
     std::pair{
       &lg::DirectPresentInputs::singleSample,
@@ -951,6 +956,20 @@ int main() {
       "direct present should reject each unsafe input"
     );
   }
+  failures += expect(
+    lg::displayGammaIsNeutral(lg::kNeutralDisplayGamma) &&
+      !lg::displayGammaIsNeutral(lg::kMinimumDisplayGamma) &&
+      !lg::displayGammaIsNeutral(lg::kMaximumDisplayGamma) &&
+      nearlyEqual(
+        lg::clampedDisplayGamma(0.25F),
+        lg::kMinimumDisplayGamma
+      ) &&
+      nearlyEqual(
+        lg::clampedDisplayGamma(2.0F),
+        lg::kMaximumDisplayGamma
+      ),
+    "display gamma should preserve neutral direct present and clamp endpoints"
+  );
   constexpr float oneDisplayByte = 1.0F / 255.0F;
   const auto neutralClearMatches = [](
                                      float linear,

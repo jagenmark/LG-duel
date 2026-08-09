@@ -13,6 +13,7 @@ layout(set = 3, binding = 0, std140) uniform DirectLightData {
 } directLights;
 
 #include "includes/direct_display.glsl"
+#include "includes/live_fill.glsl"
 
 void main() {
   vec3 n = normalize(worldNormal);
@@ -24,10 +25,7 @@ void main() {
   }
   vec3 fillRadiance = directLights.fillColorIntensity.rgb *
     max(directLights.fillColorIntensity.w, 0.0);
-  float skyFill = n.z * 0.5 + 0.5;
-  vec3 color = albedo * ambientData.x * (
-    vec3(0.16) + fillRadiance * (0.35 + 0.65 * skyFill)
-  );
+  vec3 color = albedo * ambientData.x * correctedLiveFill(fillRadiance);
   vec3 sunDirection =
     normalize(-directLights.sunDirectionIntensity.xyz);
   float sunNDotL = max(dot(n, sunDirection), 0.0);

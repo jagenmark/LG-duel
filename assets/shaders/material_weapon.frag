@@ -33,6 +33,7 @@ layout(set = 3, binding = 0, std140) uniform SceneLightData {
 const float PI = 3.14159265359;
 
 #include "includes/direct_display.glsl"
+#include "includes/live_fill.glsl"
 #include "includes/sun_shadow.glsl"
 #include "includes/point_shadow.glsl"
 #include "includes/point_light_response.glsl"
@@ -79,9 +80,7 @@ void main() {
 
   vec3 fillRadiance = sceneLights.fillColorIntensity.rgb *
     max(sceneLights.fillColorIntensity.w, 0.0);
-  float skyFill = n.z * 0.5 + 0.5;
-  vec3 color = albedo * ambientData.x * (vec3(0.16) + fillRadiance *
-    (0.35 + 0.65 * skyFill));
+  vec3 color = albedo * ambientData.x * correctedLiveFill(fillRadiance);
 
   vec3 sunDirection = normalize(-sceneLights.sunDirectionIntensity.xyz);
   float sunNDotL = max(dot(n, sunDirection), 0.0);

@@ -1133,6 +1133,64 @@ class LgToolTests(unittest.TestCase):
         self.assertIn("max(vertexColor.rgb, vec3(0.00169355))", shader)
         self.assertIn('"world_surface.frag.spv",\n    3', renderer)
 
+    def test_dynamic_live_fill_uses_one_scene_relative_correction(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        shared = (shader_dir / "includes" / "live_fill.glsl").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("kSceneFillEncoding = vec3(0.30, 0.36, 0.46)", shared)
+        self.assertIn("kLiveFillBaselineScale = 0.90", shared)
+        self.assertIn("mapAmbientRadiance", shared)
+        self.assertIn("fillColor = {", (root / "src" / "render" / "Scene3D.cpp").read_text(
+            encoding="utf-8"
+        ))
+        for shader_name in (
+            "material_weapon.frag",
+            "material_weapon_direct.frag",
+            "gltf_player_model.frag",
+            "gltf_player_model_flat.frag",
+            "gltf_player_model_direct.frag",
+        ):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertIn('#include "includes/live_fill.glsl"', shader)
+            self.assertIn("correctedLiveFill(fillRadiance)", shader)
+            self.assertNotIn("vec3(0.16) + fillRadiance", shader)
+            self.assertNotIn("vec3(0.18) + fillRadiance", shader)
+
+    def test_display_gamma_is_final_and_disables_direct_present_when_changed(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        shader_dir = root / "assets" / "shaders"
+        cvars = (root / "src" / "app" / "ClientCvars.cpp").read_text(
+            encoding="utf-8"
+        )
+        config = (root / "config" / "default_client.cfg").read_text(
+            encoding="utf-8"
+        )
+        app = (root / "src" / "app" / "GameApp.cpp").read_text(
+            encoding="utf-8"
+        )
+        renderer_hpp = (root / "src" / "render" / "Renderer.hpp").read_text(
+            encoding="utf-8"
+        )
+        renderer = (root / "src" / "render" / "Renderer.cpp").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"r_display_gamma"', cvars)
+        self.assertIn("1.0F, archivedClient, 0.50F, 1.50F", cvars)
+        self.assertIn("set r_display_gamma 1", config)
+        self.assertIn('"Brightness / gamma"', app)
+        self.assertIn("settings.displayGamma = console.getFloat(\"r_display_gamma\")", app)
+        self.assertIn("DisplayGamma", renderer_hpp)
+        self.assertIn("neutralDisplayGamma", renderer_hpp)
+        self.assertIn("displayGammaIsNeutral(settings.displayGamma)", renderer)
+        self.assertIn('return "display-gamma"', renderer)
+        for shader_name in ("scene_composite.frag", "scene_composite_no_bloom.frag"):
+            shader = (shader_dir / shader_name).read_text(encoding="utf-8")
+            self.assertIn('#include "includes/display_gamma.glsl"', shader)
+            self.assertIn("displayEncode(displayColor, composite.parameters.w)", shader)
+            self.assertLess(shader.index("gradeColor("), shader.index("displayEncode("))
+
     def test_worker_flat_shaders_share_luminance_team_tint(self) -> None:
         root = Path(__file__).resolve().parents[1]
         shader_dir = root / "assets" / "shaders"
