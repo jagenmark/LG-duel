@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import importlib.util
-import json
 from pathlib import Path
 import re
 import sys
@@ -19,15 +18,6 @@ core = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(core)
 
 POSE_SIGNATURES = {}
-GAMEPLAY_JUMP_FACT = None
-
-
-def _job_options():
-    values = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
-    if not values:
-        raise RuntimeError("missing modular job request")
-    job = json.loads(Path(values[0]).read_text(encoding="utf-8"))
-    return job.get("options", {})
 
 
 def _transfer_actions(bpy, source, forward, up, bone_map, mode, clip_names):
@@ -177,108 +167,6 @@ def _bind_action(rig, action):
         rig.animation_data.action_slot = slots[0]
 
 
-def _create_gameplay_jump(bpy, spec):
-    """Create an in-place jump while the game owns world movement."""
-    if spec is None:
-        return None
-    if not isinstance(spec, dict):
-        raise core.JobError("options.gameplay_jump must be an object")
-    source_name = spec.get("source")
-    output_name = spec.get("name")
-    frames = spec.get("frames", [1, 5, 10, 16, 22])
-    hip_offsets = spec.get("hip_offsets", [0.0, -0.12, 0.04, 0.1, 0.04])
-    if not isinstance(source_name, str) or not source_name or not isinstance(output_name, str) or not output_name:
-        raise core.JobError("gameplay_jump needs non-empty source and name values")
-    if bpy.data.actions.get(output_name) is not None:
-        raise core.JobError(f"gameplay_jump output already exists: {output_name}")
-    if (
-        not isinstance(frames, list) or len(frames) != 5 or
-        not all(isinstance(frame, int) and frame >= 0 for frame in frames) or
-        frames != sorted(set(frames))
-    ):
-        raise core.JobError("gameplay_jump.frames must be five increasing whole frames")
-    if (
-        not isinstance(hip_offsets, list) or len(hip_offsets) != 5 or
-        not all(isinstance(value, (int, float)) for value in hip_offsets)
-    ):
-        raise core.JobError("gameplay_jump.hip_offsets must contain five numbers")
-    source = bpy.data.actions.get(source_name)
-    rigs = [obj for obj in core._scene_objects(bpy) if obj.type == "ARMATURE"]
-    if source is None or len(rigs) != 1:
-        raise core.JobError("gameplay_jump source or armature not found")
-    rig = rigs[0]
-    leg_names = ("Hips", "UpperLeg.L", "LowerLeg.L", "Foot.L", "UpperLeg.R", "LowerLeg.R", "Foot.R")
-    missing = [name for name in leg_names if name not in rig.pose.bones]
-    if missing:
-        raise core.JobError("gameplay_jump bones are missing: " + ", ".join(missing))
-
-    from mathutils import Matrix, Quaternion
-
-    rig.animation_data_create()
-    muted = [(track, track.mute) for track in rig.animation_data.nla_tracks]
-    for track, _ in muted:
-        track.mute = True
-    _bind_action(rig, source)
-    sample_frame = int(round(sum(source.frame_range) * 0.5))
-    bpy.context.scene.frame_set(sample_frame)
-    bpy.context.view_layer.update()
-    base = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
-
-    action = bpy.data.actions.new(output_name)
-    _bind_action(rig, action)
-    # Five clear poses: ready, compression, launch, peak, and airborne hand-off.
-    leg_angles = [
-        (0.0, 0.0, 0.0, 0.0),
-        (-45.0, 80.0, -38.0, 72.0),
-        (8.0, -12.0, -10.0, 18.0),
-        (-15.0, 30.0, 10.0, -22.0),
-        (-8.0, 18.0, 5.0, -12.0),
-    ]
-    for pose_index, frame in enumerate(frames):
-        for bone in rig.pose.bones:
-            matrix = base[bone.name]
-            bone.rotation_mode = "QUATERNION"
-            bone.location = matrix.to_translation()
-            bone.rotation_quaternion = matrix.to_quaternion()
-            bone.scale = matrix.to_scale()
-        hips = rig.pose.bones["Hips"]
-        # Drop the body in armature space; the hip bone's local axes vary by rig.
-        hips.matrix = Matrix.Translation((0.0, 0.0, float(hip_offsets[pose_index]))) @ hips.matrix
-        left_upper, left_lower, right_upper, right_lower = leg_angles[pose_index]
-        for name, degrees in (
-            ("UpperLeg.L", left_upper), ("LowerLeg.L", left_lower),
-            ("UpperLeg.R", right_upper), ("LowerLeg.R", right_lower),
-        ):
-            bone = rig.pose.bones[name]
-            bone.rotation_quaternion = bone.rotation_quaternion @ Quaternion((1.0, 0.0, 0.0), core.math.radians(degrees))
-        for bone in rig.pose.bones:
-            bone.keyframe_insert(data_path="location", frame=frame, group=bone.name)
-            bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
-            bone.keyframe_insert(data_path="scale", frame=frame, group=bone.name)
-    track = rig.animation_data.nla_tracks.new()
-    track.name = output_name
-    strip = track.strips.new(output_name, frames[0], action)
-    if getattr(action, "slots", None) and hasattr(strip, "action_slot"):
-        strip.action_slot = action.slots[0]
-    for existing, was_muted in muted:
-        existing.mute = was_muted
-    rig.animation_data.action = None
-    return {
-        "name": output_name,
-        "source_pose": source_name,
-        "frame_range": [frames[0], frames[-1]],
-        "in_place": True,
-        "source_roll_preserved_as": "Roll",
-    }
-
-
-def _create_two_handed_idle_and_jump(bpy, spec):
-    global GAMEPLAY_JUMP_FACT
-    result = ORIGINAL_TWO_HANDED(bpy, spec)
-    GAMEPLAY_JUMP_FACT = _create_gameplay_jump(bpy, _job_options().get("gameplay_jump"))
-    return result
-
-
 def _pose_signature(bpy, rig):
     bpy.context.view_layer.update()
     values = []
@@ -325,19 +213,15 @@ def _run_with_pose_gate(job, result_path):
         "actions": list(required),
         "distinct_pairs": 3,
     }
-    if GAMEPLAY_JUMP_FACT is not None:
-        result["processing"]["gameplay_jump"] = GAMEPLAY_JUMP_FACT
     return result
 
 
 ORIGINAL_TRANSFER = core._attach_animation_source
 ORIGINAL_RENDER = core._render_previews
-ORIGINAL_TWO_HANDED = core._create_two_handed_idle
 ORIGINAL_RUN = core.run
 core._attach_animation_source = _transfer_actions
 core._rename_bones = _rename_target_bones
 core._render_previews = _render_action_alone
-core._create_two_handed_idle = _create_two_handed_idle_and_jump
 core.run = _run_with_pose_gate
 
 if __name__ == "__main__":

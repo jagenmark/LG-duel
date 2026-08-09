@@ -21,7 +21,8 @@ ENGINE_REPORT = ROOT / "imports/assets/review/quaternius_worker/reports/engine-v
 ALBEDO = ROOT / "assets/models/quaternius_worker/materials/worker_albedo.png"
 MASK = ROOT / "assets/models/quaternius_worker/materials/worker_material_mask.png"
 
-EXPECTED_SHA256 = "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60"
+EXPECTED_RUNTIME_SHA256 = "368445c36b4c7da7bdec8f677cfecb6c5a34d575caac59ff4b721a5cd85f22db"
+EXPECTED_REVIEW_SHA256 = "b72bb9287f761550b059f4dffcf721c78ae19d814c0de74633e4cbe18c455c60"
 EXPECTED_MATERIALS = [
     "Skin",
     "Worker_Yellow",
@@ -159,6 +160,21 @@ def animation_durations(document: dict, binary: bytes) -> dict[str, float]:
     return durations
 
 
+def animation_signature(document: dict, binary: bytes, animation: dict) -> list[tuple]:
+    signature = []
+    for channel in animation.get("channels", []):
+        sampler = animation["samplers"][channel["sampler"]]
+        target = channel["target"]
+        signature.append((
+            document["nodes"][target["node"]].get("name", ""),
+            target["path"],
+            sampler.get("interpolation", "LINEAR"),
+            tuple(accessor_values(document, binary, sampler["input"])),
+            tuple(accessor_values(document, binary, sampler["output"])),
+        ))
+    return sorted(signature, key=lambda item: (item[0], item[1]))
+
+
 def validate_glb_contract(runtime: dict, binary: bytes, review: dict, review_binary: bytes) -> None:
     runtime_materials = [material.get("name", "") for material in runtime.get("materials", [])]
     require(runtime_materials == EXPECTED_MATERIALS, "Worker material names changed")
@@ -213,7 +229,25 @@ def validate_glb_contract(runtime: dict, binary: bytes, review: dict, review_bin
     runtime_durations = animation_durations(runtime, binary)
     review_durations = animation_durations(review, review_binary)
     require(runtime_durations.keys() == review_durations.keys(), "Worker animation duration inventory changed")
-    require(all(abs(runtime_durations[name] - review_durations[name]) <= 0.0001 for name in runtime_durations), "Worker animation duration changed")
+    changed_clips = {"JUMP", "FALL"}
+    require(all(
+        abs(runtime_durations[name] - review_durations[name]) <= 0.0001
+        for name in runtime_durations if name not in changed_clips
+    ), "an unchanged Worker animation duration changed")
+    require(abs(runtime_durations["JUMP"] - 0.7333333) <= 0.0001, "Worker jump duration changed")
+    require(abs(runtime_durations["FALL"] - 0.8333333) <= 0.0001, "Worker fall duration changed")
+    runtime_animations = {animation["name"]: animation for animation in runtime["animations"]}
+    review_animations = {animation["name"]: animation for animation in review["animations"]}
+    require(all(
+        animation_signature(runtime, binary, runtime_animations[name]) ==
+        animation_signature(review, review_binary, review_animations[name])
+        for name in runtime_animations if name not in changed_clips
+    ), "an unchanged Worker animation clip changed")
+    runtime_roll = animation_signature(runtime, binary, runtime_animations["Roll"])
+    require(animation_signature(runtime, binary, runtime_animations["JUMP"]) != runtime_roll,
+            "Worker jump still matches Roll")
+    require(animation_signature(runtime, binary, runtime_animations["FALL"]) != runtime_roll,
+            "Worker fall still matches Roll")
 
     runtime_socket = next((node for node in runtime.get("nodes", []) if node.get("name") == "weapon_socket"), None)
     review_socket = next((node for node in review.get("nodes", []) if node.get("name") == "weapon_socket"), None)
@@ -225,7 +259,7 @@ def validate_manifest_and_images() -> None:
     manifest = json.loads(MANIFEST.read_text(encoding="utf-8-sig"))
     require(manifest.get("schema_version") == 1, "Worker material manifest schema changed")
     require(manifest.get("model") == RUNTIME_GLB.name, "Worker material manifest targets the wrong model")
-    require(manifest.get("model_sha256") == EXPECTED_SHA256, "Worker material manifest hash changed")
+    require(manifest.get("model_sha256") == EXPECTED_RUNTIME_SHA256, "Worker material manifest hash changed")
     require(manifest.get("opaque") is True, "Worker material manifest must force opaque rendering")
     require(manifest.get("uv_mode") == "material_cell", "Worker must retain its material-cell UV policy")
     require(manifest.get("albedo_mode") == "replace", "Worker albedo mode changed")
@@ -277,8 +311,8 @@ def main() -> int:
     try:
         for path in (RUNTIME_GLB, REVIEW_GLB, MANIFEST, ENGINE_REPORT, ALBEDO, MASK):
             require(path.is_file(), f"missing Worker material validation input: {path.relative_to(ROOT)}")
-        require(sha256(RUNTIME_GLB) == EXPECTED_SHA256, "Worker runtime GLB hash changed")
-        require(sha256(REVIEW_GLB) == EXPECTED_SHA256, "Worker review GLB hash changed")
+        require(sha256(RUNTIME_GLB) == EXPECTED_RUNTIME_SHA256, "Worker runtime GLB hash changed")
+        require(sha256(REVIEW_GLB) == EXPECTED_REVIEW_SHA256, "Worker review GLB hash changed")
         runtime, binary = load_glb(RUNTIME_GLB)
         review, review_binary = load_glb(REVIEW_GLB)
         report = json.loads(ENGINE_REPORT.read_text(encoding="utf-8-sig"))

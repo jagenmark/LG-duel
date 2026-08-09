@@ -734,6 +734,155 @@ def _create_two_handed_idle(bpy: Any, spec: dict[str, Any] | None) -> dict[str, 
     }
 
 
+def _create_gameplay_jump(bpy: Any, spec: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Create an in-place jump while the game owns world movement."""
+    if spec is None:
+        return None
+    if not isinstance(spec, dict):
+        raise JobError("options.gameplay_jump must be an object")
+    source_name = spec.get("source")
+    output_name = spec.get("name")
+    fall_name = spec.get("fall_name")
+    frames = spec.get("frames", [1, 5, 10, 16, 22])
+    fall_frames = spec.get("fall_frames", [1, 25])
+    hip_offsets = spec.get("hip_offsets", [0.0, -0.12, 0.04, 0.1, 0.04])
+    if not isinstance(source_name, str) or not source_name or not isinstance(output_name, str) or not output_name:
+        raise JobError("gameplay_jump needs non-empty source and name values")
+    if bpy.data.actions.get(output_name) is not None:
+        raise JobError(f"gameplay_jump output already exists: {output_name}")
+    if fall_name is not None and (not isinstance(fall_name, str) or not fall_name):
+        raise JobError("gameplay_jump.fall_name must be non-empty text")
+    if fall_name == output_name:
+        raise JobError("gameplay_jump jump and fall names must differ")
+    if fall_name is not None and bpy.data.actions.get(fall_name) is not None:
+        raise JobError(f"gameplay_jump fall output already exists: {fall_name}")
+    if (
+        not isinstance(frames, list) or len(frames) != 5 or
+        not all(isinstance(frame, int) and frame >= 0 for frame in frames) or
+        frames != sorted(set(frames))
+    ):
+        raise JobError("gameplay_jump.frames must be five increasing whole frames")
+    if (
+        not isinstance(fall_frames, list) or len(fall_frames) != 2 or
+        not all(isinstance(frame, int) and frame >= 0 for frame in fall_frames) or
+        fall_frames != sorted(set(fall_frames))
+    ):
+        raise JobError("gameplay_jump.fall_frames must be two increasing whole frames")
+    if (
+        not isinstance(hip_offsets, list) or len(hip_offsets) != 5 or
+        not all(
+            not isinstance(value, bool) and isinstance(value, (int, float)) and math.isfinite(value)
+            for value in hip_offsets
+        )
+    ):
+        raise JobError("gameplay_jump.hip_offsets must contain five finite numbers")
+    source = bpy.data.actions.get(source_name)
+    rigs = [obj for obj in _scene_objects(bpy) if obj.type == "ARMATURE"]
+    if source is None or len(rigs) != 1:
+        raise JobError("gameplay_jump source or armature not found")
+    rig = rigs[0]
+    leg_names = ("Hips", "UpperLeg.L", "LowerLeg.L", "Foot.L", "UpperLeg.R", "LowerLeg.R", "Foot.R")
+    missing = [name for name in leg_names if name not in rig.pose.bones]
+    if missing:
+        raise JobError("gameplay_jump bones are missing: " + ", ".join(missing))
+
+    from mathutils import Matrix, Quaternion
+
+    rig.animation_data_create()
+    scene = bpy.context.scene
+    previous_frame = scene.frame_current
+    previous_action = rig.animation_data.action
+    previous_basis = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
+    muted = [(track, track.mute) for track in rig.animation_data.nla_tracks]
+    for track, _ in muted:
+        track.mute = True
+    rig.animation_data.action = source
+    sample_frame = int(round(sum(source.frame_range) * 0.5))
+    scene.frame_set(sample_frame)
+    bpy.context.view_layer.update()
+    base = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
+
+    action = bpy.data.actions.new(output_name)
+    rig.animation_data.action = action
+    # Five clear poses: ready, compression, launch, peak, and airborne hand-off.
+    leg_angles = [
+        (0.0, 0.0, 0.0, 0.0),
+        (-45.0, 80.0, -38.0, 72.0),
+        (8.0, -12.0, -10.0, 18.0),
+        (-15.0, 30.0, 10.0, -22.0),
+        (-8.0, 18.0, 5.0, -12.0),
+    ]
+    airborne_poses: dict[int, dict[str, Any]] = {}
+    for pose_index, frame in enumerate(frames):
+        for bone in rig.pose.bones:
+            matrix = base[bone.name]
+            bone.rotation_mode = "QUATERNION"
+            bone.location = matrix.to_translation()
+            bone.rotation_quaternion = matrix.to_quaternion()
+            bone.scale = matrix.to_scale()
+        hips = rig.pose.bones["Hips"]
+        hips.matrix = Matrix.Translation((0.0, 0.0, float(hip_offsets[pose_index]))) @ hips.matrix
+        left_upper, left_lower, right_upper, right_lower = leg_angles[pose_index]
+        for name, degrees in (
+            ("UpperLeg.L", left_upper), ("LowerLeg.L", left_lower),
+            ("UpperLeg.R", right_upper), ("LowerLeg.R", right_lower),
+        ):
+            bone = rig.pose.bones[name]
+            bone.rotation_quaternion = bone.rotation_quaternion @ Quaternion(
+                (1.0, 0.0, 0.0), math.radians(degrees)
+            )
+        for bone in rig.pose.bones:
+            bone.keyframe_insert(data_path="location", frame=frame, group=bone.name)
+            bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
+            bone.keyframe_insert(data_path="scale", frame=frame, group=bone.name)
+        if pose_index in (3, 4):
+            airborne_poses[pose_index] = {bone.name: bone.matrix_basis.copy() for bone in rig.pose.bones}
+    track = rig.animation_data.nla_tracks.new()
+    track.name = output_name
+    strip = track.strips.new(output_name, frames[0], action)
+    # Keep this new strip from changing later build steps at the current frame.
+    track.mute = True
+    if getattr(action, "slots", None) and hasattr(strip, "action_slot"):
+        strip.action_slot = action.slots[0]
+
+    fall_fact = None
+    if fall_name is not None:
+        fall_action = bpy.data.actions.new(fall_name)
+        rig.animation_data.action = fall_action
+        for pose_index, frame in zip((3, 4), fall_frames):
+            for bone in rig.pose.bones:
+                matrix = airborne_poses[pose_index][bone.name]
+                bone.rotation_mode = "QUATERNION"
+                bone.location = matrix.to_translation()
+                bone.rotation_quaternion = matrix.to_quaternion()
+                bone.scale = matrix.to_scale()
+                bone.keyframe_insert(data_path="location", frame=frame, group=bone.name)
+                bone.keyframe_insert(data_path="rotation_quaternion", frame=frame, group=bone.name)
+                bone.keyframe_insert(data_path="scale", frame=frame, group=bone.name)
+        fall_track = rig.animation_data.nla_tracks.new()
+        fall_track.name = fall_name
+        fall_strip = fall_track.strips.new(fall_name, fall_frames[0], fall_action)
+        fall_track.mute = True
+        if getattr(fall_action, "slots", None) and hasattr(fall_strip, "action_slot"):
+            fall_strip.action_slot = fall_action.slots[0]
+        fall_fact = {"name": fall_name, "frame_range": [fall_frames[0], fall_frames[-1]], "in_place": True}
+    for existing, was_muted in muted:
+        existing.mute = was_muted
+    rig.animation_data.action = previous_action
+    scene.frame_set(previous_frame)
+    for bone in rig.pose.bones:
+        bone.matrix_basis = previous_basis[bone.name]
+    bpy.context.view_layer.update()
+    return {
+        "name": output_name,
+        "source_pose": source_name,
+        "frame_range": [frames[0], frames[-1]],
+        "fall": fall_fact,
+        "in_place": True,
+        "source_roll_preserved_as": "Roll",
+    }
+
+
 def _metrics(bpy: Any, include_generated: bool = False) -> dict[str, int]:
     objects = _meshes(bpy, include_generated=include_generated)
     triangles = 0
@@ -1049,6 +1198,7 @@ def run(job: dict[str, Any], result_path: Path) -> dict[str, Any]:
     proxies = _create_proxies(
         bpy, output_name, bool(options.get("generate_collision", False)), bool(options.get("generate_hitboxes", False))
     )
+    gameplay_jump = _create_gameplay_jump(bpy, options.get("gameplay_jump"))
     _compute_tangents(bpy, warnings)
     preview_animation = options.get("preview_animation")
     if preview_animation is not None:
@@ -1096,7 +1246,7 @@ def run(job: dict[str, Any], result_path: Path) -> dict[str, Any]:
         "processing": {"materials_consolidated": consolidated, "weighted_vertices_limited": weighted_vertices,
                        "bones_renamed": bones_renamed, "animations_trimmed": animations, "textures": textures,
                        "animation_transfer": animation_transfer, "animation_aliases": aliases,
-                       "two_handed_idle": two_handed_idle,
+                       "two_handed_idle": two_handed_idle, "gameplay_jump": gameplay_jump,
                        "mesh_parts": attached_parts, "skeleton_repair": skeleton_repair,
                        "attachment_points": attachments,
                        "lods": lods, "proxies": proxies},

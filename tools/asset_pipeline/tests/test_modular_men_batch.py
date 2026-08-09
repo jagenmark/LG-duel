@@ -2,6 +2,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 
@@ -30,6 +31,7 @@ class RecipeTests(unittest.TestCase):
         self.assertEqual("Wrist.R", job["options"]["attachment_points"]["weapon_socket"])
         self.assertEqual("Wrist.L", job["options"]["bone_map"]["Hand.L"])
         self.assertEqual("Idle_Gun_TwoHanded", job["options"]["two_handed_idle"]["name"])
+        self.assertEqual("JUMP", job["options"]["gameplay_jump"]["name"])
         self.assertIn({"name": "idle", "action": "IDLE", "frame": 25}, job["options"]["animation_preview_stills"])
         self.assertFalse(job["options"]["consolidate_materials"])
         self.assertEqual(3, len(job["input_bindings"]))
@@ -43,6 +45,15 @@ class RecipeTests(unittest.TestCase):
             }), encoding="utf-8")
             with self.assertRaisesRegex(batch.BatchError, "unknown fields"):
                 batch.build_job(recipe)
+
+    def test_worker_recipe_authors_jump_and_fall_instead_of_roll_aliases(self):
+        recipe = json.loads((batch.RECIPES_ROOT / "quaternius_worker.json").read_text(encoding="utf-8"))
+        aliases = recipe["options"]["animation_aliases"]
+        jump = recipe["options"]["gameplay_jump"]
+        self.assertNotIn("JUMP", aliases)
+        self.assertNotIn("FALL", aliases)
+        self.assertEqual("JUMP", jump["name"])
+        self.assertEqual("FALL", jump["fall_name"])
 
     def test_character_path_cannot_escape_template(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -75,6 +86,13 @@ class PoseGateTests(unittest.TestCase):
         result = adapter._run_with_pose_gate({}, Path("unused"))
         self.assertEqual({"passed": True, "actions": ["IDLE", "RUN", "Idle_Gun_TwoHanded"],
                           "distinct_pairs": 3}, result["processing"]["pose_validation"])
+
+    def test_gameplay_jump_rejects_one_name_for_jump_and_fall(self):
+        fake_bpy = SimpleNamespace(data=SimpleNamespace(actions=SimpleNamespace(get=lambda _name: None)))
+        with self.assertRaisesRegex(adapter.core.JobError, "names must differ"):
+            adapter.core._create_gameplay_jump(fake_bpy, {
+                "source": "Idle_Gun_TwoHanded", "name": "AIR", "fall_name": "AIR",
+            })
 
 
 if __name__ == "__main__":
