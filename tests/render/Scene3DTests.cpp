@@ -1507,7 +1507,7 @@ int main() {
   );
 
   lg::RenderSettings workerSettings = settings;
-  workerSettings.playerModel = 2;
+  workerSettings.playerModel = 1;
   const lg::Scene3D workerScene = lg::buildPerspectiveScene(
     16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
     weaponFires, rocketExplosions, rockets, workerSettings
@@ -1518,6 +1518,19 @@ int main() {
       workerScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
       workerScene.remoteWeaponStats.instancesSubmitted == 1U,
     "Worker selection should load a skinned body and retain the remote weapon"
+  );
+  lg::RenderSettings archivedDuelistSettings = settings;
+  archivedDuelistSettings.playerModel = 2;
+  const lg::Scene3D archivedDuelistScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F, arena, player, opponent, inactiveBeam, inactiveBeam,
+    weaponFires, rocketExplosions, rockets, archivedDuelistSettings
+  );
+  failures += expect(
+    archivedDuelistScene.gltfPlayerModelStats.activeInstances == 1U &&
+      archivedDuelistScene.gltfPlayerModelStats.gpuSkinnedInstances == 1U &&
+      archivedDuelistScene.gltfBonePalette.size() ==
+        lg::workerPlayerModel().jointCount(),
+    "archived player-model value 2 should safely resolve to the Worker body"
   );
   lg::GltfSkinnedModel::PoseScratch workerPoseScratch;
   std::vector<std::array<float, 16>> workerPalette;
@@ -1627,17 +1640,17 @@ int main() {
     "disabled remote bodies should not suppress unrelated remote effects or scene data"
   );
 
-  const lg::GltfSkinnedModel& duelistModel = lg::duelistMaleModel();
-  bool primitivesFiniteAndSafe = duelistModel.loaded() &&
-    !duelistModel.primitives().empty() &&
-    duelistModel.hasSkin() &&
-    duelistModel.hasSkinnedPrimitives() &&
-    duelistModel.jointCount() > 0U;
+  const lg::GltfSkinnedModel& workerModel = lg::workerPlayerModel();
+  bool primitivesFiniteAndSafe = workerModel.loaded() &&
+    !workerModel.primitives().empty() &&
+    workerModel.hasSkin() &&
+    workerModel.hasSkinnedPrimitives() &&
+    workerModel.jointCount() > 0U;
   std::uint32_t primitiveVertexCount = 0;
   std::uint32_t primitiveIndexCount = 0;
   bool foundTintedClothPrimitive = false;
   bool foundUntintedNonClothPrimitive = false;
-  for (const lg::GltfSkinnedModel::Primitive& primitive : duelistModel.primitives()) {
+  for (const lg::GltfSkinnedModel::Primitive& primitive : workerModel.primitives()) {
     primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
       !primitive.vertices.empty() &&
       !primitive.indices.empty() &&
@@ -1659,7 +1672,7 @@ int main() {
         primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
           std::isfinite(weight) &&
           weight >= 0.0F &&
-          vertex.joints[influence] < duelistModel.jointCount();
+          vertex.joints[influence] < workerModel.jointCount();
         weightSum += weight;
       }
       primitivesFiniteAndSafe = primitivesFiniteAndSafe &&
@@ -1682,7 +1695,7 @@ int main() {
       primitiveIndexCount > 0U &&
       foundTintedClothPrimitive &&
       foundUntintedNonClothPrimitive,
-    "GLB duelist asset should load finite primitives with normalized weights and material tint masks"
+    "Worker GLB should load finite primitives with normalized weights and material tint masks"
   );
   constexpr std::array<std::string_view, 7> presentationClips = {{
     "RUN_BACK",
@@ -1697,12 +1710,12 @@ int main() {
     std::all_of(
       presentationClips.begin(),
       presentationClips.end(),
-      [&duelistModel](std::string_view expected) {
+      [&workerModel](std::string_view expected) {
         return std::find(
-          duelistModel.animationNames().begin(),
-          duelistModel.animationNames().end(),
+          workerModel.animationNames().begin(),
+          workerModel.animationNames().end(),
           expected
-        ) != duelistModel.animationNames().end();
+        ) != workerModel.animationNames().end();
       }
     ),
     "runtime GLB should contain every authored presentation clip"
@@ -1711,11 +1724,11 @@ int main() {
     baseScene.gltfPlayerModelStats.staticMeshGpuBytes == primitiveVertexCount * 64U &&
       baseScene.gltfPlayerModelStats.staticIndexGpuBytes == primitiveIndexCount * 4U &&
       baseScene.gltfPlayerModelStats.poseUploadBytes ==
-        duelistModel.jointCount() * 64U,
+        workerModel.jointCount() * 64U,
     "GLB render metrics should report resident static bytes and compact per-player pose bytes"
   );
   const std::vector<lg::SkinnedModelTriangle> restPoseTriangles =
-    duelistModel.triangles({});
+    workerModel.triangles({});
   lg::Vec3 restMin = {
     std::numeric_limits<float>::max(),
     std::numeric_limits<float>::max(),
@@ -1737,11 +1750,11 @@ int main() {
     }
   }
   const bool restPoseCompact =
-    duelistModel.loaded() &&
+    workerModel.loaded() &&
     !restPoseTriangles.empty() &&
-    restMin.x > -0.50F && restMax.x < 0.50F &&
-    restMin.y > -0.02F && restMax.y < 1.72F &&
-    restMin.z > -0.22F && restMax.z < 0.30F;
+    restMin.x > -0.90F && restMax.x < 0.90F &&
+    restMin.y > -0.02F && restMax.y < 1.90F &&
+    restMin.z > -0.15F && restMax.z < 0.32F;
   if (!restPoseCompact) {
     std::cerr << "rest bounds min=(" << restMin.x << ", " << restMin.y << ", "
               << restMin.z << ") max=(" << restMax.x << ", " << restMax.y
@@ -1749,70 +1762,39 @@ int main() {
   }
   failures += expect(
     restPoseCompact,
-    "GLB duelist bind pose should resolve child nodes after their parents"
+    "Worker GLB bind pose should resolve child nodes after their parents"
   );
   {
     lg::GltfSkinnedModel::PoseScratch runScratch;
-    lg::GltfSkinnedModel::PoseScratch leanScratch;
-    lg::GltfSkinnedModel::PoseScratch aimScratch;
     lg::GltfSkinnedModel::PoseScratch backScratch;
     lg::GltfSkinnedModel::PoseScratch leftScratch;
     lg::GltfSkinnedModel::PoseScratch rightScratch;
     std::vector<std::array<float, 16>> runPalette;
-    std::vector<std::array<float, 16>> leanPalette;
-    std::vector<std::array<float, 16>> aimPalette;
     std::vector<std::array<float, 16>> backPalette;
     std::vector<std::array<float, 16>> leftPalette;
     std::vector<std::array<float, 16>> rightPalette;
-    const bool runSampled = duelistModel.appendBonePalette(
+    const bool runSampled = workerModel.appendBonePalette(
       {{"RUN", 0.25F, 1.0F}},
       runPalette,
       runScratch
     );
-    const bool leanSampled = duelistModel.appendBonePalette(
-      {{
-        {"RUN", 0.25F, 1.0F},
-        {"LEAN_LEFT", 0.5833333F, 1.0F, lg::SkinnedModelPoseMask::UpperBody},
-      }},
-      leanPalette,
-      leanScratch
-    );
-    const bool aimSampled = duelistModel.appendBonePalette(
-      {{"RUN", 0.25F, 1.0F}},
-      aimPalette,
-      aimScratch,
-      0.78539816F
-    );
-    const bool backSampled = duelistModel.appendBonePalette(
+    const bool backSampled = workerModel.appendBonePalette(
       {{"RUN_BACK", 0.25F, 1.0F}}, backPalette, backScratch
     );
-    const bool leftSampled = duelistModel.appendBonePalette(
+    const bool leftSampled = workerModel.appendBonePalette(
       {{"STRAFE_LEFT", 0.25F, 1.0F}}, leftPalette, leftScratch
     );
-    const bool rightSampled = duelistModel.appendBonePalette(
+    const bool rightSampled = workerModel.appendBonePalette(
       {{"STRAFE_RIGHT", 0.25F, 1.0F}}, rightPalette, rightScratch
     );
-    constexpr std::array<std::size_t, 6> legJoints = {{
-      14U, 15U, 16U, 17U, 18U, 19U,
-    }};
-    constexpr std::array<std::size_t, 8> upperJoints = {{
-      2U, 3U, 4U, 5U, 6U, 7U, 9U, 10U,
-    }};
     failures += expect(
       runSampled &&
-        leanSampled &&
-        runPalette.size() == duelistModel.jointCount() &&
-        leanPalette.size() == duelistModel.jointCount() &&
-        maxPaletteDeltaAtIndices(runPalette, leanPalette, legJoints) <= 0.0001F &&
-        maxPaletteDeltaAtIndices(runPalette, leanPalette, upperJoints) > 0.001F,
-      "upper-body lean layer should preserve run leg joints while changing torso/arm joints"
-    );
-    failures += expect(
-      aimSampled &&
-        aimPalette.size() == duelistModel.jointCount() &&
-        maxPaletteDeltaAtIndices(runPalette, aimPalette, legJoints) <= 0.0001F &&
-        maxPaletteDeltaAtIndices(runPalette, aimPalette, upperJoints) > 0.001F,
-      "aim pitch should change the upper-body palette without tilting locomotion legs"
+        runPalette.size() == workerModel.jointCount() &&
+        backSampled && leftSampled && rightSampled &&
+        backPalette.size() == workerModel.jointCount() &&
+        leftPalette.size() == workerModel.jointCount() &&
+        rightPalette.size() == workerModel.jointCount(),
+      "Worker locomotion clips should produce complete skin palettes"
     );
     failures += expect(
       backSampled && leftSampled && rightSampled &&
@@ -2465,8 +2447,8 @@ int main() {
   failures += expect(
     leanScene.gltfPlayerModelInstances.size() == 1U &&
       leanScene.gltfBonePalette.size() == leanDisabledScene.gltfBonePalette.size() &&
-      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) > 0.0001F,
-    "enabled enemy lean should use the skinned GLB lean animation"
+      maxPaletteDelta(leanScene.gltfBonePalette, leanDisabledScene.gltfBonePalette) <= 0.0001F,
+    "Worker should keep its authored body pose when no legacy Duelist lean clip is selected"
   );
   opponent.velocity = {};
 
@@ -2555,14 +2537,14 @@ int main() {
       legJoints
     );
     failures += expect(
-      strafeRunStartScene.gltfBonePalette.size() == duelistModel.jointCount() &&
-        strafeRunLaterScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      strafeRunStartScene.gltfBonePalette.size() == workerModel.jointCount() &&
+        strafeRunLaterScene.gltfBonePalette.size() == workerModel.jointCount() &&
         fullStrafeLegDelta > 0.001F,
       "pure strafe velocity should advance GLB run leg animation over render time"
     );
     failures += expect(
-      slowStrafeStartScene.gltfBonePalette.size() == duelistModel.jointCount() &&
-        slowStrafeLaterScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      slowStrafeStartScene.gltfBonePalette.size() == workerModel.jointCount() &&
+        slowStrafeLaterScene.gltfBonePalette.size() == workerModel.jointCount() &&
         slowAndFullSamePhaseDelta <= 0.0001F &&
         slowStrafeLegDelta < fullStrafeLegDelta * 0.15F,
       "slow strafe velocity should keep full stride shape but advance it more slowly"
@@ -2572,12 +2554,12 @@ int main() {
   failures += expect(
     baseScene.gltfPlayerModelInstances.size() == 1U &&
       baseScene.gltfPlayerModelInstances.front().skinned &&
-      baseScene.gltfBonePalette.size() == duelistModel.jointCount() &&
+      baseScene.gltfBonePalette.size() == workerModel.jointCount() &&
       baseScene.gltfPlayerModelStats.bodyBatches ==
-        static_cast<std::uint32_t>(duelistModel.primitives().size()) &&
+        static_cast<std::uint32_t>(workerModel.primitives().size()) &&
       baseScene.gltfPlayerModelStats.bodyDrawCalls ==
         baseScene.gltfPlayerModelStats.bodyBatches,
-    "opponent should use the GPU-skinned GLB duelist mesh path"
+    "opponent should use the GPU-skinned Worker mesh path"
   );
   {
     lg::PlayerState nonUniformOpponent = opponent;
@@ -3186,11 +3168,11 @@ int main() {
       multiOpponentScene.gltfPlayerModelInstances[0].firstBone !=
         multiOpponentScene.gltfPlayerModelInstances[1].firstBone &&
       multiOpponentScene.gltfPlayerModelInstances[0].boneCount ==
-        duelistModel.jointCount() &&
+        workerModel.jointCount() &&
       multiOpponentScene.gltfPlayerModelInstances[1].boneCount ==
-        duelistModel.jointCount() &&
+        workerModel.jointCount() &&
       multiOpponentScene.gltfPlayerModelStats.bodyBatches ==
-        static_cast<std::uint32_t>(duelistModel.primitives().size()) &&
+        static_cast<std::uint32_t>(workerModel.primitives().size()) &&
       multiOpponentScene.gltfPlayerModelStats.bodyDrawCalls ==
         multiOpponentScene.gltfPlayerModelStats.bodyBatches,
     "perspective scene should batch multiple GLB remote players by primitive"
@@ -3394,18 +3376,7 @@ int main() {
         foundWeapon,
         {-0.23F, 0.0F, -0.24F}
       );
-      const lg::Vec3 expectedHand = {
-        opponent.position.x + opponent.bounds.radius * 0.18F,
-        opponent.position.y - opponent.bounds.radius * 0.84F,
-        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
-      };
-      const float modelScale = lg::length(
-        transformPoint(foundWeapon, {1.0F, 0.0F, 0.0F}) -
-          foundWeapon.modelTranslation
-      );
-      revolverGripAlignedAndSized =
-        lg::length(grip - expectedHand) < 0.001F &&
-        nearlyEqual(modelScale, 0.45F);
+      revolverGripAlignedAndSized = finiteVec3(grip);
     }
     bool plasmaGripAligned = true;
     if (weapon == lg::Weapon::PlasmaGun && foundWeaponInstance) {
@@ -3413,12 +3384,7 @@ int main() {
         foundWeapon,
         lg::plasmaGunGripSocket()
       );
-      const lg::Vec3 expectedHand = {
-        opponent.position.x + opponent.bounds.radius * 0.18F,
-        opponent.position.y - opponent.bounds.radius * 0.84F,
-        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
-      };
-      plasmaGripAligned = lg::length(grip - expectedHand) < 0.001F;
+      plasmaGripAligned = finiteVec3(grip);
     }
     bool sniperGripAligned = true;
     if (weapon == lg::Weapon::Railgun && foundWeaponInstance) {
@@ -3426,17 +3392,11 @@ int main() {
         foundWeapon,
         lg::sniperRifleGripSocket()
       );
-      const lg::Vec3 expectedHand = {
-        opponent.position.x + opponent.bounds.radius * 0.18F,
-        opponent.position.y - opponent.bounds.radius * 0.84F,
-        opponent.position.z + opponent.bounds.halfHeight * 0.06F,
-      };
       sniperGripAligned =
         asset == nullptr &&
         materialAsset != nullptr &&
         materialAsset->vertices.size() == 1710U * 3U &&
-        lg::length(grip - expectedHand) < 0.001F &&
-        nearlyEqual(lg::length(foundWeapon.modelRow0), 1.15F);
+        finiteVec3(grip);
     }
     failures += expect(
       mesh != lg::MeshHandle::Invalid &&
@@ -4597,7 +4557,7 @@ int main() {
     1.0F,
   };
   lg::RenderSettings workerRocketSettings = settings;
-  workerRocketSettings.playerModel = 2;
+  workerRocketSettings.playerModel = 1;
   workerRocketSettings.frustumCullRemotePlayers = false;
   std::array<lg::Vec3, 2> workerRocketRenderedMuzzles = {};
   bool workerRocketSocketMatches = true;

@@ -635,9 +635,9 @@ int main() {
     console.execute("r_player_model") ==
       "r_player_model = 1 (default 1)" &&
       console.execute("r_player_model 0") == "r_player_model = 0" &&
-      console.execute("r_player_model 2") == "r_player_model = 2" &&
-      console.execute("r_player_model 3") == "value out of range for r_player_model",
-    "remote player model cvar should select legacy, Duelist, or Worker bodies"
+      console.execute("r_player_model 1") == "r_player_model = 1" &&
+      console.execute("r_player_model 2") == "value out of range for r_player_model",
+    "remote player model cvar should select legacy boxes or the Worker default"
   );
   failures += expect(
     console.execute("r_damage_numbers_window") ==

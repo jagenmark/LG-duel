@@ -115,7 +115,7 @@ ICD, physical GPU identity, driver, Vulkan version, and software-renderer state.
 | `cl_viewmodel_inertia_scale` | float | `0.55` | `0..2` | None | Archive | Scale for lateral movement inertia and acceleration/braking response. `0` disables only inertia. |
 | `cl_viewmodel_landing_scale` | float | `0.65` | `0..2` | None | Archive | Scale for airborne float and landing compression. `0` disables only jump/landing response. |
 | `cl_camera_position_response` | float | `0` | `0..0.15` | None | Archive | Optional extremely subtle translation-only camera response derived from presentation motion. Default `0` is exactly neutral; no camera rotation is ever added. |
-| `r_player_model` | int | `1` | `0..2` | None | Archive | Remote player body renderer. `0` uses legacy boxes, `1` uses the Duelist GLB default, and `2` uses the Quaternius Worker GLB. |
+| `r_player_model` | int | `1` | `0..1` | None | Archive | Remote player body renderer. `0` uses legacy boxes and `1` uses the Quaternius Worker GLB default. The Duelist asset stays archived and is not a runtime option. |
 | `cl_health_size` | float | `2` | `0.5..20` | Ingen | Arkiv | Skala för HP-HUD:en. |
 | `cl_health_style` | int | `0` | `0..2` | Ingen | Arkiv | HP-HUD: `0` bottom-left bar, `1` centrerad HP-siffra med dynamisk färg, `2` crosshair-nära HP vänster och ammo höger. |
 | `cl_speed_size` | float | `1.5` | `0.5..6` | Ingen | Arkiv | Textskala för speed-indikatorn under crosshair. |

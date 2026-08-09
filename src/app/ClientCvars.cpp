@@ -193,7 +193,7 @@ void registerClientCvars(ConsoleSystem& console) {
   console.registerCvar({"r_enemy_g", "Enemy model green channel.", 82, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_b", "Enemy model blue channel.", 92, archivedClient, 0.0F, 255.0F});
   console.registerCvar({"r_enemy_alpha", "Enemy model opacity.", 1.0F, archivedClient, 0.0F, 1.0F});
-  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Duelist GLB, 2 Worker GLB.", 1, archivedClient, 0.0F, 2.0F});
+  console.registerCvar({"r_player_model", "Remote player model: 0 legacy boxes, 1 Quaternius Worker GLB (default).", 1, archivedClient, 0.0F, 1.0F});
   console.registerCvar({"r_enemy_outline", "Draw enemy screen-space outline.", true, archivedClient, {}, {}});
   console.registerCvar({"r_player_outline_mode", "Player outlines: 0 off, 1 compatibility style, 2 native-resolution screen-space (default).", 2, archivedClient, 0.0F, 2.0F});
   console.registerCvar({"r_player_outline_style", "Compatibility outline style: 0 legacy geometry fallback, 1 half-resolution screen-space mask.", 0, archivedClient, 0.0F, 1.0F});
