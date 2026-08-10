@@ -63,7 +63,9 @@ int main() {
     "test match should enter live play before recording");
 
   std::string error;
-  failures += expect(source.beginReplayRecording({2U, 1U}, &error),
+  // Both normal intervals exceed the short recording. finishReplayRecording
+  // must still record the exact stop-time checkpoint and state hash.
+  failures += expect(source.beginReplayRecording({1000U, 1000U}, &error),
     "server should start authoritative replay recording");
   for (std::uint32_t tick = 0U; tick < 8U; ++tick) {
     lg::CommandPacket command;
@@ -81,12 +83,18 @@ int main() {
     source.tick(lg::kFixedTickSeconds);
     discardSnapshots(sourceTransport);
   }
+  const lg::replay::ReplayCheckpoint sourceFinalCheckpoint = source.captureReplayCheckpoint();
   const std::optional<lg::replay::ReplayDemo> recorded = source.finishReplayRecording();
   failures += expect(recorded.has_value(), "server should finalize the replay");
   failures += expect(recorded.has_value() && recorded->ticks.size() == 8U,
     "recording should contain resolved input for every server tick");
-  failures += expect(recorded.has_value() && recorded->hashes.size() >= 9U,
-    "recording should contain initial and per-tick authoritative hashes");
+  failures += expect(recorded.has_value() && recorded->hashes.size() == 2U &&
+    recorded->hashes.back().tick == sourceFinalCheckpoint.serverTick &&
+    recorded->hashes.back().value == lg::replay::canonicalStateHash(sourceFinalCheckpoint),
+    "recording should append an exact final authoritative hash off interval");
+  failures += expect(recorded.has_value() && recorded->checkpoints.size() == 2U &&
+    recorded->checkpoints.back().serverTick == sourceFinalCheckpoint.serverTick,
+    "recording should append an exact final checkpoint off interval");
   failures += expect(recorded.has_value() && recorded->metadata.players[1].bot,
     "bot identity belongs in replay metadata");
 
@@ -112,6 +120,9 @@ int main() {
   failures += expect(runner.finished(), "playback should consume all recorded ticks");
   failures += expect(!runner.divergence().diverged,
     "bot-AI-off playback should match every recorded gameplay hash");
+  failures += expect(lg::replay::canonicalStateHash(playback.captureReplayCheckpoint()) ==
+    lg::replay::canonicalStateHash(sourceFinalCheckpoint),
+    "final playback state should match the original stop-time checkpoint");
 
   if (savedDemo.ticks.size() >= 5U) {
     const std::uint32_t target = savedDemo.ticks[4].tick + 1U;

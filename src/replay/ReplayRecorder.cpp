@@ -92,9 +92,36 @@ ReplayRecorderStats ReplayRecorder::stats() const {
   };
 }
 
-std::optional<ReplayDemo> ReplayRecorder::finish() {
-  if (!active_) return std::nullopt;
+std::optional<ReplayDemo> ReplayRecorder::finish(
+  const ReplayCheckpoint& finalCheckpoint,
+  std::string* error
+) {
+  if (!active_) {
+    fail(error, "replay recorder is not active");
+    return std::nullopt;
+  }
+  const std::uint32_t expectedTick = demo_.ticks.empty()
+    ? demo_.metadata.initialServerTick
+    : demo_.ticks.back().tick + 1U;
+  const bool needsHash = demo_.hashes.empty() || demo_.hashes.back().tick != finalCheckpoint.serverTick;
+  const bool needsCheckpoint = demo_.checkpoints.empty() ||
+    demo_.checkpoints.back().serverTick != finalCheckpoint.serverTick;
+  if (finalCheckpoint.serverTick != expectedTick || finalCheckpoint.mapRevision != demo_.metadata.mapRevision ||
+      (needsCheckpoint && demo_.checkpoints.size() >= kMaxReplayCheckpoints) ||
+      (needsHash && demo_.hashes.size() >= kMaxReplayTicks)) {
+    active_ = false;
+    fail(error, "replay final checkpoint is invalid or exceeds capacity");
+    return std::nullopt;
+  }
+  const std::uint64_t hash = canonicalStateHash(finalCheckpoint);
+  if (needsHash) {
+    demo_.hashes.push_back({finalCheckpoint.serverTick, hash});
+  }
+  if (needsCheckpoint) {
+    demo_.checkpoints.push_back(finalCheckpoint);
+  }
   active_ = false;
+  if (error != nullptr) error->clear();
   return std::move(demo_);
 }
 

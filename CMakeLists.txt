@@ -57,7 +57,9 @@ add_library(lg_duel_core
   src/net/SimulatedTransport.cpp
   src/net/UdpTransport.cpp
   src/replay/ReplayCodec.cpp
+  src/replay/ReplayFile.cpp
   src/replay/ReplayPlayback.cpp
+  src/replay/ReplayPresentationSession.cpp
   src/replay/ReplayRecorder.cpp
   src/replay/ReplayRollingBuffer.cpp
   src/replay/ReplayTransfer.cpp

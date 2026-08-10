@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <bit>
 #include <cctype>
+#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
@@ -1357,7 +1358,13 @@ void ServerGame::tick(float fixedDt) {
   const bool rollingNeedsCheckpoint = rollingReplay_ != nullptr &&
     rollingReplay_->needsCompletedCheckpoint(snapshot_.serverTick);
   if (recorderNeedsCheckpoint || rollingNeedsCheckpoint) {
+    const auto captureStart = std::chrono::steady_clock::now();
     const replay::ReplayCheckpoint checkpoint = captureReplayCheckpoint();
+    const auto captureElapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+      std::chrono::steady_clock::now() - captureStart
+    );
+    ++replayCheckpointCaptureStats_.captures;
+    replayCheckpointCaptureStats_.nanoseconds += static_cast<std::uint64_t>(captureElapsed.count());
     if (recorderNeedsCheckpoint) {
       replayRecorder_->recordCompletedTick(checkpoint);
     }
@@ -1387,7 +1394,9 @@ bool ServerGame::beginReplayRecording(
 
 std::optional<replay::ReplayDemo> ServerGame::finishReplayRecording() {
   if (replayRecorder_ == nullptr) return std::nullopt;
-  std::optional<replay::ReplayDemo> demo = replayRecorder_->finish();
+  // This one stop-time capture keeps the steady tick path free of extra state
+  // copies while ensuring a demo always has a hash for its final live state.
+  std::optional<replay::ReplayDemo> demo = replayRecorder_->finish(captureReplayCheckpoint());
   replayRecorder_.reset();
   return demo;
 }
@@ -1398,6 +1407,10 @@ bool ServerGame::replayRecordingActive() const {
 
 replay::ReplayRecorderStats ServerGame::replayRecorderStats() const {
   return replayRecorder_ == nullptr ? replay::ReplayRecorderStats{} : replayRecorder_->stats();
+}
+
+replay::ReplayCheckpointCaptureStats ServerGame::replayCheckpointCaptureStats() const {
+  return replayCheckpointCaptureStats_;
 }
 
 bool ServerGame::beginRollingReplay(

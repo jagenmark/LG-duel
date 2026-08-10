@@ -20,6 +20,13 @@ struct ReplayRecorderStats {
   std::uint64_t estimatedBytes = 0;
 };
 
+// Counts only checkpoint copies requested from ServerGame::tick. Start, stop,
+// restore, and direct inspection captures do not affect this hot-path measure.
+struct ReplayCheckpointCaptureStats {
+  std::uint64_t captures = 0;
+  std::uint64_t nanoseconds = 0;
+};
+
 // The recorder is deliberately a passive owner of already-resolved data. It
 // neither reads transport packets nor asks a bot for any state or decision.
 class ReplayRecorder {
@@ -35,7 +42,12 @@ public:
   void recordCompletedTick(const ReplayCheckpoint& checkpoint);
   [[nodiscard]] bool active() const;
   [[nodiscard]] ReplayRecorderStats stats() const;
-  [[nodiscard]] std::optional<ReplayDemo> finish();
+  // Stopping a recording captures the current state once, outside tick. This
+  // guarantees a final checkpoint and hash even between normal intervals.
+  [[nodiscard]] std::optional<ReplayDemo> finish(
+    const ReplayCheckpoint& finalCheckpoint,
+    std::string* error = nullptr
+  );
 
 private:
   ReplayRecordingConfig config_ = {};

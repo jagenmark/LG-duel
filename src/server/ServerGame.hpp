@@ -111,6 +111,7 @@ public:
   [[nodiscard]] std::optional<replay::ReplayDemo> finishReplayRecording();
   [[nodiscard]] bool replayRecordingActive() const;
   [[nodiscard]] replay::ReplayRecorderStats replayRecorderStats() const;
+  [[nodiscard]] replay::ReplayCheckpointCaptureStats replayCheckpointCaptureStats() const;
   [[nodiscard]] bool beginRollingReplay(
     replay::ReplayRollingBufferConfig config = {},
     std::string* error = nullptr
@@ -404,6 +405,7 @@ private:
   ServerSnapshot snapshot_ = {};
   std::unique_ptr<replay::ReplayRecorder> replayRecorder_ = {};
   std::unique_ptr<replay::ReplayRollingBuffer> rollingReplay_ = {};
+  replay::ReplayCheckpointCaptureStats replayCheckpointCaptureStats_ = {};
   std::optional<replay::ReplayLethalEvent> latestReplayLethal_ = {};
   std::uint32_t replayGeneration_ = 1;
   std::optional<replay::ReplayTickInput> pendingReplayInput_ = {};
