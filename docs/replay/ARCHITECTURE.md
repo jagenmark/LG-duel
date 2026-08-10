@@ -70,10 +70,12 @@ command and the data used with it:
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
 
-The current `ReplayTickInput` records the resolved command, `viewedServerTick`,
-consumed action edges, accepted jump/dash/attack/throw edges, and the original
-attack edge command. It does not yet encode separate dynamic roster, name, team,
-ready, rule, map, or configuration-change records. Those records remain pending.
+The current v2 `ReplayTickInput` records only present slots. It keeps each
+present slot’s resolved command, `viewedServerTick`, consumed action edges,
+accepted jump/dash/attack/throw edges, and original attack edge command. An
+absent slot has no replay payload and must have default input state. It does not
+yet encode separate dynamic roster, name, team, ready, rule, map, or
+configuration-change records. Those records remain pending.
 
 During replay, both human and bot slots inject those recorded commands through
 the normal authoritative input path. Bot generation stays off. A bot marker may
@@ -116,12 +118,19 @@ at the first mismatch. It currently reports the tick and the category
 Seeking restores the nearest earlier checkpoint and simulates recorded commands
 forward. Linear playback and such a seek must reach the same hash.
 
+Restore validates a checkpoint before it changes server state. A bad history,
+spawn cursor, map/configuration match, or other invalid field rejects the
+restore without a partial rewind. During replay playback the server suppresses
+snapshot, projectile, and chat transport output; live recording still publishes
+its normal transport output.
+
 The rolling archive uses the same resolved inputs and completed checkpoints as
 full recording. Its default retention is 1,500 ticks (12 seconds at 125 Hz),
-with a 16 MiB byte cap. Segment extraction selects a retained checkpoint at or
-before the requested pre-death tick and includes the needed inputs, hashes, and
-lethal record through the requested end tick. It returns a self-contained
-`ReplayDemo`, not a killcam-only state format.
+with a 16 MiB archive-record estimate cap. That is not a resident-memory claim.
+Segment extraction selects a retained checkpoint at or before the requested
+pre-death tick and includes the needed inputs, hashes, and lethal record through
+the requested end tick. It returns a self-contained `ReplayDemo`, not a
+killcam-only state format.
 
 ## Authority and presentation
 

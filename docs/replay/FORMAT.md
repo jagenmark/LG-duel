@@ -2,28 +2,28 @@
 
 ## Versioning contract
 
-`.lgdemo` is the saved-demo container. `7020ef5` implements format version 1 in
-`lg::replay`. Its wire contract is fixed by `ReplayCodec`:
+`.lgdemo` is the saved-demo container. `e5b6c3f` makes format version 2 the only
+accepted format in `lg::replay`. Version 1 is historical only and the decoder
+rejects it. The v2 wire contract is fixed by `ReplayCodec`:
 
 - magic bytes: `LGDM`;
-- format version: `1` (`kReplayFormatVersion`);
+- format version: `2` (`kReplayFormatVersion`);
 - fixed tick rate: `125` (`kReplayTickRate`);
 - byte order: little endian for every fixed-width value;
 - file cap: 64 MiB; chunk cap: 8 MiB; tick cap: 4,194,304; checkpoint cap:
   4,096; and lag-history cap: 256 frames; and
 - chunk checksum: CRC-32 of the payload.
 
-Version 1 uses explicit field order, fixed-width values, and a declared byte
+Version 2 uses explicit field order, fixed-width values, and a declared byte
 order. It never writes C++ struct memory to disk. Padding, host endianness, ABI
 layout, pointer size, and enum size must not affect a file.
 
-An old file need not play on a newer build. A reader may support a known earlier
-version only when it has an explicit decoder and compatibility check. Otherwise
-it fails before restoring any state and says why.
+An old file need not play on a newer build. The current reader does not decode
+v1. It fails before restoring any state and says why.
 
 ## Preamble and metadata
 
-The 16-byte preamble contains these fields in v1 order:
+The 16-byte preamble contains these fields in v2 order:
 
 1. `LGDM` magic;
 2. 16-bit format version;
@@ -37,16 +37,16 @@ initial server tick, map revision, map name, map content hash, game mode, match
 rules, visibility policy, and fixed-slot player metadata. Player metadata holds
 slot, occupied marker, bot marker, team, and bounded name.
 
-Strings and metadata lists carry a length and a stated maximum. The current v1
+Strings and metadata lists carry a length and a stated maximum. The current v2
 stores a gameplay configuration hash, not a complete configuration payload.
 Playback requires the caller to configure an equivalent server and rejects a
 mismatched hash.
 
 ## Chunks
 
-After metadata, the file contains length-delimited chunks. Each v1 chunk holds a
+After metadata, the file contains length-delimited chunks. Each v2 chunk holds a
 one-byte type, a 32-bit payload length, a 32-bit CRC-32, and the payload. It has
-no v1 chunk flags, compression, expansion length, index, or completion record.
+no v2 chunk flags, compression, expansion length, index, or completion record.
 The four chunk types are:
 
 - `TickInputs`, one resolved input frame at a tick;
@@ -54,13 +54,25 @@ The four chunk types are:
 - `StateHash`, a canonical hash at a tick; and
 - `LethalEvent`, lethal metadata when a producer supplies it.
 
-V1 has no distinct dynamic roster, name, team, ready, phase, rule, map, or
+### Sparse tick inputs
+
+A v2 `TickInputs` payload starts with its 32-bit tick and a 16-bit present-slot
+mask. It then encodes a `ReplaySlotInput` only for each set bit, in ascending
+slot order. A clear bit has no input payload; decoding leaves that slot at its
+default state with `present == false`.
+
+The mask may not set bits outside the fixed player-slot range. Absent slots are
+default-only: validation rejects non-default command, edge, or timing data for
+an absent slot instead of silently treating it as an actor. This keeps an empty
+slot from carrying stale input across a disconnect or restore.
+
+V2 has no distinct dynamic roster, name, team, ready, phase, rule, map, or
 configuration-change chunk. The core recorder also does not yet supply lethal
 events. Those parts of the planned recording contract remain pending.
 
 The writer emits records by type. Tick inputs, checkpoints, hashes, and lethal
 events each keep their own valid tick order. A checkpoint’s tick and every input
-tick must not precede the initial tick. V1 does not compress records.
+tick must not precede the initial tick. V2 does not compress records.
 
 ## Strict reader rules
 
@@ -74,6 +86,8 @@ destination `ReplayDemo`. It must reject:
   total file sizes over their configured bounds;
 - non-finite floats, invalid enum values, invalid player/projectile indices, or
   impossible slot or sequence values;
+- a present-slot mask with bits outside the player range, or non-default input
+  state for an absent slot;
 - command, checkpoint, hash, or event ticks that are out of order;
 - map, content, configuration, tick-rate, protocol, or build compatibility
   failures; and
@@ -86,10 +100,12 @@ skip unknown required records, or apply the valid prefix of a bad checkpoint.
 
 ## File helpers
 
-`ReplayFile` now provides `saveDemoFile` and `loadDemoFile`. Saving encodes a
-`ReplayDemo`, creates a new `.lgdemo` file, and refuses to replace an existing
-recording. Loading reads the file and uses the strict decoder above. These calls
-can allocate and block on disk, so `ServerGame::tick` must not call them.
+`ReplayFile` provides `saveDemoFile` and `loadDemoFile`. Saving encodes a
+`ReplayDemo`, creates a uniquely named temporary file with exclusive creation,
+flushes it, then publishes the final name without replacing an existing
+recording. A collision or failed publish removes the temporary file and reports
+a clean error. Loading reads the file and uses the strict decoder above. These
+calls can allocate and block on disk, so `ServerGame::tick` must not call them.
 
 No app command, console control, automatic match recording setting, or
 background save/load job calls these helpers yet. The helpers therefore do not
@@ -97,9 +113,10 @@ make saved demos a player-facing feature.
 
 ## Compatibility and clean failure
 
-The decoder checks the format version and tick rate. Checkpoint restore checks
-map name/content hash/revision, gameplay configuration hash, game mode, player
-occupancy, and lag history before it starts playback. Any mismatch ends playback
+The decoder checks the format version and tick rate. Checkpoint restore validates
+the complete checkpoint before it changes server state. It checks map
+name/content hash/revision, gameplay configuration hash, game mode, player
+occupancy, lag history, and bounded spawn state. Any mismatch ends playback
 cleanly with a specific diagnostic, such as `replay version is incompatible` or
 `replay checkpoint does not match the loaded map or metadata`.
 
@@ -114,7 +131,8 @@ does not continue with an unverified state.
 
 ## Required format coverage
 
-`lg_duel_replay_codec_tests` now covers round trips, truncation with no partial
+`lg_duel_replay_codec_tests` covers v2 round trips, truncation with no partial
 apply, checksum corruption, wrong magic, non-finite command data, invalid
-projectile owner, out-of-order tick input, and trailing data. Version, length,
-count, enum, and other malformed-input cases remain required follow-up coverage.
+projectile owner, missing lag history, out-of-range spawn cursor, out-of-order
+tick input, and trailing data. Version, sparse absent-slot, length, count, enum,
+and other malformed-input cases remain required follow-up coverage.

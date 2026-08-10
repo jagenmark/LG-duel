@@ -24,17 +24,21 @@ not add app commands, a background file job, or player-facing controls.
 | Enable rolling buffer and set retention | Pending | Core archive exists; no runtime setting |
 
 `ReplayFile` saves only a new `.lgdemo` file and refuses to replace an existing
-recording. A future app layer must sanitize names, choose the ignored runtime
-directory, and run disk work in a bounded background job. A disk error must end
-or disable recording without stopping the match.
+recording. It creates an exclusive, uniquely named temporary file, flushes it,
+then publishes the final name without overwriting it. It does not disturb a
+predictable partial file owned by another writer. A future app layer must
+sanitize names, choose the ignored runtime directory, and run disk work in a
+bounded background job. A disk error must end or disable recording without
+stopping the match.
 
 ## Rolling buffer and killcam flow
 
 The server-owned rolling archive is built. Its default retention is 1,500 ticks
-(12 seconds at 125 Hz), with a 16 MiB byte cap, a 250-tick checkpoint interval,
-and a 125-tick hash interval. It retains resolved inputs, checkpoints, hashes,
-and lethal records in bounded queues. It reports retained ticks, inputs,
-checkpoints, lethal records, estimated bytes, and dropped records.
+(12 seconds at 125 Hz), with a 16 MiB archive-record estimate cap, a 250-tick
+checkpoint interval, and a 125-tick hash interval. It retains resolved inputs,
+checkpoints, hashes, and lethal records in bounded queues. It reports retained
+ticks, inputs, checkpoints, lethal records, estimated bytes, and dropped
+records. This archive-record cap is not a resident-memory figure.
 
 The tick path asks whether a completed checkpoint is due before it copies one.
 It does not capture a checkpoint on every rolling tick. Rolling reset and
@@ -89,7 +93,9 @@ types. Its records carry:
 Every application datagram, including headers, stays at or below 1,200 bytes.
 The transfer caps a segment at 512 KiB and 512 chunks. It handles duplicate and
 out-of-order chunks, retries acknowledged gaps, supports cancellation, times
-out safely, and rate-limits sends. A future transport hookup must give commands,
+out safely, and rate-limits sends. A receiver expires on idle or overall timeout
+when a cancel packet is lost, so stale transfer state cannot remain pinned. A
+future transport hookup must give commands,
 snapshots, projectile updates, and other live traffic priority. A failed
 transfer must only skip the killcam.
 
@@ -121,13 +127,13 @@ diagnostics for file bytes, segment bytes, and live transfer.
 
 | Measure | Result |
 | --- | --- |
-| Replay disabled | 324.86 us/tick |
-| Rolling archive | 373.80 us/tick |
-| Full recording | 381.25 us/tick |
-| Rolling retained estimate | 1,933,584 B |
-| Rolling checkpoint capture | 16 captures; 258.20 us total |
-| Full-recording estimate | 1,064,960 B |
-| Headless playback | 4,643 ticks/s (37.15x real time) |
+| Replay disabled | 330.40 us/tick; 0 resolved-input captures and 0 checkpoint captures |
+| Rolling archive | 382.68 us/tick |
+| Full recording | 388.21 us/tick |
+| Headless playback | 13,796 ticks/s (110.37x real time) |
+| 8-second, two-player encoded segment | 392,541 B; 332 packets at or below 1,200 B |
+| Conservative 10-minute encoded estimate | 29,440,575 B |
+| Resident-memory cap | Pending source report; do not infer it from encoded or archive-record caps |
 
 These are test measurements, not a claim about all hardware or live-match
 performance. The enabled paths remain bounded by their configured caps.
