@@ -6,7 +6,6 @@
 
 #include <algorithm>
 #include <array>
-#include <bitset>
 #include <bit>
 #include <cmath>
 #include <limits>
@@ -19,13 +18,7 @@ constexpr float kHalfPi = kPi * 0.5F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 constexpr float kNavSpacing = 1.25F;
 constexpr float kNavReachRadius = 0.55F;
-// Neighboring samples may land on opposite sides of a narrow authored seam.
-// Every longer candidate still has to complete normal player movement.
-constexpr float kNavLinkSpacingFactor = 3.50F;
 constexpr float kBotNavDt = 1.0F / 125.0F;
-// Ten nearest candidates keep enough exits at crossroads while the fixed
-// link cap still bounds map-load movement simulations.
-constexpr std::size_t kMaxNavLinkCandidatesPerNode = 10U;
 constexpr float kCommonBotTargetFovDegrees = 108.0F;
 constexpr float kMaximumObservedSpeed = 60.0F;
 
@@ -173,6 +166,17 @@ struct NavSamplingBounds {
   player.health = 100;
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
+  // Long local rays first sample the player capsule along the segment. This
+  // rejects an obvious wall before the fixed-step proof spends up to 128
+  // movement ticks walking into it. It never accepts an edge by itself.
+  const float distance = distance3d(from, to);
+  const std::size_t samples = std::clamp<std::size_t>(
+    static_cast<std::size_t>(std::ceil(distance / (kNavSpacing * 1.5F))), 1U, 8U
+  );
+  for (std::size_t sample = 1U; sample < samples; ++sample) {
+    const float fraction = static_cast<float>(sample) / static_cast<float>(samples);
+    if (playerPositionSolid(arena, player, from + (to - from) * fraction)) return true;
+  }
   const CollisionResult trace = resolvePlayerArenaCollision(arena, player, to, to - from);
   return distance3d(trace.position, to) > kNavReachRadius;
 }
@@ -259,7 +263,9 @@ struct NavSamplingBounds {
   const int ticks = std::clamp(
     static_cast<int>(std::ceil(distance / std::max(1.0F, movement.maxGroundSpeed) /
       kBotNavDt * 1.75F)),
-    12,
+    // A standing player needs time to build speed. A short neighbor must not
+    // fail merely because its max-speed travel estimate omits acceleration.
+    96,
     // Imported maps can be hundreds of normal simulation units wide. A link
     // still has to reach its endpoint through ordinary movement, with this
     // fixed ceiling keeping blocked authored geometry bounded.
@@ -268,6 +274,76 @@ struct NavSamplingBounds {
   for (int tick = 0; tick < ticks; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
     if (distance3d(player.position, to) <= kNavReachRadius) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Special links use the same trigger order as ordinary movement. Starting at
+// the settled trigger node still takes a normal fixed movement tick before the
+// trigger may change velocity or position; no nav code writes a player pose.
+[[nodiscard]] bool simulateJumpPadLanding(
+  const Arena& arena,
+  const MovementTuning& movement,
+  CollisionBounds bounds,
+  Vec3 entry,
+  Vec3& landing
+) {
+  PlayerState player;
+  player.position = entry;
+  player.bounds = bounds;
+  player.health = 100;
+  player.onGround = true;
+  player.movementMode = MovementMode::Grounded;
+  UserCommand command;
+  bool launched = false;
+  for (std::size_t tick = 0; tick < 32U; ++tick) {
+    simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (player.jumpPadCooldownTicksRemaining == kDefaultJumpPadCooldownTicks) {
+      launched = true;
+      break;
+    }
+  }
+  if (!launched) return false;
+  for (std::size_t tick = 0; tick < 768U; ++tick) {
+    simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
+      landing = player.position;
+      return true;
+    }
+  }
+  return false;
+}
+
+[[nodiscard]] bool simulateTeleportLanding(
+  const Arena& arena,
+  const MovementTuning& movement,
+  CollisionBounds bounds,
+  Vec3 entry,
+  Vec3 destination,
+  Vec3& landing
+) {
+  PlayerState player;
+  player.position = entry;
+  player.bounds = bounds;
+  player.health = 100;
+  player.onGround = true;
+  player.movementMode = MovementMode::Grounded;
+  UserCommand command;
+  bool teleported = false;
+  for (std::size_t tick = 0; tick < 32U; ++tick) {
+    simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (distance3d(player.position, destination) <= 0.01F) {
+      teleported = true;
+      break;
+    }
+  }
+  if (!teleported) return false;
+  for (std::size_t tick = 0; tick < 384U; ++tick) {
+    simulateMovement(player, command, arena, movement, kBotNavDt);
+    if (player.onGround && !playerPositionSolid(arena, player, player.position)) {
+      landing = player.position;
       return true;
     }
   }
@@ -429,42 +505,19 @@ BotNavigationMap buildBotNavigationMap(
   std::array<std::size_t, BotNavigationMap::kMaxNodes> semanticAnchorNodes = {};
   std::size_t semanticAnchorCount = 0;
   std::array<std::size_t, Arena::kJumpPadCount> jumpPadEntryNodes = {};
-  std::array<std::size_t, Arena::kJumpPadCount> jumpPadDestinationNodes = {};
   std::array<std::size_t, Arena::kTeleportCount> teleportEntryNodes = {};
-  std::array<std::size_t, Arena::kTeleportCount> teleportDestinationNodes = {};
   jumpPadEntryNodes.fill(BotNavigationMap::kMaxNodes);
-  jumpPadDestinationNodes.fill(BotNavigationMap::kMaxNodes);
   teleportEntryNodes.fill(BotNavigationMap::kMaxNodes);
-  teleportDestinationNodes.fill(BotNavigationMap::kMaxNodes);
-  auto addGroundedNodeIndex = [&](Vec3 hint) {
+  auto addGroundedNodeIndex = [&](Vec3 hint, float mergeDistance = 0.35F) {
     Vec3 position = {};
     if (!groundedNodePosition(arena, bounds, hint, position)) {
       return BotNavigationMap::kMaxNodes;
     }
-    const std::size_t existing = nearestNodeWithin(map, position, 0.35F);
+    const std::size_t existing = nearestNodeWithin(map, position, mergeDistance);
     if (existing < map.nodeCount) return existing;
     if (map.nodeCount == BotNavigationMap::kMaxNodes) return BotNavigationMap::kMaxNodes;
     map.nodes[map.nodeCount].position = position;
     return map.nodeCount++;
-  };
-  const auto addGroundedNode = [&](Vec3 hint) {
-    return addGroundedNodeIndex(hint) < map.nodeCount;
-  };
-  const auto addGroundedNearbyNodeIndex = [&](Vec3 hint) {
-    std::size_t node = addGroundedNodeIndex(hint);
-    if (node < map.nodeCount) return node;
-    // Some imported item origins sit in decorative collision. A nearby player
-    // origin still represents the same pickup region, but it must settle by
-    // ordinary collision and remain close enough for normal pickup contact.
-    constexpr std::array<Vec3, 8U> kNearbyOffsets = {{{1.0F, 0.0F, 0.0F},
-      {-1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F},
-      {0.70710678F, 0.70710678F, 0.0F}, {-0.70710678F, 0.70710678F, 0.0F},
-      {0.70710678F, -0.70710678F, 0.0F}, {-0.70710678F, -0.70710678F, 0.0F}}};
-    for (Vec3 offset : kNearbyOffsets) {
-      node = addGroundedNodeIndex(hint + offset * 0.75F);
-      if (node < map.nodeCount) return node;
-    }
-    return BotNavigationMap::kMaxNodes;
   };
   auto addExactNodeIndex = [&](Vec3 position) {
     if (!canStandAt(arena, bounds, position)) return BotNavigationMap::kMaxNodes;
@@ -493,6 +546,51 @@ BotNavigationMap buildBotNavigationMap(
     rememberSemanticAnchor(node);
   };
 
+  const auto addHealthTouchNode = [&](const ArenaHealthPickup& pickup) {
+    // Match ServerGame::updateHealthPickups. A retry may move around a
+    // decorative origin only when the resulting player center can really
+    // touch this pickup; fixed offsets alone are not evidence of reachability.
+    constexpr float kPickupTouchRadius = 0.7F;
+    constexpr float kPickupTouchHalfHeight = 0.8F;
+    const float maximumRadius = bounds.radius + kPickupTouchRadius;
+    const auto touchesPickup = [&](Vec3 position) {
+      const Vec3 delta = position - pickup.position;
+      return (delta.x * delta.x) + (delta.y * delta.y) <=
+          maximumRadius * maximumRadius + 0.0001F &&
+        std::fabs(delta.z) <= bounds.halfHeight + kPickupTouchHalfHeight + 0.0001F;
+    };
+    // A map origin may sit below a shelf or inside visual detail. Search the
+    // entire legal touch slab, but retain a point only after normal movement
+    // has settled a player center that can actually collect the pickup.
+    constexpr std::array<float, 5U> kVerticalOffsets = {{0.0F, 0.70F, -0.70F,
+      1.35F, -1.35F}};
+    constexpr std::array<Vec3, 16U> kDirections = {{{1.0F, 0.0F, 0.0F},
+      {-1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F},
+      {0.70710678F, 0.70710678F, 0.0F}, {-0.70710678F, 0.70710678F, 0.0F},
+      {0.70710678F, -0.70710678F, 0.0F}, {-0.70710678F, -0.70710678F, 0.0F},
+      {0.92387953F, 0.38268343F, 0.0F}, {-0.92387953F, 0.38268343F, 0.0F},
+      {0.92387953F, -0.38268343F, 0.0F}, {-0.92387953F, -0.38268343F, 0.0F},
+      {0.38268343F, 0.92387953F, 0.0F}, {-0.38268343F, 0.92387953F, 0.0F},
+      {0.38268343F, -0.92387953F, 0.0F}, {-0.38268343F, -0.92387953F, 0.0F}}};
+    for (const float verticalOffset : kVerticalOffsets) {
+      Vec3 settled = {};
+      if (groundedNodePosition(arena, bounds,
+          pickup.position + Vec3{0.0F, 0.0F, verticalOffset}, settled) &&
+          touchesPickup(settled)) {
+        return addExactNodeIndex(settled);
+      }
+      for (const Vec3 direction : kDirections) {
+        settled = {};
+        const Vec3 hint = pickup.position + direction * (maximumRadius * 0.92F) +
+          Vec3{0.0F, 0.0F, verticalOffset};
+        if (groundedNodePosition(arena, bounds, hint, settled) && touchesPickup(settled)) {
+          return addExactNodeIndex(settled);
+        }
+      }
+    }
+    return BotNavigationMap::kMaxNodes;
+  };
+
   // Add every gameplay anchor before the bulk grid. This ordered reservation
   // makes a 512-node cap explicit instead of silently dropping a spawn, item,
   // base, pad, or teleport because decorative samples used the capacity.
@@ -507,9 +605,7 @@ BotNavigationMap buildBotNavigationMap(
     requireAnchor(addGroundedNodeIndex(position));
   }
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
-    Vec3 position = arena.healthPickups[index].position;
-    position.z = std::max(position.z, arena.min.z) + bounds.halfHeight;
-    requireAnchor(addGroundedNearbyNodeIndex(position));
+    requireAnchor(addHealthTouchNode(arena.healthPickups[index]));
   }
   const auto requireBase = [&](const ArenaMcGuffinBase& base) {
     requireAnchor(addGroundedNodeIndex({(base.min.x + base.max.x) * 0.5F,
@@ -528,14 +624,6 @@ BotNavigationMap buildBotNavigationMap(
       (pad.min.y + pad.max.y) * 0.5F,
       std::max(pad.min.z, arena.min.z) + bounds.halfHeight});
     requireAnchor(jumpPadEntryNodes[index]);
-    const Vec3 target = pad.hasTarget
-      ? pad.targetPosition
-      : Vec3{pad.max.x, pad.max.y, pad.max.z + bounds.halfHeight};
-    // A pad target commonly names an airborne launch point. The route must
-    // end at the first normal grounded landing, not reject that valid trigger
-    // because the authored destination itself is in the air.
-    jumpPadDestinationNodes[index] = addGroundedNodeIndex(target);
-    requireAnchor(jumpPadDestinationNodes[index]);
   }
   for (std::size_t index = 0; index < arena.teleportCount; ++index) {
     const ArenaTeleport& teleport = arena.teleports[index];
@@ -543,72 +631,93 @@ BotNavigationMap buildBotNavigationMap(
       (teleport.min.y + teleport.max.y) * 0.5F,
       std::max(teleport.min.z, arena.min.z) + bounds.halfHeight});
     requireAnchor(teleportEntryNodes[index]);
-    // Prefer the exact authored player-origin because Movement::applyTeleports
-    // writes it unchanged. If it is airborne, retain the normal grounded
-    // landing node that the next movement ticks can reach.
-    teleportDestinationNodes[index] = addExactNodeIndex(teleport.destination);
-    if (teleportDestinationNodes[index] >= map.nodeCount) {
-      teleportDestinationNodes[index] = addGroundedNodeIndex(teleport.destination);
-    }
-    requireAnchor(teleportDestinationNodes[index]);
   }
+  auto addLink = [&](std::size_t from, std::size_t to, BotNavLinkKind kind) {
+    if (from >= map.nodeCount || to >= map.nodeCount || from == to ||
+        map.linkCount == BotNavigationMap::kMaxLinks) return;
+    for (std::size_t index = 0; index < map.linkCount; ++index) {
+      if (map.links[index].from == from && map.links[index].to == to) return;
+    }
+    map.links[map.linkCount++] = BotNavLink{
+      static_cast<std::uint16_t>(from), static_cast<std::uint16_t>(to), kind};
+  };
 
-  // Thin routes around a partition end can lie between two coarse grid rows.
-  // Sample collision-expanded wall corners before broad fill so a normal-size
-  // player gets a tested route through authored door and wall-end clearances.
-  constexpr std::size_t kBoundaryTravelNodeBudget = 96U;
-  const std::size_t boundaryTravelNodeLimit = std::min(BotNavigationMap::kMaxNodes,
-    map.nodeCount + kBoundaryTravelNodeBudget);
-  constexpr float kBoundaryClearance = 0.02F;
-  for (std::size_t index = 0;
-       index < arena.wallCount && map.nodeCount < boundaryTravelNodeLimit;
-       ++index) {
-    const ArenaWall& wall = arena.walls[index];
-    const float lowX = wall.min.x - bounds.radius - kBoundaryClearance;
-    const float highX = wall.max.x + bounds.radius + kBoundaryClearance;
-    const float lowY = wall.min.y - bounds.radius - kBoundaryClearance;
-    const float highY = wall.max.y + bounds.radius + kBoundaryClearance;
-    const float z = std::max(wall.min.z, arena.min.z) + bounds.halfHeight;
-    for (Vec3 corner : std::array<Vec3, 4U>{{
+  // The landing is the outcome of the real trigger, not a grounded version
+  // of its authored target. Both ends remain required semantic anchors.
+  map.jumpPadRouteCount = std::min(arena.jumpPadCount, map.jumpPadRoutes.size());
+  for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
+    Vec3 landing = {};
+    const std::size_t entry = jumpPadEntryNodes[index];
+    const bool landed = entry < map.nodeCount && simulateJumpPadLanding(
+      arena, movement, bounds, map.nodes[entry].position, landing
+    );
+    const std::size_t exit = landed ? addExactNodeIndex(landing) : BotNavigationMap::kMaxNodes;
+    requireAnchor(exit);
+    if (index < map.jumpPadRoutes.size() && entry < map.nodeCount && exit < map.nodeCount) {
+      map.jumpPadRoutes[index] = {static_cast<std::uint16_t>(entry),
+        static_cast<std::uint16_t>(exit), true};
+      addLink(entry, exit, BotNavLinkKind::JumpPad);
+    }
+  }
+  map.teleportRouteCount = std::min(arena.teleportCount, map.teleportRoutes.size());
+  for (std::size_t index = 0; index < arena.teleportCount; ++index) {
+    Vec3 landing = {};
+    const std::size_t entry = teleportEntryNodes[index];
+    const bool landed = entry < map.nodeCount && simulateTeleportLanding(
+      arena, movement, bounds, map.nodes[entry].position,
+      arena.teleports[index].destination, landing
+    );
+    const std::size_t exit = landed ? addExactNodeIndex(landing) : BotNavigationMap::kMaxNodes;
+    requireAnchor(exit);
+    if (index < map.teleportRoutes.size() && entry < map.nodeCount && exit < map.nodeCount) {
+      map.teleportRoutes[index] = {static_cast<std::uint16_t>(entry),
+        static_cast<std::uint16_t>(exit), true};
+      addLink(entry, exit, BotNavLinkKind::Teleport);
+    }
+  }
+  const std::size_t specialLinkCount = map.linkCount;
+
+  // Extra seeds place a small, fixed set of player-tested wall corners and
+  // upper surfaces into the same local flood. They are not bridge endpoints:
+  // only a simulated edge can connect them to a gameplay region.
+  std::array<std::size_t, BotNavigationMap::kMaxNodes> seedNodes = {};
+  std::size_t seedCount = 0;
+  const auto addSeed = [&](std::size_t node) {
+    if (node >= map.nodeCount) return;
+    for (std::size_t index = 0; index < seedCount; ++index) {
+      if (seedNodes[index] == node) return;
+    }
+    if (seedCount < seedNodes.size()) seedNodes[seedCount++] = node;
+  };
+  for (std::size_t index = 0; index < semanticAnchorCount; ++index) {
+    addSeed(semanticAnchorNodes[index]);
+  }
+  const std::size_t semanticSeedCount = seedCount;
+  constexpr std::size_t kWallCornerSeedBudget = 96U;
+  constexpr float kWallCornerClearance = 0.02F;
+  std::size_t wallCornerSeeds = 0;
+  const auto addWallCornerSeeds = [&](Vec3 minimum, Vec3 maximum) {
+    if (wallCornerSeeds >= kWallCornerSeedBudget) return;
+    const float lowX = minimum.x - bounds.radius - kWallCornerClearance;
+    const float highX = maximum.x + bounds.radius + kWallCornerClearance;
+    const float lowY = minimum.y - bounds.radius - kWallCornerClearance;
+    const float highY = maximum.y + bounds.radius + kWallCornerClearance;
+    const float z = std::max(minimum.z, arena.min.z) + bounds.halfHeight;
+    for (const Vec3 corner : std::array<Vec3, 4U>{{
         {lowX, lowY, z}, {lowX, highY, z}, {highX, lowY, z}, {highX, highY, z}}}) {
-      if (map.nodeCount == boundaryTravelNodeLimit) break;
-      addGroundedNode(corner);
+      if (wallCornerSeeds++ >= kWallCornerSeedBudget) break;
+      const std::size_t node = addGroundedNodeIndex(corner);
+      addSeed(node);
     }
+  };
+  for (std::size_t index = 0; index < arena.wallCount && wallCornerSeeds < kWallCornerSeedBudget;
+       ++index) {
+    addWallCornerSeeds(arena.walls[index].min, arena.walls[index].max);
   }
-
-  // Expand from gameplay anchors before sampling the broad world box. This
-  // joins narrow routes around real spawns and resources while fixed work and
-  // storage limits keep malformed maps bounded.
-  constexpr std::array<Vec3, 8U> kAnchorDirections = {{{1.0F, 0.0F, 0.0F},
-    {-1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, -1.0F, 0.0F},
-    {0.70710678F, 0.70710678F, 0.0F}, {-0.70710678F, 0.70710678F, 0.0F},
-    {0.70710678F, -0.70710678F, 0.0F}, {-0.70710678F, -0.70710678F, 0.0F}}};
-  constexpr std::size_t kAnchorExpansionRings = 8U;
-  // Leave most fixed capacity for broad connector samples. The reservation
-  // still visits every semantic anchor before taking a second outward ring.
-  constexpr std::size_t kAnchorExpansionNodeBudget = 256U;
-  constexpr std::size_t kAnchorExpansionProbeLimit = 1024U;
-  std::size_t anchorExpansionProbes = 0;
-  for (std::size_t ring = 1U;
-       ring <= kAnchorExpansionRings && map.nodeCount < BotNavigationMap::kMaxNodes &&
-         map.nodeCount < kAnchorExpansionNodeBudget &&
-         anchorExpansionProbes < kAnchorExpansionProbeLimit;
-       ++ring) {
-    for (std::size_t anchor = 0U;
-         anchor < semanticAnchorCount && map.nodeCount < BotNavigationMap::kMaxNodes &&
-           map.nodeCount < kAnchorExpansionNodeBudget &&
-           anchorExpansionProbes < kAnchorExpansionProbeLimit;
-         ++anchor) {
-      const Vec3 origin = map.nodes[semanticAnchorNodes[anchor]].position;
-      for (Vec3 direction : kAnchorDirections) {
-        if (map.nodeCount == BotNavigationMap::kMaxNodes ||
-            map.nodeCount == kAnchorExpansionNodeBudget ||
-            anchorExpansionProbes++ == kAnchorExpansionProbeLimit) break;
-        addGroundedNode(origin + direction * (kNavSpacing * static_cast<float>(ring)));
-      }
-    }
+  for (std::size_t index = 0; index < arena.brushCount && wallCornerSeeds < kWallCornerSeedBudget;
+       ++index) {
+    addWallCornerSeeds(arena.brushes[index].min, arena.brushes[index].max);
   }
-
   struct GroundLevel {
     float height = 0.0F;
     Vec3 representative = {};
@@ -630,339 +739,249 @@ BotNavigationMap buildBotNavigationMap(
   });
   for (std::size_t index = 0; index < arena.wallCount; ++index) {
     const ArenaWall& wall = arena.walls[index];
-    addGroundLevel(wall.max.z, {
-      (wall.min.x + wall.max.x) * 0.5F,
-      (wall.min.y + wall.max.y) * 0.5F,
-      wall.max.z,
-    });
+    addGroundLevel(wall.max.z, {(wall.min.x + wall.max.x) * 0.5F,
+      (wall.min.y + wall.max.y) * 0.5F, wall.max.z});
   }
   for (std::size_t index = 0; index < arena.brushCount; ++index) {
     const ArenaBrush& brush = arena.brushes[index];
-    addGroundLevel(brush.max.z, {
-      (brush.min.x + brush.max.x) * 0.5F,
-      (brush.min.y + brush.max.y) * 0.5F,
-      brush.max.z,
-    });
+    addGroundLevel(brush.max.z, {(brush.min.x + brush.max.x) * 0.5F,
+      (brush.min.y + brush.max.y) * 0.5F, brush.max.z});
   }
   std::sort(groundLevels.begin(), groundLevels.begin() + groundLevelCount,
     [](const GroundLevel& first, const GroundLevel& second) {
       return first.height < second.height;
     });
-  // Keep samples close to authored floor edges. A player may need the narrow
-  // strip beside a partition end; shrinking by its radius can erase the only
-  // real route before movement validation gets a chance to test it.
-  const float startX = samplingBounds.min.x + 0.15F;
-  const float startY = samplingBounds.min.y + 0.15F;
-  const float endX = samplingBounds.max.x - 0.15F;
-  const float endY = samplingBounds.max.y - 0.15F;
-  // Keep at least half the node budget for a connected grid. Every selected
-  // level receives an anchored, collision-checked surface sample first.
-  const std::size_t levelBudget = std::max<std::size_t>(1U,
-    (BotNavigationMap::kMaxNodes - map.nodeCount) / 2U);
-  const std::size_t sampledLevelCount = std::min(groundLevelCount, levelBudget);
-  const auto sampledLevelIndex = [&](std::size_t sample) {
-    if (sampledLevelCount <= 1U) return std::size_t{0};
-    return (sample * (groundLevelCount - 1U)) / (sampledLevelCount - 1U);
-  };
-  for (std::size_t sample = 0; sample < sampledLevelCount; ++sample) {
-    const GroundLevel& level = groundLevels[sampledLevelIndex(sample)];
-    addGroundedNode(level.representative + Vec3{0.0F, 0.0F, bounds.halfHeight});
-  }
-  const float mapArea = std::max(1.0F, (endX - startX) * (endY - startY));
-  const float remainingNodes = static_cast<float>(
-    std::max<std::size_t>(1U, BotNavigationMap::kMaxNodes - map.nodeCount)
-  );
-  const float gridSpacing = std::max(kNavSpacing, std::sqrt(mapArea / remainingNodes));
-  for (std::size_t sample = 0;
-       sample < sampledLevelCount && map.nodeCount < BotNavigationMap::kMaxNodes;
-       ++sample) {
-    const float z = groundLevels[sampledLevelIndex(sample)].height + bounds.halfHeight;
-    for (float y = startY; y <= endY && map.nodeCount < BotNavigationMap::kMaxNodes;
-         y += gridSpacing) {
-      for (float x = startX; x <= endX && map.nodeCount < BotNavigationMap::kMaxNodes;
-           x += gridSpacing) {
-        addGroundedNode({x, y, z});
-      }
-    }
-  }
-  // If broad samples miss narrow corridors, use every remaining fixed node
-  // slot at player spacing. The probe cap makes malformed maps fail promptly.
-  constexpr std::size_t kFinePassNodeTarget = BotNavigationMap::kMaxNodes;
-  constexpr std::size_t kFinePassProbeLimit = 4096U;
-  if (map.nodeCount < kFinePassNodeTarget) {
-    std::size_t fineProbeCount = 0;
-    for (std::size_t sample = 0;
-         sample < sampledLevelCount && map.nodeCount < kFinePassNodeTarget &&
-           fineProbeCount < kFinePassProbeLimit;
-         ++sample) {
-      const float z = groundLevels[sampledLevelIndex(sample)].height + bounds.halfHeight;
-      for (float y = startY; y <= endY && map.nodeCount < kFinePassNodeTarget &&
-           fineProbeCount < kFinePassProbeLimit;
-           y += kNavSpacing) {
-        for (float x = startX; x <= endX && map.nodeCount < kFinePassNodeTarget &&
-             fineProbeCount < kFinePassProbeLimit;
-             x += kNavSpacing) {
-          ++fineProbeCount;
-          addGroundedNode({x, y, z});
-        }
-      }
-    }
-  }
-  auto addLink = [&](std::size_t from, std::size_t to, BotNavLinkKind kind) {
-    if (from >= map.nodeCount || to >= map.nodeCount || from == to ||
-        map.linkCount == BotNavigationMap::kMaxLinks) return;
-    for (std::size_t index = 0; index < map.linkCount; ++index) {
-      if (map.links[index].from == from && map.links[index].to == to) return;
-    }
-    map.links[map.linkCount++] = BotNavLink{
-      static_cast<std::uint16_t>(from), static_cast<std::uint16_t>(to), kind};
-  };
-  const std::size_t specialLinkReserve = std::min(BotNavigationMap::kMaxLinks,
-    arena.jumpPadCount + arena.teleportCount);
-  const std::size_t nonSpecialLinkBudget = BotNavigationMap::kMaxLinks - specialLinkReserve;
-  constexpr std::size_t kLocalLinkBudget = BotNavigationMap::kMaxLinks * 3U / 5U;
-  const std::size_t localLinkBudget = std::min(kLocalLinkBudget, nonSpecialLinkBudget);
-  const auto addLocalLink = [&](std::size_t from, std::size_t to, BotNavLinkKind kind) {
-    if (map.linkCount < localLinkBudget) addLink(from, to, kind);
-  };
-
-  // The reach derives from the samples we actually emitted. It covers a
-  // neighboring diagonal cell while every candidate still has to pass normal
-  // player movement, so coarse large-map samples cannot form a ray-only path.
-  const float linkDistance = gridSpacing * kNavLinkSpacingFactor;
-  std::array<std::array<std::uint16_t, kMaxNavLinkCandidatesPerNode>,
-    BotNavigationMap::kMaxNodes> candidateNodes = {};
-  std::array<std::size_t, BotNavigationMap::kMaxNodes> candidateCounts = {};
-  for (std::size_t from = 0; from < map.nodeCount; ++from) {
-    std::array<float, kMaxNavLinkCandidatesPerNode> candidateDistances = {};
-    std::array<std::uint16_t, 8U> directionalCandidates = {};
-    std::array<float, 8U> directionalDistances = {};
-    directionalDistances.fill(std::numeric_limits<float>::infinity());
-    std::size_t candidateCount = 0;
-    for (std::size_t to = 0; to < map.nodeCount; ++to) {
-      if (from == to) continue;
-      const float distance = distance3d(map.nodes[from].position, map.nodes[to].position);
-      if (distance > linkDistance) continue;
-      const Vec3 delta = map.nodes[to].position - map.nodes[from].position;
-      if (std::hypot(delta.x, delta.y) > 0.01F) {
-        const float angle = std::atan2(delta.y, delta.x);
-        const std::size_t sector = static_cast<std::size_t>(std::floor(
-          (angle + kPi) * 4.0F / kPi)) & 7U;
-        if (distance < directionalDistances[sector]) {
-          directionalDistances[sector] = distance;
-          directionalCandidates[sector] = static_cast<std::uint16_t>(to);
-        }
-      }
-      std::size_t insert = candidateCount;
-      while (insert > 0U && candidateDistances[insert - 1U] > distance) --insert;
-      if (insert >= candidateNodes[from].size()) continue;
-      const std::size_t limit = std::min(candidateCount + 1U, candidateNodes[from].size());
-      for (std::size_t move = limit - 1U; move > insert; --move) {
-        candidateNodes[from][move] = candidateNodes[from][move - 1U];
-        candidateDistances[move] = candidateDistances[move - 1U];
-      }
-      candidateNodes[from][insert] = static_cast<std::uint16_t>(to);
-      candidateDistances[insert] = distance;
-      candidateCount = limit;
-    }
-    const std::array<std::uint16_t, kMaxNavLinkCandidatesPerNode> nearestCandidates =
-      candidateNodes[from];
-    const std::size_t nearestCount = candidateCount;
-    candidateCount = 0;
-    const auto appendCandidate = [&](std::uint16_t candidate) {
-      for (std::size_t existing = 0; existing < candidateCount; ++existing) {
-        if (candidateNodes[from][existing] == candidate) return;
-      }
-      if (candidateCount < candidateNodes[from].size()) {
-        candidateNodes[from][candidateCount++] = candidate;
-      }
-    };
-    for (std::size_t sector = 0; sector < directionalCandidates.size(); ++sector) {
-      if (std::isfinite(directionalDistances[sector])) {
-        appendCandidate(directionalCandidates[sector]);
-      }
-    }
-    for (std::size_t nearest = 0;
-         nearest < nearestCount && candidateCount < candidateNodes[from].size(); ++nearest) {
-      appendCandidate(nearestCandidates[nearest]);
-    }
-    candidateCounts[from] = candidateCount;
-  }
-  // Trial movement is the expensive part of map validation. Visit one local
-  // candidate across the whole graph before trying a second, in a coprime
-  // order that covers anchors and broad samples alike. This bounds work while
-  // preserving connected coverage instead of spending all trials at index 0.
-  constexpr std::size_t kNavigationTraversalTrialLimit = 1024U;
-  std::size_t traversalTrials = 0;
-  for (std::size_t candidate = 0;
-       candidate < kMaxNavLinkCandidatesPerNode &&
-         traversalTrials < kNavigationTraversalTrialLimit;
-       ++candidate) {
-    for (std::size_t sequence = 0;
-         sequence < map.nodeCount && traversalTrials < kNavigationTraversalTrialLimit;
-         ++sequence) {
-      const std::size_t from = (sequence * 173U) % map.nodeCount;
-      if (candidate >= candidateCounts[from]) continue;
-      const std::size_t to = candidateNodes[from][candidate];
-      ++traversalTrials;
-      const bool linearlyBlocked = linearlyBlockedForPlayer(arena, bounds,
-        map.nodes[from].position, map.nodes[to].position);
-      if (linearlyBlocked) ++map.localBroadphaseRejects;
-      if (!linearlyBlocked && canTraverse(arena, movement, bounds, map.nodes[from].position,
-            map.nodes[to].position, false, 256)) {
-        const BotNavLinkKind kind = std::fabs(map.nodes[from].position.z -
-          map.nodes[to].position.z) <= 0.05F ? BotNavLinkKind::Walk : BotNavLinkKind::Step;
-        addLocalLink(from, to, kind);
-        // A walk or step link needs an independently simulated reverse edge.
-        // Do not infer this from geometry: slopes and seams may make it fail.
-        if (canTraverse(arena, movement, bounds, map.nodes[to].position,
-              map.nodes[from].position, false, 256)) {
-          addLocalLink(to, from, kind);
-        }
-      } else if (std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) > 0.05F &&
-                 canTraverse(arena, movement, bounds, map.nodes[from].position,
-                   map.nodes[to].position, true, 256)) {
-        addLocalLink(from, to, BotNavLinkKind::Jump);
-      }
-    }
-  }
-  map.localTraversalTrials = traversalTrials;
-  map.localLinkCount = map.linkCount;
-  for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
-    const std::size_t from = jumpPadEntryNodes[index];
-    const std::size_t to = jumpPadDestinationNodes[index];
-    if (from < map.nodeCount && to < map.nodeCount) {
-      // A pad link is legal only through the real trigger. It is not a
-      // walkable straight line and therefore must not use walk validation.
-      addLink(from, to, BotNavLinkKind::JumpPad);
-    }
-  }
-  for (std::size_t index = 0; index < arena.teleportCount; ++index) {
-    const std::size_t from = teleportEntryNodes[index];
-    const std::size_t to = teleportDestinationNodes[index];
-    if (from < map.nodeCount && to < map.nodeCount) {
-      // Movement::applyTeleports performs this directed transition when the
-      // player enters the authored trigger; do not invent a direct walk link.
-      addLink(from, to, BotNavLinkKind::Teleport);
-    }
+  constexpr std::size_t kGroundLevelSeedBudget = 64U;
+  const std::size_t sampledLevels = std::min(groundLevelCount, kGroundLevelSeedBudget);
+  for (std::size_t sample = 0; sample < sampledLevels; ++sample) {
+    const std::size_t index = sampledLevels <= 1U ? 0U :
+      (sample * (groundLevelCount - 1U)) / (sampledLevels - 1U);
+    const std::size_t node = addGroundedNodeIndex(
+      groundLevels[index].representative + Vec3{0.0F, 0.0F, bounds.halfHeight}
+    );
+    addSeed(node);
   }
 
-  // Local links deliberately stop before the fixed link store is full so pad
-  // and teleport links always fit. Then expand the component containing the
-  // first gameplay anchor through the nearest untried components. Every bridge
-  // uses normal player movement in both directions; this is not a geometric
-  // shortcut and it leaves unrelated decorative components alone.
-  std::array<std::size_t, BotNavigationMap::kMaxNodes> componentParent = {};
-  for (std::size_t node = 0; node < map.nodeCount; ++node) componentParent[node] = node;
-  const auto findComponent = [&](auto&& self, std::size_t node) -> std::size_t {
-    if (componentParent[node] == node) return node;
-    componentParent[node] = self(self, componentParent[node]);
-    return componentParent[node];
+  // Fixed-storage, fair region flood. It never compares every pair of nodes.
+  // Each gameplay anchor receives its own round-robin queue of local rays;
+  // rays continue forward and branch only when real movement rejects a wall.
+  // This spends fixed work on progress across a map instead of filling a tiny
+  // disk around the first few anchors.
+  constexpr std::array<Vec3, 8U> kRegionDirections = {{{1.0F, 0.0F, 0.0F},
+    {0.70710678F, 0.70710678F, 0.0F}, {0.0F, 1.0F, 0.0F},
+    {-0.70710678F, 0.70710678F, 0.0F}, {-1.0F, 0.0F, 0.0F},
+    {-0.70710678F, -0.70710678F, 0.0F}, {0.0F, -1.0F, 0.0F},
+    {0.70710678F, -0.70710678F, 0.0F}}};
+  // Seed every local grid direction. A diagonal corridor can leave an anchor
+  // before any cardinal ray reaches its first wall, so cardinal-only starts
+  // can strand an otherwise walkable spawn region.
+  constexpr std::array<std::size_t, 8U> kInitialDirections = {{0U, 1U, 2U, 3U,
+    4U, 5U, 6U, 7U}};
+  constexpr std::size_t kRegionExpansionWorkLimit = 1536U;
+  constexpr std::uint16_t kNoRegion = UINT16_MAX;
+  // A node-direction expansion has one result for every region. Queue it
+  // once, so the fixed task store covers the full 512-by-8 local frontier
+  // without duplicate work consuming the bounded queue.
+  constexpr std::size_t kMaxRegionTasks =
+    BotNavigationMap::kMaxNodes * kRegionDirections.size();
+  constexpr std::uint8_t kNoResumeDirection = UINT8_MAX;
+  std::array<std::uint8_t, BotNavigationMap::kMaxNodes> queuedDirections = {};
+  std::array<std::uint16_t, kMaxRegionTasks> taskNode = {};
+  std::array<std::uint16_t, kMaxRegionTasks> taskNext = {};
+  std::array<std::uint8_t, kMaxRegionTasks> taskDirection = {};
+  std::array<std::uint8_t, kMaxRegionTasks> taskResumeDirection = {};
+  std::array<bool, kMaxRegionTasks> taskIsResumeProbe = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> regionHead = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> regionTail = {};
+  regionHead.fill(kNoRegion);
+  regionTail.fill(kNoRegion);
+  taskNext.fill(kNoRegion);
+  std::size_t taskCount = 0;
+  const std::size_t totalSeedCount = seedCount;
+  std::size_t activeSeedCount = semanticSeedCount;
+  const auto enqueue = [&](std::size_t region, std::size_t node, std::size_t direction,
+                           std::uint8_t resumeDirection = kNoResumeDirection,
+                           bool resumeProbe = false) {
+    if (region >= totalSeedCount || node >= map.nodeCount ||
+        direction >= kRegionDirections.size() || taskCount == taskNode.size()) return;
+    const std::uint8_t directionBit = static_cast<std::uint8_t>(1U << direction);
+    if ((queuedDirections[node] & directionBit) != 0U) return;
+    queuedDirections[node] |= directionBit;
+    const std::size_t task = taskCount++;
+    taskNode[task] = static_cast<std::uint16_t>(node);
+    taskDirection[task] = static_cast<std::uint8_t>(direction);
+    taskResumeDirection[task] = resumeDirection;
+    taskIsResumeProbe[task] = resumeProbe;
+    if (regionTail[region] == kNoRegion) {
+      regionHead[region] = static_cast<std::uint16_t>(task);
+    } else {
+      taskNext[regionTail[region]] = static_cast<std::uint16_t>(task);
+    }
+    regionTail[region] = static_cast<std::uint16_t>(task);
   };
-  const auto mergeComponents = [&](std::size_t first, std::size_t second) {
-    first = findComponent(findComponent, first);
-    second = findComponent(findComponent, second);
-    if (first != second) componentParent[second] = first;
-  };
-  for (std::size_t link = 0; link < map.linkCount; ++link) {
-    mergeComponents(map.links[link].from, map.links[link].to);
+  for (std::size_t seed = 0; seed < semanticSeedCount; ++seed) {
+    for (const std::size_t direction : kInitialDirections) {
+      enqueue(seed, seedNodes[seed], direction);
+    }
   }
-  constexpr std::size_t kBridgeTraversalTrialLimit = 512U;
-  std::array<std::bitset<BotNavigationMap::kMaxNodes>, BotNavigationMap::kMaxNodes>
-    testedBridgePairs = {};
-  const auto anchorsConnected = [&] {
-    if (semanticAnchorCount < 2U) return true;
-    const std::size_t root = findComponent(findComponent, semanticAnchorNodes[0]);
-    for (std::size_t anchor = 1U; anchor < semanticAnchorCount; ++anchor) {
-      if (findComponent(findComponent, semanticAnchorNodes[anchor]) != root) return false;
+  map.regionSeedCount = semanticSeedCount;
+  // Semantic anchors grow first but leave deterministic capacity for corner
+  // and upper-surface frontiers. This prevents a large empty region from
+  // consuming every node before a narrow authored route gets a turn.
+  const std::size_t semanticNodeLimit = std::max(map.nodeCount,
+    BotNavigationMap::kMaxNodes - 96U);
+  std::size_t floodNodeLimit = semanticNodeLimit;
+  const float sampledArea = std::max(1.0F,
+    (samplingBounds.max.x - samplingBounds.min.x) *
+    (samplingBounds.max.y - samplingBounds.min.y));
+  // Scale the first local ray step to the authored map, while retaining a
+  // one-step fallback below. A fixed 1.25-unit-only flood cannot join the
+  // meaningful regions of large imported maps before its 512 nodes fill.
+  const float primaryExpansionDistance = std::clamp(
+    std::sqrt(sampledArea / static_cast<float>(BotNavigationMap::kMaxNodes - 96U)),
+    kNavSpacing, kNavSpacing * 4.0F);
+  const auto enqueueDetour = [&](std::size_t region, std::size_t from,
+                                 std::size_t direction, bool resumeProbe,
+                                 std::uint8_t resumeDirection) {
+    if (resumeProbe || resumeDirection != kNoResumeDirection) return;
+    // A blocked horizontal ray tries both perpendicular local directions
+    // from its last proven node. Each detour keeps probing the original
+    // direction, so it turns back only after it has cleared the wall.
+    const std::size_t left = (direction + kRegionDirections.size() - 1U) %
+      kRegionDirections.size();
+    const std::size_t right = (direction + 1U) % kRegionDirections.size();
+    enqueue(region, from, left, static_cast<std::uint8_t>(direction));
+    enqueue(region, from, right, static_cast<std::uint8_t>(direction));
+  };
+  const auto tryDirectedLink = [&](std::size_t from, std::size_t to) {
+    if (from >= map.nodeCount || to >= map.nodeCount || from == to) return false;
+    ++map.localTraversalTrials;
+    if (linearlyBlockedForPlayer(arena, bounds, map.nodes[from].position, map.nodes[to].position)) {
+      ++map.localBroadphaseRejects;
+      return false;
+    }
+    BotNavLinkKind kind = std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) <= 0.05F
+      ? BotNavLinkKind::Walk : BotNavLinkKind::Step;
+    bool reached = canTraverse(arena, movement, bounds, map.nodes[from].position,
+      map.nodes[to].position, false, 128);
+    // A gap can have equal floor heights.  Prove a normal jump in that case
+    // too; z alone does not describe the movement rule.
+    if (!reached) {
+      reached = canTraverse(arena, movement, bounds, map.nodes[from].position,
+        map.nodes[to].position, true, 128);
+      if (reached) kind = BotNavLinkKind::Jump;
+    }
+    if (!reached) return false;
+    addLink(from, to, kind);
+    // Direction stays explicit. Flat or symmetric ground earns a reverse
+    // link only after its own normal movement proof; pads and teleports never
+    // pass through this helper and remain one-way trigger transitions.
+    ++map.localTraversalTrials;
+    if (!linearlyBlockedForPlayer(arena, bounds, map.nodes[to].position, map.nodes[from].position)) {
+      bool reverseReached = canTraverse(arena, movement, bounds, map.nodes[to].position,
+        map.nodes[from].position, false, 128);
+      if (!reverseReached && kind == BotNavLinkKind::Jump) {
+        reverseReached = canTraverse(arena, movement, bounds, map.nodes[to].position,
+          map.nodes[from].position, true, 128);
+      }
+      if (reverseReached) {
+        addLink(to, from, kind);
+      } else {
+        ++map.localBroadphaseRejects;
+      }
+    } else {
+      ++map.localBroadphaseRejects;
     }
     return true;
   };
-  while (semanticAnchorCount > 1U && !anchorsConnected() &&
-         map.bridgeTraversalTrials < kBridgeTraversalTrialLimit &&
-         map.linkCount < nonSpecialLinkBudget) {
-    // Give every disconnected gameplay-anchor component equal priority. This
-    // avoids expanding whichever anchor happened to occupy node zero while a
-    // second spawn waits behind a wall.
-    std::array<bool, BotNavigationMap::kMaxNodes> componentHasAnchor = {};
-    for (std::size_t anchor = 0; anchor < semanticAnchorCount; ++anchor) {
-      componentHasAnchor[findComponent(findComponent, semanticAnchorNodes[anchor])] = true;
-    }
-    std::size_t bestFrom = BotNavigationMap::kMaxNodes;
-    std::size_t bestTo = BotNavigationMap::kMaxNodes;
-    float bestDistance = std::numeric_limits<float>::infinity();
-    for (std::size_t from = 0; from < map.nodeCount; ++from) {
-      const std::size_t fromComponent = findComponent(findComponent, from);
-      for (std::size_t to = from + 1U; to < map.nodeCount; ++to) {
-        const std::size_t toComponent = findComponent(findComponent, to);
-        if (fromComponent == toComponent || testedBridgePairs[from].test(to) ||
-            (!componentHasAnchor[fromComponent] && !componentHasAnchor[toComponent])) {
-          continue;
+  const auto runFlood = [&] {
+    while (map.regionExpansionWork < kRegionExpansionWorkLimit && map.linkCount < map.links.size()) {
+      bool progressed = false;
+      for (std::size_t region = 0;
+           region < activeSeedCount && map.regionExpansionWork < kRegionExpansionWorkLimit;
+           ++region) {
+      if (regionHead[region] == kNoRegion) continue;
+      progressed = true;
+      const std::size_t task = regionHead[region];
+      const std::size_t from = taskNode[task];
+      const std::size_t direction = taskDirection[task];
+      const std::uint8_t resumeDirection = taskResumeDirection[task];
+      const bool resumeProbe = taskIsResumeProbe[task];
+      regionHead[region] = taskNext[task];
+      if (regionHead[region] == kNoRegion) regionTail[region] = kNoRegion;
+      ++map.regionExpansionWork;
+      bool createdNode = false;
+      std::size_t to = BotNavigationMap::kMaxNodes;
+      const auto connectAtDistance = [&](float distance) {
+        const std::size_t oldNodeCount = map.nodeCount;
+        to = addGroundedNodeIndex(map.nodes[from].position +
+          kRegionDirections[direction] * distance, kNavSpacing * 0.90F);
+        if (map.nodeCount > floodNodeLimit && to + 1U == map.nodeCount) {
+          --map.nodeCount;
+          to = BotNavigationMap::kMaxNodes;
         }
-        const float distance = distance3d(map.nodes[from].position, map.nodes[to].position);
-        if (distance < bestDistance) {
-          bestDistance = distance;
-          bestFrom = from;
-          bestTo = to;
+        if (to >= map.nodeCount || to == from || !tryDirectedLink(from, to)) {
+          // This candidate was not connected. Do not turn it into an unproved
+          // remote seed just because its position happened to be standable.
+          if (map.nodeCount > oldNodeCount && to + 1U == map.nodeCount) --map.nodeCount;
+          return false;
         }
-      }
-    }
-    if (bestFrom >= map.nodeCount || bestTo >= map.nodeCount) break;
-    testedBridgePairs[bestFrom].set(bestTo);
-    testedBridgePairs[bestTo].set(bestFrom);
-    ++map.bridgeTraversalTrials;
-    const auto bridgeKind = [&](std::size_t from, std::size_t to, BotNavLinkKind& kind) {
-      const bool linearlyBlocked = linearlyBlockedForPlayer(arena, bounds,
-        map.nodes[from].position, map.nodes[to].position);
-      if (linearlyBlocked) ++map.bridgeBroadphaseRejects;
-      if (!linearlyBlocked && canTraverse(arena, movement, bounds, map.nodes[from].position,
-            map.nodes[to].position, false, 384)) {
-        kind = std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) <= 0.05F
-          ? BotNavLinkKind::Walk : BotNavLinkKind::Step;
+        createdNode = to >= oldNodeCount;
         return true;
+      };
+      if (!connectAtDistance(primaryExpansionDistance) &&
+          (primaryExpansionDistance <= kNavSpacing + 0.001F ||
+            !connectAtDistance(kNavSpacing))) {
+        enqueueDetour(region, from, direction, resumeProbe, resumeDirection);
+        continue;
       }
-      if (std::fabs(map.nodes[from].position.z - map.nodes[to].position.z) > 0.05F &&
-          canTraverse(arena, movement, bounds, map.nodes[from].position,
-            map.nodes[to].position, true, 384)) {
-        kind = BotNavLinkKind::Jump;
-        return true;
+      if (resumeDirection != kNoResumeDirection) {
+        enqueue(region, to, direction, resumeDirection);
+        enqueue(region, to, resumeDirection, kNoResumeDirection, true);
+      } else {
+        enqueue(region, to, direction);
       }
-      return false;
-    };
-    BotNavLinkKind forwardKind = BotNavLinkKind::Walk;
-    BotNavLinkKind reverseKind = BotNavLinkKind::Walk;
-    if (!bridgeKind(bestFrom, bestTo, forwardKind)) {
-      if (!std::isfinite(map.nearestRejectedBridgeDistance)) {
-        map.nearestRejectedBridgeDistance = bestDistance;
+      if (createdNode) ++map.regionNodeCount;
       }
-      continue;
+      if (!progressed) break;
     }
-    if (map.bridgeTraversalTrials == kBridgeTraversalTrialLimit ||
-        !bridgeKind(bestTo, bestFrom, reverseKind)) {
-      if (!std::isfinite(map.nearestRejectedBridgeDistance)) {
-        map.nearestRejectedBridgeDistance = bestDistance;
+  };
+  runFlood();
+  if (map.regionExpansionWork < kRegionExpansionWorkLimit &&
+      activeSeedCount < totalSeedCount) {
+    activeSeedCount = totalSeedCount;
+    floodNodeLimit = BotNavigationMap::kMaxNodes;
+    for (std::size_t seed = semanticSeedCount; seed < totalSeedCount; ++seed) {
+      for (const std::size_t direction : kInitialDirections) {
+        enqueue(seed, seedNodes[seed], direction);
       }
-      continue;
     }
-    const std::size_t before = map.linkCount;
-    addLink(bestFrom, bestTo, forwardKind);
-    addLink(bestTo, bestFrom, reverseKind);
-    if (map.linkCount > before) {
-      map.bridgeLinkCount += map.linkCount - before;
-      if (componentHasAnchor[findComponent(findComponent, bestFrom)] ||
-          componentHasAnchor[findComponent(findComponent, bestTo)]) {
-        ++map.bridgeAnchorMerges;
-      }
-      mergeComponents(bestFrom, bestTo);
-    }
+    runFlood();
   }
+  map.localLinkCount = map.linkCount - specialLinkCount;
+
+  // This directed reach check is diagnostic only. The validator below makes
+  // the required spawn-to-resource and special-trigger route decisions.
   if (semanticAnchorCount > 0U) {
-    std::array<bool, BotNavigationMap::kMaxNodes> countedComponents = {};
-    for (std::size_t anchor = 0; anchor < semanticAnchorCount; ++anchor) {
-      countedComponents[findComponent(findComponent, semanticAnchorNodes[anchor])] = true;
+    std::array<bool, BotNavigationMap::kMaxNodes> reached = {};
+    std::array<std::size_t, BotNavigationMap::kMaxNodes> queue = {};
+    std::size_t head = 0;
+    std::size_t tail = 0;
+    const std::size_t root = semanticAnchorNodes[0];
+    reached[root] = true;
+    queue[tail++] = root;
+    while (head < tail) {
+      const std::size_t current = queue[head++];
+      for (std::size_t link = 0; link < map.linkCount; ++link) {
+        const BotNavLink& edge = map.links[link];
+        if (edge.from == current && !reached[edge.to]) {
+          reached[edge.to] = true;
+          queue[tail++] = edge.to;
+        }
+      }
     }
-    for (std::size_t node = 0; node < map.nodeCount; ++node) {
-      map.remainingAnchorComponents += countedComponents[node] ? 1U : 0U;
+    for (std::size_t anchor = 0; anchor < semanticAnchorCount; ++anchor) {
+      map.unreachableAnchorNodes += !reached[semanticAnchorNodes[anchor]];
     }
   }
   return map;

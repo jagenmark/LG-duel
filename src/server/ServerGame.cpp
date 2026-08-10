@@ -1149,6 +1149,16 @@ void ServerGame::tick(float fixedDt) {
         (void)consumeAmmo(attackerIndex, Weapon::PlasmaGun);
       }
     }
+    // Count an action only after the common gameplay path has accepted its
+    // selected weapon, pullout, cooldown, ammo, and edge conditions. This is
+    // deliberately not a requested-command counter.
+    const bool acceptedWeaponFire =
+      command.weapon == Weapon::LightningGun || command.weapon == Weapon::FreezeGun
+      ? snapshot_.lightningGuns[attackerIndex].active
+      : snapshot_.weaponFires[attackerIndex].fired;
+    if (acceptedWeaponFire) {
+      ++botRuntimeStats_.acceptedWeaponFires[attackerIndex];
+    }
     LightningGunResult& result = snapshot_.lightningGuns[attackerIndex];
     result.requestedRewindTicks = requestedRewindTicks;
     result.appliedRewindTicks = clampedRewindTicks == 0
@@ -1704,6 +1714,11 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   botRuntimeStats_.acquisitions[playerIndex] = 0;
   botRuntimeStats_.losses[playerIndex] = 0;
   botRuntimeStats_.attackCommandTicks[playerIndex] = 0;
+  botRuntimeStats_.acceptedWeaponFires[playerIndex] = 0;
+  for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
+    botRuntimeStats_.acceptedDamageEvents[playerIndex][targetIndex] = 0;
+    botRuntimeStats_.acceptedDamageEvents[targetIndex][playerIndex] = 0;
+  }
   botRuntimeStats_.navigationCommandTicks[playerIndex] = 0;
   botRuntimeStats_.movementIntentTicks[playerIndex] = 0;
   botRuntimeStats_.recoveryEvents[playerIndex] = 0;
@@ -2216,6 +2231,10 @@ std::uint64_t ServerGame::botDeterminismHash() const {
       mix(botRuntimeStats_.acquisitions[index]);
       mix(botRuntimeStats_.losses[index]);
       mix(botRuntimeStats_.attackCommandTicks[index]);
+      mix(botRuntimeStats_.acceptedWeaponFires[index]);
+      for (std::size_t target = 0; target < kDuelPlayerCount; ++target) {
+        mix(botRuntimeStats_.acceptedDamageEvents[index][target]);
+      }
       mix(botRuntimeStats_.navigationCommandTicks[index]);
       mix(botRuntimeStats_.movementIntentTicks[index]);
       mix(botRuntimeStats_.recoveryEvents[index]);
@@ -2866,6 +2885,9 @@ void ServerGame::applyDamageAndKnockback(
   // Clamp before recording feedback and statistics so every downstream system
   // observes actual health removed rather than the weapon's nominal damage.
   damageApplied = std::min(damageApplied, target.health);
+  if (damageApplied > 0 && attackerIndex < kDuelPlayerCount) {
+    ++botRuntimeStats_.acceptedDamageEvents[attackerIndex][targetIndex];
+  }
   target.health = std::max(0, target.health - damageApplied);
   target.velocity += knockbackImpulse;
   const std::uint16_t configuredKnockbackTicks =

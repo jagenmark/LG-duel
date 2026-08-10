@@ -177,6 +177,15 @@ struct BotNavLink {
   BotNavLinkKind kind = BotNavLinkKind::Walk;
 };
 
+// A special route records the two player origins produced by normal movement:
+// the grounded trigger entry and the grounded point reached after the trigger.
+// It remains server-local so offline validation can prove each directed route.
+struct BotNavSpecialRoute {
+  std::uint16_t entryNode = UINT16_MAX;
+  std::uint16_t exitNode = UINT16_MAX;
+  bool verified = false;
+};
+
 // The fixed storage makes tactical ticks allocation-free. The builder samples
 // at map-load time and drops excess samples deterministically.
 struct BotNavigationMap {
@@ -191,17 +200,19 @@ struct BotNavigationMap {
   bool requiredAnchorsComplete = true;
   std::size_t requiredAnchorCount = 0;
   std::size_t missingRequiredAnchorCount = 0;
-  // Build diagnostics stay server-local. They make bounded local and bridge
-  // work visible to offline map validation without changing snapshots.
+  // Build diagnostics stay server-local. A round-robin flood does all work at
+  // map load, never in the 125 Hz motor loop.
   std::size_t localLinkCount = 0;
-  std::size_t bridgeLinkCount = 0;
   std::size_t localTraversalTrials = 0;
-  std::size_t bridgeTraversalTrials = 0;
   std::size_t localBroadphaseRejects = 0;
-  std::size_t bridgeBroadphaseRejects = 0;
-  std::size_t bridgeAnchorMerges = 0;
-  std::size_t remainingAnchorComponents = 0;
-  float nearestRejectedBridgeDistance = std::numeric_limits<float>::infinity();
+  std::size_t unreachableAnchorNodes = 0;
+  std::size_t regionSeedCount = 0;
+  std::size_t regionExpansionWork = 0;
+  std::size_t regionNodeCount = 0;
+  std::size_t jumpPadRouteCount = 0;
+  std::size_t teleportRouteCount = 0;
+  std::array<BotNavSpecialRoute, 48> jumpPadRoutes = {};
+  std::array<BotNavSpecialRoute, 16> teleportRoutes = {};
 };
 
 // This is the sole authoritative-to-static-map boundary. It proves walk and

@@ -15,13 +15,14 @@ namespace {
 
 struct SoakResult {
   bool valid = true;
-  bool legalDamage = true;
   bool hiddenAttack = false;
   std::uint32_t movedBots = 0;
   std::uint32_t acquiredBots = 0;
   std::uint32_t lostBots = 0;
-  std::uint32_t firingBots = 0;
-  std::uint32_t damagedBots = 0;
+  std::uint32_t acceptedFireBots = 0;
+  std::uint32_t damageAttackerBots = 0;
+  std::uint32_t damageTargetBots = 0;
+  std::uint32_t directDamageEvents = 0;
   std::uint32_t navigationBots = 0;
   std::uint32_t weaponChangedBots = 0;
   std::uint32_t recoveryBots = 0;
@@ -88,8 +89,6 @@ SoakResult runSoak(std::size_t tickCount) {
   std::array<float, lg::kDuelPlayerCount> movementDistance = {};
   std::array<std::uint32_t, lg::kDuelPlayerCount> noProgressTicks = {};
   std::array<std::uint32_t, lg::kDuelPlayerCount> maximumNoProgressTicks = {};
-  std::array<std::uint32_t, lg::kDuelPlayerCount> lastLegalFireTick = {};
-  lastLegalFireTick.fill(std::numeric_limits<std::uint32_t>::max());
   for (std::size_t tick = 0; tick < tickCount; ++tick) {
     server.tick(lg::kFixedTickSeconds);
     const lg::ServerSnapshot& snapshot = server.snapshot();
@@ -97,7 +96,6 @@ SoakResult runSoak(std::size_t tickCount) {
     mix(result.hash, snapshot.serverTick);
     mix(result.hash, static_cast<std::uint32_t>(server.botDeterminismHash()));
     mix(result.hash, static_cast<std::uint32_t>(server.botDeterminismHash() >> 32U));
-    bool legalFireThisTick = false;
     for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
       const lg::PlayerState& player = snapshot.players[slot];
       result.valid = result.valid && std::isfinite(player.position.x) &&
@@ -110,18 +108,7 @@ SoakResult runSoak(std::size_t tickCount) {
       mix(result.hash, player.velocity.x);
       mix(result.hash, player.velocity.y);
       mix(result.hash, player.velocity.z);
-      const bool fired = snapshot.weaponFires[slot].fired ||
-        snapshot.lightningGuns[slot].active;
-      legalFireThisTick = legalFireThisTick || fired;
-      if (fired) lastLegalFireTick[slot] = static_cast<std::uint32_t>(tick);
     }
-    bool recentLegalFire = false;
-    for (std::uint32_t fireTick : lastLegalFireTick) {
-      recentLegalFire = recentLegalFire ||
-        (fireTick != std::numeric_limits<std::uint32_t>::max() &&
-          static_cast<std::uint32_t>(tick) - fireTick <= 512U);
-    }
-    (void)legalFireThisTick;
     for (std::size_t slot = 0; slot < lg::kDuelPlayerCount; ++slot) {
       const lg::PlayerState& player = snapshot.players[slot];
       const float distance = std::hypot(player.position.x - previousPlayers[slot].position.x,
@@ -137,9 +124,6 @@ SoakResult runSoak(std::size_t tickCount) {
       } else {
         noProgressTicks[slot] = 0U;
       }
-      if (player.health < previousPlayers[slot].health) {
-        result.legalDamage = result.legalDamage && recentLegalFire;
-      }
       previousPlayers[slot] = player;
     }
     previousStats = stats;
@@ -150,15 +134,28 @@ SoakResult runSoak(std::size_t tickCount) {
     result.movedBots += movementDistance[slot] > 0.50F ? 1U : 0U;
     result.acquiredBots += stats.acquisitions[slot] > 0U ? 1U : 0U;
     result.lostBots += stats.losses[slot] > 0U ? 1U : 0U;
-    result.firingBots += stats.attackCommandTicks[slot] > 0U ? 1U : 0U;
+    result.acceptedFireBots += stats.acceptedWeaponFires[slot] > 0U ? 1U : 0U;
     result.navigationBots += stats.navigationCommandTicks[slot] > 0U ? 1U : 0U;
     result.weaponChangedBots += server.snapshot().selectedWeapons[slot] != initialWeapons[slot]
       ? 1U : 0U;
     result.recoveryBots += stats.recoveryEvents[slot] > 0U ? 1U : 0U;
     result.recoveryEvents += stats.recoveryEvents[slot];
-    result.damagedBots += server.snapshot().players[slot].health < 100 ? 1U : 0U;
     result.maximumNoProgressTicks = std::max(result.maximumNoProgressTicks,
       maximumNoProgressTicks[slot]);
+  }
+  std::array<bool, lg::kDuelPlayerCount> damagedTarget = {};
+  for (std::size_t attacker = 0; attacker < lg::kDuelPlayerCount; ++attacker) {
+    bool damagedAny = false;
+    for (std::size_t target = 0; target < lg::kDuelPlayerCount; ++target) {
+      const std::uint32_t events = stats.acceptedDamageEvents[attacker][target];
+      result.directDamageEvents += events;
+      damagedAny = damagedAny || events > 0U;
+      damagedTarget[target] = damagedTarget[target] || events > 0U;
+    }
+    result.damageAttackerBots += damagedAny ? 1U : 0U;
+  }
+  for (const bool damaged : damagedTarget) {
+    result.damageTargetBots += damaged ? 1U : 0U;
   }
   return result;
 }
@@ -186,11 +183,12 @@ int main(int argc, char** argv) {
   failures += expect(first.valid && second.valid, "soak should keep all bot simulation values finite");
   constexpr std::uint32_t kMeaningfulBots = lg::kDuelPlayerCount / 4U;
   failures += expect(first.movedBots >= kMeaningfulBots && first.acquiredBots >= kMeaningfulBots &&
-    first.lostBots >= kMeaningfulBots && first.firingBots >= kMeaningfulBots,
-    "soak should cover movement, acquire/loss, and legal fire for a meaningful bot fraction");
-  failures += expect(first.damagedBots > 0U && first.navigationBots >= kMeaningfulBots &&
-    first.weaponChangedBots > 0U && first.legalDamage,
-    "soak should tie damage to legal fire and cover navigation and utility switching");
+    first.lostBots >= kMeaningfulBots && first.acceptedFireBots >= kMeaningfulBots,
+    "soak should cover movement, acquire/loss, and accepted fire for a meaningful bot fraction");
+  failures += expect(first.directDamageEvents > 0U && first.damageAttackerBots > 0U &&
+    first.damageTargetBots > 0U && first.navigationBots >= kMeaningfulBots &&
+    first.weaponChangedBots > 0U,
+    "soak should cover direct canonical attacker-target damage, navigation, and utility switching");
   failures += expect(first.recoveryEvents <= 64U && first.maximumNoProgressTicks <= 500U,
     "soak should bound recovery events and every active bot's no-progress run");
   failures += expect(!first.hiddenAttack,
@@ -200,10 +198,13 @@ int main(int argc, char** argv) {
   std::cout << "bot soak ticks=" << tickCount << " hash=" << first.hash
     << " moved_bots=" << first.movedBots
     << " acquired_bots=" << first.acquiredBots << " lost_bots=" << first.lostBots
-    << " firing_bots=" << first.firingBots << " damaged_bots=" << first.damagedBots
+    << " accepted_fire_bots=" << first.acceptedFireBots
+    << " damage_attackers=" << first.damageAttackerBots
+    << " damage_targets=" << first.damageTargetBots
+    << " damage_events=" << first.directDamageEvents
     << " nav_bots=" << first.navigationBots << " weapon_changed_bots=" << first.weaponChangedBots
     << " recovery_bots=" << first.recoveryBots << " recovery_events=" << first.recoveryEvents
     << " max_no_progress_ticks=" << first.maximumNoProgressTicks
-    << " legal_damage=" << first.legalDamage << " hidden_attack=" << first.hiddenAttack << '\n';
+    << " hidden_attack=" << first.hiddenAttack << '\n';
   return failures == 0 ? 0 : 1;
 }

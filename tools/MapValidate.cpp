@@ -158,6 +158,19 @@ namespace {
   return tail;
 }
 
+[[nodiscard]] bool hasDirectLink(
+  const lg::BotNavigationMap& map,
+  std::size_t from,
+  std::size_t to,
+  lg::BotNavLinkKind kind
+) {
+  for (std::size_t index = 0; index < map.linkCount; ++index) {
+    const lg::BotNavLink& link = map.links[index];
+    if (link.from == from && link.to == to && link.kind == kind) return true;
+  }
+  return false;
+}
+
 [[nodiscard]] int validateNavigation(
   const std::filesystem::path& mapPath,
   const lg::Arena& arena
@@ -236,6 +249,49 @@ namespace {
     }
     validateSpawnGroup(groupNodes, "team spawn");
   }
+  // These checks follow edge direction. A player must be able to leave every
+  // authored spawn for a real health or objective anchor; a reverse-only pad
+  // route does not satisfy that gameplay need.
+  const auto appendUniqueNode = [](std::vector<std::size_t>& nodes, std::size_t node) {
+    if (std::find(nodes.begin(), nodes.end(), node) == nodes.end()) nodes.push_back(node);
+  };
+  std::vector<std::size_t> sourceNodes;
+  for (const std::size_t node : deathmatchNodes) appendUniqueNode(sourceNodes, node);
+  for (std::size_t index = 0; index < arena.teamSpawnCount; ++index) {
+    appendUniqueNode(sourceNodes, nodeForGroundAnchor(arena.teamSpawns[index].position));
+  }
+  std::vector<std::size_t> targetNodes;
+  for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
+    appendUniqueNode(targetNodes, nodeForGroundAnchor(arena.healthPickups[index].position));
+  }
+  if (arena.mcguffin.hasNeutralSpawn) {
+    appendUniqueNode(targetNodes, nodeForGroundAnchor(arena.mcguffin.neutralSpawn));
+  }
+  const auto baseNode = [&](const lg::ArenaMcGuffinBase& base) {
+    return nodeForGroundAnchor({(base.min.x + base.max.x) * 0.5F,
+      (base.min.y + base.max.y) * 0.5F, std::max(base.min.z, arena.min.z)});
+  };
+  if (arena.mcguffin.hasRedBase) appendUniqueNode(targetNodes, baseNode(arena.mcguffin.redBase));
+  if (arena.mcguffin.hasBlueBase) appendUniqueNode(targetNodes, baseNode(arena.mcguffin.blueBase));
+  std::size_t missingDirectedRoutes = 0;
+  constexpr std::size_t kRouteDiagnosticLimit = 12U;
+  for (std::size_t source : sourceNodes) {
+    for (std::size_t target : targetNodes) {
+      if (source >= map.nodeCount || target >= map.nodeCount || !hasRoute(map, source, target)) {
+        if (missingDirectedRoutes++ < kRouteDiagnosticLimit) {
+          std::cerr << "nav ERROR: " << mapPath.string() << ": no directed route from spawn node "
+            << source << " to gameplay node " << target << " (reachable="
+            << routeReachCount(map, source) << '/' << map.nodeCount << ")\n";
+        }
+      }
+    }
+  }
+  if (missingDirectedRoutes > 0U) {
+    std::cerr << "nav ERROR: " << mapPath.string() << ": " << missingDirectedRoutes
+      << " directed spawn-to-gameplay routes missing across " << sourceNodes.size()
+      << " unique spawn nodes and " << targetNodes.size() << " unique gameplay nodes\n";
+    ++failures;
+  }
   std::size_t padLinks = 0;
   std::size_t teleportLinks = 0;
   for (std::size_t index = 0; index < map.linkCount; ++index) {
@@ -248,20 +304,35 @@ namespace {
       << arena.teleportCount << '\n';
     ++failures;
   }
+  for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
+    const lg::BotNavSpecialRoute& route = map.jumpPadRoutes[index];
+    if (!route.verified || route.entryNode >= map.nodeCount || route.exitNode >= map.nodeCount ||
+        !hasDirectLink(map, route.entryNode, route.exitNode, lg::BotNavLinkKind::JumpPad)) {
+      std::cerr << "nav ERROR: " << mapPath.string() << ": jump pad " << index
+        << " has no simulated directed entry-to-landing route\n";
+      ++failures;
+    }
+  }
+  for (std::size_t index = 0; index < arena.teleportCount; ++index) {
+    const lg::BotNavSpecialRoute& route = map.teleportRoutes[index];
+    if (!route.verified || route.entryNode >= map.nodeCount || route.exitNode >= map.nodeCount ||
+        !hasDirectLink(map, route.entryNode, route.exitNode, lg::BotNavLinkKind::Teleport)) {
+      std::cerr << "nav ERROR: " << mapPath.string() << ": teleport " << index
+        << " has no simulated directed entry-to-landing route\n";
+      ++failures;
+    }
+  }
   std::cout << "nav " << (failures == 0 ? "PASS: " : "FAIL: ") << mapPath.string()
     << " nodes=" << map.nodeCount << " links=" << map.linkCount
     << " anchors=" << map.requiredAnchorCount
     << " missing_anchors=" << map.missingRequiredAnchorCount
     << " local_links=" << map.localLinkCount
-    << " bridge_links=" << map.bridgeLinkCount
     << " local_trials=" << map.localTraversalTrials
-    << " bridge_trials=" << map.bridgeTraversalTrials
     << " local_rejects=" << map.localBroadphaseRejects
-    << " bridge_rejects=" << map.bridgeBroadphaseRejects
-    << " anchor_merges=" << map.bridgeAnchorMerges
-    << " anchor_components=" << map.remainingAnchorComponents
-    << " nearest_rejected=" << (std::isfinite(map.nearestRejectedBridgeDistance)
-      ? map.nearestRejectedBridgeDistance : -1.0F)
+    << " region_seeds=" << map.regionSeedCount
+    << " region_work=" << map.regionExpansionWork
+    << " region_nodes=" << map.regionNodeCount
+    << " root_unreachable_anchors=" << map.unreachableAnchorNodes
     << " specials=pads:" << padLinks << '/' << arena.jumpPadCount
     << ",teleports:" << teleportLinks << '/' << arena.teleportCount << '\n';
   return failures;

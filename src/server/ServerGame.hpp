@@ -31,6 +31,13 @@ struct BotRuntimeStats {
   std::array<std::uint32_t, kDuelPlayerCount> acquisitions = {};
   std::array<std::uint32_t, kDuelPlayerCount> losses = {};
   std::array<std::uint32_t, kDuelPlayerCount> attackCommandTicks = {};
+  // Count only fires that cleared the normal selected-weapon, pullout,
+  // cooldown, ammo, and edge checks. This is not a requested input count.
+  std::array<std::uint32_t, kDuelPlayerCount> acceptedWeaponFires = {};
+  // Damage events record the legal canonical attacker-to-target application,
+  // including delayed projectile damage. They never enter a snapshot.
+  std::array<std::array<std::uint32_t, kDuelPlayerCount>, kDuelPlayerCount>
+    acceptedDamageEvents = {};
   std::array<std::uint32_t, kDuelPlayerCount> navigationCommandTicks = {};
   std::array<std::uint32_t, kDuelPlayerCount> movementIntentTicks = {};
   std::array<std::uint32_t, kDuelPlayerCount> recoveryEvents = {};
