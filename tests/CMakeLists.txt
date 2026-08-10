@@ -148,6 +148,20 @@ lg_duel_set_warnings(lg_duel_bot_server_tests)
 
 add_test(NAME lg_duel_bot_server_tests COMMAND lg_duel_bot_server_tests)
 
+add_executable(lg_duel_bot_soak_tests
+  net/BotSoakTests.cpp
+)
+
+target_link_libraries(lg_duel_bot_soak_tests PRIVATE lg_duel_core)
+target_compile_features(lg_duel_bot_soak_tests PRIVATE cxx_std_20)
+lg_duel_set_warnings(lg_duel_bot_soak_tests)
+
+add_test(NAME lg_duel_bot_soak_tests COMMAND lg_duel_bot_soak_tests)
+set_tests_properties(
+  lg_duel_bot_soak_tests
+  PROPERTIES WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
+)
+
 add_executable(lg_duel_weapon_switching_tests
   net/WeaponSwitchingTests.cpp
 )

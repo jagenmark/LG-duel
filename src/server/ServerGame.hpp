@@ -87,6 +87,8 @@ public:
   [[nodiscard]] Weapon botWeapon() const;
   [[nodiscard]] bool botWeaponAuto() const;
   [[nodiscard]] std::uint64_t botCommandIngressCount(std::size_t playerIndex) const;
+  [[nodiscard]] std::uint64_t botDeterminismHash() const;
+  [[nodiscard]] std::uint64_t botHiddenAttackInvariantCount() const;
   [[nodiscard]] std::string botDebugString(std::size_t playerIndex) const;
   [[nodiscard]] bool isBotSlot(std::size_t playerIndex) const;
   [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
@@ -350,6 +352,7 @@ private:
   std::array<BotBrain, kDuelPlayerCount> botBrains_ = {};
   std::array<BotMotor, kDuelPlayerCount> botMotors_ = {};
   std::array<std::uint64_t, kDuelPlayerCount> botCommandIngressCounts_ = {};
+  std::uint64_t botHiddenAttackInvariantCount_ = 0;
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};

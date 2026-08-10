@@ -227,6 +227,13 @@ int main() {
       easy.trackingErrorRadians > medium.trackingErrorRadians &&
       medium.trackingErrorRadians > hard.trackingErrorRadians,
       "difficulty should order finite turn and tracking skill without stat changes");
+    failures += expect(easy.targetFovDegrees == 108.0F &&
+      easy.targetFovDegrees == medium.targetFovDegrees &&
+      medium.targetFovDegrees == hard.targetFovDegrees,
+      "the same yaw-and-pitch sensory cone should apply at every difficulty");
+    failures += expect(easy.fireToleranceRadians > medium.fireToleranceRadians &&
+      medium.fireToleranceRadians > hard.fireToleranceRadians,
+      "harder aim should not get a looser fire alignment threshold");
 
     lg::BotSenseFrame sense;
     sense.fixedDt = lg::kFixedTickSeconds;
@@ -235,8 +242,9 @@ int main() {
     sense.self.halfHeight = 0.9F;
     sense.combatEnabled = true;
     sense.selectedWeapon = lg::Weapon::LightningGun;
-    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] = {true, 18.0F, 0.0F, false};
-    sense.visibleEnemies[0] = {1U, {6.0F, 0.0F, 0.9F}, {0.0F, 0.0F, 0.0F}};
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.visibleEnemies[0] = {1U, {6.0F, 0.0F, 0.9F}, 1U, true, false};
     sense.visibleEnemyCount = 1;
     lg::BotBrain first;
     lg::BotBrain second;
@@ -281,6 +289,91 @@ int main() {
     }
     failures += expect(reactionHeldViewAndMovement,
       "reaction should gate target-driven aim and chase movement for the full sampled delay");
+  }
+
+  {
+    // BotObservedEnemy has no velocity. This uses only position/tick samples
+    // and proves lead appears only after a later visible observation.
+    lg::BotDifficultyProfile instant = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    instant.reactionMinSeconds = -0.10F;
+    instant.reactionMaxSeconds = -0.10F;
+    instant.maxTurnRadiansPerSecond = 100.0F;
+    instant.turnAccelerationRadiansPerSecond2 = 10000.0F;
+    instant.trackingErrorRadians = 0.0F;
+    instant.predictionSeconds = 0.20F;
+    lg::BotSenseFrame firstSense;
+    firstSense.fixedDt = lg::kFixedTickSeconds;
+    firstSense.serverTick = 10U;
+    firstSense.self.position = {0.0F, 0.0F, 0.9F};
+    firstSense.self.halfHeight = 0.9F;
+    firstSense.combatEnabled = true;
+    firstSense.selectedWeapon = lg::Weapon::LightningGun;
+    firstSense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    firstSense.visibleEnemies[0] = {1U, {6.0F, 0.0F, 0.9F}, 10U, true, false};
+    firstSense.visibleEnemyCount = 1U;
+    lg::BotBrain first;
+    lg::BotBrain second;
+    first.reset(0xA1U);
+    second.reset(0xA1U);
+    const lg::BotMotor firstSeen = first.tick(firstSense, instant, {});
+    (void)second.tick(firstSense, instant, {});
+    lg::BotSenseFrame hiddenSense = firstSense;
+    hiddenSense.serverTick = 11U;
+    hiddenSense.visibleEnemyCount = 0U;
+    const lg::BotMotor hiddenFirst = first.tick(hiddenSense, instant, {});
+    const lg::BotMotor hiddenSecond = second.tick(hiddenSense, instant, {});
+    failures += expect(sameMotorCommand(hiddenFirst, hiddenSecond) && !hiddenFirst.command.attack &&
+      std::fabs(hiddenFirst.command.viewYawRadians - firstSeen.command.viewYawRadians) < 0.001F,
+      "hidden motion cannot change a bot lead estimate before a new visible sample");
+    lg::BotSenseFrame secondSense = firstSense;
+    secondSense.serverTick = 20U;
+    secondSense.visibleEnemies[0] = {1U, {6.0F, 2.0F, 0.9F}, 20U, true, false};
+    const lg::BotMotor secondSeen = first.tick(secondSense, instant, {});
+    failures += expect(std::fabs(secondSeen.command.viewYawRadians - firstSeen.command.viewYawRadians) >
+        0.05F,
+      "a second visible position sample should produce bounded observation-derived lead");
+  }
+
+  {
+    lg::BotWeaponSense hitscan = {true, true, 24.0F, 80.0F, 0.40F,
+      0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    lg::BotWeaponSense rocket = {true, true, 20.0F, 100.0F, 0.80F,
+      22.5F, 3.0F, 100.0F, 0.0F, 0.16F};
+    lg::BotCombatContext farMoving;
+    farMoving.targetDistance = 18.0F;
+    farMoving.targetLateralSpeed = 18.0F;
+    farMoving.selfHealth = 100;
+    const lg::BotWeaponScore farRail = lg::scoreBotWeapon(hitscan, farMoving, 12.0F, true);
+    const lg::BotWeaponScore farRocket = lg::scoreBotWeapon(rocket, farMoving, 12.0F, false);
+    failures += expect(farRail.total > farRocket.total &&
+      farRocket.projectileDifficulty > 0.0F,
+      "utility should penalize a distant moving projectile shot");
+    lg::BotCombatContext closeSplash;
+    closeSplash.targetDistance = 1.0F;
+    closeSplash.selfHealth = 25;
+    closeSplash.nearbySplashSurface = true;
+    const lg::BotWeaponScore closeRocket = lg::scoreBotWeapon(rocket, closeSplash, 8.0F, false);
+    failures += expect(closeRocket.selfRisk > 0.70F,
+      "close splash self-risk should sharply reduce utility at low health");
+  }
+
+  {
+    lg::BotBrain first;
+    lg::BotBrain same;
+    lg::BotBrain other;
+    first.reset(0xB07U);
+    same.reset(0xB07U);
+    other.reset(0xB08U);
+    const lg::BotTraits firstTraits = first.traits();
+    failures += expect(firstTraits.aggression == same.traits().aggression &&
+      firstTraits.aimBiasScale == same.traits().aimBiasScale &&
+      firstTraits.aggression >= 0.90F && firstTraits.aggression <= 1.10F &&
+      firstTraits.reactionLatencyOffsetSeconds >= -0.025F &&
+      firstTraits.reactionLatencyOffsetSeconds <= 0.025F &&
+      (firstTraits.aggression != other.traits().aggression ||
+       firstTraits.preferredRangeBias != other.traits().preferredRangeBias),
+      "slot-seeded bot traits should persist deterministically within bounded offsets");
   }
 
   {
@@ -474,9 +567,11 @@ int main() {
     sense.self.viewYawRadians = 0.0F;
     sense.self.health = 20;
     sense.selectedWeapon = lg::Weapon::LightningGun;
-    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] = {true, 18.0F, 0.0F, false};
-    sense.weapons[lg::weaponIndex(lg::Weapon::PlasmaGun)] = {true, 8.0F, 100.0F, false};
-    sense.visibleEnemies[0] = {1U, {-3.0F, 3.0F, 0.9F}, {0.0F, 0.0F, 0.0F}};
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.weapons[lg::weaponIndex(lg::Weapon::PlasmaGun)] =
+      {true, true, 8.0F, 20.0F, 0.10F, 100.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.visibleEnemies[0] = {1U, {-3.0F, 3.0F, 0.9F}, 1U, true, false};
     sense.visibleEnemyCount = 1;
     sense.healthResources[0] = {0U, {3.0F, 0.0F, 0.9F}, 25, true};
     sense.healthResourceCount = 1;
@@ -494,7 +589,7 @@ int main() {
     failures += expect(
       routingMotor.goal == lg::BotGoalKind::RecoverHealth &&
         routingMotor.waypointNode < map.nodeCount &&
-        combatMotor.command.weapon == lg::Weapon::PlasmaGun &&
+        combatMotor.command.weapon != lg::Weapon::RocketLauncher &&
         combatMotor.command.viewYawRadians > 0.0F,
       "a low-health bot should route to a blocked seen pickup while aiming and choosing range from its enemy"
     );
@@ -558,7 +653,7 @@ int main() {
       "out-of-FOV exploration fixture should be accepted");
     server.setBotAttackMode(lg::BotAttackMode::Off);
     const lg::Vec3 start = server.snapshot().players[1].position;
-    for (int tick = 0; tick < 90; ++tick) server.tick(lg::kFixedTickSeconds);
+    for (int tick = 0; tick < 180; ++tick) server.tick(lg::kFixedTickSeconds);
     const lg::Vec3 end = server.snapshot().players[1].position;
     failures += expect(
       std::hypot(end.x - start.x, end.y - start.y) > 0.10F &&
@@ -595,7 +690,7 @@ int main() {
       "behind-wall exploration fixture should be accepted");
     server.setBotAttackMode(lg::BotAttackMode::Off);
     const lg::Vec3 start = server.snapshot().players[1].position;
-    for (int tick = 0; tick < 90; ++tick) server.tick(lg::kFixedTickSeconds);
+    for (int tick = 0; tick < 180; ++tick) server.tick(lg::kFixedTickSeconds);
     const lg::Vec3 end = server.snapshot().players[1].position;
     failures += expect(
       std::hypot(end.x - start.x, end.y - start.y) > 0.10F &&

@@ -1,4 +1,7 @@
 #include "dev/DevJson.hpp"
+#include "net/LoopbackTransport.hpp"
+#include "server/ServerGame.hpp"
+#include "shared/Constants.hpp"
 #include "sim/Combat.hpp"
 #include "sim/MapRegistry.hpp"
 #include "sim/Movement.hpp"
@@ -40,6 +43,8 @@ struct BatchSample {
   double movementMicroseconds = 0.0;
   double hitscanMicroseconds = 0.0;
   double projectileMicroseconds = 0.0;
+  double zeroBotServerMicroseconds = 0.0;
+  double sixteenBotServerMicroseconds = 0.0;
   std::uint64_t checksum = 0;
 };
 
@@ -62,7 +67,7 @@ volatile std::uint64_t gChecksumSink = 0;
   for (int index = 1; index < argc; ++index) {
     const std::string_view argument = argv[index];
     if (argument == "--help") {
-      std::cout << "Usage: lg_duel_sim_benchmark --workload movement-collision|trace-projectile "
+      std::cout << "Usage: lg_duel_sim_benchmark --workload movement-collision|trace-projectile|server-bots "
                    "--output DIR [--map NAME] [--map-directory DIR] [--repetitions N] "
                    "[--warmup-batches N] [--measured-batches N] [--operations-per-batch N]\n";
       return false;
@@ -96,13 +101,22 @@ volatile std::uint64_t gChecksumSink = 0;
       return false;
     }
   }
-  if (options.workload != "movement-collision" && options.workload != "trace-projectile") {
-    error = "workload must be movement-collision or trace-projectile";
+  if (options.workload != "movement-collision" && options.workload != "trace-projectile" &&
+      options.workload != "server-bots") {
+    error = "workload must be movement-collision, trace-projectile, or server-bots";
     return false;
   }
   if (options.outputDirectory.empty()) {
     error = "--output is required";
     return false;
+  }
+  if (options.workload == "server-bots") {
+    // Five repetitions are the measurement unit. Keep each one long enough
+    // to cross acquisition, cooldown, and path cadence without turning an
+    // informational benchmark into an unstable CI timeout.
+    options.warmupBatches = 1U;
+    options.measuredBatches = 1U;
+    options.operationsPerBatch = 500U;
   }
   return true;
 }
@@ -219,6 +233,38 @@ void mix(std::uint64_t& hash, lg::Vec3 value) {
   return hash;
 }
 
+struct ServerBenchmarkFixture {
+  lg::LoopbackTransport transport;
+  lg::ServerGame server;
+
+  ServerBenchmarkFixture(const lg::Arena& arena, std::size_t botCount)
+    : server(transport) {
+    server.setArena(arena);
+    if (botCount > 0U) {
+      (void)server.addBots(botCount);
+      server.setBotAttackMode(lg::BotAttackMode::Hard);
+    }
+  }
+};
+
+[[nodiscard]] std::uint64_t runServerTicks(
+  ServerBenchmarkFixture& fixture,
+  std::size_t ticks
+) {
+  for (std::size_t tick = 0; tick < ticks; ++tick) {
+    fixture.server.tick(lg::kFixedTickSeconds);
+  }
+  const lg::ServerSnapshot& snapshot = fixture.server.snapshot();
+  std::uint64_t hash = fixture.server.botDeterminismHash();
+  for (const lg::PlayerState& player : snapshot.players) {
+    mix(hash, player.position);
+    mix(hash, player.velocity);
+    mix(hash, static_cast<std::uint32_t>(player.health));
+  }
+  mix(hash, snapshot.serverTick);
+  return hash;
+}
+
 [[nodiscard]] double nearestRank(std::vector<double> values, double fraction) {
   std::sort(values.begin(), values.end());
   const std::size_t rank = std::max<std::size_t>(1U, static_cast<std::size_t>(
@@ -277,10 +323,13 @@ int main(int argc, char** argv) {
   for (std::size_t batch = 0; batch < options.warmupBatches; ++batch) {
     if (options.workload == "movement-collision") {
       gChecksumSink = runMovementBatch(loaded.arena, options.operationsPerBatch, batch);
-    } else {
+    } else if (options.workload == "trace-projectile") {
       double hitscan = 0.0;
       double projectile = 0.0;
       gChecksumSink = runTraceBatch(loaded.arena, options.operationsPerBatch, batch, hitscan, projectile);
+    } else {
+      ServerBenchmarkFixture bots(loaded.arena, 16U);
+      gChecksumSink = runServerTicks(bots, options.operationsPerBatch);
     }
   }
 
@@ -288,6 +337,8 @@ int main(int argc, char** argv) {
   std::vector<double> movementSamples;
   std::vector<double> hitscanSamples;
   std::vector<double> projectileSamples;
+  std::vector<double> zeroBotServerSamples;
+  std::vector<double> sixteenBotServerSamples;
   std::optional<std::uint64_t> expectedChecksum;
   bool deterministic = true;
   for (std::size_t repetition = 0; repetition < options.repetitions; ++repetition) {
@@ -303,13 +354,34 @@ int main(int argc, char** argv) {
         sample.movementMicroseconds = std::chrono::duration<double, std::micro>(end - start).count() /
           static_cast<double>(options.operationsPerBatch);
         movementSamples.push_back(sample.movementMicroseconds);
-      } else {
+      } else if (options.workload == "trace-projectile") {
         sample.checksum = runTraceBatch(
           loaded.arena, options.operationsPerBatch, batch,
           sample.hitscanMicroseconds, sample.projectileMicroseconds
         );
         hitscanSamples.push_back(sample.hitscanMicroseconds);
         projectileSamples.push_back(sample.projectileMicroseconds);
+      } else {
+        // Construct and load before timing. Measured work is strictly
+        // ServerGame::tick at the fixed 125 Hz cadence.
+        ServerBenchmarkFixture zeroFixture(loaded.arena, 0U);
+        ServerBenchmarkFixture botFixture(loaded.arena, 16U);
+        const auto zeroStart = Clock::now();
+        const std::uint64_t zeroHash = runServerTicks(zeroFixture, options.operationsPerBatch);
+        const auto zeroEnd = Clock::now();
+        const auto botsStart = Clock::now();
+        sample.checksum = runServerTicks(botFixture, options.operationsPerBatch);
+        const auto botsEnd = Clock::now();
+        sample.zeroBotServerMicroseconds =
+          std::chrono::duration<double, std::micro>(zeroEnd - zeroStart).count() /
+          static_cast<double>(options.operationsPerBatch);
+        sample.sixteenBotServerMicroseconds =
+          std::chrono::duration<double, std::micro>(botsEnd - botsStart).count() /
+          static_cast<double>(options.operationsPerBatch);
+        mix(sample.checksum, static_cast<std::uint32_t>(zeroHash));
+        mix(sample.checksum, static_cast<std::uint32_t>(zeroHash >> 32U));
+        zeroBotServerSamples.push_back(sample.zeroBotServerMicroseconds);
+        sixteenBotServerSamples.push_back(sample.sixteenBotServerMicroseconds);
       }
       mix(repetitionChecksum, static_cast<std::uint32_t>(sample.checksum));
       mix(repetitionChecksum, static_cast<std::uint32_t>(sample.checksum >> 32U));
@@ -322,10 +394,11 @@ int main(int argc, char** argv) {
 
   const std::filesystem::path csvPath = options.outputDirectory / "samples.csv";
   std::ofstream csv(csvPath, std::ios::binary | std::ios::trunc);
-  csv << "repetition,batch,movement_us_per_operation,hitscan_us_per_trace,projectile_us_per_trace,checksum\n";
+  csv << "repetition,batch,movement_us_per_operation,hitscan_us_per_trace,projectile_us_per_trace,zero_bot_server_us_per_tick,sixteen_bot_server_us_per_tick,checksum\n";
   for (const BatchSample& sample : samples) {
     csv << sample.repetition << ',' << sample.batch << ',' << sample.movementMicroseconds << ','
         << sample.hitscanMicroseconds << ',' << sample.projectileMicroseconds << ','
+        << sample.zeroBotServerMicroseconds << ',' << sample.sixteenBotServerMicroseconds << ','
         << sample.checksum << '\n';
   }
   if (!csv) {
@@ -335,13 +408,21 @@ int main(int argc, char** argv) {
 
   lg::dev::JsonValue root = lg::dev::JsonValue::objectValue();
   root.object["schema_version"] = lg::dev::JsonValue::numberValue(1.0);
-  root.object["benchmark_kind"] = lg::dev::JsonValue::stringValue("shared-simulation-microbenchmark");
+  root.object["benchmark_kind"] = lg::dev::JsonValue::stringValue(
+    options.workload == "server-bots" ? "full-server-bot-benchmark" :
+    "shared-simulation-microbenchmark"
+  );
   root.object["workload"] = lg::dev::JsonValue::stringValue(options.workload);
   root.object["collision_query_mode"] = lg::dev::JsonValue::stringValue(
     options.forceLinear ? "forced-linear" : "indexed-when-available"
   );
   root.object["map"] = lg::dev::JsonValue::stringValue(options.map);
   root.object["map_content_hash"] = lg::dev::JsonValue::numberValue(loaded.descriptor.contentHash);
+  if (options.workload == "server-bots") {
+    root.object["bot_count"] = lg::dev::JsonValue::numberValue(16.0);
+    root.object["fixed_tick_rate"] = lg::dev::JsonValue::numberValue(lg::kFixedTickRate);
+    root.object["seed"] = lg::dev::JsonValue::numberValue(0xB07D0D6EU);
+  }
   root.object["wall_count"] = lg::dev::JsonValue::numberValue(static_cast<double>(loaded.arena.wallCount));
   root.object["brush_count"] = lg::dev::JsonValue::numberValue(static_cast<double>(loaded.arena.brushCount));
   root.object["repetitions"] = lg::dev::JsonValue::numberValue(static_cast<double>(options.repetitions));
@@ -356,6 +437,15 @@ int main(int argc, char** argv) {
   if (!movementSamples.empty()) metrics.object["movement_collision_us_per_operation"] = summaryJson(movementSamples);
   if (!hitscanSamples.empty()) metrics.object["hitscan_us_per_trace"] = summaryJson(hitscanSamples);
   if (!projectileSamples.empty()) metrics.object["projectile_segment_us_per_trace"] = summaryJson(projectileSamples);
+  if (!zeroBotServerSamples.empty()) {
+    metrics.object["zero_bot_server_us_per_tick"] = summaryJson(zeroBotServerSamples);
+    metrics.object["sixteen_bot_server_us_per_tick"] = summaryJson(sixteenBotServerSamples);
+    std::vector<double> deltas;
+    for (std::size_t index = 0; index < zeroBotServerSamples.size(); ++index) {
+      deltas.push_back(sixteenBotServerSamples[index] - zeroBotServerSamples[index]);
+    }
+    metrics.object["sixteen_bot_system_delta_us_per_tick"] = summaryJson(deltas);
+  }
   root.object["metrics"] = std::move(metrics);
   lg::dev::JsonValue artifacts = lg::dev::JsonValue::objectValue();
   artifacts.object["samples_csv"] = lg::dev::JsonValue::stringValue(csvPath.string());

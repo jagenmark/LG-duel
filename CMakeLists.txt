@@ -528,6 +528,12 @@ add_custom_target(lg_duel_validate_maps ALL
   COMMENT "Validating maps"
 )
 
+add_custom_target(lg_duel_validate_bot_nav
+  COMMAND $<TARGET_FILE:lg_duel_map_validate> --nav "${CMAKE_CURRENT_SOURCE_DIR}/maps"
+  DEPENDS lg_duel_map_validate
+  COMMENT "Validating player-sized bot navigation anchors"
+)
+
 add_dependencies(lg_duel_runtime_assets lg_duel_validate_maps)
 
 if(BUILD_TESTING)

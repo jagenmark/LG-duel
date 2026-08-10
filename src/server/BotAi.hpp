@@ -35,7 +35,14 @@ struct BotSelfSense {
 struct BotObservedEnemy {
   std::uint8_t playerIndex = kNoAssignedPlayer;
   Vec3 position = {};
-  Vec3 velocity = {};
+  // A bot gets only a visible position sample and the tick when it saw it.
+  // BotBrain derives a bounded estimate from two such samples; do not add
+  // authoritative player velocity here.
+  std::uint32_t observationServerTick = 0;
+  bool onGround = false;
+  // Static-world trace behind a currently visible target; it is not a hidden
+  // entity fact and lets splash weapons value a visible nearby surface.
+  bool nearbySplashSurface = false;
 };
 
 struct BotHealthResourceSense {
@@ -49,10 +56,46 @@ struct BotHealthResourceSense {
 
 struct BotWeaponSense {
   bool usable = false;
+  bool infiniteAmmo = false;
   float effectiveRange = 0.0F;
+  float damagePerShot = 0.0F;
+  float fireIntervalSeconds = 0.0F;
   float projectileSpeed = 0.0F;
-  bool splash = false;
+  float splashRadius = 0.0F;
+  float splashDamage = 0.0F;
+  float cooldownSeconds = 0.0F;
+  float switchCostSeconds = 0.0F;
 };
+
+// These values describe the current visible target or the bot's own state.
+// They contain no enemy health or hidden movement state.
+struct BotCombatContext {
+  float targetDistance = 0.0F;
+  float angularErrorRadians = 0.0F;
+  float targetLateralSpeed = 0.0F;
+  float exposureAgeSeconds = 0.0F;
+  int selfHealth = 100;
+  bool targetGrounded = false;
+  bool nearbySplashSurface = false;
+};
+
+struct BotWeaponScore {
+  float rangeFit = 0.0F;
+  float hitChance = 0.0F;
+  float damageRate = 0.0F;
+  float projectileDifficulty = 0.0F;
+  float splashValue = 0.0F;
+  float selfRisk = 0.0F;
+  float switchCost = 0.0F;
+  float total = -std::numeric_limits<float>::infinity();
+};
+
+[[nodiscard]] BotWeaponScore scoreBotWeapon(
+  const BotWeaponSense& weapon,
+  const BotCombatContext& context,
+  float preferredRange,
+  bool isCurrentWeapon
+);
 
 struct BotObjectiveSense {
   Vec3 position = {};
@@ -94,6 +137,8 @@ struct BotDifficultyProfile {
   float predictionSeconds = 0.05F;
   float memorySeconds = 1.25F;
   float planningIntervalSeconds = 0.65F;
+  // Physical vision is deliberately the same normal 108 degree yaw+pitch
+  // cone for every difficulty. Skill changes timing and motor quality only.
   float targetFovDegrees = 108.0F;
   float preferredRange = 7.0F;
   float strafeStrength = 0.45F;
@@ -129,6 +174,11 @@ struct BotNavigationMap {
   std::array<BotNavLink, kMaxLinks> links = {};
   std::size_t nodeCount = 0;
   std::size_t linkCount = 0;
+  // Required semantic anchors are inserted before bulk grid samples. A false
+  // value makes a capacity or standability loss visible to map validation.
+  bool requiredAnchorsComplete = true;
+  std::size_t requiredAnchorCount = 0;
+  std::size_t missingRequiredAnchorCount = 0;
 };
 
 // This is the sole authoritative-to-static-map boundary. It proves walk and
@@ -171,11 +221,26 @@ struct BotMotor {
   std::size_t waypointNode = BotNavigationMap::kMaxNodes;
   std::size_t observedHealthResourceCount = 0;
   bool recoveredFromStuck = false;
+  std::array<BotWeaponScore, kWeaponCount> weaponScores = {};
+  float selectedWeaponScore = -std::numeric_limits<float>::infinity();
+};
+
+struct BotTraits {
+  float aggression = 1.0F;
+  float risk = 1.0F;
+  float preferredRangeBias = 1.0F;
+  float movementCadenceBias = 1.0F;
+  float reactionLatencyOffsetSeconds = 0.0F;
+  float aimBiasScale = 1.0F;
 };
 
 class BotBrain {
 public:
   void reset(std::uint32_t seed);
+  [[nodiscard]] const BotTraits& traits() const;
+  // Server-local reproducibility probe. It is intentionally not a snapshot
+  // field and covers memory, aim, path, recovery, traits, and RNG streams.
+  [[nodiscard]] std::uint64_t deterministicHash() const;
   [[nodiscard]] BotMotor tick(
     const BotSenseFrame& sense,
     const BotDifficultyProfile& profile,
@@ -188,6 +253,8 @@ private:
     Vec3 velocity = {};
     float ageSeconds = std::numeric_limits<float>::infinity();
     float confidence = 0.0F;
+    std::uint32_t lastObservationServerTick = 0;
+    bool hasObservation = false;
     bool valid = false;
   };
 
@@ -199,8 +266,13 @@ private:
     bool valid = false;
   };
 
-  [[nodiscard]] std::uint32_t randomU32();
-  [[nodiscard]] float randomFloat(float minValue, float maxValue);
+  enum class RandomStream : std::uint8_t { Tactics, Movement, Aim };
+  [[nodiscard]] std::uint32_t randomU32(RandomStream stream);
+  [[nodiscard]] float randomFloat(
+    RandomStream stream,
+    float minValue,
+    float maxValue
+  );
   [[nodiscard]] bool planPath(
     const BotNavigationMap& navigation,
     Vec3 start,
@@ -208,7 +280,9 @@ private:
   );
   [[nodiscard]] Weapon chooseWeapon(
     const BotSenseFrame& sense,
-    float targetDistance
+    const BotCombatContext& context,
+    float preferredRange,
+    std::array<BotWeaponScore, kWeaponCount>& scores
   ) const;
 
   std::array<Memory, kDuelPlayerCount> memory_ = {};
@@ -232,7 +306,10 @@ private:
   std::uint8_t targetPlayerIndex_ = kNoAssignedPlayer;
   std::size_t patrolNode_ = BotNavigationMap::kMaxNodes;
   Vec3 carrierObjectiveDestination_ = {};
-  std::uint32_t randomState_ = 0xB07D0D6EU;
+  BotTraits traits_ = {};
+  std::uint32_t tacticsRandomState_ = 0xB07D0D6EU;
+  std::uint32_t movementRandomState_ = 0x51A7E123U;
+  std::uint32_t aimRandomState_ = 0xA11CE55DU;
   bool hasCarrierObjectiveDestination_ = false;
   bool targetWasVisible_ = false;
   bool initialized_ = false;

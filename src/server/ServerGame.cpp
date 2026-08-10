@@ -1282,6 +1282,7 @@ void ServerGame::resetMatch() {
   const auto botPlayers = botPlayers_;
   const GameMode gameMode = snapshot_.gameMode;
   const auto teams = snapshot_.teams;
+  botHiddenAttackInvariantCount_ = 0;
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
   snapshot_.mapRevision = mapRevision_;
@@ -2179,11 +2180,29 @@ std::uint64_t ServerGame::botCommandIngressCount(std::size_t playerIndex) const 
   return playerIndex < kDuelPlayerCount ? botCommandIngressCounts_[playerIndex] : 0U;
 }
 
+std::uint64_t ServerGame::botDeterminismHash() const {
+  std::uint64_t hash = 1469598103934665603ULL;
+  const auto mix = [&](std::uint64_t value) {
+    hash ^= value;
+    hash *= 1099511628211ULL;
+  };
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    mix(botPlayers_[index]);
+    if (botPlayers_[index]) mix(botBrains_[index].deterministicHash());
+  }
+  return hash;
+}
+
+std::uint64_t ServerGame::botHiddenAttackInvariantCount() const {
+  return botHiddenAttackInvariantCount_;
+}
+
 std::string ServerGame::botDebugString(std::size_t playerIndex) const {
   if (playerIndex >= kDuelPlayerCount || !botPlayers_[playerIndex]) {
     return "bot_debug: slot is not a bot";
   }
   const BotMotor& motor = botMotors_[playerIndex];
+  const BotTraits& traits = botBrains_[playerIndex].traits();
   const auto goalName = [](BotGoalKind goal) {
     switch (goal) {
     case BotGoalKind::Safe: return "safe";
@@ -2222,8 +2241,32 @@ std::string ServerGame::botDebugString(std::size_t playerIndex) const {
     << " waypoint=" << (motor.waypointNode < botNavigation_.nodeCount
       ? std::to_string(motor.waypointNode) : "none")
     << " weapon=" << weaponShortName(motor.command.weapon)
+    << " weapon_score=" << motor.selectedWeaponScore
     << " fire=" << noFireName(motor.noFireReason)
-    << " attack=" << (motor.command.attack ? 1 : 0);
+    << " attack=" << (motor.command.attack ? 1 : 0)
+    << " recovery=" << (motor.recoveredFromStuck ? 1 : 0)
+    << " traits=(agg=" << traits.aggression
+    << ",risk=" << traits.risk
+    << ",range=" << traits.preferredRangeBias
+    << ",move=" << traits.movementCadenceBias
+    << ",react=" << traits.reactionLatencyOffsetSeconds
+    << ",aim=" << traits.aimBiasScale << ')';
+  std::size_t topWeapon = 0U;
+  for (std::size_t index = 1U; index < kWeaponCount; ++index) {
+    if (motor.weaponScores[index].total > motor.weaponScores[topWeapon].total) {
+      topWeapon = index;
+    }
+  }
+  const BotWeaponScore& topScore = motor.weaponScores[topWeapon];
+  if (std::isfinite(topScore.total)) {
+    output << " top=" << weaponShortName(static_cast<Weapon>(topWeapon))
+      << "(total=" << topScore.total
+      << ",range=" << topScore.rangeFit
+      << ",hit=" << topScore.hitChance
+      << ",splash=" << topScore.splashValue
+      << ",self=" << topScore.selfRisk
+      << ",switch=" << topScore.switchCost << ')';
+  }
   return output.str();
 }
 
@@ -4011,27 +4054,55 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
   sense.dodgeMinIntervalMs = botDodgeMinIntervalMs_;
   sense.dodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
 
-  const auto setWeapon = [&](Weapon weapon, float range, float projectileSpeed,
-                             bool splash) {
+  const auto setWeapon = [&](Weapon weapon, float range, float damage,
+                             float intervalSeconds, float projectileSpeed,
+                             float splashRadius, float splashDamage) {
     BotWeaponSense& output = sense.weapons[weaponIndex(weapon)];
-    output.usable = hasAmmoForWeapon(playerIndex, weapon) &&
-      weaponCooldownTicks(playerIndex, weapon) == 0U;
+    // A weapon remains a legal held input while its cooldown expires. The
+    // shared fire path, not the bot, decides the exact fire tick.
+    output.usable = hasAmmoForWeapon(playerIndex, weapon);
+    output.infiniteAmmo = weaponAmmoConfig_.infiniteAmmo;
     output.effectiveRange = range;
+    output.damagePerShot = damage;
+    output.fireIntervalSeconds = std::max(0.025F, intervalSeconds);
     output.projectileSpeed = projectileSpeed;
-    output.splash = splash;
+    output.splashRadius = splashRadius;
+    output.splashDamage = splashDamage;
+    output.cooldownSeconds = static_cast<float>(weaponCooldownTicks(playerIndex, weapon)) *
+      fixedDt;
+    output.switchCostSeconds = weapon == selectedWeapons_[playerIndex] ? 0.0F :
+      static_cast<float>(weaponPulloutDurationTicks_) * fixedDt;
   };
-  setWeapon(Weapon::LightningGun, lightningGunTuning_.range, 0.0F, false);
-  setWeapon(Weapon::Railgun, railgunTuning_.range, 0.0F, false);
-  setWeapon(Weapon::RocketLauncher, 20.0F, rocketLauncherTuning_.speed, true);
-  setWeapon(Weapon::MachineGun, machineGunTuning_.range, 0.0F, false);
-  setWeapon(Weapon::Shotgun, shotgunTuning_.range, 0.0F, false);
-  setWeapon(Weapon::GrenadeLauncher, 16.0F, grenadeLauncherTuning_.speed, true);
-  setWeapon(Weapon::PlasmaGun, 24.0F, plasmaGunTuning_.speed, false);
-  setWeapon(Weapon::FreezeGun, freezeGunTuning_.range, 0.0F, false);
-  setWeapon(Weapon::Revolver, revolverTuning_.range, 0.0F, false);
+  setWeapon(Weapon::LightningGun, lightningGunTuning_.range,
+    lightningGunTuning_.damagePerSecond / std::max(1.0F, lightningGunTuning_.fireHz),
+    1.0F / std::max(1.0F, lightningGunTuning_.fireHz), 0.0F, 0.0F, 0.0F);
+  setWeapon(Weapon::Railgun, railgunTuning_.range, static_cast<float>(railgunTuning_.damage),
+    static_cast<float>(railgunCooldownDurationTicks_) * fixedDt, 0.0F, 0.0F, 0.0F);
+  setWeapon(Weapon::RocketLauncher, 20.0F, static_cast<float>(rocketLauncherTuning_.directDamage),
+    static_cast<float>(rocketLauncherCooldownDurationTicks_) * fixedDt, rocketLauncherTuning_.speed,
+    rocketLauncherTuning_.radius, static_cast<float>(rocketLauncherTuning_.splashDamage));
+  setWeapon(Weapon::MachineGun, machineGunTuning_.range, static_cast<float>(machineGunTuning_.damage),
+    static_cast<float>(machineGunCooldownDurationTicks_) * fixedDt, 0.0F, 0.0F, 0.0F);
+  setWeapon(Weapon::Shotgun, shotgunTuning_.range,
+    static_cast<float>(shotgunTuning_.damagePerPellet * shotgunTuning_.pelletCount),
+    static_cast<float>(shotgunCooldownDurationTicks_) * fixedDt, 0.0F, 0.0F, 0.0F);
+  setWeapon(Weapon::GrenadeLauncher, 16.0F, static_cast<float>(grenadeLauncherTuning_.directDamage),
+    static_cast<float>(grenadeLauncherTuning_.cooldownTicks) * fixedDt,
+    grenadeLauncherTuning_.speed, grenadeLauncherTuning_.radius,
+    static_cast<float>(grenadeLauncherTuning_.splashDamage));
+  setWeapon(Weapon::PlasmaGun, 24.0F, static_cast<float>(plasmaGunTuning_.damage),
+    static_cast<float>(plasmaGunTuning_.cooldownTicks) * fixedDt, plasmaGunTuning_.speed,
+    0.0F, 0.0F);
+  setWeapon(Weapon::FreezeGun, freezeGunTuning_.range,
+    freezeGunTuning_.damagePerSecond / std::max(1.0F, freezeGunTuning_.fireHz),
+    1.0F / std::max(1.0F, freezeGunTuning_.fireHz), 0.0F, 0.0F, 0.0F);
+  setWeapon(Weapon::Revolver, revolverTuning_.range, static_cast<float>(revolverTuning_.damage),
+    static_cast<float>(revolverCooldownDurationTicks_) * fixedDt, 0.0F, 0.0F, 0.0F);
 
   // This is the authoritative-to-filtered boundary. Dynamic facts enter the
   // brain only after both world LOS and the complete yaw/pitch view cone agree.
+  // 108 degrees is the common physical yaw+pitch cone for easy, medium, and
+  // hard. This is intentionally not a difficulty reward.
   const float halfFovRadians = botDifficultyProfile(botAttackMode_).targetFovDegrees *
     kPi / 360.0F;
   const float minimumViewDot = std::cos(halfFovRadians);
@@ -4055,7 +4126,13 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
     BotObservedEnemy& observed = sense.visibleEnemies[sense.visibleEnemyCount++];
     observed.playerIndex = static_cast<std::uint8_t>(targetIndex);
     observed.position = snapshot_.players[targetIndex].position;
-    observed.velocity = snapshot_.players[targetIndex].velocity;
+    observed.observationServerTick = snapshot_.serverTick;
+    observed.onGround = snapshot_.players[targetIndex].onGround;
+    const Vec3 targetPoint = botTargetAimPoint(snapshot_.players[targetIndex]);
+    const Vec3 towardTarget = normalize(targetPoint - viewStart);
+    // The trace sees only static world geometry just beyond a target already
+    // inside LOS and FOV. It never asks for hidden entities or player state.
+    observed.nearbySplashSurface = traceWorld(arena_, targetPoint, towardTarget, 2.0F).hit;
   }
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
     const ArenaHealthPickup& pickup = arena_.healthPickups[index];
@@ -4072,10 +4149,14 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
     resource.available = snapshot_.healthPickupAvailable[index];
   }
   if (snapshot_.gameMode == GameMode::McGuffin) {
-    sense.objective.position = mcguffinObjective_.position;
+    // McGuffinSnapshot is encoded in every human ServerSnapshot (state,
+    // carrier, exact position, and base ownership). It is public HUD/objective
+    // data, so this uses the replicated snapshot rather than hidden server
+    // objective state. Pickups do not receive this exception.
+    sense.objective.position = snapshot_.mcguffin.position;
     sense.objective.active = true;
-    sense.objective.carrying = mcguffinObjective_.state == McGuffinState::Carried &&
-      mcguffinObjective_.carrierIndex == playerIndex;
+    sense.objective.carrying = snapshot_.mcguffin.state == McGuffinState::Carried &&
+      snapshot_.mcguffin.carrierIndex == playerIndex;
     if (sense.objective.carrying) {
       const Team team = snapshot_.teams[playerIndex];
       const auto baseCenter = [](const ArenaMcGuffinBase& base) {
@@ -4116,6 +4197,10 @@ void ServerGame::updateBotCommands(float fixedDt) {
     botMotors_[playerIndex] = botBrains_[playerIndex].tick(
       sense, botDifficultyProfile(botAttackMode_), botNavigation_);
     UserCommand command = botMotors_[playerIndex].command;
+    if (command.attack && sense.visibleEnemyCount == 0U) {
+      ++botHiddenAttackInvariantCount_;
+      command.attack = false;
+    }
     // bot_stare is a legacy training override. It can face a sensed target,
     // but still cannot see through a wall or outside its FOV.
     if (botAttackMode_ == BotAttackMode::Off && botStareEnabled_ &&
