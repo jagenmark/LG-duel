@@ -4371,7 +4371,8 @@ int main() {
     lg::viewModelHandPosesAreFinite() &&
       lg::viewModelHandMeshCount() == 2U &&
       machineGunHandCount == 2U &&
-      localMachineGunScene.viewModelStats.sharedHandVertices == 360U &&
+      localMachineGunScene.viewModelStats.sharedHandVertices == 504U &&
+      localMachineGunScene.viewModelStats.sharedHandStaticGpuBytes == 20160U &&
       localMachineGunScene.viewModelStats.dynamicVertices == 0U &&
       hiddenHandCount == 0U &&
       handsHiddenScene.viewModelStats.drawCalls == 2U,

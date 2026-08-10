@@ -2290,7 +2290,9 @@ void appendViewModelHands(
     rotatePair(hand.basis.forward, hand.basis.up, transform.rotationRadians.x);
     rotatePair(hand.basis.forward, hand.basis.right, transform.rotationRadians.y);
     rotatePair(hand.basis.right, hand.basis.up, transform.rotationRadians.z);
-    hand.scale *= 0.88F;
+    // Keep the shared glove compact enough to frame the receiver instead of
+    // filling the near plane at the game's 100-degree default view.
+    hand.scale *= 0.48F;
     appendStaticMeshInstance(
       scene,
       weaponMeshInstance(

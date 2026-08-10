@@ -1,5 +1,6 @@
 #include "render/WeaponSwitchPresentation.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <iostream>
 
@@ -45,22 +46,27 @@ int main() {
     near(output.lift, pausedLift), "zero delta must pause the explicit timeline"
   );
 
-  lg::WeaponSwitchPresentationController thirtyHz;
-  lg::WeaponSwitchPresentationController oneTwentyHz;
-  (void)thirtyHz.update(lg::Weapon::LightningGun, 0.0F);
-  (void)oneTwentyHz.update(lg::Weapon::LightningGun, 0.0F);
-  for (int index = 0; index < 3; ++index) {
-    (void)thirtyHz.update(lg::Weapon::RocketLauncher, 1.0F / 30.0F);
-  }
-  for (int index = 0; index < 12; ++index) {
-    (void)oneTwentyHz.update(lg::Weapon::RocketLauncher, 1.0F / 120.0F);
-  }
-  const auto thirtyResult = thirtyHz.update(lg::Weapon::RocketLauncher, 0.0F);
-  const auto fastResult = oneTwentyHz.update(lg::Weapon::RocketLauncher, 0.0F);
+  const auto sampleAtFrameRate = [](float framesPerSecond) {
+    lg::WeaponSwitchPresentationController sampled;
+    (void)sampled.update(lg::Weapon::LightningGun, 0.0F);
+    constexpr float totalSeconds = 0.12F;
+    float elapsed = 0.0F;
+    while (elapsed < totalSeconds) {
+      const float delta = std::min(1.0F / framesPerSecond, totalSeconds - elapsed);
+      (void)sampled.update(lg::Weapon::RocketLauncher, delta);
+      elapsed += delta;
+    }
+    return sampled.update(lg::Weapon::RocketLauncher, 0.0F);
+  };
+  const auto thirtyResult = sampleAtFrameRate(30.0F);
+  const auto oneTwentyFiveResult = sampleAtFrameRate(125.0F);
+  const auto twoFortyResult = sampleAtFrameRate(240.0F);
   failures += expect(
-    thirtyResult.displayedWeapon == fastResult.displayedWeapon &&
-      near(thirtyResult.lift, fastResult.lift),
-    "equivalent explicit elapsed time should have frame-rate-independent output"
+    thirtyResult.displayedWeapon == oneTwentyFiveResult.displayedWeapon &&
+      thirtyResult.displayedWeapon == twoFortyResult.displayedWeapon &&
+      near(thirtyResult.lift, oneTwentyFiveResult.lift) &&
+      near(thirtyResult.lift, twoFortyResult.lift),
+    "30, 125, and 240 FPS should produce equivalent explicit timeline output"
   );
 
   lg::WeaponSwitchPresentationController rapid;

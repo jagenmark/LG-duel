@@ -6241,6 +6241,7 @@ int GameApp::run() const {
   std::optional<std::size_t> weaponPresentationSubject;
   DeathCameraMode previousWeaponPresentationDeathMode = DeathCameraMode::Alive;
   std::array<std::string, kDuelPlayerCount> remoteWeaponPresentationBodies = {};
+  std::array<bool, kDuelPlayerCount> remoteWeaponPresentationWasAlive = {};
   ClientGame* presentationViewGame = nullptr;
   bool previousFrameUsedPresentationView = false;
   float localDeathElapsedSeconds = 0.0F;
@@ -8407,6 +8408,7 @@ int GameApp::run() const {
       remoteWeaponSwitchPresentations = {};
       weaponPresentationSubject.reset();
       remoteWeaponPresentationBodies = {};
+      remoteWeaponPresentationWasAlive = {};
       pendingLateViewModelMouseDeltaX = 0.0F;
       pendingLateViewModelMouseDeltaY = 0.0F;
       presentationViewGame = currentPresentationGame;
@@ -9809,12 +9811,14 @@ int GameApp::run() const {
           playerPresentationStates[playerIndex] = {};
           remoteWeaponSwitchPresentations[playerIndex].reset();
           remoteWeaponPresentationBodies[playerIndex].clear();
+          remoteWeaponPresentationWasAlive[playerIndex] = false;
           continue;
         }
         if (!renderSnapshot.participatingPlayers[playerIndex]) {
           playerPresentationStates[playerIndex] = {};
           remoteWeaponSwitchPresentations[playerIndex].reset();
           remoteWeaponPresentationBodies[playerIndex].clear();
+          remoteWeaponPresentationWasAlive[playerIndex] = false;
           continue;
         }
         if (remoteWeaponPresentationBodies[playerIndex] !=
@@ -9822,6 +9826,17 @@ int GameApp::run() const {
           remoteWeaponSwitchPresentations[playerIndex].reset();
           remoteWeaponPresentationBodies[playerIndex] =
             renderSnapshot.playerNames[playerIndex];
+          remoteWeaponPresentationWasAlive[playerIndex] = false;
+        }
+        const bool remoteWeaponPresentationAlive =
+          renderSnapshot.players[playerIndex].health > 0;
+        if (remoteWeaponPresentationWasAlive[playerIndex] !=
+            remoteWeaponPresentationAlive) {
+          // A death and the first authoritative live frame begin separate
+          // presentation timelines; no outgoing weapon may cross either edge.
+          remoteWeaponSwitchPresentations[playerIndex].reset();
+          remoteWeaponPresentationWasAlive[playerIndex] =
+            remoteWeaponPresentationAlive;
         }
         const bool teammate = !session.spectator() && playerPresentedAsTeammate(
           renderSnapshot, localPlayerIndex, playerIndex
