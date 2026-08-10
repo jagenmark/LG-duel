@@ -10,7 +10,7 @@ rejects it. The v2 wire contract is fixed by `ReplayCodec`:
 - format version: `2` (`kReplayFormatVersion`);
 - fixed tick rate: `125` (`kReplayTickRate`);
 - byte order: little endian for every fixed-width value;
-- file cap: 64 MiB; chunk cap: 8 MiB; tick cap: 4,194,304; checkpoint cap:
+- saved-file cap: 512 MiB; chunk cap: 8 MiB; tick cap: 4,194,304; checkpoint cap:
   4,096; and lag-history cap: 256 frames; and
 - chunk checksum: CRC-32 of the payload.
 
@@ -106,6 +106,11 @@ flushes it, then publishes the final name without replacing an existing
 recording. A collision or failed publish removes the temporary file and reports
 a clean error. Loading reads the file and uses the strict decoder above. These
 calls can allocate and block on disk, so `ServerGame::tick` must not call them.
+
+The saved `.lgdemo` cap is 512 MiB. The recorder’s native resident cap is also
+512 MiB. A long full recording can approach that amount, but the recorder stops
+cleanly before it exceeds its configured cap and preserves no partial final
+recording.
 
 No app command, console control, automatic match recording setting, or
 background save/load job calls these helpers yet. The helpers therefore do not

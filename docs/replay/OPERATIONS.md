@@ -91,7 +91,8 @@ types. Its records carry:
 - cancellation reason.
 
 Every application datagram, including headers, stays at or below 1,200 bytes.
-The transfer caps a segment at 512 KiB and 512 chunks. It handles duplicate and
+The transfer caps a segment at 512 KiB and 512 chunks. This remains separate
+from the 512 MiB saved-demo and recorder limits. It handles duplicate and
 out-of-order chunks, retries acknowledged gaps, supports cancellation, times
 out safely, and rate-limits sends. A receiver expires on idle or overall timeout
 when a cancel packet is lost, so stale transfer state cannot remain pinned. A
@@ -132,11 +133,15 @@ diagnostics for file bytes, segment bytes, and live transfer.
 | Full recording | 388.21 us/tick |
 | Headless playback | 13,796 ticks/s (110.37x real time) |
 | 8-second, two-player encoded segment | 392,541 B; 332 packets at or below 1,200 B |
-| Conservative 10-minute encoded estimate | 29,440,575 B |
-| Resident-memory cap | Pending source report; do not infer it from encoded or archive-record caps |
+| 10-minute, two-player Duel native resident bound | 491,489,968 B; fixed 16-slot native frames, vector capacity, and checkpoints |
+| 10-minute, 16-player encoded bound | 361,079,432 B |
+| Current 512-tick full measure | 793,528 B encoded; 2,419,434 B resident |
+| Saved `.lgdemo` maximum | 512 MiB |
+| Recorder native resident maximum | 512 MiB |
 
 These are test measurements, not a claim about all hardware or live-match
-performance. The enabled paths remain bounded by their configured caps.
+performance. The enabled paths remain bounded by their configured caps. A long
+full recording can use close to 512 MiB, but stops cleanly at the cap.
 
 ## Known limits
 
