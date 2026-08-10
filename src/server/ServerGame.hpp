@@ -3,6 +3,7 @@
 #include "net/NetProtocol.hpp"
 #include "net/NetTransport.hpp"
 #include "scenario/ScenarioState.hpp"
+#include "server/BotAi.hpp"
 #include "sim/Arena.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/Combat.hpp"
@@ -72,6 +73,7 @@ public:
   );
   void setBotAttackMode(BotAttackMode mode);
   void setBotWeapon(Weapon weapon);
+  void setBotWeaponAuto();
   [[nodiscard]] BotRosterChange addBots(std::optional<std::size_t> count = std::nullopt);
   [[nodiscard]] BotRosterChange kickAllBots();
   [[nodiscard]] BotRosterChange kickBotAtPlayerIndex(std::size_t playerIndex);
@@ -83,6 +85,9 @@ public:
   [[nodiscard]] int botDodgeMaxIntervalMs() const;
   [[nodiscard]] BotAttackMode botAttackMode() const;
   [[nodiscard]] Weapon botWeapon() const;
+  [[nodiscard]] bool botWeaponAuto() const;
+  [[nodiscard]] std::uint64_t botCommandIngressCount(std::size_t playerIndex) const;
+  [[nodiscard]] std::string botDebugString(std::size_t playerIndex) const;
   [[nodiscard]] bool isBotSlot(std::size_t playerIndex) const;
   [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
   [[nodiscard]] bool isOccupiedSlot(std::size_t playerIndex) const;
@@ -114,17 +119,6 @@ private:
     bool initialized = false;
   };
 
-  struct BotCombatState {
-    float reactionSecondsRemaining = 0.0F;
-    std::size_t targetPlayerIndex = kDuelPlayerCount;
-    float desiredYawRadians = 0.0F;
-    float desiredPitchRadians = 0.0F;
-    float aimErrorYawRadians = 0.0F;
-    float aimErrorPitchRadians = 0.0F;
-    float nextAimErrorRefreshSeconds = 0.0F;
-    bool initialized = false;
-  };
-
   struct RecentProjectileRemoval {
     ProjectileUpdate update = {};
     std::uint32_t serverTick = 0;
@@ -133,6 +127,14 @@ private:
   };
 
   void receiveCommands();
+  void ingestGameplayCommand(
+    std::size_t playerIndex,
+    UserCommand command,
+    std::uint32_t viewedServerTick,
+    bool receivedFromNetwork,
+    bool generatedByBot
+  );
+  void applyAttackEdges();
   void setArena(const Arena& arena, MapDescriptor descriptor);
   void resetPlayerInputState(std::size_t playerIndex);
   void respawnPlayer(std::size_t playerIndex);
@@ -204,6 +206,11 @@ private:
   void rememberTransientCombatEvents();
   void updateParticipatingPlayers();
   void updateBotCommands(float fixedDt);
+  [[nodiscard]] BotSenseFrame buildBotSenseFrame(
+    std::size_t playerIndex,
+    float fixedDt
+  ) const;
+  void rebuildBotNavigation();
   void handleBotCommandRequest(const CommandPacket& packet);
   void updateClanArenaBotTeams();
   void refreshWarmupRosterState();
@@ -336,9 +343,13 @@ private:
   int botDodgeMaxIntervalMs_ = 750;
   std::array<int, kDuelPlayerCount> botDodgeDirections_ = {};
   std::array<float, kDuelPlayerCount> botDodgeSwitchSeconds_ = {};
-  BotAttackMode botAttackMode_ = BotAttackMode::Off;
+  BotAttackMode botAttackMode_ = BotAttackMode::Medium;
   Weapon botWeapon_ = Weapon::MachineGun;
-  std::array<BotCombatState, kDuelPlayerCount> botCombatStates_ = {};
+  bool botWeaponAuto_ = true;
+  BotNavigationMap botNavigation_ = {};
+  std::array<BotBrain, kDuelPlayerCount> botBrains_ = {};
+  std::array<BotMotor, kDuelPlayerCount> botMotors_ = {};
+  std::array<std::uint64_t, kDuelPlayerCount> botCommandIngressCounts_ = {};
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};

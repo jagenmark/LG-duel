@@ -60,6 +60,7 @@ add_library(lg_duel_core
   src/scenario/ScenarioEvidence.cpp
   src/scenario/ScenarioRuntime.cpp
   src/scenario/ScenarioSchema.cpp
+  src/server/BotAi.cpp
   src/server/ServerGame.cpp
   src/sim/Arena.cpp
   src/sim/ArenaBroadphase.cpp

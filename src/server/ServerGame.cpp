@@ -7,6 +7,7 @@
 #include "sim/DuelRules.hpp"
 #include "sim/GameplayCvars.hpp"
 #include "sim/McGuffinRules.hpp"
+#include "sim/WeaponCatalog.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -32,7 +33,6 @@ constexpr float kHealthPickupTouchRadius = 0.7F;
 constexpr float kHealthPickupTouchHalfHeight = 0.8F;
 constexpr float kPi = 3.14159265359F;
 constexpr float kHalfPi = kPi * 0.5F;
-constexpr float kTwoPi = kPi * 2.0F;
 constexpr float kMaxPitchRadians = kHalfPi - 0.01F;
 
 [[nodiscard]] std::uint32_t scenarioRandomState(
@@ -273,40 +273,6 @@ void recordProjectileHit(
   addWeaponAccuracy(snapshot.matchCombatStats[attackerIndex], weapon, 0U, 1U);
 }
 
-[[nodiscard]] float wrapRadians(float angle) {
-  while (angle <= -kPi) {
-    angle += kTwoPi;
-  }
-  while (angle > kPi) {
-    angle -= kTwoPi;
-  }
-  return angle;
-}
-
-[[nodiscard]] float angleDeltaRadians(float from, float to) {
-  return wrapRadians(to - from);
-}
-
-[[nodiscard]] float approachAngleRadians(
-  float current,
-  float target,
-  float maxStep
-) {
-  const float delta = angleDeltaRadians(current, target);
-  if (std::fabs(delta) <= maxStep) {
-    return wrapRadians(target);
-  }
-  return wrapRadians(current + std::copysign(maxStep, delta));
-}
-
-[[nodiscard]] float approachFloat(float current, float target, float maxStep) {
-  const float delta = target - current;
-  if (std::fabs(delta) <= maxStep) {
-    return target;
-  }
-  return current + std::copysign(maxStep, delta);
-}
-
 [[nodiscard]] Vec3 botTargetAimPoint(const PlayerState& target) {
   return target.position + Vec3{0.0F, 0.0F, target.bounds.halfHeight * 0.45F};
 }
@@ -340,30 +306,6 @@ void recordProjectileHit(
     }
   }
   return false;
-}
-
-struct BotAttackPreset {
-  float reactionMinSeconds = 0.0F;
-  float reactionMaxSeconds = 0.0F;
-  float aimErrorRadians = 0.0F;
-  float turnSpeedRadiansPerSecond = 0.0F;
-  float fireToleranceRadians = 0.0F;
-  float aimErrorRefreshMinSeconds = 0.0F;
-  float aimErrorRefreshMaxSeconds = 0.0F;
-};
-
-[[nodiscard]] BotAttackPreset botAttackPreset(BotAttackMode mode) {
-  switch (mode) {
-  case BotAttackMode::Easy:
-    return {0.35F, 0.50F, 0.11F, 1.35F, 0.040F, 0.45F, 0.75F};
-  case BotAttackMode::Medium:
-    return {0.18F, 0.28F, 0.055F, 3.25F, 0.060F, 0.35F, 0.60F};
-  case BotAttackMode::Hard:
-    return {0.08F, 0.14F, 0.018F, 6.25F, 0.080F, 0.25F, 0.45F};
-  case BotAttackMode::Off:
-    break;
-  }
-  return {};
 }
 
 [[nodiscard]] std::optional<std::size_t> uniqueScoreLeader(
@@ -523,6 +465,7 @@ ServerGame::ServerGame(NetTransport& transport, std::string balanceConfigPath)
       std::cerr << "Ignoring balance config: " << loaded.error << '\n';
     }
   }
+  rebuildBotNavigation();
   resetMatch();
   snapshot_.connectedPlayers[0] = true;
   snapshot_.connectedPlayers[1] = true;
@@ -601,6 +544,8 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   plasmaGunTuning_.eyeHeight = config.plasmaGun.eyeHeight;
   plasmaGunTuning_.maxLifetimeTicks = config.plasmaGun.maxLifetimeTicks;
   plasmaGunTuning_.cooldownTicks = config.plasmaGun.cooldownTicks;
+  weaponAmmoConfig_.infiniteAmmo = config.weaponAmmo.infiniteAmmo;
+  snapshot_.weaponAmmo.infiniteAmmo = weaponAmmoConfig_.infiniteAmmo;
   weaponAmmoConfig_.spawnAmmo = config.weaponAmmo.spawnAmmo;
   snapshot_.weaponAmmo.spawnAmmo = weaponAmmoConfig_.spawnAmmo;
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
@@ -612,6 +557,7 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
   largeHealthPickupAmount_ = config.largeHealthPickupAmount;
   smallHealthPickupCooldownTicks_ = config.smallHealthPickupCooldownTicks;
   largeHealthPickupCooldownTicks_ = config.largeHealthPickupCooldownTicks;
+  rebuildBotNavigation();
 }
 
 void ServerGame::tick(float fixedDt) {
@@ -1432,7 +1378,10 @@ void ServerGame::resetMatch() {
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
   playerSessions_ = {};
-  botCombatStates_ = {};
+  botMotors_ = {};
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
+  }
   if (snapshot_.gameMode == GameMode::McGuffin) {
     resetMcGuffinRound();
   }
@@ -1459,6 +1408,7 @@ void ServerGame::setArena(const Arena& arena, MapDescriptor descriptor) {
   if (mapRevision_ == 0) {
     mapRevision_ = 1;
   }
+  rebuildBotNavigation();
   resetMatch();
 }
 
@@ -1477,7 +1427,10 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   mcguffinStealTicks_[playerIndex] = 0;
   mcguffinThrowRequestedThisTick_[playerIndex] = false;
   mcguffinThrowCommands_[playerIndex] = {};
-  botCombatStates_[playerIndex] = {};
+  botMotors_[playerIndex] = {};
+  botBrains_[playerIndex].reset(
+    0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
+  );
   snapshot_.respawnTicksRemaining[playerIndex] = 0;
   snapshot_.players[playerIndex] = spawnPlayer(arena_, playerIndex, healthAmount_);
   snapshot_.players[playerIndex].bounds.radius =
@@ -1592,7 +1545,10 @@ void ServerGame::respawnRound() {
   viewedServerTicks_ = {};
   hasCommand_ = {};
   receivedCommandThisTick_ = {};
-  botCombatStates_ = {};
+  botMotors_ = {};
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
+  }
   clearProjectiles();
   if (snapshot_.gameMode == GameMode::McGuffin) {
     // Base ownership changes between rounds and must be established before
@@ -1641,14 +1597,16 @@ void ServerGame::setConnectedPlayers(
       resetPlayerInputState(index);
       playerSessions_[index] = 0;
       botDodgeSwitchSeconds_[index] = 0.0F;
-      botCombatStates_[index] = {};
+      botMotors_[index] = {};
+      botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
     } else if (!wasHuman && isHuman) {
       snapshot_.readyPlayers[index] = false;
       snapshot_.teams[index] = Team::None;
       snapshot_.playerNames[index] = "PLAYER " + std::to_string(index + 1U);
       resetPlayerInputState(index);
       botDodgeSwitchSeconds_[index] = 0.0F;
-      botCombatStates_[index] = {};
+      botMotors_[index] = {};
+      botBrains_[index].reset(0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U));
     }
   }
   snapshot_.connectedPlayers = connectedPlayers;
@@ -1730,7 +1688,10 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   weaponPulloutTicks_[playerIndex] = 0;
   snapshot_.selectedWeapons[playerIndex] = selectedWeapons_[playerIndex];
   refillAmmo(playerIndex);
-  botCombatStates_[playerIndex] = {};
+  botMotors_[playerIndex] = {};
+  botBrains_[playerIndex].reset(
+    0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
+  );
 }
 
 void ServerGame::setMatchRules(const MatchRules& rules) {
@@ -2030,6 +1991,7 @@ void ServerGame::setRuntimeGameplayTuning(
   ) {
     respawnRound();
   }
+  rebuildBotNavigation();
 }
 
 void ServerGame::setWeaponSwitchingMode(WeaponSwitchingMode mode) {
@@ -2072,26 +2034,30 @@ void ServerGame::setBotBehavior(
 
 void ServerGame::setBotAttackMode(BotAttackMode mode) {
   if (botAttackMode_ != mode) {
-    botCombatStates_ = {};
+    botMotors_ = {};
+    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+      botBrains_[index].reset(
+        0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U)
+      );
+    }
   }
   botAttackMode_ = mode;
   snapshot_.botAttackMode = botAttackMode_;
-  if (botAttackMode_ == BotAttackMode::Off) {
-    for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-      if (botPlayers_[index]) {
-        commands_[index].attack = false;
-      }
-    }
-  }
 }
 
 void ServerGame::setBotWeapon(Weapon weapon) {
   if (weapon > kLastWeapon) {
     return;
   }
-  // Bots request this authoritative selection every tick, so normal weapon
-  // switching and pullout rules still apply instead of being bypassed.
+  // Bots request this selection through normal weapon switching. They never
+  // change selectedWeapons_ directly.
   botWeapon_ = weapon;
+  botWeaponAuto_ = false;
+  snapshot_.botWeapon = botWeapon_;
+}
+
+void ServerGame::setBotWeaponAuto() {
+  botWeaponAuto_ = true;
   snapshot_.botWeapon = botWeapon_;
 }
 
@@ -2203,6 +2169,60 @@ BotAttackMode ServerGame::botAttackMode() const {
 
 Weapon ServerGame::botWeapon() const {
   return botWeapon_;
+}
+
+bool ServerGame::botWeaponAuto() const {
+  return botWeaponAuto_;
+}
+
+std::uint64_t ServerGame::botCommandIngressCount(std::size_t playerIndex) const {
+  return playerIndex < kDuelPlayerCount ? botCommandIngressCounts_[playerIndex] : 0U;
+}
+
+std::string ServerGame::botDebugString(std::size_t playerIndex) const {
+  if (playerIndex >= kDuelPlayerCount || !botPlayers_[playerIndex]) {
+    return "bot_debug: slot is not a bot";
+  }
+  const BotMotor& motor = botMotors_[playerIndex];
+  const auto goalName = [](BotGoalKind goal) {
+    switch (goal) {
+    case BotGoalKind::Safe: return "safe";
+    case BotGoalKind::Chase: return "chase";
+    case BotGoalKind::RecoverHealth: return "health";
+    case BotGoalKind::Objective: return "objective";
+    }
+    return "safe";
+  };
+  const auto noFireName = [](BotNoFireReason reason) {
+    switch (reason) {
+    case BotNoFireReason::None: return "ready";
+    case BotNoFireReason::Disabled: return "disabled";
+    case BotNoFireReason::Reaction: return "reaction";
+    case BotNoFireReason::NoVisibleTarget: return "no-visible-target";
+    case BotNoFireReason::Turning: return "turning";
+    case BotNoFireReason::WeaponUnavailable: return "weapon-unavailable";
+    }
+    return "unknown";
+  };
+  const char* const difficulty = botAttackMode_ == BotAttackMode::Easy ? "easy" :
+    botAttackMode_ == BotAttackMode::Medium ? "medium" :
+    botAttackMode_ == BotAttackMode::Hard ? "hard" : "off";
+  std::ostringstream output;
+  output << "bot " << (playerIndex + 1U) << " difficulty="
+    << difficulty << " target=";
+  if (motor.targetPlayerIndex < kDuelPlayerCount) output << (motor.targetPlayerIndex + 1U);
+  else output << "none";
+  output << (motor.targetMemoryAgeSeconds == 0.0F ? " sensed=(" : " last=(")
+    << motor.lastKnownTargetPosition.x << ','
+    << motor.lastKnownTargetPosition.y << ',' << motor.lastKnownTargetPosition.z
+    << ") age=" << motor.targetMemoryAgeSeconds
+    << " goal=" << goalName(motor.goal)
+    << " waypoint=" << (motor.waypointNode < botNavigation_.nodeCount
+      ? std::to_string(motor.waypointNode) : "none")
+    << " weapon=" << weaponShortName(motor.command.weapon)
+    << " fire=" << noFireName(motor.noFireReason)
+    << " attack=" << (motor.command.attack ? 1 : 0);
+  return output.str();
 }
 
 bool ServerGame::isBotSlot(std::size_t playerIndex) const {
@@ -3955,151 +3975,121 @@ void ServerGame::updateParticipatingPlayers() {
   }
 }
 
+void ServerGame::rebuildBotNavigation() {
+  CollisionBounds bounds = kDefaultPlayerBounds;
+  bounds.radius *= playerSizeScaleXY_;
+  bounds.halfHeight *= playerSizeScaleZ_;
+  botNavigation_ = buildBotNavigationMap(arena_, movementTuning_, bounds);
+}
+
+BotSenseFrame ServerGame::buildBotSenseFrame(
+  std::size_t playerIndex,
+  float fixedDt
+) const {
+  BotSenseFrame sense;
+  sense.serverTick = snapshot_.serverTick;
+  sense.fixedDt = fixedDt;
+  const PlayerState& self = snapshot_.players[playerIndex];
+  sense.self.position = self.position;
+  sense.self.velocity = self.velocity;
+  sense.self.viewYawRadians = self.viewYawRadians;
+  sense.self.viewPitchRadians = self.viewPitchRadians;
+  sense.self.radius = self.bounds.radius;
+  sense.self.halfHeight = self.bounds.halfHeight;
+  sense.self.health = self.health;
+  sense.self.onGround = self.onGround;
+  sense.self.dashReady = self.dashCooldownTicksRemaining == 0U;
+  sense.selectedWeapon = selectedWeapons_[playerIndex];
+  sense.forceWeapon = !botWeaponAuto_;
+  sense.forcedWeapon = botWeapon_;
+  sense.combatEnabled = botAttackMode_ != BotAttackMode::Off &&
+    isActiveCombatant(playerIndex);
+  sense.standstill = botStandstillEnabled_;
+  sense.dodgeOverride = botDodgeEnabled_;
+  sense.dodgeMinIntervalMs = botDodgeMinIntervalMs_;
+  sense.dodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
+
+  const auto setWeapon = [&](Weapon weapon, float range, float projectileSpeed,
+                             bool splash) {
+    BotWeaponSense& output = sense.weapons[weaponIndex(weapon)];
+    output.usable = hasAmmoForWeapon(playerIndex, weapon) &&
+      weaponCooldownTicks(playerIndex, weapon) == 0U;
+    output.effectiveRange = range;
+    output.projectileSpeed = projectileSpeed;
+    output.splash = splash;
+  };
+  setWeapon(Weapon::LightningGun, lightningGunTuning_.range, 0.0F, false);
+  setWeapon(Weapon::Railgun, railgunTuning_.range, 0.0F, false);
+  setWeapon(Weapon::RocketLauncher, 20.0F, rocketLauncherTuning_.speed, true);
+  setWeapon(Weapon::MachineGun, machineGunTuning_.range, 0.0F, false);
+  setWeapon(Weapon::Shotgun, shotgunTuning_.range, 0.0F, false);
+  setWeapon(Weapon::GrenadeLauncher, 16.0F, grenadeLauncherTuning_.speed, true);
+  setWeapon(Weapon::PlasmaGun, 24.0F, plasmaGunTuning_.speed, false);
+  setWeapon(Weapon::FreezeGun, freezeGunTuning_.range, 0.0F, false);
+  setWeapon(Weapon::Revolver, revolverTuning_.range, 0.0F, false);
+
+  // This is the authoritative-to-filtered boundary. Opponent positions enter
+  // the brain only after both world LOS and the bot's current FOV agree.
+  const float halfFovRadians = botDifficultyProfile(botAttackMode_).targetFovDegrees *
+    kPi / 360.0F;
+  const Vec3 forward = {std::cos(self.viewYawRadians), std::sin(self.viewYawRadians), 0.0F};
+  for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
+    if (!isValidEnemyTarget(playerIndex, targetIndex) || !hasLineOfSight(playerIndex, targetIndex)) {
+      continue;
+    }
+    Vec3 horizontal = snapshot_.players[targetIndex].position - self.position;
+    horizontal.z = 0.0F;
+    const float distance = length(horizontal);
+    if (distance > 0.001F &&
+        std::acos(std::clamp(dot(horizontal / distance, forward), -1.0F, 1.0F)) >
+          halfFovRadians) {
+      continue;
+    }
+    if (sense.visibleEnemyCount == sense.visibleEnemies.size()) break;
+    BotObservedEnemy& observed = sense.visibleEnemies[sense.visibleEnemyCount++];
+    observed.playerIndex = static_cast<std::uint8_t>(targetIndex);
+    observed.position = snapshot_.players[targetIndex].position;
+    observed.velocity = snapshot_.players[targetIndex].velocity;
+  }
+  for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
+    if (sense.healthResourceCount == sense.healthResources.size()) break;
+    BotHealthResourceSense& resource = sense.healthResources[sense.healthResourceCount++];
+    resource.position = arena_.healthPickups[index].position;
+    resource.value = arena_.healthPickups[index].type == HealthPickupType::Large
+      ? largeHealthPickupAmount_ : smallHealthPickupAmount_;
+    resource.available = snapshot_.healthPickupAvailable[index];
+  }
+  if (snapshot_.gameMode == GameMode::McGuffin) {
+    sense.objective.position = mcguffinObjective_.position;
+    sense.objective.active = true;
+  }
+  return sense;
+}
+
 void ServerGame::updateBotCommands(float fixedDt) {
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (!botPlayers_[playerIndex]) {
       continue;
     }
-
-    UserCommand command;
-    command.viewYawRadians = snapshot_.players[playerIndex].viewYawRadians;
-    command.viewPitchRadians = snapshot_.players[playerIndex].viewPitchRadians;
-    command.planarAim = false;
-    command.weapon = botWeapon_;
-
-    if (botStandstillEnabled_) {
-      command.forwardMove = 0.0F;
-      command.rightMove = 0.0F;
-      command.jump = false;
-      botDodgeSwitchSeconds_[playerIndex] = 0.0F;
-    } else if (botDodgeEnabled_) {
-      botDodgeSwitchSeconds_[playerIndex] -= fixedDt;
-      if (botDodgeSwitchSeconds_[playerIndex] <= 0.0F) {
-        botDodgeDirections_[playerIndex] =
-          (randomU32() & 1U) == 0U ? -1 : 1;
-        const int intervalRange =
-          botDodgeMaxIntervalMs_ - botDodgeMinIntervalMs_ + 1;
-        const int intervalMs =
-          botDodgeMinIntervalMs_ +
-          static_cast<int>(randomU32() % static_cast<std::uint32_t>(intervalRange));
-        botDodgeSwitchSeconds_[playerIndex] =
-          static_cast<float>(intervalMs) / 1000.0F;
-      }
-      command.rightMove =
-        botDodgeDirections_[playerIndex] < 0 ? -1.0F : 1.0F;
-    } else {
-      botDodgeSwitchSeconds_[playerIndex] = 0.0F;
-    }
-
-    if (!isActiveCombatant(playerIndex)) {
-      command.attack = false;
-      commands_[playerIndex] = command;
-      hasCommand_[playerIndex] = true;
-      continue;
-    }
-
-    if (botAttackMode_ != BotAttackMode::Off) {
-      BotCombatState& state = botCombatStates_[playerIndex];
-      const BotAttackPreset preset = botAttackPreset(botAttackMode_);
-      if (!state.initialized) {
-        state.initialized = true;
-        state.targetPlayerIndex = kDuelPlayerCount;
-        state.desiredYawRadians = command.viewYawRadians;
-        state.desiredPitchRadians = command.viewPitchRadians;
-        state.reactionSecondsRemaining =
-          randomFloat(preset.reactionMinSeconds, preset.reactionMaxSeconds);
-        state.nextAimErrorRefreshSeconds = 0.0F;
-      } else {
-        state.reactionSecondsRemaining -= fixedDt;
-        state.nextAimErrorRefreshSeconds -= fixedDt;
-      }
-
-      if (state.reactionSecondsRemaining <= 0.0F) {
-        state.targetPlayerIndex = nearestValidEnemy(playerIndex, true);
-        if (state.targetPlayerIndex < kDuelPlayerCount) {
-          if (state.nextAimErrorRefreshSeconds <= 0.0F) {
-            const auto sampleError = [this, &preset] {
-              float unit = randomFloat(-1.0F, 1.0F);
-              if (std::fabs(unit) < 0.25F) {
-                unit = unit < 0.0F ? -0.25F : 0.25F;
-              }
-              return unit * preset.aimErrorRadians;
-            };
-            state.aimErrorYawRadians = sampleError();
-            state.aimErrorPitchRadians = sampleError() * 0.75F;
-            state.nextAimErrorRefreshSeconds = randomFloat(
-              preset.aimErrorRefreshMinSeconds,
-              preset.aimErrorRefreshMaxSeconds
-            );
-          }
-
-          const Vec3 start = weaponMuzzlePosition(
-            snapshot_.players[playerIndex],
-            lightningGunTuning_.eyeHeight
-          );
-          const Vec3 target =
-            botTargetAimPoint(snapshot_.players[state.targetPlayerIndex]);
-          const Vec3 delta = target - start;
-          const float horizontalDistance = std::hypot(delta.x, delta.y);
-          state.desiredYawRadians =
-            wrapRadians(std::atan2(delta.y, delta.x) + state.aimErrorYawRadians);
-          state.desiredPitchRadians = std::clamp(
-            std::atan2(delta.z, horizontalDistance) + state.aimErrorPitchRadians,
-            -kMaxPitchRadians,
-            kMaxPitchRadians
-          );
-        }
-        state.reactionSecondsRemaining =
-          randomFloat(preset.reactionMinSeconds, preset.reactionMaxSeconds);
-      }
-
-      const float maxTurn = preset.turnSpeedRadiansPerSecond * fixedDt;
-      command.viewYawRadians = approachAngleRadians(
-        command.viewYawRadians,
-        state.desiredYawRadians,
-        maxTurn
-      );
-      command.viewPitchRadians = std::clamp(
-        approachFloat(command.viewPitchRadians, state.desiredPitchRadians, maxTurn),
-        -kMaxPitchRadians,
-        kMaxPitchRadians
-      );
-
-      const bool validVisibleTarget =
-        state.targetPlayerIndex < kDuelPlayerCount &&
-        isValidEnemyTarget(playerIndex, state.targetPlayerIndex) &&
-        hasLineOfSight(playerIndex, state.targetPlayerIndex);
-      const bool combatPhase =
-        snapshot_.matchPhase == MatchPhase::Live ||
-        snapshot_.matchPhase == MatchPhase::WaitingForPlayers ||
-        snapshot_.matchPhase == MatchPhase::WaitingForReady;
-      const bool aimClose =
-        std::fabs(angleDeltaRadians(command.viewYawRadians, state.desiredYawRadians)) <=
-          preset.fireToleranceRadians &&
-        std::fabs(command.viewPitchRadians - state.desiredPitchRadians) <=
-          preset.fireToleranceRadians;
-      command.attack = validVisibleTarget && combatPhase && aimClose;
-    } else if (botStareEnabled_) {
-      const std::size_t targetIndex = nearestValidEnemy(playerIndex, false);
-      if (targetIndex < kDuelPlayerCount) {
-        const Vec3 start = weaponMuzzlePosition(
-          snapshot_.players[playerIndex],
-          lightningGunTuning_.eyeHeight
-        );
-        const Vec3 target = botTargetAimPoint(snapshot_.players[targetIndex]);
-        const Vec3 delta = target - start;
-        command.viewYawRadians = wrapRadians(std::atan2(delta.y, delta.x));
-        command.viewPitchRadians = std::clamp(
-          std::atan2(delta.z, std::hypot(delta.x, delta.y)),
-          -kMaxPitchRadians,
-          kMaxPitchRadians
-        );
-      }
+    const BotSenseFrame sense = buildBotSenseFrame(playerIndex, fixedDt);
+    botMotors_[playerIndex] = botBrains_[playerIndex].tick(
+      sense, botDifficultyProfile(botAttackMode_), botNavigation_);
+    UserCommand command = botMotors_[playerIndex].command;
+    // bot_stare is a legacy training override. It can face a sensed target,
+    // but still cannot see through a wall or outside its FOV.
+    if (botAttackMode_ == BotAttackMode::Off && botStareEnabled_ &&
+        sense.visibleEnemyCount > 0U) {
+      const BotObservedEnemy& target = sense.visibleEnemies.front();
+      const Vec3 delta = botTargetAimPoint(PlayerState{
+        .position = target.position, .bounds = snapshot_.players[playerIndex].bounds
+      }) - weaponMuzzlePosition(snapshot_.players[playerIndex], lightningGunTuning_.eyeHeight);
+      command.viewYawRadians = std::atan2(delta.y, delta.x);
+      command.viewPitchRadians = std::clamp(std::atan2(delta.z, std::hypot(delta.x, delta.y)),
+        -kMaxPitchRadians, kMaxPitchRadians);
       command.attack = false;
     }
-
-    commands_[playerIndex] = command;
-    hasCommand_[playerIndex] = true;
+    if (!isActiveCombatant(playerIndex)) command.attack = false;
+    ingestGameplayCommand(playerIndex, command, snapshot_.serverTick, false, true);
   }
 }
 
@@ -4141,7 +4131,11 @@ void ServerGame::handleBotCommandRequest(const CommandPacket& packet) {
       );
       break;
     case BotCommandType::Weapon:
-      setBotWeapon(static_cast<Weapon>(packet.botCommandValue));
+      if (packet.botCommandValue == -1) {
+        setBotWeaponAuto();
+      } else {
+        setBotWeapon(static_cast<Weapon>(packet.botCommandValue));
+      }
       break;
   }
 }
@@ -4216,7 +4210,10 @@ void ServerGame::addBotAtPlayerIndex(std::size_t playerIndex) {
   snapshot_.playerNames[playerIndex] = "BOT " + std::to_string(playerIndex + 1U);
   resetPlayerInputState(playerIndex);
   botDodgeSwitchSeconds_[playerIndex] = 0.0F;
-  botCombatStates_[playerIndex] = {};
+  botMotors_[playerIndex] = {};
+  botBrains_[playerIndex].reset(
+    0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
+  );
   respawnPlayer(playerIndex);
   updateClanArenaBotTeams();
   updateParticipatingPlayers();
@@ -4233,7 +4230,10 @@ void ServerGame::removeBotAtPlayerIndex(std::size_t playerIndex) {
   snapshot_.playerNames[playerIndex] = "PLAYER " + std::to_string(playerIndex + 1U);
   resetPlayerInputState(playerIndex);
   botDodgeSwitchSeconds_[playerIndex] = 0.0F;
-  botCombatStates_[playerIndex] = {};
+  botMotors_[playerIndex] = {};
+  botBrains_[playerIndex].reset(
+    0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
+  );
   updateParticipatingPlayers();
 }
 
@@ -4472,10 +4472,13 @@ bool ServerGame::applyScenarioSetup(
 
   botDodgeDirections_ = {};
   botDodgeSwitchSeconds_ = {};
-  botCombatStates_ = {};
+  botMotors_ = {};
   // Separate non-zero streams keep bot choices and spawn choices stable even
   // when one system draws more random values than the other.
   botRandomState_ = scenarioRandomState(setup.seed, 1U);
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    botBrains_[index].reset(scenarioRandomState(setup.seed, 20U + index));
+  }
   spawnRandomState_ = scenarioRandomState(setup.seed, 2U);
   spawnLastUsedTicks_ = {};
   spawnWasUsed_ = {};
@@ -4556,17 +4559,11 @@ ScenarioState ServerGame::captureScenarioState() const {
     target.hasCommand = hasCommand_[index];
     target.botState.dodgeDirection = botDodgeDirections_[index];
     target.botState.dodgeSwitchSeconds = botDodgeSwitchSeconds_[index];
-    const BotCombatState& bot = botCombatStates_[index];
-    target.botState.reactionSecondsRemaining =
-      bot.reactionSecondsRemaining;
-    target.botState.targetPlayerIndex = bot.targetPlayerIndex;
-    target.botState.desiredYawRadians = bot.desiredYawRadians;
-    target.botState.desiredPitchRadians = bot.desiredPitchRadians;
-    target.botState.aimErrorYawRadians = bot.aimErrorYawRadians;
-    target.botState.aimErrorPitchRadians = bot.aimErrorPitchRadians;
-    target.botState.nextAimErrorRefreshSeconds =
-      bot.nextAimErrorRefreshSeconds;
-    target.botState.initialized = bot.initialized;
+    const BotMotor& motor = botMotors_[index];
+    target.botState.targetPlayerIndex = motor.targetPlayerIndex;
+    target.botState.desiredYawRadians = motor.command.viewYawRadians;
+    target.botState.desiredPitchRadians = motor.command.viewPitchRadians;
+    target.botState.initialized = motor.targetPlayerIndex < kDuelPlayerCount;
   }
   for (std::size_t index = 0; index < state.projectiles.size(); ++index) {
     const RocketProjectile& source = rockets_[index];
@@ -4673,6 +4670,40 @@ bool ServerGame::loadRequestedMap(const std::string& mapName) {
   }
   std::cerr << "map load failed for '" << mapName << "': " << result.error << '\n';
   return false;
+}
+
+void ServerGame::ingestGameplayCommand(
+  std::size_t playerIndex,
+  UserCommand command,
+  std::uint32_t viewedServerTick,
+  bool receivedFromNetwork,
+  bool generatedByBot
+) {
+  if (playerIndex >= kDuelPlayerCount) return;
+  // Human packets and local bot motors meet here before movement or combat.
+  // This keeps weapon selection, held actions, and one-shot action edges on
+  // one gameplay path; bot code has no direct simulation-state access.
+  command.jump = command.jump || jumpEdgeThisTick_[playerIndex];
+  command.dash = command.dash || dashEdgeThisTick_[playerIndex];
+  commands_[playerIndex] = command;
+  viewedServerTicks_[playerIndex] = viewedServerTick;
+  hasCommand_[playerIndex] = true;
+  receivedCommandThisTick_[playerIndex] =
+    receivedCommandThisTick_[playerIndex] || receivedFromNetwork;
+  if (generatedByBot) ++botCommandIngressCounts_[playerIndex];
+}
+
+void ServerGame::applyAttackEdges() {
+  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
+    if (!attackEdgeThisTick_[playerIndex] || !hasCommand_[playerIndex]) continue;
+    UserCommand command = commands_[playerIndex];
+    command.attack = true;
+    command.viewYawRadians = attackEdgeCommands_[playerIndex].viewYawRadians;
+    command.viewPitchRadians = attackEdgeCommands_[playerIndex].viewPitchRadians;
+    command.weapon = attackEdgeCommands_[playerIndex].weapon;
+    ingestGameplayCommand(playerIndex, command, attackEdgeViewedServerTicks_[playerIndex],
+      receivedCommandThisTick_[playerIndex], false);
+  }
 }
 
 void ServerGame::receiveCommands() {
@@ -5062,32 +5093,16 @@ void ServerGame::receiveCommands() {
       }
     }
 
-    commands_[playerIndex] = packet.command;
-    commands_[playerIndex].jump =
-      commands_[playerIndex].jump || jumpEdgeThisTick_[playerIndex];
-    commands_[playerIndex].dash =
-      commands_[playerIndex].dash || dashEdgeThisTick_[playerIndex];
-    viewedServerTicks_[playerIndex] = packet.viewedServerTick;
-    hasCommand_[playerIndex] = true;
-    receivedCommandThisTick_[playerIndex] = true;
+    ingestGameplayCommand(
+      playerIndex, packet.command, packet.viewedServerTick, true, false
+    );
     snapshot_.hasAcknowledgedCommand[playerIndex] = true;
     // Acknowledgement is published only after every side effect in this packet
     // has been accepted, so client prediction may safely retire the command.
     snapshot_.acknowledgedCommand[playerIndex] = packet.command.sequence;
   }
 
-  for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
-    if (!attackEdgeThisTick_[playerIndex] || !hasCommand_[playerIndex]) {
-      continue;
-    }
-    commands_[playerIndex].attack = true;
-    commands_[playerIndex].viewYawRadians =
-      attackEdgeCommands_[playerIndex].viewYawRadians;
-    commands_[playerIndex].viewPitchRadians =
-      attackEdgeCommands_[playerIndex].viewPitchRadians;
-    commands_[playerIndex].weapon = attackEdgeCommands_[playerIndex].weapon;
-    viewedServerTicks_[playerIndex] = attackEdgeViewedServerTicks_[playerIndex];
-  }
+  applyAttackEdges();
 
 }
 

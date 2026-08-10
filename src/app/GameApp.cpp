@@ -5267,19 +5267,41 @@ int GameApp::run() const {
     }
   );
   console.registerCommand(
+    "bot_difficulty",
+    "Request normal bot skill: bot_difficulty easy|medium|hard.",
+    [&botAttackMode, &queueBotCommand](const std::vector<std::string>& arguments) {
+      if (arguments.size() == 1) {
+        return std::string("bot_difficulty = ") + botAttackModeCvarValue(botAttackMode);
+      }
+      if (arguments.size() != 2) {
+        return std::string("usage: bot_difficulty easy|medium|hard");
+      }
+      const std::optional<BotAttackMode> mode = parseBotAttackMode(arguments[1]);
+      if (!mode.has_value() || *mode == BotAttackMode::Off) {
+        return std::string("usage: bot_difficulty easy|medium|hard");
+      }
+      return queueBotCommand(PendingBotCommand{
+        BotCommandType::AttackMode, static_cast<std::int32_t>(*mode),
+      });
+    }
+  );
+  console.registerCommand(
     "bot_weapon",
-    "Set the authoritative weapon used by all training bots: bot_weapon [mg|sg|gl|rl|lg|sr|pg|fg|re|1..9].",
+    "Force a bot weapon or return to auto choice: bot_weapon [auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9].",
     [&botWeapon, &queueBotCommand](const std::vector<std::string>& arguments) {
       if (arguments.size() == 1) {
         return std::string("bot_weapon = ") +
           std::string(weaponShortName(botWeapon));
       }
       if (arguments.size() != 2) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
+      }
+      if (arguments[1] == "auto") {
+        return queueBotCommand(PendingBotCommand{BotCommandType::Weapon, -1});
       }
       const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
       if (!weapon.has_value()) {
-        return std::string("usage: bot_weapon mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
+        return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
       }
       return queueBotCommand(PendingBotCommand{
         BotCommandType::Weapon,
