@@ -640,8 +640,12 @@ void ServerGame::tick(float fixedDt) {
     pendingReplayInput_.reset();
   } else {
     updateBotCommands(fixedDt);
+    const replay::ReplayTickInput resolvedInput = captureResolvedReplayInput();
     if (replayRecorder_ != nullptr && replayRecorder_->active()) {
-      (void)replayRecorder_->recordResolvedInput(captureResolvedReplayInput());
+      (void)replayRecorder_->recordResolvedInput(resolvedInput);
+    }
+    if (rollingReplay_ != nullptr && rollingReplay_->active()) {
+      rollingReplay_->recordResolvedInput(resolvedInput);
     }
   }
   snapshot_.weaponFires = {};
@@ -1348,8 +1352,15 @@ void ServerGame::tick(float fixedDt) {
   // the state produced above, keeping lag-compensation frames unambiguous.
   ++snapshot_.serverTick;
   recordHistory();
-  if (replayRecorder_ != nullptr && replayRecorder_->active()) {
-    replayRecorder_->recordCompletedTick(captureReplayCheckpoint());
+  if ((replayRecorder_ != nullptr && replayRecorder_->active()) ||
+      (rollingReplay_ != nullptr && rollingReplay_->active())) {
+    const replay::ReplayCheckpoint checkpoint = captureReplayCheckpoint();
+    if (replayRecorder_ != nullptr && replayRecorder_->active()) {
+      replayRecorder_->recordCompletedTick(checkpoint);
+    }
+    if (rollingReplay_ != nullptr && rollingReplay_->active()) {
+      rollingReplay_->recordCompletedTick(checkpoint);
+    }
   }
   publishSnapshot();
 }
@@ -1362,25 +1373,7 @@ bool ServerGame::beginReplayRecording(
     if (error != nullptr) *error = "cannot record while replay playback is active";
     return false;
   }
-  replay::ReplayMetadata metadata;
-  metadata.protocolRevision = kProtocolVersion;
-  metadata.gameplayConfigHash = replayGameplayConfigHash();
-  metadata.initialServerTick = snapshot_.serverTick;
-  metadata.mapRevision = snapshot_.mapRevision;
-  metadata.mapName = snapshot_.map.mapName;
-  metadata.mapContentHash = snapshot_.map.contentHash;
-  metadata.gameMode = snapshot_.gameMode;
-  metadata.matchRules = matchRules_;
-  metadata.visibility = snapshot_.gameMode == GameMode::Duel
-    ? replay::ReplayVisibility::DuelOnly
-    : replay::ReplayVisibility::DeveloperFull;
-  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
-    metadata.players[index].slot = static_cast<std::uint8_t>(index);
-    metadata.players[index].occupied = isOccupiedSlot(index);
-    metadata.players[index].bot = botPlayers_[index];
-    metadata.players[index].team = snapshot_.teams[index];
-    metadata.players[index].name = snapshot_.playerNames[index];
-  }
+  replay::ReplayMetadata metadata = replayMetadata();
   auto recorder = std::make_unique<replay::ReplayRecorder>();
   if (!recorder->begin(std::move(metadata), captureReplayCheckpoint(), config, error)) {
     return false;
@@ -1402,6 +1395,103 @@ bool ServerGame::replayRecordingActive() const {
 
 replay::ReplayRecorderStats ServerGame::replayRecorderStats() const {
   return replayRecorder_ == nullptr ? replay::ReplayRecorderStats{} : replayRecorder_->stats();
+}
+
+bool ServerGame::beginRollingReplay(
+  replay::ReplayRollingBufferConfig config,
+  std::string* error
+) {
+  if (replayPlayback_) {
+    if (error != nullptr) *error = "cannot retain rolling replay while playback is active";
+    return false;
+  }
+  auto rolling = std::make_unique<replay::ReplayRollingBuffer>();
+  if (!rolling->begin(replayMetadata(), captureReplayCheckpoint(), replayGeneration_, config, error)) {
+    return false;
+  }
+  rollingReplay_ = std::move(rolling);
+  latestReplayLethal_.reset();
+  return true;
+}
+
+void ServerGame::endRollingReplay() {
+  rollingReplay_.reset();
+  latestReplayLethal_.reset();
+}
+
+replay::ReplayRollingBufferStats ServerGame::rollingReplayStats() const {
+  return rollingReplay_ == nullptr ? replay::ReplayRollingBufferStats{} : rollingReplay_->stats();
+}
+
+std::optional<replay::ReplayDemo> ServerGame::extractRollingReplaySegment(
+  const replay::ReplayLethalEvent& event,
+  std::uint32_t beforeTicks,
+  std::uint32_t afterTicks,
+  std::string* error
+) const {
+  if (rollingReplay_ == nullptr) {
+    if (error != nullptr) *error = "rolling replay is disabled";
+    return std::nullopt;
+  }
+  return rollingReplay_->extractSegment(event, beforeTicks, afterTicks, error);
+}
+
+std::optional<replay::ReplayLethalEvent> ServerGame::latestReplayLethal() const {
+  return latestReplayLethal_;
+}
+
+replay::ReplayMetadata ServerGame::replayMetadata() const {
+  replay::ReplayMetadata metadata;
+  metadata.protocolRevision = kProtocolVersion;
+  metadata.gameplayConfigHash = replayGameplayConfigHash();
+  metadata.initialServerTick = snapshot_.serverTick;
+  metadata.mapRevision = snapshot_.mapRevision;
+  metadata.mapName = snapshot_.map.mapName;
+  metadata.mapContentHash = snapshot_.map.contentHash;
+  metadata.gameMode = snapshot_.gameMode;
+  metadata.matchRules = matchRules_;
+  metadata.visibility = snapshot_.gameMode == GameMode::Duel
+    ? replay::ReplayVisibility::DuelOnly
+    : replay::ReplayVisibility::DeveloperFull;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    metadata.players[index].slot = static_cast<std::uint8_t>(index);
+    metadata.players[index].occupied = isOccupiedSlot(index);
+    metadata.players[index].bot = botPlayers_[index];
+    metadata.players[index].team = snapshot_.teams[index];
+    metadata.players[index].name = snapshot_.playerNames[index];
+  }
+  return metadata;
+}
+
+void ServerGame::resetRollingReplay() {
+  if (rollingReplay_ == nullptr || !rollingReplay_->active()) return;
+  ++replayGeneration_;
+  if (replayGeneration_ == 0U) replayGeneration_ = 1U;
+  rollingReplay_->reset(replayMetadata(), captureReplayCheckpoint(), replayGeneration_);
+  latestReplayLethal_.reset();
+}
+
+void ServerGame::recordReplayLethal(
+  std::size_t attackerIndex,
+  std::size_t targetIndex,
+  Weapon weapon
+) {
+  if (rollingReplay_ == nullptr || !rollingReplay_->active() || targetIndex >= kDuelPlayerCount) return;
+  replay::ReplayLethalEvent event;
+  event.tick = snapshot_.serverTick;
+  event.replayGeneration = replayGeneration_;
+  event.victim = static_cast<std::uint8_t>(targetIndex);
+  event.killer = attackerIndex < kDuelPlayerCount
+    ? static_cast<std::uint8_t>(attackerIndex)
+    : replay::kNoReplayPlayer;
+  event.weapon = weapon;
+  event.kind = attackerIndex == targetIndex
+    ? replay::LethalKind::Self
+    : attackerIndex < kDuelPlayerCount
+      ? replay::LethalKind::Direct
+      : replay::LethalKind::World;
+  rollingReplay_->recordLethal(event);
+  latestReplayLethal_ = event;
 }
 
 std::uint64_t ServerGame::replayGameplayConfigHash() const {
@@ -1974,6 +2064,7 @@ void ServerGame::resetMatch() {
   updateParticipatingPlayers();
   history_.clear();
   recordHistory();
+  resetRollingReplay();
 }
 
 void ServerGame::setArena(const Arena& arena) {
@@ -3394,6 +3485,7 @@ void ServerGame::applyDamageAndKnockback(
       damageAllowed(attackerIndex, targetIndex)
     )
   ) {
+    recordReplayLethal(attackerIndex, targetIndex, weapon);
     FragEvent& frag = snapshot_.fragEvents[attackerIndex];
     frag.active = true;
     frag.sequence = ++fragEventSequences_[attackerIndex];

@@ -59,6 +59,7 @@ add_library(lg_duel_core
   src/replay/ReplayCodec.cpp
   src/replay/ReplayPlayback.cpp
   src/replay/ReplayRecorder.cpp
+  src/replay/ReplayRollingBuffer.cpp
   src/scenario/LiveScenarioSession.cpp
   src/scenario/ScenarioEvidence.cpp
   src/scenario/ScenarioRuntime.cpp
