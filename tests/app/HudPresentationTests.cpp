@@ -1,6 +1,8 @@
 #include "app/HudPresentation.hpp"
 
+#include <cmath>
 #include <iostream>
+#include <limits>
 #include <string_view>
 
 namespace {
@@ -583,6 +585,193 @@ int main() {
   snapshot.roundWinningTeam = lg::Team::Red;
   failures += expect(lg::localPlayerWonResult(snapshot, 0, false),
     "McGuffin result should use team authority");
+
+  {
+    lg::Arena navigationArena;
+    navigationArena.mcguffin.hasRedBase = true;
+    navigationArena.mcguffin.redBase.min = {-10.0F, -2.0F, 0.0F};
+    navigationArena.mcguffin.redBase.max = {-8.0F, 2.0F, 2.0F};
+    navigationArena.mcguffin.hasBlueBase = true;
+    navigationArena.mcguffin.blueBase.min = {8.0F, -2.0F, 0.0F};
+    navigationArena.mcguffin.blueBase.max = {10.0F, 2.0F, 2.0F};
+
+    lg::ServerSnapshot navigationSnapshot;
+    navigationSnapshot.gameMode = lg::GameMode::McGuffin;
+    navigationSnapshot.matchPhase = lg::MatchPhase::Live;
+    navigationSnapshot.teams = {lg::Team::Red, lg::Team::Blue};
+    navigationSnapshot.players[0].health = 100;
+    navigationSnapshot.players[1].health = 100;
+    navigationSnapshot.players[0].position = {-6.0F, 0.0F, 1.0F};
+    navigationSnapshot.players[1].position = {6.0F, 0.0F, 1.0F};
+    navigationSnapshot.mcguffinConfig.initialSpawnTicks = 20;
+    navigationSnapshot.mcguffinRedBaseOwner = lg::Team::Red;
+    navigationSnapshot.mcguffinBlueBaseOwner = lg::Team::Blue;
+    navigationSnapshot.mcguffin.position = {0.0F, 0.0F, 1.0F};
+
+    navigationSnapshot.mcguffin.state = lg::McGuffinState::NeutralSpawn;
+    navigationSnapshot.mcguffin.stateTicks = 19;
+    failures += expect(
+      !lg::selectMcGuffinNavigationTarget(
+        navigationSnapshot,
+        navigationArena,
+        0
+      ).active,
+      "McGuffin navigation should stay quiet before neutral spawn"
+    );
+    navigationSnapshot.mcguffin.stateTicks = 20;
+    lg::McGuffinNavigationTarget target =
+      lg::selectMcGuffinNavigationTarget(navigationSnapshot, navigationArena, 0);
+    failures += expect(
+      target.active &&
+        target.kind == lg::McGuffinNavigationKind::Objective &&
+        target.worldPosition.x == 0.0F,
+      "neutral McGuffin navigation should target the objective after spawn"
+    );
+
+    navigationSnapshot.mcguffin.state = lg::McGuffinState::Dropped;
+    navigationSnapshot.mcguffin.position = {3.0F, -4.0F, 1.0F};
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      target.active &&
+        target.kind == lg::McGuffinNavigationKind::RecoverObjective &&
+        target.worldPosition.x == 3.0F && target.worldPosition.y == -4.0F,
+      "dropped McGuffin navigation should target recovery"
+    );
+
+    navigationSnapshot.mcguffin.state = lg::McGuffinState::Carried;
+    navigationSnapshot.mcguffin.carrierTeam = lg::Team::Red;
+    navigationSnapshot.mcguffin.carrierIndex = 0;
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      target.active &&
+        target.kind == lg::McGuffinNavigationKind::InstallBase &&
+        target.worldPosition.x == -9.0F && target.worldPosition.z == 1.0F,
+      "the local carrier should navigate to its current owned base"
+    );
+    navigationSnapshot.mcguffinRedBaseOwner = lg::Team::Blue;
+    navigationSnapshot.mcguffinBlueBaseOwner = lg::Team::Red;
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      target.active && target.worldPosition.x == 9.0F,
+      "the local carrier should follow a dynamically owned enemy-side base"
+    );
+    navigationSnapshot.mcguffinRedBaseOwner = lg::Team::None;
+    navigationSnapshot.mcguffinBlueBaseOwner = lg::Team::None;
+    navigationSnapshot.players[0].position = {0.0F, 0.0F, 1.0F};
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      target.active && target.worldPosition.x == -9.0F,
+      "base selection should use the red base for an exact nearest-base tie"
+    );
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      1
+    );
+    failures += expect(
+      target.active &&
+        target.kind == lg::McGuffinNavigationKind::FollowCarrier &&
+        target.worldPosition.x == navigationSnapshot.mcguffin.position.x,
+      "other players, including a spectated teammate, should follow the carrier"
+    );
+
+    navigationSnapshot.mcguffin.state = lg::McGuffinState::InstalledRed;
+    navigationSnapshot.mcguffin.position = {-9.0F, 0.0F, 1.0F};
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      target.active && target.kind == lg::McGuffinNavigationKind::DefendBase,
+      "the installed objective should guide its team to defend"
+    );
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      1
+    );
+    failures += expect(
+      target.active && target.kind == lg::McGuffinNavigationKind::AttackBase,
+      "the installed objective should guide the other team to attack"
+    );
+    navigationSnapshot.mcguffin.position = {
+      std::numeric_limits<float>::quiet_NaN(),
+      0.0F,
+      1.0F,
+    };
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      target.active && target.worldPosition.x == -9.0F,
+      "installed navigation should fall back to the authoritative base geometry"
+    );
+
+    navigationSnapshot.mcguffin.state = lg::McGuffinState::Dropped;
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      0
+    );
+    failures += expect(
+      !target.active,
+      "navigation should suppress a dropped objective with missing position data"
+    );
+    navigationSnapshot.mcguffin.state = lg::McGuffinState::NeutralSpawn;
+    navigationSnapshot.mcguffin.stateTicks = 20;
+    target = lg::selectMcGuffinNavigationTarget(
+      navigationSnapshot,
+      navigationArena,
+      lg::kDuelPlayerCount
+    );
+    failures += expect(
+      !target.active,
+      "a dedicated spectator without a subject should not receive a body target"
+    );
+    navigationSnapshot.matchPhase = lg::MatchPhase::Countdown;
+    failures += expect(
+      !lg::selectMcGuffinNavigationTarget(
+        navigationSnapshot,
+        navigationArena,
+        0
+      ).active,
+      "McGuffin navigation should clear outside live play"
+    );
+    navigationSnapshot.matchPhase = lg::MatchPhase::Live;
+    navigationSnapshot.players[0].health = 0;
+    failures += expect(
+      !lg::selectMcGuffinNavigationTarget(
+        navigationSnapshot,
+        navigationArena,
+        0
+      ).active,
+      "McGuffin navigation should clear when the subject is dead"
+    );
+    failures += expect(
+      lg::mcguffinNavigationLabel(lg::McGuffinNavigationKind::InstallBase) ==
+        "INSTALL BASE",
+      "McGuffin navigation kinds should expose concise HUD labels"
+    );
+  }
 
   return failures == 0 ? 0 : 1;
 }

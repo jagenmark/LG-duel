@@ -68,6 +68,44 @@ struct DamageNumberPresentation {
   std::array<DamageNumberTally, kDuelPlayerCount> tallies = {};
 };
 
+enum class McGuffinNavigationKind : std::uint8_t {
+  None = 0,
+  Objective,
+  RecoverObjective,
+  FollowCarrier,
+  InstallBase,
+  DefendBase,
+  AttackBase,
+};
+
+struct McGuffinNavigationTarget {
+  bool active = false;
+  McGuffinNavigationKind kind = McGuffinNavigationKind::None;
+  Vec3 worldPosition = {};
+};
+
+[[nodiscard]] inline std::string_view mcguffinNavigationLabel(
+  McGuffinNavigationKind kind
+) {
+  switch (kind) {
+  case McGuffinNavigationKind::Objective:
+    return "OBJECTIVE";
+  case McGuffinNavigationKind::RecoverObjective:
+    return "RECOVER";
+  case McGuffinNavigationKind::FollowCarrier:
+    return "CARRIER";
+  case McGuffinNavigationKind::InstallBase:
+    return "INSTALL BASE";
+  case McGuffinNavigationKind::DefendBase:
+    return "DEFEND BASE";
+  case McGuffinNavigationKind::AttackBase:
+    return "ATTACK BASE";
+  case McGuffinNavigationKind::None:
+    break;
+  }
+  return {};
+}
+
 class DamageNumberState {
 public:
   void reset();
@@ -114,6 +152,12 @@ private:
 );
 
 [[nodiscard]] std::string matchTimeLine(const ServerSnapshot& snapshot);
+
+[[nodiscard]] McGuffinNavigationTarget selectMcGuffinNavigationTarget(
+  const ServerSnapshot& snapshot,
+  const Arena& arena,
+  std::size_t subjectPlayerIndex
+);
 
 [[nodiscard]] bool localPlayerWonResult(
   const ServerSnapshot& snapshot,

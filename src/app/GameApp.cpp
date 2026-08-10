@@ -4778,6 +4778,11 @@ HudRenderState buildHud(
   }
   hud.topCenterLines.push_back(hudScoreLine(snapshot, localPlayerIndex));
   if (snapshot.gameMode == GameMode::McGuffin) {
+    hud.mcguffinNavigation = selectMcGuffinNavigationTarget(
+      snapshot,
+      client.arena(),
+      localPlayerIndex
+    );
     const char* state = "AT CENTER";
     if (snapshot.mcguffin.state == McGuffinState::Carried) state = "CARRIED";
     else if (snapshot.mcguffin.state == McGuffinState::Dropped) state = "DROPPED";

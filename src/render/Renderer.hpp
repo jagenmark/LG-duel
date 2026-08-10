@@ -430,6 +430,7 @@ struct HudRenderState {
   std::vector<std::string> topRightLines;
   std::vector<std::string> centerLines;
   std::vector<std::string> bottomCenterLines;
+  McGuffinNavigationTarget mcguffinNavigation;
   std::string fpsText;
   std::string speedText;
   Weapon selectedWeapon = Weapon::LightningGun;
