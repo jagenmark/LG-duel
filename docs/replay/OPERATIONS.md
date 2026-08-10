@@ -1,8 +1,10 @@
 # Recording, killcam, transfer, and operations
 
-All controls in this page are planned. Their exact console command and cvar
-names are **pending implementation**. Do not infer a command name from the
-operation label below.
+All runtime controls in this page are planned. Their exact console command and
+cvar names are **pending implementation**. Do not infer a command name from the
+operation label below. The core C++ API can record a `ReplayDemo`, encode/decode
+it, restore it, play it headlessly, and seek; it does not add player commands or
+disk file controls.
 
 ## Planned recording and playback controls
 
@@ -100,10 +102,12 @@ Until a reviewed team-visibility filter proves this rule for each team mode:
 
 ## Measures and telemetry
 
-The implementation must report bounded diagnostics for recorder enabled state,
-retained ticks/commands/checkpoints/bytes, average bytes per tick, full-demo
-bytes written, checkpoint time, recorder tick CPU time, playback simulation
-time, segment bytes, transfer progress/retries/failures, and first divergence.
+The current `ReplayRecorderStats` reports recorded ticks, checkpoints, hashes,
+and estimated bytes. The implementation must add bounded diagnostics for
+recorder enabled state, retained ticks/commands/checkpoints/bytes, average bytes
+per tick, full-demo bytes written, checkpoint time, recorder tick CPU time,
+playback simulation time, segment bytes, transfer progress/retries/failures, and
+first divergence.
 
 It must measure disabled recording, rolling recording, full recording, a busy
 player/projectile match, and replay speed. This documentation makes no result
@@ -113,6 +117,8 @@ remain within the declared caps.
 ## Known limits
 
 - Replay is authoritative simulation, not video capture or export.
+- Current playback is headless; no replay client session, camera, HUD, audio,
+  disk command, or automatic recording control exists yet.
 - It does not reproduce raw packet timing or pixel-identical local prediction.
 - It does not run bot AI during playback or save bot AI state.
 - First- and third-person pullout animation support is not part of this work.

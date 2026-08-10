@@ -6,11 +6,12 @@ The player-like bot work and replay work meet at one point: the final command
 that server simulation consumes for a slot and tick. Replay observes that point.
 It does not ask why a bot chose the command.
 
-The post-command recorder hook must stay after human command acceptance and bot
-command generation, and before movement/combat simulation. The completed-state
-checkpoint/hash hook must stay after the authoritative tick finishes. If bot
-code replaces the present command storage, replay attaches to the replacement
-resolved-command adapter, not to bot classes.
+The current post-command recorder hook calls `captureResolvedReplayInput()`
+after human command acceptance and `updateBotCommands()`, and before
+movement/combat simulation. The completed-state checkpoint/hash hook runs after
+the tick increments `serverTick`. If bot code replaces the present command
+storage, replay attaches to the replacement resolved-command adapter, not to bot
+classes.
 
 Do not add replay fields, callbacks, serialization, tests, or includes to bot
 planner code. Do not serialize `ScenarioBotState`, bot random state, or any
@@ -64,26 +65,29 @@ lines in `CMakeLists.txt`. A conflict that needs a bot-internal replay call or a
 
 ## Required bot compatibility test after merge
 
-The replay task must add a dedicated test source, expected at
-`tests/replay/ReplayBotCompatibilityTests.cpp`, with the CTest target
-`lg_duel_replay_bot_compatibility_tests`. This target is pending implementation.
-After both branches merge, run:
+`tests/replay/ReplayPlaybackTests.cpp` now provides the dedicated compatibility
+coverage through `lg_duel_replay_playback_tests`. It records a hard-mode bot,
+saves and loads the demo, restores a fresh `ServerGame` with no bot added,
+injects resolved inputs, checks every stored hash, and seeks. After both
+branches merge, run:
 
 ```powershell
-cmake --build build --target lg_duel_replay_bot_compatibility_tests
-ctest --test-dir build --output-on-failure -R '^lg_duel_replay_bot_compatibility_tests$'
+cmake --build --preset default --target lg_duel_replay_codec_tests
+ctest --test-dir build/default --output-on-failure -R '^lg_duel_replay_codec_tests$'
+cmake --build --preset default --target lg_duel_replay_playback_tests
+ctest --test-dir build/default --output-on-failure -R '^lg_duel_replay_playback_tests$'
 ```
 
 The test procedure is fixed:
 
-1. Start a deterministic match with one or more player-like bots.
-2. Record only the final resolved command for each bot slot, plus normal replay
-   metadata, checkpoints, and hashes.
-3. Create playback with bot command generation disabled.
-4. Inject the recorded bot commands through the normal authoritative command
-   path at their original ticks.
-5. Compare every recorded hash and the final hash. The result must have no
-   divergence.
+1. Start a deterministic match with the hard-mode bot used by the focused test.
+2. Record only final resolved inputs, metadata, checkpoints, and hashes.
+3. Encode and decode the `ReplayDemo`.
+4. Restore a fresh `ServerGame` with no bot added. Playback must skip receive
+   and bot generation, then inject the recorded resolved input at its original
+   pre-simulation tick.
+5. Compare every stored hash, finish without divergence, and seek to the
+   requested tick.
 6. Confirm the test reads no bot planner, perception, navigation, aim, goal,
    difficulty, memory, or random-state field.
 

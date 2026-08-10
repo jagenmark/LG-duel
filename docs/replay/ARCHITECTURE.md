@@ -26,15 +26,29 @@ match, roster, map, and rule changes -------------------------+
 lethal marker -> rolling-buffer segment extraction -> the same playback runner
 ```
 
+The core now implements the resolved-input, `ReplayDemo`, codec, checkpoint,
+and headless-runner parts of this path. Disk writing, the rolling buffer, lethal
+segment extraction, transfer, and presentation remain pending.
+
 The server records the final command after human acceptance and after bot
 generation, but before movement and combat consume it. It captures the completed
 state, checkpoint, and hash after the authoritative tick finishes. This order
 keeps command input and resulting state separate.
 
-The current server order in `ServerGame::tick` accepts network commands, updates
-match state, then calls `updateBotCommands` before movement. The future recorder
-hook belongs immediately after that command-resolution point. It must not enter
-`updateBotCommands`, bot planning, or transport code.
+`4cff068` implements this boundary in `ServerGame::tick`:
+
+1. Live play runs `receiveCommands()`, `updateMatchState()`, and
+   `updateBotCommands()`.
+2. The recorder calls `captureResolvedReplayInput()` before simulation. Its
+   `ReplayTickInput::tick` equals the current pre-simulation server tick.
+3. Playback skips both `receiveCommands()` and bot generation. It injects the
+   recorded input at that same boundary with `applyReplayInput()`.
+4. The tick simulates normally, increments `serverTick`, records lag history,
+   then captures the completed `ReplayCheckpoint` and its hash. Those outputs
+   use the incremented tick label.
+
+The recorder hook does not enter `updateBotCommands`, bot planning, or
+transport code.
 
 Raw UDP arrivals are not replay input. Bundles, retries, packet timing, and
 acknowledgements affect delivery, not the command that gameplay accepted.
@@ -54,6 +68,11 @@ command and the data used with it:
 - command sequence or edge state where later simulation needs it;
 - slot/body connection changes, human-or-bot marker, name, team, ready state,
   spectator state, phase, rules, map, and configuration changes.
+
+The current `ReplayTickInput` records the resolved command, `viewedServerTick`,
+consumed action edges, accepted jump/dash/attack/throw edges, and the original
+attack edge command. It does not yet encode separate dynamic roster, name, team,
+ready, rule, map, or configuration-change records. Those records remain pending.
 
 During replay, both human and bot slots inject those recorded commands through
 the normal authoritative input path. Bot generation stays off. A bot marker may
@@ -88,10 +107,10 @@ audio, UI, wall-clock values, client prediction, debug-only data, and all bot
 internals including bot random state and `ScenarioBotState`.
 
 The hash uses the same canonical order and normalized numeric rules as the
-checkpoint codec. Record it at a bounded regular interval and at important
-boundaries such as map/reset changes. On playback, compare each recorded hash
-and stop at the first mismatch. Report its tick and the first differing major
-group, such as player, projectile, rule/objective, random state, or history.
+checkpoint codec. The current recorder stores an initial hash and then hashes at
+its configured regular interval. The runner compares each stored hash and stops
+at the first mismatch. It currently reports the tick and the category
+`authoritative gameplay checkpoint`; finer subsystem detail remains pending.
 
 Seeking restores the nearest earlier checkpoint and simulates recorded commands
 forward. Linear playback and such a seek must reach the same hash.
@@ -105,10 +124,11 @@ forward. Linear playback and such a seek must reach the same hash.
 | Cameras, HUD, bob, sway, recoil, barrel spin, animation, audio, and viewmodels | Derived from replay state and replay clock | Rebuild or reset on seek, speed change, and followed-player change. |
 | Raw packets, retries, ACKs, UI state, renderer state, wall-clock time, bot plan/state | Never authoritative replay data | Do not store or feed them to playback. |
 
-The replay client session is separate from live `ClientGame` state. The live
-session keeps receiving and processing snapshots while replay presentation runs.
-Replay state never rewinds the live world, replaces its transport state, sends
-replay commands as live commands, or writes back into live client state.
+The current playback runner is headless. A separate replay client session is
+still pending. When it lands, it must stay separate from live `ClientGame`
+state: live play keeps receiving snapshots, and replay state must not rewind the
+live world, replace its transport state, send replay commands as live commands,
+or write back into live client state.
 
 A replay can closely reconstruct a killer's first-person action from recorded
 view angles, weapon state, attacks, and authoritative outcomes. It does not

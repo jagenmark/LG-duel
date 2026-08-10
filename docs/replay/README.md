@@ -1,11 +1,14 @@
 # Replay and demo system
 
-This folder defines the replay contract for LG-duel. It describes the replay
-work that is under implementation. It is not a list of shipped controls.
+This folder defines the replay contract for LG-duel. Core replay work landed in
+`7020ef5` (format v1) and `4cff068` (authoritative record/playback). It is not
+a list of player-facing controls.
 
-At this commit, there is no released replay UI, demo command, killcam transfer,
-or claim of measured replay speed. Treat every item marked **pending** as a
-requirement for the implementation work, not as a feature a player can use.
+The core has a bot-free format, recorder, headless playback runner, checkpoint
+restore, hash checks, and seek. It does not yet have a replay UI, runtime demo
+commands, rolling segment extraction, transfer, remote killcam, or measured
+player-facing performance. Treat every item marked **pending** as a requirement,
+not as a control a player can use.
 
 ## Reading order
 
@@ -32,14 +35,15 @@ fixed-step gameplay code without fake UDP clients.
 
 | Area | Status at this commit |
 | --- | --- |
-| Authoritative recorder and playback runner | Pending implementation |
-| `.lgdemo` encoder, decoder, and verifier | Pending implementation |
-| Saved-demo commands and automatic recording setting | Pending command names and implementation |
+| Authoritative recorder and headless playback runner | Implemented in `lg::replay`; covered by `lg_duel_replay_playback_tests` |
+| `.lgdemo` v1 encoder/decoder and canonical hash | Implemented; covered by `lg_duel_replay_codec_tests` |
+| Checkpoint restore, per-tick hash check, and seek | Implemented in the headless runner |
+| Saved-demo commands, disk writer, and automatic recording setting | Pending command names and implementation |
 | Replay session, cameras, HUD, and controls | Pending implementation |
 | Rolling server buffer and lethal segment extraction | Pending implementation |
 | UDP replay transfer and ordinary remote killcam | Pending implementation |
 | Team-mode visibility filtering | Not approved; ordinary remote killcams stay disabled there |
-| Replay and bot compatibility test | Pending implementation; required after the bot merge |
+| Replay and bot compatibility test | Implemented in `lg_duel_replay_playback_tests`; required after bot merges |
 
 The required safe remote policy is narrow until a tested team filter exists:
 
