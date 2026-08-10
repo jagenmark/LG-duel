@@ -86,6 +86,9 @@ struct BotWeaponScore {
   float projectileDifficulty = 0.0F;
   float splashValue = 0.0F;
   float selfRisk = 0.0F;
+  // Readiness applies to every weapon, including the current one. It is not
+  // a weapon-switch cost.
+  float cooldownPenalty = 0.0F;
   float switchCost = 0.0F;
   float total = -std::numeric_limits<float>::infinity();
 };
@@ -112,6 +115,11 @@ struct BotSenseFrame {
   // The brain still ticks the motor at 125 Hz, but only a fresh sample may
   // start acquisition or allow an attack.
   bool perceptionFresh = true;
+  // During a cached frame the server may pass only this current LOS/FOV
+  // result for the motor's already-known target. It carries no target pose or
+  // velocity and lets held beam input stay in the ordinary command path.
+  std::uint8_t attackTargetPlayerIndex = kNoAssignedPlayer;
+  bool attackTargetCurrentlyVisible = false;
   BotSelfSense self = {};
   std::array<BotObservedEnemy, kDuelPlayerCount> visibleEnemies = {};
   std::size_t visibleEnemyCount = 0;
@@ -183,6 +191,17 @@ struct BotNavigationMap {
   bool requiredAnchorsComplete = true;
   std::size_t requiredAnchorCount = 0;
   std::size_t missingRequiredAnchorCount = 0;
+  // Build diagnostics stay server-local. They make bounded local and bridge
+  // work visible to offline map validation without changing snapshots.
+  std::size_t localLinkCount = 0;
+  std::size_t bridgeLinkCount = 0;
+  std::size_t localTraversalTrials = 0;
+  std::size_t bridgeTraversalTrials = 0;
+  std::size_t localBroadphaseRejects = 0;
+  std::size_t bridgeBroadphaseRejects = 0;
+  std::size_t bridgeAnchorMerges = 0;
+  std::size_t remainingAnchorComponents = 0;
+  float nearestRejectedBridgeDistance = std::numeric_limits<float>::infinity();
 };
 
 // This is the sole authoritative-to-static-map boundary. It proves walk and

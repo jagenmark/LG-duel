@@ -336,6 +336,45 @@ int main() {
   }
 
   {
+    // Full perception runs below 125 Hz, but a beam must keep using ordinary
+    // held input while the server still confirms the known target in LOS/FOV.
+    lg::BotDifficultyProfile instant = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    instant.reactionMinSeconds = -0.10F;
+    instant.reactionMaxSeconds = -0.10F;
+    instant.maxTurnRadiansPerSecond = 100.0F;
+    instant.turnAccelerationRadiansPerSecond2 = 10000.0F;
+    instant.trackingErrorRadians = 0.0F;
+    instant.fireToleranceRadians = 0.20F;
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.serverTick = 1U;
+    sense.self.position = {0.0F, 0.0F, 0.9F};
+    sense.self.viewYawRadians = 0.0F;
+    sense.self.halfHeight = 0.9F;
+    sense.combatEnabled = true;
+    sense.selectedWeapon = lg::Weapon::LightningGun;
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] =
+      {true, true, 18.0F, 6.0F, 0.05F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+    sense.visibleEnemies[0] = {1U, {6.0F, 0.0F, 0.9F}, 1U, true, false};
+    sense.visibleEnemyCount = 1U;
+    lg::BotBrain brain;
+    brain.reset(0xB34DU);
+    bool heldEveryCachedTick = brain.tick(sense, instant, {}).command.attack;
+    sense.perceptionFresh = false;
+    sense.attackTargetPlayerIndex = 1U;
+    sense.attackTargetCurrentlyVisible = true;
+    for (int tick = 0; tick < 7; ++tick) {
+      ++sense.serverTick;
+      heldEveryCachedTick = heldEveryCachedTick && brain.tick(sense, instant, {}).command.attack;
+    }
+    sense.attackTargetCurrentlyVisible = false;
+    const lg::BotMotor hidden = brain.tick(sense, instant, {});
+    failures += expect(heldEveryCachedTick && !hidden.command.attack &&
+      hidden.noFireReason == lg::BotNoFireReason::NoVisibleTarget,
+      "a current LOS/FOV latch should hold beam input between perceptions and stop next tick on loss");
+  }
+
+  {
     lg::BotWeaponSense hitscan = {true, true, 24.0F, 80.0F, 0.40F,
       0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
     lg::BotWeaponSense rocket = {true, true, 20.0F, 100.0F, 0.80F,
@@ -356,6 +395,54 @@ int main() {
     const lg::BotWeaponScore closeRocket = lg::scoreBotWeapon(rocket, closeSplash, 8.0F, false);
     failures += expect(closeRocket.selfRisk > 0.70F,
       "close splash self-risk should sharply reduce utility at low health");
+  }
+
+  {
+    // Cooldown is readiness for both current and alternate weapons. Pullout
+    // cost applies only to the alternate, then hysteresis prevents small
+    // score changes from weapon churn.
+    lg::BotWeaponSense rail = {true, true, 30.0F, 100.0F, 1.0F,
+      0.0F, 0.0F, 0.0F, 1.0F, 0.0F};
+    lg::BotWeaponSense machine = {true, true, 18.0F, 10.0F, 0.10F,
+      0.0F, 0.0F, 0.0F, 0.0F, 0.16F};
+    lg::BotCombatContext context;
+    context.targetDistance = 6.0F;
+    context.selfHealth = 100;
+    context.targetGrounded = true;
+    const lg::BotWeaponScore coolingRail = lg::scoreBotWeapon(rail, context, 9.0F, true);
+    const lg::BotWeaponScore readyMachine = lg::scoreBotWeapon(machine, context, 9.0F, false);
+    failures += expect(coolingRail.cooldownPenalty > 0.90F &&
+      coolingRail.switchCost == 0.0F && readyMachine.switchCost > 0.0F &&
+      readyMachine.total > coolingRail.total + 0.12F,
+      "a cooling current rail should yield to a ready alternative after its pullout cost");
+
+    lg::BotDifficultyProfile instant = lg::botDifficultyProfile(lg::BotAttackMode::Hard);
+    instant.reactionMinSeconds = -0.10F;
+    instant.reactionMaxSeconds = -0.10F;
+    instant.maxTurnRadiansPerSecond = 100.0F;
+    instant.turnAccelerationRadiansPerSecond2 = 10000.0F;
+    instant.trackingErrorRadians = 0.0F;
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = {0.0F, 0.0F, 0.9F};
+    sense.self.halfHeight = 0.9F;
+    sense.combatEnabled = true;
+    sense.selectedWeapon = lg::Weapon::Railgun;
+    sense.weapons[lg::weaponIndex(lg::Weapon::Railgun)] = rail;
+    sense.weapons[lg::weaponIndex(lg::Weapon::MachineGun)] = machine;
+    sense.visibleEnemies[0] = {1U, {6.0F, 0.0F, 0.9F}, 1U, true, false};
+    sense.visibleEnemyCount = 1U;
+    lg::BotBrain brain;
+    brain.reset(0xC001U);
+    const lg::BotMotor switchMotor = brain.tick(sense, instant, {});
+    rail.cooldownSeconds = 0.25F;
+    sense.weapons[lg::weaponIndex(lg::Weapon::Railgun)] = rail;
+    lg::BotBrain steadyBrain;
+    steadyBrain.reset(0xC001U);
+    const lg::BotMotor steadyMotor = steadyBrain.tick(sense, instant, {});
+    failures += expect(switchMotor.command.weapon == lg::Weapon::MachineGun &&
+      steadyMotor.command.weapon == lg::Weapon::Railgun,
+      "cooldown utility should switch for a clear gain and retain the current rail inside hysteresis");
   }
 
   {
@@ -891,16 +978,22 @@ int main() {
     const float initialYaw = snapshot.players[1].viewYawRadians;
     bool turned = false;
     bool fired = false;
+    int heldBeamTicks = 0;
+    int longestHeldBeamRun = 0;
     for (int tick = 0; tick < 450; ++tick) {
       server.tick(lg::kFixedTickSeconds);
       snapshot = latestSnapshot(transport);
       turned = turned || std::fabs(angleDelta(initialYaw, snapshot.players[1].viewYawRadians)) > 0.01F;
       fired = fired || snapshot.lightningGuns[1].active;
+      heldBeamTicks = snapshot.lightningGuns[1].active ? heldBeamTicks + 1 : 0;
+      longestHeldBeamRun = std::max(longestHeldBeamRun, heldBeamTicks);
     }
     failures += expect(snapshot.selectedWeapons[1] == lg::Weapon::LightningGun,
       "combat bots should use the Lightning Gun");
     failures += expect(turned, "combat bots should turn over multiple ticks");
     failures += expect(fired, "combat bots should eventually fire when aim is within tolerance");
+    failures += expect(longestHeldBeamRun >= 16,
+      "beam attack should remain held through every motor tick between easy perceptions");
     server.setBotAttackMode(lg::BotAttackMode::Off);
     server.tick(lg::kFixedTickSeconds);
     snapshot = latestSnapshot(transport);

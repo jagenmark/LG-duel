@@ -1283,6 +1283,9 @@ void ServerGame::resetMatch() {
   const GameMode gameMode = snapshot_.gameMode;
   const auto teams = snapshot_.teams;
   botHiddenAttackInvariantCount_ = 0;
+  botRuntimeStats_ = {};
+  botTargetObserved_ = {};
+  botRecovering_ = {};
   snapshot_ = {};
   snapshot_.serverTick = serverTick;
   snapshot_.mapRevision = mapRevision_;
@@ -1433,6 +1436,8 @@ void ServerGame::respawnPlayer(std::size_t playerIndex) {
   botMotors_[playerIndex] = {};
   botSenseFrames_[playerIndex] = {};
   botSenseFrameValid_[playerIndex] = false;
+  botTargetObserved_[playerIndex] = false;
+  botRecovering_[playerIndex] = false;
   botBrains_[playerIndex].reset(
     0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
   );
@@ -1696,6 +1701,14 @@ void ServerGame::resetPlayerInputState(std::size_t playerIndex) {
   botMotors_[playerIndex] = {};
   botSenseFrames_[playerIndex] = {};
   botSenseFrameValid_[playerIndex] = false;
+  botRuntimeStats_.acquisitions[playerIndex] = 0;
+  botRuntimeStats_.losses[playerIndex] = 0;
+  botRuntimeStats_.attackCommandTicks[playerIndex] = 0;
+  botRuntimeStats_.navigationCommandTicks[playerIndex] = 0;
+  botRuntimeStats_.movementIntentTicks[playerIndex] = 0;
+  botRuntimeStats_.recoveryEvents[playerIndex] = 0;
+  botTargetObserved_[playerIndex] = false;
+  botRecovering_[playerIndex] = false;
   botBrains_[playerIndex].reset(
     0xB07D0D6EU ^ static_cast<std::uint32_t>(playerIndex * 0x9e3779b9U)
   );
@@ -2044,6 +2057,8 @@ void ServerGame::setBotAttackMode(BotAttackMode mode) {
     botMotors_ = {};
     botSenseFrames_ = {};
     botSenseFrameValid_ = {};
+    botTargetObserved_ = {};
+    botRecovering_ = {};
     for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
       botBrains_[index].reset(
         0xB07D0D6EU ^ static_cast<std::uint32_t>(index * 0x9e3779b9U)
@@ -2196,13 +2211,27 @@ std::uint64_t ServerGame::botDeterminismHash() const {
   };
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     mix(botPlayers_[index]);
-    if (botPlayers_[index]) mix(botBrains_[index].deterministicHash());
+    if (botPlayers_[index]) {
+      mix(botBrains_[index].deterministicHash());
+      mix(botRuntimeStats_.acquisitions[index]);
+      mix(botRuntimeStats_.losses[index]);
+      mix(botRuntimeStats_.attackCommandTicks[index]);
+      mix(botRuntimeStats_.navigationCommandTicks[index]);
+      mix(botRuntimeStats_.movementIntentTicks[index]);
+      mix(botRuntimeStats_.recoveryEvents[index]);
+      mix(botTargetObserved_[index]);
+      mix(botRecovering_[index]);
+    }
   }
   return hash;
 }
 
 std::uint64_t ServerGame::botHiddenAttackInvariantCount() const {
   return botHiddenAttackInvariantCount_;
+}
+
+const BotRuntimeStats& ServerGame::botRuntimeStats() const {
+  return botRuntimeStats_;
 }
 
 std::string ServerGame::botDebugString(std::size_t playerIndex) const {
@@ -2273,6 +2302,7 @@ std::string ServerGame::botDebugString(std::size_t playerIndex) const {
       << ",hit=" << topScore.hitChance
       << ",splash=" << topScore.splashValue
       << ",self=" << topScore.selfRisk
+      << ",cooldown=" << topScore.cooldownPenalty
       << ",switch=" << topScore.switchCost << ')';
   }
   return output.str();
@@ -4233,6 +4263,31 @@ void ServerGame::updateBotCommands(float fixedDt) {
     sense.dodgeMinIntervalMs = botDodgeMinIntervalMs_;
     sense.dodgeMaxIntervalMs = botDodgeMaxIntervalMs_;
   };
+  const auto currentTargetVisible = [&](std::size_t playerIndex,
+                                        std::uint8_t targetIndex) {
+    if (targetIndex >= kDuelPlayerCount ||
+        !isValidEnemyTarget(playerIndex, targetIndex) ||
+        !hasLineOfSight(playerIndex, targetIndex)) {
+      return false;
+    }
+    const PlayerState& self = snapshot_.players[playerIndex];
+    const Vec3 viewStart = weaponMuzzlePosition(self, lightningGunTuning_.eyeHeight);
+    const Vec3 delta = botTargetAimPoint(snapshot_.players[targetIndex]) - viewStart;
+    const float distance = length(delta);
+    if (distance <= 0.001F) return true;
+    // All difficulties share the same physical yaw-and-pitch cone. This
+    // revalidation exposes only a yes/no result for a target already known to
+    // the motor, never a fresh position or velocity sample.
+    const float minimumDot = std::cos(
+      botDifficultyProfile(botAttackMode_).targetFovDegrees * kPi / 360.0F
+    );
+    if (dot(delta / distance,
+        cameraForward(self.viewYawRadians, self.viewPitchRadians)) < minimumDot) {
+      return false;
+    }
+    const WorldTrace trace = traceWorld(arena_, viewStart, delta / distance, distance);
+    return trace.distance >= distance - 0.01F;
+  };
   const std::uint32_t perceptionInterval = perceptionIntervalTicks(botAttackMode_);
   for (std::size_t playerIndex = 0; playerIndex < kDuelPlayerCount; ++playerIndex) {
     if (!botPlayers_[playerIndex]) {
@@ -4247,10 +4302,43 @@ void ServerGame::updateBotCommands(float fixedDt) {
     }
     BotSenseFrame sense = botSenseFrames_[playerIndex];
     refreshMotorSense(sense, playerIndex, freshPerception);
+    sense.attackTargetPlayerIndex = botMotors_[playerIndex].targetPlayerIndex;
+    sense.attackTargetCurrentlyVisible = currentTargetVisible(playerIndex,
+      sense.attackTargetPlayerIndex);
     botMotors_[playerIndex] = botBrains_[playerIndex].tick(
       sense, botDifficultyProfile(botAttackMode_), botNavigation_);
     UserCommand command = botMotors_[playerIndex].command;
-    if (command.attack && sense.visibleEnemyCount == 0U) {
+    if (freshPerception) {
+      bool targetObserved = false;
+      for (std::size_t seen = 0; seen < sense.visibleEnemyCount; ++seen) {
+        targetObserved = targetObserved ||
+          sense.visibleEnemies[seen].playerIndex == botMotors_[playerIndex].targetPlayerIndex;
+      }
+      if (targetObserved && !botTargetObserved_[playerIndex]) {
+        ++botRuntimeStats_.acquisitions[playerIndex];
+      } else if (!targetObserved && botTargetObserved_[playerIndex]) {
+        ++botRuntimeStats_.losses[playerIndex];
+      }
+      botTargetObserved_[playerIndex] = targetObserved;
+    }
+    if (botMotors_[playerIndex].waypointNode < botNavigation_.nodeCount) {
+      ++botRuntimeStats_.navigationCommandTicks[playerIndex];
+    }
+    if (std::fabs(command.forwardMove) > 0.01F || std::fabs(command.rightMove) > 0.01F ||
+        command.jump || command.dash) {
+      ++botRuntimeStats_.movementIntentTicks[playerIndex];
+    }
+    if (botMotors_[playerIndex].recoveredFromStuck && !botRecovering_[playerIndex]) {
+      ++botRuntimeStats_.recoveryEvents[playerIndex];
+    }
+    botRecovering_[playerIndex] = botMotors_[playerIndex].recoveredFromStuck;
+    // Do not treat a cached visible list as permission to fire. Revalidate the
+    // target selected this motor tick so walls and FOV loss cancel a held beam
+    // on the next canonical command, while a stable beam stays held between
+    // slower full perception frames.
+    const bool attackTargetVisible = currentTargetVisible(playerIndex,
+      botMotors_[playerIndex].targetPlayerIndex);
+    if (command.attack && !attackTargetVisible) {
       ++botHiddenAttackInvariantCount_;
       command.attack = false;
     }
@@ -4268,6 +4356,7 @@ void ServerGame::updateBotCommands(float fixedDt) {
       command.attack = false;
     }
     if (!isActiveCombatant(playerIndex)) command.attack = false;
+    if (command.attack) ++botRuntimeStats_.attackCommandTicks[playerIndex];
     ingestGameplayCommand(playerIndex, command, snapshot_.serverTick, false, true);
   }
 }
@@ -4656,6 +4745,9 @@ bool ServerGame::applyScenarioSetup(
   botDodgeDirections_ = {};
   botDodgeSwitchSeconds_ = {};
   botMotors_ = {};
+  botRuntimeStats_ = {};
+  botTargetObserved_ = {};
+  botRecovering_ = {};
   // Separate non-zero streams keep bot choices and spawn choices stable even
   // when one system draws more random values than the other.
   botRandomState_ = scenarioRandomState(setup.seed, 1U);

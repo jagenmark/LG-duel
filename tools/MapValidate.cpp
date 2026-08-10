@@ -134,6 +134,30 @@ namespace {
   return false;
 }
 
+[[nodiscard]] std::size_t routeReachCount(
+  const lg::BotNavigationMap& map,
+  std::size_t start
+) {
+  if (start >= map.nodeCount) return 0U;
+  std::array<bool, lg::BotNavigationMap::kMaxNodes> seen = {};
+  std::array<std::size_t, lg::BotNavigationMap::kMaxNodes> queue = {};
+  std::size_t head = 0;
+  std::size_t tail = 0;
+  queue[tail++] = start;
+  seen[start] = true;
+  while (head < tail) {
+    const std::size_t current = queue[head++];
+    for (std::size_t linkIndex = 0; linkIndex < map.linkCount; ++linkIndex) {
+      const lg::BotNavLink& link = map.links[linkIndex];
+      if (link.from == current && !seen[link.to]) {
+        seen[link.to] = true;
+        queue[tail++] = link.to;
+      }
+    }
+  }
+  return tail;
+}
+
 [[nodiscard]] int validateNavigation(
   const std::filesystem::path& mapPath,
   const lg::Arena& arena
@@ -185,7 +209,13 @@ namespace {
     for (std::size_t index = 1; index < nodes.size(); ++index) {
       if (!hasRoute(map, nodes[0], nodes[index]) && !hasRoute(map, nodes[index], nodes[0])) {
         std::cerr << "nav ERROR: " << mapPath.string() << ": " << label
-          << " regions are disconnected\n";
+          << " regions are disconnected (node " << nodes[0] << " at ("
+          << map.nodes[nodes[0]].position.x << ',' << map.nodes[nodes[0]].position.y << ','
+          << map.nodes[nodes[0]].position.z << ") vs node " << nodes[index] << " at ("
+          << map.nodes[nodes[index]].position.x << ',' << map.nodes[nodes[index]].position.y
+          << ',' << map.nodes[nodes[index]].position.z << ")); reachable="
+          << routeReachCount(map, nodes[0]) << '/' << map.nodeCount << " vs "
+          << routeReachCount(map, nodes[index]) << '/' << map.nodeCount << "\n";
         ++failures;
         break;
       }
@@ -221,7 +251,19 @@ namespace {
   std::cout << "nav " << (failures == 0 ? "PASS: " : "FAIL: ") << mapPath.string()
     << " nodes=" << map.nodeCount << " links=" << map.linkCount
     << " anchors=" << map.requiredAnchorCount
-    << " missing_anchors=" << map.missingRequiredAnchorCount << '\n';
+    << " missing_anchors=" << map.missingRequiredAnchorCount
+    << " local_links=" << map.localLinkCount
+    << " bridge_links=" << map.bridgeLinkCount
+    << " local_trials=" << map.localTraversalTrials
+    << " bridge_trials=" << map.bridgeTraversalTrials
+    << " local_rejects=" << map.localBroadphaseRejects
+    << " bridge_rejects=" << map.bridgeBroadphaseRejects
+    << " anchor_merges=" << map.bridgeAnchorMerges
+    << " anchor_components=" << map.remainingAnchorComponents
+    << " nearest_rejected=" << (std::isfinite(map.nearestRejectedBridgeDistance)
+      ? map.nearestRejectedBridgeDistance : -1.0F)
+    << " specials=pads:" << padLinks << '/' << arena.jumpPadCount
+    << ",teleports:" << teleportLinks << '/' << arena.teleportCount << '\n';
   return failures;
 }
 

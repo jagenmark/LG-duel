@@ -24,6 +24,18 @@ struct BotRosterChange {
   std::string message;
 };
 
+// Server-local soak evidence. These counters never enter ServerSnapshot or
+// the network protocol; tests use direct state transitions rather than debug
+// text sampling.
+struct BotRuntimeStats {
+  std::array<std::uint32_t, kDuelPlayerCount> acquisitions = {};
+  std::array<std::uint32_t, kDuelPlayerCount> losses = {};
+  std::array<std::uint32_t, kDuelPlayerCount> attackCommandTicks = {};
+  std::array<std::uint32_t, kDuelPlayerCount> navigationCommandTicks = {};
+  std::array<std::uint32_t, kDuelPlayerCount> movementIntentTicks = {};
+  std::array<std::uint32_t, kDuelPlayerCount> recoveryEvents = {};
+};
+
 class ServerGame {
 public:
   explicit ServerGame(NetTransport& transport, std::string balanceConfigPath = {});
@@ -89,6 +101,7 @@ public:
   [[nodiscard]] std::uint64_t botCommandIngressCount(std::size_t playerIndex) const;
   [[nodiscard]] std::uint64_t botDeterminismHash() const;
   [[nodiscard]] std::uint64_t botHiddenAttackInvariantCount() const;
+  [[nodiscard]] const BotRuntimeStats& botRuntimeStats() const;
   [[nodiscard]] std::string botDebugString(std::size_t playerIndex) const;
   [[nodiscard]] bool isBotSlot(std::size_t playerIndex) const;
   [[nodiscard]] bool isHumanPlayer(std::size_t playerIndex) const;
@@ -357,6 +370,9 @@ private:
   std::array<BotMotor, kDuelPlayerCount> botMotors_ = {};
   std::array<std::uint64_t, kDuelPlayerCount> botCommandIngressCounts_ = {};
   std::uint64_t botHiddenAttackInvariantCount_ = 0;
+  BotRuntimeStats botRuntimeStats_ = {};
+  std::array<bool, kDuelPlayerCount> botTargetObserved_ = {};
+  std::array<bool, kDuelPlayerCount> botRecovering_ = {};
   std::uint32_t botRandomState_ = 0xB07D0D6EU;
   std::deque<HistoryFrame> history_ = {};
   MatchRules matchRules_ = {};
