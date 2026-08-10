@@ -386,6 +386,32 @@ bool readMetadata(Reader& reader, ReplayMetadata& metadata) {
   return true;
 }
 
+bool defaultCommand(const UserCommand& command) {
+  return command.sequence == 0U && command.clientTick == 0U &&
+    command.viewYawRadians == 0.0F && command.viewPitchRadians == 0.0F &&
+    command.forwardMove == 0.0F && command.rightMove == 0.0F && command.upMove == 0.0F &&
+    !command.attack && !command.jump && !command.dash && !command.crouch &&
+    !command.sneak && !command.zoomed && command.planarAim &&
+    command.weapon == Weapon::LightningGun;
+}
+
+bool defaultActionEdges(const ActionEdgeState& edges) {
+  return edges.jump == 0U && edges.dash == 0U && edges.reset == 0U &&
+    edges.ready == 0U && edges.mcguffinThrow == 0U &&
+    edges.mcguffinThrowYawRadians == 0.0F && edges.mcguffinThrowPitchRadians == 0.0F &&
+    edges.attack == 0U && edges.attackYawRadians == 0.0F && edges.attackPitchRadians == 0.0F &&
+    edges.attackViewedServerTick == 0U && edges.attackWeapon == Weapon::LightningGun &&
+    !edges.attackZoomed;
+}
+
+bool defaultAbsentReplaySlot(const ReplaySlotInput& slot) {
+  return !slot.hasCommand && !slot.receivedThisTick && defaultCommand(slot.command) &&
+    slot.viewedServerTick == 0U && defaultActionEdges(slot.consumedActionEdges) &&
+    !slot.jumpEdgeAccepted && !slot.dashEdgeAccepted && !slot.attackEdgeAccepted &&
+    defaultCommand(slot.attackEdgeCommand) && slot.attackEdgeViewedServerTick == 0U &&
+    !slot.mcguffinThrowAccepted && defaultCommand(slot.mcguffinThrowCommand);
+}
+
 bool writeReplaySlotInput(Writer& writer, const ReplaySlotInput& slot) {
   return writer.boolean(slot.hasCommand) && writer.boolean(slot.receivedThisTick) &&
     writeCommand(writer, slot.command) && writer.u32(slot.viewedServerTick) &&
@@ -408,7 +434,11 @@ bool writeTickInput(Writer& writer, const ReplayTickInput& input) {
   static_assert(kDuelPlayerCount <= 16U);
   std::uint16_t presentMask = 0U;
   for (std::size_t index = 0U; index < input.slots.size(); ++index) {
-    if (input.slots[index].present) presentMask |= static_cast<std::uint16_t>(1U << index);
+    if (input.slots[index].present) {
+      presentMask |= static_cast<std::uint16_t>(1U << index);
+    } else if (!defaultAbsentReplaySlot(input.slots[index])) {
+      return false;
+    }
   }
   if (!writer.u32(input.tick) || !writer.u16(presentMask)) return false;
   for (std::size_t index = 0U; index < input.slots.size(); ++index) {
@@ -727,7 +757,8 @@ bool encodeDemo(const ReplayDemo& demo, std::vector<std::uint8_t>& bytes, std::s
   if (!writeMetadata(metadataWriter, demo.metadata) || !metadataWriter.ok()) {
     return fail(error, "replay metadata is invalid");
   }
-  Writer writer(bytes);
+  std::vector<std::uint8_t> encoded;
+  Writer writer(encoded);
   for (const std::uint8_t byte : kMagic) if (!writer.u8(byte)) return fail(error, "replay exceeds size limit");
   if (!writer.u16(kReplayFormatVersion) || !writer.u16(kReplayTickRate) ||
       !writer.u32(static_cast<std::uint32_t>(metadataBytes.size())) ||
@@ -781,10 +812,10 @@ bool encodeDemo(const ReplayDemo& demo, std::vector<std::uint8_t>& bytes, std::s
     Writer payloadWriter(payload);
     if (!writeLethal(payloadWriter, event) || !writeChunk(writer, ReplayChunkType::LethalEvent, payload)) return fail(error, "lethal record is invalid");
   }
-  if (!writer.ok() || bytes.size() < kFilePreambleBytes || bytes.size() > kMaxReplayBytes) {
-    bytes.clear();
+  if (!writer.ok() || encoded.size() < kFilePreambleBytes || encoded.size() > kMaxReplayBytes) {
     return fail(error, "replay exceeds size limit");
   }
+  bytes = std::move(encoded);
   if (error != nullptr) error->clear();
   return true;
 }

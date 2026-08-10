@@ -15,6 +15,14 @@
 namespace {
 
 constexpr std::uint32_t kMeasuredTicks = 512U;
+constexpr std::size_t kTenMinuteTicks = 10U * 60U * lg::replay::kReplayTickRate;
+
+constexpr std::size_t nextPowerOfTwo(std::size_t value) {
+  std::size_t result = 1U;
+  while (result < value)
+    result *= 2U;
+  return result;
+}
 
 int expect(bool condition, std::string_view message) {
   if (condition)
@@ -88,8 +96,11 @@ int main() {
       rolling.replayCheckpointCaptureStats();
   failures +=
       expect(rollingStats.estimatedBytes <= rollingConfig.maximumBytes &&
+                 rollingStats.residentBytes <= rollingConfig.maximumBytes &&
+                 rollingStats.residentBytes >=
+                     rollingStats.inputCount * sizeof(lg::replay::ReplayTickInput) &&
                  rollingStats.checkpointCount > 1U,
-             "rolling measure should retain bounded checkpointed replay data");
+             "rolling measure should charge and bound native replay storage");
   failures += expect(rollingCaptureStats.captures ==
                          kMeasuredTicks / rollingConfig.hashIntervalTicks,
                      "rolling tick checkpoint copies should follow the due "
@@ -114,27 +125,77 @@ int main() {
       source.finishReplayRecording();
   failures +=
       expect(recordingStats.inputTicks == kMeasuredTicks &&
-                 recordingStats.estimatedBytes > 0U && demo.has_value(),
+                 recordingStats.estimatedBytes > 0U &&
+                 recordingStats.residentBytes >=
+                     recordingStats.inputTicks * sizeof(lg::replay::ReplayTickInput) &&
+                 demo.has_value(),
              "full recording measure should retain every resolved input");
   failures += expect(source.replayCheckpointCaptureStats().resolvedInputCaptures == kMeasuredTicks,
                      "active full recording should capture one resolved input per tick");
 
-  lg::LoopbackTransport cappedTransport;
-  lg::ServerGame capped(cappedTransport);
-  capped.setArena(arena());
-  discardSnapshots(cappedTransport);
-  lg::replay::ReplayRecordingConfig cappedConfig;
-  cappedConfig.checkpointIntervalTicks = 64U;
-  cappedConfig.hashIntervalTicks = 32U;
-  cappedConfig.maximumBytes = 600U * 1024U;
-  failures += expect(capped.beginReplayRecording(cappedConfig, &error),
+  lg::LoopbackTransport encodedCappedTransport;
+  lg::ServerGame encodedCapped(encodedCappedTransport);
+  encodedCapped.setArena(arena());
+  discardSnapshots(encodedCappedTransport);
+  lg::replay::ReplayRecordingConfig encodedCappedConfig;
+  encodedCappedConfig.checkpointIntervalTicks = 64U;
+  encodedCappedConfig.hashIntervalTicks = 32U;
+  encodedCappedConfig.maximumBytes = 600U * 1024U;
+  failures += expect(encodedCapped.beginReplayRecording(encodedCappedConfig, &error),
                      "bounded full recording should reserve initial and final state");
-  (void)tickFor(capped, cappedTransport, 2048U);
-  const lg::replay::ReplayRecorderStats cappedStats = capped.replayRecorderStats();
-  failures += expect(cappedStats.inputTicks > 0U && cappedStats.inputTicks < 2048U &&
-                         cappedStats.estimatedBytes <= cappedConfig.maximumBytes &&
-                         !capped.finishReplayRecording().has_value(),
-                     "full recording should stop cleanly at its conservative byte cap before final encode");
+  (void)tickFor(encodedCapped, encodedCappedTransport, 2048U);
+  const lg::replay::ReplayRecorderStats encodedCappedStats = encodedCapped.replayRecorderStats();
+  failures += expect(encodedCappedStats.inputTicks > 0U && encodedCappedStats.inputTicks < 2048U &&
+                         encodedCappedStats.estimatedBytes <= encodedCappedConfig.maximumBytes &&
+                         !encodedCapped.finishReplayRecording().has_value(),
+                     "full recording should stop cleanly at its sparse-file byte cap before final encode");
+
+  lg::LoopbackTransport residentCappedTransport;
+  lg::ServerGame residentCapped(residentCappedTransport);
+  residentCapped.setArena(arena());
+  discardSnapshots(residentCappedTransport);
+  lg::replay::ReplayRecordingConfig residentCappedConfig;
+  residentCappedConfig.checkpointIntervalTicks = 4096U;
+  residentCappedConfig.hashIntervalTicks = 4096U;
+  residentCappedConfig.maximumResidentBytes = 256U * 1024U;
+  failures += expect(residentCapped.beginReplayRecording(residentCappedConfig, &error),
+                     "resident-cap recording should retain its initial checkpoint");
+  (void)tickFor(residentCapped, residentCappedTransport, 2048U);
+  const lg::replay::ReplayRecorderStats residentCappedStats = residentCapped.replayRecorderStats();
+  failures += expect(residentCappedStats.inputTicks > 0U &&
+                         residentCappedStats.inputTicks < 2048U &&
+                         residentCappedStats.residentBytes <=
+                             residentCappedConfig.maximumResidentBytes &&
+                         residentCappedStats.residentBytes >=
+                             residentCappedStats.inputTicks *
+                                 sizeof(lg::replay::ReplayTickInput) &&
+                         !residentCapped.finishReplayRecording().has_value(),
+                     "native fixed-slot input storage should stop cleanly at its resident cap");
+
+  const lg::replay::ReplayRecordingConfig tenMinuteConfig;
+  const std::size_t tenMinuteCheckpoints =
+      kTenMinuteTicks / tenMinuteConfig.checkpointIntervalTicks + 2U;
+  const std::size_t tenMinuteHashes =
+      kTenMinuteTicks / tenMinuteConfig.hashIntervalTicks + 2U;
+  // Input storage has 16 native slots even in a two-player Duel. Model vector
+  // growth to the next power of two and the largest accepted history so the
+  // default resident cap has headroom for a ten-minute recording.
+  const std::size_t tenMinuteResidentUpper = sizeof(lg::replay::ReplayDemo) +
+      nextPowerOfTwo(kTenMinuteTicks) * sizeof(lg::replay::ReplayTickInput) +
+      nextPowerOfTwo(tenMinuteCheckpoints) * sizeof(lg::replay::ReplayCheckpoint) +
+      tenMinuteCheckpoints * lg::replay::kMaxReplayHistoryFrames *
+          sizeof(lg::replay::ReplayHistoryFrame) +
+      nextPowerOfTwo(tenMinuteHashes) * sizeof(lg::replay::ReplayStateHash);
+  constexpr std::size_t kV2TickChunkBytes = 9U + 6U + 16U * 168U;
+  constexpr std::size_t kV2HashChunkBytes = 9U + 12U;
+  const std::size_t tenMinuteSixteenPlayerFileUpper = 4096U +
+      kTenMinuteTicks * kV2TickChunkBytes + tenMinuteHashes * kV2HashChunkBytes +
+      tenMinuteCheckpoints *
+          (lg::replay::kReplayRecorderFinalCheckpointReserveBytes + 9U);
+  failures += expect(tenMinuteResidentUpper <= lg::replay::kMaxReplayResidentBytes,
+                     "512 MiB native recorder cap should cover the conservative ten-minute two-player Duel model");
+  failures += expect(tenMinuteSixteenPlayerFileUpper <= lg::replay::kMaxReplayBytes,
+                     "512 MiB saved-demo cap should cover the conservative ten-minute 16-player wire model");
 
   lg::LoopbackTransport playbackTransport;
   lg::ServerGame playback(playbackTransport);
@@ -174,15 +235,24 @@ int main() {
             << " full-us-per-tick="
             << static_cast<double>(recordingTime.count()) / kMeasuredTicks
             << " rolling-bytes=" << rollingStats.estimatedBytes
+            << " rolling-resident-bytes=" << rollingStats.residentBytes
             << " rolling-checkpoint-captures=" << rollingCaptureStats.captures
             << " rolling-resolved-input-captures=" << rollingCaptureStats.resolvedInputCaptures
             << " rolling-checkpoint-us="
             << static_cast<double>(rollingCaptureStats.nanoseconds) / 1000.0
             << " full-estimated-bytes=" << recordingStats.estimatedBytes
+            << " full-resident-bytes=" << recordingStats.residentBytes
             << " full-resolved-input-captures="
             << source.replayCheckpointCaptureStats().resolvedInputCaptures
-            << " capped-input-ticks=" << cappedStats.inputTicks
-            << " capped-estimated-bytes=" << cappedStats.estimatedBytes
+            << " encoded-capped-input-ticks=" << encodedCappedStats.inputTicks
+            << " encoded-capped-bytes=" << encodedCappedStats.estimatedBytes
+            << " resident-capped-input-ticks=" << residentCappedStats.inputTicks
+            << " resident-capped-bytes=" << residentCappedStats.residentBytes
+            << " sizeof-replay-tick=" << sizeof(lg::replay::ReplayTickInput)
+            << " sizeof-replay-checkpoint=" << sizeof(lg::replay::ReplayCheckpoint)
+            << " ten-minute-resident-upper=" << tenMinuteResidentUpper
+            << " ten-minute-16-player-file-upper="
+            << tenMinuteSixteenPlayerFileUpper
             << " playback-us=" << playbackTime.count()
             << " playback-ticks-per-second=" << playbackRate
             << " playback-x-realtime=" << realtimeMultiple << '\n';

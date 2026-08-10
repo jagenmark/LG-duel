@@ -16,7 +16,12 @@ namespace lg::replay {
 inline constexpr std::uint16_t kReplayFormatVersionV1 = 1;
 inline constexpr std::uint16_t kReplayFormatVersion = 2;
 inline constexpr std::uint16_t kReplayTickRate = 125;
-inline constexpr std::size_t kMaxReplayBytes = 64U * 1024U * 1024U;
+// Saved demos may cover a full high-player match. Killcam transfer has its own
+// much smaller cap in ReplayTransfer.hpp.
+inline constexpr std::size_t kMaxReplayBytes = 512U * 1024U * 1024U;
+// ReplayRecorder retains native, fixed-slot frames before it writes the sparse
+// file. This hard cap covers ten minutes at 125 Hz with bounded checkpoints.
+inline constexpr std::size_t kMaxReplayResidentBytes = 512U * 1024U * 1024U;
 inline constexpr std::size_t kMaxReplayChunkBytes = 8U * 1024U * 1024U;
 inline constexpr std::size_t kMaxReplayTicks = 4U * 1024U * 1024U;
 inline constexpr std::size_t kMaxReplayCheckpoints = 4096U;

@@ -3,6 +3,7 @@
 #include "net/NetCodec.hpp"
 #include "sim/Arena.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
@@ -111,6 +112,14 @@ int main() {
   failures += expect(decoded.metadata.mapName == source.metadata.mapName, "metadata should round trip");
   failures += expect(decoded.ticks.size() == 1U && decoded.ticks[0].slots[0].attackEdgeAccepted,
     "accepted action edge should round trip");
+  failures += expect(decoded.ticks.size() == 1U && std::all_of(
+    decoded.ticks[0].slots.begin() + 2, decoded.ticks[0].slots.end(),
+    [](const lg::replay::ReplaySlotInput& slot) {
+      return !slot.present && !slot.hasCommand && !slot.receivedThisTick &&
+        slot.command.sequence == 0U && slot.command.planarAim &&
+        slot.viewedServerTick == 0U && slot.consumedActionEdges.attack == 0U &&
+        !slot.attackEdgeAccepted && !slot.mcguffinThrowAccepted;
+    }), "sparse absent slots should round trip as fully default input state");
   failures += expect(decoded.ticks[0].slots[0].consumedActionEdges.attackWeapon == lg::Weapon::RocketLauncher,
     "original attack weapon should round trip");
   failures += expect(decoded.checkpoints.size() == 1U && decoded.checkpoints[0].projectiles[0].sequence == 14U,
@@ -142,6 +151,28 @@ int main() {
     lg::replay::ReplayDemo invalid = source;
     invalid.ticks[0].slots[0].command.viewYawRadians = std::numeric_limits<float>::quiet_NaN();
     failures += expect(!lg::replay::encodeDemo(invalid, wire, &error), "non-finite command should not encode");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.ticks[0].slots[3].hasCommand = true;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error) && wire.empty(),
+      "a non-present slot with command state must fail without returning partial bytes");
+  }
+  {
+    lg::replay::ReplayDemo invalid = source;
+    invalid.ticks[0].slots[3].command.planarAim = false;
+    invalid.ticks[0].slots[3].command.sequence = 1U;
+    invalid.ticks[0].slots[3].viewedServerTick = 1U;
+    invalid.ticks[0].slots[3].consumedActionEdges.attack = 1U;
+    invalid.ticks[0].slots[3].jumpEdgeAccepted = true;
+    invalid.ticks[0].slots[3].dashEdgeAccepted = true;
+    invalid.ticks[0].slots[3].attackEdgeAccepted = true;
+    invalid.ticks[0].slots[3].attackEdgeCommand.sequence = 1U;
+    invalid.ticks[0].slots[3].attackEdgeViewedServerTick = 1U;
+    invalid.ticks[0].slots[3].mcguffinThrowAccepted = true;
+    invalid.ticks[0].slots[3].mcguffinThrowCommand.sequence = 1U;
+    failures += expect(!lg::replay::encodeDemo(invalid, wire, &error) && wire.empty(),
+      "a non-present slot must reject non-default command, edge, and throw fields");
   }
   {
     lg::replay::ReplayDemo invalid = source;

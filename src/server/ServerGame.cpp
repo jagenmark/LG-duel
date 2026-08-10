@@ -1623,6 +1623,9 @@ replay::ReplayTickInput ServerGame::captureResolvedReplayInput() const {
   for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
     replay::ReplaySlotInput& slot = input.slots[index];
     slot.present = isOccupiedSlot(index);
+    // Sparse v2 leaves absent slots fully default. In particular, do not copy
+    // stale commands from a player who has just left the match.
+    if (!slot.present) continue;
     slot.hasCommand = hasCommand_[index];
     slot.receivedThisTick = receivedCommandThisTick_[index];
     slot.command = commands_[index];

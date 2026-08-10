@@ -24,7 +24,10 @@ struct ReplayRollingBufferStats {
   std::size_t inputCount = 0;
   std::size_t checkpointCount = 0;
   std::size_t lethalCount = 0;
+  // Rolling data lives only in native containers, so this is also the storage
+  // cap used by ReplayRollingBufferConfig::maximumBytes.
   std::size_t estimatedBytes = 0;
+  std::size_t residentBytes = 0;
   std::uint64_t droppedRecords = 0;
 };
 

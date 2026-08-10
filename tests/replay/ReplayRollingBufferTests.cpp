@@ -104,6 +104,26 @@ int main() {
       "segment extraction must not bridge a rejected middle input gap");
   }
 
+  {
+    lg::replay::ReplayRollingBuffer cappedBuffer;
+    lg::replay::ReplayRollingBufferConfig cappedConfig;
+    cappedConfig.retainedTicks = 4096U;
+    cappedConfig.checkpointIntervalTicks = 4096U;
+    cappedConfig.hashIntervalTicks = 4096U;
+    cappedConfig.maximumBytes = 128U * 1024U;
+    failures += expect(cappedBuffer.begin(metadata(), checkpoint(0U), 8U, cappedConfig, &error),
+      "native rolling cap should retain its initial checkpoint");
+    for (std::uint32_t tick = 0U; tick < 256U; ++tick) {
+      cappedBuffer.recordResolvedInput(input(tick));
+    }
+    const lg::replay::ReplayRollingBufferStats cappedStats = cappedBuffer.stats();
+    failures += expect(cappedStats.inputCount > 0U && cappedStats.inputCount < 256U &&
+      cappedStats.residentBytes <= cappedConfig.maximumBytes &&
+      cappedStats.residentBytes >= cappedStats.inputCount * sizeof(lg::replay::ReplayTickInput) &&
+      cappedStats.droppedRecords > 0U,
+      "rolling storage should charge native frames and stop before its resident cap");
+  }
+
   buffer.reset(metadata(), checkpoint(20U), 6U);
   failures += expect(buffer.stats().generation == 6U, "reset should advance to the new replay generation");
   failures += expect(!buffer.extractSegment(lethal, 1U, 1U, &error).has_value(),
