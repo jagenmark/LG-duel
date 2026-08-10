@@ -625,6 +625,7 @@ void ServerGame::tick(float fixedDt) {
   spawnedProjectileCount_ = 0;
   receiveCommands();
   updateMatchState();
+  const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
   updateBotCommands(fixedDt);
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
@@ -1292,14 +1293,15 @@ void ServerGame::tick(float fixedDt) {
 
   simulateRockets(fixedDt);
 
-  if (snapshot_.matchPhase == MatchPhase::Live) {
+  if (tickStartedLive) {
     ++snapshot_.liveTicksElapsed;
     // McGuffin rounds end through score control and the final-hold rule. A
     // generic match timer must not bypass its best-of-three round structure.
     if (
       matchRules_.timeLimitMinutes > 0 &&
       snapshot_.gameMode != GameMode::McGuffin &&
-      !snapshot_.overtime
+      !snapshot_.overtime &&
+      snapshot_.matchPhase != MatchPhase::MatchEnd
     ) {
       const std::uint32_t limitTicks =
         static_cast<std::uint32_t>(matchRules_.timeLimitMinutes) * 60U * 125U;
