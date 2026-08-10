@@ -52,14 +52,17 @@ int main() {
   lg::replay::ReplayRollingBuffer buffer;
   lg::replay::ReplayRollingBufferConfig config;
   config.retainedTicks = 8U;
-  config.checkpointIntervalTicks = 2U;
-  config.hashIntervalTicks = 1U;
+  config.checkpointIntervalTicks = 5U;
+  config.hashIntervalTicks = 3U;
   config.maximumBytes = 1024U * 1024U;
   std::string error;
   failures += expect(buffer.begin(metadata(), checkpoint(0U), 5U, config, &error),
     "rolling replay should begin with a checkpoint");
+  failures += expect(!buffer.needsCompletedCheckpoint(1U) &&
+    buffer.needsCompletedCheckpoint(3U) && buffer.needsCompletedCheckpoint(5U),
+    "rolling replay should request full checkpoint capture only at hash or checkpoint intervals");
 
-  for (std::uint32_t tick = 0U; tick <= 12U; ++tick) {
+  for (std::uint32_t tick = 0U; tick <= 16U; ++tick) {
     buffer.recordResolvedInput(input(tick));
     buffer.recordCompletedTick(checkpoint(tick + 1U));
   }

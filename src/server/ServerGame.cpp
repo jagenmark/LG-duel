@@ -1352,13 +1352,16 @@ void ServerGame::tick(float fixedDt) {
   // the state produced above, keeping lag-compensation frames unambiguous.
   ++snapshot_.serverTick;
   recordHistory();
-  if ((replayRecorder_ != nullptr && replayRecorder_->active()) ||
-      (rollingReplay_ != nullptr && rollingReplay_->active())) {
+  const bool recorderNeedsCheckpoint = replayRecorder_ != nullptr &&
+    replayRecorder_->needsCompletedCheckpoint(snapshot_.serverTick);
+  const bool rollingNeedsCheckpoint = rollingReplay_ != nullptr &&
+    rollingReplay_->needsCompletedCheckpoint(snapshot_.serverTick);
+  if (recorderNeedsCheckpoint || rollingNeedsCheckpoint) {
     const replay::ReplayCheckpoint checkpoint = captureReplayCheckpoint();
-    if (replayRecorder_ != nullptr && replayRecorder_->active()) {
+    if (recorderNeedsCheckpoint) {
       replayRecorder_->recordCompletedTick(checkpoint);
     }
-    if (rollingReplay_ != nullptr && rollingReplay_->active()) {
+    if (rollingNeedsCheckpoint) {
       rollingReplay_->recordCompletedTick(checkpoint);
     }
   }

@@ -51,6 +51,11 @@ bool ReplayRecorder::recordResolvedInput(const ReplayTickInput& input, std::stri
   return true;
 }
 
+bool ReplayRecorder::needsCompletedCheckpoint(std::uint32_t tick) const {
+  return active_ && tick > demo_.metadata.initialServerTick &&
+    (tick % config_.hashIntervalTicks == 0U || tick % config_.checkpointIntervalTicks == 0U);
+}
+
 void ReplayRecorder::recordCompletedTick(const ReplayCheckpoint& checkpoint) {
   if (!active_) return;
   const std::uint64_t hash = canonicalStateHash(checkpoint);

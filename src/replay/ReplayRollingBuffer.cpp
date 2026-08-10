@@ -65,6 +65,11 @@ void ReplayRollingBuffer::recordResolvedInput(const ReplayTickInput& input) {
   trim();
 }
 
+bool ReplayRollingBuffer::needsCompletedCheckpoint(std::uint32_t tick) const {
+  return active_ && tick > metadata_.initialServerTick &&
+    (tick % config_.hashIntervalTicks == 0U || tick % config_.checkpointIntervalTicks == 0U);
+}
+
 void ReplayRollingBuffer::recordCompletedTick(const ReplayCheckpoint& checkpoint) {
   if (!active_ || checkpoint.serverTick <= metadata_.initialServerTick ||
       (!checkpoints_.empty() && checkpoint.serverTick <= checkpoints_.back().serverTick)) {

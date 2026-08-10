@@ -42,6 +42,7 @@ public:
   );
   void reset(ReplayMetadata metadata, ReplayCheckpoint initialCheckpoint, std::uint32_t generation);
   void recordResolvedInput(const ReplayTickInput& input);
+  [[nodiscard]] bool needsCompletedCheckpoint(std::uint32_t tick) const;
   void recordCompletedTick(const ReplayCheckpoint& checkpoint);
   void recordLethal(const ReplayLethalEvent& event);
   [[nodiscard]] std::optional<ReplayDemo> extractSegment(
