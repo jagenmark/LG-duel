@@ -57,6 +57,7 @@ struct ReplayMetadata {
   std::uint32_t formatFlags = 0;
   std::uint32_t protocolRevision = 0;
   std::uint64_t buildFingerprint = 0;
+  std::uint64_t gameplayConfigHash = 0;
   std::uint32_t initialServerTick = 0;
   std::uint32_t mapRevision = 1;
   std::string mapName;
@@ -169,6 +170,7 @@ struct ReplayCheckpoint {
   std::uint32_t serverTick = 0;
   std::uint32_t mapRevision = 1;
   std::uint32_t projectileRevision = 1;
+  std::uint64_t gameplayConfigHash = 0;
   std::array<ReplayCheckpointPlayer, kDuelPlayerCount> players = {};
   std::array<ReplayProjectile, kMaxRocketProjectiles> projectiles = {};
   ReplayMatchState match = {};

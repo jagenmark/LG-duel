@@ -1,5 +1,6 @@
 #include "server/ServerGame.hpp"
 
+#include "net/NetCodec.hpp"
 #include "shared/Sequence.hpp"
 #include "sim/BalanceConfig.hpp"
 #include "sim/ClanArenaRules.hpp"
@@ -9,6 +10,7 @@
 #include "sim/McGuffinRules.hpp"
 
 #include <algorithm>
+#include <bit>
 #include <cctype>
 #include <cmath>
 #include <filesystem>
@@ -617,16 +619,31 @@ void ServerGame::applyBalanceConfig(const BalanceConfig& config) {
 void ServerGame::tick(float fixedDt) {
   // Tick order is authoritative: accept input and phase changes first, simulate
   // movement, resolve combat, retain events, then publish the completed state.
+  if (replayPlayback_ && !pendingReplayInput_.has_value()) {
+    // Playback advances only when its runner has supplied the resolved frame
+    // for this server tick. This prevents accidental live or bot input leaks.
+    return;
+  }
   receivedCommandThisTick_.fill(false);
   mcguffinThrowRequestedThisTick_.fill(false);
   jumpEdgeThisTick_.fill(false);
   dashEdgeThisTick_.fill(false);
   attackEdgeThisTick_.fill(false);
   spawnedProjectileCount_ = 0;
-  receiveCommands();
+  if (!replayPlayback_) {
+    receiveCommands();
+  }
   updateMatchState();
   const bool tickStartedLive = snapshot_.matchPhase == MatchPhase::Live;
-  updateBotCommands(fixedDt);
+  if (replayPlayback_) {
+    applyReplayInput(*pendingReplayInput_);
+    pendingReplayInput_.reset();
+  } else {
+    updateBotCommands(fixedDt);
+    if (replayRecorder_ != nullptr && replayRecorder_->active()) {
+      (void)replayRecorder_->recordResolvedInput(captureResolvedReplayInput());
+    }
+  }
   snapshot_.weaponFires = {};
   snapshot_.rocketExplosions = {};
   snapshot_.footstepAudioEvents = {};
@@ -1331,7 +1348,520 @@ void ServerGame::tick(float fixedDt) {
   // the state produced above, keeping lag-compensation frames unambiguous.
   ++snapshot_.serverTick;
   recordHistory();
+  if (replayRecorder_ != nullptr && replayRecorder_->active()) {
+    replayRecorder_->recordCompletedTick(captureReplayCheckpoint());
+  }
   publishSnapshot();
+}
+
+bool ServerGame::beginReplayRecording(
+  replay::ReplayRecordingConfig config,
+  std::string* error
+) {
+  if (replayPlayback_) {
+    if (error != nullptr) *error = "cannot record while replay playback is active";
+    return false;
+  }
+  replay::ReplayMetadata metadata;
+  metadata.protocolRevision = kProtocolVersion;
+  metadata.gameplayConfigHash = replayGameplayConfigHash();
+  metadata.initialServerTick = snapshot_.serverTick;
+  metadata.mapRevision = snapshot_.mapRevision;
+  metadata.mapName = snapshot_.map.mapName;
+  metadata.mapContentHash = snapshot_.map.contentHash;
+  metadata.gameMode = snapshot_.gameMode;
+  metadata.matchRules = matchRules_;
+  metadata.visibility = snapshot_.gameMode == GameMode::Duel
+    ? replay::ReplayVisibility::DuelOnly
+    : replay::ReplayVisibility::DeveloperFull;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    metadata.players[index].slot = static_cast<std::uint8_t>(index);
+    metadata.players[index].occupied = isOccupiedSlot(index);
+    metadata.players[index].bot = botPlayers_[index];
+    metadata.players[index].team = snapshot_.teams[index];
+    metadata.players[index].name = snapshot_.playerNames[index];
+  }
+  auto recorder = std::make_unique<replay::ReplayRecorder>();
+  if (!recorder->begin(std::move(metadata), captureReplayCheckpoint(), config, error)) {
+    return false;
+  }
+  replayRecorder_ = std::move(recorder);
+  return true;
+}
+
+std::optional<replay::ReplayDemo> ServerGame::finishReplayRecording() {
+  if (replayRecorder_ == nullptr) return std::nullopt;
+  std::optional<replay::ReplayDemo> demo = replayRecorder_->finish();
+  replayRecorder_.reset();
+  return demo;
+}
+
+bool ServerGame::replayRecordingActive() const {
+  return replayRecorder_ != nullptr && replayRecorder_->active();
+}
+
+replay::ReplayRecorderStats ServerGame::replayRecorderStats() const {
+  return replayRecorder_ == nullptr ? replay::ReplayRecorderStats{} : replayRecorder_->stats();
+}
+
+std::uint64_t ServerGame::replayGameplayConfigHash() const {
+  std::uint64_t hash = 1469598103934665603ULL;
+  const auto mixByte = [&hash](std::uint8_t value) {
+    hash ^= value;
+    hash *= 1099511628211ULL;
+  };
+  const auto mixU32 = [&mixByte](std::uint32_t value) {
+    for (unsigned shift = 0; shift < 32U; shift += 8U) {
+      mixByte(static_cast<std::uint8_t>((value >> shift) & 0xffU));
+    }
+  };
+  const auto mixI32 = [&mixU32](std::int32_t value) {
+    mixU32(std::bit_cast<std::uint32_t>(value));
+  };
+  const auto mixF32 = [&mixU32](float value) {
+    mixU32(std::bit_cast<std::uint32_t>(value));
+  };
+  const auto mixBool = [&mixByte](bool value) { mixByte(value ? 1U : 0U); };
+  const auto mixMovement = [&mixBool, &mixF32](const MovementTuning& tuning) {
+    mixBool(tuning.flightEnabled);
+    mixF32(tuning.groundAcceleration); mixF32(tuning.airAcceleration);
+    mixF32(tuning.groundFriction); mixF32(tuning.stopSpeed); mixF32(tuning.gravity);
+    mixF32(tuning.maxGroundSpeed); mixF32(tuning.maxAirSpeed); mixF32(tuning.jumpImpulse);
+    mixBool(tuning.airControlEnabled); mixF32(tuning.dashTargetSpeed); mixF32(tuning.dashMaxSpeed);
+    mixF32(tuning.dashAcceleration); mixF32(tuning.dashDuration); mixF32(tuning.dashCooldown);
+    mixF32(tuning.dashGroundHopVelocity); mixF32(tuning.dashAirHopVelocity);
+    mixF32(tuning.flightAcceleration); mixF32(tuning.maxFlightSpeed); mixF32(tuning.flightDamping);
+    mixF32(tuning.flightGravityCancel);
+  };
+  mixMovement(movementTuning_);
+  mixF32(playerSizeScaleXY_); mixF32(playerSizeScaleZ_); mixF32(lightningKnockback_);
+  mixF32(lightningFireHz_); mixF32(rocketKnockback_); mixI32(knockbackTimeMs_);
+  mixI32(weaponDamage_.shotgunDamagePerPellet); mixI32(weaponDamage_.machineGunDamage);
+  mixI32(weaponDamage_.lightningGunDamage); mixI32(weaponDamage_.railgunDamage);
+  mixI32(weaponDamage_.rocketLauncherDamage); mixI32(weaponDamage_.plasmaGunDamage);
+  mixI32(weaponDamage_.freezeGunDamage); mixF32(vampirism_); mixByte(selfDamagePercent_);
+  mixI32(healthAmount_); mixBool(weaponAmmoConfig_.infiniteAmmo);
+  for (const std::int32_t ammo : weaponAmmoConfig_.spawnAmmo) mixI32(ammo);
+  const auto mixLightning = [&mixF32](const LightningGunTuning& tuning) {
+    mixF32(tuning.range); mixF32(tuning.damagePerSecond); mixF32(tuning.fireHz);
+    mixF32(tuning.eyeHeight); mixF32(tuning.knockbackPerSecond); mixF32(tuning.headshotMultiplier);
+  };
+  mixLightning(lightningGunTuning_);
+  mixF32(freezeGunTuning_.range); mixF32(freezeGunTuning_.fireHz); mixF32(freezeGunTuning_.eyeHeight);
+  mixF32(freezeGunTuning_.damagePerSecond); mixF32(freezeGunTuning_.freezePerSecond);
+  mixF32(freezeGunTuning_.decayPerSecond); mixF32(freezeGunTuning_.maxLevel);
+  mixF32(freezeGunTuning_.maxSlowFraction); mixF32(freezeGunTuning_.headshotMultiplier);
+  mixF32(icePoolTuning_.maxRadius); mixF32(icePoolTuning_.growthPerSecond);
+  mixF32(icePoolTuning_.lifetimeSeconds); mixF32(icePoolTuning_.friction);
+  mixF32(icePoolTuning_.slopeGravityScale); mixF32(icePoolTuning_.controlScale);
+  mixF32(icePoolTuning_.mergeDistance);
+  const auto mixHitscan = [&mixF32, &mixI32](const HitscanTuning& tuning) {
+    mixF32(tuning.range); mixI32(tuning.damage); mixF32(tuning.eyeHeight);
+    mixF32(tuning.knockback); mixF32(tuning.headshotMultiplier);
+  };
+  mixHitscan(railgunTuning_); mixF32(sniperChargeSeconds_); mixF32(sniperMaxDamageMultiplier_);
+  mixU32(railgunCooldownDurationTicks_); mixHitscan(revolverTuning_); mixU32(revolverCooldownDurationTicks_);
+  mixF32(machineGunTuning_.range); mixI32(machineGunTuning_.damage); mixF32(machineGunTuning_.eyeHeight);
+  mixF32(machineGunTuning_.knockback); mixF32(machineGunTuning_.spreadRadians);
+  mixF32(machineGunTuning_.headshotMultiplier); mixU32(machineGunCooldownDurationTicks_);
+  mixF32(shotgunTuning_.range); mixByte(shotgunTuning_.pelletCount); mixI32(shotgunTuning_.damagePerPellet);
+  mixF32(shotgunTuning_.spreadRadians); mixF32(shotgunTuning_.eyeHeight); mixF32(shotgunTuning_.knockback);
+  mixF32(shotgunTuning_.headshotMultiplier); mixU32(shotgunCooldownDurationTicks_);
+  mixF32(rocketLauncherTuning_.speed); mixF32(rocketLauncherTuning_.radius);
+  mixF32(rocketLauncherTuning_.directHitboxHalfExtentXY); mixF32(rocketLauncherTuning_.directHitboxHalfExtentZ);
+  mixI32(rocketLauncherTuning_.directDamage); mixI32(rocketLauncherTuning_.splashDamage);
+  mixF32(rocketLauncherTuning_.knockback); mixF32(rocketLauncherTuning_.eyeHeight);
+  mixU32(rocketLauncherTuning_.maxLifetimeTicks); mixU32(rocketLauncherCooldownDurationTicks_);
+  mixF32(grenadeLauncherTuning_.speed); mixF32(grenadeLauncherTuning_.verticalBoost);
+  mixF32(grenadeLauncherTuning_.gravity); mixF32(grenadeLauncherTuning_.bounceDamping);
+  mixF32(grenadeLauncherTuning_.restSpeed); mixF32(grenadeLauncherTuning_.bounceSoundMinSpeed);
+  mixF32(grenadeLauncherTuning_.projectileRadius); mixF32(grenadeLauncherTuning_.projectileHitboxRadius);
+  mixF32(grenadeLauncherTuning_.radius); mixI32(grenadeLauncherTuning_.directDamage);
+  mixI32(grenadeLauncherTuning_.splashDamage); mixF32(grenadeLauncherTuning_.knockback);
+  mixF32(grenadeLauncherTuning_.eyeHeight); mixU32(grenadeLauncherTuning_.fuseTicks);
+  mixU32(grenadeLauncherTuning_.cooldownTicks);
+  mixF32(plasmaGunTuning_.speed); mixF32(plasmaGunTuning_.radius);
+  mixF32(plasmaGunTuning_.directHitboxHalfExtentXY); mixF32(plasmaGunTuning_.directHitboxHalfExtentZ);
+  mixI32(plasmaGunTuning_.damage); mixF32(plasmaGunTuning_.knockback); mixF32(plasmaGunTuning_.eyeHeight);
+  mixU32(plasmaGunTuning_.maxLifetimeTicks); mixU32(plasmaGunTuning_.cooldownTicks);
+  mixU32(weaponPulloutDurationTicks_); mixU32(jumpPadRetriggerCooldownTicks_);
+  mixI32(smallHealthPickupAmount_); mixI32(largeHealthPickupAmount_);
+  mixU32(smallHealthPickupCooldownTicks_); mixU32(largeHealthPickupCooldownTicks_);
+  mixU32(mcguffinConfig_.scoreLimit); mixU32(mcguffinConfig_.pointsPerSecond);
+  mixU32(mcguffinConfig_.carryPointsPerSecond); mixU32(mcguffinConfig_.carryPointLimit);
+  mixU32(mcguffinConfig_.initialSpawnTicks); mixU32(mcguffinConfig_.installationDelayTicks);
+  mixU32(mcguffinConfig_.stealTicks); mixU32(mcguffinConfig_.returnTicks);
+  mixF32(mcguffinConfig_.throwSpeed); mixF32(mcguffinConfig_.throwUpSpeed);
+  mixF32(mcguffinConfig_.throwVelocityInheritance); mixF32(mcguffinConfig_.throwGravity);
+  mixF32(mcguffinConfig_.throwBounceDamping); mixU32(mcguffinConfig_.throwPickupLockoutTicks);
+  mixU32(mcguffinConfig_.finalHoldTicks); mixF32(mcguffinConfig_.pickupRadius);
+  mixU32(matchRules_.roundLimit); mixU32(matchRules_.timeLimitMinutes); mixByte(matchRules_.playerLimit);
+  mixU32(matchRules_.countdownTicks); mixU32(matchRules_.roundEndTicks); mixU32(matchRules_.matchEndTicks);
+  mixU32(matchRules_.deathRespawnTicks); mixBool(matchRules_.showOpponentHealth);
+  mixByte(static_cast<std::uint8_t>(weaponSwitchingMode_));
+  // Bot tuning and bot RNG intentionally do not enter this fingerprint.
+  return hash;
+}
+
+replay::ReplayTickInput ServerGame::captureResolvedReplayInput() const {
+  replay::ReplayTickInput input;
+  // This is the pre-simulation label. Output checkpoints and hashes use the
+  // incremented label produced after this frame has completed.
+  input.tick = snapshot_.serverTick;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    replay::ReplaySlotInput& slot = input.slots[index];
+    slot.present = isOccupiedSlot(index);
+    slot.hasCommand = hasCommand_[index];
+    slot.receivedThisTick = receivedCommandThisTick_[index];
+    slot.command = commands_[index];
+    slot.viewedServerTick = viewedServerTicks_[index];
+    slot.consumedActionEdges = lastActionEdges_[index];
+    slot.jumpEdgeAccepted = jumpEdgeThisTick_[index];
+    slot.dashEdgeAccepted = dashEdgeThisTick_[index];
+    slot.attackEdgeAccepted = attackEdgeThisTick_[index];
+    slot.attackEdgeCommand = attackEdgeCommands_[index];
+    slot.attackEdgeViewedServerTick = attackEdgeViewedServerTicks_[index];
+    slot.mcguffinThrowAccepted = mcguffinThrowRequestedThisTick_[index];
+    slot.mcguffinThrowCommand = mcguffinThrowCommands_[index];
+  }
+  return input;
+}
+
+void ServerGame::applyReplayInput(const replay::ReplayTickInput& input) {
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    const replay::ReplaySlotInput& source = input.slots[index];
+    commands_[index] = source.command;
+    hasCommand_[index] = source.hasCommand;
+    receivedCommandThisTick_[index] = source.receivedThisTick;
+    viewedServerTicks_[index] = source.viewedServerTick;
+    lastActionEdges_[index] = source.consumedActionEdges;
+    jumpEdgeThisTick_[index] = source.jumpEdgeAccepted;
+    dashEdgeThisTick_[index] = source.dashEdgeAccepted;
+    attackEdgeThisTick_[index] = source.attackEdgeAccepted;
+    attackEdgeCommands_[index] = source.attackEdgeCommand;
+    attackEdgeViewedServerTicks_[index] = source.attackEdgeViewedServerTick;
+    mcguffinThrowRequestedThisTick_[index] = source.mcguffinThrowAccepted;
+    mcguffinThrowCommands_[index] = source.mcguffinThrowCommand;
+  }
+}
+
+bool ServerGame::injectReplayInput(
+  const replay::ReplayTickInput& input,
+  std::string* error
+) {
+  if (!replayPlayback_) {
+    if (error != nullptr) *error = "replay playback is not active";
+    return false;
+  }
+  if (pendingReplayInput_.has_value() || input.tick != snapshot_.serverTick) {
+    if (error != nullptr) *error = "replay input tick does not match server state";
+    return false;
+  }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    if (input.slots[index].present != isOccupiedSlot(index)) {
+      if (error != nullptr) *error = "replay input occupancy does not match checkpoint";
+      return false;
+    }
+  }
+  pendingReplayInput_ = input;
+  if (error != nullptr) error->clear();
+  return true;
+}
+
+void ServerGame::endReplayPlayback() {
+  pendingReplayInput_.reset();
+  replayPlayback_ = false;
+}
+
+replay::ReplayCheckpoint ServerGame::captureReplayCheckpoint() const {
+  replay::ReplayCheckpoint checkpoint;
+  checkpoint.serverTick = snapshot_.serverTick;
+  checkpoint.mapRevision = snapshot_.mapRevision;
+  checkpoint.projectileRevision = projectileRevision_;
+  checkpoint.gameplayConfigHash = replayGameplayConfigHash();
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    replay::ReplayCheckpointPlayer& target = checkpoint.players[index];
+    target.connected = snapshot_.connectedPlayers[index];
+    target.participating = snapshot_.participatingPlayers[index];
+    target.ready = snapshot_.readyPlayers[index];
+    target.team = snapshot_.teams[index];
+    target.player = snapshot_.players[index];
+    target.weapon.selectedWeapon = selectedWeapons_[index];
+    target.weapon.ammo = playerAmmo_[index];
+    target.weapon.lightningGun = lightningGunStates_[index];
+    target.weapon.freezeGun = freezeGunStates_[index];
+    target.weapon.lightningAmmoCredit = lightningAmmoCredit_[index];
+    target.weapon.freezeAmmoCredit = freezeAmmoCredit_[index];
+    target.weapon.fractionalVampirismHealing = fractionalVampirismHealing_[index];
+    target.weapon.railgunCooldownTicks = railgunCooldownTicks_[index];
+    target.weapon.revolverCooldownTicks = revolverCooldownTicks_[index];
+    target.weapon.sniperAdsFraction = sniperAdsFractions_[index];
+    target.weapon.sniperChargeFraction = sniperChargeFractions_[index];
+    target.weapon.machineGunCooldownTicks = machineGunCooldownTicks_[index];
+    target.weapon.shotgunCooldownTicks = shotgunCooldownTicks_[index];
+    target.weapon.rocketCooldownTicks = rocketCooldownTicks_[index];
+    target.weapon.grenadeCooldownTicks = grenadeCooldownTicks_[index];
+    target.weapon.plasmaGunCooldownTicks = plasmaGunCooldownTicks_[index];
+    target.weapon.weaponPulloutTicks = weaponPulloutTicks_[index];
+    target.respawnTicksRemaining = snapshot_.respawnTicksRemaining[index];
+    target.command = commands_[index];
+    target.consumedActionEdges = lastActionEdges_[index];
+    target.viewedServerTick = viewedServerTicks_[index];
+    target.hasCommand = hasCommand_[index];
+  }
+  for (std::size_t index = 0; index < kMaxRocketProjectiles; ++index) {
+    const RocketProjectile& source = rockets_[index];
+    replay::ReplayProjectile& target = checkpoint.projectiles[index];
+    target.active = source.active;
+    target.owner = source.owner;
+    target.sequence = source.sequence;
+    target.weapon = source.weapon;
+    target.position = source.position;
+    target.previousPosition = source.previousPosition;
+    target.velocity = source.velocity;
+    target.projectileRadius = source.projectileRadius;
+    target.projectileHitboxRadius = source.projectileHitboxRadius;
+    target.ownerCollisionArmed = source.ownerCollisionArmed;
+    target.resting = source.resting;
+    target.ageTicks = source.ageTicks;
+  }
+  checkpoint.match.gameMode = snapshot_.gameMode;
+  checkpoint.match.phase = snapshot_.matchPhase;
+  checkpoint.match.phaseTicksRemaining = snapshot_.phaseTicksRemaining;
+  checkpoint.match.liveTicksElapsed = snapshot_.liveTicksElapsed;
+  checkpoint.match.overtime = snapshot_.overtime;
+  checkpoint.match.scores = snapshot_.scores;
+  checkpoint.match.teamScores = snapshot_.teamScores;
+  checkpoint.match.mcguffinScores = snapshot_.mcguffinScores;
+  checkpoint.match.mcguffinRoundsWon = snapshot_.mcguffinRoundsWon;
+  checkpoint.match.mcguffinRound = snapshot_.mcguffinRound;
+  checkpoint.match.roundWinner = snapshot_.roundWinner;
+  checkpoint.match.matchWinner = snapshot_.matchWinner;
+  checkpoint.match.roundWinningTeam = snapshot_.roundWinningTeam;
+  checkpoint.match.matchWinningTeam = snapshot_.matchWinningTeam;
+  checkpoint.match.roundCombatStats = snapshot_.roundCombatStats;
+  checkpoint.match.matchCombatStats = snapshot_.matchCombatStats;
+  checkpoint.healthPickupAvailable = snapshot_.healthPickupAvailable;
+  checkpoint.healthPickupCooldownTicks = healthPickupCooldownTicks_;
+  checkpoint.icePools = snapshot_.icePools;
+  checkpoint.mcguffin = mcguffinObjective_;
+  checkpoint.mcguffinRedBaseOwner = snapshot_.mcguffinRedBaseOwner;
+  checkpoint.mcguffinBlueBaseOwner = snapshot_.mcguffinBlueBaseOwner;
+  checkpoint.mcguffinStealTicks = mcguffinStealTicks_;
+  checkpoint.mcguffinCarrySubPoints = mcguffinCarrySubPoints_;
+  checkpoint.mcguffinCarriedPoints = mcguffinCarriedPoints_;
+  checkpoint.mcguffinFinalHoldTicks = mcguffinFinalHoldTicks_;
+  checkpoint.mcguffinRoundLiveTicks = mcguffinRoundLiveTicks_;
+  checkpoint.mcguffinThrowPickupLockoutTicks = mcguffinThrowPickupLockoutTicks_;
+  checkpoint.spawnRandomState = spawnRandomState_;
+  checkpoint.projectileSequences = projectileSequences_;
+  checkpoint.rocketExplosionSequences = rocketExplosionSequences_;
+  checkpoint.fragEventSequences = fragEventSequences_;
+  checkpoint.localHitFeedbackSequences = localHitFeedbackSequences_;
+  checkpoint.footstepSequences = footstepSequences_;
+  checkpoint.grenadeBounceEventSequences = grenadeBounceEventSequences_;
+  checkpoint.grenadeBounceSequences = grenadeBounceSequences_;
+  checkpoint.spawnLastUsedTicks = spawnLastUsedTicks_;
+  checkpoint.spawnWasUsed = spawnWasUsed_;
+  checkpoint.nextDeathmatchSpawnIndex = static_cast<std::uint32_t>(nextDeathmatchSpawnIndex_);
+  checkpoint.playersColliding = snapshot_.playersColliding;
+  checkpoint.history.reserve(history_.size());
+  for (const HistoryFrame& frame : history_) {
+    checkpoint.history.push_back({frame.serverTick, frame.players});
+  }
+  return checkpoint;
+}
+
+bool ServerGame::restoreReplayCheckpoint(
+  const replay::ReplayCheckpoint& checkpoint,
+  const replay::ReplayMetadata& metadata,
+  std::string* error
+) {
+  const auto reject = [error](const char* message) {
+    if (error != nullptr) *error = message;
+    return false;
+  };
+  if (metadata.mapName != mapDescriptor_.mapName ||
+      metadata.mapContentHash != mapDescriptor_.contentHash ||
+      checkpoint.mapRevision != metadata.mapRevision ||
+      checkpoint.gameplayConfigHash != metadata.gameplayConfigHash ||
+      replayGameplayConfigHash() != metadata.gameplayConfigHash ||
+      checkpoint.match.gameMode != metadata.gameMode ||
+      checkpoint.history.size() > replay::kMaxReplayHistoryFrames) {
+    return reject("replay checkpoint does not match the loaded map or metadata");
+  }
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    const replay::ReplayPlayerMetadata& player = metadata.players[index];
+    if (player.slot != index || (!player.occupied && player.bot) ||
+        (player.bot && checkpoint.players[index].connected) ||
+        (!player.occupied && (checkpoint.players[index].connected || checkpoint.players[index].participating))) {
+      return reject("replay player metadata does not match checkpoint occupancy");
+    }
+  }
+
+  // Preserve the loaded arena and current gameplay tuning. A replay rejects a
+  // different map above; callers must configure an equivalent server before
+  // playback rather than silently simulating with changed rules.
+  const ServerSnapshot configuredSnapshot = snapshot_;
+  snapshot_ = {};
+  mapRevision_ = checkpoint.mapRevision;
+  projectileRevision_ = checkpoint.projectileRevision;
+  snapshot_.serverTick = checkpoint.serverTick;
+  snapshot_.mapRevision = checkpoint.mapRevision;
+  snapshot_.projectileRevision = checkpoint.projectileRevision;
+  snapshot_.map = mapDescriptor_;
+  snapshot_.gameMode = checkpoint.match.gameMode;
+  matchRules_ = metadata.matchRules;
+  snapshot_.matchRules = matchRules_;
+  snapshot_.movementTuning = configuredSnapshot.movementTuning;
+  snapshot_.playerSizeScaleXY = configuredSnapshot.playerSizeScaleXY;
+  snapshot_.playerSizeScaleZ = configuredSnapshot.playerSizeScaleZ;
+  snapshot_.lightningKnockback = configuredSnapshot.lightningKnockback;
+  snapshot_.lightningFireHz = configuredSnapshot.lightningFireHz;
+  snapshot_.rocketKnockback = configuredSnapshot.rocketKnockback;
+  snapshot_.knockbackTimeMs = configuredSnapshot.knockbackTimeMs;
+  snapshot_.weaponDamage = configuredSnapshot.weaponDamage;
+  snapshot_.icePoolTuning = configuredSnapshot.icePoolTuning;
+  snapshot_.projectilePresentation = configuredSnapshot.projectilePresentation;
+  snapshot_.vampirism = configuredSnapshot.vampirism;
+  snapshot_.selfDamagePercent = configuredSnapshot.selfDamagePercent;
+  snapshot_.healthAmount = configuredSnapshot.healthAmount;
+  snapshot_.mcguffinConfig = configuredSnapshot.mcguffinConfig;
+  snapshot_.weaponSwitchingMode = configuredSnapshot.weaponSwitchingMode;
+  snapshot_.weaponAmmo = configuredSnapshot.weaponAmmo;
+  snapshot_.configurationRevision = configuredSnapshot.configurationRevision;
+  snapshot_.hasConfiguration = configuredSnapshot.hasConfiguration;
+  for (std::size_t index = 0; index < kDuelPlayerCount; ++index) {
+    const replay::ReplayCheckpointPlayer& source = checkpoint.players[index];
+    snapshot_.connectedPlayers[index] = source.connected;
+    botPlayers_[index] = metadata.players[index].occupied && metadata.players[index].bot;
+    snapshot_.botPlayers[index] = botPlayers_[index];
+    snapshot_.participatingPlayers[index] = source.participating;
+    snapshot_.readyPlayers[index] = source.ready;
+    snapshot_.teams[index] = source.team;
+    snapshot_.players[index] = source.player;
+    selectedWeapons_[index] = source.weapon.selectedWeapon;
+    snapshot_.selectedWeapons[index] = selectedWeapons_[index];
+    playerAmmo_[index] = source.weapon.ammo;
+    snapshot_.playerAmmo[index] = playerAmmo_[index];
+    lightningGunStates_[index] = source.weapon.lightningGun;
+    freezeGunStates_[index] = source.weapon.freezeGun;
+    lightningAmmoCredit_[index] = source.weapon.lightningAmmoCredit;
+    freezeAmmoCredit_[index] = source.weapon.freezeAmmoCredit;
+    fractionalVampirismHealing_[index] = source.weapon.fractionalVampirismHealing;
+    railgunCooldownTicks_[index] = source.weapon.railgunCooldownTicks;
+    revolverCooldownTicks_[index] = source.weapon.revolverCooldownTicks;
+    sniperAdsFractions_[index] = source.weapon.sniperAdsFraction;
+    sniperChargeFractions_[index] = source.weapon.sniperChargeFraction;
+    snapshot_.sniperChargePercent[index] = static_cast<std::uint8_t>(std::lround(
+      source.weapon.sniperChargeFraction * 100.0F
+    ));
+    machineGunCooldownTicks_[index] = source.weapon.machineGunCooldownTicks;
+    shotgunCooldownTicks_[index] = source.weapon.shotgunCooldownTicks;
+    rocketCooldownTicks_[index] = source.weapon.rocketCooldownTicks;
+    grenadeCooldownTicks_[index] = source.weapon.grenadeCooldownTicks;
+    plasmaGunCooldownTicks_[index] = source.weapon.plasmaGunCooldownTicks;
+    weaponPulloutTicks_[index] = source.weapon.weaponPulloutTicks;
+    snapshot_.respawnTicksRemaining[index] = source.respawnTicksRemaining;
+    commands_[index] = source.command;
+    lastActionEdges_[index] = source.consumedActionEdges;
+    viewedServerTicks_[index] = source.viewedServerTick;
+    hasCommand_[index] = source.hasCommand;
+    snapshot_.playerNames[index] = metadata.players[index].name;
+  }
+  for (std::size_t index = 0; index < kMaxRocketProjectiles; ++index) {
+    const replay::ReplayProjectile& source = checkpoint.projectiles[index];
+    rockets_[index] = {
+      source.active,
+      source.owner,
+      source.sequence,
+      source.weapon,
+      source.position,
+      source.previousPosition,
+      source.projectileRadius,
+      source.projectileHitboxRadius,
+      source.ownerCollisionArmed,
+      source.resting,
+      source.velocity,
+      source.ageTicks,
+    };
+  }
+  snapshot_.matchPhase = checkpoint.match.phase;
+  snapshot_.phaseTicksRemaining = checkpoint.match.phaseTicksRemaining;
+  snapshot_.liveTicksElapsed = checkpoint.match.liveTicksElapsed;
+  snapshot_.overtime = checkpoint.match.overtime;
+  snapshot_.scores = checkpoint.match.scores;
+  snapshot_.teamScores = checkpoint.match.teamScores;
+  snapshot_.mcguffinScores = checkpoint.match.mcguffinScores;
+  snapshot_.mcguffinRoundsWon = checkpoint.match.mcguffinRoundsWon;
+  snapshot_.mcguffinRound = checkpoint.match.mcguffinRound;
+  snapshot_.roundWinner = checkpoint.match.roundWinner;
+  snapshot_.matchWinner = checkpoint.match.matchWinner;
+  snapshot_.roundWinningTeam = checkpoint.match.roundWinningTeam;
+  snapshot_.matchWinningTeam = checkpoint.match.matchWinningTeam;
+  snapshot_.roundCombatStats = checkpoint.match.roundCombatStats;
+  snapshot_.matchCombatStats = checkpoint.match.matchCombatStats;
+  snapshot_.healthPickupAvailable = checkpoint.healthPickupAvailable;
+  healthPickupCooldownTicks_ = checkpoint.healthPickupCooldownTicks;
+  snapshot_.icePools = checkpoint.icePools;
+  mcguffinObjective_ = checkpoint.mcguffin;
+  snapshot_.mcguffinRedBaseOwner = checkpoint.mcguffinRedBaseOwner;
+  snapshot_.mcguffinBlueBaseOwner = checkpoint.mcguffinBlueBaseOwner;
+  mcguffinStealTicks_ = checkpoint.mcguffinStealTicks;
+  mcguffinCarrySubPoints_ = checkpoint.mcguffinCarrySubPoints;
+  mcguffinCarriedPoints_ = checkpoint.mcguffinCarriedPoints;
+  mcguffinFinalHoldTicks_ = checkpoint.mcguffinFinalHoldTicks;
+  mcguffinRoundLiveTicks_ = checkpoint.mcguffinRoundLiveTicks;
+  mcguffinThrowPickupLockoutTicks_ = checkpoint.mcguffinThrowPickupLockoutTicks;
+  spawnRandomState_ = checkpoint.spawnRandomState;
+  projectileSequences_ = checkpoint.projectileSequences;
+  rocketExplosionSequences_ = checkpoint.rocketExplosionSequences;
+  fragEventSequences_ = checkpoint.fragEventSequences;
+  localHitFeedbackSequences_ = checkpoint.localHitFeedbackSequences;
+  footstepSequences_ = checkpoint.footstepSequences;
+  grenadeBounceEventSequences_ = checkpoint.grenadeBounceEventSequences;
+  grenadeBounceSequences_ = checkpoint.grenadeBounceSequences;
+  spawnLastUsedTicks_ = checkpoint.spawnLastUsedTicks;
+  spawnWasUsed_ = checkpoint.spawnWasUsed;
+  nextDeathmatchSpawnIndex_ = checkpoint.nextDeathmatchSpawnIndex;
+  snapshot_.playersColliding = checkpoint.playersColliding;
+  history_.clear();
+  for (const replay::ReplayHistoryFrame& frame : checkpoint.history) {
+    history_.push_back({frame.serverTick, frame.players});
+  }
+  if (history_.empty()) return reject("replay checkpoint has no lag-compensation history");
+  receivedCommandThisTick_ = {};
+  jumpEdgeThisTick_ = {};
+  dashEdgeThisTick_ = {};
+  attackEdgeThisTick_ = {};
+  attackEdgeCommands_ = {};
+  attackEdgeViewedServerTicks_ = {};
+  mcguffinThrowRequestedThisTick_ = {};
+  mcguffinThrowCommands_ = {};
+  botCombatStates_ = {};
+  botDodgeDirections_ = {};
+  botDodgeSwitchSeconds_ = {};
+  footstepStates_ = {};
+  recentWeaponFires_ = {};
+  recentWeaponFireTicks_ = {};
+  recentRocketExplosions_ = {};
+  recentRocketExplosionTicks_ = {};
+  recentFootstepAudioEvents_ = {};
+  recentFootstepAudioEventTicks_ = {};
+  recentGrenadeBounceAudioEvents_ = {};
+  recentGrenadeBounceAudioEventTicks_ = {};
+  recentFragEvents_ = {};
+  recentFragEventTicks_ = {};
+  recentLocalHitFeedbackEvents_ = {};
+  recentLocalHitFeedbackEventTicks_ = {};
+  spawnedProjectileCount_ = 0;
+  recentProjectileRemovals_.clear();
+  projectileCorrectionCursor_ = 0;
+  playerSessions_ = {};
+  pendingReplayInput_.reset();
+  replayPlayback_ = true;
+  if (error != nullptr) error->clear();
+  return true;
 }
 
 void ServerGame::resetMatch() {

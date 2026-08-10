@@ -339,7 +339,7 @@ bool writeMetadata(Writer& writer, const ReplayMetadata& metadata) {
       metadata.mapContentHash == 0U || metadata.mapRevision == 0U ||
       !isValidGameMode(metadata.gameMode) || !validVisibility(metadata.visibility)) return false;
   if (!writer.u32(metadata.formatFlags) || !writer.u32(metadata.protocolRevision) ||
-      !writer.u64(metadata.buildFingerprint) || !writer.u32(metadata.initialServerTick) ||
+      !writer.u64(metadata.buildFingerprint) || !writer.u64(metadata.gameplayConfigHash) || !writer.u32(metadata.initialServerTick) ||
       !writer.u32(metadata.mapRevision) || !writer.string(metadata.mapName, kMaxReplayMapNameBytes) ||
       !writer.u32(metadata.mapContentHash) || !writer.u8(static_cast<std::uint8_t>(metadata.gameMode)) ||
       !writer.u16(metadata.matchRules.roundLimit) || !writer.u16(metadata.matchRules.timeLimitMinutes) ||
@@ -362,7 +362,7 @@ bool readMetadata(Reader& reader, ReplayMetadata& metadata) {
   std::uint8_t gameMode = 0;
   std::uint8_t visibility = 0;
   if (!reader.u32(metadata.formatFlags) || !reader.u32(metadata.protocolRevision) ||
-      !reader.u64(metadata.buildFingerprint) || !reader.u32(metadata.initialServerTick) ||
+      !reader.u64(metadata.buildFingerprint) || !reader.u64(metadata.gameplayConfigHash) || !reader.u32(metadata.initialServerTick) ||
       !reader.u32(metadata.mapRevision) || !reader.string(metadata.mapName, kMaxReplayMapNameBytes) ||
       !reader.u32(metadata.mapContentHash) || !reader.u8(gameMode) ||
       !reader.u16(metadata.matchRules.roundLimit) || !reader.u16(metadata.matchRules.timeLimitMinutes) ||
@@ -419,7 +419,7 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
   if (checkpoint.mapRevision == 0U || checkpoint.projectileRevision == 0U ||
       checkpoint.history.size() > kMaxReplayHistoryFrames || checkpoint.spawnRandomState == 0U) return false;
   if (!writer.u32(checkpoint.serverTick) || !writer.u32(checkpoint.mapRevision) ||
-      !writer.u32(checkpoint.projectileRevision)) return false;
+      !writer.u32(checkpoint.projectileRevision) || !writer.u64(checkpoint.gameplayConfigHash)) return false;
   for (const ReplayCheckpointPlayer& player : checkpoint.players) {
     if (!isValidTeam(player.team)) return false;
     if (!writer.boolean(player.connected) || !writer.boolean(player.participating) ||
@@ -502,7 +502,7 @@ bool writeCheckpoint(Writer& writer, const ReplayCheckpoint& checkpoint) {
 
 bool readCheckpoint(Reader& reader, ReplayCheckpoint& checkpoint) {
   if (!reader.u32(checkpoint.serverTick) || !reader.u32(checkpoint.mapRevision) ||
-      !reader.u32(checkpoint.projectileRevision) || checkpoint.mapRevision == 0U ||
+      !reader.u32(checkpoint.projectileRevision) || !reader.u64(checkpoint.gameplayConfigHash) || checkpoint.mapRevision == 0U ||
       checkpoint.projectileRevision == 0U) return false;
   for (ReplayCheckpointPlayer& player : checkpoint.players) {
     std::uint8_t team = 0;
