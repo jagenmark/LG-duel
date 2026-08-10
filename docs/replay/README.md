@@ -1,14 +1,18 @@
 # Replay and demo system
 
-This folder defines the replay contract for LG-duel. Core replay work landed in
-`7020ef5` (format v1) and `4cff068` (authoritative record/playback). It is not
-a list of player-facing controls.
+This folder defines the replay contract for LG-duel. The core ledger is
+`7020ef5` (format v1), `4cff068` (authoritative record/playback), `bce44e2`
+(rolling archive), `8199355` (capture cadence), `3513191` (transfer state), and
+`9c1693f` (file, presentation, final hash, and measures). It is not a list of
+player-facing controls.
 
 The core has a bot-free format, recorder, headless playback runner, checkpoint
-restore, hash checks, and seek. It does not yet have a replay UI, runtime demo
-commands, rolling segment extraction, transfer, remote killcam, or measured
-player-facing performance. Treat every item marked **pending** as a requirement,
-not as a control a player can use.
+restore, hash checks, seek, rolling archive, self-contained lethal-segment
+extraction, transfer state, strict file helpers, presentation-session state, and
+measures. It does not yet have a `GameApp` UI, runtime demo commands, background
+file job, live UDP hookup, renderer/audio/HUD hookup, or player-facing killcam.
+Treat every item marked **pending** as a requirement, not as a control a player
+can use.
 
 ## Reading order
 
@@ -38,11 +42,12 @@ fixed-step gameplay code without fake UDP clients.
 | Authoritative recorder and headless playback runner | Implemented in `lg::replay`; covered by `lg_duel_replay_playback_tests` |
 | `.lgdemo` v1 encoder/decoder and canonical hash | Implemented; covered by `lg_duel_replay_codec_tests` |
 | Checkpoint restore, per-tick hash check, and seek | Implemented in the headless runner |
-| Saved-demo commands, disk writer, and automatic recording setting | Pending command names and implementation |
-| Replay session, cameras, HUD, and controls | Pending implementation |
-| Rolling server buffer and lethal segment extraction | Pending implementation |
-| UDP replay transfer and ordinary remote killcam | Pending implementation |
-| Team-mode visibility filtering | Not approved; ordinary remote killcams stay disabled there |
+| Strict `.lgdemo` save/load helpers | Implemented; no app command or background job calls them |
+| Replay clock, camera, follow, seek, and skip session state | Implemented; no `GameApp` renderer/audio/HUD hookup |
+| Rolling server buffer and self-contained lethal segment extraction | Implemented; no player-facing killcam consumes it |
+| Bounded transfer codec and sender/receiver state machine | Implemented; no `NetCodec` or `UdpTransport` live hookup |
+| Team-mode visibility guard | Implemented in transfer policy; ordinary remote delivery remains unhooked |
+| Replay measures | Recorded by `lg_duel_replay_performance_tests`; see [Operations](OPERATIONS.md) |
 | Replay and bot compatibility test | Implemented in `lg_duel_replay_playback_tests`; required after bot merges |
 
 The required safe remote policy is narrow until a tested team filter exists:

@@ -53,9 +53,10 @@ Merge the bot changes first, then reapply replay's narrow changes in this order:
 4. Preserve only bot slot metadata needed for a name or UI marker. Playback
    disables bot command generation and injects the record through the same
    normal gameplay command path as a human command.
-5. Keep replay transfer code separate from snapshots and keep each datagram at
-   most 1,200 bytes. Resolve `NetCodec.cpp` additions by packet type, not by
-   folding replay data into snapshot code.
+5. Keep replay transfer state separate from snapshots and keep each datagram at
+   most 1,200 bytes. The current transfer code has no `NetCodec.cpp` or
+   `UdpTransport` hookup; do not fold replay data into snapshot code when that
+   later integration occurs.
 6. Keep bot tests unchanged. Put the replay test in its dedicated replay target.
 
 The only expected hand conflict is the small command-resolution area of
@@ -68,12 +69,20 @@ lines in `CMakeLists.txt`. A conflict that needs a bot-internal replay call or a
 `tests/replay/ReplayPlaybackTests.cpp` now provides the dedicated compatibility
 coverage through `lg_duel_replay_playback_tests`. It records a hard-mode bot,
 saves and loads the demo, restores a fresh `ServerGame` with no bot added,
-injects resolved inputs, checks every stored hash, and seeks. After both
-branches merge, run:
+injects resolved inputs, checks every stored hash, and seeks. The seven replay
+targets are `lg_duel_replay_codec_tests`, `lg_duel_replay_playback_tests`,
+`lg_duel_replay_rolling_tests`, `lg_duel_replay_transfer_tests`,
+`lg_duel_replay_file_tests`, `lg_duel_replay_presentation_tests`, and
+`lg_duel_replay_performance_tests`. After both branches merge, run:
 
 ```powershell
-cmake --build --preset default --target lg_duel_replay_codec_tests
-ctest --test-dir build/default --output-on-failure -R '^lg_duel_replay_codec_tests$'
+cmake --build --preset default --target lg_duel_replay_codec_tests lg_duel_replay_playback_tests lg_duel_replay_rolling_tests lg_duel_replay_transfer_tests lg_duel_replay_file_tests lg_duel_replay_presentation_tests lg_duel_replay_performance_tests
+ctest --test-dir build/default --output-on-failure -R '^lg_duel_replay_(codec|playback|rolling|transfer|file|presentation|performance)_tests$'
+```
+
+The required post-bot replay command is:
+
+```powershell
 cmake --build --preset default --target lg_duel_replay_playback_tests
 ctest --test-dir build/default --output-on-failure -R '^lg_duel_replay_playback_tests$'
 ```

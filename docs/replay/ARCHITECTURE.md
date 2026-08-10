@@ -27,8 +27,9 @@ lethal marker -> rolling-buffer segment extraction -> the same playback runner
 ```
 
 The core now implements the resolved-input, `ReplayDemo`, codec, checkpoint,
-and headless-runner parts of this path. Disk writing, the rolling buffer, lethal
-segment extraction, transfer, and presentation remain pending.
+headless runner, rolling archive, lethal-segment extraction, transfer state,
+file helpers, and presentation-session state. The remaining app work is a disk
+job and controls, live transport hookup, and renderer/audio/HUD hookup.
 
 The server records the final command after human acceptance and after bot
 generation, but before movement and combat consume it. It captures the completed
@@ -115,6 +116,13 @@ at the first mismatch. It currently reports the tick and the category
 Seeking restores the nearest earlier checkpoint and simulates recorded commands
 forward. Linear playback and such a seek must reach the same hash.
 
+The rolling archive uses the same resolved inputs and completed checkpoints as
+full recording. Its default retention is 1,500 ticks (12 seconds at 125 Hz),
+with a 16 MiB byte cap. Segment extraction selects a retained checkpoint at or
+before the requested pre-death tick and includes the needed inputs, hashes, and
+lethal record through the requested end tick. It returns a self-contained
+`ReplayDemo`, not a killcam-only state format.
+
 ## Authority and presentation
 
 | Kind | Replay source | Playback rule |
@@ -137,6 +145,7 @@ promise the exact pixels from the killer's locally predicted original frame.
 ## Reset and failure boundaries
 
 Map changes, map revisions, hard reset, and replay-generation changes clear the
-rolling record and end a matching replay or killcam. A reader must reject a
-segment that spans a generation or lacks a valid earlier checkpoint. It must
-leave live play intact when it rejects data.
+rolling record and end a matching replay or killcam. The archive rejects a
+segment that spans a generation or lacks a valid earlier checkpoint. No
+player-facing killcam currently invokes that abort path; future presentation
+must leave live play intact when it rejects data.

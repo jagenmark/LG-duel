@@ -84,6 +84,17 @@ Validation happens before allocation where possible. Bounded allocations and
 count checks come before decode loops. The decoder does not repair corrupt data,
 skip unknown required records, or apply the valid prefix of a bad checkpoint.
 
+## File helpers
+
+`ReplayFile` now provides `saveDemoFile` and `loadDemoFile`. Saving encodes a
+`ReplayDemo`, creates a new `.lgdemo` file, and refuses to replace an existing
+recording. Loading reads the file and uses the strict decoder above. These calls
+can allocate and block on disk, so `ServerGame::tick` must not call them.
+
+No app command, console control, automatic match recording setting, or
+background save/load job calls these helpers yet. The helpers therefore do not
+make saved demos a player-facing feature.
+
 ## Compatibility and clean failure
 
 The decoder checks the format version and tick rate. Checkpoint restore checks
