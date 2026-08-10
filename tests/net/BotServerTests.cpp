@@ -7,6 +7,7 @@
 #include <array>
 #include <cmath>
 #include <iostream>
+#include <optional>
 #include <string_view>
 
 namespace {
@@ -108,6 +109,16 @@ bool navPathExists(
       visited[link.to] = true;
       queue[written++] = link.to;
     }
+  }
+  return false;
+}
+
+bool hasNavLink(
+  const lg::BotNavigationMap& map,
+  lg::BotNavLinkKind kind
+) {
+  for (std::size_t index = 0; index < map.linkCount; ++index) {
+    if (map.links[index].kind == kind) return true;
   }
   return false;
 }
@@ -218,6 +229,13 @@ int main() {
       std::fabs(hidden.lastKnownTargetPosition.x - 6.0F) < 0.0001F &&
       hidden.targetMemoryAgeSeconds > 0.0F && !hidden.command.attack,
       "LOS loss should retain only stale remembered state and never fire");
+
+    sense.visibleEnemyCount = 1;
+    const lg::BotMotor reacquired = first.tick(sense, hard, {});
+    failures += expect(
+      reacquired.noFireReason == lg::BotNoFireReason::Reaction && !reacquired.command.attack,
+      "reappearing after occlusion should restart the full reaction delay"
+    );
   }
 
   {
@@ -233,6 +251,268 @@ int main() {
     failures += expect(map.nodeCount > 0U && map.linkCount > 0U &&
       navPathExists(map, left, right),
       "generated navigation should find a player-sized route around a simple wall");
+  }
+
+  {
+    lg::Arena multilevel = flatArena();
+    multilevel.min = {-6.0F, -6.0F, 0.0F};
+    multilevel.max = {6.0F, 6.0F, 8.0F};
+    multilevel.spawnCount = 2;
+    multilevel.spawnPositions[0] = {-4.0F, -4.0F, 0.0F};
+    multilevel.spawnPositions[1] = {4.0F, 4.0F, 0.0F};
+    multilevel.walls[0].min = {-2.0F, -2.0F, 2.0F};
+    multilevel.walls[0].max = {2.0F, 2.0F, 3.0F};
+    multilevel.wallCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      multilevel, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t floorNode = lg::nearestBotNavNode(map, {0.0F, 0.0F, 0.9F});
+    const std::size_t upperNode = lg::nearestBotNavNode(map, {0.0F, 0.0F, 3.9F});
+    failures += expect(
+      floorNode < map.nodeCount && upperNode < map.nodeCount && floorNode != upperNode &&
+        std::fabs(map.nodes[upperNode].position.z - 3.9F) < 0.15F,
+      "nav sampling should retain grounded upper walkable levels and use full 3D node matching"
+    );
+  }
+
+  {
+    lg::Arena special = flatArena();
+    special.min = {-6.0F, -6.0F, 0.0F};
+    special.max = {6.0F, 6.0F, 8.0F};
+    special.spawnCount = 2;
+    special.spawnPositions[0] = {-5.0F, -4.0F, 0.0F};
+    special.spawnPositions[1] = {5.0F, 4.0F, 0.0F};
+    special.teleports[0].min = {-4.5F, -0.5F, 0.0F};
+    special.teleports[0].max = {-3.5F, 0.5F, 1.0F};
+    special.teleports[0].destination = {4.0F, 0.0F, 0.9F};
+    special.teleportCount = 1;
+    special.jumpPads[0].min = {-1.0F, -0.6F, 0.0F};
+    special.jumpPads[0].max = {1.0F, 0.6F, 0.2F};
+    special.jumpPads[0].targetPosition = {0.0F, 4.0F, 0.9F};
+    special.jumpPads[0].hasTarget = true;
+    special.jumpPadCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      special, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    const std::size_t teleportExit = lg::nearestBotNavNode(
+      map, special.teleports[0].destination
+    );
+    failures += expect(
+      teleportExit < map.nodeCount &&
+        std::fabs(map.nodes[teleportExit].position.z - special.teleports[0].destination.z) <
+          0.01F &&
+        hasNavLink(map, lg::BotNavLinkKind::Teleport) &&
+        hasNavLink(map, lg::BotNavLinkKind::JumpPad),
+      "nav should validate real teleport and jump-pad links while preserving exact teleport exits"
+    );
+  }
+
+  {
+    lg::BotNavigationMap longRoute;
+    longRoute.nodeCount = 100;
+    for (std::size_t index = 0; index < longRoute.nodeCount; ++index) {
+      longRoute.nodes[index].position = {static_cast<float>(index), 0.0F, 0.9F};
+      if (index > 0) {
+        longRoute.links[longRoute.linkCount++] = {
+          static_cast<std::uint16_t>(index - 1U), static_cast<std::uint16_t>(index),
+          lg::BotNavLinkKind::Walk
+        };
+      }
+    }
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = longRoute.nodes[0].position;
+    sense.objective = {.position = longRoute.nodes[99].position, .active = true};
+    lg::BotBrain brain;
+    brain.reset(0x55U);
+    const lg::BotMotor motor = brain.tick(
+      sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), longRoute
+    );
+    failures += expect(
+      motor.goal == lg::BotGoalKind::Objective && motor.waypointNode == 1U,
+      "path planning should retain a complete route longer than the former 64-node limit"
+    );
+  }
+
+  {
+    lg::Arena aroundHealthWall = flatArena();
+    aroundHealthWall.walls[0].min = {-0.25F, -2.0F, 0.0F};
+    aroundHealthWall.walls[0].max = {0.25F, 2.0F, 4.0F};
+    aroundHealthWall.wallCount = 1;
+    const lg::BotNavigationMap map = lg::buildBotNavigationMap(
+      aroundHealthWall, lg::MovementTuning{}, lg::CollisionBounds{}
+    );
+    lg::BotSenseFrame sense;
+    sense.fixedDt = lg::kFixedTickSeconds;
+    sense.self.position = {-3.0F, 0.0F, 0.9F};
+    sense.self.viewYawRadians = 0.0F;
+    sense.self.health = 20;
+    sense.selectedWeapon = lg::Weapon::LightningGun;
+    sense.weapons[lg::weaponIndex(lg::Weapon::LightningGun)] = {true, 18.0F, 0.0F, false};
+    sense.weapons[lg::weaponIndex(lg::Weapon::PlasmaGun)] = {true, 8.0F, 100.0F, false};
+    sense.visibleEnemies[0] = {1U, {-3.0F, 3.0F, 0.9F}, {0.0F, 0.0F, 0.0F}};
+    sense.visibleEnemyCount = 1;
+    sense.healthResources[0] = {0U, {3.0F, 0.0F, 0.9F}, 25, true};
+    sense.healthResourceCount = 1;
+    lg::BotBrain brain;
+    brain.reset(0x4567U);
+    const lg::BotMotor motor = brain.tick(
+      sense, lg::botDifficultyProfile(lg::BotAttackMode::Medium), map
+    );
+    failures += expect(
+      motor.goal == lg::BotGoalKind::RecoverHealth &&
+        motor.waypointNode < map.nodeCount &&
+        motor.command.weapon == lg::Weapon::PlasmaGun && motor.command.viewYawRadians > 0.0F,
+      "a low-health bot should route to a blocked seen pickup while aiming and choosing range from its enemy"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    lg::Arena vertical = flatArena();
+    vertical.min = {-6.0F, -6.0F, 0.0F};
+    vertical.max = {6.0F, 6.0F, 8.0F};
+    vertical.healthPickups[0] = {{0.0F, 0.0F, 5.0F}, lg::HealthPickupType::Large};
+    vertical.healthPickupCount = 1;
+    server.setArena(vertical);
+    lg::ScenarioSetup setup;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0] = {
+      .connected = true, .position = {0.0F, 0.0F, 5.0F}, .health = 100,
+      .alive = true, .onGround = false, .ammo = std::nullopt
+    };
+    setup.players[1] = {
+      .bot = true, .ready = true, .position = {-2.0F, 0.0F, 0.9F},
+      .viewYawRadians = 0.0F, .health = 100, .alive = true, .onGround = true,
+      .ammo = std::nullopt
+    };
+    std::string error;
+    failures += expect(server.applyScenarioSetup(setup, &error),
+      "vertical perception fixture should be accepted");
+    server.tick(lg::kFixedTickSeconds);
+    const std::string debug = server.botDebugString(1);
+    failures += expect(
+      debug.find("target=none") != std::string::npos &&
+        debug.find("resources=0") != std::string::npos,
+      "vertical FOV and wall-free hidden-height pickups must not enter filtered bot sense"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    lg::Arena arena = flatArena();
+    arena.min = {-6.0F, -6.0F, 0.0F};
+    arena.max = {6.0F, 6.0F, 6.0F};
+    server.setArena(arena);
+    lg::ScenarioSetup setup;
+    setup.seed = 0xAA55U;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0] = {
+      .connected = true, .position = {3.0F, 0.0F, 0.9F}, .health = 100,
+      .alive = true, .onGround = true, .ammo = std::nullopt
+    };
+    setup.players[1] = {
+      .bot = true, .ready = true, .position = {-3.0F, 0.0F, 0.9F},
+      .viewYawRadians = 3.14159265359F, .health = 100, .alive = true, .onGround = true,
+      .ammo = std::nullopt
+    };
+    std::string error;
+    failures += expect(server.applyScenarioSetup(setup, &error),
+      "out-of-FOV exploration fixture should be accepted");
+    server.setBotAttackMode(lg::BotAttackMode::Off);
+    const lg::Vec3 start = server.snapshot().players[1].position;
+    for (int tick = 0; tick < 90; ++tick) server.tick(lg::kFixedTickSeconds);
+    const lg::Vec3 end = server.snapshot().players[1].position;
+    failures += expect(
+      std::hypot(end.x - start.x, end.y - start.y) > 0.10F &&
+        server.botDebugString(1).find("goal=explore") != std::string::npos,
+      "an out-of-FOV opponent should make a Duel bot patrol through ordinary commands"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    lg::Arena blocked = flatArena();
+    blocked.min = {-6.0F, -6.0F, 0.0F};
+    blocked.max = {6.0F, 6.0F, 6.0F};
+    blocked.walls[0].min = {-0.2F, -6.0F, 0.0F};
+    blocked.walls[0].max = {0.2F, 6.0F, 4.0F};
+    blocked.wallCount = 1;
+    server.setArena(blocked);
+    lg::ScenarioSetup setup;
+    setup.seed = 0xBEEFU;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0] = {
+      .connected = true, .position = {3.0F, 0.0F, 0.9F}, .health = 100,
+      .alive = true, .onGround = true, .ammo = std::nullopt
+    };
+    setup.players[1] = {
+      .bot = true, .ready = true, .position = {-3.0F, 0.0F, 0.9F},
+      .viewYawRadians = 0.0F, .health = 100, .alive = true, .onGround = true,
+      .ammo = std::nullopt
+    };
+    std::string error;
+    failures += expect(server.applyScenarioSetup(setup, &error),
+      "behind-wall exploration fixture should be accepted");
+    server.setBotAttackMode(lg::BotAttackMode::Off);
+    const lg::Vec3 start = server.snapshot().players[1].position;
+    for (int tick = 0; tick < 90; ++tick) server.tick(lg::kFixedTickSeconds);
+    const lg::Vec3 end = server.snapshot().players[1].position;
+    failures += expect(
+      std::hypot(end.x - start.x, end.y - start.y) > 0.10F &&
+        server.botDebugString(1).find("target=none") != std::string::npos,
+      "a behind-wall opponent should not leak into sense while the bot continues to explore"
+    );
+  }
+
+  {
+    lg::LoopbackTransport transport;
+    lg::ServerGame server(transport);
+    latestSnapshot(transport);
+    lg::Arena objectiveArena = flatArena();
+    objectiveArena.min = {-8.0F, -8.0F, 0.0F};
+    objectiveArena.max = {8.0F, 8.0F, 6.0F};
+    objectiveArena.mcguffin.hasNeutralSpawn = true;
+    objectiveArena.mcguffin.neutralSpawn = {0.0F, 0.0F, 0.9F};
+    objectiveArena.mcguffin.hasRedBase = true;
+    objectiveArena.mcguffin.redBase = {{-5.0F, -1.0F, 0.0F}, {-3.0F, 1.0F, 2.0F}, lg::Team::Red};
+    objectiveArena.mcguffin.hasBlueBase = true;
+    objectiveArena.mcguffin.blueBase = {{3.0F, -1.0F, 0.0F}, {5.0F, 1.0F, 2.0F}, lg::Team::Blue};
+    server.setArena(objectiveArena);
+    lg::McGuffinConfig config;
+    config.initialSpawnTicks = 0;
+    config.installationDelayTicks = 0;
+    server.setMcGuffinConfig(config);
+    lg::ScenarioSetup setup;
+    setup.seed = 0xCAB1U;
+    setup.match.gameMode = lg::GameMode::McGuffin;
+    setup.match.phase = lg::MatchPhase::Live;
+    setup.players[0] = {
+      .bot = true, .ready = true, .team = lg::Team::Red,
+      .position = {0.0F, 0.0F, 0.9F}, .viewYawRadians = 3.14159265359F,
+      .health = 100, .alive = true, .onGround = true, .ammo = std::nullopt
+    };
+    setup.players[1] = {
+      .bot = true, .ready = true, .team = lg::Team::Blue,
+      .position = {7.0F, 7.0F, 0.9F}, .viewYawRadians = 0.0F,
+      .health = 100, .alive = true, .onGround = true, .ammo = std::nullopt
+    };
+    std::string error;
+    failures += expect(server.applyScenarioSetup(setup, &error),
+      "McGuffin carrier fixture should be accepted");
+    server.setBotAttackMode(lg::BotAttackMode::Off);
+    for (int tick = 0; tick < 750; ++tick) server.tick(lg::kFixedTickSeconds);
+    failures += expect(
+      server.snapshot().mcguffin.state == lg::McGuffinState::InstalledRed &&
+        server.snapshot().mcguffin.lastEvent == lg::McGuffinEventType::Install,
+      "a carrying bot should seek its valid owned base and install through normal movement"
+    );
   }
 
   {

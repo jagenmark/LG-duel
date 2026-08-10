@@ -39,8 +39,11 @@ struct BotObservedEnemy {
 };
 
 struct BotHealthResourceSense {
+  std::uint8_t resourceIndex = 0;
   Vec3 position = {};
   int value = 0;
+  // This is the state seen now, never the authoritative state of a hidden
+  // pickup. Memory below may retain it after LOS loss.
   bool available = false;
 };
 
@@ -53,7 +56,10 @@ struct BotWeaponSense {
 
 struct BotObjectiveSense {
   Vec3 position = {};
+  Vec3 scoringPosition = {};
   bool active = false;
+  bool carrying = false;
+  bool hasScoringPosition = false;
 };
 
 struct BotSenseFrame {
@@ -143,6 +149,7 @@ enum class BotGoalKind : std::uint8_t {
   Chase,
   RecoverHealth,
   Objective,
+  Explore,
 };
 
 enum class BotNoFireReason : std::uint8_t {
@@ -162,6 +169,7 @@ struct BotMotor {
   Vec3 lastKnownTargetPosition = {};
   float targetMemoryAgeSeconds = std::numeric_limits<float>::infinity();
   std::size_t waypointNode = BotNavigationMap::kMaxNodes;
+  std::size_t observedHealthResourceCount = 0;
   bool recoveredFromStuck = false;
 };
 
@@ -183,6 +191,14 @@ private:
     bool valid = false;
   };
 
+  struct ResourceMemory {
+    Vec3 position = {};
+    int value = 0;
+    float ageSeconds = std::numeric_limits<float>::infinity();
+    bool available = false;
+    bool valid = false;
+  };
+
   [[nodiscard]] std::uint32_t randomU32();
   [[nodiscard]] float randomFloat(float minValue, float maxValue);
   void planPath(
@@ -196,7 +212,8 @@ private:
   ) const;
 
   std::array<Memory, kDuelPlayerCount> memory_ = {};
-  std::array<std::uint16_t, 64> path_ = {};
+  std::array<ResourceMemory, 32> resourceMemory_ = {};
+  std::array<std::uint16_t, BotNavigationMap::kMaxNodes> path_ = {};
   std::size_t pathCount_ = 0;
   std::size_t pathCursor_ = 0;
   std::size_t lastWaypoint_ = BotNavigationMap::kMaxNodes;
@@ -213,7 +230,9 @@ private:
   Vec3 stuckSamplePosition_ = {};
   int strafeDirection_ = 1;
   std::uint8_t targetPlayerIndex_ = kNoAssignedPlayer;
+  std::size_t patrolNode_ = BotNavigationMap::kMaxNodes;
   std::uint32_t randomState_ = 0xB07D0D6EU;
+  bool targetWasVisible_ = false;
   bool initialized_ = false;
 };
 

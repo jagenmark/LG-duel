@@ -40,6 +40,10 @@ constexpr float kBotNavDt = 1.0F / 125.0F;
   return std::hypot(first.x - second.x, first.y - second.y);
 }
 
+[[nodiscard]] float distance3d(Vec3 first, Vec3 second) {
+  return length(first - second);
+}
+
 [[nodiscard]] bool canStandAt(
   const Arena& arena,
   CollisionBounds bounds,
@@ -49,6 +53,29 @@ constexpr float kBotNavDt = 1.0F / 125.0F;
   player.position = position;
   player.bounds = bounds;
   return !playerPositionSolid(arena, player, position);
+}
+
+// A nav grid node must rest on the same kind of surface a normal player uses.
+// The semantic teleport destination is deliberately exempt: teleport movement
+// writes that exact authored position, even when its next normal tick lands.
+[[nodiscard]] bool groundedNodePosition(
+  const Arena& arena,
+  CollisionBounds bounds,
+  Vec3 hint,
+  Vec3& position
+) {
+  PlayerState player;
+  player.position = hint;
+  player.bounds = bounds;
+  if (playerPositionSolid(arena, player, hint)) return false;
+  const CollisionResult landing = resolvePlayerArenaCollision(
+    arena, player, hint - Vec3{0.0F, 0.0F, 0.35F}, {0.0F, 0.0F, -1.0F}
+  );
+  if (!landing.onGround || playerPositionSolid(arena, player, landing.position)) {
+    return false;
+  }
+  position = landing.position;
+  return true;
 }
 
 [[nodiscard]] bool canTraverse(
@@ -66,7 +93,7 @@ constexpr float kBotNavDt = 1.0F / 125.0F;
   player.onGround = true;
   player.movementMode = MovementMode::Grounded;
   const Vec3 delta = to - from;
-  const float distance = std::max(0.01F, horizontalDistance(from, to));
+  const float distance = std::max(0.01F, distance3d(from, to));
   UserCommand command;
   command.viewYawRadians = std::atan2(delta.y, delta.x);
   command.viewPitchRadians = 0.0F;
@@ -76,11 +103,11 @@ constexpr float kBotNavDt = 1.0F / 125.0F;
     static_cast<int>(std::ceil(distance / std::max(1.0F, movement.maxGroundSpeed) /
       kBotNavDt * 2.5F)),
     12,
-    180
+    600
   );
   for (int tick = 0; tick < ticks; ++tick) {
     simulateMovement(player, command, arena, movement, kBotNavDt);
-    if (horizontalDistance(player.position, to) <= kNavReachRadius) {
+    if (distance3d(player.position, to) <= kNavReachRadius) {
       return true;
     }
   }
@@ -95,7 +122,7 @@ constexpr float kBotNavDt = 1.0F / 125.0F;
   std::size_t best = BotNavigationMap::kMaxNodes;
   float bestDistance = maximumDistance;
   for (std::size_t index = 0; index < map.nodeCount; ++index) {
-    const float distance = horizontalDistance(map.nodes[index].position, position);
+    const float distance = distance3d(map.nodes[index].position, position);
     if (distance <= bestDistance) {
       best = index;
       bestDistance = distance;
@@ -184,12 +211,21 @@ BotNavigationMap buildBotNavigationMap(
   CollisionBounds bounds
 ) {
   BotNavigationMap map;
-  auto addNode = [&](Vec3 position) {
-    if (map.nodeCount == BotNavigationMap::kMaxNodes ||
-        !canStandAt(arena, bounds, position)) {
+  auto addGroundedNode = [&](Vec3 hint) {
+    if (map.nodeCount == BotNavigationMap::kMaxNodes) return;
+    Vec3 position = {};
+    if (!groundedNodePosition(arena, bounds, hint, position) ||
+        nearestNodeWithin(map, position, 0.35F) < map.nodeCount) {
       return;
     }
-    if (nearestNodeWithin(map, position, 0.35F) < map.nodeCount) return;
+    map.nodes[map.nodeCount++].position = position;
+  };
+  auto addExactNode = [&](Vec3 position) {
+    if (map.nodeCount == BotNavigationMap::kMaxNodes ||
+        !canStandAt(arena, bounds, position) ||
+        nearestNodeWithin(map, position, 0.35F) < map.nodeCount) {
+      return;
+    }
     map.nodes[map.nodeCount++].position = position;
   };
 
@@ -198,41 +234,72 @@ BotNavigationMap buildBotNavigationMap(
   for (std::size_t index = 0; index < arena.spawnCount; ++index) {
     Vec3 position = arena.spawnPositions[index];
     position.z += bounds.halfHeight;
-    addNode(position);
+    addGroundedNode(position);
   }
   for (std::size_t index = 0; index < arena.healthPickupCount; ++index) {
     Vec3 position = arena.healthPickups[index].position;
     position.z = std::max(position.z, arena.min.z) + bounds.halfHeight;
-    addNode(position);
+    addGroundedNode(position);
   }
   for (std::size_t index = 0; index < arena.jumpPadCount; ++index) {
     const ArenaJumpPad& pad = arena.jumpPads[index];
-    addNode({(pad.min.x + pad.max.x) * 0.5F, (pad.min.y + pad.max.y) * 0.5F,
+    addGroundedNode({(pad.min.x + pad.max.x) * 0.5F, (pad.min.y + pad.max.y) * 0.5F,
       std::max(pad.min.z, arena.min.z) + bounds.halfHeight});
-    Vec3 target = pad.hasTarget ? pad.targetPosition : pad.max;
-    target.z = std::max(target.z, arena.min.z) + bounds.halfHeight;
-    addNode(target);
+    const Vec3 target = pad.hasTarget
+      ? pad.targetPosition
+      : Vec3{pad.max.x, pad.max.y, pad.max.z + bounds.halfHeight};
+    addExactNode(target);
   }
   for (std::size_t index = 0; index < arena.teleportCount; ++index) {
     const ArenaTeleport& teleport = arena.teleports[index];
-    addNode({(teleport.min.x + teleport.max.x) * 0.5F,
+    addGroundedNode({(teleport.min.x + teleport.max.x) * 0.5F,
       (teleport.min.y + teleport.max.y) * 0.5F,
       std::max(teleport.min.z, arena.min.z) + bounds.halfHeight});
-    Vec3 destination = teleport.destination;
-    destination.z = std::max(destination.z, arena.min.z) + bounds.halfHeight;
-    addNode(destination);
+    // Teleports use the authored player-origin exactly. Do not add the player
+    // half height: Movement::applyTeleports writes destination unchanged.
+    addExactNode(teleport.destination);
   }
 
+  std::array<float, 8> groundLevels = {};
+  std::size_t groundLevelCount = 0;
+  const auto addGroundLevel = [&](float level) {
+    if (groundLevelCount == groundLevels.size() || level < arena.min.z ||
+        level > arena.max.z - bounds.halfHeight) return;
+    for (std::size_t index = 0; index < groundLevelCount; ++index) {
+      if (std::fabs(groundLevels[index] - level) <= 0.05F) return;
+    }
+    groundLevels[groundLevelCount++] = level;
+  };
+  addGroundLevel(arena.min.z);
+  for (std::size_t index = 0; index < arena.wallCount; ++index) {
+    addGroundLevel(arena.walls[index].max.z);
+  }
+  for (std::size_t index = 0; index < arena.brushCount; ++index) {
+    addGroundLevel(arena.brushes[index].max.z);
+  }
+  std::sort(groundLevels.begin(), groundLevels.begin() + groundLevelCount);
   const float startX = arena.min.x + bounds.radius + 0.15F;
   const float startY = arena.min.y + bounds.radius + 0.15F;
   const float endX = arena.max.x - bounds.radius - 0.15F;
   const float endY = arena.max.y - bounds.radius - 0.15F;
-  const float z = arena.min.z + bounds.halfHeight;
-  for (float y = startY; y <= endY && map.nodeCount < BotNavigationMap::kMaxNodes;
-       y += kNavSpacing) {
-    for (float x = startX; x <= endX && map.nodeCount < BotNavigationMap::kMaxNodes;
-         x += kNavSpacing) {
-      addNode({x, y, z});
+  const float mapArea = std::max(1.0F, (endX - startX) * (endY - startY));
+  const float remainingNodes = static_cast<float>(
+    std::max<std::size_t>(1U, BotNavigationMap::kMaxNodes - map.nodeCount)
+  );
+  const float gridSpacing = std::max(kNavSpacing, std::sqrt(
+    mapArea * static_cast<float>(std::max<std::size_t>(1U, groundLevelCount)) /
+    remainingNodes
+  ));
+  for (std::size_t levelIndex = 0;
+       levelIndex < groundLevelCount && map.nodeCount < BotNavigationMap::kMaxNodes;
+       ++levelIndex) {
+    const float z = groundLevels[levelIndex] + bounds.halfHeight;
+    for (float y = startY; y <= endY && map.nodeCount < BotNavigationMap::kMaxNodes;
+         y += gridSpacing) {
+      for (float x = startX; x <= endX && map.nodeCount < BotNavigationMap::kMaxNodes;
+           x += gridSpacing) {
+        addGroundedNode({x, y, z});
+      }
     }
   }
 
@@ -248,7 +315,7 @@ BotNavigationMap buildBotNavigationMap(
 
   for (std::size_t from = 0; from < map.nodeCount; ++from) {
     for (std::size_t to = 0; to < map.nodeCount; ++to) {
-      if (from == to || horizontalDistance(map.nodes[from].position, map.nodes[to].position) >
+      if (from == to || distance3d(map.nodes[from].position, map.nodes[to].position) >
           kNavLinkDistance) continue;
       if (canTraverse(arena, movement, bounds, map.nodes[from].position,
             map.nodes[to].position, false)) {
@@ -264,22 +331,28 @@ BotNavigationMap buildBotNavigationMap(
     const ArenaJumpPad& pad = arena.jumpPads[index];
     const Vec3 entry = {(pad.min.x + pad.max.x) * 0.5F, (pad.min.y + pad.max.y) * 0.5F,
       std::max(pad.min.z, arena.min.z) + bounds.halfHeight};
-    Vec3 exit = pad.hasTarget ? pad.targetPosition : pad.max;
-    exit.z = std::max(exit.z, arena.min.z) + bounds.halfHeight;
+    const Vec3 exit = pad.hasTarget
+      ? pad.targetPosition
+      : Vec3{pad.max.x, pad.max.y, pad.max.z + bounds.halfHeight};
     const std::size_t from = nearestNodeWithin(map, entry, kNavSpacing);
     const std::size_t to = nearestNodeWithin(map, exit, kNavSpacing * 2.0F);
-    if (from < map.nodeCount && to < map.nodeCount) addLink(from, to, BotNavLinkKind::JumpPad);
+    if (from < map.nodeCount && to < map.nodeCount && canTraverse(
+          arena, movement, bounds, map.nodes[from].position, map.nodes[to].position, false)) {
+      addLink(from, to, BotNavLinkKind::JumpPad);
+    }
   }
   for (std::size_t index = 0; index < arena.teleportCount; ++index) {
     const ArenaTeleport& teleport = arena.teleports[index];
     const Vec3 entry = {(teleport.min.x + teleport.max.x) * 0.5F,
       (teleport.min.y + teleport.max.y) * 0.5F,
       std::max(teleport.min.z, arena.min.z) + bounds.halfHeight};
-    Vec3 exit = teleport.destination;
-    exit.z = std::max(exit.z, arena.min.z) + bounds.halfHeight;
+    const Vec3 exit = teleport.destination;
     const std::size_t from = nearestNodeWithin(map, entry, kNavSpacing);
     const std::size_t to = nearestNodeWithin(map, exit, kNavSpacing * 2.0F);
-    if (from < map.nodeCount && to < map.nodeCount) addLink(from, to, BotNavLinkKind::Teleport);
+    if (from < map.nodeCount && to < map.nodeCount && canTraverse(
+          arena, movement, bounds, map.nodes[from].position, map.nodes[to].position, false)) {
+      addLink(from, to, BotNavLinkKind::Teleport);
+    }
   }
   return map;
 }
@@ -291,6 +364,10 @@ std::size_t nearestBotNavNode(const BotNavigationMap& map, Vec3 position) {
 void BotBrain::reset(std::uint32_t seed) {
   memory_ = {};
   for (Memory& memory : memory_) memory.ageSeconds = std::numeric_limits<float>::infinity();
+  resourceMemory_ = {};
+  for (ResourceMemory& memory : resourceMemory_) {
+    memory.ageSeconds = std::numeric_limits<float>::infinity();
+  }
   pathCount_ = 0;
   pathCursor_ = 0;
   lastWaypoint_ = BotNavigationMap::kMaxNodes;
@@ -307,7 +384,9 @@ void BotBrain::reset(std::uint32_t seed) {
   stuckSamplePosition_ = {};
   strafeDirection_ = 1;
   targetPlayerIndex_ = kNoAssignedPlayer;
+  patrolNode_ = BotNavigationMap::kMaxNodes;
   randomState_ = seed == 0U ? 0xB07D0D6EU : seed;
+  targetWasVisible_ = false;
   initialized_ = false;
 }
 
@@ -368,7 +447,7 @@ void BotBrain::planPath(
     float bestScore = std::numeric_limits<float>::infinity();
     for (std::size_t index = 0; index < navigation.nodeCount; ++index) {
       if (closed[index]) continue;
-      const float fScore = gScore[index] + horizontalDistance(
+      const float fScore = gScore[index] + distance3d(
         navigation.nodes[index].position, navigation.nodes[targetNode].position);
       if (fScore < bestScore) {
         bestScore = fScore;
@@ -377,11 +456,15 @@ void BotBrain::planPath(
     }
     if (current >= navigation.nodeCount || !std::isfinite(bestScore)) break;
     if (current == targetNode) {
-      std::array<std::uint16_t, 64> reversed = {};
+      std::array<std::uint16_t, BotNavigationMap::kMaxNodes> reversed = {};
       std::size_t count = 0;
+      bool reachedStart = false;
       for (std::size_t node = current; count < reversed.size(); ) {
         reversed[count++] = static_cast<std::uint16_t>(node);
-        if (node == startNode) break;
+        if (node == startNode) {
+          reachedStart = true;
+          break;
+        }
         const std::uint16_t previous = cameFrom[node];
         if (previous == std::numeric_limits<std::uint16_t>::max()) {
           count = 0;
@@ -389,7 +472,10 @@ void BotBrain::planPath(
         }
         node = previous;
       }
-      while (count > 0) path_[pathCount_++] = reversed[--count];
+      // A truncated reconstruction is not a path. Reject it rather than
+      // steering from an arbitrary middle node toward a hidden route start.
+      if (!reachedStart) return;
+      while (count > 0 && pathCount_ < path_.size()) path_[pathCount_++] = reversed[--count];
       if (pathCount_ > 1 && path_[0] == startNode) pathCursor_ = 1;
       // Do not immediately reverse across the last completed edge when a
       // fresh lower-rate plan reaches the same goal. If the direct heading is
@@ -403,7 +489,7 @@ void BotBrain::planPath(
     for (std::size_t linkIndex = 0; linkIndex < navigation.linkCount; ++linkIndex) {
       const BotNavLink& link = navigation.links[linkIndex];
       if (link.from != current || closed[link.to]) continue;
-      const float tentative = gScore[current] + horizontalDistance(
+      const float tentative = gScore[current] + distance3d(
         navigation.nodes[current].position, navigation.nodes[link.to].position);
       if (tentative < gScore[link.to]) {
         gScore[link.to] = tentative;
@@ -430,6 +516,24 @@ BotMotor BotBrain::tick(
     memory.ageSeconds += dt;
     memory.confidence = std::max(0.0F, 1.0F - memory.ageSeconds / profile.memorySeconds);
     if (memory.ageSeconds > profile.memorySeconds) memory.valid = false;
+  }
+  for (ResourceMemory& memory : resourceMemory_) {
+    if (!memory.valid) continue;
+    memory.ageSeconds += dt;
+    if (memory.ageSeconds > std::max(1.50F, profile.memorySeconds)) {
+      memory.valid = false;
+    }
+  }
+  output.observedHealthResourceCount = sense.healthResourceCount;
+  for (std::size_t index = 0; index < sense.healthResourceCount; ++index) {
+    const BotHealthResourceSense& resource = sense.healthResources[index];
+    if (resource.resourceIndex >= resourceMemory_.size()) continue;
+    ResourceMemory& memory = resourceMemory_[resource.resourceIndex];
+    memory.position = resource.position;
+    memory.value = resource.value;
+    memory.available = resource.available;
+    memory.ageSeconds = 0.0F;
+    memory.valid = true;
   }
   std::size_t visibleTarget = kDuelPlayerCount;
   float visibleDistance = std::numeric_limits<float>::infinity();
@@ -473,44 +577,67 @@ BotMotor BotBrain::tick(
     stuckSamplePosition_ = sense.self.position;
     targetPlayerIndex_ = kNoAssignedPlayer;
   }
-  if (targetVisible && targetPlayerIndex_ != target) {
+  const bool acquiredTarget = targetVisible &&
+    (!targetWasVisible_ || targetPlayerIndex_ != target);
+  if (acquiredTarget) {
     targetPlayerIndex_ = static_cast<std::uint8_t>(target);
     reactionSeconds_ = randomFloat(profile.reactionMinSeconds, profile.reactionMaxSeconds);
   } else if (!targetVisible && target == kDuelPlayerCount) {
     targetPlayerIndex_ = kNoAssignedPlayer;
   }
-  reactionSeconds_ = std::max(0.0F, reactionSeconds_ - dt);
+  // Keep the first acquisition tick in the stated reaction range. Reducing it
+  // here would make every sampled delay one fixed tick shorter than its tune.
+  if (!acquiredTarget) reactionSeconds_ = std::max(0.0F, reactionSeconds_ - dt);
+  targetWasVisible_ = targetVisible;
 
-  Vec3 desiredPosition = sense.self.position;
+  Vec3 movementGoal = sense.self.position;
   if (sense.self.health < 45) {
     float bestDistance = std::numeric_limits<float>::infinity();
-    for (std::size_t index = 0; index < sense.healthResourceCount; ++index) {
-      const BotHealthResourceSense& resource = sense.healthResources[index];
-      if (!resource.available || resource.value <= 0) continue;
+    for (const ResourceMemory& resource : resourceMemory_) {
+      if (!resource.valid || !resource.available || resource.value <= 0) continue;
       const float distance = horizontalDistance(sense.self.position, resource.position);
       if (distance < bestDistance) {
         bestDistance = distance;
-        desiredPosition = resource.position;
+        movementGoal = resource.position;
         output.goal = BotGoalKind::RecoverHealth;
       }
     }
   }
-  if (output.goal == BotGoalKind::Safe && target < kDuelPlayerCount) {
+  Vec3 combatTarget = sense.self.position;
+  if (target < kDuelPlayerCount) {
     const Memory& memory = memory_[target];
-    desiredPosition = memory.position + memory.velocity * std::min(
+    combatTarget = memory.position + memory.velocity * std::min(
       profile.predictionSeconds + memory.ageSeconds, 0.40F);
+  }
+  if (output.goal == BotGoalKind::Safe && target < kDuelPlayerCount) {
+    movementGoal = combatTarget;
     output.goal = BotGoalKind::Chase;
   } else if (output.goal == BotGoalKind::Safe && sense.objective.active) {
-    desiredPosition = sense.objective.position;
+    movementGoal = sense.objective.carrying && sense.objective.hasScoringPosition
+      ? sense.objective.scoringPosition : sense.objective.position;
     output.goal = BotGoalKind::Objective;
+  } else if (output.goal == BotGoalKind::Safe && navigation.nodeCount > 0U) {
+    const bool reachedPatrol = patrolNode_ < navigation.nodeCount &&
+      horizontalDistance(sense.self.position, navigation.nodes[patrolNode_].position) <=
+        kNavReachRadius;
+    if (patrolNode_ >= navigation.nodeCount || reachedPatrol) {
+      patrolNode_ = randomU32() % navigation.nodeCount;
+      const std::size_t nearest = nearestBotNavNode(navigation, sense.self.position);
+      if (navigation.nodeCount > 1U && patrolNode_ == nearest) {
+        patrolNode_ = (patrolNode_ + 1U + (randomU32() % (navigation.nodeCount - 1U))) %
+          navigation.nodeCount;
+      }
+    }
+    movementGoal = navigation.nodes[patrolNode_].position;
+    output.goal = BotGoalKind::Explore;
   }
 
   const float targetDistance = target < kDuelPlayerCount
-    ? horizontalDistance(sense.self.position, desiredPosition) : 0.0F;
+    ? horizontalDistance(sense.self.position, combatTarget) : 0.0F;
   command.weapon = chooseWeapon(sense, targetDistance);
   const BotWeaponSense& activeWeapon = sense.weapons[weaponIndex(command.weapon)];
 
-  Vec3 aimPosition = desiredPosition;
+  Vec3 aimPosition = combatTarget;
   if (target < kDuelPlayerCount) {
     const Memory& memory = memory_[target];
     const float projectileLead = activeWeapon.projectileSpeed > 0.001F
@@ -523,19 +650,25 @@ BotMotor BotBrain::tick(
       profile.predictionSeconds + memory.ageSeconds + projectileLead, 0.80F);
   }
   Vec3 aimTarget = target < kDuelPlayerCount
-    ? aimPoint(aimPosition, sense.self.halfHeight) : aimPosition;
+    ? aimPoint(aimPosition, sense.self.halfHeight)
+    : aimPoint(movementGoal, sense.self.halfHeight);
   const Vec3 aimDelta = aimTarget - (sense.self.position + Vec3{0.0F, 0.0F, 0.65F});
-  if (target < kDuelPlayerCount) {
-    aimBiasRefreshSeconds_ -= dt;
-    if (aimBiasRefreshSeconds_ <= 0.0F) {
+  if (target < kDuelPlayerCount || output.goal == BotGoalKind::Explore) {
+    if (target < kDuelPlayerCount) {
+      aimBiasRefreshSeconds_ -= dt;
+    }
+    if (target < kDuelPlayerCount && aimBiasRefreshSeconds_ <= 0.0F) {
       aimBiasYaw_ = randomFloat(-profile.trackingErrorRadians, profile.trackingErrorRadians);
       aimBiasPitch_ = randomFloat(-profile.trackingErrorRadians * 0.75F,
         profile.trackingErrorRadians * 0.75F);
       aimBiasRefreshSeconds_ = randomFloat(0.25F, 0.65F);
     }
-    const float desiredYaw = wrapRadians(std::atan2(aimDelta.y, aimDelta.x) + aimBiasYaw_);
+    const float desiredYaw = wrapRadians(std::atan2(aimDelta.y, aimDelta.x) +
+      (target < kDuelPlayerCount ? aimBiasYaw_ : 0.0F));
     const float desiredPitch = std::clamp(std::atan2(aimDelta.z,
-      std::hypot(aimDelta.x, aimDelta.y)) + aimBiasPitch_, -kMaxPitchRadians, kMaxPitchRadians);
+      std::hypot(aimDelta.x, aimDelta.y)) +
+        (target < kDuelPlayerCount ? aimBiasPitch_ : 0.0F),
+      -kMaxPitchRadians, kMaxPitchRadians);
     const float yawTargetVelocity = std::clamp(angleDeltaRadians(command.viewYawRadians, desiredYaw) / dt,
       -profile.maxTurnRadiansPerSecond, profile.maxTurnRadiansPerSecond);
     const float pitchTargetVelocity = std::clamp((desiredPitch - command.viewPitchRadians) / dt,
@@ -553,15 +686,17 @@ BotMotor BotBrain::tick(
       -kMaxPitchRadians, kMaxPitchRadians);
   }
 
-  Vec3 moveTarget = desiredPosition;
-  const bool directTarget = targetVisible;
+  Vec3 moveTarget = movementGoal;
+  // Visible combat permits direct movement. A known health or objective goal
+  // still uses the graph, so a visible enemy cannot turn it into a wall run.
+  const bool directTarget = output.goal == BotGoalKind::Chase && targetVisible;
   replanSeconds_ -= dt;
   if (!directTarget && output.goal != BotGoalKind::Safe && replanSeconds_ <= 0.0F) {
-    planPath(navigation, sense.self.position, desiredPosition);
+    planPath(navigation, sense.self.position, movementGoal);
     replanSeconds_ = profile.planningIntervalSeconds + randomFloat(0.0F, 0.12F);
   }
   if (!directTarget && pathCursor_ < pathCount_) {
-    while (pathCursor_ < pathCount_ && horizontalDistance(sense.self.position,
+    while (pathCursor_ < pathCount_ && distance3d(sense.self.position,
       navigation.nodes[path_[pathCursor_]].position) <= kNavReachRadius) {
       lastWaypoint_ = path_[pathCursor_++];
     }
@@ -609,7 +744,7 @@ BotMotor BotBrain::tick(
     const Vec3 right = {-forward.y, forward.x, 0.0F};
     command.forwardMove = std::clamp(dot(direction, forward), -1.0F, 1.0F);
     command.rightMove = std::clamp(dot(direction, right), -1.0F, 1.0F);
-    if (targetVisible) {
+    if (output.goal == BotGoalKind::Chase && targetVisible) {
       strafeSeconds_ -= dt;
       if (strafeSeconds_ <= 0.0F) {
         strafeDirection_ = (randomU32() & 1U) == 0U ? -1 : 1;

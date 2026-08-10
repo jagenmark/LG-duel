@@ -4912,6 +4912,10 @@ int GameApp::run() const {
   bool botStandstillEnabled = false;
   BotAttackMode botAttackMode = BotAttackMode::Off;
   Weapon botWeapon = Weapon::MachineGun;
+  // The snapshot carries the selected fallback weapon but no mode bit. Keep
+  // this client-side request state so querying after `bot_weapon auto` says
+  // what the user selected without extending the game protocol.
+  bool botWeaponAuto = true;
   struct PendingBotCommand {
     BotCommandType type = BotCommandType::None;
     std::int32_t value = 0;
@@ -4975,6 +4979,7 @@ int GameApp::run() const {
     int previousAttack = 0;
     BotAttackMode previousBotAttackMode = BotAttackMode::Off;
     Weapon previousBotWeapon = Weapon::MachineGun;
+    bool previousBotWeaponAuto = true;
     bool previousBotStare = true;
     bool previousBotStandstill = false;
     bool previousBotDodge = false;
@@ -5288,21 +5293,23 @@ int GameApp::run() const {
   console.registerCommand(
     "bot_weapon",
     "Force a bot weapon or return to auto choice: bot_weapon [auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9].",
-    [&botWeapon, &queueBotCommand](const std::vector<std::string>& arguments) {
+    [&botWeapon, &botWeaponAuto, &queueBotCommand](const std::vector<std::string>& arguments) {
       if (arguments.size() == 1) {
         return std::string("bot_weapon = ") +
-          std::string(weaponShortName(botWeapon));
+          (botWeaponAuto ? "auto" : std::string(weaponShortName(botWeapon)));
       }
       if (arguments.size() != 2) {
         return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
       }
       if (arguments[1] == "auto") {
+        botWeaponAuto = true;
         return queueBotCommand(PendingBotCommand{BotCommandType::Weapon, -1});
       }
       const std::optional<Weapon> weapon = parseWeaponToken(arguments[1]);
       if (!weapon.has_value()) {
         return std::string("usage: bot_weapon auto|mg|sg|gl|rl|lg|sr|pg|fg|re|1..9");
       }
+      botWeaponAuto = false;
       return queueBotCommand(PendingBotCommand{
         BotCommandType::Weapon,
         static_cast<std::int32_t>(*weapon),
@@ -6562,8 +6569,9 @@ int GameApp::run() const {
       pendingBotCommands.push_back(PendingBotCommand{BotCommandType::KickAll, 0});
       pendingBotCommands.push_back(PendingBotCommand{
         BotCommandType::Weapon,
-        static_cast<std::int32_t>(active.previousBotWeapon),
+        active.previousBotWeaponAuto ? -1 : static_cast<std::int32_t>(active.previousBotWeapon),
       });
+      botWeaponAuto = active.previousBotWeaponAuto;
       if (active.previousBotCount > 0) {
         pendingBotCommands.push_back(PendingBotCommand{
           BotCommandType::Add, active.previousBotCount
@@ -6972,6 +6980,7 @@ int GameApp::run() const {
         active.previousAttack = input.attack;
         active.previousBotAttackMode = botAttackMode;
         active.previousBotWeapon = botWeapon;
+        active.previousBotWeaponAuto = botWeaponAuto;
         active.previousBotStare = botStareEnabled;
         active.previousBotStandstill = botStandstillEnabled;
         active.previousBotDodge = botDodgeEnabled;
@@ -7046,6 +7055,7 @@ int GameApp::run() const {
             BotCommandType::Weapon,
             static_cast<std::int32_t>(scenario.actors.weapon),
           });
+          botWeaponAuto = false;
           if (scenario.actors.bots > 0) {
             pendingBotCommands.push_back(PendingBotCommand{BotCommandType::Add, scenario.actors.bots});
           }

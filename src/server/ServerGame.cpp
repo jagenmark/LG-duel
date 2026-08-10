@@ -2190,6 +2190,7 @@ std::string ServerGame::botDebugString(std::size_t playerIndex) const {
     case BotGoalKind::Chase: return "chase";
     case BotGoalKind::RecoverHealth: return "health";
     case BotGoalKind::Objective: return "objective";
+    case BotGoalKind::Explore: return "explore";
     }
     return "safe";
   };
@@ -2217,6 +2218,7 @@ std::string ServerGame::botDebugString(std::size_t playerIndex) const {
     << motor.lastKnownTargetPosition.y << ',' << motor.lastKnownTargetPosition.z
     << ") age=" << motor.targetMemoryAgeSeconds
     << " goal=" << goalName(motor.goal)
+    << " resources=" << motor.observedHealthResourceCount
     << " waypoint=" << (motor.waypointNode < botNavigation_.nodeCount
       ? std::to_string(motor.waypointNode) : "none")
     << " weapon=" << weaponShortName(motor.command.weapon)
@@ -4028,21 +4030,25 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
   setWeapon(Weapon::FreezeGun, freezeGunTuning_.range, 0.0F, false);
   setWeapon(Weapon::Revolver, revolverTuning_.range, 0.0F, false);
 
-  // This is the authoritative-to-filtered boundary. Opponent positions enter
-  // the brain only after both world LOS and the bot's current FOV agree.
+  // This is the authoritative-to-filtered boundary. Dynamic facts enter the
+  // brain only after both world LOS and the complete yaw/pitch view cone agree.
   const float halfFovRadians = botDifficultyProfile(botAttackMode_).targetFovDegrees *
     kPi / 360.0F;
-  const Vec3 forward = {std::cos(self.viewYawRadians), std::sin(self.viewYawRadians), 0.0F};
+  const float minimumViewDot = std::cos(halfFovRadians);
+  const Vec3 viewStart = weaponMuzzlePosition(self, lightningGunTuning_.eyeHeight);
+  const Vec3 forward = cameraForward(self.viewYawRadians, self.viewPitchRadians);
+  const auto currentlyVisiblePoint = [&](Vec3 point) {
+    const Vec3 delta = point - viewStart;
+    const float distance = length(delta);
+    if (distance <= 0.001F) return true;
+    if (dot(delta / distance, forward) < minimumViewDot) return false;
+    const WorldTrace trace = traceWorld(arena_, viewStart, delta / distance, distance);
+    return trace.distance >= distance - 0.01F;
+  };
   for (std::size_t targetIndex = 0; targetIndex < kDuelPlayerCount; ++targetIndex) {
-    if (!isValidEnemyTarget(playerIndex, targetIndex) || !hasLineOfSight(playerIndex, targetIndex)) {
-      continue;
-    }
-    Vec3 horizontal = snapshot_.players[targetIndex].position - self.position;
-    horizontal.z = 0.0F;
-    const float distance = length(horizontal);
-    if (distance > 0.001F &&
-        std::acos(std::clamp(dot(horizontal / distance, forward), -1.0F, 1.0F)) >
-          halfFovRadians) {
+    if (!isValidEnemyTarget(playerIndex, targetIndex) ||
+        !hasLineOfSight(playerIndex, targetIndex) ||
+        !currentlyVisiblePoint(botTargetAimPoint(snapshot_.players[targetIndex]))) {
       continue;
     }
     if (sense.visibleEnemyCount == sense.visibleEnemies.size()) break;
@@ -4052,16 +4058,51 @@ BotSenseFrame ServerGame::buildBotSenseFrame(
     observed.velocity = snapshot_.players[targetIndex].velocity;
   }
   for (std::size_t index = 0; index < arena_.healthPickupCount; ++index) {
+    const ArenaHealthPickup& pickup = arena_.healthPickups[index];
+    // Availability is an authoritative dynamic fact. Do not put it into the
+    // filtered frame until the pickup itself is in sight. The brain may keep
+    // this seen state briefly as fallible memory after it leaves sight.
+    if (!currentlyVisiblePoint(pickup.position)) continue;
     if (sense.healthResourceCount == sense.healthResources.size()) break;
     BotHealthResourceSense& resource = sense.healthResources[sense.healthResourceCount++];
-    resource.position = arena_.healthPickups[index].position;
-    resource.value = arena_.healthPickups[index].type == HealthPickupType::Large
+    resource.resourceIndex = static_cast<std::uint8_t>(index);
+    resource.position = pickup.position;
+    resource.value = pickup.type == HealthPickupType::Large
       ? largeHealthPickupAmount_ : smallHealthPickupAmount_;
     resource.available = snapshot_.healthPickupAvailable[index];
   }
   if (snapshot_.gameMode == GameMode::McGuffin) {
     sense.objective.position = mcguffinObjective_.position;
     sense.objective.active = true;
+    sense.objective.carrying = mcguffinObjective_.state == McGuffinState::Carried &&
+      mcguffinObjective_.carrierIndex == playerIndex;
+    if (sense.objective.carrying) {
+      const Team team = snapshot_.teams[playerIndex];
+      const auto baseCenter = [](const ArenaMcGuffinBase& base) {
+        return (base.min + base.max) * 0.5F;
+      };
+      // Only supply an installation point this carrier may use under the
+      // current public ownership rules. The decision code never receives the
+      // other team's target or hidden carrier data.
+      if (snapshot_.mcguffinRedBaseOwner == team && arena_.mcguffin.hasRedBase) {
+        sense.objective.scoringPosition = baseCenter(arena_.mcguffin.redBase);
+        sense.objective.hasScoringPosition = true;
+      } else if (snapshot_.mcguffinBlueBaseOwner == team && arena_.mcguffin.hasBlueBase) {
+        sense.objective.scoringPosition = baseCenter(arena_.mcguffin.blueBase);
+        sense.objective.hasScoringPosition = true;
+      } else if (snapshot_.mcguffinRound >= 2U &&
+                 snapshot_.mcguffinRedBaseOwner == Team::None &&
+                 snapshot_.mcguffinBlueBaseOwner == Team::None &&
+                 arena_.mcguffin.hasRedBase && arena_.mcguffin.hasBlueBase) {
+        // In a deciding round either public unclaimed base is legal. Pick one
+        // from static geometry only; no enemy state enters this tie break.
+        const Vec3 red = baseCenter(arena_.mcguffin.redBase);
+        const Vec3 blue = baseCenter(arena_.mcguffin.blueBase);
+        sense.objective.scoringPosition = length(red - self.position) <=
+          length(blue - self.position) ? red : blue;
+        sense.objective.hasScoringPosition = true;
+      }
+    }
   }
   return sense;
 }
