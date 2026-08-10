@@ -34,11 +34,12 @@ stopping the match.
 ## Rolling buffer and killcam flow
 
 The server-owned rolling archive is built. Its default retention is 1,500 ticks
-(12 seconds at 125 Hz), with a 16 MiB archive-record estimate cap, a 250-tick
+(12 seconds at 125 Hz), with a 16 MiB rolling-storage cap, a 250-tick
 checkpoint interval, and a 125-tick hash interval. It retains resolved inputs,
-checkpoints, hashes, and lethal records in bounded queues. It reports retained
-ticks, inputs, checkpoints, lethal records, estimated bytes, and dropped
-records. This archive-record cap is not a resident-memory figure.
+checkpoints, hashes, and lethal records in bounded queues. Its accounting charges
+native tick, checkpoint, and lag-history storage. It trims or stops before a
+record would exceed its cap, and reports retained ticks, inputs, checkpoints,
+lethal records, estimated bytes, and dropped records.
 
 The tick path asks whether a completed checkpoint is due before it copies one.
 It does not capture a checkpoint on every rolling tick. Rolling reset and

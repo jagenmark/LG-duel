@@ -126,10 +126,11 @@ its normal transport output.
 
 The rolling archive uses the same resolved inputs and completed checkpoints as
 full recording. Its default retention is 1,500 ticks (12 seconds at 125 Hz),
-with a 16 MiB archive-record estimate cap. That is not a resident-memory claim.
-Segment extraction selects a retained checkpoint at or before the requested
-pre-death tick and includes the needed inputs, hashes, and lethal record through
-the requested end tick. It returns a self-contained `ReplayDemo`, not a
+with a 16 MiB rolling-storage cap that charges native tick, checkpoint, and
+lag-history storage. It trims or stops before exceeding that cap. Segment
+extraction selects a retained checkpoint at or before the requested pre-death
+tick and includes the needed inputs, hashes, and lethal record through the
+requested end tick. It returns a self-contained `ReplayDemo`, not a
 killcam-only state format.
 
 ## Authority and presentation
