@@ -1221,6 +1221,33 @@ void addNavigationArrow(
   });
 }
 
+[[nodiscard]] ScreenPoint clampedNavigationEdgePosition(
+  const McGuffinNavigationProjection& projection,
+  const NavigationSafeBounds& bounds
+) {
+  ScreenPoint edgePosition = projection.edgePosition;
+  constexpr float arrowInset = 12.0F;
+  const float edgeInsetX = std::min(
+    arrowInset,
+    (bounds.right - bounds.left) * 0.5F
+  );
+  const float edgeInsetY = std::min(
+    arrowInset,
+    (bounds.bottom - bounds.top) * 0.5F
+  );
+  edgePosition.x = std::clamp(
+    edgePosition.x,
+    bounds.left + edgeInsetX,
+    bounds.right - edgeInsetX
+  );
+  edgePosition.y = std::clamp(
+    edgePosition.y,
+    bounds.top + edgeInsetY,
+    bounds.bottom - edgeInsetY
+  );
+  return edgePosition;
+}
+
 [[nodiscard]] RenderColor mcguffinNavigationColor(
   McGuffinNavigationKind kind
 ) {
@@ -1242,12 +1269,56 @@ void addNavigationArrow(
   return {235, 242, 250, 245};
 }
 
+[[nodiscard]] std::string_view mcguffinNavigationCompactLabel(
+  McGuffinNavigationKind kind
+) {
+  switch (kind) {
+  case McGuffinNavigationKind::Objective:
+    return "OBJ";
+  case McGuffinNavigationKind::RecoverObjective:
+    return "GET";
+  case McGuffinNavigationKind::FollowCarrier:
+    return "C";
+  case McGuffinNavigationKind::InstallBase:
+    return "IN";
+  case McGuffinNavigationKind::DefendBase:
+    return "DEF";
+  case McGuffinNavigationKind::AttackBase:
+    return "ATK";
+  case McGuffinNavigationKind::None:
+    break;
+  }
+  return {};
+}
+
+[[nodiscard]] std::string_view mcguffinNavigationMicroLabel(
+  McGuffinNavigationKind kind
+) {
+  switch (kind) {
+  case McGuffinNavigationKind::Objective:
+    return "O";
+  case McGuffinNavigationKind::RecoverObjective:
+    return "R";
+  case McGuffinNavigationKind::FollowCarrier:
+    return "C";
+  case McGuffinNavigationKind::InstallBase:
+    return "I";
+  case McGuffinNavigationKind::DefendBase:
+    return "D";
+  case McGuffinNavigationKind::AttackBase:
+    return "A";
+  case McGuffinNavigationKind::None:
+    break;
+  }
+  return {};
+}
+
 [[nodiscard]] std::string mcguffinNavigationText(
-  const McGuffinNavigationTarget& target,
-  float distance
+  float distance,
+  std::string_view label
 ) {
   const long roundedDistance = std::max(0L, std::lround(std::max(0.0F, distance)));
-  return std::string(mcguffinNavigationLabel(target.kind)) +
+  return std::string(label) +
     " " + std::to_string(roundedDistance) + "u";
 }
 
@@ -1285,14 +1356,7 @@ void addMcGuffinNavigation(
   const RenderColor color = mcguffinNavigationColor(
     hud.mcguffinNavigation.kind
   );
-  const std::string text = mcguffinNavigationText(
-    hud.mcguffinNavigation,
-    projection.distance
-  );
   constexpr float textScale = 1.25F;
-  constexpr float padding = 6.0F;
-  const float panelWidth = textWidth(text, textScale) + padding * 2.0F;
-  const float panelHeight = kGlyphSize * snappedTextScale(textScale) + padding * 2.0F;
   NavigationSafeBounds bounds = navigationSafeBounds(
     outputWidth,
     outputHeight
@@ -1305,22 +1369,74 @@ void addMcGuffinNavigation(
   const float topHudBottom = topLineCount == 0U
     ? 0.0F
     : 12.0F + static_cast<float>(topLineCount) * 20.0F - 4.0F;
+  // Reserve the same top band for the card that the existing HUD uses.
+  bounds.top = std::max(bounds.top, topHudBottom + 12.0F);
+  bounds.bottom = std::max(bounds.top, bounds.bottom);
+
+  const float safeWidth = std::max(0.0F, bounds.right - bounds.left);
+  const auto cardWidthFor = [](
+    std::string_view value,
+    float cardPadding
+  ) {
+    return textWidth(value, textScale) + cardPadding * 2.0F;
+  };
+  std::string text = mcguffinNavigationText(
+    projection.distance,
+    mcguffinNavigationLabel(hud.mcguffinNavigation.kind)
+  );
+  float padding = 6.0F;
+  float panelWidth = cardWidthFor(text, padding);
+  if (panelWidth > safeWidth) {
+    text = mcguffinNavigationText(
+      projection.distance,
+      mcguffinNavigationCompactLabel(hud.mcguffinNavigation.kind)
+    );
+    padding = 4.0F;
+    panelWidth = cardWidthFor(text, padding);
+  }
+  if (panelWidth > safeWidth) {
+    text = mcguffinNavigationText(
+      projection.distance,
+      mcguffinNavigationMicroLabel(hud.mcguffinNavigation.kind)
+    );
+    padding = 2.0F;
+    panelWidth = cardWidthFor(text, padding);
+  }
+  const float panelHeight =
+    kGlyphSize * snappedTextScale(textScale) + padding * 2.0F;
   const float maximumPanelTop = std::max(
     0.0F,
     static_cast<float>(outputHeight) - panelHeight - 8.0F
   );
   // Keep both the card and the arrow below the existing top HUD. The extra
   // margin also keeps the arrow tip from touching the last status line.
-  bounds.top = std::min(
-    std::max(bounds.top, topHudBottom + 12.0F),
-    maximumPanelTop
-  );
+  bounds.top = std::min(bounds.top, maximumPanelTop);
   bounds.bottom = std::max(bounds.top, bounds.bottom);
-  const float minimumTextY = bounds.top + panelHeight * 0.5F;
-  const float maximumTextY = std::max(
-    minimumTextY,
-    static_cast<float>(outputHeight) - panelHeight * 0.5F - 8.0F
-  );
+  const float availableHeight = std::max(0.0F, bounds.bottom - bounds.top);
+  const bool cardFits =
+    panelWidth <= safeWidth && panelHeight <= availableHeight;
+  ScreenPoint edgePosition = {};
+  if (!projection.onScreen) {
+    edgePosition = clampedNavigationEdgePosition(projection, bounds);
+    addNavigationArrow(drawList, screenCenter, edgePosition, color);
+  }
+  if (!cardFits) {
+    // An extremely small viewport cannot hold the label and distance while
+    // keeping the card inside the safe area. Keep the directional arrow for
+    // off-screen targets and omit only the impossible card.
+    return;
+  }
+
+  const auto safeClamp = [](float value, float lower, float upper) {
+    if (lower > upper) {
+      return (lower + upper) * 0.5F;
+    }
+    return std::clamp(value, lower, upper);
+  };
+  const float minimumCardCenterX = bounds.left + panelWidth * 0.5F;
+  const float maximumCardCenterX = bounds.right - panelWidth * 0.5F;
+  const float minimumCardCenterY = bounds.top + panelHeight * 0.5F;
+  const float maximumCardCenterY = bounds.bottom - panelHeight * 0.5F;
   ScreenPoint textPosition = {};
   TextHorizontalAlignment textAlignment = TextHorizontalAlignment::Center;
   if (projection.onScreen) {
@@ -1332,46 +1448,20 @@ void addMcGuffinNavigation(
     if (nearCrosshair) {
       textPosition = {
         screenCenter.x,
-        minimumTextY,
+        minimumCardCenterY,
       };
     }
-    textPosition.x = std::clamp(
+    textPosition.x = safeClamp(
       textPosition.x,
-      panelWidth * 0.5F + 8.0F,
-      static_cast<float>(outputWidth) - panelWidth * 0.5F - 8.0F
+      minimumCardCenterX,
+      maximumCardCenterX
     );
-    textPosition.y = std::clamp(
+    textPosition.y = safeClamp(
       textPosition.y,
-      minimumTextY,
-      maximumTextY
+      minimumCardCenterY,
+      maximumCardCenterY
     );
   } else {
-    ScreenPoint edgePosition = projection.edgePosition;
-    constexpr float arrowInset = 12.0F;
-    const float edgeInsetX = std::min(
-      arrowInset,
-      (bounds.right - bounds.left) * 0.5F
-    );
-    const float edgeInsetY = std::min(
-      arrowInset,
-      (bounds.bottom - bounds.top) * 0.5F
-    );
-    edgePosition.x = std::clamp(
-      edgePosition.x,
-      bounds.left + edgeInsetX,
-      bounds.right - edgeInsetX
-    );
-    edgePosition.y = std::clamp(
-      edgePosition.y,
-      bounds.top + edgeInsetY,
-      bounds.bottom - edgeInsetY
-    );
-    addNavigationArrow(
-      drawList,
-      screenCenter,
-      edgePosition,
-      color
-    );
     const bool left = projection.edgePosition.x <= screenCenter.x - 1.0F &&
       std::fabs(projection.edgePosition.x - bounds.left) < 1.0F;
     const bool right = projection.edgePosition.x >= screenCenter.x + 1.0F &&
@@ -1399,15 +1489,23 @@ void addMcGuffinNavigation(
         edgePosition.y - 16.0F - panelHeight * 0.5F,
       };
     }
-    textPosition.x = std::clamp(
+    textPosition.x = safeClamp(
       textPosition.x,
-      panelWidth * 0.5F + 8.0F,
-      static_cast<float>(outputWidth) - panelWidth * 0.5F - 8.0F
+      textAlignment == TextHorizontalAlignment::Left
+        ? bounds.left + padding
+        : textAlignment == TextHorizontalAlignment::Right
+          ? bounds.left + panelWidth - padding
+          : minimumCardCenterX,
+      textAlignment == TextHorizontalAlignment::Left
+        ? bounds.right - panelWidth + padding
+        : textAlignment == TextHorizontalAlignment::Right
+          ? bounds.right - padding
+          : maximumCardCenterX
     );
-    textPosition.y = std::clamp(
+    textPosition.y = safeClamp(
       textPosition.y,
-      minimumTextY,
-      maximumTextY
+      minimumCardCenterY,
+      maximumCardCenterY
     );
   }
 
