@@ -4073,6 +4073,43 @@ int main() {
     "offscreen transient tracers should be frustum culled before geometry emission"
   );
 
+  lg::LightningGunResult activeLocalBeam;
+  activeLocalBeam.active = true;
+  activeLocalBeam.start = player.position;
+  activeLocalBeam.end = player.position + lg::Vec3{6.0F, 0.0F, 0.0F};
+  lg::RenderSettings releasedFreezeSettings = settings;
+  releasedFreezeSettings.localSelectedWeapon = lg::Weapon::LightningGun;
+  releasedFreezeSettings.freezeGunFiringAmount = 0.5F;
+  const lg::Scene3D releasedFreezeScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    activeLocalBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    releasedFreezeSettings
+  );
+  const lg::Scene3D inactiveLocalBeamScene = lg::buildPerspectiveScene(
+    16.0F / 9.0F,
+    arena,
+    player,
+    opponent,
+    inactiveBeam,
+    inactiveBeam,
+    weaponFires,
+    rocketExplosions,
+    rockets,
+    releasedFreezeSettings
+  );
+  failures += expect(
+    releasedFreezeScene.translucentVertices.size() ==
+      inactiveLocalBeamScene.translucentVertices.size(),
+    "a released Freeze response must not render from the Freeze muzzle while Lightning is active"
+  );
+
   lg::RenderSettings localMachineGunSettings = settings;
   localMachineGunSettings.localSelectedWeapon = lg::Weapon::MachineGun;
   const lg::Scene3D localMachineGunScene = lg::buildPerspectiveScene(
